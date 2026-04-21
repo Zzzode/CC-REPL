@@ -1,0 +1,7 @@
+{
+  "name": "@ant/computer-use-swift",
+  "version": "0.0.0-stub",
+  "private": true,
+  "main": "./index.cjs",
+  "types": "./index.d.ts"
+}
