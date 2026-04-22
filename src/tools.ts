@@ -139,6 +139,8 @@ import { hasEmbeddedSearchTools } from './utils/embeddedTools.js'
 import { isEnvTruthy } from './utils/envUtils.js'
 import { isPowerShellToolEnabled } from './utils/shell/shellToolUtils.js'
 import { isAgentSwarmsEnabled } from './utils/agentSwarmsEnabled.js'
+import { isScriptToolEnabled, isBashToolDisabled } from './utils/scriptToolEnabled.js'
+import { SCRIPT_HIDDEN_TOOLS } from './tools/ScriptTool/constants.js'
 import { isWorktreeModeEnabled } from './utils/worktreeModeEnabled.js'
 import {
   REPL_TOOL_NAME,
@@ -194,7 +196,7 @@ export function getAllBaseTools(): Tools {
   return [
     AgentTool,
     TaskOutputTool,
-    BashTool,
+    ...(isBashToolDisabled() ? [] : [BashTool]),
     // Ant-native builds have bfs/ugrep embedded in the bun binary (same ARGV0
     // trick as ripgrep). When available, find/grep in Claude's shell are aliased
     // to these fast tools, so the dedicated Glob/Grep tools are unnecessary.
@@ -247,6 +249,9 @@ export function getAllBaseTools(): Tools {
     // Include ToolSearchTool when tool search might be enabled (optimistic check)
     // The actual decision to defer tools happens at request time in claude.ts
     ...(isToolSearchEnabledOptimistic() ? [ToolSearchTool] : []),
+    ...(isScriptToolEnabled()
+      ? [require('./tools/ScriptTool/ScriptTool.js').ScriptTool]
+      : []),
   ]
 }
 
@@ -284,7 +289,11 @@ export const getTools = (permissionContext: ToolPermissionContext): Tools => {
       }
       return filterToolsByDenyRules(replSimple, permissionContext)
     }
-    const simpleTools: Tool[] = [BashTool, FileReadTool, FileEditTool]
+    const simpleTools: Tool[] = [
+      ...(isBashToolDisabled() ? [] : [BashTool]),
+      FileReadTool,
+      FileEditTool,
+    ]
     // When coordinator mode is also active, include AgentTool and TaskStopTool
     // so the coordinator gets Task+TaskStop (via useMergedTools filtering) and
     // workers get Bash/Read/Edit (via filterToolsForAgent filtering).
@@ -320,6 +329,14 @@ export const getTools = (permissionContext: ToolPermissionContext): Tools => {
         tool => !REPL_ONLY_TOOLS.has(tool.name),
       )
     }
+  }
+
+  // When ScriptTool is enabled, hide replaced tools from direct use.
+  // Same pattern as REPL: ScriptTool provides its own execution environment.
+  if (isScriptToolEnabled()) {
+    allowedTools = allowedTools.filter(
+      tool => !SCRIPT_HIDDEN_TOOLS.has(tool.name),
+    )
   }
 
   const isEnabled = allowedTools.map(_ => _.isEnabled())

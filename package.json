@@ -7,12 +7,9 @@
   "scripts": {
     "build": "bun run scripts/build.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "start": "bun src/entrypoints/cli.tsx",
-    "start:version": "bun src/entrypoints/cli.tsx --version",
-    "start:help": "bun src/entrypoints/cli.tsx --help",
-    "start:print": "bun src/entrypoints/cli.tsx -p",
-    "start:cu": "ALLOW_ANT_COMPUTER_USE_MCP=1 DISABLE_TELEMETRY= bun src/entrypoints/cli.tsx",
-    "start:cu:mcp": "ALLOW_ANT_COMPUTER_USE_MCP=1 DISABLE_TELEMETRY= bun src/entrypoints/cli.tsx --computer-use-mcp"
+    "start": "bun dist/cli.js",
+    "start:cu": "ALLOW_ANT_COMPUTER_USE_MCP=1 DISABLE_TELEMETRY= bun dist/cli.js",
+    "start:cu:mcp": "ALLOW_ANT_COMPUTER_USE_MCP=1 DISABLE_TELEMETRY= bun dist/cli.js --computer-use-mcp"
   },
   "dependencies": {
     "@alcalzone/ansi-tokenize": "*",

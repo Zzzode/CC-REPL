@@ -1,4 +1,5 @@
 import { feature } from 'bun:bundle'
+import type { ZodError } from 'zod/v4'
 import type {
   ContentBlockParam,
   ToolResultBlockParam,
@@ -594,6 +595,89 @@ export function buildSchemaNotSentHint(
     `Without the schema in your prompt, typed parameters (arrays, numbers, booleans) get emitted as strings and the client-side parser rejects them. ` +
     `Load the tool first: call ${TOOL_SEARCH_TOOL_NAME} with query "select:${tool.name}", then retry this call.`
   )
+}
+
+/**
+ * 通用工具输入校验：Zod schema + 业务级 validateInput 两步校验。
+ *
+ * 背景：项目内存在多处"绕过 runToolUse 派发链，直接调用 tool.call()"
+ * 的旁路调用点，每处按自身信任模型补齐所需校验子集——这是项目的既定哲学，
+ * 不追求"所有旁路走同一条 validate"的强统一。本函数为需要做完整
+ * （schema + validateInput）校验的旁路提供单一事实源，避免多份实现漂移。
+ *
+ * 注：派发层 checkPermissionsAndCallTool 内仍是 inline 展开，因夹带
+ * analytics 埋点、schemaHint 拼接、<tool_use_error> XML 渲染，不便替换为
+ * 简单调用。如改动本函数的校验逻辑，请同步检查该处（反之亦然）。
+ *
+ * 契约：只负责"校验本身"，不做 analytics 埋点、不做错误消息渲染。
+ * 调用方按自己的呈现方式使用 errorContent。
+ */
+export type ToolInputValidationResult =
+  | { success: true; data: unknown }
+  | {
+      success: false
+      kind: 'schema'
+      errorContent: string
+      zodError: ZodError
+    }
+  | {
+      success: false
+      kind: 'business'
+      errorContent: string
+      errorCode: number | undefined
+    }
+
+export async function validateToolInput(
+  tool: Tool,
+  input: unknown,
+  toolUseContext: ToolUseContext,
+): Promise<ToolInputValidationResult> {
+  const parsed = tool.inputSchema.safeParse(input)
+  if (!parsed.success) {
+    return {
+      success: false,
+      kind: 'schema',
+      errorContent: formatZodValidationError(tool.name, parsed.error),
+      zodError: parsed.error,
+    }
+  }
+
+  const businessCheck = await tool.validateInput?.(
+    parsed.data,
+    toolUseContext,
+  )
+  if (businessCheck?.result === false) {
+    return {
+      success: false,
+      kind: 'business',
+      errorContent: businessCheck.message,
+      errorCode: businessCheck.errorCode,
+    }
+  }
+
+  return { success: true, data: parsed.data }
+}
+
+/**
+ * validateToolInput 的 throw 版便捷封装。
+ *
+ * 适合"旁路调用场景里，校验失败直接当成异常"的主流写法（项目里 mcp.ts、
+ * promptShellExecution 等都采用 throw 风格）。需要区分 schema/business
+ * 错误类别、或要把错误渲染到 UI 时，请使用底层 validateToolInput。
+ *
+ * @throws Error 校验失败时抛出，message 格式为 `Invalid input for <tool>: <details>`
+ * @returns 校验后（可能经 schema 解析/转换过的）input 数据
+ */
+export async function assertValidToolInput(
+  tool: Tool,
+  input: unknown,
+  toolUseContext: ToolUseContext,
+): Promise<unknown> {
+  const v = await validateToolInput(tool, input, toolUseContext)
+  if (!v.success) {
+    throw new Error(`Invalid input for ${tool.name}: ${v.errorContent}`)
+  }
+  return v.data
 }
 
 async function checkPermissionsAndCallTool(
