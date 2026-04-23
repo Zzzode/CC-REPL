@@ -132,7 +132,7 @@ export const ScriptTool = buildTool({
 
   mapToolResultToToolResultBlockParam(output, toolUseID) {
     // 对齐 BashTool 风格：stdout/errorMessage 用 filter(Boolean).join('\n') 拼接，
-    // 错误信息统一用 <error>...</error> 包裹；超时走 is_error: true。
+    // 错误信息统一用 <error>...</error> 包裹；执行失败场景走 is_error: true。
     const resultText =
       output.result === undefined || output.result === null
         ? ''
@@ -141,18 +141,20 @@ export const ScriptTool = buildTool({
           : JSON.stringify(output.result, null, 2)
 
     const stdout = output.stdout.trimEnd()
+    const stderr = output.stderr.trim()
 
-    let errorMessage = output.stderr.trim()
+    let errorMessage = stderr
     if (output.timed_out) {
       if (errorMessage) errorMessage += '\n'
       errorMessage += '<error>Script execution timed out</error>'
     }
+    const isExecutionError = output.timed_out || (output.result === undefined && stderr.length > 0)
 
     return {
       tool_use_id: toolUseID,
       type: 'tool_result',
       content: [resultText, stdout, errorMessage].filter(Boolean).join('\n'),
-      is_error: output.timed_out,
+      is_error: isExecutionError,
     }
   },
 } satisfies ToolDef<InputSchema, ScriptToolOutput>)

@@ -1,7 +1,5 @@
 import { MAX_TIMEOUT_MS } from './constants.js'
 
-export const SCRIPT_TOOL_NAME = 'Script'
-
 export const DESCRIPTION = `Execute TypeScript/JavaScript code that composes pure-TS primitive tools (Read, Write, Edit, NotebookEdit, Agent, WebFetch) in a single round-trip. Use this instead of calling those tools individually for multi-step file or HTTP workflows.`
 
 export function getPrompt(): string {
@@ -23,8 +21,18 @@ checks, same side effects as if you had called them directly:
 | \`Agent\`       | AgentTool           | Spawn sub-agent in-process                  |
 | \`WebFetch\`    | WebFetchTool        | HTTP via \`globalThis.fetch\` (whitelisted) |
 
-Each call returns the same \`data\` shape the tool would produce when invoked
-directly by the model. Errors become regular JS exceptions — use try/catch.
+Each call returns a **script-friendly value** (not the raw internal data object):
+
+| Binding         | Return type         | Details                                             |
+|-----------------|---------------------|-----------------------------------------------------|
+| \`Read\`        | \`string\`          | File content as text (images/PDFs return raw object) |
+| \`Write\`       | \`string\`          | Confirmation message (e.g. \`"File created …"\`)    |
+| \`Edit\`        | \`string\`          | Confirmation message                                |
+| \`NotebookEdit\`| \`string\`          | Confirmation message (throws on error)              |
+| \`Agent\`       | \`string\`          | Subagent text output (all text blocks joined)       |
+| \`WebFetch\`    | \`string\`          | Processed/summarized content from the URL           |
+
+Errors become regular JS exceptions — use try/catch.
 
 ## utils namespace
 
@@ -43,8 +51,8 @@ throw \`ReferenceError\`:
   - \`Glob\`  — spawns ripgrep as a subprocess
   - \`Grep\`  — spawns ripgrep as a subprocess
 
-If you need shell or fast full-text search, call \`Bash\`/\`Grep\`/\`Glob\` outside
-Script in a separate tool call.
+Static \`import\`/\`export\` statements are not allowed (code runs inside an async
+function body). Use the injected bindings above instead.
 
 ## Conventions
 
@@ -56,8 +64,8 @@ Script in a separate tool call.
 
 \`\`\`typescript
 // Read a file, transform it, write it back
-const content = await Read({ file_path: '/abs/path/to/pkg.json' })
-const pkg = JSON.parse(content)
+const raw = await Read({ file_path: '/abs/path/to/pkg.json' })
+const pkg = JSON.parse(raw)
 pkg.version = '1.2.3'
 await Write({ file_path: '/abs/path/to/pkg.json', content: JSON.stringify(pkg, null, 2) })
 return { version: pkg.version, cwd: utils.cwd }
@@ -82,18 +90,18 @@ return { edited: files.length }
 
 \`\`\`typescript
 // Fetch a URL and summarize — respects WebFetchTool's domain whitelist
-const summary = await WebFetch({
+const result = await WebFetch({
   url: 'https://example.com/docs',
   prompt: 'Extract the API endpoints',
 })
-return summary
+return { endpoints: result }
 \`\`\`
 
 \`\`\`typescript
 // Poll an endpoint with abort-safe sleep
 for (let i = 0; i < 5; i++) {
   const res = await WebFetch({ url: 'https://example.com/status', prompt: 'ready?' })
-  if (String(res).includes('ok')) return { ready: true, attempts: i + 1 }
+  if (res.includes('ok')) return { ready: true, attempts: i + 1 }
   await utils.sleep(1000)
 }
 return { ready: false }
