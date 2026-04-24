@@ -20,7 +20,11 @@ import {
 
 const inputSchema = lazySchema(() =>
   z.strictObject({
-    code: z.string().describe('TypeScript/JavaScript code to execute'),
+    code: z
+      .string()
+      .describe(
+        'TypeScript code to execute (JavaScript is supported as a TypeScript subset)',
+      ),
     description: z
       .string()
       .optional()
@@ -38,7 +42,7 @@ type InputSchema = ReturnType<typeof inputSchema>
 
 export const ScriptTool = buildTool({
   name: SCRIPT_TOOL_NAME,
-  searchHint: 'execute TypeScript in a pure-TS tool sandbox',
+  searchHint: 'execute type-checked TypeScript in a pure-TS tool sandbox',
   maxResultSizeChars: 100_000,
 
   async description() {
@@ -61,7 +65,7 @@ export const ScriptTool = buildTool({
     return false
   },
 
-  // 保守地按可写处理：内部可能调用 Write/Edit，宿主层面不视为只读。
+  // Conservatively treat as writable: it may call Write/Edit internally, so host level is not read-only.
   isReadOnly() {
     return false
   },
@@ -88,8 +92,8 @@ export const ScriptTool = buildTool({
     return { result: true }
   },
 
-  // 权限交由底层被代理的工具自行校验（Read/Write/Edit 各有各的 checkPermissions）。
-  // ScriptTool 自身是"编排器"而非具体副作用发起者，与 REPL 的定位一致。
+  // Permissions are validated by each proxied tool itself (Read/Write/Edit each has its own checkPermissions).
+  // ScriptTool itself is an orchestrator, not the direct side-effect initiator, aligned with REPL positioning.
   async checkPermissions(): Promise<PermissionDecision> {
     return { behavior: 'allow', decisionReason: { type: 'rule' } }
   },
@@ -106,7 +110,7 @@ export const ScriptTool = buildTool({
     input,
     context: ToolUseContext,
     canUseTool: CanUseToolFn,
-    parentMessage: AssistantMessage,
+    _parentMessage: AssistantMessage,
   ) {
     const { code, timeout_ms } = input
 
@@ -115,7 +119,6 @@ export const ScriptTool = buildTool({
       timeoutMs: timeout_ms ?? DEFAULT_TIMEOUT_MS,
       context,
       canUseTool,
-      parentMessage,
       abortSignal: context.abortController.signal,
     })
 
@@ -127,12 +130,12 @@ export const ScriptTool = buildTool({
       timed_out: result.timedOut,
     }
 
-    return { data: output }
+    return { data: output, newMessages: result.newMessages }
   },
 
   mapToolResultToToolResultBlockParam(output, toolUseID) {
-    // 对齐 BashTool 风格：stdout/errorMessage 用 filter(Boolean).join('\n') 拼接，
-    // 错误信息统一用 <error>...</error> 包裹；执行失败场景走 is_error: true。
+    // Match BashTool style: concatenate stdout/errorMessage with filter(Boolean).join('\n'),
+    // wrap error messages uniformly with <error>...</error>; execution-failure paths use is_error: true.
     const resultText =
       output.result === undefined || output.result === null
         ? ''

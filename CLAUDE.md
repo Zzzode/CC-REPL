@@ -99,3 +99,7 @@ Reusable workflows in `src/skills/` executed through `SkillTool`. Users can add 
 - The `stubs/` directory contains placeholder packages for internal Anthropic dependencies (`@ant/*`)
 - Build output is a thin wrapper in `dist/cli.js` that imports `src/entrypoints/cli.tsx` directly
 - Source maps reference the original leaked source from Anthropic's R2 storage
+
+## Language Requirements
+
+- All code comments and project documentation must be written in English only.

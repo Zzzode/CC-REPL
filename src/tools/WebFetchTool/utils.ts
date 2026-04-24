@@ -92,7 +92,17 @@ let turndownServicePromise: Promise<InstanceType<TurndownCtor>> | undefined
 function getTurndownService(): Promise<InstanceType<TurndownCtor>> {
   return (turndownServicePromise ??= import('turndown').then(m => {
     const Turndown = (m as unknown as { default: TurndownCtor }).default
-    return new Turndown()
+    const instance = new Turndown()
+    // Remove nodes that are pure noise for downstream secondary models:
+    //   - script / noscript: JS code and inline SSR hydration (e.g., Next.js
+    //     `self.__next_f.push([...])` payload. Turndown escapes \, [, ], {
+    //     as markdown special characters and backslash-escapes them, producing lots of \\\[ pseudo-markdown).
+    //   - style / link: CSS/style declarations (e.g., scrollbar-width) with no semantic value
+    //   - svg: internal vector path/g content is not useful for semantic summaries and is large
+    // Measured effect: harborframework.com tutorial page markdown drops from 68KB to ~10KB,
+    // significantly improving signal-to-noise and reducing empty secondary-model responses (see WebFetchTool empty-response issue).
+    instance.remove(['script', 'noscript', 'style', 'link', 'svg'])
+    return instance
   }))
 }
 
@@ -519,12 +529,30 @@ export async function applyPromptToMarkdown(
     throw new AbortError()
   }
 
+  // Find the first text block across all content blocks.
+  // Some providers (especially reasoning models routed through OpenRouter) put thinking /
+  // redacted_thinking in content[0], while real text appears later; reading only content[0]
+  // can incorrectly classify the response as empty.
   const { content } = assistantMessage.message
-  if (content.length > 0) {
-    const contentBlock = content[0]
-    if ('text' in contentBlock!) {
-      return contentBlock.text
-    }
+  const textBlock = content.find(
+    (b): b is Extract<typeof b, { type: 'text' }> => b?.type === 'text',
+  )
+  if (textBlock && textBlock.text.length > 0) {
+    return textBlock.text
   }
-  return 'No response from model'
+
+  // The secondary model returned HTTP 200 but no usable text (content is empty, or all thinking /
+  // tool_use blocks, or empty text). We must throw so WebFetchTool.call throws an exception ->
+  //   1) tool_result is marked is_error=true, so the main model can detect failure and switch fallback;
+  //   2) in ScriptTool sandbox, `await WebFetch(...)` throws a JS exception that can be caught with try/catch;
+  // Never return 'No response from model' as a success string like the old implementation did,
+  // otherwise it disguises a semantic failure as semantic success and misleads all upstream consumers (see session
+  // cf59f127, where 3 consecutive calls returned the same sentinel string).
+  const stopReason = assistantMessage.message.stop_reason ?? 'unknown'
+  throw new Error(
+    `WebFetch summarizer returned no text (stop_reason=${stopReason}). ` +
+      `The page may be JS-rendered, empty after markdown conversion, or the ` +
+      `secondary model produced only thinking blocks. Retry with a different ` +
+      `URL, use a raw fetch, or try again later.`,
+  )
 }

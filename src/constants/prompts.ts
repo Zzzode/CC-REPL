@@ -290,6 +290,8 @@ function getUsingYourToolsSection(enabledTools: Set<string>): string {
   // own prompt describes the sandbox bindings and banned tools.
   if (isScriptToolEnabled()) {
     const items = [
+      `Script is your primary execution tool. All file operations (Read, Write, Edit), web content fetching (WebFetch), sub-agent orchestration (Agent), and notebook editing (NotebookEdit) are exclusively available through Script — they cannot be called directly.`,
+      `When a user provides a specific URL, use Script with WebFetch to fetch its content directly. Only use WebSearch when you need to discover information and do not already have a URL.`,
       taskToolName
         ? `Break down and manage your work with the ${taskToolName} tool. These tools are helpful for planning your work and helping the user track your progress. Mark each task as completed as soon as you are done with the task. Do not batch up multiple tasks before marking them as completed.`
         : null,

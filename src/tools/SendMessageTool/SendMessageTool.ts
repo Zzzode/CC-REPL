@@ -154,6 +154,14 @@ async function handleMessage(
 ): Promise<{ data: MessageOutput }> {
   const appState = context.getAppState()
   const teamName = getTeamName(appState.teamContext)
+
+  if (!teamName) {
+    throw new Error(
+      `Not in a team context — message to "${recipientName}" cannot be delivered. ` +
+        'To delegate tasks to sub-agents, use the Agent tool instead of SendMessage.',
+    )
+  }
+
   const senderName =
     getAgentName() || (isTeammate() ? 'teammate' : TEAM_LEAD_NAME)
   const senderColor = getTeammateColor()

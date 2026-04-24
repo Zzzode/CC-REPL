@@ -1,66 +1,66 @@
-# Script Tool 实现计划
+# Script Tool Implementation Plan
 
 ## Context
 
-创建一个 TypeScript Script 工具，让 AI agent 能够直接写 TypeScript 代码并执行，作为 Bash 的替代方案。目标是提供更安全的沙箱环境、更好的类型安全和更丰富的功能。
+Create a TypeScript Script tool that lets the AI agent write and execute TypeScript code directly as an alternative to Bash. The goal is to provide a safer sandbox, better type safety, and richer capabilities.
 
-## 设计决策
+## Design Decisions
 
-- **工具名**: `Script`
-- **默认权限**: `fs.read only`（写操作需要显式声明）
-- **Subprocess**: 支持但受限（需要 `subprocess` 权限 + 命令白名单）
+- **Tool name**: `Script`
+- **Default permission**: `fs.read only` (write operations require explicit declaration)
+- **Subprocess**: Supported but restricted (requires `subprocess` permission + command allowlist)
 
-**核心优势**：
+**Core advantages:**
 
-- 类型安全 - TypeScript 强类型系统
-- 更好的错误处理 - try/catch vs shell 隐式错误
-- 跨平台一致性 - 无 Windows/macOS/Linux shell 差异
-- 可组合性 - 单次调用执行多操作
-- 细粒度权限控制 - 按 API 调用检查权限
+- Type safety - TypeScript's strong type system
+- Better error handling - explicit try/catch vs implicit shell errors
+- Cross-platform consistency - no Windows/macOS/Linux shell differences
+- Composability - execute multiple operations in one invocation
+- Fine-grained permission control - permission checks per API call
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                        ScriptTool 架构                              │
+│                     ScriptTool Architecture                         │
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                     │
-│   LLM 调用 ScriptTool                                               │
+│   LLM calls ScriptTool                                              │
 │   { code: "...", permissions: ["fs.read", "fs.write"] }            │
 │              │                                                      │
 │              ▼                                                      │
 │   ┌─────────────────────────────────────────────────────────────┐  │
 │   │ ScriptTool.ts                                                │  │
-│   │  - validateInput() 语法检查、危险模式检测                    │  │
-│   │  - checkPermissions() 权限预检                               │  │
-│   │  - call() 执行入口                                           │  │
+│   │  - validateInput() syntax checks + dangerous-pattern checks │  │
+│   │  - checkPermissions() permission preflight                  │  │
+│   │  - call() execution entrypoint                              │  │
 │   └─────────────────────────────────────────────────────────────┘  │
 │              │                                                      │
 │              ▼                                                      │
 │   ┌─────────────────────────────────────────────────────────────┐  │
-│   │ sandbox.ts - Bun VM 隔离                                     │  │
-│   │  - 创建 VM isolate                                           │  │
-│   │  - 注入安全 API                                              │  │
-│   │  - 超时/内存限制                                             │  │
-│   │  - stdout/stderr 捕获                                        │  │
+│   │ sandbox.ts - Bun VM isolation                               │  │
+│   │  - create VM isolate                                        │  │
+│   │  - inject safe APIs                                         │  │
+│   │  - timeout/memory limits                                    │  │
+│   │  - stdout/stderr capture                                    │  │
 │   └─────────────────────────────────────────────────────────────┘  │
 │              │                                                      │
 │              ▼                                                      │
 │   ┌─────────────────────────────────────────────────────────────┐  │
-│   │ api.ts - 安全 API 层                                         │  │
-│   │  fs.readFile()     → 权限检查 → FileReadTool 逻辑           │  │
-│   │  fs.writeFile()    → 权限检查 → FileWriteTool 逻辑          │  │
-│   │  fs.glob()         → 权限检查 → GlobTool 逻辑               │  │
-│   │  fs.grep()         → 权限检查 → GrepTool 逻辑               │  │
-│   │  http.fetch()      → 权限检查 → 域名白名单                  │  │
+│   │ api.ts - safe API layer                                     │  │
+│   │  fs.readFile()     → permission check → FileReadTool logic  │  │
+│   │  fs.writeFile()    → permission check → FileWriteTool logic │  │
+│   │  fs.glob()         → permission check → GlobTool logic      │  │
+│   │  fs.grep()         → permission check → GrepTool logic      │  │
+│   │  http.fetch()      → permission check → domain allowlist    │  │
 │   └─────────────────────────────────────────────────────────────┘  │
 │              │                                                      │
 │              ▼                                                      │
 │   ┌─────────────────────────────────────────────────────────────┐  │
-│   │ permissions.ts - 权限控制器                                  │  │
-│   │  - 复用 checkReadPermissionForTool()                        │  │
-│   │  - 复用 checkWritePermissionForTool()                       │  │
-│   │  - 动态权限请求 (ask user)                                   │  │
+│   │ permissions.ts - permission controller                      │  │
+│   │  - reuse checkReadPermissionForTool()                       │  │
+│   │  - reuse checkWritePermissionForTool()                      │  │
+│   │  - dynamic permission requests (ask user)                   │  │
 │   └─────────────────────────────────────────────────────────────┘  │
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
@@ -78,7 +78,7 @@ export const MAX_TIMEOUT_MS = 120000
 
 export type Permission = 'fs.read' | 'fs.write' | 'network' | 'subprocess'
 
-// Subprocess 白名单命令
+// Subprocess allowlisted commands
 export const ALLOWED_COMMANDS = [
   'git', 'npm', 'yarn', 'pnpm', 'bun',
   'docker', 'docker-compose',
@@ -99,16 +99,16 @@ export const DANGEROUS_PATTERNS = [
 
 ### 2. `src/tools/ScriptTool/types.ts`
 
-- Input/Output 类型定义
-- Progress 类型
-- Permission 类型
-- API 类型接口
+- Input/Output type definitions
+- Progress types
+- Permission types
+- API interface types
 
 ### 3. `src/tools/ScriptTool/prompt.ts`
 
-- 工具描述
-- API 文档
-- 使用示例
+- Tool description
+- API documentation
+- Usage examples
 
 ### 4. `src/tools/ScriptTool/permissions.ts`
 
@@ -150,7 +150,7 @@ export interface SandboxAPIs {
     post(url: string, body: unknown): Promise<Response>
   }
   process: {
-    exec(command: string, options?): Promise<ExecResult>  // 受限白名单命令
+    exec(command: string, options?): Promise<ExecResult>  // restricted allowlisted commands
   }
   utils: {
     cwd: string
@@ -197,28 +197,28 @@ export async function executeInSandbox(options: SandboxOptions): Promise<Sandbox
 
 ### 7. `src/tools/ScriptTool/ScriptTool.ts`
 
-- buildTool() 定义
-- inputSchema/outputSchema
-- validateInput() - 语法检查、危险模式
-- checkPermissions() - 权限预检
-- call() - 执行入口
-- renderToolUseMessage/renderToolResultMessage
+- `buildTool()` definition
+- `inputSchema` / `outputSchema`
+- `validateInput()` - syntax checks and dangerous-pattern checks
+- `checkPermissions()` - permission preflight
+- `call()` - execution entrypoint
+- `renderToolUseMessage` / `renderToolResultMessage`
 
 ### 8. `src/tools/ScriptTool/UI.tsx`
 
-- React 组件渲染
+- React component rendering
 
 ## Files to Modify
 
 ### `src/tools.ts`
 
 ```typescript
-// 添加导入
+// Add import
 const ScriptTool = feature('SCRIPT_TOOL')
   ? require('./tools/ScriptTool/ScriptTool.js').ScriptTool
   : null
 
-// 在 getAllBaseTools() 中添加
+// Add in getAllBaseTools()
 ...(ScriptTool ? [ScriptTool] : []),
 ```
 
@@ -226,71 +226,71 @@ const ScriptTool = feature('SCRIPT_TOOL')
 
 ### Phase 1: Core Types & Constants
 
-1. `constants.ts` - 工具名、限制常量
-2. `types.ts` - 类型定义
+1. `constants.ts` - tool name and limit constants
+2. `types.ts` - type definitions
 
 ### Phase 2: Permission System
 
-1. `permissions.ts` - 权限检查器
-2. 复用现有 `checkReadPermissionForTool()` / `checkWritePermissionForTool()`
+1. `permissions.ts` - permission checker
+2. Reuse existing `checkReadPermissionForTool()` / `checkWritePermissionForTool()`
 
 ### Phase 3: Safe APIs
 
-1. `api.ts` - 文件系统 API
-2. 网络受限 API
-3. 工具函数
+1. `api.ts` - filesystem APIs
+2. Network-restricted APIs
+3. Utility functions
 
 ### Phase 4: Sandbox
 
-1. `sandbox.ts` - Bun VM 隔离
-2. 超时强制终止
-3. 错误格式化
+1. `sandbox.ts` - Bun VM isolation
+2. Timeout-based forced termination
+3. Error formatting
 
 ### Phase 5: Tool Definition
 
-1. `ScriptTool.ts` - buildTool()
-2. `prompt.ts` - API 文档
-3. `UI.tsx` - 渲染组件
+1. `ScriptTool.ts` - `buildTool()`
+2. `prompt.ts` - API docs
+3. `UI.tsx` - rendering
 
 ### Phase 6: Integration
 
-1. 修改 `src/tools.ts` 注册工具
-2. 添加 feature flag
+1. Register tool by modifying `src/tools.ts`
+2. Add feature flag
 
 ## Security Layers
 
-1. **静态分析**: 检测危险模式 (eval, Function, process, require)
-2. **权限声明**: 代码必须声明所需权限
-3. **API 网关**: 每个 API 调用检查权限
-4. **VM 隔离**: 无 Node.js 全局变量访问
-5. **OS 沙箱**: 可选的 bubblewrap 隔离
+1. **Static analysis**: detect dangerous patterns (eval, Function, process, require)
+2. **Permission declaration**: code must declare required permissions
+3. **API gateway**: check permissions on every API call
+4. **VM isolation**: no access to Node.js globals
+5. **OS sandbox**: optional bubblewrap isolation
 
 ## Verification
 
-1. **单元测试**:
-   - 权限检查逻辑
-   - 危险模式检测
-   - API 权限网关
+1. **Unit tests**:
+   - Permission-check logic
+   - Dangerous-pattern detection
+   - API permission gateway
 
-2. **集成测试**:
-   - 文件读写操作
-   - 网络请求（域名限制）
-   - 超时强制终止
+2. **Integration tests**:
+   - File read/write operations
+   - Network requests (domain restrictions)
+   - Timeout-based forced termination
 
-3. **手动测试**:
+3. **Manual testing**:
 
    ```bash
-   # 构建后测试
+   # Test after build
    bun run build
    bun run start
 
-   # 在 Claude Code 中测试脚本执行
+   # Test script execution in Claude Code
    ```
 
 ## Example Usage
 
 ```typescript
-// 读取 JSON 文件
+// Read JSON file
 {
   code: `
     const content = await fs.readFile('package.json')
@@ -299,7 +299,7 @@ const ScriptTool = feature('SCRIPT_TOOL')
   permissions: ['fs.read']
 }
 
-// 批量文件替换
+// Batch file replacement
 {
   code: `
     const files = await fs.glob('src/**/*.ts')
@@ -312,7 +312,7 @@ const ScriptTool = feature('SCRIPT_TOOL')
   permissions: ['fs.read', 'fs.write']
 }
 
-// 网络请求
+// Network request
 {
   code: `
     const response = await http.get('https://api.example.com/data')

@@ -9,23 +9,23 @@ import { WebFetchTool } from '../WebFetchTool/WebFetchTool.js'
 let _primitiveTools: readonly Tool[] | undefined
 
 /**
- * ScriptTool 沙箱上下文内可直接调用的"原始工具"集合。
+ * Set of "primitive tools" directly callable inside the ScriptTool sandbox context.
  *
- * 仅包含纯 TypeScript 实现、不 spawn 任何子进程 / 外部二进制的工具：
+ * Includes only pure TypeScript implementations that do not spawn subprocesses or external binaries:
  *   - FileReadTool     → fs/promises
  *   - FileWriteTool    → fs/promises
  *   - FileEditTool     → fs/promises
  *   - NotebookEditTool → fs/promises
- *   - AgentTool        → 进程内事件循环（Local/Remote Agent Task）
- *   - WebFetchTool     → globalThis.fetch（纯 TS，无子进程；域名白名单/权限已内置）
+ *   - AgentTool        -> in-process event loop (Local/Remote Agent Task)
+ *   - WebFetchTool     -> globalThis.fetch (pure TS, no subprocess; domain allowlist/permissions built in)
  *
- * 显式禁止 Bash / Glob / Grep：三者底层都通过 ChildProcess 调用外部程序
- * （bash shell、ripgrep），会突破"纯 JS 执行"的语义边界。
+ * Explicitly disallow Bash / Glob / Grep: all three invoke external programs via ChildProcess under the hood
+ * (bash shell, ripgrep), which breaks the semantic boundary of "pure JS execution."
  *
- * 懒加载 getter —— 与 REPLTool/primitiveTools.ts 同款策略：
- * 工具注册表存在循环依赖链（ScriptTool → primitiveTools → FileReadTool →
- * tools registry → ScriptTool），顶层 const 会命中 TDZ 报错
- * "Cannot access before initialization"，延迟到调用时构造数组即可规避。
+ * Lazy-loaded getter — same strategy as REPLTool/primitiveTools.ts:
+ * There is a cyclic dependency chain in the tool registry (ScriptTool -> primitiveTools -> FileReadTool ->
+ * tools registry -> ScriptTool); top-level const can hit a TDZ error
+ * ("Cannot access before initialization"); constructing the array lazily at call time avoids it.
  */
 export function getScriptPrimitiveTools(): readonly Tool[] {
   return (_primitiveTools ??= [

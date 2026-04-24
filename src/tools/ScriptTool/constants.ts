@@ -14,10 +14,11 @@ export const DEFAULT_TIMEOUT_MS = 30000
 export const MAX_TIMEOUT_MS = 120000
 
 export const MAX_OUTPUT_SIZE = 100 * 1024 // 100KB
+export const MAX_TYPECHECK_DIAGNOSTICS = 20
 
 /**
- * validateInput 使用的错误码集合。
- * 集中到此处以便调用方做精确的错误分派，避免在业务代码里使用魔法数字。
+ * Error-code set used by validateInput.
+ * Centralized here so callers can perform precise error dispatching and avoid magic numbers in business code.
  */
 export const SCRIPT_VALIDATION_ERROR_CODE = {
   EMPTY_CODE: 1,
@@ -28,15 +29,15 @@ export type ScriptValidationErrorCode =
   (typeof SCRIPT_VALIDATION_ERROR_CODE)[keyof typeof SCRIPT_VALIDATION_ERROR_CODE]
 
 /**
- * 当 ScriptTool 启用时，从模型可直接调用列表中隐藏的工具集合。
+ * Tool set hidden from the model-direct callable list when ScriptTool is enabled.
  *
- * 设计动机（与 REPLTool/REPL_ONLY_TOOLS 同款思路）：
- *   强制模型走 ScriptTool 做批量操作，减少多轮 round-trip。
+ * Design motivation (same approach as REPLTool/REPL_ONLY_TOOLS):
+ *   Force batch operations through ScriptTool to reduce multi-turn round trips.
  *
- * - Bash / Glob / Grep：底层调外部子进程（shell、ripgrep），
- *   ScriptTool 明确拒绝暴露——在 VM 上下文中直接使用会抛 ReferenceError。
- * - Read / Write / Edit / NotebookEdit / Agent / WebFetch：纯 TS 实现，
- *   隐藏对外直接调用后，仅能通过 ScriptTool 的 VM 上下文访问。
+ * - Bash / Glob / Grep: these invoke external subprocesses (shell, ripgrep),
+ *   and are intentionally not exposed in ScriptTool—direct use in VM context throws ReferenceError.
+ * - Read / Write / Edit / NotebookEdit / Agent / WebFetch: pure TS implementations,
+ *   hidden from direct external calls and only accessible via ScriptTool VM context.
  */
 export const SCRIPT_HIDDEN_TOOLS = new Set<string>([
   BASH_TOOL_NAME,

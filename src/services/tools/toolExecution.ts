@@ -598,19 +598,19 @@ export function buildSchemaNotSentHint(
 }
 
 /**
- * 通用工具输入校验：Zod schema + 业务级 validateInput 两步校验。
+ * Generic tool input validation: two-step checks with Zod schema + business-level validateInput.
  *
- * 背景：项目内存在多处"绕过 runToolUse 派发链，直接调用 tool.call()"
- * 的旁路调用点，每处按自身信任模型补齐所需校验子集——这是项目的既定哲学，
- * 不追求"所有旁路走同一条 validate"的强统一。本函数为需要做完整
- * （schema + validateInput）校验的旁路提供单一事实源，避免多份实现漂移。
+ * Background: the project has multiple sites that bypass runToolUse dispatch and call tool.call() directly.
+ * Each bypass site applies the validation subset required by its own trust model—this is intentional in this project,
+ * and does not enforce strict unification where all bypasses share one validate path. This function provides
+ * a single source of truth for bypasses that need full (schema + validateInput) validation, avoiding drift.
  *
- * 注：派发层 checkPermissionsAndCallTool 内仍是 inline 展开，因夹带
- * analytics 埋点、schemaHint 拼接、<tool_use_error> XML 渲染，不便替换为
- * 简单调用。如改动本函数的校验逻辑，请同步检查该处（反之亦然）。
+ * Note: dispatch-layer checkPermissionsAndCallTool remains inline because it includes
+ * analytics instrumentation, schemaHint composition, and <tool_use_error> XML rendering, making simple replacement impractical.
+ * If this function’s validation logic changes, check that location as well (and vice versa).
  *
- * 契约：只负责"校验本身"，不做 analytics 埋点、不做错误消息渲染。
- * 调用方按自己的呈现方式使用 errorContent。
+ * Contract: this function only performs validation itself; it does not add analytics events or render error messages.
+ * Callers should present errorContent using their own rendering strategy.
  */
 export type ToolInputValidationResult =
   | { success: true; data: unknown }
@@ -659,14 +659,14 @@ export async function validateToolInput(
 }
 
 /**
- * validateToolInput 的 throw 版便捷封装。
+ * Throwing convenience wrapper for validateToolInput.
  *
- * 适合"旁路调用场景里，校验失败直接当成异常"的主流写法（项目里 mcp.ts、
- * promptShellExecution 等都采用 throw 风格）。需要区分 schema/business
- * 错误类别、或要把错误渲染到 UI 时，请使用底层 validateToolInput。
+ * Fits the common pattern in bypass-call scenarios where validation failure is treated as an exception (e.g., in mcp.ts,
+ * promptShellExecution, etc.). If you need to distinguish schema/business
+ * error categories, or render errors in the UI, use the lower-level validateToolInput.
  *
- * @throws Error 校验失败时抛出，message 格式为 `Invalid input for <tool>: <details>`
- * @returns 校验后（可能经 schema 解析/转换过的）input 数据
+ * @throws Error Thrown on validation failure; message format: `Invalid input for <tool>: <details>`
+ * @returns Validated input data (possibly parsed/transformed by schema)
  */
 export async function assertValidToolInput(
   tool: Tool,
