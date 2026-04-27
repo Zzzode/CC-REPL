@@ -1,8 +1,9 @@
 import { c as _c } from "react/compiler-runtime";
 import type { ToolUseBlockParam } from '@anthropic-ai/sdk/resources/index.mjs';
 import { useMemo } from 'react';
-import { findToolByName, type Tool, type Tools } from '../../../Tool.js';
+import { type Tool, type Tools } from '../../../Tool.js';
 import type { buildMessageLookups } from '../../../utils/messages.js';
+import { findRenderableToolByName } from '../../../utils/renderToolLookup.js';
 export function useGetToolFromMessages(toolUseID, tools, lookups) {
   const $ = _c(7);
   let t0;
@@ -13,7 +14,7 @@ export function useGetToolFromMessages(toolUseID, tools, lookups) {
         t0 = null;
         break bb0;
       }
-      const tool = findToolByName(tools, toolUse.name);
+      const tool = findRenderableToolByName(tools, toolUse.name);
       if (!tool) {
         t0 = null;
         break bb0;

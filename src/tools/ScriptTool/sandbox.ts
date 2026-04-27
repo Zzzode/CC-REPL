@@ -192,6 +192,7 @@ function appendRuntimeMessage(
 ): void {
   runtime.context.messages.push(message)
   if (isScriptVisibleMessage(message)) {
+    message.isVirtual = true
     runtime.visibleMessages.push(message)
   }
 }
@@ -251,7 +252,7 @@ function buildToolProxies(
         name: tool.name,
         input: (input as Record<string, unknown>) ?? {},
       }
-      const assistantMessage = createAssistantMessage({ content: [toolUse] })
+      const assistantMessage = createAssistantMessage({ content: [toolUse], isVirtual: true })
       appendRuntimeMessage(runtime, assistantMessage)
 
       let hasResult = false

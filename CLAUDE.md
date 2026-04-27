@@ -102,4 +102,4 @@ Reusable workflows in `src/skills/` executed through `SkillTool`. Users can add 
 
 ## Language Requirements
 
-- All code comments and project documentation must be written in English only.
+- All project documentation and all code comments must be written in English only. Do not use any other language in docs/comments.

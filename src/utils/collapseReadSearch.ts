@@ -1,12 +1,12 @@
 import { feature } from 'bun:bundle'
 import type { UUID } from 'crypto'
-import { findToolByName, type Tools } from '../Tool.js'
+import type { Tools } from '../Tool.js'
 import { extractBashCommentLabel } from '../tools/BashTool/commentLabel.js'
 import { BASH_TOOL_NAME } from '../tools/BashTool/toolName.js'
 import { FILE_EDIT_TOOL_NAME } from '../tools/FileEditTool/constants.js'
 import { FILE_WRITE_TOOL_NAME } from '../tools/FileWriteTool/prompt.js'
 import { REPL_TOOL_NAME } from '../tools/REPLTool/constants.js'
-import { getReplPrimitiveTools } from '../tools/REPLTool/primitiveTools.js'
+import { SCRIPT_TOOL_NAME } from '../tools/ScriptTool/constants.js'
 import {
   type BranchAction,
   type CommitKind,
@@ -29,6 +29,7 @@ import {
   isMemoryDirectory,
   isShellCommandTargetingMemory,
 } from './memoryFileDetection.js'
+import { findRenderableToolByName } from './renderToolLookup.js'
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const teamMemOps = feature('TEAMMEM')
@@ -161,6 +162,18 @@ export function getToolSearchOrReadInfo(
     }
   }
 
+  if (toolName === SCRIPT_TOOL_NAME) {
+    return {
+      isCollapsible: true,
+      isSearch: false,
+      isRead: false,
+      isList: false,
+      isREPL: false,
+      isMemoryWrite: false,
+      isAbsorbedSilently: true,
+    }
+  }
+
   // Memory file writes/edits are collapsible
   if (isMemoryWriteOrEdit(toolName, toolInput)) {
     return {
@@ -192,13 +205,9 @@ export function getToolSearchOrReadInfo(
     }
   }
 
-  // Fallback to REPL primitives: in REPL mode, Bash/Read/Grep/etc. are
-  // stripped from the execution tools list, but REPL emits them as virtual
-  // messages. Without the fallback they'd return isCollapsible: false and
-  // vanish from the summary line.
-  const tool =
-    findToolByName(tools, toolName) ??
-    findToolByName(getReplPrimitiveTools(), toolName)
+  // Resolve for render/collapse even when REPL/Script hide primitives from
+  // the model-callable tools list.
+  const tool = findRenderableToolByName(tools, toolName)
   if (!tool?.isSearchOrReadCommand) {
     return {
       isCollapsible: false,

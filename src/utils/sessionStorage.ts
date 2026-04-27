@@ -35,6 +35,7 @@ import { COMMAND_NAME_TAG, TICK_TAG } from '../constants/xml.js'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../services/analytics/growthbook.js'
 import * as sessionIngress from '../services/api/sessionIngress.js'
 import { REPL_TOOL_NAME } from '../tools/REPLTool/constants.js'
+import { SCRIPT_TOOL_NAME } from '../tools/ScriptTool/constants.js'
 import {
   type AgentId,
   asAgentId,
@@ -4366,12 +4367,12 @@ export function isLoggableMessage(m: Message): boolean {
   return true
 }
 
-function collectReplIds(messages: readonly Message[]): Set<string> {
+function collectTransparentWrapperIds(messages: readonly Message[]): Set<string> {
   const ids = new Set<string>()
   for (const m of messages) {
     if (m.type === 'assistant' && Array.isArray(m.message.content)) {
       for (const b of m.message.content) {
-        if (b.type === 'tool_use' && b.name === REPL_TOOL_NAME) {
+        if (b.type === 'tool_use' && (b.name === REPL_TOOL_NAME || b.name === SCRIPT_TOOL_NAME)) {
           ids.add(b.id)
         }
       }
@@ -4381,32 +4382,33 @@ function collectReplIds(messages: readonly Message[]): Set<string> {
 }
 
 /**
- * For external users, make REPL invisible in the persisted transcript: strip
- * REPL tool_use/tool_result pairs and promote isVirtual messages to real. On
- * --resume the model then sees a coherent native-tool-call history (assistant
- * called Bash, got result, called Read, got result) without the REPL wrapper.
- * Ant transcripts keep the wrapper so /share training data sees REPL usage.
+ * For external users, make transparent wrappers (REPL, Script) invisible in
+ * the persisted transcript: strip their tool_use/tool_result pairs and promote
+ * isVirtual messages to real. On --resume the model then sees a coherent
+ * native-tool-call history (assistant called Bash, got result, called Read,
+ * got result) without the wrapper. Ant transcripts keep wrappers so /share
+ * training data sees usage.
  *
- * replIds is pre-collected from the FULL session array, not the slice being
- * transformed — recordTranscript receives incremental slices where the REPL
- * tool_use (earlier render) and its tool_result (later render, after async
- * execution) land in separate calls. A fresh per-call Set would miss the id
- * and leave an orphaned tool_result on disk.
+ * wrapperIds is pre-collected from the FULL session array, not the slice
+ * being transformed — recordTranscript receives incremental slices where the
+ * wrapper tool_use (earlier render) and its tool_result (later render, after
+ * async execution) land in separate calls. A fresh per-call Set would miss
+ * the id and leave an orphaned tool_result on disk.
  */
+function isTransparentWrapperToolUse(b: { type: string; name?: string }): boolean {
+  return b.type === 'tool_use' && (b.name === REPL_TOOL_NAME || b.name === SCRIPT_TOOL_NAME)
+}
+
 function transformMessagesForExternalTranscript(
   messages: Transcript,
-  replIds: Set<string>,
+  wrapperIds: Set<string>,
 ): Transcript {
   return messages.flatMap(m => {
     if (m.type === 'assistant' && Array.isArray(m.message.content)) {
       const content = m.message.content
-      const hasRepl = content.some(
-        b => b.type === 'tool_use' && b.name === REPL_TOOL_NAME,
-      )
-      const filtered = hasRepl
-        ? content.filter(
-            b => !(b.type === 'tool_use' && b.name === REPL_TOOL_NAME),
-          )
+      const hasWrapper = content.some(isTransparentWrapperToolUse)
+      const filtered = hasWrapper
+        ? content.filter(b => !isTransparentWrapperToolUse(b))
         : content
       if (filtered.length === 0) return []
       if (m.isVirtual) {
@@ -4420,12 +4422,12 @@ function transformMessagesForExternalTranscript(
     }
     if (m.type === 'user' && Array.isArray(m.message.content)) {
       const content = m.message.content
-      const hasRepl = content.some(
-        b => b.type === 'tool_result' && replIds.has(b.tool_use_id),
+      const hasWrapper = content.some(
+        b => b.type === 'tool_result' && wrapperIds.has(b.tool_use_id),
       )
-      const filtered = hasRepl
+      const filtered = hasWrapper
         ? content.filter(
-            b => !(b.type === 'tool_result' && replIds.has(b.tool_use_id)),
+            b => !(b.type === 'tool_result' && wrapperIds.has(b.tool_use_id)),
           )
         : content
       if (filtered.length === 0) return []
@@ -4455,7 +4457,7 @@ export function cleanMessagesForLogging(
   return getUserType() !== 'ant'
     ? transformMessagesForExternalTranscript(
         filtered,
-        collectReplIds(allMessages),
+        collectTransparentWrapperIds(allMessages),
       )
     : filtered
 }

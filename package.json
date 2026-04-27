@@ -9,7 +9,10 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "start": "bun dist/cli.js",
     "start:cu": "ALLOW_ANT_COMPUTER_USE_MCP=1 DISABLE_TELEMETRY= bun dist/cli.js",
-    "start:cu:mcp": "ALLOW_ANT_COMPUTER_USE_MCP=1 DISABLE_TELEMETRY= bun dist/cli.js --computer-use-mcp"
+    "start:cu:mcp": "ALLOW_ANT_COMPUTER_USE_MCP=1 DISABLE_TELEMETRY= bun dist/cli.js --computer-use-mcp",
+    "benchmark:pare": "bun run src/benchmarks/pare/cli.ts",
+    "benchmark:pare:repro": "bun run src/benchmarks/pare/cli.ts --cases benchmarks/pare/cases/pare-v2-reproducible.json",
+    "benchmark:pare:mut": "bun run src/benchmarks/pare/cli.ts --cases benchmarks/pare/cases/pare-v2-mutating.json"
   },
   "dependencies": {
     "@alcalzone/ansi-tokenize": "*",

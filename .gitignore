@@ -3,3 +3,5 @@ dist/
 bun.lock
 *.log
 .DS_Store
+.artifacts/
+.trae/

@@ -11,6 +11,11 @@ type BindingDoc = {
   returnDetails: string
 }
 
+type PromptAgent = {
+  agentType: string
+  whenToUse: string
+}
+
 const TOOL_BINDINGS: BindingDoc[] = [
   {
     binding: 'Read',
@@ -87,7 +92,61 @@ function renderReturnTable(): string {
   return [...header, ...rows].join('\n')
 }
 
-export function getPrompt(): string {
+function canonicalizeAgentType(agentType: string): string {
+  return agentType.trim().toLowerCase().replaceAll('_', '-').replaceAll(' ', '-')
+}
+
+function pickSearchAgentType(agents: readonly PromptAgent[]): string {
+  for (const agent of agents) {
+    const canonical = canonicalizeAgentType(agent.agentType)
+    if (
+      canonical === 'explore' ||
+      canonical === 'explorer' ||
+      canonical === 'code-explorer' ||
+      canonical.endsWith(':explore') ||
+      canonical.endsWith(':explorer') ||
+      canonical.endsWith(':code-explorer')
+    ) {
+      return agent.agentType
+    }
+  }
+
+  const generalPurpose = agents.find(agent => {
+    const canonical = canonicalizeAgentType(agent.agentType)
+    return canonical === 'general-purpose' || canonical.endsWith(':general-purpose')
+  })
+
+  return generalPurpose?.agentType ?? 'general-purpose'
+}
+
+function renderAgentTypeSection(agents: readonly PromptAgent[]): string {
+  const uniqueAgents = Array.from(
+    new Map(agents.map(agent => [agent.agentType, agent])).values(),
+  )
+
+  if (uniqueAgents.length === 0) {
+    return `Available agent types depend on the current session configuration.
+Use \`general-purpose\` by default, and only pass \`subagent_type\` when a specific type is listed in the current agent list.`
+  }
+
+  const lines = uniqueAgents.map(agent => {
+    const whenToUse = agent.whenToUse.trim() || 'No description provided.'
+    return `- \`${agent.agentType}\`: ${whenToUse}`
+  })
+
+  return `Available agent types in this session:
+${lines.join('\n')}
+
+Use \`general-purpose\` by default. Only set \`subagent_type\` when you need a specific specialized type from the list above.`
+}
+
+export function getPrompt(options: {
+  agents?: readonly PromptAgent[]
+} = {}): string {
+  const agents = options.agents ?? []
+  const preferredSearchAgentType = pickSearchAgentType(agents)
+  const agentTypeSection = renderAgentTypeSection(agents)
+
   return `${DESCRIPTION}
 
 ## Capabilities
@@ -130,15 +189,9 @@ ${renderReturnTable()}
 | \`prompt\` | **yes** | Detailed task instructions for the sub-agent |
 | \`subagent_type\` | no | Agent type (defaults to \`'general-purpose'\`) |
 
-Available built-in agent types:
-- \`Explore\`: Fast agent specialized for exploring codebases. Use this when you need to quickly find files by patterns, search code for keywords, or answer questions about the codebase. The Explore agent has access to Bash, Glob, Grep, and Read tools.
-- \`Plan\`: Use this when you need to create a detailed plan for a complex task.
-- \`General-purpose\`: Default agent for general tasks. Use this when no specialized agent fits your needs.
+${agentTypeSection}
 
-When to use each agent type in Script:
-- **Explore**: Use for file searches, code exploration, and codebase analysis. Since Bash/Glob/Grep are unavailable in Script, Explore is the primary way to perform these operations.
-- **Plan**: Use for complex multi-step tasks that require planning before execution.
-- **General-purpose**: Use for general tasks that don't fit the above categories.
+If a requested \`subagent_type\` is unavailable, retry with \`general-purpose\`.
 
 Tool and runtime failures are regular JavaScript exceptions (use try/catch).
 
@@ -171,6 +224,7 @@ async function body). Use injected bindings instead.
 - Top-level \`await\` and \`return\` are supported
 - \`console.log/info\` is captured into stdout
 - \`console.warn/error\` is captured into stderr
+- For existing files, call \`Read({ file_path })\` before \`Write\` or \`Edit\`
 - Use \`return\` to emit structured output back to the model
 
 ## Examples
@@ -210,10 +264,10 @@ return { summary }
 \`\`\`
 
 \`\`\`typescript
-// Delegate search to Explore agent (Bash/Grep are unavailable in Script)
+// Delegate search to a sub-agent (Bash/Grep are unavailable in Script)
 const result = await Agent({
   description: 'Find TODO comments',
-  subagent_type: 'Explore',
+  subagent_type: '${preferredSearchAgentType}',
   prompt: \`Find all lines containing "TODO" in .ts files under \${utils.cwd}/src. Return file paths and line numbers.\`,
 })
 return result

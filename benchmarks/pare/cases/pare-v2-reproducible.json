@@ -1,0 +1,1522 @@
+{
+  "version": "pare-case-v1",
+  "source": {
+    "origin": "Pare benchmarks v2 CSV + benchmark-scenarios.ts (extracted list)",
+    "migrationDate": "2026-04-27T04:33:12.142Z",
+    "note": "Approximate command-fidelity migration for Claude Code benchmark harness."
+  },
+  "cases": [
+    {
+      "id": "pare-repro-1A",
+      "name": "Pare 1A status",
+      "prompt": "Return exactly this command and nothing else: git status",
+      "assertion": {
+        "type": "exact",
+        "expected": "git status",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "1A",
+        "pareScenarioName": "status",
+        "command": "git status",
+        "category": "git",
+        "useFrequency": "very_high"
+      }
+    },
+    {
+      "id": "pare-repro-2A",
+      "name": "Pare 2A diff-small",
+      "prompt": "Return exactly this command and nothing else: git diff --stat HEAD~1",
+      "assertion": {
+        "type": "exact",
+        "expected": "git diff --stat HEAD~1",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "2A",
+        "pareScenarioName": "diff-small",
+        "command": "git diff --stat HEAD~1",
+        "category": "git",
+        "useFrequency": "very_high"
+      }
+    },
+    {
+      "id": "pare-repro-2B",
+      "name": "Pare 2B diff-large",
+      "prompt": "Return exactly this command and nothing else: git diff --stat HEAD~20",
+      "assertion": {
+        "type": "exact",
+        "expected": "git diff --stat HEAD~20",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "2B",
+        "pareScenarioName": "diff-large",
+        "command": "git diff --stat HEAD~20",
+        "category": "git",
+        "useFrequency": "very_high"
+      }
+    },
+    {
+      "id": "pare-repro-2C",
+      "name": "Pare 2C diff-full-patch",
+      "prompt": "Return exactly this command and nothing else: git diff HEAD~1",
+      "assertion": {
+        "type": "exact",
+        "expected": "git diff HEAD~1",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "2C",
+        "pareScenarioName": "diff-full-patch",
+        "command": "git diff HEAD~1",
+        "category": "git",
+        "useFrequency": "very_high"
+      }
+    },
+    {
+      "id": "pare-repro-3A",
+      "name": "Pare 3A git-commit",
+      "prompt": "Return exactly this command and nothing else: git commit -m \"benchmark\"",
+      "assertion": {
+        "type": "exact",
+        "expected": "git commit -m \"benchmark\"",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "3A",
+        "pareScenarioName": "git-commit",
+        "command": "git commit -m \"benchmark\"",
+        "category": "git",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-repro-4A",
+      "name": "Pare 4A git-add",
+      "prompt": "Return exactly this command and nothing else: git add .",
+      "assertion": {
+        "type": "exact",
+        "expected": "git add .",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "4A",
+        "pareScenarioName": "git-add",
+        "command": "git add .",
+        "category": "git",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-repro-5A",
+      "name": "Pare 5A log-5",
+      "prompt": "Return exactly this command and nothing else: git log -5 --oneline",
+      "assertion": {
+        "type": "exact",
+        "expected": "git log -5 --oneline",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "5A",
+        "pareScenarioName": "log-5",
+        "command": "git log -5 --oneline",
+        "category": "git",
+        "useFrequency": "very_high"
+      }
+    },
+    {
+      "id": "pare-repro-5B",
+      "name": "Pare 5B log-20",
+      "prompt": "Return exactly this command and nothing else: git log -20 --oneline",
+      "assertion": {
+        "type": "exact",
+        "expected": "git log -20 --oneline",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "5B",
+        "pareScenarioName": "log-20",
+        "command": "git log -20 --oneline",
+        "category": "git",
+        "useFrequency": "high"
+      }
+    },
+    {
+      "id": "pare-repro-5C",
+      "name": "Pare 5C log-50",
+      "prompt": "Return exactly this command and nothing else: git log -50 --oneline",
+      "assertion": {
+        "type": "exact",
+        "expected": "git log -50 --oneline",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "5C",
+        "pareScenarioName": "log-50",
+        "command": "git log -50 --oneline",
+        "category": "git",
+        "useFrequency": "medium"
+      }
+    },
+    {
+      "id": "pare-repro-6A",
+      "name": "Pare 6A git-push",
+      "prompt": "Return exactly this command and nothing else: git push",
+      "assertion": {
+        "type": "exact",
+        "expected": "git push",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "6A",
+        "pareScenarioName": "git-push",
+        "command": "git push",
+        "category": "git",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-repro-7A",
+      "name": "Pare 7A test-server-git",
+      "prompt": "Return exactly this command and nothing else: npm run test -w packages/server-git",
+      "assertion": {
+        "type": "exact",
+        "expected": "npm run test -w packages/server-git",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "7A",
+        "pareScenarioName": "test-server-git",
+        "command": "npm run test -w packages/server-git",
+        "category": "node-tooling",
+        "useFrequency": "high"
+      }
+    },
+    {
+      "id": "pare-repro-7B",
+      "name": "Pare 7B test-shared",
+      "prompt": "Return exactly this command and nothing else: npm run test -w packages/shared",
+      "assertion": {
+        "type": "exact",
+        "expected": "npm run test -w packages/shared",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "7B",
+        "pareScenarioName": "test-shared",
+        "command": "npm run test -w packages/shared",
+        "category": "node-tooling",
+        "useFrequency": "high"
+      }
+    },
+    {
+      "id": "pare-repro-7C",
+      "name": "Pare 7C test-server-lint",
+      "prompt": "Return exactly this command and nothing else: npm run lint -w packages/server-git",
+      "assertion": {
+        "type": "exact",
+        "expected": "npm run lint -w packages/server-git",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "7C",
+        "pareScenarioName": "test-server-lint",
+        "command": "npm run lint -w packages/server-git",
+        "category": "node-tooling",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-repro-8A",
+      "name": "Pare 8A git-checkout",
+      "prompt": "Return exactly this command and nothing else: git checkout -",
+      "assertion": {
+        "type": "exact",
+        "expected": "git checkout -",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "8A",
+        "pareScenarioName": "git-checkout",
+        "command": "git checkout -",
+        "category": "git",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-repro-9A",
+      "name": "Pare 9A npm-run-build",
+      "prompt": "Return exactly this command and nothing else: npm run build",
+      "assertion": {
+        "type": "exact",
+        "expected": "npm run build",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "9A",
+        "pareScenarioName": "npm-run-build",
+        "command": "npm run build",
+        "category": "node-tooling",
+        "useFrequency": "high"
+      }
+    },
+    {
+      "id": "pare-repro-9B",
+      "name": "Pare 9B npm-run-lint",
+      "prompt": "Return exactly this command and nothing else: npm run lint",
+      "assertion": {
+        "type": "exact",
+        "expected": "npm run lint",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "9B",
+        "pareScenarioName": "npm-run-lint",
+        "command": "npm run lint",
+        "category": "node-tooling",
+        "useFrequency": "high"
+      }
+    },
+    {
+      "id": "pare-repro-9C",
+      "name": "Pare 9C npm-run-test",
+      "prompt": "Return exactly this command and nothing else: npm run test",
+      "assertion": {
+        "type": "exact",
+        "expected": "npm run test",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "9C",
+        "pareScenarioName": "npm-run-test",
+        "command": "npm run test",
+        "category": "node-tooling",
+        "useFrequency": "high"
+      }
+    },
+    {
+      "id": "pare-repro-10A",
+      "name": "Pare 10A git-pull",
+      "prompt": "Return exactly this command and nothing else: git pull",
+      "assertion": {
+        "type": "exact",
+        "expected": "git pull",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "10A",
+        "pareScenarioName": "git-pull",
+        "command": "git pull",
+        "category": "git",
+        "useFrequency": "medium"
+      }
+    },
+    {
+      "id": "pare-repro-11A",
+      "name": "Pare 11A npm-install",
+      "prompt": "Return exactly this command and nothing else: npm install",
+      "assertion": {
+        "type": "exact",
+        "expected": "npm install",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "11A",
+        "pareScenarioName": "npm-install",
+        "command": "npm install",
+        "category": "node-tooling",
+        "useFrequency": "medium"
+      }
+    },
+    {
+      "id": "pare-repro-12A",
+      "name": "Pare 12A tsc-shared",
+      "prompt": "Return exactly this command and nothing else: npx tsc --noEmit -p packages/shared/tsconfig.json",
+      "assertion": {
+        "type": "exact",
+        "expected": "npx tsc --noEmit -p packages/shared/tsconfig.json",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "12A",
+        "pareScenarioName": "tsc-shared",
+        "command": "npx tsc --noEmit -p packages/shared/tsconfig.json",
+        "category": "node-tooling",
+        "useFrequency": "medium"
+      }
+    },
+    {
+      "id": "pare-repro-12B",
+      "name": "Pare 12B tsc-server-git",
+      "prompt": "Return exactly this command and nothing else: npx tsc --noEmit -p packages/server-git/tsconfig.json",
+      "assertion": {
+        "type": "exact",
+        "expected": "npx tsc --noEmit -p packages/server-git/tsconfig.json",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "12B",
+        "pareScenarioName": "tsc-server-git",
+        "command": "npx tsc --noEmit -p packages/server-git/tsconfig.json",
+        "category": "node-tooling",
+        "useFrequency": "medium"
+      }
+    },
+    {
+      "id": "pare-repro-12C",
+      "name": "Pare 12C tsc-repo",
+      "prompt": "Return exactly this command and nothing else: npx tsc --noEmit",
+      "assertion": {
+        "type": "exact",
+        "expected": "npx tsc --noEmit",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "12C",
+        "pareScenarioName": "tsc-repo",
+        "command": "npx tsc --noEmit",
+        "category": "node-tooling",
+        "useFrequency": "very_high"
+      }
+    },
+    {
+      "id": "pare-repro-13A",
+      "name": "Pare 13A npm-test-shared",
+      "prompt": "Return exactly this command and nothing else: npm test -w packages/shared",
+      "assertion": {
+        "type": "exact",
+        "expected": "npm test -w packages/shared",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "13A",
+        "pareScenarioName": "npm-test-shared",
+        "command": "npm test -w packages/shared",
+        "category": "node-tooling",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-repro-13B",
+      "name": "Pare 13B npm-test-server-git",
+      "prompt": "Return exactly this command and nothing else: npm test -w packages/server-git",
+      "assertion": {
+        "type": "exact",
+        "expected": "npm test -w packages/server-git",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "13B",
+        "pareScenarioName": "npm-test-server-git",
+        "command": "npm test -w packages/server-git",
+        "category": "node-tooling",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-repro-14A",
+      "name": "Pare 14A branch-local",
+      "prompt": "Return exactly this command and nothing else: git branch",
+      "assertion": {
+        "type": "exact",
+        "expected": "git branch",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "14A",
+        "pareScenarioName": "branch-local",
+        "command": "git branch",
+        "category": "git",
+        "useFrequency": "high"
+      }
+    },
+    {
+      "id": "pare-repro-14B",
+      "name": "Pare 14B branch-all",
+      "prompt": "Return exactly this command and nothing else: git branch -a",
+      "assertion": {
+        "type": "exact",
+        "expected": "git branch -a",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "14B",
+        "pareScenarioName": "branch-all",
+        "command": "git branch -a",
+        "category": "git",
+        "useFrequency": "high"
+      }
+    },
+    {
+      "id": "pare-repro-15A",
+      "name": "Pare 15A show-head",
+      "prompt": "Return exactly this command and nothing else: git show --stat HEAD",
+      "assertion": {
+        "type": "exact",
+        "expected": "git show --stat HEAD",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "15A",
+        "pareScenarioName": "show-head",
+        "command": "git show --stat HEAD",
+        "category": "git",
+        "useFrequency": "high"
+      }
+    },
+    {
+      "id": "pare-repro-15B",
+      "name": "Pare 15B show-mid",
+      "prompt": "Return exactly this command and nothing else: git show --stat HEAD~10",
+      "assertion": {
+        "type": "exact",
+        "expected": "git show --stat HEAD~10",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "15B",
+        "pareScenarioName": "show-mid",
+        "command": "git show --stat HEAD~10",
+        "category": "git",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-repro-15C",
+      "name": "Pare 15C show-deep",
+      "prompt": "Return exactly this command and nothing else: git show --stat HEAD~50",
+      "assertion": {
+        "type": "exact",
+        "expected": "git show --stat HEAD~50",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "15C",
+        "pareScenarioName": "show-deep",
+        "command": "git show --stat HEAD~50",
+        "category": "git",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-repro-16A",
+      "name": "Pare 16A build-shared",
+      "prompt": "Return exactly this command and nothing else: npm run build -w packages/shared",
+      "assertion": {
+        "type": "exact",
+        "expected": "npm run build -w packages/shared",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "16A",
+        "pareScenarioName": "build-shared",
+        "command": "npm run build -w packages/shared",
+        "category": "node-tooling",
+        "useFrequency": "medium"
+      }
+    },
+    {
+      "id": "pare-repro-16B",
+      "name": "Pare 16B build-server-git",
+      "prompt": "Return exactly this command and nothing else: npm run build -w packages/server-git",
+      "assertion": {
+        "type": "exact",
+        "expected": "npm run build -w packages/server-git",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "16B",
+        "pareScenarioName": "build-server-git",
+        "command": "npm run build -w packages/server-git",
+        "category": "node-tooling",
+        "useFrequency": "medium"
+      }
+    },
+    {
+      "id": "pare-repro-16C",
+      "name": "Pare 16C build-server-npm",
+      "prompt": "Return exactly this command and nothing else: npm run build -w packages/server-npm",
+      "assertion": {
+        "type": "exact",
+        "expected": "npm run build -w packages/server-npm",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "16C",
+        "pareScenarioName": "build-server-npm",
+        "command": "npm run build -w packages/server-npm",
+        "category": "node-tooling",
+        "useFrequency": "medium"
+      }
+    },
+    {
+      "id": "pare-repro-17A",
+      "name": "Pare 17A lint-shared",
+      "prompt": "Return exactly this command and nothing else: npm run lint -w packages/shared",
+      "assertion": {
+        "type": "exact",
+        "expected": "npm run lint -w packages/shared",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "17A",
+        "pareScenarioName": "lint-shared",
+        "command": "npm run lint -w packages/shared",
+        "category": "node-tooling",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-repro-17B",
+      "name": "Pare 17B lint-server-git",
+      "prompt": "Return exactly this command and nothing else: npm run lint -w packages/server-git",
+      "assertion": {
+        "type": "exact",
+        "expected": "npm run lint -w packages/server-git",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "17B",
+        "pareScenarioName": "lint-server-git",
+        "command": "npm run lint -w packages/server-git",
+        "category": "node-tooling",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-repro-17C",
+      "name": "Pare 17C lint-server-npm",
+      "prompt": "Return exactly this command and nothing else: npm run lint -w packages/server-npm",
+      "assertion": {
+        "type": "exact",
+        "expected": "npm run lint -w packages/server-npm",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "17C",
+        "pareScenarioName": "lint-server-npm",
+        "command": "npm run lint -w packages/server-npm",
+        "category": "node-tooling",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-repro-17D",
+      "name": "Pare 17D lint-violations",
+      "prompt": "Return exactly this command and nothing else: npx eslint .",
+      "assertion": {
+        "type": "exact",
+        "expected": "npx eslint .",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "17D",
+        "pareScenarioName": "lint-violations",
+        "command": "npx eslint .",
+        "category": "node-tooling",
+        "useFrequency": "very_high"
+      }
+    },
+    {
+      "id": "pare-repro-18A",
+      "name": "Pare 18A docker-ps",
+      "prompt": "Return exactly this command and nothing else: docker ps",
+      "assertion": {
+        "type": "exact",
+        "expected": "docker ps",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "18A",
+        "pareScenarioName": "docker-ps",
+        "command": "docker ps",
+        "category": "docker",
+        "useFrequency": "very_high"
+      }
+    },
+    {
+      "id": "pare-repro-18B",
+      "name": "Pare 18B docker-ps-all",
+      "prompt": "Return exactly this command and nothing else: docker ps -a",
+      "assertion": {
+        "type": "exact",
+        "expected": "docker ps -a",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "18B",
+        "pareScenarioName": "docker-ps-all",
+        "command": "docker ps -a",
+        "category": "docker",
+        "useFrequency": "very_high"
+      }
+    },
+    {
+      "id": "pare-repro-19A",
+      "name": "Pare 19A pytest",
+      "prompt": "Return exactly this command and nothing else: pytest -q",
+      "assertion": {
+        "type": "exact",
+        "expected": "pytest -q",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "19A",
+        "pareScenarioName": "pytest",
+        "command": "pytest -q",
+        "category": "python-tooling",
+        "useFrequency": "medium"
+      }
+    },
+    {
+      "id": "pare-repro-20A",
+      "name": "Pare 20A docker-images",
+      "prompt": "Return exactly this command and nothing else: docker images",
+      "assertion": {
+        "type": "exact",
+        "expected": "docker images",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "20A",
+        "pareScenarioName": "docker-images",
+        "command": "docker images",
+        "category": "docker",
+        "useFrequency": "high"
+      }
+    },
+    {
+      "id": "pare-repro-S01",
+      "name": "Pare S01 git-status-clean",
+      "prompt": "Return exactly this command and nothing else: git status",
+      "assertion": {
+        "type": "exact",
+        "expected": "git status",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "S01",
+        "pareScenarioName": "git-status-clean",
+        "command": "git status",
+        "category": "git",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-repro-S02",
+      "name": "Pare S02 git-branch",
+      "prompt": "Return exactly this command and nothing else: git branch -a",
+      "assertion": {
+        "type": "exact",
+        "expected": "git branch -a",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "S02",
+        "pareScenarioName": "git-branch",
+        "command": "git branch -a",
+        "category": "git",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-repro-S03",
+      "name": "Pare S03 git-remote",
+      "prompt": "Return exactly this command and nothing else: git remote -v",
+      "assertion": {
+        "type": "exact",
+        "expected": "git remote -v",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "S03",
+        "pareScenarioName": "git-remote",
+        "command": "git remote -v",
+        "category": "git",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-repro-S04",
+      "name": "Pare S04 git-log-oneline",
+      "prompt": "Return exactly this command and nothing else: git log --oneline -10",
+      "assertion": {
+        "type": "exact",
+        "expected": "git log --oneline -10",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "S04",
+        "pareScenarioName": "git-log-oneline",
+        "command": "git log --oneline -10",
+        "category": "git",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-repro-S05",
+      "name": "Pare S05 git-blame",
+      "prompt": "Return exactly this command and nothing else: git blame --porcelain packages/shared/src/output.ts",
+      "assertion": {
+        "type": "exact",
+        "expected": "git blame --porcelain packages/shared/src/output.ts",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "S05",
+        "pareScenarioName": "git-blame",
+        "command": "git blame --porcelain packages/shared/src/output.ts",
+        "category": "git",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-repro-S06",
+      "name": "Pare S06 npm-outdated",
+      "prompt": "Return exactly this command and nothing else: npm outdated",
+      "assertion": {
+        "type": "exact",
+        "expected": "npm outdated",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "S06",
+        "pareScenarioName": "npm-outdated",
+        "command": "npm outdated",
+        "category": "node-tooling",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-repro-S07",
+      "name": "Pare S07 npm-list",
+      "prompt": "Return exactly this command and nothing else: npm list --depth=0",
+      "assertion": {
+        "type": "exact",
+        "expected": "npm list --depth=0",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "S07",
+        "pareScenarioName": "npm-list",
+        "command": "npm list --depth=0",
+        "category": "node-tooling",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-repro-S08",
+      "name": "Pare S08 pip-list",
+      "prompt": "Return exactly this command and nothing else: pip list --format json",
+      "assertion": {
+        "type": "exact",
+        "expected": "pip list --format json",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "S08",
+        "pareScenarioName": "pip-list",
+        "command": "pip list --format json",
+        "category": "python-tooling",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-repro-S09",
+      "name": "Pare S09 git-log-stat",
+      "prompt": "Return exactly this command and nothing else: git log -5 --stat",
+      "assertion": {
+        "type": "exact",
+        "expected": "git log -5 --stat",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "S09",
+        "pareScenarioName": "git-log-stat",
+        "command": "git log -5 --stat",
+        "category": "git",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-repro-S10",
+      "name": "Pare S10 git-show",
+      "prompt": "Return exactly this command and nothing else: git show --stat HEAD",
+      "assertion": {
+        "type": "exact",
+        "expected": "git show --stat HEAD",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "S10",
+        "pareScenarioName": "git-show",
+        "command": "git show --stat HEAD",
+        "category": "git",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-repro-S11",
+      "name": "Pare S11 git-tag",
+      "prompt": "Return exactly this command and nothing else: git tag -l",
+      "assertion": {
+        "type": "exact",
+        "expected": "git tag -l",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "S11",
+        "pareScenarioName": "git-tag",
+        "command": "git tag -l",
+        "category": "git",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-repro-S12",
+      "name": "Pare S12 tsc-errors",
+      "prompt": "Return exactly this command and nothing else: npx tsc --noEmit",
+      "assertion": {
+        "type": "exact",
+        "expected": "npx tsc --noEmit",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "S12",
+        "pareScenarioName": "tsc-errors",
+        "command": "npx tsc --noEmit",
+        "category": "node-tooling",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-repro-S13",
+      "name": "Pare S13 eslint-diag",
+      "prompt": "Return exactly this command and nothing else: npx eslint packages/server-git/src/",
+      "assertion": {
+        "type": "exact",
+        "expected": "npx eslint packages/server-git/src/",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "S13",
+        "pareScenarioName": "eslint-diag",
+        "command": "npx eslint packages/server-git/src/",
+        "category": "node-tooling",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-repro-S14",
+      "name": "Pare S14 npm-audit",
+      "prompt": "Return exactly this command and nothing else: npm audit",
+      "assertion": {
+        "type": "exact",
+        "expected": "npm audit",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "S14",
+        "pareScenarioName": "npm-audit",
+        "command": "npm audit",
+        "category": "node-tooling",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-repro-S15",
+      "name": "Pare S15 format-check",
+      "prompt": "Return exactly this command and nothing else: npx prettier --check packages/shared/src/",
+      "assertion": {
+        "type": "exact",
+        "expected": "npx prettier --check packages/shared/src/",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "S15",
+        "pareScenarioName": "format-check",
+        "command": "npx prettier --check packages/shared/src/",
+        "category": "node-tooling",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-repro-S16",
+      "name": "Pare S16 vitest-run",
+      "prompt": "Return exactly this command and nothing else: npx vitest run",
+      "assertion": {
+        "type": "exact",
+        "expected": "npx vitest run",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "S16",
+        "pareScenarioName": "vitest-run",
+        "command": "npx vitest run",
+        "category": "node-tooling",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-repro-S17",
+      "name": "Pare S17 npm-test",
+      "prompt": "Return exactly this command and nothing else: npm test",
+      "assertion": {
+        "type": "exact",
+        "expected": "npm test",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "S17",
+        "pareScenarioName": "npm-test",
+        "command": "npm test",
+        "category": "node-tooling",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-repro-S18",
+      "name": "Pare S18 npm-info",
+      "prompt": "Return exactly this command and nothing else: npm info @paretools/git",
+      "assertion": {
+        "type": "exact",
+        "expected": "npm info @paretools/git",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "S18",
+        "pareScenarioName": "npm-info",
+        "command": "npm info @paretools/git",
+        "category": "node-tooling",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-repro-S19",
+      "name": "Pare S19 git-diff-files",
+      "prompt": "Return exactly this command and nothing else: git diff --numstat HEAD~1",
+      "assertion": {
+        "type": "exact",
+        "expected": "git diff --numstat HEAD~1",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "S19",
+        "pareScenarioName": "git-diff-files",
+        "command": "git diff --numstat HEAD~1",
+        "category": "git",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-repro-S20",
+      "name": "Pare S20 npm-run-script",
+      "prompt": "Return exactly this command and nothing else: npm run build -w packages/shared",
+      "assertion": {
+        "type": "exact",
+        "expected": "npm run build -w packages/shared",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "S20",
+        "pareScenarioName": "npm-run-script",
+        "command": "npm run build -w packages/shared",
+        "category": "node-tooling",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-repro-S21",
+      "name": "Pare S21 build-generic",
+      "prompt": "Return exactly this command and nothing else: npm run build -w packages/shared",
+      "assertion": {
+        "type": "exact",
+        "expected": "npm run build -w packages/shared",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "S21",
+        "pareScenarioName": "build-generic",
+        "command": "npm run build -w packages/shared",
+        "category": "node-tooling",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-repro-S22",
+      "name": "Pare S22 docker-images",
+      "prompt": "Return exactly this command and nothing else: docker images",
+      "assertion": {
+        "type": "exact",
+        "expected": "docker images",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "S22",
+        "pareScenarioName": "docker-images",
+        "command": "docker images",
+        "category": "docker",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-repro-S23",
+      "name": "Pare S23 docker-ps",
+      "prompt": "Return exactly this command and nothing else: docker ps -a",
+      "assertion": {
+        "type": "exact",
+        "expected": "docker ps -a",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "reproducible",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "S23",
+        "pareScenarioName": "docker-ps",
+        "command": "docker ps -a",
+        "category": "docker",
+        "useFrequency": "low"
+      }
+    }
+  ]
+}

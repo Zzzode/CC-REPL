@@ -72,10 +72,6 @@ export function FileEditToolUpdatedMessage(t0) {
       }
       return t5;
     }
-  } else {
-    if (style === "condensed" && !verbose) {
-      return text;
-    }
   }
   let t5;
   if ($[11] !== text) {

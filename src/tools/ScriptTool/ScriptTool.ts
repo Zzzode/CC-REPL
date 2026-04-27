@@ -98,8 +98,15 @@ export const ScriptTool = buildTool({
     return { behavior: 'allow', decisionReason: { type: 'rule' } }
   },
 
-  async prompt() {
-    return getPrompt()
+  // Transparent wrapper: inner tool calls (Read/Edit/Write/etc.) are emitted
+  // as virtual messages via newMessages and render with native diff UI.
+  // The Script wrapper itself shows only progress, not a persistent result block.
+  isTransparentWrapper() {
+    return true
+  },
+
+  async prompt({ agents }) {
+    return getPrompt({ agents })
   },
 
   renderToolUseMessage,

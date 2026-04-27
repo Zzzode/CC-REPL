@@ -51,6 +51,7 @@ import { AGENT_TOOL_NAME, LEGACY_AGENT_TOOL_NAME, ONE_SHOT_BUILTIN_AGENT_TYPES }
 import { buildForkedMessages, buildWorktreeNotice, FORK_AGENT, isForkSubagentEnabled, isInForkChild } from './forkSubagent.js';
 import type { AgentDefinition } from './loadAgentsDir.js';
 import { filterAgentsByMcpRequirements, hasRequiredMcpServers, isBuiltInAgent } from './loadAgentsDir.js';
+import { resolveRequestedAgentType } from './agentTypeResolution.js';
 import { getPrompt } from './prompt.js';
 import { runAgent } from './runAgent.js';
 import { renderGroupedAgentToolUse, renderToolResultMessage, renderToolUseErrorMessage, renderToolUseMessage, renderToolUseProgressMessage, renderToolUseRejectedMessage, renderToolUseTag, userFacingName, userFacingNameBackgroundColor } from './UI.js';
@@ -254,6 +255,9 @@ export const AgentTool = buildTool({
     // Get app state for permission mode and agent filtering
     const appState = toolUseContext.getAppState();
     const permissionMode = appState.toolPermissionContext.mode;
+    const activeAgents = toolUseContext.options.agentDefinitions.activeAgents;
+    const resolvedSubagentType = resolveRequestedAgentType(subagent_type, activeAgents);
+    const requestedAgentType = subagent_type ? (resolvedSubagentType ?? subagent_type) : undefined;
     // In-process teammates get a no-op setAppState; setAppStateForTasks
     // reaches the root store so task registration/progress/kill stay visible.
     const rootSetAppState = toolUseContext.setAppStateForTasks ?? toolUseContext.setAppState;
@@ -283,9 +287,9 @@ export const AgentTool = buildTool({
     // Spawn is triggered when team_name is set (from param or context) and name is provided
     if (teamName && name) {
       // Set agent definition color for grouped UI display before spawning
-      const agentDef = subagent_type ? toolUseContext.options.agentDefinitions.activeAgents.find(a => a.agentType === subagent_type) : undefined;
+      const agentDef = requestedAgentType ? activeAgents.find(a => a.agentType === requestedAgentType) : undefined;
       if (agentDef?.color) {
-        setAgentColor(subagent_type!, agentDef.color);
+        setAgentColor(agentDef.agentType, agentDef.color);
       }
       const result = await spawnTeammate({
         name,
@@ -295,7 +299,7 @@ export const AgentTool = buildTool({
         use_splitpane: true,
         plan_mode_required: spawnMode === 'plan',
         model: model ?? agentDef?.model,
-        agent_type: subagent_type,
+        agent_type: requestedAgentType,
         invokingRequestId: assistantMessage?.requestId
       }, toolUseContext);
 
@@ -319,7 +323,7 @@ export const AgentTool = buildTool({
     // - subagent_type set: use it (explicit wins)
     // - subagent_type omitted, gate on: fork path (undefined)
     // - subagent_type omitted, gate off: default general-purpose
-    const effectiveType = subagent_type ?? (isForkSubagentEnabled() ? undefined : GENERAL_PURPOSE_AGENT.agentType);
+    const effectiveType = requestedAgentType ?? (isForkSubagentEnabled() ? undefined : GENERAL_PURPOSE_AGENT.agentType);
     const isForkPath = effectiveType === undefined;
     let selectedAgent: AgentDefinition;
     if (isForkPath) {

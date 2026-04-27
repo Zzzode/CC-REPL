@@ -1,0 +1,754 @@
+{
+  "version": "pare-case-v1",
+  "source": {
+    "origin": "Pare benchmarks v2 latest-mutating-results.csv (extracted list)",
+    "migrationDate": "2026-04-27T04:33:12.142Z",
+    "note": "Mutating-oriented scenarios adapted as deterministic command-fidelity checks."
+  },
+  "cases": [
+    {
+      "id": "pare-mut-3A",
+      "name": "Pare 3A git-commit",
+      "prompt": "Return exactly this command and nothing else: git commit -m \"benchmark\"",
+      "assertion": {
+        "type": "exact",
+        "expected": "git commit -m \"benchmark\"",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "mutating",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "3A",
+        "pareScenarioName": "git-commit",
+        "command": "git commit -m \"benchmark\"",
+        "category": "git",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-mut-4A",
+      "name": "Pare 4A git-add",
+      "prompt": "Return exactly this command and nothing else: git add .",
+      "assertion": {
+        "type": "exact",
+        "expected": "git add .",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "mutating",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "4A",
+        "pareScenarioName": "git-add",
+        "command": "git add .",
+        "category": "git",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-mut-6A",
+      "name": "Pare 6A git-push",
+      "prompt": "Return exactly this command and nothing else: git push",
+      "assertion": {
+        "type": "exact",
+        "expected": "git push",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "mutating",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "6A",
+        "pareScenarioName": "git-push",
+        "command": "git push",
+        "category": "git",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-mut-8A",
+      "name": "Pare 8A git-checkout",
+      "prompt": "Return exactly this command and nothing else: git checkout -b bench-temp",
+      "assertion": {
+        "type": "exact",
+        "expected": "git checkout -b bench-temp",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "mutating",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "8A",
+        "pareScenarioName": "git-checkout",
+        "command": "git checkout -b bench-temp",
+        "category": "git",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-mut-10A",
+      "name": "Pare 10A git-pull",
+      "prompt": "Return exactly this command and nothing else: git pull",
+      "assertion": {
+        "type": "exact",
+        "expected": "git pull",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "mutating",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "10A",
+        "pareScenarioName": "git-pull",
+        "command": "git pull",
+        "category": "git",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-mut-11A",
+      "name": "Pare 11A npm-install",
+      "prompt": "Return exactly this command and nothing else: npm install",
+      "assertion": {
+        "type": "exact",
+        "expected": "npm install",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "mutating",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "11A",
+        "pareScenarioName": "npm-install",
+        "command": "npm install",
+        "category": "node-tooling",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-mut-17D",
+      "name": "Pare 17D lint-violations",
+      "prompt": "Return exactly this command and nothing else: npx eslint . --fix",
+      "assertion": {
+        "type": "exact",
+        "expected": "npx eslint . --fix",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "mutating",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "17D",
+        "pareScenarioName": "lint-violations",
+        "command": "npx eslint . --fix",
+        "category": "node-tooling",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-mut-29A",
+      "name": "Pare 29A docker-run",
+      "prompt": "Return exactly this command and nothing else: docker run --rm hello-world",
+      "assertion": {
+        "type": "exact",
+        "expected": "docker run --rm hello-world",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "mutating",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "29A",
+        "pareScenarioName": "docker-run",
+        "command": "docker run --rm hello-world",
+        "category": "docker",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-mut-33A",
+      "name": "Pare 33A pip-install",
+      "prompt": "Return exactly this command and nothing else: pip install requests",
+      "assertion": {
+        "type": "exact",
+        "expected": "pip install requests",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "mutating",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "33A",
+        "pareScenarioName": "pip-install",
+        "command": "pip install requests",
+        "category": "python-tooling",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-mut-43A",
+      "name": "Pare 43A docker-exec",
+      "prompt": "Return exactly this command and nothing else: docker exec app sh -lc \"echo ok\"",
+      "assertion": {
+        "type": "exact",
+        "expected": "docker exec app sh -lc \"echo ok\"",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "mutating",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "43A",
+        "pareScenarioName": "docker-exec",
+        "command": "docker exec app sh -lc \"echo ok\"",
+        "category": "docker",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-mut-44A",
+      "name": "Pare 44A docker-compose-up",
+      "prompt": "Return exactly this command and nothing else: docker compose up -d",
+      "assertion": {
+        "type": "exact",
+        "expected": "docker compose up -d",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "mutating",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "44A",
+        "pareScenarioName": "docker-compose-up",
+        "command": "docker compose up -d",
+        "category": "docker",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-mut-45A",
+      "name": "Pare 45A github-pr-create",
+      "prompt": "Return exactly this command and nothing else: gh pr create --title \"bench\" --body \"bench\"",
+      "assertion": {
+        "type": "exact",
+        "expected": "gh pr create --title \"bench\" --body \"bench\"",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "mutating",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "45A",
+        "pareScenarioName": "github-pr-create",
+        "command": "gh pr create --title \"bench\" --body \"bench\"",
+        "category": "github",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-mut-48B",
+      "name": "Pare 48B mypy-violations",
+      "prompt": "Return exactly this command and nothing else: mypy .",
+      "assertion": {
+        "type": "exact",
+        "expected": "mypy .",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "mutating",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "48B",
+        "pareScenarioName": "mypy-violations",
+        "command": "mypy .",
+        "category": "python-tooling",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-mut-49B",
+      "name": "Pare 49B ruff-violations",
+      "prompt": "Return exactly this command and nothing else: ruff check . --fix",
+      "assertion": {
+        "type": "exact",
+        "expected": "ruff check . --fix",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "mutating",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "49B",
+        "pareScenarioName": "ruff-violations",
+        "command": "ruff check . --fix",
+        "category": "python-tooling",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-mut-50B",
+      "name": "Pare 50B cargo-clippy-warnings",
+      "prompt": "Return exactly this command and nothing else: cargo clippy --all-targets",
+      "assertion": {
+        "type": "exact",
+        "expected": "cargo clippy --all-targets",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "mutating",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "50B",
+        "pareScenarioName": "cargo-clippy-warnings",
+        "command": "cargo clippy --all-targets",
+        "category": "systems-tooling",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-mut-54A",
+      "name": "Pare 54A docker-compose-down",
+      "prompt": "Return exactly this command and nothing else: docker compose down",
+      "assertion": {
+        "type": "exact",
+        "expected": "docker compose down",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "mutating",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "54A",
+        "pareScenarioName": "docker-compose-down",
+        "command": "docker compose down",
+        "category": "docker",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-mut-63B",
+      "name": "Pare 63B biome-violations",
+      "prompt": "Return exactly this command and nothing else: biome check . --write",
+      "assertion": {
+        "type": "exact",
+        "expected": "biome check . --write",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "mutating",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "63B",
+        "pareScenarioName": "biome-violations",
+        "command": "biome check . --write",
+        "category": "misc",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-mut-64A",
+      "name": "Pare 64A docker-pull",
+      "prompt": "Return exactly this command and nothing else: docker pull node:20",
+      "assertion": {
+        "type": "exact",
+        "expected": "docker pull node:20",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "mutating",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "64A",
+        "pareScenarioName": "docker-pull",
+        "command": "docker pull node:20",
+        "category": "docker",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-mut-66A",
+      "name": "Pare 66A github-issue-create",
+      "prompt": "Return exactly this command and nothing else: gh issue create --title \"bench\" --body \"bench\"",
+      "assertion": {
+        "type": "exact",
+        "expected": "gh issue create --title \"bench\" --body \"bench\"",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "mutating",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "66A",
+        "pareScenarioName": "github-issue-create",
+        "command": "gh issue create --title \"bench\" --body \"bench\"",
+        "category": "github",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-mut-75A",
+      "name": "Pare 75A go-mod-tidy",
+      "prompt": "Return exactly this command and nothing else: go mod tidy",
+      "assertion": {
+        "type": "exact",
+        "expected": "go mod tidy",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "mutating",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "75A",
+        "pareScenarioName": "go-mod-tidy",
+        "command": "go mod tidy",
+        "category": "systems-tooling",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-mut-76A",
+      "name": "Pare 76A git-stash",
+      "prompt": "Return exactly this command and nothing else: git stash push -m \"bench\"",
+      "assertion": {
+        "type": "exact",
+        "expected": "git stash push -m \"bench\"",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "mutating",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "76A",
+        "pareScenarioName": "git-stash",
+        "command": "git stash push -m \"bench\"",
+        "category": "git",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-mut-82A",
+      "name": "Pare 82A http-post",
+      "prompt": "Return exactly this command and nothing else: curl -X POST https://example.com",
+      "assertion": {
+        "type": "exact",
+        "expected": "curl -X POST https://example.com",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "mutating",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "82A",
+        "pareScenarioName": "http-post",
+        "command": "curl -X POST https://example.com",
+        "category": "http",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-mut-84B",
+      "name": "Pare 84B pip-audit-vulns",
+      "prompt": "Return exactly this command and nothing else: pip-audit",
+      "assertion": {
+        "type": "exact",
+        "expected": "pip-audit",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "mutating",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "84B",
+        "pareScenarioName": "pip-audit-vulns",
+        "command": "pip-audit",
+        "category": "misc",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-mut-85A",
+      "name": "Pare 85A uv-install",
+      "prompt": "Return exactly this command and nothing else: uv pip install requests",
+      "assertion": {
+        "type": "exact",
+        "expected": "uv pip install requests",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "mutating",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "85A",
+        "pareScenarioName": "uv-install",
+        "command": "uv pip install requests",
+        "category": "python-tooling",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-mut-87B",
+      "name": "Pare 87B black-violations",
+      "prompt": "Return exactly this command and nothing else: black .",
+      "assertion": {
+        "type": "exact",
+        "expected": "black .",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "mutating",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "87B",
+        "pareScenarioName": "black-violations",
+        "command": "black .",
+        "category": "python-tooling",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-mut-88A",
+      "name": "Pare 88A cargo-add",
+      "prompt": "Return exactly this command and nothing else: cargo add serde",
+      "assertion": {
+        "type": "exact",
+        "expected": "cargo add serde",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "mutating",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "88A",
+        "pareScenarioName": "cargo-add",
+        "command": "cargo add serde",
+        "category": "systems-tooling",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-mut-89A",
+      "name": "Pare 89A npm-init",
+      "prompt": "Return exactly this command and nothing else: npm init -y",
+      "assertion": {
+        "type": "exact",
+        "expected": "npm init -y",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "mutating",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "89A",
+        "pareScenarioName": "npm-init",
+        "command": "npm init -y",
+        "category": "node-tooling",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-mut-93A",
+      "name": "Pare 93A cargo-remove",
+      "prompt": "Return exactly this command and nothing else: cargo rm serde",
+      "assertion": {
+        "type": "exact",
+        "expected": "cargo rm serde",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "mutating",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "93A",
+        "pareScenarioName": "cargo-remove",
+        "command": "cargo rm serde",
+        "category": "systems-tooling",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-mut-95A",
+      "name": "Pare 95A cargo-update",
+      "prompt": "Return exactly this command and nothing else: cargo update",
+      "assertion": {
+        "type": "exact",
+        "expected": "cargo update",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "mutating",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "95A",
+        "pareScenarioName": "cargo-update",
+        "command": "cargo update",
+        "category": "systems-tooling",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-mut-97A",
+      "name": "Pare 97A go-generate",
+      "prompt": "Return exactly this command and nothing else: go generate ./...",
+      "assertion": {
+        "type": "exact",
+        "expected": "go generate ./...",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "mutating",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "97A",
+        "pareScenarioName": "go-generate",
+        "command": "go generate ./...",
+        "category": "systems-tooling",
+        "useFrequency": "low"
+      }
+    },
+    {
+      "id": "pare-mut-100A",
+      "name": "Pare 100A go-get",
+      "prompt": "Return exactly this command and nothing else: go get ./...",
+      "assertion": {
+        "type": "exact",
+        "expected": "go get ./...",
+        "normalize": [
+          "trim"
+        ]
+      },
+      "tags": [
+        "pare-migrated",
+        "mutating",
+        "command-fidelity"
+      ],
+      "metadata": {
+        "pareScenarioId": "100A",
+        "pareScenarioName": "go-get",
+        "command": "go get ./...",
+        "category": "systems-tooling",
+        "useFrequency": "low"
+      }
+    }
+  ]
+}
