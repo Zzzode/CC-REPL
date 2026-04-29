@@ -1,3 +1,4 @@
+import { shouldInjectAgentListInMessages } from '../AgentTool/prompt.js'
 import { MAX_OUTPUT_SIZE, MAX_TIMEOUT_MS } from './constants.js'
 
 export const DESCRIPTION =
@@ -7,8 +8,6 @@ type BindingDoc = {
   binding: string
   backingTool: string
   notes: string
-  returnType: string
-  returnDetails: string
 }
 
 type PromptAgent = {
@@ -20,47 +19,20 @@ const TOOL_BINDINGS: BindingDoc[] = [
   {
     binding: 'Read',
     backingTool: 'FileReadTool',
-    notes: 'Pure Node fs reader',
-    returnType: 'string | object',
-    returnDetails:
-      'Text files return content string; non-text responses (image/pdf/notebook) return structured objects.',
+    notes: 'returns string for text; object for image/pdf/notebook',
   },
-  {
-    binding: 'Write',
-    backingTool: 'FileWriteTool',
-    notes: 'Pure Node fs writer',
-    returnType: 'string',
-    returnDetails:
-      'Confirmation message, e.g. "File created successfully at: ..." or "The file ... has been updated successfully."',
-  },
-  {
-    binding: 'Edit',
-    backingTool: 'FileEditTool',
-    notes: 'Exact-match string replace',
-    returnType: 'string',
-    returnDetails: 'Confirmation message.',
-  },
+  { binding: 'Write', backingTool: 'FileWriteTool', notes: 'returns confirmation string' },
+  { binding: 'Edit', backingTool: 'FileEditTool', notes: 'exact-match replace; returns confirmation string' },
   {
     binding: 'NotebookEdit',
     backingTool: 'NotebookEditTool',
-    notes: 'Jupyter notebook cell operations',
-    returnType: 'string',
-    returnDetails:
-      'Returns action message (Inserted/Deleted/Updated cell ...); throws when tool reports an error.',
+    notes: 'Jupyter cell ops; returns action message',
   },
-  {
-    binding: 'Agent',
-    backingTool: 'AgentTool',
-    notes: 'Spawn sub-agent in-process',
-    returnType: 'string',
-    returnDetails: 'All text blocks joined with newlines.',
-  },
+  { binding: 'Agent', backingTool: 'AgentTool', notes: 'spawn sub-agent; returns joined text' },
   {
     binding: 'WebFetch',
     backingTool: 'WebFetchTool',
-    notes: 'HTTP via globalThis.fetch (whitelisted)',
-    returnType: 'string',
-    returnDetails: 'Processed/summarized content from the URL.',
+    notes: 'HTTP fetch (whitelisted); returns processed content',
   },
 ]
 
@@ -69,25 +41,10 @@ function escapeTableCell(value: string): string {
 }
 
 function renderBindingTable(): string {
-  const header = [
-    '| Binding | Backing tool | Notes |',
-    '|---|---|---|',
-  ]
+  const header = ['| Binding | Backing tool | Notes |', '|---|---|---|']
   const rows = TOOL_BINDINGS.map(
-    binding =>
-      `| \`${escapeTableCell(binding.binding)}\` | ${escapeTableCell(binding.backingTool)} | ${escapeTableCell(binding.notes)} |`,
-  )
-  return [...header, ...rows].join('\n')
-}
-
-function renderReturnTable(): string {
-  const header = [
-    '| Binding | Return type | Details |',
-    '|---|---|---|',
-  ]
-  const rows = TOOL_BINDINGS.map(
-    binding =>
-      `| \`${escapeTableCell(binding.binding)}\` | \`${escapeTableCell(binding.returnType)}\` | ${escapeTableCell(binding.returnDetails)} |`,
+    b =>
+      `| \`${escapeTableCell(b.binding)}\` | ${escapeTableCell(b.backingTool)} | ${escapeTableCell(b.notes)} |`,
   )
   return [...header, ...rows].join('\n')
 }
@@ -119,7 +76,18 @@ function pickSearchAgentType(agents: readonly PromptAgent[]): string {
   return generalPurpose?.agentType ?? 'general-purpose'
 }
 
+// Render the agent-type section.
+//
+// When the agent_listing_delta attachment is active (shouldInjectAgentListInMessages()),
+// the full list is delivered via <system-reminder> messages — inlining it here
+// would duplicate content AND bust the tool-schema prompt cache on every
+// agent-list mutation (MCP connect, /reload-plugins, permission change).
+// Mirror AgentTool's handling to stay cache-friendly.
 function renderAgentTypeSection(agents: readonly PromptAgent[]): string {
+  if (shouldInjectAgentListInMessages()) {
+    return 'Available agent types are listed in <system-reminder> messages in the conversation. Use `general-purpose` by default.'
+  }
+
   const uniqueAgents = Array.from(
     new Map(agents.map(agent => [agent.agentType, agent])).values(),
   )
@@ -140,9 +108,11 @@ ${lines.join('\n')}
 Use \`general-purpose\` by default. Only set \`subagent_type\` when you need a specific specialized type from the list above.`
 }
 
-export function getPrompt(options: {
-  agents?: readonly PromptAgent[]
-} = {}): string {
+export function getPrompt(
+  options: {
+    agents?: readonly PromptAgent[]
+  } = {},
+): string {
   const agents = options.agents ?? []
   const preferredSearchAgentType = pickSearchAgentType(agents)
   const agentTypeSection = renderAgentTypeSection(agents)
@@ -151,79 +121,51 @@ export function getPrompt(options: {
 
 ## Capabilities
 
-When ScriptTool is enabled, these operations are routed through Script:
+All file ops (Read / Write / Edit / NotebookEdit), web retrieval (WebFetch),
+sub-agent orchestration (Agent), and multi-step orchestration route through Script.
+Even a single Read / Write / Edit / WebFetch call must go through Script.
 
-- File operations (Read / Write / Edit / NotebookEdit)
-- Web content retrieval for known URLs (WebFetch)
-- Multi-step orchestration with conditional logic and loops
-- Sub-agent orchestration (Agent)
-- Data processing in TypeScript (JavaScript is supported as a subset)
-
-Even a single Read/Write/Edit/WebFetch call must be done through Script.
-
-## Execution model
-
-Code runs in a lightweight async sandbox (Bun.Transpiler + AsyncFunction).
-Execution pipeline:
-
-1. Syntax transpilation (TypeScript -> JavaScript)
-2. Type checking (error-level diagnostics block execution)
-3. Runtime execution in sandbox context
-
-Inside the sandbox, each injected binding is an async function that delegates to
-its in-process tool with the same input schema, permission checks, and side effects.
+Each injected binding is an async function backed by an in-process tool
+(same input schema, permission checks, and side effects). Tool and runtime
+failures surface as JavaScript exceptions — use try/catch.
 
 ${renderBindingTable()}
 
-Each binding returns a script-friendly value instead of raw internal tool data:
+### Agent binding
 
-${renderReturnTable()}
-
-### Agent binding input
-
-\`Agent()\` delegates work to a sub-agent that has access to the full tool set.
-
-| Parameter | Required | Description |
-|---|---|---|
-| \`description\` | **yes** | Short (3-5 word) task description |
-| \`prompt\` | **yes** | Detailed task instructions for the sub-agent |
-| \`subagent_type\` | no | Agent type (defaults to \`'general-purpose'\`) |
+\`Agent({ description, prompt, subagent_type? })\` delegates to a sub-agent
+with access to the full tool set. \`description\` is 3-5 words;
+\`subagent_type\` defaults to \`'general-purpose'\`. If an unavailable
+\`subagent_type\` is requested, retry with \`'general-purpose'\`.
 
 ${agentTypeSection}
 
-If a requested \`subagent_type\` is unavailable, retry with \`general-purpose\`.
-
-Tool and runtime failures are regular JavaScript exceptions (use try/catch).
-
 ## utils namespace
 
-The \`utils\` object exposes side-effect-free helpers:
-
-- \`utils.cwd\` — current working directory (read-only string getter)
-- \`utils.sleep(ms)\` — Promise-based sleep that is cancelled on abort/timeout
-  (rejects with an Error instead of resolving)
+- \`utils.cwd\` — current working directory (read-only string)
+- \`utils.sleep(ms)\` — abort-aware Promise sleep (rejects on abort/timeout)
 
 ## Unsupported in Script
 
-These symbols are not injected into the sandbox. Referencing them throws
-\`ReferenceError\`:
+- \`Bash\`, \`Glob\`, \`Grep\` are not injected (referencing them throws).
+- Static \`import\` / \`export\` are not allowed (code runs inside an async function).
 
-- \`Bash\`
-- \`Glob\`
-- \`Grep\`
+For shell commands, file search, or other sandbox-external work, delegate via
+\`Agent({ ... })\` — the sub-agent has the full tool set.
 
-To perform file search, shell commands, or other operations requiring these tools,
-delegate to a sub-agent via \`Agent({ ... })\` — the sub-agent has access to the
-full tool set including Bash and Grep.
+## Execution policy (MUST)
 
-Static \`import\` / \`export\` statements are not allowed (code runs inside an
-async function body). Use injected bindings instead.
+- NEVER output shell / Python / Bash / Node code as text for the user to run.
+  Every executable step MUST go through a Script binding or \`Agent({ ... })\`.
+- If the task needs tools outside the sandbox (Bash / Glob / Grep, tests,
+  package managers, arbitrary shell commands), delegate via \`Agent({ ... })\`.
+- If neither channel works (e.g. interactive OAuth / sudo / hardware),
+  state the limitation and ask the user — do NOT dump a script for them to run.
 
 ## Conventions
 
 - Top-level \`await\` and \`return\` are supported
-- \`console.log/info\` is captured into stdout
-- \`console.warn/error\` is captured into stderr
+- \`console.log/info\` -> stdout; \`console.warn/error\` -> stderr
 - For existing files, call \`Read({ file_path })\` before \`Write\` or \`Edit\`
 - Use \`return\` to emit structured output back to the model
 
@@ -242,7 +184,7 @@ return { version: pkg.version, cwd: utils.cwd }
 \`\`\`
 
 \`\`\`typescript
-// Batch edit with loop + conditional logic
+// Batch edit with loop
 const files = ['/abs/a.ts', '/abs/b.ts', '/abs/c.ts']
 for (const file of files) {
   await Edit({
@@ -255,16 +197,7 @@ return { edited: files.length }
 \`\`\`
 
 \`\`\`typescript
-// Fetch known URL content
-const summary = await WebFetch({
-  url: 'https://example.com/docs',
-  prompt: 'Extract API endpoints and auth requirements',
-})
-return { summary }
-\`\`\`
-
-\`\`\`typescript
-// Delegate search to a sub-agent (Bash/Grep are unavailable in Script)
+// Delegate sandbox-external work (Bash/Grep unavailable inside Script)
 const result = await Agent({
   description: 'Find TODO comments',
   subagent_type: '${preferredSearchAgentType}',

@@ -1,0 +1,30 @@
+{
+  "cases": "benchmarks/pare/cases/pare-v2-reproducible.json",
+  "runsPerCase": 3,
+  "workspaceMode": "tmp-git",
+  "permissionMode": "bypassPermissions",
+  "baseline": {
+    "label": "baseline",
+    "command": "env",
+    "args": [
+      "ENABLE_SCRIPT_TOOL=0",
+      "bun",
+      "dist/cli.js",
+      "--settings=/Users/bytedance/.claude/ttadk.json",
+      "--permission-mode",
+      "bypassPermissions"
+    ]
+  },
+  "candidate": {
+    "label": "candidate",
+    "command": "env",
+    "args": [
+      "ENABLE_SCRIPT_TOOL=1",
+      "bun",
+      "dist/cli.js",
+      "--settings=/Users/bytedance/.claude/ttadk.json",
+      "--permission-mode",
+      "bypassPermissions"
+    ]
+  }
+}

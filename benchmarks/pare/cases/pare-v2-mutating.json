@@ -1,18 +1,17 @@
 {
   "version": "pare-case-v1",
   "source": {
-    "origin": "Pare benchmarks v2 latest-mutating-results.csv (extracted list)",
-    "migrationDate": "2026-04-27T04:33:12.142Z",
-    "note": "Mutating-oriented scenarios adapted as deterministic command-fidelity checks."
+    "kind": "csv",
+    "url": "https://raw.githubusercontent.com/Dave-London/Pare/main/benchmarks/v2/data/latest-mutating-results.csv"
   },
   "cases": [
     {
       "id": "pare-mut-3A",
       "name": "Pare 3A git-commit",
-      "prompt": "Return exactly this command and nothing else: git commit -m \"benchmark\"",
+      "prompt": "Return exactly this scenario key and nothing else: git-commit",
       "assertion": {
         "type": "exact",
-        "expected": "git commit -m \"benchmark\"",
+        "expected": "git-commit",
         "normalize": [
           "trim"
         ]
@@ -20,23 +19,23 @@
       "tags": [
         "pare-migrated",
         "mutating",
-        "command-fidelity"
+        "scenario-fidelity"
       ],
       "metadata": {
         "pareScenarioId": "3A",
         "pareScenarioName": "git-commit",
-        "command": "git commit -m \"benchmark\"",
         "category": "git",
-        "useFrequency": "low"
+        "useFrequency": "low",
+        "command": "git-commit"
       }
     },
     {
       "id": "pare-mut-4A",
       "name": "Pare 4A git-add",
-      "prompt": "Return exactly this command and nothing else: git add .",
+      "prompt": "Return exactly this scenario key and nothing else: git-add",
       "assertion": {
         "type": "exact",
-        "expected": "git add .",
+        "expected": "git-add",
         "normalize": [
           "trim"
         ]
@@ -44,23 +43,23 @@
       "tags": [
         "pare-migrated",
         "mutating",
-        "command-fidelity"
+        "scenario-fidelity"
       ],
       "metadata": {
         "pareScenarioId": "4A",
         "pareScenarioName": "git-add",
-        "command": "git add .",
         "category": "git",
-        "useFrequency": "low"
+        "useFrequency": "low",
+        "command": "git-add"
       }
     },
     {
       "id": "pare-mut-6A",
       "name": "Pare 6A git-push",
-      "prompt": "Return exactly this command and nothing else: git push",
+      "prompt": "Return exactly this scenario key and nothing else: git-push",
       "assertion": {
         "type": "exact",
-        "expected": "git push",
+        "expected": "git-push",
         "normalize": [
           "trim"
         ]
@@ -68,23 +67,23 @@
       "tags": [
         "pare-migrated",
         "mutating",
-        "command-fidelity"
+        "scenario-fidelity"
       ],
       "metadata": {
         "pareScenarioId": "6A",
         "pareScenarioName": "git-push",
-        "command": "git push",
         "category": "git",
-        "useFrequency": "low"
+        "useFrequency": "low",
+        "command": "git-push"
       }
     },
     {
       "id": "pare-mut-8A",
       "name": "Pare 8A git-checkout",
-      "prompt": "Return exactly this command and nothing else: git checkout -b bench-temp",
+      "prompt": "Return exactly this scenario key and nothing else: git-checkout",
       "assertion": {
         "type": "exact",
-        "expected": "git checkout -b bench-temp",
+        "expected": "git-checkout",
         "normalize": [
           "trim"
         ]
@@ -92,23 +91,23 @@
       "tags": [
         "pare-migrated",
         "mutating",
-        "command-fidelity"
+        "scenario-fidelity"
       ],
       "metadata": {
         "pareScenarioId": "8A",
         "pareScenarioName": "git-checkout",
-        "command": "git checkout -b bench-temp",
         "category": "git",
-        "useFrequency": "low"
+        "useFrequency": "low",
+        "command": "git-checkout"
       }
     },
     {
       "id": "pare-mut-10A",
       "name": "Pare 10A git-pull",
-      "prompt": "Return exactly this command and nothing else: git pull",
+      "prompt": "Return exactly this scenario key and nothing else: git-pull",
       "assertion": {
         "type": "exact",
-        "expected": "git pull",
+        "expected": "git-pull",
         "normalize": [
           "trim"
         ]
@@ -116,23 +115,23 @@
       "tags": [
         "pare-migrated",
         "mutating",
-        "command-fidelity"
+        "scenario-fidelity"
       ],
       "metadata": {
         "pareScenarioId": "10A",
         "pareScenarioName": "git-pull",
-        "command": "git pull",
         "category": "git",
-        "useFrequency": "low"
+        "useFrequency": "low",
+        "command": "git-pull"
       }
     },
     {
       "id": "pare-mut-11A",
       "name": "Pare 11A npm-install",
-      "prompt": "Return exactly this command and nothing else: npm install",
+      "prompt": "Return exactly this scenario key and nothing else: npm-install",
       "assertion": {
         "type": "exact",
-        "expected": "npm install",
+        "expected": "npm-install",
         "normalize": [
           "trim"
         ]
@@ -140,23 +139,23 @@
       "tags": [
         "pare-migrated",
         "mutating",
-        "command-fidelity"
+        "scenario-fidelity"
       ],
       "metadata": {
         "pareScenarioId": "11A",
         "pareScenarioName": "npm-install",
-        "command": "npm install",
         "category": "node-tooling",
-        "useFrequency": "low"
+        "useFrequency": "low",
+        "command": "npm-install"
       }
     },
     {
       "id": "pare-mut-17D",
       "name": "Pare 17D lint-violations",
-      "prompt": "Return exactly this command and nothing else: npx eslint . --fix",
+      "prompt": "Return exactly this scenario key and nothing else: lint-violations",
       "assertion": {
         "type": "exact",
-        "expected": "npx eslint . --fix",
+        "expected": "lint-violations",
         "normalize": [
           "trim"
         ]
@@ -164,23 +163,23 @@
       "tags": [
         "pare-migrated",
         "mutating",
-        "command-fidelity"
+        "scenario-fidelity"
       ],
       "metadata": {
         "pareScenarioId": "17D",
         "pareScenarioName": "lint-violations",
-        "command": "npx eslint . --fix",
-        "category": "node-tooling",
-        "useFrequency": "low"
+        "category": "misc",
+        "useFrequency": "low",
+        "command": "lint-violations"
       }
     },
     {
       "id": "pare-mut-29A",
       "name": "Pare 29A docker-run",
-      "prompt": "Return exactly this command and nothing else: docker run --rm hello-world",
+      "prompt": "Return exactly this scenario key and nothing else: docker-run",
       "assertion": {
         "type": "exact",
-        "expected": "docker run --rm hello-world",
+        "expected": "docker-run",
         "normalize": [
           "trim"
         ]
@@ -188,23 +187,23 @@
       "tags": [
         "pare-migrated",
         "mutating",
-        "command-fidelity"
+        "scenario-fidelity"
       ],
       "metadata": {
         "pareScenarioId": "29A",
         "pareScenarioName": "docker-run",
-        "command": "docker run --rm hello-world",
         "category": "docker",
-        "useFrequency": "low"
+        "useFrequency": "low",
+        "command": "docker-run"
       }
     },
     {
       "id": "pare-mut-33A",
       "name": "Pare 33A pip-install",
-      "prompt": "Return exactly this command and nothing else: pip install requests",
+      "prompt": "Return exactly this scenario key and nothing else: pip-install",
       "assertion": {
         "type": "exact",
-        "expected": "pip install requests",
+        "expected": "pip-install",
         "normalize": [
           "trim"
         ]
@@ -212,23 +211,23 @@
       "tags": [
         "pare-migrated",
         "mutating",
-        "command-fidelity"
+        "scenario-fidelity"
       ],
       "metadata": {
         "pareScenarioId": "33A",
         "pareScenarioName": "pip-install",
-        "command": "pip install requests",
         "category": "python-tooling",
-        "useFrequency": "low"
+        "useFrequency": "low",
+        "command": "pip-install"
       }
     },
     {
       "id": "pare-mut-43A",
       "name": "Pare 43A docker-exec",
-      "prompt": "Return exactly this command and nothing else: docker exec app sh -lc \"echo ok\"",
+      "prompt": "Return exactly this scenario key and nothing else: docker-exec",
       "assertion": {
         "type": "exact",
-        "expected": "docker exec app sh -lc \"echo ok\"",
+        "expected": "docker-exec",
         "normalize": [
           "trim"
         ]
@@ -236,23 +235,23 @@
       "tags": [
         "pare-migrated",
         "mutating",
-        "command-fidelity"
+        "scenario-fidelity"
       ],
       "metadata": {
         "pareScenarioId": "43A",
         "pareScenarioName": "docker-exec",
-        "command": "docker exec app sh -lc \"echo ok\"",
         "category": "docker",
-        "useFrequency": "low"
+        "useFrequency": "low",
+        "command": "docker-exec"
       }
     },
     {
       "id": "pare-mut-44A",
       "name": "Pare 44A docker-compose-up",
-      "prompt": "Return exactly this command and nothing else: docker compose up -d",
+      "prompt": "Return exactly this scenario key and nothing else: docker-compose-up",
       "assertion": {
         "type": "exact",
-        "expected": "docker compose up -d",
+        "expected": "docker-compose-up",
         "normalize": [
           "trim"
         ]
@@ -260,23 +259,23 @@
       "tags": [
         "pare-migrated",
         "mutating",
-        "command-fidelity"
+        "scenario-fidelity"
       ],
       "metadata": {
         "pareScenarioId": "44A",
         "pareScenarioName": "docker-compose-up",
-        "command": "docker compose up -d",
         "category": "docker",
-        "useFrequency": "low"
+        "useFrequency": "low",
+        "command": "docker-compose-up"
       }
     },
     {
       "id": "pare-mut-45A",
       "name": "Pare 45A github-pr-create",
-      "prompt": "Return exactly this command and nothing else: gh pr create --title \"bench\" --body \"bench\"",
+      "prompt": "Return exactly this scenario key and nothing else: github-pr-create",
       "assertion": {
         "type": "exact",
-        "expected": "gh pr create --title \"bench\" --body \"bench\"",
+        "expected": "github-pr-create",
         "normalize": [
           "trim"
         ]
@@ -284,23 +283,23 @@
       "tags": [
         "pare-migrated",
         "mutating",
-        "command-fidelity"
+        "scenario-fidelity"
       ],
       "metadata": {
         "pareScenarioId": "45A",
         "pareScenarioName": "github-pr-create",
-        "command": "gh pr create --title \"bench\" --body \"bench\"",
-        "category": "github",
-        "useFrequency": "low"
+        "category": "git",
+        "useFrequency": "low",
+        "command": "github-pr-create"
       }
     },
     {
       "id": "pare-mut-48B",
       "name": "Pare 48B mypy-violations",
-      "prompt": "Return exactly this command and nothing else: mypy .",
+      "prompt": "Return exactly this scenario key and nothing else: mypy-violations",
       "assertion": {
         "type": "exact",
-        "expected": "mypy .",
+        "expected": "mypy-violations",
         "normalize": [
           "trim"
         ]
@@ -308,23 +307,23 @@
       "tags": [
         "pare-migrated",
         "mutating",
-        "command-fidelity"
+        "scenario-fidelity"
       ],
       "metadata": {
         "pareScenarioId": "48B",
         "pareScenarioName": "mypy-violations",
-        "command": "mypy .",
         "category": "python-tooling",
-        "useFrequency": "low"
+        "useFrequency": "low",
+        "command": "mypy-violations"
       }
     },
     {
       "id": "pare-mut-49B",
       "name": "Pare 49B ruff-violations",
-      "prompt": "Return exactly this command and nothing else: ruff check . --fix",
+      "prompt": "Return exactly this scenario key and nothing else: ruff-violations",
       "assertion": {
         "type": "exact",
-        "expected": "ruff check . --fix",
+        "expected": "ruff-violations",
         "normalize": [
           "trim"
         ]
@@ -332,23 +331,23 @@
       "tags": [
         "pare-migrated",
         "mutating",
-        "command-fidelity"
+        "scenario-fidelity"
       ],
       "metadata": {
         "pareScenarioId": "49B",
         "pareScenarioName": "ruff-violations",
-        "command": "ruff check . --fix",
         "category": "python-tooling",
-        "useFrequency": "low"
+        "useFrequency": "low",
+        "command": "ruff-violations"
       }
     },
     {
       "id": "pare-mut-50B",
       "name": "Pare 50B cargo-clippy-warnings",
-      "prompt": "Return exactly this command and nothing else: cargo clippy --all-targets",
+      "prompt": "Return exactly this scenario key and nothing else: cargo-clippy-warnings",
       "assertion": {
         "type": "exact",
-        "expected": "cargo clippy --all-targets",
+        "expected": "cargo-clippy-warnings",
         "normalize": [
           "trim"
         ]
@@ -356,23 +355,23 @@
       "tags": [
         "pare-migrated",
         "mutating",
-        "command-fidelity"
+        "scenario-fidelity"
       ],
       "metadata": {
         "pareScenarioId": "50B",
         "pareScenarioName": "cargo-clippy-warnings",
-        "command": "cargo clippy --all-targets",
         "category": "systems-tooling",
-        "useFrequency": "low"
+        "useFrequency": "low",
+        "command": "cargo-clippy-warnings"
       }
     },
     {
       "id": "pare-mut-54A",
       "name": "Pare 54A docker-compose-down",
-      "prompt": "Return exactly this command and nothing else: docker compose down",
+      "prompt": "Return exactly this scenario key and nothing else: docker-compose-down",
       "assertion": {
         "type": "exact",
-        "expected": "docker compose down",
+        "expected": "docker-compose-down",
         "normalize": [
           "trim"
         ]
@@ -380,23 +379,23 @@
       "tags": [
         "pare-migrated",
         "mutating",
-        "command-fidelity"
+        "scenario-fidelity"
       ],
       "metadata": {
         "pareScenarioId": "54A",
         "pareScenarioName": "docker-compose-down",
-        "command": "docker compose down",
         "category": "docker",
-        "useFrequency": "low"
+        "useFrequency": "low",
+        "command": "docker-compose-down"
       }
     },
     {
       "id": "pare-mut-63B",
       "name": "Pare 63B biome-violations",
-      "prompt": "Return exactly this command and nothing else: biome check . --write",
+      "prompt": "Return exactly this scenario key and nothing else: biome-violations",
       "assertion": {
         "type": "exact",
-        "expected": "biome check . --write",
+        "expected": "biome-violations",
         "normalize": [
           "trim"
         ]
@@ -404,23 +403,23 @@
       "tags": [
         "pare-migrated",
         "mutating",
-        "command-fidelity"
+        "scenario-fidelity"
       ],
       "metadata": {
         "pareScenarioId": "63B",
         "pareScenarioName": "biome-violations",
-        "command": "biome check . --write",
-        "category": "misc",
-        "useFrequency": "low"
+        "category": "node-tooling",
+        "useFrequency": "low",
+        "command": "biome-violations"
       }
     },
     {
       "id": "pare-mut-64A",
       "name": "Pare 64A docker-pull",
-      "prompt": "Return exactly this command and nothing else: docker pull node:20",
+      "prompt": "Return exactly this scenario key and nothing else: docker-pull",
       "assertion": {
         "type": "exact",
-        "expected": "docker pull node:20",
+        "expected": "docker-pull",
         "normalize": [
           "trim"
         ]
@@ -428,23 +427,23 @@
       "tags": [
         "pare-migrated",
         "mutating",
-        "command-fidelity"
+        "scenario-fidelity"
       ],
       "metadata": {
         "pareScenarioId": "64A",
         "pareScenarioName": "docker-pull",
-        "command": "docker pull node:20",
         "category": "docker",
-        "useFrequency": "low"
+        "useFrequency": "low",
+        "command": "docker-pull"
       }
     },
     {
       "id": "pare-mut-66A",
       "name": "Pare 66A github-issue-create",
-      "prompt": "Return exactly this command and nothing else: gh issue create --title \"bench\" --body \"bench\"",
+      "prompt": "Return exactly this scenario key and nothing else: github-issue-create",
       "assertion": {
         "type": "exact",
-        "expected": "gh issue create --title \"bench\" --body \"bench\"",
+        "expected": "github-issue-create",
         "normalize": [
           "trim"
         ]
@@ -452,23 +451,23 @@
       "tags": [
         "pare-migrated",
         "mutating",
-        "command-fidelity"
+        "scenario-fidelity"
       ],
       "metadata": {
         "pareScenarioId": "66A",
         "pareScenarioName": "github-issue-create",
-        "command": "gh issue create --title \"bench\" --body \"bench\"",
-        "category": "github",
-        "useFrequency": "low"
+        "category": "git",
+        "useFrequency": "low",
+        "command": "github-issue-create"
       }
     },
     {
       "id": "pare-mut-75A",
       "name": "Pare 75A go-mod-tidy",
-      "prompt": "Return exactly this command and nothing else: go mod tidy",
+      "prompt": "Return exactly this scenario key and nothing else: go-mod-tidy",
       "assertion": {
         "type": "exact",
-        "expected": "go mod tidy",
+        "expected": "go-mod-tidy",
         "normalize": [
           "trim"
         ]
@@ -476,23 +475,23 @@
       "tags": [
         "pare-migrated",
         "mutating",
-        "command-fidelity"
+        "scenario-fidelity"
       ],
       "metadata": {
         "pareScenarioId": "75A",
         "pareScenarioName": "go-mod-tidy",
-        "command": "go mod tidy",
         "category": "systems-tooling",
-        "useFrequency": "low"
+        "useFrequency": "low",
+        "command": "go-mod-tidy"
       }
     },
     {
       "id": "pare-mut-76A",
       "name": "Pare 76A git-stash",
-      "prompt": "Return exactly this command and nothing else: git stash push -m \"bench\"",
+      "prompt": "Return exactly this scenario key and nothing else: git-stash",
       "assertion": {
         "type": "exact",
-        "expected": "git stash push -m \"bench\"",
+        "expected": "git-stash",
         "normalize": [
           "trim"
         ]
@@ -500,23 +499,23 @@
       "tags": [
         "pare-migrated",
         "mutating",
-        "command-fidelity"
+        "scenario-fidelity"
       ],
       "metadata": {
         "pareScenarioId": "76A",
         "pareScenarioName": "git-stash",
-        "command": "git stash push -m \"bench\"",
         "category": "git",
-        "useFrequency": "low"
+        "useFrequency": "low",
+        "command": "git-stash"
       }
     },
     {
       "id": "pare-mut-82A",
       "name": "Pare 82A http-post",
-      "prompt": "Return exactly this command and nothing else: curl -X POST https://example.com",
+      "prompt": "Return exactly this scenario key and nothing else: http-post",
       "assertion": {
         "type": "exact",
-        "expected": "curl -X POST https://example.com",
+        "expected": "http-post",
         "normalize": [
           "trim"
         ]
@@ -524,23 +523,23 @@
       "tags": [
         "pare-migrated",
         "mutating",
-        "command-fidelity"
+        "scenario-fidelity"
       ],
       "metadata": {
         "pareScenarioId": "82A",
         "pareScenarioName": "http-post",
-        "command": "curl -X POST https://example.com",
         "category": "http",
-        "useFrequency": "low"
+        "useFrequency": "low",
+        "command": "http-post"
       }
     },
     {
       "id": "pare-mut-84B",
       "name": "Pare 84B pip-audit-vulns",
-      "prompt": "Return exactly this command and nothing else: pip-audit",
+      "prompt": "Return exactly this scenario key and nothing else: pip-audit-vulns",
       "assertion": {
         "type": "exact",
-        "expected": "pip-audit",
+        "expected": "pip-audit-vulns",
         "normalize": [
           "trim"
         ]
@@ -548,23 +547,23 @@
       "tags": [
         "pare-migrated",
         "mutating",
-        "command-fidelity"
+        "scenario-fidelity"
       ],
       "metadata": {
         "pareScenarioId": "84B",
         "pareScenarioName": "pip-audit-vulns",
-        "command": "pip-audit",
-        "category": "misc",
-        "useFrequency": "low"
+        "category": "python-tooling",
+        "useFrequency": "low",
+        "command": "pip-audit-vulns"
       }
     },
     {
       "id": "pare-mut-85A",
       "name": "Pare 85A uv-install",
-      "prompt": "Return exactly this command and nothing else: uv pip install requests",
+      "prompt": "Return exactly this scenario key and nothing else: uv-install",
       "assertion": {
         "type": "exact",
-        "expected": "uv pip install requests",
+        "expected": "uv-install",
         "normalize": [
           "trim"
         ]
@@ -572,23 +571,23 @@
       "tags": [
         "pare-migrated",
         "mutating",
-        "command-fidelity"
+        "scenario-fidelity"
       ],
       "metadata": {
         "pareScenarioId": "85A",
         "pareScenarioName": "uv-install",
-        "command": "uv pip install requests",
         "category": "python-tooling",
-        "useFrequency": "low"
+        "useFrequency": "low",
+        "command": "uv-install"
       }
     },
     {
       "id": "pare-mut-87B",
       "name": "Pare 87B black-violations",
-      "prompt": "Return exactly this command and nothing else: black .",
+      "prompt": "Return exactly this scenario key and nothing else: black-violations",
       "assertion": {
         "type": "exact",
-        "expected": "black .",
+        "expected": "black-violations",
         "normalize": [
           "trim"
         ]
@@ -596,23 +595,23 @@
       "tags": [
         "pare-migrated",
         "mutating",
-        "command-fidelity"
+        "scenario-fidelity"
       ],
       "metadata": {
         "pareScenarioId": "87B",
         "pareScenarioName": "black-violations",
-        "command": "black .",
         "category": "python-tooling",
-        "useFrequency": "low"
+        "useFrequency": "low",
+        "command": "black-violations"
       }
     },
     {
       "id": "pare-mut-88A",
       "name": "Pare 88A cargo-add",
-      "prompt": "Return exactly this command and nothing else: cargo add serde",
+      "prompt": "Return exactly this scenario key and nothing else: cargo-add",
       "assertion": {
         "type": "exact",
-        "expected": "cargo add serde",
+        "expected": "cargo-add",
         "normalize": [
           "trim"
         ]
@@ -620,23 +619,23 @@
       "tags": [
         "pare-migrated",
         "mutating",
-        "command-fidelity"
+        "scenario-fidelity"
       ],
       "metadata": {
         "pareScenarioId": "88A",
         "pareScenarioName": "cargo-add",
-        "command": "cargo add serde",
         "category": "systems-tooling",
-        "useFrequency": "low"
+        "useFrequency": "low",
+        "command": "cargo-add"
       }
     },
     {
       "id": "pare-mut-89A",
       "name": "Pare 89A npm-init",
-      "prompt": "Return exactly this command and nothing else: npm init -y",
+      "prompt": "Return exactly this scenario key and nothing else: npm-init",
       "assertion": {
         "type": "exact",
-        "expected": "npm init -y",
+        "expected": "npm-init",
         "normalize": [
           "trim"
         ]
@@ -644,23 +643,23 @@
       "tags": [
         "pare-migrated",
         "mutating",
-        "command-fidelity"
+        "scenario-fidelity"
       ],
       "metadata": {
         "pareScenarioId": "89A",
         "pareScenarioName": "npm-init",
-        "command": "npm init -y",
         "category": "node-tooling",
-        "useFrequency": "low"
+        "useFrequency": "low",
+        "command": "npm-init"
       }
     },
     {
       "id": "pare-mut-93A",
       "name": "Pare 93A cargo-remove",
-      "prompt": "Return exactly this command and nothing else: cargo rm serde",
+      "prompt": "Return exactly this scenario key and nothing else: cargo-remove",
       "assertion": {
         "type": "exact",
-        "expected": "cargo rm serde",
+        "expected": "cargo-remove",
         "normalize": [
           "trim"
         ]
@@ -668,23 +667,23 @@
       "tags": [
         "pare-migrated",
         "mutating",
-        "command-fidelity"
+        "scenario-fidelity"
       ],
       "metadata": {
         "pareScenarioId": "93A",
         "pareScenarioName": "cargo-remove",
-        "command": "cargo rm serde",
         "category": "systems-tooling",
-        "useFrequency": "low"
+        "useFrequency": "low",
+        "command": "cargo-remove"
       }
     },
     {
       "id": "pare-mut-95A",
       "name": "Pare 95A cargo-update",
-      "prompt": "Return exactly this command and nothing else: cargo update",
+      "prompt": "Return exactly this scenario key and nothing else: cargo-update",
       "assertion": {
         "type": "exact",
-        "expected": "cargo update",
+        "expected": "cargo-update",
         "normalize": [
           "trim"
         ]
@@ -692,23 +691,23 @@
       "tags": [
         "pare-migrated",
         "mutating",
-        "command-fidelity"
+        "scenario-fidelity"
       ],
       "metadata": {
         "pareScenarioId": "95A",
         "pareScenarioName": "cargo-update",
-        "command": "cargo update",
         "category": "systems-tooling",
-        "useFrequency": "low"
+        "useFrequency": "low",
+        "command": "cargo-update"
       }
     },
     {
       "id": "pare-mut-97A",
       "name": "Pare 97A go-generate",
-      "prompt": "Return exactly this command and nothing else: go generate ./...",
+      "prompt": "Return exactly this scenario key and nothing else: go-generate",
       "assertion": {
         "type": "exact",
-        "expected": "go generate ./...",
+        "expected": "go-generate",
         "normalize": [
           "trim"
         ]
@@ -716,23 +715,23 @@
       "tags": [
         "pare-migrated",
         "mutating",
-        "command-fidelity"
+        "scenario-fidelity"
       ],
       "metadata": {
         "pareScenarioId": "97A",
         "pareScenarioName": "go-generate",
-        "command": "go generate ./...",
         "category": "systems-tooling",
-        "useFrequency": "low"
+        "useFrequency": "low",
+        "command": "go-generate"
       }
     },
     {
       "id": "pare-mut-100A",
       "name": "Pare 100A go-get",
-      "prompt": "Return exactly this command and nothing else: go get ./...",
+      "prompt": "Return exactly this scenario key and nothing else: go-get",
       "assertion": {
         "type": "exact",
-        "expected": "go get ./...",
+        "expected": "go-get",
         "normalize": [
           "trim"
         ]
@@ -740,14 +739,14 @@
       "tags": [
         "pare-migrated",
         "mutating",
-        "command-fidelity"
+        "scenario-fidelity"
       ],
       "metadata": {
         "pareScenarioId": "100A",
         "pareScenarioName": "go-get",
-        "command": "go get ./...",
         "category": "systems-tooling",
-        "useFrequency": "low"
+        "useFrequency": "low",
+        "command": "go-get"
       }
     }
   ]

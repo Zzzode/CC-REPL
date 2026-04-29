@@ -65,6 +65,8 @@ export type NormalizedUsage = {
   totalTokens: number
 }
 
+export type CaseRunStatus = 'evaluated' | 'skipped' | 'unavailable'
+
 export type CaseRunResult = {
   caseId: string
   caseName: string
@@ -75,6 +77,13 @@ export type CaseRunResult = {
   usage: NormalizedUsage
   durationMs?: number
   metadata?: Record<string, unknown>
+  status?: CaseRunStatus
+  runs?: Array<{
+    pass: boolean
+    error?: string
+    usage: NormalizedUsage
+    durationMs?: number
+  }>
 }
 
 export type VariantRun = {
@@ -113,6 +122,11 @@ export type ComparisonResult = {
       totalCount: number
       tokens: NormalizedUsage
       p50DurationMs: number | null
+      totalDurationMs: number
+      avgDurationMs: number
+      errorCount: number
+      errorRate: number
+      topErrors: Array<{ message: string; count: number }>
     }
     candidate: {
       passRate: number
@@ -120,11 +134,27 @@ export type ComparisonResult = {
       totalCount: number
       tokens: NormalizedUsage
       p50DurationMs: number | null
+      totalDurationMs: number
+      avgDurationMs: number
+      errorCount: number
+      errorRate: number
+      topErrors: Array<{ message: string; count: number }>
     }
     delta: {
       passRate: number
       totalTokens: number
       totalTokensPct: number
+      totalDurationMs: number
+      totalDurationPct: number
+      avgDurationMs: number
+      avgDurationPct: number
+    }
+    v2?: {
+      runsPerCase: number
+      evaluatedCases: number
+      skippedCases: number
+      unavailableCases: number
+      weightedTokenReductionPct: number
     }
   }
   grouped: {

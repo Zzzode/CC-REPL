@@ -48,21 +48,7 @@ Artifacts are written to:
 
 with `baseline.json`, `candidate.json`, and `comparison.json`.
 
-## Migrated Pare v2 cases
-
-A migrated case file is provided at:
-
-`benchmarks/pare/cases/pare-v2-migrated.json`
-
-It imports scenario names/commands from Pare v2 scenario definitions and adapts them to this harness as deterministic command-fidelity checks.
-
-Run:
-
-```bash
-bun run benchmark:pare --cases benchmarks/pare/cases/pare-v2-migrated.json --max-cases 10
-```
-
-## Extended migrated case sets
+## Migrated Pare v2 case sets
 
 - `benchmarks/pare/cases/pare-v2-reproducible.json`
 - `benchmarks/pare/cases/pare-v2-mutating.json`
@@ -89,3 +75,66 @@ The comparison output now includes grouped summaries:
 - `grouped.baseline.byFrequency`
 - `grouped.candidate.byCategory`
 - `grouped.candidate.byFrequency`
+
+
+## Workspace isolation
+
+By default benchmark runs use an isolated temporary git clone in the system tmp directory to avoid modifying your current working tree while preserving full git context.
+
+- default: `--workspace-mode tmp-git`
+- alternative: `--workspace-mode worktree`
+- opt-out: `--workspace-mode current` (not recommended)
+
+
+## Config file usage
+
+To avoid very long command lines, you can pass a JSON config file via `--config`.
+
+Example config (save anywhere, e.g. `/tmp/pare.config.json`):
+
+```json
+{
+  "cases": "benchmarks/pare/cases/pare-v2-reproducible.json",
+  "runsPerCase": 3,
+  "workspaceMode": "tmp-git",
+  "permissionMode": "bypassPermissions",
+  "baseline": {
+    "label": "baseline",
+    "command": "env",
+    "args": [
+      "ENABLE_SCRIPT_TOOL=0",
+      "bun",
+      "dist/cli.js",
+      "--settings=/Users/bytedance/.claude/ttadk.json",
+      "--permission-mode",
+      "bypassPermissions"
+    ]
+  },
+  "candidate": {
+    "label": "candidate",
+    "command": "env",
+    "args": [
+      "ENABLE_SCRIPT_TOOL=1",
+      "bun",
+      "dist/cli.js",
+      "--settings=/Users/bytedance/.claude/ttadk.json",
+      "--permission-mode",
+      "bypassPermissions"
+    ]
+  }
+}
+```
+
+Run with config:
+
+```bash
+bun run benchmark:pare --config /tmp/pare.config.json
+```
+
+You can still override specific fields from CLI; CLI flags take precedence over config.
+
+Script wrapper also supports pass-through:
+
+```bash
+bash scripts/benchmark-script-tool-toggle.sh --config /tmp/pare.config.json
+```

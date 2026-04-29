@@ -39,6 +39,7 @@ import type {
   SDKResultMessage,
   SDKSessionInfo,
   SDKUserMessage,
+  SessionMessage,
 } from './sdk/coreTypes.js'
 // Import types needed for function signatures
 import type {
@@ -57,7 +58,6 @@ import type {
   SDKSession,
   SDKSessionOptions,
   SdkMcpToolDefinition,
-  SessionMessage,
   SessionMutationOptions,
 } from './sdk/runtimeTypes.js'
 
