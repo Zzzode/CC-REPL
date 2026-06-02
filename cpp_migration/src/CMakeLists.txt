@@ -1,0 +1,1447 @@
+# ─── CC-REPL Module Library Targets ───────────────────────────────────────────
+# Each target corresponds to a C++23 module partition of the system.
+# All .cppm files in each directory are registered as CXX_MODULES sources.
+
+# ─── cc_utils: Utilities (no internal deps) ───────────────────────────────────
+add_library(cc_utils)
+target_sources(cc_utils
+    PUBLIC FILE_SET CXX_MODULES FILES
+        utils/agent_model.cppm
+        utils/activity_manager.cppm
+        utils/agent_id.cppm
+        utils/agent_swarms_enabled.cppm
+        utils/argument_substitution.cppm
+        utils/array_utils.cppm
+        utils/async.cppm
+        utils/auth_file_descriptor.cppm
+        utils/auth_portable.cppm
+        utils/auth_utils.cppm
+        utils/abort_controller.cppm
+        utils/api_client.cppm
+        utils/auto_mode_denials.cppm
+        utils/auto_updater.cppm
+        utils/background_remote.cppm
+        utils/bash_execution.cppm
+        utils/bash_parser.cppm
+        utils/bash_security.cppm
+        utils/bash_shell_quoting.cppm
+        utils/billing.cppm
+        utils/binary_check.cppm
+        utils/ca_certs_config.cppm
+        utils/cache.cppm
+        utils/cache_paths.cppm
+        utils/circular_buffer.cppm
+        utils/claude_code_hints.cppm
+        utils/claudemd.cppm
+        utils/cli_highlight.cppm
+        utils/collapse_read_search.cppm
+        utils/collapse_notifications.cppm
+        utils/command_lifecycle.cppm
+        utils/commit_attribution.cppm
+        utils/computer_use.cppm
+        utils/code_indexing.cppm
+        utils/concurrent_sessions.cppm
+        utils/content_array.cppm
+        utils/context_analysis.cppm
+        utils/control_message_compat.cppm
+        utils/conversation_recovery.cppm
+        utils/config_constants.cppm
+        utils/config_utils.cppm
+        utils/cron_scheduler.cppm
+        utils/cron_tasks.cppm
+        utils/cron_utils.cppm
+        utils/crypto.cppm
+        utils/cwd.cppm
+        utils/debug.cppm
+        utils/debug_filter.cppm
+        utils/deep_link.cppm
+        utils/detect_repository.cppm
+        utils/dxt_helpers.cppm
+        utils/diag_logs.cppm
+        utils/diff_utils.cppm
+        utils/display_tags.cppm
+        utils/editor_utils.cppm
+        utils/effort.cppm
+        utils/env.cppm
+        utils/env_dynamic.cppm
+        utils/env_utils.cppm
+        utils/env_validation.cppm
+        utils/error.cppm
+        utils/error_log_sink.cppm
+        utils/errors_utils.cppm
+        utils/exec_file.cppm
+        utils/exec_sync.cppm
+        utils/fast_mode.cppm
+        utils/file.cppm
+        utils/file_edit_utils.cppm
+        utils/file_history.cppm
+        utils/file_operations.cppm
+        utils/file_persistence.cppm
+        utils/file_read.cppm
+        utils/file_read_cache.cppm
+        utils/file_state_cache.cppm
+        utils/find_executable.cppm
+        utils/fingerprint.cppm
+        utils/fps_tracker.cppm
+        utils/format.cppm
+        utils/forked_agent.cppm
+        utils/frontmatter_parser.cppm
+        utils/fs_operations.cppm
+        utils/generic_process_utils.cppm
+        utils/get_worktree_paths.cppm
+        utils/git.cppm
+        utils/git_config_parser.cppm
+        utils/git_diff.cppm
+        utils/git_filesystem.cppm
+        utils/git_settings.cppm
+        utils/github_utils.cppm
+        utils/gitignore.cppm
+        utils/glob_utils.cppm
+        utils/graceful_shutdown.cppm
+        utils/hash.cppm
+        utils/heatmap.cppm
+        utils/http.cppm
+        utils/hyperlink.cppm
+        utils/idle_timeout.cppm
+        utils/ide_integration.cppm
+        utils/image_handling.cppm
+        utils/image_resizer.cppm
+        utils/image_validation.cppm
+        utils/immediate_command.cppm
+        utils/input_router.cppm
+        utils/intl.cppm
+        utils/json.cppm
+        utils/json_read.cppm
+        utils/lazy_schema.cppm
+        utils/list_sessions.cppm
+        utils/lockfile.cppm
+        utils/log.cppm
+        utils/managed_env.cppm
+        utils/markdown_config_loader.cppm
+        utils/markdown_utils.cppm
+        utils/mcp_helpers.cppm
+        utils/mcp_validation.cppm
+        utils/memdir.cppm
+        utils/memoize.cppm
+        utils/memory.cppm
+        utils/memory_file_detection.cppm
+        utils/message_mappers.cppm
+        utils/message_processing.cppm
+        utils/model/agent.cppm
+        utils/model/aliases.cppm
+        utils/model/ant_models.cppm
+        utils/model/bedrock.cppm
+        utils/model/check_1m_access.cppm
+        utils/model/configs.cppm
+        utils/model/context_window_upgrade.cppm
+        utils/model/deprecation.cppm
+        utils/model/model.cppm
+        utils/model/model_allowlist.cppm
+        utils/model/model_capabilities.cppm
+        utils/model/model_options.cppm
+        utils/model/model_strings.cppm
+        utils/model/model_support_overrides.cppm
+        utils/model/providers.cppm
+        utils/model/validate_model.cppm
+        utils/model_aliases.cppm
+        utils/model_cost.cppm
+        utils/message_predicates.cppm
+        utils/mtls.cppm
+        utils/native_installer.cppm
+        utils/native_utils.cppm
+        utils/outputs_scanner.cppm
+        utils/object_group_by.cppm
+        utils/path.cppm
+        utils/path_utils.cppm
+        utils/pdf.cppm
+        utils/peer_address.cppm
+        utils/permissions.cppm
+        utils/permissions_engine.cppm
+        utils/plans.cppm
+        utils/plugin_dependency_resolver.cppm
+        utils/plugin_identifier.cppm
+        utils/plugin_marketplace_rules.cppm
+        utils/plugin_versioning.cppm
+        utils/platform.cppm
+        utils/powershell_parser.cppm
+        utils/process.cppm
+        utils/profiler.cppm
+        utils/privacy_level.cppm
+        utils/prompt_category.cppm
+        utils/proxy_utils.cppm
+        utils/query_guard.cppm
+        utils/query_helpers.cppm
+        utils/read_file_in_range.cppm
+        utils/render_options.cppm
+        utils/ripgrep_utils.cppm
+        utils/sandbox.cppm
+        utils/secure_storage.cppm
+        utils/semantic_boolean.cppm
+        utils/semantic_number.cppm
+        utils/sanitization.cppm
+        utils/script_tool_enabled.cppm
+        utils/semver.cppm
+        utils/sequential.cppm
+        utils/session.cppm
+        utils/session_activity.cppm
+        utils/session_env_vars.cppm
+        utils/session_environment.cppm
+        utils/session_helpers.cppm
+        utils/session_restore.cppm
+        utils/session_start.cppm
+        utils/session_state.cppm
+        utils/session_storage.cppm
+        utils/session_storage_portable.cppm
+        utils/session_url.cppm
+        utils/set_utils.cppm
+        utils/settings_merge.cppm
+        utils/settings_paths.cppm
+        utils/settings_sources.cppm
+        utils/settings_validation.cppm
+        utils/shell.cppm
+        utils/shell_config.cppm
+        utils/shell_parser.cppm
+        utils/shell_rule_matching.cppm
+        utils/signal_utils.cppm
+        utils/skill_change_detector.cppm
+        utils/slash_command_parsing.cppm
+        utils/sleep_utils.cppm
+        utils/slice_ansi.cppm
+        utils/ssrf_guard.cppm
+        utils/stats_utils.cppm
+        utils/stream_utils.cppm
+        utils/string.cppm
+        utils/string_utils.cppm
+        utils/suggestions.cppm
+        utils/swarm.cppm
+        utils/system_directories.cppm
+        utils/system_prompt.cppm
+        utils/system_theme.cppm
+        utils/task_output.cppm
+        utils/task_utils.cppm
+        utils/tagged_id.cppm
+        utils/team_helpers.cppm
+        utils/teleport_utils.cppm
+        utils/tempfile.cppm
+        utils/terminal.cppm
+        utils/terminal_helpers.cppm
+        utils/text_highlighting.cppm
+        utils/theme.cppm
+        utils/thinking.cppm
+        utils/timeouts.cppm
+        utils/token_budget.cppm
+        utils/tokens.cppm
+        utils/tool_helpers.cppm
+        utils/treeify.cppm
+        utils/truncate.cppm
+        utils/user_agent.cppm
+        utils/user_utils.cppm
+        utils/utils.cppm
+        utils/words.cppm
+        utils/uuid_utils.cppm
+        utils/warning_handler.cppm
+        utils/which.cppm
+        utils/worktree_utils.cppm
+        utils/xdg.cppm
+        utils/xml_utils.cppm
+        utils/yaml.cppm
+        utils/zod_to_json_schema.cppm
+        utils/hooks_config.cppm
+        utils/hooks_execution.cppm
+        utils/hooks_registry.cppm
+        utils/plugin_cache.cppm
+        utils/plugin_installation.cppm
+        utils/plugin_integrations.cppm
+        utils/plugin_lifecycle.cppm
+        utils/plugin_loader.cppm
+        utils/plugin_manager.cppm
+        utils/plugin_marketplace.cppm
+        utils/plugin_marketplace_lifecycle.cppm
+        utils/plugin_validation.cppm
+        utils/settings_manager.cppm
+        utils/settings_rules.cppm
+        utils/shell_providers.cppm
+        utils/shell_tools.cppm
+        utils/swarm_backends.cppm
+        utils/swarm_coordination.cppm
+        utils/swarm_helpers.cppm
+        utils/telemetry.cppm
+        utils/telemetry_exporters.cppm
+        utils/ultraplan.cppm
+        utils/ansi_rendering.cppm
+        utils/aws_auth.cppm
+        utils/cleanup_registry.cppm
+        utils/doctor_diagnostics.cppm
+        utils/prompt_helpers.cppm
+        utils/tool_management.cppm
+        utils/team_coordination.cppm
+        utils/profiling.cppm
+        utils/session_management.cppm
+        utils/stream_helpers.cppm
+        utils/context_helpers.cppm
+        utils/mcp_transport.cppm
+        utils/terminal_integration.cppm
+        utils/image_store.cppm
+        utils/classifier_approvals.cppm
+        utils/side_query.cppm
+        utils/agent_context.cppm
+        utils/platform_paths.cppm
+        utils/cron_helpers.cppm
+        utils/file_index.cppm
+)
+target_link_libraries(cc_utils
+    PUBLIC
+        yyjson
+        uv_a
+        httplib::httplib
+)
+if(APPLE)
+    target_link_libraries(cc_utils PUBLIC "-framework CoreFoundation")
+endif()
+
+# ─── cc_state: State Management ───────────────────────────────────────────────
+add_library(cc_state)
+target_sources(cc_state
+    PUBLIC FILE_SET CXX_MODULES FILES
+        state/app_state.cppm
+        state/ftxui_integration.cppm
+        state/on_change_app_state.cppm
+        state/persistence.cppm
+        state/selectors.cppm
+        state/store.cppm
+)
+target_link_libraries(cc_state
+    PUBLIC
+        cc_utils
+        cc_types
+        yyjson
+)
+
+# ─── cc_constants: Constants ──────────────────────────────────────────────────
+add_library(cc_constants)
+target_sources(cc_constants
+    PUBLIC FILE_SET CXX_MODULES FILES
+        constants/api_limits.cppm
+        constants/betas.cppm
+        constants/common.cppm
+        constants/constants.cppm
+        constants/cost_tracker.cppm
+        constants/cyber_risk.cppm
+        constants/error_ids.cppm
+        constants/figures.cppm
+        constants/files.cppm
+        constants/github_app.cppm
+        constants/keys.cppm
+        constants/messages.cppm
+        constants/oauth.cppm
+        constants/output_styles.cppm
+        constants/product.cppm
+        constants/prompts.cppm
+        constants/spinner_verbs.cppm
+        constants/system.cppm
+        constants/system_prompt_sections.cppm
+        constants/tool_limits.cppm
+        constants/tools_constants.cppm
+        constants/turn_completion_verbs.cppm
+        constants/xml.cppm
+)
+target_link_libraries(cc_constants PUBLIC cc_utils cc_types)
+
+# ─── cc_types: Shared Type Definitions ────────────────────────────────────────
+add_library(cc_types)
+target_sources(cc_types
+    PUBLIC FILE_SET CXX_MODULES FILES
+        types/auth.cppm
+        types/command.cppm
+        types/connector_text.cppm
+        types/experiment_event.cppm
+        types/hooks.cppm
+        types/ids.cppm
+        types/internal_event.cppm
+        types/logs.cppm
+        types/permissions.cppm
+        types/plugin.cppm
+        types/timestamp.cppm
+        types/types.cppm
+)
+target_link_libraries(cc_types PUBLIC cc_utils)
+
+# ─── cc_config: Configuration ─────────────────────────────────────────────────
+add_library(cc_config)
+target_sources(cc_config
+    PUBLIC FILE_SET CXX_MODULES FILES
+        config/config.cppm
+        config/feature_flags.cppm
+        config/model_config.cppm
+        config/settings.cppm
+)
+target_link_libraries(cc_config PUBLIC cc_utils cc_types)
+
+# ─── cc_context: UI Context ───────────────────────────────────────────────────
+add_library(cc_context)
+target_sources(cc_context
+    PUBLIC FILE_SET CXX_MODULES FILES
+        context/context.cppm
+        context/fps_metrics.cppm
+        context/mailbox.cppm
+        context/modal.cppm
+        context/notifications.cppm
+        context/overlay.cppm
+        context/stats.cppm
+        context/voice.cppm
+)
+target_link_libraries(cc_context PUBLIC cc_utils cc_state cc_coordinator)
+
+# ─── cc_keybindings: Keybinding System ────────────────────────────────────────
+add_library(cc_keybindings)
+target_sources(cc_keybindings
+    PUBLIC FILE_SET CXX_MODULES FILES
+        keybindings/defaults.cppm
+        keybindings/keybinding_system.cppm
+        keybindings/keybindings.cppm
+        keybindings/load_user_bindings.cppm
+        keybindings/match.cppm
+        keybindings/parser.cppm
+        keybindings/reserved_shortcuts.cppm
+        keybindings/resolver.cppm
+        keybindings/schema.cppm
+        keybindings/shortcut_display.cppm
+        keybindings/shortcut_format.cppm
+        keybindings/template.cppm
+        keybindings/validate.cppm
+)
+target_link_libraries(cc_keybindings PUBLIC cc_utils cc_config)
+
+# ─── cc_memdir: Memory Directory ──────────────────────────────────────────────
+add_library(cc_memdir)
+target_sources(cc_memdir
+    PUBLIC FILE_SET CXX_MODULES FILES
+        memdir/find_relevant_memories.cppm
+        memdir/memdir.cppm
+        memdir/memory.cppm
+        memdir/memory_scan.cppm
+        memdir/paths.cppm
+        memdir/team_memory.cppm
+)
+target_link_libraries(cc_memdir PUBLIC cc_utils)
+
+# ─── cc_coordinator: Multi-Agent Orchestration ────────────────────────────────
+add_library(cc_coordinator)
+target_sources(cc_coordinator
+    PUBLIC FILE_SET CXX_MODULES FILES
+        coordinator/coordinator.cppm
+        coordinator/coordinator_mode.cppm
+        coordinator/coordinator_types.cppm
+        coordinator/swarm.cppm
+)
+target_link_libraries(cc_coordinator PUBLIC cc_utils cc_state cc_entrypoints)
+
+# ─── cc_query: Query Engine ───────────────────────────────────────────────────
+add_library(cc_query)
+target_sources(cc_query
+    PUBLIC FILE_SET CXX_MODULES FILES
+        query/config.cppm
+        query/query_engine.cppm
+        query/query_server_tasks.cppm
+        query/stop_hooks.cppm
+        query/token_budget.cppm
+)
+target_link_libraries(cc_query PUBLIC cc_utils cc_state cc_config CURL::libcurl)
+
+# ─── cc_session: Session Management ──────────────────────────────────────────
+add_library(cc_session)
+target_sources(cc_session
+    PUBLIC FILE_SET CXX_MODULES FILES
+        session/history.cppm
+        session/session.cppm
+        session/storage.cppm
+)
+target_link_libraries(cc_session PUBLIC cc_utils cc_state cc_config yyjson)
+
+# ─── cc_entrypoints: CLI Entry Points ─────────────────────────────────────────
+add_library(cc_entrypoints)
+target_sources(cc_entrypoints
+    PUBLIC FILE_SET CXX_MODULES FILES
+        entrypoints/cli_entrypoints.cppm
+        entrypoints/control_schemas.cppm
+        entrypoints/control_types.cppm
+        entrypoints/core_schemas.cppm
+        entrypoints/core_types.cppm
+        entrypoints/init.cppm
+        entrypoints/mcp_entrypoint.cppm
+        entrypoints/runner.cppm
+        entrypoints/runtime_types.cppm
+        entrypoints/sandbox_types.cppm
+        entrypoints/sdk_types.cppm
+        entrypoints/settings_types.cppm
+)
+target_link_libraries(cc_entrypoints PUBLIC cc_utils cc_state cc_config)
+
+# ─── cc_bootstrap: Startup Bootstrap ─────────────────────────────────────────
+add_library(cc_bootstrap)
+target_sources(cc_bootstrap
+    PUBLIC FILE_SET CXX_MODULES FILES
+        bootstrap/setup.cppm
+        bootstrap/state.cppm
+)
+target_link_libraries(cc_bootstrap PUBLIC cc_utils cc_state cc_config cc_services)
+
+# ─── cc_tasks: Task System ────────────────────────────────────────────────────
+add_library(cc_tasks)
+target_sources(cc_tasks
+    PUBLIC FILE_SET CXX_MODULES FILES
+        tasks/dream_task.cppm
+        tasks/in_process_teammate_task.cppm
+        tasks/local_agent_task.cppm
+        tasks/local_main_session_task.cppm
+        tasks/local_shell_task.cppm
+        tasks/pill_label.cppm
+        tasks/remote_agent_task.cppm
+        tasks/stop_task.cppm
+        tasks/task.cppm
+        tasks/task_graph.cppm
+        tasks/types.cppm
+)
+target_link_libraries(cc_tasks PUBLIC cc_utils cc_types cc_state cc_coordinator)
+
+# ─── cc_tools: Tools System ───────────────────────────────────────────────────
+add_library(cc_tools)
+target_sources(cc_tools
+    PUBLIC FILE_SET CXX_MODULES FILES
+        tools/agent_prompt.cppm
+        tools/agent_tool.cppm
+        tools/agent_types.cppm
+        tools/agent_utils.cppm
+        tools/ask_user_tool.cppm
+        tools/bash_permissions.cppm
+        tools/bash_security.cppm
+        tools/bash_tool.cppm
+        tools/brief_tool.cppm
+        tools/built_in_agents.cppm
+        tools/command_semantics.cppm
+        tools/computer_use.cppm
+        tools/config_tool.cppm
+        tools/cron_tool.cppm
+        tools/file_edit_prompt.cppm
+        tools/file_edit_tool.cppm
+        tools/file_edit_types.cppm
+        tools/file_read_tool.cppm
+        tools/file_write_tool.cppm
+        tools/git_operation_tracking.cppm
+        tools/glob_tool.cppm
+        tools/grep_tool.cppm
+        tools/list_mcp_resources_tool.cppm
+        tools/lsp_formatters.cppm
+        tools/lsp_symbol_context.cppm
+        tools/lsp_tool.cppm
+        tools/mcp_auth_tool.cppm
+        tools/mcp_classify.cppm
+        tools/mcp_tool.cppm
+        tools/missing_tools.cppm
+        tools/monitor_tool.cppm
+        tools/notebook_tool.cppm
+        tools/plan_mode_tool.cppm
+        tools/powershell_permissions.cppm
+        tools/powershell_security.cppm
+        tools/powershell_tool.cppm
+        tools/read_mcp_resource_tool.cppm
+        tools/repl_tool.cppm
+        tools/remote_trigger_tool.cppm
+        tools/script_diagnostics.cppm
+        tools/script_sandbox.cppm
+        tools/script_tool.cppm
+        tools/script_types.cppm
+        tools/send_message_tool.cppm
+        tools/shared_tool.cppm
+        tools/skill_tool.cppm
+        tools/sleep_tool.cppm
+        tools/snip_tool.cppm
+        tools/spawn_multi_agent.cppm
+        tools/synthetic_output_tool.cppm
+        tools/task_create.cppm
+        tools/task_get.cppm
+        tools/task_list.cppm
+        tools/task_output.cppm
+        tools/task_stop.cppm
+        tools/task_tool.cppm
+        tools/task_update.cppm
+        tools/team_create.cppm
+        tools/team_delete.cppm
+        tools/team_tool.cppm
+        tools/terminal_capture_tool.cppm
+        tools/testing_tool.cppm
+        tools/todo_write_tool.cppm
+        tools/tool.cppm
+        tools/tool_prompts.cppm
+        tools/tool_registry.cppm
+        tools/tool_search_tool.cppm
+        tools/tungsten_tool.cppm
+        services/tools/orchestration.cppm
+        services/tools/streaming_executor.cppm
+        tools/web_browser_tool.cppm
+        tools/web_fetch_tool.cppm
+        tools/web_search_tool.cppm
+        tools/workflow_tool.cppm
+        tools/worktree_tool.cppm
+        tools/agent_runtime.cppm
+        tools/agent_display.cppm
+        tools/bash_validation.cppm
+        tools/bash_helpers.cppm
+        tools/powershell_validation.cppm
+        tools/powershell_helpers.cppm
+        tools/script_typecheck.cppm
+        tools/script_primitives.cppm
+        tools/brief_attachments.cppm
+        tools/file_read_helpers.cppm
+        tools/lsp_schemas.cppm
+)
+target_link_libraries(cc_tools
+    PUBLIC
+        cc_utils
+        cc_types
+        cc_services
+        yyjson
+        uv_a
+)
+
+target_link_libraries(cc_query PUBLIC cc_tools cc_hooks)
+
+# ─── cc_commands: Command System ──────────────────────────────────────────────
+add_library(cc_commands)
+target_sources(cc_commands
+    PUBLIC FILE_SET CXX_MODULES FILES
+        commands/add_dir.cppm
+        commands/ant_trace.cppm
+        commands/advisor.cppm
+        commands/agents.cppm
+        commands/autofix_pr.cppm
+        commands/backfill_sessions.cppm
+        commands/branch.cppm
+        commands/break_cache.cppm
+        commands/bridge.cppm
+        commands/bridge-kick.cppm
+        commands/brief.cppm
+        commands/bughunter.cppm
+        commands/btw.cppm
+        commands/clear.cppm
+        commands/color.cppm
+        commands/command.cppm
+        commands/command_registry.cppm
+        commands/commit.cppm
+        commands/commit_push_pr.cppm
+        commands/compact.cppm
+        commands/config.cppm
+        commands/context.cppm
+        commands/copy_cmd.cppm
+        commands/cost.cppm
+        commands/create_moved_to_plugin_command.cppm
+        commands/ctx-viz.cppm
+        commands/debug_tool_call.cppm
+        commands/diff.cppm
+        commands/doctor.cppm
+        commands/effort.cppm
+        commands/env.cppm
+        commands/exit.cppm
+        commands/export_cmd.cppm
+        commands/extra_commands.cppm
+        commands/extra_commands2.cppm
+        commands/extra_usage.cppm
+        commands/fast.cppm
+        commands/feedback.cppm
+        commands/files.cppm
+        commands/heapdump.cppm
+        commands/help.cppm
+        commands/hooks.cppm
+        commands/ide.cppm
+        commands/init.cppm
+        commands/init_verifiers.cppm
+        commands/insights.cppm
+        commands/install.cppm
+        commands/install_github_app/flow.cppm
+        commands/install_github_app/github_actions.cppm
+        commands/install_github_app/steps.cppm
+        commands/issue.cppm
+        commands/keybindings_cmd.cppm
+        commands/login.cppm
+        commands/logout.cppm
+        commands/mcp/add_command.cppm
+        commands/mcp/xaa_idp.cppm
+        commands/mcp_cmd.cppm
+        commands/memory.cppm
+        commands/model.cppm
+        commands/mock_limits.cppm
+        commands/oauth_refresh.cppm
+        commands/onboarding.cppm
+        commands/output_style.cppm
+        commands/passes.cppm
+        commands/permissions_cmd.cppm
+        commands/perf_issue.cppm
+        commands/plan.cppm
+        commands/plugin/browse_marketplace.cppm
+        commands/plugin/manage_plugins.cppm
+        commands/plugin/plugin_install.cppm
+        commands/plugin/plugin_trust.cppm
+        commands/plugin_cmd.cppm
+        commands/pr_comments.cppm
+        commands/privacy_settings.cppm
+        commands/rate_limit_options.cppm
+        commands/release_notes.cppm
+        commands/reload_plugins.cppm
+        commands/remote_commands.cppm
+        commands/remote_env.cppm
+        commands/remote_setup.cppm
+        commands/remote_setup_api.cppm
+        commands/rename.cppm
+        commands/reset_limits.cppm
+        commands/resume.cppm
+        commands/review.cppm
+        commands/review/review_remote.cppm
+        commands/review/ultrareview.cppm
+        commands/rewind.cppm
+        commands/sandbox_toggle.cppm
+        commands/security_review.cppm
+        commands/session.cppm
+        commands/share.cppm
+        commands/skills_cmd.cppm
+        commands/stats.cppm
+        commands/status.cppm
+        commands/statusline.cppm
+        commands/summary.cppm
+        commands/tag.cppm
+        commands/tasks_cmd.cppm
+        commands/teleport.cppm
+        commands/terminal_setup.cppm
+        commands/theme.cppm
+        commands/thinkback.cppm
+        commands/thinkback_play.cppm
+        commands/ultraplan.cppm
+        commands/upgrade.cppm
+        commands/usage.cppm
+        commands/version.cppm
+        commands/vim.cppm
+        commands/voice.cppm
+)
+target_link_libraries(cc_commands
+    PUBLIC
+        cc_utils
+        cc_types
+        cc_config
+        cc_tools
+)
+
+# ─── cc_services: Services Layer ──────────────────────────────────────────────
+add_library(cc_services)
+target_sources(cc_services
+    PUBLIC FILE_SET CXX_MODULES FILES
+        services/agent_summary/agent_summary.cppm
+        services/analytics/analytics.cppm
+        services/analytics/config.cppm
+        services/analytics/datadog.cppm
+        services/analytics/first_party_event_logger.cppm
+        services/analytics/growthbook.cppm
+        services/analytics/index.cppm
+        services/analytics/metadata.cppm
+        services/analytics/sink.cppm
+        services/analytics/sink_killswitch.cppm
+        services/api/admin_requests.cppm
+        services/api/bootstrap.cppm
+        services/api/client.cppm
+        services/api/error_utils.cppm
+        services/api/errors.cppm
+        services/api/files_api.cppm
+        services/api/grove.cppm
+        services/api/logging.cppm
+        services/api/metrics_opt_out.cppm
+        services/api/models.cppm
+        services/api/referral.cppm
+        services/api/session_ingress.cppm
+        services/api/streaming.cppm
+        services/api/usage.cppm
+        services/api/with_retry.cppm
+        services/auto_dream/auto_dream.cppm
+        services/auto_dream/config.cppm
+        services/auto_dream/consolidation_lock.cppm
+        services/auto_dream/consolidation_prompt.cppm
+        services/away_summary.cppm
+        services/compact/auto_compact.cppm
+        services/compact/compact.cppm
+        services/compact/grouping.cppm
+        services/compact/micro_compact.cppm
+        services/compact/post_compact_cleanup.cppm
+        services/compact/prompt.cppm
+        services/compact/session_memory_compact.cppm
+        services/compact/types.cppm
+        services/compact/warning_hook.cppm
+        services/diagnostic/diagnostic.cppm
+        services/image/image.cppm
+        services/lsp/LSPServerInstance.cppm
+        services/lsp/LSPServerManager.cppm
+        services/lsp/client.cppm
+        services/lsp/diagnostic_registry.cppm
+        services/lsp/manager.cppm
+        services/lsp/passive_feedback.cppm
+        services/lsp/types.cppm
+        services/magic_docs/magic_docs.cppm
+        services/mcp/auth.cppm
+        services/mcp/channel_allowlist.cppm
+        services/mcp/channel_notification.cppm
+        services/mcp/channel_permissions.cppm
+        services/mcp/client.cppm
+        services/mcp/config.cppm
+        services/mcp/connection_manager.cppm
+        services/mcp/elicitation_handler.cppm
+        services/mcp/env_expansion.cppm
+        services/mcp/mcp_server.cppm
+        services/mcp/mcp_server_approval.cppm
+        services/mcp/mcp_utils.cppm
+        services/mcp/normalization.cppm
+        services/mcp/official_registry.cppm
+        services/mcp/sdk_control_transport.cppm
+        services/mcp/types.cppm
+        services/mcp/xaa.cppm
+        services/memory/extract_memories.cppm
+        services/memory/prompts.cppm
+        services/memory/sessionMemory.cppm
+        services/memory/session_memory.cppm
+        services/memory/session_memory_utils.cppm
+        services/notifier/notifier.cppm
+        services/oauth/auth_code_listener.cppm
+        services/oauth/client.cppm
+        services/oauth/crypto.cppm
+        services/oauth/oauth_profile.cppm
+        services/oauth/types.cppm
+        services/plugins/cli_commands.cppm
+        services/plugins/installation_manager.cppm
+        services/plugins/operations.cppm
+        services/policy/policy.cppm
+        services/policy/types.cppm
+        services/prevent_sleep/prevent_sleep.cppm
+        services/prompt_suggestion/prompt_suggestion.cppm
+        services/proxy/proxy.cppm
+        services/rate_limit/messages.cppm
+        services/rate_limit/mock.cppm
+        services/rate_limit/rate_limit.cppm
+        services/remote/session_manager.cppm
+        services/remote_settings/security_check.cppm
+        services/remote_settings/sync_cache.cppm
+        services/remote_settings/sync_cache_state.cppm
+        services/remote_settings/types.cppm
+        services/settings_sync/settings_sync.cppm
+        services/team_memory/team_memory.cppm
+        services/team_memory/team_memory_sync.cppm
+        services/team_memory/team_memory_helpers.cppm
+        services/api/claude_api.cppm
+        services/mcp/mcp_transport_service.cppm
+        services/compact/compact_helpers.cppm
+        services/telemetry/telemetry.cppm
+        services/tips/tip_history.cppm
+        services/tips/tip_registry.cppm
+        services/tips/tip_scheduler.cppm
+        services/tips/tips.cppm
+        services/token/estimation.cppm
+        services/tool_summary/tool_summary.cppm
+        services/vcr/vcr.cppm
+        services/voice/voice.cppm
+        services/voice/voice_keyterms.cppm
+        services/voice/voice_stream_stt.cppm
+        services/assistant/session_history.cppm
+        services/output_styles/output_styles.cppm
+        services/upstream_proxy/upstream_proxy.cppm
+        services/api/claude_ai_limits.cppm
+        services/api/dump_prompts.cppm
+        services/api/empty_usage.cppm
+        services/api/first_token_date.cppm
+        services/api/overage_credit.cppm
+        services/api/prompt_cache_break.cppm
+        services/api/ultrareview_quota.cppm
+        services/mcp/mcp_string_utils.cppm
+        services/mcp/headers_helper.cppm
+        services/mcp/vscode_sdk_mcp.cppm
+        services/mcp/in_process_transport.cppm
+        services/mcp/claude_ai.cppm
+        services/mcp/oauth_port.cppm
+        services/mcp/xaa_idp_login.cppm
+        services/diagnostic/dump_diagnostic.cppm
+        services/rate_limit/claude_ai_limits_hook.cppm
+        services/compact/api_microcompact.cppm
+        services/compact/compact_warning_state.cppm
+        services/compact/time_based_config.cppm
+        services/team_memory/secret_guard.cppm
+        services/team_memory/secret_scanner.cppm
+        services/team_memory/watcher.cppm
+)
+target_link_libraries(cc_services
+    PUBLIC
+        cc_utils
+        cc_types
+        CURL::libcurl
+        yyjson
+        uv_a
+        httplib::httplib
+)
+
+# ─── cc_hooks: Hooks System ───────────────────────────────────────────────────
+add_library(cc_hooks)
+target_sources(cc_hooks
+    PUBLIC FILE_SET CXX_MODULES FILES
+        hooks/after_first_render.cppm
+        hooks/api_key_verification.cppm
+        hooks/arrow_key_history.cppm
+        hooks/assistant_history.cppm
+        hooks/auto_save.cppm
+        hooks/away_summary.cppm
+        hooks/background_task_navigation.cppm
+        hooks/blink.cppm
+        hooks/cancel_request.cppm
+        hooks/claude_code_hint_recommendation.cppm
+        hooks/clipboard_image_hint.cppm
+        hooks/command_keybindings.cppm
+        hooks/command_queue.cppm
+        hooks/context.cppm
+        hooks/copy_on_select.cppm
+        hooks/cost_hook.cppm
+        hooks/deferred_hook_messages.cppm
+        hooks/diff_data.cppm
+        hooks/diff_in_ide.cppm
+        hooks/direct_connect.cppm
+        hooks/double_press.cppm
+        hooks/dynamic_config.cppm
+        hooks/elapsed_time.cppm
+        hooks/exit_handler.cppm
+        hooks/file_history_snapshot_init.cppm
+        hooks/file_suggestions.cppm
+        hooks/file_watcher.cppm
+        hooks/global_keybindings.cppm
+        hooks/history_search.cppm
+        hooks/ide_at_mentioned.cppm
+        hooks/ide_connection_status.cppm
+        hooks/ide_integration.cppm
+        hooks/ide_logging.cppm
+        hooks/ide_selection.cppm
+        hooks/inbox_poller.cppm
+        hooks/input_buffer.cppm
+        hooks/input_hooks.cppm
+        hooks/issue_flag_banner.cppm
+        hooks/log_messages.cppm
+        hooks/mailbox_bridge.cppm
+        hooks/main_loop_model.cppm
+        hooks/manage_plugins.cppm
+        hooks/marketplace_notification.cppm
+        hooks/memory_usage.cppm
+        hooks/merged_providers.cppm
+        hooks/min_display_time.cppm
+        hooks/missing_hooks.cppm
+        hooks/notifications.cppm
+        hooks/notify_after_timeout.cppm
+        hooks/notifs/auto_mode_unavailable.cppm
+        hooks/notifs/deprecation_warning.cppm
+        hooks/notifs/fast_mode.cppm
+        hooks/notifs/ide_status_indicator.cppm
+        hooks/notifs/install_messages.cppm
+        hooks/notifs/lsp_initialization.cppm
+        hooks/notifs/rate_limit_warning.cppm
+        hooks/notifs/remaining_notifs.cppm
+        hooks/notifs/startup.cppm
+        hooks/paste_handler.cppm
+        hooks/permissions.cppm
+        hooks/plugin_recommendation.cppm
+        hooks/pr_status.cppm
+        hooks/prompt_suggestion.cppm
+        hooks/queue_processor.cppm
+        hooks/remaining_hooks.cppm
+        hooks/remote_session.cppm
+        hooks/render_placeholder.cppm
+        hooks/repl_bridge.cppm
+        hooks/scheduled_tasks.cppm
+        hooks/search_input.cppm
+        hooks/session_backgrounding.cppm
+        hooks/settings_hooks.cppm
+        hooks/skill_improvement_survey.cppm
+        hooks/skills_change.cppm
+        hooks/ssh_session.cppm
+        hooks/swarm_hooks.cppm
+        hooks/task_hooks.cppm
+        hooks/tasks_v2.cppm
+        hooks/teammate_view_auto_exit.cppm
+        hooks/teleport_resume.cppm
+        hooks/terminal_size.cppm
+        hooks/text_input.cppm
+        hooks/timeout_hook.cppm
+        hooks/tool_permission/coordinator_handler.cppm
+        hooks/tool_permission/interactive_handler.cppm
+        hooks/tool_permission/permission_context.cppm
+        hooks/tool_permission/swarm_worker_handler.cppm
+        hooks/tool_permissions.cppm
+        hooks/lifecycle_hooks.cppm
+        hooks/turn_diffs.cppm
+        hooks/typeahead.cppm
+        hooks/unified_suggestions.cppm
+        hooks/update_notification.cppm
+        hooks/vim_input.cppm
+        hooks/virtual_scroll.cppm
+        hooks/voice_hooks.cppm
+        hooks/tool_permission/permission_logging.cppm
+        hooks/exit_ctrl_cd_keybindings.cppm
+        hooks/settings_change.cppm
+        hooks/swarm_permission_poller.cppm
+        hooks/shell_hooks.cppm
+)
+target_link_libraries(cc_hooks
+    PUBLIC
+        cc_utils
+        cc_types
+        cc_config
+        cc_state
+        cc_services
+        uv_a
+)
+
+# ─── cc_cli: CLI Transports ───────────────────────────────────────────────────
+add_library(cc_cli)
+target_sources(cc_cli
+    PUBLIC FILE_SET CXX_MODULES FILES
+        cli/bg.cppm
+        cli/ccr_client.cppm
+        cli/exit.cppm
+        cli/handlers/agents.cppm
+        cli/handlers/auth.cppm
+        cli/handlers/auto_mode.cppm
+        cli/handlers/mcp_handler.cppm
+        cli/handlers/plugins_handler.cppm
+        cli/handlers/template_jobs.cppm
+        cli/hybrid_transport.cppm
+        cli/ndjson_stringify.cppm
+        cli/print.cppm
+        cli/remote_io.cppm
+        cli/sse_transport.cppm
+        cli/structured_io.cppm
+        cli/transports.cppm
+        cli/update.cppm
+        cli/websocket_transport.cppm
+        cli/worker_state_uploader.cppm
+)
+target_link_libraries(cc_cli
+    PUBLIC
+        cc_utils
+        cc_bridge
+        yyjson
+        uv_a
+        httplib::httplib
+)
+
+# ─── cc_bridge: IDE Bridge ────────────────────────────────────────────────────
+add_library(cc_bridge)
+target_sources(cc_bridge
+    PUBLIC FILE_SET CXX_MODULES FILES
+        bridge/api.cppm
+        bridge/bridge.cppm
+        bridge/capacity_wake.cppm
+        bridge/config.cppm
+        bridge/core.cppm
+        bridge/debug_utils.cppm
+        bridge/envless_config.cppm
+        bridge/flush_gate.cppm
+        bridge/inbound_attachments.cppm
+        bridge/inbound_messages.cppm
+        bridge/init.cppm
+        bridge/jwt_utils.cppm
+        bridge/messages.cppm
+        bridge/pointer.cppm
+        bridge/poll_config.cppm
+        bridge/poll_config_defaults.cppm
+        bridge/security.cppm
+        bridge/session_api.cppm
+        bridge/session_id_compat.cppm
+        bridge/session_runner.cppm
+        bridge/status_util.cppm
+        bridge/transport.cppm
+        bridge/trusted_device.cppm
+        bridge/ui.cppm
+        bridge/work_secret.cppm
+)
+target_link_libraries(cc_bridge
+    PUBLIC
+        cc_utils
+        cc_types
+        yyjson
+        uv_a
+)
+
+# ─── cc_skills: Skill System ─────────────────────────────────────────────────
+add_library(cc_skills)
+target_sources(cc_skills
+    PUBLIC FILE_SET CXX_MODULES FILES
+        skills/bundled.cppm
+        skills/bundled/batch.cppm
+        skills/bundled/claude_api.cppm
+        skills/bundled/debug.cppm
+        skills/bundled/loop.cppm
+        skills/bundled/remember.cppm
+        skills/bundled/simplify.cppm
+        skills/bundled/stuck.cppm
+        skills/bundled/verify.cppm
+        skills/claude_api.cppm
+        skills/claude_api_content.cppm
+        skills/keybindings.cppm
+        skills/load_skills_dir.cppm
+        skills/lorem_ipsum.cppm
+        skills/mcp_skill_builders.cppm
+        skills/remember.cppm
+        skills/schedule_remote_agents.cppm
+        skills/simplify.cppm
+        skills/skill.cppm
+        skills/skillify.cppm
+        skills/update_config.cppm
+        skills/verify_content.cppm
+)
+target_link_libraries(cc_skills
+    PUBLIC
+        cc_utils
+        cc_tools
+        yyjson
+)
+
+# ─── cc_ui: Terminal UI ───────────────────────────────────────────────────────
+add_library(cc_ui)
+target_sources(cc_ui
+    PUBLIC FILE_SET CXX_MODULES FILES
+        ui/app.cppm
+        ui/components.cppm
+        ui/agents/agent_editor.cppm
+        ui/agents/agent_list.cppm
+        ui/agents/agent_wizard.cppm
+        ui/agents/agent_color_picker.cppm
+        ui/agents/agent_creation_wizard.cppm
+        ui/agents/agent_detail.cppm
+        ui/agents/agent_menu.cppm
+        ui/agents/agent_model_selector.cppm
+        ui/agents/agent_tool_selector.cppm
+        ui/agents/agent_utils.cppm
+        ui/components/all_components.cppm
+        ui/components/agent_view.cppm
+        ui/components/code_highlight.cppm
+        ui/components/cost_display.cppm
+        ui/components/custom_select.cppm
+        ui/components/dev_bar.cppm
+        ui/components/diff_view.cppm
+        ui/components/fast_icon.cppm
+        ui/components/figures.cppm
+        ui/components/file_tree.cppm
+        ui/components/ink_components.cppm
+        ui/components/notification.cppm
+        ui/components/pr_badge.cppm
+        ui/components/spinner.cppm
+        ui/components/spinner_widget.cppm
+        ui/components/stats.cppm
+        ui/components/status_line.cppm
+        ui/components/structured_diff.cppm
+        ui/components/tag_tabs.cppm
+        ui/components/task_view.cppm
+        ui/components/text_input.cppm
+        ui/components/text_input_widget.cppm
+        ui/components/auto_updater.cppm
+        ui/components/auth_flows.cppm
+        ui/components/context_visualization.cppm
+        ui/components/fullscreen_layout.cppm
+        ui/components/session_preview.cppm
+        ui/components/spinner_animations.cppm
+        ui/components/spinner_shimmer.cppm
+        ui/components/spinner_teammate_tree.cppm
+        ui/design/dialog.cppm
+        ui/design/divider.cppm
+        ui/design/list_item.cppm
+        ui/design/progress_bar.cppm
+        ui/design/status_icon.cppm
+        ui/design/tabs.cppm
+        ui/design/themed_box.cppm
+        ui/design/themed_text.cppm
+        ui/dialogs/config_dialog.cppm
+        ui/dialogs/feedback_survey.cppm
+        ui/dialogs/help_v2.cppm
+        ui/dialogs/ide_dialogs.cppm
+        ui/dialogs/mcp_dialog.cppm
+        ui/dialogs/mcp_dialogs.cppm
+        ui/dialogs/model_picker.cppm
+        ui/dialogs/onboarding.cppm
+        ui/dialogs/permission_dialog.cppm
+        ui/dialogs/permission_prompts.cppm
+        ui/dialogs/plugin_dialog.cppm
+        ui/dialogs/quick_open.cppm
+        ui/dialogs/sandbox_dialog.cppm
+        ui/dialogs/settings_dialog.cppm
+        ui/dialogs/teleport_dialogs.cppm
+        ui/dialogs/trust_dialog.cppm
+        ui/dialogs/wizard_dialog.cppm
+        ui/dialogs/auto_mode_dialog.cppm
+        ui/dialogs/bridge_dialog.cppm
+        ui/dialogs/cost_threshold_dialog.cppm
+        ui/dialogs/export_dialog.cppm
+        ui/dialogs/global_search_dialog.cppm
+        ui/dialogs/history_search_dialog.cppm
+        ui/dialogs/ide_connect_dialog.cppm
+        ui/dialogs/remote_env_dialog.cppm
+        ui/dialogs/worktree_exit_dialog.cppm
+        ui/events/event_system.cppm
+        ui/layout.cppm
+        ui/layout/logo.cppm
+        ui/layout/measure.cppm
+        ui/layout/wrap_text.cppm
+        ui/layout/yoga.cppm
+        ui/logo/logo_animated.cppm
+        ui/logo/logo_feed.cppm
+        ui/logo/logo_notices.cppm
+        ui/logo/logo_welcome.cppm
+        ui/markdown.cppm
+        ui/messages.cppm
+        ui/messages/assistant_message.cppm
+        ui/messages/error_message.cppm
+        ui/messages/message_components.cppm
+        ui/messages/message_response.cppm
+        ui/messages/message_row.cppm
+        ui/messages/message_timestamp.cppm
+        ui/messages/message_advisor.cppm
+        ui/messages/message_bash_io.cppm
+        ui/messages/message_channel.cppm
+        ui/messages/message_grouped_tools.cppm
+        ui/messages/message_hook_progress.cppm
+        ui/messages/message_plan_approval.cppm
+        ui/messages/message_rate_limit.cppm
+        ui/messages/message_task_assignment.cppm
+        ui/messages/message_tool_result.cppm
+        ui/messages/structured_diff.cppm
+        ui/messages/thinking_message.cppm
+        ui/messages/tool_messages.cppm
+        ui/messages/tool_use_loader.cppm
+        ui/messages/tool_use_message.cppm
+        ui/messages/user_message.cppm
+        ui/messages/message_redacted_thinking.cppm
+        ui/messages/message_image.cppm
+        ui/messages/message_compact_boundary.cppm
+        ui/messages/message_shutdown.cppm
+        ui/messages/message_user_command.cppm
+        ui/panels.cppm
+        ui/permissions/permission_diff.cppm
+        ui/permissions/permission_request.cppm
+        ui/permissions/permission_rules.cppm
+        ui/permissions/permission_views.cppm
+        ui/permissions/permission_ask_user.cppm
+        ui/permissions/permission_bash.cppm
+        ui/permissions/permission_computer_use.cppm
+        ui/permissions/permission_file_edit.cppm
+        ui/permissions/permission_file_write.cppm
+        ui/permissions/permission_plan_mode.cppm
+        ui/permissions/permission_rules_ui.cppm
+        ui/permissions/permission_shell_helpers.cppm
+        ui/permissions/permission_worker_badge.cppm
+        ui/prompt/autocomplete.cppm
+        ui/prompt/footer.cppm
+        ui/prompt/mode_indicator.cppm
+        ui/prompt/notifications.cppm
+        ui/prompt/prompt_input_full.cppm
+        ui/prompt/prompt_help_menu.cppm
+        ui/prompt/prompt_history_search.cppm
+        ui/prompt/prompt_paste_handler.cppm
+        ui/prompt/prompt_queued_commands.cppm
+        ui/prompt/prompt_stash_notice.cppm
+        ui/prompt/shimmer.cppm
+        ui/prompt/vim_input.cppm
+        ui/prompt/voice_indicator.cppm
+        ui/prompt_input.cppm
+        ui/mcp/mcp_capabilities.cppm
+        ui/mcp/mcp_elicitation.cppm
+        ui/mcp/mcp_reconnect.cppm
+        ui/mcp/mcp_settings_panel.cppm
+        ui/mcp/mcp_tool_browser.cppm
+        ui/renderer/ink_utils.cppm
+        ui/renderer/renderer.cppm
+        ui/renderer/text_measure.cppm
+        ui/tasks/task_list_ui.cppm
+        ui/tasks/task_background_status.cppm
+        ui/tasks/task_detail_dialog.cppm
+        ui/tasks/task_remote_session.cppm
+        ui/tasks/task_shell_progress.cppm
+        ui/teams/team_status.cppm
+        ui/termio/terminal_io.cppm
+        ui/hooks/hooks_ui.cppm
+        ui/screens/doctor_screen.cppm
+        ui/screens/repl_screen.cppm
+        ui/screens/resume_screen.cppm
+        ui/terminal.cppm
+)
+target_link_libraries(cc_ui
+    PUBLIC
+        cc_utils
+        cc_types
+        cc_query
+        cc_commands
+        cc_vim
+        cc_hooks
+        ftxui::screen
+        ftxui::dom
+        ftxui::component
+)
+
+# ─── cc_vim: Vim Mode ─────────────────────────────────────────────────────────
+add_library(cc_vim)
+target_sources(cc_vim
+    PUBLIC FILE_SET CXX_MODULES FILES
+        vim/vim_commands.cppm
+        vim/vim_mode.cppm
+        vim/vim_motions.cppm
+        vim/vim_operators.cppm
+        vim/vim_text_objects.cppm
+)
+target_link_libraries(cc_vim PUBLIC cc_utils)
+
+# ─── cc_daemon: Daemon System ─────────────────────────────────────────────────
+add_library(cc_daemon)
+target_sources(cc_daemon
+    PUBLIC FILE_SET CXX_MODULES FILES
+        daemon/daemon_client.cppm
+        daemon/daemon_server.cppm
+)
+target_link_libraries(cc_daemon PUBLIC cc_utils)
+
+# ─── cc_remote: Remote Connections ────────────────────────────────────────────
+add_library(cc_remote)
+target_sources(cc_remote
+    PUBLIC FILE_SET CXX_MODULES FILES
+        remote/remote_auth.cppm
+        remote/remote_connection.cppm
+        remote/remote_session.cppm
+)
+target_link_libraries(cc_remote PUBLIC cc_utils cc_bridge)
+
+# ─── cc_migrations: Schema Migrations ─────────────────────────────────────────
+add_library(cc_migrations)
+target_sources(cc_migrations
+    PUBLIC FILE_SET CXX_MODULES FILES
+        migrations/concrete_migrations.cppm
+        migrations/migration_registry.cppm
+        migrations/migration_runner.cppm
+        migrations/schema_versions.cppm
+)
+target_link_libraries(cc_migrations PUBLIC cc_utils)
+
+# ─── cc_server: Server ────────────────────────────────────────────────────────
+add_library(cc_server)
+target_sources(cc_server
+    PUBLIC FILE_SET CXX_MODULES FILES
+        server/server_main.cppm
+        server/server_routes.cppm
+)
+target_link_libraries(cc_server PUBLIC cc_utils)
+
+# ─── cc_screens: Screen System ────────────────────────────────────────────────
+add_library(cc_screens)
+target_sources(cc_screens
+    PUBLIC FILE_SET CXX_MODULES FILES
+        screens/doctor_screen.cppm
+        screens/resume_screen.cppm
+        screens/screens.cppm
+)
+target_link_libraries(cc_screens PUBLIC cc_ui)
+
+# ─── cc_schemas: Validation Schemas ───────────────────────────────────────────
+add_library(cc_schemas)
+target_sources(cc_schemas
+    PUBLIC FILE_SET CXX_MODULES FILES
+        schemas/validation_schemas.cppm
+)
+target_link_libraries(cc_schemas PUBLIC cc_utils)
+
+# ─── cc_benchmarks: Pare Benchmark System ─────────────────────────────────────
+add_library(cc_benchmarks)
+target_sources(cc_benchmarks
+    PUBLIC FILE_SET CXX_MODULES FILES
+        benchmarks/pare/case_loader.cppm
+        benchmarks/pare/cli.cppm
+        benchmarks/pare/evaluator.cppm
+        benchmarks/pare/execute_ref.cppm
+        benchmarks/pare/metrics.cppm
+        benchmarks/pare/run.cppm
+        benchmarks/pare/schema.cppm
+        benchmarks/pare/workspace.cppm
+)
+target_link_libraries(cc_benchmarks PUBLIC cc_utils yyjson)
+
+# ─── cc_plugins: Plugin System ────────────────────────────────────────────────
+add_library(cc_plugins)
+target_sources(cc_plugins
+    PUBLIC FILE_SET CXX_MODULES FILES
+        plugins/loader.cppm
+        plugins/marketplace.cppm
+        plugins/plugin.cppm
+)
+target_link_libraries(cc_plugins PUBLIC cc_utils cc_types yyjson uv_a)
+
+# ─── cc_core: Aggregator (links ALL sub-libraries) ────────────────────────────
+# Convenience INTERFACE library that links all subsystems together.
+add_library(cc_core INTERFACE)
+target_link_libraries(cc_core
+    INTERFACE
+        cc_utils
+        cc_state
+        cc_constants
+        cc_types
+        cc_config
+        cc_context
+        cc_keybindings
+        cc_memdir
+        cc_coordinator
+        cc_query
+        cc_session
+        cc_entrypoints
+        cc_bootstrap
+        cc_tasks
+        cc_tools
+        cc_commands
+        cc_services
+        cc_hooks
+        cc_cli
+        cc_bridge
+        cc_skills
+        cc_ui
+        cc_vim
+        cc_daemon
+        cc_remote
+        cc_migrations
+        cc_server
+        cc_screens
+        cc_schemas
+        cc_benchmarks
+        cc_plugins
+        CURL::libcurl
+        yyjson
+        uv_a
+)
+
+# ─── cc_repl: Main Executable ─────────────────────────────────────────────────
+add_executable(cc_repl)
+target_sources(cc_repl
+    PRIVATE
+        main.cpp
+)
+target_link_libraries(cc_repl
+    PRIVATE
+        cc_core
+)
+set_target_properties(cc_repl PROPERTIES
+    OUTPUT_NAME "cc-repl"
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+)
+
+# ─── Pare Benchmark Executable ────────────────────────────────────────────────
+add_executable(pare_benchmark)
+target_sources(pare_benchmark
+    PRIVATE
+        benchmarks/pare/pare_benchmark_main.cpp
+)
+target_link_libraries(pare_benchmark
+    PRIVATE
+        cc_benchmarks
+)
+set_target_properties(pare_benchmark PROPERTIES
+    OUTPUT_NAME "pare-benchmark"
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+)
