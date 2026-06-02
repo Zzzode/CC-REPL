@@ -7,6 +7,8 @@
   "scripts": {
     "build": "bun run scripts/build.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "migration:inventory": "node scripts/cpp-migration-inventory.mjs",
+    "migration:inventory:json": "node scripts/cpp-migration-inventory.mjs --json",
     "start": "bun dist/cli.js",
     "start:cu": "ALLOW_ANT_COMPUTER_USE_MCP=1 DISABLE_TELEMETRY= bun dist/cli.js",
     "start:cu:mcp": "ALLOW_ANT_COMPUTER_USE_MCP=1 DISABLE_TELEMETRY= bun dist/cli.js --computer-use-mcp",
