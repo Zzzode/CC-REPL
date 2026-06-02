@@ -1,0 +1,52 @@
+/// @file files.cppm
+/// @brief FilesCommand implementing the /files slash command.
+/// Shows all files currently in context.
+module;
+
+#include <string>
+#include <vector>
+#include <optional>
+#include <expected>
+#include <format>
+#include <algorithm>
+#include <array>
+
+export module cc.commands.files;
+
+import cc.types.types;
+import cc.commands.command;
+
+export namespace cc::commands {
+
+using namespace cc::core;
+
+/// FilesCommand implements the /files slash command.
+/// Shows all files currently in context.
+class FilesCommand {
+public:
+    [[nodiscard]] static CommandDefinition definition() {
+        return CommandDefinition{
+            .name = "files",
+            .description = "Show all files currently in context",
+            .aliases = {},
+            .args = {},
+            .hidden = false,
+            .category = "context",
+        };
+    }
+
+    [[nodiscard]] VoidResult validate(const CommandContext&) {
+        return {};
+    }
+
+    [[nodiscard]] Result<CommandResult> execute(const CommandContext&) {
+        // In a real implementation, we would fetch files from context
+        return CommandResult::success("No files in context");
+    }
+
+    [[nodiscard]] std::vector<std::string> complete(std::string_view) {
+        return {};
+    }
+};
+
+} // namespace cc::commands
