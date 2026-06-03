@@ -11,6 +11,7 @@ export module cc.constants.product;
 
 export namespace cc::constants::product {
 
+inline constexpr std::string_view CC_REPL_VERSION = "1.0.0-cpp";
 inline constexpr std::string_view PRODUCT_URL = "https://claude.com/claude-code";
 inline constexpr std::string_view CLAUDE_AI_BASE_URL = "https://claude.ai";
 inline constexpr std::string_view CLAUDE_AI_STAGING_BASE_URL = "https://claude-ai.staging.ant.dev";

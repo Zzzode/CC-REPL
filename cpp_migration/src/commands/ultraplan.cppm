@@ -31,7 +31,7 @@ public:
             .args = {},
             .category = "planning",
             .aliases = {},
-            .hidden = true,
+            .hidden = false,
         };
     }
 

@@ -2,7 +2,7 @@
 
 > Generated: 2026-05-29
 > Updated: 2026-06-03
-> Status: **NATIVE CUTOVER VALIDATED** — C++ build, CTest, strict migration inventory, and native entrypoint E2E pass.
+> Status: **NATIVE RUNTIME SMOKE VALIDATED** — C++ build, CTest, strict inventory, native entrypoint E2E, and selected command dispatch pass. Functional parity is still in progress.
 
 ---
 
@@ -10,20 +10,22 @@
 
 This document tracks the complete migration plan from TypeScript (Bun + React/Ink) to C++23 (Modules + FTXUI).
 
-### Final State
+### Current Inventory Snapshot
 
 ```
 TS source files:              1,946
-C++ source files:             1,091
-C++ modules:                  1,089 .cppm
+C++ source files:             1,093
+C++ modules:                  1,091 .cppm
 C++ implementation files:     2 .cpp
-Commands migrated:            100/100
-Tools migrated:               45/45
+Command root overlap:         Name overlap only; not a feature-parity score
+Tool root overlap:            Name overlap only; not a feature-parity score
+Runtime command surface:      Typed C++ command registry with selected hardened local actions
+Runtime tool surface:         Registered C++ tool registry with mixed real and adapter-backed tools
 CMake registration gaps:      0
 Blocking migration markers:   0
 Compiler:                     LLVM Clang 22.1.6
 Generator:                    Ninja
-Build status:                 Native build, CTest, inventory, and E2E pass
+Build status:                 Native build, CTest, inventory, and E2E pass for smoke coverage
 ```
 
 ### Current Validation Gates
@@ -37,6 +39,21 @@ bun run migration:e2e
 ```
 
 The default product entrypoint is `dist/cc-repl`. `dist/cli.js` is retained only as a compatibility launcher that delegates to the native binary.
+
+`bun run typecheck` is not part of the native product gate and currently fails in the retained TypeScript diagnostic path because of missing TS modules, ES library target drift, React compiler-runtime typings, and union narrowing issues. Keep this visible if `start:ts` must remain a supported development path.
+
+### Runtime Command Hardening
+
+The command migration is no longer only an inventory pass. The previous readiness-level helper responses have been replaced by local behavior where the command can be completed without external services:
+
+- `/ant-trace`, `/bughunter`, and `/perf-issue` collect real local diagnostic snapshots.
+- `/break-cache` removes local cache directories or an explicit cache path.
+- `/backfill-sessions` scans local session files and backfills assistant session history.
+- `/debug-tool-call` validates and summarizes JSON tool-call payloads.
+- `/mock-limits` and `/reset-limits` update the native rate-limit hook state.
+- `/bridge` inspects IDE bridge lockfiles instead of returning a static status.
+- `/extra-usage`, `/onboarding`, `/init-verifiers`, and `/create-moved-to-plugin-command` execute concrete local actions.
+- `/autofix-pr` and `/commit-push-pr` perform Git/GitHub preflight checks; full PR automation still depends on authenticated external transports.
 
 ### Architecture Mapping
 
@@ -711,23 +728,23 @@ The default product entrypoint is `dist/cc-repl`. `dist/cli.js` is retained only
   - Dependency depth ≤ 5 levels
   - Generate dependency visualization
 
-- [x] **11.5** API integration test
+- [ ] **11.5** API integration test
   - Real Anthropic API call with streaming
   - Tool use round-trip (bash, file read, grep)
   - Multi-turn conversation
 
-- [x] **11.6** Feature parity checklist
+- [ ] **11.6** Feature parity checklist
   - [x] Interactive REPL mode
   - [x] Slash commands (core subset)
   - [x] Tool execution (Bash, File*, Glob, Grep)
-  - [x] Streaming response rendering
-  - [x] Session persistence
-  - [x] MCP server connection
-  - [x] Permission system
-  - [x] Keyboard shortcuts
-  - [x] Thinking mode display
-  - [x] Cost tracking
-  - [x] Auto-compact
+  - [ ] Streaming response rendering parity
+  - [ ] Session persistence parity
+  - [ ] MCP server connection lifecycle
+  - [ ] Permission system parity
+  - [ ] Keyboard shortcuts parity
+  - [ ] Thinking mode display parity
+  - [ ] Cost tracking parity
+  - [ ] Auto-compact parity
 
 ---
 
@@ -750,8 +767,9 @@ The default product entrypoint is `dist/cc-repl`. `dist/cli.js` is retained only
 | **Original final estimate** | **~342** | **~728** | **~25% files / ~85% functional** |
 
 > Current validation no longer uses the historical phase estimate as the completion gate.
-> The active gate is strict inventory plus native build/test/E2E: commands 100/100,
-> tools 45/45, no CMake registration gaps, and no blocking migration markers.
+> The active gate is strict inventory plus native build/test/E2E smoke coverage:
+> no CMake registration gaps, no blocking migration markers, key runtime surfaces present,
+> and targeted behavior tests for migrated functionality.
 
 ---
 

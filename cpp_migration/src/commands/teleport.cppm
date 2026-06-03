@@ -31,7 +31,7 @@ public:
             .args = {},
             .category = "session",
             .aliases = {},
-            .hidden = true,
+            .hidden = false,
         };
     }
 

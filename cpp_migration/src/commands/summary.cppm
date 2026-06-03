@@ -31,7 +31,7 @@ public:
             .args = {},
             .category = "conversation",
             .aliases = {},
-            .hidden = true,
+            .hidden = false,
         };
     }
 

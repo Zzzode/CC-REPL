@@ -91,8 +91,11 @@ TEST(AppCommandRegistry, ReportsCommandPermissionLevels) {
 TEST(AppCommandRegistry, DispatchesMigratedRuntimeCommands) {
     cc::commands::AppCommandRegistry registry;
 
+    EXPECT_GT(registry.command_count(), 0u);
     EXPECT_TRUE(registry.has_command("commit"));
     EXPECT_TRUE(registry.has_command("mcp"));
+    EXPECT_TRUE(registry.has_command("ant-trace"));
+    EXPECT_TRUE(registry.has_command("version"));
     EXPECT_TRUE(registry.has_command("exit"));
 
     auto help = registry.execute("/help", ctx());
@@ -106,9 +109,57 @@ TEST(AppCommandRegistry, DispatchesMigratedRuntimeCommands) {
     EXPECT_TRUE(mcp->ok);
     EXPECT_EQ(mcp->message.find("Unknown command"), std::string::npos);
 
+    auto ant_trace = registry.execute("/ant-trace request-42", ctx());
+    ASSERT_TRUE(ant_trace.has_value());
+    EXPECT_TRUE(ant_trace->ok);
+    EXPECT_NE(ant_trace->message.find("ANT trace snapshot"), std::string::npos);
+    EXPECT_EQ(ant_trace->message.find("No dedicated local action"), std::string::npos);
+
+    auto version = registry.execute("/version detail", ctx());
+    ASSERT_TRUE(version.has_value());
+    EXPECT_TRUE(version->ok);
+    EXPECT_NE(version->message.find("cc-repl 1.0.0-cpp"), std::string::npos);
+    EXPECT_EQ(version->message.find("No dedicated local action"), std::string::npos);
+
     auto exit = registry.execute("/exit", ctx());
     ASSERT_TRUE(exit.has_value());
     EXPECT_EQ(exit->metadata, "EXIT");
+}
+
+TEST(AppCommandRegistry, RuntimeSurfaceCommandsExecuteLocalLogic) {
+    cc::commands::AppCommandRegistry registry;
+
+    auto debug = registry.execute(R"(/debug-tool-call {"name":"Bash","input":{"command":"pwd"}})", ctx());
+    ASSERT_TRUE(debug.has_value());
+    EXPECT_TRUE(debug->ok);
+    EXPECT_NE(debug->message.find("Tool-call payload valid"), std::string::npos);
+    EXPECT_NE(debug->message.find("Tool: Bash"), std::string::npos);
+
+    auto mock = registry.execute("/mock-limits 5", ctx());
+    ASSERT_TRUE(mock.has_value());
+    EXPECT_TRUE(mock->ok);
+    EXPECT_NE(mock->message.find("Synthetic rate limit active"), std::string::npos);
+
+    auto reset = registry.execute("/reset-limits all", ctx());
+    ASSERT_TRUE(reset.has_value());
+    EXPECT_TRUE(reset->ok);
+    EXPECT_NE(reset->message.find("active=false"), std::string::npos);
+    EXPECT_NE(reset->message.find("total_retries=0"), std::string::npos);
+
+    auto extra_usage = registry.execute("/extra-usage status", ctx());
+    ASSERT_TRUE(extra_usage.has_value());
+    EXPECT_TRUE(extra_usage->ok);
+    EXPECT_NE(extra_usage->message.find("Extra usage:"), std::string::npos);
+
+    auto bridge = registry.execute("/bridge status", ctx());
+    ASSERT_TRUE(bridge.has_value());
+    EXPECT_TRUE(bridge->ok);
+    EXPECT_NE(bridge->message.find("Bridge status:"), std::string::npos);
+
+    auto onboarding = registry.execute("/onboarding status", ctx());
+    ASSERT_TRUE(onboarding.has_value());
+    EXPECT_TRUE(onboarding->ok);
+    EXPECT_NE(onboarding->message.find("Onboarding status"), std::string::npos);
 }
 
 TEST(HelpCommand, FormatsDefaultShortcutsExamplesAndSpecificHelp) {

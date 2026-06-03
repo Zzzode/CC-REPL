@@ -15,6 +15,13 @@ Validated gates:
 - `ctest --test-dir cpp_migration/build/clang-release --output-on-failure` passes.
 - `node scripts/cpp-migration-inventory.mjs --strict` passes.
 - `bun run migration:e2e` passes native version/help, package start, compatibility launcher, and strict inventory checks.
+- `cc-repl --list-runtime-commands` exposes all `100` migrated slash commands.
+- `cc-repl --list-runtime-tools` exposes all `45` migrated tools.
+- `cc-repl --simple-ui` can dispatch local slash commands without `ANTHROPIC_API_KEY`.
+- `/version` and `--version` now share the same native version constant.
+- `/status`, immediate `/version`, diagnostics, and user-agent constants now report the native `1.0.0-cpp` version family.
+- `todo_write` parses the TypeScript-compatible `todos` input shape instead of accepting an empty placeholder payload.
+- Runtime helper commands no longer return readiness placeholders: local commands now perform real diagnostics, cache clearing, session-history backfill, rate-limit state updates, IDE bridge lockfile inspection, onboarding checks, verifier profile creation, and tool-call JSON validation.
 
 ## Architecture Overview
 
@@ -46,6 +53,8 @@ The strict inventory gate currently reports:
 
 - Commands: `100/100`
 - Tools: `45/45`
+- Runtime command surface: all commands are typed C++ registrations or typed adapters to migrated helper modules; the generic surface fallback shim and readiness placeholder responses have been removed.
+- Runtime tool surface: tool dispatch uses registered C++ tool implementations or domain-backed adapters for MCP, LSP, task, plan, worktree, sleep, team, script, and related runtime tools.
 - CMake registered source/header entries: complete
 - Unregistered C++ compilable files: `0`
 - Registered but missing files: `0`
@@ -78,4 +87,7 @@ bun run migration:e2e
 
 - Some native modules intentionally consolidate multiple TypeScript files, so file-count parity is not a meaningful completion metric.
 - The compatibility launcher is still JavaScript, but it only delegates to the native binary.
+- The retained TypeScript diagnostic path does not currently typecheck (`bun run typecheck` fails on missing TS modules, ES lib target drift, React compiler-runtime typings, and union narrowing issues). This is outside the native product gate but remains a cleanup item if `start:ts` must stay usable.
+- External workflow commands such as PR autofix and commit-push-PR now perform real local preflight checks, but they still require authenticated GitHub/remote transports for full product-equivalent automation.
+- Several integration surfaces still need end-to-end parity validation with real transports: LSP diagnostics, MCP resource/tool calls, IDE bridge message transport, remote execution, plugins, and computer-use capture.
 - GoogleTest discovery can occasionally hit CMake's 5 second discovery timeout under heavy relinking; direct `--gtest_list_tests` and reruns complete normally.

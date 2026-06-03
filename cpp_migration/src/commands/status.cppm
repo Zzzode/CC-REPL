@@ -15,6 +15,7 @@ export module cc.commands.status;
 
 import cc.types.types;
 import cc.commands.command;
+import cc.constants.product;
 
 export namespace cc::commands {
 
@@ -28,10 +29,10 @@ public:
         return CommandDefinition{
             .name = "status",
             .description = "Show Claude Code status including version, model, account, API connectivity, and tool statuses",
-            .aliases = {},
             .args = {},
-            .hidden = false,
             .category = "info",
+            .aliases = {},
+            .hidden = false,
         };
     }
 
@@ -41,9 +42,9 @@ public:
 
     [[nodiscard]] Result<CommandResult> execute(const CommandContext&) {
         return CommandResult::success(
-            "Claude Code Status:\n"
-            "Version: 0.1.0\n"
-            "Model: Not configured\n"
+            std::string("Claude Code Status:\n") +
+            "Version: " + std::string(cc::constants::product::CC_REPL_VERSION) + "\n" +
+            "Model: Not configured\n" +
             "Status: Offline (C++ Migration Demo)");
     }
 

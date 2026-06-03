@@ -31,7 +31,7 @@ public:
             .args = {},
             .category = "configuration",
             .aliases = {},
-            .hidden = true,
+            .hidden = false,
         };
     }
 

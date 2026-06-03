@@ -45,6 +45,7 @@ import cc.commands.command;
 import cc.commands.registry;
 import cc.context.context;
 import cc.constants.cost_tracker;
+import cc.constants.product;
 import cc.session.history;
 import cc.bootstrap.setup;
 import cc.tasks.task;
@@ -54,7 +55,7 @@ import cc.ui.app;
 namespace fs = std::filesystem;
 
 // Application version constant
-constexpr std::string_view kVersion = "1.0.0-cpp";
+constexpr std::string_view kVersion = cc::constants::product::CC_REPL_VERSION;
 
 /**
  * Parsed command-line options
@@ -170,7 +171,7 @@ static std::atomic<bool> g_should_exit{false};
  * Simple fallback UI if FTXUI fails
  */
 auto run_simple_ui(
-    cc::core::QueryEngine& engine,
+    cc::core::QueryEngine* engine,
     cc::commands::AppCommandRegistry& cmd_registry
 ) -> int {
     std::println("╭─────────────────────────────────────────╮");
@@ -206,9 +207,14 @@ auto run_simple_ui(
             continue;
         }
 
+        if (engine == nullptr) {
+            std::println("Error: ANTHROPIC_API_KEY is required for model queries. Slash commands remain available.");
+            continue;
+        }
+
         std::println("\n🔄 Processing...\n");
 
-        auto query_result = engine.query(input);
+        auto query_result = engine->query(input);
         if (!query_result.has_value()) {
             std::println("❌ Error: {}", query_result.error().format());
             continue;
@@ -232,7 +238,7 @@ auto run_simple_ui(
         }
 
         // Print cost info
-        auto cost = engine.get_usage();
+        auto cost = engine->get_usage();
         std::println("\n📊 Usage: {} in / {} out tokens",
             cost.input_tokens, cost.output_tokens);
     }
@@ -287,7 +293,12 @@ int main(int argc, const char* argv[]) {
         config.model_params.model = opts.model.value();
     }
 
-    // Validate API key is present
+    // Validate API key is present for model queries. Local slash commands in
+    // simple UI mode do not need API access.
+    if (config.api_key.empty() && opts.use_simple_ui) {
+        auto cmd_registry = cc::commands::AppCommandRegistry{};
+        return run_simple_ui(nullptr, cmd_registry);
+    }
     if (config.api_key.empty()) {
         std::println(stderr, "Error: ANTHROPIC_API_KEY environment variable is not set.");
         std::println(stderr, "Set it with: export ANTHROPIC_API_KEY=\"your-key-here\"");
@@ -323,13 +334,13 @@ int main(int argc, const char* argv[]) {
     // Try to run with full UI, fall back to simple if needed
     try {
         if (opts.use_simple_ui) {
-            return run_simple_ui(engine, cmd_registry);
+            return run_simple_ui(&engine, cmd_registry);
         } else {
             return cc::ui::RunApp(engine, cmd_registry, storage, &permission_hook);
         }
     } catch (const std::exception& e) {
         std::println(stderr, "UI startup failed: {}", e.what());
         std::println(stderr, "Falling back to simple mode...");
-        return run_simple_ui(engine, cmd_registry);
+        return run_simple_ui(&engine, cmd_registry);
     }
 }

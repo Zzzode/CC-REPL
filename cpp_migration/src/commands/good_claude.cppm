@@ -23,7 +23,7 @@ public:
             .args = {},
             .category = "feedback",
             .aliases = {},
-            .hidden = true,
+            .hidden = false,
         };
     }
 

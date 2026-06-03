@@ -83,6 +83,7 @@ import cc.commands.export_cmd;
 import cc.commands.good_claude;
 import cc.commands.install_slack_app;
 import cc.commands.mobile;
+import cc.commands.runtime_surface_commands;
 import cc.commands.stickers;
 import cc.commands.tasks_cmd;
 import cc.commands.skills_cmd;
@@ -117,12 +118,20 @@ enum class CommandPermission : std::uint8_t {
         name == "tag" || name == "teleport" || name == "ultraplan" || name == "insights" || name == "init")
         return CommandPermission::ReadOnly;
     if (name == "chrome" || name == "desktop" || name == "good-claude" || name == "mobile" ||
-        name == "stickers")
+        name == "stickers" || name == "ant-trace" || name == "bughunter" || name == "debug-tool-call" ||
+        name == "extra-usage" || name == "init-verifiers" || name == "onboarding" ||
+        name == "perf-issue" || name == "pr-comments" || name == "rate-limit-options" ||
+        name == "remote-env" || name == "statusline" || name == "terminal-setup" ||
+        name == "thinkback-play" || name == "version")
         return CommandPermission::ReadOnly;
     
     if (name == "clear" || name == "compact" || name == "add-dir" || name == "commit" || name == "config" ||
         name == "mcp" || name == "bridge-kick" || name == "rename" || name == "rewind" || name == "share" ||
-        name == "upgrade" || name == "install" || name == "install-slack-app")
+        name == "upgrade" || name == "install" || name == "install-slack-app" ||
+        name == "autofix-pr" || name == "backfill-sessions" || name == "break-cache" ||
+        name == "bridge" || name == "create-moved-to-plugin-command" || name == "install-github-app" ||
+        name == "mock-limits" || name == "oauth-refresh" || name == "reload-plugins" ||
+        name == "remote-setup" || name == "reset-limits")
         return CommandPermission::ReadWrite;
     
     return CommandPermission::None;
@@ -330,144 +339,50 @@ private:
         registry_.register_command<UsageCommand>();
         registry_.register_command<BranchCommand>();
         registry_.register_command<ChromeCommand>();
+        registry_.register_command<CommitPushPrCommand>();
         registry_.register_command<CopyCommand>();
         registry_.register_command<DesktopCommand>();
         registry_.register_command<ExportCommand>();
         registry_.register_command<GoodClaudeCommand>();
         registry_.register_command<InstallSlackAppCommand>();
+        registry_.register_command<KeybindingsCommand>();
         registry_.register_command<MobileCommand>();
+        registry_.register_command<OutputStyleCommand>();
+        registry_.register_command<PrivacySettingsCommand>();
+        registry_.register_command<ReleaseNotesCommand>();
+        registry_.register_command<SandboxToggleCommand>();
+        registry_.register_command<SecurityReviewCommand>();
         registry_.register_command<StickersCommand>();
         registry_.register_command<TasksCommand>();
         registry_.register_command<SkillsCommand>();
+        registry_.register_command<ThinkbackCommand>();
         registry_.register_command<VoiceCommand>();
-        register_migration_surface_commands();
-    }
-
-    void register_surface_command(std::string name, std::string description) {
-        auto command_name = name;
-        registry_.register_command(CommandRegistration{
-            .name = std::move(name),
-            .description = std::move(description),
-            .usage = "/" + command_name,
-            .handler = [command_name](const CommandContext&) {
-                if (command_name == "exit") return CommandResult::exit();
-                return CommandResult::success(std::format(
-                    "/{} is registered in the C++ runtime. No dedicated local action is available for this command.",
-                    command_name
-                ));
-            },
-            .aliases = command_name == "exit" ? std::vector<std::string>{"quit", "q"} : std::vector<std::string>{},
-            .hidden = false,
-        });
-    }
-
-    void register_migration_surface_commands() {
-        const std::vector<std::pair<std::string, std::string>> commands = {
-            {"add-dir", "Add a working directory to the context"},
-            {"advisor", "Configure the advisor model"},
-            {"agents", "Manage agent configurations"},
-            {"ant-trace", "Inspect internal trace diagnostics"},
-            {"autofix-pr", "Generate fixes for pull request feedback"},
-            {"backfill-sessions", "Backfill local session metadata"},
-            {"branch", "Manage git branches"},
-            {"break-cache", "Clear internal caches"},
-            {"bridge", "Manage IDE bridge state"},
-            {"bridge-kick", "Kick or restart bridge connections"},
-            {"brief", "Toggle brief-only mode"},
-            {"btw", "Ask a quick side question without interrupting the main conversation"},
-            {"bughunter", "Run bug hunting diagnostics"},
-            {"chrome", "Show Claude in Chrome setup information"},
-            {"clear", "Clear the screen and optionally reset conversation state"},
-            {"color", "Set the session color"},
-            {"commit", "Generate a conventional commit message and commit staged changes"},
-            {"commit-push-pr", "Commit, push, and prepare a pull request"},
-            {"compact", "Compress conversation context to free up token budget"},
-            {"config", "View and modify CLI configuration settings"},
-            {"context", "Show and manage context window"},
-            {"copy", "Copy response content to clipboard"},
-            {"cost", "Show cost breakdown for the current session"},
-            {"create-moved-to-plugin-command", "Create a moved-to-plugin command shim"},
-            {"ctx-viz", "Visualize current context usage"},
-            {"debug-tool-call", "Debug a tool call payload"},
-            {"desktop", "Continue the current session in Claude Desktop"},
-            {"diff", "Show file changes made in the current session"},
-            {"doctor", "Run system diagnostics and check environment health"},
-            {"effort", "Set the effort level"},
-            {"env", "Show environment diagnostics"},
-            {"exit", "Exit the application"},
-            {"export", "Export conversation to a file"},
-            {"extra-usage", "Show extended usage information"},
-            {"fast", "Toggle fast mode"},
-            {"feedback", "Submit feedback about Claude Code"},
-            {"files", "Show all files currently in context"},
-            {"good-claude", "Send positive product feedback"},
-            {"heapdump", "Write process heap diagnostics"},
-            {"help", "Show available commands and usage information"},
-            {"hooks", "View hook configurations for tool events"},
-            {"ide", "Manage IDE integration settings"},
-            {"init", "Initialize Claude Code configuration"},
-            {"init-verifiers", "Initialize verifier configuration"},
-            {"insights", "Analyze usage data and generate insights"},
-            {"install", "Install Claude Code system-wide"},
-            {"install-github-app", "Install the GitHub app integration"},
-            {"install-slack-app", "Install the Claude Slack app"},
-            {"issue", "Create or inspect issues"},
-            {"keybindings", "Manage keybindings"},
-            {"login", "Authenticate with Anthropic API"},
-            {"logout", "Clear stored authentication credentials"},
-            {"mcp", "Manage Model Context Protocol server connections"},
-            {"memory", "Edit persistent memory files"},
-            {"mobile", "Show Claude mobile app download links"},
-            {"mock-limits", "Configure mock rate limits"},
-            {"model", "Switch or display the active model"},
-            {"oauth-refresh", "Refresh OAuth credentials"},
-            {"onboarding", "Run onboarding checks"},
-            {"output-style", "Manage output style"},
-            {"passes", "Show pass and mode diagnostics"},
-            {"perf-issue", "Collect performance issue diagnostics"},
-            {"permissions", "Manage tool execution permissions"},
-            {"plan", "Enter plan mode or show current plan"},
-            {"plugin", "Manage plugins"},
-            {"pr-comments", "Inspect pull request comments"},
-            {"privacy-settings", "Manage privacy settings"},
-            {"rate-limit-options", "Show rate limit options"},
-            {"release-notes", "Show release notes"},
-            {"reload-plugins", "Reload installed plugins"},
-            {"remote-env", "Show remote environment state"},
-            {"remote-setup", "Configure remote execution"},
-            {"rename", "Rename the current session"},
-            {"reset-limits", "Reset local mock limits"},
-            {"resume", "Resume a previous conversation session"},
-            {"review", "Review code changes with AI-powered analysis"},
-            {"rewind", "Restore the code and/or conversation to a previous point"},
-            {"sandbox-toggle", "Toggle sandbox mode"},
-            {"security-review", "Run a security-focused review"},
-            {"session", "Manage conversation sessions"},
-            {"share", "Share current session"},
-            {"skills", "Manage installed skills"},
-            {"stats", "Show session statistics"},
-            {"status", "Show Claude Code status"},
-            {"statusline", "Configure statusline output"},
-            {"stickers", "Order Claude Code stickers"},
-            {"summary", "Summarize the current session"},
-            {"tag", "Toggle a searchable tag on the current session"},
-            {"tasks", "Manage running background tasks"},
-            {"teleport", "Move a session to another environment"},
-            {"terminal-setup", "Configure terminal integration"},
-            {"theme", "Switch visual theme or color scheme"},
-            {"thinkback", "Inspect thinking history"},
-            {"thinkback-play", "Replay thinking history"},
-            {"ultraplan", "Enter ultraplan mode"},
-            {"upgrade", "Upgrade Claude Code to latest version"},
-            {"usage", "Show token usage, cost, and rate limit status"},
-            {"version", "Show the CLI version"},
-            {"vim", "Toggle vim-style keybindings"},
-            {"voice", "Toggle voice input mode"},
-        };
-
-        for (const auto& [name, description] : commands) {
-            register_surface_command(name, description);
-        }
+        registry_.register_command<AntTraceCommand>();
+        registry_.register_command<AutofixPrCommand>();
+        registry_.register_command<BackfillSessionsCommand>();
+        registry_.register_command<BreakCacheCommand>();
+        registry_.register_command<BridgeCommand>();
+        registry_.register_command<BughunterCommand>();
+        registry_.register_command<CreateMovedToPluginCommand>();
+        registry_.register_command<DebugToolCallCommand>();
+        registry_.register_command<ExitCommand>();
+        registry_.register_command<ExtraUsageCommand>();
+        registry_.register_command<InitVerifiersCommand>();
+        registry_.register_command<InstallGithubAppCommand>();
+        registry_.register_command<MockLimitsCommand>();
+        registry_.register_command<OauthRefreshCommand>();
+        registry_.register_command<OnboardingCommand>();
+        registry_.register_command<PerfIssueCommand>();
+        registry_.register_command<PrCommentsCommand>();
+        registry_.register_command<RateLimitOptionsCommand>();
+        registry_.register_command<ReloadPluginsCommand>();
+        registry_.register_command<RemoteEnvCommand>();
+        registry_.register_command<RemoteSetupCommand>();
+        registry_.register_command<ResetLimitsCommand>();
+        registry_.register_command<StatuslineCommand>();
+        registry_.register_command<TerminalSetupCommand>();
+        registry_.register_command<ThinkbackPlayCommand>();
+        registry_.register_command<VersionCommand>();
     }
 
     /// Find a command by name or alias

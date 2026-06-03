@@ -31,7 +31,7 @@ public:
             .args = {},
             .category = "tools",
             .aliases = {},
-            .hidden = true,
+            .hidden = false,
         };
     }
 

@@ -242,4 +242,9 @@ inline void reset_rate_limit_state() {
     detail::global_hook.reset_on_success();
 }
 
+/// Force clear all rate limit state.
+inline void clear_rate_limit_state() {
+    detail::global_hook.reset();
+}
+
 } // namespace cc::services::rate_limit

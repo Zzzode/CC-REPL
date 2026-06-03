@@ -16,6 +16,7 @@ module;
 export module cc.tools.todo_write;
 
 import cc.utils.error;
+import cc.utils.json;
 import cc.tools.tool;
 
 
@@ -263,21 +264,22 @@ public:
         "type": "array",
         "items": {{
           "type": "object",
-          "properties": {{
-            "id": {{ "type": "string" }},
+            "properties": {{
+            "id": {{ "type": "string", "description": "Optional stable id; generated when omitted" }},
             "content": {{ "type": "string" }},
             "status": {{ "type": "string", "enum": ["pending", "in_progress", "completed"] }},
-            "priority": {{ "type": "string", "enum": ["high", "medium", "low"] }},
+            "activeForm": {{ "type": "string", "description": "Present-tense form of the task, accepted for TypeScript parity" }},
+            "priority": {{ "type": "string", "enum": ["high", "medium", "low"], "default": "medium" }},
             "summary": {{ "type": "string" }}
           }},
-          "required": ["id", "content", "status", "priority"]
+          "required": ["content", "status"]
         }},
         "maxItems": 10,
-        "minItems": 3
+        "minItems": 0
       }},
       "merge": {{ "type": "boolean", "description": "Merge with existing list by id" }}
     }},
-    "required": ["todos", "merge"]
+    "required": ["todos"]
   }}
 }})", name, description);
     }
@@ -285,6 +287,110 @@ public:
 private:
     std::vector<TodoItem> items_;
 };
+
+namespace detail {
+
+using JsonVal = cc::utils::json::JsonVal;
+
+[[nodiscard]] std::optional<std::string> json_string(JsonVal obj, std::string_view key) {
+    auto value = obj.get(key);
+    if (!value.valid() || !value.is_str()) return std::nullopt;
+    return std::string(value.as_str());
+}
+
+[[nodiscard]] bool json_bool(JsonVal obj, std::string_view key, bool fallback) {
+    auto value = obj.get(key);
+    return value.valid() && value.is_bool() ? value.as_bool() : fallback;
+}
+
+[[nodiscard]] std::expected<TodoStatus, std::string> parse_status(JsonVal item) {
+    auto status = json_string(item, "status");
+    if (!status) return std::unexpected("Todo item status is required");
+    if (*status == "pending") return TodoStatus::Pending;
+    if (*status == "in_progress") return TodoStatus::InProgress;
+    if (*status == "completed") return TodoStatus::Completed;
+    return std::unexpected("Invalid todo status: " + *status);
+}
+
+[[nodiscard]] std::expected<Priority, std::string> parse_priority(JsonVal item) {
+    auto priority = json_string(item, "priority");
+    if (!priority || priority->empty()) return Priority::Medium;
+    if (*priority == "high") return Priority::High;
+    if (*priority == "medium") return Priority::Medium;
+    if (*priority == "low") return Priority::Low;
+    return std::unexpected("Invalid todo priority: " + *priority);
+}
+
+[[nodiscard]] std::expected<TodoItem, std::string> parse_item(JsonVal item, std::size_t index) {
+    if (!item.valid() || !item.is_obj()) {
+        return std::unexpected(std::format("Todo item {} must be an object", index + 1));
+    }
+
+    auto content = json_string(item, "content");
+    if (!content || content->empty()) {
+        return std::unexpected(std::format("Todo item {} content is required", index + 1));
+    }
+
+    auto status = parse_status(item);
+    if (!status) return std::unexpected(status.error());
+    auto priority = parse_priority(item);
+    if (!priority) return std::unexpected(priority.error());
+
+    TodoItem parsed{
+        .id = json_string(item, "id").value_or(std::format("todo-{}", index + 1)),
+        .content = std::move(*content),
+        .status = *status,
+        .priority = *priority,
+        .summary = json_string(item, "summary"),
+        .created_at = {},
+    };
+    return parsed;
+}
+
+[[nodiscard]] std::expected<TodoWriteRequest, std::string> parse_request(std::string_view raw_json) {
+    auto doc = cc::utils::json::parse(raw_json);
+    if (!doc) return std::unexpected(doc.error().format());
+
+    auto root = doc->root();
+    if (!root.valid() || !root.is_obj()) {
+        return std::unexpected("todo_write input must be a JSON object");
+    }
+
+    auto todos = root.get("todos");
+    if (!todos.valid()) todos = root.get("items");
+    if (!todos.valid() || !todos.is_arr()) {
+        return std::unexpected("todo_write requires a todos array");
+    }
+
+    TodoWriteRequest request;
+    request.merge = json_bool(root, "merge", false);
+
+    std::size_t index = 0;
+    std::optional<std::string> error;
+    todos.iter([&](JsonVal item) {
+        if (error) return;
+        auto parsed = parse_item(item, index);
+        if (!parsed) {
+            error = parsed.error();
+            return;
+        }
+        request.items.push_back(std::move(*parsed));
+        ++index;
+    });
+
+    if (error) return std::unexpected(*error);
+
+    if (!request.merge && !request.items.empty()) {
+        const bool all_done = std::ranges::all_of(request.items, [](const TodoItem& item) {
+            return item.status == TodoStatus::Completed;
+        });
+        if (all_done) request.items.clear();
+    }
+
+    return request;
+}
+
+} // namespace detail
 
 /// Factory: create TodoWriteTool wrapped as ITool for registry integration
 [[nodiscard]] auto make_todo_write_tool() -> std::unique_ptr<cc::core::ITool> {
@@ -305,7 +411,8 @@ private:
                         .name = "merge",
                         .type = "boolean",
                         .description = "Merge with existing list by id (true) or replace all (false)",
-                        .required = true
+                        .required = false,
+                        .default_value = "false"
                     }
                 }
             },
@@ -316,13 +423,14 @@ private:
         const cc::core::ToolDefinition& definition() const override { return def_; }
 
         std::expected<cc::core::ToolResult, cc::core::Error> execute(const cc::core::ToolInput& input) override {
-            // Simplified: forward raw JSON to the tool as a replace-all with empty list
-            // In production, parse the JSON into TodoWriteRequest properly
-            TodoWriteRequest request;
-            request.merge = false;
-            request.items = {};
+            auto request = detail::parse_request(input.json());
+            if (!request) {
+                return std::unexpected(cc::core::Error::make(
+                    cc::core::ErrorCode::InvalidInput,
+                    request.error()));
+            }
 
-            auto result = tool_.execute(std::move(request));
+            auto result = tool_.execute(std::move(*request));
             if (result) {
                 auto msg = std::format("Todo list updated: {} total, {} added, {} updated, {} removed",
                     result->total_items, result->items_added, result->items_updated, result->items_removed);

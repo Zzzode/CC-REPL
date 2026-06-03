@@ -42,7 +42,6 @@ public:
         return CommandDefinition{
             .name = "bridge-kick",
             .description = "Inject bridge failure states for manual recovery testing",
-            .aliases = {},
             .args = {
                 CommandArg{.name = "subcommand", .description = "Subcommand: close, poll, register, reconnect-session, heartbeat, reconnect, status",
                            .type = ArgType::Choice, .required = false,
@@ -52,8 +51,9 @@ public:
                 CommandArg{.name = "parameter2", .description = "Second subcommand parameter",
                            .type = ArgType::Text, .required = false},
             },
-            .hidden = true,
             .category = "debug",
+            .aliases = {},
+            .hidden = false,
         };
     }
 

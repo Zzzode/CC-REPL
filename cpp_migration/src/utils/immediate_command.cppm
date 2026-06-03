@@ -60,7 +60,7 @@ std::optional<std::string> execute_immediate(std::string_view command) {
     }
 
     if (cmd == "/version") {
-        return "CC-REPL v0.1.0 (C++23)";
+        return "CC-REPL v1.0.0-cpp (C++23)";
     }
 
     if (cmd == "/status") {

@@ -138,7 +138,7 @@ struct DiagnosticInfo {
     DiagnosticInfo info;
 
     // Always collect basic info
-    info.app_version = "cc-repl 0.1.0 (C++23)";
+    info.app_version = "cc-repl 1.0.0-cpp (C++23)";
     info.os_version = get_os_version();
 
 #if defined(__APPLE__) || defined(__linux__)

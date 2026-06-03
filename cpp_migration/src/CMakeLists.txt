@@ -704,6 +704,7 @@ target_sources(cc_commands
         commands/review/review_remote.cppm
         commands/review/ultrareview.cppm
         commands/rewind.cppm
+        commands/runtime_surface_commands.cppm
         commands/sandbox_toggle.cppm
         commands/security_review.cppm
         commands/session.cppm

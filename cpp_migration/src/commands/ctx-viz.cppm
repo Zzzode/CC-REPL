@@ -31,7 +31,7 @@ public:
             .args = {},
             .category = "debug",
             .aliases = {},
-            .hidden = true,
+            .hidden = false,
         };
     }
 

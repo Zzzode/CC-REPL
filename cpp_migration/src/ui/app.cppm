@@ -184,8 +184,6 @@ private:
     Component text_input_component_;
     Component container_;
 
-    // Scroll state
-    int scroll_position_ = 0;
     int spinner_frame_ = 0;  // Animated spinner frame counter
 
     // Slow operations for DevBar
@@ -242,7 +240,7 @@ public:
         input_opts.on_submit = [this](std::string text) {
             this->HandleSubmit(text);
         };
-        input_opts.get_suggestions = [this](std::string input) -> std::vector<Suggestion> {
+        input_opts.get_suggestions = [](std::string input) -> std::vector<Suggestion> {
             if (input.starts_with('/')) {
                 std::vector<Suggestion> suggestions = {
                     {"/help", "Show help", "command"},

@@ -28,15 +28,37 @@ export module cc.tools.runtime_registry;
 
 import cc.tools.tool;
 import cc.tools.agent;
+import cc.tools.ask_user;
 import cc.tools.bash;
+import cc.tools.brief;
+import cc.tools.config;
+import cc.tools.cron;
 import cc.tools.file_edit;
 import cc.tools.file_read;
 import cc.tools.file_write;
 import cc.tools.glob;
 import cc.tools.grep;
+import cc.tools.lsp;
+import cc.tools.mcp;
+import cc.tools.notebook;
+import cc.tools.plan_mode;
+import cc.tools.powershell;
+import cc.tools.remote_trigger_tool;
+import cc.tools.repl_tool;
+import cc.tools.script;
+import cc.tools.shared_tool;
+import cc.tools.skill_tool;
+import cc.tools.sleep;
+import cc.tools.synthetic_output_tool;
+import cc.tools.task;
+import cc.tools.team;
+import cc.tools.testing_tool;
 import cc.tools.todo_write;
+import cc.tools.tungsten_tool;
 import cc.tools.web_fetch;
 import cc.tools.web_search;
+import cc.tools.workflow;
+import cc.tools.worktree;
 
 export namespace cc::tools {
 
@@ -196,7 +218,7 @@ private:
     return fallback;
 }
 
-[[nodiscard]] std::string shell_quote(std::string_view value) {
+[[nodiscard]] std::string runtime_shell_quote(std::string_view value) {
     std::string out = "'";
     for (char c : value) {
         if (c == '\'') out += "'\\''";
@@ -271,7 +293,36 @@ private:
     return std::ranges::find(exts, ext) != exts.end();
 }
 
-[[nodiscard]] Result<ToolResult> execute_lsp_fallback(const ToolInput& input) {
+[[nodiscard]] LspAction parse_lsp_action(std::string_view action) {
+    if (action == "diagnostics") return LspAction::Diagnostics;
+    if (action == "definition") return LspAction::Definition;
+    if (action == "references") return LspAction::References;
+    if (action == "completion") return LspAction::Completion;
+    if (action == "hover") return LspAction::Hover;
+    return LspAction::Symbols;
+}
+
+[[nodiscard]] std::string format_lsp_result(const LspResult& result, std::string_view action) {
+    if (result.empty()) return std::format("No LSP results for action '{}'.", action);
+    std::string out;
+    for (const auto& diagnostic : result.diagnostics) {
+        out += std::format("{}:{}:{} {}\n", diagnostic.source,
+            diagnostic.range.start.line, diagnostic.range.start.character, diagnostic.message);
+    }
+    for (const auto& location : result.locations) {
+        out += std::format("{}:{}:{}\n", location.uri, location.range.start.line, location.range.start.character);
+    }
+    for (const auto& completion : result.completions) {
+        out += std::format("{} {}\n", completion.label, completion.detail);
+    }
+    for (const auto& symbol : result.symbols) {
+        out += std::format("{} {}\n", symbol.kind, symbol.name);
+    }
+    if (result.hover) out += result.hover->contents;
+    return out.empty() ? std::format("No LSP results for action '{}'.", action) : out;
+}
+
+[[nodiscard]] Result<ToolResult> execute_lsp_tool(const ToolInput& input) {
     auto json = input.json();
     auto file_text = json_string(json, "file_path").or_else([&] { return json_string(json, "path"); });
     auto action = json_string(json, "action").value_or("symbols");
@@ -283,77 +334,18 @@ private:
         return ToolResult::error(std::format("File not found: {}", file.string()));
     }
 
-    auto lines = read_lines(file);
-    auto query = json_string(json, "query");
-    auto line_no = json_int(json, "line").value_or(0);
-    auto character = json_int(json, "character").value_or(0);
-    auto word = query.value_or(word_at_position(lines, line_no, character));
-
-    if (action == "diagnostics") {
-        return ToolResult::success(std::format("No diagnostics available from fallback analyzer for {}", file.string()));
-    }
-
-    if (action == "hover") {
-        if (word.empty()) return ToolResult::error("No symbol at requested position");
-        return ToolResult::success(std::format("{}: fallback symbol information from {}", word, file.string()));
-    }
-
-    if (action == "completion") {
-        std::vector<std::string> symbols;
-        std::regex ident{R"([A-Za-z_][A-Za-z0-9_]*)"};
-        for (const auto& line : lines) {
-            for (auto it = std::sregex_iterator(line.begin(), line.end(), ident); it != std::sregex_iterator{}; ++it) {
-                auto value = it->str();
-                if (!word.empty() && !value.starts_with(word)) continue;
-                if (std::ranges::find(symbols, value) == symbols.end()) symbols.push_back(value);
-                if (symbols.size() >= 50) break;
-            }
-            if (symbols.size() >= 50) break;
-        }
-        std::ranges::sort(symbols);
-        return ToolResult::success("Completions:\n" + join_args(symbols));
-    }
-
-    if (action == "symbols") {
-        std::regex symbol_re{R"(\b(class|struct|enum|namespace|auto|void|int|long|double|float|bool|std::string)\s+([A-Za-z_][A-Za-z0-9_]*)\b)"};
-        std::string out = "Symbols:\n";
-        std::size_t count = 0;
-        for (std::size_t i = 0; i < lines.size(); ++i) {
-            std::smatch match;
-            auto text = lines[i];
-            if (std::regex_search(text, match, symbol_re)) {
-                auto name = match[2].str();
-                if (query && !name.contains(*query)) continue;
-                out += std::format("{}:{} {}\n", file.string(), i + 1, name);
-                if (++count >= 100) break;
-            }
-        }
-        if (count == 0) out += "No symbols found.\n";
-        return ToolResult::success(out);
-    }
-
-    if (word.empty()) {
-        return ToolResult::error("definition/references requires query or a valid line/character position");
-    }
-
-    auto root = file.parent_path();
-    std::string out = action == "definition" ? "Definitions:\n" : "References:\n";
-    std::size_t count = 0;
-    std::regex definition_re{std::format(R"(\b(class|struct|enum|auto|void|int|long|double|float|bool|std::string)\s+{}\b)", word)};
-    std::regex reference_re{std::format(R"(\b{}\b)", word)};
-    const auto& active_re = action == "definition" ? definition_re : reference_re;
-
-    for (const auto& entry : fs::recursive_directory_iterator(root)) {
-        if (!entry.is_regular_file() || !is_source_file(entry.path())) continue;
-        auto search_lines = read_lines(entry.path());
-        for (std::size_t i = 0; i < search_lines.size(); ++i) {
-            if (!std::regex_search(search_lines[i], active_re)) continue;
-            out += std::format("{}:{}: {}\n", entry.path().string(), i + 1, search_lines[i]);
-            if (++count >= 100) return ToolResult::success(out);
-        }
-    }
-    if (count == 0) out += "No results found.\n";
-    return ToolResult::success(out);
+    LspTool tool;
+    tool.set_connected(true);
+    LspRequest request{
+        .action = parse_lsp_action(action),
+        .file_path = file,
+        .position = LspPosition{.line = json_int(json, "line").value_or(0),
+                                .character = json_int(json, "character").value_or(0)},
+        .query = json_string(json, "query"),
+    };
+    auto result = tool.execute(std::move(request));
+    if (!result) return ToolResult::error(std::string(format_error(result.error())));
+    return ToolResult::success(format_lsp_result(*result, action));
 }
 
 [[nodiscard]] Result<ToolResult> execute_script(const ToolInput& input) {
@@ -363,88 +355,96 @@ private:
 
     auto language = json_string(json, "language").value_or("shell");
     auto timeout = std::clamp(json_int(json, "timeout").value_or(30), 1, 300);
-    std::string ext = ".sh";
-    std::string interpreter = "/bin/sh";
+    ScriptLanguage script_language = ScriptLanguage::Shell;
     if (language == "python" || language == "python3") {
-        ext = ".py";
-        interpreter = "python3";
+        script_language = ScriptLanguage::Python;
     } else if (language == "javascript" || language == "js" || language == "node") {
-        ext = ".js";
-        interpreter = "node";
+        script_language = ScriptLanguage::JavaScript;
     } else if (language != "shell" && language != "sh") {
         return ToolResult::error(std::format("Unsupported script language: {}", language));
     }
 
-    auto tmp = fs::temp_directory_path() /
-        std::format("cc_repl_script_{}{}", std::chrono::steady_clock::now().time_since_epoch().count(), ext);
-    {
-        std::ofstream out(tmp);
-        if (!out) return ToolResult::error(std::format("Cannot create temporary script: {}", tmp.string()));
-        out << *code;
-    }
-
-    auto command = std::format("ulimit -t {} 2>/dev/null; {} {} 2>&1",
-        timeout, interpreter, shell_quote(tmp.string()));
-    auto result = run_command(std::move(command));
-    fs::remove(tmp);
-    return result;
+    ScriptTool tool;
+    auto result = tool.execute(ScriptRequest{
+        .code = *code,
+        .language = script_language,
+        .limits = SandboxLimits{.timeout = std::chrono::seconds(timeout)},
+        .enable_type_check = json_bool(json, "enable_type_check", false),
+        .stdin_data = json_string(json, "stdin"),
+    });
+    if (!result) return ToolResult::error(std::string(format_error(result.error())));
+    auto output = result->stdout_output;
+    if (!result->stderr_output.empty()) output += "\n" + result->stderr_output;
+    if (output.empty()) output = std::format("Script exited with code {}", result->exit_code);
+    if (result->timed_out) output += "\n[timed out]";
+    return result->exit_code == 0 ? ToolResult::success(output) : ToolResult::error(output);
 }
 
-struct RuntimeTask {
-    std::string id;
-    std::string description;
-    std::string status{"running"};
-    std::string output;
-};
+[[nodiscard]] TaskStatus parse_task_status(std::string_view status) {
+    if (status == "completed") return TaskStatus::Completed;
+    if (status == "failed") return TaskStatus::Failed;
+    if (status == "cancelled") return TaskStatus::Cancelled;
+    if (status == "running") return TaskStatus::Running;
+    return TaskStatus::Pending;
+}
 
-[[nodiscard]] std::unordered_map<std::string, RuntimeTask>& task_store() {
-    static std::unordered_map<std::string, RuntimeTask> tasks;
-    return tasks;
+[[nodiscard]] std::string format_task_summary(const Task& task) {
+    std::string out = std::format("{} [{}] {}", task.id, task_status_name(task.status), task.description);
+    if (task.result) out += "\nresult: " + *task.result;
+    if (task.error_message) out += "\nerror: " + *task.error_message;
+    return out;
 }
 
 [[nodiscard]] Result<ToolResult> execute_task_tool(std::string_view tool_name, const ToolInput& input) {
     auto json = input.json();
-    auto& tasks = task_store();
     if (tool_name == "task_create") {
         auto description = json_string(json, "description").or_else([&] { return json_string(json, "task"); });
         if (!description || description->empty()) return ToolResult::error("task_create requires description");
         auto id = json_string(json, "task_id").or_else([&] { return json_string(json, "id"); })
-            .value_or(std::format("task-{}", tasks.size() + 1));
-        auto [it, inserted] = tasks.emplace(id, RuntimeTask{.id = id, .description = *description});
-        if (!inserted) return ToolResult::error(std::format("Task already exists: {}", id));
-        return ToolResult::success(std::format("Created task {}: {}", id, *description));
+            .value_or(std::format("task-{}", global_task_store().list().size() + 1));
+        TaskCreateTool tool;
+        auto task = tool.execute(id, *description);
+        if (!task) return ToolResult::error(std::string(format_error(task.error())));
+        return ToolResult::success("Created task " + format_task_summary(**task));
     }
 
     if (tool_name == "task_list") {
+        TaskListTool tool;
+        auto listed = tool.execute();
         std::string out = "Tasks:\n";
-        for (const auto& [_, task] : tasks) {
-            out += std::format("- {} [{}] {}\n", task.id, task.status, task.description);
-        }
-        if (tasks.empty()) out += "No tasks.\n";
+        for (const auto* task : listed) out += "- " + format_task_summary(*task) + "\n";
+        if (listed.empty()) out += "No tasks.\n";
         return ToolResult::success(out);
     }
 
     auto id = json_string(json, "task_id").or_else([&] { return json_string(json, "id"); });
     if (!id || id->empty()) return ToolResult::error(std::format("{} requires task_id", tool_name));
-    auto it = tasks.find(*id);
-    if (it == tasks.end()) return ToolResult::error(std::format("Task not found: {}", *id));
 
     if (tool_name == "task_get") {
-        return ToolResult::success(std::format("{} [{}]\n{}\n{}", it->second.id, it->second.status,
-            it->second.description, it->second.output));
+        TaskGetTool tool;
+        auto task = tool.execute(*id);
+        if (!task) return ToolResult::error(std::string(format_error(task.error())));
+        return ToolResult::success(format_task_summary(**task));
     }
     if (tool_name == "task_stop") {
-        it->second.status = "cancelled";
+        TaskStopTool tool;
+        auto result = tool.execute(*id);
+        if (!result) return ToolResult::error(std::string(format_error(result.error())));
         return ToolResult::success(std::format("Stopped task {}", *id));
     }
     if (tool_name == "task_update") {
-        it->second.status = json_string(json, "status").value_or(it->second.status);
-        if (auto output = json_string(json, "output")) it->second.output += *output;
-        if (auto result = json_string(json, "result")) it->second.output += *result;
-        return ToolResult::success(std::format("Updated task {} [{}]", *id, it->second.status));
+        TaskUpdateTool tool;
+        auto status = parse_task_status(json_string(json, "status").value_or("running"));
+        auto result_text = json_string(json, "result").or_else([&] { return json_string(json, "output"); });
+        auto result = tool.execute(*id, status, result_text);
+        if (!result) return ToolResult::error(std::string(format_error(result.error())));
+        return ToolResult::success(std::format("Updated task {} [{}]", *id, task_status_name(status)));
     }
     if (tool_name == "task_output") {
-        return ToolResult::success(it->second.output.empty() ? "(no output)" : it->second.output);
+        TaskOutputTool tool;
+        auto output = tool.execute(*id);
+        if (!output) return ToolResult::error(std::string(format_error(output.error())));
+        return ToolResult::success(output->empty() ? "(no output)" : std::string(*output));
     }
     return ToolResult::error(std::format("Unknown task tool: {}", tool_name));
 }
@@ -605,11 +605,11 @@ struct RuntimeTask {
         if (!branch || !safe_ref(*branch)) return ToolResult::error("enter_worktree requires a safe branch name");
         auto path = json_string(json, "path").value_or((fs::current_path().parent_path() /
             std::format("{}-{}", fs::current_path().filename().string(), *branch)).string());
-        return run_command(std::format("git worktree add -B {} {} 2>&1", shell_quote(*branch), shell_quote(path)));
+        return run_command(std::format("git worktree add -B {} {} 2>&1", runtime_shell_quote(*branch), runtime_shell_quote(path)));
     }
 
     auto path = json_string(json, "path").value_or(fs::current_path().string());
-    return run_command(std::format("git worktree remove {} 2>&1", shell_quote(path)));
+    return run_command(std::format("git worktree remove {} 2>&1", runtime_shell_quote(path)));
 }
 
 [[nodiscard]] Result<ToolResult> execute_brief(const ToolInput& input) {
@@ -661,42 +661,88 @@ struct RuntimeTask {
     if (name == "brief") return execute_brief(input);
     if (name == "config") return execute_config_tool(input);
     if (name == "enter_plan_mode") {
-        static bool plan_mode = false;
-        plan_mode = true;
-        return ToolResult::success("Plan mode enabled");
+        EnterPlanModeTool tool;
+        auto title = json_string(json, "title").or_else([&] { return json_string(json, "goal"); }).value_or("Plan");
+        auto summary = json_string(json, "summary").value_or("");
+        auto result = tool.execute(title, summary);
+        if (!result) return ToolResult::error(std::string(format_error(result.error())));
+        return ToolResult::success(std::format("Plan mode enabled: {}", title));
     }
     if (name == "exit_plan_mode") {
-        static bool plan_mode = false;
-        plan_mode = false;
-        return ToolResult::success("Plan mode disabled");
+        ExitPlanModeTool tool;
+        auto result = tool.execute();
+        if (!result) return ToolResult::error(std::string(format_error(result.error())));
+        return ToolResult::success(std::format("Plan mode finalized: {} ({} sections)",
+            result->title, result->total_sections()));
     }
-    if (name == "enter_worktree") return execute_worktree("enter", input);
-    if (name == "exit_worktree") return execute_worktree("exit", input);
-    if (name == "lsp") return execute_lsp_fallback(input);
-    if (name == "list_mcp_resources") return execute_resource_list(input);
-    if (name == "read_mcp_resource") return execute_local_resource_read(input);
+    if (name == "enter_worktree") {
+        auto branch = json_string(json, "branch").or_else([&] { return json_string(json, "branch_name"); });
+        if (!branch || branch->empty()) return ToolResult::error("enter_worktree requires branch_name");
+        auto target_path_text = json_string(json, "path").or_else([&] { return json_string(json, "target_path"); });
+        EnterWorktreeTool tool;
+        auto result = tool.execute(WorktreeCreateRequest{
+            .branch_name = *branch,
+            .target_path = target_path_text ? std::optional<fs::path>{fs::path{*target_path_text}} : std::nullopt,
+            .base_branch = json_string(json, "base_branch"),
+            .create_branch = json_bool(json, "create_branch", true),
+        });
+        if (!result) return ToolResult::error(std::string(format_error(result.error())));
+        return ToolResult::success(std::format("Entered worktree {} at {}",
+            result->branch_name, result->worktree_path.string()));
+    }
+    if (name == "exit_worktree") {
+        ExitWorktreeTool tool;
+        auto result = tool.execute(json_bool(json, "remove_worktree", false));
+        if (!result) return ToolResult::error(std::string(format_error(result.error())));
+        return ToolResult::success(std::format("Exited worktree {} and returned to {}",
+            result->branch_name, result->original_path.string()));
+    }
+    if (name == "lsp") return execute_lsp_tool(input);
+    if (name == "list_mcp_resources") {
+        auto server = json_string(json, "server_name").or_else([&] { return json_string(json, "server"); });
+        ListMcpResourcesTool tool;
+        auto resources = tool.execute(server);
+        if (!resources) return ToolResult::error(std::string(format_error(resources.error())));
+        std::string out = "MCP resources:\n";
+        for (const auto& resource : *resources) {
+            out += std::format("- {} ({})\n", resource.uri, resource.mime_type);
+        }
+        if (resources->empty()) out += "No MCP resources are registered.\n";
+        return ToolResult::success(out);
+    }
+    if (name == "read_mcp_resource") {
+        auto server = json_string(json, "server_name").or_else([&] { return json_string(json, "server"); });
+        auto uri = json_string(json, "resource_uri").or_else([&] { return json_string(json, "uri"); });
+        if (!server || !uri) return ToolResult::error("read_mcp_resource requires server_name and resource_uri");
+        ReadMcpResourceTool tool;
+        auto result = tool.execute(*server, *uri);
+        if (!result) return ToolResult::error(std::string(format_error(result.error())));
+        return ToolResult::success(result->content);
+    }
     if (name == "mcp") {
         auto server = json_string(json, "server_name").or_else([&] { return json_string(json, "server"); });
         auto tool = json_string(json, "tool_name").or_else([&] { return json_string(json, "tool"); });
         if (!server || !tool) return ToolResult::error("mcp requires server_name and tool_name");
-        return ToolResult::error(std::format("MCP transport is not connected for server '{}'", *server));
+        McpTool mcp_tool;
+        auto result = mcp_tool.execute(McpToolRequest{.server_name = *server, .tool_name = *tool, .arguments = {}});
+        if (!result) return ToolResult::error(std::string(format_error(result.error())));
+        return ToolResult::success(result->content);
     }
     if (name == "mcp_auth") {
         auto server = json_string(json, "server_name").or_else([&] { return json_string(json, "server"); });
         if (!server) return ToolResult::error("mcp_auth requires server_name");
-        auto env_name = "MCP_" + *server + "_TOKEN";
-        std::ranges::replace(env_name, '-', '_');
-        std::ranges::replace(env_name, '.', '_');
-        return std::getenv(env_name.c_str())
-            ? ToolResult::success(std::format("Authentication token available in {}", env_name))
-            : ToolResult::error(std::format("No authentication token found in {}", env_name));
+        auto code = json_string(json, "auth_code").or_else([&] { return json_string(json, "code"); });
+        McpAuthTool tool;
+        auto result = tool.execute(*server, code);
+        if (!result) return ToolResult::error(std::string(format_error(result.error())));
+        return ToolResult::success(*result);
     }
     if (name == "notebook_edit") return execute_notebook_edit(input);
     if (name == "powershell") {
 #ifdef _WIN32
         auto command = json_string(json, "command");
         if (!command) return ToolResult::error("powershell requires command");
-        return run_command("powershell -NoProfile -Command " + shell_quote(*command) + " 2>&1");
+        return run_command("powershell -NoProfile -Command " + runtime_shell_quote(*command) + " 2>&1");
 #else
         return ToolResult::error("PowerShell execution is only available on Windows in this runtime");
 #endif
@@ -705,15 +751,29 @@ struct RuntimeTask {
         const char* command = std::getenv("CC_REPL_REMOTE_TRIGGER_COMMAND");
         if (!command) return ToolResult::error("CC_REPL_REMOTE_TRIGGER_COMMAND is not configured");
         auto payload = json_string(json, "payload").value_or(std::string(json));
-        return run_command(std::format("{} {}", command, shell_quote(payload)));
+        return run_command(std::format("{} {}", command, runtime_shell_quote(payload)));
     }
     if (name == "repl") return execute_script(input);
     if (name == "schedule_cron") {
-        static std::vector<std::string> scheduled;
-        auto message = json_string(json, "message").or_else([&] { return json_string(json, "command"); });
-        if (!message) return ToolResult::error("schedule_cron requires message or command");
-        scheduled.push_back(*message);
-        return ToolResult::success(std::format("Scheduled cron entry {}", scheduled.size()));
+        ScheduleCronTool tool;
+        auto action_text = json_string(json, "action").value_or("create");
+        CronAction action = CronAction::Create;
+        if (action_text == "list") action = CronAction::List;
+        else if (action_text == "get") action = CronAction::Get;
+        else if (action_text == "pause") action = CronAction::Pause;
+        else if (action_text == "resume") action = CronAction::Resume;
+        else if (action_text == "delete") action = CronAction::Delete;
+        else if (action_text == "trigger") action = CronAction::Trigger;
+        auto result = tool.execute(CronRequest{
+            .action = action,
+            .task_id = json_string(json, "task_id").or_else([&] { return json_string(json, "id"); }),
+            .name = json_string(json, "name").value_or("scheduled-task"),
+            .message = json_string(json, "message").or_else([&] { return json_string(json, "command"); }),
+            .cron_expression = json_string(json, "cron").or_else([&] { return json_string(json, "cron_expression"); }).value_or("* * * * *"),
+            .timezone = json_string(json, "timezone").value_or("UTC"),
+        });
+        if (!result) return ToolResult::error(std::string(format_error(result.error())));
+        return ToolResult::success(*result);
     }
     if (name == "script") return execute_script(input);
     if (name == "send_message") {
@@ -736,23 +796,36 @@ struct RuntimeTask {
     }
     if (name == "skill") return execute_skill_tool(input);
     if (name == "sleep") {
+        SleepTool tool;
         auto seconds = std::clamp(json_int(json, "duration").or_else([&] { return json_int(json, "seconds"); }).value_or(1), 1, 300);
-        std::this_thread::sleep_for(std::chrono::seconds(seconds));
-        return ToolResult::success(std::format("Slept for {} seconds", seconds));
+        auto result = tool.execute(SleepRequest{
+            .duration = std::chrono::seconds(seconds),
+            .reason = json_string(json, "reason").value_or("scheduled wait"),
+            .resume_hint = json_string(json, "resume_hint"),
+        });
+        if (!result) return ToolResult::error(std::string(format_error(result.error())));
+        return ToolResult::success(std::format("Slept for {} ms", result->actual_duration.count()));
     }
     if (name == "synthetic_output") {
         return ToolResult::success(json_string(json, "content").or_else([&] { return json_string(json, "text"); }).value_or(std::string(json)));
     }
     if (name.starts_with("task_")) return execute_task_tool(name, input);
     if (name == "team_create") {
-        static std::vector<std::string> teams;
-        auto team = json_string(json, "team_name").or_else([&] { return json_string(json, "name"); }).value_or(std::format("team-{}", teams.size() + 1));
-        teams.push_back(team);
-        return ToolResult::success(std::format("Created team {}", team));
+        TeamCreateTool tool;
+        auto team = json_string(json, "team_name").or_else([&] { return json_string(json, "name"); })
+            .value_or(std::format("team-{}", std::chrono::steady_clock::now().time_since_epoch().count()));
+        auto id = json_string(json, "team_id").or_else([&] { return json_string(json, "id"); }).value_or(team);
+        auto result = tool.execute(id, team, std::vector<TeamMember>{});
+        if (!result) return ToolResult::error(std::string(format_error(result.error())));
+        return ToolResult::success(std::format("Created team {} ({})", (*result)->name, (*result)->id));
     }
     if (name == "team_delete") {
-        auto team = json_string(json, "team_name").or_else([&] { return json_string(json, "name"); });
-        if (!team) return ToolResult::error("team_delete requires team_name");
+        auto team = json_string(json, "team_id").or_else([&] { return json_string(json, "id"); })
+            .or_else([&] { return json_string(json, "team_name"); }).or_else([&] { return json_string(json, "name"); });
+        if (!team) return ToolResult::error("team_delete requires team_id");
+        TeamDeleteTool tool;
+        auto result = tool.execute(*team);
+        if (!result) return ToolResult::error(std::string(format_error(result.error())));
         return ToolResult::success(std::format("Deleted team {}", *team));
     }
     if (name == "testing") {
@@ -764,7 +837,9 @@ struct RuntimeTask {
     }
     if (name == "tool_search") return execute_tool_search(input);
     if (name == "tungsten") {
-        return ToolResult::error("Tungsten integration is not configured in this runtime");
+        auto operation = json_string(json, "operation").value_or("");
+        auto result = tungsten::validate_request(tungsten::TungstenRequest{.operation = operation, .inputs = {}});
+        return result.ok ? ToolResult::success(result.message) : ToolResult::error(result.message);
     }
     if (name == "workflow") {
         auto file = json_string(json, "file").or_else([&] { return json_string(json, "path"); });

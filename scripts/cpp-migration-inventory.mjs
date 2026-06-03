@@ -307,16 +307,16 @@ const report = {
   commands: {
     tsCount: tsCommandRoots.length,
     cppCount: cppCommandRoots.length,
-    migratedCount: intersection(tsCommandRoots, cppCommandRoots).length,
-    migrated: intersection(tsCommandRoots, cppCommandRoots),
+    overlapCount: intersection(tsCommandRoots, cppCommandRoots).length,
+    overlap: intersection(tsCommandRoots, cppCommandRoots),
     missing: diff(tsCommandRoots, cppCommandRoots),
     cppExtra: diff(cppCommandRoots, tsCommandRoots),
   },
   tools: {
     tsCount: tsToolRoots.length,
     cppCount: cppToolRoots.length,
-    migratedCount: intersection(tsToolRoots, cppToolRoots).length,
-    migrated: intersection(tsToolRoots, cppToolRoots),
+    overlapCount: intersection(tsToolRoots, cppToolRoots).length,
+    overlap: intersection(tsToolRoots, cppToolRoots),
     missing: diff(tsToolRoots, cppToolRoots),
     cppExtra: diff(cppToolRoots, tsToolRoots),
   },
@@ -337,9 +337,10 @@ if (jsonOnly) {
   console.log(`TS source files: ${report.totals.tsSourceFiles}`)
   console.log(`C++ source files: ${report.totals.cppSourceFiles} (${report.totals.cppModuleFiles} .cppm, ${report.totals.cppImplementationFiles} .cpp, ${report.totals.cppHeaderFiles} headers)`)
   console.log('')
-  console.log(`Commands: ${report.commands.migratedCount}/${report.commands.tsCount} migrated`)
+  console.log('Surface-name overlap only; this is not a feature-parity score.')
+  console.log(`Command roots: ${report.commands.tsCount} TS roots, ${report.commands.cppCount} C++ roots, ${report.commands.overlapCount} shared names`)
   if (report.commands.missing.length) console.log(`  Missing: ${report.commands.missing.join(', ')}`)
-  console.log(`Tools: ${report.tools.migratedCount}/${report.tools.tsCount} migrated`)
+  console.log(`Tool roots: ${report.tools.tsCount} TS roots, ${report.tools.cppCount} C++ roots, ${report.tools.overlapCount} shared names`)
   if (report.tools.missing.length) console.log(`  Missing: ${report.tools.missing.join(', ')}`)
   console.log('')
   console.log(`CMake registered source/header entries: ${report.cmake.registeredCount}`)
