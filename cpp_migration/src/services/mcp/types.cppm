@@ -102,6 +102,12 @@ inline std::string serialize_request(const JsonRpcRequest& req) {
         root.add("id", doc.string(std::get<std::string>(req.id)));
     }
     root.add("method", doc.string(req.method));
+    if (req.params_json && !req.params_json->empty()) {
+        auto params = doc.raw_json(*req.params_json);
+        if (params.valid()) {
+            root.add("params", params);
+        }
+    }
     doc.set_root(root);
     return doc.to_string();
 }
@@ -112,6 +118,12 @@ inline std::string serialize_notification(const JsonRpcNotification& notif) {
     auto root = doc.object();
     root.add("jsonrpc", doc.string("2.0"));
     root.add("method", doc.string(notif.method));
+    if (notif.params_json && !notif.params_json->empty()) {
+        auto params = doc.raw_json(*notif.params_json);
+        if (params.valid()) {
+            root.add("params", params);
+        }
+    }
     doc.set_root(root);
     return doc.to_string();
 }

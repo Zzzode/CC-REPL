@@ -2,18 +2,24 @@
 /// @brief Service layer smoke tests aligned with current C++ module APIs.
 
 #include <chrono>
+#include <filesystem>
+#include <optional>
 #include <string>
 #include <unordered_map>
 
 #include <gtest/gtest.h>
 
+import cc.config.config;
 import cc.services.api.client;
 import cc.services.api.errors;
 import cc.services.api.streaming;
 import cc.services.memory.sessionMemory;
+import cc.services.mcp.types;
 import cc.services.rate_limit;
 import cc.services.telemetry;
 import cc.services.token_estimation;
+
+namespace fs = std::filesystem;
 
 TEST(ApiErrors, ClassifiesHttpStatusCodes) {
     using cc::services::api::errors::ApiErrorCategory;
@@ -92,6 +98,54 @@ TEST(ApiStreaming, StreamParserAccumulatesTextDeltas) {
     EXPECT_EQ((*event)->type, cc::services::api::StreamEventType::ContentBlockDelta);
     EXPECT_EQ(parser.full_text(), "hi");
     EXPECT_EQ(parser.statistics().total_events, 1);
+}
+
+TEST(McpTypes, JsonRpcSerializationIncludesParams) {
+    auto request = cc::services::mcp::make_request(
+        int64_t{7},
+        "tools/call",
+        std::optional<std::string>{R"({"name":"echo","arguments":{"value":"hello"}})"});
+
+    const auto serialized = cc::services::mcp::serialize_request(request);
+
+    EXPECT_NE(serialized.find(R"("method":"tools/call")"), std::string::npos);
+    EXPECT_NE(serialized.find(R"("params":{"name":"echo","arguments":{"value":"hello"}})"), std::string::npos);
+
+    auto notification = cc::services::mcp::make_notification(
+        "notifications/initialized",
+        std::optional<std::string>{R"({"ready":true})"});
+
+    const auto serialized_notification = cc::services::mcp::serialize_notification(notification);
+    EXPECT_NE(serialized_notification.find(R"("params":{"ready":true})"), std::string::npos);
+}
+
+TEST(ConfigManager, PersistsMcpServerSettings) {
+    const auto suffix = std::chrono::system_clock::now().time_since_epoch().count();
+    const auto root = fs::temp_directory_path() / ("cc_repl_config_test_" + std::to_string(suffix));
+    fs::create_directories(root);
+
+    cc::core::ConfigManager manager(root / "global.json", root / "project.json");
+    auto& settings = manager.settings_mut();
+    settings.mcp_servers.push_back(cc::core::McpServerConfig{
+        .name = "echo",
+        .command = "node",
+        .args = {"server.js", "--flag"},
+        .env = {{"FOO", "bar"}},
+    });
+
+    ASSERT_TRUE(manager.save(cc::core::ConfigSource::ProjectConfig).has_value());
+
+    cc::core::ConfigManager loaded(root / "global.json", root / "project.json");
+    ASSERT_TRUE(loaded.load().has_value());
+    ASSERT_EQ(loaded.settings().mcp_servers.size(), 1u);
+    EXPECT_EQ(loaded.settings().mcp_servers.front().name, "echo");
+    EXPECT_EQ(loaded.settings().mcp_servers.front().command, "node");
+    ASSERT_EQ(loaded.settings().mcp_servers.front().args.size(), 2u);
+    EXPECT_EQ(loaded.settings().mcp_servers.front().args[0], "server.js");
+    EXPECT_EQ(loaded.settings().mcp_servers.front().args[1], "--flag");
+    EXPECT_EQ(loaded.settings().mcp_servers.front().env.at("FOO"), "bar");
+
+    fs::remove_all(root);
 }
 
 TEST(RateLimitManager, UpdatesStateFromHeadersAndWarnsNearLimits) {

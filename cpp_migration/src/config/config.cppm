@@ -512,41 +512,92 @@ private:
 
     /// Serialize settings to JSON string
     [[nodiscard]] std::string serialize_settings() const {
-        // Simplified JSON serialization (production code uses a JSON library)
-        return std::format(
-            R"({{
-  "model": {{
-    "default_model": "{}",
-    "max_output_tokens": {},
-    "extended_thinking": {},
-    "context_window_size": {}
-  }},
-  "display": {{
-    "show_thinking": {},
-    "show_token_usage": {},
-    "compact_mode": {},
-    "theme": "{}"
-  }},
-  "network": {{
-    "timeout_seconds": {},
-    "max_retries": {},
-    "verify_ssl": {}
-  }},
-  "features": {}
-}})",
-            settings_.model.default_model,
-            settings_.model.max_output_tokens,
-            settings_.model.extended_thinking ? "true" : "false",
-            settings_.model.context_window_size,
-            settings_.display.show_thinking ? "true" : "false",
-            settings_.display.show_token_usage ? "true" : "false",
-            settings_.display.compact_mode ? "true" : "false",
-            settings_.display.theme,
-            settings_.network.timeout_seconds,
-            settings_.network.max_retries,
-            settings_.network.verify_ssl ? "true" : "false",
-            settings_.features.raw()
-        );
+        std::string json;
+        json += "{\n";
+        json += "  \"model\": {\n";
+        json += std::format("    \"default_model\": \"{}\",\n", escape_json(settings_.model.default_model));
+        json += std::format("    \"max_output_tokens\": {},\n", settings_.model.max_output_tokens);
+        json += std::format("    \"extended_thinking\": {},\n", settings_.model.extended_thinking ? "true" : "false");
+        json += std::format("    \"context_window_size\": {}\n", settings_.model.context_window_size);
+        json += "  },\n";
+        json += "  \"display\": {\n";
+        json += std::format("    \"show_thinking\": {},\n", settings_.display.show_thinking ? "true" : "false");
+        json += std::format("    \"show_token_usage\": {},\n", settings_.display.show_token_usage ? "true" : "false");
+        json += std::format("    \"compact_mode\": {},\n", settings_.display.compact_mode ? "true" : "false");
+        json += std::format("    \"theme\": \"{}\"\n", escape_json(settings_.display.theme));
+        json += "  },\n";
+        json += "  \"network\": {\n";
+        json += std::format("    \"timeout_seconds\": {},\n", settings_.network.timeout_seconds);
+        json += std::format("    \"max_retries\": {},\n", settings_.network.max_retries);
+        json += std::format("    \"verify_ssl\": {}\n", settings_.network.verify_ssl ? "true" : "false");
+        json += "  },\n";
+        json += std::format("  \"features\": {},\n", settings_.features.raw());
+        json += "  \"mcpServers\": ";
+        append_mcp_servers(json);
+
+        if (settings_.system_prompt) {
+            json += std::format(",\n  \"systemPrompt\": \"{}\"", escape_json(*settings_.system_prompt));
+        }
+        if (!settings_.custom_instructions.empty()) {
+            json += ",\n  \"customInstructions\": ";
+            append_string_array(json, settings_.custom_instructions);
+        }
+        json += "\n}\n";
+        return json;
+    }
+
+    [[nodiscard]] static std::string escape_json(std::string_view value) {
+        std::string out;
+        out.reserve(value.size());
+        for (char ch : value) {
+            switch (ch) {
+                case '\\': out += R"(\\)"; break;
+                case '"':  out += R"(\")"; break;
+                case '\b': out += R"(\b)"; break;
+                case '\f': out += R"(\f)"; break;
+                case '\n': out += R"(\n)"; break;
+                case '\r': out += R"(\r)"; break;
+                case '\t': out += R"(\t)"; break;
+                default:   out += ch; break;
+            }
+        }
+        return out;
+    }
+
+    static void append_string_array(std::string& json, const std::vector<std::string>& values) {
+        json += "[";
+        for (std::size_t i = 0; i < values.size(); ++i) {
+            if (i > 0) json += ", ";
+            json += std::format("\"{}\"", escape_json(values[i]));
+        }
+        json += "]";
+    }
+
+    void append_mcp_servers(std::string& json) const {
+        json += "{";
+        if (!settings_.mcp_servers.empty()) json += "\n";
+        for (std::size_t i = 0; i < settings_.mcp_servers.size(); ++i) {
+            const auto& server = settings_.mcp_servers[i];
+            json += std::format("    \"{}\": {{\n", escape_json(server.name));
+            json += std::format("      \"command\": \"{}\"", escape_json(server.command));
+            if (!server.args.empty()) {
+                json += ",\n      \"args\": ";
+                append_string_array(json, server.args);
+            }
+            if (!server.env.empty()) {
+                json += ",\n      \"env\": {";
+                std::size_t env_index = 0;
+                for (const auto& [key, value] : server.env) {
+                    if (env_index++ > 0) json += ", ";
+                    json += std::format("\"{}\": \"{}\"", escape_json(key), escape_json(value));
+                }
+                json += "}";
+            }
+            json += "\n    }";
+            if (i + 1 < settings_.mcp_servers.size()) json += ",";
+            json += "\n";
+        }
+        json += settings_.mcp_servers.empty() ? "}" : "  }";
     }
 
     /// Get default global config path (~/.config/claude/config.json)
