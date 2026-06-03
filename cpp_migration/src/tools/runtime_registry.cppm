@@ -218,6 +218,61 @@ private:
     return fallback;
 }
 
+[[nodiscard]] std::optional<std::string> json_raw_value(std::string_view json, std::string_view key) {
+    auto key_text = std::format("\"{}\"", key);
+    auto key_pos = json.find(key_text);
+    if (key_pos == std::string_view::npos) return std::nullopt;
+    auto colon = json.find(':', key_pos + key_text.size());
+    if (colon == std::string_view::npos) return std::nullopt;
+    auto pos = colon + 1;
+    while (pos < json.size() && std::isspace(static_cast<unsigned char>(json[pos]))) ++pos;
+    if (pos >= json.size()) return std::nullopt;
+
+    const auto start = pos;
+    if (json[pos] == '{' || json[pos] == '[') {
+        const char open = json[pos];
+        const char close = open == '{' ? '}' : ']';
+        int depth = 0;
+        bool in_string = false;
+        bool escaping = false;
+        while (pos < json.size()) {
+            const char c = json[pos];
+            if (in_string) {
+                if (escaping) escaping = false;
+                else if (c == '\\') escaping = true;
+                else if (c == '"') in_string = false;
+            } else if (c == '"') {
+                in_string = true;
+            } else if (c == open) {
+                ++depth;
+            } else if (c == close) {
+                if (--depth == 0) {
+                    return std::string(json.substr(start, pos - start + 1));
+                }
+            }
+            ++pos;
+        }
+        return std::nullopt;
+    }
+
+    if (json[pos] == '"') {
+        ++pos;
+        bool escaping = false;
+        while (pos < json.size()) {
+            const char c = json[pos];
+            if (escaping) escaping = false;
+            else if (c == '\\') escaping = true;
+            else if (c == '"') return std::string(json.substr(start, pos - start + 1));
+            ++pos;
+        }
+        return std::nullopt;
+    }
+
+    while (pos < json.size() && json[pos] != ',' && json[pos] != '}') ++pos;
+    while (pos > start && std::isspace(static_cast<unsigned char>(json[pos - 1]))) --pos;
+    return std::string(json.substr(start, pos - start));
+}
+
 [[nodiscard]] std::string runtime_shell_quote(std::string_view value) {
     std::string out = "'";
     for (char c : value) {
@@ -724,7 +779,14 @@ private:
         auto tool = json_string(json, "tool_name").or_else([&] { return json_string(json, "tool"); });
         if (!server || !tool) return ToolResult::error("mcp requires server_name and tool_name");
         McpTool mcp_tool;
-        auto result = mcp_tool.execute(McpToolRequest{.server_name = *server, .tool_name = *tool, .arguments = {}});
+        auto arguments = json_raw_value(json, "arguments").or_else([&] { return json_raw_value(json, "input"); })
+            .value_or("{}");
+        auto result = mcp_tool.execute(McpToolRequest{
+            .server_name = *server,
+            .tool_name = *tool,
+            .arguments = {},
+            .arguments_json = arguments,
+        });
         if (!result) return ToolResult::error(std::string(format_error(result.error())));
         return ToolResult::success(result->content);
     }

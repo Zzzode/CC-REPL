@@ -114,6 +114,14 @@ public:
         }
 
         for (const auto& entry : std::filesystem::directory_iterator(dir)) {
+            if (entry.is_directory()) {
+                auto skill = parse_skill_directory(entry.path());
+                if (skill) {
+                    skills.push_back(std::move(*skill));
+                }
+                continue;
+            }
+
             if (entry.path().extension() != ".md") continue;
 
             auto skill = parse_skill_file(entry.path());
@@ -139,6 +147,26 @@ public:
     }
 
 private:
+    /// Parse a directory-form skill, normally .claude/skills/<name>/SKILL.md.
+    [[nodiscard]] std::optional<SkillDefinition> parse_skill_directory(
+        const std::filesystem::path& dirpath) const {
+
+        auto skill_path = dirpath / "SKILL.md";
+        if (!std::filesystem::exists(skill_path)) {
+            skill_path = dirpath / "skill.md";
+        }
+        if (!std::filesystem::exists(skill_path)) {
+            skill_path = dirpath / "prompt.md";
+        }
+        if (!std::filesystem::exists(skill_path)) return std::nullopt;
+
+        auto skill = parse_skill_file(skill_path);
+        if (skill && (skill->name == "SKILL" || skill->name == "skill" || skill->name == "prompt")) {
+            skill->name = dirpath.filename().string();
+        }
+        return skill;
+    }
+
     /// Parse a single skill markdown file with YAML-like frontmatter
     [[nodiscard]] std::optional<SkillDefinition> parse_skill_file(
         const std::filesystem::path& filepath) const {
@@ -187,6 +215,7 @@ private:
             while (!value.empty() && value.front() == ' ') value.erase(value.begin());
 
             if (key == "description") def.description = value;
+            else if (key == "name") def.name = value;
             else if (key == "author") def.author = value;
             else if (key == "version") def.version = value;
             else if (key == "trigger") def.trigger_patterns.push_back(value);

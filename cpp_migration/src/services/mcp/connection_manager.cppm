@@ -54,6 +54,18 @@ struct ConnectedMcpServer {
     std::chrono::steady_clock::time_point connected_at;
 };
 
+struct McpServerSnapshot {
+    std::string name;
+    ConnectionStatus status{ConnectionStatus::Disconnected};
+    std::optional<std::string> last_error;
+    std::optional<std::string> endpoint;
+    std::optional<std::string> server_info;
+    std::optional<std::string> capabilities;
+    std::vector<McpTool> tools;
+    std::vector<McpResource> resources;
+    std::vector<McpPrompt> prompts;
+};
+
 // Connection manager configuration
 struct ConnectionManagerConfig {
     std::filesystem::path config_directory;
@@ -130,6 +142,13 @@ public:
         }
         
         return {};
+    }
+
+    void set_configuration(McpConfig config) {
+        disconnect_all_servers();
+        std::lock_guard<std::mutex> lock(connections_mutex_);
+        connections_.clear();
+        mcp_config_ = std::move(config);
     }
     
     // Server connection management
@@ -230,6 +249,80 @@ public:
         }
         return all_tools;
     }
+
+    std::optional<McpServerSnapshot> snapshot_server(const std::string& server_name) {
+        std::lock_guard<std::mutex> lock(connections_mutex_);
+
+        auto config_it = mcp_config_.servers.find(server_name);
+        auto conn_it = connections_.find(server_name);
+        if (config_it == mcp_config_.servers.end() && conn_it == connections_.end()) {
+            return std::nullopt;
+        }
+
+        McpServerSnapshot snapshot;
+        snapshot.name = server_name;
+        if (config_it != mcp_config_.servers.end()) {
+            const auto& cfg = config_it->second;
+            snapshot.endpoint = cfg.transport == TransportType::Stdio
+                ? cfg.command
+                : cfg.url;
+        }
+
+        if (conn_it == connections_.end()) {
+            snapshot.status = ConnectionStatus::Disconnected;
+            return snapshot;
+        }
+
+        const auto& conn = conn_it->second;
+        snapshot.status = conn.status;
+        snapshot.last_error = conn.last_error;
+        if (conn.client) {
+            const auto& info = conn.client->server_info();
+            if (!info.name.empty() || !info.version.empty()) {
+                snapshot.server_info = info.name + "@" + info.version;
+            }
+            const auto& caps = conn.client->server_capabilities();
+            snapshot.capabilities = std::format("tools={},resources={},prompts={},logging={}",
+                caps.tools, caps.resources, caps.prompts, caps.logging);
+            snapshot.tools = conn.client->cached_tools();
+            snapshot.resources = conn.client->cached_resources();
+            snapshot.prompts = conn.client->cached_prompts();
+        }
+        return snapshot;
+    }
+
+    std::vector<McpServerSnapshot> snapshot_all_servers() {
+        std::lock_guard<std::mutex> lock(connections_mutex_);
+
+        std::vector<McpServerSnapshot> snapshots;
+        for (const auto& [name, cfg] : mcp_config_.servers) {
+            McpServerSnapshot snapshot;
+            snapshot.name = name;
+            snapshot.status = ConnectionStatus::Disconnected;
+            snapshot.endpoint = cfg.transport == TransportType::Stdio ? cfg.command : cfg.url;
+
+            auto conn_it = connections_.find(name);
+            if (conn_it != connections_.end()) {
+                const auto& conn = conn_it->second;
+                snapshot.status = conn.status;
+                snapshot.last_error = conn.last_error;
+                if (conn.client) {
+                    const auto& info = conn.client->server_info();
+                    if (!info.name.empty() || !info.version.empty()) {
+                        snapshot.server_info = info.name + "@" + info.version;
+                    }
+                    const auto& caps = conn.client->server_capabilities();
+                    snapshot.capabilities = std::format("tools={},resources={},prompts={},logging={}",
+                        caps.tools, caps.resources, caps.prompts, caps.logging);
+                    snapshot.tools = conn.client->cached_tools();
+                    snapshot.resources = conn.client->cached_resources();
+                    snapshot.prompts = conn.client->cached_prompts();
+                }
+            }
+            snapshots.push_back(std::move(snapshot));
+        }
+        return snapshots;
+    }
     
     // Call tool from any connected server
     McpResult<ToolCallResult> call_tool(const std::string& server_name, const ToolCallRequest& request) {
@@ -245,6 +338,26 @@ public:
         }
         
         return it->second.client->call_tool(request);
+    }
+
+    McpResult<ListResourcesResult> list_resources(const std::string& server_name) {
+        std::lock_guard<std::mutex> lock(connections_mutex_);
+
+        auto it = connections_.find(server_name);
+        if (it == connections_.end() || it->second.status != ConnectionStatus::Connected || !it->second.client) {
+            return std::unexpected(McpClientError::NotConnected);
+        }
+        return it->second.client->list_resources();
+    }
+
+    McpResult<ResourceReadResult> read_resource(const std::string& server_name, std::string_view uri) {
+        std::lock_guard<std::mutex> lock(connections_mutex_);
+
+        auto it = connections_.find(server_name);
+        if (it == connections_.end() || it->second.status != ConnectionStatus::Connected || !it->second.client) {
+            return std::unexpected(McpClientError::NotConnected);
+        }
+        return it->second.client->read_resource(uri);
     }
     
     // Tool with qualified name (server::tool

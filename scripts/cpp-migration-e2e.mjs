@@ -55,7 +55,7 @@ run('native version', nativeBinary, ['--version'], 'cc-repl 1.0.0-cpp')
 run('native help', nativeBinary, ['--help'], 'Usage: cc-repl [options]')
 run('package start version', 'bun', ['run', 'start', '--', '--version'], 'cc-repl 1.0.0-cpp')
 run('compat launcher version', 'bun', ['dist/cli.js', '--version'], 'cc-repl 1.0.0-cpp')
-run('strict migration inventory', 'node', ['scripts/cpp-migration-inventory.mjs', '--strict'], 'Surface-name overlap only')
+run('strict migration inventory', 'node', ['scripts/cpp-migration-inventory.mjs', '--strict'], 'CMake registered source/header entries')
 
 const runtimeCommands = run('runtime command list', nativeBinary, ['--list-runtime-commands'], 'commit')
 for (const command of ['/commit', '/mcp', '/review', '/skills', '/tasks', '/ant-trace', '/version', '/exit']) {

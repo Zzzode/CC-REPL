@@ -504,6 +504,17 @@ target_sources(cc_tasks
 )
 target_link_libraries(cc_tasks PUBLIC cc_utils cc_types cc_state cc_coordinator)
 
+# ─── cc_skills_core: Skill primitives without tool dependencies ──────────────
+add_library(cc_skills_core)
+target_sources(cc_skills_core
+    PUBLIC FILE_SET CXX_MODULES FILES
+        skills/skill.cppm
+)
+target_link_libraries(cc_skills_core
+    PUBLIC
+        cc_types
+)
+
 # ─── cc_tools: Tools System ───────────────────────────────────────────────────
 add_library(cc_tools)
 target_sources(cc_tools
@@ -600,7 +611,9 @@ target_link_libraries(cc_tools
     PUBLIC
         cc_utils
         cc_types
+        cc_config
         cc_services
+        cc_skills_core
         yyjson
         uv_a
 )
@@ -1102,7 +1115,6 @@ target_sources(cc_skills
         skills/remember.cppm
         skills/schedule_remote_agents.cppm
         skills/simplify.cppm
-        skills/skill.cppm
         skills/skillify.cppm
         skills/update_config.cppm
         skills/verify_content.cppm
@@ -1110,6 +1122,7 @@ target_sources(cc_skills
 target_link_libraries(cc_skills
     PUBLIC
         cc_utils
+        cc_skills_core
         cc_tools
         yyjson
 )
@@ -1413,6 +1426,7 @@ target_link_libraries(cc_core
         cc_hooks
         cc_cli
         cc_bridge
+        cc_skills_core
         cc_skills
         cc_ui
         cc_vim

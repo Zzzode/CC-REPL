@@ -9,6 +9,7 @@
 import cc.commands.command;
 import cc.commands.registry;
 import cc.types.types;
+import cc.commands.agents;
 import cc.commands.clear;
 import cc.commands.config;
 import cc.commands.help;
@@ -160,6 +161,28 @@ TEST(AppCommandRegistry, RuntimeSurfaceCommandsExecuteLocalLogic) {
     ASSERT_TRUE(onboarding.has_value());
     EXPECT_TRUE(onboarding->ok);
     EXPECT_NE(onboarding->message.find("Onboarding status"), std::string::npos);
+}
+
+TEST(AgentsCommand, ListsRealAgentDefinitions) {
+    cc::commands::AgentsCommand agents;
+
+    auto list = agents.execute(ctx({"list"}));
+    ASSERT_TRUE(list.has_value());
+    EXPECT_TRUE(list->ok);
+    EXPECT_NE(list->message.find("Available agents:"), std::string::npos);
+    EXPECT_NE(list->message.find("general-purpose"), std::string::npos);
+    EXPECT_NE(list->message.find("Explore"), std::string::npos);
+    EXPECT_EQ(list->message.find("default, fast, expert"), std::string::npos);
+
+    auto details = agents.execute(ctx({"configure", "general-purpose"}));
+    ASSERT_TRUE(details.has_value());
+    EXPECT_TRUE(details->ok);
+    EXPECT_NE(details->message.find("Agent: general-purpose"), std::string::npos);
+
+    auto unknown = agents.execute(ctx({"use", "missing-agent"}));
+    ASSERT_TRUE(unknown.has_value());
+    EXPECT_FALSE(unknown->ok);
+    EXPECT_NE(unknown->message.find("Unknown agent"), std::string::npos);
 }
 
 TEST(HelpCommand, FormatsDefaultShortcutsExamplesAndSpecificHelp) {

@@ -15,8 +15,8 @@ Validated gates:
 - `ctest --test-dir cpp_migration/build/clang-release --output-on-failure` passes.
 - `node scripts/cpp-migration-inventory.mjs --strict` passes.
 - `bun run migration:e2e` passes native version/help, package start, compatibility launcher, and strict inventory checks.
-- `cc-repl --list-runtime-commands` exposes all `100` migrated slash commands.
-- `cc-repl --list-runtime-tools` exposes all `45` migrated tools.
+- `cc-repl --list-runtime-commands` exposes the native slash command registry for runtime inspection.
+- `cc-repl --list-runtime-tools` exposes the native tool registry for runtime inspection.
 - `cc-repl --simple-ui` can dispatch local slash commands without `ANTHROPIC_API_KEY`.
 - `/version` and `--version` now share the same native version constant.
 - `/status`, immediate `/version`, diagnostics, and user-agent constants now report the native `1.0.0-cpp` version family.
@@ -44,15 +44,14 @@ flowchart TD
 | Runtime state | `cc_state`, `cc_context`, `cc_session` | App state, context, persistence, session history |
 | Product features | `cc_tools`, `cc_commands`, `cc_services` | Tool execution, slash commands, API/MCP/LSP/OAuth integrations |
 | Interaction | `cc_ui`, `cc_screens`, `cc_hooks` | Terminal UI, screens, notifications, hook orchestration |
-| Integrations | `cc_bridge`, `cc_remote`, `cc_plugins`, `cc_skills` | IDE bridge, remote sessions, plugin loading, skill execution |
+| Integrations | `cc_bridge`, `cc_remote`, `cc_plugins`, `cc_skills_core`, `cc_skills` | IDE bridge, remote sessions, plugin loading, skill primitives, skill execution |
 | Entrypoints | `cc_cli`, `cc_entrypoints`, `cc_repl` | CLI parsing, runtime dispatch, native executable |
 
 ## Migration Coverage
 
-The strict inventory gate currently reports:
+The strict inventory gate no longer reports command/tool overlap as a completion score. Functional parity is tracked through runtime behavior and targeted migration tests instead.
 
-- Commands: `100/100`
-- Tools: `45/45`
+The strict inventory gate currently reports:
 - Runtime command surface: all commands are typed C++ registrations or typed adapters to migrated helper modules; the generic surface fallback shim and readiness placeholder responses have been removed.
 - Runtime tool surface: tool dispatch uses registered C++ tool implementations or domain-backed adapters for MCP, LSP, task, plan, worktree, sleep, team, script, and related runtime tools.
 - CMake registered source/header entries: complete

@@ -21,6 +21,7 @@ export module cc.commands.mcp_cmd;
 import cc.types.types;
 import cc.commands.command;
 import cc.config.config;
+import cc.tools.mcp;
 
 export namespace cc::commands {
 
@@ -170,6 +171,29 @@ private:
         return {};
     }
 
+    [[nodiscard]] VoidResult sync_native_runtime() {
+        if (auto loaded = ensure_config_loaded(); !loaded) return loaded;
+
+        std::vector<cc::tools::NativeMcpConfiguredServer> servers;
+        for (const auto& server : config_manager_.settings().mcp_servers) {
+            servers.push_back(cc::tools::NativeMcpConfiguredServer{
+                .name = server.name,
+                .command = server.command,
+                .args = server.args,
+                .env = server.env,
+            });
+        }
+
+        auto synced = cc::tools::sync_native_mcp_servers(std::move(servers));
+        if (!synced) {
+            return std::unexpected(Error::make(
+                ErrorCode::InternalError,
+                synced.error()
+            ));
+        }
+        return {};
+    }
+
     /// Parse action string to enum
     [[nodiscard]] static std::optional<McpAction> parse_action(std::string_view str) {
         if (str == "list" || str == "ls") return McpAction::List;
@@ -197,8 +221,8 @@ private:
 
     /// List all connected MCP servers
     [[nodiscard]] Result<CommandResult> execute_list() {
-        if (auto loaded = ensure_config_loaded(); !loaded) {
-            return std::unexpected(loaded.error());
+        if (auto synced = sync_native_runtime(); !synced) {
+            return std::unexpected(synced.error());
         }
 
         const auto& configured_servers = config_manager_.settings().mcp_servers;
@@ -215,18 +239,14 @@ private:
         output += std::string(60, '-') + "\n";
 
         for (const auto& config : configured_servers) {
-            const auto connected = std::ranges::find_if(connected_servers_, [&](const auto& server) {
-                return server.name == config.name;
-            });
-            const auto state = connected == connected_servers_.end()
-                ? McpServerState::NotStarted
-                : connected->state;
-            const auto tools = connected == connected_servers_.end() ? std::size_t{0} : connected->tools.size();
-            const auto resources = connected == connected_servers_.end() ? std::size_t{0} : connected->resources.size();
-            const auto prompts = connected == connected_servers_.end() ? std::size_t{0} : connected->prompts.size();
+            const auto status = cc::tools::native_mcp_status(config.name);
+            const auto status_text = status ? status->status : std::string("not started");
+            const auto tools = status ? status->tools.size() : std::size_t{0};
+            const auto resources = status ? status->resources.size() : std::size_t{0};
+            const auto prompts = status ? status->prompts.size() : std::size_t{0};
             output += std::format("  {:<20} {:<12} {:<6} {:<6} {:<6}\n",
                 config.name,
-                state_label(state),
+                status_text,
                 tools,
                 resources,
                 prompts
@@ -269,6 +289,9 @@ private:
         if (auto result = config_manager_.save(); !result) {
             return std::unexpected(result.error());
         }
+        if (auto synced = sync_native_runtime(); !synced) {
+            return std::unexpected(synced.error());
+        }
 
         return CommandResult::success(
             std::format("Saved MCP server '{}'. Use `/mcp show {}` to inspect the native configuration.", args[1], args[1])
@@ -298,14 +321,17 @@ private:
         if (auto result = config_manager_.save(); !result) {
             return std::unexpected(result.error());
         }
+        if (auto synced = sync_native_runtime(); !synced) {
+            return std::unexpected(synced.error());
+        }
 
         return CommandResult::success(std::format("Removed MCP server '{}'", name));
     }
 
     /// Show detailed capabilities of a server
     [[nodiscard]] Result<CommandResult> execute_show(std::string_view name) {
-        if (auto loaded = ensure_config_loaded(); !loaded) {
-            return std::unexpected(loaded.error());
+        if (auto synced = sync_native_runtime(); !synced) {
+            return std::unexpected(synced.error());
         }
 
         const auto& configured_servers = config_manager_.settings().mcp_servers;
@@ -316,42 +342,45 @@ private:
             return CommandResult::fail(std::format("MCP server '{}' not configured", name));
         }
 
-        auto connected_it = std::ranges::find_if(connected_servers_, [name](const auto& s) {
-            return s.name == name;
-        });
-
-        const auto state = connected_it == connected_servers_.end()
-            ? McpServerState::NotStarted
-            : connected_it->state;
+        const auto status = cc::tools::native_mcp_status(name);
 
         std::string output = std::format("MCP Server: {}\n", config_it->name);
-        output += std::format("Status: {}\n", state_label(state));
+        output += std::format("Status: {}\n", status ? status->status : std::string("not started"));
         output += std::format("Command: {}", config_it->command);
         for (const auto& arg : config_it->args) {
             output += std::format(" {}", arg);
         }
         output += "\n\n";
+        if (status && status->error) {
+            output += std::format("Last error: {}\n\n", *status->error);
+        }
+        if (status && status->server_info) {
+            output += std::format("Server: {}\n", *status->server_info);
+        }
+        if (status && status->capabilities) {
+            output += std::format("Capabilities: {}\n\n", *status->capabilities);
+        }
 
-        if (connected_it == connected_servers_.end()) {
-            output += "Runtime capabilities are unavailable until the native MCP connection lifecycle starts this server.\n";
+        if (!status || status->status != "ready") {
+            output += "Runtime capabilities are unavailable until this server is started with `/mcp restart` or first used by an MCP tool.\n";
             return CommandResult::success(std::move(output));
         }
 
         // Tools
-        output += std::format("Tools ({}):\n", connected_it->tools.size());
-        for (const auto& tool : connected_it->tools) {
+        output += std::format("Tools ({}):\n", status->tools.size());
+        for (const auto& tool : status->tools) {
             output += std::format("  - {}: {}\n", tool.name, tool.description);
         }
 
         // Resources
-        output += std::format("\nResources ({}):\n", connected_it->resources.size());
-        for (const auto& res : connected_it->resources) {
+        output += std::format("\nResources ({}):\n", status->resources.size());
+        for (const auto& res : status->resources) {
             output += std::format("  - {} [{}]: {}\n", res.name, res.mime_type, res.uri);
         }
 
         // Prompts
-        output += std::format("\nPrompts ({}):\n", connected_it->prompts.size());
-        for (const auto& prompt : connected_it->prompts) {
+        output += std::format("\nPrompts ({}):\n", status->prompts.size());
+        for (const auto& prompt : status->prompts) {
             output += std::format("  - {}: {} ({} args)\n",
                 prompt.name, prompt.description, prompt.arguments.size());
         }
@@ -361,8 +390,8 @@ private:
 
     /// Restart a server connection
     [[nodiscard]] Result<CommandResult> execute_restart(std::string_view name) {
-        if (auto loaded = ensure_config_loaded(); !loaded) {
-            return std::unexpected(loaded.error());
+        if (auto synced = sync_native_runtime(); !synced) {
+            return std::unexpected(synced.error());
         }
 
         const auto& servers = config_manager_.settings().mcp_servers;
@@ -374,9 +403,19 @@ private:
             return CommandResult::fail(std::format("MCP server '{}' not configured", name));
         }
 
-        return CommandResult::success(
-            std::format("MCP server '{}' is configured. Native connection startup is not yet wired through /mcp restart.", name)
-        );
+        auto restarted = cc::tools::restart_native_mcp_server(name);
+        if (!restarted) {
+            return CommandResult::fail(restarted.error());
+        }
+
+        return CommandResult::success(std::format(
+            "MCP server '{}' restarted: {} (tools={}, resources={}, prompts={})",
+            name,
+            restarted->status,
+            restarted->tools.size(),
+            restarted->resources.size(),
+            restarted->prompts.size()
+        ));
     }
 };
 

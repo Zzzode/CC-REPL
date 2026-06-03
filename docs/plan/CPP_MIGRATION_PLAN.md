@@ -17,8 +17,7 @@ TS source files:              1,946
 C++ source files:             1,093
 C++ modules:                  1,091 .cppm
 C++ implementation files:     2 .cpp
-Command root overlap:         Name overlap only; not a feature-parity score
-Tool root overlap:            Name overlap only; not a feature-parity score
+Feature parity scoring:       Not emitted by inventory; use runtime behavior audits and validation gates
 Runtime command surface:      Typed C++ command registry with selected hardened local actions
 Runtime tool surface:         Registered C++ tool registry with mixed real and adapter-backed tools
 CMake registration gaps:      0
@@ -54,6 +53,36 @@ The command migration is no longer only an inventory pass. The previous readines
 - `/bridge` inspects IDE bridge lockfiles instead of returning a static status.
 - `/extra-usage`, `/onboarding`, `/init-verifiers`, and `/create-moved-to-plugin-command` execute concrete local actions.
 - `/autofix-pr` and `/commit-push-pr` perform Git/GitHub preflight checks; full PR automation still depends on authenticated external transports.
+
+### Runtime MCP Progress
+
+Native MCP is no longer a display-only configuration surface for stdio servers:
+
+- `/mcp add` and `/mcp remove` keep the native runtime configuration in sync after persistence.
+- `/mcp restart <server>` starts the configured stdio server, performs the initialize handshake, refreshes tools/resources/prompts, and reports real counts.
+- The `mcp` runtime tool now calls `tools/call` on the connected server and forwards the raw `arguments` JSON object.
+- `list_mcp_resources` and `read_mcp_resource` use the connected server path when a native MCP server is configured.
+
+Remaining MCP parity work includes streamable HTTP/SSE transport parity, OAuth/XAA flows in the command path, prompt invocation, richer MCP tool schema registration, elicitation, reconnect/backoff UI, output truncation parity, and plugin-provided MCP server loading.
+
+### Runtime Agent Progress
+
+Native Agent migration is moving from name overlap to runtime behavior:
+
+- `/agents list`, `/agents use <agent>`, and `/agents configure <agent>` now read the same active agent definition surface used by the native runtime: built-in definitions, user `~/.claude/agents/*.md`, and project `.claude/agents/*.md`, with project definitions overriding user and built-in definitions by agent type.
+- The fake `/agents list` output (`default, fast, expert`) has been removed.
+- Agent markdown frontmatter parsing now recognizes `name`, `description`, `model`, `tools`, and `maxTurns`.
+- The native `Agent` tool accepts the TypeScript-compatible input shape: `description`, `prompt`, optional `subagent_type`, optional `model`, plus legacy `task`/`skill` aliases.
+- Agent invocation now resolves selected definitions before execution, including loose/legacy type names such as `planner` and `General Purpose`; unknown agent types fail before any API call.
+- Agent execution now applies the selected definition's system prompt, model, `maxTurns`, and tool allow-list when constructing native sub-agent requests.
+- Agent execution now applies `initialPrompt` and `disallowedTools` from markdown frontmatter.
+- Agent execution now checks `requiredMcpServers` against ready native MCP servers with available tools before any API call.
+- Agent execution now preloads prompt-based skills from `.claude/skills/<name>/SKILL.md` when selected by agent frontmatter.
+- Agent execution now supports string-referenced `mcpServers` by connecting those native MCP servers and exposing their tools through the native `mcp` tool inside that sub-agent.
+- Native execution fail-closes on definition features that are not migrated yet: `background`, `isolation`, and `hooks`.
+- Native execution explicitly rejects Agent parameters whose behavior has not been migrated yet: `run_in_background`, `name`, `team_name`, `mode`, `isolation`, and `cwd`.
+
+Remaining Agent parity work includes true async/background lifecycle, SendMessage continuation, team spawning, worktree/remote isolation, fork-subagent context inheritance, inline agent MCP server definitions, hooks, full skill command metadata/UI parity, permission-mode/effort/memory semantics, agent transcripts/progress UI, summarization, cancellation, and result schema parity.
 
 ### Architecture Mapping
 
@@ -273,11 +302,13 @@ The command migration is no longer only an inventory pass. The previous readines
   - `file_edit_types.cppm` — edit operation types
   - `file_edit_prompt.cppm` — prompt generation for file edits
 
-- [x] **2.3** AgentTool sub-agent system (4 files)
+- [ ] **2.3** AgentTool sub-agent system runtime parity
   - `agent_types.cppm` — agent type definitions
   - `agent_prompt.cppm` — agent prompt construction
   - `built_in_agents.cppm` — built-in agent registry (explore, verify, plan)
   - `agent_utils.cppm` — agent lifecycle utilities
+  - `agent_runtime.cppm` — built-in/user/project agent definition discovery
+  - Current status: definition discovery, `/agents` listing/details, TypeScript-compatible base Agent input, selected definition resolution, definition model/maxTurns/tools, definition system prompts, `initialPrompt`, `disallowedTools`, `requiredMcpServers`, prompt-based skill preloading, and string-referenced `mcpServers` are implemented; background/team/worktree/remote/fork lifecycle parity remains open.
 
 - [x] **2.4** ScriptTool completion (3 files)
   - `script_sandbox.cppm` — script sandboxing
@@ -737,9 +768,10 @@ The command migration is no longer only an inventory pass. The previous readines
   - [x] Interactive REPL mode
   - [x] Slash commands (core subset)
   - [x] Tool execution (Bash, File*, Glob, Grep)
+  - [x] MCP stdio initialize/list/call/resource path
   - [ ] Streaming response rendering parity
   - [ ] Session persistence parity
-  - [ ] MCP server connection lifecycle
+  - [ ] Full MCP server lifecycle parity
   - [ ] Permission system parity
   - [ ] Keyboard shortcuts parity
   - [ ] Thinking mode display parity

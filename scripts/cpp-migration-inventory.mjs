@@ -101,66 +101,6 @@ function inc(map, key, delta = 1) {
   map[key] = (map[key] ?? 0) + delta
 }
 
-function normalizeName(name) {
-  let s = name.replace(/Tool$/, '')
-  s = s.replaceAll('MCP', 'Mcp').replaceAll('LSP', 'Lsp').replaceAll('REPL', 'Repl')
-  s = s.replace(/([a-z0-9])([A-Z])/g, '$1_$2')
-  s = s.replace(/[^a-zA-Z0-9]+/g, '_').toLowerCase().replace(/^_+|_+$/g, '')
-  s = s.replace(/_tool$/, '')
-  s = s.replace(/^use_/, '')
-  if (s === 'power_shell') return 'powershell'
-  return s
-}
-
-function commandRootFromTs(relativePath) {
-  const parts = relativePath.split('/')
-  if (parts.length === 1) return normalizeName(path.parse(parts[0]).name)
-  return normalizeName(parts[0])
-}
-
-function commandRootFromCpp(relativePath) {
-  const parts = relativePath.split('/')
-  const first = parts[0]
-  if (parts.length > 1) return normalizeName(first)
-  const stem = normalizeName(path.parse(first).name)
-  const aliases = {
-    add_dir: 'add_dir',
-    copy_cmd: 'copy',
-    export_cmd: 'export',
-    keybindings_cmd: 'keybindings',
-    mcp_cmd: 'mcp',
-    permissions_cmd: 'permissions',
-    plugin_cmd: 'plugin',
-    skills_cmd: 'skills',
-    tasks_cmd: 'tasks',
-  }
-  return aliases[stem] ?? stem
-}
-
-function toolRootFromTs(relativePath) {
-  const parts = relativePath.split('/')
-  if (parts.length === 1) return normalizeName(path.parse(parts[0]).name)
-  return normalizeName(parts[0])
-}
-
-function toolRootFromCpp(relativePath) {
-  const stem = normalizeName(path.parse(relativePath.split('/').at(-1)).name)
-  if (stem === 'mcp_auth') return 'mcp_auth'
-  for (const prefix of ['agent', 'bash', 'file_edit', 'lsp', 'mcp', 'powershell', 'script']) {
-    if (stem === prefix || stem.startsWith(`${prefix}_`)) return prefix
-  }
-  const aliases = {
-    ask_user: 'ask_user_question',
-    cron: 'schedule_cron',
-    notebook: 'notebook_edit',
-    plan_mode: ['enter_plan_mode', 'exit_plan_mode'],
-    worktree: ['enter_worktree', 'exit_worktree'],
-    team: ['team_create', 'team_delete'],
-    task: ['task_output', 'task_stop', 'task_update'],
-  }
-  return aliases[stem] ?? stem
-}
-
 function listSourceFiles(root, extensions) {
   return walk(root, file => extensions.has(path.extname(file))).map(file => rel(file, root))
 }
@@ -236,28 +176,6 @@ function collectCmakeRegisteredFiles() {
   return registered
 }
 
-function rootsFrom(files, rootFn, basePrefix = '') {
-  const roots = new Set()
-  for (const file of files) {
-    if (basePrefix && !file.startsWith(`${basePrefix}/`)) continue
-    const withoutPrefix = basePrefix ? file.slice(basePrefix.length + 1) : file
-    const value = rootFn(withoutPrefix)
-    if (Array.isArray(value)) value.forEach(v => roots.add(v))
-    else roots.add(value)
-  }
-  return [...roots].sort()
-}
-
-function diff(left, right) {
-  const rightSet = new Set(right)
-  return left.filter(item => !rightSet.has(item))
-}
-
-function intersection(left, right) {
-  const rightSet = new Set(right)
-  return left.filter(item => rightSet.has(item))
-}
-
 const tsFiles = listSourceFiles(tsRoot, tsExtensions)
 const cppFiles = listSourceFiles(cppRoot, cppExtensions)
 const cppModuleFiles = cppFiles.filter(file => file.endsWith('.cppm'))
@@ -267,15 +185,6 @@ const registered = collectCmakeRegisteredFiles()
 const cppCompilableFiles = cppFiles.filter(file => file.endsWith('.cppm') || file.endsWith('.cpp'))
 const unregisteredCompilableFiles = cppCompilableFiles.filter(file => !registered.has(file))
 const registeredMissingFiles = [...registered].filter(file => !existsSync(path.join(cppRoot, file))).sort()
-
-const tsCommandRoots = rootsFrom(tsFiles, commandRootFromTs, 'commands')
-const cppCommandRoots = rootsFrom(cppFiles, commandRootFromCpp, 'commands')
-const tsToolRoots = rootsFrom(tsFiles, toolRootFromTs, 'tools').filter(root => !['utils'].includes(root))
-const cppToolRoots = rootsFrom(cppFiles, toolRootFromCpp, 'tools').filter(root => ![
-  'tool', 'tool_prompts', 'tool_registry', 'missing_tools', 'git_operation_tracking',
-  'command_semantics', 'built_in_agents', 'computer_use', 'monitor', 'snip',
-  'spawn_multi_agent', 'terminal_capture', ''
-].includes(root))
 
 const markers = collectMarkers(cppFiles)
 const topLevelCoverage = {}
@@ -304,22 +213,6 @@ const report = {
     cppHeaderFiles: cppHeaderFiles.length,
   },
   topLevelCoverage,
-  commands: {
-    tsCount: tsCommandRoots.length,
-    cppCount: cppCommandRoots.length,
-    overlapCount: intersection(tsCommandRoots, cppCommandRoots).length,
-    overlap: intersection(tsCommandRoots, cppCommandRoots),
-    missing: diff(tsCommandRoots, cppCommandRoots),
-    cppExtra: diff(cppCommandRoots, tsCommandRoots),
-  },
-  tools: {
-    tsCount: tsToolRoots.length,
-    cppCount: cppToolRoots.length,
-    overlapCount: intersection(tsToolRoots, cppToolRoots).length,
-    overlap: intersection(tsToolRoots, cppToolRoots),
-    missing: diff(tsToolRoots, cppToolRoots),
-    cppExtra: diff(cppToolRoots, tsToolRoots),
-  },
   cmake: {
     registeredCount: registered.size,
     unregisteredCompilableFiles,
@@ -336,12 +229,6 @@ if (jsonOnly) {
   console.log(`Generated: ${report.generatedAt}`)
   console.log(`TS source files: ${report.totals.tsSourceFiles}`)
   console.log(`C++ source files: ${report.totals.cppSourceFiles} (${report.totals.cppModuleFiles} .cppm, ${report.totals.cppImplementationFiles} .cpp, ${report.totals.cppHeaderFiles} headers)`)
-  console.log('')
-  console.log('Surface-name overlap only; this is not a feature-parity score.')
-  console.log(`Command roots: ${report.commands.tsCount} TS roots, ${report.commands.cppCount} C++ roots, ${report.commands.overlapCount} shared names`)
-  if (report.commands.missing.length) console.log(`  Missing: ${report.commands.missing.join(', ')}`)
-  console.log(`Tool roots: ${report.tools.tsCount} TS roots, ${report.tools.cppCount} C++ roots, ${report.tools.overlapCount} shared names`)
-  if (report.tools.missing.length) console.log(`  Missing: ${report.tools.missing.join(', ')}`)
   console.log('')
   console.log(`CMake registered source/header entries: ${report.cmake.registeredCount}`)
   console.log(`Unregistered C++ compilable files: ${report.cmake.unregisteredCompilableFiles.length}`)

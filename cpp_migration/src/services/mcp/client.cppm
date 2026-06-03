@@ -19,9 +19,12 @@ module;
 #include <sstream>
 #include <future>
 #include <variant>
+#include <cerrno>
+#include <csignal>
 #include <sys/socket.h>
 #include <netdb.h>
 #include <unistd.h>
+#include <sys/wait.h>
 
 export module cc.services.mcp.client;
 
@@ -73,24 +76,54 @@ public:
         if (is_connected()) {
             return std::unexpected(McpClientError::AlreadyConnected);
         }
-        
-        // Build command line
-        std::string full_cmd = command_;
-        for (const auto& arg : args_) {
-            full_cmd += " " + arg;
-        }
-        
-        // Set environment variables
-        for (const auto& [key, value] : env_) {
-            setenv(key.c_str(), value.c_str(), 1);
-        }
-        
-        // Open bidirectional pipe
-        pipe_handle_ = popen(full_cmd.c_str(), "r+");
-        if (!pipe_handle_) {
+
+        int child_stdin[2]{-1, -1};
+        int child_stdout[2]{-1, -1};
+        if (::pipe(child_stdin) != 0 || ::pipe(child_stdout) != 0) {
+            if (child_stdin[0] >= 0) ::close(child_stdin[0]);
+            if (child_stdin[1] >= 0) ::close(child_stdin[1]);
+            if (child_stdout[0] >= 0) ::close(child_stdout[0]);
+            if (child_stdout[1] >= 0) ::close(child_stdout[1]);
             return std::unexpected(McpClientError::ConnectionFailed);
         }
-        
+
+        child_pid_ = ::fork();
+        if (child_pid_ < 0) {
+            ::close(child_stdin[0]);
+            ::close(child_stdin[1]);
+            ::close(child_stdout[0]);
+            ::close(child_stdout[1]);
+            child_pid_ = -1;
+            return std::unexpected(McpClientError::ConnectionFailed);
+        }
+
+        if (child_pid_ == 0) {
+            ::dup2(child_stdin[0], STDIN_FILENO);
+            ::dup2(child_stdout[1], STDOUT_FILENO);
+            ::close(child_stdin[0]);
+            ::close(child_stdin[1]);
+            ::close(child_stdout[0]);
+            ::close(child_stdout[1]);
+
+            for (const auto& [key, value] : env_) {
+                ::setenv(key.c_str(), value.c_str(), 1);
+            }
+
+            std::vector<char*> argv;
+            argv.reserve(args_.size() + 2);
+            argv.push_back(const_cast<char*>(command_.c_str()));
+            for (auto& arg : args_) {
+                argv.push_back(const_cast<char*>(arg.c_str()));
+            }
+            argv.push_back(nullptr);
+            ::execvp(command_.c_str(), argv.data());
+            ::_exit(127);
+        }
+
+        ::close(child_stdin[0]);
+        ::close(child_stdout[1]);
+        write_fd_ = child_stdin[1];
+        read_fd_ = child_stdout[0];
         connected_ = true;
         return {};
     }
@@ -99,13 +132,20 @@ public:
         if (!is_connected()) {
             return std::unexpected(McpClientError::NotConnected);
         }
-        
-        // Write message followed by newline (JSON-RPC over stdio uses newline delimiter)
+
         auto msg = std::string(message) + "\n";
-        if (fputs(msg.c_str(), pipe_handle_) == EOF) {
-            return std::unexpected(McpClientError::TransportError);
+        std::size_t written = 0;
+        while (written < msg.size()) {
+            const auto bytes = ::write(write_fd_, msg.data() + written, msg.size() - written);
+            if (bytes < 0) {
+                if (errno == EINTR) continue;
+                return std::unexpected(McpClientError::TransportError);
+            }
+            if (bytes == 0) {
+                return std::unexpected(McpClientError::TransportError);
+            }
+            written += static_cast<std::size_t>(bytes);
         }
-        fflush(pipe_handle_);
         return {};
     }
     
@@ -113,21 +153,23 @@ public:
         if (!is_connected()) {
             return std::unexpected(McpClientError::NotConnected);
         }
-        
-        char buffer[8192];
-        if (fgets(buffer, sizeof(buffer), pipe_handle_) == nullptr) {
-            if (feof(pipe_handle_)) {
+
+        std::string result;
+        char ch = '\0';
+        while (true) {
+            const auto bytes = ::read(read_fd_, &ch, 1);
+            if (bytes < 0) {
+                if (errno == EINTR) continue;
+                return std::unexpected(McpClientError::TransportError);
+            }
+            if (bytes == 0) {
                 connected_ = false;
                 return std::unexpected(McpClientError::ServerClosed);
             }
-            return std::unexpected(McpClientError::TransportError);
+            if (ch == '\n') break;
+            result.push_back(ch);
         }
-        
-        // Remove trailing newline
-        std::string result(buffer);
-        if (!result.empty() && result.back() == '\n') {
-            result.pop_back();
-        }
+
         if (!result.empty() && result.back() == '\r') {
             result.pop_back();
         }
@@ -136,13 +178,28 @@ public:
     }
     
     [[nodiscard]] bool is_connected() const override {
-        return connected_ && pipe_handle_ != nullptr;
+        return connected_ && read_fd_ >= 0 && write_fd_ >= 0;
     }
     
     void close() override {
-        if (pipe_handle_) {
-            pclose(pipe_handle_);
-            pipe_handle_ = nullptr;
+        if (write_fd_ >= 0) {
+            ::close(write_fd_);
+            write_fd_ = -1;
+        }
+        if (read_fd_ >= 0) {
+            ::close(read_fd_);
+            read_fd_ = -1;
+        }
+        if (child_pid_ > 0) {
+            int status = 0;
+            if (::waitpid(child_pid_, &status, WNOHANG) == 0) {
+                ::kill(child_pid_, SIGTERM);
+                if (::waitpid(child_pid_, &status, WNOHANG) == 0) {
+                    ::kill(child_pid_, SIGKILL);
+                    ::waitpid(child_pid_, &status, 0);
+                }
+            }
+            child_pid_ = -1;
         }
         connected_ = false;
     }
@@ -151,7 +208,9 @@ private:
     std::string command_;
     std::vector<std::string> args_;
     std::map<std::string, std::string> env_;
-    FILE* pipe_handle_ = nullptr;
+    int read_fd_ = -1;
+    int write_fd_ = -1;
+    pid_t child_pid_ = -1;
     bool connected_ = false;
 };
 
@@ -775,17 +834,15 @@ public:
     void shutdown() {
         if (state_ == ServerState::Ready || state_ == ServerState::Initializing) {
             state_ = ServerState::ShuttingDown;
-            // Send shutdown notification if needed
             send_notification("notifications/cancelled", std::nullopt);
         }
-        
+
         running_ = false;
-        if (receive_thread_.joinable()) {
-            receive_thread_.join();
-        }
-        
         if (transport_) {
             transport_->close();
+        }
+        if (receive_thread_.joinable()) {
+            receive_thread_.join();
         }
         
         state_ = ServerState::Stopped;
@@ -804,6 +861,11 @@ private:
     // Initialize the MCP connection (handshake)
     [[nodiscard]] McpResult<void> initialize() {
         state_ = ServerState::Initializing;
+
+        running_ = true;
+        if (!receive_thread_.joinable()) {
+            receive_thread_ = std::thread(&McpClient::receive_loop, this);
+        }
         
         // Build initialize params
         JsonMutDoc doc;
@@ -828,6 +890,13 @@ private:
         auto response = send_request_sync("initialize", doc.to_string());
         if (!response) {
             state_ = ServerState::Error;
+            running_ = false;
+            if (transport_) {
+                transport_->close();
+            }
+            if (receive_thread_.joinable()) {
+                receive_thread_.join();
+            }
             return std::unexpected(response.error());
         }
         
@@ -835,6 +904,13 @@ private:
         auto init_result = parse_initialize_result(*response);
         if (!init_result) {
             state_ = ServerState::Error;
+            running_ = false;
+            if (transport_) {
+                transport_->close();
+            }
+            if (receive_thread_.joinable()) {
+                receive_thread_.join();
+            }
             return std::unexpected(McpClientError::InitializationFailed);
         }
         
@@ -843,11 +919,7 @@ private:
         
         // Send initialized notification
         send_notification("notifications/initialized", std::nullopt);
-        
-        // Start receive thread
-        running_ = true;
-        receive_thread_ = std::thread(&McpClient::receive_loop, this);
-        
+
         state_ = ServerState::Ready;
         return {};
     }
