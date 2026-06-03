@@ -7,6 +7,7 @@ module;
 #include <fstream>
 #include <memory>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -75,50 +76,73 @@ public:
     }
     
     [[nodiscard]] Result<ToolResult> execute(const ToolInput& input) {
+        using namespace cc::utils::json;
+
         std::string pattern;
         std::string search_path = fs::current_path().string();
-        
+
         auto json_str = input.json();
-        auto pattern_pos = json_str.find("\"pattern\"");
-        if (pattern_pos != std::string::npos) {
-            auto val_start = json_str.find(":", pattern_pos);
-            auto quote_start = json_str.find("\"", val_start + 1);
-            auto quote_end = json_str.find("\"", quote_start + 1);
-            if (quote_start != std::string::npos && quote_end != std::string::npos) {
-                pattern = std::string(json_str.substr(quote_start + 1, quote_end - quote_start - 1));
-            }
+        auto doc = parse(json_str);
+        if (!doc) {
+            return ToolResult::error("Invalid JSON input");
         }
-        
+
+        auto root = doc->root();
+        if (!root.is_obj()) {
+            return ToolResult::error("Expected JSON object");
+        }
+
+        auto pattern_node = root.get("pattern");
+        if (pattern_node.is_str()) {
+            pattern = std::string(pattern_node.as_str());
+        }
+
+        auto path_node = root.get("path");
+        if (path_node.is_str()) {
+            search_path = std::string(path_node.as_str());
+        }
+
         if (pattern.empty()) {
             return ToolResult::error("Missing 'pattern' field");
         }
-        
+
         try {
             std::vector<std::pair<fs::path, std::vector<std::pair<int, std::string>>>> matches;
-            
-            for (const auto& entry : fs::recursive_directory_iterator(search_path)) {
-                if (entry.is_regular_file()) {
-                    auto file_read = cc::utils::file::read_file(entry.path());
-                    if (!file_read) continue;
-                    
-                    std::istringstream iss(*file_read);
-                    std::string line;
-                    int line_num = 0;
-                    std::vector<std::pair<int, std::string>> file_matches;
-                    
-                    while (std::getline(iss, line)) {
-                        line_num++;
-                        if (line.find(pattern) != std::string::npos) {
-                            file_matches.push_back({line_num, line});
-                        }
-                    }
-                    
-                    if (!file_matches.empty()) {
-                        matches.push_back({entry.path(), file_matches});
+            std::regex regex_pattern(pattern);
+            std::size_t match_count = 0;
+
+            auto search_file = [&](const fs::path& file) {
+                auto file_read = cc::utils::file::read_file(file);
+                if (!file_read) return;
+
+                std::istringstream iss(*file_read);
+                std::string line;
+                int line_num = 0;
+                std::vector<std::pair<int, std::string>> file_matches;
+
+                while (std::getline(iss, line)) {
+                    ++line_num;
+                    if (std::regex_search(line, regex_pattern)) {
+                        file_matches.push_back({line_num, line});
+                        if (++match_count >= 200) break;
                     }
                 }
+
+                if (!file_matches.empty()) {
+                    matches.push_back({file, std::move(file_matches)});
+                }
+            };
+
+            fs::path root_path = search_path;
+            if (fs::is_regular_file(root_path)) {
+                search_file(root_path);
+            } else {
+                for (const auto& entry : fs::recursive_directory_iterator(root_path, fs::directory_options::skip_permission_denied)) {
+                    if (entry.is_regular_file()) search_file(entry.path());
+                    if (match_count >= 200) break;
+                }
             }
-            
+
             std::string result;
             result = std::format("Searching for '{}':\n\n", pattern);
             
@@ -129,13 +153,19 @@ public:
                 }
                 result += "\n";
             }
-            
+
+            if (match_count >= 200) {
+                result += "[results truncated at 200 matches]\n";
+            }
+
             if (matches.empty()) {
                 result += "No matches found.\n";
             }
-            
+
             return ToolResult::success(result);
-            
+
+        } catch (const std::regex_error& e) {
+            return ToolResult::error(std::format("Invalid regex pattern: {}", e.what()));
         } catch (const std::exception& e) {
             return ToolResult::error(std::format("Grep error: {}", e.what()));
         }

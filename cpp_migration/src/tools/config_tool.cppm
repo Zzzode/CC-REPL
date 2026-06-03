@@ -20,7 +20,7 @@ export module cc.tools.config;
 
 export namespace cc::tools {
 
-// 配置操作类型
+
 enum class ConfigAction {
     Get,
     Set,
@@ -38,10 +38,10 @@ constexpr auto config_action_name(ConfigAction a) -> std::string_view {
     }
 }
 
-// 配置作用域
+
 enum class ConfigScope {
-    Global,   // 全局配置 (~/.config/cc/config.json)
-    Project,  // 项目级配置 (.cc/config.json)
+    Global,
+    Project,
 };
 
 constexpr auto scope_name(ConfigScope s) -> std::string_view {
@@ -52,7 +52,7 @@ constexpr auto scope_name(ConfigScope s) -> std::string_view {
     }
 }
 
-// 配置错误类型
+
 enum class ConfigError {
     KeyEmpty,
     KeyInvalid,
@@ -80,7 +80,7 @@ constexpr auto format_error(ConfigError err) -> std::string_view {
     }
 }
 
-// 已知的有效配置键
+
 inline constexpr std::array kValidConfigKeys = {
     std::string_view{"model"},
     std::string_view{"api_key"},
@@ -98,7 +98,7 @@ inline constexpr std::array kValidConfigKeys = {
     std::string_view{"working_directory"},
 };
 
-// 配置请求
+
 struct ConfigRequest {
     ConfigAction action;
     std::optional<std::string> key;
@@ -106,14 +106,14 @@ struct ConfigRequest {
     ConfigScope scope{ConfigScope::Global};
 };
 
-// 配置条目
+
 struct ConfigEntry {
     std::string key;
     std::string value;
     ConfigScope scope;
 };
 
-// 配置存储器
+
 class ConfigStore {
 public:
     explicit ConfigStore(std::filesystem::path global_path = default_global_path(),
@@ -121,7 +121,7 @@ public:
         : global_path_(std::move(global_path))
         , project_path_(std::move(project_path)) {}
 
-    // 获取配置值 (project 优先于 global)
+
     auto get(std::string_view key, ConfigScope scope) const
         -> std::expected<std::string, ConfigError>
     {
@@ -131,7 +131,7 @@ public:
         return it->second;
     }
 
-    // 设置配置值
+
     auto set(std::string key, std::string value, ConfigScope scope)
         -> std::expected<void, ConfigError>
     {
@@ -140,7 +140,7 @@ public:
         return persist(scope);
     }
 
-    // 删除配置值
+
     auto remove(std::string_view key, ConfigScope scope)
         -> std::expected<void, ConfigError>
     {
@@ -151,7 +151,7 @@ public:
         return persist(scope);
     }
 
-    // 列出所有配置
+
     auto list(ConfigScope scope) const -> std::vector<ConfigEntry> {
         std::vector<ConfigEntry> entries;
         const auto& store = (scope == ConfigScope::Project) ? project_store_ : global_store_;
@@ -167,12 +167,12 @@ private:
     std::unordered_map<std::string, std::string> global_store_;
     std::unordered_map<std::string, std::string> project_store_;
 
-    // 持久化配置到磁盘
+
     auto persist(ConfigScope scope) -> std::expected<void, ConfigError> {
         const auto& path = (scope == ConfigScope::Project) ? project_path_ : global_path_;
         const auto& store = (scope == ConfigScope::Project) ? project_store_ : global_store_;
 
-        // 确保目录存在
+
         auto parent = path.parent_path();
         if (!parent.empty() && !std::filesystem::exists(parent)) {
             std::filesystem::create_directories(parent);
@@ -181,7 +181,7 @@ private:
         std::ofstream file(path);
         if (!file) return std::unexpected(ConfigError::WriteFailed);
 
-        // 简单 JSON 序列化
+
         file << "{\n";
         bool first = true;
         for (const auto& [key, value] : store) {
@@ -204,7 +204,7 @@ private:
     }
 };
 
-// ConfigTool - 读写 CLI 配置
+
 class ConfigTool {
 public:
     static constexpr std::string_view name = "config";
@@ -282,7 +282,7 @@ public:
 private:
     ConfigStore store_;
 
-    // 验证配置键是否合法 (只允许字母、数字、下划线、点号)
+
     static auto is_valid_key(std::string_view key) -> bool {
         return !key.empty() && std::all_of(key.begin(), key.end(), [](char c) {
             return std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '.';

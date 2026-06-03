@@ -17,7 +17,7 @@ namespace fs = std::filesystem;
 
 export namespace cc::utils {
 
-// 读取整个文件内容
+
 inline std::expected<std::string, std::string> read_file(const fs::path& filepath) {
     std::error_code ec;
     if (!fs::exists(filepath, ec)) {
@@ -45,7 +45,7 @@ inline std::expected<std::string, std::string> read_file(const fs::path& filepat
     return content;
 }
 
-// 按行读取文件
+
 inline std::expected<std::vector<std::string>, std::string> read_file_lines(const fs::path& filepath) {
     auto content = read_file(filepath);
     if (!content) {
@@ -61,7 +61,7 @@ inline std::expected<std::vector<std::string>, std::string> read_file_lines(cons
     return lines;
 }
 
-// 读取文件指定行范围 [start_line, end_line]（1-based）
+
 inline std::expected<std::string, std::string> read_file_range(
     const fs::path& filepath,
     size_t start_line,
@@ -81,7 +81,7 @@ inline std::expected<std::string, std::string> read_file_range(
         return std::unexpected("Start line exceeds file length");
     }
 
-    // 调整 end_line 不超过文件总行数
+
     size_t actual_end = std::min(end_line, lines.size());
     std::string result;
 
@@ -94,13 +94,13 @@ inline std::expected<std::string, std::string> read_file_range(
     return result;
 }
 
-// 检测字节序列的编码类型
+
 inline std::string detect_encoding(std::span<const uint8_t> data) {
     if (data.empty()) {
         return "utf-8";
     }
 
-    // 检查 BOM (Byte Order Mark)
+
     if (data.size() >= 3 &&
         data[0] == 0xEF && data[1] == 0xBB && data[2] == 0xBF) {
         return "utf-8-bom";
@@ -112,7 +112,7 @@ inline std::string detect_encoding(std::span<const uint8_t> data) {
         return "utf-16-le";
     }
 
-    // 尝试验证 UTF-8
+
     size_t i = 0;
     bool valid_utf8 = true;
     while (i < data.size() && valid_utf8) {
@@ -132,7 +132,7 @@ inline std::string detect_encoding(std::span<const uint8_t> data) {
             break;
         }
 
-        // 检查后续字节
+
         if (i + seq_len > data.size()) {
             valid_utf8 = false;
             break;
@@ -150,11 +150,11 @@ inline std::string detect_encoding(std::span<const uint8_t> data) {
         return "utf-8";
     }
 
-    // 非有效 UTF-8，假设为 Latin-1
+
     return "latin-1";
 }
 
-// 判断文件是否为二进制文件（检测前 8KB 是否有 NUL 字节）
+
 inline bool is_binary_file(const fs::path& filepath) {
     std::ifstream ifs(filepath, std::ios::binary);
     if (!ifs.is_open()) {
@@ -167,11 +167,11 @@ inline bool is_binary_file(const fs::path& filepath) {
     auto bytes_read = static_cast<size_t>(ifs.gcount());
     buffer.resize(bytes_read);
 
-    // 存在 NUL 字节则判定为二进制
+
     return std::ranges::any_of(buffer, [](uint8_t b) { return b == 0; });
 }
 
-// 带大小限制的文件读取
+
 inline std::expected<std::string, std::string> read_file_with_limit(
     const fs::path& filepath,
     size_t max_bytes

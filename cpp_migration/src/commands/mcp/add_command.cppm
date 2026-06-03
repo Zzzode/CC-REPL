@@ -17,7 +17,7 @@ export module cc.commands.mcp.add_command;
 
 export namespace cc::commands {
 
-// MCP 服务器配置
+
 struct McpServerConfig {
     std::string name;
     std::string command;
@@ -30,7 +30,7 @@ auto list_configured_servers() -> std::vector<McpServerConfig>;
 auto mcp_servers_path() -> std::filesystem::path;
 auto write_configured_servers(const std::vector<McpServerConfig>& servers) -> std::expected<void, std::string>;
 
-// 添加 MCP 服务器配置
+
 auto add_mcp_server(McpServerConfig config) -> std::expected<void, std::string> {
     auto errors = validate_server_config(config);
     if (!errors.empty()) {
@@ -49,7 +49,7 @@ auto add_mcp_server(McpServerConfig config) -> std::expected<void, std::string> 
     return write_configured_servers(servers);
 }
 
-// 移除 MCP 服务器配置
+
 auto remove_mcp_server(std::string_view name) -> std::expected<void, std::string> {
     if (name.empty()) {
         return std::unexpected("Server name cannot be empty");
@@ -61,7 +61,7 @@ auto remove_mcp_server(std::string_view name) -> std::expected<void, std::string
     return write_configured_servers(servers);
 }
 
-// 列出所有已配置的 MCP 服务器
+
 auto list_configured_servers() -> std::vector<McpServerConfig> {
     std::vector<McpServerConfig> servers;
     std::ifstream input{mcp_servers_path()};
@@ -79,7 +79,7 @@ auto list_configured_servers() -> std::vector<McpServerConfig> {
     return servers;
 }
 
-// 验证服务器配置的有效性，返回错误列表
+
 auto validate_server_config(McpServerConfig config) -> std::vector<std::string> {
     std::vector<std::string> errors;
 
@@ -90,7 +90,7 @@ auto validate_server_config(McpServerConfig config) -> std::vector<std::string> 
         errors.push_back("Command is required");
     }
 
-    // 名称不能包含特殊字符
+
     for (char c : config.name) {
         if (!std::isalnum(static_cast<unsigned char>(c)) && c != '-' && c != '_') {
             errors.push_back("Server name contains invalid characters");

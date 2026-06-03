@@ -21,10 +21,10 @@ auto release_notes_cache_path() -> std::filesystem::path {
 
 auto show_whats_new() -> std::string;
 
-// 获取指定版本的发布说明
+
 auto get_release_notes(std::optional<std::string> version = std::nullopt)
     -> std::expected<std::string, std::string> {
-    // 如果未指定版本，获取当前版本的说明
+
     std::string target_version = version.value_or("latest");
 
     std::ifstream input{release_notes_cache_path()};
@@ -32,7 +32,7 @@ auto get_release_notes(std::optional<std::string> version = std::nullopt)
     return std::string{"Release notes for " + target_version + "\n" + show_whats_new()};
 }
 
-// 获取自指定版本以来的变更日志
+
 auto get_changelog_since(std::string_view version) -> std::string {
     if (version.empty()) {
         return "No version specified";
@@ -42,7 +42,7 @@ auto get_changelog_since(std::string_view version) -> std::string {
     return notes.error();
 }
 
-// 显示"最新功能"摘要
+
 auto show_whats_new() -> std::string {
     std::string content = "What's New:\n";
     content += "  - Improved context window management\n";
@@ -52,7 +52,7 @@ auto show_whats_new() -> std::string {
     return content;
 }
 
-// 检查是否有未读的发布说明
+
 auto has_unread_release_notes() -> bool {
     return std::filesystem::exists(release_notes_cache_path());
 }

@@ -8,7 +8,7 @@ export module cc.tools.tool_prompts;
 
 export namespace cc::tools {
 
-// 根据工具名获取对应的提示词
+
 inline auto get_tool_prompt(std::string_view tool_name) -> std::string {
     static const std::map<std::string, std::string, std::less<>> prompts = {
         {"Read", R"(Read file contents from the filesystem. Provide an absolute path.)"},
@@ -32,7 +32,7 @@ inline auto get_tool_prompt(std::string_view tool_name) -> std::string {
     return std::string("No prompt available for tool: ") + std::string(tool_name);
 }
 
-// 获取所有工具的提示词映射
+
 inline auto get_all_tool_prompts() -> std::map<std::string, std::string> {
     return {
         {"Read", get_tool_prompt("Read")},
@@ -50,7 +50,7 @@ inline auto get_all_tool_prompts() -> std::map<std::string, std::string> {
     };
 }
 
-// 格式化工具调用结果（用于回传给 LLM）
+
 inline auto format_tool_use_result(
     std::string_view tool_name,
     std::string_view result,
@@ -65,7 +65,7 @@ inline auto format_tool_use_result(
         oss << result;
     }
 
-    // 对过长的结果进行截断提示
+
     if (result.size() > 50000) {
         oss << "\n\n[Note: Output was truncated. "
             << result.size() << " total characters.]";
@@ -74,7 +74,7 @@ inline auto format_tool_use_result(
     return oss.str();
 }
 
-// 获取工具的简短描述
+
 inline auto get_tool_description(std::string_view tool_name) -> std::string {
     static const std::map<std::string, std::string, std::less<>> descriptions = {
         {"Read", "Reads file contents from the local filesystem"},

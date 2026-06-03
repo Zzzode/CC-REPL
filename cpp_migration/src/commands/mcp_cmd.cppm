@@ -93,7 +93,7 @@ public:
             .args = {
                 CommandArg{.name = "action", .description = "Subcommand: list, add, remove, show, restart",
                            .type = ArgType::Choice, .required = false,
-                           .choices = {{"list", "add", "remove", "show", "restart"}}},
+                           .choices = {"list", "add", "remove", "show", "restart"}},
                 CommandArg{.name = "server", .description = "Server name (for add/remove/show/restart)",
                            .type = ArgType::Text, .required = false},
             },

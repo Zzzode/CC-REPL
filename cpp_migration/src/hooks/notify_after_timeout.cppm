@@ -10,7 +10,7 @@ export module cc.hooks.notify_after_timeout;
 
 export namespace cc::hooks::notify_after_timeout {
 
-// 超时通知：任务超时后发送通知
+
 struct TimeoutNotification {
     std::string task_id;
     std::string message;
@@ -33,7 +33,7 @@ inline auto get_registry() -> NotificationRegistry& {
 
 } // namespace detail
 
-// 为指定任务设置超时通知
+
 inline void set_timeout_notification(std::string_view task_id,
                                      std::chrono::seconds timeout,
                                      std::string_view message) {
@@ -48,14 +48,14 @@ inline void set_timeout_notification(std::string_view task_id,
     };
 }
 
-// 取消指定任务的超时通知
+
 inline void cancel_timeout_notification(std::string_view task_id) {
     auto& reg = detail::get_registry();
     std::lock_guard lock(reg.mutex);
     reg.notifications.erase(std::string(task_id));
 }
 
-// 检查所有已触发的超时通知并返回
+
 inline std::vector<TimeoutNotification> check_timeouts() {
     auto& reg = detail::get_registry();
     std::lock_guard lock(reg.mutex);
@@ -75,7 +75,7 @@ inline std::vector<TimeoutNotification> check_timeouts() {
     return fired;
 }
 
-// 检查指定任务是否有挂起的超时通知
+
 inline bool has_pending_timeout(std::string_view task_id) {
     auto& reg = detail::get_registry();
     std::lock_guard lock(reg.mutex);

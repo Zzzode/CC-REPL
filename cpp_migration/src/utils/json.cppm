@@ -28,13 +28,13 @@ using cc::utils::Error;
 using cc::utils::ErrorCode;
 using cc::utils::Result;
 
-// 前置声明
+
 class JsonVal;
 class JsonMutVal;
 class JsonMutDoc;
 
 // =========================================================================
-// JsonVal - 不可变 JSON 值的只读视图
+
 // =========================================================================
 class JsonVal {
 public:
@@ -43,7 +43,7 @@ public:
     [[nodiscard]] bool valid() const noexcept { return val_ != nullptr; }
     explicit operator bool() const noexcept { return valid(); }
 
-    // 类型检测
+
     [[nodiscard]] bool is_null() const noexcept { return yyjson_is_null(val_); }
     [[nodiscard]] bool is_bool() const noexcept { return yyjson_is_bool(val_); }
     [[nodiscard]] bool is_num() const noexcept { return yyjson_is_num(val_); }
@@ -51,7 +51,7 @@ public:
     [[nodiscard]] bool is_arr() const noexcept { return yyjson_is_arr(val_); }
     [[nodiscard]] bool is_obj() const noexcept { return yyjson_is_obj(val_); }
 
-    // 值提取
+
     [[nodiscard]] std::string_view as_str() const noexcept {
         const char* s = yyjson_get_str(val_);
         return s ? std::string_view(s, yyjson_get_len(val_)) : std::string_view{};
@@ -60,24 +60,24 @@ public:
     [[nodiscard]] double as_double() const noexcept { return yyjson_get_real(val_); }
     [[nodiscard]] bool as_bool() const noexcept { return yyjson_get_bool(val_); }
 
-    // 对象导航: 按 key 获取子节点
+
     [[nodiscard]] JsonVal get(std::string_view key) const noexcept {
         return JsonVal(yyjson_obj_getn(val_, key.data(), key.size()));
     }
 
-    // 数组导航: 按索引获取元素
+
     [[nodiscard]] JsonVal at(std::size_t index) const noexcept {
         return JsonVal(yyjson_arr_get(val_, index));
     }
 
-    // 数组/对象大小
+
     [[nodiscard]] std::size_t size() const noexcept {
         if (is_arr()) return yyjson_arr_size(val_);
         if (is_obj()) return yyjson_obj_size(val_);
         return 0;
     }
 
-    // 数组迭代
+
     template<typename Fn>
     void iter(Fn&& fn) const {
         if (!is_arr()) return;
@@ -89,7 +89,7 @@ public:
         }
     }
 
-    // 对象迭代 (key, value)
+
     template<typename Fn>
     void iter_obj(Fn&& fn) const {
         if (!is_obj()) return;
@@ -144,7 +144,7 @@ private:
 };
 
 // =========================================================================
-// JsonDoc - 不可变 JSON 文档 (RAII 管理 yyjson_doc)
+
 // =========================================================================
 class JsonDoc {
 public:
@@ -153,7 +153,7 @@ public:
 
     ~JsonDoc() { if (doc_) yyjson_doc_free(doc_); }
 
-    // 禁止拷贝，允许移动
+
     JsonDoc(const JsonDoc&) = delete;
     JsonDoc& operator=(const JsonDoc&) = delete;
     JsonDoc(JsonDoc&& other) noexcept : doc_(std::exchange(other.doc_, nullptr)) {}
@@ -168,7 +168,7 @@ public:
     [[nodiscard]] bool valid() const noexcept { return doc_ != nullptr; }
     explicit operator bool() const noexcept { return valid(); }
 
-    // 获取根节点
+
     [[nodiscard]] JsonVal root() const noexcept {
         return JsonVal(yyjson_doc_get_root(doc_));
     }
@@ -188,7 +188,7 @@ private:
 };
 
 // =========================================================================
-// JsonMutVal - 可变 JSON 值 (用于构建 JSON)
+
 // =========================================================================
 class JsonMutVal {
 public:
@@ -198,13 +198,13 @@ public:
 
     [[nodiscard]] bool valid() const noexcept { return val_ != nullptr; }
 
-    // 对象操作: 添加键值对
+
     void add(std::string_view key, JsonMutVal value) {
         auto* k = yyjson_mut_strncpy(doc_, key.data(), key.size());
         yyjson_mut_obj_add(val_, k, value.val_);
     }
 
-    // 数组操作: 追加元素
+
     void append(JsonMutVal value) {
         yyjson_mut_arr_append(val_, value.val_);
     }
@@ -217,7 +217,7 @@ private:
 };
 
 // =========================================================================
-// JsonMutDoc - 可变 JSON 文档 (用于构建新 JSON)
+
 // =========================================================================
 class JsonMutDoc {
 public:
@@ -235,7 +235,7 @@ public:
         return *this;
     }
 
-    // Builder: 创建各类型值
+
     [[nodiscard]] JsonMutVal object() { return {yyjson_mut_obj(doc_), doc_}; }
     [[nodiscard]] JsonMutVal array() { return {yyjson_mut_arr(doc_), doc_}; }
     [[nodiscard]] JsonMutVal string(std::string_view s) {
@@ -261,10 +261,10 @@ public:
         return {copied, doc_};
     }
 
-    // 设置文档根节点
+
     void set_root(JsonMutVal val) { yyjson_mut_doc_set_root(doc_, val.raw()); }
 
-    // 序列化为字符串
+
     [[nodiscard]] std::string to_string() const {
         std::size_t len = 0;
         char* json = yyjson_mut_write(doc_, 0, &len);
@@ -274,7 +274,7 @@ public:
         return result;
     }
 
-    // 格式化输出（带缩进）
+
     [[nodiscard]] std::string to_pretty_string() const {
         std::size_t len = 0;
         char* json = yyjson_mut_write(doc_, YYJSON_WRITE_PRETTY, &len);
@@ -333,10 +333,10 @@ private:
 [[nodiscard]] inline JsonArray array() { return JsonArray{}; }
 
 // =========================================================================
-// 解析函数
+
 // =========================================================================
 
-// 从字符串解析 JSON
+
 [[nodiscard]] inline Result<JsonDoc> parse(std::string_view json_str) {
     yyjson_read_err err;
     auto* doc = yyjson_read_opts(
@@ -351,7 +351,7 @@ private:
     return JsonDoc(doc);
 }
 
-// 从文件解析 JSON
+
 [[nodiscard]] inline Result<JsonDoc> parse_file(const std::filesystem::path& path) {
     yyjson_read_err err;
     auto* doc = yyjson_read_file(
@@ -365,7 +365,7 @@ private:
     return JsonDoc(doc);
 }
 
-// 不可变文档序列化
+
 [[nodiscard]] inline std::string to_string(const JsonDoc& doc) {
     std::size_t len = 0;
     char* json = yyjson_write(doc.raw(), 0, &len);

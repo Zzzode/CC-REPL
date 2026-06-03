@@ -34,7 +34,7 @@ public:
     explicit BlinkHook(std::chrono::milliseconds interval = std::chrono::milliseconds{600})
         : interval_(interval), last_toggle_(std::chrono::steady_clock::now()) {}
 
-    // 更新闪烁状态，应在动画帧中调用
+
     auto tick() -> void {
         auto now = std::chrono::steady_clock::now();
         if (now - last_toggle_ >= interval_) {
@@ -43,13 +43,13 @@ public:
         }
     }
 
-    // 获取当前可见状态
+
     [[nodiscard]] auto is_visible() const -> bool { return visible_; }
 
-    // 设置闪烁间隔
+
     auto set_interval(std::chrono::milliseconds ms) -> void { interval_ = ms; }
 
-    // 重置闪烁状态
+
     auto reset() -> void {
         visible_ = true;
         last_toggle_ = std::chrono::steady_clock::now();
@@ -80,17 +80,17 @@ class CancelRequestHook {
 public:
     CancelRequestHook() = default;
 
-    // 设置取消回调
+
     auto on_cancel(CancelCallback callback) -> void {
         cancel_callback_ = std::move(callback);
     }
 
-    // 设置中断回调（用于硬中断）
+
     auto on_interrupt(InterruptCallback callback) -> void {
         interrupt_callback_ = std::move(callback);
     }
 
-    // 触发取消请求
+
     auto trigger_cancel(CancelSource source, std::string_view details = "") -> void {
         CancelEvent event{
             .source = source,
@@ -100,16 +100,16 @@ public:
         if (cancel_callback_) cancel_callback_(event);
     }
 
-    // 触发中断（返回true表示已处理）
+
     auto trigger_interrupt() -> bool {
         if (interrupt_callback_) return interrupt_callback_();
         return false;
     }
 
-    // 检查是否有活动的请求可以取消
+
     [[nodiscard]] auto can_cancel() const -> bool { return has_active_request_; }
 
-    // 设置是否有活动请求
+
     auto set_has_active_request(bool has) -> void { has_active_request_ = has; }
 
 private:
@@ -144,21 +144,21 @@ class CommandKeybindingsHook {
 public:
     CommandKeybindingsHook() = default;
 
-    // 注册快捷键
+
     auto register_keybinding(Keybinding kb, KeybindingAction action) -> void {
         keybindings_[kb.id] = std::move(kb);
         actions_[kb.id] = std::move(action);
     }
 
-    // 注销快捷键
+
     auto unregister_keybinding(std::string_view id) -> void {
         keybindings_.erase(std::string(id));
         actions_.erase(std::string(id));
     }
 
-    // 处理按键事件
+
     auto handle_key_press(const KeyPressEvent& event) -> bool {
-        // 查找匹配的快捷键
+
         for (const auto& [id, kb] : keybindings_) {
             if (!kb.enabled) continue;
             if (kb.context != event.context && kb.context != KeybindingContext::global) continue;
@@ -173,14 +173,14 @@ public:
         return false;
     }
 
-    // 启用/禁用快捷键
+
     auto set_keybinding_enabled(std::string_view id, bool enabled) -> void {
         if (auto it = keybindings_.find(std::string(id)); it != keybindings_.end()) {
             it->second.enabled = enabled;
         }
     }
 
-    // 获取所有快捷键
+
     [[nodiscard]] auto get_keybindings() const -> std::vector<Keybinding> {
         std::vector<Keybinding> result;
         result.reserve(keybindings_.size());
@@ -190,13 +190,13 @@ public:
         return result;
     }
 
-    // 设置当前上下文
+
     auto set_context(KeybindingContext context) -> void { current_context_ = context; }
     [[nodiscard]] auto get_context() const -> KeybindingContext { return current_context_; }
 
 private:
     [[nodiscard]] static auto matches_key(const Keybinding& kb, const KeyPressEvent& event) -> bool {
-        // 简化的匹配逻辑，实际需要更复杂的解析
+
         return kb.key_sequence == event.key;
     }
 
@@ -224,20 +224,20 @@ class CopyOnSelectHook {
 public:
     CopyOnSelectHook() = default;
 
-    // 启用/禁用自动复制
+
     auto enable(bool on = true) -> void { enabled_ = on; }
     [[nodiscard]] auto is_enabled() const -> bool { return enabled_; }
 
-    // 设置复制实现
+
     auto set_copy_fn(CopyCallback fn) -> void { copy_fn_ = std::move(fn); }
 
-    // 处理选择变化
+
     auto on_selection_change(const Selection& selection) -> void {
         if (!enabled_ || !copy_fn_) return;
 
-        // 只在拖动结束且有非空选择时复制
+
         if (!selection.is_dragging && !selection.text.empty() && !copied_) {
-            // 跳过纯空白
+
             if (std::all_of(selection.text.begin(), selection.text.end(), [](char c) { return std::isspace(static_cast<unsigned char>(c)); })) {
                 copied_ = true;
                 return;
@@ -274,7 +274,7 @@ class DiffInIDEHook {
 public:
     DiffInIDEHook() = default;
 
-    // 设置IDE连接
+
     auto set_ide_connected(bool connected, std::string_view ide_name = "") -> void {
         ide_connected_ = connected;
         ide_name_ = std::string(ide_name);
@@ -283,7 +283,7 @@ public:
     [[nodiscard]] auto is_ide_connected() const -> bool { return ide_connected_; }
     [[nodiscard]] auto get_ide_name() const -> std::string_view { return ide_name_; }
 
-    // 在IDE中显示diff
+
     auto show_diff(const FileDiff& diff) -> bool {
         if (!ide_connected_) return false;
         current_diff_ = diff;
@@ -291,19 +291,19 @@ public:
         return true;
     }
 
-    // 关闭diff
+
     auto close_diff() -> void {
         showing_diff_ = false;
         current_diff_ = std::nullopt;
     }
 
-    // 检查是否正在显示diff
+
     [[nodiscard]] auto is_showing_diff() const -> bool { return showing_diff_; }
 
-    // 设置diff结果回调
+
     auto on_diff_result(DiffCallback callback) -> void { diff_callback_ = std::move(callback); }
 
-    // 触发diff结果（由IDE事件调用）
+
     auto trigger_result(DiffResult result, const FileDiff& diff) -> void {
         if (diff_callback_) diff_callback_(result, diff);
         if (result != DiffResult::modified) showing_diff_ = false;
@@ -336,14 +336,14 @@ class DirectConnectHook {
 public:
     DirectConnectHook() = default;
 
-    // 启用直接连接
+
     auto enable(DirectConnectConfig config) -> void {
         config_ = std::move(config);
         enabled_ = true;
         state_ = ConnectionState::disconnected;
     }
 
-    // 禁用直接连接
+
     auto disable() -> void {
         enabled_ = false;
         if (state_ == ConnectionState::connected) {
@@ -356,29 +356,29 @@ public:
     [[nodiscard]] auto get_url() const -> std::string_view { return config_.url; }
     [[nodiscard]] auto get_state() const -> ConnectionState { return state_; }
 
-    // 设置连接状态回调
+
     auto on_state_change(ConnectionStateCallback callback) -> void {
         state_callback_ = std::move(callback);
     }
 
-    // 设置消息回调
+
     auto on_message(MessageCallback callback) -> void {
         message_callback_ = std::move(callback);
     }
 
-    // 连接
+
     auto connect() -> bool {
         if (!enabled_) return false;
         state_ = ConnectionState::connecting;
         if (state_callback_) state_callback_(state_);
         
-        // 模拟连接过程
+
         state_ = ConnectionState::connected;
         if (state_callback_) state_callback_(state_);
         return true;
     }
 
-    // 断开连接
+
     auto disconnect() -> void {
         if (state_ == ConnectionState::connected) {
             state_ = ConnectionState::disconnected;
@@ -386,10 +386,10 @@ public:
         }
     }
 
-    // 发送消息
+
     auto send_message(std::string_view message) -> bool {
         if (state_ != ConnectionState::connected) return false;
-        // 实际实现会通过WebSocket发送
+
         return true;
     }
 
@@ -410,7 +410,7 @@ public:
     explicit DoublePressHook(std::chrono::milliseconds threshold = std::chrono::milliseconds{800})
         : threshold_(threshold) {}
 
-    // 检查是否为双击，返回true表示检测到双击
+
     auto check(std::string_view key) -> bool {
         auto now = std::chrono::steady_clock::now();
         bool is_double = (key == last_key_) && (now - last_press_ < threshold_);
@@ -421,10 +421,10 @@ public:
         return is_double;
     }
 
-    // 设置双击阈值
+
     auto set_threshold(std::chrono::milliseconds ms) -> void { threshold_ = ms; }
 
-    // 重置状态
+
     auto reset() -> void {
         last_key_.clear();
         last_press_ = std::chrono::steady_clock::time_point{};
@@ -444,12 +444,12 @@ class DynamicConfigHook {
 public:
     DynamicConfigHook() = default;
 
-    // 获取配置值
+
     template<typename T>
     [[nodiscard]] auto get(std::string_view key, T default_value) const -> T {
         std::lock_guard lock(mu_);
         if (auto it = config_.find(std::string(key)); it != config_.end()) {
-            // 简化实现，实际需要类型转换
+
             if constexpr (std::is_same_v<T, std::string>) {
                 return it->second;
             } else if constexpr (std::is_same_v<T, bool>) {
@@ -461,7 +461,7 @@ public:
         return default_value;
     }
 
-    // 设置配置值
+
     template<typename T>
     auto set(std::string key, T value) -> void {
         std::lock_guard lock(mu_);
@@ -474,13 +474,13 @@ public:
         }
     }
 
-    // 刷新配置
+
     auto refresh() -> void {
         std::lock_guard lock(mu_);
         last_refresh_ = std::chrono::steady_clock::now();
     }
 
-    // 检查是否需要刷新
+
     [[nodiscard]] auto needs_refresh(std::chrono::seconds interval = std::chrono::seconds{60}) const -> bool {
         std::lock_guard lock(mu_);
         return (std::chrono::steady_clock::now() - last_refresh_) > interval;
@@ -500,7 +500,7 @@ class ElapsedTimeHook {
 public:
     ElapsedTimeHook() = default;
 
-    // 开始计时
+
     auto start() -> void {
         start_time_ = std::chrono::steady_clock::now();
         running_ = true;
@@ -508,14 +508,14 @@ public:
         paused_time_ = std::chrono::milliseconds{0};
     }
 
-    // 暂停计时
+
     auto pause() -> void {
         if (!running_ || paused_) return;
         pause_time_ = std::chrono::steady_clock::now();
         paused_ = true;
     }
 
-    // 恢复计时
+
     auto resume() -> void {
         if (!running_ || !paused_) return;
         paused_time_ += std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -524,7 +524,7 @@ public:
         paused_ = false;
     }
 
-    // 停止计时
+
     auto stop() -> void {
         if (running_) {
             end_time_ = std::chrono::steady_clock::now();
@@ -532,7 +532,7 @@ public:
         }
     }
 
-    // 获取已流逝时间
+
     [[nodiscard]] auto elapsed() const -> std::chrono::milliseconds {
         if (!running_) {
             if (!start_time_.time_since_epoch().count()) return std::chrono::milliseconds{0};
@@ -543,7 +543,7 @@ public:
         return std::chrono::duration_cast<std::chrono::milliseconds>(elapsed) - paused_time_;
     }
 
-    // 获取格式化的时间字符串
+
     [[nodiscard]] auto formatted() const -> std::string {
         auto ms = elapsed().count();
         auto seconds = ms / 1000;
@@ -586,17 +586,17 @@ class FileSuggestionsHook {
 public:
     FileSuggestionsHook() = default;
 
-    // 生成文件建议
+
     [[nodiscard]] auto suggest(std::string_view partial_path, std::size_t max_results = 15) const -> std::vector<FileSuggestion> {
         std::vector<FileSuggestion> results;
         
-        // 简化实现，实际需要扫描文件系统
+
         try {
             std::filesystem::path base_path = std::filesystem::current_path();
             std::filesystem::path search_dir = base_path;
             std::string partial_name = std::string(partial_path);
             
-            // 提取目录部分
+
             auto last_slash = partial_name.find_last_of("/\\");
             if (last_slash != std::string::npos) {
                 search_dir = base_path / partial_name.substr(0, last_slash);
@@ -622,10 +622,10 @@ public:
                 }
             }
         } catch (...) {
-            // 忽略文件系统错误
+
         }
         
-        // 按分数排序
+
         std::sort(results.begin(), results.end(), [](const auto& a, const auto& b) {
             return a.score > b.score;
         });
@@ -633,7 +633,7 @@ public:
         return results;
     }
 
-    // 刷新文件索引（后台）
+
     auto refresh_index() -> void {
         // Re-scan the current working directory to update cached suggestions
         try {
@@ -667,19 +667,19 @@ class HistorySearchHook {
 public:
     HistorySearchHook() = default;
 
-    // 设置历史记录
+
     auto set_history(std::vector<HistoryEntry> history) -> void {
         history_ = std::move(history);
     }
 
-    // 开始搜索
+
     auto start_search(std::string_view initial_query = "") -> void {
         searching_ = true;
         query_ = std::string(initial_query);
         update_matches();
     }
 
-    // 结束搜索
+
     auto end_search() -> void {
         searching_ = false;
         query_.clear();
@@ -687,36 +687,36 @@ public:
         current_match_index_ = 0;
     }
 
-    // 设置搜索查询
+
     auto set_query(std::string_view query) -> void {
         query_ = std::string(query);
         update_matches();
     }
 
-    // 获取当前查询
+
     [[nodiscard]] auto get_query() const -> std::string_view { return query_; }
 
-    // 获取当前匹配项
+
     [[nodiscard]] auto get_current_match() const -> std::optional<HistoryEntry> {
         if (matches_.empty() || current_match_index_ >= matches_.size()) return std::nullopt;
         return history_[matches_[current_match_index_]];
     }
 
-    // 下一个匹配项
+
     auto next_match() -> void {
         if (!matches_.empty()) {
             current_match_index_ = (current_match_index_ + 1) % matches_.size();
         }
     }
 
-    // 上一个匹配项
+
     auto prev_match() -> void {
         if (!matches_.empty()) {
             current_match_index_ = (current_match_index_ - 1 + matches_.size()) % matches_.size();
         }
     }
 
-    // 接受当前匹配
+
     auto accept_match(HistorySelectCallback callback) -> void {
         if (auto match = get_current_match()) {
             callback(*match);
@@ -768,31 +768,31 @@ class IdeSelectionHook {
 public:
     IdeSelectionHook() = default;
 
-    // 更新选区
+
     auto update_selection(IdeSelectionData data) -> void {
         current_selection_ = std::move(data);
         if (change_callback_) change_callback_(current_selection_);
     }
 
-    // 获取当前选区
+
     [[nodiscard]] auto get_selection() const -> const IdeSelectionData& { return current_selection_; }
 
-    // 注册选区变化回调
+
     auto on_selection_change(SelectionChangeCallback callback) -> void {
         change_callback_ = std::move(callback);
     }
 
-    // 获取选中文本（如果有）
+
     [[nodiscard]] auto get_selected_text() const -> std::optional<std::string> {
         return current_selection_.text;
     }
 
-    // 获取选中文件路径
+
     [[nodiscard]] auto get_file_path() const -> std::optional<std::string> {
         return current_selection_.file_path;
     }
 
-    // 检查是否有选区
+
     [[nodiscard]] auto has_selection() const -> bool {
         return current_selection_.selection.has_value();
     }
@@ -819,7 +819,7 @@ class LogMessagesHook {
 public:
     explicit LogMessagesHook(std::size_t max_messages = 500) : max_messages_(max_messages) {}
 
-    // 记录消息
+
     auto log(std::string_view source, std::string_view message, LogLevel level = LogLevel::info) -> void {
         LogMessage msg{
             .source = std::string(source),
@@ -834,19 +834,19 @@ public:
         }
     }
 
-    // 获取最近的消息
+
     [[nodiscard]] auto recent(std::size_t count = 20) const -> std::vector<LogMessage> {
         if (messages_.size() <= count) return messages_;
         return std::vector<LogMessage>(messages_.end() - static_cast<std::ptrdiff_t>(count), messages_.end());
     }
 
-    // 清除所有消息
+
     auto clear() -> void { messages_.clear(); }
 
-    // 获取消息总数
+
     [[nodiscard]] auto size() const -> std::size_t { return messages_.size(); }
 
-    // 设置最大消息数
+
     auto set_max_messages(std::size_t max) -> void { max_messages_ = max; }
 
 private:
@@ -871,15 +871,15 @@ class MainLoopModelHook {
 public:
     MainLoopModelHook() = default;
 
-    // 设置当前模型
+
     auto set_model(ModelConfig config) -> void {
         current_model_ = std::move(config);
     }
 
-    // 获取当前模型
+
     [[nodiscard]] auto get_model() const -> const ModelConfig& { return current_model_; }
 
-    // 切换到默认模型
+
     auto use_default_model() -> void {
         current_model_ = ModelConfig{
             .name = "claude-3-5-sonnet",
@@ -888,12 +888,12 @@ public:
         };
     }
 
-    // 设置会话模型
+
     auto set_session_model(std::optional<ModelConfig> model) -> void {
         session_model_ = std::move(model);
     }
 
-    // 获取有效模型（会话模型优先）
+
     [[nodiscard]] auto get_effective_model() const -> const ModelConfig& {
         if (session_model_) return *session_model_;
         return current_model_;
@@ -929,7 +929,7 @@ class ManagePluginsHook {
 public:
     ManagePluginsHook() = default;
 
-    // 加载所有插件
+
     auto load_plugins() -> void {
         // Scan the plugins directory and register discovered plugins
         try {
@@ -955,7 +955,7 @@ public:
         needs_refresh_ = false;
     }
 
-    // 启用插件
+
     auto enable_plugin(std::string_view id) -> bool {
         if (auto it = plugins_.find(std::string(id)); it != plugins_.end()) {
             it->second.state = PluginState::enabled;
@@ -965,7 +965,7 @@ public:
         return false;
     }
 
-    // 禁用插件
+
     auto disable_plugin(std::string_view id) -> bool {
         if (auto it = plugins_.find(std::string(id)); it != plugins_.end()) {
             it->second.state = PluginState::disabled;
@@ -975,7 +975,7 @@ public:
         return false;
     }
 
-    // 获取所有插件
+
     [[nodiscard]] auto get_plugins() const -> std::vector<PluginInfo> {
         std::vector<PluginInfo> result;
         result.reserve(plugins_.size());
@@ -985,7 +985,7 @@ public:
         return result;
     }
 
-    // 获取已启用的插件
+
     [[nodiscard]] auto get_enabled_plugins() const -> std::vector<PluginInfo> {
         std::vector<PluginInfo> result;
         for (const auto& [id, info] : plugins_) {
@@ -996,13 +996,13 @@ public:
         return result;
     }
 
-    // 检查是否需要刷新
+
     [[nodiscard]] auto needs_refresh() const -> bool { return needs_refresh_; }
 
-    // 设置需要刷新
+
     auto set_needs_refresh(bool needs) -> void { needs_refresh_ = needs; }
 
-    // 注册插件变化回调
+
     auto on_plugin_change(PluginChangeCallback callback) -> void {
         change_callback_ = std::move(callback);
     }
@@ -1032,28 +1032,28 @@ class PrStatusHook {
 public:
     PrStatusHook() = default;
 
-    // 启用/禁用PR状态轮询
+
     auto enable(bool enabled = true) -> void { enabled_ = enabled; }
     [[nodiscard]] auto is_enabled() const -> bool { return enabled_; }
 
-    // 设置轮询间隔
+
     auto set_poll_interval(std::chrono::milliseconds interval) -> void { poll_interval_ = interval; }
 
-    // 获取当前PR状态
+
     [[nodiscard]] auto get_status() const -> const PrStatus& { return status_; }
 
-    // 手动刷新状态
+
     auto refresh() -> void {
-        // 实际实现会调用GitHub API
+
         last_refresh_ = std::chrono::steady_clock::now();
     }
 
-    // 注册状态变化回调
+
     auto on_status_change(PrStatusChangeCallback callback) -> void {
         status_callback_ = std::move(callback);
     }
 
-    // 更新PR状态（内部使用）
+
     auto update_status(PrStatus new_status) -> void {
         status_ = std::move(new_status);
         if (status_callback_) status_callback_(status_);
@@ -1086,19 +1086,19 @@ class RemoteSessionHook {
 public:
     RemoteSessionHook() = default;
 
-    // 连接到远程会话
+
     auto connect(std::string_view session_url) -> bool {
         session_url_ = std::string(session_url);
         state_ = RemoteState::connecting;
         if (state_callback_) state_callback_(state_);
         
-        // 模拟连接过程
+
         state_ = RemoteState::connected;
         if (state_callback_) state_callback_(state_);
         return true;
     }
 
-    // 断开连接
+
     auto disconnect() -> void {
         if (state_ == RemoteState::connected) {
             state_ = RemoteState::disconnected;
@@ -1106,14 +1106,14 @@ public:
         }
     }
 
-    // 发送消息
+
     auto send_message(std::string_view content) -> bool {
         if (state_ != RemoteState::connected) return false;
-        // 实际实现会发送到远程
+
         return true;
     }
 
-    // 取消当前请求
+
     auto cancel_request() -> void {
         // Signal cancellation by transitioning to disconnected if connected
         if (state_ == RemoteState::connected) {
@@ -1122,18 +1122,18 @@ public:
         }
     }
 
-    // 获取当前状态
+
     [[nodiscard]] auto get_state() const -> RemoteState { return state_; }
 
-    // 检查是否是远程模式
+
     [[nodiscard]] auto is_remote_mode() const -> bool { return state_ == RemoteState::connected; }
 
-    // 注册消息回调
+
     auto on_message(RemoteMessageCallback callback) -> void {
         message_callback_ = std::move(callback);
     }
 
-    // 注册状态变化回调
+
     auto on_state_change(RemoteStateCallback callback) -> void {
         state_callback_ = std::move(callback);
     }
@@ -1163,35 +1163,35 @@ class SSHSessionHook {
 public:
     SSHSessionHook() = default;
 
-    // 设置SSH配置并连接
+
     auto connect(SSHConfig config) -> bool {
         config_ = std::move(config);
         state_ = RemoteState::connecting;
         if (state_callback_) state_callback_(state_);
         
-        // 模拟连接
+
         state_ = RemoteState::connected;
         if (state_callback_) state_callback_(RemoteState::connected);
         return true;
     }
 
-    // 断开
+
     auto disconnect() -> void {
         state_ = RemoteState::disconnected;
         if (state_callback_) state_callback_(state_);
     }
 
-    // 发送命令
+
     auto send_command(std::string_view cmd) -> bool {
         if (state_ != RemoteState::connected) return false;
-        // 实际会通过SSH通道发送
+
         return true;
     }
 
     [[nodiscard]] auto get_state() const -> RemoteState { return state_; }
     [[nodiscard]] auto is_connected() const -> bool { return state_ == RemoteState::connected; }
 
-    // 注册回调
+
     auto on_message(SSHMessageCallback callback) -> void { message_callback_ = std::move(callback); }
     auto on_state_change(SSHStateCallback callback) -> void { state_callback_ = std::move(callback); }
 
@@ -1226,7 +1226,7 @@ class TasksV2Hook {
 public:
     TasksV2Hook() = default;
 
-    // 添加任务
+
     auto add_task(TaskV2 task) -> std::string {
         task.id = generate_task_id();
         task.created_at = std::chrono::system_clock::now();
@@ -1236,7 +1236,7 @@ public:
         return task.id;
     }
 
-    // 更新任务
+
     auto update_task(std::string_view id, TaskStatus status) -> bool {
         if (auto it = tasks_.find(std::string(id)); it != tasks_.end()) {
             it->second.status = status;
@@ -1251,7 +1251,7 @@ public:
         return false;
     }
 
-    // 获取任务
+
     [[nodiscard]] auto get_task(std::string_view id) const -> std::optional<TaskV2> {
         if (auto it = tasks_.find(std::string(id)); it != tasks_.end()) {
             return it->second;
@@ -1259,21 +1259,21 @@ public:
         return std::nullopt;
     }
 
-    // 获取所有任务
+
     [[nodiscard]] auto get_tasks() const -> std::vector<TaskV2> {
         std::vector<TaskV2> result;
         result.reserve(tasks_.size());
         for (const auto& [id, task] : tasks_) {
             result.push_back(task);
         }
-        // 按更新时间排序
+
         std::sort(result.begin(), result.end(), [](const auto& a, const auto& b) {
             return a.updated_at > b.updated_at;
         });
         return result;
     }
 
-    // 获取未完成任务
+
     [[nodiscard]] auto get_pending_tasks() const -> std::vector<TaskV2> {
         std::vector<TaskV2> result;
         for (const auto& [id, task] : tasks_) {
@@ -1284,7 +1284,7 @@ public:
         return result;
     }
 
-    // 删除任务
+
     auto delete_task(std::string_view id) -> bool {
         if (tasks_.erase(std::string(id)) > 0) {
             if (list_callback_) list_callback_();
@@ -1293,11 +1293,11 @@ public:
         return false;
     }
 
-    // 注册回调
+
     auto on_task_change(TaskChangeCallback callback) -> void { change_callback_ = std::move(callback); }
     auto on_list_change(TaskListChangeCallback callback) -> void { list_callback_ = std::move(callback); }
 
-    // 设置隐藏延迟
+
     auto set_hide_delay(std::chrono::milliseconds delay) -> void { hide_delay_ = delay; }
 
 private:
@@ -1322,7 +1322,7 @@ class TimeoutHook {
 public:
     TimeoutHook() = default;
 
-    // 设置超时
+
     auto set(std::chrono::milliseconds duration, TimeoutCallback callback) -> void {
         duration_ = duration;
         callback_ = std::move(callback);
@@ -1331,13 +1331,13 @@ public:
         elapsed_ = false;
     }
 
-    // 取消超时
+
     auto cancel() -> void {
         active_ = false;
         elapsed_ = false;
     }
 
-    // 检查是否超时（需要定期调用）
+
     auto check() -> void {
         if (!active_ || elapsed_) return;
         auto elapsed = std::chrono::steady_clock::now() - start_time_;
@@ -1348,7 +1348,7 @@ public:
         }
     }
 
-    // 重置超时
+
     auto reset() -> void {
         if (active_) {
             start_time_ = std::chrono::steady_clock::now();
@@ -1359,7 +1359,7 @@ public:
     [[nodiscard]] auto is_active() const -> bool { return active_; }
     [[nodiscard]] auto has_elapsed() const -> bool { return elapsed_; }
 
-    // 获取剩余时间
+
     [[nodiscard]] auto remaining() const -> std::chrono::milliseconds {
         if (!active_) return std::chrono::milliseconds{0};
         auto elapsed = std::chrono::steady_clock::now() - start_time_;
@@ -1383,21 +1383,21 @@ class VoiceEnabledHook {
 public:
     VoiceEnabledHook() = default;
 
-    // 设置用户偏好
+
     auto set_user_enabled(bool enabled) -> void { user_enabled_ = enabled; }
 
-    // 设置是否有权限
+
     auto set_has_auth(bool has_auth) -> void { has_auth_ = has_auth; }
 
-    // 设置功能开关
+
     auto set_feature_enabled(bool enabled) -> void { feature_enabled_ = enabled; }
 
-    // 检查语音功能是否完全启用
+
     [[nodiscard]] auto is_enabled() const -> bool {
         return user_enabled_ && has_auth_ && feature_enabled_;
     }
 
-    // 单独检查各项
+
     [[nodiscard]] auto user_enabled() const -> bool { return user_enabled_; }
     [[nodiscard]] auto has_auth() const -> bool { return has_auth_; }
     [[nodiscard]] auto feature_enabled() const -> bool { return feature_enabled_; }

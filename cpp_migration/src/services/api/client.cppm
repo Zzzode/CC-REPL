@@ -317,7 +317,9 @@ public:
                 // Parse input schema JSON
                 auto schema_result = cc::utils::json::parse(tool.input_schema_json);
                 if (schema_result) {
-                    // In real implementation, we'd merge this schema
+                    tool_obj.add("input_schema", doc.copy_val(schema_result->root()));
+                } else {
+                    tool_obj.add("input_schema", doc.object());
                 }
                 tools_arr.append(tool_obj);
             }
@@ -518,8 +520,21 @@ public:
         response.status_code = static_cast<int>(http_code);
         response.body = std::move(response_body);
 
-        // Parse headers (simplified)
-        // In real implementation, parse the response_headers string properly
+        size_t offset = 0;
+        while (offset < response_headers.size()) {
+            auto line_end = response_headers.find('\n', offset);
+            auto line = response_headers.substr(
+                offset,
+                line_end == std::string::npos ? std::string::npos : line_end - offset);
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            offset = line_end == std::string::npos ? response_headers.size() : line_end + 1;
+            auto colon = line.find(':');
+            if (colon == std::string::npos) continue;
+            auto key = line.substr(0, colon);
+            auto value_start = colon + 1;
+            while (value_start < line.size() && line[value_start] == ' ') ++value_start;
+            response.headers.emplace_back(std::move(key), line.substr(value_start));
+        }
 
         return response;
     }

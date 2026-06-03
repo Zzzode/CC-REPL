@@ -29,14 +29,14 @@ using Clock = std::chrono::system_clock;
 using TimePoint = Clock::time_point;
 using Duration = std::chrono::milliseconds;
 
-// 摘要输出格式
+
 enum class SummaryFormat : std::uint8_t {
-    PlainText,    // 纯文本格式
-    Structured,   // 结构化 JSON 格式
-    Markdown,     // Markdown 格式
+    PlainText,
+    Structured,
+    Markdown,
 };
 
-// 单次工具调用记录
+
 struct ToolInvocation {
     std::string tool_name;
     std::string input_summary;
@@ -45,7 +45,7 @@ struct ToolInvocation {
     std::string error_message;
 };
 
-// 文件修改记录
+
 struct FileModification {
     std::string path;
     std::size_t lines_added{0};
@@ -53,7 +53,7 @@ struct FileModification {
     TimePoint modified_at;
 };
 
-// Agent 执行概要数据
+
 struct ExecutionSummary {
     std::string session_id;
     TimePoint started_at;
@@ -64,7 +64,7 @@ struct ExecutionSummary {
     std::size_t total_tokens_consumed{0};
     std::size_t turns_count{0};
 
-    // 计算成功率
+
     [[nodiscard]] double success_rate() const noexcept {
         if (tools_used.empty()) return 1.0;
         auto successes = std::ranges::count_if(tools_used,
@@ -72,16 +72,16 @@ struct ExecutionSummary {
         return static_cast<double>(successes) / static_cast<double>(tools_used.size());
     }
 
-    // 总耗时(秒)
+
     [[nodiscard]] double elapsed_seconds() const noexcept {
         return static_cast<double>(total_elapsed.count()) / 1000.0;
     }
 };
 
-// Token 预算配置
+
 struct TokenBudget {
     std::size_t max_tokens{4096};
-    std::size_t reserved_tokens{256};  // 为结构开销预留
+    std::size_t reserved_tokens{256};
 
     [[nodiscard]] std::size_t available() const noexcept {
         return max_tokens > reserved_tokens ? max_tokens - reserved_tokens : 0;
@@ -89,7 +89,7 @@ struct TokenBudget {
 };
 
 // ============================================================
-// AgentSummaryService - 生成 agent 执行摘要
+
 // ============================================================
 
 class AgentSummaryService {
@@ -97,7 +97,7 @@ public:
     explicit AgentSummaryService(TokenBudget budget = {})
         : budget_(budget) {}
 
-    // 生成执行摘要文本
+
     [[nodiscard]] std::expected<std::string, Error> generate(
         const ExecutionSummary& summary,
         SummaryFormat format = SummaryFormat::PlainText) const
@@ -110,18 +110,18 @@ public:
         return std::unexpected(Error{ErrorCode::InvalidInput, {}, "unknown format"});
     }
 
-    // 设置 token 预算
+
     void set_budget(TokenBudget budget) noexcept { budget_ = budget; }
 
-    // 获取当前预算
+
     [[nodiscard]] TokenBudget budget() const noexcept { return budget_; }
 
 private:
     TokenBudget budget_;
 
-    // 根据 token 预算截断文本
+
     [[nodiscard]] std::string truncate_to_budget(std::string text) const {
-        // 粗略估算: 1 token ≈ 4 字符
+
         std::size_t max_chars = budget_.available() * 4;
         if (text.size() <= max_chars) return text;
         text.resize(max_chars);

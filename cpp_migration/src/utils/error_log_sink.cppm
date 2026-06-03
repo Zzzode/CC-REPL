@@ -18,10 +18,10 @@ import cc.utils.errors_utils;
 
 export namespace cc::utils {
 
-// 错误日志持久化：将错误异步写入 ~/.claude/logs/errors.jsonl
+
 class ErrorLogSink {
 public:
-    // 默认日志路径
+
     static std::filesystem::path default_log_path() {
         const char* home = std::getenv("HOME");
         if (!home) home = "/tmp";
@@ -33,17 +33,17 @@ public:
         : log_path_(std::move(log_path)),
           max_file_size_(max_file_size),
           running_(true) {
-        // 确保日志目录存在
+
         auto parent = log_path_.parent_path();
         if (!parent.empty()) {
             std::filesystem::create_directories(parent);
         }
-        // 启动后台写入线程
+
         writer_thread_ = std::thread([this]() { writer_loop(); });
     }
 
     ~ErrorLogSink() {
-        // 优雅关闭后台线程
+
         {
             std::lock_guard lock(queue_mutex_);
             running_ = false;
@@ -54,11 +54,11 @@ public:
         }
     }
 
-    // 禁止复制
+
     ErrorLogSink(const ErrorLogSink&) = delete;
     ErrorLogSink& operator=(const ErrorLogSink&) = delete;
 
-    // 记录错误（异步写入）
+
     void log_error(const ClassifiedError& error) {
         auto json_line = serialize_error(error);
         {
@@ -68,13 +68,13 @@ public:
         queue_cv_.notify_one();
     }
 
-    // 读取最近的 n 条错误记录
+
     [[nodiscard]] std::vector<ClassifiedError> get_recent_errors(size_t n) const {
         std::vector<ClassifiedError> result;
         std::ifstream file(log_path_);
         if (!file.is_open()) return result;
 
-        // 读取所有行然后取最后 n 行
+
         std::vector<std::string> lines;
         std::string line;
         while (std::getline(file, line)) {
@@ -90,24 +90,24 @@ public:
         return result;
     }
 
-    // 日志轮转：当文件超过最大大小时进行轮转
+
     void rotate_logs() {
         std::lock_guard lock(file_mutex_);
         std::error_code ec;
         auto size = std::filesystem::file_size(log_path_, ec);
         if (ec || size < max_file_size_) return;
 
-        // 重命名当前文件为 .1 备份
+
         auto backup_path = log_path_;
         backup_path += ".1";
         std::filesystem::rename(log_path_, backup_path, ec);
-        // 删除更老的备份
+
         auto old_backup = log_path_;
         old_backup += ".2";
         std::filesystem::remove(old_backup, ec);
     }
 
-    // 获取日志文件路径
+
     [[nodiscard]] const std::filesystem::path& path() const { return log_path_; }
 
 private:
@@ -121,7 +121,7 @@ private:
     std::mutex file_mutex_;
     std::thread writer_thread_;
 
-    // 后台写入循环
+
     void writer_loop() {
         while (true) {
             std::string entry;
@@ -136,7 +136,7 @@ private:
                 write_queue_.pop();
             }
 
-            // 写入文件
+
             {
                 std::lock_guard lock(file_mutex_);
                 std::ofstream file(log_path_, std::ios::app);
@@ -145,7 +145,7 @@ private:
                 }
             }
 
-            // 检查是否需要轮转
+
             std::error_code ec;
             auto size = std::filesystem::file_size(log_path_, ec);
             if (!ec && size >= max_file_size_) {
@@ -154,7 +154,7 @@ private:
         }
     }
 
-    // 将错误序列化为 JSONL 行
+
     [[nodiscard]] static std::string serialize_error(const ClassifiedError& error) {
         auto now = std::chrono::system_clock::now();
         auto time_t_val = std::chrono::system_clock::to_time_t(now);
@@ -176,9 +176,9 @@ private:
         return oss.str();
     }
 
-    // 从 JSONL 行反序列化（简化版）
+
     [[nodiscard]] static std::optional<ClassifiedError> deserialize_error(std::string_view line) {
-        // 简单提取字段值
+
         auto extract = [&](std::string_view key) -> std::string {
             auto search = "\"" + std::string(key) + "\":\"";
             auto pos = line.find(search);
@@ -214,7 +214,7 @@ private:
         return error;
     }
 
-    // JSON 字符串转义
+
     [[nodiscard]] static std::string escape_json_string(std::string_view sv) {
         std::string result;
         result.reserve(sv.size());

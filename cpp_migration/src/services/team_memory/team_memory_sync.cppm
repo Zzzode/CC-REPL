@@ -12,8 +12,11 @@ module;
 #include <functional>
 #include <chrono>
 #include <regex>
+#include <cstdlib>
 
 export module cc.services.team_memory_sync;
+
+import cc.utils.http;
 
 export namespace cc::services::team_memory {
 
@@ -194,16 +197,22 @@ inline void stop_memory_watcher() {
         return std::unexpected(std::string("team_id must not be empty"));
     }
 
-    // In production: HTTP POST to sync endpoint, receive change list.
-    // The bridge transport layer handles the actual network I/O.
-    // This function prepares the request and returns any changes received.
-    std::vector<MemoryChange> changes;
+    const char* endpoint = std::getenv("CC_TEAM_MEMORY_SYNC_URL");
+    if (!endpoint || *endpoint == '\0') {
+        return std::unexpected(std::string("CC_TEAM_MEMORY_SYNC_URL is required for team memory sync"));
+    }
 
-    // Check for local memory files that may have changed since last sync
-    // and create MemoryChange entries for them.
-    // Remote changes are delivered via the bridge push mechanism.
+    cc::utils::HttpClient client;
+    std::string body = "{\"team_id\":\"" + std::string(team_id) + "\"}";
+    auto response = client.post(endpoint, body, {{"Content-Type", "application/json"}});
+    if (!response) {
+        return std::unexpected("team memory sync request failed: " + response.error().message);
+    }
+    if (!response->is_ok()) {
+        return std::unexpected("team memory sync failed with HTTP " + std::to_string(response->status));
+    }
 
-    return changes;
+    return std::vector<MemoryChange>{};
 }
 
 /// Resolve a memory conflict with the given resolution strategy
@@ -217,15 +226,25 @@ inline void stop_memory_watcher() {
         return std::unexpected(std::string("resolution must not be empty"));
     }
 
-    // Apply the resolution strategy:
-    // - "local" keeps local version
-    // - "remote" accepts remote version
-    // - "merge" attempts automatic merge
-    // In production: sends resolution to sync server via bridge transport.
-
     if (resolution != "local" && resolution != "remote" && resolution != "merge") {
         return std::unexpected("Unknown resolution strategy: " + std::string(resolution) +
                              ". Use 'local', 'remote', or 'merge'.");
+    }
+
+    const char* endpoint = std::getenv("CC_TEAM_MEMORY_SYNC_URL");
+    if (!endpoint || *endpoint == '\0') {
+        return std::unexpected(std::string("CC_TEAM_MEMORY_SYNC_URL is required to resolve team memory conflicts"));
+    }
+
+    cc::utils::HttpClient client;
+    std::string body = "{\"memory_id\":\"" + std::string(memory_id) +
+                       "\",\"resolution\":\"" + std::string(resolution) + "\"}";
+    auto response = client.post(endpoint, body, {{"Content-Type", "application/json"}});
+    if (!response) {
+        return std::unexpected("conflict resolution request failed: " + response.error().message);
+    }
+    if (!response->is_ok()) {
+        return std::unexpected("conflict resolution failed with HTTP " + std::to_string(response->status));
     }
 
     return {};

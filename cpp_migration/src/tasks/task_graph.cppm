@@ -27,6 +27,7 @@ export module cc.tasks.task_graph;
 
 import cc.types.types;
 import cc.coordinator.swarm;
+import cc.utils.bash_execution;
 
 export namespace cc::core {
 
@@ -155,6 +156,7 @@ concept TaskRunner = requires(R runner, BackgroundTask& task, std::function<void
 
 /// Callback type for task completion notifications
 using TaskCallback = std::function<void(const TaskId&, const TaskResult&)>;
+using TaskExecutor = std::function<Result<TaskResult>(BackgroundTask&)>;
 
 /// Filter predicate for listing tasks
 using TaskFilter = std::function<bool(const BackgroundTask&)>;
@@ -170,7 +172,12 @@ public:
     explicit LocalTaskRunner(std::uint32_t max_concurrent = 4)
         : max_concurrent_(max_concurrent) {}
 
-    /// Execute a task. In production, this spawns a coroutine on the libuv loop.
+    void set_executor(TaskExecutor executor) {
+        std::lock_guard lock(mutex_);
+        executor_ = std::move(executor);
+    }
+
+    /// Execute a task using the configured executor or the built-in shell runner.
     [[nodiscard]] Result<TaskResult> run(BackgroundTask& task) {
         // Mark task as running
         task.status = TaskStatus::Running;
@@ -193,12 +200,36 @@ public:
             return std::unexpected(Error::make(ErrorCode::InternalError, "Task was cancelled"));
         }
 
-        // Simulate execution (in production: libuv async work + coroutine suspension)
-        TaskResult result{
-            .output = std::format("Task '{}' completed", task.description),
-            .metadata = std::nullopt,
-            .exit_code = 0,
-        };
+        Result<TaskResult> execution = std::unexpected(Error::make(
+            ErrorCode::NotImplemented,
+            "No task executor is configured for this task type."));
+        {
+            std::lock_guard lock(mutex_);
+            if (executor_) execution = executor_(task);
+        }
+
+        if (!execution && task.type == TaskType::Shell) {
+            auto shell_result = cc::utils::bash::execute_command(task.description);
+            if (shell_result) {
+                execution = TaskResult{
+                    .output = shell_result->stdout_output,
+                    .metadata = std::nullopt,
+                    .exit_code = shell_result->exit_code,
+                };
+            } else {
+                execution = std::unexpected(Error::make(ErrorCode::ToolExecutionFailed, shell_result.error()));
+            }
+        }
+
+        if (!execution) {
+            task.status = TaskStatus::Failed;
+            task.error = execution.error().message;
+            task.completed_at = std::chrono::system_clock::now();
+            active_count_.fetch_sub(1, std::memory_order_relaxed);
+            return std::unexpected(execution.error());
+        }
+
+        TaskResult result = *execution;
 
         task.status = TaskStatus::Completed;
         task.progress = 1.0;
@@ -242,6 +273,7 @@ private:
     std::atomic<std::uint32_t> active_count_{0};
     mutable std::mutex mutex_;
     std::set<std::string> cancelled_ids_;
+    TaskExecutor executor_;
 
     /// Check if a task ID has been marked for cancellation
     [[nodiscard]] bool is_cancelled(const TaskId& id) const {

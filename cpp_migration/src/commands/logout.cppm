@@ -14,6 +14,8 @@ module;
 #include <span>
 #include <array>
 #include <functional>
+#include <cstdlib>
+#include <filesystem>
 
 export module cc.commands.logout;
 
@@ -85,13 +87,24 @@ private:
     bool authenticated_ = false;
     ConfirmFn confirm_fn_;
 
-    [[nodiscard]] bool is_authenticated() const noexcept { return authenticated_; }
+    [[nodiscard]] static std::filesystem::path credentials_path() {
+        if (const char* xdg = std::getenv("XDG_CONFIG_HOME")) {
+            return std::filesystem::path(xdg) / "cc-repl" / "credentials.json";
+        }
+        if (const char* home = std::getenv("HOME")) {
+            return std::filesystem::path(home) / ".config" / "cc-repl" / "credentials.json";
+        }
+        return std::filesystem::temp_directory_path() / "cc-repl" / "credentials.json";
+    }
+
+    [[nodiscard]] bool is_authenticated() const noexcept {
+        return authenticated_ || std::filesystem::exists(credentials_path());
+    }
 
     [[nodiscard]] Result<CommandResult> request_confirmation() {
         if (confirm_fn_ && confirm_fn_()) {
             return perform_logout();
         }
-        // In production: uses CommandResult::NeedsInput for interactive flow
         return CommandResult::success(
             "Are you sure you want to logout? This will clear stored credentials.\n"
             "Use /logout --force to confirm, or respond 'yes'.");
@@ -111,12 +124,17 @@ private:
     }
 
     [[nodiscard]] static VoidResult clear_oauth_tokens() {
-        // In production: delete from system keychain via libsecret/Security.framework
+        std::error_code ec;
+        std::filesystem::remove(credentials_path(), ec);
+        if (ec) {
+            return std::unexpected(Error::make(
+                ErrorCode::ConfigWriteError,
+                std::format("Failed to remove credentials: {}", ec.message())));
+        }
         return {};
     }
 
     [[nodiscard]] static VoidResult clear_api_key() {
-        // In production: delete API key from system keychain
         return {};
     }
 };

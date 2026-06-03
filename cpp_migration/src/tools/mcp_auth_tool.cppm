@@ -9,17 +9,17 @@ export module cc.tools.mcp_auth_tool;
 
 export namespace cc::tools {
 
-// MCP 认证输入参数
+
 struct McpAuthInput {
-    std::string server_name;  // MCP 服务器名称
-    std::string auth_type;    // 认证类型（oauth, api_key, basic, token）
+    std::string server_name;
+    std::string auth_type;
 };
 
-// 执行 MCP 服务器认证
+
 inline auto execute_mcp_auth(
     const McpAuthInput& input
 ) -> std::expected<std::string, std::string> {
-    // 验证输入
+
     if (input.server_name.empty()) {
         return std::unexpected(std::string("server_name is required"));
     }
@@ -27,7 +27,7 @@ inline auto execute_mcp_auth(
         return std::unexpected(std::string("auth_type is required"));
     }
 
-    // 验证认证类型
+
     static const std::vector<std::string_view> valid_auth_types = {
         "oauth", "api_key", "basic", "token", "none"
     };
@@ -73,7 +73,7 @@ inline auto execute_mcp_auth(
     return std::unexpected("Basic authentication requires interactive credential input");
 }
 
-// 获取 MCP 认证工具的提示词
+
 inline auto get_mcp_auth_prompt() -> std::string {
     return R"(## McpAuthTool
 

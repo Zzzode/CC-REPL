@@ -66,6 +66,12 @@ struct SandboxConfig {
     std::chrono::seconds max_duration{60};
 };
 
+[[nodiscard]] inline auto is_command_denied(std::string_view command) -> std::optional<std::string>;
+[[nodiscard]] inline auto get_command_category(std::string_view command) -> CommandCategory;
+[[nodiscard]] inline auto get_default_denylist() -> std::vector<DenylistEntry>;
+[[nodiscard]] inline auto suggest_safe_alternative(std::string_view dangerous_command) -> std::optional<std::string>;
+[[nodiscard]] inline auto extract_file_paths_from_command(std::string_view command) -> std::vector<std::string>;
+
 namespace detail {
 
 // Extract the base command (first token) from a command string

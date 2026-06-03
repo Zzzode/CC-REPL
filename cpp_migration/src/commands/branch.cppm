@@ -13,11 +13,13 @@ module;
 #include <algorithm>
 #include <span>
 #include <array>
+#include <sstream>
 
 export module cc.commands.branch;
 
 import cc.types.types;
 import cc.commands.command;
+import cc.utils.bash_execution;
 
 export namespace cc::commands {
 
@@ -43,7 +45,7 @@ public:
             .args = {
                 CommandArg{.name = "action", .description = "list | create | switch | delete",
                            .type = ArgType::Choice, .required = false,
-                           .choices = {{"list", "create", "switch", "delete"}}},
+                           .choices = {"list", "create", "switch", "delete"}},
                 CommandArg{.name = "branch_name", .description = "Branch name",
                            .type = ArgType::Text, .required = false},
             },
@@ -102,11 +104,51 @@ public:
 private:
     std::vector<BranchInfo> branches_;
 
+    [[nodiscard]] static Result<CommandResult> git_command(std::string_view command, std::string_view success) {
+        auto result = cc::utils::bash::execute_command(command);
+        if (!result) {
+            return std::unexpected(Error::make(ErrorCode::InternalError, result.error()));
+        }
+        if (result->exit_code != 0) {
+            return std::unexpected(Error::make(
+                ErrorCode::InvalidRequest,
+                std::format("git command failed: {}", result->stdout_output)));
+        }
+        return CommandResult::success(std::string(success));
+    }
+
+    [[nodiscard]] static std::vector<BranchInfo> read_git_branches() {
+        std::vector<BranchInfo> branches;
+        auto result = cc::utils::bash::execute_command(
+            "git branch --format='%(HEAD)%09%(refname:short)%09%(upstream:short)%09%(subject)'");
+        if (!result || result->exit_code != 0) return branches;
+
+        std::istringstream lines(result->stdout_output);
+        std::string line;
+        while (std::getline(lines, line)) {
+            if (line.empty()) continue;
+            std::vector<std::string> parts;
+            std::string part;
+            std::istringstream fields(line);
+            while (std::getline(fields, part, '\t')) parts.push_back(part);
+            if (parts.size() < 2 || parts[1].empty()) continue;
+            BranchInfo info;
+            info.is_current = parts[0] == "*";
+            info.name = parts[1];
+            if (parts.size() > 2 && !parts[2].empty()) info.upstream = parts[2];
+            if (parts.size() > 3 && !parts[3].empty()) info.last_commit_summary = parts[3];
+            branches.push_back(std::move(info));
+        }
+        return branches;
+    }
+
     [[nodiscard]] std::string format_list() const {
-        if (branches_.empty()) return "No branches found (not in a git repository?).";
+        auto live_branches = read_git_branches();
+        const auto& branches = live_branches.empty() ? branches_ : live_branches;
+        if (branches.empty()) return "No branches found (not in a git repository?).";
 
         std::string out = "Branches:\n";
-        for (const auto& b : branches_) {
+        for (const auto& b : branches) {
             auto marker = b.is_current ? "* " : "  ";
             out += std::format("{}{}", marker, b.name);
             if (b.upstream) out += std::format(" → {}", *b.upstream);
@@ -122,39 +164,35 @@ private:
             return std::unexpected(Error::make(ErrorCode::InvalidRequest,
                 std::format("Invalid branch name: '{}'", name)));
         }
-        if (std::ranges::any_of(branches_, [&](const auto& b) { return b.name == name; })) {
+        auto live_branches = read_git_branches();
+        if (std::ranges::any_of(live_branches, [&](const auto& b) { return b.name == name; }) ||
+            std::ranges::any_of(branches_, [&](const auto& b) { return b.name == name; })) {
             return std::unexpected(Error::make(ErrorCode::InvalidRequest,
                 std::format("Branch '{}' already exists.", name)));
         }
-        // In production: execute git branch <name> via process spawning
-        branches_.push_back(BranchInfo{.name = name, .is_current = true});
-        return CommandResult::success(std::format("Created and switched to branch: {}", name));
+        auto quoted = cc::utils::bash::escape_shell_arg(name);
+        auto command = std::format("git checkout -b {}", quoted);
+        auto result = git_command(command, std::format("Created and switched to branch: {}", name));
+        if (result) branches_ = read_git_branches();
+        return result;
     }
 
     [[nodiscard]] Result<CommandResult> switch_branch(const std::string& name) {
-        auto it = std::ranges::find_if(branches_, [&](const auto& b) { return b.name == name; });
-        if (it == branches_.end()) {
-            return std::unexpected(Error::make(ErrorCode::InvalidRequest,
-                std::format("Branch '{}' not found.", name)));
-        }
-        // Mark current
-        for (auto& b : branches_) b.is_current = false;
-        it->is_current = true;
-        return CommandResult::success(std::format("Switched to branch: {}", name));
+        auto quoted = cc::utils::bash::escape_shell_arg(name);
+        auto result = git_command(
+            std::format("git checkout {}", quoted),
+            std::format("Switched to branch: {}", name));
+        if (result) branches_ = read_git_branches();
+        return result;
     }
 
     [[nodiscard]] Result<CommandResult> delete_branch(const std::string& name) {
-        auto it = std::ranges::find_if(branches_, [&](const auto& b) { return b.name == name; });
-        if (it == branches_.end()) {
-            return std::unexpected(Error::make(ErrorCode::InvalidRequest,
-                std::format("Branch '{}' not found.", name)));
-        }
-        if (it->is_current) {
-            return std::unexpected(Error::make(ErrorCode::InvalidRequest,
-                "Cannot delete the currently checked-out branch."));
-        }
-        branches_.erase(it);
-        return CommandResult::success(std::format("Deleted branch: {}", name));
+        auto quoted = cc::utils::bash::escape_shell_arg(name);
+        auto result = git_command(
+            std::format("git branch -d {}", quoted),
+            std::format("Deleted branch: {}", name));
+        if (result) branches_ = read_git_branches();
+        return result;
     }
 };
 

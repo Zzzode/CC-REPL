@@ -589,6 +589,180 @@ struct PrefixResult {
     return CommandNameType::Unknown;
 }
 
+struct LocalPsToken {
+    std::string text;
+    bool quoted = false;
+    bool double_quoted = false;
+};
+
+[[nodiscard]] inline bool is_statement_separator_token(std::string_view token) {
+    return token == "|" || token == ";";
+}
+
+[[nodiscard]] inline bool is_redirection_operator(std::string_view token) {
+    return token == ">" || token == ">>" || token == "2>" || token == "2>>" ||
+           token == "*>" || token == "*>>" || token == "2>&1";
+}
+
+[[nodiscard]] inline std::optional<RedirectionOperator>
+parse_redirection_operator(std::string_view token) {
+    if (token == ">") return RedirectionOperator::Redirect;
+    if (token == ">>") return RedirectionOperator::AppendRedirect;
+    if (token == "2>") return RedirectionOperator::ErrorRedirect;
+    if (token == "2>>") return RedirectionOperator::ErrorAppend;
+    if (token == "*>") return RedirectionOperator::AllRedirect;
+    if (token == "*>>") return RedirectionOperator::AllAppend;
+    if (token == "2>&1") return RedirectionOperator::MergeError;
+    return std::nullopt;
+}
+
+[[nodiscard]] inline bool split_compact_redirection(
+    std::string_view token,
+    std::string& op,
+    std::string& target
+) {
+    static constexpr std::string_view ops[] = {"2>&1", "*>>", "2>>", ">>", "*>", "2>", ">"};
+    for (auto candidate : ops) {
+        if (token.starts_with(candidate) && token.size() > candidate.size()) {
+            op = std::string(candidate);
+            target = std::string(token.substr(candidate.size()));
+            return true;
+        }
+    }
+    return false;
+}
+
+[[nodiscard]] inline std::vector<LocalPsToken> tokenize_powershell_local(std::string_view command) {
+    std::vector<LocalPsToken> tokens;
+    std::string current;
+    bool in_single_quote = false;
+    bool in_double_quote = false;
+    bool token_quoted = false;
+    bool token_double_quoted = false;
+
+    auto flush = [&]() {
+        if (!current.empty() || token_quoted) {
+            tokens.push_back(LocalPsToken{
+                .text = std::move(current),
+                .quoted = token_quoted,
+                .double_quoted = token_double_quoted,
+            });
+            current.clear();
+            token_quoted = false;
+            token_double_quoted = false;
+        }
+    };
+
+    for (std::size_t i = 0; i < command.size(); ++i) {
+        char c = command[i];
+
+        if (c == '`' && i + 1 < command.size()) {
+            current.push_back(command[++i]);
+            continue;
+        }
+
+        if (in_single_quote) {
+            if (c == '\'') {
+                in_single_quote = false;
+            } else {
+                current.push_back(c);
+            }
+            continue;
+        }
+
+        if (in_double_quote) {
+            if (c == '"') {
+                in_double_quote = false;
+            } else {
+                current.push_back(c);
+            }
+            continue;
+        }
+
+        if (c == '\'') {
+            in_single_quote = true;
+            token_quoted = true;
+            continue;
+        }
+
+        if (c == '"') {
+            in_double_quote = true;
+            token_quoted = true;
+            token_double_quoted = true;
+            continue;
+        }
+
+        if (std::isspace(static_cast<unsigned char>(c))) {
+            flush();
+            continue;
+        }
+
+        if (c == '|' || c == ';') {
+            flush();
+            tokens.push_back(LocalPsToken{.text = std::string(1, c)});
+            continue;
+        }
+
+        if (c == '>' || (c == '2' && i + 1 < command.size() && command[i + 1] == '>') ||
+            (c == '*' && i + 1 < command.size() && command[i + 1] == '>')) {
+            flush();
+            std::string op;
+            if (c == '2' || c == '*') {
+                op.push_back(c);
+                op.push_back(command[++i]);
+            } else {
+                op.push_back(c);
+            }
+            if (i + 1 < command.size() && command[i + 1] == '>') {
+                op.push_back(command[++i]);
+            }
+            if (op == "2>" && i + 2 < command.size() && command[i + 1] == '&' && command[i + 2] == '1') {
+                op += "&1";
+                i += 2;
+            }
+            tokens.push_back(LocalPsToken{.text = std::move(op)});
+            continue;
+        }
+
+        current.push_back(c);
+    }
+
+    flush();
+    return tokens;
+}
+
+[[nodiscard]] inline CommandElementType classify_local_element(
+    const LocalPsToken& token,
+    bool is_command_name
+) {
+    if (is_command_name) return CommandElementType::StringConstant;
+    if (token.text.starts_with("-")) return CommandElementType::Parameter;
+    if (token.text.starts_with("@")) return CommandElementType::Variable;
+    if (token.text.starts_with("$")) return CommandElementType::Variable;
+    if (token.text.find("$(") != std::string::npos || token.text.starts_with("(")) {
+        return CommandElementType::SubExpression;
+    }
+    if (token.text.find("::") != std::string::npos || token.text.find('.') != std::string::npos) {
+        return CommandElementType::MemberInvocation;
+    }
+    if (token.text.find('{') != std::string::npos || token.text.find('}') != std::string::npos) {
+        return CommandElementType::ScriptBlock;
+    }
+    if (token.double_quoted && token.text.find('$') != std::string::npos) {
+        return CommandElementType::ExpandableString;
+    }
+    return CommandElementType::StringConstant;
+}
+
+[[nodiscard]] inline SecurityPatterns derive_local_security_patterns(std::string_view text) {
+    SecurityPatterns patterns{};
+    patterns.has_sub_expressions = text.find("$(") != std::string_view::npos;
+    patterns.has_script_blocks = text.find('{') != std::string_view::npos || text.find('}') != std::string_view::npos;
+    patterns.has_expandable_strings = text.find('"') != std::string_view::npos && text.find('$') != std::string_view::npos;
+    patterns.has_member_invocations = text.find("::") != std::string_view::npos || text.find(").") != std::string_view::npos;
+    return patterns;
+}
+
 /// Strip module prefix from command name.
 /// e.g. "Microsoft.PowerShell.Utility\\Invoke-Expression" -> "Invoke-Expression"
 [[nodiscard]] inline std::string strip_module_prefix(std::string_view name) {
@@ -605,20 +779,126 @@ struct PrefixResult {
 }
 
 // ---------------------------------------------------------------------------
-// Parse function (async — spawns pwsh)
+// Parse function
 // ---------------------------------------------------------------------------
 
-/// Parse a PowerShell command using the native AST parser.
-/// Spawns pwsh to parse the command and returns structured results.
-/// Returns error string if PowerShell is unavailable or spawn fails.
+/// Parse a PowerShell command into the structure required by permission analysis.
+/// This local parser is conservative and marks complex constructs for review.
 [[nodiscard]] inline std::expected<ParsedPowerShellCommand, std::string>
 parse_powershell_command(std::string_view command) {
-    // Placeholder: actual implementation spawns pwsh and parses JSON output.
-    // In C++ this would use process spawning + JSON parsing.
     ParsedPowerShellCommand result;
-    result.valid = false;
     result.original_command = std::string(command);
-    result.errors.push_back({"Not implemented - requires pwsh spawn", "NotImplemented"});
+
+    auto tokens = tokenize_powershell_local(command);
+    if (tokens.empty()) {
+        result.valid = true;
+        return result;
+    }
+
+    result.has_stop_parsing = std::ranges::any_of(tokens, [](const LocalPsToken& token) {
+        return token.text == "--%";
+    });
+
+    for (const auto& token : tokens) {
+        if (token.text.starts_with("@") && token.text.size() > 1) {
+            result.variables.push_back({.path = token.text.substr(1), .is_splatted = true});
+        } else if (token.text.starts_with("$") && token.text.size() > 1) {
+            result.variables.push_back({.path = token.text.substr(1), .is_splatted = false});
+        }
+    }
+
+    std::vector<LocalPsToken> segment;
+    auto flush_segment = [&]() {
+        if (segment.empty()) return;
+
+        ParsedStatement statement;
+        std::string segment_text;
+        for (const auto& token : segment) {
+            if (!segment_text.empty()) segment_text += " ";
+            segment_text += token.text;
+        }
+        statement.text = segment_text;
+        statement.security_patterns = derive_local_security_patterns(segment_text);
+
+        if (!segment.empty() && segment[0].text.starts_with("$") &&
+            segment[0].text.find('=') != std::string::npos) {
+            statement.statement_type = StatementType::AssignmentStatementAst;
+            result.statements.push_back(std::move(statement));
+            segment.clear();
+            return;
+        }
+
+        statement.statement_type = StatementType::PipelineAst;
+        ParsedCommandElement command_element;
+        bool found_command = false;
+
+        for (std::size_t i = 0; i < segment.size(); ++i) {
+            const auto& token = segment[i];
+            std::string compact_op;
+            std::string compact_target;
+
+            if (is_redirection_operator(token.text)) {
+                auto parsed_op = parse_redirection_operator(token.text);
+                if (parsed_op) {
+                    std::string target;
+                    if (token.text == "2>&1") {
+                        target = "&1";
+                    } else if (i + 1 < segment.size()) {
+                        target = segment[++i].text;
+                    }
+                    ParsedRedirection redir{.op = *parsed_op, .target = std::move(target), .is_merging = token.text == "2>&1"};
+                    statement.redirections.push_back(redir);
+                    command_element.redirections.push_back(std::move(redir));
+                }
+                continue;
+            }
+
+            if (split_compact_redirection(token.text, compact_op, compact_target)) {
+                auto parsed_op = parse_redirection_operator(compact_op);
+                if (parsed_op) {
+                    ParsedRedirection redir{
+                        .op = *parsed_op,
+                        .target = std::move(compact_target),
+                        .is_merging = compact_op == "2>&1",
+                    };
+                    statement.redirections.push_back(redir);
+                    command_element.redirections.push_back(std::move(redir));
+                }
+                continue;
+            }
+
+            if (!found_command) {
+                command_element.name = strip_module_prefix(token.text);
+                command_element.name_type = classify_command_name(command_element.name);
+                command_element.text = token.text;
+                command_element.element_types.push_back(classify_local_element(token, true));
+                command_element.children.push_back(std::nullopt);
+                found_command = true;
+            } else {
+                command_element.args.push_back(token.text);
+                command_element.text += " " + token.text;
+                command_element.element_types.push_back(classify_local_element(token, false));
+                command_element.children.push_back(std::nullopt);
+            }
+        }
+
+        if (found_command) {
+            statement.commands.push_back(std::move(command_element));
+        }
+        result.statements.push_back(std::move(statement));
+        segment.clear();
+    };
+
+    for (const auto& token : tokens) {
+        if (is_statement_separator_token(token.text)) {
+            flush_segment();
+            continue;
+        }
+        segment.push_back(token);
+    }
+    flush_segment();
+
+    result.valid = true;
     return result;
 }
 

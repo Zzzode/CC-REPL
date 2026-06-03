@@ -32,8 +32,8 @@ public:
             .args = {
                 CommandArg{.name = "color", .description = "Color name, or 'default'/'reset'/'none' to reset",
                            .type = ArgType::Choice, .required = false,
-                           .choices = {{"red", "orange", "yellow", "green", "blue", "purple", "pink",
-                                       "default", "reset", "none"}}},
+                           .choices = {"red", "orange", "yellow", "green", "blue", "purple", "pink",
+                                       "default", "reset", "none"}},
             },
             .hidden = false,
             .category = "customization",

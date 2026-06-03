@@ -32,58 +32,58 @@ using Clock = std::chrono::system_clock;
 using TimePoint = Clock::time_point;
 
 // ============================================================
-// 策略数据结构
+
 // ============================================================
 
-// 策略执行动作
+
 enum class PolicyAction : std::uint8_t {
-    Allow,     // 允许
-    Deny,      // 拒绝
-    Warn,      // 警告但允许
-    Audit,     // 允许并记录审计日志
+    Allow,
+    Deny,
+    Warn,
+    Audit,
 };
 
-// 工具限制规则
+
 struct ToolRestriction {
-    std::string tool_name;          // 工具名 (或 "*" 表示所有)
+    std::string tool_name;
     PolicyAction action{PolicyAction::Allow};
     std::string reason;
-    std::vector<std::string> allowed_args;  // 允许的参数模式
+    std::vector<std::string> allowed_args;
 };
 
-// 模型限制规则
+
 struct ModelRestriction {
-    std::string model_pattern;      // 模型名匹配模式
+    std::string model_pattern;
     PolicyAction action{PolicyAction::Allow};
-    std::size_t max_tokens_per_request{0};  // 0 = 无限制
+    std::size_t max_tokens_per_request{0};
     std::string reason;
 };
 
-// 网络访问策略
+
 struct NetworkPolicy {
-    std::string host_pattern;       // 主机匹配模式
+    std::string host_pattern;
     PolicyAction action{PolicyAction::Allow};
     std::vector<std::string> allowed_ports;
     std::string reason;
 };
 
-// 速率限制规则
+
 struct RateLimitRule {
-    std::string resource;           // 受限资源标识
-    std::size_t max_requests{100};  // 窗口内最大请求数
+    std::string resource;
+    std::size_t max_requests{100};
     std::chrono::seconds window{60};
     PolicyAction on_exceed{PolicyAction::Deny};
 };
 
-// 策略评估结果
+
 struct PolicyEvaluation {
     PolicyAction action{PolicyAction::Allow};
-    std::string matched_rule;       // 匹配的规则名
+    std::string matched_rule;
     std::string reason;
     TimePoint evaluated_at;
 };
 
-// 策略集合
+
 struct PolicySet {
     std::string name;
     std::string version;
@@ -94,21 +94,21 @@ struct PolicySet {
     TimePoint loaded_at;
 };
 
-// 速率限制追踪器
+
 struct RateTracker {
     std::size_t request_count{0};
     TimePoint window_start;
 };
 
 // ============================================================
-// PolicyLimitsService - 策略加载与执行
+
 // ============================================================
 
 class PolicyLimitsService {
 public:
     PolicyLimitsService() = default;
 
-    // 加载策略集
+
     VoidResult load_policy(PolicySet policy) {
         if (policy.name.empty()) {
             return std::unexpected(Error{ErrorCode::InvalidInput, {}, "policy name required"});
@@ -118,7 +118,7 @@ public:
         return {};
     }
 
-    // 评估工具使用权限
+
     [[nodiscard]] PolicyEvaluation evaluate_tool(std::string_view tool_name) const {
         if (!active_policy_) return {PolicyAction::Allow, "", "no policy loaded"};
         for (const auto& rule : active_policy_->tool_rules) {
@@ -134,7 +134,7 @@ public:
         return {PolicyAction::Allow, "", "no matching rule", Clock::now()};
     }
 
-    // 评估模型使用权限
+
     [[nodiscard]] PolicyEvaluation evaluate_model(
         std::string_view model_name, std::size_t requested_tokens = 0) const
     {
@@ -155,7 +155,7 @@ public:
         return {PolicyAction::Allow, "", "no matching rule", Clock::now()};
     }
 
-    // 评估网络访问权限
+
     [[nodiscard]] PolicyEvaluation evaluate_network(std::string_view host) const {
         if (!active_policy_) return {PolicyAction::Allow, "", "no policy loaded"};
         for (const auto& rule : active_policy_->network_rules) {
@@ -167,14 +167,14 @@ public:
         return {PolicyAction::Allow, "", "no matching rule", Clock::now()};
     }
 
-    // 检查速率限制
+
     [[nodiscard]] PolicyEvaluation check_rate_limit(const std::string& resource) {
         if (!active_policy_) return {PolicyAction::Allow, "", "no policy loaded"};
         for (const auto& rule : active_policy_->rate_limits) {
             if (rule.resource == resource) {
                 auto& tracker = rate_trackers_[resource];
                 auto now = Clock::now();
-                // 检查窗口是否已过期
+
                 if (now - tracker.window_start >= rule.window) {
                     tracker = {.request_count = 1, .window_start = now};
                     return {PolicyAction::Allow, "", "within limit", now};
@@ -191,21 +191,21 @@ public:
         return {PolicyAction::Allow, "", "no rate limit", Clock::now()};
     }
 
-    // 获取当前策略信息
+
     [[nodiscard]] std::optional<std::string> policy_name() const {
         return active_policy_ ? std::optional{active_policy_->name} : std::nullopt;
     }
 
     [[nodiscard]] bool has_policy() const noexcept { return active_policy_.has_value(); }
 
-    // 清除策略
+
     void clear_policy() noexcept { active_policy_.reset(); }
 
 private:
     std::optional<PolicySet> active_policy_;
     std::unordered_map<std::string, RateTracker> rate_trackers_;
 
-    // 简单模式匹配 (支持 * 通配符)
+
     static bool matches_pattern(std::string_view value, std::string_view pattern) noexcept {
         if (pattern == "*") return true;
         if (pattern.ends_with('*')) {

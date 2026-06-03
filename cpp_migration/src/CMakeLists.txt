@@ -547,6 +547,7 @@ target_sources(cc_tools
         tools/read_mcp_resource_tool.cppm
         tools/repl_tool.cppm
         tools/remote_trigger_tool.cppm
+        tools/runtime_registry.cppm
         tools/script_diagnostics.cppm
         tools/script_sandbox.cppm
         tools/script_tool.cppm
@@ -624,6 +625,7 @@ target_sources(cc_commands
         commands/bughunter.cppm
         commands/btw.cppm
         commands/clear.cppm
+        commands/chrome.cppm
         commands/color.cppm
         commands/command.cppm
         commands/command_registry.cppm
@@ -636,6 +638,7 @@ target_sources(cc_commands
         commands/cost.cppm
         commands/create_moved_to_plugin_command.cppm
         commands/ctx-viz.cppm
+        commands/desktop.cppm
         commands/debug_tool_call.cppm
         commands/diff.cppm
         commands/doctor.cppm
@@ -649,6 +652,7 @@ target_sources(cc_commands
         commands/fast.cppm
         commands/feedback.cppm
         commands/files.cppm
+        commands/good_claude.cppm
         commands/heapdump.cppm
         commands/help.cppm
         commands/hooks.cppm
@@ -657,6 +661,7 @@ target_sources(cc_commands
         commands/init_verifiers.cppm
         commands/insights.cppm
         commands/install.cppm
+        commands/install_slack_app.cppm
         commands/install_github_app/flow.cppm
         commands/install_github_app/github_actions.cppm
         commands/install_github_app/steps.cppm
@@ -668,6 +673,7 @@ target_sources(cc_commands
         commands/mcp/xaa_idp.cppm
         commands/mcp_cmd.cppm
         commands/memory.cppm
+        commands/mobile.cppm
         commands/model.cppm
         commands/mock_limits.cppm
         commands/oauth_refresh.cppm
@@ -706,6 +712,7 @@ target_sources(cc_commands
         commands/stats.cppm
         commands/status.cppm
         commands/statusline.cppm
+        commands/stickers.cppm
         commands/summary.cppm
         commands/tag.cppm
         commands/tasks_cmd.cppm
@@ -878,6 +885,11 @@ target_link_libraries(cc_services
         yyjson
         uv_a
         httplib::httplib
+)
+target_link_libraries(cc_commands
+    PUBLIC
+        cc_services
+        cc_constants
 )
 
 # ─── cc_hooks: Hooks System ───────────────────────────────────────────────────

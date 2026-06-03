@@ -23,7 +23,7 @@ export module cc.bridge.transport;
 
 export namespace cc::bridge {
 
-// 消息优先级
+
 enum class MessagePriority { low, normal, high, system };
 
 namespace detail {
@@ -55,18 +55,18 @@ namespace detail {
 
 } // namespace detail
 
-// 桥接消息 (对应 bridgeMessaging.ts + inboundMessages.ts)
+
 struct BridgeMessage {
     std::string id;
     std::string type;         // "request", "response", "event", "heartbeat"
-    std::string method;       // RPC 方法名
+    std::string method;
     std::string payload;      // JSON payload
     MessagePriority priority{MessagePriority::normal};
     std::chrono::system_clock::time_point timestamp;
-    std::optional<std::string> correlation_id;  // 请求-响应关联
+    std::optional<std::string> correlation_id;
 };
 
-// 入站附件 (对应 inboundAttachments.ts)
+
 struct InboundAttachment {
     std::string filename;
     std::string mime_type;
@@ -74,10 +74,10 @@ struct InboundAttachment {
     size_t size_bytes;
 };
 
-// 传输层状态
+
 enum class TransportState { disconnected, connecting, connected, reconnecting, error };
 
-// 传输层错误
+
 struct TransportError {
     enum Code { connection_refused, timeout, auth_failed, protocol_error, closed_by_peer };
     Code code;
@@ -85,13 +85,13 @@ struct TransportError {
     bool retryable{true};
 };
 
-// 传输层事件回调
+
 using MessageHandler = std::function<void(BridgeMessage)>;
 using AttachmentHandler = std::function<void(InboundAttachment)>;
 using StateChangeHandler = std::function<void(TransportState, TransportState)>;  // old, new
 using ErrorHandler = std::function<void(TransportError)>;
 
-// TransportFlushGate — 控制传输层消息发送时机 (对应 flushGate.ts)
+
 class TransportFlushGate {
     std::atomic<bool> open_{true};
     std::queue<BridgeMessage> pending_;
@@ -118,7 +118,7 @@ public:
     [[nodiscard]] auto is_open() const -> bool { return open_.load(); }
 };
 
-// CapacityWake — 容量唤醒机制 (对应 capacityWake.ts)
+
 class CapacityWake {
     size_t capacity_{100};
     size_t current_load_{0};
@@ -134,7 +134,7 @@ public:
     void on_available(std::function<void()> cb) { on_capacity_available_ = std::move(cb); }
 };
 
-// 传输层抽象基类 (对应 replBridgeTransport.ts)
+
 class BridgeTransport {
 protected:
     TransportState state_{TransportState::disconnected};
@@ -151,24 +151,24 @@ public:
 
     virtual ~BridgeTransport() = default;
     
-    // 连接/断开
+
     virtual auto connect(std::string_view url, std::optional<std::string_view> token) 
         -> std::expected<void, TransportError> = 0;
     virtual void disconnect() = 0;
     
-    // 发送消息
+
     virtual auto send(BridgeMessage msg) -> std::expected<void, TransportError> = 0;
     
-    // 获取状态
+
     [[nodiscard]] auto get_state() const -> TransportState { return state_; }
     [[nodiscard]] auto is_connected() const -> bool { return state_ == TransportState::connected; }
     
-    // 事件订阅
+
     void on_message(MessageHandler handler) { message_handlers_.push_back(std::move(handler)); }
     void on_state_change(StateChangeHandler handler) { state_handlers_.push_back(std::move(handler)); }
     void on_error(ErrorHandler handler) { error_handlers_.push_back(std::move(handler)); }
     
-    // Flush gate 和 capacity 控制
+
     auto& flush_gate() { return flush_gate_; }
     auto& capacity() { return capacity_wake_; }
 
@@ -200,7 +200,7 @@ protected:
     }
 };
 
-// WebSocket 传输实现
+
 class WebSocketTransport : public BridgeTransport {
     std::string url_;
     std::vector<std::string> outbound_frames_;
@@ -236,7 +236,7 @@ public:
     [[nodiscard]] auto max_reconnects() const -> uint32_t { return max_reconnects_; }
 };
 
-// HTTP 长轮询传输实现 (备选方案)
+
 class HttpPollingTransport : public BridgeTransport {
     std::string base_url_;
     std::chrono::milliseconds poll_interval_{1000};
@@ -262,7 +262,7 @@ public:
     [[nodiscard]] auto poll_interval() const -> std::chrono::milliseconds { return poll_interval_; }
 };
 
-// Stdio 传输 (用于进程内通信)
+
 class StdioTransport : public BridgeTransport {
 public:
     auto connect(std::string_view, std::optional<std::string_view>)

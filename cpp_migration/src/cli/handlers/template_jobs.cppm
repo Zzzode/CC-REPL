@@ -281,7 +281,7 @@ std::expected<std::string, std::string> run_template_job(TemplateJob job) {
     }
 
     // Load template content
-    std::optional<detail::TemplateContent> content;
+    std::optional<TemplateContent> content;
 
     // Search for template in project directory first, then global
     auto project_dir = detail::get_project_templates_dir() / job.template_id;
@@ -296,7 +296,7 @@ std::expected<std::string, std::string> run_template_job(TemplateJob job) {
     if (!content) {
         // Try built-in templates (inline content)
         if (job.template_id == "code-review") {
-            content = detail::TemplateContent{
+            content = TemplateContent{
                 .id = "code-review",
                 .body = "Review the code changes in {{branch}}.\n"
                         "Focus on: correctness, security, performance, readability.\n"
@@ -305,7 +305,7 @@ std::expected<std::string, std::string> run_template_job(TemplateJob job) {
                 .defaults = {{"branch", "HEAD"}}
             };
         } else if (job.template_id == "refactor") {
-            content = detail::TemplateContent{
+            content = TemplateContent{
                 .id = "refactor",
                 .body = "Analyze {{target}} for refactoring opportunities.\n"
                         "Consider: DRY violations, complex conditionals, long methods,\n"
@@ -314,7 +314,7 @@ std::expected<std::string, std::string> run_template_job(TemplateJob job) {
                 .defaults = {{"target", "."}}
             };
         } else if (job.template_id == "test-gen") {
-            content = detail::TemplateContent{
+            content = TemplateContent{
                 .id = "test-gen",
                 .body = "Generate unit tests for {{target}}.\n"
                         "Ensure good edge case coverage and use appropriate test framework.",
@@ -322,7 +322,7 @@ std::expected<std::string, std::string> run_template_job(TemplateJob job) {
                 .defaults = {}
             };
         } else if (job.template_id == "doc-gen") {
-            content = detail::TemplateContent{
+            content = TemplateContent{
                 .id = "doc-gen",
                 .body = "Generate documentation for {{target}}.\n"
                         "Include: API docs, usage examples, and architecture notes.",

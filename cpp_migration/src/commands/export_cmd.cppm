@@ -51,7 +51,7 @@ public:
             .args = {
                 CommandArg{.name = "format", .description = "markdown | json",
                            .type = ArgType::Choice, .required = false,
-                           .choices = {{"markdown", "json", "md"}}},
+                           .choices = {"markdown", "json", "md"}},
                 CommandArg{.name = "path", .description = "Output file path",
                            .type = ArgType::FilePath, .required = false},
                 CommandArg{.name = "--system", .description = "Include system messages",
@@ -78,7 +78,6 @@ public:
         auto content = format_export(opts);
         auto output_path = resolve_output_path(opts);
 
-        // In production: write to file via libuv async IO
         auto write_result = write_file(output_path, content);
         if (!write_result) return std::unexpected(write_result.error());
 
@@ -144,12 +143,35 @@ private:
             if (msg.role == Role::System && !opts.include_system) continue;
             if (!first) out += ",\n";
             first = false;
-            // Simple JSON serialization (in production: use yyjson)
             out += std::format(R"(  {{"role": "{}", "content": "{}"}})",
-                role_to_string(msg.role), msg.content);
+                role_to_string(msg.role), json_escape(msg.content));
         }
         out += "\n]";
         return out;
+    }
+
+    [[nodiscard]] static std::string json_escape(std::string_view value) {
+        std::string escaped;
+        escaped.reserve(value.size());
+        for (unsigned char ch : value) {
+            switch (ch) {
+                case '"': escaped += "\\\""; break;
+                case '\\': escaped += "\\\\"; break;
+                case '\b': escaped += "\\b"; break;
+                case '\f': escaped += "\\f"; break;
+                case '\n': escaped += "\\n"; break;
+                case '\r': escaped += "\\r"; break;
+                case '\t': escaped += "\\t"; break;
+                default:
+                    if (ch < 0x20) {
+                        escaped += std::format("\\u{:04x}", ch);
+                    } else {
+                        escaped.push_back(static_cast<char>(ch));
+                    }
+                    break;
+            }
+        }
+        return escaped;
     }
 
     [[nodiscard]] static std::string resolve_output_path(const ExportOptions& opts) {
@@ -168,26 +190,25 @@ private:
             std::error_code ec;
             fs::create_directories(parent, ec);
             if (ec) {
-                return std::unexpected(
-                    AppError{ErrorCode::IoError,
-                             std::format("Failed to create directory '{}': {}",
-                                         parent.string(), ec.message())});
+            return std::unexpected(Error::make(
+                ErrorCode::ConfigWriteError,
+                std::format("Failed to create directory '{}': {}", parent.string(), ec.message())));
             }
         }
 
         // Write content to file
         std::ofstream ofs(path, std::ios::binary | std::ios::trunc);
         if (!ofs.is_open()) {
-            return std::unexpected(
-                AppError{ErrorCode::IoError,
-                         std::format("Failed to open file for writing: {}", path)});
+        return std::unexpected(Error::make(
+            ErrorCode::ConfigWriteError,
+            std::format("Failed to open file for writing: {}", path)));
         }
 
         ofs.write(content.data(), static_cast<std::streamsize>(content.size()));
         if (!ofs.good()) {
-            return std::unexpected(
-                AppError{ErrorCode::IoError,
-                         std::format("Failed to write to file: {}", path)});
+        return std::unexpected(Error::make(
+            ErrorCode::ConfigWriteError,
+            std::format("Failed to write to file: {}", path)));
         }
 
         return {};

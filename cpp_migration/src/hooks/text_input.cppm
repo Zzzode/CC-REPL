@@ -64,13 +64,13 @@ struct TextSnapshot {
 
 /// Full state of the text input hook
 struct TextInputState {
-    std::string text;                                // 当前文本内容
-    CursorPos cursor_pos;                            // 光标位置
-    std::optional<CursorPos> selection_start;        // 选择起点（无选择时为 nullopt）
-    std::optional<CursorPos> selection_end;          // 选择终点
-    std::vector<TextSnapshot> undo_history;          // 撤销历史栈
-    std::vector<TextSnapshot> redo_history;          // 重做历史栈
-    bool multi_line{true};                           // 是否支持多行
+    std::string text;
+    CursorPos cursor_pos;
+    std::optional<CursorPos> selection_start;
+    std::optional<CursorPos> selection_end;
+    std::vector<TextSnapshot> undo_history;
+    std::vector<TextSnapshot> redo_history;
+    bool multi_line{true};
 };
 
 // ============================================================
@@ -161,7 +161,7 @@ public:
             return true;
         }
 
-        return false; // 未消耗
+        return false;
     }
 
     // ─── Text manipulation ─────────────────────────────────────
@@ -173,7 +173,7 @@ public:
         }
         auto offset = cursor_to_offset(state_.cursor_pos);
         state_.text.insert(offset, text);
-        // 移动光标到插入文本末尾
+
         advance_cursor(text.size());
         state_.redo_history.clear();
     }
@@ -245,7 +245,7 @@ public:
         clear_selection();
         auto offset = cursor_to_offset(state_.cursor_pos);
         if (dir == Direction::Left) {
-            // 跳过空白，然后跳过连续单词字符
+
             while (offset > 0 && is_whitespace(state_.text[offset - 1])) offset--;
             while (offset > 0 && !is_whitespace(state_.text[offset - 1])) offset--;
         } else if (dir == Direction::Right) {
@@ -274,7 +274,7 @@ public:
     /// Undo the last text change
     auto undo() -> void {
         if (state_.undo_history.empty()) return;
-        // 保存当前状态到 redo
+
         state_.redo_history.push_back({state_.text, state_.cursor_pos});
         auto snapshot = std::move(state_.undo_history.back());
         state_.undo_history.pop_back();
@@ -414,7 +414,7 @@ private:
             }
             remaining -= lines[i].size() + 1; // +1 for newline
         }
-        // 超出末尾，定位到文本末尾
+
         pos.line = lines.size() - 1;
         pos.col = lines.back().size();
         return pos;

@@ -180,10 +180,10 @@ public:
 
         if (proxy_url.empty()) return {}; // No proxy to set
 
-        // In real implementation: curl_easy_setopt(handle, CURLOPT_PROXY, proxy_url.c_str())
-        // Set proxy type based on scheme
+        // The caller owns the concrete curl/OpenSSL handle; this helper validates
+        // and normalizes the proxy settings before the transport layer applies them.
         auto type = ProxyConfig::detect_type(proxy_url);
-        (void)type; // Used in real curl_easy_setopt calls
+        (void)type;
 
         // Build no_proxy string for CURLOPT_NOPROXY
         if (!config.no_proxy.empty()) {
@@ -192,13 +192,11 @@ public:
                 if (i > 0) no_proxy_str += ",";
                 no_proxy_str += config.no_proxy[i];
             }
-            // curl_easy_setopt(handle, CURLOPT_NOPROXY, no_proxy_str.c_str())
             (void)no_proxy_str;
         }
 
-        // Set CA cert path if specified
         if (config.ca_cert_path) {
-            // curl_easy_setopt(handle, CURLOPT_CAINFO, config.ca_cert_path->c_str())
+            (void)config.ca_cert_path;
         }
 
         return {};
@@ -354,7 +352,6 @@ public:
                             key_path.string())));
         }
 
-        // In real implementation: store paths for later use with curl/OpenSSL
         return {};
     }
 

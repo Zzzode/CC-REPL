@@ -10,7 +10,7 @@ import cc.tools.agent_types;
 
 export namespace cc::tools {
 
-// 根据代理类型获取对应的系统提示词
+
 inline auto get_agent_system_prompt(AgentType type) -> std::string {
     switch (type) {
         case AgentType::Explore:
@@ -55,12 +55,12 @@ Guidelines:
 - If blocked, explain what's needed to proceed)";
 
         case AgentType::Custom:
-            return ""; // 自定义代理由用户提供提示词
+            return "";
     }
     return "";
 }
 
-// 获取调用子代理的工具使用说明
+
 inline auto get_agent_tool_prompt() -> std::string {
     return R"(## AgentTool
 
@@ -83,7 +83,7 @@ Spawn a sub-agent to handle a specific task independently. The sub-agent runs in
 - Sub-agents cannot see your conversation history)";
 }
 
-// 格式化代理执行上下文
+
 inline auto format_agent_context(
     std::string_view task,
     const std::map<std::string, std::string>& context

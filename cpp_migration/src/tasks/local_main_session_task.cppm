@@ -10,6 +10,8 @@ module;
 #include <chrono>
 #include <format>
 #include <random>
+#include <memory>
+#include <atomic>
 
 export module cc.tasks.local_main_session_task;
 
@@ -55,7 +57,7 @@ inline const AgentDefinition DEFAULT_MAIN_SESSION_AGENT{
 /// Result of registering a main session task
 struct MainSessionRegistration {
     std::string task_id;
-    // In production: abort_signal would be connected to an AbortController
+    std::shared_ptr<std::atomic_bool> abort_requested;
 };
 
 /// Register a backgrounded main session task.
@@ -85,7 +87,10 @@ struct MainSessionRegistration {
     state.retain = false;
     state.disk_loaded = false;
     
-    return MainSessionRegistration{.task_id = task_id};
+    return MainSessionRegistration{
+        .task_id = task_id,
+        .abort_requested = std::make_shared<std::atomic_bool>(false),
+    };
 }
 
 // ============================================================

@@ -7,12 +7,12 @@ module;
 
 export module cc.tools.file_edit_prompt;
 
-// 前置声明依赖模块的类型
+
 import cc.tools.file_edit_types;
 
 export namespace cc::tools {
 
-// 获取文件编辑工具的系统提示词
+
 inline auto get_file_edit_prompt() -> std::string {
     return R"(## FileEditTool
 
@@ -33,7 +33,7 @@ Performs exact string replacements in files. Use this tool to make precise edits
 - `replace_all` (optional, default false): Replace all occurrences)";
 }
 
-// 格式化编辑操作的预览，展示变更上下文
+
 inline auto format_edit_preview(
     const EditOperation& op,
     int context_lines
@@ -42,7 +42,7 @@ inline auto format_edit_preview(
     oss << "--- " << op.file.string() << "\n";
     oss << "+++ " << op.file.string() << " (modified)\n";
 
-    // 将 old_text 和 new_text 按行分割并生成 diff 样式预览
+
     auto split_lines = [](std::string_view text) -> std::vector<std::string_view> {
         std::vector<std::string_view> lines;
         size_t start = 0;
@@ -61,15 +61,15 @@ inline auto format_edit_preview(
     auto old_lines = split_lines(op.old_text);
     auto new_lines = split_lines(op.new_text);
 
-    // 生成统一 diff 格式的头部
+
     oss << "@@ removal/addition @@\n";
 
-    // 显示被删除的行
+
     for (const auto& line : old_lines) {
         oss << "- " << line << "\n";
     }
 
-    // 显示新增的行
+
     for (const auto& line : new_lines) {
         oss << "+ " << line << "\n";
     }
@@ -81,7 +81,7 @@ inline auto format_edit_preview(
     return oss.str();
 }
 
-// 生成编辑结果的摘要信息
+
 inline auto generate_edit_summary(const EditResult& result) -> std::string {
     std::ostringstream oss;
 

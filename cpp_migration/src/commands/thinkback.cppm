@@ -22,14 +22,14 @@ auto thinking_history_path() -> std::filesystem::path {
     return std::filesystem::path{".cc-repl"} / "thinking-history.txt";
 }
 
-// 思考历史条目
+
 struct ThinkingEntry {
     time_point ts;
     std::string content;
     int tokens;
 };
 
-// 获取思考历史记录
+
 auto get_thinking_history() -> std::vector<ThinkingEntry> {
     std::vector<ThinkingEntry> history;
     std::ifstream input{thinking_history_path()};
@@ -49,7 +49,7 @@ auto get_thinking_history() -> std::vector<ThinkingEntry> {
     return history;
 }
 
-// 回放指定索引的思考内容
+
 auto replay_thinking(size_t index) -> std::string {
     auto history = get_thinking_history();
     if (index >= history.size()) {
@@ -58,7 +58,7 @@ auto replay_thinking(size_t index) -> std::string {
     return history[index].content;
 }
 
-// 导出所有思考历史为可读文本
+
 auto export_thinking_log() -> std::string {
     auto history = get_thinking_history();
     if (history.empty()) {
@@ -74,7 +74,7 @@ auto export_thinking_log() -> std::string {
     return log;
 }
 
-// 清除所有思考历史
+
 auto clear_thinking_history() -> void {
     std::filesystem::remove(thinking_history_path());
 }

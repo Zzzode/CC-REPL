@@ -1,9 +1,12 @@
 // LSP Server Manager Module
 module;
 #include <any>
+#include <cstdlib>
 #include <expected>
+#include <filesystem>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <unordered_map>
 #include <vector>
@@ -11,6 +14,7 @@ module;
 export module cc.services.lsp.LSPServerManager;
 
 import cc.utils.error;
+import cc.utils.json;
 import cc.services.lsp.types;
 import cc.services.lsp.LSPServerInstance;
 
@@ -54,10 +58,29 @@ public:
 private:
     // Helper to get file extension
     static std::string get_file_extension(const std::string& file_path);
+    static std::string env_or(std::string_view name, std::string fallback);
+    static std::string path_to_file_uri(const std::string& file_path);
+    static std::string uri_encode(std::string_view value);
+    void register_server(
+        std::string name,
+        std::string command,
+        std::vector<std::string> args,
+        std::unordered_map<std::string, std::string> extension_to_language);
+    std::string language_for_file(const std::string& file_path) const;
+    std::string build_did_open_params(
+        const std::string& file_path,
+        const std::string& content,
+        int64_t version) const;
+    std::string build_did_change_params(
+        const std::string& file_path,
+        const std::string& content,
+        int64_t version) const;
+    std::string build_text_document_params(const std::string& file_path) const;
     
     std::unordered_map<std::string, std::unique_ptr<LSPServerInstance>> servers_;
     std::unordered_map<std::string, std::vector<std::string>> extension_map_;
     std::unordered_map<std::string, std::string> opened_files_; // URI -> server name
+    std::unordered_map<std::string, int64_t> file_versions_;
     bool initialized_ = false;
 };
 
@@ -72,7 +95,36 @@ Result<void> LSPServerManager::initialize() {
         return {};
     }
     
-    // In real implementation, load server configs and build extension map
+    register_server(
+        "typescript",
+        env_or("CC_REPL_TYPESCRIPT_LANGUAGE_SERVER", "typescript-language-server"),
+        {"--stdio"},
+        {{"ts", "typescript"}, {"tsx", "typescriptreact"}, {"js", "javascript"}, {"jsx", "javascriptreact"}});
+    register_server(
+        "python",
+        env_or("CC_REPL_PYTHON_LANGUAGE_SERVER", "pyright-langserver"),
+        {"--stdio"},
+        {{"py", "python"}});
+    register_server(
+        "rust",
+        env_or("CC_REPL_RUST_LANGUAGE_SERVER", "rust-analyzer"),
+        {},
+        {{"rs", "rust"}});
+    register_server(
+        "go",
+        env_or("CC_REPL_GO_LANGUAGE_SERVER", "gopls"),
+        {},
+        {{"go", "go"}});
+    register_server(
+        "cpp",
+        env_or("CC_REPL_CPP_LANGUAGE_SERVER", "clangd"),
+        {},
+        {{"c", "c"}, {"cc", "cpp"}, {"cpp", "cpp"}, {"cxx", "cpp"}, {"h", "c"}, {"hpp", "cpp"}});
+    register_server(
+        "java",
+        env_or("CC_REPL_JAVA_LANGUAGE_SERVER", "jdtls"),
+        {},
+        {{"java", "java"}});
     initialized_ = true;
     return {};
 }
@@ -88,6 +140,7 @@ Result<void> LSPServerManager::shutdown() {
     servers_.clear();
     extension_map_.clear();
     opened_files_.clear();
+    file_versions_.clear();
     initialized_ = false;
     return {};
 }
@@ -112,6 +165,10 @@ LSPServerInstance* LSPServerManager::get_server_for_file(const std::string& file
 
 // Ensure server is started
 Result<LSPServerInstance*> LSPServerManager::ensure_server_started(const std::string& file_path) {
+    if (!initialized_) {
+        auto init = initialize();
+        if (!init) return std::unexpected(init.error());
+    }
     auto server = get_server_for_file(file_path);
     if (!server) {
         return nullptr;
@@ -155,8 +212,10 @@ Result<void> LSPServerManager::open_file(const std::string& file_path, const std
         return {}; // No server for this file type
     }
     
-    // Send didOpen notification
-    auto result = server->send_notification("textDocument/didOpen", std::any{}); // In real code, proper params
+    auto version = ++file_versions_[file_path];
+    auto result = server->send_notification(
+        "textDocument/didOpen",
+        build_did_open_params(file_path, content, version));
     if (!result) {
         return result;
     }
@@ -173,7 +232,10 @@ Result<void> LSPServerManager::change_file(const std::string& file_path, const s
         return {};
     }
     
-    return server->send_notification("textDocument/didChange", std::any{}); // In real code, proper params
+    auto version = ++file_versions_[file_path];
+    return server->send_notification(
+        "textDocument/didChange",
+        build_did_change_params(file_path, content, version));
 }
 
 // Save file
@@ -183,7 +245,9 @@ Result<void> LSPServerManager::save_file(const std::string& file_path) {
         return {};
     }
     
-    return server->send_notification("textDocument/didSave", std::any{}); // In real code, proper params
+    return server->send_notification(
+        "textDocument/didSave",
+        build_text_document_params(file_path));
 }
 
 // Close file
@@ -195,11 +259,14 @@ Result<void> LSPServerManager::close_file(const std::string& file_path) {
     
     auto server = get_server_for_file(file_path);
     if (server && server->is_running) {
-        auto result = server->send_notification("textDocument/didClose", std::any{}); // In real code, proper params
+        auto result = server->send_notification(
+            "textDocument/didClose",
+            build_text_document_params(file_path));
         // Ignore error
     }
     
     opened_files_.erase(it);
+    file_versions_.erase(file_path);
     return {};
 }
 
@@ -215,6 +282,117 @@ std::string LSPServerManager::get_file_extension(const std::string& file_path) {
         return "";
     }
     return file_path.substr(dot_pos + 1);
+}
+
+std::string LSPServerManager::env_or(std::string_view name, std::string fallback) {
+    auto key = std::string(name);
+    if (const char* value = std::getenv(key.c_str()); value && *value) {
+        return value;
+    }
+    return fallback;
+}
+
+std::string LSPServerManager::uri_encode(std::string_view value) {
+    static constexpr char hex[] = "0123456789ABCDEF";
+    std::string out;
+    out.reserve(value.size());
+    for (unsigned char ch : value) {
+        bool safe =
+            (ch >= 'A' && ch <= 'Z') ||
+            (ch >= 'a' && ch <= 'z') ||
+            (ch >= '0' && ch <= '9') ||
+            ch == '-' || ch == '_' || ch == '.' || ch == '~' || ch == '/';
+        if (safe) {
+            out.push_back(static_cast<char>(ch));
+        } else {
+            out.push_back('%');
+            out.push_back(hex[(ch >> 4) & 0x0F]);
+            out.push_back(hex[ch & 0x0F]);
+        }
+    }
+    return out;
+}
+
+std::string LSPServerManager::path_to_file_uri(const std::string& file_path) {
+    auto absolute = std::filesystem::absolute(std::filesystem::path(file_path)).string();
+    return "file://" + uri_encode(absolute);
+}
+
+void LSPServerManager::register_server(
+    std::string name,
+    std::string command,
+    std::vector<std::string> args,
+    std::unordered_map<std::string, std::string> extension_to_language) {
+    ScopedLspServerConfig config;
+    config.command = std::move(command);
+    config.args = std::move(args);
+    config.extension_to_language = std::move(extension_to_language);
+
+    for (const auto& [extension, _language] : config.extension_to_language) {
+        extension_map_[extension].push_back(name);
+    }
+
+    auto instance = create_lsp_server_instance(name, config);
+    if (instance) {
+        servers_[name] = std::move(*instance);
+    }
+}
+
+std::string LSPServerManager::language_for_file(const std::string& file_path) const {
+    auto ext = get_file_extension(file_path);
+    auto map_it = extension_map_.find(ext);
+    if (map_it == extension_map_.end() || map_it->second.empty()) return ext;
+    auto server_it = servers_.find(map_it->second.front());
+    if (server_it == servers_.end()) return ext;
+    auto language_it = server_it->second->config.extension_to_language.find(ext);
+    return language_it == server_it->second->config.extension_to_language.end()
+        ? ext
+        : language_it->second;
+}
+
+std::string LSPServerManager::build_did_open_params(
+    const std::string& file_path,
+    const std::string& content,
+    int64_t version) const {
+    cc::utils::json::JsonMutDoc doc;
+    auto root = doc.object();
+    auto text_document = doc.object();
+    text_document.add("uri", doc.string(path_to_file_uri(file_path)));
+    text_document.add("languageId", doc.string(language_for_file(file_path)));
+    text_document.add("version", doc.number(version));
+    text_document.add("text", doc.string(content));
+    root.add("textDocument", text_document);
+    doc.set_root(root);
+    return doc.to_string();
+}
+
+std::string LSPServerManager::build_did_change_params(
+    const std::string& file_path,
+    const std::string& content,
+    int64_t version) const {
+    cc::utils::json::JsonMutDoc doc;
+    auto root = doc.object();
+    auto text_document = doc.object();
+    text_document.add("uri", doc.string(path_to_file_uri(file_path)));
+    text_document.add("version", doc.number(version));
+    root.add("textDocument", text_document);
+    auto changes = doc.array();
+    auto change = doc.object();
+    change.add("text", doc.string(content));
+    changes.append(change);
+    root.add("contentChanges", changes);
+    doc.set_root(root);
+    return doc.to_string();
+}
+
+std::string LSPServerManager::build_text_document_params(const std::string& file_path) const {
+    cc::utils::json::JsonMutDoc doc;
+    auto root = doc.object();
+    auto text_document = doc.object();
+    text_document.add("uri", doc.string(path_to_file_uri(file_path)));
+    root.add("textDocument", text_document);
+    doc.set_root(root);
+    return doc.to_string();
 }
 
 } // namespace cc::services::lsp

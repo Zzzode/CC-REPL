@@ -25,13 +25,13 @@ export module cc.plugins.marketplace;
 
 export namespace cc::plugins {
 
-// 插件状态
+
 enum class PluginStatus { available, installed, enabled, disabled, update_available, broken };
 
-// 插件来源
+
 enum class PluginSource { official_marketplace, community, local, git };
 
-// 语义版本
+
 struct SemVer {
     int major{0}, minor{0}, patch{0};
     std::string prerelease;
@@ -49,14 +49,14 @@ struct SemVer {
     auto operator<=>(const SemVer&) const = default;
 };
 
-// 插件元数据
+
 struct PluginMeta {
-    std::string id;               // 唯一标识 (e.g., "org/plugin-name")
-    std::string name;             // 显示名称
+    std::string id;
+    std::string name;
     std::string description;
     std::string author;
     SemVer version;
-    SemVer min_host_version;      // 最低宿主版本要求
+    SemVer min_host_version;
     PluginSource source{PluginSource::official_marketplace};
     std::vector<std::string> tags;
     std::string homepage_url;
@@ -66,7 +66,7 @@ struct PluginMeta {
     std::chrono::system_clock::time_point published_at;
 };
 
-// 已安装插件信息
+
 struct InstalledPlugin {
     PluginMeta meta;
     PluginStatus status{PluginStatus::installed};
@@ -76,14 +76,14 @@ struct InstalledPlugin {
     std::unordered_map<std::string, std::string> settings;
 };
 
-// 安装选项
+
 struct InstallOptions {
     bool auto_enable{true};
     bool trust_unverified{false};
     std::optional<SemVer> specific_version;
 };
 
-// 市场搜索
+
 struct MarketplaceQuery {
     std::string keyword;
     std::optional<PluginSource> source_filter;
@@ -93,7 +93,7 @@ struct MarketplaceQuery {
     size_t offset{0};
 };
 
-// 安装结果
+
 struct InstallResult {
     bool success;
     std::string plugin_id;
@@ -101,18 +101,18 @@ struct InstallResult {
     std::chrono::milliseconds elapsed;
 };
 
-// 插件策略 (安全)
+
 struct PluginPolicy {
     bool allow_network{true};
     bool allow_filesystem{true};
     bool allow_shell{false};
-    std::vector<std::string> allowed_paths;       // glob 模式
+    std::vector<std::string> allowed_paths;
     std::vector<std::string> blocked_commands;
     size_t max_memory_mb{256};
     std::chrono::seconds max_execution_time{30};
 };
 
-// 信任级别
+
 enum class TrustLevel { untrusted, community, verified, official };
 
 // ─── HTTP Client Helpers ──────────────────────────────────────
@@ -256,7 +256,7 @@ inline std::optional<PluginMeta> parse_manifest(const std::filesystem::path& man
 
 } // namespace detail
 
-// ─── 插件市场客户端 ────────────────────────────────────────
+
 
 class MarketplaceClient {
     std::string api_host_{"marketplace.cc-repl.dev"};
@@ -328,7 +328,7 @@ public:
         return plugins;
     }
 
-    // 搜索插件
+
     [[nodiscard]] auto search(const MarketplaceQuery& query) -> std::vector<PluginMeta> {
         auto all = get_featured();
         if (query.keyword.empty()) return all;
@@ -346,7 +346,7 @@ public:
         return filtered;
     }
     
-    // 获取插件详情
+
     [[nodiscard]] auto get_details(std::string_view plugin_id) -> std::optional<PluginMeta> {
         for (const auto& plugin : get_featured()) {
             if (plugin.id == plugin_id) return plugin;
@@ -354,7 +354,7 @@ public:
         return std::nullopt;
     }
     
-    // 获取精选列表 (with cache)
+
     [[nodiscard]] auto get_featured() -> std::vector<PluginMeta> {
         auto now = std::chrono::steady_clock::now();
         if (!cache_.empty() && (now - cache_time_) < CACHE_TTL) {
@@ -376,7 +376,7 @@ public:
         }};
     }
     
-    // 下载插件归档
+
     [[nodiscard]] auto download_archive(std::string_view plugin_id, const SemVer& version)
         -> std::expected<std::string, std::string> {
         auto path = api_base_path_ + "/plugins/" + std::string(plugin_id) +
@@ -391,7 +391,7 @@ public:
         return resp.body;
     }
 
-    // 获取插件期望的校验和
+
     [[nodiscard]] auto get_checksum(std::string_view plugin_id, const SemVer& version)
         -> std::optional<std::string> {
         auto path = api_base_path_ + "/plugins/" + std::string(plugin_id) +
@@ -403,7 +403,7 @@ public:
         return (nl != std::string::npos) ? resp.body.substr(0, nl) : resp.body;
     }
 
-    // 检查更新
+
     [[nodiscard]] auto check_updates(const std::vector<std::pair<std::string, SemVer>>& installed) 
         -> std::vector<std::pair<std::string, SemVer>> {
         std::vector<std::pair<std::string, SemVer>> updates;
@@ -420,7 +420,7 @@ public:
     }
 };
 
-// ─── 插件安装管理器 ────────────────────────────────────────
+
 
 class PluginInstallManager {
     std::filesystem::path plugins_dir_;
@@ -432,24 +432,24 @@ public:
         std::filesystem::create_directories(plugins_dir_);
     }
     
-    // 安装插件
+
     [[nodiscard]] auto install(std::string_view plugin_id, InstallOptions opts = {}) 
         -> std::expected<InstallResult, std::string> {
         auto start = std::chrono::steady_clock::now();
         
-        // 1. 从市场获取元数据
+
         auto meta = marketplace_.get_details(plugin_id);
         if (!meta) return std::unexpected("插件未找到: " + std::string(plugin_id));
         
         auto target_version = opts.specific_version.value_or(meta->version);
         
-        // 2. 下载归档
+
         auto archive_result = marketplace_.download_archive(plugin_id, target_version);
         if (!archive_result) {
             return std::unexpected("下载失败: " + archive_result.error());
         }
         
-        // 3. 验证完整性 (checksum)
+
         auto expected_checksum = marketplace_.get_checksum(plugin_id, target_version);
         if (expected_checksum.has_value()) {
             auto actual_checksum = detail::sha256_hex(*archive_result);
@@ -460,7 +460,7 @@ public:
             }
         }
         
-        // 4. 解压到安装目录
+
         auto install_path = plugins_dir_ / std::string(plugin_id);
         if (std::filesystem::exists(install_path)) {
             std::filesystem::remove_all(install_path);
@@ -482,7 +482,7 @@ public:
             }
         }
         
-        // 6. 注册
+
         InstalledPlugin p{*meta, opts.auto_enable ? PluginStatus::enabled : PluginStatus::installed,
                          install_path, std::chrono::system_clock::now()};
         
@@ -495,7 +495,7 @@ public:
         return InstallResult{true, std::string(plugin_id), std::nullopt, elapsed};
     }
     
-    // 卸载插件
+
     [[nodiscard]] auto uninstall(std::string_view plugin_id) -> std::expected<void, std::string> {
         auto it = std::find_if(installed_.begin(), installed_.end(),
             [&](const auto& p) { return p.meta.id == plugin_id; });
@@ -505,16 +505,16 @@ public:
         return {};
     }
     
-    // 更新插件
+
     [[nodiscard]] auto update(std::string_view plugin_id) -> std::expected<InstallResult, std::string> {
         auto it = std::find_if(installed_.begin(), installed_.end(),
             [&](const auto& p) { return p.meta.id == plugin_id; });
         if (it == installed_.end()) return std::unexpected("插件未安装");
-        // 卸载旧版 + 安装新版
+
         return install(plugin_id, {.auto_enable = (it->status == PluginStatus::enabled)});
     }
     
-    // 批量更新
+
     [[nodiscard]] auto update_all() -> std::vector<InstallResult> {
         std::vector<InstallResult> results;
         for (const auto& p : installed_) {
@@ -525,21 +525,21 @@ public:
         return results;
     }
     
-    // 启用/禁用
+
     void enable(std::string_view id) { set_status(id, PluginStatus::enabled); }
     void disable(std::string_view id) { set_status(id, PluginStatus::disabled); }
     
-    // 获取已安装列表
+
     [[nodiscard]] auto get_installed() const -> const std::vector<InstalledPlugin>& { return installed_; }
     
-    // 获取需要更新的插件
+
     [[nodiscard]] auto get_updatable() const -> std::vector<const InstalledPlugin*> {
         std::vector<const InstalledPlugin*> result;
         for (const auto& p : installed_) if (p.available_update) result.push_back(&p);
         return result;
     }
     
-    // 检查信任级别
+
     [[nodiscard]] static auto get_trust_level(const PluginMeta& meta) -> TrustLevel {
         if (meta.source == PluginSource::official_marketplace) return TrustLevel::official;
         if (meta.source == PluginSource::community && meta.download_count > 1000) return TrustLevel::verified;
@@ -547,13 +547,13 @@ public:
         return TrustLevel::untrusted;
     }
     
-    // 获取插件策略
+
     [[nodiscard]] auto get_policy(std::string_view plugin_id) const -> PluginPolicy {
         (void)plugin_id;
-        return PluginPolicy{};  // 默认策略
+        return PluginPolicy{};
     }
     
-    // 扫描磁盘已安装插件
+
     void scan_installed() {
         if (!std::filesystem::exists(plugins_dir_)) return;
         installed_.clear();

@@ -96,7 +96,7 @@ namespace detail {
 
 } // namespace detail
 
-// 桥接传输类型
+
 enum class TransportType { websocket, stdio, http_polling };
 
 namespace detail {
@@ -110,7 +110,7 @@ namespace detail {
 
 } // namespace detail
 
-// 桥接配置
+
 struct BridgeConfig {
     TransportType transport{TransportType::websocket};
     std::string host{"localhost"};
@@ -124,38 +124,38 @@ struct BridgeConfig {
     bool auto_connect{true};
 };
 
-// 桥接端点
+
 struct BridgeEndpoint {
     std::string url;
     TransportType transport;
     bool requires_auth{false};
 };
 
-// 轮询配置 (对应 pollConfig.ts + pollConfigDefaults.ts)
+
 struct PollConfig {
     std::chrono::milliseconds interval{1000};
     std::chrono::milliseconds long_poll_timeout{30'000};
     size_t max_batch_size{50};
-    bool adaptive_interval{true};  // 根据活动自动调整
+    bool adaptive_interval{true};
     std::chrono::milliseconds min_interval{200};
     std::chrono::milliseconds max_interval{5000};
 };
 
-// Env-less 配置 (无环境变量时的回退)
+
 struct EnvLessBridgeConfig {
     std::string config_file_path;  // ~/.cc-repl/bridge.json
     bool use_system_keychain{true};
 };
 
-// 配置加载器
+
 class BridgeConfigLoader {
     BridgeConfig config_;
     PollConfig poll_config_;
     
 public:
-    // 从环境变量和配置文件加载
+
     [[nodiscard]] auto load() -> std::expected<BridgeConfig, std::string> {
-        // 检测环境变量: CC_BRIDGE_PORT, CC_BRIDGE_HOST, CC_BRIDGE_TOKEN
+
         if (auto* port = std::getenv("CC_BRIDGE_PORT"))
             config_.port = static_cast<uint16_t>(std::stoi(port));
         if (auto* host = std::getenv("CC_BRIDGE_HOST"))
@@ -165,7 +165,7 @@ public:
         return config_;
     }
     
-    // 从 JSON 加载
+
     [[nodiscard]] auto load_from_file(std::string_view path) -> std::expected<BridgeConfig, std::string> {
         auto content = detail::read_text_file(path);
         if (!content) return std::unexpected(content.error());

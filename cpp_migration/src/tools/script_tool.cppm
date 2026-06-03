@@ -18,7 +18,7 @@ export module cc.tools.script;
 
 export namespace cc::tools {
 
-// 支持的脚本语言
+
 enum class ScriptLanguage {
     Python,
     JavaScript,
@@ -34,7 +34,7 @@ constexpr auto language_name(ScriptLanguage lang) -> std::string_view {
     }
 }
 
-// 脚本执行错误类型
+
 enum class ScriptError {
     EmptyScript,
     UnsupportedLanguage,
@@ -62,17 +62,17 @@ constexpr auto format_error(ScriptError err) -> std::string_view {
     }
 }
 
-// 沙箱资源限制配置
+
 struct SandboxLimits {
-    size_t max_memory_mb{256};         // 最大内存使用 (MB)
-    std::chrono::seconds timeout{30};  // 执行超时
-    size_t max_output_bytes{1024 * 512}; // 最大输出大小
-    bool allow_network{false};         // 是否允许网络访问
-    bool allow_filesystem{false};      // 是否允许文件系统操作
-    size_t max_processes{1};           // 最大子进程数
+    size_t max_memory_mb{256};
+    std::chrono::seconds timeout{30};
+    size_t max_output_bytes{1024 * 512};
+    bool allow_network{false};
+    bool allow_filesystem{false};
+    size_t max_processes{1};
 };
 
-// 诊断消息
+
 struct Diagnostic {
     enum class Severity { Error, Warning, Info, Hint };
 
@@ -80,19 +80,19 @@ struct Diagnostic {
     size_t line;
     size_t column;
     std::string message;
-    std::optional<std::string> source;  // "type-checker", "linter" 等
+    std::optional<std::string> source;
 };
 
-// 脚本执行请求
+
 struct ScriptRequest {
     std::string code;
     ScriptLanguage language;
     SandboxLimits limits;
-    bool enable_type_check{false};     // 启用类型检查 (Python/TS)
+    bool enable_type_check{false};
     std::optional<std::string> stdin_data;
 };
 
-// 脚本执行结果
+
 struct ScriptResult {
     int exit_code{0};
     std::string stdout_output;
@@ -103,7 +103,7 @@ struct ScriptResult {
     size_t memory_used_bytes{0};
 };
 
-// 获取解释器路径
+
 auto resolve_interpreter(ScriptLanguage lang) -> std::expected<std::string, ScriptError> {
     switch (lang) {
         case ScriptLanguage::Python:     return std::string{"python3"};
@@ -113,7 +113,7 @@ auto resolve_interpreter(ScriptLanguage lang) -> std::expected<std::string, Scri
     }
 }
 
-// 获取语言对应的文件扩展名
+
 constexpr auto script_extension(ScriptLanguage lang) -> std::string_view {
     switch (lang) {
         case ScriptLanguage::Python:     return ".py";
@@ -123,7 +123,7 @@ constexpr auto script_extension(ScriptLanguage lang) -> std::string_view {
     }
 }
 
-// ScriptTool - 沙箱化脚本执行
+
 class ScriptTool {
 public:
     static constexpr std::string_view name = "script";
@@ -144,7 +144,7 @@ public:
         auto interpreter = resolve_interpreter(request.language);
         auto start_time = std::chrono::steady_clock::now();
 
-        // 将脚本写入临时文件
+
         auto tmp_path = std::filesystem::temp_directory_path() /
             std::format("cc_script_{}{}", std::chrono::steady_clock::now().time_since_epoch().count(),
                         script_extension(request.language));
@@ -155,10 +155,10 @@ public:
             out << request.code;
         }
 
-        // 构建沙箱执行命令 (利用 ulimit 限制资源)
+
         auto cmd = build_sandboxed_command(*interpreter, tmp_path, request.limits);
 
-        // 执行脚本
+
         FILE* pipe = ::popen(cmd.c_str(), "r");
         if (!pipe) {
             std::filesystem::remove(tmp_path);
@@ -173,7 +173,7 @@ public:
         }
         int status = ::pclose(pipe);
 
-        // 清理临时文件
+
         std::filesystem::remove(tmp_path);
 
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -188,7 +188,7 @@ public:
             .timed_out = timed_out,
         };
 
-        // 如果启用类型检查，运行静态分析
+
         if (request.enable_type_check) {
             result.diagnostics = run_type_check(request.language, request.code);
         }
@@ -214,11 +214,11 @@ public:
     }
 
 private:
-    // 构建带资源限制的执行命令
+
     auto build_sandboxed_command(std::string_view interpreter,
                                  const std::filesystem::path& script_path,
                                  const SandboxLimits& limits) const -> std::string {
-        // 使用 ulimit 设置内存和时间限制
+
         return std::format(
             "ulimit -v {} -t {} 2>/dev/null; {} {} 2>&1",
             limits.max_memory_mb * 1024,       // KB for ulimit
@@ -228,13 +228,13 @@ private:
         );
     }
 
-    // 执行类型检查 (占位实现)
+
     auto run_type_check(ScriptLanguage lang, std::string_view code) const
         -> std::vector<Diagnostic>
     {
         std::vector<Diagnostic> diags;
-        // 运行时会调用 mypy/tsc 等外部工具
-        // 这里返回空诊断列表
+
+
         return diags;
     }
 };

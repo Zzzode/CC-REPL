@@ -63,7 +63,7 @@ public:
             .aliases = {},
             .args = {CommandArg{.name = "action", .description = "list|create|edit|delete",
                                .type = ArgType::Choice, .required = false,
-                               .choices = {{"list", "create", "edit", "delete"}}}},
+                               .choices = {"list", "create", "edit", "delete"}}},
             .hidden = false,
             .category = "agents",
         };
@@ -198,7 +198,7 @@ public:
             .aliases = {},
             .args = {CommandArg{.name = "action", .description = "list|add|remove",
                                .type = ArgType::Choice, .required = false,
-                               .choices = {{"list", "add", "remove"}}}},
+                               .choices = {"list", "add", "remove"}}},
             .hidden = false,
             .category = "config",
         };
@@ -254,7 +254,7 @@ public:
             .aliases = {"mem"},
             .args = {CommandArg{.name = "action", .description = "list|add|remove|clear",
                                .type = ArgType::Choice, .required = false,
-                               .choices = {{"list", "add", "remove", "clear"}}}},
+                               .choices = {"list", "add", "remove", "clear"}}},
             .hidden = false,
             .category = "session",
         };
@@ -443,7 +443,7 @@ public:
             .aliases = {},
             .args = {CommandArg{.name = "level", .description = "low|medium|high",
                                .type = ArgType::Choice, .required = false,
-                               .choices = {{"low", "medium", "high"}}}},
+                               .choices = {"low", "medium", "high"}}},
             .hidden = false,
             .category = "model",
         };
@@ -472,7 +472,7 @@ public:
             .aliases = {"os"},
             .args = {CommandArg{.name = "style", .description = "concise|normal|verbose|json",
                                .type = ArgType::Choice, .required = false,
-                               .choices = {{"concise", "normal", "verbose", "json"}}}},
+                               .choices = {"concise", "normal", "verbose", "json"}}},
             .hidden = false,
             .category = "config",
         };
@@ -501,7 +501,7 @@ public:
             .aliases = {"keys", "kb"},
             .args = {CommandArg{.name = "action", .description = "list|set|reset",
                                .type = ArgType::Choice, .required = false,
-                               .choices = {{"list", "set", "reset"}}}},
+                               .choices = {"list", "set", "reset"}}},
             .hidden = false,
             .category = "config",
         };
@@ -530,7 +530,7 @@ public:
             .aliases = {"colours"},
             .args = {CommandArg{.name = "mode", .description = "auto|dark|light|none",
                                .type = ArgType::Choice, .required = false,
-                               .choices = {{"auto", "dark", "light", "none"}}}},
+                               .choices = {"auto", "dark", "light", "none"}}},
             .hidden = false,
             .category = "config",
         };
@@ -799,7 +799,7 @@ public:
             .aliases = {"privacy"},
             .args = {CommandArg{.name = "action", .description = "show|set",
                                .type = ArgType::Choice, .required = false,
-                               .choices = {{"show", "set"}}}},
+                               .choices = {"show", "set"}}},
             .hidden = false,
             .category = "config",
         };

@@ -1,5 +1,5 @@
 // C++23 Module: CLI transport layer
-// 传输层抽象：支持 Stdio/SSE/WebSocket 多种传输方式
+
 module;
 #include <concepts>
 #include <cstddef>
@@ -17,7 +17,7 @@ export module cc.cli.transports;
 
 export namespace cc::cli::transports {
 
-// 传输状态
+
 enum class TransportState : uint8_t {
     Disconnected,
     Connecting,
@@ -26,37 +26,37 @@ enum class TransportState : uint8_t {
     Closed
 };
 
-// 传输类型枚举
+
 enum class TransportType : uint8_t {
-    Stdio,      // 标准输入输出
+    Stdio,
     Sse,        // Server-Sent Events
-    WebSocket,  // WebSocket 双向通信
-    Hybrid      // 自动选择最佳传输
+    WebSocket,
+    Hybrid
 };
 
-// 传输配置
+
 struct TransportConfig {
     TransportType type{TransportType::Stdio};
-    std::string url;            // SSE/WebSocket 的 URL
-    std::string auth_token;     // 认证 token
-    uint32_t timeout_ms{30000}; // 超时时间 (毫秒)
-    uint32_t reconnect_delay_ms{1000};  // 重连延迟
-    uint32_t max_reconnect_attempts{5}; // 最大重连次数
+    std::string url;
+    std::string auth_token;
+    uint32_t timeout_ms{30000};
+    uint32_t reconnect_delay_ms{1000};
+    uint32_t max_reconnect_attempts{5};
     bool auto_reconnect{true};
 };
 
-// 接收到的消息
+
 struct Message {
-    std::string id;       // 消息 ID
+    std::string id;
     std::string method;   // JSON-RPC method
-    std::string payload;  // JSON 内容
-    bool is_notification{false};  // 是否为通知
+    std::string payload;
+    bool is_notification{false};
 
     [[nodiscard]] bool is_response() const { return !id.empty() && method.empty(); }
     [[nodiscard]] bool is_request() const { return !method.empty(); }
 };
 
-// Transport concept: 所有传输实现必须满足的接口约束
+
 template<typename T>
 concept Transport = requires(T t, std::string_view data, Message msg) {
     { t.send(data) } -> std::same_as<std::expected<void, std::string>>;
@@ -66,27 +66,27 @@ concept Transport = requires(T t, std::string_view data, Message msg) {
     { t.is_connected() } -> std::same_as<bool>;
 };
 
-// Stdio 传输：通过 stdin/stdout 的 JSON-RPC
+
 class StdioTransport {
 public:
     explicit StdioTransport(TransportConfig config = {})
         : config_(std::move(config)) {
-        state_ = TransportState::Connected;  // stdio 始终可用
+        state_ = TransportState::Connected;
     }
 
-    // 发送数据到 stdout (Content-Length 协议)
+
     [[nodiscard]] std::expected<void, std::string> send(std::string_view data) {
         if (state_ != TransportState::Connected) {
             return std::unexpected("Transport not connected");
         }
-        // 格式: Content-Length: N\r\n\r\n{payload}
+
         auto frame = std::format("Content-Length: {}\r\n\r\n{}", data.size(), data);
-        // 实际写入 stdout (libuv uv_write)
+
         output_buffer_.push_back(std::string(frame));
         return {};
     }
 
-    // 从 stdin 接收消息
+
     [[nodiscard]] std::expected<Message, std::string> receive() {
         if (state_ != TransportState::Connected) {
             return std::unexpected("Transport not connected");
@@ -103,7 +103,7 @@ public:
     [[nodiscard]] TransportState state() const { return state_; }
     [[nodiscard]] bool is_connected() const { return state_ == TransportState::Connected; }
 
-    // 供外部 IO loop 调用：将原始输入数据解析为消息
+
     void feed_input(std::string_view raw_data) {
         read_buffer_ += raw_data;
         parse_messages();
@@ -116,13 +116,13 @@ private:
     std::vector<Message> input_queue_;
     std::vector<std::string> output_buffer_;
 
-    // 解析 Content-Length 协议帧
+
     void parse_messages() {
         while (true) {
             auto header_end = read_buffer_.find("\r\n\r\n");
             if (header_end == std::string::npos) break;
 
-            // 解析 Content-Length
+
             auto header = std::string_view(read_buffer_).substr(0, header_end);
             auto cl_pos = header.find("Content-Length: ");
             if (cl_pos == std::string_view::npos) {
@@ -145,23 +145,23 @@ private:
     }
 };
 
-// SSE 传输：Server-Sent Events over HTTP
+
 class SseTransport {
 public:
     explicit SseTransport(TransportConfig config)
         : config_(std::move(config)) {}
 
-    // SSE 是单向的，发送通过独立的 POST 请求
+
     [[nodiscard]] std::expected<void, std::string> send(std::string_view data) {
         if (!is_connected()) {
             return std::unexpected("SSE transport not connected");
         }
-        // 通过 HTTP POST 发送到 endpoint
+
         pending_sends_.emplace_back(data);
         return {};
     }
 
-    // 从 SSE 事件流接收
+
     [[nodiscard]] std::expected<Message, std::string> receive() {
         if (!is_connected()) {
             return std::unexpected("SSE transport not connected");
@@ -182,20 +182,20 @@ public:
     [[nodiscard]] TransportState state() const { return state_; }
     [[nodiscard]] bool is_connected() const { return state_ == TransportState::Connected; }
 
-    // 连接到 SSE endpoint
+
     [[nodiscard]] std::expected<void, std::string> connect() {
         if (config_.url.empty()) {
             return std::unexpected("No URL configured for SSE transport");
         }
         state_ = TransportState::Connecting;
-        // libuv HTTP 连接逻辑
+
         state_ = TransportState::Connected;
         return {};
     }
 
-    // 供外部 IO loop 调用：解析 SSE 事件
+
     void feed_event(std::string_view event_data) {
-        // SSE 格式: "data: {...}\n\n"
+
         if (event_data.starts_with("data: ")) {
             Message msg;
             msg.payload = std::string(event_data.substr(6));
@@ -210,7 +210,7 @@ private:
     std::vector<std::string> pending_sends_;
 };
 
-// WebSocket 传输：双向通信
+
 class WebSocketTransport {
 public:
     explicit WebSocketTransport(TransportConfig config)
@@ -220,7 +220,7 @@ public:
         if (!is_connected()) {
             return std::unexpected("WebSocket not connected");
         }
-        // 构建 WebSocket 帧并发送
+
         send_queue_.emplace_back(data);
         return {};
     }
@@ -238,25 +238,25 @@ public:
     }
 
     void close() {
-        // 发送 WebSocket close frame
+
         state_ = TransportState::Closed;
     }
 
     [[nodiscard]] TransportState state() const { return state_; }
     [[nodiscard]] bool is_connected() const { return state_ == TransportState::Connected; }
 
-    // 连接
+
     [[nodiscard]] std::expected<void, std::string> connect() {
         if (config_.url.empty()) {
             return std::unexpected("No URL configured for WebSocket");
         }
         state_ = TransportState::Connecting;
-        // WebSocket 握手 (libuv + HTTP upgrade)
+
         state_ = TransportState::Connected;
         return {};
     }
 
-    // 供外部 IO loop 调用
+
     void feed_frame(std::string_view frame_data) {
         Message msg;
         msg.payload = std::string(frame_data);
@@ -270,7 +270,7 @@ private:
     std::vector<Message> recv_queue_;
 };
 
-// 混合传输：自动选择最佳传输方式
+
 class HybridTransport {
 public:
     explicit HybridTransport(TransportConfig config)
@@ -306,7 +306,7 @@ private:
     std::variant<StdioTransport, SseTransport, WebSocketTransport> active_{
         StdioTransport{}};
 
-    // 根据配置选择传输方式
+
     void select_transport() {
         switch (config_.type) {
             case TransportType::Stdio:
@@ -322,7 +322,7 @@ private:
                 active_type_ = TransportType::WebSocket;
                 break;
             case TransportType::Hybrid:
-                // 自动检测: 有 URL 则用 WebSocket，否则 Stdio
+
                 if (!config_.url.empty()) {
                     active_ = WebSocketTransport(config_);
                     active_type_ = TransportType::WebSocket;
@@ -335,7 +335,7 @@ private:
     }
 };
 
-// 验证 concept 约束
+
 static_assert(Transport<StdioTransport>);
 static_assert(Transport<SseTransport>);
 static_assert(Transport<WebSocketTransport>);

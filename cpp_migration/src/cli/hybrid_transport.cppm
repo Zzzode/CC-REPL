@@ -6,11 +6,14 @@ module;
 #include <memory>
 #include <map>
 #include <mutex>
+#include <format>
+#include <unordered_map>
 
 export module cc.cli.hybrid_transport;
 
 import cc.cli.sse_transport;
 import cc.cli.websocket_transport;
+import cc.utils.http;
 
 export namespace cc::cli {
 
@@ -46,9 +49,20 @@ public:
         }
 
         if (transport_type_ == "sse") {
-            // SSE is unidirectional; sending requires a separate HTTP POST
-            // In production: POST to the endpoint with the message body
-            return std::unexpected("SSE transport does not support direct send; use HTTP POST");
+            const auto endpoint = sse_send_url_.empty() ? url_ : sse_send_url_;
+            cc::utils::HttpClient client;
+            auto response = client.post(endpoint, message, std::unordered_map<std::string, std::string>{
+                {"Content-Type", "application/json"},
+            });
+            if (!response) {
+                return std::unexpected(response.error().message);
+            }
+            if (!response->is_ok()) {
+                return std::unexpected(std::format(
+                    "SSE send POST failed with status {}: {}",
+                    response->status, response->body));
+            }
+            return {};
         }
 
         return std::unexpected("No transport connected");
@@ -72,6 +86,11 @@ public:
     // Get the active transport type
     std::string get_transport_type() const {
         return transport_type_;
+    }
+
+    void set_sse_send_endpoint(std::string endpoint) {
+        std::lock_guard lock(mutex_);
+        sse_send_url_ = std::move(endpoint);
     }
 
     // Reconnect using the same URL and transport type
@@ -101,6 +120,7 @@ public:
 
 private:
     std::string url_;
+    std::string sse_send_url_;
     std::string transport_type_;
     std::unique_ptr<SSETransport> sse_transport_;
     std::unique_ptr<WebSocketTransport> ws_transport_;

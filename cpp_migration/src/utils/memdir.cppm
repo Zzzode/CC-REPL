@@ -19,10 +19,10 @@ export module cc.utils.memdir;
 
 export namespace cc::utils {
 
-// 记忆作用域
+
 enum class MemoryScope { global, project, session };
 
-// 记忆条目
+
 struct MemoryEntry {
     std::string id;
     std::string content;
@@ -34,14 +34,14 @@ struct MemoryEntry {
     double relevance_score{1.0};
 };
 
-// Memdir 配置
+
 struct MemdirConfig {
     std::filesystem::path global_dir;        // ~/.cc-repl/memory/
-    std::filesystem::path project_dir;       // .cc-repl/memory/ (项目级)
+    std::filesystem::path project_dir;
     size_t max_memories_per_scope{500};
 };
 
-// 记忆目录系统 — 组织和检索持久化上下文
+
 class Memdir {
     MemdirConfig config_;
 
@@ -50,10 +50,10 @@ public:
         std::filesystem::create_directories(config_.global_dir);
     }
 
-    // 使用默认路径
+
     Memdir() : Memdir(get_default_config()) {}
 
-    // 添加记忆
+
     [[nodiscard]] auto add_memory(std::string content, MemoryScope scope,
         std::vector<std::string> tags = {}) -> std::string {
         auto id = generate_id();
@@ -67,11 +67,11 @@ public:
         return id;
     }
 
-    // 查找相关记忆 (基于关键词匹配)
+
     [[nodiscard]] auto find_relevant(std::string_view query, MemoryScope scope,
         size_t limit = 10) const -> std::vector<MemoryEntry> {
         auto all = get_all(scope);
-        // 简单相关性: 关键词出现次数
+
         for (auto& entry : all) {
             entry.relevance_score = compute_relevance(entry, query);
         }
@@ -81,12 +81,12 @@ public:
         return all;
     }
 
-    // 获取指定 scope 的所有记忆
+
     [[nodiscard]] auto get_all(MemoryScope scope) const -> std::vector<MemoryEntry> {
         return scan_memory_files(scope_dir(scope));
     }
 
-    // 删除记忆
+
     void remove(std::string_view id) {
         for (auto scope : {MemoryScope::global, MemoryScope::project, MemoryScope::session}) {
             auto file = scope_dir(scope) / (std::string(id) + ".md");
@@ -95,7 +95,7 @@ public:
         }
     }
 
-    // 更新访问信息
+
     void update_access(std::string_view id) {
         for (auto scope : {MemoryScope::global, MemoryScope::project, MemoryScope::session}) {
             auto file = scope_dir(scope) / (std::string(id) + ".md");
@@ -111,9 +111,9 @@ public:
         }
     }
 
-    // 读取项目上下文 (CLAUDE.md)
+
     [[nodiscard]] auto get_project_context(const std::filesystem::path& cwd) const -> std::string {
-        // 查找 CLAUDE.md
+
         auto claude_md = cwd / "CLAUDE.md";
         if (std::filesystem::exists(claude_md)) {
             std::ifstream in(claude_md);
@@ -121,13 +121,13 @@ public:
             buffer << in.rdbuf();
             return buffer.str();
         }
-        // 向上查找
+
         auto parent = cwd.parent_path();
         if (parent != cwd) return get_project_context(parent);
         return "";
     }
 
-    // 扫描记忆目录
+
     [[nodiscard]] auto scan_memory_files(const std::filesystem::path& dir) const
         -> std::vector<MemoryEntry> {
         std::vector<MemoryEntry> entries;
@@ -141,7 +141,7 @@ public:
         return entries;
     }
 
-    // 清除过期记忆
+
     void prune_stale(size_t max_age_days = 90) {
         auto cutoff = std::chrono::system_clock::now() - std::chrono::hours(24 * max_age_days);
         for (auto scope : {MemoryScope::global, MemoryScope::project, MemoryScope::session}) {
@@ -153,7 +153,7 @@ public:
         }
     }
 
-    // 获取团队记忆
+
     [[nodiscard]] auto get_team_memories(const std::filesystem::path& team_dir) const
         -> std::vector<MemoryEntry> {
         return scan_memory_files(team_dir);
@@ -298,12 +298,12 @@ private:
     static auto compute_relevance(const MemoryEntry& entry, std::string_view query) -> double {
         if (query.empty()) return 1.0;
         double score = 0.0;
-        // 简单关键词匹配
+
         if (entry.content.find(query) != std::string::npos) score += 5.0;
         for (const auto& tag : entry.tags) {
             if (tag.find(query) != std::string::npos) score += 3.0;
         }
-        // 时间衰减
+
         auto age = std::chrono::system_clock::now() - entry.last_accessed;
         auto days = std::chrono::duration_cast<std::chrono::hours>(age).count() / 24;
         score *= 1.0 / (1.0 + days * 0.01);

@@ -35,6 +35,7 @@ struct MailboxState {
 };
 
 using MessageCallback = std::function<void(const MailboxMessage&)>;
+using MessageSender = std::function<std::expected<void, std::string>(const MailboxMessage&)>;
 
 namespace detail {
 
@@ -43,6 +44,7 @@ struct MailboxInternalState {
     std::deque<MailboxMessage> inbox;
     std::deque<MailboxMessage> outbox;
     std::vector<MessageCallback> on_receive_callbacks;
+    MessageSender sender;
     std::string agent_id;
     std::atomic<bool> connected{false};
     std::chrono::system_clock::time_point connected_since;
@@ -63,8 +65,14 @@ inline auto generate_message_id() -> std::string {
 
 } // namespace detail
 
+/// Configure the transport used for outbound mailbox messages.
+inline void set_message_sender(MessageSender sender) {
+    auto& state = detail::get_state();
+    std::lock_guard lock(state.mutex);
+    state.sender = std::move(sender);
+}
+
 /// Connect to the mailbox system with the given agent identity.
-/// In production: establishes a pub/sub connection for inter-agent messaging.
 inline std::expected<void, std::string> connect_mailbox(std::string_view agent_id) {
     if (agent_id.empty()) {
         return std::unexpected(std::string{"agent_id must not be empty"});
@@ -72,6 +80,10 @@ inline std::expected<void, std::string> connect_mailbox(std::string_view agent_i
 
     auto& state = detail::get_state();
     std::lock_guard lock(state.mutex);
+
+    if (!state.sender) {
+        return std::unexpected(std::string{"Mailbox message sender is not configured"});
+    }
 
     if (state.connected.load()) {
         if (state.agent_id == agent_id) {
@@ -83,8 +95,6 @@ inline std::expected<void, std::string> connect_mailbox(std::string_view agent_i
     state.agent_id = std::string{agent_id};
     state.connected.store(true);
     state.connected_since = std::chrono::system_clock::now();
-
-    // In production: register with the bridge message bus
     return {};
 }
 
@@ -99,60 +109,79 @@ inline void disconnect_mailbox() {
 /// Send a message through the mailbox.
 inline std::expected<std::string, std::string> send_message(MailboxMessage msg) {
     auto& state = detail::get_state();
-    std::lock_guard lock(state.mutex);
+    MessageSender sender;
 
-    if (!state.connected.load()) {
-        return std::unexpected(std::string{"Mailbox not connected"});
+    {
+        std::lock_guard lock(state.mutex);
+
+        if (!state.connected.load()) {
+            return std::unexpected(std::string{"Mailbox not connected"});
+        }
+
+        if (msg.to.empty()) {
+            return std::unexpected(std::string{"Message recipient (to) must not be empty"});
+        }
+
+        msg.id = detail::generate_message_id();
+        msg.from = state.agent_id;
+        msg.sent_at = std::chrono::system_clock::now();
+        msg.delivered = false;
+
+        if (!state.sender) {
+            return std::unexpected(std::string{"Mailbox message sender is not configured"});
+        }
+        sender = state.sender;
+
+        // Enforce outbox size limit
+        while (static_cast<int>(state.outbox.size()) >= detail::MailboxInternalState::MAX_MESSAGES) {
+            state.outbox.pop_front();
+        }
+
+        state.outbox.push_back(msg);
     }
 
-    if (msg.to.empty()) {
-        return std::unexpected(std::string{"Message recipient (to) must not be empty"});
+    const auto id = msg.id;
+    auto delivered = sender(msg);
+    if (!delivered) return std::unexpected(delivered.error());
+
+    {
+        std::lock_guard lock(state.mutex);
+        if (!state.outbox.empty() && state.outbox.back().id == id) {
+            state.outbox.back().delivered = true;
+        }
     }
-
-    // Assign ID and metadata
-    msg.id = detail::generate_message_id();
-    msg.from = state.agent_id;
-    msg.sent_at = std::chrono::system_clock::now();
-    msg.delivered = false;
-
-    auto id = msg.id;
-
-    // Enforce outbox size limit
-    while (static_cast<int>(state.outbox.size()) >= detail::MailboxInternalState::MAX_MESSAGES) {
-        state.outbox.pop_front();
-    }
-
-    state.outbox.push_back(std::move(msg));
-
-    // In production: serialize and send via bridge transport
     return id;
 }
 
 /// Receive pending messages (called by the transport layer).
 inline void deliver_message(MailboxMessage msg) {
     auto& state = detail::get_state();
-    std::lock_guard lock(state.mutex);
+    std::vector<MessageCallback> callbacks;
 
-    if (!state.connected.load()) return;
+    {
+        std::lock_guard lock(state.mutex);
 
-    // Only accept messages addressed to us (or broadcast)
-    if (!msg.to.empty() && msg.to != state.agent_id && msg.to != "*") {
-        return;
+        if (!state.connected.load()) return;
+
+        // Only accept messages addressed to us (or broadcast)
+        if (!msg.to.empty() && msg.to != state.agent_id && msg.to != "*") {
+            return;
+        }
+
+        msg.delivered = true;
+
+        // Enforce inbox size limit
+        while (static_cast<int>(state.inbox.size()) >= detail::MailboxInternalState::MAX_MESSAGES) {
+            state.inbox.pop_front();
+        }
+
+        state.inbox.push_back(msg);
+        callbacks = state.on_receive_callbacks;
     }
 
-    msg.delivered = true;
-
-    // Notify callbacks
-    for (const auto& cb : state.on_receive_callbacks) {
+    for (const auto& cb : callbacks) {
         cb(msg);
     }
-
-    // Enforce inbox size limit
-    while (static_cast<int>(state.inbox.size()) >= detail::MailboxInternalState::MAX_MESSAGES) {
-        state.inbox.pop_front();
-    }
-
-    state.inbox.push_back(std::move(msg));
 }
 
 /// Get all messages currently in the inbox.

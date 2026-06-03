@@ -38,30 +38,30 @@ namespace detail {
 }
 }
 
-// 沙箱配置：限制脚本的文件系统和网络访问
+
 struct SandboxConfig {
-    std::filesystem::path root_dir;               // 沙箱根目录
-    std::vector<std::filesystem::path> allowed_reads;  // 允许读取的路径
-    std::vector<std::filesystem::path> allowed_writes; // 允许写入的路径
-    bool network_access = false;                  // 是否允许网络访问
-    std::chrono::seconds timeout{30};             // 执行超时时间
+    std::filesystem::path root_dir;
+    std::vector<std::filesystem::path> allowed_reads;
+    std::vector<std::filesystem::path> allowed_writes;
+    bool network_access = false;
+    std::chrono::seconds timeout{30};
 };
 
-// 创建沙箱环境
+
 inline auto create_sandbox(const SandboxConfig& config) -> std::expected<void, std::string> {
     namespace fs = std::filesystem;
 
-    // 验证根目录存在
+
     if (!fs::exists(config.root_dir)) {
         return std::unexpected("Sandbox root directory does not exist: " + config.root_dir.string());
     }
 
-    // 验证根目录是一个目录
+
     if (!fs::is_directory(config.root_dir)) {
         return std::unexpected("Sandbox root is not a directory: " + config.root_dir.string());
     }
 
-    // 验证允许读取的路径都在根目录下或是绝对路径
+
     for (const auto& read_path : config.allowed_reads) {
         auto resolved = read_path.is_relative() ? config.root_dir / read_path : read_path;
         if (!fs::exists(resolved)) {
@@ -72,7 +72,7 @@ inline auto create_sandbox(const SandboxConfig& config) -> std::expected<void, s
         }
     }
 
-    // 验证允许写入的路径
+
     for (const auto& write_path : config.allowed_writes) {
         auto resolved = write_path.is_relative() ? config.root_dir / write_path : write_path;
         auto parent = resolved.parent_path();
@@ -87,23 +87,23 @@ inline auto create_sandbox(const SandboxConfig& config) -> std::expected<void, s
     return {};
 }
 
-// 在沙箱中执行脚本
+
 inline auto execute_in_sandbox(
     std::string_view script,
     const SandboxConfig& config
 ) -> std::expected<std::string, std::string> {
-    // 验证沙箱配置
+
     auto validation = create_sandbox(config);
     if (!validation) {
         return std::unexpected(validation.error());
     }
 
-    // 脚本不能为空
+
     if (script.empty()) {
         return std::unexpected("Empty script provided");
     }
 
-    // 检查脚本内容是否含有沙箱逃逸风险
+
     static const std::vector<std::string_view> escape_patterns = {
         "chroot", "unshare", "nsenter",
         "/proc/self", "/proc/1",
@@ -149,7 +149,7 @@ inline auto execute_in_sandbox(
     return output;
 }
 
-// 检查当前进程是否在沙箱中运行
+
 inline auto is_sandboxed() -> bool {
     return std::getenv("APP_SANDBOX_CONTAINER_ID") != nullptr ||
            std::getenv("CC_REPL_SANDBOX") != nullptr;

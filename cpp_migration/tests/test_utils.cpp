@@ -1,6 +1,6 @@
 /// @file test_utils.cpp
-/// @brief cc_utils 模块单元测试
-/// 覆盖: string, json, error, circular_buffer, token_budget, shell_parser, permissions
+
+
 
 #include <gtest/gtest.h>
 #include <map>
@@ -58,7 +58,7 @@ import cc.utils.control_message_compat;
 import cc.utils.sanitization;
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// cc.utils.string 测试: 字符串操作工具函数
+
 // ═══════════════════════════════════════════════════════════════════════════════
 
 TEST(StringUtils, TrimRemovesWhitespace) {
@@ -75,7 +75,7 @@ TEST(StringUtils, SplitByDelimiter) {
     EXPECT_EQ(parts[1], "b");
     EXPECT_EQ(parts[2], "c");
 
-    // 空字符串分割应返回单个空元素
+
     auto empty = cc::utils::string::split("", ',');
     ASSERT_EQ(empty.size(), 1u);
     EXPECT_EQ(empty[0], "");
@@ -92,7 +92,7 @@ TEST(StringUtils, JoinCombinesStrings) {
     EXPECT_EQ(cc::utils::string::join(items, " "), "hello world test");
     EXPECT_EQ(cc::utils::string::join(items, ", "), "hello, world, test");
 
-    // 空向量应返回空字符串
+
     std::vector<std::string> empty_vec;
     EXPECT_EQ(cc::utils::string::join(empty_vec, ","), "");
 }
@@ -110,7 +110,7 @@ TEST(StringUtils, StartsWithAndEndsWith) {
     EXPECT_TRUE(cc::utils::string::ends_with("hello world", "world"));
     EXPECT_FALSE(cc::utils::string::ends_with("hello world", "hello"));
 
-    // 边界情况: 空前缀/后缀
+
     EXPECT_TRUE(cc::utils::string::starts_with("anything", ""));
     EXPECT_TRUE(cc::utils::string::ends_with("anything", ""));
 }
@@ -403,7 +403,7 @@ TEST(Sanitization, RecursivelySanitizedObjectKeysUseLastWriteWinsOnCollisions) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// cc.utils.json 测试: yyjson 封装层
+
 // ═══════════════════════════════════════════════════════════════════════════════
 
 TEST(JsonUtils, ParseValidJson) {
@@ -456,7 +456,7 @@ TEST(JsonUtils, NullAndMissingFields) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// cc.utils.error 测试: 错误类型与链式错误
+
 // ═══════════════════════════════════════════════════════════════════════════════
 
 TEST(ErrorUtils, CreateBasicError) {
@@ -488,7 +488,7 @@ TEST(ErrorUtils, ExpectedWithError) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// cc.utils.circular_buffer 测试: 环形缓冲区
+
 // ═══════════════════════════════════════════════════════════════════════════════
 
 TEST(CircularBuffer, PushAndPop) {
@@ -516,10 +516,10 @@ TEST(CircularBuffer, FullStateOverwrites) {
     buf.push_back(3);
     EXPECT_TRUE(buf.full());
 
-    // 溢出时应覆盖最早的元素
+
     buf.push_back(4);
     EXPECT_EQ(buf.size(), 3u);
-    EXPECT_EQ(buf.front(), 2); // 1 被覆盖
+    EXPECT_EQ(buf.front(), 2);
     EXPECT_EQ(buf.back(), 4);
 }
 
@@ -558,7 +558,7 @@ TEST(CircularBuffer, TypeScriptCompatibleRecentAndArrayViews) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// cc.utils.token_budget 测试: Token 预算管理
+
 // ═══════════════════════════════════════════════════════════════════════════════
 
 TEST(TokenBudget, BasicAllocation) {
@@ -599,7 +599,7 @@ TEST(TokenBudget, OverflowHandling) {
 
     EXPECT_EQ(budget.allocate(cc::utils::token_budget::BudgetCategory::SystemPrompt, 80), 20u);
 
-    // 超出分类限额时分配仍记录用量，但剩余量归零并触发容量检查失败
+
     EXPECT_EQ(budget.allocate(cc::utils::token_budget::BudgetCategory::SystemPrompt, 50), 0u);
     EXPECT_FALSE(budget.can_fit(1));
     EXPECT_EQ(budget.remaining(), 0u);
@@ -648,7 +648,7 @@ TEST(TokenBudget, FindsBudgetPositionsAndFormatsContinuationMessage) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// cc.utils settings/hooks/plugins 纯函数迁移覆盖
+
 // ═══════════════════════════════════════════════════════════════════════════════
 
 TEST(SettingsSources, ParsesCliFlagAndFormatsDisplayNames) {

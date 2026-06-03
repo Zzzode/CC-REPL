@@ -13,16 +13,16 @@ export module cc.tools.git_operation_tracking;
 
 export namespace cc::tools {
 
-// Git 操作记录
+
 struct GitOperation {
-    std::string type;                              // 操作类型（commit, push, pull, checkout 等）
-    std::filesystem::path repo;                    // 仓库路径
-    std::vector<std::filesystem::path> affected_files; // 受影响的文件
-    std::chrono::system_clock::time_point timestamp;   // 操作时间戳
+    std::string type;
+    std::filesystem::path repo;
+    std::vector<std::filesystem::path> affected_files;
+    std::chrono::system_clock::time_point timestamp;
 };
 
 namespace detail {
-    // 全局操作历史记录（线程安全）
+
     inline std::mutex g_ops_mutex;
     inline std::vector<GitOperation> g_operations;
 
@@ -36,18 +36,18 @@ namespace detail {
     }
 }
 
-// 记录一次 git 操作
+
 inline auto record_git_operation(GitOperation op) -> void {
     std::lock_guard lock(detail::g_ops_mutex);
 
-    // 自动填充时间戳（如果未设置）
+
     if (op.timestamp == std::chrono::system_clock::time_point{}) {
         op.timestamp = std::chrono::system_clock::now();
     }
 
     detail::g_operations.push_back(std::move(op));
 
-    // 限制历史记录大小，保留最近 1000 条
+
     if (detail::g_operations.size() > 1000) {
         detail::g_operations.erase(
             detail::g_operations.begin(),
@@ -56,7 +56,7 @@ inline auto record_git_operation(GitOperation op) -> void {
     }
 }
 
-// 获取最近 N 条 git 操作记录
+
 inline auto get_recent_git_operations(size_t n) -> std::vector<GitOperation> {
     std::lock_guard lock(detail::g_ops_mutex);
 
@@ -70,12 +70,12 @@ inline auto get_recent_git_operations(size_t n) -> std::vector<GitOperation> {
     return std::vector<GitOperation>(begin, detail::g_operations.end());
 }
 
-// 检查是否有未提交的变更（需要调用 git 命令）
+
 inline auto has_uncommitted_changes() -> bool {
     return detail::command_has_output("git status --porcelain 2>/dev/null");
 }
 
-// 获取指定时间点之后变更的文件列表
+
 inline auto get_changed_files_since(
     std::chrono::system_clock::time_point since
 ) -> std::vector<std::filesystem::path> {
@@ -86,7 +86,7 @@ inline auto get_changed_files_since(
     for (const auto& op : detail::g_operations) {
         if (op.timestamp >= since) {
             for (const auto& file : op.affected_files) {
-                // 去重：避免同一个文件出现多次
+
                 if (std::find(changed.begin(), changed.end(), file) == changed.end()) {
                     changed.push_back(file);
                 }

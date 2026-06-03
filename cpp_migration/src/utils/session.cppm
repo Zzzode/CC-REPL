@@ -20,7 +20,7 @@ export module cc.utils.session;
 
 export namespace cc::utils {
 
-// 会话元数据
+
 struct SessionMeta {
     std::string id;
     std::string title;
@@ -32,7 +32,7 @@ struct SessionMeta {
     std::string cwd;
 };
 
-// 会话筛选器
+
 struct SessionFilter {
     std::optional<std::string> tag;
     std::optional<std::string> cwd;
@@ -40,14 +40,14 @@ struct SessionFilter {
     size_t limit{20};
 };
 
-// 会话存储错误
+
 struct SessionError {
     enum Code { not_found, io_error, parse_error, corrupted };
     Code code;
     std::string message;
 };
 
-// 会话存储 — 管理 ~/.cc-repl/sessions/ 下的会话文件
+
 class SessionStorage {
     std::filesystem::path sessions_dir_;
 
@@ -57,10 +57,10 @@ public:
         std::filesystem::create_directories(sessions_dir_);
     }
 
-    // 使用默认路径 (~/.cc-repl)
+
     SessionStorage() : SessionStorage(get_default_base_dir()) {}
 
-    // 创建新会话
+
     [[nodiscard]] auto create_session(std::string_view cwd) -> SessionMeta {
         auto now = std::chrono::system_clock::now();
         SessionMeta meta{
@@ -76,7 +76,7 @@ public:
         return meta;
     }
 
-    // 保存会话 (元数据 + 消息)
+
     [[nodiscard]] auto save_session(const SessionMeta& meta, std::string_view messages_json)
         -> std::expected<void, SessionError> {
         auto path = sessions_dir_ / (meta.id + ".json");
@@ -93,7 +93,7 @@ public:
         return {};
     }
 
-    // 加载会话
+
     [[nodiscard]] auto load_session(std::string_view id)
         -> std::expected<SessionMeta, SessionError> {
         auto path = sessions_dir_ / (std::string(id) + ".json");
@@ -119,7 +119,7 @@ public:
         return meta;
     }
 
-    // 列出会话
+
     [[nodiscard]] auto list_sessions(const SessionFilter& filter = {}) const
         -> std::vector<SessionMeta> {
         std::vector<SessionMeta> results;
@@ -136,7 +136,7 @@ public:
         return results;
     }
 
-    // 删除会话
+
     [[nodiscard]] auto delete_session(std::string_view id) -> std::expected<void, SessionError> {
         auto path = sessions_dir_ / (std::string(id) + ".json");
         if (!std::filesystem::exists(path))
@@ -145,7 +145,7 @@ public:
         return {};
     }
 
-    // 获取最近会话
+
     [[nodiscard]] auto get_recent(size_t count = 10) const -> std::vector<SessionMeta> {
         auto all = list_sessions({.limit = count});
         std::sort(all.begin(), all.end(), [](const auto& a, const auto& b) {
@@ -155,7 +155,7 @@ public:
         return all;
     }
 
-    // 从第一条消息生成标题
+
     [[nodiscard]] static auto generate_title(std::string_view first_message) -> std::string {
         if (first_message.size() <= 50)
             return std::string(first_message);

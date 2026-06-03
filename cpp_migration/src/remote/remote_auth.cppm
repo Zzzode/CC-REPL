@@ -14,10 +14,12 @@ module;
 #include <format>
 #include <cstdlib>
 #include <mutex>
+#include <unordered_map>
 
 export module cc.remote.remote_auth;
 
 export import cc.utils.json;
+import cc.utils.http;
 
 export namespace cc::remote {
 
@@ -48,9 +50,10 @@ enum class AuthSource {
 class RemoteAuth {
 public:
     RemoteAuth() {
-        // Determine credentials path
-        if (const char* home = std::getenv("HOME")) {
-            credentials_path_ = std::filesystem::path(home) / ".claude" / "credentials.json";
+        if (const char* xdg = std::getenv("XDG_CONFIG_HOME"); xdg && *xdg) {
+            credentials_path_ = std::filesystem::path(xdg) / "cc-repl" / "credentials.json";
+        } else if (const char* home = std::getenv("HOME")) {
+            credentials_path_ = std::filesystem::path(home) / ".config" / "cc-repl" / "credentials.json";
         }
     }
 
@@ -59,8 +62,12 @@ public:
     [[nodiscard]] auto get_token() -> std::expected<std::string, std::string> {
         std::lock_guard lock(mutex_);
 
-        // Check environment variable first
-        if (const char* key = std::getenv("CC_API_KEY")) {
+        // Check environment variables first.
+        if (const char* key = std::getenv("ANTHROPIC_API_KEY"); key && *key) {
+            source_ = AuthSource::EnvVar;
+            return std::string(key);
+        }
+        if (const char* key = std::getenv("CC_API_KEY"); key && *key) {
             source_ = AuthSource::EnvVar;
             return std::string(key);
         }
@@ -100,31 +107,67 @@ public:
             return std::unexpected("No refresh token available");
         }
 
-        // Build refresh request body
-        auto body = std::format(
-            "grant_type=refresh_token&refresh_token={}",
-            token_->refresh_token);
-
-        // In a real implementation, this would POST to the token endpoint.
-        // The OAuth client module handles the actual HTTP request.
-        // Here we just update the token if the refresh_token is valid.
-        // This is a placeholder that will be wired to the OAuth service.
-        
-        // For now, extend expiry if refresh token exists (will be replaced
-        // with real HTTP call when wired to oauth/client.cppm)
-        if (!token_->refresh_token.empty()) {
-            token_->expires_at = std::chrono::system_clock::now() + std::chrono::hours(1);
-            return save_credentials();
+        const char* endpoint = std::getenv("CC_REMOTE_OAUTH_REFRESH_URL");
+        if (!endpoint || !*endpoint) {
+            return std::unexpected("CC_REMOTE_OAUTH_REFRESH_URL is required to refresh remote OAuth tokens");
         }
 
-        return std::unexpected("Token refresh not available");
+        auto request = cc::utils::json::object();
+        request.set("grant_type", "refresh_token");
+        request.set("refresh_token", token_->refresh_token);
+
+        cc::utils::HttpClient client;
+        auto response = client.post(endpoint, request.serialize(), std::unordered_map<std::string, std::string>{
+            {"Content-Type", "application/json"},
+        });
+        if (!response) {
+            return std::unexpected(response.error().message);
+        }
+        if (!response->is_ok()) {
+            return std::unexpected(std::format(
+                "Token refresh failed with status {}: {}",
+                response->status, response->body));
+        }
+
+        auto doc = cc::utils::json::parse(response->body);
+        if (!doc) {
+            return std::unexpected(std::format("Token refresh returned invalid JSON: {}", doc.error().message()));
+        }
+
+        auto root = doc->root();
+        if (!root || !root.is_obj()) {
+            return std::unexpected("Token refresh response must be a JSON object");
+        }
+        if (auto access = root.get("access_token"); access && access.is_str()) {
+            token_->access_token = std::string(access.as_str());
+        } else {
+            return std::unexpected("Token refresh response missing access_token");
+        }
+        if (auto refresh_token = root.get("refresh_token"); refresh_token && refresh_token.is_str()) {
+            token_->refresh_token = std::string(refresh_token.as_str());
+        }
+        if (auto token_type = root.get("token_type"); token_type && token_type.is_str()) {
+            token_->token_type = std::string(token_type.as_str());
+        }
+        if (auto scope = root.get("scope"); scope && scope.is_str()) {
+            token_->scope = std::string(scope.as_str());
+        }
+        if (auto expires_in = root.get("expires_in"); expires_in && expires_in.is_num()) {
+            token_->expires_at = std::chrono::system_clock::now() + std::chrono::seconds(expires_in.as_int());
+        } else if (auto expires_at = root.get("expires_at"); expires_at && expires_at.is_num()) {
+            token_->expires_at = std::chrono::system_clock::time_point(std::chrono::seconds(expires_at.as_int()));
+        } else {
+            token_->expires_at = std::chrono::system_clock::now() + std::chrono::hours(1);
+        }
+
+        return save_credentials();
     }
 
     /// Check if we have valid authentication
     [[nodiscard]] bool is_authenticated() const {
         std::lock_guard lock(mutex_);
         
-        if (std::getenv("CC_API_KEY")) return true;
+        if (std::getenv("ANTHROPIC_API_KEY") || std::getenv("CC_API_KEY")) return true;
         if (!token_.has_value()) return false;
         return !is_expired();
     }

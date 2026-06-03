@@ -11,7 +11,7 @@ export module cc.utils.array_utils;
 
 export namespace cc::utils {
 
-// 将向量分割为固定大小的块
+
 template <typename T>
 [[nodiscard]] std::vector<std::vector<T>> chunk(const std::vector<T>& vec, size_t chunk_size) {
     if (chunk_size == 0) return {};
@@ -25,7 +25,7 @@ template <typename T>
     return result;
 }
 
-// 去重，保持首次出现的顺序
+
 template <typename T>
 [[nodiscard]] std::vector<T> unique(const std::vector<T>& vec) {
     std::vector<T> result;
@@ -73,7 +73,7 @@ template <typename T, typename SeparatorFn>
     return result;
 }
 
-// 展平嵌套向量
+
 template <typename T>
 [[nodiscard]] std::vector<T> flatten(const std::vector<std::vector<T>>& nested) {
     std::vector<T> result;
@@ -86,13 +86,13 @@ template <typename T>
     return result;
 }
 
-// 检查 span 中是否包含指定元素
+
 template <typename T>
 [[nodiscard]] bool includes(std::span<const T> s, const T& value) {
     return std::find(s.begin(), s.end(), value) != s.end();
 }
 
-// 查找满足谓词的第一个元素的索引
+
 template <typename T>
 [[nodiscard]] std::optional<size_t> find_index(std::span<const T> s,
                                                 std::function<bool(const T&)> predicate) {
@@ -102,14 +102,14 @@ template <typename T>
     return std::nullopt;
 }
 
-// 取前n个元素
+
 template <typename T>
 [[nodiscard]] std::vector<T> take(std::span<const T> s, size_t n) {
     auto count = std::min(n, s.size());
     return std::vector<T>(s.begin(), s.begin() + static_cast<ptrdiff_t>(count));
 }
 
-// 跳过前n个元素
+
 template <typename T>
 [[nodiscard]] std::vector<T> drop(std::span<const T> s, size_t n) {
     if (n >= s.size()) return {};

@@ -13,49 +13,49 @@ export module cc.tools.script_diagnostics;
 
 export namespace cc::tools {
 
-// 诊断信息条目
-struct Diagnostic {
-    std::filesystem::path file;  // 源文件路径
-    int line = 0;                // 行号
-    int column = 0;              // 列号
-    std::string message;         // 诊断消息
 
-    // 诊断级别
+struct Diagnostic {
+    std::filesystem::path file;
+    int line = 0;
+    int column = 0;
+    std::string message;
+
+
     enum class Level { Error, Warning, Info } level = Level::Error;
 };
 
-// 解析编译器输出，提取诊断信息
+
 inline auto parse_compiler_output(std::string_view output) -> std::vector<Diagnostic> {
     std::vector<Diagnostic> diagnostics;
 
-    // 支持多种编译器输出格式：
+
     // GCC/Clang: file:line:col: error/warning: message
     // TypeScript: file(line,col): error TSxxxx: message
     // Python: File "file", line N
 
-    // GCC/Clang 格式正则
+
     static const std::regex gcc_pattern(
         R"(([^:\s]+):(\d+):(\d+):\s*(error|warning|note):\s*(.+))"
     );
 
-    // TypeScript 格式正则
+
     static const std::regex ts_pattern(
         R"(([^(]+)\((\d+),(\d+)\):\s*(error|warning)\s+\w+:\s*(.+))"
     );
 
-    // Python 格式正则
+
     static const std::regex py_pattern(
         R"re(File "([^"]+)", line (\d+))re"
     );
 
-    // 逐行解析
+
     std::istringstream stream{std::string(output)};
     std::string line;
 
     while (std::getline(stream, line)) {
         std::smatch match;
 
-        // 尝试 GCC/Clang 格式
+
         if (std::regex_search(line, match, gcc_pattern)) {
             Diagnostic diag;
             diag.file = match[1].str();
@@ -72,7 +72,7 @@ inline auto parse_compiler_output(std::string_view output) -> std::vector<Diagno
             continue;
         }
 
-        // 尝试 TypeScript 格式
+
         if (std::regex_search(line, match, ts_pattern)) {
             Diagnostic diag;
             diag.file = match[1].str();
@@ -89,7 +89,7 @@ inline auto parse_compiler_output(std::string_view output) -> std::vector<Diagno
             continue;
         }
 
-        // 尝试 Python 格式
+
         if (std::regex_search(line, match, py_pattern)) {
             Diagnostic diag;
             diag.file = match[1].str();
@@ -97,10 +97,10 @@ inline auto parse_compiler_output(std::string_view output) -> std::vector<Diagno
             diag.column = 0;
             diag.level = Diagnostic::Level::Error;
 
-            // Python 错误消息通常在后续行
+
             std::string next_line;
             if (std::getline(stream, next_line)) {
-                // 跳过代码行，取错误行
+
                 if (std::getline(stream, next_line)) {
                     diag.message = next_line;
                 }
@@ -113,14 +113,14 @@ inline auto parse_compiler_output(std::string_view output) -> std::vector<Diagno
     return diagnostics;
 }
 
-// 格式化诊断信息为可读字符串
+
 inline auto format_diagnostics(
     std::span<const Diagnostic> diagnostics,
     int max_display
 ) -> std::string {
     std::ostringstream oss;
 
-    // 统计各级别数量
+
     int errors = 0, warnings = 0, infos = 0;
     for (const auto& diag : diagnostics) {
         switch (diag.level) {
@@ -135,7 +135,7 @@ inline auto format_diagnostics(
         << warnings << " warning(s), "
         << infos << " info(s)\n\n";
 
-    // 显示指定数量的诊断条目
+
     int displayed = 0;
     for (const auto& diag : diagnostics) {
         if (displayed >= max_display) {
@@ -143,7 +143,7 @@ inline auto format_diagnostics(
             break;
         }
 
-        // 级别标记
+
         switch (diag.level) {
             case Diagnostic::Level::Error:   oss << "ERROR"; break;
             case Diagnostic::Level::Warning: oss << "WARN "; break;
@@ -161,7 +161,7 @@ inline auto format_diagnostics(
     return oss.str();
 }
 
-// 按文件分组诊断信息
+
 inline auto group_by_file(
     std::span<const Diagnostic> diagnostics
 ) -> std::map<std::filesystem::path, std::vector<Diagnostic>> {
@@ -171,7 +171,7 @@ inline auto group_by_file(
         grouped[diag.file].push_back(diag);
     }
 
-    // 每个文件内按行号排序
+
     for (auto& [file, diags] : grouped) {
         std::sort(diags.begin(), diags.end(),
             [](const Diagnostic& a, const Diagnostic& b) {

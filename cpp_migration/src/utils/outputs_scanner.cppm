@@ -17,17 +17,17 @@ namespace fs = std::filesystem;
 
 export namespace cc::utils {
 
-// 输出文件描述结构
+
 struct OutputFile {
     fs::path file;
-    std::string type;      // 基于扩展名推断的文件类型
+    std::string type;
     size_t size;
     std::chrono::system_clock::time_point created;
 };
 
 namespace detail {
 
-// 根据文件扩展名推断文件类型
+
 inline std::string infer_type(const fs::path& filepath) {
     auto ext = filepath.extension().string();
     if (ext == ".json") return "json";
@@ -43,7 +43,7 @@ inline std::string infer_type(const fs::path& filepath) {
     return "unknown";
 }
 
-// 将 glob 风格的通配符模式转为正则表达式
+
 inline std::regex glob_to_regex(std::string_view pattern) {
     std::string regex_str;
     for (char c : pattern) {
@@ -59,7 +59,7 @@ inline std::regex glob_to_regex(std::string_view pattern) {
 
 } // namespace detail
 
-// 扫描目录中的输出文件，支持 glob 通配符过滤
+
 inline std::vector<OutputFile> scan_outputs(
     const fs::path& dir,
     std::string_view pattern = "*"
@@ -101,7 +101,7 @@ inline std::vector<OutputFile> scan_outputs(
         });
     }
 
-    // 按创建时间倒序排列（最新的在前）
+
     std::ranges::sort(results, [](const OutputFile& a, const OutputFile& b) {
         return a.created > b.created;
     });
@@ -109,16 +109,16 @@ inline std::vector<OutputFile> scan_outputs(
     return results;
 }
 
-// 获取目录中最新的输出文件
+
 inline std::optional<OutputFile> get_latest_output(const fs::path& dir) {
     auto outputs = scan_outputs(dir);
     if (outputs.empty()) {
         return std::nullopt;
     }
-    return outputs.front(); // 已按时间倒序排列
+    return outputs.front();
 }
 
-// 清理超过指定时间的旧输出文件，返回删除的文件数
+
 inline size_t cleanup_old_outputs(const fs::path& dir, std::chrono::hours max_age) {
     size_t deleted_count = 0;
     std::error_code ec;

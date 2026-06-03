@@ -1,5 +1,5 @@
 // C++23 Module: PDF processing
-// PDF 文本提取与转换 (基于 magic bytes 检测和基础文本流解析)
+
 module;
 #include <array>
 #include <cstddef>
@@ -18,13 +18,13 @@ export module cc.utils.pdf;
 
 export namespace cc::utils::pdf {
 
-// PDF 页面内容
+
 struct PdfPage {
     size_t page_number;
     std::string text_content;
 };
 
-// 检查文件是否为 PDF (magic byte: %PDF-)
+
 [[nodiscard]] inline bool is_pdf(const std::filesystem::path& path) {
     std::ifstream file(path, std::ios::binary);
     if (!file) return false;
@@ -36,7 +36,7 @@ struct PdfPage {
     return std::string_view(header.data(), 5) == "%PDF-";
 }
 
-// 获取 PDF 页数 (基于 /Type /Page 计数)
+
 [[nodiscard]] inline std::expected<size_t, std::string> get_page_count(
     const std::filesystem::path& path) {
     std::ifstream file(path, std::ios::binary);
@@ -44,15 +44,15 @@ struct PdfPage {
         return std::unexpected(std::format("Cannot open file: {}", path.string()));
     }
 
-    // 读取全部内容
+
     std::string content((std::istreambuf_iterator<char>(file)),
                          std::istreambuf_iterator<char>());
 
-    // 统计 /Type /Page 出现次数 (排除 /Type /Pages)
+
     size_t count = 0;
     size_t pos = 0;
     while ((pos = content.find("/Type /Page", pos)) != std::string::npos) {
-        // 确保不是 /Type /Pages
+
         size_t after = pos + 11;
         if (after < content.size() && content[after] == 's') {
             pos = after;
@@ -62,16 +62,16 @@ struct PdfPage {
         pos = after;
     }
 
-    return count > 0 ? count : 1;  // 至少1页
+    return count > 0 ? count : 1;
 }
 
-// 从 PDF 二进制流中提取文本段
+
 [[nodiscard]] inline std::string extract_text_stream(std::string_view content) {
     std::string result;
     size_t pos = 0;
 
     while (pos < content.size()) {
-        // 查找文本对象 BT...ET
+
         auto bt = content.find("BT", pos);
         if (bt == std::string_view::npos) break;
 
@@ -80,17 +80,17 @@ struct PdfPage {
 
         auto block = content.substr(bt + 2, et - bt - 2);
 
-        // 提取 Tj 和 TJ 操作符中的文本
+
         size_t bi = 0;
         while (bi < block.size()) {
-            // 查找括号中的文本字符串 (...)
+
             if (block[bi] == '(') {
                 ++bi;
                 std::string text;
                 int depth = 1;
                 while (bi < block.size() && depth > 0) {
                     if (block[bi] == '\\' && bi + 1 < block.size()) {
-                        // 处理转义字符
+
                         ++bi;
                         switch (block[bi]) {
                             case 'n': text += '\n'; break;
@@ -114,7 +114,7 @@ struct PdfPage {
                 }
                 if (!text.empty()) result += text;
             } else if (block[bi] == 'T' && bi + 1 < block.size()) {
-                // Td/TD 操作表示行分隔
+
                 if (block[bi + 1] == 'd' || block[bi + 1] == 'D') {
                     result += '\n';
                 }
@@ -130,7 +130,7 @@ struct PdfPage {
     return result;
 }
 
-// 提取 PDF 文本 (按页)
+
 [[nodiscard]] inline std::expected<std::vector<PdfPage>, std::string> extract_text(
     const std::filesystem::path& pdf_path) {
     if (!is_pdf(pdf_path)) {
@@ -149,12 +149,12 @@ struct PdfPage {
     std::string full_text = extract_text_stream(content);
 
     if (full_text.empty()) {
-        // 无法提取文本 (可能是扫描件)
+
         pages.push_back({1, "[No extractable text - possibly a scanned document]"});
         return pages;
     }
 
-    // 按换页符或大段空白分页
+
     size_t page_num = 1;
     size_t pos = 0;
     while (pos < full_text.size()) {
@@ -167,7 +167,7 @@ struct PdfPage {
             page_text = full_text.substr(pos);
             pos = full_text.size();
         }
-        // 去除首尾空白
+
         if (auto start = page_text.find_first_not_of(" \t\n\r");
             start != std::string::npos) {
             auto end = page_text.find_last_not_of(" \t\n\r");
@@ -186,7 +186,7 @@ struct PdfPage {
     return pages;
 }
 
-// 将 PDF 转换为 Markdown 格式
+
 [[nodiscard]] inline std::expected<std::string, std::string> pdf_to_markdown(
     const std::filesystem::path& pdf_path) {
     auto pages_result = extract_text(pdf_path);

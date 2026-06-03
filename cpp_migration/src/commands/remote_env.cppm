@@ -12,17 +12,17 @@ export module cc.commands.remote_env;
 
 export namespace cc::commands {
 
-// 远程环境信息
+
 struct RemoteEnvInfo {
-    std::string provider;                        // 云服务提供商（AWS/GCP/Azure 等）
-    std::string region;                          // 区域
-    std::string instance_id;                     // 实例 ID
-    std::map<std::string, std::string> metadata; // 额外元数据
+    std::string provider;
+    std::string region;
+    std::string instance_id;
+    std::map<std::string, std::string> metadata;
 };
 
 inline std::optional<RemoteEnvInfo> configured_remote_env;
 
-// 自动检测当前是否运行在远程环境中
+
 auto detect_remote_env() -> std::optional<RemoteEnvInfo> {
     if (configured_remote_env) return configured_remote_env;
     const char* provider = std::getenv("CC_REPL_REMOTE_PROVIDER");
@@ -34,12 +34,12 @@ auto detect_remote_env() -> std::optional<RemoteEnvInfo> {
     return info;
 }
 
-// 根据检测到的远程环境配置 CLI 行为
+
 auto configure_for_remote(RemoteEnvInfo env) -> void {
     configured_remote_env = std::move(env);
 }
 
-// 获取远程环境的可读摘要
+
 auto get_remote_env_summary() -> std::string {
     auto env = detect_remote_env();
     if (!env) {

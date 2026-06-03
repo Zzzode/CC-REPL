@@ -10,7 +10,7 @@ export module cc.utils.xml_utils;
 
 export namespace cc::utils {
 
-// XML 元素结构体
+
 struct XmlElement {
     std::string tag;
     std::string content;
@@ -18,10 +18,10 @@ struct XmlElement {
     std::vector<XmlElement> children;
 };
 
-// 对 XML 特殊字符进行转义
+
 [[nodiscard]] inline std::string xml_escape(std::string_view sv) {
     std::string result;
-    result.reserve(sv.size() + sv.size() / 8); // 预估额外空间
+    result.reserve(sv.size() + sv.size() / 8);
     for (char c : sv) {
         switch (c) {
             case '&':  result += "&"; break;
@@ -35,14 +35,14 @@ struct XmlElement {
     return result;
 }
 
-// 反转义 XML 实体
+
 [[nodiscard]] inline std::string xml_unescape(std::string_view sv) {
     std::string result;
     result.reserve(sv.size());
     size_t i = 0;
     while (i < sv.size()) {
         if (sv[i] == '&') {
-            // 检查已知实体
+
             if (sv.substr(i, 4) == "<") { result += '<'; i += 4; }
             else if (sv.substr(i, 4) == ">") { result += '>'; i += 4; }
             else if (sv.substr(i, 5) == "&") { result += '&'; i += 5; }
@@ -57,7 +57,7 @@ struct XmlElement {
     return result;
 }
 
-// 创建 XML 标签（含属性和内容）
+
 [[nodiscard]] inline std::string create_xml_tag(std::string_view tag, std::string_view content,
                                                  const std::map<std::string, std::string>& attrs = {}) {
     std::string result = "<";
@@ -83,7 +83,7 @@ struct XmlElement {
 }
 
 namespace xml_detail {
-    // 跳过空白字符
+
     inline size_t skip_whitespace(std::string_view sv, size_t pos) {
         while (pos < sv.size() && (sv[pos] == ' ' || sv[pos] == '\t' ||
                sv[pos] == '\n' || sv[pos] == '\r')) {
@@ -92,7 +92,7 @@ namespace xml_detail {
         return pos;
     }
 
-    // 解析属性名
+
     inline std::string parse_name(std::string_view sv, size_t& pos) {
         size_t start = pos;
         while (pos < sv.size() && sv[pos] != '=' && sv[pos] != ' ' &&
@@ -103,31 +103,31 @@ namespace xml_detail {
         return std::string(sv.substr(start, pos - start));
     }
 
-    // 解析引号中的值
+
     inline std::string parse_quoted(std::string_view sv, size_t& pos) {
         if (pos >= sv.size()) return {};
         char quote = sv[pos++];
         size_t start = pos;
         while (pos < sv.size() && sv[pos] != quote) ++pos;
         std::string val(sv.substr(start, pos - start));
-        if (pos < sv.size()) ++pos; // 跳过结束引号
+        if (pos < sv.size()) ++pos;
         return val;
     }
 }
 
-// 解析单个 XML 标签（简易解析，适用于工具输出格式）
+
 [[nodiscard]] inline std::optional<XmlElement> parse_xml_tag(std::string_view sv) {
     using namespace xml_detail;
     size_t pos = skip_whitespace(sv, 0);
     if (pos >= sv.size() || sv[pos] != '<') return std::nullopt;
-    ++pos; // 跳过 '<'
+    ++pos;
 
-    // 解析标签名
+
     XmlElement elem;
     elem.tag = parse_name(sv, pos);
     if (elem.tag.empty()) return std::nullopt;
 
-    // 解析属性
+
     while (pos < sv.size() && sv[pos] != '>' && sv[pos] != '/') {
         pos = skip_whitespace(sv, pos);
         if (pos >= sv.size() || sv[pos] == '>' || sv[pos] == '/') break;
@@ -145,7 +145,7 @@ namespace xml_detail {
         }
     }
 
-    // 自闭合标签
+
     if (pos < sv.size() && sv[pos] == '/') {
         ++pos;
         if (pos < sv.size() && sv[pos] == '>') return elem;
@@ -153,15 +153,15 @@ namespace xml_detail {
     }
 
     if (pos >= sv.size() || sv[pos] != '>') return std::nullopt;
-    ++pos; // 跳过 '>'
+    ++pos;
 
-    // 查找关闭标签并提取内容
+
     std::string close_tag = "</" + elem.tag + ">";
     auto close_pos = sv.find(close_tag, pos);
     if (close_pos != std::string_view::npos) {
         elem.content = xml_unescape(sv.substr(pos, close_pos - pos));
     } else {
-        // 没有关闭标签，取剩余所有内容
+
         elem.content = xml_unescape(sv.substr(pos));
     }
     return elem;

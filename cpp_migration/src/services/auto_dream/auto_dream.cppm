@@ -36,10 +36,10 @@ using TimePoint = Clock::time_point;
 using Duration = std::chrono::seconds;
 
 // ============================================================
-// 数据结构
+
 // ============================================================
 
-// 记忆条目
+
 struct MemoryEntry {
     std::string id;
     std::string content;
@@ -50,16 +50,16 @@ struct MemoryEntry {
     double relevance_score{1.0};
 };
 
-// 提取到的模式
+
 struct ExtractedPattern {
     std::string pattern_id;
     std::string description;
-    std::vector<std::string> source_memory_ids;  // 来源记忆
+    std::vector<std::string> source_memory_ids;
     double confidence{0.0};
     TimePoint extracted_at;
 };
 
-// 合并结果
+
 struct ConsolidationResult {
     std::size_t patterns_extracted{0};
     std::size_t memories_merged{0};
@@ -68,26 +68,26 @@ struct ConsolidationResult {
     TimePoint completed_at;
 };
 
-// 合并配置
+
 struct DreamConfig {
-    Duration idle_threshold{std::chrono::seconds(300)};  // 5 分钟空闲触发
-    Duration consolidation_interval{std::chrono::seconds(3600)};  // 每小时
+    Duration idle_threshold{std::chrono::seconds(300)};
+    Duration consolidation_interval{std::chrono::seconds(3600)};
     std::size_t max_memories{10000};
-    double prune_threshold{0.1};       // 低于此相关性分数的条目被清除
-    std::size_t min_pattern_support{3}; // 最少源记忆数才提取模式
-    std::size_t batch_size{100};        // 每轮处理的记忆数
+    double prune_threshold{0.1};
+    std::size_t min_pattern_support{3};
+    std::size_t batch_size{100};
 };
 
-// 调度状态
+
 enum class DreamState : std::uint8_t {
-    Idle,         // 等待触发
-    Running,      // 正在执行合并
-    Scheduled,    // 已调度待执行
-    Disabled,     // 已禁用
+    Idle,
+    Running,
+    Scheduled,
+    Disabled,
 };
 
 // ============================================================
-// AutoDreamService - 后台记忆合并
+
 // ============================================================
 
 class AutoDreamService {
@@ -95,7 +95,7 @@ public:
     explicit AutoDreamService(DreamConfig config = {})
         : config_(config), state_(DreamState::Idle) {}
 
-    // 添加记忆条目
+
     VoidResult add_memory(MemoryEntry entry) {
         std::lock_guard lock(mutex_);
         if (memories_.size() >= config_.max_memories) {
@@ -105,7 +105,7 @@ public:
         return {};
     }
 
-    // 手动触发合并
+
     [[nodiscard]] std::expected<ConsolidationResult, Error> consolidate() {
         std::lock_guard lock(mutex_);
         if (state_ == DreamState::Running) {
@@ -115,11 +115,11 @@ public:
         auto start = Clock::now();
 
         ConsolidationResult result;
-        // 步骤 1: 提取模式
+
         result.patterns_extracted = extract_patterns();
-        // 步骤 2: 合并相关记忆
+
         result.memories_merged = merge_related();
-        // 步骤 3: 清除冗余条目
+
         result.entries_pruned = prune_redundant();
 
         auto end = Clock::now();
@@ -130,12 +130,12 @@ public:
         return result;
     }
 
-    // 通知用户活动（重置空闲计时器）
+
     void notify_activity() noexcept {
         last_activity_ = Clock::now();
     }
 
-    // 检查是否应当触发合并
+
     [[nodiscard]] bool should_consolidate() const noexcept {
         if (state_ != DreamState::Idle) return false;
         auto idle_time = Clock::now() - last_activity_;
@@ -144,21 +144,21 @@ public:
                since_last >= config_.consolidation_interval;
     }
 
-    // 调度定期合并 (由外部事件循环调用)
+
     void schedule() noexcept { state_ = DreamState::Scheduled; }
     void disable() noexcept { state_ = DreamState::Disabled; }
     void enable() noexcept {
         if (state_ == DreamState::Disabled) state_ = DreamState::Idle;
     }
 
-    // 获取状态
+
     [[nodiscard]] DreamState state() const noexcept { return state_; }
     [[nodiscard]] std::size_t memory_count() const noexcept { return memories_.size(); }
     [[nodiscard]] std::size_t pattern_count() const noexcept { return patterns_.size(); }
     [[nodiscard]] const DreamConfig& config() const noexcept { return config_; }
     void set_config(DreamConfig config) noexcept { config_ = config; }
 
-    // 获取所有已提取的模式
+
     [[nodiscard]] const std::vector<ExtractedPattern>& patterns() const noexcept {
         return patterns_;
     }
@@ -172,7 +172,7 @@ private:
     TimePoint last_activity_{Clock::now()};
     TimePoint last_consolidation_{};
 
-    // 提取模式: 寻找重复出现的标签组合
+
     std::size_t extract_patterns() {
         std::unordered_map<std::string, std::vector<std::string>> tag_groups;
         for (const auto& mem : memories_ | std::views::take(config_.batch_size)) {
@@ -196,9 +196,9 @@ private:
         return count;
     }
 
-    // 合并相关记忆 (相同标签集合的条目)
+
     std::size_t merge_related() {
-        // 简化实现: 合并完全重复内容的条目
+
         std::unordered_set<std::string> seen_content;
         std::size_t merged = 0;
         auto it = std::ranges::remove_if(memories_, [&](const MemoryEntry& m) {
@@ -210,7 +210,7 @@ private:
         return merged;
     }
 
-    // 清除低相关性条目
+
     std::size_t prune_redundant() {
         auto before = memories_.size();
         std::erase_if(memories_, [this](const MemoryEntry& m) {
@@ -219,7 +219,7 @@ private:
         return before - memories_.size();
     }
 
-    // 当超出容量时移除最低相关性条目
+
     void prune_lowest_relevance() {
         if (memories_.empty()) return;
         auto it = std::ranges::min_element(memories_,

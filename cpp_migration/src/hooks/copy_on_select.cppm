@@ -10,31 +10,31 @@ export namespace cc::hooks {
 inline bool copy_to_clipboard(std::string_view text);
 
 namespace detail {
-    // 选中即复制功能开关
+
     inline bool& copy_on_select_flag() {
         static bool enabled = false;
         return enabled;
     }
 } // namespace detail
 
-// 检查选中即复制功能是否启用
+
 inline bool is_copy_on_select_enabled() {
     return detail::copy_on_select_flag();
 }
 
-// 设置选中即复制功能开关
+
 inline void set_copy_on_select(bool enabled) {
     detail::copy_on_select_flag() = enabled;
 }
 
-// 处理文本选择变更事件
+
 inline void handle_selection_change(std::string_view selected_text) {
     if (is_copy_on_select_enabled() && !selected_text.empty()) {
         copy_to_clipboard(selected_text);
     }
 }
 
-// 将文本复制到系统剪贴板
+
 inline bool copy_to_clipboard(std::string_view text) {
     if (text.empty()) return false;
     #if defined(__APPLE__)

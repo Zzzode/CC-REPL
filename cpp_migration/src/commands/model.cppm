@@ -44,7 +44,7 @@ public:
             .args = {
                 CommandArg{.name = "subcommand", .description = "list | set | info",
                            .type = ArgType::Choice, .required = false,
-                           .choices = {{"list", "set", "info"}}},
+                           .choices = {"list", "set", "info"}},
                 CommandArg{.name = "model_name", .description = "Model identifier to switch to",
                            .type = ArgType::Text, .required = false},
             },

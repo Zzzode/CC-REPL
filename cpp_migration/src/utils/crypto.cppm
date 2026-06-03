@@ -25,11 +25,11 @@ using cc::utils::ErrorCode;
 using cc::utils::Result;
 
 // =========================================================================
-// SHA-256 实现 (RFC 6234 compliant, 无外部依赖)
+
 // =========================================================================
 namespace detail {
 
-// SHA-256 常量
+
 constexpr std::array<uint32_t, 64> K = {
     0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5,
     0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
@@ -58,25 +58,25 @@ constexpr uint32_t gamma0(uint32_t x) { return rotr(x, 7) ^ rotr(x, 18) ^ (x >> 
 constexpr uint32_t gamma1(uint32_t x) { return rotr(x, 17) ^ rotr(x, 19) ^ (x >> 10); }
 
 inline std::array<uint8_t, 32> sha256_raw(const uint8_t* data, std::size_t len) {
-    // 初始哈希值
+
     uint32_t h[8] = {
         0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
         0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
     };
 
-    // 计算填充后总长度
+
     uint64_t bit_len = static_cast<uint64_t>(len) * 8;
     std::size_t padded_len = ((len + 8) / 64 + 1) * 64;
     std::vector<uint8_t> msg(padded_len, 0);
     std::memcpy(msg.data(), data, len);
-    msg[len] = 0x80; // 填充 1 bit
+    msg[len] = 0x80;
 
-    // 写入原始长度 (big-endian)
+
     for (int i = 0; i < 8; ++i) {
         msg[padded_len - 1 - i] = static_cast<uint8_t>(bit_len >> (i * 8));
     }
 
-    // 处理每个 64 字节块
+
     for (std::size_t offset = 0; offset < padded_len; offset += 64) {
         uint32_t w[64];
         for (int i = 0; i < 16; ++i) {
@@ -103,7 +103,7 @@ inline std::array<uint8_t, 32> sha256_raw(const uint8_t* data, std::size_t len) 
         h[4] += e; h[5] += f; h[6] += g; h[7] += hh;
     }
 
-    // 输出 32 字节哈希
+
     std::array<uint8_t, 32> result;
     for (int i = 0; i < 8; ++i) {
         result[i * 4]     = static_cast<uint8_t>(h[i] >> 24);
@@ -116,7 +116,7 @@ inline std::array<uint8_t, 32> sha256_raw(const uint8_t* data, std::size_t len) 
 
 } // namespace detail
 
-// SHA-256 哈希 (返回 hex 字符串)
+
 [[nodiscard]] inline std::string sha256(std::string_view data) {
     auto hash = detail::sha256_raw(
         reinterpret_cast<const uint8_t*>(data.data()), data.size());
@@ -133,7 +133,7 @@ inline std::array<uint8_t, 32> sha256_raw(const uint8_t* data, std::size_t len) 
 // Random
 // =========================================================================
 
-// 生成密码学安全的随机字节
+
 [[nodiscard]] inline std::vector<uint8_t> random_bytes(std::size_t n) {
     std::vector<uint8_t> result(n);
     std::random_device rd;
@@ -157,7 +157,7 @@ constexpr std::string_view base64url_chars =
 
 } // namespace detail
 
-// Base64 编码
+
 [[nodiscard]] inline std::string base64_encode(std::string_view data) {
     std::string result;
     result.reserve(((data.size() + 2) / 3) * 4);
@@ -186,9 +186,9 @@ constexpr std::string_view base64url_chars =
     return result;
 }
 
-// Base64 解码
+
 [[nodiscard]] inline Result<std::vector<uint8_t>> base64_decode(std::string_view str) {
-    // 构建反查表
+
     auto decode_char = [](char c) -> int {
         if (c >= 'A' && c <= 'Z') return c - 'A';
         if (c >= 'a' && c <= 'z') return c - 'a' + 26;
@@ -198,7 +198,7 @@ constexpr std::string_view base64url_chars =
         return -1;
     };
 
-    // 去除尾部填充
+
     auto len = str.size();
     while (len > 0 && str[len - 1] == '=') --len;
 
@@ -225,12 +225,12 @@ constexpr std::string_view base64url_chars =
 }
 
 // =========================================================================
-// UUID v4 生成
+
 // =========================================================================
 [[nodiscard]] inline std::string generate_uuid() {
     auto bytes = random_bytes(16);
 
-    // 设置版本 (4) 和变体 (RFC 4122)
+
     bytes[6] = (bytes[6] & 0x0F) | 0x40; // version 4
     bytes[8] = (bytes[8] & 0x3F) | 0x80; // variant 1
 
@@ -247,7 +247,7 @@ constexpr std::string_view base64url_chars =
 // PKCE (RFC 7636) - OAuth 2.0 Proof Key for Code Exchange
 // =========================================================================
 
-// 生成 code_verifier (43-128 字符的随机 URL-safe 字符串)
+
 [[nodiscard]] inline std::string generate_code_verifier() {
     constexpr std::string_view charset =
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
@@ -262,12 +262,12 @@ constexpr std::string_view base64url_chars =
     return verifier;
 }
 
-// 从 verifier 生成 code_challenge (SHA-256 + base64url)
+
 [[nodiscard]] inline std::string generate_code_challenge(std::string_view verifier) {
     auto hash = detail::sha256_raw(
         reinterpret_cast<const uint8_t*>(verifier.data()), verifier.size());
 
-    // Base64url 编码 (无填充)
+
     std::string result;
     result.reserve(44);
     std::size_t i = 0;
@@ -279,7 +279,7 @@ constexpr std::string_view base64url_chars =
         result += detail::base64url_chars[triple & 0x3F];
         i += 3;
     }
-    // SHA-256 输出 32 字节, 32 % 3 == 2, 需要处理余数
+
     if (i < hash.size()) {
         uint32_t triple = hash[i] << 16;
         if (i + 1 < hash.size()) triple |= hash[i+1] << 8;
@@ -293,7 +293,7 @@ constexpr std::string_view base64url_chars =
 }
 
 // =========================================================================
-// 常量时间比较 (防止时序攻击)
+
 // =========================================================================
 [[nodiscard]] inline bool constant_time_compare(
     std::string_view a, std::string_view b) noexcept {

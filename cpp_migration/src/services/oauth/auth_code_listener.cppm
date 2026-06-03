@@ -3,7 +3,9 @@ module;
 #include <cstdint>
 #include <cstring>
 #include <expected>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <unistd.h>
@@ -11,6 +13,11 @@ module;
 export module cc.services.oauth.auth_code_listener;
 
 export namespace cc::services::oauth {
+
+struct AuthCodeCallback {
+    std::string code;
+    std::string state;
+};
 
 // Local HTTP server listener for OAuth authorization code callback.
 // Lightweight alternative that binds a socket and extracts the auth code.
@@ -66,9 +73,9 @@ public:
         return "http://localhost:" + std::to_string(port_) + "/oauth/callback";
     }
 
-    // Wait for the authorization code with timeout
-    auto wait_for_code(std::chrono::seconds timeout = std::chrono::seconds{120})
-        -> std::expected<std::string, std::string> {
+    // Wait for the authorization callback with timeout.
+    auto wait_for_callback(std::chrono::seconds timeout = std::chrono::seconds{120})
+        -> std::expected<AuthCodeCallback, std::string> {
         if (!running_ || server_fd_ < 0) {
             return std::unexpected("Server not running");
         }
@@ -104,20 +111,25 @@ public:
         close(client_fd);
         stop();
 
-        // Extract authorization code from GET parameters
+        // Extract authorization callback parameters.
         std::string_view request(buffer, static_cast<size_t>(bytes_read));
-        auto code_pos = request.find("code=");
-        if (code_pos == std::string_view::npos) {
-            if (request.find("error=") != std::string_view::npos) {
-                return std::unexpected("Authorization denied by user");
-            }
-            return std::unexpected("No authorization code in callback");
+        if (request.find("error=") != std::string_view::npos) {
+            return std::unexpected("Authorization denied by user");
         }
 
-        code_pos += 5; // Skip "code="
-        auto code_end = request.find_first_of("& ", code_pos);
-        if (code_end == std::string_view::npos) code_end = request.size();
-        return std::string(request.substr(code_pos, code_end - code_pos));
+        auto code = extract_param(request, "code");
+        if (!code || code->empty()) return std::unexpected("No authorization code in callback");
+        auto state = extract_param(request, "state");
+        if (!state || state->empty()) return std::unexpected("No OAuth state in callback");
+        return AuthCodeCallback{.code = *code, .state = *state};
+    }
+
+    // Wait for the authorization code with timeout.
+    auto wait_for_code(std::chrono::seconds timeout = std::chrono::seconds{120})
+        -> std::expected<std::string, std::string> {
+        auto callback = wait_for_callback(timeout);
+        if (!callback) return std::unexpected(callback.error());
+        return callback->code;
     }
 
     // Stop the listener server
@@ -130,6 +142,59 @@ public:
     }
 
 private:
+    [[nodiscard]] static int hex_value(char ch) {
+        if (ch >= '0' && ch <= '9') return ch - '0';
+        if (ch >= 'a' && ch <= 'f') return 10 + ch - 'a';
+        if (ch >= 'A' && ch <= 'F') return 10 + ch - 'A';
+        return -1;
+    }
+
+    [[nodiscard]] static std::string url_decode(std::string_view value) {
+        std::string out;
+        out.reserve(value.size());
+        for (size_t i = 0; i < value.size(); ++i) {
+            if (value[i] == '+') {
+                out.push_back(' ');
+            } else if (value[i] == '%' && i + 2 < value.size()) {
+                int hi = hex_value(value[i + 1]);
+                int lo = hex_value(value[i + 2]);
+                if (hi >= 0 && lo >= 0) {
+                    out.push_back(static_cast<char>((hi << 4) | lo));
+                    i += 2;
+                } else {
+                    out.push_back(value[i]);
+                }
+            } else {
+                out.push_back(value[i]);
+            }
+        }
+        return out;
+    }
+
+    [[nodiscard]] static std::optional<std::string> extract_param(
+        std::string_view request, std::string_view key) {
+        auto query_start = request.find('?');
+        if (query_start == std::string_view::npos) return std::nullopt;
+        auto query_end = request.find(' ', query_start);
+        auto query = request.substr(
+            query_start + 1,
+            query_end == std::string_view::npos ? std::string_view::npos : query_end - query_start - 1);
+
+        std::string pattern(key);
+        pattern.push_back('=');
+        size_t pos = 0;
+        while (pos < query.size()) {
+            auto next = query.find('&', pos);
+            auto part = query.substr(pos, next == std::string_view::npos ? std::string_view::npos : next - pos);
+            if (part.starts_with(pattern)) {
+                return url_decode(part.substr(pattern.size()));
+            }
+            if (next == std::string_view::npos) break;
+            pos = next + 1;
+        }
+        return std::nullopt;
+    }
+
     uint16_t port_;
     int server_fd_ = -1;
     bool running_{false};

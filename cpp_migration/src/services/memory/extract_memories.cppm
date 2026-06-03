@@ -1,7 +1,7 @@
 /// @file extract_memories.cppm
-/// @brief 从对话中提取重要记忆，用于长期存储。
-/// 分析对话轮次以识别关键事实、决策、偏好；对记忆进行分类和去重；
-/// 持久化到 ~/.cc-repl/memory/ 目录。
+
+
+
 module;
 
 #include <cstdint>
@@ -41,18 +41,18 @@ using TimePoint = Clock::time_point;
 namespace fs = std::filesystem;
 
 // ============================================================
-// 记忆分类枚举
+
 // ============================================================
 
-/// 记忆类别 - 区分不同类型的提取信息
+
 enum class MemoryCategory : std::uint8_t {
-    ProjectFact,       // 项目相关的事实 (架构、依赖、约定)
-    UserPreference,    // 用户偏好 (代码风格、工具选择)
-    Decision,          // 技术决策 (选型、权衡)
-    CodePattern,       // 代码模式 (常用 pattern、反模式)
+    ProjectFact,
+    UserPreference,
+    Decision,
+    CodePattern,
 };
 
-/// 将分类转换为可读字符串
+
 [[nodiscard]] constexpr std::string_view category_to_string(MemoryCategory cat) noexcept {
     switch (cat) {
         case MemoryCategory::ProjectFact:    return "project_fact";
@@ -63,7 +63,7 @@ enum class MemoryCategory : std::uint8_t {
     return "unknown";
 }
 
-/// 从字符串解析分类
+
 [[nodiscard]] constexpr std::optional<MemoryCategory> category_from_string(std::string_view s) noexcept {
     if (s == "project_fact")    return MemoryCategory::ProjectFact;
     if (s == "user_preference") return MemoryCategory::UserPreference;
@@ -95,18 +95,18 @@ enum class MemoryCategory : std::uint8_t {
 }
 
 // ============================================================
-// 核心数据结构
+
 // ============================================================
 
-/// 提取出的单条记忆
-struct ExtractedMemory {
-    std::string content;           // 记忆内容
-    MemoryCategory category;       // 分类
-    double confidence;             // 置信度 [0.0, 1.0]
-    std::string source_turn_id;    // 来源对话轮次 ID
-    TimePoint timestamp;           // 提取时间戳
 
-    /// 序列化为 JSON 字符串
+struct ExtractedMemory {
+    std::string content;
+    MemoryCategory category;
+    double confidence;
+    std::string source_turn_id;
+    TimePoint timestamp;
+
+
     [[nodiscard]] std::string to_json() const {
         return std::format(
             R"({{"content":"{}","category":"{}","confidence":{},"source_turn_id":"{}","timestamp":{}}})",
@@ -117,13 +117,13 @@ struct ExtractedMemory {
     }
 };
 
-/// 提取配置
-struct ExtractionConfig {
-    double min_confidence = 0.7;       // 最低置信度阈值
-    std::size_t max_per_turn = 3;      // 每轮最多提取数
-    std::vector<MemoryCategory> categories_filter;  // 空表示不过滤
 
-    /// 检查某分类是否在过滤列表中（空列表 = 允许所有）
+struct ExtractionConfig {
+    double min_confidence = 0.7;
+    std::size_t max_per_turn = 3;
+    std::vector<MemoryCategory> categories_filter;
+
+
     [[nodiscard]] bool allows_category(MemoryCategory cat) const noexcept {
         if (categories_filter.empty()) return true;
         return std::find(categories_filter.begin(), categories_filter.end(), cat) != categories_filter.end();
@@ -131,10 +131,10 @@ struct ExtractionConfig {
 };
 
 // ============================================================
-// 记忆提取器
+
 // ============================================================
 
-/// 记忆提取核心类 - 分析对话并提取、去重、持久化记忆
+
 class MemoryExtractor {
 public:
     explicit MemoryExtractor(ExtractionConfig config = {})
@@ -143,25 +143,25 @@ public:
 
     ~MemoryExtractor() = default;
 
-    // 禁止拷贝，允许移动
+
     MemoryExtractor(const MemoryExtractor&) = delete;
     MemoryExtractor& operator=(const MemoryExtractor&) = delete;
     MemoryExtractor(MemoryExtractor&&) noexcept = default;
     MemoryExtractor& operator=(MemoryExtractor&&) noexcept = default;
 
-    /// 从对话轮次中提取记忆
-    /// @param messages 当前对话消息列表 (JSON 格式)
-    /// @param context 附加上下文信息 (项目路径等)
-    /// @return 提取到的记忆列表
+
+
+
+
     Task<std::vector<ExtractedMemory>> extract_from_turn(
         const std::vector<std::string>& messages,
         std::string_view context) {
 
-        // 构建提取 prompt 并调用本地分析逻辑
+
         [[maybe_unused]] auto prompt = get_extraction_prompt();
         std::vector<ExtractedMemory> candidates;
 
-        // 采用本地确定性启发式规则，避免后台网络依赖。
+
         for (const auto& msg : messages) {
             auto extracted = analyze_message(msg, context);
             for (auto& mem : extracted) {
@@ -172,9 +172,9 @@ public:
             }
         }
 
-        // 限制每轮提取上限
+
         if (candidates.size() > config_.max_per_turn) {
-            // 按置信度排序，保留 top N
+
             std::partial_sort(candidates.begin(),
                 candidates.begin() + static_cast<std::ptrdiff_t>(config_.max_per_turn),
                 candidates.end(),
@@ -182,14 +182,14 @@ public:
             candidates.resize(config_.max_per_turn);
         }
 
-        // 对已有记忆去重
+
         auto existing = co_await load_existing_memories();
         candidates = filter_duplicates(candidates, existing);
 
         co_return candidates;
     }
 
-    /// 持久化单条记忆到磁盘
+
     Task<std::expected<void, Error>> store_memory(const ExtractedMemory& memory) {
         auto filepath = std::format("{}/{}.json", storage_dir_,
             std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -217,7 +217,7 @@ public:
         co_return std::expected<void, Error>{};
     }
 
-    /// 获取用于记忆提取的 system prompt
+
     [[nodiscard]] std::string get_extraction_prompt() const {
         return std::format(
             "Analyze the conversation and extract key memories.\n"
@@ -229,7 +229,7 @@ public:
         );
     }
 
-    /// 对候选记忆进行去重，移除与已有记忆语义重复的条目
+
     [[nodiscard]] std::vector<ExtractedMemory> filter_duplicates(
         const std::vector<ExtractedMemory>& candidates,
         const std::vector<ExtractedMemory>& existing) const {
@@ -248,14 +248,14 @@ public:
         return unique;
     }
 
-    /// 更新提取配置
+
     void set_config(ExtractionConfig config) { config_ = std::move(config); }
 
-    /// 获取当前配置
+
     [[nodiscard]] const ExtractionConfig& config() const noexcept { return config_; }
 
 private:
-    /// 解析存储目录路径
+
     [[nodiscard]] static std::string resolve_storage_dir() {
         if (const char* home = std::getenv("HOME")) {
             return (fs::path(home) / ".cc-repl" / "memory").string();
@@ -263,7 +263,7 @@ private:
         return (fs::path(".cc-repl") / "memory").string();
     }
 
-    /// 分析单条消息，提取潜在记忆
+
     [[nodiscard]] std::vector<ExtractedMemory> analyze_message(
         std::string_view message, std::string_view context) const {
 
@@ -300,7 +300,7 @@ private:
         return results;
     }
 
-    /// 加载已有记忆用于去重比较
+
     Task<std::vector<ExtractedMemory>> load_existing_memories() {
         std::vector<ExtractedMemory> memories;
         std::error_code ec;
@@ -428,13 +428,13 @@ private:
         };
     }
 
-    /// 简单的语义相似度判断 (基于内容重叠)
+
     [[nodiscard]] bool is_semantically_similar(
         std::string_view a, std::string_view b) const noexcept {
-        // 简化实现: 完全匹配或 80% 子串重叠
+
         if (a == b) return true;
         if (a.size() < 10 || b.size() < 10) return false;
-        // 检查较短串是否是较长串的子串
+
         auto [shorter, longer] = (a.size() < b.size())
             ? std::pair{a, b} : std::pair{b, a};
         return longer.find(shorter) != std::string_view::npos;

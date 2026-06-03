@@ -31,34 +31,34 @@ using Clock = std::chrono::system_clock;
 using TimePoint = Clock::time_point;
 
 // ============================================================
-// 设置同步数据结构
+
 // ============================================================
 
-// 设置值类型
+
 struct SettingValue {
     std::string key;
-    std::string value_json;     // JSON 编码的值
+    std::string value_json;
     std::uint64_t version{0};
-    std::string machine_id;     // 最后修改的机器
+    std::string machine_id;
     TimePoint modified_at;
 };
 
-// 同步冲突
+
 struct SettingsConflict {
     std::string key;
     SettingValue local;
     SettingValue remote;
 };
 
-// 合并策略
+
 enum class SettingsMergeStrategy : std::uint8_t {
-    LastWriteWins,    // 最后写入胜出
-    LocalWins,        // 本地优先
-    RemoteWins,       // 远程优先
-    Manual,           // 需手动解决
+    LastWriteWins,
+    LocalWins,
+    RemoteWins,
+    Manual,
 };
 
-// 变更记录
+
 struct ChangeRecord {
     std::string key;
     std::string old_value_json;
@@ -67,7 +67,7 @@ struct ChangeRecord {
     TimePoint changed_at;
 };
 
-// 同步结果
+
 struct SyncSettingsResult {
     std::size_t pushed{0};
     std::size_t pulled{0};
@@ -76,7 +76,7 @@ struct SyncSettingsResult {
     TimePoint synced_at;
 };
 
-// 配置
+
 struct SettingsSyncConfig {
     std::string machine_id;
     SettingsMergeStrategy merge_strategy{SettingsMergeStrategy::LastWriteWins};
@@ -86,7 +86,7 @@ struct SettingsSyncConfig {
 };
 
 // ============================================================
-// SettingsSyncService - 跨机器设置同步
+
 // ============================================================
 
 class SettingsSyncService {
@@ -94,7 +94,7 @@ public:
     explicit SettingsSyncService(SettingsSyncConfig config = {})
         : config_(std::move(config)) {}
 
-    // 设置键值
+
     VoidResult set(std::string key, std::string value_json) {
         std::lock_guard lock(mutex_);
         auto now = Clock::now();
@@ -110,7 +110,7 @@ public:
             .version = new_ver, .machine_id = config_.machine_id,
             .modified_at = now,
         };
-        // 记录变更
+
         history_.push_back({key, std::move(old_value), value_json, config_.machine_id, now});
         if (history_.size() > config_.max_history) {
             history_.erase(history_.begin());
@@ -118,7 +118,7 @@ public:
         return {};
     }
 
-    // 获取键值
+
     [[nodiscard]] std::optional<std::string> get(const std::string& key) const {
         std::lock_guard lock(mutex_);
         auto it = settings_.find(key);
@@ -126,7 +126,7 @@ public:
         return it->second.value_json;
     }
 
-    // 执行同步
+
     [[nodiscard]] std::expected<SyncSettingsResult, Error> sync(
         std::vector<SettingValue> remote_settings)
     {
@@ -140,7 +140,7 @@ public:
                 settings_[remote.key] = std::move(remote);
                 ++result.pulled;
             } else if (it->second.version != remote.version) {
-                // 冲突检测
+
                 auto resolved = resolve_conflict(it->second, remote);
                 if (resolved) {
                     it->second = std::move(*resolved);
@@ -153,13 +153,13 @@ public:
         return result;
     }
 
-    // 获取变更历史
+
     [[nodiscard]] std::vector<ChangeRecord> change_history() const {
         std::lock_guard lock(mutex_);
         return history_;
     }
 
-    // 检测与远程的冲突
+
     [[nodiscard]] std::vector<SettingsConflict> detect_conflicts(
         const std::vector<SettingValue>& remote) const
     {
@@ -184,7 +184,7 @@ private:
     std::unordered_map<std::string, SettingValue> settings_;
     std::vector<ChangeRecord> history_;
 
-    // 冲突解决
+
     std::optional<SettingValue> resolve_conflict(
         const SettingValue& local, const SettingValue& remote) const
     {
@@ -196,7 +196,7 @@ private:
             case SettingsMergeStrategy::RemoteWins:
                 return remote;
             case SettingsMergeStrategy::Manual:
-                return std::nullopt;  // 无法自动解决
+                return std::nullopt;
         }
         return std::nullopt;
     }

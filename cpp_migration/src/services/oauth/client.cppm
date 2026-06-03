@@ -19,6 +19,7 @@ module;
 #include <string_view>
 #include <utility>
 #include <vector>
+#include <cctype>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -102,6 +103,11 @@ struct AuthorizationRequest {
     PkceChallenge pkce;        // PKCE challenge/verifier pair
     std::string redirect_uri;
     std::chrono::steady_clock::time_point created_at;
+};
+
+struct CallbackResult {
+    std::string code;
+    std::string state;
 };
 
 // Keychain storage interface (macOS Security framework)
@@ -286,8 +292,8 @@ public:
         return {};
     }
 
-    // Wait for the callback and extract the authorization code
-    std::expected<std::string, OAuthError> wait_for_code(std::chrono::seconds timeout) {
+    // Wait for the callback and extract the authorization response.
+    std::expected<CallbackResult, OAuthError> wait_for_callback(std::chrono::seconds timeout) {
         if (!running_) return std::unexpected(OAuthError::CallbackServerError);
 
         // Set socket timeout
@@ -321,8 +327,14 @@ public:
         close(client_fd);
         stop();
 
-        // Extract code from query parameters
-        return extract_code(std::string_view(buffer, static_cast<size_t>(bytes_read)));
+        return extract_callback(std::string_view(buffer, static_cast<size_t>(bytes_read)));
+    }
+
+    // Wait for the callback and extract only the authorization code.
+    std::expected<std::string, OAuthError> wait_for_code(std::chrono::seconds timeout) {
+        auto callback = wait_for_callback(timeout);
+        if (!callback) return std::unexpected(callback.error());
+        return callback->code;
     }
 
     void stop() {
@@ -336,22 +348,70 @@ public:
     ~CallbackServer() { stop(); }
 
 private:
-    // Extract authorization code from the callback URL
-    [[nodiscard]] static std::expected<std::string, OAuthError> extract_code(std::string_view request) {
+    // Extract authorization code and state from the callback URL.
+    [[nodiscard]] static std::expected<CallbackResult, OAuthError> extract_callback(std::string_view request) {
         // Parse "GET /callback?code=xxx&state=yyy HTTP/1.1"
-        auto code_pos = request.find("code=");
-        if (code_pos == std::string_view::npos) {
-            // Check for error
-            if (request.find("error=") != std::string_view::npos) {
-                return std::unexpected(OAuthError::AuthorizationFailed);
-            }
-            return std::unexpected(OAuthError::InvalidGrant);
+        if (request.find("error=") != std::string_view::npos) {
+            return std::unexpected(OAuthError::AuthorizationFailed);
         }
+        auto code = extract_param(request, "code");
+        if (!code || code->empty()) return std::unexpected(OAuthError::InvalidGrant);
+        auto state = extract_param(request, "state");
+        if (!state || state->empty()) return std::unexpected(OAuthError::InvalidState);
+        return CallbackResult{.code = *code, .state = *state};
+    }
 
-        code_pos += 5; // Skip "code="
-        auto code_end = request.find_first_of("& ", code_pos);
-        if (code_end == std::string_view::npos) code_end = request.size();
-        return std::string(request.substr(code_pos, code_end - code_pos));
+    [[nodiscard]] static std::optional<std::string> extract_param(
+        std::string_view request, std::string_view key) {
+        auto query_start = request.find('?');
+        if (query_start == std::string_view::npos) return std::nullopt;
+        auto query_end = request.find(' ', query_start);
+        auto query = request.substr(
+            query_start + 1,
+            query_end == std::string_view::npos ? std::string_view::npos : query_end - query_start - 1);
+
+        std::string pattern(key);
+        pattern.push_back('=');
+        size_t pos = 0;
+        while (pos < query.size()) {
+            auto next = query.find('&', pos);
+            auto part = query.substr(pos, next == std::string_view::npos ? std::string_view::npos : next - pos);
+            if (part.starts_with(pattern)) {
+                return url_decode(part.substr(pattern.size()));
+            }
+            if (next == std::string_view::npos) break;
+            pos = next + 1;
+        }
+        return std::nullopt;
+    }
+
+    [[nodiscard]] static int hex_value(char ch) {
+        if (ch >= '0' && ch <= '9') return ch - '0';
+        if (ch >= 'a' && ch <= 'f') return 10 + ch - 'a';
+        if (ch >= 'A' && ch <= 'F') return 10 + ch - 'A';
+        return -1;
+    }
+
+    [[nodiscard]] static std::string url_decode(std::string_view value) {
+        std::string out;
+        out.reserve(value.size());
+        for (size_t i = 0; i < value.size(); ++i) {
+            if (value[i] == '+' ) {
+                out.push_back(' ');
+            } else if (value[i] == '%' && i + 2 < value.size()) {
+                int hi = hex_value(value[i + 1]);
+                int lo = hex_value(value[i + 2]);
+                if (hi >= 0 && lo >= 0) {
+                    out.push_back(static_cast<char>((hi << 4) | lo));
+                    i += 2;
+                } else {
+                    out.push_back(value[i]);
+                }
+            } else {
+                out.push_back(value[i]);
+            }
+        }
+        return out;
     }
 
     int port_;
@@ -385,15 +445,16 @@ public:
         // Build authorization URL
         std::string scope_str;
         for (size_t i = 0; i < config_.scopes.size(); ++i) {
-            if (i > 0) scope_str += "+";
+            if (i > 0) scope_str += " ";
             scope_str += config_.scopes[i];
         }
 
         auto url = std::format(
             "{}?response_type=code&client_id={}&redirect_uri={}"
             "&scope={}&state={}&code_challenge={}&code_challenge_method=S256",
-            config_.authorization_endpoint, config_.client_id,
-            config_.redirect_uri, scope_str, state, pkce.code_challenge);
+            config_.authorization_endpoint, form_encode(config_.client_id),
+            form_encode(config_.redirect_uri), form_encode(scope_str),
+            form_encode(state), form_encode(pkce.code_challenge));
 
         return url;
     }
@@ -424,16 +485,18 @@ public:
         auto start_result = server.start();
         if (!start_result) return std::unexpected(start_result.error());
 
-        // Get authorization URL (caller should open this in browser)
+        // Get authorization URL and open it in the user's browser.
         auto url_result = start_authorization();
         if (!url_result) return std::unexpected(url_result.error());
+        auto opened = open_authorization_url(*url_result);
+        if (!opened) return std::unexpected(opened.error());
 
         // Wait for callback
-        auto code_result = server.wait_for_code(config_.auth_timeout);
-        if (!code_result) return std::unexpected(code_result.error());
+        auto callback = server.wait_for_callback(config_.auth_timeout);
+        if (!callback) return std::unexpected(callback.error());
 
         // Complete the flow
-        return complete_authorization(*code_result, pending_request_->state);
+        return complete_authorization(callback->code, callback->state);
     }
 
     // Get a valid access token (refreshing if needed)
@@ -455,7 +518,7 @@ public:
         // Build token refresh request
         auto body = std::format(
             "grant_type=refresh_token&refresh_token={}&client_id={}",
-            refresh_tok, config_.client_id);
+            form_encode(refresh_tok), form_encode(config_.client_id));
 
         // POST to token endpoint
         auto [scheme, host, port, path] = parse_url(config_.token_endpoint);
@@ -501,7 +564,8 @@ private:
         auto body = std::format(
             "grant_type=authorization_code&code={}&redirect_uri={}"
             "&client_id={}&code_verifier={}",
-            code, config_.redirect_uri, config_.client_id, code_verifier);
+            form_encode(code), form_encode(config_.redirect_uri),
+            form_encode(config_.client_id), form_encode(code_verifier));
 
         // POST to token endpoint
         auto [scheme, host, port, path] = parse_url(config_.token_endpoint);
@@ -530,6 +594,56 @@ private:
             state += hex_chars[static_cast<size_t>(dist(gen))];
         }
         return state;
+    }
+
+    [[nodiscard]] static std::string shell_quote(std::string_view value) {
+        std::string out = "'";
+        for (char ch : value) {
+            if (ch == '\'') {
+                out += "'\\''";
+            } else {
+                out.push_back(ch);
+            }
+        }
+        out.push_back('\'');
+        return out;
+    }
+
+    [[nodiscard]] static std::expected<void, OAuthError> open_authorization_url(const std::string& url) {
+        std::cout << "Opening browser for OAuth authorization.\n";
+        std::cout << "If the browser does not open, visit this URL:\n" << url << "\n";
+#if defined(__APPLE__)
+        auto command = std::string("open ") + shell_quote(url);
+#elif defined(_WIN32)
+        auto command = std::string("rundll32 url.dll,FileProtocolHandler ") + shell_quote(url);
+#else
+        auto command = std::string("xdg-open ") + shell_quote(url);
+#endif
+        (void)std::system(command.c_str());
+        return {};
+    }
+
+    [[nodiscard]] static std::string form_encode(std::string_view value) {
+        static constexpr char hex[] = "0123456789ABCDEF";
+        std::string out;
+        out.reserve(value.size());
+        for (unsigned char ch : value) {
+            bool safe =
+                (ch >= 'A' && ch <= 'Z') ||
+                (ch >= 'a' && ch <= 'z') ||
+                (ch >= '0' && ch <= '9') ||
+                ch == '-' || ch == '_' || ch == '.' || ch == '~';
+            if (safe) {
+                out.push_back(static_cast<char>(ch));
+            } else if (ch == ' ') {
+                out.push_back('+');
+            } else {
+                out.push_back('%');
+                out.push_back(hex[(ch >> 4) & 0x0F]);
+                out.push_back(hex[ch & 0x0F]);
+            }
+        }
+        return out;
     }
 
     // Parse a URL into (scheme, host, port, path) components

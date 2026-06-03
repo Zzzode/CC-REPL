@@ -11,10 +11,10 @@ export module cc.utils.terminal;
 
 export namespace cc::utils {
 
-// 颜色支持级别
+
 enum class ColorSupport { none, basic16, palette256, truecolor };
 
-// 终端信息
+
 struct TerminalInfo {
     std::string name;
     ColorSupport color_support{ColorSupport::truecolor};
@@ -24,7 +24,7 @@ struct TerminalInfo {
     bool is_ssh{false};
 };
 
-// RAII Raw Mode 守卫
+
 class RawModeGuard {
     bool active_{false};
     termios original_{};
@@ -50,12 +50,12 @@ private:
     }
 };
 
-// 进入 raw mode (返回 RAII 守卫)
+
 [[nodiscard]] inline auto enter_raw_mode() -> RawModeGuard {
     return RawModeGuard{};
 }
 
-// 检测颜色支持
+
 [[nodiscard]] inline auto detect_color_support() -> ColorSupport {
     if (auto* ct = std::getenv("COLORTERM")) {
         std::string_view s(ct);
@@ -69,7 +69,7 @@ private:
     return ColorSupport::basic16;
 }
 
-// 检测终端
+
 [[nodiscard]] inline auto detect_terminal() -> TerminalInfo {
     TerminalInfo info;
     if (auto* term_program = std::getenv("TERM_PROGRAM"))
@@ -78,7 +78,7 @@ private:
     info.is_tmux = std::getenv("TMUX") != nullptr;
     info.is_ssh = std::getenv("SSH_CONNECTION") != nullptr;
     
-    // Kitty/iTerm2/WezTerm 支持 hyperlinks
+
     if (info.name == "iTerm.app" || info.name == "WezTerm") {
         info.supports_hyperlinks = true;
         info.supports_images = true;
@@ -88,13 +88,13 @@ private:
     return info;
 }
 
-// 设置终端标题
+
 inline void set_title(std::string_view text) {
-    // OSC 2 序列
+
     std::printf("\033]2;%.*s\007", static_cast<int>(text.size()), text.data());
 }
 
-// 光标控制
+
 inline void show_cursor(bool visible) {
     std::printf(visible ? "\033[?25h" : "\033[?25l");
 }
@@ -106,7 +106,7 @@ inline void move_cursor(int row, int col) {
 inline void clear_screen() { std::printf("\033[2J\033[H"); }
 inline void clear_line() { std::printf("\033[2K\r"); }
 
-// 生成 OSC 8 超链接
+
 [[nodiscard]] inline auto make_hyperlink(std::string_view url, std::string_view text) -> std::string {
     std::string result;
     result.reserve(url.size() + text.size() + 20);

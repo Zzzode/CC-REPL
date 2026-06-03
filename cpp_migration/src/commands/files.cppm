@@ -40,8 +40,7 @@ public:
     }
 
     [[nodiscard]] Result<CommandResult> execute(const CommandContext&) {
-        // In a real implementation, we would fetch files from context
-        return CommandResult::success("No files in context");
+        return CommandResult::fail("Context file provider is not configured.");
     }
 
     [[nodiscard]] std::vector<std::string> complete(std::string_view) {

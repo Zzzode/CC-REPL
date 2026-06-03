@@ -19,12 +19,15 @@ module;
 #include <algorithm>
 #include <mutex>
 #include <atomic>
+#include <sstream>
 
 #include <uv.h>
 
 export module cc.entrypoints.runner;
 
 import cc.types.types;
+import cc.utils.http;
+import cc.utils.json;
 
 export namespace cc::core {
 
@@ -107,6 +110,7 @@ class Runner {
 public:
     explicit Runner(RunnerConfig config)
         : config_(std::move(config))
+        , runner_id_(make_runner_id())
         , state_(RunnerState::Stopped) {}
 
     virtual ~Runner() { stop(); }
@@ -116,6 +120,10 @@ public:
         if (state_ == RunnerState::Running) {
             return std::unexpected(Error::make(
                 ErrorCode::InternalError, "Runner already started"));
+        }
+        if (config_.api_endpoint.empty()) {
+            return std::unexpected(Error::make(
+                ErrorCode::InvalidRequest, "Runner coordinator API endpoint is required"));
         }
         state_ = RunnerState::Running;
         loop_ = uv_default_loop();
@@ -188,13 +196,20 @@ public:
 
     /// Send a heartbeat status to the coordinator
     void report_status() {
-        std::lock_guard lock(tasks_mutex_);
+        std::size_t active_count = 0;
+        {
+            std::lock_guard lock(tasks_mutex_);
+            active_count = active_tasks_.size();
+        }
         // Build status payload with current load info
         auto status_json = std::format(
             R"({{"runner_id":"{}","state":"{}","active_tasks":{},"capabilities":{{"tools_count":{}}}}})",
-            runner_id_, state_to_string(state_),
-            active_tasks_.size(), config_.capabilities.allowed_tools.size());
-        send_to_coordinator("/status", status_json);
+            json_escape(runner_id_), state_to_string(state_),
+            active_count, config_.capabilities.allowed_tools.size());
+        auto sent = send_to_coordinator("/status", status_json);
+        if (!sent) {
+            last_coordinator_error_ = sent.error().message;
+        }
     }
 
     // Accessors
@@ -221,13 +236,130 @@ protected:
                 }
             }
         }
+        if (constraints.model && !config_.capabilities.models.empty()) {
+            bool found = std::ranges::find(
+                config_.capabilities.models, *constraints.model) !=
+                config_.capabilities.models.end();
+            if (!found) {
+                return Error::make(ErrorCode::InvalidRequest,
+                    std::format("Required model '{}' not available", *constraints.model));
+            }
+        }
+        if (constraints.allow_network && !config_.capabilities.network_access) {
+            return Error::make(ErrorCode::ToolPermissionDenied,
+                "Network access not permitted for this runner");
+        }
         return std::nullopt;
     }
 
+    [[nodiscard]] static std::string json_escape(std::string_view value) {
+        std::string out;
+        out.reserve(value.size() + 8);
+        for (unsigned char ch : value) {
+            switch (ch) {
+                case '"': out += "\\\""; break;
+                case '\\': out += "\\\\"; break;
+                case '\b': out += "\\b"; break;
+                case '\f': out += "\\f"; break;
+                case '\n': out += "\\n"; break;
+                case '\r': out += "\\r"; break;
+                case '\t': out += "\\t"; break;
+                default:
+                    if (ch < 0x20) {
+                        out += std::format("\\u{:04x}", static_cast<unsigned>(ch));
+                    } else {
+                        out.push_back(static_cast<char>(ch));
+                    }
+                    break;
+            }
+        }
+        return out;
+    }
+
     /// Send a payload to the coordinator endpoint
-    void send_to_coordinator(std::string_view path, std::string_view payload) {
+    Result<std::string> send_to_coordinator(std::string_view path, std::string_view payload) {
+        if (config_.api_endpoint.empty()) {
+            return std::unexpected(Error::make(ErrorCode::InvalidRequest,
+                "Coordinator API endpoint is required"));
+        }
+        auto endpoint = coordinator_url(path);
+
         last_coordinator_path_ = std::string(path);
         last_coordinator_payload_ = std::string(payload);
+
+        auto headers = auth_headers();
+        headers.emplace("Content-Type", "application/json");
+
+        cc::utils::HttpClient client;
+        auto response = client.post(endpoint, payload, headers);
+        if (!response) {
+            return std::unexpected(Error::make(ErrorCode::ConnectionFailed, response.error().message));
+        }
+        if (!response->is_ok()) {
+            return std::unexpected(Error::make(ErrorCode::ConnectionFailed,
+                std::format("Coordinator POST {} failed with status {}: {}",
+                    path, response->status, response->body)));
+        }
+        return response->body;
+    }
+
+    [[nodiscard]] Result<std::vector<TaskPayload>> poll_tasks() {
+        auto capacity = config_.max_concurrent_tasks > active_task_count()
+            ? config_.max_concurrent_tasks - active_task_count()
+            : 0;
+        if (capacity == 0) return std::vector<TaskPayload>{};
+
+        auto path = std::format(
+            "/tasks?runner_id={}&capacity={}",
+            url_encode(runner_id_),
+            capacity);
+        auto endpoint = coordinator_url(path);
+
+        last_coordinator_path_ = path;
+        last_coordinator_payload_.clear();
+
+        cc::utils::HttpClient client;
+        auto response = client.get(endpoint, auth_headers());
+        if (!response) {
+            return std::unexpected(Error::make(
+                ErrorCode::ConnectionFailed,
+                response.error().message));
+        }
+        if (!response->is_ok()) {
+            return std::unexpected(Error::make(
+                ErrorCode::ConnectionFailed,
+                std::format("Coordinator GET {} failed with status {}: {}",
+                    path, response->status, response->body)));
+        }
+        if (response->body.empty()) return std::vector<TaskPayload>{};
+
+        auto doc = cc::utils::json::parse(response->body);
+        if (!doc) {
+            return std::unexpected(Error::make(
+                ErrorCode::InvalidRequest,
+                std::format("Coordinator returned invalid task JSON: {}",
+                    doc.error().message())));
+        }
+        return parse_tasks_response(doc->root());
+    }
+
+    [[nodiscard]] Result<std::string> report_task(const TaskReport& report) {
+        auto payload = std::format(
+            R"({{"runner_id":"{}","task_id":"{}","status":"{}","duration_ms":{},)"
+            R"("token_usage":{{"input_tokens":{},"output_tokens":{},"cache_creation_tokens":{},"cache_read_tokens":{},"total_tokens":{}}},)"
+            R"("result":{},"error":{}}})",
+            json_escape(runner_id_),
+            json_escape(report.id),
+            status_to_string(report.status),
+            report.duration.count(),
+            report.token_usage.input_tokens,
+            report.token_usage.output_tokens,
+            report.token_usage.cache_creation_tokens,
+            report.token_usage.cache_read_tokens,
+            report.token_usage.total(),
+            report.result ? std::format(R"("{}")", json_escape(*report.result)) : "null",
+            report.error ? std::format(R"("{}")", json_escape(*report.error)) : "null");
+        return send_to_coordinator("/tasks/report", payload);
     }
 
     enum class RunnerState : uint8_t { Stopped, Running, Stopping };
@@ -241,6 +373,172 @@ protected:
         return "unknown";
     }
 
+    static constexpr std::string_view status_to_string(TaskStatus s) {
+        switch (s) {
+            case TaskStatus::Pending:   return "pending";
+            case TaskStatus::Running:   return "running";
+            case TaskStatus::Completed: return "completed";
+            case TaskStatus::Failed:    return "failed";
+            case TaskStatus::Timeout:   return "timeout";
+            case TaskStatus::Cancelled: return "cancelled";
+        }
+        return "unknown";
+    }
+
+    [[nodiscard]] static std::string make_runner_id() {
+        auto now = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+        return std::format("runner-{}", now);
+    }
+
+    [[nodiscard]] std::string coordinator_url(std::string_view path) const {
+        auto endpoint = config_.api_endpoint;
+        if (!endpoint.empty() && endpoint.back() == '/') {
+            endpoint.pop_back();
+        }
+        if (!path.empty() && path.front() != '/') {
+            endpoint.push_back('/');
+        }
+        endpoint += path;
+        return endpoint;
+    }
+
+    [[nodiscard]] std::unordered_map<std::string, std::string> auth_headers() const {
+        std::unordered_map<std::string, std::string> headers;
+        if (!config_.auth_token.empty()) {
+            headers.emplace("Authorization", "Bearer " + config_.auth_token);
+        }
+        return headers;
+    }
+
+    [[nodiscard]] static std::string url_encode(std::string_view value) {
+        static constexpr char hex[] = "0123456789ABCDEF";
+        std::string out;
+        out.reserve(value.size());
+        for (unsigned char ch : value) {
+            bool safe =
+                (ch >= 'A' && ch <= 'Z') ||
+                (ch >= 'a' && ch <= 'z') ||
+                (ch >= '0' && ch <= '9') ||
+                ch == '-' || ch == '_' || ch == '.' || ch == '~';
+            if (safe) {
+                out.push_back(static_cast<char>(ch));
+            } else {
+                out.push_back('%');
+                out.push_back(hex[(ch >> 4) & 0x0F]);
+                out.push_back(hex[ch & 0x0F]);
+            }
+        }
+        return out;
+    }
+
+    [[nodiscard]] static Result<std::vector<TaskPayload>> parse_tasks_response(cc::utils::json::JsonVal root) {
+        std::vector<TaskPayload> tasks;
+        auto parse_array = [&](cc::utils::json::JsonVal array) -> Result<std::vector<TaskPayload>> {
+            std::vector<TaskPayload> parsed;
+            array.iter([&](cc::utils::json::JsonVal item) {
+                if (!item.is_obj()) return;
+                auto task = parse_task_payload(item);
+                if (task) parsed.push_back(std::move(*task));
+            });
+            return parsed;
+        };
+
+        if (root.is_arr()) return parse_array(root);
+        if (!root.is_obj()) return tasks;
+
+        auto tasks_val = root.get("tasks");
+        if (tasks_val.valid() && tasks_val.is_arr()) return parse_array(tasks_val);
+        auto items_val = root.get("items");
+        if (items_val.valid() && items_val.is_arr()) return parse_array(items_val);
+        auto task_val = root.get("task");
+        if (task_val.valid() && task_val.is_obj()) {
+            auto task = parse_task_payload(task_val);
+            if (!task) return std::unexpected(task.error());
+            tasks.push_back(std::move(*task));
+        }
+        return tasks;
+    }
+
+    [[nodiscard]] static Result<TaskPayload> parse_task_payload(cc::utils::json::JsonVal value) {
+        if (!value.valid() || !value.is_obj()) {
+            return std::unexpected(Error::make(ErrorCode::InvalidRequest,
+                "Task payload must be a JSON object"));
+        }
+
+        TaskPayload task;
+        task.id = required_string(value, "id").value_or(required_string(value, "task_id").value_or(""));
+        task.prompt = required_string(value, "prompt").value_or(required_string(value, "instruction").value_or(""));
+        if (task.id.empty() || task.prompt.empty()) {
+            return std::unexpected(Error::make(ErrorCode::InvalidRequest,
+                "Task payload requires non-empty id and prompt fields"));
+        }
+
+        auto timeout = optional_int(value, "timeout_ms");
+        if (timeout && *timeout > 0) {
+            task.timeout = std::chrono::milliseconds(*timeout);
+        }
+        task.context = optional_string_array(value, "context");
+
+        auto constraints = value.get("constraints");
+        if (!constraints.valid() || !constraints.is_obj()) {
+            constraints = value;
+        }
+        if (auto model = optional_string(constraints, "model"); model && !model->empty()) {
+            task.constraints.model = *model;
+        }
+        if (auto max_tokens = optional_int(constraints, "max_tokens"); max_tokens && *max_tokens > 0) {
+            task.constraints.max_tokens = static_cast<uint32_t>(*max_tokens);
+        }
+        task.constraints.required_tools = optional_string_array(constraints, "required_tools");
+        if (task.constraints.required_tools.empty()) {
+            task.constraints.required_tools = optional_string_array(constraints, "tools");
+        }
+        if (auto allow_network = optional_bool(constraints, "allow_network")) {
+            task.constraints.allow_network = *allow_network;
+        }
+        return task;
+    }
+
+    [[nodiscard]] static std::optional<std::string> required_string(
+        cc::utils::json::JsonVal object, std::string_view key) {
+        return optional_string(object, key);
+    }
+
+    [[nodiscard]] static std::optional<std::string> optional_string(
+        cc::utils::json::JsonVal object, std::string_view key) {
+        auto child = object.get(key);
+        if (!child.valid() || !child.is_str()) return std::nullopt;
+        return std::string(child.as_str());
+    }
+
+    [[nodiscard]] static std::optional<int64_t> optional_int(
+        cc::utils::json::JsonVal object, std::string_view key) {
+        auto child = object.get(key);
+        if (!child.valid() || !child.is_num()) return std::nullopt;
+        return child.as_int();
+    }
+
+    [[nodiscard]] static std::optional<bool> optional_bool(
+        cc::utils::json::JsonVal object, std::string_view key) {
+        auto child = object.get(key);
+        if (!child.valid() || !child.is_bool()) return std::nullopt;
+        return child.as_bool();
+    }
+
+    [[nodiscard]] static std::vector<std::string> optional_string_array(
+        cc::utils::json::JsonVal object, std::string_view key) {
+        std::vector<std::string> values;
+        auto child = object.get(key);
+        if (!child.valid() || !child.is_arr()) return values;
+        child.iter([&](cc::utils::json::JsonVal item) {
+            if (item.valid() && item.is_str()) {
+                values.emplace_back(item.as_str());
+            }
+        });
+        return values;
+    }
+
     RunnerConfig config_;
     std::string runner_id_;
     RunnerState state_;
@@ -251,13 +549,26 @@ protected:
     std::unordered_set<std::string> active_tasks_;
     std::string last_coordinator_path_;
     std::string last_coordinator_payload_;
+    std::string last_coordinator_error_;
 
 private:
     /// libuv timer callback: poll for new tasks
     static void on_poll_tick(uv_timer_t* handle) {
         auto* self = static_cast<Runner*>(handle->data);
         if (self->active_task_count() >= self->config_.max_concurrent_tasks) return;
-        // Real implementation: HTTP GET /tasks -> parse TaskPayload -> handle_task()
+        auto tasks = self->poll_tasks();
+        if (!tasks) {
+            self->last_coordinator_error_ = tasks.error().message;
+            return;
+        }
+        for (const auto& task : *tasks) {
+            if (self->active_task_count() >= self->config_.max_concurrent_tasks) break;
+            auto report = self->handle_task(task);
+            auto sent = self->report_task(report);
+            if (!sent) {
+                self->last_coordinator_error_ = sent.error().message;
+            }
+        }
     }
 
     /// libuv timer callback: send heartbeat
@@ -318,21 +629,14 @@ protected:
         // Execute via the coordinator's API - submit prompt with context
         std::string payload = std::format(
             R"({{"task_id":"{}","prompt":"{}","system":"{}","tools":{},"sandbox":true}})",
-            task.id,
-            task.prompt.substr(0, 1000), // Truncate for payload
-            system_prompt,
+            json_escape(task.id),
+            json_escape(task.prompt.substr(0, 1000)), // Truncate for payload
+            json_escape(system_prompt),
             config_.capabilities.allowed_tools.size());
 
-        send_to_coordinator("/execute", payload);
-
-        // In a full implementation: wait for execution result from coordinator
-        // The coordinator dispatches to the LLM and returns the result
-        // For now, return confirmation that task was dispatched
-        return std::format("[sandbox] Task '{}' dispatched with {} context docs, "
-                           "prompt length {}, {} tools available",
-                           task.id, task.context.size(),
-                           task.prompt.size(),
-                           config_.capabilities.allowed_tools.size());
+        auto response = send_to_coordinator("/execute", payload);
+        if (!response) return std::unexpected(response.error());
+        return *response;
     }
 };
 
@@ -385,28 +689,17 @@ protected:
         std::string payload = std::format(
             R"({{"task_id":"{}","prompt":"{}","model":"{}","max_tokens":{},"workspace":"{}",)"
             R"("context_docs":{},"tools_count":{},"can_spawn_agents":true}})",
-            task.id,
-            task.prompt.substr(0, 2000), // Truncate for JSON safety
-            model,
+            json_escape(task.id),
+            json_escape(task.prompt.substr(0, 2000)), // Truncate for JSON safety
+            json_escape(model),
             max_tokens,
-            config_.workspace_dir,
+            json_escape(config_.workspace_dir),
             task.context.size(),
             config_.capabilities.allowed_tools.size());
 
-        send_to_coordinator("/execute", payload);
-
-        // In a full implementation:
-        // 1. Send prompt + context to LLM via coordinator
-        // 2. Process tool_use responses by executing tools locally
-        // 3. Handle sub-agent spawning if needed
-        // 4. Continue multi-turn conversation until end_turn
-        // 5. Return final result
-
-        return std::format("[self-hosted] Task '{}' dispatched: model={}, "
-                           "workspace='{}', {} context docs, {} tools",
-                           task.id, model, config_.workspace_dir,
-                           task.context.size(),
-                           config_.capabilities.allowed_tools.size());
+        auto response = send_to_coordinator("/execute", payload);
+        if (!response) return std::unexpected(response.error());
+        return *response;
     }
 };
 

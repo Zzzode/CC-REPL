@@ -14,7 +14,7 @@ export module cc.utils.yaml;
 
 export namespace cc::utils {
 
-// YAML 值类型（递归 variant）
+
 struct YamlValue;
 using YamlMap = std::map<std::string, YamlValue>;
 using YamlArray = std::vector<YamlValue>;
@@ -39,7 +39,7 @@ struct YamlValue {
 };
 
 namespace yaml_detail {
-    // 去除行首尾空白
+
     inline std::string_view trim_line(std::string_view line) {
         auto start = line.find_first_not_of(" \t");
         if (start == std::string_view::npos) return {};
@@ -47,7 +47,7 @@ namespace yaml_detail {
         return line.substr(start, end - start + 1);
     }
 
-    // 计算行首缩进级别
+
     inline size_t indent_level(std::string_view line) {
         size_t indent = 0;
         for (char c : line) {
@@ -58,27 +58,27 @@ namespace yaml_detail {
         return indent;
     }
 
-    // 解析标量值
+
     inline YamlValue parse_scalar(std::string_view value) {
         if (value.empty() || value == "null" || value == "~") return YamlValue(nullptr);
         if (value == "true" || value == "True" || value == "TRUE") return YamlValue(true);
         if (value == "false" || value == "False" || value == "FALSE") return YamlValue(false);
 
-        // 尝试解析整数
+
         int64_t int_val{};
         auto [ptr, ec] = std::from_chars(value.data(), value.data() + value.size(), int_val);
         if (ec == std::errc{} && ptr == value.data() + value.size()) {
             return YamlValue(int_val);
         }
 
-        // 尝试解析浮点数
+
         double dbl_val{};
         auto [ptr2, ec2] = std::from_chars(value.data(), value.data() + value.size(), dbl_val);
         if (ec2 == std::errc{} && ptr2 == value.data() + value.size()) {
             return YamlValue(dbl_val);
         }
 
-        // 去除引号
+
         if (value.size() >= 2 &&
             ((value.front() == '"' && value.back() == '"') ||
              (value.front() == '\'' && value.back() == '\''))) {
@@ -88,7 +88,7 @@ namespace yaml_detail {
         return YamlValue(std::string(value));
     }
 
-    // 分割行
+
     inline std::vector<std::string_view> split_lines(std::string_view sv) {
         std::vector<std::string_view> lines;
         size_t start = 0;
@@ -104,7 +104,7 @@ namespace yaml_detail {
         return lines;
     }
 
-    // 递归解析 YAML 块
+
     inline YamlValue parse_block(const std::vector<std::string_view>& lines,
                                   size_t& idx, size_t base_indent) {
         if (idx >= lines.size()) return YamlValue(nullptr);
@@ -112,7 +112,7 @@ namespace yaml_detail {
         auto line = lines[idx];
         auto trimmed = trim_line(line);
 
-        // 检测是否为列表
+
         if (trimmed.size() >= 2 && trimmed[0] == '-' && trimmed[1] == ' ') {
             YamlArray arr;
             while (idx < lines.size()) {
@@ -124,24 +124,24 @@ namespace yaml_detail {
                 if (cur_trimmed.empty() || cur_trimmed[0] == '#') { ++idx; continue; }
                 if (cur_trimmed[0] != '-') break;
 
-                // 提取列表项值
+
                 auto item_value = trim_line(cur_trimmed.substr(2));
                 ++idx;
 
-                // 检查是否为嵌套对象
+
                 if (item_value.find(':') != std::string_view::npos &&
                     idx < lines.size() && indent_level(lines[idx]) > cur_indent) {
-                    // 嵌套 map 的起点是当前缩进+2
+
                     --idx;
                     auto nested_indent = cur_indent + 2;
-                    // 从 "- key: value" 提取 key: value
+
                     YamlMap map;
                     auto colon = item_value.find(':');
                     auto key = std::string(item_value.substr(0, colon));
                     auto val_str = trim_line(item_value.substr(colon + 1));
                     map[key] = parse_scalar(val_str);
                     ++idx;
-                    // 后续同级别的 key: value
+
                     while (idx < lines.size() && indent_level(lines[idx]) >= nested_indent) {
                         auto nested_trimmed = trim_line(lines[idx]);
                         if (nested_trimmed.empty() || nested_trimmed[0] == '#') { ++idx; continue; }
@@ -160,7 +160,7 @@ namespace yaml_detail {
             return YamlValue(std::move(arr));
         }
 
-        // map 解析
+
         YamlMap map;
         while (idx < lines.size()) {
             auto current = lines[idx];
@@ -170,7 +170,7 @@ namespace yaml_detail {
             auto cur_trimmed = trim_line(current);
             if (cur_trimmed.empty() || cur_trimmed[0] == '#') { ++idx; continue; }
 
-            // 查找 key: value
+
             auto colon = cur_trimmed.find(':');
             if (colon == std::string_view::npos) { ++idx; continue; }
 
@@ -180,7 +180,7 @@ namespace yaml_detail {
             ++idx;
 
             if (value_trimmed.empty() && idx < lines.size()) {
-                // 值在下一行（缩进块）
+
                 size_t child_indent = indent_level(lines[idx]);
                 if (child_indent > cur_indent) {
                     map[key] = parse_block(lines, idx, child_indent);
@@ -195,16 +195,16 @@ namespace yaml_detail {
     }
 }
 
-// 解析 YAML 文本
+
 [[nodiscard]] inline YamlValue parse_yaml(std::string_view sv) {
     auto lines = yaml_detail::split_lines(sv);
     size_t idx = 0;
-    // 跳过文档起始标记
+
     if (!lines.empty() && yaml_detail::trim_line(lines[0]) == "---") ++idx;
     return yaml_detail::parse_block(lines, idx, 0);
 }
 
-// 将 YamlValue 序列化为 YAML 字符串
+
 [[nodiscard]] inline std::string yaml_to_string(const YamlValue& value, size_t indent = 0) {
     std::string prefix(indent * 2, ' ');
     std::string result;
@@ -222,7 +222,7 @@ namespace yaml_detail {
             oss << arg;
             result = oss.str();
         } else if constexpr (std::is_same_v<T, std::string>) {
-            // 如果包含特殊字符，用引号包裹
+
             bool needs_quote = arg.find(':') != std::string::npos ||
                              arg.find('#') != std::string::npos ||
                              arg.empty();

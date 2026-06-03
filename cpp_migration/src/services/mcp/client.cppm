@@ -571,9 +571,9 @@ public:
         // Parse and add arguments
         auto args_doc = parse(request.arguments_json);
         if (args_doc) {
-            // For simplicity, we'll pass as a string
-            // In real implementation, we'd merge the JSON
-            params.add("arguments", doc.string(request.arguments_json));
+            params.add("arguments", doc.copy_val(args_doc->root()));
+        } else {
+            params.add("arguments", doc.object());
         }
         
         doc.set_root(params);

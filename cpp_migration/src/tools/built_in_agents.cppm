@@ -11,13 +11,13 @@ import cc.tools.agent_types;
 
 export namespace cc::tools {
 
-// 获取探索型代理配置
+
 inline auto get_explore_agent() -> AgentConfig {
     return AgentConfig{
         .type = AgentType::Explore,
         .name = "Explorer",
         .model = "claude-sonnet-4-20250514",
-        .system_prompt = "", // 使用 get_agent_system_prompt 获取
+        .system_prompt = "",
         .allowed_tools = {
             "Read", "Glob", "Grep", "SearchCodebase", "LS"
         },
@@ -25,7 +25,7 @@ inline auto get_explore_agent() -> AgentConfig {
     };
 }
 
-// 获取规划型代理配置
+
 inline auto get_plan_agent() -> AgentConfig {
     return AgentConfig{
         .type = AgentType::Plan,
@@ -39,7 +39,7 @@ inline auto get_plan_agent() -> AgentConfig {
     };
 }
 
-// 获取验证型代理配置
+
 inline auto get_verify_agent() -> AgentConfig {
     return AgentConfig{
         .type = AgentType::Verify,
@@ -53,7 +53,7 @@ inline auto get_verify_agent() -> AgentConfig {
     };
 }
 
-// 获取通用型代理配置
+
 inline auto get_general_purpose_agent() -> AgentConfig {
     return AgentConfig{
         .type = AgentType::GeneralPurpose,
@@ -68,7 +68,7 @@ inline auto get_general_purpose_agent() -> AgentConfig {
     };
 }
 
-// 获取所有内置代理配置列表
+
 inline auto get_all_built_in_agents() -> std::vector<AgentConfig> {
     return {
         get_explore_agent(),
@@ -78,7 +78,7 @@ inline auto get_all_built_in_agents() -> std::vector<AgentConfig> {
     };
 }
 
-// 按名称查找代理配置
+
 inline auto find_agent_by_name(std::string_view name) -> std::optional<AgentConfig> {
     auto agents = get_all_built_in_agents();
     auto it = std::find_if(agents.begin(), agents.end(),

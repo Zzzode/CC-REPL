@@ -14,7 +14,7 @@ import cc.utils.json_read;
 
 export namespace cc::utils {
 
-// Schema 字段定义
+
 struct SchemaField {
     std::string name;
     std::string type;       // "string", "number", "integer", "boolean", "array", "object"
@@ -23,13 +23,13 @@ struct SchemaField {
     std::optional<JsonValue> default_value;
 };
 
-// JSON Schema 定义
+
 struct JsonSchema {
     std::string title;
     std::vector<SchemaField> fields;
 };
 
-// 将字段类型转换为 JSON Schema 类型描述
+
 namespace schema_detail {
     inline std::string type_to_json_schema_type(std::string_view type) {
         if (type == "string") return "\"string\"";
@@ -38,11 +38,11 @@ namespace schema_detail {
         if (type == "boolean" || type == "bool") return "\"boolean\"";
         if (type == "array") return "\"array\"";
         if (type == "object") return "\"object\"";
-        return "\"string\""; // 默认 fallback
+        return "\"string\"";
     }
 }
 
-// 生成 JSON Schema 字符串
+
 [[nodiscard]] inline std::string schema_to_json(const JsonSchema& schema) {
     std::ostringstream oss;
     oss << "{\n";
@@ -50,13 +50,13 @@ namespace schema_detail {
     oss << "  \"title\": \"" << schema.title << "\",\n";
     oss << "  \"type\": \"object\",\n";
 
-    // 收集 required 字段
+
     std::vector<std::string> required_fields;
     for (const auto& field : schema.fields) {
         if (field.required) required_fields.push_back(field.name);
     }
 
-    // 输出 properties
+
     oss << "  \"properties\": {\n";
     for (size_t i = 0; i < schema.fields.size(); ++i) {
         const auto& field = schema.fields[i];
@@ -75,7 +75,7 @@ namespace schema_detail {
     }
     oss << "  }";
 
-    // 输出 required
+
     if (!required_fields.empty()) {
         oss << ",\n  \"required\": [";
         for (size_t i = 0; i < required_fields.size(); ++i) {
@@ -90,7 +90,7 @@ namespace schema_detail {
     return oss.str();
 }
 
-// 验证 JsonValue 是否符合 Schema，返回错误列表
+
 [[nodiscard]] inline std::vector<std::string> validate_against_schema(
     const JsonValue& value, const JsonSchema& schema) {
     std::vector<std::string> errors;
@@ -105,7 +105,7 @@ namespace schema_detail {
     for (const auto& field : schema.fields) {
         auto it = obj.find(field.name);
 
-        // 检查 required 字段是否存在
+
         if (it == obj.end()) {
             if (field.required) {
                 errors.push_back("Missing required field: " + field.name);
@@ -113,7 +113,7 @@ namespace schema_detail {
             continue;
         }
 
-        // 类型验证
+
         const auto& val = it->second;
         bool type_ok = false;
         if (field.type == "string") type_ok = val.is_string();
@@ -125,7 +125,7 @@ namespace schema_detail {
             type_ok = val.is_bool();
         else if (field.type == "array") type_ok = val.is_array();
         else if (field.type == "object") type_ok = val.is_object();
-        else type_ok = true; // 未知类型不强制验证
+        else type_ok = true;
 
         if (!type_ok) {
             errors.push_back("Field '" + field.name + "' expected type '" +

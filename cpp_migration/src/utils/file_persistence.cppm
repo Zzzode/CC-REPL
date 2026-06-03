@@ -15,7 +15,7 @@ namespace fs = std::filesystem;
 
 export namespace cc::utils {
 
-// 确保父目录存在
+
 inline bool ensure_parent_dir(const fs::path& filepath) {
     auto parent = filepath.parent_path();
     if (parent.empty()) return true;
@@ -25,7 +25,7 @@ inline bool ensure_parent_dir(const fs::path& filepath) {
     return !ec;
 }
 
-// 原子写入：先写入临时文件再 rename，确保写入的原子性和持久性
+
 inline std::expected<void, std::string> atomic_write(
     const fs::path& filepath,
     std::string_view content
@@ -34,7 +34,7 @@ inline std::expected<void, std::string> atomic_write(
         return std::unexpected("Cannot create parent directory: " + filepath.parent_path().string());
     }
 
-    // 生成同目录下的临时文件名
+
     auto parent = filepath.parent_path();
     auto now = std::chrono::steady_clock::now().time_since_epoch().count();
     std::mt19937_64 rng(static_cast<uint64_t>(now));
@@ -44,7 +44,7 @@ inline std::expected<void, std::string> atomic_write(
     std::string tmp_name = ".tmp_" + std::to_string(random_val);
     fs::path tmp_path = parent / tmp_name;
 
-    // 写入临时文件
+
     {
         std::ofstream ofs(tmp_path, std::ios::binary | std::ios::trunc);
         if (!ofs.is_open()) {
@@ -59,7 +59,7 @@ inline std::expected<void, std::string> atomic_write(
         }
     }
 
-    // 原子 rename
+
     std::error_code ec;
     fs::rename(tmp_path, filepath, ec);
     if (ec) {
@@ -70,13 +70,13 @@ inline std::expected<void, std::string> atomic_write(
     return {};
 }
 
-// 原子写入 JSON 内容（接收已序列化的 JSON 字符串）
-// 注：此处使用 string_view 表示 JSON 值，因为 C++23 标准库没有内置 JSON 类型
+
+
 inline std::expected<void, std::string> atomic_write_json(
     const fs::path& filepath,
     std::string_view json_content
 ) {
-    // JSON 文件写入时追加换行符
+
     std::string with_newline{json_content};
     if (!with_newline.empty() && with_newline.back() != '\n') {
         with_newline.push_back('\n');
@@ -84,7 +84,7 @@ inline std::expected<void, std::string> atomic_write_json(
     return atomic_write(filepath, with_newline);
 }
 
-// 安全追加：以 append 模式写入，带错误处理
+
 inline std::expected<void, std::string> safe_append(
     const fs::path& filepath,
     std::string_view content

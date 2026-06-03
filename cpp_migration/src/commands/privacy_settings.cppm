@@ -24,15 +24,15 @@ auto parse_bool(std::string_view value, bool fallback) -> bool {
     return fallback;
 }
 
-// 隐私设置配置
+
 struct PrivacySettings {
-    bool telemetry;        // 是否允许遥测数据收集
-    bool crash_reports;    // 是否发送崩溃报告
-    bool usage_stats;      // 是否收集使用统计
-    std::string data_retention; // 数据保留策略（"30d", "90d", "1y", "forever"）
+    bool telemetry;
+    bool crash_reports;
+    bool usage_stats;
+    std::string data_retention;
 };
 
-// 获取当前隐私设置
+
 auto get_privacy_settings() -> PrivacySettings {
     PrivacySettings settings{
         .telemetry = false,
@@ -55,7 +55,7 @@ auto get_privacy_settings() -> PrivacySettings {
     return settings;
 }
 
-// 更新隐私设置
+
 auto set_privacy_settings(PrivacySettings settings) -> void {
     auto path = privacy_settings_path();
     std::filesystem::create_directories(path.parent_path());
@@ -66,7 +66,7 @@ auto set_privacy_settings(PrivacySettings settings) -> void {
            << "data_retention=" << settings.data_retention << '\n';
 }
 
-// 显示隐私相关信息（数据收集说明等）
+
 auto show_privacy_info() -> std::string {
     auto settings = get_privacy_settings();
 

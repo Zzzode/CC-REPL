@@ -10,6 +10,8 @@ module;
 #include <format>
 #include <algorithm>
 #include <array>
+#include <functional>
+#include <utility>
 
 export module cc.commands.bridge_kick;
 
@@ -19,6 +21,18 @@ import cc.commands.command;
 export namespace cc::commands {
 
 using namespace cc::core;
+using BridgeStatusProvider = std::function<std::string()>;
+
+namespace detail {
+inline BridgeStatusProvider& status_provider() {
+    static BridgeStatusProvider provider;
+    return provider;
+}
+} // namespace detail
+
+inline void set_bridge_status_provider(BridgeStatusProvider provider) {
+    detail::status_provider() = std::move(provider);
+}
 
 /// BridgeKickCommand implements the /bridge-kick slash command.
 /// Injects bridge failure states for manual recovery testing.
@@ -32,7 +46,7 @@ public:
             .args = {
                 CommandArg{.name = "subcommand", .description = "Subcommand: close, poll, register, reconnect-session, heartbeat, reconnect, status",
                            .type = ArgType::Choice, .required = false,
-                           .choices = {{"close", "poll", "register", "reconnect-session", "heartbeat", "reconnect", "status"}}},
+                           .choices = {"close", "poll", "register", "reconnect-session", "heartbeat", "reconnect", "status"}},
                 CommandArg{.name = "parameter", .description = "Subcommand parameter",
                            .type = ArgType::Text, .required = false},
                 CommandArg{.name = "parameter2", .description = "Second subcommand parameter",
@@ -167,8 +181,11 @@ private:
     }
 
     [[nodiscard]] static Result<CommandResult> handle_status(const CommandContext&) {
-        return CommandResult::success(
-            "Bridge status: connected (simulated)\nNo active faults queued: 0");
+        auto& provider = detail::status_provider();
+        if (!provider) {
+            return CommandResult::fail("Bridge status provider is not configured.");
+        }
+        return CommandResult::success(provider());
     }
 };
 

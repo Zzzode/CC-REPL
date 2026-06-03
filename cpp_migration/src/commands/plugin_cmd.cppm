@@ -13,11 +13,16 @@ module;
 #include <algorithm>
 #include <span>
 #include <array>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 
 export module cc.commands.plugin_cmd;
 
 import cc.types.types;
 import cc.commands.command;
+import cc.utils.plugin_lifecycle;
 
 export namespace cc::commands {
 
@@ -46,7 +51,7 @@ public:
                 CommandArg{.name = "action",
                            .description = "list | install | uninstall | enable | disable | info",
                            .type = ArgType::Choice, .required = false,
-                           .choices = {{"list", "install", "uninstall", "enable", "disable", "info"}}},
+                           .choices = {"list", "install", "uninstall", "enable", "disable", "info"}},
                 CommandArg{.name = "plugin_name", .description = "Plugin name or package specifier",
                            .type = ArgType::Text, .required = false},
             },
@@ -103,12 +108,69 @@ public:
 private:
     std::vector<PluginInfo> plugins_;
 
+    [[nodiscard]] static std::filesystem::path plugins_dir() {
+        if (const char* home = std::getenv("HOME")) {
+            return std::filesystem::path(home) / ".cc-repl" / "plugins";
+        }
+        return std::filesystem::temp_directory_path() / "cc-repl" / "plugins";
+    }
+
+    [[nodiscard]] static std::optional<std::string> extract_json_string(std::string_view json, std::string_view key) {
+        auto marker = std::string{"\""} + std::string(key) + "\":\"";
+        auto pos = json.find(marker);
+        if (pos == std::string_view::npos) return std::nullopt;
+        pos += marker.size();
+        std::string value;
+        while (pos < json.size() && json[pos] != '"') {
+            if (json[pos] == '\\' && pos + 1 < json.size()) ++pos;
+            value.push_back(json[pos++]);
+        }
+        return value;
+    }
+
+    [[nodiscard]] static std::vector<PluginInfo> load_installed_plugins() {
+        namespace fs = std::filesystem;
+        std::vector<PluginInfo> plugins;
+        auto root = plugins_dir();
+        std::error_code ec;
+        if (!fs::exists(root, ec)) return plugins;
+
+        for (const auto& entry : fs::directory_iterator(root, ec)) {
+            if (!entry.is_directory()) continue;
+            auto name = entry.path().filename().string();
+            if (name.starts_with(".")) continue;
+
+            PluginInfo info{
+                .name = name,
+                .version = "unknown",
+                .author = "unknown",
+                .description = "Installed plugin",
+                .enabled = !fs::exists(entry.path() / ".disabled", ec),
+                .installed = true,
+            };
+
+            auto manifest_path = entry.path() / "manifest.json";
+            if (fs::exists(manifest_path, ec)) {
+                std::ifstream input(manifest_path);
+                std::string manifest((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+                if (auto version = extract_json_string(manifest, "version")) info.version = *version;
+                if (auto author = extract_json_string(manifest, "author")) info.author = *author;
+                if (auto description = extract_json_string(manifest, "description")) info.description = *description;
+            }
+
+            plugins.push_back(std::move(info));
+        }
+        std::ranges::sort(plugins, {}, &PluginInfo::name);
+        return plugins;
+    }
+
     [[nodiscard]] std::string format_list() const {
-        if (plugins_.empty()) {
+        auto plugins = load_installed_plugins();
+        if (plugins.empty()) {
             return "No plugins installed.\nUse /plugin install <name> to add one.";
         }
         std::string out = "Installed plugins:\n";
-        for (const auto& p : plugins_) {
+        for (const auto& p : plugins) {
             auto status = p.enabled ? "●" : "○";
             out += std::format("  {} {} v{} by {} — {}\n",
                 status, p.name, p.version, p.author, p.description);
@@ -117,8 +179,9 @@ private:
     }
 
     [[nodiscard]] Result<CommandResult> show_info(const std::string& name) const {
-        auto it = std::ranges::find_if(plugins_, [&](const auto& p) { return p.name == name; });
-        if (it == plugins_.end()) {
+        auto plugins = load_installed_plugins();
+        auto it = std::ranges::find_if(plugins, [&](const auto& p) { return p.name == name; });
+        if (it == plugins.end()) {
             return std::unexpected(Error::make(ErrorCode::ToolNotFound,
                 std::format("Plugin '{}' not found.", name)));
         }
@@ -129,34 +192,54 @@ private:
     }
 
     [[nodiscard]] Result<CommandResult> install_plugin(const std::string& name) {
-        // Check if already installed
-        if (std::ranges::any_of(plugins_, [&](const auto& p) { return p.name == name; })) {
+        auto plugins = load_installed_plugins();
+        if (std::ranges::any_of(plugins, [&](const auto& p) { return p.name == name; })) {
             return CommandResult::success(std::format("Plugin '{}' is already installed.", name));
         }
-        // In production: download and install plugin package
-        plugins_.push_back(PluginInfo{
-            .name = name, .version = "1.0.0", .author = "unknown",
-            .description = "Newly installed plugin", .enabled = true, .installed = true});
-        return CommandResult::success(std::format("Plugin '{}' installed successfully.", name));
+        auto result = cc::utils::plugins::install_plugin(name);
+        if (!result) {
+            return std::unexpected(Error::make(ErrorCode::InternalError, result.error()));
+        }
+        plugins_ = load_installed_plugins();
+        return CommandResult::success(std::format(
+            "Plugin '{}' installed successfully in {}ms.",
+            result->plugin_id,
+            result->duration.count()));
     }
 
     [[nodiscard]] Result<CommandResult> uninstall_plugin(const std::string& name) {
-        auto it = std::ranges::find_if(plugins_, [&](const auto& p) { return p.name == name; });
-        if (it == plugins_.end()) {
-            return std::unexpected(Error::make(ErrorCode::ToolNotFound,
-                std::format("Plugin '{}' not found.", name)));
+        auto result = cc::utils::plugins::uninstall_plugin(name);
+        if (!result) {
+            return std::unexpected(Error::make(ErrorCode::ToolNotFound, result.error()));
         }
-        plugins_.erase(it);
+        plugins_ = load_installed_plugins();
         return CommandResult::success(std::format("Plugin '{}' uninstalled.", name));
     }
 
     [[nodiscard]] Result<CommandResult> set_enabled(const std::string& name, bool enabled) {
-        auto it = std::ranges::find_if(plugins_, [&](const auto& p) { return p.name == name; });
-        if (it == plugins_.end()) {
+        namespace fs = std::filesystem;
+        auto plugin_path = plugins_dir() / name;
+        std::error_code ec;
+        if (!fs::exists(plugin_path, ec)) {
             return std::unexpected(Error::make(ErrorCode::ToolNotFound,
                 std::format("Plugin '{}' not found.", name)));
         }
-        it->enabled = enabled;
+        auto marker = plugin_path / ".disabled";
+        if (enabled) {
+            fs::remove(marker, ec);
+            if (ec) {
+                return std::unexpected(Error::make(ErrorCode::InternalError,
+                    std::format("Failed to enable plugin '{}': {}", name, ec.message())));
+            }
+        } else {
+            std::ofstream output(marker);
+            if (!output.is_open()) {
+                return std::unexpected(Error::make(ErrorCode::InternalError,
+                    std::format("Failed to disable plugin '{}'.", name)));
+            }
+            output << "disabled\n";
+        }
+        plugins_ = load_installed_plugins();
         return CommandResult::success(std::format("Plugin '{}' {}.",
             name, enabled ? "enabled" : "disabled"));
     }

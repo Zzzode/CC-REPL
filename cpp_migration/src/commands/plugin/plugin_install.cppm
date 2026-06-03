@@ -14,13 +14,13 @@ module;
 
 export module cc.commands.plugin.plugin_install;
 
-// 前向声明：复用 manage_plugins 中的 InstalledPlugin 结构
-// 此处为独立定义以避免模块循环依赖
+
+
 export namespace cc::commands {
 
 using std::filesystem::path;
 
-// 插件安装信息（与 manage_plugins 中的结构一致）
+
 struct PluginInstallInfo {
     std::string id;
     std::string version;
@@ -45,7 +45,7 @@ auto normalize_plugin_id(std::string_view id_or_url) -> std::string {
 
 auto write_plugin_manifest(const PluginInstallInfo& plugin) -> std::expected<void, std::string>;
 
-// 安装插件（支持 ID 或 URL）
+
 auto install_plugin(std::string_view id_or_url)
     -> std::expected<PluginInstallInfo, std::string> {
     if (id_or_url.empty()) {
@@ -63,7 +63,7 @@ auto install_plugin(std::string_view id_or_url)
     return info;
 }
 
-// 卸载指定插件
+
 auto uninstall_plugin(std::string_view id) -> std::expected<void, std::string> {
     if (id.empty()) {
         return std::unexpected("Plugin ID cannot be empty");
@@ -76,7 +76,7 @@ auto uninstall_plugin(std::string_view id) -> std::expected<void, std::string> {
     return {};
 }
 
-// 更新指定插件到最新版本
+
 auto update_plugin(std::string_view id) -> std::expected<PluginInstallInfo, std::string> {
     if (id.empty()) {
         return std::unexpected("Plugin ID cannot be empty");
@@ -89,7 +89,7 @@ auto update_plugin(std::string_view id) -> std::expected<PluginInstallInfo, std:
     return info;
 }
 
-// 批量更新所有已安装插件
+
 auto update_all_plugins() -> std::vector<std::pair<std::string, std::expected<void, std::string>>> {
     std::vector<std::pair<std::string, std::expected<void, std::string>>> results;
     auto root = plugin_root_dir();

@@ -7,6 +7,7 @@ module;
 export module cc.tools.registry;
 
 import cc.tools.tool;
+import cc.tools.runtime_registry;
 
 export namespace cc::tools::registry {
 
@@ -19,7 +20,7 @@ using cc::core::ITool;
 
 /// Get the list of all built-in tool names
 [[nodiscard]] inline std::vector<std::string> builtin_tool_names() {
-    return {"Bash", "Read", "Write", "Edit", "Glob", "Grep", "WebFetch", "WebSearch", "Agent"};
+    return cc::tools::runtime_tool_names();
 }
 
 } // namespace cc::tools::registry

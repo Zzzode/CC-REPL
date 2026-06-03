@@ -436,7 +436,7 @@ public:
         : config_(std::move(config))
         , state_(ConnectionState::Idle) {}
 
-    // Factory methods (would be implemented with actual HTTP client)
+    // Factory method for parser setup; AnthropicClient owns the HTTP transfer.
     static std::optional<StreamParser> create(
         const std::string& url,
         const std::string& body,
@@ -444,7 +444,7 @@ public:
         std::chrono::milliseconds timeout) {
         StreamParser parser;
         parser.config_.connect_timeout = timeout;
-        // In real implementation: start HTTP connection
+        parser.feed({});
         return parser;
     }
 

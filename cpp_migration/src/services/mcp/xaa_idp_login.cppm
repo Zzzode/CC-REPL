@@ -5,9 +5,13 @@ module;
 #include <string_view>
 #include <optional>
 #include <expected>
-#include <cstdio>
-#include <array>
+#include <format>
+#include <unordered_map>
 export module cc.services.mcp.xaa_idp_login;
+
+import cc.utils.http;
+import cc.utils.json;
+
 export namespace cc::services::mcp {
 
 struct XaaLoginResult {
@@ -31,52 +35,56 @@ struct XaaLoginResult {
         return std::unexpected(std::string{"IDP URL must use HTTPS"});
     }
 
-    // Step 1: Request device code
     std::string device_code_url = std::string(idp_url) + "/device/code";
-    std::string cmd = "curl -sf --max-time 15 -X POST '" + device_code_url +
-                      "' -H 'Content-Type: application/json' "
-                      "-d '{\"client_id\":\"cc-repl\",\"scope\":\"openid profile\"}' 2>/dev/null";
+    auto request = cc::utils::json::object();
+    request.set("client_id", "cc-repl");
+    request.set("scope", "openid profile");
 
-    std::array<char, 4096> buffer{};
-    std::string response;
-    FILE* pipe = popen(cmd.c_str(), "r");
-    if (!pipe) {
-        return std::unexpected(std::string{"Failed to initiate device code request"});
+    cc::utils::HttpClient client;
+    auto response = client.post(device_code_url, request.serialize(), std::unordered_map<std::string, std::string>{
+        {"Content-Type", "application/json"},
+    });
+    if (!response) {
+        return std::unexpected(response.error().message);
     }
-    while (std::fgets(buffer.data(), static_cast<int>(buffer.size()), pipe) != nullptr) {
-        response += buffer.data();
-    }
-    int status = pclose(pipe);
-    if (status != 0 || response.empty()) {
-        return std::unexpected("XAA IDP device code request failed (status: " +
-                             std::to_string(status) + ")");
+    if (!response->is_ok()) {
+        return std::unexpected(std::format(
+            "XAA IDP device code request failed with status {}: {}",
+            response->status, response->body));
     }
 
-    // Extract tokens from JSON response
-    // In production: proper JSON parsing; here we use simple extraction
-    auto extract = [](const std::string& json, const std::string& key) -> std::string {
-        auto pos = json.find("\"" + key + "\"");
-        if (pos == std::string::npos) return {};
-        auto colon = json.find(':', pos);
-        if (colon == std::string::npos) return {};
-        auto qs = json.find('"', colon + 1);
-        auto qe = json.find('"', qs + 1);
-        if (qs == std::string::npos || qe == std::string::npos) return {};
-        return json.substr(qs + 1, qe - qs - 1);
-    };
+    auto parsed = cc::utils::json::parse(response->body);
+    if (!parsed) {
+        return std::unexpected(std::format("XAA IDP response was not valid JSON: {}", parsed.error().message()));
+    }
 
-    auto access_token = extract(response, "access_token");
-    auto refresh_token = extract(response, "refresh_token");
+    auto root = parsed->root();
+    if (!root || !root.is_obj()) {
+        return std::unexpected("XAA IDP response must be a JSON object");
+    }
+
+    auto access_value = root.get("access_token");
+    auto refresh_value = root.get("refresh_token");
+    std::string access_token = access_value && access_value.is_str() ? std::string(access_value.as_str()) : "";
+    std::string refresh_token = refresh_value && refresh_value.is_str() ? std::string(refresh_value.as_str()) : "";
 
     if (access_token.empty()) {
+        auto user_code = root.get("user_code");
+        auto verification_uri = root.get("verification_uri");
+        if (user_code && user_code.is_str() && verification_uri && verification_uri.is_str()) {
+            return std::unexpected(std::format(
+                "XAA IDP authorization is pending. Open {} and enter code {}.",
+                verification_uri.as_str(), user_code.as_str()));
+        }
         return std::unexpected(std::string{"XAA IDP response missing access_token"});
     }
 
     XaaLoginResult result;
     result.access_token = std::move(access_token);
     result.refresh_token = std::move(refresh_token);
-    auto org = extract(response, "org_id");
-    if (!org.empty()) result.org_id = std::move(org);
+    if (auto org = root.get("org_id"); org && org.is_str()) {
+        result.org_id = std::string(org.as_str());
+    }
 
     return result;
 }

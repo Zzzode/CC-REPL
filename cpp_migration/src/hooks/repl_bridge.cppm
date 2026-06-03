@@ -52,6 +52,7 @@ struct BridgeStats {
 };
 
 using MessageHandler = std::function<void(BridgeMessage)>;
+using BridgeSender = std::function<std::expected<void, std::string>(const BridgeMessage&)>;
 
 namespace detail {
 
@@ -60,6 +61,7 @@ struct BridgeInternalState {
     BridgeConfig config;
     std::atomic<BridgeState> state{BridgeState::Disconnected};
     std::vector<MessageHandler> handlers;
+    BridgeSender sender;
     std::deque<BridgeMessage> send_queue;
     BridgeStats stats;
     std::uint64_t next_sequence{1};
@@ -75,9 +77,14 @@ inline auto get_state() -> BridgeInternalState& {
 
 } // namespace detail
 
+/// Configure the transport used to send bridge messages.
+inline auto set_bridge_sender(BridgeSender sender) -> void {
+    auto& state = detail::get_state();
+    std::lock_guard lock(state.mutex);
+    state.sender = std::move(sender);
+}
+
 /// Connect the REPL bridge to a remote session.
-/// In production: establishes a WebSocket or SSE connection to the bridge server
-/// for bi-directional message passing between local REPL and remote agent.
 inline auto connect_bridge(BridgeConfig config)
     -> std::expected<void, std::string>
 {
@@ -94,6 +101,10 @@ inline auto connect_bridge(BridgeConfig config)
     auto& state = detail::get_state();
     std::lock_guard lock(state.mutex);
 
+    if (!state.sender) {
+        return std::unexpected(std::string{"Bridge transport sender is not configured"});
+    }
+
     if (state.state.load() == BridgeState::Connected) {
         return std::unexpected(std::string{"Bridge is already connected"});
     }
@@ -104,12 +115,7 @@ inline auto connect_bridge(BridgeConfig config)
     state.stats.connected_since = std::chrono::steady_clock::now();
     state.last_error.clear();
 
-    // In production: initiate WebSocket handshake here.
-    // On success, transition to Connected state.
     state.state.store(BridgeState::Connected);
-
-    // Flush any queued messages
-    // (handled by the transport event loop in production)
 
     return {};
 }
@@ -127,33 +133,46 @@ inline auto send_bridge_message(BridgeMessage message)
     -> std::expected<std::uint64_t, std::string>
 {
     auto& state = detail::get_state();
-    std::lock_guard lock(state.mutex);
+    BridgeSender sender;
+    std::uint64_t seq = 0;
 
-    auto current_state = state.state.load();
-    if (current_state != BridgeState::Connected &&
-        current_state != BridgeState::Reconnecting) {
-        return std::unexpected(std::string{"Bridge is not connected"});
+    {
+        std::lock_guard lock(state.mutex);
+
+        auto current_state = state.state.load();
+        if (current_state != BridgeState::Connected &&
+            current_state != BridgeState::Reconnecting) {
+            return std::unexpected(std::string{"Bridge is not connected"});
+        }
+
+        message.sequence = state.next_sequence++;
+        message.timestamp = std::chrono::system_clock::now();
+        seq = message.sequence;
+
+        state.stats.messages_sent++;
+        state.stats.bytes_sent += message.payload.size();
+
+        if (current_state == BridgeState::Reconnecting) {
+            if (static_cast<int>(state.send_queue.size()) >= detail::BridgeInternalState::MAX_QUEUE_SIZE) {
+                state.send_queue.pop_front();
+            }
+            state.send_queue.push_back(std::move(message));
+            return seq;
+        }
+
+        if (!state.sender) {
+            return std::unexpected(std::string{"Bridge transport sender is not configured"});
+        }
+        sender = state.sender;
     }
 
-    // Assign sequence number and timestamp
-    message.sequence = state.next_sequence++;
-    message.timestamp = std::chrono::system_clock::now();
-
-    auto seq = message.sequence;
-
-    // Update stats
-    state.stats.messages_sent++;
-    state.stats.bytes_sent += message.payload.size();
-
-    if (current_state == BridgeState::Reconnecting) {
-        // Queue for later delivery
-        if (static_cast<int>(state.send_queue.size()) >= detail::BridgeInternalState::MAX_QUEUE_SIZE) {
-            state.send_queue.pop_front();
+    auto sent = sender(message);
+    if (!sent) {
+        std::lock_guard lock(state.mutex);
+        if (seq + 1 == state.next_sequence || seq < state.next_sequence) {
+            state.last_error = sent.error();
         }
-        state.send_queue.push_back(std::move(message));
-    } else {
-        // In production: serialize and send via WebSocket/SSE transport
-        // For now, direct dispatch to handlers for loopback testing
+        return std::unexpected(sent.error());
     }
 
     return seq;
@@ -180,13 +199,18 @@ inline auto on_bridge_message(MessageHandler callback) -> std::uint64_t {
 /// Deliver an incoming message (called by the transport layer).
 inline auto deliver_bridge_message(BridgeMessage message) -> void {
     auto& state = detail::get_state();
-    std::lock_guard lock(state.mutex);
+    std::vector<MessageHandler> handlers;
 
-    state.stats.messages_received++;
-    state.stats.bytes_received += message.payload.size();
-    message.timestamp = std::chrono::system_clock::now();
+    {
+        std::lock_guard lock(state.mutex);
 
-    for (const auto& handler : state.handlers) {
+        state.stats.messages_received++;
+        state.stats.bytes_received += message.payload.size();
+        message.timestamp = std::chrono::system_clock::now();
+        handlers = state.handlers;
+    }
+
+    for (const auto& handler : handlers) {
         handler(message);
     }
 }
@@ -221,26 +245,34 @@ inline auto get_last_error() -> std::string {
 
 /// Trigger a reconnection attempt (called on connection loss).
 inline auto attempt_reconnect() -> std::expected<void, std::string> {
-    auto& state = detail::get_state();
-    std::lock_guard lock(state.mutex);
+    BridgeConfig config;
+    {
+        auto& state = detail::get_state();
+        std::lock_guard lock(state.mutex);
 
-    if (!state.config.auto_reconnect) {
-        state.state.store(BridgeState::Error);
-        state.last_error = "Auto-reconnect is disabled";
-        return std::unexpected(state.last_error);
+        if (!state.config.auto_reconnect) {
+            state.state.store(BridgeState::Error);
+            state.last_error = "Auto-reconnect is disabled";
+            return std::unexpected(state.last_error);
+        }
+
+        if (state.stats.reconnect_count >= state.config.max_reconnect_attempts) {
+            state.state.store(BridgeState::Error);
+            state.last_error = "Max reconnect attempts exceeded";
+            return std::unexpected(state.last_error);
+        }
+
+        state.state.store(BridgeState::Reconnecting);
+        state.stats.reconnect_count++;
+
+        if (!state.sender) {
+            state.state.store(BridgeState::Error);
+            state.last_error = "Bridge transport sender is not configured";
+            return std::unexpected(state.last_error);
+        }
+        config = state.config;
     }
-
-    if (state.stats.reconnect_count >= state.config.max_reconnect_attempts) {
-        state.state.store(BridgeState::Error);
-        state.last_error = "Max reconnect attempts exceeded";
-        return std::unexpected(state.last_error);
-    }
-
-    state.state.store(BridgeState::Reconnecting);
-    state.stats.reconnect_count++;
-
-    // In production: schedule reconnect with exponential backoff
-    return {};
+    return connect_bridge(std::move(config));
 }
 
 } // namespace cc::hooks::repl_bridge

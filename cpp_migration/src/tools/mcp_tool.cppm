@@ -15,7 +15,7 @@ export module cc.tools.mcp;
 
 export namespace cc::tools {
 
-// MCP 操作错误类型
+
 enum class McpError {
     ServerNotFound,
     ToolNotFound,
@@ -45,7 +45,7 @@ constexpr auto format_error(McpError err) -> std::string_view {
     }
 }
 
-// MCP 服务器连接信息
+
 struct McpServerInfo {
     std::string name;
     std::string endpoint;        // stdio, sse, or streamable-http URL
@@ -54,7 +54,7 @@ struct McpServerInfo {
     std::vector<std::string> available_resources;
 };
 
-// MCP 工具调用请求
+
 struct McpToolRequest {
     std::string server_name;
     std::string tool_name;
@@ -62,14 +62,14 @@ struct McpToolRequest {
     std::chrono::seconds timeout{30};
 };
 
-// MCP 工具调用结果
+
 struct McpToolResult {
     std::string content;
     std::string content_type;  // "text", "image", "resource"
     bool is_error{false};
 };
 
-// MCP 资源标识
+
 struct McpResource {
     std::string uri;
     std::string name;
@@ -77,24 +77,24 @@ struct McpResource {
     std::optional<std::string> description;
 };
 
-// MCP 客户端路由器：管理多个 MCP 服务器连接
+
 class McpClientRouter {
 public:
-    // 注册 MCP 服务器
+
     auto register_server(McpServerInfo info) -> std::expected<void, McpError> {
         if (info.name.empty()) return std::unexpected(McpError::InvalidInput);
         servers_.emplace(info.name, std::move(info));
         return {};
     }
 
-    // 查找目标服务器
+
     auto find_server(std::string_view name) -> std::expected<McpServerInfo*, McpError> {
         auto it = servers_.find(std::string(name));
         if (it == servers_.end()) return std::unexpected(McpError::ServerNotFound);
         return &it->second;
     }
 
-    // 列出所有已注册服务器
+
     auto list_servers() const -> std::vector<const McpServerInfo*> {
         std::vector<const McpServerInfo*> result;
         for (const auto& [_, info] : servers_) {
@@ -107,13 +107,13 @@ private:
     std::unordered_map<std::string, McpServerInfo> servers_;
 };
 
-// 全局路由器实例
+
 inline McpClientRouter& global_mcp_router() {
     static McpClientRouter router;
     return router;
 }
 
-// McpTool - 调用 MCP 服务器暴露的工具
+
 class McpTool {
 public:
     static constexpr std::string_view name = "mcp_tool";
@@ -136,7 +136,7 @@ public:
 
         auto server = global_mcp_router().find_server(request.server_name);
 
-        // 序列化参数为 JSON
+
         std::string args_json = "{";
         bool first = true;
         for (const auto& [key, value] : request.arguments) {
@@ -146,8 +146,8 @@ public:
         }
         args_json += "}";
 
-        // 实际调用由底层传输层执行 (stdio/SSE/HTTP)
-        // 这里返回占位结果，运行时由 MCP 客户端完成实际 RPC
+
+
         return McpToolResult{
             .content = std::format("[MCP call: {}/{} with {}]",
                 request.server_name, request.tool_name, args_json),
@@ -172,7 +172,7 @@ public:
     }
 };
 
-// ListMcpResourcesTool - 列出 MCP 服务器上的可用资源
+
 class ListMcpResourcesTool {
 public:
     static constexpr std::string_view name = "list_mcp_resources";
@@ -207,7 +207,7 @@ public:
     }
 };
 
-// ReadMcpResourceTool - 读取特定 MCP 资源内容
+
 class ReadMcpResourceTool {
 public:
     static constexpr std::string_view name = "read_mcp_resource";
@@ -222,7 +222,7 @@ public:
         auto server = global_mcp_router().find_server(server_name);
         if (!server) return std::unexpected(server.error());
 
-        // 实际读取由传输层完成
+
         return McpToolResult{
             .content = std::format("[Resource content: {}://{}]", server_name, resource_uri),
             .content_type = "text",
@@ -245,7 +245,7 @@ public:
     }
 };
 
-// McpAuthTool - 处理 MCP 服务器 OAuth 认证
+
 class McpAuthTool {
 public:
     static constexpr std::string_view name = "mcp_auth";
@@ -260,11 +260,11 @@ public:
         if (!server) return std::unexpected(server.error());
 
         if (auth_code) {
-            // 用授权码完成认证流程
+
             (*server)->authenticated = true;
             return std::format("Successfully authenticated with '{}'", server_name);
         }
-        // 返回 OAuth 授权 URL
+
         return std::format("Please authorize at: {}/oauth/authorize", (*server)->endpoint);
     }
 

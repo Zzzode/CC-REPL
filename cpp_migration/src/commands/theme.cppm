@@ -61,7 +61,7 @@ public:
             .args = {
                 CommandArg{.name = "action", .description = "list | set | current | colors",
                            .type = ArgType::Choice, .required = false,
-                           .choices = {{"list", "set", "current", "colors"}}},
+                           .choices = {"list", "set", "current", "colors"}},
                 CommandArg{.name = "theme_name", .description = "Theme name to apply",
                            .type = ArgType::Text, .required = false},
             },

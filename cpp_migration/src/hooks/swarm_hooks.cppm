@@ -28,12 +28,12 @@ export namespace cc::hooks {
 
 /// Current status of an agent in the swarm
 enum class AgentStatus : std::uint8_t {
-    Idle,        // 空闲，等待任务
-    Thinking,    // 正在推理/生成
-    Executing,   // 正在执行工具调用
-    Waiting,     // 等待外部输入（用户确认、权限等）
-    Error,       // 遇到错误
-    Completed,   // 已完成任务
+    Idle,
+    Thinking,
+    Executing,
+    Waiting,
+    Error,
+    Completed,
 };
 
 /// Convert AgentStatus to display string
@@ -51,16 +51,16 @@ enum class AgentStatus : std::uint8_t {
 
 /// Information about a single agent in the swarm
 struct AgentInfo {
-    std::string id;                                       // 唯一代理标识
-    std::string name;                                     // 显示名称（如 "Coder", "Reviewer"）
-    std::string role;                                     // 角色描述
-    AgentStatus status{AgentStatus::Idle};                // 当前状态
-    std::chrono::system_clock::time_point created_at;     // 创建时间
-    std::optional<std::string> current_task;              // 当前正在处理的任务
-    std::optional<std::string> last_message;              // 最后一条输出消息
-    std::optional<std::string> error_message;             // 错误信息（如有）
-    std::size_t message_count{0};                         // 已产生消息数
-    std::size_t tool_use_count{0};                        // 已调用工具数
+    std::string id;
+    std::string name;
+    std::string role;
+    AgentStatus status{AgentStatus::Idle};
+    std::chrono::system_clock::time_point created_at;
+    std::optional<std::string> current_task;
+    std::optional<std::string> last_message;
+    std::optional<std::string> error_message;
+    std::size_t message_count{0};
+    std::size_t tool_use_count{0};
 
     /// Check if agent has finished (completed or error)
     [[nodiscard]] auto is_terminal() const -> bool {
@@ -83,9 +83,9 @@ struct AgentInfo {
 struct HandoffEvent {
     std::string from_agent_id;
     std::string to_agent_id;
-    std::string context;                              // 传递的上下文信息
+    std::string context;
     std::chrono::system_clock::time_point timestamp;
-    std::optional<std::string> reason;                // 切换原因
+    std::optional<std::string> reason;
 };
 
 // ============================================================
@@ -97,8 +97,8 @@ struct ExecutionNode {
     std::string agent_id;
     std::string task_description;
     AgentStatus status{AgentStatus::Idle};
-    std::vector<std::string> depends_on;  // 依赖的其他 agent_id
-    float progress{0.0f};                 // 完成进度 [0, 1]
+    std::vector<std::string> depends_on;
+    float progress{0.0f};
 };
 
 // ============================================================
@@ -107,13 +107,13 @@ struct ExecutionNode {
 
 /// Full state of the multi-agent swarm for the UI layer
 struct SwarmState {
-    std::vector<AgentInfo> agents;                         // 所有代理信息
-    std::optional<std::string> active_agent_id;            // 当前焦点代理
-    std::vector<HandoffEvent> pending_handoffs;            // 待处理的切换
-    std::vector<HandoffEvent> handoff_history;             // 切换历史
-    std::vector<ExecutionNode> execution_graph;            // 执行依赖图
-    std::chrono::system_clock::time_point started_at;      // Swarm 启动时间
-    bool is_active{false};                                 // Swarm 是否正在运行
+    std::vector<AgentInfo> agents;
+    std::optional<std::string> active_agent_id;
+    std::vector<HandoffEvent> pending_handoffs;
+    std::vector<HandoffEvent> handoff_history;
+    std::vector<ExecutionNode> execution_graph;
+    std::chrono::system_clock::time_point started_at;
+    bool is_active{false};
 };
 
 // ============================================================
@@ -194,7 +194,7 @@ public:
         for (auto& agent : state_.agents) {
             if (agent.id == id) {
                 agent.status = new_status;
-                // 通知订阅者
+
                 notify_agent_event(agent.id, new_status);
                 break;
             }
@@ -226,11 +226,11 @@ public:
         state_.handoff_history.push_back(event);
         state_.active_agent_id = std::string(to);
 
-        // 更新代理状态
+
         update_agent_status(from, AgentStatus::Completed);
         update_agent_status(to, AgentStatus::Thinking);
 
-        // 通知 handoff 回调
+
         if (on_handoff_) on_handoff_(event);
     }
 

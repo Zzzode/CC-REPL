@@ -1,5 +1,5 @@
 // C++23 Module: Computer use capabilities
-// 计算机操控能力：屏幕截图、鼠标控制、键盘控制
+
 module;
 #include <algorithm>
 #include <cctype>
@@ -18,12 +18,12 @@ export module cc.tools.computer_use;
 
 export namespace cc::core::computer_use {
 
-// 图像数据结构
+
 struct ImageData {
-    std::vector<uint8_t> pixels;  // 原始像素数据 (RGBA)
+    std::vector<uint8_t> pixels;
     uint32_t width{0};
     uint32_t height{0};
-    std::string format{"rgba"};   // 像素格式
+    std::string format{"rgba"};
 
     [[nodiscard]] bool is_valid() const {
         return width > 0 && height > 0 && !pixels.empty();
@@ -32,13 +32,13 @@ struct ImageData {
     [[nodiscard]] size_t byte_size() const { return pixels.size(); }
 };
 
-// 屏幕坐标
+
 struct Point {
     int32_t x{0};
     int32_t y{0};
 };
 
-// 矩形区域
+
 struct Rect {
     int32_t x{0};
     int32_t y{0};
@@ -51,12 +51,12 @@ struct Rect {
     }
 };
 
-// 鼠标按钮
+
 enum class MouseButton : uint8_t {
     Left, Right, Middle
 };
 
-// 键盘修饰键
+
 enum class Modifier : uint8_t {
     None    = 0,
     Shift   = 1 << 0,
@@ -65,11 +65,11 @@ enum class Modifier : uint8_t {
     Meta    = 1 << 3   // Cmd on macOS, Win on Windows
 };
 
-// 操作结果
+
 struct ActionResult {
     bool success{false};
     std::string error_message;
-    std::optional<ImageData> screenshot;  // 操作后截图 (可选)
+    std::optional<ImageData> screenshot;
 
     [[nodiscard]] static ActionResult ok() { return {true, {}, {}}; }
     [[nodiscard]] static ActionResult fail(std::string msg) {
@@ -77,7 +77,7 @@ struct ActionResult {
     }
 };
 
-// 计算机操控动作
+
 enum class ActionType : uint8_t {
     Screenshot,
     MouseMove,
@@ -91,14 +91,14 @@ enum class ActionType : uint8_t {
     Scroll
 };
 
-// 抽象动作描述
+
 struct ComputerAction {
     ActionType type;
-    std::optional<Point> position;       // 鼠标位置
-    std::optional<Point> drag_end;       // 拖拽终点
-    std::optional<std::string> text;     // 输入文本或按键名
-    std::optional<Rect> region;          // 截屏区域
-    std::vector<std::string> keys;       // 组合键列表
+    std::optional<Point> position;
+    std::optional<Point> drag_end;
+    std::optional<std::string> text;
+    std::optional<Rect> region;
+    std::vector<std::string> keys;
 
     [[nodiscard]] std::string describe() const {
         switch (type) {
@@ -135,19 +135,19 @@ struct ComputerAction {
     }
 };
 
-// 屏幕截图控制类
+
 class ScreenCapture {
 public:
-    // 截取全屏
+
     [[nodiscard]] std::expected<ImageData, std::string> capture_screen() const {
         if (!is_available()) {
             return std::unexpected("Screen capture not available on this platform");
         }
-        // 平台特定实现 (macOS: CGDisplayCreateImage, Linux: X11/Wayland)
+
         return std::unexpected("Screen capture: platform implementation required");
     }
 
-    // 截取指定区域
+
     [[nodiscard]] std::expected<ImageData, std::string> capture_region(
         int32_t x, int32_t y, uint32_t w, uint32_t h) const {
         if (!is_available()) {
@@ -159,10 +159,10 @@ public:
         return std::unexpected("Region capture: platform implementation required");
     }
 
-    // 检查截图能力是否可用
+
     [[nodiscard]] bool is_available() const {
 #ifdef __APPLE__
-        return true;  // macOS 始终可用 (需权限)
+        return true;
 #elif defined(__linux__)
         return check_display_server();
 #else
@@ -177,35 +177,35 @@ private:
     }
 };
 
-// 鼠标控制类
+
 class MouseControl {
 public:
-    // 移动鼠标到指定位置
+
     [[nodiscard]] ActionResult move(int32_t x, int32_t y) {
         if (!validate_position(x, y)) {
             return ActionResult::fail("Position out of screen bounds");
         }
         current_position_ = {x, y};
-        // 平台特定实现
+
         return ActionResult::ok();
     }
 
-    // 点击
+
     [[nodiscard]] ActionResult click(MouseButton button = MouseButton::Left) {
         return ActionResult::ok();
     }
 
-    // 双击
+
     [[nodiscard]] ActionResult double_click() {
         return ActionResult::ok();
     }
 
-    // 右键点击
+
     [[nodiscard]] ActionResult right_click() {
         return click(MouseButton::Right);
     }
 
-    // 拖拽
+
     [[nodiscard]] ActionResult drag(int32_t from_x, int32_t from_y,
                                      int32_t to_x, int32_t to_y) {
         if (!validate_position(from_x, from_y) || !validate_position(to_x, to_y)) {
@@ -215,7 +215,7 @@ public:
         return ActionResult::ok();
     }
 
-    // 滚动（x/y 表示水平/垂直滚动增量）
+
     [[nodiscard]] ActionResult scroll(int32_t delta_x, int32_t delta_y) {
         last_scroll_delta_ = {delta_x, delta_y};
         return ActionResult::ok();
@@ -227,26 +227,26 @@ public:
 private:
     Point current_position_{0, 0};
     Point last_scroll_delta_{0, 0};
-    Rect screen_bounds_{0, 0, 3840, 2160};  // 默认 4K 边界
+    Rect screen_bounds_{0, 0, 3840, 2160};
 
     [[nodiscard]] bool validate_position(int32_t x, int32_t y) const {
         return screen_bounds_.contains({x, y});
     }
 };
 
-// 键盘控制类
+
 class KeyboardControl {
 public:
-    // 输入文本
+
     [[nodiscard]] ActionResult type_text(std::string_view text) {
         if (text.empty()) {
             return ActionResult::fail("Empty text input");
         }
-        // 平台特定实现
+
         return ActionResult::ok();
     }
 
-    // 按下单个键
+
     [[nodiscard]] ActionResult press_key(std::string_view key) {
         if (!is_valid_key(key)) {
             return ActionResult::fail(std::format("Unknown key: {}", key));
@@ -254,7 +254,7 @@ public:
         return ActionResult::ok();
     }
 
-    // 组合键
+
     [[nodiscard]] ActionResult hotkey(const std::vector<std::string>& keys) {
         if (keys.empty()) {
             return ActionResult::fail("Empty hotkey combination");
@@ -290,15 +290,15 @@ private:
     }
 };
 
-// 计算机操控管理器：统一入口
+
 class ComputerUseManager {
 public:
-    // 检查计算机操控功能是否可用
+
     [[nodiscard]] bool is_available() const {
         return screen_.is_available();
     }
 
-    // 执行动作
+
     [[nodiscard]] ActionResult execute_action(const ComputerAction& action) {
         if (!is_available() && action.type != ActionType::Screenshot) {
             return ActionResult::fail("Computer use not available");
@@ -344,7 +344,7 @@ public:
         return ActionResult::fail("Unknown action type");
     }
 
-    // 获取各子系统引用
+
     [[nodiscard]] ScreenCapture& screen() { return screen_; }
     [[nodiscard]] MouseControl& mouse() { return mouse_; }
     [[nodiscard]] KeyboardControl& keyboard() { return keyboard_; }

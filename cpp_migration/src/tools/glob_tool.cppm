@@ -6,6 +6,7 @@ module;
 #include <expected>
 #include <memory>
 #include <optional>
+#include <algorithm>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -31,6 +32,35 @@ using cc::core::SchemaProperty;
 using cc::utils::Result;
 
 namespace fs = std::filesystem;
+
+[[nodiscard]] std::string slash_path(const fs::path& path) {
+    auto text = path.generic_string();
+    return text.empty() ? "." : text;
+}
+
+[[nodiscard]] std::string glob_to_regex(std::string_view pattern) {
+    std::string out = "^";
+    for (std::size_t i = 0; i < pattern.size(); ++i) {
+        const char c = pattern[i];
+        if (c == '*') {
+            if (i + 1 < pattern.size() && pattern[i + 1] == '*') {
+                out += ".*";
+                ++i;
+            } else {
+                out += "[^/]*";
+            }
+        } else if (c == '?') {
+            out += "[^/]";
+        } else if (std::string_view{R"(\.^$+{}[]()|)"}.find(c) != std::string_view::npos) {
+            out.push_back('\\');
+            out.push_back(c);
+        } else {
+            out.push_back(c);
+        }
+    }
+    out += "$";
+    return out;
+}
 
 // =========================================================================
 // GlobTool Implementation
@@ -109,17 +139,29 @@ public:
                 base_path = std::string(path_node.as_str());
             }
             
-            // Very simple glob support (handles *.cpp, **/*)
-            if (pattern == "*") {
-                for (const auto& entry : fs::directory_iterator(base_path)) {
+            auto regex_pattern = std::regex(glob_to_regex(pattern));
+            auto recursive = pattern.find("**") != std::string::npos || pattern.find('/') != std::string::npos;
+            auto consider = [&](const fs::directory_entry& entry) {
+                auto rel = slash_path(fs::relative(entry.path(), base_path));
+                auto name = entry.path().filename().generic_string();
+                if (std::regex_match(rel, regex_pattern) || std::regex_match(name, regex_pattern)) {
                     matches.push_back(entry.path());
+                }
+            };
+
+            if (recursive) {
+                for (const auto& entry : fs::recursive_directory_iterator(base_path, fs::directory_options::skip_permission_denied)) {
+                    consider(entry);
+                    if (matches.size() >= 1000) break;
                 }
             } else {
-                // Basic recursive search for simplicity
-                for (const auto& entry : fs::recursive_directory_iterator(base_path)) {
-                    matches.push_back(entry.path());
+                for (const auto& entry : fs::directory_iterator(base_path, fs::directory_options::skip_permission_denied)) {
+                    consider(entry);
+                    if (matches.size() >= 1000) break;
                 }
             }
+
+            std::ranges::sort(matches);
             
             // Format results
             std::string result;

@@ -1,5 +1,5 @@
 // C++23 Module: Circular buffer
-// 固定容量的环形缓冲区模板类，支持迭代器
+
 module;
 #include <array>
 #include <cstddef>
@@ -11,11 +11,11 @@ export module cc.utils.circular_buffer;
 
 export namespace cc::utils {
 
-// 固定大小的环形缓冲区
+
 template<typename T, size_t N>
 class CircularBuffer {
 public:
-    // 迭代器类型
+
     class Iterator {
     public:
         using iterator_category = std::forward_iterator_tag;
@@ -55,7 +55,7 @@ public:
 
     CircularBuffer() = default;
 
-    // 向尾部添加元素 (满时覆盖最旧元素)
+
     void push_back(const T& value) {
         data_[tail_] = value;
         advance_tail();
@@ -73,14 +73,14 @@ public:
         for (const auto& value : values) push_back(value);
     }
 
-    // 从头部移除元素
+
     void pop_front() {
         if (empty()) return;
         head_ = (head_ + 1) % N;
         --size_;
     }
 
-    // 访问头部/尾部元素
+
     [[nodiscard]] reference front() { return data_[head_]; }
     [[nodiscard]] const_reference front() const { return data_[head_]; }
     [[nodiscard]] reference back() {
@@ -90,7 +90,7 @@ public:
         return data_[(tail_ + N - 1) % N];
     }
 
-    // 按索引访问 (0 = 最旧)
+
     [[nodiscard]] reference operator[](size_t index) {
         return data_[(head_ + index) % N];
     }
@@ -98,7 +98,7 @@ public:
         return data_[(head_ + index) % N];
     }
 
-    // 容量与状态查询
+
     [[nodiscard]] bool full() const { return size_ == N; }
     [[nodiscard]] bool empty() const { return size_ == 0; }
     [[nodiscard]] size_type size() const { return size_; }
@@ -118,23 +118,23 @@ public:
         return std::vector<T>(all.end() - static_cast<std::ptrdiff_t>(count), all.end());
     }
 
-    // 清空缓冲区
+
     void clear() { head_ = tail_ = size_ = 0; }
 
-    // 迭代器支持
+
     [[nodiscard]] iterator begin() const { return Iterator(this, head_, size_); }
     [[nodiscard]] iterator end() const { return Iterator(this, head_ + size_, 0); }
 
 private:
     std::array<T, N> data_{};
-    size_t head_{0};  // 读取位置
-    size_t tail_{0};  // 写入位置
-    size_t size_{0};  // 当前元素数量
+    size_t head_{0};
+    size_t tail_{0};
+    size_t size_{0};
 
-    // 推进写指针
+
     void advance_tail() {
         if (size_ == N) {
-            // 缓冲区满，覆盖最旧数据
+
             head_ = (head_ + 1) % N;
         } else {
             ++size_;

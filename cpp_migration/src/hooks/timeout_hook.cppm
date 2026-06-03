@@ -11,7 +11,7 @@ export module cc.hooks.timeout_hook;
 
 export namespace cc::hooks::timeout_hook {
 
-// 超时句柄：通用计时器工具
+
 struct TimeoutHandle {
     std::uint64_t id;
     std::chrono::steady_clock::time_point deadline;
@@ -36,7 +36,7 @@ inline auto get_registry() -> TimeoutRegistry& {
 
 } // namespace detail
 
-// 设置延迟回调，返回句柄 ID
+
 inline std::uint64_t set_timeout(std::chrono::milliseconds delay,
                                  std::function<void()> callback) {
     auto& reg = detail::get_registry();
@@ -54,7 +54,7 @@ inline std::uint64_t set_timeout(std::chrono::milliseconds delay,
     return id;
 }
 
-// 取消延迟回调
+
 inline void clear_timeout(std::uint64_t handle) {
     auto& reg = detail::get_registry();
     std::lock_guard lock(reg.mutex);
@@ -66,7 +66,7 @@ inline void clear_timeout(std::uint64_t handle) {
     }
 }
 
-// 设置周期性回调，返回句柄 ID
+
 inline std::uint64_t set_interval(std::chrono::milliseconds interval,
                                   std::function<void()> callback) {
     auto& reg = detail::get_registry();
@@ -84,7 +84,7 @@ inline std::uint64_t set_interval(std::chrono::milliseconds interval,
     return id;
 }
 
-// 取消周期性回调
+
 inline void clear_interval(std::uint64_t handle) {
     auto& reg = detail::get_registry();
     std::lock_guard lock(reg.mutex);
@@ -96,7 +96,7 @@ inline void clear_interval(std::uint64_t handle) {
     }
 }
 
-// 获取当前活跃的定时器数量
+
 inline std::size_t get_active_timers_count() {
     auto& reg = detail::get_registry();
     std::lock_guard lock(reg.mutex);

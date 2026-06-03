@@ -307,10 +307,15 @@ public:
                          CoordinatorStrategy strategy = CoordinatorStrategy::Parallel)
         : swarm_(swarm), strategy_(strategy) {}
 
-    /// Break a high-level task into subtasks and populate the task graph.
-    /// In production, this would invoke LLM planning; here we provide the structure.
+    /// Populate the task graph from caller-provided subtasks.
     Result<std::vector<SubTaskId>> plan(const std::string& task_description,
                                         std::vector<std::string> subtask_descriptions) {
+        if (subtask_descriptions.empty()) {
+            return std::unexpected(Error::make(
+                ErrorCode::NotImplemented,
+                std::format("No planner is configured for task '{}'; provide explicit subtasks.", task_description)));
+        }
+
         std::vector<SubTaskId> ids;
         std::uint32_t counter = 0;
 

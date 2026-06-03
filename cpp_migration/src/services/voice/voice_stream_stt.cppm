@@ -1,6 +1,6 @@
 /// @file voice_stream_stt.cppm
-/// @brief 语音流STT（语音转文本）服务模块
-/// 处理 WebSocket 连接到 STT 服务，发送音频块，接收转录文本
+
+
 module;
 
 #include <cstdint>
@@ -38,7 +38,7 @@ using Clock = std::chrono::system_clock;
 using TimePoint = Clock::time_point;
 
 // ============================================================
-// 常量定义
+
 // ============================================================
 
 constexpr std::string_view VOICE_STREAM_PATH = "/api/ws/speech_to_text/voice_stream";
@@ -47,10 +47,10 @@ constexpr std::uint32_t FINALIZE_TIMEOUT_SAFETY_MS = 5000;
 constexpr std::uint32_t FINALIZE_TIMEOUT_NO_DATA_MS = 1500;
 
 // ============================================================
-// 类型定义
+
 // ============================================================
 
-/// 连接状态
+
 enum class ConnectionState : std::uint8_t {
     Disconnected,
     Connecting,
@@ -59,16 +59,16 @@ enum class ConnectionState : std::uint8_t {
     Closed
 };
 
-/// 转录文本回调类型
+
 using TranscriptCallback = std::function<void(std::string_view text, bool is_final)>;
-/// 错误回调类型
+
 using ErrorCallback = std::function<void(std::string_view error, bool is_fatal)>;
-/// 关闭回调类型
+
 using CloseCallback = std::function<void()>;
-/// 就绪回调类型
+
 using ReadyCallback = std::function<void()>;
 
-/// STT连接配置
+
 struct VoiceStreamConfig {
     std::string language = "en";
     std::vector<std::string> keyterms;
@@ -76,7 +76,7 @@ struct VoiceStreamConfig {
     std::string stt_provider;
 };
 
-/// 转录结果来源
+
 enum class FinalizeSource : std::uint8_t {
     PostClosestreamEndpoint,
     NoDataTimeout,
@@ -86,7 +86,7 @@ enum class FinalizeSource : std::uint8_t {
 };
 
 // ============================================================
-// 语音流STT服务
+
 // ============================================================
 
 class VoiceStreamSTTService {
@@ -100,14 +100,14 @@ public:
     VoiceStreamSTTService(const VoiceStreamSTTService&) = delete;
     VoiceStreamSTTService& operator=(const VoiceStreamSTTService&) = delete;
 
-    /// 检查语音流是否可用
+
     [[nodiscard]] static bool is_available() noexcept {
         return std::getenv("ANTHROPIC_API_KEY") != nullptr ||
                std::getenv("CLAUDE_CODE_OAUTH_TOKEN") != nullptr ||
                std::getenv("CLAUDE_CODE_OAUTH_REFRESH_TOKEN") != nullptr;
     }
 
-    /// 连接到语音流服务 via WebSocket
+
     std::expected<void, Error> connect(
         const VoiceStreamConfig& config,
         TranscriptCallback on_transcript,
@@ -226,7 +226,7 @@ public:
         return {};
     }
 
-    /// 发送音频数据块 as WebSocket binary frame
+
     void send_audio(const std::vector<std::uint8_t>& audio_data) {
         if (state_.load() != ConnectionState::Connected) return;
         if (finalized_.load()) return;
@@ -235,7 +235,7 @@ public:
         send_ws_frame(0x02, audio_data.data(), audio_data.size());
     }
 
-    /// 完成发送并等待最终转录
+
     FinalizeSource finalize() {
         if (finalizing_.exchange(true)) {
             return FinalizeSource::WebSocketAlreadyClosed;
@@ -260,7 +260,7 @@ public:
         return FinalizeSource::PostClosestreamEndpoint;
     }
 
-    /// 关闭连接
+
     void close() noexcept {
         finalized_.store(true);
         keepalive_active_.store(false);
@@ -462,10 +462,10 @@ private:
 };
 
 // ============================================================
-// 便捷函数
+
 // ============================================================
 
-/// 创建并连接语音流STT服务
+
 [[nodiscard]] inline std::expected<std::unique_ptr<VoiceStreamSTTService>, Error> create_and_connect(
     const VoiceStreamConfig& config,
     TranscriptCallback on_transcript,

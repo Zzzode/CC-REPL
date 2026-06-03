@@ -1,7 +1,7 @@
 /// @file streaming_executor.cppm
-/// @brief 支持流式输出的工具执行器。
-/// 在工具产出结果时即时流式输出（如 bash 命令、文件读取），
-/// 支持取消、超时、进度报告和输出缓冲控制。
+
+
+
 module;
 
 #include <cstdint>
@@ -38,35 +38,35 @@ using Clock = std::chrono::steady_clock;
 using TimePoint = Clock::time_point;
 
 // ============================================================
-// 数据结构
+
 // ============================================================
 
-/// 单个流式输出块
+
 struct StreamChunk {
-    std::string data;          // 输出数据
-    bool is_stderr;            // 是否来自 stderr
-    TimePoint timestamp;       // 产生时间戳
+    std::string data;
+    bool is_stderr;
+    TimePoint timestamp;
 };
 
-/// 流式执行配置
+
 struct StreamConfig {
-    std::size_t buffer_size = 4096;           // 输出缓冲区大小 (bytes)
-    std::uint32_t flush_interval_ms = 100;    // 缓冲刷新间隔 (ms)
-    std::size_t max_output_bytes = 1024 * 1024;  // 最大输出限制 (1MB)
-    std::uint32_t timeout_ms = 30000;         // 执行超时 (ms)
+    std::size_t buffer_size = 4096;
+    std::uint32_t flush_interval_ms = 100;
+    std::size_t max_output_bytes = 1024 * 1024;
+    std::uint32_t timeout_ms = 30000;
 };
 
-/// 执行状态机
+
 enum class ExecutionState : std::uint8_t {
-    Pending,       // 等待执行
-    Running,       // 正在执行
-    Streaming,     // 正在流式输出
-    Completed,     // 执行完成
-    Cancelled,     // 已取消
-    TimedOut,      // 已超时
+    Pending,
+    Running,
+    Streaming,
+    Completed,
+    Cancelled,
+    TimedOut,
 };
 
-/// 将状态转换为可读字符串
+
 [[nodiscard]] constexpr std::string_view state_to_string(ExecutionState state) noexcept {
     switch (state) {
         case ExecutionState::Pending:    return "pending";
@@ -79,22 +79,22 @@ enum class ExecutionState : std::uint8_t {
     return "unknown";
 }
 
-/// 流式输出回调类型
+
 using OnChunkCallback = std::function<void(const StreamChunk&)>;
 
 /// Tool dispatch function type (dependency injection)
 using ToolDispatchFn = std::function<Task<ToolResult>(std::string_view, const ToolInput&)>;
 
 // ============================================================
-// 内部执行上下文
+
 // ============================================================
 
-/// 单次执行的内部状态追踪
+
 struct ExecutionContext {
     std::string execution_id;
     std::atomic<ExecutionState> state{ExecutionState::Pending};
-    std::string accumulated_output;     // 已积累的完整输出
-    std::size_t total_bytes{0};         // 已输出总字节数
+    std::string accumulated_output;
+    std::size_t total_bytes{0};
     TimePoint start_time;
     std::uint32_t timeout_ms{30000};
     mutable std::mutex output_mutex;
@@ -122,14 +122,14 @@ struct ExecutionContext {
     ExecutionContext(const ExecutionContext&) = delete;
     ExecutionContext& operator=(const ExecutionContext&) = delete;
 
-    /// 追加输出数据（线程安全）
+
     void append_output(std::string_view data) {
         std::lock_guard lock(output_mutex);
         accumulated_output.append(data);
         total_bytes += data.size();
     }
 
-    /// 获取当前已积累的输出（线程安全）
+
     [[nodiscard]] std::string get_output() const {
         std::lock_guard lock(output_mutex);
         return accumulated_output;
@@ -137,10 +137,10 @@ struct ExecutionContext {
 };
 
 // ============================================================
-// 流式工具执行器
+
 // ============================================================
 
-/// 支持流式输出的工具执行器，管理执行生命周期和输出缓冲
+
 class StreamingToolExecutor {
 public:
     explicit StreamingToolExecutor(ToolDispatchFn dispatch_fn, StreamConfig default_config = {})
@@ -150,16 +150,16 @@ public:
 
     ~StreamingToolExecutor() = default;
 
-    // 禁止拷贝/移动 (atomic state is intentionally owned in place)
+
     StreamingToolExecutor(const StreamingToolExecutor&) = delete;
     StreamingToolExecutor& operator=(const StreamingToolExecutor&) = delete;
     StreamingToolExecutor(StreamingToolExecutor&&) noexcept = delete;
     StreamingToolExecutor& operator=(StreamingToolExecutor&&) noexcept = delete;
 
-    /// 非流式执行工具（等待完成后返回完整结果）
-    /// @param tool_name 工具名
-    /// @param input 工具输入
-    /// @param config 执行配置（可选，使用默认配置）
+
+
+
+
     Task<ToolResult> execute(
         std::string_view tool_name,
         const ToolInput& input,
@@ -178,10 +178,10 @@ public:
         co_return result;
     }
 
-    /// 流式执行工具（产出数据时调用回调）
-    /// @param tool_name 工具名
-    /// @param input 工具输入
-    /// @param on_chunk 每产出一个 chunk 时的回调
+
+
+
+
     Task<ToolResult> execute_streaming(
         std::string_view tool_name,
         const ToolInput& input,
@@ -201,7 +201,7 @@ public:
         co_return result;
     }
 
-    /// 取消正在进行的执行
+
     void cancel(std::string_view execution_id) {
         std::lock_guard lock(contexts_mutex_);
         auto it = contexts_.find(std::string(execution_id));
@@ -213,7 +213,7 @@ public:
         }
     }
 
-    /// 查询执行状态
+
     [[nodiscard]] ExecutionState get_state(std::string_view execution_id) const {
         std::lock_guard lock(contexts_mutex_);
         auto it = contexts_.find(std::string(execution_id));
@@ -223,7 +223,7 @@ public:
         return ExecutionState::Pending;
     }
 
-    /// 更新执行超时时间
+
     void set_timeout(std::string_view execution_id, std::uint32_t ms) {
         std::lock_guard lock(contexts_mutex_);
         auto it = contexts_.find(std::string(execution_id));
@@ -232,7 +232,7 @@ public:
         }
     }
 
-    /// 获取当前已产出的输出内容
+
     [[nodiscard]] std::string get_output_so_far(std::string_view execution_id) const {
         std::lock_guard lock(contexts_mutex_);
         auto it = contexts_.find(std::string(execution_id));
@@ -242,7 +242,7 @@ public:
         return "";
     }
 
-    /// 清理已完成的执行上下文
+
     void cleanup_completed() {
         std::lock_guard lock(contexts_mutex_);
         std::erase_if(contexts_, [](const auto& pair) {
@@ -254,12 +254,12 @@ public:
     }
 
 private:
-    /// 分配唯一的执行 ID
+
     [[nodiscard]] std::string allocate_execution_id() {
         return std::format("exec_{}", next_id_++);
     }
 
-    /// 创建新的执行上下文
+
     ExecutionContext& create_context(const std::string& exec_id, std::uint32_t timeout_ms) {
         std::lock_guard lock(contexts_mutex_);
         ExecutionContext context;
@@ -271,7 +271,7 @@ private:
         return it->second;
     }
 
-    /// 带超时的工具执行
+
     Task<ToolResult> execute_with_timeout(
         const std::string& exec_id,
         std::string_view tool_name,
@@ -304,7 +304,7 @@ private:
         co_return result;
     }
 
-    /// 流式读取工具输出
+
     Task<ToolResult> stream_tool_output(
         const std::string& exec_id,
         std::string_view tool_name,

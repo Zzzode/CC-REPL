@@ -52,7 +52,7 @@ public:
             .args = {
                 CommandArg{.name = "action", .description = "show | mode | allow | deny | reset",
                            .type = ArgType::Choice, .required = false,
-                           .choices = {{"show", "mode", "allow", "deny", "reset"}}},
+                           .choices = {"show", "mode", "allow", "deny", "reset"}},
                 CommandArg{.name = "value", .description = "Mode name or tool name",
                            .type = ArgType::Text, .required = false},
             },

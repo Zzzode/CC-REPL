@@ -9,6 +9,9 @@ module;
 #include <unordered_map>
 #include <variant>
 #include <vector>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <unistd.h>
 
 export module cc.services.mcp.types;
 
@@ -404,7 +407,26 @@ std::string build_redirect_uri(int port) {
 
 // Find available port
 int find_available_port() {
-    return 3000;
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) return 3000;
+
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = htons(0);
+    if (bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
+        close(fd);
+        return 3000;
+    }
+
+    socklen_t len = sizeof(addr);
+    if (getsockname(fd, reinterpret_cast<sockaddr*>(&addr), &len) < 0) {
+        close(fd);
+        return 3000;
+    }
+    auto port = ntohs(addr.sin_port);
+    close(fd);
+    return static_cast<int>(port);
 }
 
 // Get logging-safe MCP base URL

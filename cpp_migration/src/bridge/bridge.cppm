@@ -16,14 +16,19 @@ module;
 #include <mutex>
 #include <chrono>
 #include <cstring>
+#include <cstdlib>
+#include <array>
 
 #include <uv.h>
+#include <openssl/hmac.h>
+#include <openssl/evp.h>
 
 export module cc.bridge.bridge;
 
 import cc.types.types;
 import cc.bridge.messages;
 import cc.bridge.inbound_messages;
+import cc.bridge.security;
 
 export namespace cc::bridge {
 
@@ -31,6 +36,47 @@ using cc::core::Result;
 using cc::core::Error;
 using cc::core::ErrorCode;
 using cc::core::VoidResult;
+
+namespace detail {
+
+[[nodiscard]] std::string base64url_encode(const unsigned char* data, std::size_t size) {
+    std::string encoded;
+    encoded.resize(4 * ((size + 2) / 3));
+    auto out_len = EVP_EncodeBlock(
+        reinterpret_cast<unsigned char*>(encoded.data()),
+        data,
+        static_cast<int>(size));
+    encoded.resize(static_cast<std::size_t>(out_len));
+    for (auto& ch : encoded) {
+        if (ch == '+') ch = '-';
+        else if (ch == '/') ch = '_';
+    }
+    while (!encoded.empty() && encoded.back() == '=') encoded.pop_back();
+    return encoded;
+}
+
+[[nodiscard]] bool verify_hs256_jwt(std::string_view token, std::string_view secret) {
+    auto first_dot = token.find('.');
+    auto second_dot = token.find('.', first_dot == std::string_view::npos ? 0 : first_dot + 1);
+    if (first_dot == std::string_view::npos || second_dot == std::string_view::npos) return false;
+    auto signing_input = token.substr(0, second_dot);
+    auto signature = token.substr(second_dot + 1);
+
+    unsigned char digest[EVP_MAX_MD_SIZE]{};
+    unsigned int digest_len = 0;
+    HMAC(
+        EVP_sha256(),
+        secret.data(),
+        static_cast<int>(secret.size()),
+        reinterpret_cast<const unsigned char*>(signing_input.data()),
+        signing_input.size(),
+        digest,
+        &digest_len);
+    auto expected = base64url_encode(digest, digest_len);
+    return expected == signature;
+}
+
+} // namespace detail
 
 // ============================================================
 // WebSocket Frame Types
@@ -244,11 +290,40 @@ public:
 
     /// Authenticate an incoming connection with JWT
     [[nodiscard]] VoidResult authenticate(const BridgeAuth& auth) {
+        if (auth.jwt_token.empty() || auth.session_id.empty()) {
+            return std::unexpected(Error::make(
+                ErrorCode::AuthenticationFailed, "Bridge JWT token and session ID are required"));
+        }
         if (auth.is_expired()) {
             return std::unexpected(Error::make(
                 ErrorCode::AuthenticationFailed, "Bridge JWT token expired"));
         }
-        // In production: validate JWT signature, claims, audience
+
+        const char* secret = std::getenv("CC_BRIDGE_JWT_SECRET");
+        if (!secret || *secret == '\0') {
+            return std::unexpected(Error::make(
+                ErrorCode::AuthenticationFailed, "CC_BRIDGE_JWT_SECRET is required for bridge JWT verification"));
+        }
+        if (!detail::verify_hs256_jwt(auth.jwt_token, secret)) {
+            return std::unexpected(Error::make(
+                ErrorCode::AuthenticationFailed, "Bridge JWT signature verification failed"));
+        }
+
+        auto payload = JwtUtils::decode_payload(auth.jwt_token);
+        if (!payload) {
+            return std::unexpected(Error::make(
+                ErrorCode::AuthenticationFailed,
+                std::format("Bridge JWT payload is invalid: {}", payload.error())));
+        }
+        if (JwtUtils::is_expired(*payload)) {
+            return std::unexpected(Error::make(
+                ErrorCode::AuthenticationFailed, "Bridge JWT payload is expired"));
+        }
+        if (!payload->sub.empty() && payload->sub != auth.session_id) {
+            return std::unexpected(Error::make(
+                ErrorCode::AuthenticationFailed, "Bridge JWT subject does not match session ID"));
+        }
+
         session_.auth = auth;
         session_.session_id = auth.session_id;
         set_state(ConnectionState::Connected);

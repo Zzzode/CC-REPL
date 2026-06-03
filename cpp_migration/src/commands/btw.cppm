@@ -54,8 +54,6 @@ public:
             return CommandResult::fail("Usage: /btw <your question>");
         }
         
-        // In a real implementation, this would run the side question
-        // For now, we'll just inject the question as a user message
         return CommandResult::inject(std::format("Side question: {}", *opts.question));
     }
 

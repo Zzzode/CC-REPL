@@ -1,5 +1,5 @@
 // C++23 Module: Code indexing for semantic search
-// 代码索引模块：基于关键词和正则的符号提取与搜索
+
 module;
 #include <algorithm>
 #include <cctype>
@@ -22,7 +22,7 @@ export module cc.utils.code_indexing;
 
 export namespace cc::utils::code_indexing {
 
-// 符号类型枚举
+
 enum class SymbolKind : uint8_t {
     Function,
     Class,
@@ -32,15 +32,15 @@ enum class SymbolKind : uint8_t {
     Module
 };
 
-// 代码符号结构
+
 struct CodeSymbol {
     std::string name;
     SymbolKind kind;
     std::filesystem::path file;
     size_t line{0};
-    std::string signature;  // 完整签名 (如函数声明)
+    std::string signature;
 
-    // 格式化显示
+
     [[nodiscard]] std::string display() const {
         return std::format("{}:{} [{}] {}", file.string(), line, kind_name(), signature);
     }
@@ -59,12 +59,12 @@ private:
     }
 };
 
-// 语言识别
+
 enum class Language : uint8_t {
     Cpp, Python, JavaScript, TypeScript, Go, Rust, Java, Unknown
 };
 
-// 根据文件扩展名判断语言
+
 [[nodiscard]] inline Language detect_language(const std::filesystem::path& path) {
     auto ext = path.extension().string();
     if (ext == ".cpp" || ext == ".hpp" || ext == ".h" || ext == ".cc" || ext == ".cxx")
@@ -78,13 +78,13 @@ enum class Language : uint8_t {
     return Language::Unknown;
 }
 
-// 简单正则模式匹配器 (每种语言定义不同的模式)
+
 struct LanguagePattern {
     std::string pattern;
     SymbolKind kind;
 };
 
-// 获取语言对应的符号提取模式
+
 [[nodiscard]] inline std::vector<LanguagePattern> get_patterns(Language lang) {
     switch (lang) {
         case Language::Cpp:
@@ -134,12 +134,12 @@ struct LanguagePattern {
     }
 }
 
-// 代码索引类
+
 class CodeIndex {
 public:
     CodeIndex() = default;
 
-    // 索引单个文件，返回提取到的符号
+
     [[nodiscard]] std::vector<CodeSymbol> index_file(const std::filesystem::path& path) {
         std::vector<CodeSymbol> symbols;
         auto lang = detect_language(path);
@@ -163,15 +163,15 @@ public:
                     sym.kind = kind;
                     sym.file = path;
                     sym.line = line_num;
-                    // 清理签名行
+
                     sym.signature = trim(line);
                     symbols.push_back(std::move(sym));
-                    break;  // 每行只取第一个匹配
+                    break;
                 }
             }
         }
 
-        // 更新索引数据库
+
         auto path_str = path.string();
         index_[path_str] = symbols;
         file_mtimes_[path_str] = std::filesystem::last_write_time(path);
@@ -179,7 +179,7 @@ public:
         return symbols;
     }
 
-    // 搜索符号 (模糊匹配)
+
     [[nodiscard]] std::vector<CodeSymbol> search(std::string_view query) const {
         std::vector<CodeSymbol> results;
         auto lower_query = to_lower(query);
@@ -187,14 +187,14 @@ public:
         for (const auto& [file, symbols] : index_) {
             for (const auto& sym : symbols) {
                 auto lower_name = to_lower(sym.name);
-                // 前缀匹配或子串匹配
+
                 if (lower_name.find(lower_query) != std::string::npos) {
                     results.push_back(sym);
                 }
             }
         }
 
-        // 按匹配质量排序 (精确匹配优先)
+
         std::ranges::sort(results, [&](const auto& a, const auto& b) {
             auto la = to_lower(a.name);
             auto lb = to_lower(b.name);
@@ -207,7 +207,7 @@ public:
         return results;
     }
 
-    // 获取符号定义位置
+
     [[nodiscard]] std::vector<CodeSymbol> get_definitions(std::string_view name) const {
         std::vector<CodeSymbol> results;
         for (const auto& [file, symbols] : index_) {
@@ -220,7 +220,7 @@ public:
         return results;
     }
 
-    // 刷新索引：重新索引已修改的文件
+
     size_t refresh() {
         size_t refreshed = 0;
         std::vector<std::string> stale_files;
@@ -230,7 +230,7 @@ public:
             std::error_code ec;
             auto current_mtime = std::filesystem::last_write_time(path, ec);
             if (ec) {
-                // 文件已被删除
+
                 stale_files.push_back(path_str);
                 continue;
             }
@@ -240,7 +240,7 @@ public:
             }
         }
 
-        // 清理已删除文件
+
         for (const auto& stale : stale_files) {
             index_.erase(stale);
             file_mtimes_.erase(stale);
@@ -249,7 +249,7 @@ public:
         return refreshed;
     }
 
-    // 获取索引统计
+
     [[nodiscard]] size_t file_count() const { return index_.size(); }
     [[nodiscard]] size_t symbol_count() const {
         size_t count = 0;
@@ -258,9 +258,9 @@ public:
     }
 
 private:
-    // 文件路径 -> 符号列表
+
     std::unordered_map<std::string, std::vector<CodeSymbol>> index_;
-    // 文件路径 -> 修改时间
+
     std::unordered_map<std::string, std::filesystem::file_time_type> file_mtimes_;
 
     [[nodiscard]] static std::string to_lower(std::string_view sv) {

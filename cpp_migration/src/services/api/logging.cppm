@@ -4,6 +4,8 @@ module;
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <format>
 #include <mutex>
 #include <optional>
@@ -110,8 +112,7 @@ public:
     // Calculate estimated cost (simplified)
     [[nodiscard]] double estimate_cost() const {
         std::lock_guard<std::mutex> lock(mutex_);
-        // Simplified cost calculation
-        // In real implementation, use actual pricing
+        // Aggregate estimate for the default Sonnet pricing tier.
         const double input_price_per_million = 3.0;
         const double output_price_per_million = 15.0;
         return (static_cast<double>(stats_.total_input_tokens) * input_price_per_million / 1e6) +
@@ -184,7 +185,6 @@ public:
 
         // Track usage
         if (usage) {
-            // In real implementation, extract model from request context
             usage_tracker_.record_request("unknown", *usage);
         }
     }
@@ -278,7 +278,40 @@ private:
             entries_.erase(entries_.begin());
         }
 
-        // In real implementation, write to file if configured
+        if (config_.log_file && !entries_.empty()) {
+            auto path = std::filesystem::path(*config_.log_file);
+            if (!path.parent_path().empty()) {
+                std::error_code ec;
+                std::filesystem::create_directories(path.parent_path(), ec);
+            }
+            std::ofstream file(*config_.log_file, std::ios::app);
+            if (file.is_open()) {
+                file << serialize_entry(entries_.back()) << '\n';
+            }
+        }
+    }
+
+    [[nodiscard]] static std::string serialize_entry(const ApiLogEntry& entry) {
+        JsonMutDoc doc;
+        auto obj = doc.object();
+        obj.add("timestamp", doc.string(format_timestamp(entry.timestamp)));
+        obj.add("level", doc.string(log_level_to_string(entry.level)));
+        obj.add("request_id", doc.string(entry.request_id));
+        if (!entry.method.empty()) obj.add("method", doc.string(entry.method));
+        if (!entry.url.empty()) obj.add("url", doc.string(entry.url));
+        if (entry.status_code > 0) obj.add("status_code", doc.number(static_cast<int64_t>(entry.status_code)));
+        obj.add("latency_ms", doc.number(static_cast<int64_t>(entry.latency.count())));
+        if (entry.error_message) obj.add("error", doc.string(*entry.error_message));
+        if (entry.usage) {
+            auto usage_obj = doc.object();
+            usage_obj.add("input", doc.number(static_cast<int64_t>(entry.usage->input_tokens)));
+            usage_obj.add("output", doc.number(static_cast<int64_t>(entry.usage->output_tokens)));
+            usage_obj.add("cache_creation", doc.number(static_cast<int64_t>(entry.usage->cache_creation_tokens)));
+            usage_obj.add("cache_read", doc.number(static_cast<int64_t>(entry.usage->cache_read_tokens)));
+            obj.add("usage", usage_obj);
+        }
+        doc.set_root(obj);
+        return doc.to_string();
     }
 
     [[nodiscard]] static std::string log_level_to_string(LogLevel level) {

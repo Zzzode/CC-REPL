@@ -10,6 +10,10 @@ module;
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <cstring>
+#include <netdb.h>
+#include <sys/socket.h>
+#include <unistd.h>
 
 export module cc.commands.remote_setup;
 
@@ -20,14 +24,14 @@ auto remote_setup_path() -> std::filesystem::path {
     return std::filesystem::path{".cc-repl"} / "remote-setup.txt";
 }
 
-// 远程连接配置
+
 struct RemoteSetupConfig {
     std::string host;
     uint16_t port;
     std::string auth_method; // "ssh_key", "token", "oauth"
 };
 
-// 设置远程连接
+
 auto setup_remote(RemoteSetupConfig config) -> std::expected<void, std::string> {
     if (config.host.empty()) {
         return std::unexpected("Host cannot be empty");
@@ -39,7 +43,7 @@ auto setup_remote(RemoteSetupConfig config) -> std::expected<void, std::string> 
         return std::unexpected("Authentication method is required");
     }
 
-    // 验证认证方法合法性
+
     if (config.auth_method != "ssh_key" &&
         config.auth_method != "token" &&
         config.auth_method != "oauth") {
@@ -57,17 +61,52 @@ auto setup_remote(RemoteSetupConfig config) -> std::expected<void, std::string> 
     return {};
 }
 
-// 测试远程连接是否可达
+namespace detail {
+
+auto can_connect_tcp(const std::string& host, uint16_t port) -> std::expected<void, std::string> {
+    addrinfo hints{};
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+
+    addrinfo* result = nullptr;
+    const auto port_string = std::to_string(port);
+    const auto gai = ::getaddrinfo(host.c_str(), port_string.c_str(), &hints, &result);
+    if (gai != 0) {
+        return std::unexpected(std::string{"DNS lookup failed: "} + ::gai_strerror(gai));
+    }
+
+    int connected_fd = -1;
+    for (auto* addr = result; addr != nullptr; addr = addr->ai_next) {
+        const int fd = ::socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
+        if (fd < 0) continue;
+        if (::connect(fd, addr->ai_addr, addr->ai_addrlen) == 0) {
+            connected_fd = fd;
+            break;
+        }
+        ::close(fd);
+    }
+
+    ::freeaddrinfo(result);
+    if (connected_fd < 0) {
+        return std::unexpected("Remote host is not reachable");
+    }
+    ::close(connected_fd);
+    return {};
+}
+
+} // namespace detail
+
+
 auto test_remote_connection(RemoteSetupConfig config) -> std::expected<void, std::string> {
     if (config.host.empty()) {
         return std::unexpected("Host cannot be empty");
     }
     if (config.port == 0) return std::unexpected("Port must be non-zero");
     if (config.auth_method.empty()) return std::unexpected("Authentication method is required");
-    return {};
+    return detail::can_connect_tcp(config.host, config.port);
 }
 
-// 获取当前远程连接状态
+
 auto get_remote_status() -> std::string {
     std::ifstream input{remote_setup_path()};
     if (input) return std::string{std::istreambuf_iterator<char>{input}, std::istreambuf_iterator<char>{}};

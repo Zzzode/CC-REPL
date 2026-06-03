@@ -28,14 +28,14 @@ public:
         return CommandDefinition{
             .name = "fast",
             .description = "Toggle fast mode",
-            .aliases = {},
             .args = {
                 CommandArg{.name = "state", .description = "Explicitly set state: on or off",
                            .type = ArgType::Choice, .required = false,
-                           .choices = {{"on", "off"}}},
+                           .choices = {"on", "off"}},
             },
-            .hidden = false,
             .category = "mode",
+            .aliases = {},
+            .hidden = false,
         };
     }
 

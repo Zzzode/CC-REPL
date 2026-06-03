@@ -4,21 +4,29 @@
 module;
 
 #include <chrono>
+#include <atomic>
+#include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <functional>
+#include <format>
+#include <exception>
 #include <map>
 #include <mutex>
 #include <optional>
 #include <set>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <unordered_map>
 #include <unordered_set>
 #include <variant>
 #include <vector>
+#include <thread>
 
 export module cc.utils.settings_manager;
 
+import cc.utils.json;
 import cc.utils.settings_merge;
 import cc.utils.settings_paths;
 import cc.utils.settings_sources;
@@ -91,6 +99,126 @@ struct UpdateResult {
     bool success = true;
     std::string error_message;
 };
+
+[[nodiscard]] inline fs::path home_dir() {
+    if (const char* home = std::getenv("HOME"); home && *home) {
+        return fs::path(home);
+    }
+    return fs::temp_directory_path();
+}
+
+[[nodiscard]] inline fs::path settings_path_for_source(SettingSource source) {
+    switch (source) {
+        case SettingSource::UserSettings:
+            return home_dir() / ".claude" / "settings.json";
+        case SettingSource::ProjectSettings:
+            return fs::current_path() / ".claude" / "settings.json";
+        case SettingSource::LocalSettings:
+            return fs::current_path() / ".claude" / "settings.local.json";
+        case SettingSource::FlagSettings:
+        case SettingSource::PolicySettings:
+            return {};
+    }
+    return {};
+}
+
+[[nodiscard]] inline SettingSource editable_to_setting_source(EditableSource source) {
+    switch (source) {
+        case EditableSource::UserSettings: return SettingSource::UserSettings;
+        case EditableSource::ProjectSettings: return SettingSource::ProjectSettings;
+        case EditableSource::LocalSettings: return SettingSource::LocalSettings;
+    }
+    return SettingSource::UserSettings;
+}
+
+[[nodiscard]] inline std::optional<SettingsValue> settings_value_from_json(cc::utils::json::JsonVal value) {
+    if (!value.valid() || value.is_null()) return SettingsValue{std::monostate{}};
+    if (value.is_bool()) return SettingsValue{value.as_bool()};
+    if (value.is_num()) {
+        auto as_double = value.as_double();
+        auto as_int = value.as_int();
+        return as_double == static_cast<double>(as_int)
+            ? SettingsValue{as_int}
+            : SettingsValue{as_double};
+    }
+    if (value.is_str()) return SettingsValue{std::string(value.as_str())};
+    if (value.is_arr()) {
+        std::vector<std::string> values;
+        value.iter([&](cc::utils::json::JsonVal item) {
+            if (item.valid() && item.is_str()) values.emplace_back(item.as_str());
+        });
+        return SettingsValue{std::move(values)};
+    }
+    if (value.is_obj()) {
+        std::map<std::string, std::string> values;
+        value.iter_obj([&](cc::utils::json::JsonVal key, cc::utils::json::JsonVal item) {
+            if (key.valid() && key.is_str() && item.valid() && item.is_str()) {
+                values[std::string(key.as_str())] = std::string(item.as_str());
+            }
+        });
+        return SettingsValue{std::move(values)};
+    }
+    return std::nullopt;
+}
+
+[[nodiscard]] inline SettingsJson parse_settings_json(cc::utils::json::JsonVal root) {
+    SettingsJson settings;
+    if (!root.valid() || !root.is_obj()) return settings;
+    root.iter_obj([&](cc::utils::json::JsonVal key, cc::utils::json::JsonVal value) {
+        if (!key.valid() || !key.is_str()) return;
+        auto parsed = settings_value_from_json(value);
+        if (parsed) settings[std::string(key.as_str())] = std::move(*parsed);
+    });
+    return settings;
+}
+
+[[nodiscard]] inline SettingsJson read_settings_file(const fs::path& path) {
+    if (path.empty() || !fs::exists(path)) return {};
+    auto parsed = cc::utils::json::parse_file(path);
+    if (!parsed) return {};
+    return parse_settings_json(parsed->root());
+}
+
+inline void add_settings_value(
+    cc::utils::json::JsonMutDoc& doc,
+    cc::utils::json::JsonMutVal& root,
+    std::string_view key,
+    const SettingsValue& value) {
+    std::visit([&](const auto& typed) {
+        using T = std::decay_t<decltype(typed)>;
+        if constexpr (std::is_same_v<T, std::monostate>) {
+            root.add(key, doc.null());
+        } else if constexpr (std::is_same_v<T, bool>) {
+            root.add(key, doc.boolean(typed));
+        } else if constexpr (std::is_same_v<T, int64_t>) {
+            root.add(key, doc.number(typed));
+        } else if constexpr (std::is_same_v<T, double>) {
+            root.add(key, doc.number(typed));
+        } else if constexpr (std::is_same_v<T, std::string>) {
+            root.add(key, doc.string(typed));
+        } else if constexpr (std::is_same_v<T, std::vector<std::string>>) {
+            auto arr = doc.array();
+            for (const auto& item : typed) arr.append(doc.string(item));
+            root.add(key, arr);
+        } else if constexpr (std::is_same_v<T, std::map<std::string, std::string>>) {
+            auto obj = doc.object();
+            for (const auto& [map_key, map_value] : typed) {
+                obj.add(map_key, doc.string(map_value));
+            }
+            root.add(key, obj);
+        }
+    }, value);
+}
+
+[[nodiscard]] inline std::string serialize_settings_json(const SettingsJson& settings) {
+    cc::utils::json::JsonMutDoc doc;
+    auto root = doc.object();
+    for (const auto& [key, value] : settings) {
+        add_settings_value(doc, root, key, value);
+    }
+    doc.set_root(root);
+    return doc.to_pretty_string();
+}
 
 // ============================================================================
 // SettingsCache — Per-session and per-source caching
@@ -245,8 +373,17 @@ public:
     bool initialize() {
         if (initialized_ || disposed_) return false;
         initialized_ = true;
-        // In real implementation: set up platform file watchers
-        // (inotify on Linux, FSEvents on macOS, ReadDirectoryChangesW on Windows)
+        watched_files_.clear();
+        for (auto source : {SettingSource::UserSettings, SettingSource::ProjectSettings, SettingSource::LocalSettings}) {
+            auto path = settings_path_for_source(source);
+            if (!path.empty()) {
+                watched_files_[source] = path;
+                mtimes_[path] = current_mtime(path);
+            }
+        }
+        watcher_thread_ = std::jthread([this](std::stop_token stop) {
+            poll_loop(stop);
+        });
         return true;
     }
 
@@ -269,8 +406,14 @@ public:
     /// Clean up file watcher resources
     void dispose() {
         disposed_ = true;
+        if (watcher_thread_.joinable()) {
+            watcher_thread_.request_stop();
+            watcher_thread_.join();
+        }
         std::lock_guard lock(mutex_);
         subscribers_.clear();
+        watched_files_.clear();
+        mtimes_.clear();
     }
 
     /// Check if the detector is currently active
@@ -286,11 +429,47 @@ public:
     }
 
 private:
+    [[nodiscard]] static std::optional<fs::file_time_type> current_mtime(const fs::path& path) {
+        std::error_code ec;
+        if (!fs::exists(path, ec) || ec) return std::nullopt;
+        auto mtime = fs::last_write_time(path, ec);
+        if (ec) return std::nullopt;
+        return mtime;
+    }
+
+    void poll_loop(std::stop_token stop) {
+        while (!stop.stop_requested() && !disposed_) {
+            std::this_thread::sleep_for(config_.poll_interval);
+            std::vector<SettingSource> changed_sources;
+            {
+                std::lock_guard lock(mutex_);
+                for (const auto& [source, path] : watched_files_) {
+                    auto next = current_mtime(path);
+                    auto previous = mtimes_[path];
+                    if (next != previous) {
+                        mtimes_[path] = next;
+                        if (!write_tracker_ || !write_tracker_->consume(path, config_.internal_write_window)) {
+                            changed_sources.push_back(source);
+                        }
+                    }
+                }
+            }
+            for (auto source : changed_sources) {
+                fan_out(source);
+            }
+        }
+    }
+
     void fan_out(SettingSource source) {
         std::lock_guard lock(mutex_);
         for (const auto& [_, callback] : subscribers_) {
             callback(source);
         }
+    }
+
+    friend class SettingsApplier;
+    void set_write_tracker(InternalWriteTracker* tracker) {
+        write_tracker_ = tracker;
     }
 
     Config config_;
@@ -299,6 +478,10 @@ private:
     mutable std::mutex mutex_;
     uint64_t next_id_ = 0;
     std::map<uint64_t, ChangeCallback> subscribers_;
+    std::map<SettingSource, fs::path> watched_files_;
+    std::map<fs::path, std::optional<fs::file_time_type>> mtimes_;
+    InternalWriteTracker* write_tracker_ = nullptr;
+    std::jthread watcher_thread_;
 };
 
 // ============================================================================
@@ -314,7 +497,9 @@ public:
                     ChangeDetector& change_detector)
         : cache_(cache)
         , write_tracker_(write_tracker)
-        , change_detector_(change_detector) {}
+        , change_detector_(change_detector) {
+        change_detector_.set_write_tracker(&write_tracker_);
+    }
 
     /// Apply a settings change to the specified source.
     /// Merges new settings with existing, writes to disk, and resets caches.
@@ -354,8 +539,9 @@ public:
 
         // Notify if local settings, add to gitignore
         if (source == EditableSource::LocalSettings) {
-            // In real impl: async add to .gitignore
+            ensure_local_settings_gitignored();
         }
+        change_detector_.notify_change(editable_to_setting_source(source));
 
         return {.success = true, .error_message = {}};
     }
@@ -363,22 +549,12 @@ public:
 private:
     [[nodiscard]] static std::string get_file_path_for_editable_source(
         EditableSource source) {
-        // Delegates to settings_paths module in real implementation
-        switch (source) {
-            case EditableSource::UserSettings:
-                return "~/.claude/settings.json";
-            case EditableSource::ProjectSettings:
-                return ".claude/settings.json";
-            case EditableSource::LocalSettings:
-                return ".claude/settings.local.json";
-        }
-        return {};
+        return settings_path_for_source(editable_to_setting_source(source)).string();
     }
 
     [[nodiscard]] static SettingsJson load_from_file(
-        [[maybe_unused]] const std::string& path) {
-        // In real implementation: read and parse JSON file
-        return {};
+        const std::string& path) {
+        return read_settings_file(fs::path(path));
     }
 
     [[nodiscard]] static SettingsJson merge_settings(
@@ -394,10 +570,37 @@ private:
     }
 
     [[nodiscard]] static bool write_settings_file(
-        [[maybe_unused]] const std::string& path,
-        [[maybe_unused]] const SettingsJson& settings) {
-        // In real implementation: serialize to JSON and write atomically
+        const std::string& path,
+        const SettingsJson& settings) {
+        auto target = fs::path(path);
+        auto temp = target;
+        temp += ".tmp";
+        std::ofstream file(temp, std::ios::trunc);
+        if (!file.is_open()) return false;
+        file << serialize_settings_json(settings);
+        file.close();
+        std::error_code ec;
+        fs::rename(temp, target, ec);
+        if (ec) {
+            fs::remove(temp, ec);
+            return false;
+        }
         return true;
+    }
+
+    static void ensure_local_settings_gitignored() {
+        auto gitignore = fs::current_path() / ".gitignore";
+        const std::string entry = ".claude/settings.local.json";
+        std::string content;
+        if (fs::exists(gitignore)) {
+            std::ifstream in(gitignore);
+            content.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+            if (content.find(entry) != std::string::npos) return;
+        }
+        std::ofstream out(gitignore, std::ios::app);
+        if (!out.is_open()) return;
+        if (!content.empty() && content.back() != '\n') out << '\n';
+        out << entry << '\n';
     }
 
     SettingsCache& cache_;
@@ -524,9 +727,44 @@ private:
 
     /// Load settings for a single source from disk
     [[nodiscard]] std::optional<SettingsJson> load_settings_for_source(
-        [[maybe_unused]] SettingSource source) {
-        // In real implementation: resolve file path, parse JSON, validate schema
-        return std::nullopt;
+        SettingSource source) {
+        if (source == SettingSource::FlagSettings) {
+            SettingsJson flags;
+            if (const char* model = std::getenv("CLAUDE_MODEL"); model && *model) {
+                flags["model"] = std::string(model);
+            }
+            if (const char* verbose = std::getenv("CLAUDE_VERBOSE"); verbose && *verbose) {
+                flags["verbose"] = std::string_view(verbose) == "1" || std::string_view(verbose) == "true";
+            }
+            return flags.empty() ? std::nullopt : std::optional<SettingsJson>{std::move(flags)};
+        }
+
+        fs::path path;
+        if (source == SettingSource::PolicySettings) {
+            if (const char* policy_path = std::getenv("CLAUDE_CODE_POLICY_SETTINGS"); policy_path && *policy_path) {
+                path = policy_path;
+            }
+        } else {
+            path = settings_path_for_source(source);
+        }
+        if (path.empty() || !fs::exists(path)) return std::nullopt;
+
+        if (auto cached = cache_.get_parsed_file(path)) {
+            return cached->settings;
+        }
+
+        SettingsWithErrors parsed;
+        try {
+            parsed.settings = read_settings_file(path);
+        } catch (const std::exception& e) {
+            parsed.errors.push_back(ValidationError{
+                .file = path.string(),
+                .path = "$",
+                .message = e.what(),
+            });
+        }
+        cache_.set_parsed_file(path, parsed);
+        return parsed.settings.empty() ? std::nullopt : std::optional<SettingsJson>{std::move(parsed.settings)};
     }
 
     SettingsCache cache_;

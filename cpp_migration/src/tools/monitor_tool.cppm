@@ -18,15 +18,15 @@ export module cc.tools.monitor;
 
 export namespace cc::tools {
 
-// 监控操作类型
+
 enum class MonitorAction {
-    WatchFile,       // 监控文件变化
-    WatchProcess,    // 监控进程输出
-    StatusCheck,     // 周期性状态检查
-    Stop,            // 停止监控
+    WatchFile,
+    WatchProcess,
+    StatusCheck,
+    Stop,
 };
 
-// 监控错误类型
+
 enum class MonitorError {
     TargetNotFound,
     AlreadyWatching,
@@ -52,7 +52,7 @@ constexpr auto format_error(MonitorError err) -> std::string_view {
     }
 }
 
-// 文件变化事件类型
+
 enum class FileChangeType {
     Created,
     Modified,
@@ -70,7 +70,7 @@ constexpr auto change_type_name(FileChangeType t) -> std::string_view {
     }
 }
 
-// 文件变化事件
+
 struct FileChangeEvent {
     std::filesystem::path path;
     FileChangeType type;
@@ -78,7 +78,7 @@ struct FileChangeEvent {
     std::optional<size_t> new_size;
 };
 
-// 进程输出事件
+
 struct ProcessOutputEvent {
     pid_t pid;
     std::string output_line;
@@ -86,17 +86,17 @@ struct ProcessOutputEvent {
     std::chrono::system_clock::time_point timestamp;
 };
 
-// 监控请求
+
 struct MonitorRequest {
     MonitorAction action;
-    std::optional<std::filesystem::path> file_path;      // 文件监控路径
-    std::optional<pid_t> process_id;                     // 进程 ID
-    std::chrono::seconds check_interval{5};              // 检查间隔
-    std::chrono::seconds duration{60};                   // 监控总时长
-    std::optional<std::string> watcher_id;               // 用于 Stop 操作
+    std::optional<std::filesystem::path> file_path;
+    std::optional<pid_t> process_id;
+    std::chrono::seconds check_interval{5};
+    std::chrono::seconds duration{60};
+    std::optional<std::string> watcher_id;
 };
 
-// 监控结果
+
 struct MonitorResult {
     std::string watcher_id;
     std::vector<FileChangeEvent> file_events;
@@ -105,7 +105,7 @@ struct MonitorResult {
     bool still_running{false};
 };
 
-// 文件状态快照：用于检测变化
+
 struct FileSnapshot {
     std::filesystem::path path;
     std::filesystem::file_time_type last_write_time;
@@ -113,7 +113,7 @@ struct FileSnapshot {
     bool exists{false};
 };
 
-// 监控器注册表
+
 class WatcherRegistry {
 public:
     static constexpr size_t kMaxWatchers = 10;
@@ -147,7 +147,7 @@ private:
     std::unordered_set<std::string> watchers_;
 };
 
-// MonitorTool - 实时监控工具
+
 class MonitorTool {
 public:
     static constexpr std::string_view name = "monitor";
@@ -216,7 +216,7 @@ private:
         return std::format("watch_{}", next_id_++);
     }
 
-    // 监控文件变化 (单次轮询)
+
     auto watch_file(const MonitorRequest& request)
         -> std::expected<MonitorResult, MonitorError>
     {
@@ -227,15 +227,15 @@ private:
         auto start = std::chrono::steady_clock::now();
         MonitorResult result{.watcher_id = id};
 
-        // 捕获初始状态
+
         auto snapshot = take_snapshot(*request.file_path);
 
-        // 执行一次检查周期
+
         std::this_thread::sleep_for(request.check_interval);
 
         auto new_snapshot = take_snapshot(*request.file_path);
 
-        // 比较变化
+
         if (new_snapshot.exists != snapshot.exists) {
             result.file_events.push_back(FileChangeEvent{
                 .path = *request.file_path,
@@ -258,7 +258,7 @@ private:
         return result;
     }
 
-    // 监控进程输出 (占位实现)
+
     auto watch_process(const MonitorRequest& request)
         -> std::expected<MonitorResult, MonitorError>
     {
@@ -272,7 +272,7 @@ private:
         };
     }
 
-    // 状态检查
+
     auto status_check(const MonitorRequest& /*request*/)
         -> std::expected<MonitorResult, MonitorError>
     {
@@ -282,7 +282,7 @@ private:
         };
     }
 
-    // 停止监控
+
     auto stop_watching(const std::string& watcher_id)
         -> std::expected<MonitorResult, MonitorError>
     {
@@ -291,7 +291,7 @@ private:
         return MonitorResult{.watcher_id = watcher_id, .still_running = false};
     }
 
-    // 获取文件快照
+
     auto take_snapshot(const std::filesystem::path& path) const -> FileSnapshot {
         FileSnapshot snap{.path = path};
         if (std::filesystem::exists(path)) {

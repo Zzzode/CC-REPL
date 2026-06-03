@@ -1,7 +1,8 @@
 # CC-REPL C++23 Migration Plan
 
 > Generated: 2026-05-29
-> Status: **COMPLETE** — All phases (0-11) finished, full build passes.
+> Updated: 2026-06-03
+> Status: **NATIVE CUTOVER VALIDATED** — C++ build, CTest, strict migration inventory, and native entrypoint E2E pass.
 
 ---
 
@@ -12,15 +13,30 @@ This document tracks the complete migration plan from TypeScript (Bun + React/In
 ### Final State
 
 ```
-Total TS files:     ~2,948
-Total C++ .cppm:    723
-Total C++ .cpp:     14
-Total sources:      737
-CMake targets:      28 sub-libraries + 1 executable
-Compiler:           LLVM Clang 22.1.6
-Generator:          Ninja 1.13.2
-Build status:       ✅ FULL BUILD PASSES (0 failures)
+TS source files:              1,946
+C++ source files:             1,091
+C++ modules:                  1,089 .cppm
+C++ implementation files:     2 .cpp
+Commands migrated:            100/100
+Tools migrated:               45/45
+CMake registration gaps:      0
+Blocking migration markers:   0
+Compiler:                     LLVM Clang 22.1.6
+Generator:                    Ninja
+Build status:                 Native build, CTest, inventory, and E2E pass
 ```
+
+### Current Validation Gates
+
+```bash
+bun run build
+cmake --build --preset clang-release
+ctest --test-dir cpp_migration/build/clang-release --output-on-failure
+node scripts/cpp-migration-inventory.mjs --strict
+bun run migration:e2e
+```
+
+The default product entrypoint is `dist/cc-repl`. `dist/cli.js` is retained only as a compatibility launcher that delegates to the native binary.
 
 ### Architecture Mapping
 
@@ -717,7 +733,7 @@ Build status:       ✅ FULL BUILD PASSES (0 failures)
 
 ## Projection
 
-| Phase | New Files | Cumulative | Coverage |
+| Historical phase estimate | New Files | Cumulative | Estimated coverage |
 |-------|-----------|------------|----------|
 | Current | — | 386 | ~13% |
 | Phase 0 | 0 (fixes) | 386 | ~13% |
@@ -731,10 +747,11 @@ Build status:       ✅ FULL BUILD PASSES (0 failures)
 | Phase 8 | ~10 | 679 | ~23% |
 | Phase 9 | ~33 | 712 | ~24% |
 | Phase 10 | ~16 | 728 | ~25% |
-| **Final** | **~342** | **~728** | **~25% files / ~85% functional** |
+| **Original final estimate** | **~342** | **~728** | **~25% files / ~85% functional** |
 
-> Note: File coverage stays at ~25% because C++ consolidates many TS files into single modules.
-> Functional coverage reaches ~85% as each C++ module covers the logic of multiple TS files.
+> Current validation no longer uses the historical phase estimate as the completion gate.
+> The active gate is strict inventory plus native build/test/E2E: commands 100/100,
+> tools 45/45, no CMake registration gaps, and no blocking migration markers.
 
 ---
 

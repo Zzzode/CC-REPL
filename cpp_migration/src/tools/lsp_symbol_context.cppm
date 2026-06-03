@@ -11,17 +11,17 @@ export module cc.tools.lsp_symbol_context;
 
 export namespace cc::tools {
 
-// 符号上下文信息
+
 struct SymbolContext {
-    std::string name;                    // 符号名称
-    std::string kind;                    // 符号类型（function, class, variable, etc.）
-    std::filesystem::path file;          // 所在文件路径
-    int line = 0;                        // 所在行号
-    std::optional<std::string> container; // 所属容器（类名、模块名等）
+    std::string name;
+    std::string kind;
+    std::filesystem::path file;
+    int line = 0;
+    std::optional<std::string> container;
 };
 
-// 获取指定位置的符号上下文
-// 注：实际实现需要与 LSP 服务器通信
+
+
 inline auto get_symbol_at_position(
     const std::filesystem::path& file,
     int line,
@@ -55,8 +55,8 @@ inline auto get_symbol_at_position(
     return std::nullopt;
 }
 
-// 查找符号的所有引用
-// 注：实际实现需要与 LSP 服务器通信
+
+
 inline auto find_references(const SymbolContext& symbol) -> std::vector<SymbolContext> {
     std::vector<SymbolContext> references;
     if (symbol.name.empty() || symbol.file.empty()) return references;
@@ -74,21 +74,21 @@ inline auto find_references(const SymbolContext& symbol) -> std::vector<SymbolCo
     return references;
 }
 
-// 获取符号的定义位置
-// 注：实际实现需要与 LSP 服务器通信
+
+
 inline auto get_definition(const SymbolContext& symbol) -> std::optional<SymbolContext> {
-    // 如果符号本身就是定义，直接返回
+
     if (!symbol.name.empty() && !symbol.file.empty()) {
-        // 简单情况：符号本身可能就是定义
+
         return symbol;
     }
 
     return std::nullopt;
 }
 
-// 辅助函数：将符号类型字符串规范化
+
 inline auto normalize_symbol_kind(std::string_view kind) -> std::string_view {
-    // LSP SymbolKind 数值到字符串的映射
+
     if (kind == "1")  return "File";
     if (kind == "2")  return "Module";
     if (kind == "3")  return "Namespace";

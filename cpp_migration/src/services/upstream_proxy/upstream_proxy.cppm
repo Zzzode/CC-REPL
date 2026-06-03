@@ -7,14 +7,19 @@ module;
 #include <string_view>
 #include <vector>
 #include <optional>
+#include <expected>
 #include <cstdint>
 #include <functional>
 #include <mutex>
 #include <atomic>
 #include <chrono>
 #include <format>
+#include <thread>
+#include <unordered_map>
 
 export module cc.services.upstream_proxy;
+
+import cc.utils.http;
 
 export namespace cc::services::upstream_proxy {
 
@@ -209,7 +214,7 @@ public:
             if (attempts <= config_.max_retries) {
                 // Simple backoff: 100ms, 200ms, 400ms...
                 auto delay_ms = 100u * (1u << (attempts - 1));
-                (void)delay_ms; // Would sleep in real impl
+                std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
             }
         }
 
@@ -239,29 +244,60 @@ public:
     }
 
 private:
-    /// Execute a single HTTP request (transport abstraction point)
-    /// In production, this would use libcurl or a custom HTTP client.
+    /// Execute a single HTTP request through the shared HTTP client.
     [[nodiscard]] std::optional<ProxyResponse> execute_request(
         std::string_view method,
         std::string_view url,
         std::string_view body,
         const std::vector<std::string>& headers) {
 
-        (void)headers;
+        cc::utils::HttpConfig http_config;
+        http_config.timeout_ms = config_.timeout_ms;
+        http_config.max_retries = 0;
+        http_config.tls.verify_peer = config_.tls_verify;
+        cc::utils::HttpClient client(http_config);
+        auto header_map = parse_headers(headers);
 
-        // Transport layer is not wired in this migration module.
-        // Return a synthetic response indicating the proxy is functional
-        // but no real upstream connection exists.
+        std::expected<cc::utils::HttpResponse, cc::utils::HttpError> upstream_response =
+            std::unexpected(cc::utils::HttpError{
+                cc::utils::HttpError::connection_failed,
+                "Unsupported HTTP method"});
+        if (method == "GET" || method == "get") {
+            upstream_response = client.get(url, header_map);
+        } else if (method == "POST" || method == "post") {
+            upstream_response = client.post(url, body, header_map);
+        } else {
+            std::lock_guard lock(mutex_);
+            last_error_ = std::format("Unsupported upstream proxy method: {}", method);
+            return std::nullopt;
+        }
+        if (!upstream_response) {
+            std::lock_guard lock(mutex_);
+            last_error_ = upstream_response.error().message;
+            return std::nullopt;
+        }
+
         ProxyResponse response;
-        response.status_code = 502; // Bad Gateway — no upstream transport
-        response.body = std::format(
-            R"({{"error":"no_transport","method":"{}","url":"{}","body_size":{}}})",
-            method, url, body.size());
-        response.headers.push_back("Content-Type: application/json");
-
-        // A 502 is a retriable error, but since we lack transport,
-        // return it directly to avoid infinite retries.
+        response.status_code = upstream_response->status;
+        response.body = std::move(upstream_response->body);
+        for (const auto& [key, value] : upstream_response->headers) {
+            response.headers.push_back(key + ": " + value);
+        }
         return response;
+    }
+
+    [[nodiscard]] static std::unordered_map<std::string, std::string> parse_headers(
+        const std::vector<std::string>& headers) {
+        std::unordered_map<std::string, std::string> parsed;
+        for (const auto& header : headers) {
+            auto colon = header.find(':');
+            if (colon == std::string::npos) continue;
+            auto key = header.substr(0, colon);
+            auto value_start = colon + 1;
+            while (value_start < header.size() && header[value_start] == ' ') ++value_start;
+            parsed.emplace(std::move(key), header.substr(value_start));
+        }
+        return parsed;
     }
 
     ProxyConfig config_;

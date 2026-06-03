@@ -13,6 +13,11 @@ module;
 #include <algorithm>
 #include <span>
 #include <array>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <unordered_set>
 
 export module cc.commands.skills_cmd;
 
@@ -30,6 +35,7 @@ struct SkillInfo {
     std::string version;
     bool enabled = true;
     bool bundled = false;        // Built-in vs user-installed
+    std::string path;
 };
 
 /// SkillsCommand implements the /skills slash command.
@@ -44,7 +50,7 @@ public:
             .args = {
                 CommandArg{.name = "action", .description = "list | enable | disable | info | reload",
                            .type = ArgType::Choice, .required = false,
-                           .choices = {{"list", "enable", "disable", "info", "reload"}}},
+                           .choices = {"list", "enable", "disable", "info", "reload"}},
                 CommandArg{.name = "skill_name", .description = "Name of the skill",
                            .type = ArgType::Text, .required = false},
             },
@@ -69,6 +75,7 @@ public:
     }
 
     [[nodiscard]] Result<CommandResult> execute(const CommandContext& ctx) {
+        ensure_loaded();
         if (ctx.args.empty()) return CommandResult::success(format_list());
 
         auto action = std::string(ctx.args[0]);
@@ -83,6 +90,7 @@ public:
     }
 
     [[nodiscard]] std::vector<std::string> complete(std::string_view partial) {
+        ensure_loaded();
         std::vector<std::string> suggestions;
         for (auto s : {"list", "enable", "disable", "info", "reload"}) {
             if (std::string_view(s).starts_with(partial)) {
@@ -102,6 +110,81 @@ public:
 
 private:
     std::vector<SkillInfo> skills_;
+
+    void ensure_loaded() {
+        if (skills_.empty()) {
+            skills_ = load_installed_skills();
+        }
+    }
+
+    [[nodiscard]] static std::vector<std::filesystem::path> skill_roots() {
+        std::vector<std::filesystem::path> roots;
+        if (const char* codex_home = std::getenv("CODEX_HOME"); codex_home && *codex_home) {
+            roots.emplace_back(std::filesystem::path{codex_home} / "skills");
+        }
+        if (const char* home = std::getenv("HOME"); home && *home) {
+            roots.emplace_back(std::filesystem::path{home} / ".codex" / "skills");
+        }
+        roots.emplace_back(std::filesystem::current_path() / ".codex" / "skills");
+        return roots;
+    }
+
+    [[nodiscard]] static std::string trim(std::string_view value) {
+        const auto first = value.find_first_not_of(" \t\r\n");
+        if (first == std::string_view::npos) return {};
+        const auto last = value.find_last_not_of(" \t\r\n");
+        return std::string(value.substr(first, last - first + 1));
+    }
+
+    [[nodiscard]] static std::string read_description(const std::filesystem::path& skill_md) {
+        std::ifstream in(skill_md);
+        if (!in) return {};
+
+        std::string line;
+        while (std::getline(in, line)) {
+            auto trimmed = trim(line);
+            if (trimmed.empty() || trimmed.starts_with("#")) continue;
+            return trimmed;
+        }
+        return {};
+    }
+
+    [[nodiscard]] static std::vector<SkillInfo> load_installed_skills() {
+        std::vector<SkillInfo> loaded;
+        std::unordered_set<std::string> seen;
+
+        for (const auto& root : skill_roots()) {
+            std::error_code ec;
+            if (!std::filesystem::is_directory(root, ec)) continue;
+
+            for (const auto& entry : std::filesystem::directory_iterator(root, ec)) {
+                if (ec) break;
+                if (!entry.is_directory(ec)) continue;
+
+                const auto skill_path = entry.path();
+                const auto skill_md = skill_path / "SKILL.md";
+                if (!std::filesystem::is_regular_file(skill_md, ec)) continue;
+
+                const auto name = skill_path.filename().string();
+                if (!seen.insert(name).second) continue;
+
+                auto description = read_description(skill_md);
+                if (description.empty()) description = "Local skill";
+
+                loaded.push_back(SkillInfo{
+                    .name = name,
+                    .description = description,
+                    .version = "local",
+                    .enabled = !std::filesystem::exists(skill_path / ".disabled", ec),
+                    .bundled = false,
+                    .path = skill_path.string(),
+                });
+            }
+        }
+
+        std::ranges::sort(loaded, {}, &SkillInfo::name);
+        return loaded;
+    }
 
     [[nodiscard]] std::string format_list() const {
         if (skills_.empty()) return "No skills installed.";
@@ -136,13 +219,30 @@ private:
             return std::unexpected(Error::make(ErrorCode::ToolNotFound,
                 std::format("Skill '{}' not found.", name)));
         }
+        if (!it->path.empty()) {
+            const auto marker = std::filesystem::path{it->path} / ".disabled";
+            std::error_code ec;
+            if (enabled) {
+                std::filesystem::remove(marker, ec);
+            } else {
+                std::ofstream out(marker);
+                if (!out) {
+                    return std::unexpected(Error::make(ErrorCode::ConfigWriteError,
+                        std::format("Failed to write disable marker for skill '{}'.", name)));
+                }
+            }
+            if (ec) {
+                return std::unexpected(Error::make(ErrorCode::ConfigWriteError,
+                    std::format("Failed to update skill '{}': {}", name, ec.message())));
+            }
+        }
         it->enabled = enabled;
         return CommandResult::success(std::format("Skill '{}' {}.",
             name, enabled ? "enabled" : "disabled"));
     }
 
     [[nodiscard]] Result<CommandResult> reload_skills() {
-        // In production: re-scan skill directories and reload definitions
+        skills_ = load_installed_skills();
         return CommandResult::success(std::format("Reloaded {} skills.", skills_.size()));
     }
 

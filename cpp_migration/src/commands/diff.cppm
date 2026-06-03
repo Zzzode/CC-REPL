@@ -45,7 +45,7 @@ public:
             .args = {
                 CommandArg{.name = "mode", .description = "full | summary | stat",
                            .type = ArgType::Choice, .required = false,
-                           .choices = {{"full", "summary", "stat"}}},
+                           .choices = {"full", "summary", "stat"}},
                 CommandArg{.name = "file", .description = "Specific file to show diff for",
                            .type = ArgType::FilePath, .required = false},
             },

@@ -30,10 +30,10 @@ using cc::core::ErrorCode;
 namespace fs = std::filesystem;
 
 // ============================================================
-// 项目类型检测
+
 // ============================================================
 
-// 支持的编程语言
+
 enum class Language : std::uint8_t {
     Unknown,
     Cpp,
@@ -46,7 +46,7 @@ enum class Language : std::uint8_t {
     Swift,
 };
 
-// 支持的框架
+
 enum class Framework : std::uint8_t {
     Unknown,
     CMake,
@@ -58,30 +58,30 @@ enum class Framework : std::uint8_t {
     SwiftPM,
 };
 
-// 项目类型检测结果
+
 struct ProjectType {
     Language primary_language{Language::Unknown};
     Framework build_system{Framework::Unknown};
     std::vector<Language> secondary_languages;
-    std::vector<std::string> detected_markers;  // 触发检测的文件
+    std::vector<std::string> detected_markers;
 };
 
-// 文档文件信息
+
 struct DocFile {
     std::string path;
     std::string content;
-    std::size_t token_estimate{0};  // 粗略 token 估算
+    std::size_t token_estimate{0};
 };
 
-// 上下文生成结果
+
 struct GeneratedContext {
-    std::string system_prompt;          // 为 LLM 生成的系统提示
-    std::vector<DocFile> relevant_docs; // 相关文档
-    ProjectType project_type;           // 检测到的项目类型
-    std::size_t total_tokens{0};        // 总 token 估算
+    std::string system_prompt;
+    std::vector<DocFile> relevant_docs;
+    ProjectType project_type;
+    std::size_t total_tokens{0};
 };
 
-// 配置
+
 struct MagicDocsConfig {
     std::size_t max_context_tokens{8192};
     bool include_readme{true};
@@ -91,7 +91,7 @@ struct MagicDocsConfig {
 };
 
 // ============================================================
-// MagicDocsService - 自动文档与上下文生成
+
 // ============================================================
 
 class MagicDocsService {
@@ -99,18 +99,18 @@ public:
     explicit MagicDocsService(MagicDocsConfig config = {})
         : config_(std::move(config)) {}
 
-    // 分析项目并生成 LLM 上下文
+
     [[nodiscard]] std::expected<GeneratedContext, Error> generate_context(
         const fs::path& project_root) const
     {
         GeneratedContext ctx;
-        // 检测项目类型
+
         ctx.project_type = detect_project_type(project_root);
-        // 收集文档文件
+
         ctx.relevant_docs = collect_docs(project_root);
-        // 生成系统提示
+
         ctx.system_prompt = build_system_prompt(ctx.project_type, ctx.relevant_docs);
-        // 计算总 token
+
         ctx.total_tokens = estimate_tokens(ctx.system_prompt);
         for (const auto& doc : ctx.relevant_docs) {
             ctx.total_tokens += doc.token_estimate;
@@ -118,10 +118,10 @@ public:
         return ctx;
     }
 
-    // 仅检测项目类型
+
     [[nodiscard]] ProjectType detect_project_type(const fs::path& root) const {
         ProjectType result;
-        // 检测标记文件
+
         static constexpr struct { std::string_view file; Language lang; Framework fw; } markers[] = {
             {"CMakeLists.txt", Language::Cpp, Framework::CMake},
             {"Cargo.toml", Language::Rust, Framework::Cargo},
@@ -147,14 +147,14 @@ public:
         return result;
     }
 
-    // 更新配置
+
     void set_config(MagicDocsConfig config) noexcept { config_ = std::move(config); }
     [[nodiscard]] const MagicDocsConfig& config() const noexcept { return config_; }
 
 private:
     MagicDocsConfig config_;
 
-    // 收集项目文档文件
+
     [[nodiscard]] std::vector<DocFile> collect_docs(const fs::path& root) const {
         std::vector<DocFile> docs;
         static constexpr std::string_view doc_names[] = {
@@ -165,7 +165,7 @@ private:
             if (fs::exists(path)) {
                 docs.push_back({
                     .path = path.string(),
-                    .content = "",  // 实际实现中读取文件
+                    .content = "",
                     .token_estimate = estimate_file_tokens(path),
                 });
             }
@@ -173,7 +173,7 @@ private:
         return docs;
     }
 
-    // 构建系统提示
+
     [[nodiscard]] std::string build_system_prompt(
         const ProjectType& pt,
         const std::vector<DocFile>& docs) const
@@ -185,7 +185,7 @@ private:
             lang_name, fw_name, docs.size());
     }
 
-    // Token 估算 (粗略: 1 token ≈ 4 字符)
+
     [[nodiscard]] std::size_t estimate_tokens(std::string_view text) const noexcept {
         return text.size() / 4;
     }

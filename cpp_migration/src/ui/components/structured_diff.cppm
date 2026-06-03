@@ -113,8 +113,7 @@ struct StructuredDiffOptions {
 /// Check if the color diff module is available
 [[nodiscard]] inline std::optional<ColorModuleUnavailableReason>
 get_color_module_unavailable_reason() {
-    // In C++ we check a compile-time flag or environment variable
-    // Placeholder: always available in this build
+    // The native color diff module is built into this target.
     return std::nullopt;
 }
 

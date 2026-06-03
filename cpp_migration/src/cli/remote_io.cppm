@@ -9,8 +9,11 @@ module;
 #include <queue>
 #include <chrono>
 #include <cstddef>
+#include <memory>
 
 export module cc.cli.remote_io;
+
+import cc.cli.websocket_transport;
 
 export namespace cc::cli {
 
@@ -33,8 +36,15 @@ public:
         std::lock_guard lock(mutex_);
         endpoint_ = std::string(endpoint);
 
-        // In production: establish WebSocket or HTTP/2 connection to remote endpoint
-        // This enables IDE integrations to receive Claude's output remotely
+        transport_ = std::make_unique<WebSocketTransport>();
+        transport_->on_message([this](std::string_view output) {
+            dispatch_output(output);
+        });
+        auto connect_result = transport_->connect(endpoint_);
+        if (!connect_result) {
+            transport_.reset();
+            return std::unexpected(connect_result.error());
+        }
         connected_.store(true);
 
         // Start the output forwarding thread
@@ -70,6 +80,11 @@ public:
             output_thread_.join();
         }
 
+        if (transport_) {
+            transport_->close();
+            transport_.reset();
+        }
+
         std::lock_guard lock(mutex_);
         output_callback_ = nullptr;
         endpoint_.clear();
@@ -89,26 +104,13 @@ private:
                 std::lock_guard lock(input_mutex_);
                 while (!input_queue_.empty()) {
                     auto& msg = input_queue_.front();
-                    // In a full implementation: write to the remote socket/HTTP2 stream
-                    // For now, track that input was forwarded
-                    bytes_sent_.fetch_add(msg.size(), std::memory_order_relaxed);
+                    if (transport_) {
+                        auto sent = transport_->send(msg);
+                        if (sent) bytes_sent_.fetch_add(msg.size(), std::memory_order_relaxed);
+                    }
                     input_queue_.pop();
                 }
             }
-
-            // Poll for incoming data from the remote endpoint
-            // In a full implementation with real network I/O:
-            // - Use poll()/select() on the connection socket fd
-            // - Read available data into a buffer
-            // - Parse framing (newline-delimited JSON or length-prefixed)
-            // - Dispatch complete messages via dispatch_output()
-            //
-            // The remote endpoint sends output from the Claude session
-            // (assistant responses, tool results, status updates) which
-            // we forward to the local IDE/editor integration.
-
-            // Brief yield to avoid busy-waiting when no data is available
-            // In production: replaced by blocking poll() with timeout
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     }
@@ -129,6 +131,7 @@ private:
     std::mutex mutex_;
     std::mutex input_mutex_;
     std::jthread output_thread_;
+    std::unique_ptr<WebSocketTransport> transport_;
 };
 
 } // namespace cc::cli

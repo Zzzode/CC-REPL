@@ -9,8 +9,13 @@ module;
 #include <vector>
 #include <cstdlib>
 #include <array>
+#include <filesystem>
+#include <fstream>
+#include <chrono>
 
 export module cc.hooks.diff_in_ide;
+
+import cc.utils.bash_execution;
 
 export namespace cc::hooks::diff_in_ide {
 
@@ -113,7 +118,6 @@ inline auto ide_type_to_string(IdeType ide) -> std::string {
 } // namespace detail
 
 /// Open a diff view in the user's IDE for the given file changes.
-/// In production: writes temp files and invokes the IDE's diff command.
 inline auto open_diff_in_ide(DiffRequest request)
     -> std::expected<DiffResult, std::string>
 {
@@ -135,12 +139,32 @@ inline auto open_diff_in_ide(DiffRequest request)
         };
     }
 
-    // In production:
-    // 1. Write original_content to a temp file (e.g., /tmp/diff-original-<hash>)
-    // 2. Write modified_content to another temp file
-    // 3. Invoke: diff_cmd temp_original temp_modified
-    // 4. For VS Code: code --diff file1 file2 --title "..."
-    // 5. Clean up temp files on IDE close (or after timeout)
+    auto nonce = std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
+    auto temp_dir = std::filesystem::temp_directory_path() / "cc-repl-diffs";
+    std::error_code ec;
+    std::filesystem::create_directories(temp_dir, ec);
+    if (ec) return std::unexpected("Failed to create diff temp directory: " + ec.message());
+
+    auto original_path = temp_dir / ("original-" + nonce);
+    auto modified_path = temp_dir / ("modified-" + nonce);
+    {
+        std::ofstream original(original_path, std::ios::binary);
+        std::ofstream modified(modified_path, std::ios::binary);
+        if (!original.is_open() || !modified.is_open()) {
+            return std::unexpected("Failed to create temporary diff files");
+        }
+        original << request.original_content;
+        modified << request.modified_content;
+    }
+
+    auto command = *diff_cmd + " " +
+        cc::utils::bash::escape_shell_arg(original_path.string()) + " " +
+        cc::utils::bash::escape_shell_arg(modified_path.string()) +
+        " >/dev/null 2>&1 &";
+    auto launched = cc::utils::bash::execute_command(command);
+    if (!launched || launched->exit_code != 0) {
+        return std::unexpected("Failed to launch IDE diff command");
+    }
 
     return DiffResult{
         .opened = true,

@@ -48,13 +48,13 @@ std::vector<T> get_recent(const CircularBuffer<T, Cap>& buf, size_t n) {
     return result;
 }
 
-// 常量定义
+
 constexpr std::size_t DEFAULT_MAX_MEMORY = 8 * 1024 * 1024;  // 8MB
 constexpr std::size_t MAX_TASK_OUTPUT_BYTES = 5ULL * 1024 * 1024 * 1024;  // 5GB
 constexpr std::size_t PROGRESS_TAIL_BYTES = 4096;
 constexpr int POLL_INTERVAL_MS = 1000;
 
-// 进度回调类型
+
 using ProgressCallback = std::function<void(
     std::string_view last_lines,
     std::string_view all_lines,
@@ -62,11 +62,11 @@ using ProgressCallback = std::function<void(
     std::size_t total_bytes,
     bool is_incomplete)>;
 
-// 前向声明
+
 class DiskTaskOutput;
 
 // =========================================================================
-// DiskTaskOutput - 磁盘任务输出
+
 // =========================================================================
 class DiskTaskOutput {
 public:
@@ -79,11 +79,11 @@ public:
         flush();
     }
 
-    // 禁止拷贝
+
     DiskTaskOutput(const DiskTaskOutput&) = delete;
     DiskTaskOutput& operator=(const DiskTaskOutput&) = delete;
 
-    // 追加内容
+
     void append(std::string_view content) {
         std::lock_guard<std::mutex> lock(mutex_);
         if (capped_) return;
@@ -101,38 +101,38 @@ public:
         }
     }
 
-    // 等待刷新完成
+
     VoidResult flush() {
         std::lock_guard<std::mutex> lock(mutex_);
         if (flush_future_.valid()) {
             try {
                 flush_future_.get();
             } catch (...) {
-                // 忽略刷新错误
+
             }
         }
         return {};
     }
 
-    // 取消待处理写入
+
     void cancel() {
         std::lock_guard<std::mutex> lock(mutex_);
         queue_.clear();
     }
 
-    // 获取路径
+
     [[nodiscard]] const fs::path& path() const noexcept { return path_; }
 
 private:
     void drain() {
         std::unique_lock<std::mutex> lock(mutex_);
         while (!queue_.empty() || !cancelled_) {
-            // 取出队列中的数据
+
             std::deque<std::string> local_queue;
             local_queue.swap(queue_);
             lock.unlock();
 
-            // 写入到文件
+
             if (!local_queue.empty()) {
                 try {
                     ensure_output_dir();
@@ -143,7 +143,7 @@ private:
                         }
                     }
                 } catch (...) {
-                    // 忽略写入错误
+
                 }
             }
 
@@ -169,7 +169,7 @@ private:
     bool cancelled_ = false;
     std::future<void> flush_future_;
 
-    // 全局任务输出目录（延迟初始化）
+
     static fs::path& get_task_output_dir() {
         static fs::path dir;
         if (dir.empty()) {
@@ -185,7 +185,7 @@ private:
 };
 
 // =========================================================================
-// TaskOutput - 任务输出管理
+
 // =========================================================================
 class TaskOutput {
 public:
@@ -203,27 +203,27 @@ public:
         clear();
     }
 
-    // 禁止拷贝
+
     TaskOutput(const TaskOutput&) = delete;
     TaskOutput& operator=(const TaskOutput&) = delete;
 
-    // 写 stdout（仅 pipe 模式）
+
     void write_stdout(std::string_view data) {
         write_buffered(data, false);
     }
 
-    // 写 stderr
+
     void write_stderr(std::string_view data) {
         write_buffered(data, true);
     }
 
-    // 获取 stdout
+
     [[nodiscard]] Result<std::string> get_stdout() {
         if (stdout_to_file_) {
             return read_stdout_from_file();
         }
 
-        // Pipe 模式
+
         if (disk_) {
             auto recent = get_recent(recent_lines_, 5);
             std::string tail;
@@ -239,35 +239,35 @@ public:
         return stdout_buffer_;
     }
 
-    // 获取 stderr（同步）
+
     [[nodiscard]] std::string get_stderr() const {
         if (disk_) return {};
         return stderr_buffer_;
     }
 
-    // 是否溢出到磁盘
+
     [[nodiscard]] bool is_overflowed() const noexcept { return disk_ != nullptr; }
 
-    // 获取总行数
+
     [[nodiscard]] std::size_t total_lines() const noexcept { return total_lines_; }
 
-    // 获取总字节数
+
     [[nodiscard]] std::size_t total_bytes() const noexcept { return total_bytes_; }
 
-    // 输出文件是否冗余（已完全读入内存）
+
     [[nodiscard]] bool output_file_redundant() const noexcept { return output_file_redundant_; }
 
-    // 获取输出文件大小
+
     [[nodiscard]] std::size_t output_file_size() const noexcept { return output_file_size_; }
 
-    // 强制刷新到磁盘
+
     void spill_to_disk() {
         if (!disk_) {
             create_disk_output(nullptr, nullptr);
         }
     }
 
-    // 刷新
+
     VoidResult flush() {
         if (disk_) {
             return disk_->flush();
@@ -275,13 +275,13 @@ public:
         return {};
     }
 
-    // 删除输出文件
+
     void delete_output_file() {
         std::error_code ec;
         fs::remove(path_, ec);
     }
 
-    // 清理
+
     void clear() {
         stdout_buffer_.clear();
         stderr_buffer_.clear();
@@ -294,7 +294,7 @@ public:
         stop_polling(task_id_);
     }
 
-    // 开始轮询（用于文件模式的进度更新）
+
     static void start_polling(const std::string& task_id) {
         auto& registry = get_registry();
         std::lock_guard<std::mutex> lock(registry.mutex);
@@ -304,14 +304,14 @@ public:
         }
     }
 
-    // 停止轮询
+
     static void stop_polling(const std::string& task_id) {
         auto& registry = get_registry();
         std::lock_guard<std::mutex> lock(registry.mutex);
         registry.active_polling.erase(task_id);
     }
 
-    // 注册实例（用于轮询）
+
     void register_for_polling() {
         if (stdout_to_file_ && on_progress_) {
             auto& registry = get_registry();
@@ -320,7 +320,7 @@ public:
         }
     }
 
-    // 注销实例
+
     void unregister_for_polling() {
         auto& registry = get_registry();
         std::lock_guard<std::mutex> lock(registry.mutex);
@@ -450,7 +450,7 @@ private:
         }
     }
 
-    // 全局注册表管理
+
     struct PollRegistry {
         std::mutex mutex;
         std::map<std::string, TaskOutput*> instances;
@@ -477,7 +477,7 @@ private:
 
                         if (!reg.poller_running) break;
 
-                        // 复制活跃的实例
+
                         std::vector<std::pair<std::string, TaskOutput*>> active;
                         for (const auto& task_id : reg.active_polling) {
                             if (auto it = reg.instances.find(task_id); it != reg.instances.end()) {
@@ -486,7 +486,7 @@ private:
                         }
                         lock.unlock();
 
-                        // 轮询每个实例
+
                         for (auto& [task_id, instance] : active) {
                             poll_instance(instance);
                         }
@@ -503,10 +503,10 @@ private:
             auto size_result = file::get_file_size(instance->path_);
             std::size_t file_size = size_result ? *size_result : 0;
 
-            // 简化的进度更新
+
             instance->on_progress_("", "", instance->total_lines_, file_size, false);
         } catch (...) {
-            // 忽略轮询错误
+
         }
     }
 
@@ -526,28 +526,28 @@ private:
 };
 
 // =========================================================================
-// 全局辅助函数
+
 // =========================================================================
 
-// 获取任务输出路径
+
 [[nodiscard]] inline auto get_task_output_path(std::string_view task_id) -> fs::path {
     auto tmp_dir = fs::temp_directory_path();
     return tmp_dir / "cc_tasks" / std::format("{}.output", task_id);
 }
 
-// 确保任务输出目录存在
+
 inline void ensure_task_output_dir() {
     std::error_code ec;
     auto dir = fs::temp_directory_path() / "cc_tasks";
     fs::create_directories(dir, ec);
 }
 
-// 初始化任务输出文件
+
 [[nodiscard]] inline auto init_task_output(std::string_view task_id) -> Result<fs::path> {
     ensure_task_output_dir();
     auto path = get_task_output_path(task_id);
 
-    // 创建空文件
+
     std::ofstream file(path, std::ios::binary | std::ios::trunc);
     if (!file.is_open()) {
         return std::unexpected(cc::utils::Error(
@@ -557,7 +557,7 @@ inline void ensure_task_output_dir() {
     return path;
 }
 
-// 获取任务输出（读取文件尾部）
+
 [[nodiscard]] inline auto get_task_output(std::string_view task_id,
                                           std::size_t max_bytes = 8 * 1024 * 1024) -> Result<std::string> {
     auto path = get_task_output_path(task_id);
@@ -581,7 +581,7 @@ inline void ensure_task_output_dir() {
     return content;
 }
 
-// 清理任务输出
+
 inline void cleanup_task_output(std::string_view task_id) {
     auto path = get_task_output_path(task_id);
     std::error_code ec;

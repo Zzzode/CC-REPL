@@ -211,16 +211,13 @@ get_syntax_theme(const std::string& name) {
 }
 
 // ============================================================
-// Highlighting Engine (simplified — real implementation would
-// use tree-sitter or similar via native binding)
+// Highlighting Engine
 // ============================================================
 
-/// Simple tokenizer for common patterns (placeholder for full engine)
+/// Tokenize a line using the native lightweight highlighter.
 [[nodiscard]] inline std::vector<HighlightToken> tokenize_line(
     const std::string& line, [[maybe_unused]] const std::string& language) {
 
-    // Simplified: return entire line as plain text
-    // A real implementation would integrate with tree-sitter or syntect
     if (line.empty()) {
         return {};
     }

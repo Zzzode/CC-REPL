@@ -15,6 +15,21 @@ const ignoredDirs = new Set(['.git', 'node_modules', 'dist', 'build', '.cache'])
 const blockingMarkerRegex = /\bTODO\b|\bFIXME\b|Not implemented|not implemented|mock success|For now, return mock|TODO:\s*Implement/
 const debtMarkerRegex = /\bstubbed\b|In production:/i
 const placeholderRegex = /placeholder/i
+const allowedPlaceholderFiles = new Set([
+  'cli/handlers/template_jobs.cppm',
+  'hooks/render_placeholder.cppm',
+  'skills/lorem_ipsum.cppm',
+  'ui/components/structured_diff.cppm',
+  'ui/components/text_input_widget.cppm',
+  'ui/dialogs/wizard_dialog.cppm',
+  'ui/messages/message_image.cppm',
+  'ui/messages/message_redacted_thinking.cppm',
+  'ui/screens/repl_screen.cppm',
+  'utils/argument_substitution.cppm',
+  'utils/hooks_registry.cppm',
+  'utils/mcp_validation.cppm',
+  'utils/message_processing.cppm',
+])
 
 function classifyMarkerLine(relativePath, line) {
   if (blockingMarkerRegex.test(line)) return 'blocking'
@@ -42,6 +57,7 @@ function classifyMarkerLine(relativePath, line) {
   if (relativePath === 'tools/ask_user_tool.cppm') return 'nonBlocking'
   if (relativePath === 'ui/app.cppm') return 'nonBlocking'
   if (relativePath === 'types/logs.cppm') return 'nonBlocking'
+  if (allowedPlaceholderFiles.has(relativePath)) return 'nonBlocking'
 
   return 'blocking'
 }

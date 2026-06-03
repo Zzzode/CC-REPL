@@ -48,7 +48,7 @@ public:
             .args = {
                 CommandArg{.name = "action", .description = "list | info | rename | delete | export",
                            .type = ArgType::Choice, .required = false,
-                           .choices = {{"list", "info", "rename", "delete", "export"}}},
+                           .choices = {"list", "info", "rename", "delete", "export"}},
                 CommandArg{.name = "value", .description = "New name, session ID, or export path",
                            .type = ArgType::Text, .required = false},
             },

@@ -11,7 +11,7 @@ export module cc.commands.remote_setup_api;
 
 export namespace cc::commands {
 
-// 注册远程 Agent 到调度服务
+
 auto register_remote_agent(std::string_view host, std::string_view token)
     -> std::expected<std::string, std::string> {
     if (host.empty()) {
@@ -24,7 +24,7 @@ auto register_remote_agent(std::string_view host, std::string_view token)
     return "agent_" + std::to_string(std::hash<std::string>{}(seed));
 }
 
-// 注销远程 Agent
+
 auto deregister_remote_agent(std::string_view agent_id) -> std::expected<void, std::string> {
     if (agent_id.empty()) {
         return std::unexpected("Agent ID cannot be empty");
@@ -32,7 +32,7 @@ auto deregister_remote_agent(std::string_view agent_id) -> std::expected<void, s
     return {};
 }
 
-// 查询远程 Agent 的运行状态
+
 auto get_remote_agent_status(std::string_view agent_id) -> std::expected<std::string, std::string> {
     if (agent_id.empty()) {
         return std::unexpected("Agent ID cannot be empty");

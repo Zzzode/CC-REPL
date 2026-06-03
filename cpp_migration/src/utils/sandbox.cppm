@@ -22,24 +22,24 @@ export module cc.utils.sandbox;
 
 export namespace cc::utils {
 
-// 沙箱类型
+
 enum class SandboxType { none, docker, nsjail, firejail, macos_sandbox };
 
-// 沙箱能力
+
 struct SandboxCapabilities {
     bool network_access{false};
     bool filesystem_read{true};
     bool filesystem_write{false};
     bool process_spawn{false};
-    std::vector<std::string> allowed_paths;      // 读写白名单
-    std::vector<std::string> readonly_paths;     // 只读挂载
+    std::vector<std::string> allowed_paths;
+    std::vector<std::string> readonly_paths;
     std::vector<std::string> blocked_syscalls;
     size_t memory_limit_mb{512};
     size_t cpu_limit_percent{50};
     std::chrono::seconds time_limit{60};
 };
 
-// 沙箱执行结果
+
 struct SandboxResult {
     int exit_code{0};
     std::string stdout_output;
@@ -50,16 +50,16 @@ struct SandboxResult {
     bool oom_killed{false};
 };
 
-// 沙箱配置
+
 struct SandboxConfig {
     SandboxType type{SandboxType::none};
     SandboxCapabilities capabilities;
     std::string working_dir;
     std::vector<std::pair<std::string, std::string>> env_vars;
-    std::optional<std::string> container_image;  // Docker 镜像
+    std::optional<std::string> container_image;
 };
 
-// 沙箱适配器接口
+
 class SandboxAdapter {
 protected:
     SandboxConfig config_;
@@ -69,19 +69,19 @@ public:
     explicit SandboxAdapter(SandboxConfig config) : config_(std::move(config)) {}
     virtual ~SandboxAdapter() = default;
 
-    // 执行命令
+
     [[nodiscard]] virtual auto execute(std::string_view command) 
         -> std::expected<SandboxResult, std::string> = 0;
     
-    // 写入文件 (受限于 allowed_paths)
+
     [[nodiscard]] virtual auto write_file(const std::filesystem::path& path, std::string_view content)
         -> std::expected<void, std::string> = 0;
     
-    // 读取文件
+
     [[nodiscard]] virtual auto read_file(const std::filesystem::path& path)
         -> std::expected<std::string, std::string> = 0;
     
-    // 启动/停止
+
     virtual auto start() -> std::expected<void, std::string> = 0;
     virtual void stop() = 0;
     
@@ -89,7 +89,7 @@ public:
     [[nodiscard]] auto get_type() const -> SandboxType { return config_.type; }
 };
 
-// 无沙箱 (直接执行)
+
 class NoSandbox : public SandboxAdapter {
 public:
     NoSandbox() : SandboxAdapter({.type = SandboxType::none}) {}
@@ -128,7 +128,7 @@ public:
     void stop() override { active_ = false; }
 };
 
-// Docker 沙箱
+
 class DockerSandbox : public SandboxAdapter {
     std::string container_id_;
 public:
@@ -178,7 +178,7 @@ public:
     }
 };
 
-// 沙箱工厂
+
 [[nodiscard]] inline auto create_sandbox(SandboxConfig config) -> std::unique_ptr<SandboxAdapter> {
     switch (config.type) {
         case SandboxType::docker: return std::make_unique<DockerSandbox>(std::move(config));
@@ -186,7 +186,7 @@ public:
     }
 }
 
-// 检测可用沙箱类型
+
 [[nodiscard]] inline auto detect_available_sandboxes() -> std::vector<SandboxType> {
     std::vector<SandboxType> available{SandboxType::none};
     auto has_cmd = [](std::string_view name) {
@@ -201,9 +201,9 @@ public:
     return available;
 }
 
-// 判断命令是否需要沙箱
+
 [[nodiscard]] inline auto should_sandbox(std::string_view command) -> bool {
-    // 危险模式: rm -rf, curl | sh, wget, 等
+
     static const std::vector<std::string_view> dangerous = {
         "rm -rf /", "mkfs", "dd if=", "curl | sh", "wget -O- |", ":(){ :|:& };:"
     };

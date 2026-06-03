@@ -1,5 +1,5 @@
 // C++23 Module: Global constants
-// 全局常量定义：API 限制、错误码、路径、超时等
+
 module;
 #include <array>
 #include <cctype>
@@ -15,7 +15,7 @@ export module cc.constants.constants;
 export namespace cc::core::constants {
 
 // ============================================================
-// 版本信息
+
 // ============================================================
 inline constexpr std::string_view kVersion = "0.1.0";
 inline constexpr std::string_view kBuildDate = __DATE__;
@@ -23,7 +23,7 @@ inline constexpr std::string_view kAppName = "cc-repl";
 inline constexpr std::string_view kUserAgent = "cc-repl/0.1.0";
 
 // ============================================================
-// API 限制 (各模型的 token 上限)
+
 // ============================================================
 namespace api_limits {
     inline constexpr size_t kMaxTokensClaude3Opus = 200000;
@@ -34,7 +34,7 @@ namespace api_limits {
     inline constexpr size_t kMaxOutputTokens = 8192;
     inline constexpr size_t kMaxOutputTokensExtended = 64000;
 
-    // 速率限制
+
     inline constexpr uint32_t kRateLimitRequestsPerMinute = 60;
     inline constexpr uint32_t kRateLimitTokensPerMinute = 100000;
     inline constexpr uint32_t kRateLimitRetryAfterMs = 1000;
@@ -42,10 +42,10 @@ namespace api_limits {
 }
 
 // ============================================================
-// 错误码
+
 // ============================================================
 enum class ErrorCode : uint16_t {
-    // 通用错误 (1xx)
+
     Ok = 0,
     Unknown = 100,
     InvalidArgument = 101,
@@ -56,7 +56,7 @@ enum class ErrorCode : uint16_t {
     Cancelled = 106,
     Timeout = 107,
 
-    // 网络错误 (2xx)
+
     NetworkError = 200,
     ConnectionRefused = 201,
     ConnectionTimeout = 202,
@@ -64,7 +64,7 @@ enum class ErrorCode : uint16_t {
     TlsError = 204,
     HttpError = 205,
 
-    // API 错误 (3xx)
+
     ApiError = 300,
     RateLimited = 301,
     ContextTooLong = 302,
@@ -73,7 +73,7 @@ enum class ErrorCode : uint16_t {
     ContentFiltered = 305,
     ServerOverloaded = 306,
 
-    // 工具错误 (4xx)
+
     ToolError = 400,
     ToolNotFound = 401,
     ToolTimeout = 402,
@@ -81,7 +81,7 @@ enum class ErrorCode : uint16_t {
     ToolPermissionDenied = 404,
     ToolExecutionFailed = 405,
 
-    // 文件系统错误 (5xx)
+
     FileError = 500,
     FileNotFound = 501,
     FileReadError = 502,
@@ -89,20 +89,20 @@ enum class ErrorCode : uint16_t {
     FileTooLarge = 504,
     DirectoryNotFound = 505,
 
-    // 会话错误 (6xx)
+
     SessionError = 600,
     SessionExpired = 601,
     SessionNotFound = 602,
     SessionCorrupted = 603,
 
-    // 配置错误 (7xx)
+
     ConfigError = 700,
     ConfigNotFound = 701,
     ConfigParseError = 702,
     ConfigValidationError = 703,
 };
 
-// 错误码描述
+
 [[nodiscard]] inline std::string_view error_description(ErrorCode code) {
     switch (code) {
         case ErrorCode::Ok: return "Success";
@@ -124,7 +124,7 @@ enum class ErrorCode : uint16_t {
 }
 
 // ============================================================
-// 工具限制
+
 // ============================================================
 namespace tool_limits {
     inline constexpr size_t kMaxOutputSize = 1024 * 1024;        // 1MB
@@ -137,7 +137,7 @@ namespace tool_limits {
 }
 
 // ============================================================
-// OAuth 常量
+
 // ============================================================
 namespace oauth {
     inline constexpr std::string_view kClientId = "cc-repl-cli";
@@ -149,7 +149,7 @@ namespace oauth {
 }
 
 // ============================================================
-// 默认路径
+
 // ============================================================
 namespace paths {
     inline constexpr std::string_view kConfigDir = ".claude";
@@ -162,7 +162,7 @@ namespace paths {
     inline constexpr std::string_view kPermissionsFile = "permissions.json";
     inline constexpr std::string_view kHistoryFile = "history";
 
-    // 获取配置目录的完整路径
+
     [[nodiscard]] inline std::filesystem::path config_home() {
         if (auto* home = std::getenv("HOME")) {
             return std::filesystem::path(home) / kConfigDir;
@@ -172,21 +172,21 @@ namespace paths {
 }
 
 // ============================================================
-// 超时值 (毫秒)
+
 // ============================================================
 namespace timeouts {
-    inline constexpr uint32_t kApiRequestMs = 60000;         // API 请求超时
-    inline constexpr uint32_t kApiStreamFirstByteMs = 30000; // 流式首字节超时
-    inline constexpr uint32_t kToolExecutionMs = 120000;     // 工具执行超时
-    inline constexpr uint32_t kSessionIdleMs = 3600000;      // 会话空闲超时 (1h)
-    inline constexpr uint32_t kReconnectMs = 5000;           // 重连间隔
-    inline constexpr uint32_t kHealthCheckMs = 30000;        // 健康检查间隔
-    inline constexpr uint32_t kShutdownGraceMs = 5000;       // 优雅关闭等待
-    inline constexpr uint32_t kFileWatchDebounceMs = 100;    // 文件监听防抖
+    inline constexpr uint32_t kApiRequestMs = 60000;
+    inline constexpr uint32_t kApiStreamFirstByteMs = 30000;
+    inline constexpr uint32_t kToolExecutionMs = 120000;
+    inline constexpr uint32_t kSessionIdleMs = 3600000;
+    inline constexpr uint32_t kReconnectMs = 5000;
+    inline constexpr uint32_t kHealthCheckMs = 30000;
+    inline constexpr uint32_t kShutdownGraceMs = 5000;
+    inline constexpr uint32_t kFileWatchDebounceMs = 100;
 }
 
 // ============================================================
-// 模型标识符
+
 // ============================================================
 namespace models {
     inline constexpr std::string_view kClaude3Opus = "claude-3-opus-20240229";
@@ -202,7 +202,7 @@ namespace models {
 }
 
 // ============================================================
-// 字符和图标常量
+
 // ============================================================
 namespace figures {
     inline constexpr std::string_view kBlackCircle = "●";
@@ -232,33 +232,33 @@ namespace figures {
 }
 
 // ============================================================
-// 二进制文件扩展名
+
 // ============================================================
 namespace binary_extensions {
     inline constexpr std::array<std::string_view, 100> kExtensions = {
-        // 图片
+
         ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".webp", ".tiff", ".tif",
-        // 视频
+
         ".mp4", ".mov", ".avi", ".mkv", ".webm", ".wmv", ".flv", ".m4v", ".mpeg", ".mpg",
-        // 音频
+
         ".mp3", ".wav", ".ogg", ".flac", ".aac", ".m4a", ".wma", ".aiff", ".opus",
-        // 压缩包
+
         ".zip", ".tar", ".gz", ".bz2", ".7z", ".rar", ".xz", ".z", ".tgz", ".iso",
-        // 可执行文件
+
         ".exe", ".dll", ".so", ".dylib", ".bin", ".o", ".a", ".obj", ".lib", ".app", ".msi", ".deb", ".rpm",
-        // 文档
+
         ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".odt", ".ods", ".odp",
-        // 字体
+
         ".ttf", ".otf", ".woff", ".woff2", ".eot",
-        // 字节码
+
         ".pyc", ".pyo", ".class", ".jar", ".war", ".ear", ".node", ".wasm", ".rlib",
-        // 数据库
+
         ".sqlite", ".sqlite3", ".db", ".mdb", ".idx",
-        // 设计/3D
+
         ".psd", ".ai", ".eps", ".sketch", ".fig", ".xd", ".blend", ".3ds", ".max",
         // Flash
         ".swf", ".fla",
-        // 其他
+
         ".lockb", ".dat", ".data"
     };
 
@@ -266,7 +266,7 @@ namespace binary_extensions {
         auto dot_pos = path.rfind('.');
         if (dot_pos == std::string_view::npos) return false;
         auto ext = path.substr(dot_pos);
-        // 转为小写比较
+
         std::string lower_ext;
         lower_ext.reserve(ext.size());
         for (char c : ext) {
@@ -280,14 +280,14 @@ namespace binary_extensions {
 }
 
 // ============================================================
-// 消息常量
+
 // ============================================================
 namespace messages {
     inline constexpr std::string_view kNoContent = "(no content)";
 }
 
 // ============================================================
-// GitHub App 常量
+
 // ============================================================
 namespace github_app {
     inline constexpr std::string_view kPrTitle = "Add Claude Code GitHub Workflow";
@@ -362,7 +362,7 @@ Once the workflow is triggered, Claude will analyze the comment and surrounding 
 }
 
 // ============================================================
-// 产品相关常量
+
 // ============================================================
 namespace product {
     inline constexpr std::string_view kProductUrl = "https://claude.com/claude-code";
@@ -372,7 +372,7 @@ namespace product {
 }
 
 // ============================================================
-// Spinner 动词
+
 // ============================================================
 namespace spinner_verbs {
     inline constexpr std::array<std::string_view, 204> kVerbs = {
@@ -413,7 +413,7 @@ namespace spinner_verbs {
 }
 
 // ============================================================
-// 工具名称常量
+
 // ============================================================
 namespace tool_names {
     inline constexpr std::string_view kAgentTool = "agent_tool";
@@ -457,7 +457,7 @@ namespace tool_names {
 }
 
 // ============================================================
-// 系统提示词相关常量
+
 // ============================================================
 namespace prompts {
     inline constexpr std::string_view kSystemPromptDynamicBoundary = 
@@ -468,14 +468,14 @@ namespace prompts {
 }
 
 // ============================================================
-// XML 标签常量
+
 // ============================================================
 namespace xml_tags {
     inline constexpr std::string_view kTickTag = "<tick>";
 }
 
 // ============================================================
-// 知识截止日期
+
 // ============================================================
 namespace knowledge_cutoff {
     inline constexpr std::string_view kClaude46Sonnet = "August 2025";
@@ -496,14 +496,14 @@ namespace knowledge_cutoff {
 }
 
 // ============================================================
-// 错误 ID 常量
+
 // ============================================================
 namespace error_ids {
     inline constexpr uint32_t kToolUseSummaryGenerationFailed = 344;
 }
 
 // ============================================================
-// OAuth 常量 (扩展)
+
 // ============================================================
 namespace oauth {
     inline constexpr std::string_view kClaudeAiInferenceScope = "user:inference";
@@ -526,7 +526,7 @@ namespace oauth {
 }
 
 // ============================================================
-// CLI 系统提示词前缀
+
 // ============================================================
 namespace cli_sysprompt {
     inline constexpr std::string_view kDefaultPrefix = 

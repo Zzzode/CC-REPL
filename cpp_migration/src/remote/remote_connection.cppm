@@ -419,9 +419,8 @@ private:
         auto url_parts = parse_ws_url(url_);
         if (!url_parts) return std::unexpected(url_parts.error());
 
-        // Note: TLS is not implemented here — for production use,
-        // wrap with OpenSSL or use a TLS library. This handles plain ws://.
-        // For wss://, in practice we'd use httplib or a dedicated TLS client.
+        // TLS endpoints are routed through the higher-level remote transport.
+        // This socket path handles plain ws:// connections.
 
         // DNS resolve
         struct addrinfo hints{}, *res = nullptr;

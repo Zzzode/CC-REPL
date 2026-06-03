@@ -1,6 +1,6 @@
 /// @file test_state.cpp
-/// @brief cc_state 模块单元测试
-/// 覆盖: store (dispatch, subscribe, state transitions), selectors (memoization, compose),
+
+
 /// persistence, on_change_app_state, ftxui_integration
 
 #include <string>
@@ -46,7 +46,7 @@ namespace {
 
 } // namespace
 // ═══════════════════════════════════════════════════════════════════════════════
-// cc.state.app_state 测试: 状态数据结构
+
 // ═══════════════════════════════════════════════════════════════════════════════
 
 TEST(AppState, DefaultStateIsValid) {
@@ -75,13 +75,13 @@ TEST(AppState, ObservableState) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// cc.state.store 测试: 状态管理核心
+
 // ═══════════════════════════════════════════════════════════════════════════════
 
 TEST(StateStore, InitialState) {
     auto store = make_test_store();
     auto state = store->get_state();
-    // 初始状态应有效
+
     EXPECT_LE(state.created_at, std::chrono::system_clock::now());
 }
 
@@ -107,7 +107,7 @@ TEST(StateStore, SubscribeReceivesNotifications) {
     auto store = make_test_store();
     int notify_count = 0;
 
-    // 订阅状态变更
+
     auto sub_id = store->subscribe([&notify_count](const auto& /*prev*/, const auto& /*next*/) {
         notify_count++;
     });
@@ -117,7 +117,7 @@ TEST(StateStore, SubscribeReceivesNotifications) {
 
     EXPECT_EQ(notify_count, 2);
 
-    // 取消订阅后不再收到通知
+
     store->unsubscribe(sub_id);
     store->dispatch(cc::state::Action{cc::state::ActionType::SetStreaming, true});
     EXPECT_EQ(notify_count, 2);
@@ -127,10 +127,10 @@ TEST(StateStore, UnknownActionNoOp) {
     auto store = make_test_store();
     auto before = store->get_state();
 
-    // 未处理 action 不应修改状态
+
     store->dispatch(cc::state::Action{cc::state::ActionType::EnableTool});
     auto after = store->get_state();
-    // 由于是相同的默认状态，应该相等
+
     EXPECT_EQ(before.verbose, after.verbose);
     EXPECT_EQ(before.is_loading, after.is_loading);
 }
@@ -151,7 +151,7 @@ TEST(StateStore, MiddlewareSupport) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// cc.state.selectors 测试: 派生状态与记忆化
+
 // ═══════════════════════════════════════════════════════════════════════════════
 
 TEST(Selectors, IsVerbose) {
@@ -182,13 +182,13 @@ TEST(Selectors, MemoizedSelector) {
         }
     );
     
-    // 相同状态不应重新计算
+
     auto result1 = selector.select(state);
     auto result2 = selector.select(state);
     EXPECT_EQ(result1, result2);
     EXPECT_EQ(compute_count, 1);
     
-    // 状态变化应重新计算
+
     state.verbose = true;
     auto result3 = selector.select(state);
     EXPECT_TRUE(result3);
@@ -196,7 +196,7 @@ TEST(Selectors, MemoizedSelector) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// cc.state.on_change_app_state 测试: 状态变更回调
+
 // ═══════════════════════════════════════════════════════════════════════════════
 
 TEST(OnChangeAppState, StateChangeRegistry) {
@@ -216,7 +216,7 @@ TEST(OnChangeAppState, StateChangeRegistry) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// cc.state.ftxui_integration 测试: FTXUI 响应式集成
+
 // ═══════════════════════════════════════════════════════════════════════════════
 
 TEST(FTXUIIntegration, VerboseIndicator) {
@@ -248,7 +248,7 @@ TEST(FTXUIIntegration, MessageCounter) {
     auto store = make_shared_test_store();
     counter.connect(store);
     
-    // 初始消息数为 0
+
     EXPECT_EQ(counter.get_last_state().messages.size(), 0);
 }
 
@@ -264,11 +264,11 @@ TEST(FTXUIIntegration, ReactiveScreenManager) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// cc.state.persistence 测试: 状态持久化 (模拟测试)
+
 // ═══════════════════════════════════════════════════════════════════════════════
 
 TEST(Persistence, StatePersistenceAPI) {
-    // 测试 API 存在性和基本功能
+
     auto state_file = std::filesystem::temp_directory_path() / "cc_repl_test_state.json";
     cc::state::persistence::StatePersistence persistence(state_file);
     
@@ -276,7 +276,7 @@ TEST(Persistence, StatePersistenceAPI) {
     state.verbose = true;
     state.is_loading = false;
     
-    // 测试保存和加载接口存在 (实际文件操作在集成测试中验证)
+
     auto save_result = persistence.save_state(state);
     ASSERT_TRUE(save_result.has_value());
 
@@ -289,7 +289,7 @@ TEST(Persistence, StatePersistenceAPI) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// cc.session.history 测试: 会话历史持久化
+
 // ═══════════════════════════════════════════════════════════════════════════════
 
 TEST(SessionHistory, SaveAllPersistsCreatedConversationIds) {
@@ -373,7 +373,7 @@ TEST(SessionHistory, LoadAllRestoresSavedMessages) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// cc.cli.update 测试: 更新包下载
+
 // ═══════════════════════════════════════════════════════════════════════════════
 
 TEST(CliUpdate, DownloadUpdateCopiesFileUrlPayload) {
@@ -398,7 +398,7 @@ TEST(CliUpdate, DownloadUpdateCopiesFileUrlPayload) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// cc.services.mcp.auth 测试: MCP OAuth 元数据与 XAA
+
 // ═══════════════════════════════════════════════════════════════════════════════
 
 TEST(McpAuth, FetchConfiguredMetadataFromFileUrl) {
@@ -454,7 +454,7 @@ TEST(McpAuth, XaaFlowDoesNotReturnUnimplementedError) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// cc.constants.prompts 测试: 动态系统提示词
+
 // ═══════════════════════════════════════════════════════════════════════════════
 
 TEST(SystemPrompts, ComputeSimpleEnvInfoIncludesDynamicRuntimeDetails) {

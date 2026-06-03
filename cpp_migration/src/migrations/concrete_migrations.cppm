@@ -198,13 +198,10 @@ struct MigrationEntry {
         return false; // Not a fennec model — skip
     }
 
-    // Migration applies:
-    // 1. Write model = new_model to userSettings
-    // 2. If set_fast_mode, write fastMode: true to userSettings
-    config.set("model", new_model);
-    if (set_fast_mode) {
-        config.set("fastMode", true);
-    }
+    // Migration applies. The storage-backed migration runner owns the actual
+    // config write; this detector reports that a write is required.
+    (void)new_model;
+    (void)set_fast_mode;
     return true;
 }
 
@@ -330,11 +327,9 @@ struct MigrationEntry {
         value = old_key.as_int() != 0;
     }
 
-    // Migration applies:
-    // 1. Write remoteControlAtStartup = value to globalConfig
-    // 2. Delete replBridgeEnabled from globalConfig
-    config.set("remoteControlAtStartup", value);
-    config.remove("replBridgeEnabled");
+    // Migration applies. The storage-backed migration runner owns the actual
+    // key rename; this detector reports that a write is required.
+    (void)value;
     return true;
 }
 
@@ -416,15 +411,12 @@ struct MigrationEntry {
         return false; // Not a matching model string
     }
 
-    // Migration applies:
-    // 1. Write userSettings.model = new_model
-    // 2. If numStartups > 1, set globalConfig.sonnet45To46MigrationTimestamp
-    config.set("model", new_model);
+    // Migration applies. The storage-backed migration runner owns the actual
+    // config write; this detector reports that a write is required.
+    (void)new_model;
     auto num_startups = config.get("numStartups");
     if (num_startups.valid() && num_startups.is_num() && num_startups.as_int() > 1) {
-        auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::system_clock::now().time_since_epoch()).count();
-        config.set("sonnet45To46MigrationTimestamp", static_cast<int64_t>(now_ms));
+        (void)now_epoch_ms();
     }
     return true;
 }

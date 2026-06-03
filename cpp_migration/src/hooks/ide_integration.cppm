@@ -29,12 +29,12 @@ export namespace cc::hooks {
 
 /// Supported IDE types for bridge integration
 enum class IdeType : std::uint8_t {
-    None,         // 无 IDE 连接
+    None,
     VSCode,       // Visual Studio Code
-    JetBrains,    // IntelliJ / WebStorm / CLion 等
-    Neovim,       // Neovim (通过 nvim --listen)
-    Vim,          // Vim (通过 +clientserver)
-    Emacs,        // Emacs (通过 emacsclient)
+    JetBrains,
+    Neovim,
+    Vim,
+    Emacs,
 };
 
 /// Convert IdeType to display name
@@ -83,8 +83,8 @@ struct FileEdit {
     std::size_t start_col;
     std::size_t end_line;
     std::size_t end_col;
-    std::string new_text;     // 替换内容
-    std::optional<std::string> description;  // 用于 undo 标签
+    std::string new_text;
+    std::optional<std::string> description;
 };
 
 /// IDE connection parameters
@@ -92,8 +92,8 @@ struct IdeConnection {
     std::string host{"127.0.0.1"};
     std::uint16_t port{0};
     IdeType ide_type{IdeType::None};
-    std::optional<std::string> auth_token;   // 认证令牌（如需要）
-    std::chrono::milliseconds timeout{5000}; // 连接超时
+    std::optional<std::string> auth_token;
+    std::chrono::milliseconds timeout{5000};
 };
 
 // ============================================================
@@ -102,14 +102,14 @@ struct IdeConnection {
 
 /// Full state of the IDE integration
 struct IdeState {
-    bool connected{false};                             // 是否已连接
-    IdeType ide_type{IdeType::None};                   // 已识别的 IDE 类型
-    std::filesystem::path workspace_root;              // 工作区根目录
-    std::vector<OpenFile> open_files;                  // IDE 中打开的文件列表
-    std::optional<std::filesystem::path> active_file;  // 当前活跃文件
-    std::chrono::system_clock::time_point connected_at;// 连接时间
-    std::size_t sync_count{0};                         // 已同步的文件数
-    std::optional<std::string> last_error;             // 最后一次错误
+    bool connected{false};
+    IdeType ide_type{IdeType::None};
+    std::filesystem::path workspace_root;
+    std::vector<OpenFile> open_files;
+    std::optional<std::filesystem::path> active_file;
+    std::chrono::system_clock::time_point connected_at;
+    std::size_t sync_count{0};
+    std::optional<std::string> last_error;
 };
 
 // ============================================================
@@ -135,7 +135,7 @@ public:
     IdeIntegrationHook() = default;
     ~IdeIntegrationHook() { disconnect(); }
 
-    // Move-only semantics（WebSocket 连接不可复制）
+
     IdeIntegrationHook(const IdeIntegrationHook&) = delete;
     IdeIntegrationHook& operator=(const IdeIntegrationHook&) = delete;
     IdeIntegrationHook(IdeIntegrationHook&&) noexcept = default;
@@ -159,7 +159,7 @@ public:
         send_message(std::format(R"({{"type":"hello","port":{},"ide":"{}"}})",
             port, ide_type_to_string(state_.ide_type)));
 
-        // 通知连接回调
+
         if (on_connection_) on_connection_(true, state_.ide_type);
         return {};
     }
@@ -231,7 +231,7 @@ public:
     /// Get the current selection in the active editor
     [[nodiscard]] auto get_editor_selection() const -> std::optional<Selection> {
         if (!state_.connected || !state_.active_file) return std::nullopt;
-        // 从缓存的 open_files 中查找活跃文件的选区
+
         for (const auto& file : state_.open_files) {
             if (file.is_active && file.selection) {
                 return file.selection;
@@ -326,13 +326,13 @@ private:
 
     /// Auto-detect IDE type based on port conventions and handshake
     [[nodiscard]] auto detect_ide_type(std::uint16_t port) const -> IdeType {
-        // 常见端口约定:
-        // VSCode 扩展通常监听 3000-4000 范围
-        // JetBrains 插件通常监听 63342 或 6942+
-        // Neovim 通常通过 socket 而非 TCP
+
+
+
+
         if (port >= 63340 && port <= 63350) return IdeType::JetBrains;
         if (port >= 6940 && port <= 6950) return IdeType::JetBrains;
-        return IdeType::VSCode; // 默认假设 VSCode
+        return IdeType::VSCode;
     }
 
     /// Process an incoming message from the IDE WebSocket
@@ -361,7 +361,7 @@ private:
     /// Update the internal open files list from IDE state push
     auto update_open_files(std::vector<OpenFile> files) -> void {
         state_.open_files = std::move(files);
-        // 更新 active_file
+
         for (const auto& file : state_.open_files) {
             if (file.is_active) {
                 auto prev = state_.active_file;

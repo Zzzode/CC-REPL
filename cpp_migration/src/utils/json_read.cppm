@@ -17,7 +17,7 @@ export module cc.utils.json_read;
 
 export namespace cc::utils {
 
-// JSON 值类型
+
 struct JsonValue;
 using JsonObject = std::map<std::string, JsonValue>;
 using JsonArray = std::vector<JsonValue>;
@@ -63,7 +63,7 @@ namespace json_detail {
         if (pos >= sv.size() || sv[pos] != '"') {
             throw std::runtime_error("Expected '\"' at position " + std::to_string(pos));
         }
-        ++pos; // 跳过开始引号
+        ++pos;
         std::string result;
         while (pos < sv.size() && sv[pos] != '"') {
             if (sv[pos] == '\\') {
@@ -79,7 +79,7 @@ namespace json_detail {
                     case 'r': result += '\r'; break;
                     case 't': result += '\t'; break;
                     case 'u': {
-                        // 简化的 \uXXXX 处理（ASCII 范围）
+
                         if (pos + 4 >= sv.size()) throw std::runtime_error("Invalid unicode escape");
                         std::string hex_str(sv.substr(pos + 1, 4));
                         unsigned int cp = std::stoul(hex_str, nullptr, 16);
@@ -104,7 +104,7 @@ namespace json_detail {
             ++pos;
         }
         if (pos >= sv.size()) throw std::runtime_error("Unterminated string");
-        ++pos; // 跳过结束引号
+        ++pos;
         return result;
     }
 
@@ -138,7 +138,7 @@ namespace json_detail {
     }
 
     inline JsonValue parse_array(std::string_view sv, size_t& pos) {
-        ++pos; // 跳过 '['
+        ++pos;
         JsonArray arr;
         skip_ws(sv, pos);
         if (pos < sv.size() && sv[pos] == ']') { ++pos; return JsonValue(std::move(arr)); }
@@ -155,7 +155,7 @@ namespace json_detail {
     }
 
     inline JsonValue parse_object(std::string_view sv, size_t& pos) {
-        ++pos; // 跳过 '{'
+        ++pos;
         JsonObject obj;
         skip_ws(sv, pos);
         if (pos < sv.size() && sv[pos] == '}') { ++pos; return JsonValue(std::move(obj)); }
@@ -202,7 +202,7 @@ namespace json_detail {
         }
     }
 
-    // 序列化 JSON 值
+
     inline void stringify(const JsonValue& val, std::string& out, bool pretty, int depth) {
         std::string indent_str = pretty ? std::string(depth * 2, ' ') : "";
         std::string child_indent = pretty ? std::string((depth + 1) * 2, ' ') : "";
@@ -277,7 +277,7 @@ namespace json_detail {
     }
 }
 
-// 解析 JSON 字符串
+
 [[nodiscard]] inline JsonValue parse_json(std::string_view sv) {
     size_t pos = 0;
     auto result = json_detail::parse_value(sv, pos);
@@ -285,7 +285,7 @@ namespace json_detail {
     return result;
 }
 
-// 从文件解析 JSON
+
 [[nodiscard]] inline std::expected<JsonValue, std::string> parse_json_file(
     const std::filesystem::path& path) {
     std::ifstream file(path);
@@ -301,14 +301,14 @@ namespace json_detail {
     }
 }
 
-// 序列化 JSON 值为字符串
+
 [[nodiscard]] inline std::string json_to_string(const JsonValue& val, bool pretty = false) {
     std::string result;
     json_detail::stringify(val, result, pretty, 0);
     return result;
 }
 
-// 通过点号路径访问 JSON 值（例如 "config.api.key"）
+
 template <typename T>
 [[nodiscard]] inline std::optional<T> json_get(const JsonValue& root, std::string_view path) {
     const JsonValue* current = &root;
@@ -328,7 +328,7 @@ template <typename T>
         current = &it->second;
     }
 
-    // 类型萃取并返回
+
     if constexpr (std::is_same_v<T, std::string>) {
         if (current->is_string()) return current->as_string();
     } else if constexpr (std::is_same_v<T, int64_t>) {

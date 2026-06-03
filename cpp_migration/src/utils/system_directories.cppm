@@ -13,7 +13,7 @@ export namespace cc::utils {
 
 namespace detail {
 
-// 检测运行平台
+
 enum class Platform { MacOS, Linux, Unknown };
 
 inline consteval Platform detect_platform() {
@@ -33,9 +33,9 @@ inline fs::path get_home() {
 
 } // namespace detail
 
-// Claude 配置目录 (~/.claude)
+
 inline fs::path get_claude_config_dir() {
-    // 优先检查环境变量覆盖
+
     if (const char* env = std::getenv("CLAUDE_CONFIG_DIR"); env && env[0] != '\0') {
         return fs::path{env};
     }
@@ -44,8 +44,8 @@ inline fs::path get_claude_config_dir() {
     auto home = detail::get_home();
 
     if constexpr (platform == detail::Platform::MacOS) {
-        // macOS: 优先使用 ~/Library/Application Support/claude
-        // 但保持向后兼容 ~/.claude
+
+
         auto legacy = home / ".claude";
         std::error_code ec;
         if (fs::exists(legacy, ec)) {
@@ -53,7 +53,7 @@ inline fs::path get_claude_config_dir() {
         }
         return home / "Library" / "Application Support" / "claude";
     } else {
-        // Linux: 使用 XDG 规范
+
         if (const char* xdg = std::getenv("XDG_CONFIG_HOME"); xdg && xdg[0] != '\0') {
             return fs::path{xdg} / "claude";
         }
@@ -61,7 +61,7 @@ inline fs::path get_claude_config_dir() {
     }
 }
 
-// Claude 缓存目录
+
 inline fs::path get_claude_cache_dir() {
     if (const char* env = std::getenv("CLAUDE_CACHE_DIR"); env && env[0] != '\0') {
         return fs::path{env};
@@ -80,7 +80,7 @@ inline fs::path get_claude_cache_dir() {
     }
 }
 
-// Claude 数据目录
+
 inline fs::path get_claude_data_dir() {
     if (const char* env = std::getenv("CLAUDE_DATA_DIR"); env && env[0] != '\0') {
         return fs::path{env};
@@ -99,7 +99,7 @@ inline fs::path get_claude_data_dir() {
     }
 }
 
-// Claude 日志目录
+
 inline fs::path get_claude_log_dir() {
     if (const char* env = std::getenv("CLAUDE_LOG_DIR"); env && env[0] != '\0') {
         return fs::path{env};
@@ -118,7 +118,7 @@ inline fs::path get_claude_log_dir() {
     }
 }
 
-// 确保所有必需目录存在，不存在则递归创建
+
 inline void ensure_directories_exist() {
     std::error_code ec;
     auto dirs = {
@@ -130,7 +130,7 @@ inline void ensure_directories_exist() {
 
     for (const auto& dir : dirs) {
         fs::create_directories(dir, ec);
-        // 忽略创建失败（可能是权限问题）
+
     }
 }
 

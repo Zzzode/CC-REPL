@@ -107,8 +107,7 @@ struct MailboxAwaiter {
     }
 
     void await_suspend(std::coroutine_handle<> handle) {
-        // In production: register with libuv event loop for wakeup
-        // Simplified: spin until message arrives, then resume
+        // Resume when a message is available on the condition variable.
         std::unique_lock lock(mutex);
         cv.wait(lock, [this] { return !queue.empty(); });
         handle.resume();

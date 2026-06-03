@@ -88,6 +88,29 @@ TEST(AppCommandRegistry, ReportsCommandPermissionLevels) {
     EXPECT_EQ(cc::commands::command_permission("unknown"), cc::commands::CommandPermission::None);
 }
 
+TEST(AppCommandRegistry, DispatchesMigratedRuntimeCommands) {
+    cc::commands::AppCommandRegistry registry;
+
+    EXPECT_TRUE(registry.has_command("commit"));
+    EXPECT_TRUE(registry.has_command("mcp"));
+    EXPECT_TRUE(registry.has_command("exit"));
+
+    auto help = registry.execute("/help", ctx());
+    ASSERT_TRUE(help.has_value());
+    EXPECT_TRUE(help->ok);
+    EXPECT_NE(help->message.find("/commit"), std::string::npos);
+    EXPECT_NE(help->message.find("/mcp"), std::string::npos);
+
+    auto mcp = registry.execute("/mcp list", ctx());
+    ASSERT_TRUE(mcp.has_value());
+    EXPECT_TRUE(mcp->ok);
+    EXPECT_EQ(mcp->message.find("Unknown command"), std::string::npos);
+
+    auto exit = registry.execute("/exit", ctx());
+    ASSERT_TRUE(exit.has_value());
+    EXPECT_EQ(exit->metadata, "EXIT");
+}
+
 TEST(HelpCommand, FormatsDefaultShortcutsExamplesAndSpecificHelp) {
     auto help_def = cc::commands::HelpCommand::definition();
     cc::commands::HelpCommand help;

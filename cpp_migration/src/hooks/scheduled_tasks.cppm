@@ -11,6 +11,8 @@ module;
 #include <algorithm>
 #include <functional>
 #include <cstdint>
+#include <ctime>
+#include <sstream>
 
 export module cc.hooks.scheduled_tasks;
 
@@ -72,12 +74,51 @@ inline auto generate_task_id() -> std::string {
 
 /// Simple cron expression parser for "minute hour day month weekday" format.
 /// Returns true if the given time matches the cron expression.
+inline auto cron_field_matches(std::string_view field, int value, int min, int max) -> bool {
+    if (field == "*") return true;
+    std::stringstream items{std::string(field)};
+    std::string item;
+    while (std::getline(items, item, ',')) {
+        if (item.empty()) continue;
+        auto slash = item.find('/');
+        int step = 1;
+        if (slash != std::string::npos) {
+            step = std::max(1, std::stoi(item.substr(slash + 1)));
+            item = item.substr(0, slash);
+        }
+        int start = min;
+        int end = max;
+        if (item != "*") {
+            auto dash = item.find('-');
+            if (dash == std::string::npos) {
+                start = end = std::stoi(item);
+            } else {
+                start = std::stoi(item.substr(0, dash));
+                end = std::stoi(item.substr(dash + 1));
+            }
+        }
+        if (value >= start && value <= end && ((value - start) % step == 0)) return true;
+    }
+    return false;
+}
+
 inline auto matches_cron(std::string_view cron_expr,
-                         [[maybe_unused]] std::chrono::system_clock::time_point tp) -> bool {
-    // A full cron parser is complex; this supports basic wildcard matching.
-    // In production: use a proper cron parsing library.
-    // For now, "*" always matches (execute on every check).
-    return cron_expr == "* * * * *" || cron_expr == "*";
+                         std::chrono::system_clock::time_point tp) -> bool {
+    if (cron_expr == "*") cron_expr = "* * * * *";
+    std::stringstream fields{std::string(cron_expr)};
+    std::vector<std::string> parts;
+    std::string field;
+    while (fields >> field) parts.push_back(field);
+    if (parts.size() != 5) return false;
+
+    auto tt = std::chrono::system_clock::to_time_t(tp);
+    std::tm local{};
+    localtime_r(&tt, &local);
+    return cron_field_matches(parts[0], local.tm_min, 0, 59) &&
+           cron_field_matches(parts[1], local.tm_hour, 0, 23) &&
+           cron_field_matches(parts[2], local.tm_mday, 1, 31) &&
+           cron_field_matches(parts[3], local.tm_mon + 1, 1, 12) &&
+           cron_field_matches(parts[4], local.tm_wday, 0, 6);
 }
 
 } // namespace detail

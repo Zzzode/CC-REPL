@@ -35,7 +35,7 @@ using cc::utils::ErrorCode;
 using cc::utils::Result;
 
 // =========================================================================
-// Task<T> - 协程返回类型，表示一个可等待的异步操作
+
 // =========================================================================
 template<typename T = void>
 class Task {
@@ -46,7 +46,7 @@ public:
 
     struct Promise {
         std::optional<T> value;
-        std::coroutine_handle<> continuation; // 等待此 Task 的协程
+        std::coroutine_handle<> continuation;
         std::exception_ptr exception;
 
         Task get_return_object() {
@@ -54,7 +54,7 @@ public:
         }
         std::suspend_always initial_suspend() noexcept { return {}; }
 
-        // final_suspend 恢复等待者
+
         struct FinalAwaiter {
             bool await_ready() noexcept { return false; }
             std::coroutine_handle<> await_suspend(handle_type h) noexcept {
@@ -74,7 +74,7 @@ public:
     explicit Task(handle_type h) noexcept : handle_(h) {}
     ~Task() { if (handle_) handle_.destroy(); }
 
-    // 移动语义
+
     Task(Task&& other) noexcept : handle_(std::exchange(other.handle_, nullptr)) {}
     Task& operator=(Task&& other) noexcept {
         if (this != &other) {
@@ -86,11 +86,11 @@ public:
     Task(const Task&) = delete;
     Task& operator=(const Task&) = delete;
 
-    // co_await 支持
+
     bool await_ready() const noexcept { return false; }
     std::coroutine_handle<> await_suspend(std::coroutine_handle<> awaiting) noexcept {
         handle_.promise().continuation = awaiting;
-        return handle_; // 开始执行被等待的协程
+        return handle_;
     }
     T await_resume() {
         if (handle_.promise().exception)
@@ -98,7 +98,7 @@ public:
         return std::move(*handle_.promise().value);
     }
 
-    // 同步获取结果（阻塞）
+
     T get() {
         handle_.resume();
         if (handle_.promise().exception)
@@ -112,7 +112,7 @@ private:
     handle_type handle_;
 };
 
-// Task<void> 特化
+
 template<>
 class Task<void> {
 public:
@@ -177,7 +177,7 @@ private:
 };
 
 // =========================================================================
-// EventLoop - libuv 事件循环封装
+
 // =========================================================================
 class EventLoop {
 public:
@@ -187,16 +187,16 @@ public:
     EventLoop(const EventLoop&) = delete;
     EventLoop& operator=(const EventLoop&) = delete;
 
-    // 运行事件循环直到无活动句柄
+
     void run() { uv_run(&loop_, UV_RUN_DEFAULT); }
-    // 运行单次迭代
+
     void run_once() { uv_run(&loop_, UV_RUN_ONCE); }
-    // 停止事件循环
+
     void stop() { uv_stop(&loop_); }
 
     [[nodiscard]] uv_loop_t* raw() noexcept { return &loop_; }
 
-    // 获取当前线程默认循环
+
     static EventLoop& default_loop() {
         static EventLoop instance;
         return instance;
@@ -207,7 +207,7 @@ private:
 };
 
 // =========================================================================
-// Timer - co_await sleep(ms) 支持
+
 // =========================================================================
 struct SleepAwaiter {
     EventLoop& loop;
@@ -238,14 +238,14 @@ struct SleepAwaiter {
 }
 
 // =========================================================================
-// Channel<T> - 协程间通信管道
+
 // =========================================================================
 template<typename T>
 class Channel {
 public:
     explicit Channel(std::size_t capacity = 0) : capacity_(capacity) {}
 
-    // 发送端等待器
+
     struct SendAwaiter {
         Channel& ch;
         T value;
@@ -256,7 +256,7 @@ public:
         void await_resume() {}
     };
 
-    // 接收端等待器
+
     struct RecvAwaiter {
         Channel& ch;
         bool await_ready() { return !ch.buffer_.empty(); }
@@ -266,7 +266,7 @@ public:
         T await_resume() {
             T val = std::move(ch.buffer_.front());
             ch.buffer_.pop_front();
-            // 唤醒等待的发送者
+
             if (!ch.send_waiters_.empty()) {
                 auto [handle, send_val] = std::move(ch.send_waiters_.front());
                 ch.send_waiters_.pop_front();
@@ -296,7 +296,7 @@ private:
 };
 
 // =========================================================================
-// AsyncFile - 异步文件读写 (基于 libuv)
+
 // =========================================================================
 class AsyncFile {
 public:
@@ -308,7 +308,7 @@ public:
     AsyncFile(const AsyncFile&) = delete;
     AsyncFile& operator=(const AsyncFile&) = delete;
 
-    // 异步打开文件
+
     Task<Result<void>> open(const std::string& path, int flags, int mode = 0644) {
         struct OpenCtx {
             uv_fs_t req{};
@@ -326,7 +326,7 @@ public:
                 c->handle.resume();
             });
 
-        // 挂起等待回调
+
         co_await std::suspend_always{};
 
         if (ctx.result < 0) {
@@ -337,7 +337,7 @@ public:
         co_return Result<void>{};
     }
 
-    // 异步读取
+
     Task<Result<std::string>> read(std::size_t size, int64_t offset = -1) {
         std::string buffer(size, '\0');
         uv_buf_t buf = uv_buf_init(buffer.data(), static_cast<unsigned int>(size));
@@ -368,7 +368,7 @@ public:
         co_return buffer;
     }
 
-    // 异步写入
+
     Task<Result<std::size_t>> write(std::string_view data, int64_t offset = -1) {
         uv_buf_t buf = uv_buf_init(const_cast<char*>(data.data()),
                                     static_cast<unsigned int>(data.size()));
@@ -410,7 +410,7 @@ private:
 };
 
 // =========================================================================
-// AsyncProcess - 异步进程执行
+
 // =========================================================================
 struct ProcessOutput {
     int exit_code;
@@ -419,12 +419,12 @@ struct ProcessOutput {
 };
 
 // =========================================================================
-// WhenAll - 等待所有 Task 完成
+
 // =========================================================================
 template<typename... Tasks>
 Task<std::tuple<typename std::remove_reference_t<Tasks>::handle_type::promise_type...>>
 when_all(Tasks&&... tasks) {
-    // 简化实现: 顺序等待所有 task
+
     co_return std::make_tuple((co_await std::forward<Tasks>(tasks))...);
 }
 
@@ -440,24 +440,24 @@ Task<std::vector<T>> when_all_vec(std::vector<Task<T>> tasks) {
 }
 
 // =========================================================================
-// WhenAny - 返回第一个完成的 Task 的结果
+
 // =========================================================================
 template<typename T>
 struct WhenAnyResult {
-    std::size_t index; // 完成的 task 索引
+    std::size_t index;
     T value;
 };
 
 template<typename T>
 Task<WhenAnyResult<T>> when_any(std::vector<Task<T>> tasks) {
-    // 简化实现: 顺序检查（实际生产中需要更复杂的调度）
+
     for (std::size_t i = 0; i < tasks.size(); ++i) {
         if (tasks[i].raw_handle() && !tasks[i].raw_handle().done()) {
             auto result = co_await std::move(tasks[i]);
             co_return WhenAnyResult<T>{i, std::move(result)};
         }
     }
-    // 所有都完成则取第一个
+
     auto result = co_await std::move(tasks[0]);
     co_return WhenAnyResult<T>{0, std::move(result)};
 }

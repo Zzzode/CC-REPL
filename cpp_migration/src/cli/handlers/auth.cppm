@@ -57,10 +57,8 @@ std::expected<std::string, std::string> handle_auth_command(std::span<std::strin
     return std::unexpected("Unknown auth subcommand: " + subcommand + ". Available: login, logout, status");
 }
 
-// Interactive login flow — prompts user for credentials
+// Interactive login flow reads environment credentials in non-interactive native mode.
 std::expected<void, std::string> login_interactive() {
-    // In production: open browser for OAuth flow or prompt for API key
-    // Check if we can access the terminal for interactive input
     std::string config_dir = get_config_directory();
     if (config_dir.empty()) {
         return std::unexpected("Cannot determine config directory");
@@ -74,7 +72,7 @@ std::expected<void, std::string> login_interactive() {
         ofs << "{\"auth_token\":\"" << token << "\",\"type\":\"oauth\"}";
         return {};
     }
-    return {};
+    return std::unexpected("No interactive OAuth callback is available. Set ANTHROPIC_AUTH_TOKEN or pass auth login --key <key>.");
 }
 
 // Login with a pre-existing API key
@@ -89,7 +87,6 @@ std::expected<void, std::string> login_with_key(std::string_view key) {
         return std::unexpected("Invalid API key format");
     }
 
-    // Store the key securely
     std::string config_dir = get_config_directory();
     std::filesystem::create_directories(config_dir);
 
@@ -99,7 +96,6 @@ std::expected<void, std::string> login_with_key(std::string_view key) {
         return std::unexpected("Failed to write credentials file");
     }
 
-    // Write credentials (in production: encrypt or use system keychain)
     ofs << "{\"api_key\":\"" << key_str << "\",\"type\":\"api_key\"}";
     ofs.close();
 
@@ -160,12 +156,12 @@ std::string get_config_directory() {
     // Follow XDG Base Directory spec on Unix
     const char* xdg_config = std::getenv("XDG_CONFIG_HOME");
     if (xdg_config && xdg_config[0] != '\0') {
-        return std::string(xdg_config) + "/claude-code";
+        return std::string(xdg_config) + "/cc-repl";
     }
 
     const char* home = std::getenv("HOME");
     if (home && home[0] != '\0') {
-        return std::string(home) + "/.config/claude-code";
+        return std::string(home) + "/.config/cc-repl";
     }
 
     return "";

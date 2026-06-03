@@ -12,7 +12,7 @@ export module cc.utils.bash_parser;
 
 export namespace cc::utils::bash_parser {
 
-// 解析状态
+
 enum class ParseState {
     Normal,
     SingleQuote,
@@ -21,14 +21,14 @@ enum class ParseState {
     Comment
 };
 
-// 分词结果
+
 struct Token {
     std::string value;
     bool is_quoted;
-    char quote_type; // ', " 或 0
+    char quote_type;
 };
 
-// 解析的命令
+
 struct ParsedCommand {
     std::string command;
     std::vector<std::string> arguments;
@@ -39,7 +39,7 @@ struct ParsedCommand {
     bool background;
 };
 
-// 将命令字符串分词
+
 [[nodiscard]] inline std::vector<Token> tokenize(std::string_view command) {
     std::vector<Token> tokens;
     std::string current_token;
@@ -117,7 +117,7 @@ struct ParsedCommand {
                 break;
                 
             case ParseState::Comment:
-                // 注释内容直接跳过
+
                 break;
         }
     }
@@ -129,7 +129,7 @@ struct ParsedCommand {
     return tokens;
 }
 
-// 解析命令行
+
 [[nodiscard]] inline ParsedCommand parse_command(std::string_view command) {
     ParsedCommand result;
     auto tokens = tokenize(command);
@@ -140,7 +140,7 @@ struct ParsedCommand {
     for (std::size_t i = 0; i < tokens.size(); ++i) {
         const auto& token = tokens[i];
         
-        // 检查重定向
+
         if (token.value == ">") {
             if (i + 1 < tokens.size()) {
                 result.redirect_output = tokens[i + 1].value;
@@ -164,7 +164,7 @@ struct ParsedCommand {
             continue;
         }
         
-        // 检查后台执行
+
         if (token.value == "&" && i == tokens.size() - 1) {
             result.background = true;
             continue;
@@ -181,7 +181,7 @@ struct ParsedCommand {
     return result;
 }
 
-// Shell 转义
+
 [[nodiscard]] inline std::string shell_escape(std::string_view str) {
     std::string result;
     
@@ -215,7 +215,7 @@ struct ParsedCommand {
     return result;
 }
 
-// 构建命令字符串
+
 [[nodiscard]] inline std::string build_command(const std::vector<std::string>& args) {
     std::string result;
     for (std::size_t i = 0; i < args.size(); ++i) {
@@ -227,7 +227,7 @@ struct ParsedCommand {
     return result;
 }
 
-// 检查是否是危险命令
+
 [[nodiscard]] inline bool is_dangerous_command(std::string_view command) {
     static const std::vector<std::string> dangerous_patterns = {
         "rm -rf",
@@ -254,7 +254,7 @@ struct ParsedCommand {
     return false;
 }
 
-// 提取命令名
+
 [[nodiscard]] inline std::string extract_command_name(std::string_view command) {
     auto tokens = tokenize(command);
     if (!tokens.empty()) {

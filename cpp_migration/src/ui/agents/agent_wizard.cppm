@@ -102,9 +102,9 @@ inline std::string render_type_selector(
     for (const auto& tmpl : templates) {
         bool is_selected = selected && *selected == tmpl.type;
         if (is_selected) {
-            output += " \033[36m\u25B6 " + tmpl.display_name + "\033[0m";
+            output += " \033[36m\u25B6 " + tmpl.name + "\033[0m";
         } else {
-            output += "   " + tmpl.display_name;
+            output += "   " + tmpl.name;
         }
         output += " - \033[2m" + tmpl.description + "\033[0m\n";
     }
@@ -129,7 +129,15 @@ inline std::string render_review_summary(WizardState state) {
     std::string output;
     output += "\033[1mReview Agent Configuration:\033[0m\n\n";
     output += "  Name:         \033[36m" + state.name + "\033[0m\n";
-    output += "  Description:  " + state.description + "\n";
+    if (state.selected_type) {
+        for (const auto& tmpl : get_available_templates()) {
+            if (tmpl.type == *state.selected_type) {
+                output += "  Type:         " + tmpl.name + "\n";
+                output += "  Description:  " + tmpl.description + "\n";
+                break;
+            }
+        }
+    }
     output += "  Capabilities: ";
     for (size_t i = 0; i < state.capabilities.size(); ++i) {
         if (i > 0) output += ", ";
@@ -142,11 +150,6 @@ inline std::string render_review_summary(WizardState state) {
         output += state.permissions[i];
     }
     output += "\n";
-    if (!state.instructions.empty()) {
-        output += "  Instructions: " + state.instructions.substr(0, 60);
-        if (state.instructions.size() > 60) output += "...";
-        output += "\n";
-    }
     return output;
 }
 

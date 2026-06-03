@@ -30,7 +30,7 @@ namespace fs = std::filesystem;
 
 export namespace cc::utils {
 
-// 递归复制目录
+
 inline std::expected<void, std::string> copy_recursive(
     const fs::path& src,
     const fs::path& dst
@@ -48,7 +48,7 @@ inline std::expected<void, std::string> copy_recursive(
     return {};
 }
 
-// 递归删除目录/文件，返回删除的文件数
+
 inline std::expected<size_t, std::string> remove_recursive(const fs::path& target) {
     std::error_code ec;
 
@@ -56,7 +56,7 @@ inline std::expected<size_t, std::string> remove_recursive(const fs::path& targe
         return 0;
     }
 
-    // 先计算文件数再删除
+
     size_t count = 0;
     if (fs::is_directory(target, ec)) {
         for (const auto& entry : fs::recursive_directory_iterator(target, ec)) {
@@ -76,13 +76,13 @@ inline std::expected<size_t, std::string> remove_recursive(const fs::path& targe
     return count;
 }
 
-// 计算目录总大小（字节）
+
 inline size_t directory_size(const fs::path& dir) {
     size_t total = 0;
     std::error_code ec;
 
     if (!fs::is_directory(dir, ec)) {
-        // 如果是文件，直接返回文件大小
+
         if (fs::is_regular_file(dir, ec)) {
             return static_cast<size_t>(fs::file_size(dir, ec));
         }
@@ -101,7 +101,7 @@ inline size_t directory_size(const fs::path& dir) {
     return total;
 }
 
-// 递归列出所有文件，可选 glob 模式过滤
+
 inline std::vector<fs::path> list_files_recursive(
     const fs::path& dir,
     std::optional<std::string> pattern = std::nullopt
@@ -113,7 +113,7 @@ inline std::vector<fs::path> list_files_recursive(
         return results;
     }
 
-    // 如果提供了模式，将 glob 转为正则
+
     std::optional<std::regex> regex_pattern;
     if (pattern) {
         std::string regex_str;
@@ -145,7 +145,7 @@ inline std::vector<fs::path> list_files_recursive(
     return results;
 }
 
-// 按扩展名查找文件
+
 inline std::vector<fs::path> find_files_by_extension(
     const fs::path& dir,
     std::string_view ext
@@ -157,7 +157,7 @@ inline std::vector<fs::path> find_files_by_extension(
         return results;
     }
 
-    // 确保扩展名以 . 开头
+
     std::string target_ext;
     if (!ext.empty() && ext[0] != '.') {
         target_ext = '.';
@@ -176,7 +176,7 @@ inline std::vector<fs::path> find_files_by_extension(
     return results;
 }
 
-// 文件监视器接口
+
 class FileWatcher {
 public:
     virtual ~FileWatcher() = default;
@@ -184,7 +184,7 @@ public:
     virtual bool is_running() const = 0;
 };
 
-// 基于 kqueue (macOS) / inotify (Linux) 的文件监视器实现
+
 class PlatformFileWatcher : public FileWatcher {
 public:
     PlatformFileWatcher(const fs::path& target, std::function<void(fs::path)> callback)
@@ -211,7 +211,7 @@ public:
 private:
     void run() {
 #if defined(__APPLE__)
-        // macOS: 使用 kqueue 监视文件变更
+
         int kq = kqueue();
         if (kq == -1) {
             running_ = false;
@@ -232,7 +232,7 @@ private:
                0, nullptr);
 
         while (running_.load()) {
-            struct timespec timeout = {1, 0}; // 1 秒超时用于检查 running_ 标志
+            struct timespec timeout = {1, 0};
             struct kevent event;
             int n = kevent(kq, &change, 1, &event, 1, &timeout);
             if (n > 0 && running_.load()) {
@@ -244,7 +244,7 @@ private:
         close(kq);
 
 #elif defined(__linux__)
-        // Linux: 使用 inotify 监视文件变更
+
         int ifd = inotify_init1(IN_NONBLOCK);
         if (ifd == -1) {
             running_ = false;
@@ -262,9 +262,9 @@ private:
         struct pollfd pfd = {ifd, POLLIN, 0};
 
         while (running_.load()) {
-            int ret = poll(&pfd, 1, 1000); // 1 秒超时
+            int ret = poll(&pfd, 1, 1000);
             if (ret > 0 && (pfd.revents & POLLIN)) {
-                // 读取并丢弃事件数据
+
                 char buf[4096];
                 while (read(ifd, buf, sizeof(buf)) > 0) {}
                 if (running_.load()) {
@@ -276,7 +276,7 @@ private:
         inotify_rm_watch(ifd, wd);
         close(ifd);
 #else
-        // 无平台支持时使用轮询方式
+
         auto last_mtime = fs::last_write_time(target_);
         while (running_.load()) {
             std::this_thread::sleep_for(std::chrono::seconds(1));
@@ -298,7 +298,7 @@ private:
     std::thread watcher_thread_;
 };
 
-// 创建文件监视器
+
 inline std::unique_ptr<FileWatcher> watch_file(
     const fs::path& target,
     std::function<void(fs::path)> callback

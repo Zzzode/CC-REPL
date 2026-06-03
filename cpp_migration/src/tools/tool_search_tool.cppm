@@ -18,7 +18,7 @@ export module cc.tools.tool_search;
 
 export namespace cc::tools {
 
-// 工具搜索错误类型
+
 enum class ToolSearchError {
     QueryEmpty,
     QueryTooShort,
@@ -36,54 +36,54 @@ constexpr auto format_error(ToolSearchError err) -> std::string_view {
     }
 }
 
-// 工具描述条目 (用于搜索索引)
+
 struct ToolDescriptor {
     std::string name;
     std::string description;
     std::string schema_json;
-    std::vector<std::string> tags;      // 额外标签用于搜索
-    bool lazy_loaded{false};            // 是否为惰性加载的工具
+    std::vector<std::string> tags;
+    bool lazy_loaded{false};
 };
 
-// 搜索匹配结果
+
 struct SearchMatch {
     std::string tool_name;
     std::string description;
     std::string schema_json;
-    double relevance_score{0.0};        // 相关性评分 (0.0 - 1.0)
+    double relevance_score{0.0};
 };
 
-// 搜索请求
+
 struct ToolSearchRequest {
     std::string query;
     size_t max_results{10};
-    bool include_schemas{true};         // 是否包含完整 schema
-    std::optional<std::string> tag_filter;  // 按标签筛选
+    bool include_schemas{true};
+    std::optional<std::string> tag_filter;
 };
 
-// 搜索结果
+
 struct ToolSearchResult {
     std::vector<SearchMatch> matches;
     size_t total_tools_searched{0};
     std::chrono::microseconds search_duration{0};
 };
 
-// 简单文本相关性评分
+
 class RelevanceScorer {
 public:
-    // 计算查询与文本的相关性分数
+
     static auto score(std::string_view query, std::string_view text) -> double {
         if (query.empty() || text.empty()) return 0.0;
 
         auto query_lower = to_lower(query);
         auto text_lower = to_lower(text);
 
-        // 完全匹配给最高分
+
         if (text_lower.find(query_lower) != std::string::npos) {
             return 1.0;
         }
 
-        // 按空格分词，计算命中词比例
+
         auto query_words = split_words(query_lower);
         size_t hits = 0;
         for (const auto& word : query_words) {
@@ -120,29 +120,29 @@ private:
     }
 };
 
-// 工具索引：维护可搜索的工具列表
+
 class ToolIndex {
 public:
-    // 注册工具到索引
+
     void register_tool(ToolDescriptor descriptor) {
         tools_.push_back(std::move(descriptor));
     }
 
-    // 批量注册
+
     void register_tools(std::vector<ToolDescriptor> descriptors) {
         tools_.insert(tools_.end(),
             std::make_move_iterator(descriptors.begin()),
             std::make_move_iterator(descriptors.end()));
     }
 
-    // 搜索工具
+
     auto search(const ToolSearchRequest& request) const -> ToolSearchResult {
         auto start = std::chrono::steady_clock::now();
 
         std::vector<SearchMatch> matches;
 
         for (const auto& tool : tools_) {
-            // 标签筛选
+
             if (request.tag_filter) {
                 bool has_tag = false;
                 for (const auto& tag : tool.tags) {
@@ -151,7 +151,7 @@ public:
                 if (!has_tag) continue;
             }
 
-            // 计算相关性 (名称权重高于描述)
+
             double name_score = RelevanceScorer::score(request.query, tool.name) * 2.0;
             double desc_score = RelevanceScorer::score(request.query, tool.description);
             double tag_score = 0.0;
@@ -161,7 +161,7 @@ public:
 
             double total_score = std::min(1.0, (name_score + desc_score + tag_score) / 3.0);
 
-            if (total_score > 0.1) {  // 最低阈值
+            if (total_score > 0.1) {
                 matches.push_back(SearchMatch{
                     .tool_name = tool.name,
                     .description = tool.description,
@@ -171,12 +171,12 @@ public:
             }
         }
 
-        // 按相关性排序
+
         std::ranges::sort(matches, [](const auto& a, const auto& b) {
             return a.relevance_score > b.relevance_score;
         });
 
-        // 截断到最大结果数
+
         if (matches.size() > request.max_results) {
             matches.resize(request.max_results);
         }
@@ -197,13 +197,13 @@ private:
     std::vector<ToolDescriptor> tools_;
 };
 
-// 全局工具索引
+
 inline ToolIndex& global_tool_index() {
     static ToolIndex index;
     return index;
 }
 
-// ToolSearchTool - 搜索可用工具
+
 class ToolSearchTool {
 public:
     static constexpr std::string_view name = "tool_search";

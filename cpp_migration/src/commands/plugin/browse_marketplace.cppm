@@ -11,7 +11,7 @@ export module cc.commands.plugin.browse_marketplace;
 
 export namespace cc::commands {
 
-// 插件市场条目
+
 struct MarketplaceEntry {
     std::string id;
     std::string name;
@@ -23,7 +23,7 @@ struct MarketplaceEntry {
 
 auto bundled_marketplace_entries() -> std::vector<MarketplaceEntry>;
 
-// 浏览插件市场，可按分类筛选
+
 auto browse_marketplace(std::optional<std::string> category = std::nullopt)
     -> std::expected<std::vector<MarketplaceEntry>, std::string> {
     auto entries = bundled_marketplace_entries();
@@ -35,7 +35,7 @@ auto browse_marketplace(std::optional<std::string> category = std::nullopt)
     return entries;
 }
 
-// 按关键词搜索插件市场
+
 auto search_marketplace(std::string_view query)
     -> std::expected<std::vector<MarketplaceEntry>, std::string> {
     if (query.empty()) {
@@ -57,7 +57,7 @@ auto bundled_marketplace_entries() -> std::vector<MarketplaceEntry> {
     };
 }
 
-// 获取所有可用的插件分类
+
 auto get_categories() -> std::vector<std::string> {
     return {
         "tools",

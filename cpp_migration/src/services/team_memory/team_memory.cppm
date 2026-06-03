@@ -33,36 +33,36 @@ using Clock = std::chrono::system_clock;
 using TimePoint = Clock::time_point;
 
 // ============================================================
-// 数据结构
+
 // ============================================================
 
-// 记忆条目版本信息
+
 struct VersionInfo {
     std::uint64_t version{0};
-    std::string author;           // 修改者
+    std::string author;
     TimePoint modified_at;
     std::string change_summary;
 };
 
-// 团队记忆条目
+
 struct TeamMemoryEntry {
     std::string id;
     std::string content;
-    std::string owner;            // 创建者
-    std::vector<std::string> shared_with;  // 共享给谁
+    std::string owner;
+    std::vector<std::string> shared_with;
     std::vector<VersionInfo> history;
     TimePoint created_at;
     bool is_deleted{false};
 };
 
-// 冲突类型
+
 enum class ConflictType : std::uint8_t {
-    ContentDiverged,   // 内容分叉
-    DeleteVsModify,    // 一方删除一方修改
-    ConcurrentEdit,    // 并发编辑
+    ContentDiverged,
+    DeleteVsModify,
+    ConcurrentEdit,
 };
 
-// 同步冲突
+
 struct SyncConflict {
     std::string entry_id;
     ConflictType type;
@@ -70,15 +70,15 @@ struct SyncConflict {
     TeamMemoryEntry remote_version;
 };
 
-// 冲突解决策略
+
 enum class MergeStrategy : std::uint8_t {
-    LocalWins,     // 本地版本优先
-    RemoteWins,    // 远程版本优先
-    Merge,         // 智能合并
-    Manual,        // 需人工决策
+    LocalWins,
+    RemoteWins,
+    Merge,
+    Manual,
 };
 
-// 同步结果
+
 struct SyncResult {
     std::size_t entries_pushed{0};
     std::size_t entries_pulled{0};
@@ -87,14 +87,14 @@ struct SyncResult {
     TimePoint synced_at;
 };
 
-// 密钥扫描结果
+
 struct SecretScanResult {
     bool has_secrets{false};
-    std::vector<std::string> detected_patterns;  // 检测到的模式类型
-    std::vector<std::size_t> line_numbers;       // 触发行号
+    std::vector<std::string> detected_patterns;
+    std::vector<std::size_t> line_numbers;
 };
 
-// 配置
+
 struct TeamMemoryConfig {
     MergeStrategy default_strategy{MergeStrategy::RemoteWins};
     bool enable_secret_scanning{true};
@@ -104,7 +104,7 @@ struct TeamMemoryConfig {
 };
 
 // ============================================================
-// TeamMemorySync - 团队记忆同步
+
 // ============================================================
 
 class TeamMemorySync {
@@ -112,9 +112,9 @@ public:
     explicit TeamMemorySync(TeamMemoryConfig config = {})
         : config_(config) {}
 
-    // 添加本地记忆条目
+
     [[nodiscard]] std::expected<std::string, Error> add_entry(TeamMemoryEntry entry) {
-        // 安全扫描
+
         if (config_.enable_secret_scanning) {
             auto scan = scan_for_secrets(entry.content);
             if (scan.has_secrets) {
@@ -136,7 +136,7 @@ public:
         return id;
     }
 
-    // 更新条目
+
     VoidResult update_entry(const std::string& id, std::string new_content, std::string author) {
         if (config_.enable_secret_scanning) {
             auto scan = scan_for_secrets(new_content);
@@ -156,14 +156,14 @@ public:
             .version = ver, .author = std::move(author),
             .modified_at = Clock::now(), .change_summary = "updated",
         });
-        // 修剪历史
+
         if (entry.history.size() > config_.max_history_versions) {
             entry.history.erase(entry.history.begin());
         }
         return {};
     }
 
-    // 执行同步 (模拟: 实际通过网络)
+
     [[nodiscard]] std::expected<SyncResult, Error> sync(
         std::vector<TeamMemoryEntry> remote_entries)
     {
@@ -174,11 +174,11 @@ public:
         for (auto& remote : remote_entries) {
             auto it = entries_.find(remote.id);
             if (it == entries_.end()) {
-                // 本地不存在，拉取
+
                 entries_[remote.id] = std::move(remote);
                 ++result.entries_pulled;
             } else {
-                // 检测冲突
+
                 auto& local = it->second;
                 if (has_conflict(local, remote)) {
                     auto conflict = SyncConflict{
@@ -201,10 +201,10 @@ public:
         return result;
     }
 
-    // 密钥扫描
+
     [[nodiscard]] SecretScanResult scan_for_secrets(std::string_view content) const {
         SecretScanResult result;
-        // 常见密钥模式
+
         static const std::vector<std::pair<std::string, std::string>> patterns = {
             {"AWS Key", "AKIA[0-9A-Z]{16}"},
             {"Private Key", "-----BEGIN (RSA |EC )?PRIVATE KEY-----"},
@@ -221,7 +221,7 @@ public:
         return result;
     }
 
-    // 获取条目
+
     [[nodiscard]] std::optional<TeamMemoryEntry> get_entry(const std::string& id) const {
         std::lock_guard lock(mutex_);
         auto it = entries_.find(id);
@@ -229,7 +229,7 @@ public:
         return it->second;
     }
 
-    // 获取所有条目
+
     [[nodiscard]] std::vector<TeamMemoryEntry> all_entries() const {
         std::lock_guard lock(mutex_);
         std::vector<TeamMemoryEntry> result;

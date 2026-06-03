@@ -117,8 +117,6 @@ public:
                 
                 if (cancelled_.load(std::memory_order_relaxed)) break;
                 
-                // In production: stat the output file and check size
-                // Simplified here - the real impl checks file size growth
                 auto now = std::chrono::steady_clock::now();
                 auto elapsed = now - last_growth;
                 

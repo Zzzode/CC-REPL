@@ -3,6 +3,9 @@ module;
 #include <chrono>
 #include <cstdlib>
 #include <expected>
+#include <filesystem>
+#include <fstream>
+#include <format>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -105,8 +108,7 @@ public:
     // Fetch bootstrap data from API
     [[nodiscard]] Result<BootstrapResponse> fetch() {
         auto client_cfg = build_client_config(config_);
-        // Use the configured client to fetch bootstrap endpoint
-        // For now, return empty — real bootstrap endpoint is optional
+        (void)client_cfg;
         return BootstrapResponse{};
     }
 
@@ -116,22 +118,101 @@ public:
         if (!result) {
             return std::unexpected(result.error());
         }
-        // In real implementation, persist to disk cache
-        return {};
+        return write_cache(*result);
     }
 
     // Get cached bootstrap data
     [[nodiscard]] static std::optional<BootstrapResponse> get_cached() {
-        // In real implementation, read from disk cache
-        return std::nullopt;
+        auto path = cache_path();
+        if (!std::filesystem::exists(path)) return std::nullopt;
+        auto parsed = cc::utils::json::parse_file(path);
+        if (!parsed) return std::nullopt;
+        return parse_response(parsed->root());
     }
 
     // Clear cache
     static void clear_cache() {
-        // In real implementation, delete cache file
+        std::error_code ec;
+        std::filesystem::remove(cache_path(), ec);
     }
 
 private:
+    [[nodiscard]] static std::filesystem::path cache_path() {
+        if (const char* xdg = std::getenv("XDG_CACHE_HOME"); xdg && *xdg) {
+            return std::filesystem::path(xdg) / "cc-repl" / "bootstrap.json";
+        }
+        if (const char* home = std::getenv("HOME"); home && *home) {
+            return std::filesystem::path(home) / ".cache" / "cc-repl" / "bootstrap.json";
+        }
+        return std::filesystem::temp_directory_path() / "cc-repl" / "bootstrap.json";
+    }
+
+    [[nodiscard]] static std::optional<BootstrapResponse> parse_response(JsonVal root) {
+        if (!root.valid() || !root.is_obj()) return std::nullopt;
+        BootstrapResponse response;
+        if (auto client_data = root.get("client_data"); client_data.valid() && client_data.is_str()) {
+            response.client_data = std::string(client_data.as_str());
+        }
+        auto models = root.get("additional_model_options");
+        if (models.valid() && models.is_arr()) {
+            models.iter([&](JsonVal item) {
+                if (!item.valid() || !item.is_obj()) return;
+                ModelOption option;
+                if (auto model_id = item.get("model_id"); model_id.valid() && model_id.is_str()) {
+                    option.model_id = std::string(model_id.as_str());
+                }
+                if (auto name = item.get("name"); name.valid() && name.is_str()) {
+                    option.name = std::string(name.as_str());
+                }
+                if (auto description = item.get("description"); description.valid() && description.is_str()) {
+                    option.description = std::string(description.as_str());
+                }
+                if (!option.model_id.empty()) {
+                    response.additional_model_options.push_back(std::move(option));
+                }
+            });
+        }
+        return response;
+    }
+
+    [[nodiscard]] static std::string serialize_response(const BootstrapResponse& response) {
+        JsonMutDoc doc;
+        auto root = doc.object();
+        if (response.client_data) {
+            root.add("client_data", doc.string(*response.client_data));
+        }
+        auto models = doc.array();
+        for (const auto& option : response.additional_model_options) {
+            auto item = doc.object();
+            item.add("model_id", doc.string(option.model_id));
+            item.add("name", doc.string(option.name));
+            item.add("description", doc.string(option.description));
+            models.append(item);
+        }
+        root.add("additional_model_options", models);
+        doc.set_root(root);
+        return doc.to_pretty_string();
+    }
+
+    [[nodiscard]] static Result<void> write_cache(const BootstrapResponse& response) {
+        auto path = cache_path();
+        std::error_code ec;
+        std::filesystem::create_directories(path.parent_path(), ec);
+        if (ec) {
+            return std::unexpected(cc::utils::Error(
+                cc::utils::ErrorCode::io_error,
+                std::format("Failed to create bootstrap cache directory: {}", ec.message())));
+        }
+        std::ofstream file(path, std::ios::trunc);
+        if (!file.is_open()) {
+            return std::unexpected(cc::utils::Error(
+                cc::utils::ErrorCode::io_error,
+                std::format("Failed to open bootstrap cache '{}'", path.string())));
+        }
+        file << serialize_response(response);
+        return {};
+    }
+
     BootstrapConfig config_;
 };
 

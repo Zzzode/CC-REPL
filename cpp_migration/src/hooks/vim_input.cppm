@@ -28,11 +28,11 @@ export namespace cc::hooks {
 
 /// Vim editing modes
 enum class VimMode : std::uint8_t {
-    Normal,     // 普通模式 - 接受动作命令
-    Insert,     // 插入模式 - 直接输入文字
-    Visual,     // 可视模式 - 字符级选择
-    VisualLine, // 可视行模式 - 行级选择
-    Command,    // 命令行模式 - :命令输入
+    Normal,
+    Insert,
+    Visual,
+    VisualLine,
+    Command,
 };
 
 /// Convert VimMode to display string
@@ -97,15 +97,15 @@ enum class ExCommand : std::uint8_t {
 
 /// State of the Vim keybinding layer
 struct VimState {
-    VimMode mode{VimMode::Normal};               // 当前模式
-    std::string register_content;                 // 默认寄存器内容 (unnamed register "")
-    std::map<char, std::string> named_registers;  // 命名寄存器 (a-z)
-    std::string last_command;                     // 最近一次完整命令（用于 dot-repeat）
-    std::size_t repeat_count{0};                  // 当前重复次数 (0 = 无前缀)
-    Operator pending_operator{Operator::None};    // 待执行的操作符
-    std::string command_buffer;                   // 命令行缓冲 (:后的输入)
-    std::optional<char> pending_find_char;        // f/t 命令等待的字符
-    bool awaiting_motion{false};                  // 是否正在等待一个 motion
+    VimMode mode{VimMode::Normal};
+    std::string register_content;
+    std::map<char, std::string> named_registers;
+    std::string last_command;
+    std::size_t repeat_count{0};
+    Operator pending_operator{Operator::None};
+    std::string command_buffer;
+    std::optional<char> pending_find_char;
+    bool awaiting_motion{false};
 };
 
 // ============================================================
@@ -306,7 +306,7 @@ private:
     [[nodiscard]] auto handle_normal(const VimKeyEvent& event) -> bool {
         const auto& k = event.key;
 
-        // 数字前缀 (repeat count)
+
         if (k.size() == 1 && k[0] >= '1' && k[0] <= '9') {
             state_.repeat_count = state_.repeat_count * 10 + (k[0] - '0');
             return true;
@@ -316,7 +316,7 @@ private:
             return true;
         }
 
-        // 模式切换
+
         if (k == "i") { set_mode(VimMode::Insert); return true; }
         if (k == "a") { execute_motion(Motion::Right); set_mode(VimMode::Insert); return true; }
         if (k == "I") { execute_motion(Motion::LineStart); set_mode(VimMode::Insert); return true; }
@@ -325,7 +325,7 @@ private:
         if (k == "V") { set_mode(VimMode::VisualLine); return true; }
         if (k == ":") { set_mode(VimMode::Command); return true; }
 
-        // 基本 motion (hjkl)
+
         if (k == "h") { repeat_action([&]{ execute_motion(Motion::Left); }); return true; }
         if (k == "j") { repeat_action([&]{ execute_motion(Motion::Down); }); return true; }
         if (k == "k") { repeat_action([&]{ execute_motion(Motion::Up); }); return true; }
@@ -338,10 +338,10 @@ private:
 
         // gg / G
         if (k == "G") { execute_motion(Motion::LastLine); return true; }
-        // "g" 需要后续字符判断 (gg), 简化处理
+
         if (k == "g") { state_.awaiting_motion = true; return true; }
 
-        // 操作符: d, c, y
+
         if (k == "d") { state_.pending_operator = Operator::Delete; return true; }
         if (k == "c") { state_.pending_operator = Operator::Change; return true; }
         if (k == "y") { state_.pending_operator = Operator::Yank; return true; }
@@ -359,25 +359,25 @@ private:
     // ─── Insert mode handler ───────────────────────────────────
 
     [[nodiscard]] auto handle_insert(const VimKeyEvent& event) -> bool {
-        // Escape: 回到 Normal 模式
+
         if (event.key == "Escape") { set_mode(VimMode::Normal); return true; }
-        // Ctrl+[: 同 Escape
+
         if (event.ctrl && event.key == "[") { set_mode(VimMode::Normal); return true; }
-        // 其他键交给 TextInputHook 处理
+
         return false;
     }
 
     // ─── Visual mode handler ───────────────────────────────────
 
     [[nodiscard]] auto handle_visual(const VimKeyEvent& event) -> bool {
-        // Escape: 回到 Normal
+
         if (event.key == "Escape") { set_mode(VimMode::Normal); return true; }
-        // 在 Visual 模式下 motion 扩展选择
+
         if (event.key == "h") { execute_motion(Motion::Left); return true; }
         if (event.key == "j") { execute_motion(Motion::Down); return true; }
         if (event.key == "k") { execute_motion(Motion::Up); return true; }
         if (event.key == "l") { execute_motion(Motion::Right); return true; }
-        // d/y 对选区操作后回到 Normal
+
         if (event.key == "d") {
             state_.last_command = "visual-delete";
             set_mode(VimMode::Normal);
@@ -408,7 +408,7 @@ private:
             }
             return true;
         }
-        // 追加字符到命令缓冲
+
         if (event.key.size() == 1 && !event.ctrl) {
             state_.command_buffer += event.key;
             return true;

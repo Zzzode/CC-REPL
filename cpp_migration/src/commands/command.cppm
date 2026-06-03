@@ -283,8 +283,15 @@ public:
     /// Generate help text
     [[nodiscard]] std::string generate_help() const {
         std::string help = "Available commands:\n\n";
+        std::vector<std::string> seen;
+        for (const auto& [name, cmd] : commands_) {
+            const auto& def = cmd->definition();
+            if (def.hidden) continue;
+            help += std::format("/{} - {}\n", name, def.description);
+            seen.push_back(name);
+        }
         for (const auto& [name, cmd] : legacy_commands_) {
-            if (cmd.hidden) continue;
+            if (cmd.hidden || std::ranges::find(seen, name) != seen.end()) continue;
             help += std::format("/{} - {}\n", name, cmd.description);
             help += std::format("  Usage: {}\n", cmd.usage);
             if (!cmd.aliases.empty()) {
@@ -295,11 +302,6 @@ public:
                         }));
             }
             help += "\n";
-        }
-        for (const auto& [name, cmd] : commands_) {
-            const auto& def = cmd->definition();
-            if (def.hidden) continue;
-            help += std::format("/{} - {}\n", name, def.description);
         }
         return help;
     }
@@ -323,6 +325,20 @@ public:
             if (!cmd->definition().hidden) result.push_back(&cmd->definition());
         }
         return result;
+    }
+
+    [[nodiscard]] std::vector<std::string> command_names() const {
+        std::vector<std::string> names;
+        names.reserve(commands_.size() + legacy_commands_.size());
+        for (const auto& [name, cmd] : commands_) {
+            if (!cmd->definition().hidden) names.push_back(name);
+        }
+        for (const auto& [name, cmd] : legacy_commands_) {
+            if (!cmd.hidden) names.push_back(name);
+        }
+        std::ranges::sort(names);
+        names.erase(std::ranges::unique(names).begin(), names.end());
+        return names;
     }
 
     [[nodiscard]] std::size_t size() const noexcept {

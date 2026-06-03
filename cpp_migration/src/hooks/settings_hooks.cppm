@@ -24,16 +24,16 @@ import cc.utils.json;
 
 export namespace cc::hooks {
 
-// 配置层级（优先级从低到高）
+
 enum class SettingLayer {
-    Defaults,   // 硬编码默认值
-    Global,     // 全局用户配置 (~/.config/cc/settings.json)
-    Project,    // 项目级配置 (.cc/settings.json)
-    Env,        // 环境变量覆盖
-    Runtime     // 运行时动态设置（最高优先级）
+    Defaults,
+    Global,
+    Project,
+    Env,
+    Runtime
 };
 
-// 设置值类型（类型安全联合体）
+
 using SettingValue = std::variant<
     bool,
     int64_t,
@@ -42,63 +42,63 @@ using SettingValue = std::variant<
     std::vector<std::string>
 >;
 
-// 设置值类型枚举（用于 schema 描述）
+
 enum class SettingType { Bool, Int, Float, String, StringArray };
 
-// 设置项的 schema 定义
-struct SettingSchema {
-    std::string key;                            // 设置键 (e.g., "model.name")
-    SettingType type{SettingType::String};
-    SettingValue default_value;                  // 默认值
-    std::string description;                    // 描述文本
-    std::optional<std::string> group;           // 分组名（用于 UI 分类）
-    bool hidden{false};                         // 是否在 UI 中隐藏
-    bool restart_required{false};               // 修改后是否需要重启
 
-    // 校验函数（可选）: 返回空表示通过，非空为错误信息
+struct SettingSchema {
+    std::string key;
+    SettingType type{SettingType::String};
+    SettingValue default_value;
+    std::string description;
+    std::optional<std::string> group;
+    bool hidden{false};
+    bool restart_required{false};
+
+
     std::function<std::optional<std::string>(const SettingValue&)> validator;
 };
 
-// 单层级中的设置条目
+
 struct LayeredEntry {
     SettingLayer layer;
     SettingValue value;
 };
 
-// 设置 hook 内部状态
+
 struct SettingsHookState {
-    // 每个 key 在各层级的值（按优先级排列）
+
     std::map<std::string, std::vector<LayeredEntry>> entries;
-    // Schema 注册表
+
     std::map<std::string, SettingSchema> schemas;
 };
 
-// 订阅回调类型
+
 using SettingChangeCallback = std::function<void(std::string_view key, const SettingValue& new_value)>;
-// 取消订阅函数
+
 using UnsubscribeFn = std::function<void()>;
 
-// ─── SettingsHook: 核心设置管理类 ──────────────────────────────
+
 class SettingsHook {
 public:
     SettingsHook() = default;
 
-    // 注册设置项 schema
+
     auto register_schema(SettingSchema schema) -> void {
         auto key = schema.key;
-        // 将默认值写入 Defaults 层
+
         set_at_layer(key, SettingLayer::Defaults, schema.default_value);
         state_.schemas.emplace(std::move(key), std::move(schema));
     }
 
-    // 批量注册 schema
+
     auto register_schemas(std::vector<SettingSchema> schemas) -> void {
         for (auto& s : schemas) {
             register_schema(std::move(s));
         }
     }
 
-    // 类型安全获取设置值（返回有效层级的最高优先级值）
+
     template<typename T>
     [[nodiscard]] auto get(std::string_view key) const -> T {
         auto effective = get_effective_value(key);
@@ -107,19 +107,19 @@ public:
                 return *val;
             }
         }
-        // 回退到 schema 默认值
+
         auto it = state_.schemas.find(std::string(key));
         if (it != state_.schemas.end()) {
             if (auto* val = std::get_if<T>(&it->second.default_value)) {
                 return *val;
             }
         }
-        return T{}; // 类型默认值
+        return T{};
     }
 
-    // 在 Runtime 层设置值
+
     auto set(std::string_view key, SettingValue value) -> std::expected<void, std::string> {
-        // 先校验
+
         auto validation = validate(key, value);
         if (!validation.has_value()) {
             return std::unexpected(validation.error());
@@ -129,7 +129,7 @@ public:
         return {};
     }
 
-    // 在指定层级设置值
+
     auto set_at(std::string_view key, SettingLayer layer, SettingValue value)
         -> std::expected<void, std::string> {
         auto validation = validate(key, value);
@@ -141,34 +141,34 @@ public:
         return {};
     }
 
-    // 重置指定 key 的 Runtime 层值
+
     auto reset(std::string_view key) -> void {
         auto it = state_.entries.find(std::string(key));
         if (it == state_.entries.end()) return;
-        // 移除 Runtime 层
+
         std::erase_if(it->second,
             [](const auto& e) { return e.layer == SettingLayer::Runtime; });
         notify_subscribers(key);
     }
 
-    // 重置所有 Runtime 层设置
+
     auto reset_all() -> void {
         for (auto& [key, entries] : state_.entries) {
             std::erase_if(entries,
                 [](const auto& e) { return e.layer == SettingLayer::Runtime; });
         }
-        // 通知所有订阅者
+
         for (const auto& [key, _] : subscribers_) {
             notify_subscribers(key);
         }
     }
 
-    // 获取某个 key 的生效层级
+
     [[nodiscard]] auto get_effective_layer(std::string_view key) const
         -> std::optional<SettingLayer> {
         auto it = state_.entries.find(std::string(key));
         if (it == state_.entries.end() || it->second.empty()) return std::nullopt;
-        // 取优先级最高的层
+
         auto max_it = std::max_element(it->second.begin(), it->second.end(),
             [](const auto& a, const auto& b) {
                 return static_cast<int>(a.layer) < static_cast<int>(b.layer);
@@ -176,7 +176,7 @@ public:
         return max_it->layer;
     }
 
-    // 订阅特定 key 的变更
+
     [[nodiscard]] auto subscribe(std::string_view key, SettingChangeCallback cb)
         -> UnsubscribeFn {
         auto id = next_sub_id_++;
@@ -191,21 +191,21 @@ public:
         };
     }
 
-    // 校验设置值
+
     [[nodiscard]] auto validate(std::string_view key, const SettingValue& value) const
         -> std::expected<void, std::string> {
         auto it = state_.schemas.find(std::string(key));
         if (it == state_.schemas.end()) {
-            // 无 schema 注册，允许任意值
+
             return {};
         }
-        // 类型检查
+
         if (!type_matches(it->second.type, value)) {
             return std::unexpected(
                 std::format("Type mismatch for '{}': expected {}", key,
                            type_name(it->second.type)));
         }
-        // 自定义验证器
+
         if (it->second.validator) {
             auto err = it->second.validator(value);
             if (err.has_value()) {
@@ -215,7 +215,7 @@ public:
         return {};
     }
 
-    // 导出所有运行时 + 项目 + 全局层设置为 JSON 字符串
+
     [[nodiscard]] auto export_settings() const -> std::string {
         namespace json = cc::utils::json;
 
@@ -231,7 +231,7 @@ public:
         return doc.to_pretty_string();
     }
 
-    // 从 JSON 字符串导入设置到 Runtime 层
+
     auto import_settings(std::string_view json) -> std::expected<void, std::string> {
         if (json.empty()) {
             return std::unexpected("Empty JSON input");
@@ -270,13 +270,13 @@ public:
         return {};
     }
 
-    // 获取所有已注册的 schema（用于 UI 生成）
+
     [[nodiscard]] auto schemas() const
         -> const std::map<std::string, SettingSchema>& {
         return state_.schemas;
     }
 
-    // 获取所有 key 列表
+
     [[nodiscard]] auto all_keys() const -> std::vector<std::string> {
         std::vector<std::string> keys;
         keys.reserve(state_.schemas.size());
@@ -291,20 +291,20 @@ private:
     std::uint64_t next_sub_id_{0};
     std::map<std::string, std::vector<std::pair<std::uint64_t, SettingChangeCallback>>> subscribers_;
 
-    // 在指定层级写入值
+
     auto set_at_layer(std::string key, SettingLayer layer, SettingValue value) -> void {
         auto& entries = state_.entries[key];
-        // 移除同层旧值
+
         std::erase_if(entries, [layer](const auto& e) { return e.layer == layer; });
         entries.push_back(LayeredEntry{.layer = layer, .value = std::move(value)});
     }
 
-    // 获取有效值（最高优先级层的值）
+
     [[nodiscard]] auto get_effective_value(std::string_view key) const
         -> std::optional<SettingValue> {
         auto it = state_.entries.find(std::string(key));
         if (it == state_.entries.end() || it->second.empty()) return std::nullopt;
-        // 层级枚举值越大优先级越高
+
         auto max_it = std::max_element(it->second.begin(), it->second.end(),
             [](const auto& a, const auto& b) {
                 return static_cast<int>(a.layer) < static_cast<int>(b.layer);
@@ -312,7 +312,7 @@ private:
         return max_it->value;
     }
 
-    // 通知订阅者
+
     auto notify_subscribers(std::string_view key) -> void {
         auto it = subscribers_.find(std::string(key));
         if (it == subscribers_.end()) return;
@@ -323,7 +323,7 @@ private:
         }
     }
 
-    // 类型匹配检查
+
     [[nodiscard]] static auto type_matches(SettingType expected, const SettingValue& value)
         -> bool {
         switch (expected) {
@@ -336,7 +336,7 @@ private:
         return false;
     }
 
-    // 类型名称字符串
+
     [[nodiscard]] static auto type_name(SettingType t) -> std::string_view {
         switch (t) {
             case SettingType::Bool:        return "bool";
@@ -348,7 +348,7 @@ private:
         return "unknown";
     }
 
-    // 简易值格式化（用于导出）
+
     [[nodiscard]] static auto format_value(const SettingValue& value) -> std::string {
         return std::visit([](const auto& v) -> std::string {
             using T = std::decay_t<decltype(v)>;

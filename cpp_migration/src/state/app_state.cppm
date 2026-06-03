@@ -66,7 +66,7 @@ struct ToolPermissionContext {
 // Settings Type Definitions
 // ============================================================
 
-/// Model setting - 结构，对应 TypeScript 的 SettingsJson
+
 struct Settings {
     std::string model;
     std::string theme;

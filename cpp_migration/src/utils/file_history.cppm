@@ -16,19 +16,19 @@ namespace fs = std::filesystem;
 
 export namespace cc::utils {
 
-// 文件变更记录
+
 struct FileChange {
     fs::path file;
     std::chrono::system_clock::time_point time;
     enum class Action { Created, Modified, Deleted } action;
 };
 
-// 文件修改历史追踪器
+
 class FileHistory {
 public:
     FileHistory() = default;
 
-    // 记录一次文件变更
+
     void record(FileChange change) {
         std::lock_guard lock(mutex_);
         std::string key = change.file.string();
@@ -36,7 +36,7 @@ public:
         per_file_[key].push_back(std::move(change));
     }
 
-    // 获取指定文件的所有变更历史
+
     std::vector<FileChange> get_history(const fs::path& filepath) const {
         std::lock_guard lock(mutex_);
         auto it = per_file_.find(filepath.string());
@@ -46,24 +46,24 @@ public:
         return it->second;
     }
 
-    // 获取最近 n 条变更记录（按时间倒序）
+
     std::vector<FileChange> get_recent_changes(size_t n) const {
         std::lock_guard lock(mutex_);
         std::vector<FileChange> result;
         size_t count = std::min(n, all_changes_.size());
-        // 从尾部取最近的 n 条
+
         result.assign(
             all_changes_.end() - static_cast<ptrdiff_t>(count),
             all_changes_.end()
         );
-        // 按时间倒序排列
+
         std::ranges::sort(result, [](const FileChange& a, const FileChange& b) {
             return a.time > b.time;
         });
         return result;
     }
 
-    // 持久化历史记录到文件
+
     void save(const fs::path& filepath) const {
         std::lock_guard lock(mutex_);
         std::ofstream ofs(filepath, std::ios::binary | std::ios::trunc);
@@ -72,14 +72,14 @@ public:
         for (const auto& change : all_changes_) {
             auto time_since_epoch = change.time.time_since_epoch().count();
             int action_int = static_cast<int>(change.action);
-            // 简单的文本序列化格式：timestamp|action|path
+
             ofs << time_since_epoch << '|'
                 << action_int << '|'
                 << change.file.string() << '\n';
         }
     }
 
-    // 从文件加载历史记录
+
     void load(const fs::path& filepath) {
         std::lock_guard lock(mutex_);
         std::ifstream ifs(filepath, std::ios::binary);
@@ -95,7 +95,7 @@ public:
             auto second_sep = line.find('|', first_sep + 1);
             if (second_sep == std::string::npos) continue;
 
-            // 解析时间戳
+
             auto time_str = line.substr(0, first_sep);
             auto action_str = line.substr(first_sep + 1, second_sep - first_sep - 1);
             auto path_str = line.substr(second_sep + 1);
@@ -128,14 +128,14 @@ public:
         }
     }
 
-    // 清空所有记录
+
     void clear() {
         std::lock_guard lock(mutex_);
         all_changes_.clear();
         per_file_.clear();
     }
 
-    // 总记录条数
+
     size_t total_count() const {
         std::lock_guard lock(mutex_);
         return all_changes_.size();

@@ -24,14 +24,14 @@ auto xaa_tokens_path() -> std::filesystem::path {
     return std::filesystem::path{".cc-repl"} / "xaa-tokens.txt";
 }
 
-// XAA Identity Provider 配置
+
 struct XaaIdpConfig {
     std::string idp_url;
     std::string client_id;
     std::string scope;
 };
 
-// 配置 XAA IDP 认证
+
 auto configure_xaa_idp(XaaIdpConfig config) -> std::expected<void, std::string> {
     if (config.idp_url.empty()) {
         return std::unexpected("IDP URL is required");
@@ -52,7 +52,7 @@ auto configure_xaa_idp(XaaIdpConfig config) -> std::expected<void, std::string> 
     return {};
 }
 
-// 使用 IDP 进行 MCP 服务器认证，返回访问令牌
+
 auto authenticate_with_idp(std::string_view server_name) -> std::expected<std::string, std::string> {
     if (server_name.empty()) {
         return std::unexpected("Server name cannot be empty");
@@ -70,7 +70,7 @@ auto authenticate_with_idp(std::string_view server_name) -> std::expected<std::s
     return token;
 }
 
-// 清除所有已缓存的 XAA tokens
+
 auto clear_xaa_tokens() -> void {
     std::filesystem::remove(xaa_tokens_path());
 }

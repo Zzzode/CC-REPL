@@ -10,17 +10,17 @@ export module cc.tools.read_mcp_resource_tool;
 
 export namespace cc::tools {
 
-// 读取 MCP 资源的输入参数
+
 struct ReadMcpResourceInput {
-    std::string server_name;  // MCP 服务器名称
-    std::string uri;          // 资源 URI
+    std::string server_name;
+    std::string uri;
 };
 
-// 执行 MCP 资源读取
+
 inline auto execute_read_mcp_resource(
     const ReadMcpResourceInput& input
 ) -> std::expected<std::string, std::string> {
-    // 验证输入
+
     if (input.server_name.empty()) {
         return std::unexpected(std::string("server_name is required"));
     }
@@ -28,7 +28,7 @@ inline auto execute_read_mcp_resource(
         return std::unexpected(std::string("uri is required"));
     }
 
-    // 验证 URI 格式（应以协议前缀开头）
+
     if (input.uri.find("://") == std::string::npos &&
         !input.uri.starts_with("/")) {
         return std::unexpected(std::string("Invalid URI format: ") + input.uri);
@@ -50,7 +50,7 @@ inline auto execute_read_mcp_resource(
     return std::string(R"({"uri":")") + input.uri + R"(","server":")" + input.server_name + R"("})";
 }
 
-// 获取 MCP 资源读取工具的提示词
+
 inline auto get_read_mcp_resource_prompt() -> std::string {
     return R"(## ReadMcpResourceTool
 

@@ -15,12 +15,12 @@ export module cc.tools.snip;
 
 export namespace cc::tools {
 
-// Snip 操作类型
+
 enum class SnipAction {
-    RemoveMessage,    // 删除特定消息
-    TrimFrom,        // 从某点开始裁剪
-    Compact,         // 压缩/合并连续消息
-    Recalculate,     // 重新计算 token 使用量
+    RemoveMessage,
+    TrimFrom,
+    Compact,
+    Recalculate,
 };
 
 constexpr auto snip_action_name(SnipAction a) -> std::string_view {
@@ -33,7 +33,7 @@ constexpr auto snip_action_name(SnipAction a) -> std::string_view {
     }
 }
 
-// Snip 错误类型
+
 enum class SnipError {
     MessageNotFound,
     IndexOutOfRange,
@@ -55,7 +55,7 @@ constexpr auto format_error(SnipError err) -> std::string_view {
     }
 }
 
-// 消息角色
+
 enum class MessageRole {
     System,
     User,
@@ -73,26 +73,26 @@ constexpr auto role_name(MessageRole r) -> std::string_view {
     }
 }
 
-// 对话消息
+
 struct Message {
     std::string id;
     MessageRole role;
     std::string content;
-    size_t token_count{0};         // 该消息占用的 token 数
-    bool is_protected{false};      // 系统消息不可删除
+    size_t token_count{0};
+    bool is_protected{false};
     std::chrono::system_clock::time_point timestamp;
 };
 
-// Snip 请求
+
 struct SnipRequest {
     SnipAction action;
-    std::optional<std::string> message_id;       // 特定消息 ID
-    std::optional<size_t> from_index;            // 裁剪起始索引
-    std::optional<size_t> to_index;              // 裁剪结束索引
-    std::optional<size_t> keep_last_n;           // 保留最后 N 条消息
+    std::optional<std::string> message_id;
+    std::optional<size_t> from_index;
+    std::optional<size_t> to_index;
+    std::optional<size_t> keep_last_n;
 };
 
-// Snip 结果
+
 struct SnipResult {
     size_t messages_removed{0};
     size_t tokens_freed{0};
@@ -100,21 +100,21 @@ struct SnipResult {
     size_t remaining_tokens{0};
 };
 
-// 对话历史管理器
+
 class ConversationHistory {
 public:
-    // 添加消息
+
     void push(Message msg) {
         total_tokens_ += msg.token_count;
         messages_.push_back(std::move(msg));
     }
 
-    // 获取消息数量
+
     [[nodiscard]] size_t size() const { return messages_.size(); }
     [[nodiscard]] bool empty() const { return messages_.empty(); }
     [[nodiscard]] size_t total_tokens() const { return total_tokens_; }
 
-    // 按 ID 查找消息索引
+
     auto find_index(std::string_view id) const -> std::optional<size_t> {
         for (size_t i = 0; i < messages_.size(); ++i) {
             if (messages_[i].id == id) return i;
@@ -122,7 +122,7 @@ public:
         return std::nullopt;
     }
 
-    // 删除指定索引的消息
+
     auto remove_at(size_t index) -> std::expected<size_t, SnipError> {
         if (index >= messages_.size()) {
             return std::unexpected(SnipError::IndexOutOfRange);
@@ -136,14 +136,14 @@ public:
         return tokens;
     }
 
-    // 从指定索引开始裁剪到末尾 (保留 [0, index) )
+
     auto trim_from(size_t index) -> std::expected<SnipResult, SnipError> {
         if (index >= messages_.size()) {
             return std::unexpected(SnipError::IndexOutOfRange);
         }
 
         SnipResult result;
-        // 跳过受保护的消息
+
         for (size_t i = index; i < messages_.size(); ++i) {
             if (!messages_[i].is_protected) {
                 result.tokens_freed += messages_[i].token_count;
@@ -151,7 +151,7 @@ public:
             }
         }
 
-        // 执行裁剪 (保留受保护消息)
+
         std::vector<Message> kept;
         kept.reserve(index);
         for (size_t i = 0; i < messages_.size(); ++i) {
@@ -167,7 +167,7 @@ public:
         return result;
     }
 
-    // 重新计算 token 使用量
+
     auto recalculate() -> size_t {
         total_tokens_ = 0;
         for (const auto& msg : messages_) {
@@ -176,7 +176,7 @@ public:
         return total_tokens_;
     }
 
-    // 获取消息的只读访问
+
     [[nodiscard]] auto messages() const -> const std::vector<Message>& {
         return messages_;
     }
@@ -186,7 +186,7 @@ private:
     size_t total_tokens_{0};
 };
 
-// SnipTool - 历史/上下文裁剪工具
+
 class SnipTool {
 public:
     static constexpr std::string_view name = "snip";
@@ -229,9 +229,9 @@ public:
                 return history_.trim_from(*request.from_index);
             }
             case SnipAction::Compact: {
-                // 压缩：合并相邻同角色消息 (简化实现)
+
                 auto before_tokens = history_.total_tokens();
-                // 实际实现需要对消息内容做摘要压缩
+
                 return SnipResult{
                     .remaining_messages = history_.size(),
                     .remaining_tokens = history_.total_tokens(),

@@ -29,11 +29,11 @@ struct ScrollEvent {
         PageDown,
         Home,
         End,
-        DragThumb,   // 拖动滚动条滑块
+        DragThumb,
     };
     Type type;
-    int delta{0};                     // 精确滚动量（像素或行数）
-    std::optional<float> thumb_pos;   // DragThumb 时的归一化位置 [0, 1]
+    int delta{0};
+    std::optional<float> thumb_pos;
 };
 
 // ============================================================
@@ -42,12 +42,12 @@ struct ScrollEvent {
 
 /// Full state of the virtual scroll hook
 struct ScrollState {
-    std::size_t total_items{0};               // 消息总数
-    std::size_t viewport_height{24};          // 视口高度（行数）
-    std::size_t scroll_offset{0};             // 滚动偏移（第一个可见项的索引）
-    std::vector<std::size_t> item_heights;    // 每项的高度（行数），动态更新
-    bool auto_scroll{true};                   // 是否自动滚动到底部
-    std::size_t overscan{3};                  // 视口外预渲染的额外项数
+    std::size_t total_items{0};
+    std::size_t viewport_height{24};
+    std::size_t scroll_offset{0};
+    std::vector<std::size_t> item_heights;
+    bool auto_scroll{true};
+    std::size_t overscan{3};
 };
 
 // ============================================================
@@ -56,9 +56,9 @@ struct ScrollState {
 
 /// Represents the currently visible range of items
 struct VisibleRange {
-    std::size_t start{0};     // 第一个可见项索引
-    std::size_t end{0};       // 最后一个可见项索引（exclusive）
-    std::size_t offset_in_first{0}; // 第一项中被裁剪的行数
+    std::size_t start{0};
+    std::size_t end{0};
+    std::size_t offset_in_first{0};
 };
 
 // ============================================================
@@ -88,7 +88,7 @@ public:
         auto new_offset = static_cast<int64_t>(state_.scroll_offset) + delta;
         state_.scroll_offset = static_cast<std::size_t>(
             std::clamp<int64_t>(new_offset, 0, static_cast<int64_t>(max_scroll_offset())));
-        // 如果滚动到底部则恢复自动滚动
+
         state_.auto_scroll = is_at_bottom();
     }
 
@@ -102,7 +102,7 @@ public:
     [[nodiscard]] auto get_visible_range() const -> std::pair<std::size_t, std::size_t> {
         if (state_.total_items == 0) return {0, 0};
         auto range = compute_visible_range();
-        // 应用 overscan 扩展范围
+
         auto start = range.start > state_.overscan ? range.start - state_.overscan : 0;
         auto end = std::min(range.end + state_.overscan, state_.total_items);
         return {start, end};
@@ -118,10 +118,10 @@ public:
     /// Update the height of a specific item (called when content renders)
     auto update_item_height(std::size_t index, std::size_t height) -> void {
         if (index >= state_.item_heights.size()) {
-            state_.item_heights.resize(index + 1, 1); // 默认高度为 1 行
+            state_.item_heights.resize(index + 1, 1);
         }
         state_.item_heights[index] = std::max<std::size_t>(height, 1);
-        // 如果 auto_scroll 开启，保持底部
+
         if (state_.auto_scroll) {
             scroll_to_bottom();
         }
@@ -131,7 +131,7 @@ public:
     auto add_items(std::size_t count, std::size_t default_height = 1) -> void {
         state_.total_items += count;
         state_.item_heights.resize(state_.total_items, default_height);
-        // 新消息到达时如果在底部则自动滚动
+
         if (state_.auto_scroll) {
             scroll_to_bottom();
         }
@@ -148,7 +148,7 @@ public:
         state_.total_items -= count;
         state_.item_heights.erase(state_.item_heights.begin(),
                                    state_.item_heights.begin() + static_cast<long>(count));
-        // 调整 scroll_offset
+
         auto removed_height = compute_height_range(0, count);
         state_.scroll_offset = state_.scroll_offset > removed_height ?
                                state_.scroll_offset - removed_height : 0;
@@ -160,7 +160,7 @@ public:
     [[nodiscard]] auto handle_scroll_event(const ScrollEvent& event) -> bool {
         switch (event.type) {
             case ScrollEvent::Type::WheelUp:
-                scroll_by(-3);  // 滚动3行
+                scroll_by(-3);
                 return true;
             case ScrollEvent::Type::WheelDown:
                 scroll_by(3);
@@ -268,7 +268,7 @@ private:
         VisibleRange range;
         if (state_.total_items == 0) return range;
 
-        // 查找第一个可见项
+
         std::size_t accumulated = 0;
         for (std::size_t i = 0; i < state_.total_items; ++i) {
             auto item_h = i < state_.item_heights.size() ? state_.item_heights[i] : 1;
@@ -280,7 +280,7 @@ private:
             accumulated += item_h;
         }
 
-        // 查找最后一个可见项
+
         std::size_t visible_height = 0;
         for (std::size_t i = range.start; i < state_.total_items; ++i) {
             auto item_h = i < state_.item_heights.size() ? state_.item_heights[i] : 1;

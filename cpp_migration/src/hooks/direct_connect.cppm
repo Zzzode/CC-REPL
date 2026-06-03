@@ -9,8 +9,11 @@ module;
 #include <optional>
 #include <mutex>
 #include <atomic>
+#include <unordered_map>
 
 export module cc.hooks.direct_connect;
+
+import cc.utils.http;
 
 export namespace cc::hooks::direct_connect {
 
@@ -89,9 +92,7 @@ inline auto validate_api_key(std::string_view api_key) -> std::expected<void, st
 
 } // namespace detail
 
-/// Establish a direct connection to the given API endpoint.
-/// In production: opens an HTTP/2 or WebSocket persistent connection
-/// to the Claude API endpoint for streaming responses.
+/// Validate and record a direct API endpoint connection.
 inline auto establish_direct_connection(std::string_view endpoint, std::string_view api_key)
     -> std::expected<ConnectionInfo, std::string>
 {
@@ -115,9 +116,19 @@ inline auto establish_direct_connection(std::string_view endpoint, std::string_v
     state.config.endpoint = std::string{endpoint};
     state.config.api_key = std::string{api_key};
 
-    // In production: initiate async TCP/TLS handshake here.
-    // For the migration, we set up the connection info and mark connected.
-    // The actual I/O will be wired through the transport layer (sse_transport / websocket_transport).
+    cc::utils::HttpConfig http_config;
+    http_config.timeout_ms = 5000;
+    http_config.max_retries = 0;
+    cc::utils::HttpClient client(http_config);
+    std::unordered_map<std::string, std::string> headers{
+        {"Authorization", "Bearer " + std::string(api_key)},
+        {"Accept", "application/json"},
+    };
+    auto probe = client.get(endpoint, headers);
+    if (!probe) {
+        state.state.store(DirectConnectState::Error);
+        return std::unexpected("Direct connection probe failed: " + probe.error().message);
+    }
 
     state.info = ConnectionInfo{
         .endpoint = std::string{endpoint},
@@ -198,8 +209,7 @@ inline auto attempt_reconnect() -> std::expected<void, std::string> {
     state.state.store(DirectConnectState::Connecting);
     state.info.state = DirectConnectState::Connecting;
 
-    // In production: schedule reconnect with exponential backoff
-    // The actual reconnection is handled by the transport layer event loop.
+    state.info.error_message = "Reconnect requested; caller must invoke establish_direct_connection again.";
     return {};
 }
 

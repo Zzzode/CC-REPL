@@ -43,7 +43,7 @@ public:
             .args = {
                 CommandArg{.name = "action", .description = "on | off | status | config",
                            .type = ArgType::Choice, .required = false,
-                           .choices = {{"on", "off", "status", "config"}}},
+                           .choices = {"on", "off", "status", "config"}},
                 CommandArg{.name = "option", .description = "Configuration key=value",
                            .type = ArgType::Text, .required = false},
             },

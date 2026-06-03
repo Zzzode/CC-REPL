@@ -71,7 +71,7 @@ std::expected<std::string, std::string> handle_agents_command(std::span<std::str
 }
 
 /// Get the PID file directory for agents
-static std::filesystem::path get_pid_dir() {
+inline std::filesystem::path get_pid_dir() {
     namespace fs = std::filesystem;
     const char* home = std::getenv("HOME");
     if (!home) home = "/tmp";
@@ -79,7 +79,7 @@ static std::filesystem::path get_pid_dir() {
 }
 
 /// Check if a process with the given PID is alive
-static bool is_process_alive(int pid) {
+inline bool is_process_alive(int pid) {
     // kill with signal 0 checks existence without sending a signal
     return ::kill(pid, 0) == 0;
 }

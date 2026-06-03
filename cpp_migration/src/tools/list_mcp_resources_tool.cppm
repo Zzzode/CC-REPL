@@ -9,15 +9,15 @@ export module cc.tools.list_mcp_resources_tool;
 
 export namespace cc::tools {
 
-// MCP 资源描述
+
 struct McpResource {
-    std::string uri;                        // 资源 URI
-    std::string name;                       // 资源显示名称
-    std::optional<std::string> description; // 资源描述（可选）
-    std::string mime_type;                  // MIME 类型
+    std::string uri;
+    std::string name;
+    std::optional<std::string> description;
+    std::string mime_type;
 };
 
-// 列出 MCP 服务器暴露的所有资源
+
 inline auto list_mcp_resources(std::string_view server_name) -> std::vector<McpResource> {
     if (server_name.empty()) {
         return {};
@@ -44,7 +44,7 @@ inline auto list_mcp_resources(std::string_view server_name) -> std::vector<McpR
     }};
 }
 
-// 获取列出 MCP 资源工具的提示词
+
 inline auto get_list_mcp_resources_prompt() -> std::string {
     return R"(## ListMcpResourcesTool
 
@@ -73,7 +73,7 @@ Array of resources with:
 ```)";
 }
 
-// 格式化资源列表为可读字符串
+
 inline auto format_mcp_resources(const std::vector<McpResource>& resources) -> std::string {
     if (resources.empty()) {
         return "No resources available.";

@@ -10,18 +10,18 @@ export module cc.tools.synthetic_output_tool;
 
 export namespace cc::tools {
 
-// 合成输出结构体
+
 struct SyntheticOutput {
-    std::string content;                        // 生成的内容
-    std::string format;                         // 输出格式（text, markdown, json, html）
-    std::map<std::string, std::string> metadata; // 附加元数据
+    std::string content;
+    std::string format;
+    std::map<std::string, std::string> metadata;
 };
 
 namespace detail {
-    // 全局模板注册表（线程安全）
+
     inline std::mutex g_templates_mutex;
     inline std::map<std::string, std::string> g_templates = {
-        // 内置模板
+
         {"summary", "## Summary\n\n{{content}}\n\n---\n*Generated at {{timestamp}}*"},
         {"error_report", "## Error Report\n\n**Error**: {{error}}\n**Context**: {{context}}\n**Suggestion**: {{suggestion}}"},
         {"task_complete", "✓ Task completed: {{description}}\n\nDuration: {{duration}}\nResult: {{result}}"},
@@ -30,7 +30,7 @@ namespace detail {
     };
 }
 
-// 注册自定义输出模板
+
 inline auto register_output_template(
     std::string_view name,
     std::string_view template_str
@@ -39,14 +39,14 @@ inline auto register_output_template(
     detail::g_templates[std::string(name)] = std::string(template_str);
 }
 
-// 根据模板和变量生成合成输出
+
 inline auto generate_synthetic_output(
     std::string_view template_name,
     const std::map<std::string, std::string>& vars
 ) -> SyntheticOutput {
     std::lock_guard lock(detail::g_templates_mutex);
 
-    // 查找模板
+
     auto it = detail::g_templates.find(std::string(template_name));
     if (it == detail::g_templates.end()) {
         return SyntheticOutput{
@@ -56,7 +56,7 @@ inline auto generate_synthetic_output(
         };
     }
 
-    // 模板变量替换：将 {{var}} 替换为对应的值
+
     std::string result = it->second;
     for (const auto& [key, value] : vars) {
         std::string placeholder = "{{" + key + "}}";
@@ -67,7 +67,7 @@ inline auto generate_synthetic_output(
         }
     }
 
-    // 清理未替换的占位符（设为空字符串）
+
     size_t pos = 0;
     while ((pos = result.find("{{", pos)) != std::string::npos) {
         auto end = result.find("}}", pos);
@@ -78,7 +78,7 @@ inline auto generate_synthetic_output(
         }
     }
 
-    // 推断输出格式
+
     std::string format = "text";
     if (result.find('#') != std::string::npos ||
         result.find("**") != std::string::npos) {
@@ -91,7 +91,7 @@ inline auto generate_synthetic_output(
         format = "html";
     }
 
-    // 构建元数据
+
     std::map<std::string, std::string> metadata;
     metadata["template"] = std::string(template_name);
     metadata["vars_count"] = std::to_string(vars.size());

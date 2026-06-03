@@ -15,58 +15,58 @@ export module cc.hooks.notifications;
 
 export namespace cc::hooks {
 
-// 通知优先级
+
 enum class NotifPriority { low, normal, high, critical };
 
-// 通知类型 (对应原项目 hooks/notifs/ 下的16个通知hook)
+
 enum class NotifType {
-    auto_mode_warning,         // useAutoModeNotification — 自动模式警告
-    deprecation_warning,       // useDeprecationWarning — 功能弃用通知
-    fast_mode_upgrade,         // useFastModeNotification — 快速模式升级提示
-    ide_status,                // useIDEStatusNotification — IDE 连接状态
-    install_message,           // useInstallMessageNotification — 安装消息
-    lsp_init,                  // useLSPInitNotification — LSP 初始化状态
-    mcp_connection,            // useMcpConnectionNotification — MCP 服务器连接
-    model_migration,           // useModelMigrationNotification — 模型迁移提示
-    npm_deprecation,           // useNpmDeprecationNotification — npm 包弃用
-    plugin_update,             // usePluginUpdateNotification — 插件更新可用
-    rate_limit,                // useRateLimitNotification — 限流警告
-    settings_error,            // useSettingsErrorNotification — 设置错误
-    startup,                   // useStartupNotification — 启动通知
-    update_available,          // useUpdateNotification — 版本更新可用
-    permission_change,         // 权限变更通知
-    session_restored,          // 会话恢复通知
+    auto_mode_warning,
+    deprecation_warning,
+    fast_mode_upgrade,
+    ide_status,
+    install_message,
+    lsp_init,
+    mcp_connection,
+    model_migration,
+    npm_deprecation,
+    plugin_update,
+    rate_limit,
+    settings_error,
+    startup,
+    update_available,
+    permission_change,
+    session_restored,
 };
 
-// 通知消息
+
 struct Notification {
     std::string id;
     NotifType type;
     NotifPriority priority{NotifPriority::normal};
     std::string title;
     std::string message;
-    std::optional<std::string> action_label;  // 可选操作按钮文本
-    std::optional<std::string> action_url;    // 可选操作链接
+    std::optional<std::string> action_label;
+    std::optional<std::string> action_url;
     std::chrono::system_clock::time_point created_at;
     bool dismissed{false};
-    bool persistent{false};  // 是否在下次启动时仍显示
+    bool persistent{false};
 };
 
-// 通知过滤条件
+
 struct NotifFilter {
     std::optional<NotifType> type;
     std::optional<NotifPriority> min_priority;
     bool include_dismissed{false};
 };
 
-// 通知处理回调
+
 using NotifHandler = std::function<void(const Notification&)>;
 using DismissHandler = std::function<void(std::string_view notif_id)>;
 using UnsubscribeFn = std::function<void()>;
 
-// ─── 各类通知检查器 ──────────────────────────────────────────
 
-// 自动模式通知 — 检测自动模式下的危险操作
+
+
 class AutoModeNotifier {
     bool auto_mode_active_{false};
     int auto_approved_count_{0};
@@ -86,7 +86,7 @@ public:
     }
 };
 
-// 弃用警告检查器
+
 class DeprecationChecker {
     struct DeprecatedFeature { std::string name; std::string replacement; std::string removal_version; };
     std::vector<DeprecatedFeature> deprecated_features_;
@@ -109,7 +109,7 @@ public:
     }
 };
 
-// 限流通知器
+
 class RateLimitNotifier {
     int consecutive_limits_{0};
     std::chrono::system_clock::time_point last_limit_at_{};
@@ -132,7 +132,7 @@ public:
     }
 };
 
-// 更新通知器
+
 class UpdateNotifier {
     std::string current_version_;
     std::optional<std::string> latest_version_;
@@ -151,7 +151,7 @@ public:
     }
 };
 
-// MCP 连接状态通知器
+
 class McpConnectionNotifier {
     struct ServerStatus { std::string name; bool connected; std::string error; };
     std::vector<ServerStatus> servers_;
@@ -179,7 +179,7 @@ public:
     }
 };
 
-// IDE 状态通知器
+
 class IdeStatusNotifier {
     bool connected_{false};
     std::string ide_name_;
@@ -200,7 +200,7 @@ public:
     }
 };
 
-// 插件更新通知器
+
 class PluginUpdateNotifier {
     struct PluginUpdate { std::string name; std::string current_ver; std::string latest_ver; };
     std::vector<PluginUpdate> pending_updates_;
@@ -221,7 +221,7 @@ public:
     }
 };
 
-// 设置错误通知器
+
 class SettingsErrorNotifier {
     std::vector<std::string> errors_;
 public:
@@ -239,13 +239,13 @@ public:
     }
 };
 
-// ─── 通知中心 (聚合所有通知器) ──────────────────────────────
+
 
 class NotificationCenter {
     std::vector<Notification> active_notifications_;
     std::vector<NotifHandler> handlers_;
     
-    // 各子通知器
+
     AutoModeNotifier auto_mode_;
     DeprecationChecker deprecation_;
     RateLimitNotifier rate_limit_;
@@ -256,13 +256,13 @@ class NotificationCenter {
     SettingsErrorNotifier settings_;
 
 public:
-    // 推送通知
+
     void push(Notification notif) {
         for (const auto& handler : handlers_) handler(notif);
         active_notifications_.push_back(std::move(notif));
     }
 
-    // 批量收集所有待显示通知
+
     [[nodiscard]] auto collect_all() -> std::vector<Notification> {
         std::vector<Notification> result;
         if (auto n = auto_mode_.get_notification()) result.push_back(*n);
@@ -275,14 +275,14 @@ public:
         return result;
     }
 
-    // 关闭通知
+
     void dismiss(std::string_view notif_id) {
         for (auto& n : active_notifications_) {
             if (n.id == notif_id) { n.dismissed = true; break; }
         }
     }
 
-    // 获取未关闭通知
+
     [[nodiscard]] auto get_active(NotifFilter filter = {}) const -> std::vector<Notification> {
         std::vector<Notification> result;
         for (const auto& n : active_notifications_) {
@@ -294,14 +294,14 @@ public:
         return result;
     }
 
-    // 订阅通知
+
     [[nodiscard]] auto subscribe(NotifHandler handler) -> UnsubscribeFn {
         handlers_.push_back(std::move(handler));
         auto idx = handlers_.size() - 1;
         return [this, idx]() { handlers_[idx] = nullptr; };
     }
 
-    // 访问子通知器
+
     auto auto_mode() -> AutoModeNotifier& { return auto_mode_; }
     auto deprecation() -> DeprecationChecker& { return deprecation_; }
     auto rate_limit_notifier() -> RateLimitNotifier& { return rate_limit_; }
@@ -311,7 +311,7 @@ public:
     auto plugin_notifier() -> PluginUpdateNotifier& { return plugin_; }
     auto settings_notifier() -> SettingsErrorNotifier& { return settings_; }
 
-    // 清除所有
+
     void clear_all() { active_notifications_.clear(); }
     [[nodiscard]] auto count() const -> size_t { return active_notifications_.size(); }
 };

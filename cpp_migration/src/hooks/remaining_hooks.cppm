@@ -51,9 +51,9 @@ namespace detail {
 }
 }
 
-// ─── IDE 相关 Hooks ──────────────────────────────────────────
 
-// useIdeLogging — IDE 日志转发
+
+
 class IdeLoggingHook {
     enum class LogLevel { debug, info, warn, error };
     struct LogEntry { LogLevel level; std::string message; std::chrono::system_clock::time_point ts; };
@@ -74,7 +74,7 @@ public:
     void clear() { log_buffer_.clear(); }
 };
 
-// useIdeSelection — IDE 选区同步
+
 class IdeSelectionHook {
     struct Selection { std::string file_path; int start_line; int start_col; int end_line; int end_col; std::string text; };
     std::optional<Selection> current_selection_;
@@ -89,7 +89,7 @@ public:
     void on_change(std::function<void(const Selection&)> cb) { on_selection_change_ = std::move(cb); }
 };
 
-// useIdeAtMentioned — IDE @提及检测
+
 class IdeAtMentionHook {
     struct Mention { std::string file_path; int line; std::string context; };
     std::vector<Mention> pending_mentions_;
@@ -102,7 +102,7 @@ public:
     [[nodiscard]] auto has_pending() const -> bool { return !pending_mentions_.empty(); }
 };
 
-// useIdeConnectionStatus — IDE 连接状态跟踪
+
 class IdeConnectionHook {
     enum class IdeType { vscode, jetbrains, neovim, unknown };
     struct ConnectionState { IdeType type; bool connected; std::string version; int port; };
@@ -122,9 +122,9 @@ public:
     void on_change(std::function<void(bool)> cb) { on_connection_change_ = std::move(cb); }
 };
 
-// ─── 远程/桥接 Hooks ─────────────────────────────────────────
 
-// useRemoteSession — 远程会话管理
+
+
 class RemoteSessionHook {
     struct RemoteState { std::string session_id; bool active; std::string peer_name; };
     std::optional<RemoteState> current_;
@@ -135,7 +135,7 @@ public:
     [[nodiscard]] auto get_peer() const -> std::string { return current_ ? current_->peer_name : ""; }
 };
 
-// useReplBridge — REPL-IDE 双向桥接
+
 class ReplBridgeHook {
     bool bridge_active_{false};
     std::string bridge_url_;
@@ -154,13 +154,13 @@ public:
     [[nodiscard]] auto pending_outbound() const -> const std::vector<std::string>& { return outbound_; }
 };
 
-// useSSHSession — SSH 远程会话
+
 class SSHSessionHook {
     struct SSHInfo { std::string host; std::string user; int port{22}; bool connected; };
     std::optional<SSHInfo> session_;
 public:
     void detect() {
-        // 检测是否在 SSH 会话中 (SSH_CONNECTION 环境变量)
+
         if (std::getenv("SSH_CONNECTION")) {
             session_ = SSHInfo{.host = "remote", .connected = true};
         }
@@ -169,7 +169,7 @@ public:
     [[nodiscard]] auto get_host() const -> std::string { return session_ ? session_->host : ""; }
 };
 
-// useMailboxBridge — Mailbox 消息桥接 (Agent 间通信)
+
 class MailboxBridgeHook {
     struct Message { std::string from_agent; std::string to_agent; std::string content; };
     std::vector<Message> inbox_;
@@ -185,9 +185,9 @@ public:
     auto consume_inbox() -> std::vector<Message> { return std::exchange(inbox_, {}); }
 };
 
-// ─── 插件推荐 Hooks ─────────────────────────────────────────
 
-// usePluginRecommendation — 基于上下文推荐插件
+
+
 class PluginRecommendationHook {
     struct Recommendation { std::string plugin_id; std::string reason; double confidence; };
     std::vector<Recommendation> recommendations_;
@@ -223,7 +223,7 @@ public:
     }
 };
 
-// useLspPluginRecommendation — LSP 相关插件推荐
+
 class LspPluginRecommendationHook {
     std::vector<std::string> detected_languages_;
     std::unordered_map<std::string, std::string> language_to_plugin_;
@@ -245,7 +245,7 @@ public:
     }
 };
 
-// useManagePlugins — 插件生命周期管理
+
 class ManagePluginsHook {
     struct PluginState { std::string id; std::string version; bool enabled; bool needs_update; };
     std::vector<PluginState> installed_;
@@ -287,7 +287,7 @@ public:
     }
 };
 
-// useOfficialMarketplaceNotification — 官方市场通知
+
 class MarketplaceNotificationHook {
     std::vector<std::string> featured_plugins_;
     bool has_unread_{false};
@@ -301,9 +301,9 @@ public:
     void mark_read() { has_unread_ = false; }
 };
 
-// ─── 状态/计时 Hooks ────────────────────────────────────────
 
-// useElapsedTime — 操作计时器
+
+
 class ElapsedTimeHook {
     std::chrono::steady_clock::time_point start_;
     bool running_{false};
@@ -320,7 +320,7 @@ public:
     }
 };
 
-// useBlink — 光标/指示器闪烁动画
+
 class BlinkHook {
     bool visible_{true};
     std::chrono::milliseconds interval_{500};
@@ -336,7 +336,7 @@ public:
     void set_interval(std::chrono::milliseconds ms) { interval_ = ms; }
 };
 
-// useDoublePress — 双击检测
+
 class DoublePressHook {
     std::chrono::steady_clock::time_point last_press_;
     std::chrono::milliseconds threshold_{300};
@@ -352,7 +352,7 @@ public:
     void set_threshold(std::chrono::milliseconds ms) { threshold_ = ms; }
 };
 
-// useMemoryUsage — 内存用量监控
+
 class MemoryUsageHook {
     struct MemStats { size_t rss_bytes; size_t heap_bytes; size_t external_bytes; };
     MemStats last_stats_{};
@@ -374,7 +374,7 @@ public:
     [[nodiscard]] auto exceeds_threshold(size_t mb) const -> bool { return get_rss_mb() > mb; }
 };
 
-// useTimeout — 通用超时器
+
 class TimeoutHook {
     std::chrono::steady_clock::time_point deadline_;
     bool active_{false};
@@ -395,7 +395,7 @@ public:
     [[nodiscard]] auto is_active() const -> bool { return active_; }
 };
 
-// useMinDisplayTime — 最小显示时间（防闪烁）
+
 class MinDisplayTimeHook {
     std::chrono::steady_clock::time_point show_start_;
     std::chrono::milliseconds min_duration_{200};
@@ -411,7 +411,7 @@ public:
     void hide() { showing_ = false; }
 };
 
-// useLogMessages — 日志消息流
+
 class LogMessagesHook {
     struct LogMsg { std::string source; std::string message; std::chrono::system_clock::time_point ts; };
     std::vector<LogMsg> messages_;
@@ -429,7 +429,7 @@ public:
     void clear() { messages_.clear(); }
 };
 
-// useInboxPoller — 收件箱轮询
+
 class InboxPollerHook {
     std::chrono::milliseconds poll_interval_{5000};
     std::chrono::steady_clock::time_point last_poll_;
@@ -448,9 +448,9 @@ public:
     [[nodiscard]] auto unread() const -> size_t { return unread_count_; }
 };
 
-// ─── 其他杂项 Hooks ─────────────────────────────────────────
 
-// useCopyOnSelect — 选中自动复制
+
+
 class CopyOnSelectHook {
     bool enabled_{false};
     std::function<void(std::string_view)> copy_fn_;
@@ -462,7 +462,7 @@ public:
     }
 };
 
-// useAwaySummary — 离线摘要
+
 class AwaySummaryHook {
     std::chrono::system_clock::time_point last_active_;
     std::chrono::minutes away_threshold_{5};
@@ -476,7 +476,7 @@ public:
     [[nodiscard]] auto get_summary() const -> std::string_view { return summary_; }
 };
 
-// useDirectConnect — 直连模式
+
 class DirectConnectHook {
     bool direct_mode_{false};
     std::string direct_url_;
@@ -487,7 +487,7 @@ public:
     [[nodiscard]] auto get_url() const -> std::string_view { return direct_url_; }
 };
 
-// useDynamicConfig — 动态配置热加载
+
 class DynamicConfigHook {
     std::unordered_map<std::string, std::string> config_;
     std::chrono::steady_clock::time_point last_refresh_;
@@ -516,7 +516,7 @@ public:
     void set(std::string key, std::string value) { config_[std::move(key)] = std::move(value); }
 };
 
-// useApiKeyVerification — API Key 验证
+
 class ApiKeyVerificationHook {
     enum class KeyStatus { unchecked, valid, invalid, expired };
     KeyStatus status_{KeyStatus::unchecked};
@@ -531,7 +531,7 @@ public:
     [[nodiscard]] auto get_error() const -> std::string_view { return error_message_; }
 };
 
-// useSessionBackgrounding — 会话后台运行
+
 class SessionBackgroundingHook {
     bool backgrounded_{false};
     std::chrono::system_clock::time_point backgrounded_at_;
@@ -546,7 +546,7 @@ public:
     }
 };
 
-// useScheduledTasks — 定时任务调度
+
 class ScheduledTasksHook {
     struct ScheduledTask { std::string id; std::string cron; std::chrono::system_clock::time_point next_run; bool active; };
     std::vector<ScheduledTask> tasks_;

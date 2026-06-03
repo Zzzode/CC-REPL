@@ -13,6 +13,9 @@ module;
 #include <algorithm>
 #include <span>
 #include <array>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 
 export module cc.commands.context;
 
@@ -43,7 +46,7 @@ public:
             .args = {
                 CommandArg{.name = "action", .description = "show | add | remove | breakdown | clear",
                            .type = ArgType::Choice, .required = false,
-                           .choices = {{"show", "add", "remove", "breakdown", "clear"}}},
+                           .choices = {"show", "add", "remove", "breakdown", "clear"}},
                 CommandArg{.name = "path", .description = "File path to add/remove",
                            .type = ArgType::FilePath, .required = false},
             },
@@ -107,6 +110,11 @@ private:
     std::uint32_t max_tokens_ = 200000;
     std::vector<ContextSource> sources_;
     std::vector<std::string> user_files_;  // Explicitly added files
+
+    [[nodiscard]] static std::uint32_t estimate_tokens(std::string_view content) {
+        if (content.empty()) return 0;
+        return static_cast<std::uint32_t>((content.size() + 3) / 4);
+    }
 
     [[nodiscard]] std::uint32_t total_used() const {
         std::uint32_t sum = 0;
@@ -174,24 +182,79 @@ private:
     }
 
     [[nodiscard]] Result<CommandResult> add_file(const std::string& path) {
-        if (std::ranges::find(user_files_, path) != user_files_.end()) {
-            return CommandResult::success(std::format("File '{}' is already in context.", path));
+        namespace fs = std::filesystem;
+        std::error_code ec;
+        auto normalized = fs::weakly_canonical(fs::path(path), ec);
+        if (ec) normalized = fs::path(path);
+        auto key = normalized.string();
+
+        if (!fs::exists(normalized, ec) || !fs::is_regular_file(normalized, ec)) {
+            return std::unexpected(Error::make(
+                ErrorCode::InvalidRequest,
+                std::format("Context file '{}' does not exist or is not a regular file.", path)));
         }
-        user_files_.push_back(path);
-        // In production: read file, estimate tokens, add to sources
-        return CommandResult::success(std::format("Added '{}' to context.", path));
+
+        if (std::ranges::find(user_files_, key) != user_files_.end()) {
+            return CommandResult::success(std::format("File '{}' is already in context.", key));
+        }
+
+        auto size = fs::file_size(normalized, ec);
+        if (ec) {
+            return std::unexpected(Error::make(
+                ErrorCode::InternalError,
+                std::format("Failed to inspect '{}': {}", key, ec.message())));
+        }
+        constexpr std::uintmax_t max_context_file_bytes = 2 * 1024 * 1024;
+        if (size > max_context_file_bytes) {
+            return std::unexpected(Error::make(
+                ErrorCode::InvalidRequest,
+                std::format("Context file '{}' is too large ({} bytes, max {}).",
+                    key, size, max_context_file_bytes)));
+        }
+
+        std::ifstream input(normalized, std::ios::binary);
+        if (!input.is_open()) {
+            return std::unexpected(Error::make(
+                ErrorCode::InternalError,
+                std::format("Failed to read context file '{}'.", key)));
+        }
+        std::string content((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+        auto tokens = estimate_tokens(content);
+
+        user_files_.push_back(key);
+        auto existing = std::ranges::find_if(sources_, [&](const auto& source) {
+            return source.name == key && source.type == "file";
+        });
+        if (existing == sources_.end()) {
+            sources_.push_back(ContextSource{
+                .name = key,
+                .token_count = tokens,
+                .type = "file",
+                .pinned = true,
+            });
+        } else {
+            existing->token_count = tokens;
+            existing->pinned = true;
+        }
+        return CommandResult::success(std::format("Added '{}' to context ({} estimated tokens).", key, tokens));
     }
 
     [[nodiscard]] Result<CommandResult> remove_file(const std::string& path) {
-        auto it = std::ranges::find(user_files_, path);
+        namespace fs = std::filesystem;
+        std::error_code ec;
+        auto normalized = fs::weakly_canonical(fs::path(path), ec);
+        if (ec) normalized = fs::path(path);
+        auto key = normalized.string();
+
+        auto it = std::ranges::find(user_files_, key);
         if (it == user_files_.end()) {
             return std::unexpected(Error::make(ErrorCode::InvalidRequest,
                 std::format("File '{}' is not in user context.", path)));
         }
         user_files_.erase(it);
         // Also remove from sources
-        std::erase_if(sources_, [&](const auto& s) { return s.name == path; });
-        return CommandResult::success(std::format("Removed '{}' from context.", path));
+        std::erase_if(sources_, [&](const auto& s) { return s.name == key; });
+        return CommandResult::success(std::format("Removed '{}' from context.", key));
     }
 
     [[nodiscard]] Result<CommandResult> clear_user_context() {

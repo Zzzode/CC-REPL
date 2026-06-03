@@ -230,8 +230,7 @@ inline std::expected<void, std::string> xaa_idp_login(std::string_view provider)
     if (provider.empty()) {
         return std::unexpected("IdP provider name required");
     }
-    // XAA token exchange requires enterprise configuration.
-    // This is a placeholder for enterprise-specific auth flows.
+    // XAA token exchange requires enterprise configuration before runtime use.
     return std::unexpected(std::format("XAA IdP login for '{}' not configured", provider));
 }
 

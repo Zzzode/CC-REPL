@@ -13,7 +13,7 @@ export module cc.utils.errors_utils;
 
 export namespace cc::utils {
 
-// 错误严重等级
+
 enum class ErrorSeverity {
     Info,
     Warning,
@@ -21,7 +21,7 @@ enum class ErrorSeverity {
     Fatal
 };
 
-// 错误分类
+
 enum class ErrorCategory {
     Network,
     FileSystem,
@@ -31,7 +31,7 @@ enum class ErrorCategory {
     Internal
 };
 
-// 分类后的错误结构体
+
 struct ClassifiedError {
     ErrorSeverity severity;
     ErrorCategory category;
@@ -40,7 +40,7 @@ struct ClassifiedError {
     std::optional<std::string> suggestion;
 };
 
-// 严重等级转字符串
+
 [[nodiscard]] inline std::string_view severity_to_string(ErrorSeverity severity) {
     switch (severity) {
         case ErrorSeverity::Info: return "info";
@@ -51,7 +51,7 @@ struct ClassifiedError {
     return "unknown";
 }
 
-// 分类转字符串
+
 [[nodiscard]] inline std::string_view category_to_string(ErrorCategory category) {
     switch (category) {
         case ErrorCategory::Network: return "network";
@@ -64,7 +64,7 @@ struct ClassifiedError {
     return "unknown";
 }
 
-// 对异常进行分类
+
 [[nodiscard]] inline ClassifiedError classify_error(std::exception_ptr ep) {
     ClassifiedError result{
         .severity = ErrorSeverity::Error,
@@ -97,7 +97,7 @@ struct ClassifiedError {
     } catch (const std::system_error& e) {
         auto ec = e.code();
         result.message = e.what();
-        // 网络相关错误码分类
+
         if (ec.category() == std::generic_category()) {
             switch (static_cast<std::errc>(ec.value())) {
                 case std::errc::connection_refused:
@@ -126,7 +126,7 @@ struct ClassifiedError {
         result.suggestion = "Check input format";
     } catch (const std::runtime_error& e) {
         result.message = e.what();
-        // 尝试从消息推断分类
+
         std::string_view msg(e.what());
         if (msg.find("API") != std::string_view::npos ||
             msg.find("api") != std::string_view::npos ||
@@ -154,7 +154,7 @@ struct ClassifiedError {
     return result;
 }
 
-// 格式化错误为人类可读字符串
+
 [[nodiscard]] inline std::string format_error(const ClassifiedError& error) {
     std::string result;
     result += "[";
@@ -172,12 +172,12 @@ struct ClassifiedError {
     return result;
 }
 
-// 判断错误是否可重试
+
 [[nodiscard]] inline bool is_retryable(const ClassifiedError& error) {
-    // 网络错误和部分 API 错误可重试
+
     if (error.category == ErrorCategory::Network) return true;
     if (error.category == ErrorCategory::Api) {
-        // 429 (rate limit) 和 5xx 可重试
+
         return error.code == "API_ERROR" &&
                (error.message.find("429") != std::string::npos ||
                 error.message.find("500") != std::string::npos ||

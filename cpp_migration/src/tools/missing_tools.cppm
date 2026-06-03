@@ -49,13 +49,13 @@ namespace detail {
 }
 }
 
-// 错误类型
+
 struct ToolError {
     std::string code;
     std::string message;
 };
 
-// 工具执行结果
+
 struct ToolResult {
     bool success{true};
     std::string output;
@@ -82,9 +82,9 @@ namespace detail {
 }
 }
 
-// ─── REPLTool: 交互式 REPL 环境 ────────────────────────────
 
-// 支持的 REPL 语言
+
+
 enum class ReplLanguage { python, node, ruby, lua };
 
 struct ReplConfig {
@@ -92,7 +92,7 @@ struct ReplConfig {
     std::string working_dir;
     std::chrono::seconds timeout{30};
     size_t max_output_bytes{100'000};
-    bool persist_state{true};  // 跨调用保持状态
+    bool persist_state{true};
 };
 
 class REPLTool {
@@ -166,7 +166,7 @@ private:
     }
 };
 
-// ─── RemoteTriggerTool: 远程触发另一个会话执行 ────────────────
+
 
 struct RemoteTriggerConfig {
     std::string target_session_id;
@@ -201,7 +201,7 @@ public:
     }
 };
 
-// ─── SkillTool: 技能系统工具入口 ────────────────────────────
+
 
 // Skill listing configuration
 inline constexpr double SKILL_BUDGET_CONTEXT_PERCENT = 0.01;
@@ -213,7 +213,7 @@ inline constexpr size_t MIN_DESC_LENGTH = 20;
 struct SkillInvocation {
     std::string skill_name;
     std::string input;
-    std::optional<std::string> variant;  // 技能变体
+    std::optional<std::string> variant;
     std::chrono::seconds timeout{120};
 };
 
@@ -392,7 +392,7 @@ Important:
         if (invocation.skill_name.empty())
             return {.success = false, .error = "未指定技能名称"};
         
-        // 查找并加载技能
+
         auto skill_path = find_skill(invocation.skill_name);
         if (!skill_path)
             return {.success = false, .error = "技能未找到: " + invocation.skill_name};
@@ -442,12 +442,12 @@ private:
     }
 };
 
-// ─── SyntheticOutputTool: 合成输出 (测试/流式模拟) ──────────
+
 
 struct SyntheticConfig {
     std::string content;
-    std::chrono::milliseconds delay_per_chunk{50};  // 模拟流式延迟
-    size_t chunk_size{20};                          // 每块字符数
+    std::chrono::milliseconds delay_per_chunk{50};
+    size_t chunk_size{20};
     bool simulate_thinking{false};
 };
 
@@ -459,7 +459,7 @@ public:
     }
     
     [[nodiscard]] auto execute(SyntheticConfig config) -> ToolResult {
-        // 直接返回内容 (同步模式)
+
         std::string output;
         if (config.simulate_thinking) {
             output = "[thinking]\n" + config.content + "\n[/thinking]\n";
@@ -471,7 +471,7 @@ public:
                     std::to_string((config.content.size() + config.chunk_size - 1) / config.chunk_size) + "}"};
     }
     
-    // 流式版本 (回调每个 chunk)
+
     void execute_streaming(SyntheticConfig config, std::function<void(std::string_view)> on_chunk) {
         for (size_t i = 0; i < config.content.size(); i += config.chunk_size) {
             auto chunk = std::string_view(config.content).substr(i, config.chunk_size);

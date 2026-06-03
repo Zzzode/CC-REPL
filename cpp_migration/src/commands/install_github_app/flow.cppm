@@ -10,7 +10,7 @@ export module cc.commands.install_github_app.flow;
 
 export namespace cc::commands {
 
-// GitHub App 安装流程的各个步骤
+
 enum class InstallStep {
     CheckGitHub,
     OAuth,
@@ -21,14 +21,14 @@ enum class InstallStep {
     Success
 };
 
-// 安装流程的状态机
+
 struct InstallState {
     InstallStep current_step;
     std::map<std::string, std::string> data;
     std::vector<std::string> errors;
 };
 
-// 推进到下一步
+
 auto advance_step(InstallState& state) -> std::expected<InstallStep, std::string> {
     switch (state.current_step) {
         case InstallStep::CheckGitHub:
@@ -55,12 +55,12 @@ auto advance_step(InstallState& state) -> std::expected<InstallStep, std::string
     return std::unexpected("Unknown step");
 }
 
-// 判断当前步骤是否可以回退
+
 auto can_go_back(InstallState state) -> bool {
     return state.current_step != InstallStep::CheckGitHub;
 }
 
-// 获取步骤的文字描述
+
 auto get_step_description(InstallStep step) -> std::string {
     switch (step) {
         case InstallStep::CheckGitHub:

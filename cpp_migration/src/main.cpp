@@ -6,6 +6,7 @@
  */
 
 #include <iostream>
+#include <algorithm>
 #include <atomic>
 #include <string>
 #include <vector>
@@ -36,10 +37,12 @@ import cc.tools.agent;
 import cc.tools.web_fetch;
 import cc.tools.web_search;
 import cc.tools.todo_write;
+import cc.tools.runtime_registry;
 import cc.hooks.tool_permissions;
 import cc.hooks.lifecycle_hooks;
 import cc.types.command;
 import cc.commands.command;
+import cc.commands.registry;
 import cc.context.context;
 import cc.constants.cost_tracker;
 import cc.session.history;
@@ -63,6 +66,8 @@ struct CliOptions {
     bool debug = false;
     bool use_simple_ui = false;  // Fallback to simple text UI if FTXUI fails
     bool permissions = false;    // Enable permission checking (disables auto-approve)
+    bool list_runtime_tools = false;
+    bool list_runtime_commands = false;
 };
 
 /**
@@ -80,6 +85,9 @@ Options:
   --debug              Enable debug logging
   --simple-ui          Use simple text UI (not interactive)
   --permissions        Enable permission checking for tool execution
+  --list-runtime-tools Print registered runtime tool names and exit
+  --list-runtime-commands
+                       Print registered runtime command names and exit
 
 Examples:
   cc-repl                                    # Start interactive mode
@@ -106,6 +114,10 @@ auto parse_args(int argc, const char* argv[]) -> std::expected<CliOptions, std::
             opts.use_simple_ui = true;
         } else if (arg == "--permissions") {
             opts.permissions = true;
+        } else if (arg == "--list-runtime-tools") {
+            opts.list_runtime_tools = true;
+        } else if (arg == "--list-runtime-commands") {
+            opts.list_runtime_commands = true;
         } else if (arg == "--model") {
             if (++i >= argc) {
                 return std::unexpected("--model requires a value");
@@ -159,7 +171,7 @@ static std::atomic<bool> g_should_exit{false};
  */
 auto run_simple_ui(
     cc::core::QueryEngine& engine,
-    cc::core::CommandRegistry& cmd_registry
+    cc::commands::AppCommandRegistry& cmd_registry
 ) -> int {
     std::println("╭─────────────────────────────────────────╮");
     std::println("│      CC-REPL (C++ Migration) v{}       │", kVersion);
@@ -175,9 +187,9 @@ auto run_simple_ui(
         if (input.empty()) continue;
 
         if (input.starts_with('/')) {
-            auto result = cmd_registry.execute(input);
+            auto result = cmd_registry.execute(input, cc::core::CommandContext{});
             if (!result) {
-                std::println("No command executed");
+                std::println("Error: {}", result.error().message);
                 continue;
             }
 
@@ -246,6 +258,30 @@ int main(int argc, const char* argv[]) {
         return 0;
     }
 
+    if (opts.list_runtime_commands) {
+        auto cmd_registry = cc::commands::AppCommandRegistry{};
+        auto names = cmd_registry.command_names();
+        std::ranges::sort(names);
+        for (const auto& name : names) {
+            std::println("{}", name);
+        }
+        return 0;
+    }
+
+    if (opts.list_runtime_tools) {
+        auto tool_registry = cc::core::ToolRegistry{};
+        cc::tools::register_runtime_tools(tool_registry);
+        std::vector<std::string> names;
+        for (auto name : tool_registry.tool_names()) {
+            names.emplace_back(name);
+        }
+        std::ranges::sort(names);
+        for (const auto& name : names) {
+            std::println("{}", name);
+        }
+        return 0;
+    }
+
     auto config = load_config();
     if (opts.model.has_value()) {
         config.model_params.model = opts.model.value();
@@ -260,23 +296,13 @@ int main(int argc, const char* argv[]) {
 
     // Initialize tool registry and register all built-in tools
     auto tool_registry = cc::core::ToolRegistry{};
-    tool_registry.register_tool(cc::tools::make_bash_tool());
-    tool_registry.register_tool(cc::tools::make_file_read_tool());
-    tool_registry.register_tool(cc::tools::make_file_write_tool());
-    tool_registry.register_tool(cc::tools::make_file_edit_tool());
-    tool_registry.register_tool(cc::tools::make_glob_tool());
-    tool_registry.register_tool(cc::tools::make_grep_tool());
-    tool_registry.register_tool(cc::tools::make_agent_tool(
-        cc::tools::AgentConfig{}, 0, &tool_registry));
-    tool_registry.register_tool(cc::tools::make_web_fetch_tool());
-    tool_registry.register_tool(cc::tools::make_web_search_tool());
-    tool_registry.register_tool(cc::tools::make_todo_write_tool());
+    cc::tools::register_runtime_tools(tool_registry);
 
     // Populate config.tools with definitions for the API request body
     config.tools = tool_registry.get_visible_definitions();
 
-    // Initialize command registry with default commands
-    auto cmd_registry = cc::core::create_default_registry();
+    // Initialize command registry with all migrated commands
+    auto cmd_registry = cc::commands::AppCommandRegistry{};
 
     // Initialize session storage
     auto storage = cc::utils::SessionStorage{};

@@ -37,7 +37,7 @@ auto load_keybindings() -> std::map<std::string, std::string> {
     return bindings;
 }
 
-// 显示当前所有快捷键绑定
+
 auto show_keybindings() -> std::string {
     std::string output = "Current Keybindings:\n";
     output += "  Ctrl+C     - Cancel current operation\n";
@@ -51,7 +51,7 @@ auto show_keybindings() -> std::string {
     return output;
 }
 
-// 设置自定义快捷键绑定
+
 auto set_keybinding(std::string_view action, std::string_view keys)
     -> std::expected<void, std::string> {
     if (action.empty()) {
@@ -70,12 +70,12 @@ auto set_keybinding(std::string_view action, std::string_view keys)
     return {};
 }
 
-// 重置所有快捷键为默认值
+
 auto reset_keybindings() -> void {
     std::filesystem::remove(keybindings_path());
 }
 
-// 导出快捷键配置为 JSON 字符串
+
 auto export_keybindings() -> std::string {
     auto bindings = load_keybindings();
     std::string json = "{\n  \"bindings\": {\n";

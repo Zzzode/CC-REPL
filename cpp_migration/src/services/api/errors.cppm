@@ -10,6 +10,7 @@ module;
 export module cc.services.api.errors;
 
 import cc.services.api.models;
+import cc.utils.json;
 
 export namespace cc::services::api::errors {
 
@@ -229,8 +230,6 @@ public:
         error.category = ErrorClassifier::classify_status(http_status);
         error.request_id = std::move(request_id);
 
-        // Try to parse JSON error response
-        // In real implementation, use proper JSON parsing
         parse_json_error(json_body, error);
 
         return error;
@@ -292,10 +291,36 @@ private:
 
     static void parse_json_error(std::string_view json_body,
                                 ApiErrorDetails& error) {
-        // Simplified JSON parsing
-        // In real implementation, use proper JSON library
-        error.error_message = std::string(json_body);
-        error.error_type = "api_error";
+        auto parsed = cc::utils::json::parse(json_body);
+        if (!parsed) {
+            error.error_message = std::string(json_body);
+            error.error_type = "api_error";
+            return;
+        }
+        auto root = parsed->root();
+        auto error_obj = root.get("error");
+        if (!error_obj.valid() || !error_obj.is_obj()) {
+            error_obj = root;
+        }
+
+        if (auto type = error_obj.get("type"); type.valid() && type.is_str()) {
+            error.error_type = std::string(type.as_str());
+        } else {
+            error.error_type = "api_error";
+        }
+        if (auto message = error_obj.get("message"); message.valid() && message.is_str()) {
+            error.error_message = std::string(message.as_str());
+        } else if (auto message = root.get("message"); message.valid() && message.is_str()) {
+            error.error_message = std::string(message.as_str());
+        } else {
+            error.error_message = std::string(json_body);
+        }
+        if (auto retry_after = error_obj.get("retry_after_seconds"); retry_after.valid() && retry_after.is_num()) {
+            error.retry_after_seconds = static_cast<int>(retry_after.as_int());
+        }
+        if (auto rate_limit_type = error_obj.get("rate_limit_type"); rate_limit_type.valid() && rate_limit_type.is_str()) {
+            error.rate_limit_type = std::string(rate_limit_type.as_str());
+        }
     }
 };
 

@@ -6,6 +6,11 @@ module;
 #include <map>
 #include <cstdint>
 #include <atomic>
+#include <memory>
+#include <mutex>
+#include <thread>
+#include <utility>
+#include <httplib.h>
 
 export module cc.server.server_main;
 
@@ -31,6 +36,7 @@ public:
 
     // Start the HTTP server with the given configuration
     auto start(ServerConfig config) -> std::expected<void, std::string> {
+        std::lock_guard lock(mutex_);
         if (running_.load()) {
             return std::unexpected("Server is already running");
         }
@@ -39,16 +45,44 @@ public:
             return std::unexpected("Port must be specified");
         }
 
-        config_ = std::move(config);
-        running_.store(true);
+        auto server = std::make_unique<httplib::Server>();
+        server->Get("/health", [](const httplib::Request&, httplib::Response& res) {
+            res.set_content("ok", "text/plain");
+        });
+        server->Get("/status", [this](const httplib::Request&, httplib::Response& res) {
+            res.set_content(get_url(), "text/plain");
+        });
 
-        // In a real implementation, this would bind and listen
-        // For now, just mark as running
+        if (!server->bind_to_port(config.host, static_cast<int>(config.port))) {
+            return std::unexpected("Failed to bind HTTP server");
+        }
+
+        config_ = std::move(config);
+        server_ = std::move(server);
+        running_.store(true);
+        server_thread_ = std::jthread([this](std::stop_token) {
+            if (server_) {
+                server_->listen_after_bind();
+            }
+        });
         return {};
     }
 
     // Stop the server
     auto stop() -> void {
+        std::jthread worker;
+        {
+            std::lock_guard lock(mutex_);
+            if (server_) {
+                server_->stop();
+            }
+            worker = std::move(server_thread_);
+            server_.reset();
+        }
+        if (worker.joinable()) {
+            worker.request_stop();
+            worker.join();
+        }
         running_.store(false);
     }
 
@@ -71,6 +105,9 @@ public:
 private:
     ServerConfig config_;
     std::atomic<bool> running_{false};
+    std::unique_ptr<httplib::Server> server_;
+    std::jthread server_thread_;
+    std::mutex mutex_;
 };
 
 } // namespace cc::server

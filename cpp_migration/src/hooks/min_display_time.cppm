@@ -10,7 +10,7 @@ export module cc.hooks.min_display_time;
 
 export namespace cc::hooks::min_display_time {
 
-// 显示计时器：确保消息的最短显示时间
+
 struct DisplayTimer {
     std::string id;
     std::chrono::steady_clock::time_point start;
@@ -32,7 +32,7 @@ inline auto get_registry() -> DisplayTimerRegistry& {
 
 } // namespace detail
 
-// 启动一个显示计时器，指定最短显示时长
+
 inline void start_display_timer(std::string_view id,
                                 std::chrono::milliseconds min_duration) {
     auto& reg = detail::get_registry();
@@ -45,7 +45,7 @@ inline void start_display_timer(std::string_view id,
     };
 }
 
-// 检查指定 ID 的显示计时器是否已过期
+
 inline bool is_display_expired(std::string_view id) {
     auto& reg = detail::get_registry();
     std::lock_guard lock(reg.mutex);
@@ -60,7 +60,7 @@ inline bool is_display_expired(std::string_view id) {
     return false;
 }
 
-// 获取指定 ID 计时器的剩余时间
+
 inline std::chrono::milliseconds get_remaining_time(std::string_view id) {
     auto& reg = detail::get_registry();
     std::lock_guard lock(reg.mutex);
@@ -73,14 +73,14 @@ inline std::chrono::milliseconds get_remaining_time(std::string_view id) {
     return remaining.count() > 0 ? remaining : std::chrono::milliseconds{0};
 }
 
-// 取消指定 ID 的显示计时器
+
 inline void cancel_display_timer(std::string_view id) {
     auto& reg = detail::get_registry();
     std::lock_guard lock(reg.mutex);
     reg.timers.erase(std::string(id));
 }
 
-// 阻塞等待直到指定 ID 的显示计时器过期
+
 inline void wait_for_display(std::string_view id) {
     auto remaining = get_remaining_time(id);
     if (remaining.count() > 0) {

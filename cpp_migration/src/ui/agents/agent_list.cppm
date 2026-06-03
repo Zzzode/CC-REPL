@@ -65,12 +65,17 @@ struct AgentListConfig {
 // Rendering Functions
 // ============================================================
 
+inline constexpr std::string_view get_status_icon(AgentStatus status);
+inline constexpr std::string_view get_capability_icon(AgentCapability cap);
+inline std::string render_agent_card(AgentInfo agent, bool selected = false);
+inline std::string format_agent_duration(std::chrono::steady_clock::time_point start);
+
 /// Render the full agent list view
 inline std::string render_agent_list(
     std::vector<AgentInfo> agents, AgentListConfig config = {}) {
     std::string output;
     output += "\033[1m Agents (" + std::to_string(agents.size()) + ")\033[0m\n";
-    output += std::string(40, '\u2500') + "\n";
+    output += std::string(40, '-') + "\n";
 
     for (const auto& agent : agents) {
         output += render_agent_card(agent, false);
@@ -91,7 +96,7 @@ inline std::string render_agent_list(
 }
 
 /// Render an individual agent card
-inline std::string render_agent_card(AgentInfo agent, bool selected = false) {
+inline std::string render_agent_card(AgentInfo agent, bool selected) {
     std::string output;
     if (selected) output += "\033[7m"; // inverse video for selection
     output += " " + std::string(get_status_icon(agent.status)) + " ";

@@ -31,10 +31,10 @@ using TimePoint = Clock::time_point;
 using Duration = std::chrono::milliseconds;
 
 // ============================================================
-// 数据结构
+
 // ============================================================
 
-// 单次工具调用记录
+
 struct ToolUseRecord {
     std::string tool_name;
     std::string session_id;
@@ -44,7 +44,7 @@ struct ToolUseRecord {
     TimePoint invoked_at;
 };
 
-// 工具统计数据
+
 struct ToolStats {
     std::string tool_name;
     std::size_t total_calls{0};
@@ -63,7 +63,7 @@ struct ToolStats {
     }
 };
 
-// 会话级摘要
+
 struct SessionSummary {
     std::string session_id;
     std::size_t total_calls{0};
@@ -73,24 +73,24 @@ struct SessionSummary {
     Duration total_execution_time{0};
 };
 
-// 全局摘要
+
 struct GlobalSummary {
     std::size_t total_sessions{0};
     std::size_t total_calls{0};
     double overall_success_rate{1.0};
-    std::vector<ToolStats> top_tools;     // 按使用频率排序
-    std::vector<ToolStats> slowest_tools; // 按平均耗时排序
+    std::vector<ToolStats> top_tools;
+    std::vector<ToolStats> slowest_tools;
 };
 
 // ============================================================
-// ToolUseSummaryService - 工具使用统计
+
 // ============================================================
 
 class ToolUseSummaryService {
 public:
     ToolUseSummaryService() = default;
 
-    // 记录一次工具调用
+
     void record(ToolUseRecord record) {
         auto& stats = tool_stats_[record.tool_name];
         stats.tool_name = record.tool_name;
@@ -100,18 +100,18 @@ public:
         stats.total_time += record.elapsed;
         stats.min_time = std::min(stats.min_time, record.elapsed);
         stats.max_time = std::max(stats.max_time, record.elapsed);
-        // 追踪会话
+
         session_records_[record.session_id].push_back(std::move(record));
     }
 
-    // 获取某个工具的统计
+
     [[nodiscard]] std::optional<ToolStats> get_tool_stats(std::string_view tool_name) const {
         auto it = tool_stats_.find(std::string(tool_name));
         if (it == tool_stats_.end()) return std::nullopt;
         return it->second;
     }
 
-    // 获取会话级摘要
+
     [[nodiscard]] std::optional<SessionSummary> get_session_summary(std::string_view session_id) const {
         auto it = session_records_.find(std::string(session_id));
         if (it == session_records_.end()) return std::nullopt;
@@ -131,7 +131,7 @@ public:
         summary.unique_tools = tool_counts.size();
         summary.overall_success_rate = records.empty() ? 1.0 :
             static_cast<double>(successes) / static_cast<double>(records.size());
-        // 找到使用最多的工具
+
         if (!tool_counts.empty()) {
             auto max_it = std::ranges::max_element(tool_counts,
                 [](const auto& a, const auto& b) { return a.second < b.second; });
@@ -140,7 +140,7 @@ public:
         return summary;
     }
 
-    // 获取全局摘要
+
     [[nodiscard]] GlobalSummary get_global_summary(std::size_t top_n = 5) const {
         GlobalSummary summary;
         summary.total_sessions = session_records_.size();
@@ -151,21 +151,21 @@ public:
             summary.total_calls += stats.total_calls;
             all_stats.push_back(stats);
         }
-        // 按使用频率排序
+
         std::ranges::sort(all_stats, [](const auto& a, const auto& b) {
             return a.total_calls > b.total_calls;
         });
         summary.top_tools.assign(
             all_stats.begin(),
             all_stats.begin() + std::min(top_n, all_stats.size()));
-        // 按平均耗时排序
+
         std::ranges::sort(all_stats, [](const auto& a, const auto& b) {
             return a.avg_time() > b.avg_time();
         });
         summary.slowest_tools.assign(
             all_stats.begin(),
             all_stats.begin() + std::min(top_n, all_stats.size()));
-        // 总成功率
+
         std::size_t total_success = 0;
         for (const auto& [_, s] : tool_stats_) total_success += s.success_count;
         summary.overall_success_rate = summary.total_calls == 0 ? 1.0 :
@@ -173,7 +173,7 @@ public:
         return summary;
     }
 
-    // 重置统计
+
     void reset() noexcept {
         tool_stats_.clear();
         session_records_.clear();

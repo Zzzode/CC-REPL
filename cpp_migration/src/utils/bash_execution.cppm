@@ -150,6 +150,8 @@ inline std::string read_stream(FILE* stream) {
 
 } // namespace detail
 
+[[nodiscard]] inline auto escape_shell_arg(std::string_view arg) -> std::string;
+
 /// Execute a command synchronously and return the result
 [[nodiscard]] inline auto execute_command(
     std::string_view command,

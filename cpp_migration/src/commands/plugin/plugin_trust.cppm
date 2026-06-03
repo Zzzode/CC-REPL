@@ -14,11 +14,11 @@ export module cc.commands.plugin.plugin_trust;
 
 export namespace cc::commands {
 
-// 插件信任级别
+
 enum class TrustLevel {
-    Untrusted,  // 未受信任，功能受限
-    Trusted,    // 用户手动信任
-    Verified    // 官方验证
+    Untrusted,
+    Trusted,
+    Verified
 };
 
 auto trust_config_path() -> std::filesystem::path {
@@ -31,7 +31,7 @@ auto string_to_trust(std::string_view value) -> TrustLevel;
 auto read_trust_config() -> std::map<std::string, TrustLevel>;
 auto write_trust_config(const std::map<std::string, TrustLevel>& config) -> void;
 
-// 获取插件当前信任级别
+
 auto get_trust_level(std::string_view plugin_id) -> TrustLevel {
     if (plugin_id.empty()) {
         return TrustLevel::Untrusted;
@@ -41,7 +41,7 @@ auto get_trust_level(std::string_view plugin_id) -> TrustLevel {
     return found == config.end() ? TrustLevel::Untrusted : found->second;
 }
 
-// 设置插件信任级别
+
 auto set_trust_level(std::string_view plugin_id, TrustLevel level) -> void {
     if (plugin_id.empty()) {
         return;
@@ -51,7 +51,7 @@ auto set_trust_level(std::string_view plugin_id, TrustLevel level) -> void {
     write_trust_config(config);
 }
 
-// 弹出信任确认对话框，返回用户是否接受
+
 auto prompt_trust_dialog(std::string_view plugin_id, std::string_view permissions) -> bool {
     if (plugin_id.empty()) {
         return false;
@@ -62,7 +62,7 @@ auto prompt_trust_dialog(std::string_view plugin_id, std::string_view permission
     return false;
 }
 
-// 获取插件声明的权限列表
+
 auto get_plugin_permissions(std::string_view id) -> std::vector<std::string> {
     if (id.empty()) {
         return {};

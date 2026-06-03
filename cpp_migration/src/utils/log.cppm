@@ -16,7 +16,7 @@ export module cc.utils.log;
 
 export namespace cc::utils::log {
 
-// 日志级别
+
 enum class LogLevel {
     Debug,
     Info,
@@ -24,7 +24,7 @@ enum class LogLevel {
     Error
 };
 
-// 日志条目
+
 struct LogEntry {
     LogLevel level;
     std::string message;
@@ -33,13 +33,13 @@ struct LogEntry {
     int line;
 };
 
-// 错误日志条目
+
 struct ErrorEntry {
     std::string error;
     std::string timestamp;
 };
 
-// 错误日志接收器接口
+
 struct ErrorLogSink {
     virtual void log_error(const std::exception& e) = 0;
     virtual void log_mcp_error(const std::string& server_name, const std::exception& e) = 0;
@@ -49,7 +49,7 @@ struct ErrorLogSink {
 
 namespace detail {
 
-    // 内部状态
+
     inline std::vector<ErrorEntry>& get_in_memory_errors() {
         static std::vector<ErrorEntry> errors;
         return errors;
@@ -64,7 +64,7 @@ namespace detail {
 
 } // namespace detail
 
-// 获取当前时间戳字符串
+
 [[nodiscard]] inline std::string get_timestamp() {
     auto now = std::chrono::system_clock::now();
     std::time_t now_time = std::chrono::system_clock::to_time_t(now);
@@ -81,7 +81,7 @@ namespace detail {
     return oss.str();
 }
 
-// 日期转换为文件名安全格式
+
 [[nodiscard]] inline std::string date_to_filename(const std::chrono::system_clock::time_point& tp) {
     std::time_t time = std::chrono::system_clock::to_time_t(tp);
     std::tm tm;
@@ -97,7 +97,7 @@ namespace detail {
     return oss.str();
 }
 
-// 附加错误到内存日志
+
 inline void add_to_in_memory_errors(const std::string& error_msg) {
     auto& errors = detail::get_in_memory_errors();
     
@@ -110,7 +110,7 @@ inline void add_to_in_memory_errors(const std::string& error_msg) {
     errors.push_back(std::move(entry));
 }
 
-// 记录错误
+
 inline void log_error(const std::exception& e) {
     add_to_in_memory_errors(e.what());
     
@@ -120,7 +120,7 @@ inline void log_error(const std::exception& e) {
     }
 }
 
-// 记录错误（字符串版本）
+
 inline void log_error(const std::string& message) {
     try {
         throw std::runtime_error(message);
@@ -129,7 +129,7 @@ inline void log_error(const std::string& message) {
     }
 }
 
-// 记录 MCP 错误
+
 inline void log_mcp_error(const std::string& server_name, const std::exception& e) {
     std::string error_msg = "[" + server_name + "] " + e.what();
     add_to_in_memory_errors(error_msg);
@@ -140,7 +140,7 @@ inline void log_mcp_error(const std::string& server_name, const std::exception& 
     }
 }
 
-// 记录 MCP 调试信息
+
 inline void log_mcp_debug(const std::string& server_name, const std::string& message) {
     auto* sink = detail::get_error_sink();
     if (sink) {
@@ -148,24 +148,24 @@ inline void log_mcp_debug(const std::string& server_name, const std::string& mes
     }
 }
 
-// 获取内存中的错误列表
+
 [[nodiscard]] inline std::vector<ErrorEntry> get_in_memory_errors() {
     return detail::get_in_memory_errors();
 }
 
-// 附加错误日志接收器
+
 inline void attach_error_sink(ErrorLogSink* sink) {
     if (detail::get_error_sink() == nullptr) {
         detail::get_error_sink() = sink;
     }
 }
 
-// 清除内存中的错误（用于测试）
+
 inline void clear_in_memory_errors() {
     detail::get_in_memory_errors().clear();
 }
 
-// 简单的控制台日志（用于调试）
+
 inline void console_log(LogLevel level, const std::string& message) {
     const char* level_str = "";
     switch (level) {
@@ -178,7 +178,7 @@ inline void console_log(LogLevel level, const std::string& message) {
     std::clog << "[" << get_timestamp() << "] [" << level_str << "] " << message << std::endl;
 }
 
-// 便捷日志函数
+
 inline void debug(const std::string& message) {
     console_log(LogLevel::Debug, message);
 }

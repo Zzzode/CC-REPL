@@ -25,24 +25,24 @@ using cc::utils::ErrorCode;
 using cc::utils::Result;
 namespace fs = std::filesystem;
 
-// 文件状态信息
+
 struct FileStatus {
-    char index_status;    // 索引区状态 (M/A/D/R/C/U/?)
-    char worktree_status; // 工作区状态
+    char index_status;
+    char worktree_status;
     std::string path;
-    std::string orig_path; // 重命名时的原路径
+    std::string orig_path;
 };
 
-// 提交信息
+
 struct CommitInfo {
-    std::string hash;       // 完整 SHA
-    std::string short_hash; // 短 SHA (7字符)
+    std::string hash;
+    std::string short_hash;
     std::string author;
-    std::string date;       // ISO 格式
-    std::string message;    // 首行
+    std::string date;
+    std::string message;
 };
 
-// Git 仓库状态
+
 struct GitRepoState {
     std::string commit_hash;
     std::string branch_name;
@@ -58,11 +58,11 @@ struct CommandResult {
 };
 
 // =========================================================================
-// 内部: 执行 git 命令并获取输出
+
 // =========================================================================
 namespace detail {
 
-// 同步执行命令并捕获 stdout
+
 inline Result<std::string> exec_git(
     const std::string& args, const fs::path& cwd = {}) {
     std::string cmd = "git";
@@ -89,14 +89,14 @@ inline Result<std::string> exec_git(
             std::format("Git command failed (exit {}): {}", status, cmd)));
     }
 
-    // 去除尾部换行
+
     while (!output.empty() && output.back() == '\n') {
         output.pop_back();
     }
     return output;
 }
 
-// 按行分割
+
 inline std::vector<std::string> split_lines(std::string_view str) {
     std::vector<std::string> lines;
     std::size_t start = 0;
@@ -112,7 +112,7 @@ inline std::vector<std::string> split_lines(std::string_view str) {
 } // namespace detail
 
 // =========================================================================
-// 公共 API
+
 // =========================================================================
 
 [[nodiscard]] inline CommandResult run_git_command(const std::string& args, const fs::path& cwd = {}) {
@@ -142,14 +142,14 @@ inline std::vector<std::string> split_lines(std::string_view str) {
     return run_git_command(std::format("worktree remove --force \"{}\"", target_dir), source_cwd);
 }
 
-// 查找包含 .git 的祖先目录
+
 [[nodiscard]] inline std::optional<fs::path> find_git_root(const fs::path& path) {
     auto result = detail::exec_git("rev-parse --show-toplevel", path);
     if (!result.has_value()) return std::nullopt;
     return fs::path(*result);
 }
 
-// 不使用 git 命令，直接通过检查 .git 目录查找 git root
+
 [[nodiscard]] inline std::optional<fs::path> find_git_root_fs(const fs::path& start_path) {
     fs::path current = start_path;
     if (current.empty()) {
@@ -163,33 +163,33 @@ inline std::vector<std::string> split_lines(std::string_view str) {
         }
         fs::path parent = current.parent_path();
         if (parent == current) {
-            break; // 到达根目录
+            break;
         }
         current = parent;
     }
     return std::nullopt;
 }
 
-// 获取当前分支名
+
 [[nodiscard]] inline std::string get_branch(const fs::path& cwd = {}) {
     auto result = detail::exec_git("rev-parse --abbrev-ref HEAD", cwd);
     return result.has_value() ? *result : "";
 }
 
-// 获取文件状态列表
+
 [[nodiscard]] inline std::vector<FileStatus> get_status(const fs::path& cwd = {}) {
     auto result = detail::exec_git("status --porcelain=v1", cwd);
     if (!result.has_value()) return {};
 
     std::vector<FileStatus> statuses;
     for (auto& line : detail::split_lines(*result)) {
-        if (line.size() < 4) continue; // 最短: "XY path"
+        if (line.size() < 4) continue;
 
         FileStatus fs;
         fs.index_status = line[0];
         fs.worktree_status = line[1];
 
-        // 处理重命名 "R  old -> new"
+
         auto path_part = std::string_view(line).substr(3);
         auto arrow_pos = path_part.find(" -> ");
         if (arrow_pos != std::string_view::npos) {
@@ -203,7 +203,7 @@ inline std::vector<std::string> split_lines(std::string_view str) {
     return statuses;
 }
 
-// 获取更改的文件列表
+
 [[nodiscard]] inline std::vector<std::string> get_changed_files(const fs::path& cwd = {}) {
     auto statuses = get_status(cwd);
     std::vector<std::string> files;
@@ -213,17 +213,17 @@ inline std::vector<std::string> split_lines(std::string_view str) {
     return files;
 }
 
-// 获取 diff 输出
+
 [[nodiscard]] inline std::string get_diff(bool staged = false, const fs::path& cwd = {}) {
     std::string args = staged ? "diff --cached" : "diff";
     auto result = detail::exec_git(args, cwd);
     return result.has_value() ? *result : "";
 }
 
-// 获取最近的提交记录
+
 [[nodiscard]] inline std::vector<CommitInfo> get_log(
     std::size_t count = 10, const fs::path& cwd = {}) {
-    // 使用 %x00 作为字段分隔符，%x01 作为记录分隔符
+
     auto cmd = std::format(
         "log -n {} --format=\"%H%x00%h%x00%an%x00%aI%x00%s%x01\"", count);
     auto result = detail::exec_git(cmd, cwd);
@@ -232,7 +232,7 @@ inline std::vector<std::string> split_lines(std::string_view str) {
     std::vector<CommitInfo> commits;
     std::string_view data = *result;
 
-    // 按记录分隔符 \x01 切分
+
     std::size_t pos = 0;
     while (pos < data.size()) {
         auto record_end = data.find('\x01', pos);
@@ -241,13 +241,13 @@ inline std::vector<std::string> split_lines(std::string_view str) {
         auto record = data.substr(pos, record_end - pos);
         pos = record_end + 1;
 
-        // 跳过前导换行
+
         while (!record.empty() && record.front() == '\n') {
             record = record.substr(1);
         }
         if (record.empty()) continue;
 
-        // 按 \x00 分割字段
+
         CommitInfo info;
         std::size_t field_start = 0;
         int field_idx = 0;
@@ -272,20 +272,20 @@ inline std::vector<std::string> split_lines(std::string_view str) {
     return commits;
 }
 
-// 是否为 Git 仓库
+
 [[nodiscard]] inline bool is_git_repo(const fs::path& cwd = {}) {
     auto result = detail::exec_git("rev-parse --is-inside-work-tree", cwd);
     return result.has_value() && *result == "true";
 }
 
-// 获取 worktree 路径列表
+
 [[nodiscard]] inline std::vector<fs::path> get_worktree_paths(const fs::path& cwd = {}) {
     auto result = detail::exec_git("worktree list --porcelain", cwd);
     if (!result.has_value()) return {};
 
     std::vector<fs::path> paths;
     for (auto& line : detail::split_lines(*result)) {
-        // 格式: "worktree /path/to/worktree"
+
         if (line.starts_with("worktree ")) {
             paths.emplace_back(line.substr(9));
         }
@@ -293,12 +293,12 @@ inline std::vector<std::string> split_lines(std::string_view str) {
     return paths;
 }
 
-// 获取 worktree 数量
+
 [[nodiscard]] inline int get_worktree_count(const fs::path& cwd = {}) {
     return static_cast<int>(get_worktree_paths(cwd).size());
 }
 
-// 获取远程 URL
+
 [[nodiscard]] inline std::string get_remote_url(
     std::string_view remote = "origin", const fs::path& cwd = {}) {
     auto result = detail::exec_git(
@@ -306,13 +306,13 @@ inline std::vector<std::string> split_lines(std::string_view str) {
     return result.has_value() ? *result : "";
 }
 
-// 获取当前 HEAD commit hash
+
 [[nodiscard]] inline std::string get_head_hash(const fs::path& cwd = {}) {
     auto result = detail::exec_git("rev-parse HEAD", cwd);
     return result.has_value() ? *result : "";
 }
 
-// 检查是否是干净的工作区
+
 [[nodiscard]] inline bool is_clean(const fs::path& cwd = {}, bool ignore_untracked = false) {
     std::string args = "--no-optional-locks status --porcelain";
     if (ignore_untracked) {
@@ -322,13 +322,13 @@ inline std::vector<std::string> split_lines(std::string_view str) {
     return result.has_value() && result->empty();
 }
 
-// 检查 HEAD 是否在远程分支上
+
 [[nodiscard]] inline bool is_head_on_remote(const fs::path& cwd = {}) {
     auto result = detail::exec_git("rev-parse --verify @{u}", cwd);
     return result.has_value();
 }
 
-// 获取未推送的提交数量
+
 [[nodiscard]] inline int get_unpushed_commits_count(const fs::path& cwd = {}) {
     auto result = detail::exec_git("rev-list --count @{u}..HEAD", cwd);
     if (!result.has_value()) return 0;
@@ -339,7 +339,7 @@ inline std::vector<std::string> split_lines(std::string_view str) {
     }
 }
 
-// 规范化 Git 远程 URL (用于哈希计算等)
+
 [[nodiscard]] inline std::optional<std::string> normalize_git_remote_url(std::string_view url) {
     std::string trimmed(url);
     while (!trimmed.empty() && std::isspace(trimmed.back())) trimmed.pop_back();
@@ -347,13 +347,13 @@ inline std::vector<std::string> split_lines(std::string_view str) {
     
     if (trimmed.empty()) return std::nullopt;
     
-    // 处理 SSH 格式: git@host:owner/repo.git
+
     if (trimmed.starts_with("git@")) {
         size_t colon_pos = trimmed.find(':');
         if (colon_pos != std::string::npos) {
             std::string host = trimmed.substr(4, colon_pos - 4);
             std::string path = trimmed.substr(colon_pos + 1);
-            // 移除 .git 后缀
+
             if (path.ends_with(".git")) {
                 path.pop_back();
                 path.pop_back();
@@ -364,22 +364,22 @@ inline std::vector<std::string> split_lines(std::string_view str) {
         }
     }
     
-    // 处理 HTTP/HTTPS/SSH URL 格式
+
     if (trimmed.starts_with("http://") || trimmed.starts_with("https://") || trimmed.starts_with("ssh://")) {
         std::string_view rest = trimmed;
-        // 移除协议前缀
+
         if (rest.starts_with("http://")) rest = rest.substr(7);
         else if (rest.starts_with("https://")) rest = rest.substr(8);
         else if (rest.starts_with("ssh://")) rest = rest.substr(6);
         
-        // 移除可能的用户名/密码部分 (@ 之前的内容)
+
         size_t at_pos = std::string(rest).find('@');
         if (at_pos != std::string::npos) {
             rest = rest.substr(at_pos + 1);
         }
         
         std::string result(rest);
-        // 移除 .git 后缀
+
         if (result.ends_with(".git")) {
             result.pop_back();
             result.pop_back();
@@ -392,7 +392,7 @@ inline std::vector<std::string> split_lines(std::string_view str) {
     return std::nullopt;
 }
 
-// 获取 Git 仓库完整状态
+
 [[nodiscard]] inline std::optional<GitRepoState> get_git_state(const fs::path& cwd = {}) {
     if (!is_git_repo(cwd)) return std::nullopt;
     

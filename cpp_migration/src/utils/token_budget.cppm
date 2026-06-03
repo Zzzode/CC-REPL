@@ -1,5 +1,5 @@
 // C++23 Module: Token budget management
-// Token 预算管理：追踪和分配各类 token 使用量
+
 module;
 #include <cmath>
 #include <cstddef>
@@ -97,21 +97,21 @@ struct TokenBudgetPosition {
                        pct, format_with_commas(turn_tokens), format_with_commas(budget));
 }
 
-// Token 预算配置结构
-struct TokenBudget {
-    size_t max_context{128000};        // 最大上下文窗口
-    size_t max_output{4096};           // 最大输出 token 数
-    size_t reserved_for_tools{8000};   // 工具 schema 预留
-    size_t reserved_for_system{2000};  // 系统 prompt 预留
 
-    // 可用于用户消息的 token 数
+struct TokenBudget {
+    size_t max_context{128000};
+    size_t max_output{4096};
+    size_t reserved_for_tools{8000};
+    size_t reserved_for_system{2000};
+
+
     [[nodiscard]] size_t available_for_messages() const {
         auto reserved = reserved_for_tools + reserved_for_system + max_output;
         return max_context > reserved ? max_context - reserved : 0;
     }
 };
 
-// 使用量分类枚举
+
 enum class BudgetCategory : uint8_t {
     SystemPrompt,
     UserMessages,
@@ -121,20 +121,20 @@ enum class BudgetCategory : uint8_t {
     Reserved
 };
 
-// 分类使用量条目
+
 struct CategoryUsage {
     BudgetCategory category;
     size_t tokens_used{0};
     size_t tokens_limit{0};
 };
 
-// Token 估算器：基于字符的简单估算
+
 class TokenEstimator {
 public:
-    // 估算文本的 token 数 (简单的字符比率估算)
+
     [[nodiscard]] size_t estimate_tokens(std::string_view text) const {
         if (text.empty()) return 0;
-        // 英文约 4 字符/token，中文约 2 字符/token
+
         size_t ascii_chars = 0;
         size_t non_ascii_chars = 0;
 
@@ -143,33 +143,33 @@ public:
             else ++non_ascii_chars;
         }
 
-        // 中文字符按 UTF-8 编码约 3 字节/字，每字约 1 token
+
         size_t cjk_tokens = non_ascii_chars / 3;
         size_t ascii_tokens = ascii_chars / 4;
 
-        return ascii_tokens + cjk_tokens + 1;  // +1 避免零
+        return ascii_tokens + cjk_tokens + 1;
     }
 
-    // 估算一条消息的 token 数 (含开销)
+
     [[nodiscard]] size_t estimate_message_tokens(
         std::string_view role, std::string_view content) const {
-        // 每条消息有固定开销 (role 标记、分隔符等)
+
         constexpr size_t message_overhead = 4;
         return message_overhead + estimate_tokens(role) + estimate_tokens(content);
     }
 
-    // 估算工具 schema 的 token 数
+
     [[nodiscard]] size_t estimate_tool_schema_tokens(
         const std::vector<std::string>& tool_schemas) const {
         size_t total = 0;
         for (const auto& schema : tool_schemas) {
-            // JSON schema 通常比纯文本更密集
-            total += estimate_tokens(schema) + 10;  // 每个工具额外开销
+
+            total += estimate_tokens(schema) + 10;
         }
         return total;
     }
 
-    // 设置每 token 平均字符数 (可调参)
+
     void set_chars_per_token(double ratio) {
         chars_per_token_ = ratio;
     }
@@ -178,12 +178,12 @@ private:
     double chars_per_token_{4.0};
 };
 
-// 预算分配报告
+
 struct UsageReport {
     std::vector<CategoryUsage> categories;
     size_t total_used{0};
     size_t total_limit{0};
-    double utilization{0.0};  // 使用率 (0.0 ~ 1.0)
+    double utilization{0.0};
 
     [[nodiscard]] std::string format() const {
         std::string report = std::format("Token Usage: {}/{} ({:.1f}%)\n",
@@ -209,12 +209,12 @@ private:
     }
 };
 
-// 预算管理器：分配、追踪和报告 token 使用情况
+
 class BudgetManager {
 public:
     explicit BudgetManager(TokenBudget budget = {})
         : budget_(budget) {
-        // 初始化各分类的限额
+
         allocations_ = {
             {BudgetCategory::SystemPrompt,      0, budget_.reserved_for_system},
             {BudgetCategory::UserMessages,      0, budget_.available_for_messages() / 2},
@@ -225,7 +225,7 @@ public:
         };
     }
 
-    // 为某分类分配 token，返回剩余可用量
+
     [[nodiscard]] size_t allocate(BudgetCategory category, size_t tokens) {
         for (auto& alloc : allocations_) {
             if (alloc.category == category) {
@@ -238,12 +238,12 @@ public:
         return 0;
     }
 
-    // 检查是否可容纳指定数量的 token
+
     [[nodiscard]] bool can_fit(size_t tokens) const {
         return (total_used_ + tokens) <= budget_.max_context;
     }
 
-    // 生成使用报告
+
     [[nodiscard]] UsageReport usage_report() const {
         UsageReport report;
         report.categories = allocations_;
@@ -255,9 +255,9 @@ public:
         return report;
     }
 
-    // 判断是否应该压缩上下文
+
     [[nodiscard]] bool should_compact() const {
-        // 当使用率超过 80% 时建议压缩
+
         constexpr double compact_threshold = 0.80;
         double utilization = budget_.max_context > 0
             ? static_cast<double>(total_used_) / static_cast<double>(budget_.max_context)
@@ -265,13 +265,13 @@ public:
         return utilization > compact_threshold;
     }
 
-    // 获取剩余可用 token 数
+
     [[nodiscard]] size_t remaining() const {
         return budget_.max_context > total_used_
             ? budget_.max_context - total_used_ : 0;
     }
 
-    // 重置所有使用量
+
     void reset() {
         total_used_ = 0;
         for (auto& alloc : allocations_) {
@@ -279,13 +279,13 @@ public:
         }
     }
 
-    // 获取预算配置
+
     [[nodiscard]] const TokenBudget& budget() const { return budget_; }
 
-    // 更新预算配置 (切换模型时)
+
     void update_budget(TokenBudget new_budget) {
         budget_ = new_budget;
-        // 重新计算限额
+
         allocations_[0].tokens_limit = budget_.reserved_for_system;
         allocations_[1].tokens_limit = budget_.available_for_messages() / 2;
         allocations_[2].tokens_limit = budget_.available_for_messages() / 2;

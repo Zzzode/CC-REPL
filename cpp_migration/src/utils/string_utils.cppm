@@ -13,7 +13,7 @@ export module cc.utils.string_utils;
 
 export namespace cc::utils {
 
-// 去除字符串首尾空白字符
+
 [[nodiscard]] inline std::string trim(std::string_view sv) {
     auto start = sv.find_first_not_of(" \t\n\r\f\v");
     if (start == std::string_view::npos) return {};
@@ -21,7 +21,7 @@ export namespace cc::utils {
     return std::string(sv.substr(start, end - start + 1));
 }
 
-// 按分隔符拆分字符串
+
 [[nodiscard]] inline std::vector<std::string> split(std::string_view sv, char delimiter) {
     std::vector<std::string> result;
     size_t start = 0;
@@ -37,11 +37,11 @@ export namespace cc::utils {
     return result;
 }
 
-// 用分隔符连接字符串数组
+
 [[nodiscard]] inline std::string join(std::span<const std::string> parts, std::string_view separator) {
     if (parts.empty()) return {};
     std::string result;
-    // 预估总长度以减少内存分配
+
     size_t total = 0;
     for (const auto& p : parts) total += p.size();
     total += separator.size() * (parts.size() - 1);
@@ -55,7 +55,7 @@ export namespace cc::utils {
     return result;
 }
 
-// 不区分大小写的前缀匹配
+
 [[nodiscard]] inline bool starts_with_ignore_case(std::string_view str, std::string_view prefix) {
     if (str.size() < prefix.size()) return false;
     for (size_t i = 0; i < prefix.size(); ++i) {
@@ -67,7 +67,7 @@ export namespace cc::utils {
     return true;
 }
 
-// 不区分大小写的包含检测
+
 [[nodiscard]] inline bool contains_ignore_case(std::string_view str, std::string_view needle) {
     if (needle.empty()) return true;
     if (str.size() < needle.size()) return false;
@@ -85,7 +85,7 @@ export namespace cc::utils {
     return false;
 }
 
-// 重复字符串n次
+
 [[nodiscard]] inline std::string repeat(std::string_view sv, int count) {
     if (count <= 0) return {};
     std::string result;
@@ -96,19 +96,19 @@ export namespace cc::utils {
     return result;
 }
 
-// 左填充到指定宽度
+
 [[nodiscard]] inline std::string pad_left(std::string_view sv, size_t width, char fill = ' ') {
     if (sv.size() >= width) return std::string(sv);
     return std::string(width - sv.size(), fill) + std::string(sv);
 }
 
-// 右填充到指定宽度
+
 [[nodiscard]] inline std::string pad_right(std::string_view sv, size_t width, char fill = ' ') {
     if (sv.size() >= width) return std::string(sv);
     return std::string(sv) + std::string(width - sv.size(), fill);
 }
 
-// 转换为小写
+
 [[nodiscard]] inline std::string to_lower(std::string_view sv) {
     std::string result(sv);
     std::transform(result.begin(), result.end(), result.begin(),
@@ -116,7 +116,7 @@ export namespace cc::utils {
     return result;
 }
 
-// 转换为大写
+
 [[nodiscard]] inline std::string to_upper(std::string_view sv) {
     std::string result(sv);
     std::transform(result.begin(), result.end(), result.begin(),
@@ -124,7 +124,7 @@ export namespace cc::utils {
     return result;
 }
 
-// 替换所有匹配子串
+
 [[nodiscard]] inline std::string replace_all(std::string str, std::string_view from, std::string_view to) {
     if (from.empty()) return str;
     size_t pos = 0;

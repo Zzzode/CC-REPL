@@ -11,21 +11,21 @@ export module cc.commands.remote_commands;
 
 export namespace cc::commands {
 
-// 命令执行结果
+
 struct CommandResult {
     bool success{true};
     std::string output;
     std::optional<std::string> error;
 };
 
-// /bridge — IDE 桥接管理
+
 struct BridgeCommand {
     static constexpr auto name() -> std::string_view { return "bridge"; }
     static constexpr auto description() -> std::string_view { return "管理 IDE 桥接连接"; }
     static constexpr auto aliases() { return std::array<std::string_view, 0>{}; }
 
     auto execute(std::string_view args) -> CommandResult {
-        // 子命令: list, connect <port>, disconnect, status
+
         if (args.empty() || args == "status") {
             return {.success = true, .output = "Bridge: 未连接"};
         }
@@ -38,7 +38,7 @@ struct BridgeCommand {
     }
 };
 
-// /extra-usage — 额外用量管理
+
 struct ExtraUsageCommand {
     static constexpr auto name() -> std::string_view { return "extra-usage"; }
     static constexpr auto description() -> std::string_view { return "管理额外 API 用量额度"; }
@@ -53,14 +53,14 @@ struct ExtraUsageCommand {
     }
 };
 
-// /install-github-app — GitHub App 安装向导
+
 struct InstallGithubAppCommand {
     static constexpr auto name() -> std::string_view { return "install-github-app"; }
     static constexpr auto description() -> std::string_view { return "安装 GitHub App 集成"; }
     static constexpr auto aliases() { return std::array<std::string_view, 1>{"iga"}; }
 
     auto execute(std::string_view /*args*/) -> CommandResult {
-        // 多步骤向导: OAuth -> 选择仓库 -> 安装 -> 配置 Secrets
+
         return {.success = true, .output = "GitHub App 安装向导启动...\n"
                 "步骤 1/5: 检查 GitHub 连接状态\n"
                 "步骤 2/5: OAuth 授权\n"
@@ -70,14 +70,14 @@ struct InstallGithubAppCommand {
     }
 };
 
-// /remote-env — 远程环境变量
+
 struct RemoteEnvCommand {
     static constexpr auto name() -> std::string_view { return "remote-env"; }
     static constexpr auto description() -> std::string_view { return "管理远程会话环境变量"; }
     static constexpr auto aliases() { return std::array<std::string_view, 0>{}; }
 
     auto execute(std::string_view args) -> CommandResult {
-        // 子命令: list, set KEY=VALUE, unset KEY
+
         if (args.empty() || args == "list") {
             return {.success = true, .output = "远程环境变量: (空)"};
         }
@@ -85,7 +85,7 @@ struct RemoteEnvCommand {
     }
 };
 
-// /remote-setup — 远程环境配置向导
+
 struct RemoteSetupCommand {
     static constexpr auto name() -> std::string_view { return "remote-setup"; }
     static constexpr auto description() -> std::string_view { return "配置远程会话环境"; }
@@ -100,14 +100,14 @@ struct RemoteSetupCommand {
     }
 };
 
-// /pr-comments — PR 评论管理
+
 struct PrCommentsCommand {
     static constexpr auto name() -> std::string_view { return "pr-comments"; }
     static constexpr auto description() -> std::string_view { return "查看和管理 PR 评论"; }
     static constexpr auto aliases() { return std::array<std::string_view, 1>{"prc"}; }
 
     auto execute(std::string_view args) -> CommandResult {
-        // 子命令: list, reply <id> <text>, resolve <id>
+
         if (args.empty() || args == "list") {
             return {.success = true, .output = "未检测到待处理的 PR 评论"};
         }
@@ -115,7 +115,7 @@ struct PrCommentsCommand {
     }
 };
 
-// /passes — Rate limit pass 管理
+
 struct PassesCommand {
     static constexpr auto name() -> std::string_view { return "passes"; }
     static constexpr auto description() -> std::string_view { return "管理限流 Pass"; }
@@ -132,7 +132,7 @@ struct PassesCommand {
     }
 };
 
-// /rate-limit-options — 限流选项配置
+
 struct RateLimitOptionsCommand {
     static constexpr auto name() -> std::string_view { return "rate-limit-options"; }
     static constexpr auto description() -> std::string_view { return "配置限流行为和显示选项"; }
@@ -147,7 +147,7 @@ struct RateLimitOptionsCommand {
     }
 };
 
-// /version — 版本信息
+
 struct VersionCommand {
     static constexpr auto name() -> std::string_view { return "version"; }
     static constexpr auto description() -> std::string_view { return "显示版本和构建信息"; }
@@ -161,7 +161,7 @@ struct VersionCommand {
     }
 };
 
-// 注册所有远程命令
+
 inline auto get_remote_commands() -> std::vector<std::string_view> {
     return {"bridge", "extra-usage", "install-github-app", "remote-env",
             "remote-setup", "pr-comments", "passes", "rate-limit-options", "version"};

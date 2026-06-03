@@ -56,7 +56,7 @@ public:
             .args = {
                 CommandArg{.name = "action", .description = "Subcommand: list, get, set, open, path",
                            .type = ArgType::Choice, .required = false,
-                           .choices = {{"list", "get", "set", "open", "path"}}},
+                           .choices = {"list", "get", "set", "open", "path"}},
                 CommandArg{.name = "key", .description = "Configuration key (for get/set)",
                            .type = ArgType::Text, .required = false},
                 CommandArg{.name = "value", .description = "New value (for set)",

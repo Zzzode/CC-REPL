@@ -51,7 +51,7 @@ public:
             .args = {
                 CommandArg{.name = "section", .description = "tokens | cost | time | limits | all",
                            .type = ArgType::Choice, .required = false,
-                           .choices = {{"tokens", "cost", "time", "limits", "all"}}},
+                           .choices = {"tokens", "cost", "time", "limits", "all"}},
             },
             .hidden = false,
             .category = "session",

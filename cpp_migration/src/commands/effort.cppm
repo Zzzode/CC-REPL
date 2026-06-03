@@ -32,7 +32,7 @@ public:
             .args = {
                 CommandArg{.name = "level", .description = "Effort level: low, medium, high, max, auto",
                            .type = ArgType::Choice, .required = false,
-                           .choices = {{"low", "medium", "high", "max", "auto"}}},
+                           .choices = {"low", "medium", "high", "max", "auto"}},
             },
             .hidden = false,
             .category = "configuration",

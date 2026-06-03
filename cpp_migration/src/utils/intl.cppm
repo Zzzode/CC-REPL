@@ -13,7 +13,7 @@ export module cc.utils.intl;
 
 export namespace cc::utils {
 
-// 格式化数字（带千位分隔符）
+
 [[nodiscard]] inline std::string format_number(int64_t value) {
     bool negative = value < 0;
     uint64_t abs_val = negative ? static_cast<uint64_t>(-value) : static_cast<uint64_t>(value);
@@ -32,12 +32,12 @@ export namespace cc::utils {
     }
     if (negative) result += '-';
 
-    // 反转结果
+
     std::reverse(result.begin(), result.end());
     return result;
 }
 
-// 格式化字节大小为人类可读格式
+
 [[nodiscard]] inline std::string format_bytes(size_t bytes) {
     constexpr std::array<const char*, 6> units = {"B", "KB", "MB", "GB", "TB", "PB"};
     if (bytes == 0) return "0 B";
@@ -50,7 +50,7 @@ export namespace cc::utils {
         ++unit_idx;
     }
 
-    // 格式化：小于10保留两位小数，小于100保留一位，否则整数
+
     std::ostringstream oss;
     if (unit_idx == 0) {
         oss << bytes << " " << units[unit_idx];
@@ -64,7 +64,7 @@ export namespace cc::utils {
     return oss.str();
 }
 
-// 格式化时间间隔为可读形式 (e.g., "2m 30s")
+
 [[nodiscard]] inline std::string format_duration(std::chrono::milliseconds ms) {
     using namespace std::chrono;
 
@@ -107,7 +107,7 @@ export namespace cc::utils {
     return result;
 }
 
-// 格式化相对时间 (e.g., "5 minutes ago", "in 3 hours")
+
 [[nodiscard]] inline std::string format_relative_time(std::chrono::system_clock::time_point tp) {
     using namespace std::chrono;
     auto now = system_clock::now();
@@ -130,7 +130,7 @@ export namespace cc::utils {
     return format(abs_seconds / 31536000, "year");
 }
 
-// 格式化日期为 ISO 格式 (YYYY-MM-DD)
+
 [[nodiscard]] inline std::string format_date(std::chrono::system_clock::time_point tp) {
     auto time_t_val = std::chrono::system_clock::to_time_t(tp);
     std::tm tm_val{};

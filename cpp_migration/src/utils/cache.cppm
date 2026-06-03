@@ -13,7 +13,7 @@ export module cc.utils.cache;
 
 export namespace cc::utils::cache {
 
-// 缓存条目
+
 template<typename T>
 struct CacheEntry {
     T value;
@@ -22,7 +22,7 @@ struct CacheEntry {
     std::size_t access_count;
 };
 
-// 内存 LRU 缓存
+
 template<typename K, typename V>
 class LRUCache {
 public:
@@ -33,25 +33,25 @@ public:
     explicit LRUCache(size_type max_size = 1000) 
         : max_size_(max_size) {}
 
-    // 设置缓存值
+
     void set(const K& key, const V& value) {
-        // 检查是否已存在
+
         auto map_it = cache_map_.find(key);
         if (map_it != cache_map_.end()) {
-            // 移除旧条目
+
             access_order_.erase(map_it->second);
             cache_map_.erase(map_it);
         }
 
-        // 检查容量
+
         if (cache_map_.size() >= max_size_) {
-            // 移除最久未使用的
+
             const auto& oldest_key = access_order_.back();
             cache_map_.erase(oldest_key);
             access_order_.pop_back();
         }
 
-        // 添加新条目
+
         access_order_.push_front(key);
         CacheEntry<V> entry{
             value,
@@ -63,20 +63,20 @@ public:
         entries_.insert({key, std::move(entry)});
     }
 
-    // 获取缓存值
+
     std::optional<V> get(const K& key) {
         auto map_it = cache_map_.find(key);
         if (map_it == cache_map_.end()) {
             return std::nullopt;
         }
 
-        // 更新访问顺序
+
         auto entry_it = map_it->second;
         access_order_.erase(entry_it);
         access_order_.push_front(key);
         cache_map_[key] = access_order_.begin();
 
-        // 更新访问记录
+
         auto& entry = entries_.at(key);
         entry.last_accessed = std::chrono::steady_clock::now();
         entry.access_count++;
@@ -84,12 +84,12 @@ public:
         return entry.value;
     }
 
-    // 检查是否存在
+
     bool has(const K& key) const {
         return cache_map_.count(key) > 0;
     }
 
-    // 删除缓存
+
     void remove(const K& key) {
         auto map_it = cache_map_.find(key);
         if (map_it != cache_map_.end()) {
@@ -99,27 +99,27 @@ public:
         }
     }
 
-    // 清空缓存
+
     void clear() {
         cache_map_.clear();
         access_order_.clear();
         entries_.clear();
     }
 
-    // 获取当前大小
+
     size_type size() const {
         return cache_map_.size();
     }
 
-    // 获取最大大小
+
     size_type max_size() const {
         return max_size_;
     }
 
-    // 设置最大大小
+
     void set_max_size(size_type new_size) {
         max_size_ = new_size;
-        // 必要时收缩
+
         while (cache_map_.size() > max_size_) {
             const auto& oldest_key = access_order_.back();
             cache_map_.erase(oldest_key);
@@ -135,7 +135,7 @@ private:
     std::unordered_map<K, CacheEntry<V>> entries_;
 };
 
-// 简单的键值缓存（无过期时间）
+
 template<typename K, typename V>
 class SimpleCache {
 public:
@@ -171,7 +171,7 @@ private:
     std::unordered_map<K, V> cache_;
 };
 
-// 带过期时间的缓存
+
 template<typename K, typename V>
 class TTLTimeCache {
 public:
@@ -195,14 +195,14 @@ public:
             return std::nullopt;
         }
 
-        // 检查过期
+
         auto now = std::chrono::steady_clock::now();
         if (now - it->second.created_at > ttl_) {
             cache_.erase(it);
             return std::nullopt;
         }
 
-        // 更新访问时间
+
         it->second.last_accessed = now;
         it->second.access_count++;
         return it->second.value;
@@ -220,7 +220,7 @@ public:
         cache_.clear();
     }
 
-    // 清理过期条目
+
     std::size_t cleanup() {
         std::size_t removed = 0;
         auto now = std::chrono::steady_clock::now();

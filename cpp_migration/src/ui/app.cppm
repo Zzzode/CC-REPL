@@ -33,6 +33,7 @@ import cc.types.types;
 import cc.query.query_engine;
 import cc.types.command;
 import cc.commands.command;
+import cc.commands.registry;
 import cc.utils.session_storage;
 import cc.ui.components;
 import cc.ui.components_extended;
@@ -175,7 +176,7 @@ class AppComponent : public ComponentBase {
 private:
     AppState state_;
     core::QueryEngine* engine_;
-    CommandRegistry* cmd_registry_;
+    cc::commands::AppCommandRegistry* cmd_registry_;
     utils::SessionStorage* storage_;
     std::function<void()> on_exit_;
 
@@ -216,7 +217,7 @@ private:
 
 public:
     AppComponent(core::QueryEngine* engine,
-                 CommandRegistry* cmd_registry,
+                 cc::commands::AppCommandRegistry* cmd_registry,
                  utils::SessionStorage* storage,
                  std::function<void()> on_exit)
         : engine_(engine),
@@ -471,7 +472,7 @@ public:
 
         // Delegate to command registry for all other commands
         if (cmd_registry_) {
-            auto result = cmd_registry_->execute(std::string(cmd));
+            auto result = cmd_registry_->execute(std::string(cmd), CommandContext{});
             if (result) {
                 // Handle special result types
                 if (result->status == CommandStatus::Injected) {
@@ -485,7 +486,7 @@ public:
                 }
                 state_.status_message = result->message;
             } else {
-                state_.status_message = std::format("Unknown command: {}", cmd);
+                state_.status_message = result.error().message;
             }
         } else {
             state_.status_message = std::format("Unknown command: {}", cmd);
@@ -778,7 +779,7 @@ public:
 /// Run the main interactive application
 [[nodiscard]] int RunApp(
     core::QueryEngine& engine,
-    CommandRegistry& cmd_registry,
+    cc::commands::AppCommandRegistry& cmd_registry,
     utils::SessionStorage& storage,
     cc::hooks::ToolPermissionHook* permission_hook = nullptr
 ) {

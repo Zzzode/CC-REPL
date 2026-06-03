@@ -9,15 +9,17 @@ export module cc.hooks.notifs.deprecation_warning;
 
 export namespace cc::hooks::notifs {
 
+inline bool is_deprecation_dismissed(std::string_view model);
+
 namespace detail {
-    // 已被用户关闭的废弃警告集合
+    // Models whose deprecation warning has been dismissed by the user.
     inline std::unordered_set<std::string>& dismissed_models() {
         static std::unordered_set<std::string> s;
         return s;
     }
 } // namespace detail
 
-// 检查当前是否存在废弃警告（如已废弃的模型名）
+// Check whether the current model set contains deprecated model names.
 inline std::vector<std::string> check_deprecation_warnings() {
     // Known deprecated models that should trigger migration warnings
     static const std::vector<std::string> deprecated_models = {
@@ -35,7 +37,7 @@ inline std::vector<std::string> check_deprecation_warnings() {
     return warnings;
 }
 
-// 展示模型废弃通知，提示用户迁移到替代模型
+// Show a model deprecation notification with a replacement hint.
 inline void show_deprecation_notification(std::string_view model, std::string_view replacement) {
     if (is_deprecation_dismissed(model)) return;
     std::fprintf(stderr, "[WARNING] Model '%.*s' is deprecated. Please migrate to '%.*s'.\n",
@@ -43,7 +45,7 @@ inline void show_deprecation_notification(std::string_view model, std::string_vi
                  static_cast<int>(replacement.size()), replacement.data());
 }
 
-// 判断某个模型的废弃通知是否已被用户关闭
+// Return whether a model deprecation warning has been dismissed.
 inline bool is_deprecation_dismissed(std::string_view model) {
     return detail::dismissed_models().contains(std::string(model));
 }

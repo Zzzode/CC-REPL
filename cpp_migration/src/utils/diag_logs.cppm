@@ -15,7 +15,7 @@ export module cc.utils.diag_logs;
 
 export namespace cc::utils {
 
-// 诊断日志条目
+
 struct DiagEntry {
     std::chrono::system_clock::time_point time;
     std::string category;
@@ -23,7 +23,7 @@ struct DiagEntry {
     std::map<std::string, std::string> metadata;
 };
 
-// 诊断日志收集器（环形缓冲区实现）
+
 class DiagCollector {
 public:
     explicit DiagCollector(size_t capacity = 1000)
@@ -31,20 +31,20 @@ public:
         buffer_.reserve(capacity);
     }
 
-    // 添加诊断条目
+
     void add_diag(DiagEntry entry) {
         std::lock_guard lock(mutex_);
         if (buffer_.size() < capacity_) {
             buffer_.push_back(std::move(entry));
         } else {
-            // 环形覆盖最老的条目
+
             buffer_[write_pos_] = std::move(entry);
         }
         write_pos_ = (write_pos_ + 1) % capacity_;
         total_count_++;
     }
 
-    // 添加简单的诊断消息
+
     void add(std::string_view category, std::string_view message,
              std::map<std::string, std::string> metadata = {}) {
         add_diag(DiagEntry{
@@ -55,7 +55,7 @@ public:
         });
     }
 
-    // 获取最近的 n 条记录（按时间倒序）
+
     [[nodiscard]] std::vector<DiagEntry> get_recent(size_t n) const {
         std::lock_guard lock(mutex_);
         std::vector<DiagEntry> result;
@@ -63,13 +63,13 @@ public:
         result.reserve(count);
 
         if (buffer_.size() < capacity_) {
-            // 缓冲区未满，从末尾取
+
             size_t start = buffer_.size() > count ? buffer_.size() - count : 0;
             for (size_t i = buffer_.size(); i > start; --i) {
                 result.push_back(buffer_[i - 1]);
             }
         } else {
-            // 缓冲区已满，从 write_pos 回溯
+
             for (size_t i = 0; i < count; ++i) {
                 size_t idx = (write_pos_ + capacity_ - 1 - i) % capacity_;
                 result.push_back(buffer_[idx]);
@@ -78,22 +78,22 @@ public:
         return result;
     }
 
-    // 获取总计条目数
+
     [[nodiscard]] size_t total() const {
         std::lock_guard lock(mutex_);
         return total_count_;
     }
 
-    // 获取当前缓冲区大小
+
     [[nodiscard]] size_t size() const {
         std::lock_guard lock(mutex_);
         return buffer_.size();
     }
 
-    // 将诊断日志转储到文件
+
     void dump_to_file(const std::filesystem::path& path) const {
         std::lock_guard lock(mutex_);
-        // 确保父目录存在
+
         if (auto parent = path.parent_path(); !parent.empty()) {
             std::filesystem::create_directories(parent);
         }
@@ -101,7 +101,7 @@ public:
         std::ofstream file(path, std::ios::trunc);
         if (!file.is_open()) return;
 
-        // 按时间顺序输出
+
         auto entries = get_ordered_entries();
         for (const auto& entry : entries) {
             auto time_t_val = std::chrono::system_clock::to_time_t(entry.time);
@@ -131,7 +131,7 @@ public:
         }
     }
 
-    // 清空所有记录
+
     void clear() {
         std::lock_guard lock(mutex_);
         buffer_.clear();
@@ -146,7 +146,7 @@ private:
     size_t total_count_ = 0;
     mutable std::mutex mutex_;
 
-    // 获取按时间排序的所有条目（需持有锁）
+
     [[nodiscard]] std::vector<DiagEntry> get_ordered_entries() const {
         std::vector<DiagEntry> entries;
         if (buffer_.size() < capacity_) {

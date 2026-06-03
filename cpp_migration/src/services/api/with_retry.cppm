@@ -167,10 +167,27 @@ public:
 
 private:
     [[nodiscard]] ApiErrorDetails extract_error_details(const cc::utils::Error& error) {
-        // In real implementation, extract details from the error
         ApiErrorDetails details;
         details.error_message = error.message();
-        details.category = cc::services::api::errors::ApiErrorCategory::Unknown;
+        switch (error.code()) {
+            case cc::utils::ErrorCode::network_error:
+            case cc::utils::ErrorCode::unavailable:
+                details.category = cc::services::api::errors::ApiErrorCategory::NetworkError;
+                details.error_type = "network_error";
+                break;
+            case cc::utils::ErrorCode::timeout:
+                details.category = cc::services::api::errors::ApiErrorCategory::NetworkError;
+                details.error_type = "timeout";
+                break;
+            case cc::utils::ErrorCode::permission_denied:
+                details.category = cc::services::api::errors::ApiErrorCategory::Authentication;
+                details.error_type = "authentication_error";
+                break;
+            default:
+                details.category = cc::services::api::errors::ApiErrorCategory::Unknown;
+                details.error_type = "api_error";
+                break;
+        }
         return details;
     }
 

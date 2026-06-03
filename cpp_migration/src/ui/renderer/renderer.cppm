@@ -16,6 +16,9 @@ module;
 #include <cstdint>
 #include <mutex>
 #include <expected>
+#include <deque>
+#include <sstream>
+#include <format>
 
 export module cc.ui.renderer;
 
@@ -91,6 +94,19 @@ public:
     void request_render() {
         std::lock_guard<std::mutex> lock(mutex_);
         dirty_ = true;
+        if (render_callback_) {
+            last_frame_ = RenderFrame{
+                .buffer = render_callback_(),
+                .timestamp = std::chrono::steady_clock::now(),
+                .frame_id = ++frame_count_,
+            };
+            frame_times_.push_back(last_frame_->timestamp);
+            auto cutoff = last_frame_->timestamp - std::chrono::seconds(1);
+            while (!frame_times_.empty() && frame_times_.front() < cutoff) {
+                frame_times_.pop_front();
+            }
+            dirty_ = false;
+        }
     }
 
     void set_render_callback(std::function<ScreenBuffer()> callback) {
@@ -99,8 +115,11 @@ public:
     }
 
     double get_fps() const {
-        // Stub: return configured max as nominal fps
-        return static_cast<double>(config_.max_fps);
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (frame_times_.size() < 2) return 0.0;
+        auto elapsed = std::chrono::duration<double>(frame_times_.back() - frame_times_.front()).count();
+        if (elapsed <= 0.0) return 0.0;
+        return static_cast<double>(frame_times_.size() - 1) / elapsed;
     }
 
     bool is_running() const {
@@ -113,6 +132,11 @@ public:
         return frame_count_;
     }
 
+    [[nodiscard]] std::optional<RenderFrame> last_frame() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return last_frame_;
+    }
+
 private:
     RenderConfig config_;
     mutable std::mutex mutex_;
@@ -120,6 +144,8 @@ private:
     bool dirty_ = false;
     uint64_t frame_count_ = 0;
     std::function<ScreenBuffer()> render_callback_;
+    std::deque<std::chrono::steady_clock::time_point> frame_times_;
+    std::optional<RenderFrame> last_frame_;
 };
 
 // ---------------------------------------------------------------------------
@@ -128,37 +154,99 @@ private:
 
 class ScreenOptimizer {
 public:
-    std::vector<DirtyRegion> optimize(
-        [[maybe_unused]] const ScreenBuffer& prev,
-        const ScreenBuffer& curr) {
+    [[nodiscard]] static auto cell_equal(const OutputCell& a, const OutputCell& b) -> bool {
+        return a.ch == b.ch &&
+               a.fg_r == b.fg_r && a.fg_g == b.fg_g && a.fg_b == b.fg_b &&
+               a.bg_r == b.bg_r && a.bg_g == b.bg_g && a.bg_b == b.bg_b &&
+               a.bold == b.bold && a.italic == b.italic && a.underline == b.underline &&
+               a.dim == b.dim && a.inverse == b.inverse && a.strikethrough == b.strikethrough;
+    }
 
-        // Stub: mark entire screen as dirty
+    std::vector<DirtyRegion> optimize(
+        const ScreenBuffer& prev,
+        const ScreenBuffer& curr) {
         std::vector<DirtyRegion> regions;
-        if (curr.height > 0 && curr.width > 0) {
+        if (curr.height <= 0 || curr.width <= 0) return regions;
+        if (prev.width != curr.width || prev.height != curr.height) {
             regions.push_back(DirtyRegion{0, 0, curr.width, curr.height});
+            return regions;
+        }
+
+        for (int y = 0; y < curr.height; ++y) {
+            const OutputLine* curr_line = y < static_cast<int>(curr.lines.size()) ? &curr.lines[y] : nullptr;
+            const OutputLine* prev_line = y < static_cast<int>(prev.lines.size()) ? &prev.lines[y] : nullptr;
+            int run_start = -1;
+            for (int x = 0; x < curr.width; ++x) {
+                OutputCell curr_cell = curr_line && x < static_cast<int>(curr_line->size()) ? (*curr_line)[x] : OutputCell{};
+                OutputCell prev_cell = prev_line && x < static_cast<int>(prev_line->size()) ? (*prev_line)[x] : OutputCell{};
+                bool changed = !cell_equal(curr_cell, prev_cell);
+                if (changed && run_start < 0) run_start = x;
+                if ((!changed || x == curr.width - 1) && run_start >= 0) {
+                    int end = changed && x == curr.width - 1 ? x + 1 : x;
+                    regions.push_back(DirtyRegion{run_start, y, end - run_start, 1});
+                    run_start = -1;
+                }
+            }
         }
         return regions;
     }
 
     std::string generate_diff_output(
-        [[maybe_unused]] const ScreenBuffer& prev,
+        const ScreenBuffer& prev,
         const ScreenBuffer& curr) {
-
-        // Stub: render entire current buffer as string
+        auto regions = optimize(prev, curr);
+        if (regions.empty()) return {};
         std::string result;
-        for (const auto& line : curr.lines) {
-            for (const auto& cell : line) {
-                if (cell.ch <= 0x7F) {
-                    result += static_cast<char>(cell.ch);
-                } else {
-                    result += '?';
-                }
+        for (const auto& region : regions) {
+            result += std::format("\033[{};{}H", region.y + 1, region.x + 1);
+            if (region.y >= static_cast<int>(curr.lines.size())) continue;
+            const auto& line = curr.lines[region.y];
+            for (int x = region.x; x < region.x + region.width && x < static_cast<int>(line.size()); ++x) {
+                append_utf8(result, line[x].ch);
             }
-            result += '\n';
         }
         return result;
     }
+
+private:
+    static void append_utf8(std::string& output, char32_t ch) {
+        if (ch <= 0x7F) {
+            output.push_back(static_cast<char>(ch));
+        } else if (ch <= 0x7FF) {
+            output.push_back(static_cast<char>(0xC0 | ((ch >> 6) & 0x1F)));
+            output.push_back(static_cast<char>(0x80 | (ch & 0x3F)));
+        } else if (ch <= 0xFFFF) {
+            output.push_back(static_cast<char>(0xE0 | ((ch >> 12) & 0x0F)));
+            output.push_back(static_cast<char>(0x80 | ((ch >> 6) & 0x3F)));
+            output.push_back(static_cast<char>(0x80 | (ch & 0x3F)));
+        } else {
+            output.push_back(static_cast<char>(0xF0 | ((ch >> 18) & 0x07)));
+            output.push_back(static_cast<char>(0x80 | ((ch >> 12) & 0x3F)));
+            output.push_back(static_cast<char>(0x80 | ((ch >> 6) & 0x3F)));
+            output.push_back(static_cast<char>(0x80 | (ch & 0x3F)));
+        }
+    }
 };
+
+namespace detail {
+inline void append_utf8(std::string& output, char32_t ch) {
+    if (ch <= 0x7F) {
+        output.push_back(static_cast<char>(ch));
+    } else if (ch <= 0x7FF) {
+        output.push_back(static_cast<char>(0xC0 | ((ch >> 6) & 0x1F)));
+        output.push_back(static_cast<char>(0x80 | (ch & 0x3F)));
+    } else if (ch <= 0xFFFF) {
+        output.push_back(static_cast<char>(0xE0 | ((ch >> 12) & 0x0F)));
+        output.push_back(static_cast<char>(0x80 | ((ch >> 6) & 0x3F)));
+        output.push_back(static_cast<char>(0x80 | (ch & 0x3F)));
+    } else {
+        output.push_back(static_cast<char>(0xF0 | ((ch >> 18) & 0x07)));
+        output.push_back(static_cast<char>(0x80 | ((ch >> 12) & 0x3F)));
+        output.push_back(static_cast<char>(0x80 | ((ch >> 6) & 0x3F)));
+        output.push_back(static_cast<char>(0x80 | (ch & 0x3F)));
+    }
+}
+} // namespace detail
 
 // ---------------------------------------------------------------------------
 // Free functions
@@ -190,11 +278,7 @@ inline std::string render_to_string(const ScreenBuffer& buffer) {
     std::string result;
     for (const auto& line : buffer.lines) {
         for (const auto& cell : line) {
-            if (cell.ch <= 0x7F) {
-                result += static_cast<char>(cell.ch);
-            } else {
-                result += '?';
-            }
+            detail::append_utf8(result, cell.ch);
         }
         result += '\n';
     }

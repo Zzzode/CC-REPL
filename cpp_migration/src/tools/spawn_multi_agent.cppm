@@ -30,28 +30,28 @@ namespace detail {
 }
 }
 
-// 多代理协调配置
+
 struct MultiAgentConfig {
-    std::vector<AgentConfig> agents;              // 要启动的代理列表
-    bool parallel = true;                         // 是否并行执行
-    std::optional<std::string> coordinator_prompt; // 协调者提示词（用于汇总结果）
+    std::vector<AgentConfig> agents;
+    bool parallel = true;
+    std::optional<std::string> coordinator_prompt;
 };
 
-// 启动多个代理（并行或串行）
+
 inline auto spawn_agents(const MultiAgentConfig& config) -> std::vector<std::future<AgentResult>> {
     std::vector<std::future<AgentResult>> futures;
     futures.reserve(config.agents.size());
 
     for (const auto& agent_config : config.agents) {
         if (config.parallel) {
-            // 并行模式：每个代理在独立线程中执行
+
             futures.push_back(std::async(std::launch::async,
                 [agent_config]() -> AgentResult {
                     return detail::execute_agent_locally(agent_config);
                 }
             ));
         } else {
-            // 串行模式：使用 deferred 保证按顺序执行
+
             futures.push_back(std::async(std::launch::deferred,
                 [agent_config]() -> AgentResult {
                     return detail::execute_agent_locally(agent_config);
@@ -63,7 +63,7 @@ inline auto spawn_agents(const MultiAgentConfig& config) -> std::vector<std::fut
     return futures;
 }
 
-// 等待所有代理完成并收集结果
+
 inline auto wait_all(std::span<std::future<AgentResult>> futures) -> std::vector<AgentResult> {
     std::vector<AgentResult> results;
     results.reserve(futures.size());
@@ -75,7 +75,7 @@ inline auto wait_all(std::span<std::future<AgentResult>> futures) -> std::vector
     return results;
 }
 
-// 合并多个代理的结果为单一输出字符串
+
 inline auto merge_agent_results(std::span<const AgentResult> results) -> std::string {
     if (results.empty()) {
         return "No agent results to merge.";
@@ -103,7 +103,7 @@ inline auto merge_agent_results(std::span<const AgentResult> results) -> std::st
         if (result.completed) ++completed_count;
     }
 
-    // 汇总统计
+
     oss << "---\n";
     oss << "**Summary**: " << completed_count << "/" << results.size()
         << " agents completed, "

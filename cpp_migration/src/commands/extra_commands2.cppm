@@ -11,7 +11,7 @@ export namespace cc::commands {
 
 struct CmdResult { bool success{true}; std::string output; std::string error; };
 
-// /onboarding — 首次使用引导流
+
 struct OnboardingCommand {
     static constexpr auto name() -> std::string_view { return "onboarding"; }
     static constexpr auto description() -> std::string_view { return "运行首次使用引导流程"; }
@@ -29,7 +29,7 @@ struct OnboardingCommand {
     }
 };
 
-// /issue — GitHub Issue 管理
+
 struct IssueCommand {
     static constexpr auto name() -> std::string_view { return "issue"; }
     static constexpr auto description() -> std::string_view { return "创建和管理 GitHub Issues"; }
@@ -42,7 +42,7 @@ struct IssueCommand {
     }
 };
 
-// /teleport — 远程传送会话到其他环境
+
 struct TeleportCommand {
     static constexpr auto name() -> std::string_view { return "teleport"; }
     static constexpr auto description() -> std::string_view { return "传送会话到远程环境"; }
@@ -53,7 +53,7 @@ struct TeleportCommand {
     }
 };
 
-// /reload-plugins — 热重载插件
+
 struct ReloadPluginsCommand {
     static constexpr auto name() -> std::string_view { return "reload-plugins"; }
     static constexpr auto description() -> std::string_view { return "重新加载所有插件"; }
@@ -63,7 +63,7 @@ struct ReloadPluginsCommand {
     }
 };
 
-// /oauth-refresh — OAuth Token 刷新
+
 struct OauthRefreshCommand {
     static constexpr auto name() -> std::string_view { return "oauth-refresh"; }
     static constexpr auto description() -> std::string_view { return "刷新 OAuth Token"; }
@@ -73,7 +73,7 @@ struct OauthRefreshCommand {
     }
 };
 
-// /terminalSetup — 终端初始化
+
 struct TerminalSetupCommand {
     static constexpr auto name() -> std::string_view { return "terminalSetup"; }
     static constexpr auto description() -> std::string_view { return "终端环境初始化配置"; }
@@ -90,7 +90,7 @@ struct TerminalSetupCommand {
     }
 };
 
-// /thinkback-play — 回放思考过程
+
 struct ThinkbackPlayCommand {
     static constexpr auto name() -> std::string_view { return "thinkback-play"; }
     static constexpr auto description() -> std::string_view { return "回放 AI 思考过程动画"; }
@@ -101,7 +101,7 @@ struct ThinkbackPlayCommand {
     }
 };
 
-// /install-slack-app — Slack App 安装
+
 struct InstallSlackAppCommand {
     static constexpr auto name() -> std::string_view { return "install-slack-app"; }
     static constexpr auto description() -> std::string_view { return "安装 Slack 集成"; }
@@ -117,7 +117,7 @@ struct InstallSlackAppCommand {
     }
 };
 
-// /perf-issue — 性能问题报告
+
 struct PerfIssueCommand {
     static constexpr auto name() -> std::string_view { return "perf-issue"; }
     static constexpr auto description() -> std::string_view { return "报告性能问题并收集诊断信息"; }
@@ -133,7 +133,7 @@ struct PerfIssueCommand {
     }
 };
 
-// /btw — 附加上下文 (顺便说一下)
+
 struct BtwCommand {
     static constexpr auto name() -> std::string_view { return "btw"; }
     static constexpr auto description() -> std::string_view { return "向当前对话附加额外上下文信息"; }
@@ -144,7 +144,7 @@ struct BtwCommand {
     }
 };
 
-// /good-claude — 彩蛋/奖励
+
 struct GoodClaudeCommand {
     static constexpr auto name() -> std::string_view { return "good-claude"; }
     static constexpr auto description() -> std::string_view { return "给 Claude 一个好评"; }
@@ -154,7 +154,7 @@ struct GoodClaudeCommand {
     }
 };
 
-// 注册所有额外命令
+
 inline auto get_extra_commands2_list() -> std::vector<std::string_view> {
     return {"onboarding", "issue", "teleport", "reload-plugins", "oauth-refresh",
             "terminalSetup", "thinkback-play", "install-slack-app", "perf-issue", 

@@ -36,18 +36,18 @@ namespace detail {
 }
 }
 
-// 远程触发器输入参数
+
 struct RemoteTriggerInput {
-    std::string target;                        // 触发目标（webhook URL 或标识符）
-    std::string message;                       // 触发消息/负载
-    std::map<std::string, std::string> params; // 附加参数
+    std::string target;
+    std::string message;
+    std::map<std::string, std::string> params;
 };
 
-// 执行远程触发
+
 inline auto execute_remote_trigger(
     const RemoteTriggerInput& input
 ) -> std::expected<std::string, std::string> {
-    // 验证输入
+
     if (input.target.empty()) {
         return std::unexpected(std::string("target is required"));
     }
@@ -55,8 +55,8 @@ inline auto execute_remote_trigger(
         return std::unexpected(std::string("message is required"));
     }
 
-    // 安全检查：验证 target 格式
-    // 不允许触发内部网络地址
+
+
     if (input.target.find("127.0.0.1") != std::string::npos ||
         input.target.find("localhost") != std::string::npos ||
         input.target.find("169.254") != std::string::npos ||
@@ -86,7 +86,7 @@ inline auto execute_remote_trigger(
     return output.empty() ? std::string("Remote trigger delivered") : output;
 }
 
-// 获取远程触发工具的提示词
+
 inline auto get_remote_trigger_prompt() -> std::string {
     return R"(## RemoteTriggerTool
 

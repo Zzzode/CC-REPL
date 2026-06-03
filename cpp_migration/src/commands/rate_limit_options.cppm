@@ -11,16 +11,16 @@ export module cc.commands.rate_limit_options;
 
 export namespace cc::commands {
 
-// 当前速率限制信息
+
 struct RateLimits {
-    int rpm;   // 每分钟请求数
-    int tpm;   // 每分钟 token 数
-    int daily; // 每日请求数
+    int rpm;
+    int tpm;
+    int daily;
 };
 
 auto get_current_limits() -> RateLimits;
 
-// 显示当前速率限制状态
+
 auto show_rate_limit_status() -> std::string {
     auto limits = get_current_limits();
 
@@ -31,7 +31,7 @@ auto show_rate_limit_status() -> std::string {
     return status;
 }
 
-// 获取当前限制值
+
 auto get_current_limits() -> RateLimits {
     auto read_int = [](const char* name, int fallback) {
         if (const char* value = std::getenv(name)) {
@@ -46,13 +46,13 @@ auto get_current_limits() -> RateLimits {
     };
 }
 
-// 根据使用模式建议速率限制优化方案
+
 auto suggest_rate_limit_optimization() -> std::string {
     auto limits = get_current_limits();
 
     std::string suggestion = "Rate Limit Optimization Suggestions:\n";
 
-    // 根据当前限制提供建议
+
     if (limits.rpm < 100) {
         suggestion += "  - Consider upgrading your plan for higher RPM limits.\n";
     }

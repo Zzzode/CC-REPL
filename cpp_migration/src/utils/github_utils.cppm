@@ -45,10 +45,10 @@ namespace github_detail {
 }
 } // namespace github_detail
 
-// GitHub 认证状态
+
 enum class GitHubAuthStatus { authenticated, token_expired, not_configured, rate_limited };
 
-// GitHub 用户信息
+
 struct GitHubUser {
     std::string login;
     std::string name;
@@ -56,7 +56,7 @@ struct GitHubUser {
     std::string avatar_url;
 };
 
-// GitHub 仓库信息
+
 struct GitHubRepo {
     std::string full_name;       // owner/repo
     std::string default_branch;
@@ -64,7 +64,7 @@ struct GitHubRepo {
     bool is_private{false};
 };
 
-// PR 信息
+
 struct PullRequest {
     int number;
     std::string title;
@@ -78,32 +78,32 @@ struct PullRequest {
     size_t changed_files{0};
 };
 
-// PR 评论
+
 struct PrComment {
     int id;
     std::string author;
     std::string body;
-    std::string path;            // 文件路径 (如果是行级评论)
-    int line{0};                 // 行号
+    std::string path;
+    int line{0};
     bool resolved{false};
     std::chrono::system_clock::time_point created_at;
 };
 
-// GitHub 工具类
+
 class GitHubUtils {
     std::string token_;
     GitHubAuthStatus auth_status_{GitHubAuthStatus::not_configured};
 public:
-    // 检查认证状态
+
     [[nodiscard]] auto check_auth() -> GitHubAuthStatus {
-        // 检查环境变量 GH_TOKEN, GITHUB_TOKEN
+
         if (auto* t = std::getenv("GH_TOKEN"); t && t[0]) { token_ = t; auth_status_ = GitHubAuthStatus::authenticated; }
         else if (auto* t2 = std::getenv("GITHUB_TOKEN"); t2 && t2[0]) { token_ = t2; auth_status_ = GitHubAuthStatus::authenticated; }
         else { auth_status_ = GitHubAuthStatus::not_configured; }
         return auth_status_;
     }
     
-    // 获取当前用户
+
     [[nodiscard]] auto get_current_user() -> std::expected<GitHubUser, std::string> {
         if (auth_status_ != GitHubAuthStatus::authenticated)
             return std::unexpected("未认证");
@@ -112,7 +112,7 @@ public:
         return GitHubUser{.login = login, .name = login, .email = login + "@users.noreply.github.com"};
     }
     
-    // 检测当前仓库
+
     [[nodiscard]] static auto detect_repo() -> std::optional<GitHubRepo> {
         auto remote = github_detail::run_command("git config --get remote.origin.url 2>/dev/null");
         auto full_name = github_detail::parse_repo_full_name(remote);
@@ -123,7 +123,7 @@ public:
         return GitHubRepo{.full_name = *full_name, .default_branch = branch};
     }
     
-    // 获取当前 PR
+
     [[nodiscard]] auto get_current_pr() -> std::optional<PullRequest> {
         auto branch = github_detail::run_command("git rev-parse --abbrev-ref HEAD 2>/dev/null");
         if (branch.empty()) return std::nullopt;
@@ -131,7 +131,7 @@ public:
         return PullRequest{.number = 0, .title = "Local branch " + branch, .state = "local", .head_branch = branch, .base_branch = "", .author = author, .created_at = std::chrono::system_clock::now()};
     }
     
-    // 获取 PR 评论
+
     [[nodiscard]] auto get_pr_comments(int pr_number) -> std::vector<PrComment> {
         if (pr_number <= 0) return {};
         return {PrComment{.id = pr_number, .author = "local", .body = "No remote GitHub API comments loaded", .created_at = std::chrono::system_clock::now()}};

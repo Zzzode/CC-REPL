@@ -17,10 +17,10 @@ export module cc.services.remote_session;
 
 export namespace cc::services {
 
-// 远程会话状态
+
 enum class RemoteSessionState { connecting, connected, disconnected, error };
 
-// 远程会话信息
+
 struct RemoteSession {
     std::string id;
     std::string name;
@@ -30,20 +30,20 @@ struct RemoteSession {
     std::string transport_url;
 };
 
-// 远程消息类型
+
 enum class RemoteMessageType { 
     command, response, event, heartbeat, permission_request, permission_response 
 };
 
-// 远程消息
+
 struct RemoteMessage {
     RemoteMessageType type;
-    std::string payload;        // JSON 编码的消息体
+    std::string payload;
     std::string session_id;
     std::chrono::system_clock::time_point timestamp;
 };
 
-// 远程配置
+
 struct RemoteConfig {
     std::string bridge_url;
     std::string auth_token;
@@ -52,21 +52,21 @@ struct RemoteConfig {
     uint32_t reconnect_base_delay_ms{1'000};
 };
 
-// 错误类型
+
 struct RemoteError {
     enum Code { connection_failed, auth_failed, timeout, session_not_found, protocol_error };
     Code code;
     std::string message;
 };
 
-// 权限请求处理器类型
+
 using PermissionHandler = std::function<bool(std::string_view tool_name, std::string_view args_json)>;
-// 消息回调类型
+
 using MessageCallback = std::function<void(const RemoteMessage&)>;
-// 取消订阅函数
+
 using UnsubscribeFn = std::function<void()>;
 
-// 远程会话管理器 — 管理 IDE/云端桥接会话
+
 class RemoteSessionManager {
     RemoteConfig config_;
     RemoteSessionState state_{RemoteSessionState::disconnected};
@@ -79,8 +79,8 @@ class RemoteSessionManager {
 public:
     explicit RemoteSessionManager(RemoteConfig config) : config_(std::move(config)) {}
 
-    // 创建新远程会话
-    // Task<T> 是项目的协程返回类型，此处用注释标注异步语义
+
+
     [[nodiscard]] auto create_session(std::string name) 
         -> std::expected<RemoteSession, RemoteError> {
         RemoteSession session{
@@ -97,7 +97,7 @@ public:
         return session;
     }
 
-    // 恢复已有会话
+
     [[nodiscard]] auto resume_session(std::string_view id) 
         -> std::expected<void, RemoteError> {
         if (!current_session_ || current_session_->id != id)
@@ -107,13 +107,13 @@ public:
         return {};
     }
 
-    // 列出所有会话
+
     [[nodiscard]] auto list_sessions() const -> std::vector<RemoteSession> {
         if (current_session_) return {*current_session_};
         return {};
     }
 
-    // 删除会话
+
     [[nodiscard]] auto delete_session(std::string_view id) 
         -> std::expected<void, RemoteError> {
         if (current_session_ && current_session_->id == id) {
@@ -124,7 +124,7 @@ public:
         return std::unexpected(RemoteError{RemoteError::session_not_found, "会话未找到"});
     }
 
-    // 发送消息
+
     void send_message(RemoteMessage msg) {
         msg.timestamp = std::chrono::system_clock::now();
         if (current_session_) msg.session_id = current_session_->id;
@@ -132,7 +132,7 @@ public:
         handle_incoming(msg);
     }
 
-    // 订阅消息
+
     [[nodiscard]] auto on_message(MessageCallback callback) -> UnsubscribeFn {
         message_handlers_.push_back(std::move(callback));
         size_t idx = message_handlers_.size() - 1;
@@ -142,23 +142,23 @@ public:
         };
     }
 
-    // 获取连接状态
+
     [[nodiscard]] auto get_state() const -> RemoteSessionState { return state_; }
 
-    // 断开连接
+
     void disconnect() {
         state_ = RemoteSessionState::disconnected;
         reconnect_attempts_ = 0;
     }
 
-    // 设置权限处理器
+
     void set_permission_handler(PermissionHandler handler) {
         permission_handler_ = std::move(handler);
     }
 
 private:
     static auto generate_session_id() -> std::string {
-        // 简单 UUID-like ID 生成
+
         auto now = std::chrono::system_clock::now().time_since_epoch().count();
         return "rs_" + std::to_string(now);
     }

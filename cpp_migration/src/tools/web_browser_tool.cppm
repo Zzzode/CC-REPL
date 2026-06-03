@@ -15,14 +15,14 @@ export module cc.tools.web_browser;
 
 export namespace cc::tools {
 
-// 浏览器操作类型
+
 enum class BrowserAction {
-    Navigate,      // 跳转 URL
-    Click,         // 点击元素
-    Extract,       // 提取页面内容
-    Screenshot,    // 截图 (占位)
-    FillForm,      // 填写表单
-    GetTitle,      // 获取页面标题
+    Navigate,
+    Click,
+    Extract,
+    Screenshot,
+    FillForm,
+    GetTitle,
 };
 
 constexpr auto action_name(BrowserAction a) -> std::string_view {
@@ -37,7 +37,7 @@ constexpr auto action_name(BrowserAction a) -> std::string_view {
     }
 }
 
-// 浏览器错误类型
+
 enum class BrowserError {
     InvalidUrl,
     NavigationFailed,
@@ -65,44 +65,44 @@ constexpr auto format_error(BrowserError err) -> std::string_view {
     }
 }
 
-// 表单字段填写数据
+
 struct FormField {
-    std::string selector;     // CSS 选择器定位表单字段
-    std::string value;        // 要填入的值
+    std::string selector;
+    std::string value;
 };
 
-// 浏览器请求
+
 struct BrowserRequest {
     BrowserAction action;
-    std::optional<std::string> url;                   // navigate 操作目标
-    std::optional<std::string> selector;              // 元素选择器
-    std::vector<FormField> form_fields;               // 表单填写数据
+    std::optional<std::string> url;
+    std::optional<std::string> selector;
+    std::vector<FormField> form_fields;
     std::chrono::seconds timeout{30};
-    std::optional<std::string> extract_selector;      // 提取内容的范围选择器
+    std::optional<std::string> extract_selector;
 };
 
-// 浏览器操作结果
+
 struct BrowserResult {
-    std::string content;              // 提取的内容或操作结果
-    std::optional<std::string> title; // 页面标题
-    std::optional<std::string> url;   // 当前 URL
+    std::string content;
+    std::optional<std::string> title;
+    std::optional<std::string> url;
     std::chrono::milliseconds duration{0};
     bool success{true};
 };
 
-// URL 验证器
+
 class UrlValidator {
 public:
     static auto is_valid(std::string_view url) -> bool {
         if (url.empty()) return false;
-        // 基本协议检查
+
         return url.starts_with("http://") || url.starts_with("https://") ||
                url.starts_with("file://");
     }
 
     static auto normalize(std::string_view url) -> std::string {
         std::string result(url);
-        // 自动补全协议
+
         if (!url.starts_with("http://") && !url.starts_with("https://") &&
             !url.starts_with("file://")) {
             result = "https://" + result;
@@ -111,7 +111,7 @@ public:
     }
 };
 
-// 页面状态管理
+
 class PageState {
 public:
     void set_url(std::string url) { current_url_ = std::move(url); }
@@ -128,7 +128,7 @@ private:
     std::string content_;
 };
 
-// WebBrowserTool - 浏览器自动化工具
+
 class WebBrowserTool {
 public:
     static constexpr std::string_view name = "web_browser";
@@ -175,12 +175,12 @@ public:
                 break;
             }
             case BrowserAction::Click: {
-                // 模拟点击 (实际需 headless browser 支持)
+
                 result.content = std::format("Clicked element: {}", *request.selector);
                 break;
             }
             case BrowserAction::Extract: {
-                // 提取页面内容 (简化实现：返回整页内容)
+
                 if (page_state_.content().empty()) {
                     return std::unexpected(BrowserError::ExtractionFailed);
                 }
@@ -188,7 +188,7 @@ public:
                 break;
             }
             case BrowserAction::Screenshot: {
-                // 截图占位实现
+
                 result.content = "[Screenshot capture not yet implemented - requires headless browser]";
                 break;
             }
@@ -233,7 +233,7 @@ public:
 private:
     PageState page_state_;
 
-    // 通过 curl 获取页面内容
+
     auto fetch_page(const std::string& url, std::chrono::seconds timeout)
         -> std::expected<std::string, BrowserError>
     {

@@ -54,7 +54,7 @@ public:
             .args = {
                 CommandArg{.name = "action", .description = "list | show | stop | cancel",
                            .type = ArgType::Choice, .required = false,
-                           .choices = {{"list", "show", "stop", "cancel"}}},
+                           .choices = {"list", "show", "stop", "cancel"}},
                 CommandArg{.name = "task_id", .description = "Task ID to act on",
                            .type = ArgType::Text, .required = false},
             },

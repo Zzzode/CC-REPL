@@ -15,7 +15,7 @@ export module cc.keybindings.keybinding_system;
 
 export namespace cc::core {
 
-// 按键修饰符
+
 struct KeyModifiers {
     bool ctrl{false};
     bool alt{false};
@@ -25,7 +25,7 @@ struct KeyModifiers {
     auto operator<=>(const KeyModifiers&) const = default;
 };
 
-// 按键组合
+
 struct KeyCombo {
     std::string key;       // "a", "Enter", "Tab", "F1", "Up", etc.
     KeyModifiers modifiers;
@@ -33,12 +33,12 @@ struct KeyCombo {
     auto operator<=>(const KeyCombo&) const = default;
 };
 
-// 快捷键上下文
+
 enum class KeybindingContext { 
     global, insert, normal, visual, command, search, dialog 
 };
 
-// 绑定动作描述
+
 struct KeybindingAction {
     std::string action_id;
     std::string description;
@@ -46,7 +46,7 @@ struct KeybindingAction {
     KeybindingContext context{KeybindingContext::global};
 };
 
-// 绑定条目
+
 struct KeybindingEntry {
     KeyCombo combo;
     std::string action_id;
@@ -54,7 +54,7 @@ struct KeybindingEntry {
     enum class Source { builtin, user, plugin } source{Source::builtin};
 };
 
-// 冲突记录
+
 struct KeybindingConflict {
     KeyCombo combo;
     std::string existing_action;
@@ -62,7 +62,7 @@ struct KeybindingConflict {
     KeybindingContext context;
 };
 
-// 完整快捷键系统
+
 class KeybindingSystem {
     std::vector<KeybindingEntry> bindings_;
     std::vector<KeybindingAction> actions_;
@@ -71,12 +71,12 @@ class KeybindingSystem {
 public:
     KeybindingSystem() { init_defaults(); }
 
-    // 解析文本为 KeyCombo ("Ctrl+Shift+K" -> KeyCombo)
+
     [[nodiscard]] static auto parse_combo(std::string_view text) -> std::expected<KeyCombo, std::string> {
         KeyCombo result;
         std::string remaining(text);
         
-        // 解析修饰符
+
         auto consume = [&](std::string_view prefix, bool& flag) {
             if (remaining.starts_with(prefix)) {
                 flag = true;
@@ -102,15 +102,15 @@ public:
         return result;
     }
 
-    // 解析按键组合并查找绑定的动作
+
     [[nodiscard]] auto resolve(const KeyCombo& combo, KeybindingContext context) const 
         -> std::optional<std::string> {
-        // 先搜索特定上下文
+
         for (const auto& entry : bindings_) {
             if (entry.combo == combo && entry.context == context)
                 return entry.action_id;
         }
-        // Fallback 到 global
+
         if (context != KeybindingContext::global) {
             for (const auto& entry : bindings_) {
                 if (entry.combo == combo && entry.context == KeybindingContext::global)
@@ -120,7 +120,7 @@ public:
         return std::nullopt;
     }
 
-    // 绑定/解绑
+
     void bind(KeyCombo combo, std::string action_id, KeybindingContext context, 
               KeybindingEntry::Source source = KeybindingEntry::Source::user) {
         bindings_.push_back({.combo = std::move(combo), .action_id = std::move(action_id),
@@ -133,7 +133,7 @@ public:
         });
     }
 
-    // 获取动作的所有绑定
+
     [[nodiscard]] auto get_bindings_for_action(std::string_view action_id) const 
         -> std::vector<KeybindingEntry> {
         std::vector<KeybindingEntry> result;
@@ -143,13 +143,13 @@ public:
         return result;
     }
 
-    // 从用户配置文件加载绑定
+
     [[nodiscard]] auto load_user_bindings(std::string_view path) -> std::expected<void, std::string> {
         if (path.empty()) return std::unexpected("Keybinding config path is empty");
         return {};
     }
 
-    // 冲突检测
+
     [[nodiscard]] auto get_conflicts() const -> std::vector<KeybindingConflict> {
         std::vector<KeybindingConflict> conflicts;
         for (size_t i = 0; i < bindings_.size(); ++i) {
@@ -168,7 +168,7 @@ public:
         return conflicts;
     }
 
-    // 格式化按键组合为平台感知字符串
+
     [[nodiscard]] static auto format_combo(const KeyCombo& combo, bool is_macos = true) -> std::string {
         std::string result;
         if (combo.modifiers.ctrl) result += is_macos ? "⌃" : "Ctrl+";
@@ -179,7 +179,7 @@ public:
         return result;
     }
 
-    // 保留快捷键检查
+
     [[nodiscard]] auto is_reserved(const KeyCombo& combo) const -> bool {
         return std::any_of(reserved_.begin(), reserved_.end(),
             [&](const auto& r) { return r == combo; });
@@ -194,13 +194,13 @@ public:
 
 private:
     void init_defaults() {
-        // 保留快捷键 (不可覆盖)
+
         reserved_ = {
-            {.key = "c", .modifiers = {.ctrl = true}},   // Ctrl+C: 中断
-            {.key = "z", .modifiers = {.ctrl = true}},   // Ctrl+Z: 挂起
+            {.key = "c", .modifiers = {.ctrl = true}},
+            {.key = "z", .modifiers = {.ctrl = true}},
         };
 
-        // 默认绑定
+
         actions_ = {
             {"submit", "提交输入", {.key = "Enter"}, KeybindingContext::insert},
             {"newline", "插入换行", {.key = "Enter", .modifiers = {.shift = true}}, KeybindingContext::insert},

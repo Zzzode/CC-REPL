@@ -17,7 +17,7 @@ export module cc.utils.native_utils;
 
 export namespace cc::utils {
 
-// ─── Native Installer (原生安装器) ──────────────────────────
+
 
 enum class InstallTarget { user_local, system_global, custom_path };
 
@@ -26,7 +26,7 @@ struct InstallConfig {
     std::filesystem::path custom_path;
     bool add_to_path{true};
     bool create_symlink{true};
-    bool install_completions{true};  // shell 补全脚本
+    bool install_completions{true};
 };
 
 struct InstallResult {
@@ -37,13 +37,13 @@ struct InstallResult {
 
 class NativeInstaller {
 public:
-    // 检测安装状态
+
     [[nodiscard]] static auto is_installed() -> bool {
-        // 检查 cc-repl 是否在 PATH 中
+
         return std::system("which cc-repl > /dev/null 2>&1") == 0;
     }
     
-    // 获取安装路径
+
     [[nodiscard]] static auto get_install_path() -> std::optional<std::filesystem::path> {
         if (auto* path_env = std::getenv("PATH")) {
             std::stringstream paths(path_env);
@@ -56,7 +56,7 @@ public:
         return std::nullopt;
     }
     
-    // 安装/更新
+
     [[nodiscard]] static auto install(InstallConfig config = {}) -> InstallResult {
         std::filesystem::path target_dir;
         switch (config.target) {
@@ -78,7 +78,7 @@ public:
         return {true, installed};
     }
     
-    // 安装 shell 补全
+
     [[nodiscard]] static auto install_completions(std::string_view shell = "zsh") 
         -> std::expected<void, std::string> {
         auto dir = get_local_bin().parent_path() / "share" / "cc-repl" / "completions";
@@ -90,7 +90,7 @@ public:
         return {};
     }
     
-    // 卸载
+
     [[nodiscard]] static auto uninstall() -> std::expected<void, std::string> {
         auto path = get_install_path();
         if (!path) return std::unexpected("未找到安装");
@@ -106,7 +106,7 @@ private:
     }
 };
 
-// ─── DXT (打包工具辅助) ─────────────────────────────────────
+
 
 struct DxtManifest {
     std::string name;
@@ -118,7 +118,7 @@ struct DxtManifest {
 
 class DxtUtils {
 public:
-    // 解析 DXT 清单
+
     [[nodiscard]] static auto parse_manifest(const std::filesystem::path& path) 
         -> std::expected<DxtManifest, std::string> {
         if (!std::filesystem::exists(path)) return std::unexpected("清单文件不存在");
@@ -138,7 +138,7 @@ public:
         return DxtManifest{.name = extract("name"), .version = extract("version"), .description = extract("description"), .entry_point = extract("entry_point")};
     }
     
-    // 打包 DXT
+
     [[nodiscard]] static auto pack(const std::filesystem::path& dir, const std::filesystem::path& output)
         -> std::expected<void, std::string> {
         if (!std::filesystem::exists(dir)) return std::unexpected("目录不存在");
@@ -150,7 +150,7 @@ public:
         return {};
     }
     
-    // 解包 DXT
+
     [[nodiscard]] static auto unpack(const std::filesystem::path& archive, const std::filesystem::path& dir)
         -> std::expected<void, std::string> {
         if (!std::filesystem::exists(archive)) return std::unexpected("归档文件不存在");
@@ -160,7 +160,7 @@ public:
     }
 };
 
-// ─── Background Utils (后台任务) ─────────────────────────────
+
 
 enum class BackgroundTaskState { pending, running, completed, failed, cancelled };
 
@@ -178,7 +178,7 @@ struct BackgroundTask {
 class BackgroundTaskManager {
     std::vector<BackgroundTask> tasks_;
 public:
-    // 创建后台任务
+
     [[nodiscard]] auto create(std::string name) -> std::string {
         auto id = "bg_" + std::to_string(tasks_.size());
         tasks_.push_back({.id = id, .name = std::move(name), 
@@ -186,12 +186,12 @@ public:
         return id;
     }
     
-    // 更新进度
+
     void update_progress(std::string_view id, double progress) {
         if (auto* t = find(id)) t->progress = progress;
     }
     
-    // 标记完成
+
     void complete(std::string_view id, std::string result) {
         if (auto* t = find(id)) {
             t->state = BackgroundTaskState::completed;
@@ -201,7 +201,7 @@ public:
         }
     }
     
-    // 标记失败
+
     void fail(std::string_view id, std::string error) {
         if (auto* t = find(id)) {
             t->state = BackgroundTaskState::failed;
@@ -209,15 +209,15 @@ public:
         }
     }
     
-    // 取消任务
+
     void cancel(std::string_view id) {
         if (auto* t = find(id)) t->state = BackgroundTaskState::cancelled;
     }
     
-    // 获取所有任务
+
     [[nodiscard]] auto get_all() const -> const std::vector<BackgroundTask>& { return tasks_; }
     
-    // 获取活跃任务
+
     [[nodiscard]] auto get_active() const -> std::vector<const BackgroundTask*> {
         std::vector<const BackgroundTask*> result;
         for (const auto& t : tasks_) {
@@ -227,7 +227,7 @@ public:
         return result;
     }
     
-    // 清理已完成任务
+
     void cleanup(std::chrono::hours max_age = std::chrono::hours{24}) {
         auto cutoff = std::chrono::system_clock::now() - max_age;
         std::erase_if(tasks_, [&](const auto& t) {
