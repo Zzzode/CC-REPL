@@ -14,6 +14,8 @@ module;
 #include <chrono>
 #include <format>
 #include <algorithm>
+#include <concepts>
+#include <iterator>
 #include <ranges>
 #include <numeric>
 #include <thread>
@@ -425,7 +427,7 @@ public:
             }
 
             // Execute tools and feed results back
-            auto tool_results = execute_pending_tools(assistant_msg);
+            auto tool_results = execute_pending_tools(assistant_msg, options);
             for (auto& tr : tool_results) {
                 append_message(Message{std::move(tr)});
             }
@@ -505,9 +507,10 @@ public:
         constexpr std::size_t keep_recent = 6;
         if (conversation_.size() <= keep_recent + 1) return {};
 
-        auto summary_text = std::format(
-            "[Conversation compacted: {} messages summarized]",
-            conversation_.size() - keep_recent - 1);
+        auto recent_start = conversation_.end() - static_cast<std::ptrdiff_t>(keep_recent);
+        auto summary_text = build_compaction_summary(
+            conversation_.begin() + 1,
+            recent_start);
 
         // Replace middle section with a summary marker
         std::vector<Message> compacted;
@@ -521,11 +524,14 @@ public:
         compacted.push_back(Message{std::move(marker)});
 
         // Keep recent messages
-        auto recent_start = conversation_.end() - static_cast<std::ptrdiff_t>(keep_recent);
         compacted.insert(compacted.end(), recent_start, conversation_.end());
 
         conversation_ = std::move(compacted);
         return {};
+    }
+
+    void append_message_for_testing(Message msg) {
+        append_message(std::move(msg));
     }
 
     /// Update model parameters at runtime
@@ -689,6 +695,76 @@ private:
         }
     }
 
+    [[nodiscard]] static std::string truncate_for_compaction(std::string text,
+                                                             std::size_t limit) {
+        if (text.size() <= limit) return text;
+        text.resize(limit);
+        text += "...";
+        return text;
+    }
+
+    [[nodiscard]] static std::string content_block_compaction_text(const ContentBlock& block) {
+        return std::visit([](const auto& b) -> std::string {
+            using T = std::remove_cvref_t<decltype(b)>;
+            if constexpr (std::same_as<T, TextBlock>) {
+                return b.text;
+            } else if constexpr (std::same_as<T, ToolUseBlock>) {
+                return std::format("[tool_use:{} {}]", b.name, b.input_json);
+            } else if constexpr (std::same_as<T, ToolResultBlock>) {
+                return std::format("[tool_result:{} error={}] {}",
+                    b.tool_use_id.value,
+                    b.is_error ? "true" : "false",
+                    b.content);
+            } else if constexpr (std::same_as<T, ImageBlock>) {
+                return std::format("[image:{} {} bytes]", b.media_type, b.data.size());
+            } else if constexpr (std::same_as<T, DocumentBlock>) {
+                return std::format("[document:{} {} bytes]", b.media_type, b.data.size());
+            } else if constexpr (std::same_as<T, ThinkingBlock>) {
+                return "[thinking omitted from compact summary]";
+            } else {
+                return "[unknown content]";
+            }
+        }, block);
+    }
+
+    [[nodiscard]] static std::string message_compaction_text(const Message& message) {
+        std::string text;
+        std::visit([&](const auto& m) {
+            for (const auto& block : m.content) {
+                auto block_text = content_block_compaction_text(block);
+                if (block_text.empty()) continue;
+                if (!text.empty()) text += "\n";
+                text += std::move(block_text);
+            }
+        }, message);
+        if (text.empty()) return "[empty message]";
+        return truncate_for_compaction(std::move(text), 300);
+    }
+
+    [[nodiscard]] static std::string build_compaction_summary(
+        std::vector<Message>::const_iterator first,
+        std::vector<Message>::const_iterator last) {
+        const auto count = static_cast<std::size_t>(std::distance(first, last));
+        std::string summary = std::format(
+            "[Conversation compacted: {} older messages summarized]\n"
+            "Preserve these details from the compacted history:",
+            count);
+        constexpr std::size_t max_summary_chars = 8000;
+        std::size_t index = 1;
+        for (auto it = first; it != last; ++it, ++index) {
+            auto line = std::format("\n- {} #{}: {}",
+                role_to_string(get_role(*it)),
+                index,
+                message_compaction_text(*it));
+            if (summary.size() + line.size() > max_summary_chars) {
+                summary += "\n- [remaining compacted messages omitted due to summary size limit]";
+                break;
+            }
+            summary += std::move(line);
+        }
+        return summary;
+    }
+
     /// Tool loop result structure
     struct ToolLoopResult {
         AssistantMessage message;
@@ -750,7 +826,7 @@ private:
 
             // Execute tools and append results
             append_message(Message{msg});
-            auto results = execute_pending_tools(msg);
+            auto results = execute_pending_tools(msg, options);
             for (auto& r : results) {
                 append_message(Message{std::move(r)});
             }
@@ -769,7 +845,7 @@ private:
     };
 
     /// Execute a single API call with retry logic
-    [[nodiscard]] Result<ApiCallResult> call_api(const QueryOptions& /*options*/) {
+    [[nodiscard]] Result<ApiCallResult> call_api(const QueryOptions& options) {
         auto& policy = config_.retry_policy;
         auto delay = policy.initial_delay;
         std::size_t fallback_idx = 0;
@@ -781,7 +857,7 @@ private:
                     "Query aborted"));
             }
 
-            auto result = send_request();
+            auto result = send_request(options);
             if (result) return *result;
 
             // Determine if error is retryable
@@ -823,8 +899,20 @@ private:
                code == ErrorCode::RateLimited;
     }
 
+    /// Check whether a tool is enabled for the current query.
+    [[nodiscard]] static bool is_tool_enabled_for_query(
+        std::string_view tool_name,
+        const QueryOptions& options) {
+        if (options.enabled_tools.empty()) return true;
+        return std::ranges::any_of(options.enabled_tools, [tool_name](const std::string& enabled) {
+            return enabled == tool_name;
+        });
+    }
+
     /// Build HTTP request body
-    [[nodiscard]] std::string build_request_body(bool stream = false) const {
+    [[nodiscard]] std::string build_request_body(
+        const QueryOptions& options,
+        bool stream = false) const {
         cc::utils::json::JsonMutDoc doc;
         auto root = doc.object();
 
@@ -863,7 +951,10 @@ private:
         // Build tools array with input_schema as JSON object
         if (!config_.tools.empty()) {
             auto tools_arr = doc.array();
+            std::size_t enabled_tool_count = 0;
             for (const auto& tool : config_.tools) {
+                if (!is_tool_enabled_for_query(tool.name, options)) continue;
+                ++enabled_tool_count;
                 auto tool_obj = doc.object();
                 tool_obj.add("name", doc.string(tool.name));
                 tool_obj.add("description", doc.string(tool.description));
@@ -878,7 +969,9 @@ private:
                 }
                 tools_arr.append(tool_obj);
             }
-            root.add("tools", tools_arr);
+            if (enabled_tool_count > 0) {
+                root.add("tools", tools_arr);
+            }
         }
 
         // Extended thinking configuration
@@ -932,16 +1025,55 @@ private:
                 result_obj.add("type", doc.string("tool_result"));
                 result_obj.add("tool_use_id", doc.string(m.tool_use_id.value));
                 result_obj.add("is_error", doc.boolean(m.is_error));
-                // Simple content handling
+
                 std::string content_str;
+                bool has_rich_content = false;
                 for (const auto& block : m.content) {
                     if (const auto* text = std::get_if<TextBlock>(&block)) {
                         content_str += text->text;
+                    } else if (const auto* image = std::get_if<ImageBlock>(&block)) {
+                        (void)image;
+                        has_rich_content = true;
                     }
                 }
-                result_obj.add("content", doc.string(content_str));
+                if (has_rich_content) {
+                    auto rich_content = doc.array();
+                    if (!content_str.empty()) {
+                        auto text_obj = doc.object();
+                        text_obj.add("type", doc.string("text"));
+                        text_obj.add("text", doc.string(content_str));
+                        rich_content.append(text_obj);
+                    }
+                    for (const auto& block : m.content) {
+                        if (const auto* image = std::get_if<ImageBlock>(&block)) {
+                            auto image_obj = doc.object();
+                            image_obj.add("type", doc.string("image"));
+                            auto source = doc.object();
+                            source.add("type", doc.string("base64"));
+                            source.add("media_type", doc.string(image->media_type));
+                            source.add("data", doc.string(image->data));
+                            image_obj.add("source", source);
+                            rich_content.append(image_obj);
+                        }
+                    }
+                    result_obj.add("content", rich_content);
+                } else {
+                    result_obj.add("content", doc.string(content_str));
+                }
                 auto content_arr = doc.array();
                 content_arr.append(result_obj);
+                for (const auto& block : m.content) {
+                    if (const auto* document = std::get_if<DocumentBlock>(&block)) {
+                        auto document_obj = doc.object();
+                        document_obj.add("type", doc.string("document"));
+                        auto source = doc.object();
+                        source.add("type", doc.string("base64"));
+                        source.add("media_type", doc.string(document->media_type));
+                        source.add("data", doc.string(document->data));
+                        document_obj.add("source", source);
+                        content_arr.append(document_obj);
+                    }
+                }
                 msg_obj.add("content", content_arr);
             }
 
@@ -987,6 +1119,24 @@ private:
                     obj.add("thinking", doc.string(b.thinking));
                     obj.add("signature", doc.string(b.signature));
                     arr.append(obj);
+                } else if constexpr (std::is_same_v<T, ImageBlock>) {
+                    auto obj = doc.object();
+                    obj.add("type", doc.string("image"));
+                    auto source = doc.object();
+                    source.add("type", doc.string("base64"));
+                    source.add("media_type", doc.string(b.media_type));
+                    source.add("data", doc.string(b.data));
+                    obj.add("source", source);
+                    arr.append(obj);
+                } else if constexpr (std::is_same_v<T, DocumentBlock>) {
+                    auto obj = doc.object();
+                    obj.add("type", doc.string("document"));
+                    auto source = doc.object();
+                    source.add("type", doc.string("base64"));
+                    source.add("media_type", doc.string(b.media_type));
+                    source.add("data", doc.string(b.data));
+                    obj.add("source", source);
+                    arr.append(obj);
                 }
             }, block);
         }
@@ -994,7 +1144,9 @@ private:
     }
 
     /// Low-level API request using httplib
-    [[nodiscard]] Result<ApiCallResult> send_request(bool is_retry_after_compact = false) {
+    [[nodiscard]] Result<ApiCallResult> send_request(
+        const QueryOptions& options,
+        bool is_retry_after_compact = false) {
         // Build URL
         std::string url = api_config_.base_url;
         if (!url.ends_with("/")) url += "/";
@@ -1008,7 +1160,7 @@ private:
         headers.emplace("User-Agent", "CC-REPL/1.0");
 
         // Build request body
-        std::string body = build_request_body();
+        std::string body = build_request_body(options);
 
         // Create HTTP client
         httplib::Client cli(api_config_.base_url);
@@ -1036,7 +1188,7 @@ private:
                 auto compact_result = compact_conversation();
                 if (compact_result) {
                     // Retry once after compaction
-                    return send_request(/*is_retry_after_compact=*/true);
+                    return send_request(options, /*is_retry_after_compact=*/true);
                 }
             }
 
@@ -1153,7 +1305,7 @@ private:
         headers.emplace("User-Agent", "CC-REPL/1.0");
 
         // Build streaming request body
-        std::string body = build_request_body(/*stream=*/true);
+        std::string body = build_request_body(options, /*stream=*/true);
 
         // Create HTTP client
         httplib::Client cli(api_config_.base_url);
@@ -1372,7 +1524,7 @@ private:
 
         if (!ok || (res.status >= 400 && blocks.empty())) {
             // If streaming failed and we got nothing, fall back to non-streaming
-            auto fallback = send_request();
+            auto fallback = send_request(options);
             if (fallback) {
                 result.message = std::move(fallback->message);
                 result.usage = fallback->usage;
@@ -1413,7 +1565,8 @@ private:
     /// Execute all pending tool-use blocks from an assistant message
     /// Uses parallel execution for read-only tools (P1-5)
     [[nodiscard]] std::vector<ToolResultMessage> execute_pending_tools(
-        const AssistantMessage& msg) {
+        const AssistantMessage& msg,
+        const QueryOptions& options) {
 
         // Collect all tool_use blocks
         std::vector<const ToolUseBlock*> tool_uses;
@@ -1441,8 +1594,8 @@ private:
 
             for (const auto* tool_use : tool_uses) {
                 futures.push_back(std::async(std::launch::async,
-                    [this, tool_use]() -> ToolResultMessage {
-                        return execute_single_tool(*tool_use);
+                    [this, tool_use, &options]() -> ToolResultMessage {
+                        return execute_single_tool(*tool_use, options);
                     }));
             }
 
@@ -1457,13 +1610,34 @@ private:
         // Sequential execution for non-readonly or single tools
         std::vector<ToolResultMessage> results;
         for (const auto* tool_use : tool_uses) {
-            results.push_back(execute_single_tool(*tool_use));
+            results.push_back(execute_single_tool(*tool_use, options));
         }
         return results;
     }
 
+    /// Build a tool-result message for blocked tool execution.
+    [[nodiscard]] ToolResultMessage make_tool_error_result(
+        const ToolUseBlock& tool_use,
+        std::string message) {
+        ToolResultMessage result_msg{};
+        result_msg.id.value = generate_id();
+        result_msg.timestamp = std::chrono::system_clock::now();
+        result_msg.tool_use_id = tool_use.id;
+        result_msg.is_error = true;
+        result_msg.content.push_back(TextBlock{std::move(message)});
+        return result_msg;
+    }
+
     /// Execute a single tool and return the result message
-    [[nodiscard]] ToolResultMessage execute_single_tool(const ToolUseBlock& tool_use) {
+    [[nodiscard]] ToolResultMessage execute_single_tool(
+        const ToolUseBlock& tool_use,
+        const QueryOptions& options) {
+        if (!is_tool_enabled_for_query(tool_use.name, options)) {
+            return make_tool_error_result(
+                tool_use,
+                std::format("Tool disabled for this query: {}", tool_use.name));
+        }
+
         // Check permission first
         bool allowed = check_tool_permission(tool_use.name, tool_use.input_json);
         if (!allowed) {
@@ -1476,14 +1650,9 @@ private:
                     tool_use.input_json});
             }
 
-            ToolResultMessage result_msg{};
-            result_msg.id.value = generate_id();
-            result_msg.timestamp = std::chrono::system_clock::now();
-            result_msg.tool_use_id = tool_use.id;
-            result_msg.is_error = true;
-            result_msg.content.push_back(
-                TextBlock{std::format("Permission denied for tool: {}", tool_use.name)});
-            return result_msg;
+            return make_tool_error_result(
+                tool_use,
+                std::format("Permission denied for tool: {}", tool_use.name));
         }
 
         // Emit pre-tool-use hook
@@ -1510,6 +1679,20 @@ private:
             auto& tr = *exec_result;
             result_msg.is_error = tr.is_error;
             for (auto& content : tr.content) {
+                if (content.format && *content.format == "image" && content.media_type && content.data) {
+                    result_msg.content.push_back(ImageBlock{
+                        .media_type = std::move(*content.media_type),
+                        .data = std::move(*content.data),
+                    });
+                    continue;
+                }
+                if (content.format && *content.format == "document" && content.media_type && content.data) {
+                    result_msg.content.push_back(DocumentBlock{
+                        .media_type = std::move(*content.media_type),
+                        .data = std::move(*content.data),
+                    });
+                    continue;
+                }
                 // P1-11: Truncate large outputs with disk spill
                 if (content.text.size() > 30000) {
                     auto truncated = content.text.substr(0, 30000);

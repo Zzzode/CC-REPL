@@ -53,7 +53,13 @@ inline bool parse_hunk_header(std::string_view line, DiffHunk& hunk) {
     if (at_pos == std::string_view::npos) return false;
 
     std::string range_str(line.substr(3, at_pos - 4));
-    hunk.header = std::string(line.substr(at_pos + 3));
+    auto header_pos = at_pos + 2;
+    if (header_pos < line.size() && line[header_pos] == ' ') {
+        ++header_pos;
+    }
+    hunk.header = header_pos < line.size()
+        ? std::string(line.substr(header_pos))
+        : std::string{};
 
     // Parse -old_start,old_count
     auto space = range_str.find(' ');
@@ -150,22 +156,69 @@ inline std::string generate_unified_diff(std::string_view old_content,
     auto old_lines = split_lines(old_content);
     auto new_lines = split_lines(new_content);
 
+    if (old_lines == new_lines) {
+        return "";
+    }
+
+    std::vector<std::vector<int>> lcs(
+        old_lines.size() + 1,
+        std::vector<int>(new_lines.size() + 1, 0));
+    for (std::size_t i = old_lines.size(); i-- > 0;) {
+        for (std::size_t j = new_lines.size(); j-- > 0;) {
+            if (old_lines[i] == new_lines[j]) {
+                lcs[i][j] = lcs[i + 1][j + 1] + 1;
+            } else {
+                lcs[i][j] = std::max(lcs[i + 1][j], lcs[i][j + 1]);
+            }
+        }
+    }
+
+    std::vector<DiffLine> diff_lines;
+    std::size_t old_index = 0;
+    std::size_t new_index = 0;
+    while (old_index < old_lines.size() || new_index < new_lines.size()) {
+        if (old_index < old_lines.size() &&
+            new_index < new_lines.size() &&
+            old_lines[old_index] == new_lines[new_index]) {
+            diff_lines.push_back({DiffLine::Type::Context, old_lines[old_index]});
+            ++old_index;
+            ++new_index;
+        } else if (new_index < new_lines.size() &&
+                   (old_index == old_lines.size() ||
+                    lcs[old_index][new_index + 1] >= lcs[old_index + 1][new_index])) {
+            diff_lines.push_back({DiffLine::Type::Added, new_lines[new_index]});
+            ++new_index;
+        } else if (old_index < old_lines.size()) {
+            diff_lines.push_back({DiffLine::Type::Removed, old_lines[old_index]});
+            ++old_index;
+        }
+    }
+
     std::string result;
+    result += "diff --git a/" + std::string(filename) + " b/" + std::string(filename) + "\n";
     result += "--- a/" + std::string(filename) + "\n";
     result += "+++ b/" + std::string(filename) + "\n";
 
-    // Simple diff: show all old as removed, all new as added
-    // A real implementation would use LCS/Myers algorithm
     int old_count = static_cast<int>(old_lines.size());
     int new_count = static_cast<int>(new_lines.size());
+    int old_start = old_count == 0 ? 0 : 1;
+    int new_start = new_count == 0 ? 0 : 1;
 
-    result += "@@ -1," + std::to_string(old_count) + " +1," + std::to_string(new_count) + " @@\n";
+    result += "@@ -" + std::to_string(old_start) + "," + std::to_string(old_count) +
+              " +" + std::to_string(new_start) + "," + std::to_string(new_count) + " @@\n";
 
-    for (const auto& line : old_lines) {
-        result += "-" + line + "\n";
-    }
-    for (const auto& line : new_lines) {
-        result += "+" + line + "\n";
+    for (const auto& line : diff_lines) {
+        switch (line.type) {
+            case DiffLine::Type::Context:
+                result += " " + line.content + "\n";
+                break;
+            case DiffLine::Type::Added:
+                result += "+" + line.content + "\n";
+                break;
+            case DiffLine::Type::Removed:
+                result += "-" + line.content + "\n";
+                break;
+        }
     }
 
     return result;

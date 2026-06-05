@@ -3,9 +3,12 @@ module;
 #include <array>
 #include <chrono>
 #include <cstddef>
+#include <cctype>
+#include <cstdio>
 #include <expected>
 #include <format>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -14,6 +17,7 @@ module;
 
 export module cc.tools.workflow;
 
+import cc.utils.json;
 
 export namespace cc::tools {
 
@@ -144,6 +148,87 @@ private:
     std::unordered_map<std::string, std::string> vars_;
 };
 
+[[nodiscard]] inline bool workflow_truthy(std::string_view value) {
+    while (!value.empty() && std::isspace(static_cast<unsigned char>(value.front()))) value.remove_prefix(1);
+    while (!value.empty() && std::isspace(static_cast<unsigned char>(value.back()))) value.remove_suffix(1);
+    std::string lower;
+    lower.reserve(value.size());
+    for (unsigned char ch : value) lower.push_back(static_cast<char>(std::tolower(ch)));
+    return lower == "1" || lower == "true" || lower == "yes" || lower == "on";
+}
+
+[[nodiscard]] inline std::optional<std::string> workflow_json_string(
+    cc::utils::json::JsonVal root,
+    std::string_view key
+) {
+    auto value = root.get(key);
+    if (!value.is_str()) return std::nullopt;
+    return std::string(value.as_str());
+}
+
+[[nodiscard]] inline StepType parse_workflow_step_type(std::string_view type) {
+    if (type == "condition" || type == "if") return StepType::Condition;
+    if (type == "loop" || type == "repeat") return StepType::Loop;
+    if (type == "assign" || type == "set") return StepType::Assign;
+    if (type == "log" || type == "message") return StepType::Log;
+    return StepType::Command;
+}
+
+[[nodiscard]] inline std::expected<WorkflowDefinition, WorkflowError> parse_workflow_definition_json(
+    std::string_view text
+) {
+    auto parsed = cc::utils::json::parse(text);
+    if (!parsed || !parsed->root().is_obj()) {
+        return std::unexpected(WorkflowError::InvalidStep);
+    }
+    auto root = parsed->root();
+    WorkflowDefinition definition;
+    definition.name = workflow_json_string(root, "name").value_or("workflow");
+    definition.description = workflow_json_string(root, "description").value_or("");
+
+    auto variables = root.get("variables");
+    if (!variables.is_obj()) variables = root.get("initial_vars");
+    if (variables.is_obj()) {
+        variables.iter_obj([&](cc::utils::json::JsonVal key, cc::utils::json::JsonVal value) {
+            if (!key.is_str()) return;
+            if (value.is_str()) definition.initial_vars[std::string(key.as_str())] = std::string(value.as_str());
+            else if (value.is_num()) definition.initial_vars[std::string(key.as_str())] = std::to_string(value.as_int());
+            else if (value.is_bool()) definition.initial_vars[std::string(key.as_str())] = value.as_bool() ? "true" : "false";
+        });
+    }
+
+    auto steps = root.get("steps");
+    if (!steps.is_arr()) return std::unexpected(WorkflowError::DefinitionEmpty);
+    std::size_t index = 0;
+    steps.iter([&](cc::utils::json::JsonVal item) {
+        if (!item.is_obj()) return;
+        WorkflowStep step;
+        step.id = workflow_json_string(item, "id").value_or(std::format("step-{}", index + 1));
+        step.name = workflow_json_string(item, "name").value_or(step.id);
+        step.type = parse_workflow_step_type(workflow_json_string(item, "type").value_or("command"));
+        step.action = workflow_json_string(item, "action")
+            .or_else([&] { return workflow_json_string(item, "command"); })
+            .or_else([&] { return workflow_json_string(item, "value"); })
+            .value_or("");
+        step.condition = workflow_json_string(item, "condition");
+        auto max_iterations = item.get("max_iterations");
+        if (!max_iterations.is_num()) max_iterations = item.get("maxIterations");
+        if (max_iterations.is_num() && max_iterations.as_int() > 0) {
+            step.max_iterations = static_cast<std::size_t>(max_iterations.as_int());
+        }
+        auto on_error = item.get("on_error");
+        if (!on_error.is_arr()) on_error = item.get("onError");
+        if (on_error.is_arr()) {
+            on_error.iter([&](cc::utils::json::JsonVal entry) {
+                if (entry.is_str()) step.on_error.push_back(std::string(entry.as_str()));
+            });
+        }
+        definition.steps.push_back(std::move(step));
+        ++index;
+    });
+    return definition;
+}
+
 
 class WorkflowTool {
 public:
@@ -178,6 +263,15 @@ public:
 
 
         for (const auto& step : definition.steps) {
+            if (step.condition) {
+                auto condition = ctx.interpolate(*step.condition);
+                if (!condition) return std::unexpected(condition.error());
+                if (!workflow_truthy(*condition)) {
+                    result.steps_skipped++;
+                    continue;
+                }
+            }
+
             auto step_result = execute_step(step, ctx);
 
             if (step_result) {
@@ -226,8 +320,12 @@ private:
         auto start = std::chrono::steady_clock::now();
 
 
-        auto action = ctx.interpolate(step.action);
-        if (!action) return std::unexpected(action.error());
+        std::optional<std::string> action;
+        if (step.type != StepType::Loop) {
+            auto interpolated = ctx.interpolate(step.action);
+            if (!interpolated) return std::unexpected(interpolated.error());
+            action = std::move(*interpolated);
+        }
 
         std::string output;
 
@@ -243,7 +341,39 @@ private:
                 int status = ::pclose(pipe);
                 if (status != 0) {
                     ctx.set(step.id + ".exit_code", std::to_string(status));
+                    ctx.set(step.id + ".output", output);
+                    return std::unexpected(WorkflowError::StepFailed);
                 }
+                break;
+            }
+            case StepType::Condition: {
+                if (!workflow_truthy(*action)) return std::unexpected(WorkflowError::ConditionFailed);
+                output = *action;
+                break;
+            }
+            case StepType::Loop: {
+                const auto limit = step.max_iterations.value_or(kDefaultMaxLoop);
+                if (limit > kDefaultMaxLoop) return std::unexpected(WorkflowError::LoopLimitExceeded);
+                std::ostringstream combined;
+                for (std::size_t i = 0; i < limit; ++i) {
+                    ctx.set(step.id + ".index", std::to_string(i));
+                    auto loop_action = ctx.interpolate(step.action);
+                    if (!loop_action) return std::unexpected(loop_action.error());
+                    FILE* pipe = ::popen(loop_action->c_str(), "r");
+                    if (!pipe) return std::unexpected(WorkflowError::StepFailed);
+                    std::array<char, 2048> buffer{};
+                    while (auto n = ::fread(buffer.data(), 1, buffer.size(), pipe)) {
+                        combined.write(buffer.data(), static_cast<std::streamsize>(n));
+                    }
+                    int status = ::pclose(pipe);
+                    if (status != 0) {
+                        output = combined.str();
+                        ctx.set(step.id + ".exit_code", std::to_string(status));
+                        ctx.set(step.id + ".output", output);
+                        return std::unexpected(WorkflowError::StepFailed);
+                    }
+                }
+                output = combined.str();
                 break;
             }
             case StepType::Assign: {

@@ -1,12 +1,18 @@
 // C++23 Module: Computer use capabilities
 
 module;
+#include <array>
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <expected>
+#include <filesystem>
 #include <format>
+#include <fstream>
+#include <functional>
+#include <iterator>
 #include <optional>
 #include <ranges>
 #include <string>
@@ -135,16 +141,15 @@ struct ComputerAction {
     }
 };
 
+using CaptureProvider = std::function<std::expected<ImageData, std::string>(std::optional<Rect>)>;
 
 class ScreenCapture {
 public:
+    explicit ScreenCapture(CaptureProvider provider = {})
+        : provider_(std::move(provider)) {}
 
     [[nodiscard]] std::expected<ImageData, std::string> capture_screen() const {
-        if (!is_available()) {
-            return std::unexpected("Screen capture not available on this platform");
-        }
-
-        return std::unexpected("Screen capture: platform implementation required");
+        return capture(std::nullopt);
     }
 
 
@@ -156,13 +161,17 @@ public:
         if (w == 0 || h == 0) {
             return std::unexpected("Invalid capture region dimensions");
         }
-        return std::unexpected("Region capture: platform implementation required");
+        return capture(Rect{.x = x, .y = y, .width = w, .height = h});
     }
 
+    void set_provider(CaptureProvider provider) {
+        provider_ = std::move(provider);
+    }
 
     [[nodiscard]] bool is_available() const {
+        if (provider_) return true;
 #ifdef __APPLE__
-        return true;
+        return command_exists("screencapture");
 #elif defined(__linux__)
         return check_display_server();
 #else
@@ -171,6 +180,93 @@ public:
     }
 
 private:
+    CaptureProvider provider_;
+
+    [[nodiscard]] std::expected<ImageData, std::string> capture(std::optional<Rect> region) const {
+        if (provider_) {
+            return provider_(region);
+        }
+        if (!is_available()) {
+            return std::unexpected("Screen capture not available on this platform");
+        }
+        return platform_capture(region);
+    }
+
+    [[nodiscard]] static std::string shell_quote(std::string_view value) {
+        std::string out = "'";
+        for (char c : value) {
+            if (c == '\'') out += "'\\''";
+            else out.push_back(c);
+        }
+        out.push_back('\'');
+        return out;
+    }
+
+    [[nodiscard]] static bool command_exists(std::string_view command) {
+        auto cmd = std::format("command -v {} >/dev/null 2>&1", shell_quote(command));
+        return std::system(cmd.c_str()) == 0;
+    }
+
+    [[nodiscard]] static std::vector<uint8_t> read_binary_file(const std::filesystem::path& path) {
+        std::ifstream input(path, std::ios::binary);
+        if (!input) return {};
+        return std::vector<uint8_t>(
+            std::istreambuf_iterator<char>(input),
+            std::istreambuf_iterator<char>());
+    }
+
+    [[nodiscard]] static std::optional<std::pair<uint32_t, uint32_t>> parse_png_size(
+        const std::vector<uint8_t>& bytes) {
+        static constexpr std::array<uint8_t, 8> signature{
+            0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'};
+        if (bytes.size() < 24 ||
+            !std::equal(signature.begin(), signature.end(), bytes.begin())) {
+            return std::nullopt;
+        }
+        auto read_be = [&](std::size_t offset) -> uint32_t {
+            return (static_cast<uint32_t>(bytes[offset]) << 24) |
+                   (static_cast<uint32_t>(bytes[offset + 1]) << 16) |
+                   (static_cast<uint32_t>(bytes[offset + 2]) << 8) |
+                   static_cast<uint32_t>(bytes[offset + 3]);
+        };
+        return std::pair{read_be(16), read_be(20)};
+    }
+
+    [[nodiscard]] static std::expected<ImageData, std::string> platform_capture(std::optional<Rect> region) {
+#ifdef __APPLE__
+        auto path = std::filesystem::temp_directory_path() /
+            std::format("cc-repl-computer-use-{}.png",
+                std::chrono::steady_clock::now().time_since_epoch().count());
+        std::string cmd = "screencapture -x -t png ";
+        if (region) {
+            cmd += std::format("-R {},{},{},{} ",
+                region->x, region->y, region->width, region->height);
+        }
+        cmd += shell_quote(path.string());
+        cmd += " >/dev/null 2>&1";
+        auto status = std::system(cmd.c_str());
+        if (status != 0 || !std::filesystem::exists(path)) {
+            return std::unexpected("screencapture failed");
+        }
+        auto bytes = read_binary_file(path);
+        std::error_code ec;
+        std::filesystem::remove(path, ec);
+        auto size = parse_png_size(bytes);
+        if (!size) {
+            return std::unexpected("screencapture returned an invalid PNG image");
+        }
+        return ImageData{
+            .pixels = std::move(bytes),
+            .width = size->first,
+            .height = size->second,
+            .format = "png",
+        };
+#else
+        (void)region;
+        return std::unexpected("Screen capture is unavailable on this platform");
+#endif
+    }
+
     [[nodiscard]] bool check_display_server() const {
         return std::getenv("DISPLAY") != nullptr ||
                std::getenv("WAYLAND_DISPLAY") != nullptr;
@@ -192,6 +288,7 @@ public:
 
 
     [[nodiscard]] ActionResult click(MouseButton button = MouseButton::Left) {
+        (void)button;
         return ActionResult::ok();
     }
 
@@ -293,6 +390,10 @@ private:
 
 class ComputerUseManager {
 public:
+    ComputerUseManager() = default;
+
+    explicit ComputerUseManager(ScreenCapture screen)
+        : screen_(std::move(screen)) {}
 
     [[nodiscard]] bool is_available() const {
         return screen_.is_available();
@@ -318,17 +419,30 @@ public:
                     return ActionResult::fail(r.error());
                 }
             case ActionType::MouseMove:
+                if (!action.position) return ActionResult::fail("Mouse position is required");
                 return mouse_.move(action.position->x, action.position->y);
             case ActionType::MouseClick:
-                mouse_.move(action.position->x, action.position->y);
+                if (!action.position) return ActionResult::fail("Mouse position is required");
+                if (auto moved = mouse_.move(action.position->x, action.position->y); !moved.success) {
+                    return moved;
+                }
                 return mouse_.click();
             case ActionType::MouseDoubleClick:
-                mouse_.move(action.position->x, action.position->y);
+                if (!action.position) return ActionResult::fail("Mouse position is required");
+                if (auto moved = mouse_.move(action.position->x, action.position->y); !moved.success) {
+                    return moved;
+                }
                 return mouse_.double_click();
             case ActionType::MouseRightClick:
-                mouse_.move(action.position->x, action.position->y);
+                if (!action.position) return ActionResult::fail("Mouse position is required");
+                if (auto moved = mouse_.move(action.position->x, action.position->y); !moved.success) {
+                    return moved;
+                }
                 return mouse_.right_click();
             case ActionType::MouseDrag:
+                if (!action.position || !action.drag_end) {
+                    return ActionResult::fail("Drag start and end positions are required");
+                }
                 return mouse_.drag(action.position->x, action.position->y,
                                    action.drag_end->x, action.drag_end->y);
             case ActionType::KeyType:

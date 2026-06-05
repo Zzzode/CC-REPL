@@ -2,33 +2,37 @@
 module;
 
 #include <array>
+#include <algorithm>
+#include <atomic>
+#include <cerrno>
 #include <chrono>
 #include <coroutine>
-#include <cstdio>
+#include <cstring>
 #include <expected>
 #include <filesystem>
 #include <format>
 #include <functional>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
-#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
+#include <fcntl.h>
+#include <poll.h>
 #include <signal.h>
-#include <spawn.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
 export module cc.tools.bash;
 
-import cc.utils.process;
 import cc.utils.error;
 import cc.utils.async;
 import cc.tools.tool;
 import cc.utils.json;
+import cc.utils.shell_providers;
 
 export namespace cc::tools::bash {
 
@@ -39,8 +43,6 @@ using cc::core::ToolDefinition;
 using cc::core::ToolPermission;
 using cc::core::InputSchema;
 using cc::core::SchemaProperty;
-using cc::utils::process::ProcessOptions;
-using cc::utils::process::ProcessResult;
 using cc::utils::async::EventLoop;
 using cc::utils::async::Task;
 using cc::utils::Result;
@@ -154,6 +156,309 @@ struct BashToolOutput {
     std::optional<std::string> persisted_output_path;
 };
 
+[[nodiscard]] bool should_use_sandbox(std::string_view command) noexcept;
+
+namespace detail {
+
+constexpr size_t kMaxOutput = 30000;
+
+struct ShellInvocation {
+    std::string shell_path;
+    std::vector<std::string> args;
+    std::map<std::string, std::string> env;
+    std::optional<std::string> sandbox_tmp_dir;
+    std::string cwd_file_path;
+};
+
+[[nodiscard]] std::string next_shell_invocation_id() {
+    static std::atomic<std::uint64_t> counter{0};
+    auto value = counter.fetch_add(1, std::memory_order_relaxed) + 1;
+    return std::format("{}-{}", std::chrono::steady_clock::now().time_since_epoch().count(), value);
+}
+
+[[nodiscard]] std::optional<std::string> create_sandbox_tmp_dir(std::string_view id) {
+    auto path = std::filesystem::temp_directory_path() / std::format("cc-repl-shell-sandbox-{}", id);
+    std::error_code ec;
+    std::filesystem::create_directories(path, ec);
+    if (ec) return std::nullopt;
+    return path.string();
+}
+
+[[nodiscard]] ShellInvocation build_shell_invocation(const BashToolInput& input) {
+    auto provider = cc::utils::shell_providers::create_default_provider();
+    auto id = next_shell_invocation_id();
+    const auto use_sandbox = should_use_sandbox(input.command) && !input.dangerously_disable_sandbox;
+    auto sandbox_tmp = use_sandbox ? create_sandbox_tmp_dir(id) : std::optional<std::string>{};
+    cc::utils::shell_providers::BuildExecOptions opts{
+        .id = id,
+        .sandbox_tmp_dir = sandbox_tmp,
+        .use_sandbox = use_sandbox && sandbox_tmp.has_value(),
+    };
+    auto exec = provider->build_exec_command(input.command, opts);
+    return ShellInvocation{
+        .shell_path = provider->shell_path(),
+        .args = provider->get_spawn_args(exec.command_string),
+        .env = provider->get_environment_overrides(input.command),
+        .sandbox_tmp_dir = std::move(sandbox_tmp),
+        .cwd_file_path = std::move(exec.cwd_file_path),
+    };
+}
+
+[[nodiscard]] std::vector<char*> make_exec_argv(
+    std::string& executable,
+    std::vector<std::string>& args
+) {
+    std::vector<char*> argv;
+    argv.reserve(args.size() + 2);
+    argv.push_back(executable.data());
+    for (auto& arg : args) argv.push_back(arg.data());
+    argv.push_back(nullptr);
+    return argv;
+}
+
+void apply_env_overrides(const std::map<std::string, std::string>& env) {
+    for (const auto& [key, value] : env) {
+        setenv(key.c_str(), value.c_str(), 1);
+    }
+}
+
+[[nodiscard]] std::string truncate_output(std::string data) {
+    if (data.size() <= kMaxOutput) return data;
+
+    constexpr size_t kHalf = kMaxOutput / 2;
+    const auto omitted = data.size() - kMaxOutput;
+    return data.substr(0, kHalf)
+        + "\n\n... [output truncated, "
+        + std::to_string(omitted)
+        + " bytes omitted] ...\n\n"
+        + data.substr(data.size() - kHalf);
+}
+
+[[nodiscard]] int decode_exit_status(int status) noexcept {
+    if (WIFEXITED(status)) return WEXITSTATUS(status);
+    if (WIFSIGNALED(status)) return 128 + WTERMSIG(status);
+    return status;
+}
+
+void close_if_open(int& fd) noexcept {
+    if (fd >= 0) {
+        close(fd);
+        fd = -1;
+    }
+}
+
+[[nodiscard]] bool set_nonblocking(int fd) noexcept {
+    const int flags = fcntl(fd, F_GETFL, 0);
+    if (flags < 0) return false;
+    return fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0;
+}
+
+[[nodiscard]] bool drain_fd(int fd, std::string& output) {
+    std::array<char, 4096> buffer{};
+    while (true) {
+        const auto nread = read(fd, buffer.data(), buffer.size());
+        if (nread > 0) {
+            output.append(buffer.data(), static_cast<size_t>(nread));
+            continue;
+        }
+        if (nread == 0) return false;
+        if (errno == EAGAIN || errno == EWOULDBLOCK) return true;
+        return false;
+    }
+}
+
+[[nodiscard]] std::expected<pid_t, std::string> spawn_background_shell(
+    const BashToolInput& input) {
+    auto invocation = build_shell_invocation(input);
+    int pid_pipe[2]{-1, -1};
+    if (pipe(pid_pipe) != 0) {
+        return std::unexpected(std::format("Failed to create pid pipe: {}", std::strerror(errno)));
+    }
+
+    const pid_t supervisor = fork();
+    if (supervisor < 0) {
+        close_if_open(pid_pipe[0]);
+        close_if_open(pid_pipe[1]);
+        return std::unexpected(std::format("Failed to fork background process: {}", std::strerror(errno)));
+    }
+
+    if (supervisor == 0) {
+        close_if_open(pid_pipe[0]);
+        if (setsid() < 0) _exit(126);
+
+        const pid_t worker = fork();
+        if (worker < 0) _exit(126);
+        if (worker > 0) {
+            const auto bytes = write(pid_pipe[1], &worker, sizeof(worker));
+            (void)bytes;
+            close_if_open(pid_pipe[1]);
+            _exit(0);
+        }
+
+        if (input.cwd && !input.cwd->empty() && chdir(input.cwd->c_str()) != 0) {
+            _exit(126);
+        }
+
+        const int dev_null = open("/dev/null", O_RDWR);
+        if (dev_null >= 0) {
+            dup2(dev_null, STDIN_FILENO);
+            dup2(dev_null, STDOUT_FILENO);
+            dup2(dev_null, STDERR_FILENO);
+            if (dev_null > STDERR_FILENO) close(dev_null);
+        }
+
+        apply_env_overrides(invocation.env);
+        auto argv = make_exec_argv(invocation.shell_path, invocation.args);
+        execvp(invocation.shell_path.c_str(), argv.data());
+        _exit(127);
+    }
+
+    close_if_open(pid_pipe[1]);
+    pid_t worker_pid = -1;
+    const auto nread = read(pid_pipe[0], &worker_pid, sizeof(worker_pid));
+    close_if_open(pid_pipe[0]);
+
+    int status = 0;
+    waitpid(supervisor, &status, 0);
+
+    if (nread != static_cast<ssize_t>(sizeof(worker_pid)) || worker_pid <= 0) {
+        return std::unexpected("Failed to start background process");
+    }
+
+    return worker_pid;
+}
+
+[[nodiscard]] std::expected<BashToolOutput, std::string> execute_shell(
+    const BashToolInput& input) {
+    auto invocation = build_shell_invocation(input);
+    int stdout_pipe[2]{-1, -1};
+    int stderr_pipe[2]{-1, -1};
+    if (pipe(stdout_pipe) != 0) {
+        return std::unexpected(std::format("Failed to create stdout pipe: {}", std::strerror(errno)));
+    }
+    if (pipe(stderr_pipe) != 0) {
+        close_if_open(stdout_pipe[0]);
+        close_if_open(stdout_pipe[1]);
+        return std::unexpected(std::format("Failed to create stderr pipe: {}", std::strerror(errno)));
+    }
+
+    const pid_t pid = fork();
+    if (pid < 0) {
+        close_if_open(stdout_pipe[0]);
+        close_if_open(stdout_pipe[1]);
+        close_if_open(stderr_pipe[0]);
+        close_if_open(stderr_pipe[1]);
+        return std::unexpected(std::format("Failed to fork command: {}", std::strerror(errno)));
+    }
+
+    if (pid == 0) {
+        close_if_open(stdout_pipe[0]);
+        close_if_open(stderr_pipe[0]);
+        setpgid(0, 0);
+
+        if (input.cwd && !input.cwd->empty() && chdir(input.cwd->c_str()) != 0) {
+            const auto message = std::format("cd: {}: {}\n", *input.cwd, std::strerror(errno));
+            const auto bytes = write(stderr_pipe[1], message.data(), message.size());
+            (void)bytes;
+            _exit(126);
+        }
+
+        dup2(stdout_pipe[1], STDOUT_FILENO);
+        dup2(stderr_pipe[1], STDERR_FILENO);
+        close_if_open(stdout_pipe[1]);
+        close_if_open(stderr_pipe[1]);
+
+        apply_env_overrides(invocation.env);
+        auto argv = make_exec_argv(invocation.shell_path, invocation.args);
+        execvp(invocation.shell_path.c_str(), argv.data());
+        _exit(127);
+    }
+
+    close_if_open(stdout_pipe[1]);
+    close_if_open(stderr_pipe[1]);
+    (void)set_nonblocking(stdout_pipe[0]);
+    (void)set_nonblocking(stderr_pipe[0]);
+
+    BashToolOutput output{
+        .exit_code = -1
+    };
+
+    bool stdout_open = true;
+    bool stderr_open = true;
+    bool process_exited = false;
+    int status = 0;
+    const auto timeout = input.timeout.value_or(std::chrono::seconds(120));
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+
+    while (stdout_open || stderr_open || !process_exited) {
+        if (!process_exited) {
+            const pid_t waited = waitpid(pid, &status, WNOHANG);
+            if (waited == pid) {
+                process_exited = true;
+                output.exit_code = decode_exit_status(status);
+            } else if (waited < 0 && errno == ECHILD) {
+                process_exited = true;
+                output.exit_code = output.exit_code < 0 ? 0 : output.exit_code;
+            }
+        }
+
+        const auto now = std::chrono::steady_clock::now();
+        if (!process_exited && !output.interrupted && now >= deadline) {
+            output.interrupted = true;
+            if (kill(-pid, SIGKILL) != 0) {
+                kill(pid, SIGKILL);
+            }
+        }
+
+        std::array<pollfd, 2> fds{};
+        nfds_t nfds = 0;
+        if (stdout_open) {
+            fds[nfds++] = pollfd{.fd = stdout_pipe[0], .events = POLLIN | POLLHUP | POLLERR, .revents = 0};
+        }
+        if (stderr_open) {
+            fds[nfds++] = pollfd{.fd = stderr_pipe[0], .events = POLLIN | POLLHUP | POLLERR, .revents = 0};
+        }
+
+        int poll_timeout_ms = 25;
+        if (!output.interrupted && !process_exited) {
+            const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now).count();
+            poll_timeout_ms = static_cast<int>(std::clamp<long long>(remaining, 0, 25));
+        }
+
+        const int ready = nfds == 0 ? poll(nullptr, 0, poll_timeout_ms) : poll(fds.data(), nfds, poll_timeout_ms);
+        if (ready > 0) {
+            nfds_t index = 0;
+            if (stdout_open) {
+                const auto events = fds[index++].revents;
+                if (events != 0) {
+                    stdout_open = drain_fd(stdout_pipe[0], output.stdout);
+                    if (!stdout_open) close_if_open(stdout_pipe[0]);
+                }
+            }
+            if (stderr_open) {
+                const auto events = fds[index].revents;
+                if (events != 0) {
+                    stderr_open = drain_fd(stderr_pipe[0], output.stderr);
+                    if (!stderr_open) close_if_open(stderr_pipe[0]);
+                }
+            }
+        }
+    }
+
+    close_if_open(stdout_pipe[0]);
+    close_if_open(stderr_pipe[0]);
+
+    output.stdout = truncate_output(std::move(output.stdout));
+    output.stderr = truncate_output(std::move(output.stderr));
+    if (output.interrupted) {
+        output.exit_code = 128 + SIGKILL;
+    }
+
+    return output;
+}
+
+} // namespace detail
+
 // =========================================================================
 // Command Classification and Validation
 // =========================================================================
@@ -266,8 +571,9 @@ public:
         };
     }
     
-    explicit BashTool(EventLoop& loop = EventLoop::default_loop())
-        : loop_(loop) {}
+    explicit BashTool(EventLoop& loop = EventLoop::default_loop()) {
+        (void)loop;
+    }
     
     /// Permission mode for the tool
     enum class PermissionMode {
@@ -345,10 +651,8 @@ public:
     }
     
 private:
-    EventLoop& loop_;
     PermissionMode permission_mode_ = PermissionMode::AutoAllow;
     std::vector<std::string> allowed_directories_;
-    std::unordered_map<std::string, std::shared_ptr<ProcessResult>> background_tasks_;
     
     /// Internal synchronous execution
     Result<ToolResult> execute_internal(const BashToolInput& input) {
@@ -364,59 +668,29 @@ private:
                 return ToolResult::error(std::format(
                     "Command requires user confirmation: {}", input.command));
             }
-            
-            ProcessOptions opts;
-            opts.command = "/bin/sh";
-            opts.args = {"-c", input.command};
-            opts.cwd = input.cwd.value_or("");
-            opts.timeout = input.timeout.value_or(std::chrono::seconds(120));
-            
-            // Execute via popen: use "sh -c <command>" (single-layer wrapping)
-            std::string shell_cmd = input.command;
-            std::string stdout_data;
-            std::string stderr_data;
-            int exit_code = 0;
-            
-            // Change to working directory if specified
-            std::string full_cmd;
-            if (input.cwd && !input.cwd->empty()) {
-                full_cmd = std::format("cd {} && {}", *input.cwd, shell_cmd);
-            } else {
-                full_cmd = shell_cmd;
+
+            if (input.run_in_background) {
+                auto background_pid = detail::spawn_background_shell(input);
+                if (!background_pid) {
+                    return ToolResult::error(background_pid.error());
+                }
+
+                BashToolOutput output{
+                    .stdout = std::format("Background task started\nPID: {}", *background_pid),
+                    .exit_code = 0,
+                    .background_task_id = std::to_string(*background_pid),
+                    .no_output_expected = false
+                };
+                return format_result(output);
             }
-            
-            FILE* pipe = popen(full_cmd.c_str(), "r");
-            if (!pipe) {
-                return ToolResult::error(std::format("Failed to execute command: {}", input.command));
+
+            auto executed = detail::execute_shell(input);
+            if (!executed) {
+                return ToolResult::error(executed.error());
             }
-            
-            std::array<char, 4096> buffer;
-            while (fgets(buffer.data(), buffer.size(), pipe) != nullptr) {
-                stdout_data += buffer.data();
-            }
-            
-            exit_code = pclose(pipe);
-            exit_code = WEXITSTATUS(exit_code);
-            
-            // Truncate output if too long (30000 char limit)
-            constexpr size_t kMaxOutput = 30000;
-            if (stdout_data.size() > kMaxOutput) {
-                constexpr size_t kHalf = kMaxOutput / 2;
-                stdout_data = stdout_data.substr(0, kHalf) 
-                    + "\n\n... [output truncated, " 
-                    + std::to_string(stdout_data.size() - kMaxOutput)
-                    + " bytes omitted] ...\n\n"
-                    + stdout_data.substr(stdout_data.size() - kHalf);
-            }
-            
-            BashToolOutput output{
-                .stdout = stdout_data,
-                .stderr = stderr_data,
-                .exit_code = exit_code,
-                .interrupted = false,
-                .no_output_expected = is_silent_command(input.command)
-            };
-            
+
+            auto output = std::move(*executed);
+            output.no_output_expected = is_silent_command(input.command);
             return format_result(output);
             
         } catch (const std::exception& e) {
@@ -426,37 +700,7 @@ private:
     
     /// Internal async execution using libuv process
     Task<Result<ToolResult>> execute_async_internal(const BashToolInput& input) {
-        if (input.run_in_background) {
-            // Background execution not fully implemented yet
-            co_return ToolResult::success("Background execution coming soon");
-        }
-        
-        try {
-            ProcessOptions opts;
-            opts.command = "/bin/sh";
-            opts.args = {"-c", input.command};
-            opts.cwd = input.cwd.value_or("");
-            opts.timeout = input.timeout.value_or(std::chrono::seconds(120));
-            
-            auto result = co_await cc::utils::process::spawn_process(opts, loop_);
-            if (!result) {
-                co_return ToolResult::error(std::format("Process execution failed: {}", 
-                    result.error().message()));
-            }
-            
-            BashToolOutput output{
-                .stdout = result->stdout_data,
-                .stderr = result->stderr_data,
-                .exit_code = result->exit_code,
-                .interrupted = result->timed_out,
-                .no_output_expected = is_silent_command(input.command)
-            };
-            
-            co_return format_result(output);
-            
-        } catch (const std::exception& e) {
-            co_return ToolResult::error(std::format("Execution error: {}", e.what()));
-        }
+        co_return execute_internal(input);
     }
     
     /// Format the BashToolOutput into a ToolResult
@@ -464,7 +708,7 @@ private:
         std::string result_text;
         
         if (is_error(output)) {
-            result_text = "Command failed";
+            result_text = output.interrupted ? "Command timed out" : "Command failed";
             if (!output.stderr.empty()) {
                 result_text += ":\n" + output.stderr;
             }
@@ -494,7 +738,7 @@ private:
     
     /// Check if output represents an error
     [[nodiscard]] bool is_error(const BashToolOutput& output) const noexcept {
-        return output.exit_code != 0 && !output.interrupted;
+        return output.exit_code != 0 || output.interrupted;
     }
 };
 

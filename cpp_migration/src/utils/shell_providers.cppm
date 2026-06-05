@@ -5,6 +5,7 @@ module;
 
 #include <cstdio>
 #include <cstdlib>
+#include <chrono>
 #include <filesystem>
 #include <functional>
 #include <map>
@@ -132,6 +133,10 @@ public:
 
         std::vector<std::string> parts;
 
+        if (opts.use_sandbox && opts.sandbox_tmp_dir) {
+            parts.push_back("export TMPDIR=" + shell_quote(*opts.sandbox_tmp_dir));
+        }
+
         // Source snapshot (if available)
         if (snapshot_path_ && fs::exists(*snapshot_path_)) {
             parts.push_back("source " + shell_quote(*snapshot_path_) +
@@ -175,27 +180,41 @@ public:
     [[nodiscard]] std::vector<std::string> get_spawn_args(
         std::string_view command_string) const override {
         std::vector<std::string> args;
-        args.emplace_back("-c");
         if (!last_snapshot_valid_) {
             args.emplace_back("-l"); // Use login shell if no snapshot
         }
+        args.emplace_back("-c");
         args.emplace_back(command_string);
         return args;
     }
 
     [[nodiscard]] std::map<std::string, std::string>
-    get_environment_overrides([[maybe_unused]] std::string_view command) override {
+    get_environment_overrides(std::string_view command) override {
         std::map<std::string, std::string> env;
-        // In real implementation: tmux socket isolation, sandbox TMPDIR, session env vars
+        env["CLAUDE_CODE_SHELL_PROVIDER"] = "native";
+        env["CLAUDE_CODE_SHELL_TYPE"] = "bash";
+        if (!command.empty()) env["CLAUDE_CODE_LAST_COMMAND"] = std::string(command);
+        if (snapshot_path_) env["CLAUDE_CODE_SHELL_SNAPSHOT"] = *snapshot_path_;
         return env;
     }
 
 private:
     /// Create a shell snapshot file for fast initialization
     [[nodiscard]] static std::optional<std::string> create_shell_snapshot(
-        [[maybe_unused]] const std::string& shell) {
-        // In real implementation: run shell in snapshot mode, capture env
-        return std::nullopt;
+        const std::string& shell) {
+        if (shell.empty() || !fs::exists(shell)) return std::nullopt;
+
+        auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+        auto path = fs::temp_directory_path() / ("cc-repl-shell-snapshot-" + std::to_string(stamp) + ".sh");
+        std::string command = shell_quote(shell) + " -l -c " +
+            shell_quote("export -p") + " > " + shell_quote(path.string()) + " 2>/dev/null";
+        int status = std::system(command.c_str());
+        std::error_code ec;
+        if (status != 0 || !fs::exists(path, ec) || fs::file_size(path, ec) == 0) {
+            fs::remove(path, ec);
+            return std::nullopt;
+        }
+        return path.string();
     }
 
     /// Get command to disable extended glob patterns
@@ -226,7 +245,7 @@ private:
 
     /// Quote a shell command for eval
     [[nodiscard]] static std::string quote_shell_command(const std::string& cmd) {
-        return "'" + cmd + "'"; // Simplified; real impl handles escaping
+        return shell_quote(cmd);
     }
 
     /// Format with shell prefix
@@ -274,7 +293,12 @@ public:
         std::string_view command, const BuildExecOptions& opts) override {
 
         std::string tmp_dir = get_tmp_dir();
-        std::string cwd_file_path = tmp_dir + "/claude-" + opts.id + "-cwd";
+        std::string cwd_file_path;
+        if (opts.use_sandbox && opts.sandbox_tmp_dir) {
+            cwd_file_path = *opts.sandbox_tmp_dir + "/cwd-" + opts.id;
+        } else {
+            cwd_file_path = tmp_dir + "/claude-" + opts.id + "-cwd";
+        }
 
         // PowerShell command wrapping
         std::string ps_command = std::string(command);
@@ -282,7 +306,7 @@ public:
         // Add cwd tracking
         std::string command_string =
             ps_command + "; (Get-Location).Path | Out-File -FilePath '" +
-            cwd_file_path + "' -Encoding UTF8 -NoNewline";
+            escape_powershell_single_quoted(cwd_file_path) + "' -Encoding UTF8 -NoNewline";
 
         return {
             .command_string = std::move(command_string),
@@ -301,11 +325,25 @@ public:
     }
 
     [[nodiscard]] std::map<std::string, std::string>
-    get_environment_overrides([[maybe_unused]] std::string_view command) override {
-        return {};
+    get_environment_overrides(std::string_view command) override {
+        std::map<std::string, std::string> env;
+        env["CLAUDE_CODE_SHELL_PROVIDER"] = "native";
+        env["CLAUDE_CODE_SHELL_TYPE"] = "powershell";
+        if (!command.empty()) env["CLAUDE_CODE_LAST_COMMAND"] = std::string(command);
+        return env;
     }
 
 private:
+    [[nodiscard]] static std::string escape_powershell_single_quoted(std::string_view value) {
+        std::string escaped;
+        escaped.reserve(value.size());
+        for (char ch : value) {
+            escaped.push_back(ch);
+            if (ch == '\'') escaped.push_back('\'');
+        }
+        return escaped;
+    }
+
     [[nodiscard]] static std::string get_tmp_dir() {
         if (const char* tmp = std::getenv("TEMP")) return tmp;
         if (const char* tmp = std::getenv("TMP")) return tmp;

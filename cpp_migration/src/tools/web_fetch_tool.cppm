@@ -40,6 +40,20 @@ namespace detail {
     if (status != 0) return std::nullopt;
     return out;
 }
+
+[[nodiscard]] inline auto parse_url(std::string_view json) -> std::expected<std::string, std::string> {
+    auto parsed = cc::utils::json::parse(json);
+    if (!parsed || !parsed->root().is_obj()) {
+        return std::unexpected("Invalid JSON input");
+    }
+
+    auto url = parsed->root().get("url");
+    if (!url.is_str() || url.as_str().empty()) {
+        return std::unexpected("Missing 'url' field");
+    }
+
+    return std::string(url.as_str());
+}
 }
 
 using cc::core::Tool;
@@ -88,22 +102,12 @@ public:
     }
     
     [[nodiscard]] Result<ToolResult> execute(const ToolInput& input) {
-        std::string url;
-        auto json_str = input.json();
-        auto url_pos = json_str.find("\"url\"");
-        if (url_pos != std::string::npos) {
-            auto val_start = json_str.find(":", url_pos);
-            auto quote_start = json_str.find("\"", val_start + 1);
-            auto quote_end = json_str.find("\"", quote_start + 1);
-            if (quote_start != std::string::npos && quote_end != std::string::npos) {
-                url = std::string(json_str.substr(quote_start + 1, quote_end - quote_start - 1));
-            }
+        auto parsed_url = detail::parse_url(input.json());
+        if (!parsed_url) {
+            return ToolResult::error(parsed_url.error());
         }
-        
-        if (url.empty()) {
-            return ToolResult::error("Missing 'url' field");
-        }
-        
+
+        const auto& url = *parsed_url;
         if (!url.starts_with("http://") && !url.starts_with("https://")) {
             return ToolResult::error("URL must start with http:// or https://");
         }

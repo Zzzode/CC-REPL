@@ -12,6 +12,7 @@ module;
 #include <fstream>
 #include <memory>
 #include <optional>
+#include <span>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -23,21 +24,28 @@ export module cc.tools.file_read;
 
 import cc.utils.file;
 import cc.utils.error;
+import cc.services.image;
 import cc.tools.tool;
+import cc.tools.notebook;
 import cc.utils.json;
 
 export namespace cc::tools::file_read {
 
 using cc::core::Tool;
 using cc::core::ToolInput;
+using cc::core::ToolOutputContent;
 using cc::core::ToolResult;
 using cc::core::ToolDefinition;
 using cc::core::ToolPermission;
 using cc::core::InputSchema;
 using cc::core::SchemaProperty;
 using cc::utils::Result;
+using cc::services::image::ImageService;
+using cc::services::image::format_to_mime;
 
 namespace fs = std::filesystem;
+
+constexpr std::size_t kNotebookLargeOutputThreshold = 10000;
 
 // =========================================================================
 // FileReadTool Configuration and Types
@@ -217,6 +225,81 @@ struct FileReadOutput {
     return ext == ".ipynb";
 }
 
+[[nodiscard]] std::string notebook_cell_id(const NotebookCell& cell, std::size_t index) {
+    return cell.id.value_or(std::format("cell-{}", index));
+}
+
+[[nodiscard]] bool notebook_outputs_are_large(const NotebookCell& cell) {
+    std::size_t size = 0;
+    for (const auto& output : cell.outputs) {
+        size += output.text.size();
+        if (size > kNotebookLargeOutputThreshold) return true;
+    }
+    return false;
+}
+
+[[nodiscard]] std::string format_notebook_for_read(const Notebook& notebook, const fs::path& path) {
+    const auto language = notebook.language.empty() ? std::string("python") : notebook.language;
+    std::string result;
+    result += std::format("Notebook: {}\n", path.string());
+    result += std::format("Cells: {}\n\n", notebook.cells.size());
+
+    for (std::size_t i = 0; i < notebook.cells.size(); ++i) {
+        const auto& cell = notebook.cells[i];
+        const auto id = notebook_cell_id(cell, i);
+        std::string metadata;
+        if (cell.cell_type != CellType::Code) {
+            metadata += std::format("<cell_type>{}</cell_type>", cell_type_name(cell.cell_type));
+        }
+        if (cell.cell_type == CellType::Code && language != "python") {
+            metadata += std::format("<language>{}</language>", language);
+        }
+
+        result += std::format("<cell id=\"{}\">{}{}</cell id=\"{}\">\n", id, metadata, cell.source, id);
+
+        if (cell.cell_type == CellType::Code && !cell.outputs.empty()) {
+            if (notebook_outputs_are_large(cell)) {
+                result += std::format(
+                    "Outputs are too large to include. Use Bash with: cat {} | jq '.cells[{}].outputs'\n",
+                    path.string(), i);
+            } else {
+                for (const auto& output : cell.outputs) {
+                    if (output.text.empty()) continue;
+                    result += output.text;
+                    if (!result.ends_with('\n')) result.push_back('\n');
+                }
+            }
+        }
+
+        if (i + 1 < notebook.cells.size()) {
+            result.push_back('\n');
+        }
+    }
+
+    return result;
+}
+
+[[nodiscard]] std::expected<std::vector<std::uint8_t>, std::string> read_binary_file(const fs::path& path) {
+    std::ifstream file(path, std::ios::binary);
+    if (!file) {
+        return std::unexpected(std::format("Failed to open file: {}", path.string()));
+    }
+    file.seekg(0, std::ios::end);
+    auto size = file.tellg();
+    if (size < 0) {
+        return std::unexpected(std::format("Failed to stat file: {}", path.string()));
+    }
+    file.seekg(0, std::ios::beg);
+    std::vector<std::uint8_t> bytes(static_cast<std::size_t>(size));
+    if (!bytes.empty()) {
+        file.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+        if (file.gcount() != static_cast<std::streamsize>(bytes.size())) {
+            return std::unexpected(std::format("Failed to read file: {}", path.string()));
+        }
+    }
+    return bytes;
+}
+
 // =========================================================================
 // FileReadTool Implementation
 // =========================================================================
@@ -267,7 +350,7 @@ public:
     
     FileReadTool() = default;
     
-    [[nodiscard]] bool check_permission(const ToolInput& input) const {
+    [[nodiscard]] bool check_permission(const ToolInput&) const {
         // Always allow - permission checks would be implemented in production
         return true;
     }
@@ -371,7 +454,10 @@ private:
             .file_path = input.file_path.string(),
             .num_lines = count,
             .start_line = start_idx + 1,
-            .total_lines = lines.size()
+            .total_lines = lines.size(),
+            .base64_image = std::nullopt,
+            .image_type = std::nullopt,
+            .original_size = std::nullopt,
         };
         
         return format_text_result(output);
@@ -379,33 +465,56 @@ private:
     
     /// Read image file
     Result<ToolResult> read_image(const FileReadInput& input) {
-        // Image handling would require more complex implementation
-        // For now, return basic info
-        auto file_size = fs::file_size(input.file_path);
-        return ToolResult::success(std::format(
-            "[Image file: {} ({} bytes)]",
-            input.file_path.string(),
-            file_size
-        ));
+        auto bytes = read_binary_file(input.file_path);
+        if (!bytes) {
+            return ToolResult::error(bytes.error());
+        }
+
+        auto info = ImageService::get_info(input.file_path);
+        if (!info) {
+            return ToolResult::error(info.error().message);
+        }
+        auto media_type = std::string(format_to_mime(info->format));
+        if (media_type == "application/octet-stream") {
+            return ToolResult::error(std::format("Unsupported image format: {}", input.file_path.string()));
+        }
+
+        auto data = ImageService::to_base64(std::span<const std::uint8_t>(bytes->data(), bytes->size()));
+        return ToolResult::success_multi({
+            ToolOutputContent::text_output(std::format(
+                "Image file read: {} ({})",
+                input.file_path.string(),
+                info->summary())),
+            ToolOutputContent::image_output(std::move(media_type), std::move(data)),
+        });
     }
     
     /// Read PDF file
     Result<ToolResult> read_pdf(const FileReadInput& input) {
-        auto file_size = fs::file_size(input.file_path);
-        return ToolResult::success(std::format(
-            "[PDF file: {} ({} bytes)]",
-            input.file_path.string(),
-            file_size
-        ));
+        auto bytes = read_binary_file(input.file_path);
+        if (!bytes) {
+            return ToolResult::error(bytes.error());
+        }
+
+        auto data = ImageService::to_base64(std::span<const std::uint8_t>(bytes->data(), bytes->size()));
+        const auto file_size = bytes->size();
+        return ToolResult::success_multi({
+            ToolOutputContent::text_output(std::format(
+                "PDF file read: {} ({} bytes)",
+                input.file_path.string(),
+                file_size)),
+            ToolOutputContent::document_output("application/pdf", std::move(data)),
+        });
     }
     
     /// Read notebook file
     Result<ToolResult> read_notebook(const FileReadInput& input) {
-        auto read_result = cc::utils::file::read_file(input.file_path);
-        if (!read_result) {
-            return ToolResult::error(read_result.error());
+        NotebookEditTool notebook_tool;
+        auto notebook = notebook_tool.load_notebook(input.file_path);
+        if (!notebook) {
+            return ToolResult::error(std::string(format_error(notebook.error())));
         }
-        return ToolResult::success(*read_result);
+        return ToolResult::success(format_notebook_for_read(*notebook, input.file_path));
     }
     
     /// Format text result

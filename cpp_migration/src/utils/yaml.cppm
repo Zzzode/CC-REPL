@@ -64,6 +64,20 @@ namespace yaml_detail {
         if (value == "true" || value == "True" || value == "TRUE") return YamlValue(true);
         if (value == "false" || value == "False" || value == "FALSE") return YamlValue(false);
 
+        if (value.size() >= 2 && value.front() == '[' && value.back() == ']') {
+            YamlArray array;
+            auto inner = value.substr(1, value.size() - 2);
+            size_t start = 0;
+            while (start <= inner.size()) {
+                auto comma = inner.find(',', start);
+                auto item = trim_line(inner.substr(start, comma == std::string_view::npos ? std::string_view::npos : comma - start));
+                if (!item.empty()) array.emplace_back(parse_scalar(item));
+                if (comma == std::string_view::npos) break;
+                start = comma + 1;
+            }
+            return YamlValue(std::move(array));
+        }
+
 
         int64_t int_val{};
         auto [ptr, ec] = std::from_chars(value.data(), value.data() + value.size(), int_val);
@@ -129,28 +143,14 @@ namespace yaml_detail {
                 ++idx;
 
 
-                if (item_value.find(':') != std::string_view::npos &&
-                    idx < lines.size() && indent_level(lines[idx]) > cur_indent) {
-
-                    --idx;
-                    auto nested_indent = cur_indent + 2;
-
+                if (auto colon = item_value.find(':'); colon != std::string_view::npos) {
                     YamlMap map;
-                    auto colon = item_value.find(':');
                     auto key = std::string(item_value.substr(0, colon));
                     auto val_str = trim_line(item_value.substr(colon + 1));
-                    map[key] = parse_scalar(val_str);
-                    ++idx;
-
-                    while (idx < lines.size() && indent_level(lines[idx]) >= nested_indent) {
-                        auto nested_trimmed = trim_line(lines[idx]);
-                        if (nested_trimmed.empty() || nested_trimmed[0] == '#') { ++idx; continue; }
-                        auto nc = nested_trimmed.find(':');
-                        if (nc == std::string_view::npos) break;
-                        auto nk = std::string(nested_trimmed.substr(0, nc));
-                        auto nv = trim_line(nested_trimmed.substr(nc + 1));
-                        map[nk] = parse_scalar(nv);
-                        ++idx;
+                    if (val_str.empty() && idx < lines.size() && indent_level(lines[idx]) > cur_indent) {
+                        map[key] = parse_block(lines, idx, indent_level(lines[idx]));
+                    } else {
+                        map[key] = parse_scalar(val_str);
                     }
                     arr.emplace_back(YamlValue(std::move(map)));
                 } else {

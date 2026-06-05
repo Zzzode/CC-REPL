@@ -4,6 +4,7 @@ module;
 
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -17,6 +18,7 @@ module;
 #include <optional>
 #include <regex>
 #include <sstream>
+#include <span>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -28,11 +30,13 @@ export module cc.tools.runtime_registry;
 
 import cc.tools.tool;
 import cc.tools.agent;
+import cc.tools.agent_runtime;
 import cc.tools.ask_user;
 import cc.tools.bash;
 import cc.tools.brief;
 import cc.tools.config;
 import cc.tools.cron;
+import cc.tools.computer_use;
 import cc.tools.file_edit;
 import cc.tools.file_read;
 import cc.tools.file_write;
@@ -46,6 +50,7 @@ import cc.tools.powershell;
 import cc.tools.remote_trigger_tool;
 import cc.tools.repl_tool;
 import cc.tools.script;
+import cc.tools.send_message;
 import cc.tools.shared_tool;
 import cc.tools.skill_tool;
 import cc.tools.sleep;
@@ -55,10 +60,14 @@ import cc.tools.team;
 import cc.tools.testing_tool;
 import cc.tools.todo_write;
 import cc.tools.tungsten_tool;
+import cc.tools.web_browser;
 import cc.tools.web_fetch;
 import cc.tools.web_search;
 import cc.tools.workflow;
 import cc.tools.worktree;
+import cc.utils.json;
+import cc.services.image;
+import cc.skills.skill;
 
 export namespace cc::tools {
 
@@ -218,6 +227,71 @@ private:
     return fallback;
 }
 
+[[nodiscard]] std::optional<std::string> runtime_json_string(cc::utils::json::JsonVal obj, std::string_view key) {
+    auto val = obj.get(key);
+    if (!val.is_str()) return std::nullopt;
+    return std::string(val.as_str());
+}
+
+[[nodiscard]] std::optional<int> runtime_json_int(cc::utils::json::JsonVal obj, std::string_view key) {
+    auto val = obj.get(key);
+    if (!val.is_num()) return std::nullopt;
+    return static_cast<int>(val.as_int());
+}
+
+[[nodiscard]] MemberRole parse_team_member_role(std::string_view role) {
+    if (role == "leader") return MemberRole::Leader;
+    if (role == "reviewer") return MemberRole::Reviewer;
+    return MemberRole::Worker;
+}
+
+[[nodiscard]] std::vector<TeamMember> parse_team_members(cc::utils::json::JsonVal root) {
+    std::vector<TeamMember> members;
+    auto value = root.get("members");
+    if (!value.valid() || !value.is_arr()) return members;
+
+    value.iter([&](cc::utils::json::JsonVal item) {
+        TeamMember member;
+        if (item.is_str()) {
+            member.agent_id = std::string(item.as_str());
+        } else if (item.is_obj()) {
+            member.agent_id = runtime_json_string(item, "agent_id")
+                .or_else([&] { return runtime_json_string(item, "id"); })
+                .or_else([&] { return runtime_json_string(item, "name"); })
+                .value_or("");
+            member.role = parse_team_member_role(runtime_json_string(item, "role").value_or("worker"));
+            member.current_task = runtime_json_string(item, "current_task");
+        }
+        if (!member.agent_id.empty()) members.push_back(std::move(member));
+    });
+    return members;
+}
+
+[[nodiscard]] std::vector<SharedTaskItem> parse_team_tasks(cc::utils::json::JsonVal root) {
+    std::vector<SharedTaskItem> tasks;
+    auto value = root.get("task_list");
+    if (!value.valid() || !value.is_arr()) {
+        value = root.get("tasks");
+    }
+    if (!value.valid() || !value.is_arr()) return tasks;
+
+    value.iter([&](cc::utils::json::JsonVal item) {
+        if (!item.is_obj()) return;
+        auto id = runtime_json_string(item, "id");
+        auto description = runtime_json_string(item, "description")
+            .or_else([&] { return runtime_json_string(item, "task"); });
+        if (!id || !description) return;
+        tasks.push_back(SharedTaskItem{
+            .id = *id,
+            .description = *description,
+            .assigned_to = runtime_json_string(item, "assigned_to"),
+            .completed = false,
+            .result = std::nullopt,
+        });
+    });
+    return tasks;
+}
+
 [[nodiscard]] std::optional<std::string> json_raw_value(std::string_view json, std::string_view key) {
     auto key_text = std::format("\"{}\"", key);
     auto key_pos = json.find(key_text);
@@ -252,8 +326,8 @@ private:
             }
             ++pos;
         }
-        return std::nullopt;
-    }
+    return std::nullopt;
+}
 
     if (json[pos] == '"') {
         ++pos;
@@ -271,6 +345,40 @@ private:
     while (pos < json.size() && json[pos] != ',' && json[pos] != '}') ++pos;
     while (pos > start && std::isspace(static_cast<unsigned char>(json[pos - 1]))) --pos;
     return std::string(json.substr(start, pos - start));
+}
+
+[[nodiscard]] std::optional<std::size_t> parse_notebook_cell_index(std::string_view text) {
+    if (text.starts_with("cell-")) {
+        text.remove_prefix(5);
+    }
+    if (text.empty()) return std::nullopt;
+    std::size_t value = 0;
+    const auto* begin = text.data();
+    const auto* end = begin + text.size();
+    auto [ptr, ec] = std::from_chars(begin, end, value);
+    if (ec != std::errc{} || ptr != end) return std::nullopt;
+    return value;
+}
+
+[[nodiscard]] std::optional<std::size_t> resolve_notebook_cell_index(
+    const Notebook& notebook,
+    std::optional<std::string> cell_id
+) {
+    if (!cell_id || cell_id->empty()) return std::nullopt;
+    for (std::size_t i = 0; i < notebook.cells.size(); ++i) {
+        if (notebook.cells[i].id && *notebook.cells[i].id == *cell_id) {
+            return i;
+        }
+    }
+    return parse_notebook_cell_index(*cell_id);
+}
+
+[[nodiscard]] std::optional<CellOperation> parse_notebook_operation(std::string_view text) {
+    if (text == "insert") return CellOperation::Insert;
+    if (text == "delete") return CellOperation::Delete;
+    if (text == "update" || text == "replace") return CellOperation::Update;
+    if (text == "move") return CellOperation::Move;
+    return std::nullopt;
 }
 
 [[nodiscard]] std::string runtime_shell_quote(std::string_view value) {
@@ -536,6 +644,26 @@ private:
     auto name = json_string(input.json(), "name").or_else([&] { return json_string(input.json(), "skill"); });
     if (!name || name->empty()) return ToolResult::error("skill requires name");
 
+    cc::skills::SkillLoader loader;
+    if (const char* home = std::getenv("HOME")) {
+        loader.add_search_path(fs::path{home} / ".codex" / "skills");
+        loader.add_search_path(fs::path{home} / ".agents" / "skills");
+    }
+    loader.add_search_path(fs::current_path() / "skills");
+
+    std::vector<std::pair<std::string, fs::path>> plugin_skill_paths;
+    for (const auto& plugin : cc::tools::agent_runtime::discover_plugin_component_paths()) {
+        for (const auto& path : plugin.skills_paths) {
+            plugin_skill_paths.emplace_back(plugin.plugin_name, path);
+        }
+    }
+    auto discovered = loader.discover_all_with_plugin_skills(plugin_skill_paths);
+    if (discovered) {
+        for (const auto& skill : *discovered) {
+            if (skill.name == *name) return ToolResult::success(skill.content);
+        }
+    }
+
     std::vector<fs::path> roots;
     if (const char* home = std::getenv("HOME")) {
         roots.push_back(fs::path{home} / ".codex" / "skills");
@@ -587,10 +715,12 @@ private:
     return {
         "Agent",
         "Bash",
+        "computer_use",
         "Edit",
         "Glob",
         "Grep",
         "Read",
+        "web_browser",
         "WebFetch",
         "WebSearch",
         "Write",
@@ -647,6 +777,124 @@ private:
     return ToolResult::success(out);
 }
 
+[[nodiscard]] std::optional<cc::tools::BrowserAction> parse_browser_action(std::string_view action) {
+    using cc::tools::BrowserAction;
+    if (action == "navigate") return BrowserAction::Navigate;
+    if (action == "click") return BrowserAction::Click;
+    if (action == "extract") return BrowserAction::Extract;
+    if (action == "screenshot") return BrowserAction::Screenshot;
+    if (action == "fill_form") return BrowserAction::FillForm;
+    if (action == "get_title") return BrowserAction::GetTitle;
+    return std::nullopt;
+}
+
+[[nodiscard]] Result<ToolResult> execute_web_browser(const ToolInput& input) {
+    auto json = input.json();
+    auto action_text = json_string(json, "action").value_or("extract");
+    auto action = parse_browser_action(action_text);
+    if (!action) {
+        return ToolResult::error(std::format("Unsupported browser action: {}", action_text));
+    }
+
+    cc::tools::BrowserRequest request{
+        .action = *action,
+        .url = json_string(json, "url"),
+        .selector = json_string(json, "selector"),
+        .form_fields = {},
+        .timeout = std::chrono::seconds(std::clamp(json_int(json, "timeout").value_or(30), 1, 300)),
+        .extract_selector = json_string(json, "extract_selector"),
+    };
+
+    cc::tools::WebBrowserTool tool;
+    auto result = tool.execute(std::move(request));
+    if (!result) {
+        return ToolResult::error(std::string(cc::tools::format_error(result.error())));
+    }
+
+    if (result->screenshot_base64) {
+        std::vector<ToolOutputContent> content;
+        content.push_back(ToolOutputContent::text_output(result->content));
+        content.push_back(ToolOutputContent::image_output(
+            result->media_type.value_or("image/png"),
+            std::move(*result->screenshot_base64)));
+        return ToolResult::success_multi(std::move(content));
+    }
+
+    return ToolResult::success(result->content);
+}
+
+[[nodiscard]] std::optional<cc::core::computer_use::ActionType> parse_computer_action(
+    std::string_view action) {
+    using cc::core::computer_use::ActionType;
+    if (action == "screenshot") return ActionType::Screenshot;
+    if (action == "move" || action == "mouse_move") return ActionType::MouseMove;
+    if (action == "click" || action == "mouse_click") return ActionType::MouseClick;
+    if (action == "double_click") return ActionType::MouseDoubleClick;
+    if (action == "right_click") return ActionType::MouseRightClick;
+    if (action == "drag") return ActionType::MouseDrag;
+    if (action == "type") return ActionType::KeyType;
+    if (action == "press") return ActionType::KeyPress;
+    if (action == "hotkey") return ActionType::KeyHotkey;
+    if (action == "scroll") return ActionType::Scroll;
+    return std::nullopt;
+}
+
+[[nodiscard]] Result<ToolResult> execute_computer_use(const ToolInput& input) {
+    auto json = input.json();
+    auto action_text = json_string(json, "action").value_or("screenshot");
+    auto action = parse_computer_action(action_text);
+    if (!action) {
+        return ToolResult::error(std::format("Unsupported computer-use action: {}", action_text));
+    }
+
+    auto point_from_xy = [&] -> std::optional<cc::core::computer_use::Point> {
+        auto x = json_int(json, "x");
+        auto y = json_int(json, "y");
+        if (!x || !y) return std::nullopt;
+        return cc::core::computer_use::Point{.x = *x, .y = *y};
+    };
+
+    cc::core::computer_use::ComputerAction request{
+        .type = *action,
+        .position = point_from_xy(),
+        .drag_end = std::nullopt,
+        .text = json_string(json, "text").or_else([&] { return json_string(json, "key"); }),
+        .region = std::nullopt,
+        .keys = {},
+    };
+
+    if (auto end_x = json_int(json, "to_x"), end_y = json_int(json, "to_y"); end_x && end_y) {
+        request.drag_end = cc::core::computer_use::Point{.x = *end_x, .y = *end_y};
+    }
+    if (auto w = json_int(json, "width"), h = json_int(json, "height"); w && h && *w > 0 && *h > 0) {
+        request.region = cc::core::computer_use::Rect{
+            .x = json_int(json, "x").value_or(0),
+            .y = json_int(json, "y").value_or(0),
+            .width = static_cast<std::uint32_t>(*w),
+            .height = static_cast<std::uint32_t>(*h),
+        };
+    }
+
+    cc::core::computer_use::ComputerUseManager manager;
+    auto result = manager.execute_action(request);
+    if (!result.success) {
+        return ToolResult::error(result.error_message);
+    }
+    if (result.screenshot) {
+        auto data = cc::services::image::ImageService::to_base64(
+            std::span<const std::uint8_t>(result.screenshot->pixels.data(), result.screenshot->pixels.size()));
+        auto media_type = result.screenshot->format == "png" ? "image/png" : "image/rgba";
+        return ToolResult::success_multi({
+            ToolOutputContent::text_output(std::format(
+                "Captured screenshot {}x{}.",
+                result.screenshot->width,
+                result.screenshot->height)),
+            ToolOutputContent::image_output(media_type, std::move(data)),
+        });
+    }
+    return ToolResult::success(std::format("Computer-use action completed: {}", action_text));
+}
+
 [[nodiscard]] bool safe_ref(std::string_view text) {
     return !text.empty() && std::ranges::all_of(text, [](char c) {
         return std::isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_' || c == '/' || c == '.';
@@ -684,24 +932,89 @@ private:
 }
 
 [[nodiscard]] Result<ToolResult> execute_notebook_edit(const ToolInput& input) {
-    auto path = json_string(input.json(), "file_path").or_else([&] { return json_string(input.json(), "path"); });
-    auto find_text = json_string(input.json(), "old_string").or_else([&] { return json_string(input.json(), "find"); });
-    auto replace_text = json_string(input.json(), "new_string").or_else([&] { return json_string(input.json(), "replace"); });
-    if (!path || !find_text || !replace_text) {
-        return ToolResult::error("notebook_edit requires file_path, old_string, and new_string");
+    auto parsed = cc::utils::json::parse(input.json());
+    if (!parsed || !parsed->root().is_obj()) {
+        return ToolResult::error("notebook_edit input must be a JSON object");
     }
-    std::ifstream in(*path);
-    if (!in) return ToolResult::error(std::format("Cannot read notebook: {}", *path));
-    std::stringstream buffer;
-    buffer << in.rdbuf();
-    auto content = buffer.str();
-    auto pos = content.find(*find_text);
-    if (pos == std::string::npos) return ToolResult::error("old_string was not found in notebook");
-    content.replace(pos, find_text->size(), *replace_text);
-    std::ofstream out(*path);
-    if (!out) return ToolResult::error(std::format("Cannot write notebook: {}", *path));
-    out << content;
-    return ToolResult::success(std::format("Updated notebook {}", *path));
+    auto root = parsed->root();
+
+    auto path = runtime_json_string(root, "notebook_path")
+        .or_else([&] { return runtime_json_string(root, "file_path"); })
+        .or_else([&] { return runtime_json_string(root, "path"); });
+    if (!path) {
+        return ToolResult::error("notebook_edit requires notebook_path");
+    }
+
+    NotebookEditTool tool;
+    auto notebook_result = tool.load_notebook(*path);
+    if (!notebook_result) {
+        return ToolResult::error(std::string(format_error(notebook_result.error())));
+    }
+    const auto& notebook = *notebook_result;
+
+    NotebookEditRequest request;
+    request.notebook_path = *path;
+
+    if (auto operation_text = runtime_json_string(root, "operation")) {
+        auto operation = parse_notebook_operation(*operation_text);
+        if (!operation) return ToolResult::error("notebook_edit operation must be insert, delete, update, or move");
+        request.operation = *operation;
+        auto index = runtime_json_int(root, "cell_index").or_else([&] { return runtime_json_int(root, "cell_number"); });
+        if (!index || *index < 0) return ToolResult::error("notebook_edit requires a non-negative cell_index");
+        request.cell_index = static_cast<std::size_t>(*index);
+        if (auto target = runtime_json_int(root, "target_index"); target && *target >= 0) {
+            request.target_index = static_cast<std::size_t>(*target);
+        }
+        request.source = runtime_json_string(root, "source")
+            .or_else([&] { return runtime_json_string(root, "new_source"); });
+    } else {
+        auto edit_mode = runtime_json_string(root, "edit_mode").value_or("replace");
+        auto operation = parse_notebook_operation(edit_mode);
+        if (!operation) return ToolResult::error("notebook_edit edit_mode must be replace, insert, or delete");
+        request.operation = *operation;
+        request.source = runtime_json_string(root, "new_source")
+            .or_else([&] { return runtime_json_string(root, "source"); });
+
+        if (auto index = runtime_json_int(root, "cell_index").or_else([&] { return runtime_json_int(root, "cell_number"); })) {
+            if (*index < 0) return ToolResult::error("notebook_edit cell index must be non-negative");
+            request.cell_index = static_cast<std::size_t>(*index);
+        } else {
+            auto cell_id = runtime_json_string(root, "cell_id");
+            if (cell_id) {
+                auto resolved = resolve_notebook_cell_index(notebook, cell_id);
+                if (!resolved) return ToolResult::error(std::format("Cell with ID \"{}\" not found in notebook", *cell_id));
+                request.cell_index = *resolved;
+                if (request.operation == CellOperation::Insert) {
+                    ++request.cell_index;
+                }
+            } else if (request.operation == CellOperation::Insert) {
+                request.cell_index = 0;
+            } else {
+                return ToolResult::error("notebook_edit requires cell_id or cell_index when not inserting");
+            }
+        }
+
+        if (request.operation == CellOperation::Update && request.cell_index == notebook.cells.size()) {
+            request.operation = CellOperation::Insert;
+        }
+    }
+
+    if (auto cell_type_text = runtime_json_string(root, "cell_type")) {
+        auto cell_type = parse_cell_type(*cell_type_text);
+        if (!cell_type) return ToolResult::error("notebook_edit cell_type must be code, markdown, or raw");
+        request.cell_type = *cell_type;
+    }
+
+    if ((request.operation == CellOperation::Insert || request.operation == CellOperation::Update) && !request.source) {
+        return ToolResult::error("notebook_edit requires new_source for insert/update");
+    }
+
+    auto result = tool.execute(std::move(request));
+    if (!result) {
+        return ToolResult::error(std::string(format_error(result.error())));
+    }
+
+    return ToolResult::success(result->message);
 }
 
 [[nodiscard]] Result<ToolResult> execute_simple_runtime_tool(std::string_view name, const ToolInput& input) {
@@ -714,6 +1027,7 @@ private:
         return ToolResult::success(answer);
     }
     if (name == "brief") return execute_brief(input);
+    if (name == "computer_use") return execute_computer_use(input);
     if (name == "config") return execute_config_tool(input);
     if (name == "enter_plan_mode") {
         EnterPlanModeTool tool;
@@ -839,9 +1153,30 @@ private:
     }
     if (name == "script") return execute_script(input);
     if (name == "send_message") {
-        auto recipient = json_string(json, "recipient").or_else([&] { return json_string(json, "to"); }).value_or("default");
-        auto message = json_string(json, "message").value_or(std::string(json));
-        return ToolResult::success(std::format("Queued message to {}: {}", recipient, message));
+        auto recipient = json_string(json, "target_agent")
+            .or_else([&] { return json_string(json, "target"); })
+            .or_else([&] { return json_string(json, "recipient"); })
+            .or_else([&] { return json_string(json, "to"); });
+        auto message = json_string(json, "content").or_else([&] { return json_string(json, "message"); });
+        if (!recipient || recipient->empty()) return ToolResult::error("send_message requires target_agent");
+        if (!message || message->empty()) return ToolResult::error("send_message requires content");
+
+        MessagePriority priority = MessagePriority::Normal;
+        auto priority_text = json_string(json, "priority").value_or("normal");
+        if (priority_text == "low") priority = MessagePriority::Low;
+        else if (priority_text == "high") priority = MessagePriority::High;
+        else if (priority_text == "urgent") priority = MessagePriority::Urgent;
+
+        SendMessageTool tool(json_string(json, "from_agent")
+            .or_else([&] { return json_string(json, "from"); })
+            .value_or("main"));
+        auto sent = tool.execute(*recipient, *message, priority, json_string(json, "reply_to"));
+        if (!sent) return ToolResult::error(std::string(format_error(sent.error())));
+        return ToolResult::success(std::format(
+            "Delivered message {} to {} [{}]",
+            sent->message_id,
+            *recipient,
+            delivery_status_name(sent->status)));
     }
     if (name == "shared") {
         auto key = json_string(json, "key");
@@ -873,13 +1208,39 @@ private:
     }
     if (name.starts_with("task_")) return execute_task_tool(name, input);
     if (name == "team_create") {
+        auto parsed = cc::utils::json::parse(json);
+        if (!parsed || !parsed->root().is_obj()) {
+            return ToolResult::error("team_create input must be a JSON object");
+        }
+        auto root = parsed->root();
         TeamCreateTool tool;
-        auto team = json_string(json, "team_name").or_else([&] { return json_string(json, "name"); })
+        auto team = runtime_json_string(root, "team_name").or_else([&] { return runtime_json_string(root, "name"); })
             .value_or(std::format("team-{}", std::chrono::steady_clock::now().time_since_epoch().count()));
-        auto id = json_string(json, "team_id").or_else([&] { return json_string(json, "id"); }).value_or(team);
-        auto result = tool.execute(id, team, std::vector<TeamMember>{});
+        auto id = runtime_json_string(root, "team_id").or_else([&] { return runtime_json_string(root, "id"); }).value_or(team);
+        auto members = parse_team_members(root);
+        auto tasks = parse_team_tasks(root);
+        auto result = tool.execute(id, team, members);
         if (!result) return ToolResult::error(std::string(format_error(result.error())));
-        return ToolResult::success(std::format("Created team {} ({})", (*result)->name, (*result)->id));
+        for (const auto& member : (*result)->members) {
+            MessageRouter::instance().register_agent(member.agent_id);
+            cc::tools::agent_runtime::native_agent_store().upsert(cc::tools::agent_runtime::NativeAgentRecord{
+                .agent_id = member.agent_id,
+                .agent_type = std::string(member_role_name(member.role)),
+                .team_name = (*result)->name,
+                .background = true,
+                .status = cc::tools::agent_runtime::NativeAgentStatus::Queued,
+            });
+        }
+        for (auto& task : tasks) {
+            auto added = global_team_store().add_task((*result)->id, std::move(task));
+            if (!added) return ToolResult::error(std::string(format_error(added.error())));
+        }
+        return ToolResult::success(std::format(
+            "Created team {} ({}) with {} members and {} tasks",
+            (*result)->name,
+            (*result)->id,
+            (*result)->members.size(),
+            tasks.size()));
     }
     if (name == "team_delete") {
         auto team = json_string(json, "team_id").or_else([&] { return json_string(json, "id"); })
@@ -910,8 +1271,29 @@ private:
         if (!in) return ToolResult::error(std::format("Workflow file not found: {}", *file));
         std::stringstream buffer;
         buffer << in.rdbuf();
-        return ToolResult::success(buffer.str());
+        auto definition = parse_workflow_definition_json(buffer.str());
+        if (!definition) return ToolResult::error(std::string(format_error(definition.error())));
+        WorkflowTool tool;
+        auto result = tool.execute(std::move(*definition));
+        if (!result) return ToolResult::error(std::string(format_error(result.error())));
+        std::string output = std::format(
+            "Workflow {} {}\nSteps executed: {}\nSteps skipped: {}\n",
+            result->workflow_name,
+            result->success ? "completed" : "failed",
+            result->steps_executed,
+            result->steps_skipped);
+        for (const auto& step : result->step_results) {
+            output += std::format(
+                "- {}: {}",
+                step.step_id,
+                step.success ? "ok" : "failed");
+            if (!step.output.empty()) output += " " + step.output;
+            if (step.error_message) output += " " + *step.error_message;
+            if (!output.ends_with('\n')) output += "\n";
+        }
+        return result->success ? ToolResult::success(output) : ToolResult::error(output);
     }
+    if (name == "web_browser") return execute_web_browser(input);
     return ToolResult::error(std::format("Runtime tool '{}' has no runtime handler", name));
 }
 
@@ -948,6 +1330,8 @@ void register_runtime_tools(cc::core::ToolRegistry& registry) {
 
     registry.register_tool(simple("ask_user_question", "Ask the interactive user a question and return the answer",
         ToolPermission::ReadOnly, {SchemaProperty{.name = "question", .type = "string", .description = "Question to ask", .required = true}}, "interaction"));
+    registry.register_tool(simple("computer_use", "Control the local computer through screenshots, mouse, keyboard, and scroll actions",
+        ToolPermission::Execute, {SchemaProperty{.name = "action", .type = "string", .description = "Computer-use action", .required = true}}, "computer_use"));
     registry.register_tool(simple("brief", "Read or write the workspace brief",
         ToolPermission::Write, {SchemaProperty{.name = "content", .type = "string", .description = "Brief content to save", .required = false}}, "context"));
     registry.register_tool(simple("config", "Read or update CC-REPL configuration",
@@ -970,8 +1354,15 @@ void register_runtime_tools(cc::core::ToolRegistry& registry) {
         ToolPermission::ReadOnly, {SchemaProperty{.name = "uri", .type = "string", .description = "Resource URI", .required = true}}, "mcp"));
     registry.register_tool(simple("mcp_auth", "Check MCP authentication token availability",
         ToolPermission::ReadOnly, {SchemaProperty{.name = "server_name", .type = "string", .description = "MCP server name", .required = true}}, "mcp"));
-    registry.register_tool(simple("notebook_edit", "Edit a notebook file by replacing text",
-        ToolPermission::Write, {SchemaProperty{.name = "file_path", .type = "string", .description = "Notebook path", .required = true}}, "filesystem"));
+    registry.register_tool(simple("notebook_edit", "Edit Jupyter notebook cells by id or index",
+        ToolPermission::Write, {
+            SchemaProperty{.name = "notebook_path", .type = "string", .description = "Notebook path", .required = true},
+            SchemaProperty{.name = "cell_id", .type = "string", .description = "Notebook cell id or cell-N index", .required = false},
+            SchemaProperty{.name = "cell_index", .type = "integer", .description = "Notebook cell index", .required = false},
+            SchemaProperty{.name = "new_source", .type = "string", .description = "Replacement or inserted source", .required = false},
+            SchemaProperty{.name = "cell_type", .type = "string", .description = "code, markdown, or raw", .required = false},
+            SchemaProperty{.name = "edit_mode", .type = "string", .description = "replace, insert, or delete", .required = false},
+        }, "filesystem"));
     registry.register_tool(simple("powershell", "Execute a PowerShell command on Windows",
         ToolPermission::Execute, {SchemaProperty{.name = "command", .type = "string", .description = "Command", .required = true}}, "shell"));
     registry.register_tool(simple("remote_trigger", "Invoke a configured remote trigger command",
@@ -1006,6 +1397,8 @@ void register_runtime_tools(cc::core::ToolRegistry& registry) {
     registry.register_tool(simple("tool_search", "Search registered runtime tools", ToolPermission::ReadOnly,
         {SchemaProperty{.name = "query", .type = "string", .description = "Search query", .required = false}}, "tools"));
     registry.register_tool(simple("tungsten", "Use the Tungsten integration when configured", ToolPermission::Network, {}, "integrations"));
+    registry.register_tool(simple("web_browser", "Automate browser navigation, extraction, form fill, and screenshots",
+        ToolPermission::Network, {SchemaProperty{.name = "action", .type = "string", .description = "Browser action", .required = true}}, "browser"));
     registry.register_tool(simple("workflow", "Read and execute workflow definitions", ToolPermission::ReadOnly,
         {SchemaProperty{.name = "file", .type = "string", .description = "Workflow file", .required = true}}, "workflow"));
 }

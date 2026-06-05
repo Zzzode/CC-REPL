@@ -8,12 +8,17 @@ module;
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <expected>
 #include <format>
+#include <filesystem>
 #include <fstream>
 #include <functional>
 #include <iostream>
+#include <iterator>
+#include <memory>
 #include <mutex>
 #include <optional>
+#include <span>
 #include <string>
 #include <thread>
 #include <atomic>
@@ -222,9 +227,15 @@ struct VoiceTranscription {
 class VoiceService {
 public:
     using TranscriptCallback = std::function<void(std::string_view text, bool is_final)>;
+    using TranscriptionProvider = std::function<Result<std::string>(std::span<const uint8_t> audio)>;
 
-    VoiceService() {
-        available_ = std::getenv("ANTHROPIC_API_KEY") != nullptr ||
+    VoiceService()
+        : VoiceService(make_env_command_transcriber()) {}
+
+    explicit VoiceService(TranscriptionProvider transcriber)
+        : transcriber_(std::move(transcriber)) {
+        available_ = transcriber_ ||
+                     std::getenv("ANTHROPIC_API_KEY") != nullptr ||
                      std::getenv("CLAUDE_CODE_OAUTH_TOKEN") != nullptr ||
                      std::getenv("CLAUDE_CODE_OAUTH_REFRESH_TOKEN") != nullptr;
     }
@@ -266,58 +277,158 @@ public:
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - start_time);
 
-        VoiceTranscription result;
-        result.processing_time = elapsed;
-        result.success = true;
-
         std::lock_guard lock(audio_mutex);
-        result.text = std::format("[recorded {} bytes, {:.1f}s]",
-                                  all_audio.size(),
-                                  elapsed.count() / 1000.0);
-        return result;
+        if (all_audio.empty()) {
+            VoiceTranscription result;
+            result.processing_time = elapsed;
+            result.error = "No audio data captured";
+            return result;
+        }
+        return transcribe_audio_bytes(std::move(all_audio), start_time);
     }
 
     /// Transcribe an audio file
     Result<VoiceTranscription> transcribe_file(const std::string& file_path) {
-        VoiceTranscription result;
         auto start = std::chrono::steady_clock::now();
 
         std::ifstream file(file_path, std::ios::binary);
+        VoiceTranscription result;
         if (!file) {
             result.error = "Unable to open audio file";
             return result;
         }
-        file.seekg(0, std::ios::end);
-        auto size = file.tellg();
-        result.text = std::format("[audio file: {} bytes]", static_cast<long long>(size));
-        result.processing_time = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now() - start);
-        result.success = true;
-        return result;
+        std::vector<uint8_t> audio;
+        char byte = 0;
+        while (file.get(byte)) {
+            audio.push_back(static_cast<uint8_t>(byte));
+        }
+        return transcribe_audio_bytes(std::move(audio), start);
     }
 
     /// Transcribe an audio stream
     Result<VoiceTranscription> transcribe_stream(std::istream& audio_stream) {
-        VoiceTranscription result;
         auto start = std::chrono::steady_clock::now();
-        std::size_t bytes = 0;
+        std::vector<uint8_t> audio;
         char buffer[4096];
         while (audio_stream.good()) {
             audio_stream.read(buffer, sizeof(buffer));
-            bytes += static_cast<std::size_t>(audio_stream.gcount());
+            auto read = audio_stream.gcount();
+            if (read > 0) {
+                audio.insert(audio.end(), buffer, buffer + read);
+            }
         }
-        result.text = std::format("[audio stream: {} bytes]", bytes);
-        result.processing_time = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now() - start);
-        result.success = true;
-        return result;
+        return transcribe_audio_bytes(std::move(audio), start);
     }
 
     /// Check if voice service is available
     [[nodiscard]] bool is_available() const { return available_; }
 
 private:
+    TranscriptionProvider transcriber_;
     bool available_ = false;
+
+    [[nodiscard]] static std::string shell_quote(std::string_view value) {
+        std::string out = "'";
+        for (char c : value) {
+            if (c == '\'') out += "'\\''";
+            else out.push_back(c);
+        }
+        out.push_back('\'');
+        return out;
+    }
+
+    static void replace_all(std::string& text,
+                            std::string_view needle,
+                            std::string_view replacement) {
+        std::size_t pos = 0;
+        while ((pos = text.find(needle, pos)) != std::string::npos) {
+            text.replace(pos, needle.size(), replacement);
+            pos += replacement.size();
+        }
+    }
+
+    [[nodiscard]] static std::string read_command_stdout(const std::string& command) {
+        std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(command.c_str(), "r"), pclose);
+        if (!pipe) return {};
+        std::string output;
+        char buffer[4096];
+        while (auto n = std::fread(buffer, 1, sizeof(buffer), pipe.get())) {
+            output.append(buffer, buffer + n);
+        }
+        while (!output.empty() && (output.back() == '\n' || output.back() == '\r')) {
+            output.pop_back();
+        }
+        return output;
+    }
+
+    [[nodiscard]] static TranscriptionProvider make_env_command_transcriber() {
+        auto* command_env = std::getenv("CC_REPL_VOICE_TRANSCRIBE_CMD");
+        if (!command_env || std::string_view(command_env).empty()) {
+            return {};
+        }
+        std::string command_template = command_env;
+        return [command_template](std::span<const uint8_t> audio) -> Result<std::string> {
+            auto path = std::filesystem::temp_directory_path() /
+                std::format("cc-repl-voice-{}.raw",
+                    std::chrono::steady_clock::now().time_since_epoch().count());
+            {
+                std::ofstream out(path, std::ios::binary);
+                if (!out) {
+                    return std::unexpected(cc::utils::make_error(
+                        cc::utils::ErrorCode::io_error,
+                        "Unable to create temporary audio file"));
+                }
+                out.write(reinterpret_cast<const char*>(audio.data()),
+                          static_cast<std::streamsize>(audio.size()));
+            }
+            std::string command = command_template;
+            auto quoted_path = shell_quote(path.string());
+            if (command.find("{file}") != std::string::npos) {
+                replace_all(command, "{file}", quoted_path);
+            } else {
+                command += " ";
+                command += quoted_path;
+            }
+            auto transcript = read_command_stdout(command);
+            std::error_code ec;
+            std::filesystem::remove(path, ec);
+            if (transcript.empty()) {
+                return std::unexpected(cc::utils::make_error(
+                    cc::utils::ErrorCode::unavailable,
+                    "Voice transcription command returned no transcript"));
+            }
+            return transcript;
+        };
+    }
+
+    [[nodiscard]] Result<VoiceTranscription> transcribe_audio_bytes(
+        std::vector<uint8_t> audio,
+        std::chrono::steady_clock::time_point start) const {
+        VoiceTranscription result;
+        result.processing_time = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - start);
+
+        if (audio.empty()) {
+            result.error = "No audio data to transcribe";
+            return result;
+        }
+        if (!transcriber_) {
+            result.error = "No voice transcription provider is configured";
+            return result;
+        }
+
+        auto transcript = transcriber_(std::span<const uint8_t>(audio.data(), audio.size()));
+        if (!transcript) {
+            result.error = transcript.error().message();
+            return result;
+        }
+
+        result.text = std::move(*transcript);
+        result.success = true;
+        result.processing_time = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - start);
+        return result;
+    }
 };
 
 } // namespace cc::services::voice

@@ -98,6 +98,18 @@ struct ToolResultBlock {
     bool is_error = false;      // Whether the tool execution failed
 };
 
+/// Base64 image content block.
+struct ImageBlock {
+    std::string media_type;      // e.g. image/png
+    std::string data;            // base64 encoded bytes
+};
+
+/// Base64 document content block.
+struct DocumentBlock {
+    std::string media_type;      // e.g. application/pdf
+    std::string data;            // base64 encoded bytes
+};
+
 /// Extended thinking block from the model
 struct ThinkingBlock {
     std::string thinking;       // Internal reasoning text
@@ -105,7 +117,7 @@ struct ThinkingBlock {
 };
 
 /// Union of all possible content block types
-using ContentBlock = std::variant<TextBlock, ToolUseBlock, ToolResultBlock, ThinkingBlock>;
+using ContentBlock = std::variant<TextBlock, ToolUseBlock, ToolResultBlock, ImageBlock, DocumentBlock, ThinkingBlock>;
 
 // ============================================================
 // Message types

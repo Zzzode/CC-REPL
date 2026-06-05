@@ -358,7 +358,12 @@ private:
                     obj.add("type", doc.string("tool_use"));
                     obj.add("id", doc.string(block.tool_use_id));
                     obj.add("name", doc.string(block.tool_name));
-                    // Parse and add input
+                    if (!block.tool_input_json.empty()) {
+                        auto input_doc = cc::utils::json::parse(block.tool_input_json);
+                        obj.add("input", input_doc ? doc.copy_val(input_doc->root()) : doc.object());
+                    } else {
+                        obj.add("input", doc.object());
+                    }
                     break;
                 case ContentBlockType::ToolResult:
                     obj.add("type", doc.string("tool_result"));
@@ -367,6 +372,15 @@ private:
                     break;
                 case ContentBlockType::Image: {
                     obj.add("type", doc.string("image"));
+                    auto source = doc.object();
+                    source.add("type", doc.string("base64"));
+                    source.add("media_type", doc.string(block.media_type));
+                    source.add("data", doc.string(block.image_data));
+                    obj.add("source", source);
+                    break;
+                }
+                case ContentBlockType::Document: {
+                    obj.add("type", doc.string("document"));
                     auto source = doc.object();
                     source.add("type", doc.string("base64"));
                     source.add("media_type", doc.string(block.media_type));
@@ -435,7 +449,8 @@ private:
             result.type = ContentBlockType::ToolUse;
             result.tool_use_id = std::string(block.get("id").as_str());
             result.tool_name = std::string(block.get("name").as_str());
-            // tool_input would need proper JSON serialization
+            auto input = block.get("input");
+            result.tool_input_json = input.valid() ? cc::utils::json::to_string(input) : "{}";
         } else if (type == "thinking") {
             result.type = ContentBlockType::Thinking;
             result.thinking = std::string(block.get("thinking").as_str());
@@ -564,6 +579,113 @@ public:
     explicit AnthropicClient(Config config)
         : config_(std::move(config))
         , rate_limiter_(60) {}
+
+    [[nodiscard]] static cc::utils::Error error_from_http_response(
+        int status_code,
+        std::string_view body,
+        std::optional<std::string> request_id = std::nullopt) {
+        const auto details = ErrorFactory::from_json(status_code, body, std::move(request_id));
+        auto code = cc::utils::ErrorCode::internal_error;
+        switch (details.category) {
+            case errors::ApiErrorCategory::Authentication:
+                code = cc::utils::ErrorCode::permission_denied;
+                break;
+            case errors::ApiErrorCategory::InvalidRequest:
+                code = cc::utils::ErrorCode::invalid_argument;
+                break;
+            case errors::ApiErrorCategory::RateLimited:
+                code = cc::utils::ErrorCode::resource_exhausted;
+                break;
+            case errors::ApiErrorCategory::NetworkError:
+                code = cc::utils::ErrorCode::network_error;
+                break;
+            case errors::ApiErrorCategory::Overloaded:
+            case errors::ApiErrorCategory::ServerError:
+                code = cc::utils::ErrorCode::unavailable;
+                break;
+            case errors::ApiErrorCategory::Unknown:
+            default:
+                code = cc::utils::ErrorCode::internal_error;
+                break;
+        }
+
+        auto message = std::format("HTTP {} {}: {}",
+            status_code,
+            details.error_type.empty() ? "api_error" : details.error_type,
+            details.error_message.empty() ? std::string(body) : details.error_message);
+        if (details.request_id && !details.request_id->empty()) {
+            message += " (request id: " + *details.request_id + ")";
+        }
+        if (details.retry_after_seconds) {
+            message += " (retry after: " + std::to_string(*details.retry_after_seconds) + "s)";
+        }
+        return cc::utils::Error(code, std::move(message));
+    }
+
+    [[nodiscard]] static ApiErrorDetails error_details_from_error(const cc::utils::Error& error) {
+        ApiErrorDetails details;
+        details.error_message = error.message();
+        details.error_type = "api_error";
+
+        switch (error.code()) {
+            case cc::utils::ErrorCode::permission_denied:
+                details.category = errors::ApiErrorCategory::Authentication;
+                break;
+            case cc::utils::ErrorCode::invalid_argument:
+                details.category = errors::ApiErrorCategory::InvalidRequest;
+                break;
+            case cc::utils::ErrorCode::resource_exhausted:
+                details.category = errors::ApiErrorCategory::RateLimited;
+                break;
+            case cc::utils::ErrorCode::network_error:
+            case cc::utils::ErrorCode::timeout:
+                details.category = errors::ApiErrorCategory::NetworkError;
+                break;
+            case cc::utils::ErrorCode::unavailable:
+                details.category = errors::ApiErrorCategory::ServerError;
+                break;
+            default:
+                details.category = errors::ApiErrorCategory::Unknown;
+                break;
+        }
+
+        const auto& message = error.message();
+        if (message.starts_with("HTTP ")) {
+            std::size_t pos = 5;
+            int status = 0;
+            while (pos < message.size() && message[pos] >= '0' && message[pos] <= '9') {
+                status = status * 10 + (message[pos] - '0');
+                ++pos;
+            }
+            if (status > 0) {
+                details.http_status = status;
+                details.category = ErrorClassifier::classify_status(status);
+            }
+            while (pos < message.size() && message[pos] == ' ') ++pos;
+            auto type_end = message.find(':', pos);
+            if (type_end != std::string::npos) {
+                details.error_type = message.substr(pos, type_end - pos);
+                auto message_start = type_end + 1;
+                while (message_start < message.size() && message[message_start] == ' ') ++message_start;
+                auto message_end = message.find(" (", message_start);
+                details.error_message = message.substr(
+                    message_start,
+                    message_end == std::string::npos ? std::string::npos : message_end - message_start);
+            }
+            auto retry_pos = message.find("(retry after: ");
+            if (retry_pos != std::string::npos) {
+                retry_pos += std::string_view{"(retry after: "}.size();
+                int seconds = 0;
+                while (retry_pos < message.size() && message[retry_pos] >= '0' && message[retry_pos] <= '9') {
+                    seconds = seconds * 10 + (message[retry_pos] - '0');
+                    ++retry_pos;
+                }
+                details.retry_after_seconds = seconds;
+            }
+        }
+
+        return details;
+    }
 
     // Create message (non-streaming)
     [[nodiscard]] Result<CreateMessageResponse> create_message(
@@ -750,8 +872,8 @@ private:
 
         // Check for HTTP errors
         if (http_result->status_code >= 400) {
-            return std::unexpected(cc::utils::Error(
-                cc::utils::ErrorCode::internal_error,
+            return std::unexpected(error_from_http_response(
+                http_result->status_code,
                 http_result->body));
         }
 
@@ -781,8 +903,7 @@ private:
     }
 
     [[nodiscard]] ApiErrorDetails extract_error_details(const cc::utils::Error& error) {
-        // Simplified - in real implementation, parse the error properly
-        return ErrorFactory::network_error(error.message());
+        return error_details_from_error(error);
     }
 
     Config config_;

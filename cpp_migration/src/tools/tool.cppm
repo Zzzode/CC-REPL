@@ -16,6 +16,8 @@ module;
 #include <ranges>
 #include <span>
 
+#include <yyjson.h>
+
 export module cc.tools.tool;
 
 export import cc.types.types;
@@ -53,10 +55,20 @@ enum class ToolPermission : std::uint8_t {
 struct ToolInput {
     std::string raw_json;   // Raw JSON string of parameters
 
-    /// Check if a key exists in the JSON (simple substring check for now)
+    /// Check if a top-level key exists in the JSON input object
     [[nodiscard]] bool has_field(std::string_view key) const noexcept {
-        // In production, use a proper JSON parser
-        return raw_json.find(key) != std::string::npos;
+        if (key.empty()) return false;
+
+        yyjson_read_err err{};
+        yyjson_doc* doc = yyjson_read_opts(
+            const_cast<char*>(raw_json.data()), raw_json.size(), 0, nullptr, &err);
+        if (!doc) return false;
+
+        yyjson_val* root = yyjson_doc_get_root(doc);
+        const bool found = yyjson_is_obj(root)
+            && yyjson_obj_getn(root, key.data(), key.size()) != nullptr;
+        yyjson_doc_free(doc);
+        return found;
     }
 
     /// Get the raw JSON as string view
@@ -72,15 +84,47 @@ struct ToolInput {
 struct ToolOutputContent {
     std::string text;                   // Primary output text
     std::optional<std::string> format;  // "text", "json", "markdown"
+    std::optional<std::string> media_type;
+    std::optional<std::string> data;
 
     /// Create a plain text output
     [[nodiscard]] static ToolOutputContent text_output(std::string text) {
-        return ToolOutputContent{std::move(text), "text"};
+        return ToolOutputContent{
+            .text = std::move(text),
+            .format = "text",
+            .media_type = std::nullopt,
+            .data = std::nullopt,
+        };
     }
 
     /// Create a JSON-formatted output
     [[nodiscard]] static ToolOutputContent json_output(std::string json) {
-        return ToolOutputContent{std::move(json), "json"};
+        return ToolOutputContent{
+            .text = std::move(json),
+            .format = "json",
+            .media_type = std::nullopt,
+            .data = std::nullopt,
+        };
+    }
+
+    /// Create a base64 image output
+    [[nodiscard]] static ToolOutputContent image_output(std::string media_type, std::string data) {
+        return ToolOutputContent{
+            .text = {},
+            .format = "image",
+            .media_type = std::move(media_type),
+            .data = std::move(data),
+        };
+    }
+
+    /// Create a base64 document output
+    [[nodiscard]] static ToolOutputContent document_output(std::string media_type, std::string data) {
+        return ToolOutputContent{
+            .text = {},
+            .format = "document",
+            .media_type = std::move(media_type),
+            .data = std::move(data),
+        };
     }
 };
 
