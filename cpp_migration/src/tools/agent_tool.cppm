@@ -2,6 +2,9 @@
 module;
 
 #include <atomic>
+#include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 #include <expected>
 #include <format>
 #include <memory>
@@ -13,6 +16,11 @@ module;
 #include <utility>
 #include <sstream>
 #include <cctype>
+#include <chrono>
+#include <cstdint>
+#include <filesystem>
+#include <thread>
+#include <sys/wait.h>
 
 export module cc.tools.agent;
 
@@ -20,13 +28,17 @@ import cc.utils.error;
 import cc.tools.tool;
 import cc.utils.json;
 import cc.tools.agent_runtime;
+import cc.tools.send_message;
 import cc.tools.mcp;
 import cc.skills.skill;
 import cc.services.api.client;
 import cc.services.api.streaming;
 import cc.services.api.bootstrap;
+import cc.services.mcp.types;
 
 export namespace cc::tools::agent {
+
+namespace fs = std::filesystem;
 
 using cc::core::Tool;
 using cc::core::ToolInput;
@@ -80,7 +92,11 @@ struct AgentToolRequest {
     std::string subagent_type = "general-purpose";
     std::optional<std::string> model;
     bool run_in_background = false;
-    std::vector<std::string> unsupported_fields;
+    std::optional<std::string> name;
+    std::optional<std::string> team_name;
+    std::optional<std::string> mode;
+    std::optional<std::string> isolation;
+    std::optional<std::string> cwd;
 };
 
 struct AgentMcpToolBinding {
@@ -90,6 +106,7 @@ struct AgentMcpToolBinding {
 };
 
 struct AgentExecutionPlan {
+    std::string agent_id;
     std::string prompt;
     std::string agent_type;
     std::string model;
@@ -101,6 +118,13 @@ struct AgentExecutionPlan {
     std::vector<std::string> allowed_tools;
     std::vector<std::string> disallowed_tools;
     int max_turns = 200;
+    bool background = false;
+    std::optional<std::string> name;
+    std::optional<std::string> team_name;
+    std::optional<std::string> mode;
+    std::optional<std::string> isolation;
+    std::optional<std::string> working_dir;
+    cc::tools::agent_runtime::AgentHooksByEvent frontmatter_hooks;
 };
 
 [[nodiscard]] inline std::optional<std::string> json_string(
@@ -127,6 +151,12 @@ struct AgentExecutionPlan {
 ) {
     auto value = root.get(key);
     return value.is_str() && !value.as_str().empty();
+}
+
+[[nodiscard]] inline std::string next_agent_id(const std::optional<std::string>& preferred_name) {
+    if (preferred_name && !preferred_name->empty()) return *preferred_name;
+    static std::atomic<std::uint64_t> counter{0};
+    return std::format("agent-{}", counter.fetch_add(1, std::memory_order_relaxed) + 1);
 }
 
 [[nodiscard]] inline std::optional<std::string> resolve_agent_model(std::optional<std::string> model) {
@@ -156,12 +186,13 @@ struct AgentExecutionPlan {
     }
     request.model = resolve_agent_model(json_string(root, "model"));
     request.run_in_background = json_bool(root, "run_in_background", false);
-
-    if (request.run_in_background) request.unsupported_fields.push_back("run_in_background");
-    static constexpr std::array unsupported_string_fields = {"name", "team_name", "mode", "isolation", "cwd"};
-    for (auto field : unsupported_string_fields) {
-        if (has_non_empty_string(root, field)) request.unsupported_fields.emplace_back(field);
-    }
+    request.name = json_string(root, "name");
+    request.team_name = json_string(root, "team_name").or_else([&] { return json_string(root, "teamName"); });
+    request.mode = json_string(root, "mode")
+        .or_else([&] { return json_string(root, "permission_mode"); })
+        .or_else([&] { return json_string(root, "permissionMode"); });
+    request.isolation = json_string(root, "isolation");
+    request.cwd = json_string(root, "cwd");
     return request;
 }
 
@@ -322,7 +353,13 @@ Guidelines:
     if (definition.skills.empty()) return messages;
 
     cc::skills::SkillLoader loader;
-    auto discovered = loader.discover_all();
+    std::vector<std::pair<std::string, fs::path>> plugin_skill_paths;
+    for (const auto& plugin : cc::tools::agent_runtime::discover_plugin_component_paths()) {
+        for (const auto& path : plugin.skills_paths) {
+            plugin_skill_paths.emplace_back(plugin.plugin_name, path);
+        }
+    }
+    auto discovered = loader.discover_all_with_plugin_skills(plugin_skill_paths);
     if (!discovered) return messages;
 
     for (const auto& requested : definition.skills) {
@@ -374,11 +411,322 @@ Guidelines:
     return tools;
 }
 
+[[nodiscard]] inline cc::tools::NativeMcpConfiguredServer to_native_agent_mcp_server(
+    const cc::tools::agent_runtime::AgentInlineMcpServerConfig& config
+) {
+    cc::tools::NativeMcpConfiguredServer server;
+    server.name = config.name;
+    server.command = config.command;
+    server.args = config.args;
+    server.env = config.env;
+    server.url = config.url;
+    server.headers = config.headers;
+    server.headers_helper = config.headers_helper;
+
+    const auto transport = lowercase_copy(config.transport);
+    if (transport == "sse") {
+        server.transport = cc::services::mcp::TransportType::Sse;
+    } else if (transport == "http" || transport == "streamable-http" || transport == "streamablehttp" ||
+               (!server.url.empty() && server.command.empty())) {
+        server.transport = cc::services::mcp::TransportType::StreamableHttp;
+    } else {
+        server.transport = cc::services::mcp::TransportType::Stdio;
+    }
+    return server;
+}
+
+inline void append_unique_agent_mcp_server(
+    std::vector<std::string>& names,
+    std::string name
+) {
+    if (name.empty()) return;
+    for (const auto& existing : names) {
+        if (existing == name) return;
+    }
+    names.push_back(std::move(name));
+}
+
+[[nodiscard]] inline std::expected<void, std::string> upsert_agent_inline_mcp_servers(
+    const std::vector<cc::tools::agent_runtime::AgentInlineMcpServerConfig>& configs
+) {
+    if (configs.empty()) return {};
+    std::vector<cc::tools::NativeMcpConfiguredServer> servers;
+    servers.reserve(configs.size());
+    for (const auto& config : configs) {
+        servers.push_back(to_native_agent_mcp_server(config));
+    }
+    return cc::tools::upsert_native_mcp_servers(std::move(servers));
+}
+
+[[nodiscard]] inline std::string format_agent_runtime_context(
+    const AgentExecutionPlan& plan
+) {
+    std::string context = "Native agent runtime context:\n";
+    context += std::format("- agent_id: {}\n", plan.agent_id);
+    if (plan.name) context += std::format("- name: {}\n", *plan.name);
+    if (plan.team_name) context += std::format("- team_name: {}\n", *plan.team_name);
+    if (plan.working_dir) context += std::format("- cwd: {}\n", *plan.working_dir);
+    if (plan.isolation) context += std::format("- isolation: {}\n", *plan.isolation);
+    if (plan.mode) context += std::format("- permission_mode: {}\n", *plan.mode);
+    if (plan.background) context += "- background: true\n";
+    return context;
+}
+
+[[nodiscard]] inline std::string shell_quote(std::string_view value) {
+    std::string out = "'";
+    for (char ch : value) {
+        if (ch == '\'') {
+            out += "'\\''";
+        } else {
+            out += ch;
+        }
+    }
+    out += "'";
+    return out;
+}
+
+[[nodiscard]] inline std::string sanitized_agent_file_part(std::string_view agent_id) {
+    std::string out;
+    out.reserve(agent_id.size());
+    for (char ch : agent_id) {
+        if (std::isalnum(static_cast<unsigned char>(ch)) || ch == '-' || ch == '_') {
+            out.push_back(ch);
+        } else {
+            out.push_back('_');
+        }
+    }
+    return out.empty() ? "agent" : out;
+}
+
+[[nodiscard]] inline std::string default_agent_transcript_path(std::string_view agent_id) {
+    auto base = fs::temp_directory_path();
+    return (base / std::format("cc-repl-agent-{}.jsonl", sanitized_agent_file_part(agent_id))).string();
+}
+
+[[nodiscard]] inline bool hook_condition_allows(const cc::tools::agent_runtime::AgentHookCommand& hook) {
+    if (!hook.condition || hook.condition->empty()) return true;
+    const auto condition = lowercase_copy(*hook.condition);
+    return condition == "true" || condition == "1" || condition == "yes";
+}
+
+[[nodiscard]] inline bool hook_pattern_matches_one(std::string_view pattern, std::string_view value) {
+    if (pattern.empty() || pattern == "*") return true;
+    if (pattern == value) return true;
+    if (pattern.ends_with("*")) return value.starts_with(pattern.substr(0, pattern.size() - 1));
+    if (pattern.starts_with("*")) return value.ends_with(pattern.substr(1));
+    return false;
+}
+
+[[nodiscard]] inline bool hook_pattern_matches(
+    const std::optional<std::string>& pattern,
+    std::string_view value
+) {
+    if (!pattern || pattern->empty()) return true;
+    std::size_t start = 0;
+    while (start <= pattern->size()) {
+        auto sep = pattern->find('|', start);
+        auto part = std::string_view(*pattern).substr(
+            start,
+            sep == std::string::npos ? std::string_view::npos : sep - start);
+        if (hook_pattern_matches_one(part, value)) return true;
+        if (sep == std::string::npos) break;
+        start = sep + 1;
+    }
+    return false;
+}
+
+struct AgentHookRunResult {
+    int exit_code = 0;
+    std::string output;
+};
+
+[[nodiscard]] inline AgentHookRunResult run_agent_command_hook(
+    const cc::tools::agent_runtime::AgentHookCommand& hook,
+    const AgentExecutionPlan& plan,
+    std::string_view event,
+    std::string_view last_assistant_message
+) {
+    const auto transcript_path = default_agent_transcript_path(plan.agent_id);
+    const auto cwd = plan.working_dir.value_or(fs::current_path().string());
+    const auto shell = hook.shell.empty() ? std::string("bash") : hook.shell;
+    std::string command;
+    command += "cd " + shell_quote(cwd) + " && ";
+    command += "CLAUDE_HOOK_EVENT=" + shell_quote(event) + " ";
+    command += "CLAUDE_HOOK_AGENT_ID=" + shell_quote(plan.agent_id) + " ";
+    command += "CLAUDE_HOOK_AGENT_TYPE=" + shell_quote(plan.agent_type) + " ";
+    command += "CLAUDE_HOOK_AGENT_TRANSCRIPT_PATH=" + shell_quote(transcript_path) + " ";
+    command += "CLAUDE_HOOK_CWD=" + shell_quote(cwd) + " ";
+    if (!last_assistant_message.empty()) {
+        command += "CLAUDE_HOOK_LAST_ASSISTANT_MESSAGE=" + shell_quote(last_assistant_message) + " ";
+    }
+    command += shell_quote(shell) + " -c " + shell_quote(hook.command) + " 2>&1";
+
+    AgentHookRunResult result;
+    FILE* pipe = ::popen(command.c_str(), "r");
+    if (!pipe) {
+        result.exit_code = 127;
+        result.output = "failed to start hook command";
+        return result;
+    }
+
+    std::array<char, 4096> buffer{};
+    while (std::fgets(buffer.data(), static_cast<int>(buffer.size()), pipe)) {
+        result.output += buffer.data();
+        if (result.output.size() > 64 * 1024) {
+            result.output.resize(64 * 1024);
+            break;
+        }
+    }
+    const auto status = ::pclose(pipe);
+    if (status == -1) {
+        result.exit_code = 127;
+    } else if (WIFEXITED(status)) {
+        result.exit_code = WEXITSTATUS(status);
+    } else if (WIFSIGNALED(status)) {
+        result.exit_code = 128 + WTERMSIG(status);
+    }
+    return result;
+}
+
+struct AgentHookExecutionResult {
+    int hook_count = 0;
+    std::string output;
+    std::optional<std::string> error;
+
+    [[nodiscard]] bool ok() const { return !error.has_value(); }
+};
+
+[[nodiscard]] inline AgentHookExecutionResult execute_agent_frontmatter_hooks(
+    const AgentExecutionPlan& plan,
+    std::string_view event,
+    std::string_view last_assistant_message = {}
+) {
+    AgentHookExecutionResult aggregate;
+    auto it = plan.frontmatter_hooks.find(std::string(event));
+    if (it == plan.frontmatter_hooks.end()) return aggregate;
+
+    for (const auto& matcher : it->second) {
+        if (!hook_pattern_matches(matcher.matcher, plan.agent_type)) continue;
+        for (const auto& hook : matcher.hooks) {
+            if (!hook_condition_allows(hook)) continue;
+            auto result = run_agent_command_hook(hook, plan, event, last_assistant_message);
+            ++aggregate.hook_count;
+            if (!result.output.empty()) {
+                if (!aggregate.output.empty()) aggregate.output += "\n";
+                aggregate.output += result.output;
+            }
+            if (result.exit_code != 0 && !aggregate.error) {
+                aggregate.error = std::format(
+                    "{} hook for agent '{}' exited with code {}{}{}",
+                    event,
+                    plan.agent_id,
+                    result.exit_code,
+                    result.output.empty() ? "" : ": ",
+                    result.output.empty() ? "" : result.output);
+            }
+        }
+    }
+    return aggregate;
+}
+
+[[nodiscard]] inline std::expected<std::optional<std::string>, std::string> normalize_agent_cwd(
+    const std::optional<std::string>& cwd
+) {
+    if (!cwd || cwd->empty()) return std::optional<std::string>{};
+    std::error_code ec;
+    fs::path path = fs::path{*cwd};
+    if (path.is_relative()) path = fs::current_path(ec) / path;
+    if (ec) return std::unexpected(std::format("Cannot resolve current working directory: {}", ec.message()));
+    path = fs::weakly_canonical(path, ec);
+    if (ec) return std::unexpected(std::format("Cannot resolve agent cwd '{}': {}", *cwd, ec.message()));
+    if (!fs::exists(path, ec) || !fs::is_directory(path, ec)) {
+        return std::unexpected(std::format("Agent cwd does not exist or is not a directory: {}", path.string()));
+    }
+    return path.string();
+}
+
+class ScopedCurrentPath {
+public:
+    ScopedCurrentPath() = default;
+    ScopedCurrentPath(const ScopedCurrentPath&) = delete;
+    ScopedCurrentPath& operator=(const ScopedCurrentPath&) = delete;
+    ScopedCurrentPath(ScopedCurrentPath&& other) noexcept
+        : previous_(std::move(other.previous_)), active_(other.active_) {
+        other.active_ = false;
+    }
+    ScopedCurrentPath& operator=(ScopedCurrentPath&& other) noexcept {
+        if (this != &other) {
+            restore();
+            previous_ = std::move(other.previous_);
+            active_ = other.active_;
+            other.active_ = false;
+        }
+        return *this;
+    }
+    ~ScopedCurrentPath() { restore(); }
+
+    [[nodiscard]] static std::expected<ScopedCurrentPath, std::string> enter(std::string_view path_text) {
+        std::error_code ec;
+        auto previous = fs::current_path(ec);
+        if (ec) return std::unexpected(std::format("Cannot read current working directory: {}", ec.message()));
+        fs::current_path(fs::path{path_text}, ec);
+        if (ec) return std::unexpected(std::format("Cannot enter agent cwd '{}': {}", path_text, ec.message()));
+        ScopedCurrentPath guard;
+        guard.previous_ = std::move(previous);
+        guard.active_ = true;
+        return guard;
+    }
+
+private:
+    void restore() {
+        if (!active_) return;
+        std::error_code ec;
+        fs::current_path(previous_, ec);
+        active_ = false;
+    }
+
+    fs::path previous_;
+    bool active_ = false;
+};
+
+inline void upsert_agent_record_for_plan(const AgentExecutionPlan& plan) {
+    cc::tools::agent_runtime::native_agent_store().upsert(cc::tools::agent_runtime::NativeAgentRecord{
+        .agent_id = plan.agent_id,
+        .agent_type = plan.agent_type,
+        .name = plan.name,
+        .team_name = plan.team_name,
+        .cwd = plan.working_dir,
+        .isolation = plan.isolation,
+        .mode = plan.mode,
+        .background = plan.background,
+        .status = cc::tools::agent_runtime::NativeAgentStatus::Queued,
+        .transcript_path = default_agent_transcript_path(plan.agent_id),
+        .progress = 0.0,
+    });
+}
+
+[[nodiscard]] inline std::string message_content_text(const Message& message) {
+    std::string out;
+    for (const auto& block : message.content) {
+        if (!out.empty()) out += "\n";
+        if (block.type == ContentBlockType::Text || block.type == ContentBlockType::ToolResult) {
+            out += block.text;
+        } else if (block.type == ContentBlockType::ToolUse) {
+            out += std::format("[tool_use:{}]", block.tool_name);
+        }
+    }
+    return out;
+}
+
 [[nodiscard]] inline std::expected<AgentExecutionPlan, std::string> build_agent_execution_plan(
     const AgentToolRequest& request,
     const AgentConfig& config
 ) {
-    const auto agents = cc::tools::agent_runtime::get_all_agent_definitions();
+    auto normalized_cwd = normalize_agent_cwd(request.cwd);
+    if (!normalized_cwd) return std::unexpected(normalized_cwd.error());
+
+    const auto agents = cc::tools::agent_runtime::get_all_agent_definitions(
+        normalized_cwd->has_value() ? std::optional<fs::path>{fs::path{**normalized_cwd}} : std::nullopt);
     auto resolved_type = cc::tools::agent_runtime::resolve_requested_agent_type(request.subagent_type, agents);
     if (!resolved_type) {
         return std::unexpected(std::format(
@@ -398,15 +746,11 @@ Guidelines:
         return std::unexpected(std::format("Agent type '{}' could not be resolved", request.subagent_type));
     }
 
-    std::vector<std::string> unsupported_definition_features;
-    if (definition->background) unsupported_definition_features.push_back("background");
-    if (definition->isolation) unsupported_definition_features.push_back("isolation");
-    if (definition->hooks_present) unsupported_definition_features.push_back("hooks");
-    if (!unsupported_definition_features.empty()) {
+    if (auto configured = upsert_agent_inline_mcp_servers(definition->inline_mcp_servers); !configured) {
         return std::unexpected(std::format(
-            "Agent definition '{}' uses features not yet supported by the native runtime: {}",
+            "Failed to configure MCP servers for agent '{}': {}",
             definition->agent_type,
-            join_fields(unsupported_definition_features)));
+            configured.error()));
     }
 
     if (!definition->required_mcp_servers.empty()) {
@@ -423,6 +767,7 @@ Guidelines:
 
     auto definition_model = resolve_agent_model(definition->model);
     AgentExecutionPlan plan;
+    plan.agent_id = next_agent_id(request.name);
     plan.prompt = prepend_initial_prompt(definition->initial_prompt, request.prompt);
     plan.agent_type = definition->agent_type;
     plan.model = request.model.value_or(definition_model.value_or(config.default_model));
@@ -431,6 +776,9 @@ Guidelines:
         : definition->system_prompt;
     plan.preloaded_skill_messages = load_preloaded_skill_messages(*definition);
     plan.agent_mcp_servers = definition->mcp_servers;
+    for (const auto& inline_config : definition->inline_mcp_servers) {
+        append_unique_agent_mcp_server(plan.agent_mcp_servers, inline_config.name);
+    }
     plan.agent_mcp_tools = connect_agent_mcp_servers(plan.agent_mcp_servers);
     if (!plan.agent_mcp_tools.empty()) {
         plan.agent_mcp_context_message = format_agent_mcp_context_message(plan.agent_mcp_tools);
@@ -438,6 +786,17 @@ Guidelines:
     plan.allowed_tools = definition->tools;
     plan.disallowed_tools = definition->disallowed_tools;
     plan.max_turns = definition->max_turns.value_or(config.max_turns);
+    plan.background = request.run_in_background || definition->background;
+    plan.name = request.name;
+    plan.team_name = request.team_name;
+    plan.mode = request.mode;
+    plan.isolation = request.isolation.or_else([&] { return definition->isolation; });
+    plan.working_dir = *normalized_cwd;
+    plan.frontmatter_hooks = definition->hooks;
+    const auto runtime_context = format_agent_runtime_context(plan);
+    plan.system_prompt = plan.system_prompt.empty()
+        ? runtime_context
+        : std::format("{}\n\n{}", plan.system_prompt, runtime_context);
     return plan;
 }
 
@@ -524,12 +883,6 @@ public:
             return ToolResult::error("Missing required 'prompt' field");
         }
 
-        if (!request->unsupported_fields.empty()) {
-            return ToolResult::error(std::format(
-                "Agent parameters not yet supported by the native runtime: {}",
-                join_fields(request->unsupported_fields)));
-        }
-
         auto plan = build_agent_execution_plan(*request, config_);
         if (!plan) return ToolResult::error(plan.error());
         
@@ -539,12 +892,65 @@ public:
                 "Agent recursion depth limit reached ({}/{})", 
                 current_depth_, config_.max_depth));
         }
+
+        if (plan->background) {
+            return start_background_agent(std::move(*plan));
+        }
         
+        upsert_agent_record_for_plan(*plan);
         // Run the sub-agent loop
         return run_agent_loop(*plan);
     }
 
 private:
+    [[nodiscard]] Result<ToolResult> start_background_agent(AgentExecutionPlan plan) {
+        cc::tools::MessageRouter::instance().register_agent(plan.agent_id);
+        upsert_agent_record_for_plan(plan);
+
+        auto start_hooks = execute_agent_frontmatter_hooks(plan, "SubagentStart");
+        if (!start_hooks.ok()) {
+            cc::tools::agent_runtime::native_agent_store().mark_failed(plan.agent_id, *start_hooks.error);
+            return ToolResult::error(*start_hooks.error);
+        }
+        if (!start_hooks.output.empty()) {
+            cc::tools::agent_runtime::native_agent_store().append_transcript(
+                plan.agent_id,
+                "hook SubagentStart: " + start_hooks.output);
+        }
+
+        if (!registry_) {
+            return ToolResult::success(std::format(
+                "Queued background agent {} ({}) but execution is deferred because no tool registry is attached.",
+                plan.agent_id,
+                plan.agent_type));
+        }
+
+        auto config = config_;
+        auto depth = current_depth_;
+        auto* registry = registry_;
+        auto agent_id = plan.agent_id;
+        std::thread([plan = std::move(plan), config = std::move(config), depth, registry, agent_id]() mutable {
+            cc::tools::agent_runtime::native_agent_store().mark_running(agent_id);
+            AgentTool worker(std::move(config), depth, registry);
+            auto result = worker.run_agent_loop(plan);
+            if (result) {
+                std::string output;
+                for (const auto& content : result->content) {
+                    if (!output.empty()) output += "\n";
+                    output += content.text;
+                }
+                cc::tools::agent_runtime::native_agent_store().mark_completed(agent_id, std::move(output));
+            } else {
+                cc::tools::agent_runtime::native_agent_store().mark_failed(agent_id, result.error().format());
+            }
+        }).detach();
+
+        return ToolResult::success(std::format(
+            "Started background agent {} ({})",
+            plan.agent_id,
+            plan.agent_type));
+    }
+
     [[nodiscard]] bool plan_allows_generic_mcp_tool(const AgentExecutionPlan& plan) const {
         return !plan.agent_mcp_tools.empty() &&
             is_tool_allowed("mcp") &&
@@ -607,8 +1013,50 @@ private:
         return tools;
     }
 
+    void append_queued_agent_messages(
+        const AgentExecutionPlan& plan,
+        std::vector<Message>& messages
+    ) const {
+        SendMessageTool inbox(plan.agent_id);
+        while (auto message = inbox.receive()) {
+            messages.push_back(Message::from_text(
+                "user",
+                std::format(
+                    "[Message from {} priority={}]\n{}",
+                    message->from_agent,
+                    message_priority_name(message->priority),
+                    message->content)));
+        }
+    }
+
     /// Run the sub-agent's recursive API loop
     [[nodiscard]] Result<ToolResult> run_agent_loop(const AgentExecutionPlan& plan) {
+        std::optional<ScopedCurrentPath> cwd_guard;
+        if (plan.working_dir) {
+            auto entered = ScopedCurrentPath::enter(*plan.working_dir);
+            if (!entered) {
+                cc::tools::agent_runtime::native_agent_store().mark_failed(plan.agent_id, entered.error());
+                return ToolResult::error(entered.error());
+            }
+            cwd_guard.emplace(std::move(*entered));
+        }
+
+        auto fail_agent = [&](std::string error) -> Result<ToolResult> {
+            cc::tools::agent_runtime::native_agent_store().mark_failed(plan.agent_id, error);
+            return ToolResult::error(std::move(error));
+        };
+
+        cc::tools::agent_runtime::native_agent_store().mark_running(plan.agent_id);
+        cc::tools::agent_runtime::native_agent_store().append_transcript(plan.agent_id, "user: " + plan.prompt);
+        if (!plan.background) {
+            auto start_hooks = execute_agent_frontmatter_hooks(plan, "SubagentStart");
+            if (!start_hooks.ok()) return fail_agent(*start_hooks.error);
+            if (!start_hooks.output.empty()) {
+                cc::tools::agent_runtime::native_agent_store().append_transcript(
+                    plan.agent_id,
+                    "hook SubagentStart: " + start_hooks.output);
+            }
+        }
         
         auto client = get_default_client();
         
@@ -625,6 +1073,16 @@ private:
         std::string final_output;
         
         for (int turn = 0; turn < plan.max_turns; ++turn) {
+            if (cc::tools::agent_runtime::native_agent_store().is_cancel_requested(plan.agent_id)) {
+                const auto reason = std::format("Agent {} cancelled before turn {}", plan.agent_id, turn + 1);
+                cc::tools::agent_runtime::native_agent_store().mark_cancelled(plan.agent_id, reason);
+                return ToolResult::error(reason);
+            }
+            cc::tools::agent_runtime::native_agent_store().update_progress(
+                plan.agent_id,
+                static_cast<double>(turn) / static_cast<double>(std::max(plan.max_turns, 1)));
+            append_queued_agent_messages(plan, messages);
+
             // Build request
             CreateMessageRequest req;
             req.model = plan.model;
@@ -637,7 +1095,7 @@ private:
             // Perform streaming request
             auto stream_result = client.create_message_stream(req);
             if (!stream_result) {
-                return ToolResult::error(std::format(
+                return fail_agent(std::format(
                     "Agent API call failed: {}", stream_result.error().message()));
             }
             
@@ -706,7 +1164,7 @@ private:
                         goto stream_done;
                         
                     case StreamEventType::Error:
-                        return ToolResult::error(std::format(
+                        return fail_agent(std::format(
                             "Agent stream error: {}", event.error.error_message));
                         
                     default:
@@ -718,6 +1176,11 @@ private:
             // If stop_reason is "end_turn" and no tool_use, we're done
             if (stop_reason == "end_turn" || tool_uses.empty()) {
                 final_output = text_content;
+                if (!text_content.empty()) {
+                    cc::tools::agent_runtime::native_agent_store().append_transcript(
+                        plan.agent_id,
+                        "assistant: " + text_content);
+                }
                 break;
             }
             
@@ -733,6 +1196,9 @@ private:
             for (auto& tu : tool_uses) {
                 assistant_msg.content.push_back(tu);
             }
+            cc::tools::agent_runtime::native_agent_store().append_transcript(
+                plan.agent_id,
+                "assistant: " + message_content_text(assistant_msg));
             messages.push_back(std::move(assistant_msg));
             
             // Execute tools and add results
@@ -761,23 +1227,42 @@ private:
                             continue;
                         }
                     }
-                    auto exec_result = registry_->execute(tu.tool_name, tool_input);
-                    if (exec_result) {
-                        // Concatenate all content blocks from the tool result
-                        std::string output;
-                        for (const auto& c : exec_result->content) {
-                            if (!output.empty()) output += "\n";
-                            output += c.text;
+                    if (tu.tool_name == "Agent") {
+                        AgentTool child(child_config(), current_depth_ + 1, registry_);
+                        auto child_result = child.execute(tool_input);
+                        if (child_result) {
+                            std::string output;
+                            for (const auto& c : child_result->content) {
+                                if (!output.empty()) output += "\n";
+                                output += c.text;
+                            }
+                            result_block.text = std::move(output);
+                        } else {
+                            result_block.text = std::format(
+                                "[Tool execution error: {}]", child_result.error().format());
                         }
-                        result_block.text = std::move(output);
                     } else {
-                        result_block.text = std::format(
-                            "[Tool execution error: {}]", exec_result.error().message);
+                        auto exec_result = registry_->execute(tu.tool_name, tool_input);
+                        if (exec_result) {
+                            // Concatenate all content blocks from the tool result
+                            std::string output;
+                            for (const auto& c : exec_result->content) {
+                                if (!output.empty()) output += "\n";
+                                output += c.text;
+                            }
+                            result_block.text = std::move(output);
+                        } else {
+                            result_block.text = std::format(
+                                "[Tool execution error: {}]", exec_result.error().message);
+                        }
                     }
                 }
                 
                 tool_result_msg.content.push_back(std::move(result_block));
             }
+            cc::tools::agent_runtime::native_agent_store().append_transcript(
+                plan.agent_id,
+                "user: " + message_content_text(tool_result_msg));
             messages.push_back(std::move(tool_result_msg));
             
             // Record partial output
@@ -789,6 +1274,15 @@ private:
         if (final_output.empty()) {
             final_output = "[Agent completed without producing output]";
         }
+
+        auto stop_hooks = execute_agent_frontmatter_hooks(plan, "SubagentStop", final_output);
+        if (!stop_hooks.ok()) return fail_agent(*stop_hooks.error);
+        if (!stop_hooks.output.empty()) {
+            cc::tools::agent_runtime::native_agent_store().append_transcript(
+                plan.agent_id,
+                "hook SubagentStop: " + stop_hooks.output);
+        }
+        cc::tools::agent_runtime::native_agent_store().mark_completed(plan.agent_id, final_output);
         
         return ToolResult::success(final_output);
     }

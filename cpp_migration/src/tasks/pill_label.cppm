@@ -51,11 +51,12 @@ template<typename Container, typename Pred>
     if (all_same_type) {
         switch (first_type) {
             case cc::core::TaskType::LocalBash: {
-                // Count monitors vs regular shells
                 std::size_t monitors = 0;
                 for (const auto* t : tasks) {
-                    // Would check kind == Monitor in real impl
-                    (void)t;
+                    const auto* shell = static_cast<const LocalShellTaskState*>(t);
+                    if (shell->kind == BashTaskKind::Monitor) {
+                        ++monitors;
+                    }
                 }
                 auto shells = n - monitors;
                 
@@ -71,10 +72,12 @@ template<typename Container, typename Pred>
             }
             
             case cc::core::TaskType::InProcessTeammate: {
-                // Count unique teams
                 std::set<std::string> teams;
-                // Would extract team names from InProcessTeammateTaskState
-                auto team_count = teams.empty() ? n : teams.size();
+                for (const auto* t : tasks) {
+                    const auto* teammate = static_cast<const InProcessTeammateTaskState*>(t);
+                    teams.insert(teammate->identity.team_name);
+                }
+                auto team_count = teams.size();
                 return (team_count == 1) ? "1 team" : std::format("{} teams", team_count);
             }
             
@@ -83,8 +86,16 @@ template<typename Container, typename Pred>
             
             case cc::core::TaskType::RemoteAgent: {
                 if (n == 1) {
-                    // Check for ultraplan states
-                    // Simplified: would check RemoteAgentTaskState fields
+                    const auto* remote = static_cast<const RemoteAgentTaskState*>(tasks[0]);
+                    if (remote->is_ultraplan) {
+                        if (remote->ultraplan_phase == UltraplanPhase::PlanReady) {
+                            return std::format("{} ultraplan ready", DIAMOND_FILLED);
+                        }
+                        if (remote->ultraplan_phase == UltraplanPhase::NeedsInput) {
+                            return std::format("{} ultraplan needs your input", DIAMOND_OPEN);
+                        }
+                        return std::format("{} ultraplan", DIAMOND_OPEN);
+                    }
                     return std::format("{} 1 cloud session", DIAMOND_OPEN);
                 }
                 return std::format("{} {} cloud sessions", DIAMOND_OPEN, n);
@@ -113,8 +124,9 @@ template<typename Container, typename Pred>
     const std::vector<cc::core::TaskStateBase*>& tasks
 ) {
     if (tasks.size() != 1) return false;
-    // Would check if task is RemoteAgentTaskState with isUltraplan and ultraplanPhase set
-    return false;
+    if (tasks[0]->type != cc::core::TaskType::RemoteAgent) return false;
+    const auto* remote = static_cast<const RemoteAgentTaskState*>(tasks[0]);
+    return remote->is_ultraplan && remote->ultraplan_phase.has_value();
 }
 
 } // namespace cc::tasks
