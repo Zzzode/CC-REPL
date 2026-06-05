@@ -103,7 +103,6 @@ target_sources(cc_utils
         utils/http.cppm
         utils/hyperlink.cppm
         utils/idle_timeout.cppm
-        utils/ide_integration.cppm
         utils/image_handling.cppm
         utils/image_resizer.cppm
         utils/image_validation.cppm
@@ -877,6 +876,7 @@ target_sources(cc_services
         services/api/ultrareview_quota.cppm
         services/mcp/mcp_string_utils.cppm
         services/mcp/headers_helper.cppm
+        utils/ide_integration.cppm
         services/mcp/vscode_sdk_mcp.cppm
         services/mcp/in_process_transport.cppm
         services/mcp/claude_ai.cppm
@@ -890,6 +890,11 @@ target_sources(cc_services
         services/team_memory/secret_guard.cppm
         services/team_memory/secret_scanner.cppm
         services/team_memory/watcher.cppm
+)
+target_sources(cc_services
+    PRIVATE
+        services/mcp/config_impl.cpp
+        services/mcp/headers_helper_impl.cpp
 )
 target_link_libraries(cc_services
     PUBLIC
@@ -1336,7 +1341,7 @@ target_sources(cc_remote
         remote/remote_connection.cppm
         remote/remote_session.cppm
 )
-target_link_libraries(cc_remote PUBLIC cc_utils cc_bridge)
+target_link_libraries(cc_remote PUBLIC cc_utils cc_bridge OpenSSL::SSL OpenSSL::Crypto)
 
 # ─── cc_migrations: Schema Migrations ─────────────────────────────────────────
 add_library(cc_migrations)
@@ -1451,7 +1456,13 @@ target_sources(cc_repl
 )
 target_link_libraries(cc_repl
     PRIVATE
-        cc_core
+        cc_query
+        cc_tools
+        cc_hooks
+        cc_commands
+        cc_constants
+        cc_utils
+        cc_ui
 )
 set_target_properties(cc_repl PROPERTIES
     OUTPUT_NAME "cc-repl"

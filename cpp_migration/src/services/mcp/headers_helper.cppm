@@ -1,9 +1,9 @@
 module;
+#include <chrono>
+#include <map>
+#include <optional>
 #include <string>
 #include <string_view>
-#include <vector>
-#include <optional>
-#include <map>
 
 export module cc.services.mcp.headers_helper;
 
@@ -99,5 +99,31 @@ inline std::optional<int> parse_oauth_port(std::string_view url_or_config) {
 
     return std::nullopt;
 }
+
+std::string trim_header_helper_output(std::string_view value);
+
+std::optional<HeaderMap> parse_header_helper_json(std::string_view output);
+
+std::optional<std::string> run_headers_helper_command(
+    std::string_view server_name,
+    std::string_view server_url,
+    std::string_view command,
+    std::chrono::milliseconds timeout = std::chrono::milliseconds(10000)
+);
+
+std::optional<HeaderMap> get_mcp_headers_from_helper(
+    std::string_view server_name,
+    std::string_view server_url,
+    std::string_view helper_command,
+    std::chrono::milliseconds timeout = std::chrono::milliseconds(10000)
+);
+
+HeaderMap get_mcp_server_headers(
+    std::string_view server_name,
+    const HeaderMap& static_headers,
+    std::string_view server_url,
+    std::string_view helper_command,
+    std::chrono::milliseconds timeout = std::chrono::milliseconds(10000)
+);
 
 } // namespace cc::services::mcp

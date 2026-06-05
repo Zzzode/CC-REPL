@@ -23,32 +23,16 @@
 #include <variant>
 
 // Import our core modules
-import cc.config.config;
 import cc.query.query_engine;
 import cc.types.types;
 import cc.tools.tool;
-import cc.tools.bash;
-import cc.tools.file_read;
-import cc.tools.file_write;
-import cc.tools.file_edit;
-import cc.tools.glob;
-import cc.tools.grep;
-import cc.tools.agent;
-import cc.tools.web_fetch;
-import cc.tools.web_search;
-import cc.tools.todo_write;
 import cc.tools.runtime_registry;
 import cc.hooks.tool_permissions;
 import cc.hooks.lifecycle_hooks;
 import cc.types.command;
 import cc.commands.command;
 import cc.commands.registry;
-import cc.context.context;
-import cc.constants.cost_tracker;
 import cc.constants.product;
-import cc.session.history;
-import cc.bootstrap.setup;
-import cc.tasks.task;
 import cc.utils.session_storage;
 import cc.ui.app;
 

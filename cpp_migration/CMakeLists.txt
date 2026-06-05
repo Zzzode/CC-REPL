@@ -46,6 +46,7 @@ endif()
 set(CMAKE_CXX_SCAN_FOR_MODULES_OLD ${CMAKE_CXX_SCAN_FOR_MODULES})
 set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 find_package(CURL REQUIRED)
+find_package(OpenSSL REQUIRED)
 set(CMAKE_CXX_SCAN_FOR_MODULES ${CMAKE_CXX_SCAN_FOR_MODULES_OLD})
 
 # ─── FetchContent for Header-Only / Build-From-Source Dependencies ────────────
