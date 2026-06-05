@@ -11,6 +11,7 @@
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/dom/node.hpp>
 #include <ftxui/screen/screen.hpp>
+#include <ftxui/component/component.hpp>
 #include <ftxui/component/event.hpp>
 #include <gtest/gtest.h>
 
@@ -21,6 +22,7 @@ import cc.ui.messages;
 import cc.ui.prompt_input;
 import cc.ui.markdown;
 import cc.ui.components_extended;
+import cc.ui.wizard_dialog;
 
 namespace {
 
@@ -155,6 +157,31 @@ TEST(Components, TextInputTabAfterEmptyHistorySearchDoesNotCrash) {
 
     EXPECT_TRUE(component->OnEvent(ftxui::Event::Character("\x12")));
     EXPECT_FALSE(component->OnEvent(ftxui::Event::Tab));
+}
+
+TEST(WizardDialog, RendersStepFactoryContent) {
+    bool factory_called = false;
+    cc::ui::wizard_dialog::WizardStep step;
+    step.id = "custom";
+    step.title = "Custom";
+    step.description = "Fallback description";
+    step.create_content = [&] {
+        factory_called = true;
+        return ftxui::Renderer([] {
+            return ftxui::text("custom factory body");
+        });
+    };
+
+    auto component = cc::ui::wizard_dialog::WizardComponent(
+        "Setup",
+        std::vector<cc::ui::wizard_dialog::WizardStep>{std::move(step)},
+        [] {},
+        [] {});
+
+    EXPECT_TRUE(factory_called);
+    auto rendered = render_to_plain_text(component->Render(), 80, 12);
+    EXPECT_NE(rendered.find("custom factory body"), std::string::npos);
+    EXPECT_EQ(rendered.find("Fallback description"), std::string::npos);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

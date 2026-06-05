@@ -4,9 +4,11 @@
 #include <gtest/gtest.h>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 import cc.tasks.local_agent_task;
 import cc.tasks.in_process_teammate_task;
+import cc.tasks.pill_label;
 import cc.tasks.task;
 import cc.tasks.types;
 
@@ -102,4 +104,73 @@ TEST(InProcessTeammateTask, FiltersTaskRegistryToTeammateStates) {
 
     ASSERT_EQ(result.size(), 1u);
     EXPECT_EQ(result[0].identity.agent_id, "researcher@team");
+}
+
+TEST(PillLabel, CountsShellsAndMonitorsSeparately) {
+    cc::tasks::LocalShellTaskState shell{};
+    shell.type = cc::core::TaskType::LocalBash;
+    shell.kind = cc::tasks::BashTaskKind::Bash;
+
+    cc::tasks::LocalShellTaskState monitor{};
+    monitor.type = cc::core::TaskType::LocalBash;
+    monitor.kind = cc::tasks::BashTaskKind::Monitor;
+
+    std::vector<cc::core::TaskStateBase*> tasks = {&shell, &monitor};
+
+    EXPECT_EQ(cc::tasks::get_pill_label(tasks), "1 shell, 1 monitor");
+}
+
+TEST(PillLabel, CountsUniqueTeammateTeams) {
+    cc::tasks::InProcessTeammateTaskState researcher{};
+    researcher.type = cc::core::TaskType::InProcessTeammate;
+    researcher.identity.team_name = "alpha";
+
+    cc::tasks::InProcessTeammateTaskState reviewer{};
+    reviewer.type = cc::core::TaskType::InProcessTeammate;
+    reviewer.identity.team_name = "alpha";
+
+    cc::tasks::InProcessTeammateTaskState implementer{};
+    implementer.type = cc::core::TaskType::InProcessTeammate;
+    implementer.identity.team_name = "beta";
+
+    std::vector<cc::core::TaskStateBase*> tasks = {&researcher, &reviewer, &implementer};
+
+    EXPECT_EQ(cc::tasks::get_pill_label(tasks), "2 teams");
+}
+
+TEST(PillLabel, ShowsUltraplanAttentionStatesAndCta) {
+    cc::tasks::RemoteAgentTaskState remote{};
+    remote.type = cc::core::TaskType::RemoteAgent;
+    remote.is_ultraplan = true;
+
+    std::vector<cc::core::TaskStateBase*> tasks = {&remote};
+
+    EXPECT_EQ(
+        cc::tasks::get_pill_label(tasks),
+        std::string(cc::tasks::DIAMOND_OPEN) + " ultraplan");
+    EXPECT_FALSE(cc::tasks::pill_needs_cta(tasks));
+
+    remote.ultraplan_phase = cc::tasks::UltraplanPhase::NeedsInput;
+    EXPECT_EQ(
+        cc::tasks::get_pill_label(tasks),
+        std::string(cc::tasks::DIAMOND_OPEN) + " ultraplan needs your input");
+    EXPECT_TRUE(cc::tasks::pill_needs_cta(tasks));
+
+    remote.ultraplan_phase = cc::tasks::UltraplanPhase::PlanReady;
+    EXPECT_EQ(
+        cc::tasks::get_pill_label(tasks),
+        std::string(cc::tasks::DIAMOND_FILLED) + " ultraplan ready");
+    EXPECT_TRUE(cc::tasks::pill_needs_cta(tasks));
+}
+
+TEST(PillLabel, ShowsRemoteCloudSessionLabelForNonUltraplanTasks) {
+    cc::tasks::RemoteAgentTaskState remote{};
+    remote.type = cc::core::TaskType::RemoteAgent;
+
+    std::vector<cc::core::TaskStateBase*> tasks = {&remote};
+
+    EXPECT_EQ(
+        cc::tasks::get_pill_label(tasks),
+        std::string(cc::tasks::DIAMOND_OPEN) + " 1 cloud session");
+    EXPECT_FALSE(cc::tasks::pill_needs_cta(tasks));
 }

@@ -372,6 +372,51 @@ TEST(SessionHistory, LoadAllRestoresSavedMessages) {
     std::filesystem::remove(storage_path);
 }
 
+TEST(SessionHistory, LoadAllRestoresImageAndDocumentBlocks) {
+    auto storage_path = std::filesystem::temp_directory_path() /
+        "cc_repl_history_rich_content_test.json";
+    std::filesystem::remove(storage_path);
+
+    {
+        cc::core::ConversationStore store(storage_path.string());
+        auto* conversation = store.create_conversation();
+        conversation->add_message(cc::core::UserMessage{
+            cc::core::MessageBase{
+                cc::core::MessageId{"msg_user_rich"},
+                std::chrono::system_clock::now(),
+                {
+                    cc::core::TextBlock{"rich content"},
+                    cc::core::ImageBlock{"image/png", "iVBORw0KGgo="},
+                    cc::core::DocumentBlock{"application/pdf", "JVBERi0xLjQ="},
+                }
+            }
+        });
+        ASSERT_TRUE(store.save_all().has_value());
+    }
+
+    cc::core::ConversationStore loaded(storage_path.string());
+    ASSERT_TRUE(loaded.load_all().has_value());
+    auto* active = loaded.get_active_conversation();
+    auto messages = active->get_messages();
+
+    ASSERT_EQ(messages.size(), 1u);
+    ASSERT_TRUE(std::holds_alternative<cc::core::UserMessage>(messages.front()));
+    const auto& user = std::get<cc::core::UserMessage>(messages.front());
+    ASSERT_EQ(user.content.size(), 3u);
+
+    ASSERT_TRUE(std::holds_alternative<cc::core::ImageBlock>(user.content[1]));
+    const auto& image = std::get<cc::core::ImageBlock>(user.content[1]);
+    EXPECT_EQ(image.media_type, "image/png");
+    EXPECT_EQ(image.data, "iVBORw0KGgo=");
+
+    ASSERT_TRUE(std::holds_alternative<cc::core::DocumentBlock>(user.content[2]));
+    const auto& document = std::get<cc::core::DocumentBlock>(user.content[2]);
+    EXPECT_EQ(document.media_type, "application/pdf");
+    EXPECT_EQ(document.data, "JVBERi0xLjQ=");
+
+    std::filesystem::remove(storage_path);
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // ═══════════════════════════════════════════════════════════════════════════════

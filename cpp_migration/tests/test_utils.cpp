@@ -3,6 +3,8 @@
 
 
 #include <gtest/gtest.h>
+#include <cstdlib>
+#include <filesystem>
 #include <map>
 #include <optional>
 #include <set>
@@ -56,6 +58,41 @@ import cc.utils.script_tool_enabled;
 import cc.utils.prompt_category;
 import cc.utils.control_message_compat;
 import cc.utils.sanitization;
+import cc.utils.diff_utils;
+import cc.utils.shell_providers;
+import cc.utils.git_diff;
+import cc.plugins.marketplace;
+import core.memdir;
+import core.screens;
+
+class ScopedEnvVar {
+public:
+    explicit ScopedEnvVar(const char* name) : name_(name) {
+        if (const char* value = std::getenv(name)) {
+            previous_ = std::string(value);
+        }
+    }
+
+    ~ScopedEnvVar() {
+        if (previous_) {
+            setenv(name_.c_str(), previous_->c_str(), 1);
+        } else {
+            unsetenv(name_.c_str());
+        }
+    }
+
+    void set(const char* value) const {
+        setenv(name_.c_str(), value, 1);
+    }
+
+    void unset() const {
+        unsetenv(name_.c_str());
+    }
+
+private:
+    std::string name_;
+    std::optional<std::string> previous_;
+};
 
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -159,6 +196,17 @@ TEST(StringUtilsCompat, SafeJoinLinesTruncatesLikeTypeScriptHelper) {
     EXPECT_EQ(cc::utils::safe_join_lines(lines, ",", 20), "abc,def,ghi");
 }
 
+TEST(Screens, ParsePrIdentifierUsesStrictNumbersAndGithubPullUrls) {
+    EXPECT_EQ(screens::parsePrIdentifier("42"), std::optional<int>(42));
+    EXPECT_EQ(screens::parsePrIdentifier("  https://github.com/org/repo/pull/123/files?diff=split  "), std::optional<int>(123));
+    EXPECT_EQ(screens::parsePrIdentifier("github.com/org/repo/pull/77#discussion_r1"), std::optional<int>(77));
+
+    EXPECT_FALSE(screens::parsePrIdentifier("123abc").has_value());
+    EXPECT_FALSE(screens::parsePrIdentifier("https://example.com/org/repo/pull/123").has_value());
+    EXPECT_FALSE(screens::parsePrIdentifier("https://github.com/org/repo/issues/123").has_value());
+    EXPECT_FALSE(screens::parsePrIdentifier("0").has_value());
+}
+
 TEST(ArrayUtilsCompat, CountUniqAndIntersperseMatchTypeScriptHelpers) {
     std::vector<int> nums = {1, 2, 2, 3, 4};
     EXPECT_EQ(cc::utils::count(nums, [](int value) { return value % 2 == 0; }), 3u);
@@ -219,6 +267,37 @@ TEST(CollapseReadSearchSummary, IncludesTeamMemorySummaryPartsInTypeScriptOrder)
         cc::utils::collapse_read_search::get_search_read_summary_text(
             0, 1, false, 0, memory_counts),
         "Recalled 1 memory, searched memories, recalled 2 team memories, searched team memories, wrote 1 team memory, read 1 file");
+}
+
+TEST(Memdir, TeamMemoryCanBeEnabledAtRuntime) {
+    ScopedEnvVar disable_auto("CLAUDE_CODE_DISABLE_AUTO_MEMORY");
+    ScopedEnvVar enable_team("CLAUDE_CODE_ENABLE_TEAM_MEMORY");
+    ScopedEnvVar cc_sync_url("CC_TEAM_MEMORY_SYNC_URL");
+    ScopedEnvVar ts_sync_url("TEAM_MEMORY_SYNC_URL");
+
+    disable_auto.unset();
+    enable_team.unset();
+    cc_sync_url.unset();
+    ts_sync_url.unset();
+    EXPECT_FALSE(memdir::is_team_memory_enabled());
+
+    enable_team.set("true");
+    EXPECT_TRUE(memdir::is_team_memory_enabled());
+
+    disable_auto.set("1");
+    EXPECT_FALSE(memdir::is_team_memory_enabled());
+
+    disable_auto.unset();
+    enable_team.set("false");
+    cc_sync_url.set("https://team-memory.example");
+    EXPECT_FALSE(memdir::is_team_memory_enabled());
+
+    enable_team.unset();
+    EXPECT_TRUE(memdir::is_team_memory_enabled());
+
+    cc_sync_url.unset();
+    ts_sync_url.set("https://team-memory.example");
+    EXPECT_TRUE(memdir::is_team_memory_enabled());
 }
 
 TEST(CollapseReadSearchSummary, SummarizesTrailingSearchReadActivities) {
@@ -823,6 +902,86 @@ TEST(PluginMarketplaceRules, AppliesOfficialNameAndAutoUpdateRules) {
     EXPECT_NE(invalid->find("reserved for official Anthropic marketplaces"), std::string::npos);
 }
 
+TEST(PluginMarketplace, ComputesRealSha256Checksums) {
+    EXPECT_EQ(cc::plugins::detail::sha256_hex("hello"),
+              "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
+    EXPECT_EQ(cc::plugins::detail::sha256_hex(""),
+              "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+}
+
+TEST(ShellProviders, BashEvalCommandEscapesSingleQuotes) {
+    ScopedEnvVar prefix("CLAUDE_CODE_SHELL_PREFIX");
+    prefix.unset();
+
+    auto provider = cc::utils::shell_providers::create_provider("/bin/bash", true);
+    auto result = provider->build_exec_command(
+        "printf '%s\\n' \"it's ok\"",
+        cc::utils::shell_providers::BuildExecOptions{
+            .id = "quote-test",
+            .sandbox_tmp_dir = std::nullopt,
+            .use_sandbox = false});
+
+    EXPECT_NE(
+        result.command_string.find("eval 'printf '\\''%s\\n'\\'' \"it'\\''s ok\"'"),
+        std::string::npos);
+}
+
+TEST(ShellProviders, BashProviderSourcesSnapshotAndInjectsSandboxTmpdir) {
+    ScopedEnvVar prefix("CLAUDE_CODE_SHELL_PREFIX");
+    prefix.unset();
+
+    auto sandbox = std::filesystem::temp_directory_path() / "cc_repl_shell_provider_sandbox_test";
+    std::filesystem::remove_all(sandbox);
+    std::filesystem::create_directories(sandbox);
+
+    auto provider = cc::utils::shell_providers::create_provider("/bin/bash", false);
+    auto result = provider->build_exec_command(
+        "printf '%s' \"$TMPDIR\"",
+        cc::utils::shell_providers::BuildExecOptions{
+            .id = "snapshot-test",
+            .sandbox_tmp_dir = sandbox.string(),
+            .use_sandbox = true});
+
+    EXPECT_EQ(result.cwd_file_path, (sandbox / "cwd-snapshot-test").string());
+    EXPECT_NE(result.command_string.find("export TMPDIR='" + sandbox.string() + "'"), std::string::npos);
+    EXPECT_NE(result.command_string.find("source "), std::string::npos);
+
+    auto args = provider->get_spawn_args(result.command_string);
+    ASSERT_GE(args.size(), 2u);
+    EXPECT_EQ(args[0], "-c");
+    EXPECT_EQ(args.back(), result.command_string);
+
+    auto env = provider->get_environment_overrides("echo ok");
+    EXPECT_EQ(env["CLAUDE_CODE_SHELL_PROVIDER"], "native");
+    EXPECT_EQ(env["CLAUDE_CODE_SHELL_TYPE"], "bash");
+    EXPECT_EQ(env["CLAUDE_CODE_LAST_COMMAND"], "echo ok");
+    EXPECT_TRUE(env.contains("CLAUDE_CODE_SHELL_SNAPSHOT"));
+
+    std::filesystem::remove_all(sandbox);
+}
+
+TEST(ShellProviders, PowershellProviderTracksCwdInSandboxAndQuotesPath) {
+    auto provider = cc::utils::shell_providers::create_provider("pwsh", true);
+    auto result = provider->build_exec_command(
+        "Write-Output ok",
+        cc::utils::shell_providers::BuildExecOptions{
+            .id = "ps-test",
+            .sandbox_tmp_dir = "/tmp/cc repl's sandbox",
+            .use_sandbox = true});
+
+    EXPECT_EQ(result.cwd_file_path, "/tmp/cc repl's sandbox/cwd-ps-test");
+    EXPECT_NE(result.command_string.find("Out-File -FilePath '/tmp/cc repl''s sandbox/cwd-ps-test'"), std::string::npos);
+    auto args = provider->get_spawn_args(result.command_string);
+    ASSERT_EQ(args.size(), 4u);
+    EXPECT_EQ(args[0], "-NoProfile");
+    EXPECT_EQ(args[1], "-NonInteractive");
+    EXPECT_EQ(args[2], "-Command");
+    EXPECT_EQ(args[3], result.command_string);
+
+    auto env = provider->get_environment_overrides("Write-Output ok");
+    EXPECT_EQ(env["CLAUDE_CODE_SHELL_TYPE"], "powershell");
+}
+
 TEST(PluginVersioning, ExtractsVersionedPathsAndDerivesPureVersions) {
     EXPECT_EQ(cc::utils::plugin_versioning::get_version_from_path("/Users/me/.claude/plugins/cache/main/plugin/1.2.3"), "1.2.3");
     EXPECT_FALSE(cc::utils::plugin_versioning::get_version_from_path("/Users/me/.claude/plugins/main/plugin").has_value());
@@ -1250,6 +1409,88 @@ TEST(TaggedId, EncodesUuidAsApiCompatibleBase58TaggedId) {
 
     EXPECT_FALSE(to_tagged_id("user", "not-a-uuid").has_value());
     EXPECT_FALSE(to_tagged_id("user", "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz").has_value());
+}
+
+TEST(DiffUtils, ApplyPatchHandlesUnifiedDiffHunks) {
+    const std::string content = "one\ntwo\nthree\nfour\n";
+    const std::string patch = R"PATCH(--- a/file.txt
++++ b/file.txt
+@@ -1,4 +1,5 @@
+ one
+-two
++TWO
+ three
++added
+ four
+)PATCH";
+
+    auto result = cc::utils::apply_patch(content, patch);
+
+    ASSERT_TRUE(result.has_value()) << result.error();
+    EXPECT_EQ(*result, "one\nTWO\nthree\nadded\nfour\n");
+}
+
+TEST(DiffUtils, ApplyPatchHandlesMultipleHunks) {
+    const std::string content = "a\nb\nc\nd\ne\n";
+    const std::string patch = R"PATCH(--- a/file.txt
++++ b/file.txt
+@@ -2,2 +2,2 @@
+-b
++B
+ c
+@@ -5,1 +5,2 @@
+ e
++f
+)PATCH";
+
+    auto result = cc::utils::apply_patch(content, patch);
+
+    ASSERT_TRUE(result.has_value()) << result.error();
+    EXPECT_EQ(*result, "a\nB\nc\nd\ne\nf\n");
+}
+
+TEST(DiffUtils, ApplyPatchRejectsMismatchedContext) {
+    const std::string content = "alpha\nbeta\n";
+    const std::string patch = R"PATCH(--- a/file.txt
++++ b/file.txt
+@@ -1,2 +1,2 @@
+ alpha
+-gamma
++delta
+)PATCH";
+
+    auto result = cc::utils::apply_patch(content, patch);
+
+    ASSERT_FALSE(result.has_value());
+    EXPECT_NE(result.error().find("Patch context mismatch"), std::string::npos);
+}
+
+TEST(GitDiff, GenerateUnifiedDiffPreservesContextAndRoundTripsToStats) {
+    auto patch = cc::utils::generate_unified_diff(
+        "alpha\nbeta\ngamma\n",
+        "alpha\ndelta\ngamma\n",
+        "notes.txt");
+
+    EXPECT_NE(patch.find("diff --git a/notes.txt b/notes.txt"), std::string::npos);
+    EXPECT_NE(patch.find(" alpha\n"), std::string::npos);
+    EXPECT_NE(patch.find("-beta\n"), std::string::npos);
+    EXPECT_NE(patch.find("+delta\n"), std::string::npos);
+    EXPECT_NE(patch.find(" gamma\n"), std::string::npos);
+
+    auto parsed = cc::utils::parse_unified_diff(patch);
+    ASSERT_EQ(parsed.size(), 1u);
+    ASSERT_EQ(parsed[0].hunks.size(), 1u);
+
+    auto stats = cc::utils::get_diff_stats(parsed);
+    EXPECT_EQ(stats.files_changed, 1);
+    EXPECT_EQ(stats.additions, 1);
+    EXPECT_EQ(stats.deletions, 1);
+}
+
+TEST(GitDiff, GenerateUnifiedDiffReturnsEmptyStringForIdenticalContent) {
+    EXPECT_EQ(
+        cc::utils::generate_unified_diff("same\ncontent\n", "same\ncontent\n", "same.txt"),
+        "");
 }
 
 TEST(MessagePredicates, HumanTurnsExcludeMetaAndToolResults) {
