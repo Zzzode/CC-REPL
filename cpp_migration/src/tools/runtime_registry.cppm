@@ -14,6 +14,7 @@ module;
 #include <fstream>
 #include <functional>
 #include <iostream>
+#include <map>
 #include <memory>
 #include <optional>
 #include <regex>
@@ -237,6 +238,32 @@ private:
     auto val = obj.get(key);
     if (!val.is_num()) return std::nullopt;
     return static_cast<int>(val.as_int());
+}
+
+[[nodiscard]] std::vector<std::string> json_string_array(std::string_view json, std::string_view key) {
+    std::vector<std::string> values;
+    auto parsed = cc::utils::json::parse(json);
+    if (!parsed || !parsed->root().is_obj()) return values;
+    auto node = parsed->root().get(key);
+    if (node.is_arr()) {
+        node.iter([&](cc::utils::json::JsonVal item) {
+            if (item.is_str()) values.emplace_back(item.as_str());
+        });
+        return values;
+    }
+    if (node.is_str()) {
+        std::string text(node.as_str());
+        std::string current;
+        for (char ch : text) {
+            if (ch == '+' || ch == ',') {
+                if (!current.empty()) values.push_back(std::exchange(current, {}));
+            } else if (!std::isspace(static_cast<unsigned char>(ch))) {
+                current.push_back(ch);
+            }
+        }
+        if (!current.empty()) values.push_back(std::move(current));
+    }
+    return values;
 }
 
 [[nodiscard]] MemberRole parse_team_member_role(std::string_view role) {
@@ -558,6 +585,35 @@ private:
     return out;
 }
 
+[[nodiscard]] std::string background_task_status(const bash::BackgroundTaskSnapshot& task) {
+    if (task.stopped) return "stopped";
+    if (task.running) return "running";
+    if (task.error) return "failed";
+    return "completed";
+}
+
+[[nodiscard]] std::string format_background_task_summary(
+    const bash::BackgroundTaskSnapshot& task,
+    bool include_output) {
+    std::string out = std::format(
+        "Task: {}\nStatus: {}\nPID: {}\nCommand: {}",
+        task.id,
+        background_task_status(task),
+        task.pid,
+        task.command);
+    if (task.exit_code) {
+        out += std::format("\nExit code: {}", *task.exit_code);
+    }
+    if (task.error) {
+        out += "\nError: " + *task.error;
+    }
+    if (include_output) {
+        out += "\n\nOutput:\n";
+        out += task.output.empty() ? "(no output)" : task.output;
+    }
+    return out;
+}
+
 [[nodiscard]] Result<ToolResult> execute_task_tool(std::string_view tool_name, const ToolInput& input) {
     auto json = input.json();
     if (tool_name == "task_create") {
@@ -580,16 +636,33 @@ private:
         return ToolResult::success(out);
     }
 
-    auto id = json_string(json, "task_id").or_else([&] { return json_string(json, "id"); });
-    if (!id || id->empty()) return ToolResult::error(std::format("{} requires task_id", tool_name));
+    auto id = json_string(json, "task_id")
+        .or_else([&] { return json_string(json, "id"); })
+        .or_else([&]() -> std::optional<std::string> {
+            if (auto pid = json_int(json, "pid"); pid && *pid > 0) {
+                return std::to_string(*pid);
+            }
+            return std::nullopt;
+        });
+    if (!id || id->empty()) return ToolResult::error(std::format("{} requires task_id or pid", tool_name));
 
     if (tool_name == "task_get") {
+        if (auto background = bash::get_background_task_snapshot(*id)) {
+            return ToolResult::success(format_background_task_summary(*background, false));
+        }
         TaskGetTool tool;
         auto task = tool.execute(*id);
         if (!task) return ToolResult::error(std::string(format_error(task.error())));
         return ToolResult::success(format_task_summary(**task));
     }
     if (tool_name == "task_stop") {
+        if (auto background = bash::get_background_task_snapshot(*id)) {
+            if (!bash::stop_background_task(*id)) {
+                return ToolResult::error(std::format("Failed to stop task {}", *id));
+            }
+            auto stopped = bash::get_background_task_snapshot(*id).value_or(*background);
+            return ToolResult::success(format_background_task_summary(stopped, false));
+        }
         TaskStopTool tool;
         auto result = tool.execute(*id);
         if (!result) return ToolResult::error(std::string(format_error(result.error())));
@@ -604,6 +677,9 @@ private:
         return ToolResult::success(std::format("Updated task {} [{}]", *id, task_status_name(status)));
     }
     if (tool_name == "task_output") {
+        if (auto background = bash::get_background_task_snapshot(*id)) {
+            return ToolResult::success(format_background_task_summary(*background, true));
+        }
         TaskOutputTool tool;
         auto output = tool.execute(*id);
         if (!output) return ToolResult::error(std::string(format_error(output.error())));
@@ -788,6 +864,30 @@ private:
     return std::nullopt;
 }
 
+[[nodiscard]] std::vector<cc::tools::FormField> json_form_fields(std::string_view json) {
+    std::vector<cc::tools::FormField> fields;
+    auto parsed = cc::utils::json::parse(json);
+    if (!parsed || !parsed->root().is_obj()) return fields;
+
+    auto node = parsed->root().get("form_fields");
+    if (!node.valid() || !node.is_arr()) {
+        node = parsed->root().get("fields");
+    }
+    if (!node.valid() || !node.is_arr()) return fields;
+
+    node.iter([&](cc::utils::json::JsonVal item) {
+        if (!item.is_obj()) return;
+        auto selector = runtime_json_string(item, "selector");
+        auto value = runtime_json_string(item, "value");
+        if (!selector || selector->empty() || !value) return;
+        fields.push_back(cc::tools::FormField{
+            .selector = std::move(*selector),
+            .value = std::move(*value),
+        });
+    });
+    return fields;
+}
+
 [[nodiscard]] Result<ToolResult> execute_web_browser(const ToolInput& input) {
     auto json = input.json();
     auto action_text = json_string(json, "action").value_or("extract");
@@ -800,12 +900,12 @@ private:
         .action = *action,
         .url = json_string(json, "url"),
         .selector = json_string(json, "selector"),
-        .form_fields = {},
+        .form_fields = json_form_fields(json),
         .timeout = std::chrono::seconds(std::clamp(json_int(json, "timeout").value_or(30), 1, 300)),
         .extract_selector = json_string(json, "extract_selector"),
     };
 
-    cc::tools::WebBrowserTool tool;
+    static cc::tools::WebBrowserTool tool;
     auto result = tool.execute(std::move(request));
     if (!result) {
         return ToolResult::error(std::string(cc::tools::format_error(result.error())));
@@ -839,6 +939,31 @@ private:
     return std::nullopt;
 }
 
+inline std::optional<cc::core::computer_use::CaptureProvider> computer_use_capture_provider_override;
+inline std::optional<cc::core::computer_use::InputProvider> computer_use_input_provider_override;
+
+} // namespace detail
+
+inline void set_runtime_computer_use_capture_provider_for_testing(
+    cc::core::computer_use::CaptureProvider provider) {
+    detail::computer_use_capture_provider_override = std::move(provider);
+}
+
+inline void clear_runtime_computer_use_capture_provider_for_testing() {
+    detail::computer_use_capture_provider_override.reset();
+}
+
+inline void set_runtime_computer_use_input_provider_for_testing(
+    cc::core::computer_use::InputProvider provider) {
+    detail::computer_use_input_provider_override = std::move(provider);
+}
+
+inline void clear_runtime_computer_use_input_provider_for_testing() {
+    detail::computer_use_input_provider_override.reset();
+}
+
+namespace detail {
+
 [[nodiscard]] Result<ToolResult> execute_computer_use(const ToolInput& input) {
     auto json = input.json();
     auto action_text = json_string(json, "action").value_or("screenshot");
@@ -860,8 +985,12 @@ private:
         .drag_end = std::nullopt,
         .text = json_string(json, "text").or_else([&] { return json_string(json, "key"); }),
         .region = std::nullopt,
-        .keys = {},
+        .keys = json_string_array(json, "keys"),
     };
+    if (request.keys.empty() && *action == cc::core::computer_use::ActionType::KeyHotkey) {
+        request.keys = json_string_array(json, "key");
+        if (request.keys.empty()) request.keys = json_string_array(json, "text");
+    }
 
     if (auto end_x = json_int(json, "to_x"), end_y = json_int(json, "to_y"); end_x && end_y) {
         request.drag_end = cc::core::computer_use::Point{.x = *end_x, .y = *end_y};
@@ -875,7 +1004,14 @@ private:
         };
     }
 
-    cc::core::computer_use::ComputerUseManager manager;
+    cc::core::computer_use::ComputerUseManager manager{
+        computer_use_capture_provider_override
+            ? cc::core::computer_use::ScreenCapture{*computer_use_capture_provider_override}
+            : cc::core::computer_use::ScreenCapture{},
+        computer_use_input_provider_override
+            ? *computer_use_input_provider_override
+            : cc::core::computer_use::make_native_input_provider()
+    };
     auto result = manager.execute_action(request);
     if (!result.success) {
         return ToolResult::error(result.error_message);
@@ -1124,8 +1260,30 @@ private:
 #endif
     }
     if (name == "remote_trigger") {
+        auto target = json_string(json, "target").or_else([&] { return json_string(json, "url"); });
+        auto message = json_string(json, "message").or_else([&] { return json_string(json, "payload"); });
+        if (target && message) {
+            std::map<std::string, std::string> params;
+            if (auto parsed = cc::utils::json::parse(json); parsed && parsed->root().is_obj()) {
+                auto params_node = parsed->root().get("params");
+                if (params_node.is_obj()) {
+                    params_node.iter_obj([&](cc::utils::json::JsonVal key, cc::utils::json::JsonVal value) {
+                        if (!key.is_str() || !value.is_str()) return;
+                        params.emplace(key.as_str(), value.as_str());
+                    });
+                }
+            }
+            auto delivered = execute_remote_trigger(RemoteTriggerInput{
+                .target = *target,
+                .message = *message,
+                .params = std::move(params),
+            });
+            if (!delivered) return ToolResult::error(delivered.error());
+            return ToolResult::success(*delivered);
+        }
+
         const char* command = std::getenv("CC_REPL_REMOTE_TRIGGER_COMMAND");
-        if (!command) return ToolResult::error("CC_REPL_REMOTE_TRIGGER_COMMAND is not configured");
+        if (!command) return ToolResult::error("remote_trigger requires target and message");
         auto payload = json_string(json, "payload").value_or(std::string(json));
         return run_command(std::format("{} {}", command, runtime_shell_quote(payload)));
     }
@@ -1232,8 +1390,15 @@ private:
             });
         }
         for (auto& task : tasks) {
+            auto task_id = task.id;
+            auto assigned_to = task.assigned_to;
             auto added = global_team_store().add_task((*result)->id, std::move(task));
             if (!added) return ToolResult::error(std::string(format_error(added.error())));
+            if (assigned_to && !assigned_to->empty()) {
+                auto assigned = global_team_store().assign_task((*result)->id, task_id, *assigned_to);
+                if (!assigned) return ToolResult::error(std::string(format_error(assigned.error())));
+                cc::tools::agent_runtime::native_agent_store().mark_running(*assigned_to);
+            }
         }
         return ToolResult::success(std::format(
             "Created team {} ({}) with {} members and {} tasks",
@@ -1331,7 +1496,17 @@ void register_runtime_tools(cc::core::ToolRegistry& registry) {
     registry.register_tool(simple("ask_user_question", "Ask the interactive user a question and return the answer",
         ToolPermission::ReadOnly, {SchemaProperty{.name = "question", .type = "string", .description = "Question to ask", .required = true}}, "interaction"));
     registry.register_tool(simple("computer_use", "Control the local computer through screenshots, mouse, keyboard, and scroll actions",
-        ToolPermission::Execute, {SchemaProperty{.name = "action", .type = "string", .description = "Computer-use action", .required = true}}, "computer_use"));
+        ToolPermission::Execute, {
+            SchemaProperty{.name = "action", .type = "string", .description = "screenshot, move, click, double_click, right_click, drag, type, press, hotkey, or scroll", .required = true},
+            SchemaProperty{.name = "x", .type = "number", .description = "X coordinate, region origin, or scroll delta x", .required = false},
+            SchemaProperty{.name = "y", .type = "number", .description = "Y coordinate, region origin, or scroll delta y", .required = false},
+            SchemaProperty{.name = "to_x", .type = "number", .description = "Drag target X coordinate", .required = false},
+            SchemaProperty{.name = "to_y", .type = "number", .description = "Drag target Y coordinate", .required = false},
+            SchemaProperty{.name = "width", .type = "number", .description = "Screenshot region width", .required = false},
+            SchemaProperty{.name = "height", .type = "number", .description = "Screenshot region height", .required = false},
+            SchemaProperty{.name = "text", .type = "string", .description = "Text to type or key to press", .required = false},
+            SchemaProperty{.name = "key", .type = "string", .description = "Key name for press actions", .required = false},
+        }, "computer_use"));
     registry.register_tool(simple("brief", "Read or write the workspace brief",
         ToolPermission::Write, {SchemaProperty{.name = "content", .type = "string", .description = "Brief content to save", .required = false}}, "context"));
     registry.register_tool(simple("config", "Read or update CC-REPL configuration",
@@ -1386,7 +1561,10 @@ void register_runtime_tools(cc::core::ToolRegistry& registry) {
 
     for (const auto& name : {"task_create", "task_get", "task_list", "task_output", "task_stop", "task_update"}) {
         registry.register_tool(simple(name, std::format("Runtime task operation {}", name), ToolPermission::Write,
-            {SchemaProperty{.name = "task_id", .type = "string", .description = "Task ID", .required = false}}, "tasks"));
+            {
+                SchemaProperty{.name = "task_id", .type = "string", .description = "Task ID", .required = false},
+                SchemaProperty{.name = "pid", .type = "number", .description = "Background process PID", .required = false},
+            }, "tasks"));
     }
     registry.register_tool(simple("team_create", "Create a runtime team record", ToolPermission::Write,
         {SchemaProperty{.name = "team_name", .type = "string", .description = "Team name", .required = false}}, "agents"));

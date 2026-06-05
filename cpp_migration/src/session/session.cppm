@@ -635,6 +635,23 @@ private:
                 if (m.cache_control) {
                     json += std::format(R"(,"cache_control":"{}")", escape_json(*m.cache_control));
                 }
+                if (m.subtype) {
+                    json += std::format(R"(,"subtype":"{}")", escape_json(*m.subtype));
+                }
+                if (m.compact_metadata) {
+                    json += std::format(
+                        R"(,"compact_metadata":{{"trigger":"{}","pre_tokens":{})",
+                        escape_json(m.compact_metadata->trigger),
+                        m.compact_metadata->pre_tokens);
+                    if (m.compact_metadata->preserved_segment) {
+                        json += std::format(
+                            R"(,"preserved_segment":{{"head_uuid":"{}","anchor_uuid":"{}","tail_uuid":"{}"}})",
+                            escape_json(m.compact_metadata->preserved_segment->head_uuid),
+                            escape_json(m.compact_metadata->preserved_segment->anchor_uuid),
+                            escape_json(m.compact_metadata->preserved_segment->tail_uuid));
+                    }
+                    json += "}";
+                }
             } else if constexpr (std::is_same_v<T, ToolUseMessage>) {
                 json += std::format(R"(,"tool_name":"{}","tool_input":{})",
                     escape_json(m.tool_name),

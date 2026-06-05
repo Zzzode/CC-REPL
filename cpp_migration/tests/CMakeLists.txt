@@ -84,6 +84,8 @@ add_executable(test_services test_services.cpp)
 target_link_libraries(test_services
     PRIVATE
         cc_core
+        cc_cli
+        cc_remote
         cc_utils
         GTest::gtest_main
 )

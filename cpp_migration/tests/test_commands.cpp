@@ -2,25 +2,103 @@
 /// @brief Command system smoke tests aligned with current C++ module APIs.
 
 #include <gtest/gtest.h>
+#include <chrono>
+#include <cstdlib>
+#include <expected>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <optional>
 #include <string>
+#include <utility>
+#include <variant>
 #include <vector>
 
 import cc.commands.command;
 import cc.commands.registry;
+import cc.query.query_engine;
+import cc.tools.tool;
 import cc.types.types;
 import cc.commands.agents;
 import cc.commands.clear;
 import cc.commands.config;
 import cc.commands.help;
 import cc.commands.hooks;
+import cc.commands.login;
 import cc.commands.model;
 import cc.commands.rewind;
 
 namespace {
 
+struct EnvironmentGuard {
+    std::string name;
+    std::optional<std::string> previous;
+
+    EnvironmentGuard(std::string key, const std::string& value) : name(std::move(key)) {
+        if (const char* existing = std::getenv(name.c_str())) {
+            previous = existing;
+        }
+        setenv(name.c_str(), value.c_str(), 1);
+    }
+
+    ~EnvironmentGuard() {
+        if (previous) {
+            setenv(name.c_str(), previous->c_str(), 1);
+        } else {
+            unsetenv(name.c_str());
+        }
+    }
+};
+
+struct EnvironmentUnsetGuard {
+    std::string name;
+    std::optional<std::string> previous;
+
+    explicit EnvironmentUnsetGuard(std::string key) : name(std::move(key)) {
+        if (const char* existing = std::getenv(name.c_str())) {
+            previous = existing;
+        }
+        unsetenv(name.c_str());
+    }
+
+    ~EnvironmentUnsetGuard() {
+        if (previous) {
+            setenv(name.c_str(), previous->c_str(), 1);
+        } else {
+            unsetenv(name.c_str());
+        }
+    }
+};
+
+struct LoginReaderGuard {
+    ~LoginReaderGuard() {
+        cc::commands::clear_login_api_key_reader_for_testing();
+    }
+};
+
 cc::core::CommandContext ctx(std::vector<std::string> args = {}, std::string raw = {}) {
     return cc::core::CommandContext{.args = std::move(args), .raw_input = std::move(raw)};
+}
+
+std::vector<cc::core::Message> compact_runtime_messages(void* state) {
+    auto* engine = static_cast<cc::core::QueryEngine*>(state);
+    return engine ? engine->get_conversation() : std::vector<cc::core::Message>{};
+}
+
+cc::core::VoidResult compact_runtime_apply(void* state) {
+    auto* engine = static_cast<cc::core::QueryEngine*>(state);
+    if (!engine) {
+        return std::unexpected(cc::core::Error::make(
+            cc::core::ErrorCode::InternalError,
+            "No active query engine is available for compaction"));
+    }
+    auto compacted = engine->compact_conversation();
+    if (!compacted) {
+        return std::unexpected(cc::core::Error::make(
+            cc::core::ErrorCode::InternalError,
+            compacted.error().format()));
+    }
+    return cc::core::VoidResult{};
 }
 
 } // namespace
@@ -163,6 +241,63 @@ TEST(AppCommandRegistry, RuntimeSurfaceCommandsExecuteLocalLogic) {
     EXPECT_NE(onboarding->message.find("Onboarding status"), std::string::npos);
 }
 
+TEST(LoginCommand, ApiKeyFlowReadsInteractiveSecretWhenEnvIsMissing) {
+    auto root = std::filesystem::temp_directory_path() / "cc_repl_login_apikey_test";
+    std::filesystem::remove_all(root);
+    std::filesystem::create_directories(root);
+
+    EnvironmentUnsetGuard api_key_guard("ANTHROPIC_API_KEY");
+    EnvironmentUnsetGuard xdg_guard("XDG_CONFIG_HOME");
+    EnvironmentGuard home_guard("HOME", root.string());
+    LoginReaderGuard reader_guard;
+    cc::commands::set_login_api_key_reader_for_testing([] {
+        return std::expected<std::string, std::string>{"sk-test-interactive"};
+    });
+
+    cc::commands::LoginCommand login;
+    auto result = login.execute(ctx({"apikey"}));
+    ASSERT_TRUE(result.has_value()) << result.error().format();
+    EXPECT_TRUE(result->ok);
+    EXPECT_EQ(result->message, "Authenticated with API key.");
+
+    auto status = login.execute(ctx({"status"}));
+    ASSERT_TRUE(status.has_value()) << status.error().format();
+    EXPECT_NE(status->message.find("Method:  API Key"), std::string::npos);
+
+    const auto credentials_path = root / ".config" / "cc-repl" / "credentials.json";
+    std::ifstream input(credentials_path);
+    ASSERT_TRUE(input.is_open()) << credentials_path;
+    std::string body((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+    EXPECT_NE(body.find(R"("type":"api_key")"), std::string::npos);
+    EXPECT_NE(body.find(R"("api_key":"sk-test-interactive")"), std::string::npos);
+
+    std::error_code ec;
+    std::filesystem::remove_all(root, ec);
+}
+
+TEST(LoginCommand, ApiKeyFlowRejectsInvalidInteractiveSecret) {
+    auto root = std::filesystem::temp_directory_path() / "cc_repl_login_invalid_apikey_test";
+    std::filesystem::remove_all(root);
+    std::filesystem::create_directories(root);
+
+    EnvironmentUnsetGuard api_key_guard("ANTHROPIC_API_KEY");
+    EnvironmentUnsetGuard xdg_guard("XDG_CONFIG_HOME");
+    EnvironmentGuard home_guard("HOME", root.string());
+    LoginReaderGuard reader_guard;
+    cc::commands::set_login_api_key_reader_for_testing([] {
+        return std::expected<std::string, std::string>{"not-a-key"};
+    });
+
+    cc::commands::LoginCommand login;
+    auto result = login.execute(ctx({"apikey"}));
+    ASSERT_FALSE(result.has_value());
+    EXPECT_NE(result.error().message.find("API key does not look like"), std::string::npos);
+    EXPECT_FALSE(std::filesystem::exists(root / ".config" / "cc-repl" / "credentials.json"));
+
+    std::error_code ec;
+    std::filesystem::remove_all(root, ec);
+}
+
 TEST(AgentsCommand, ListsRealAgentDefinitions) {
     cc::commands::AgentsCommand agents;
 
@@ -225,6 +360,60 @@ TEST(ClearCommand, InvokesCallbacksForAllScope) {
     EXPECT_TRUE(conversation_reset);
     EXPECT_NE(result->message.find("Screen cleared"), std::string::npos);
     EXPECT_NE(result->message.find("Conversation reset"), std::string::npos);
+}
+
+TEST(CompactCommand, RuntimeContextCompactsActiveQueryEngineConversation) {
+    cc::core::ToolRegistry tool_registry;
+    cc::core::QueryEngineConfig config;
+    config.context_window.auto_compact = false;
+    config.cwd = std::filesystem::current_path().string();
+    cc::core::QueryEngine engine(std::move(config), tool_registry);
+
+    auto make_user = [](std::string text, int index) {
+        cc::core::UserMessage msg{};
+        msg.id.value = "compact-user-" + std::to_string(index);
+        msg.timestamp = std::chrono::system_clock::now();
+        msg.content.push_back(cc::core::TextBlock{std::move(text)});
+        return cc::core::Message{std::move(msg)};
+    };
+
+    for (int i = 0; i < 10; ++i) {
+        engine.append_message_for_testing(make_user(
+            "retain compact command runtime detail " + std::to_string(i) + " " +
+            std::string(400, static_cast<char>('a' + (i % 20))),
+            i));
+    }
+
+    auto before = engine.get_conversation();
+    ASSERT_GT(before.size(), 8u);
+
+    cc::commands::AppCommandRegistry registry;
+    auto command_ctx = ctx();
+    command_ctx.runtime_state = &engine;
+    command_ctx.compact_message_provider = compact_runtime_messages;
+    command_ctx.compact_applier = compact_runtime_apply;
+    auto result = registry.execute("/compact --target 20", command_ctx);
+
+    ASSERT_TRUE(result.has_value());
+    EXPECT_TRUE(result->ok);
+    EXPECT_EQ(result->status, cc::core::CommandStatus::Succeeded);
+    EXPECT_NE(result->message.find("Compaction complete"), std::string::npos);
+    EXPECT_EQ(result->message.find("Summarize the following conversation segments"), std::string::npos);
+
+    auto after = engine.get_conversation();
+    EXPECT_LT(after.size(), before.size());
+    ASSERT_GT(after.size(), 1u);
+    bool found_summary_marker = false;
+    for (const auto& message : after) {
+        const auto* marker = std::get_if<cc::core::UserMessage>(&message);
+        if (!marker || marker->content.empty()) continue;
+        const auto* text = std::get_if<cc::core::TextBlock>(&marker->content.front());
+        if (text && text->text.find("Preserve these details") != std::string::npos) {
+            found_summary_marker = true;
+            break;
+        }
+    }
+    EXPECT_TRUE(found_summary_marker);
 }
 
 TEST(ConfigCommand, ValidatesRequiredArgumentsAndListsConfig) {

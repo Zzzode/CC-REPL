@@ -852,6 +852,26 @@ inline void append_existing_plugin_component_path(
     return agents;
 }
 
+[[nodiscard]] inline std::string qualify_plugin_component_name(
+    std::string_view plugin_name,
+    std::string value
+) {
+    if (value.empty() || value.starts_with("plugin:")) return value;
+    return std::format("plugin:{}:{}", plugin_name, value);
+}
+
+inline void qualify_plugin_mcp_names(AgentDefinition& agent, std::string_view plugin_name) {
+    for (auto& server : agent.required_mcp_servers) {
+        server = qualify_plugin_component_name(plugin_name, std::move(server));
+    }
+    for (auto& server : agent.mcp_servers) {
+        server = qualify_plugin_component_name(plugin_name, std::move(server));
+    }
+    for (auto& server : agent.inline_mcp_servers) {
+        server.name = qualify_plugin_component_name(plugin_name, std::move(server.name));
+    }
+}
+
 inline void append_plugin_agent_definition(
     std::vector<AgentDefinition>& agents,
     AgentDefinition agent,
@@ -865,11 +885,7 @@ inline void append_plugin_agent_definition(
     qualified += ":" + agent.agent_type;
     agent.agent_type = std::move(qualified);
     agent.source = "plugin";
-    agent.required_mcp_servers.clear();
-    agent.mcp_servers.clear();
-    agent.inline_mcp_servers.clear();
-    agent.hooks.clear();
-    agent.hooks_present = false;
+    qualify_plugin_mcp_names(agent, plugin_name);
     agents.push_back(std::move(agent));
 }
 

@@ -15,6 +15,7 @@ module;
 #include <span>
 #include <unordered_map>
 #include <array>
+#include <utility>
 
 export module cc.commands.mcp_cmd;
 
@@ -174,15 +175,10 @@ private:
     [[nodiscard]] VoidResult sync_native_runtime() {
         if (auto loaded = ensure_config_loaded(); !loaded) return loaded;
 
-        std::vector<cc::tools::NativeMcpConfiguredServer> servers;
-        for (const auto& server : config_manager_.settings().mcp_servers) {
-            servers.push_back(cc::tools::NativeMcpConfiguredServer{
-                .name = server.name,
-                .command = server.command,
-                .args = server.args,
-                .env = server.env,
-            });
-        }
+	std::vector<cc::tools::NativeMcpConfiguredServer> servers;
+	for (const auto& server : config_manager_.settings().mcp_servers) {
+	    servers.push_back(cc::tools::to_native_mcp_server(server));
+	}
 
         auto synced = cc::tools::sync_native_mcp_servers(std::move(servers));
         if (!synced) {
@@ -200,8 +196,56 @@ private:
         if (str == "add")                 return McpAction::Add;
         if (str == "remove" || str == "rm") return McpAction::Remove;
         if (str == "show" || str == "info") return McpAction::Show;
-        if (str == "restart")             return McpAction::Restart;
-        return std::nullopt;
+	if (str == "restart")             return McpAction::Restart;
+	return std::nullopt;
+    }
+
+    [[nodiscard]] static bool starts_with_http_url(std::string_view value) {
+	return value.starts_with("http://") || value.starts_with("https://");
+    }
+
+    [[nodiscard]] static bool is_remote_transport(std::string_view transport) {
+	return transport == "sse" || transport == "http" ||
+	       transport == "streamable-http" || transport == "streamableHttp";
+    }
+
+    static void normalize_transport(McpServerConfig& config) {
+	if (config.transport == "streamable-http" || config.transport == "streamableHttp") {
+	    config.transport = "http";
+	}
+	if (config.transport.empty()) {
+	    config.transport = config.url ? "http" : "stdio";
+	}
+    }
+
+    [[nodiscard]] static McpOAuthConfig& ensure_oauth(McpServerConfig& config) {
+	if (!config.oauth) config.oauth = McpOAuthConfig{};
+	return *config.oauth;
+    }
+
+    [[nodiscard]] static std::optional<std::pair<std::string, std::string>>
+    parse_header_assignment(std::string_view value) {
+	const auto eq = value.find('=');
+	if (eq == std::string_view::npos || eq == 0) return std::nullopt;
+	return std::pair{std::string(value.substr(0, eq)), std::string(value.substr(eq + 1))};
+    }
+
+    [[nodiscard]] static Result<int> parse_port(std::string_view value) {
+	int port = 0;
+	for (char ch : value) {
+	    if (ch < '0' || ch > '9') {
+		return std::unexpected(Error::make(
+		    ErrorCode::InvalidRequest,
+		    std::format("Invalid callback port: {}", value)));
+	    }
+	    port = port * 10 + (ch - '0');
+	}
+	if (port <= 0 || port > 65535) {
+	    return std::unexpected(Error::make(
+		ErrorCode::InvalidRequest,
+		std::format("Invalid callback port: {}", value)));
+	}
+	return port;
     }
 
     /// Convert server state to display string
@@ -226,17 +270,17 @@ private:
         }
 
         const auto& configured_servers = config_manager_.settings().mcp_servers;
-        if (configured_servers.empty() && connected_servers_.empty()) {
-            return CommandResult::success(
-                "No MCP servers configured.\n"
-                "Use `/mcp add <name> <command> [args...]` to add a server."
-            );
-        }
+	if (configured_servers.empty() && connected_servers_.empty()) {
+	    return CommandResult::success(
+		"No MCP servers configured.\n"
+		"Use `/mcp add <name> <command> [args...]` or `/mcp add <name> http --url <url>` to add a server."
+	    );
+	}
 
-        std::string output = "MCP Servers:\n\n";
-        output += std::format("  {:<20} {:<12} {:<6} {:<6} {:<6}\n",
-                             "Name", "Status", "Tools", "Res.", "Prompts");
-        output += std::string(60, '-') + "\n";
+	std::string output = "MCP Servers:\n\n";
+	output += std::format("  {:<20} {:<8} {:<12} {:<6} {:<6} {:<6}\n",
+			     "Name", "Type", "Status", "Tools", "Res.", "Prompts");
+	output += std::string(70, '-') + "\n";
 
         for (const auto& config : configured_servers) {
             const auto status = cc::tools::native_mcp_status(config.name);
@@ -244,10 +288,11 @@ private:
             const auto tools = status ? status->tools.size() : std::size_t{0};
             const auto resources = status ? status->resources.size() : std::size_t{0};
             const auto prompts = status ? status->prompts.size() : std::size_t{0};
-            output += std::format("  {:<20} {:<12} {:<6} {:<6} {:<6}\n",
-                config.name,
-                status_text,
-                tools,
+	    output += std::format("  {:<20} {:<8} {:<12} {:<6} {:<6} {:<6}\n",
+		config.name,
+		config.transport.empty() ? std::string("stdio") : config.transport,
+		status_text,
+		tools,
                 resources,
                 prompts
             );
@@ -257,27 +302,95 @@ private:
 
     /// Add a new MCP server configuration
     [[nodiscard]] Result<CommandResult> execute_add(std::span<const std::string> args) {
-        // args: ["add", name, command, ...cmd_args]
-        if (args.size() < 3) {
-            return CommandResult::fail("Usage: /mcp add <name> <command> [args...]");
-        }
-        if (auto loaded = ensure_config_loaded(); !loaded) {
-            return std::unexpected(loaded.error());
-        }
+	// args: ["add", name, command, ...cmd_args] or ["add", name, transport, --url, url]
+	if (args.size() < 3) {
+	    return CommandResult::fail(
+		"Usage: /mcp add <name> <command> [args...] or /mcp add <name> <sse|http> --url <url> [--header K=V] [--headers-helper <command>] [--oauth-metadata-url <url>] [--oauth-client-id <id>] [--oauth-callback-port <port>] [--oauth-xaa]"
+	    );
+	}
+	if (auto loaded = ensure_config_loaded(); !loaded) {
+	    return std::unexpected(loaded.error());
+	}
 
-        McpServerConfig config{
-            .name = args[1],
-            .command = args[2],
-            .args = {},
-            .env = {},
-        };
+	McpServerConfig config;
+	config.name = args[1];
+	std::size_t index = 2;
+	if (args[index] == "--transport" || args[index] == "-t") {
+	    if (index + 1 >= args.size()) return CommandResult::fail("--transport requires a value");
+	    config.transport = args[index + 1];
+	    index += 2;
+	} else if (is_remote_transport(args[index])) {
+	    config.transport = args[index];
+	    index += 1;
+	} else if (starts_with_http_url(args[index])) {
+	    config.transport = "http";
+	    config.url = args[index];
+	    index += 1;
+	} else {
+	    config.transport = "stdio";
+	    config.command = args[index];
+	    index += 1;
+	}
+	normalize_transport(config);
 
-        // Collect additional command arguments
-        for (std::size_t i = 3; i < args.size(); ++i) {
-            config.args.push_back(args[i]);
-        }
+	while (index < args.size()) {
+	    const auto& token = args[index];
+	    if (token == "--transport" || token == "-t") {
+		if (index + 1 >= args.size()) return CommandResult::fail("--transport requires a value");
+		config.transport = args[index + 1];
+		normalize_transport(config);
+		index += 2;
+	    } else if (token == "--url") {
+		if (index + 1 >= args.size()) return CommandResult::fail("--url requires a value");
+		config.url = args[index + 1];
+		if (config.transport == "stdio") config.transport = "http";
+		index += 2;
+	    } else if (token == "--header") {
+		if (index + 1 >= args.size()) return CommandResult::fail("--header requires K=V");
+		auto header = parse_header_assignment(args[index + 1]);
+		if (!header) return CommandResult::fail("--header requires K=V");
+		config.headers[header->first] = header->second;
+		index += 2;
+	    } else if (token == "--headers-helper") {
+		if (index + 1 >= args.size()) return CommandResult::fail("--headers-helper requires a command");
+		config.headers_helper = args[index + 1];
+		index += 2;
+	    } else if (token == "--oauth-metadata-url") {
+		if (index + 1 >= args.size()) return CommandResult::fail("--oauth-metadata-url requires a URL");
+		ensure_oauth(config).auth_server_metadata_url = args[index + 1];
+		index += 2;
+	    } else if (token == "--oauth-client-id") {
+		if (index + 1 >= args.size()) return CommandResult::fail("--oauth-client-id requires a value");
+		ensure_oauth(config).client_id = args[index + 1];
+		index += 2;
+	    } else if (token == "--oauth-callback-port") {
+		if (index + 1 >= args.size()) return CommandResult::fail("--oauth-callback-port requires a port");
+		auto port = parse_port(args[index + 1]);
+		if (!port) return std::unexpected(port.error());
+		ensure_oauth(config).callback_port = *port;
+		index += 2;
+	    } else if (token == "--oauth-xaa") {
+		ensure_oauth(config).xaa = true;
+		index += 1;
+	    } else if (config.transport == "stdio") {
+		config.args.push_back(token);
+		index += 1;
+	    } else if (!config.url && starts_with_http_url(token)) {
+		config.url = token;
+		index += 1;
+	    } else {
+		return CommandResult::fail(std::format("Unexpected argument for remote MCP server: {}", token));
+	    }
+	}
+	normalize_transport(config);
+	if (config.transport == "stdio" && config.command.empty()) {
+	    return CommandResult::fail("stdio MCP servers require a command");
+	}
+	if (is_remote_transport(config.transport) && (!config.url || config.url->empty())) {
+	    return CommandResult::fail("remote MCP servers require --url <url>");
+	}
 
-        auto& servers = config_manager_.settings_mut().mcp_servers;
+	auto& servers = config_manager_.settings_mut().mcp_servers;
         auto existing = std::ranges::find_if(servers, [&](const auto& server) {
             return server.name == config.name;
         });
@@ -342,15 +455,45 @@ private:
             return CommandResult::fail(std::format("MCP server '{}' not configured", name));
         }
 
-        const auto status = cc::tools::native_mcp_status(name);
+	const auto status = cc::tools::native_mcp_status(name);
 
-        std::string output = std::format("MCP Server: {}\n", config_it->name);
-        output += std::format("Status: {}\n", status ? status->status : std::string("not started"));
-        output += std::format("Command: {}", config_it->command);
-        for (const auto& arg : config_it->args) {
-            output += std::format(" {}", arg);
-        }
-        output += "\n\n";
+	std::string output = std::format("MCP Server: {}\n", config_it->name);
+	output += std::format("Status: {}\n", status ? status->status : std::string("not started"));
+	output += std::format("Type: {}\n", config_it->transport.empty() ? std::string("stdio") : config_it->transport);
+	if (is_remote_transport(config_it->transport)) {
+	    output += std::format("URL: {}\n", config_it->url.value_or(std::string{}));
+	    if (!config_it->headers.empty()) {
+		output += "Headers:\n";
+		for (const auto& [key, value] : config_it->headers) {
+		    output += std::format("  {}: {}\n", key, value);
+		}
+	    }
+	    if (config_it->headers_helper) {
+		output += std::format("Headers helper: {}\n", *config_it->headers_helper);
+	    }
+	    if (config_it->oauth) {
+		std::vector<std::string> oauth_parts;
+		if (config_it->oauth->auth_server_metadata_url) oauth_parts.push_back("metadata-url configured");
+		if (config_it->oauth->client_id) oauth_parts.push_back("client-id configured");
+		if (config_it->oauth->callback_port) {
+		    oauth_parts.push_back(std::format("callback-port {}", *config_it->oauth->callback_port));
+		}
+		if (config_it->oauth->xaa) oauth_parts.push_back("xaa");
+		output += "OAuth: ";
+		for (std::size_t i = 0; i < oauth_parts.size(); ++i) {
+		    if (i > 0) output += ", ";
+		    output += oauth_parts[i];
+		}
+		output += "\n";
+	    }
+	} else {
+	    output += std::format("Command: {}", config_it->command);
+	    for (const auto& arg : config_it->args) {
+		output += std::format(" {}", arg);
+	    }
+	    output += "\n";
+	}
+	output += "\n";
         if (status && status->error) {
             output += std::format("Last error: {}\n\n", *status->error);
         }

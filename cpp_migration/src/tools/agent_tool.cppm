@@ -753,18 +753,6 @@ inline void upsert_agent_record_for_plan(const AgentExecutionPlan& plan) {
             configured.error()));
     }
 
-    if (!definition->required_mcp_servers.empty()) {
-        const auto available_servers = available_mcp_servers_with_tools();
-        const auto missing = missing_required_mcp_servers(definition->required_mcp_servers, available_servers);
-        if (!missing.empty()) {
-            return std::unexpected(std::format(
-                "Agent '{}' requires MCP servers matching: {}. MCP servers with tools: {}. Use /mcp to configure and authenticate the required MCP servers.",
-                definition->agent_type,
-                join_fields(missing),
-                available_servers.empty() ? "none" : join_fields(available_servers)));
-        }
-    }
-
     auto definition_model = resolve_agent_model(definition->model);
     AgentExecutionPlan plan;
     plan.agent_id = next_agent_id(request.name);
@@ -782,6 +770,17 @@ inline void upsert_agent_record_for_plan(const AgentExecutionPlan& plan) {
     plan.agent_mcp_tools = connect_agent_mcp_servers(plan.agent_mcp_servers);
     if (!plan.agent_mcp_tools.empty()) {
         plan.agent_mcp_context_message = format_agent_mcp_context_message(plan.agent_mcp_tools);
+    }
+    if (!definition->required_mcp_servers.empty()) {
+        const auto available_servers = available_mcp_servers_with_tools();
+        const auto missing = missing_required_mcp_servers(definition->required_mcp_servers, available_servers);
+        if (!missing.empty()) {
+            return std::unexpected(std::format(
+                "Agent '{}' requires MCP servers matching: {}. MCP servers with tools: {}. Use /mcp to configure and authenticate the required MCP servers.",
+                definition->agent_type,
+                join_fields(missing),
+                available_servers.empty() ? "none" : join_fields(available_servers)));
+        }
     }
     plan.allowed_tools = definition->tools;
     plan.disallowed_tools = definition->disallowed_tools;

@@ -401,6 +401,62 @@ void clear_server_tokens_from_local_storage(const std::string& server_name,
     std::filesystem::remove(detail::token_path_for_key(server_key), ec);
 }
 
+std::optional<McpOAuthTokenData> load_server_tokens_from_local_storage(
+    const std::string& server_name,
+    const McpServerConfig& server_config) {
+    auto server_key = get_server_key(server_name, server_config);
+    const auto token_path = detail::token_path_for_key(server_key);
+    if (!std::filesystem::exists(token_path)) return std::nullopt;
+
+    auto parsed = cc::utils::json::parse_file(token_path);
+    if (!parsed || !parsed->root().is_obj()) return std::nullopt;
+    auto root = parsed->root();
+
+    auto access_token = root.get("access_token");
+    if (!access_token.is_str() || access_token.as_str().empty()) return std::nullopt;
+
+    McpOAuthTokenData token;
+    token.server_name = root.get_string("server_name");
+    token.server_url = root.get_string("server_url");
+    token.access_token = std::string(access_token.as_str());
+    token.refresh_token = root.get_string("refresh_token");
+    token.expires_at = root.get("expires_at").is_num() ? root.get("expires_at").as_int() : 0;
+    token.scope = root.get_string("scope");
+    token.client_id = root.get_string("client_id");
+    token.client_secret = root.get_string("client_secret");
+    if (auto step_up_scope = root.get("step_up_scope"); step_up_scope.is_str()) {
+        token.step_up_scope = std::string(step_up_scope.as_str());
+    }
+    auto discovery = root.get("discovery_state");
+    if (discovery.is_obj()) {
+        if (auto authorization_server_url = discovery.get("authorization_server_url");
+            authorization_server_url.is_str()) {
+            token.discovery_state.authorization_server_url =
+                std::string(authorization_server_url.as_str());
+        }
+        if (auto resource_metadata_url = discovery.get("resource_metadata_url");
+            resource_metadata_url.is_str()) {
+            token.discovery_state.resource_metadata_url =
+                std::string(resource_metadata_url.as_str());
+        }
+    }
+
+    if (token.expires_at > 0) {
+        const auto now = std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        if (token.expires_at <= now) return std::nullopt;
+    }
+    return token;
+}
+
+std::optional<std::string> load_server_access_token_from_local_storage(
+    const std::string& server_name,
+    const McpServerConfig& server_config) {
+    auto token = load_server_tokens_from_local_storage(server_name, server_config);
+    if (!token || token->access_token.empty()) return std::nullopt;
+    return token->access_token;
+}
+
 Result<void> revoke_server_tokens(const std::string& server_name,
                                   const McpServerConfig& server_config,
                                   bool preserve_step_up_state = false) {

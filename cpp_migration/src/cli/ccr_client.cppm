@@ -2,17 +2,21 @@ module;
 #include <string>
 #include <string_view>
 #include <expected>
+#include <algorithm>
 #include <atomic>
 #include <mutex>
 #include <chrono>
 #include <functional>
 #include <vector>
 #include <optional>
+#include <unordered_map>
 #include <cstdio>
 #include <array>
 #include <sstream>
 
 export module cc.cli.ccr_client;
+
+import cc.utils.http;
 
 export namespace cc::cli {
 
@@ -37,7 +41,68 @@ struct CcrConnectionOptions {
     bool auto_reconnect{true};
     int max_reconnect_attempts{3};
     std::string user_agent{"cc-repl/1.0"};
+    bool allow_offline_session_fallback{false};
 };
+
+struct CcrHttpRequest {
+    std::string method;
+    std::string url;
+    std::string body;
+    std::unordered_map<std::string, std::string> headers;
+    int connect_timeout_ms{10000};
+    int read_timeout_ms{60000};
+    StreamCallback stream_callback;
+};
+
+struct CcrHttpResponse {
+    int status{0};
+    std::unordered_map<std::string, std::string> headers;
+    std::string body;
+};
+
+using CcrHttpTransport = std::function<std::expected<CcrHttpResponse, std::string>(const CcrHttpRequest&)>;
+
+inline std::expected<CcrHttpResponse, std::string> default_ccr_http_transport(const CcrHttpRequest& request) {
+    cc::utils::HttpConfig config;
+    config.timeout_ms = static_cast<uint32_t>(std::max(request.connect_timeout_ms, request.read_timeout_ms));
+    config.max_retries = 0;
+    if (auto it = request.headers.find("User-Agent"); it != request.headers.end()) {
+        config.user_agent = it->second;
+    }
+
+    cc::utils::HttpClient client(std::move(config));
+    std::expected<cc::utils::HttpResponse, cc::utils::HttpError> response;
+    if (request.method == "POST") {
+        if (request.stream_callback) {
+            auto streamed = client.post_stream_sse(
+                request.url,
+                request.body,
+                request.headers,
+                [&](const cc::utils::SseEvent& event) {
+                    const bool is_final = event.data == "[DONE]";
+                    request.stream_callback(event.data, is_final);
+                });
+            if (!streamed) {
+                return std::unexpected(streamed.error().message);
+            }
+            return CcrHttpResponse{.status = 200, .headers = {}, .body = {}};
+        }
+        response = client.post(request.url, request.body, request.headers);
+    } else if (request.method == "DELETE") {
+        response = client.delete_request(request.url, request.headers);
+    } else {
+        return std::unexpected("Unsupported CCR HTTP method: " + request.method);
+    }
+
+    if (!response) {
+        return std::unexpected(response.error().message);
+    }
+    return CcrHttpResponse{
+        .status = response->status,
+        .headers = std::move(response->headers),
+        .body = std::move(response->body),
+    };
+}
 
 // Claude Code Remote client — manages connection to remote Claude instances
 class CcrClient {
@@ -46,11 +111,11 @@ public:
     explicit CcrClient(CcrConnectionOptions opts) : options_(std::move(opts)) {}
     ~CcrClient() { disconnect(); }
 
-    // Non-copyable, movable
+    // Non-copyable; the connection owns mutex and atomic state.
     CcrClient(const CcrClient&) = delete;
     CcrClient& operator=(const CcrClient&) = delete;
-    CcrClient(CcrClient&&) noexcept = default;
-    CcrClient& operator=(CcrClient&&) noexcept = default;
+    CcrClient(CcrClient&&) = delete;
+    CcrClient& operator=(CcrClient&&) = delete;
 
     // Connect to a Claude Code Remote endpoint with authentication token
     std::expected<void, std::string> connect(std::string_view endpoint, std::string_view token) {
@@ -89,6 +154,11 @@ public:
         return {};
     }
 
+    void set_http_transport(CcrHttpTransport transport) {
+        std::lock_guard lock(mutex_);
+        http_transport_ = std::move(transport);
+    }
+
     // Send a message to the remote Claude session and await full response
     std::expected<std::string, std::string> send_message(std::string_view content) {
         if (!connected_.load()) {
@@ -106,10 +176,13 @@ public:
         }
 
         // Build JSON payload
-        std::string payload = build_message_payload(content);
+        auto payload = build_message_payload(content);
+        auto message_url = [&]() {
+            return endpoint_ + "/sessions/" + session_id_ + "/messages";
+        };
 
-        // Execute HTTP POST via curl
-        std::string url = endpoint_ + "/sessions/" + session_id_ + "/messages";
+        // Execute HTTP POST through the configured transport.
+        std::string url = message_url();
         auto result = http_post(url, payload);
         if (!result) {
             // If auto-reconnect is enabled, attempt reconnection
@@ -118,7 +191,8 @@ public:
                 auto reconnect_result = perform_handshake(parsed->host, parsed->path);
                 if (reconnect_result) {
                     session_id_ = *reconnect_result;
-                    result = http_post(url, payload);
+                    payload = build_message_payload(content);
+                    result = http_post(message_url(), payload);
                 }
             }
             if (!result) {
@@ -147,47 +221,41 @@ public:
 
         std::lock_guard lock(mutex_);
 
-        std::string payload = build_message_payload(content);
-        std::string url = endpoint_ + "/sessions/" + session_id_ + "/messages?stream=true";
+        auto payload = build_message_payload(content);
+        auto message_url = [&]() {
+            return endpoint_ + "/sessions/" + session_id_ + "/messages?stream=true";
+        };
 
-        // Execute streaming request via curl with chunked transfer
-        std::string cmd = "curl -s -N -X POST"
-            " -H 'Content-Type: application/json'"
-            " -H 'Authorization: Bearer " + token_ + "'"
-            " -H 'User-Agent: " + options_.user_agent + "'"
-            " -d '" + payload + "'"
-            " '" + url + "' 2>/dev/null";
+        bool saw_final = false;
+        auto streaming_callback = [&](std::string_view chunk, bool is_final) {
+            if (is_final) saw_final = true;
+            callback(chunk, is_final);
+        };
 
-        FILE* pipe = popen(cmd.c_str(), "r");
-        if (!pipe) {
-            return std::unexpected("Failed to initiate streaming request");
-        }
-
-        std::array<char, 4096> buffer{};
-        std::string accumulated;
-        while (fgets(buffer.data(), static_cast<int>(buffer.size()), pipe) != nullptr) {
-            std::string chunk(buffer.data());
-            accumulated += chunk;
-
-            // Pass each line to callback (SSE-style: "data: ..." lines)
-            size_t pos = 0;
-            while (pos < chunk.size()) {
-                auto nl = chunk.find('\n', pos);
-                if (nl == std::string::npos) break;
-                auto line = std::string_view(chunk).substr(pos, nl - pos);
-                pos = nl + 1;
-                if (line.starts_with("data: ")) {
-                    auto data = line.substr(6);
-                    bool is_final = (data == "[DONE]");
-                    callback(data, is_final);
+        auto result = http_stream_post(message_url(), payload, streaming_callback);
+        if (!result) {
+            auto parsed = parse_endpoint(endpoint_);
+            if (!parsed) return std::unexpected(parsed.error());
+            if (options_.auto_reconnect && reconnect_attempts_ < options_.max_reconnect_attempts) {
+                ++reconnect_attempts_;
+                auto reconnect_result = perform_handshake(parsed->host, parsed->path);
+                if (reconnect_result) {
+                    session_id_ = *reconnect_result;
+                    payload = build_message_payload(content);
+                    result = http_stream_post(message_url(), payload, streaming_callback);
                 }
             }
+            if (!result) {
+                return std::unexpected(result.error());
+            }
         }
-        pclose(pipe);
 
         ++messages_sent_;
         ++messages_received_;
-        callback("", true); // Signal completion
+        reconnect_attempts_ = 0;
+        if (!saw_final) {
+            callback("", true);
+        }
         return {};
     }
 
@@ -222,11 +290,7 @@ public:
         // Send disconnect signal to remote endpoint
         if (!session_id_.empty() && !endpoint_.empty()) {
             std::string url = endpoint_ + "/sessions/" + session_id_;
-            // Fire-and-forget DELETE request
-            std::string cmd = "curl -s -X DELETE"
-                " -H 'Authorization: Bearer " + token_ + "'"
-                " '" + url + "' >/dev/null 2>&1 &";
-            (void)std::system(cmd.c_str());
+            (void)http_delete(url);
         }
 
         connected_.store(false);
@@ -285,16 +349,19 @@ private:
 
     std::expected<std::string, std::string> perform_handshake(
         const std::string& host, const std::string& path) {
+        (void)host;
+        (void)path;
         // POST to endpoint/sessions to create a new session
         std::string url = endpoint_ + "/sessions";
         std::string payload = "{\"token\":\"" + token_ + "\"}";
 
         auto result = http_post(url, payload);
         if (!result) {
-            // Fallback: generate deterministic session ID for offline/dev mode
-            std::string session_id = "ccr-" + std::to_string(
-                std::hash<std::string>{}(endpoint_ + token_) % 1000000);
-            return session_id;
+            if (options_.allow_offline_session_fallback) {
+                return "ccr-" + std::to_string(
+                    std::hash<std::string>{}(endpoint_ + token_) % 1000000);
+            }
+            return std::unexpected("Remote session handshake failed: " + result.error());
         }
 
         // Parse session ID from response JSON
@@ -310,8 +377,10 @@ private:
             }
         }
 
-        // Fallback session ID
-        return "ccr-" + std::to_string(std::hash<std::string>{}(body) % 1000000);
+        if (options_.allow_offline_session_fallback) {
+            return "ccr-" + std::to_string(std::hash<std::string>{}(body) % 1000000);
+        }
+        return std::unexpected("Remote session handshake response did not include an id");
     }
 
     std::string build_message_payload(std::string_view content) {
@@ -333,49 +402,52 @@ private:
 
     std::expected<std::string, std::string> http_post(
         const std::string& url, const std::string& payload) {
-        // Use curl for HTTP POST
-        std::string cmd = "curl -s -X POST"
-            " -H 'Content-Type: application/json'"
-            " -H 'Authorization: Bearer " + token_ + "'"
-            " -H 'User-Agent: " + options_.user_agent + "'"
-            " --connect-timeout " + std::to_string(options_.connect_timeout_ms / 1000) +
-            " --max-time " + std::to_string(options_.read_timeout_ms / 1000) +
-            " -d '" + payload + "'"
-            " -w '\\n%{http_code}'"
-            " '" + url + "' 2>/dev/null";
+        auto response = http_request("POST", url, payload);
+        if (!response) return std::unexpected(response.error());
+        return response->body;
+    }
 
-        FILE* pipe = popen(cmd.c_str(), "r");
-        if (!pipe) {
-            return std::unexpected("Failed to execute HTTP request");
+    std::expected<void, std::string> http_delete(const std::string& url) {
+        auto response = http_request("DELETE", url, "");
+        if (!response) return std::unexpected(response.error());
+        return {};
+    }
+
+    std::expected<void, std::string> http_stream_post(
+        const std::string& url,
+        const std::string& payload,
+        StreamCallback callback) {
+        auto response = http_request("POST", url, payload, std::move(callback));
+        if (!response) return std::unexpected(response.error());
+        return {};
+    }
+
+    std::expected<CcrHttpResponse, std::string> http_request(
+        std::string method,
+        const std::string& url,
+        const std::string& payload,
+        StreamCallback stream_callback = nullptr) {
+        CcrHttpRequest request{
+            .method = std::move(method),
+            .url = url,
+            .body = payload,
+            .headers = {
+                {"Content-Type", "application/json"},
+                {"Authorization", "Bearer " + token_},
+                {"User-Agent", options_.user_agent},
+            },
+            .connect_timeout_ms = options_.connect_timeout_ms,
+            .read_timeout_ms = options_.read_timeout_ms,
+            .stream_callback = std::move(stream_callback),
+        };
+
+        auto transport = http_transport_ ? http_transport_ : default_ccr_http_transport;
+        auto response = transport(request);
+        if (!response) return std::unexpected(response.error());
+        if (response->status < 200 || response->status >= 300) {
+            return std::unexpected("HTTP " + std::to_string(response->status) + ": " + response->body);
         }
-
-        std::string output;
-        std::array<char, 4096> buffer{};
-        while (fgets(buffer.data(), static_cast<int>(buffer.size()), pipe) != nullptr) {
-            output += buffer.data();
-        }
-        int status = pclose(pipe);
-
-        if (status != 0 || output.empty()) {
-            return std::unexpected("HTTP request failed");
-        }
-
-        // Extract status code from last line
-        auto last_nl = output.rfind('\n');
-        if (last_nl == std::string::npos) {
-            return std::unexpected("Malformed HTTP response");
-        }
-        std::string status_str = output.substr(last_nl + 1);
-        std::string body = output.substr(0, last_nl);
-
-        int http_status = 0;
-        try { http_status = std::stoi(status_str); } catch (...) {}
-
-        if (http_status < 200 || http_status >= 300) {
-            return std::unexpected("HTTP " + std::to_string(http_status) + ": " + body);
-        }
-
-        return body;
+        return response;
     }
 
     std::string endpoint_;
@@ -388,6 +460,7 @@ private:
     uint64_t messages_sent_{0};
     uint64_t messages_received_{0};
     int reconnect_attempts_{0};
+    CcrHttpTransport http_transport_{default_ccr_http_transport};
 };
 
 } // namespace cc::cli

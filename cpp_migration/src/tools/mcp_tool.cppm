@@ -2,6 +2,7 @@
 module;
 #include <chrono>
 #include <algorithm>
+#include <condition_variable>
 #include <cstdlib>
 #include <expected>
 #include <filesystem>
@@ -14,6 +15,7 @@ module;
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -23,6 +25,7 @@ export module cc.tools.mcp;
 import cc.config.config;
 import cc.services.mcp.config;
 import cc.services.mcp.connection_manager;
+import cc.services.mcp.auth;
 import cc.services.mcp.types;
 import cc.utils.json;
 
@@ -114,6 +117,7 @@ struct NativeMcpConfiguredServer {
     std::string url = {};
     std::unordered_map<std::string, std::string> headers = {};
     std::string headers_helper = {};
+    std::optional<svc_mcp::McpOAuthConfig> oauth = std::nullopt;
 };
 
 struct NativeMcpServerStatus {
@@ -205,11 +209,103 @@ struct NativeMcpServerStatus {
         native.command = server.command;
         native.args = server.args;
         for (const auto& [key, value] : server.env) native.env[key] = value;
-        native.url = server.url;
-        for (const auto& [key, value] : server.headers) native.headers[key] = value;
-        native.headers_helper = server.headers_helper;
-        config.servers[native.name] = std::move(native);
+	native.url = server.url;
+	for (const auto& [key, value] : server.headers) native.headers[key] = value;
+	native.headers_helper = server.headers_helper;
+	native.oauth = server.oauth;
+	config.servers[native.name] = std::move(native);
     }
+    return config;
+}
+
+[[nodiscard]] inline std::string lowercase_copy(std::string_view value) {
+    std::string out(value);
+    std::ranges::transform(out, out.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    return out;
+}
+
+[[nodiscard]] inline svc_mcp::TransportType transport_from_config_string(
+    std::string_view value,
+    bool has_url
+) {
+    const auto normalized = lowercase_copy(value);
+    if (normalized == "sse") return svc_mcp::TransportType::Sse;
+    if (normalized == "http" || normalized == "streamable-http" || normalized == "streamablehttp") {
+        return svc_mcp::TransportType::StreamableHttp;
+    }
+    return has_url ? svc_mcp::TransportType::StreamableHttp : svc_mcp::TransportType::Stdio;
+}
+
+[[nodiscard]] inline std::string transport_to_auth_type(svc_mcp::TransportType transport) {
+    switch (transport) {
+        case svc_mcp::TransportType::Sse:
+            return "sse";
+        case svc_mcp::TransportType::Http:
+        case svc_mcp::TransportType::StreamableHttp:
+            return "http";
+        case svc_mcp::TransportType::Stdio:
+        default:
+            return "stdio";
+    }
+}
+
+[[nodiscard]] inline std::optional<svc_mcp::McpOAuthConfig> convert_core_oauth(
+    const std::optional<cc::core::McpOAuthConfig>& oauth
+) {
+    if (!oauth) return std::nullopt;
+    return svc_mcp::McpOAuthConfig{
+        .auth_server_metadata_url = oauth->auth_server_metadata_url,
+        .callback_port = oauth->callback_port,
+        .client_id = oauth->client_id,
+        .xaa = oauth->xaa,
+    };
+}
+
+[[nodiscard]] inline NativeMcpConfiguredServer to_native_mcp_server(
+    const cc::core::McpServerConfig& server
+) {
+    NativeMcpConfiguredServer native;
+    native.name = server.name;
+    native.command = server.command;
+    native.args = server.args;
+    native.env = server.env;
+    native.transport = transport_from_config_string(
+        server.transport,
+        server.url.has_value() && !server.url->empty()
+    );
+    native.url = server.url.value_or(std::string{});
+    native.headers = server.headers;
+    native.headers_helper = server.headers_helper.value_or(std::string{});
+    native.oauth = convert_core_oauth(server.oauth);
+    return native;
+}
+
+[[nodiscard]] inline NativeMcpConfiguredServer to_native_mcp_server(
+    const svc_mcp::ServerConfig& server
+) {
+    NativeMcpConfiguredServer native;
+    native.name = server.name;
+    native.command = server.command;
+    native.args = server.args;
+    for (const auto& [key, value] : server.env) native.env[key] = value;
+    native.transport = server.transport;
+    native.url = server.url;
+    for (const auto& [key, value] : server.headers) native.headers[key] = value;
+    native.headers_helper = server.headers_helper;
+    native.oauth = server.oauth;
+    return native;
+}
+
+[[nodiscard]] inline svc_mcp::McpServerConfig to_oauth_server_config(
+    const NativeMcpConfiguredServer& server
+) {
+    svc_mcp::McpServerConfig config;
+    config.type = transport_to_auth_type(server.transport);
+    config.url = server.url;
+    config.headers = server.headers;
+    config.oauth = server.oauth;
     return config;
 }
 
@@ -279,12 +375,28 @@ inline void append_json_string_map(
     append_json_string_map(config.get("headers"), server.headers);
 
     if (server.transport == svc_mcp::TransportType::Stdio && server.command.empty()) {
-        return std::nullopt;
+	return std::nullopt;
     }
     if ((server.transport == svc_mcp::TransportType::Sse ||
-         server.transport == svc_mcp::TransportType::StreamableHttp) &&
-        server.url.empty()) {
-        return std::nullopt;
+	 server.transport == svc_mcp::TransportType::StreamableHttp) &&
+	server.url.empty()) {
+	return std::nullopt;
+    }
+    if (auto oauth = config.get("oauth"); oauth.is_obj()) {
+        svc_mcp::McpOAuthConfig oauth_config;
+        oauth_config.auth_server_metadata_url = json_string(oauth, "authServerMetadataUrl")
+            .or_else([&] { return json_string(oauth, "auth_server_metadata_url"); });
+        if (auto callback_port = oauth.get("callbackPort"); callback_port.is_num()) {
+            oauth_config.callback_port = static_cast<int>(callback_port.as_int());
+        } else if (auto callback_port = oauth.get("callback_port"); callback_port.is_num()) {
+            oauth_config.callback_port = static_cast<int>(callback_port.as_int());
+        }
+        oauth_config.client_id = json_string(oauth, "clientId")
+            .or_else([&] { return json_string(oauth, "client_id"); });
+        if (auto xaa = oauth.get("xaa"); xaa.is_bool()) {
+            oauth_config.xaa = xaa.as_bool();
+        }
+        server.oauth = std::move(oauth_config);
     }
     return server;
 }
@@ -296,6 +408,19 @@ inline void replace_all(std::string& value, std::string_view needle, std::string
         value.replace(pos, needle.size(), replacement);
         pos += replacement.size();
     }
+}
+
+[[nodiscard]] inline std::string shell_quote(std::string_view value) {
+    std::string out = "'";
+    for (char ch : value) {
+        if (ch == '\'') {
+            out += "'\\''";
+        } else {
+            out += ch;
+        }
+    }
+    out += "'";
+    return out;
 }
 
 [[nodiscard]] inline std::string sanitize_plugin_data_id(std::string_view plugin_id) {
@@ -532,6 +657,83 @@ inline void merge_native_mcp_servers(
     return parsed;
 }
 
+[[nodiscard]] inline std::optional<fs::path> extract_plugin_mcpb(
+    const fs::path& mcpb_path,
+    std::string_view plugin_name
+) {
+    std::error_code ec;
+    if (!fs::exists(mcpb_path, ec) || !fs::is_regular_file(mcpb_path, ec)) return std::nullopt;
+    auto extract_dir = plugin_data_dir(plugin_name) / "mcpb" / sanitize_plugin_data_id(mcpb_path.stem().string());
+    fs::create_directories(extract_dir, ec);
+    if (ec) return std::nullopt;
+
+    const auto command = std::format(
+        "unzip -o -q {} -d {} 2>/dev/null",
+        shell_quote(mcpb_path.string()),
+        shell_quote(extract_dir.string()));
+    if (std::system(command.c_str()) != 0) return std::nullopt;
+    return extract_dir;
+}
+
+[[nodiscard]] inline std::optional<fs::path> find_mcpb_manifest(const fs::path& extract_dir) {
+    std::error_code ec;
+    for (const auto& name : {"manifest.json", "plugin.json"}) {
+        auto candidate = extract_dir / name;
+        if (fs::exists(candidate, ec) && fs::is_regular_file(candidate, ec)) return candidate;
+    }
+    for (const auto& entry : fs::recursive_directory_iterator(extract_dir, ec)) {
+        if (ec) break;
+        if (!entry.is_regular_file(ec)) continue;
+        const auto filename = entry.path().filename().string();
+        if (filename == "manifest.json" || filename == "plugin.json") return entry.path();
+    }
+    return std::nullopt;
+}
+
+[[nodiscard]] inline std::vector<NativeMcpConfiguredServer> load_plugin_mcp_servers_from_mcpb(
+    const fs::path& mcpb_path,
+    std::string_view plugin_name
+) {
+    auto extract_dir = extract_plugin_mcpb(mcpb_path, plugin_name);
+    if (!extract_dir) return {};
+    auto manifest_path = find_mcpb_manifest(*extract_dir);
+    if (!manifest_path) return {};
+
+    std::ifstream input(*manifest_path);
+    if (!input) return {};
+    std::stringstream buffer;
+    buffer << input.rdbuf();
+    auto doc = cc::utils::json::parse(buffer.str());
+    if (!doc) return {};
+
+    auto root = doc->root();
+    if (auto servers = root.get("mcpServers"); servers.is_obj()) {
+        return parse_native_mcp_server_map(
+            servers,
+            std::format("plugin:{}:", plugin_name),
+            *extract_dir,
+            plugin_name);
+    }
+
+    auto server = root.get("server");
+    if (!server.is_obj()) return {};
+    std::string server_name = mcpb_path.stem().string();
+    if (auto name = root.get("name"); name.is_str() && !name.as_str().empty()) {
+        server_name = sanitize_plugin_data_id(name.as_str());
+    }
+    auto parsed = parse_native_mcp_server(
+        std::format("plugin:{}:{}", plugin_name, server_name),
+        server);
+    if (!parsed) return {};
+    auto resolved = resolve_plugin_mcp_server_environment(
+        std::move(*parsed),
+        *extract_dir,
+        plugin_name,
+        server_name);
+    if (!resolved) return {};
+    return {*resolved};
+}
+
 [[nodiscard]] inline std::vector<NativeMcpConfiguredServer> load_plugin_mcp_servers_from_file(
     const fs::path& plugin_dir,
     std::string_view relative_path,
@@ -539,10 +741,12 @@ inline void merge_native_mcp_servers(
 ) {
     if (relative_path.empty()) return {};
     std::string rel{relative_path};
-    if (rel.ends_with(".mcpb")) return {};
 
     fs::path path{rel};
     if (path.is_relative()) path = plugin_dir / path;
+    if (rel.ends_with(".mcpb")) {
+        return load_plugin_mcp_servers_from_mcpb(path, plugin_name);
+    }
     std::ifstream input(path);
     if (!input) return {};
 
@@ -684,30 +888,45 @@ public:
     }
 
     [[nodiscard]] std::expected<void, std::string> ensure_loaded_from_config() {
-        std::lock_guard lock(mutex_);
-        if (loaded_) return {};
+	std::lock_guard lock(mutex_);
+	if (loaded_) return {};
 
         cc::core::ConfigManager config;
         auto loaded = config.load();
         if (!loaded) return std::unexpected(loaded.error().message);
 
-        std::vector<NativeMcpConfiguredServer> servers;
-        for (const auto& server : config.settings().mcp_servers) {
-            servers.push_back(NativeMcpConfiguredServer{
-                .name = server.name,
-                .command = server.command,
-                .args = server.args,
-                .env = server.env,
-            });
-        }
-        merge_native_mcp_servers(servers, discover_plugin_native_mcp_servers());
+	std::vector<NativeMcpConfiguredServer> servers;
+	for (const auto& server : config.settings().mcp_servers) {
+	    servers.push_back(to_native_mcp_server(server));
+	}
+	if (auto service_config = svc_mcp::ConfigLoader(fs::current_path()).load()) {
+	    std::vector<NativeMcpConfiguredServer> service_servers;
+	    for (const auto& [_, server] : service_config->servers) {
+	        service_servers.push_back(to_native_mcp_server(server));
+	    }
+	    merge_native_mcp_servers(servers, std::move(service_servers));
+	}
+	merge_native_mcp_servers(servers, discover_plugin_native_mcp_servers());
 
         ensure_manager_locked();
         config_signature_ = signature(servers);
         configured_servers_ = std::move(servers);
         manager_->set_configuration(make_native_config(configured_servers_));
-        loaded_ = true;
-        return {};
+	loaded_ = true;
+	return {};
+    }
+
+    [[nodiscard]] std::expected<void, std::string> reload_from_config() {
+	{
+	    std::lock_guard lock(mutex_);
+	    configured_servers_.clear();
+	    config_signature_.clear();
+	    loaded_ = false;
+	    if (manager_) {
+		manager_->set_configuration(svc_mcp::McpConfig{});
+	    }
+	}
+	return ensure_loaded_from_config();
     }
 
     [[nodiscard]] std::expected<NativeMcpServerStatus, std::string> restart(std::string_view server_name) {
@@ -726,16 +945,27 @@ public:
     }
 
     [[nodiscard]] std::optional<NativeMcpServerStatus> status(std::string_view server_name) {
-        if (auto loaded = ensure_loaded_from_config(); !loaded) return std::nullopt;
+	if (auto loaded = ensure_loaded_from_config(); !loaded) return std::nullopt;
 
-        std::lock_guard lock(mutex_);
-        auto snapshot = manager_->snapshot_server(std::string(server_name));
-        if (!snapshot) return std::nullopt;
-        return to_native_status(*snapshot);
+	std::lock_guard lock(mutex_);
+	auto snapshot = manager_->snapshot_server(std::string(server_name));
+	if (!snapshot) return std::nullopt;
+	return to_native_status(*snapshot);
+    }
+
+    [[nodiscard]] std::optional<NativeMcpConfiguredServer> configured_server(std::string_view server_name) {
+	if (auto loaded = ensure_loaded_from_config(); !loaded) return std::nullopt;
+
+	std::lock_guard lock(mutex_);
+	auto it = std::ranges::find_if(configured_servers_, [server_name](const auto& server) {
+	    return server.name == server_name;
+	});
+	if (it == configured_servers_.end()) return std::nullopt;
+	return *it;
     }
 
     [[nodiscard]] std::vector<NativeMcpServerStatus> all_statuses() {
-        if (auto loaded = ensure_loaded_from_config(); !loaded) return {};
+	if (auto loaded = ensure_loaded_from_config(); !loaded) return {};
 
         std::lock_guard lock(mutex_);
         std::vector<NativeMcpServerStatus> statuses;
@@ -897,17 +1127,27 @@ private:
                 out += '\0';
             }
             out += '\n';
-            std::vector<std::pair<std::string, std::string>> headers(server.headers.begin(), server.headers.end());
-            std::ranges::sort(headers);
-            for (const auto& [key, value] : headers) {
-                out += key;
-                out += '=';
-                out += value;
-                out += '\0';
-            }
-            out += '\n';
-        }
-        return out;
+	    std::vector<std::pair<std::string, std::string>> headers(server.headers.begin(), server.headers.end());
+	    std::ranges::sort(headers);
+	    for (const auto& [key, value] : headers) {
+		out += key;
+		out += '=';
+		out += value;
+		out += '\0';
+	    }
+	    out += '\n';
+	    if (server.oauth) {
+	        out += server.oauth->auth_server_metadata_url.value_or(std::string{});
+	        out += '\n';
+	        out += server.oauth->callback_port ? std::to_string(*server.oauth->callback_port) : std::string{};
+	        out += '\n';
+	        out += server.oauth->client_id.value_or(std::string{});
+	        out += '\n';
+	        out += server.oauth->xaa ? "xaa" : "";
+	    }
+	    out += '\n';
+	}
+	return out;
     }
 
     [[nodiscard]] std::expected<std::string, std::string> read_local_resource(std::string_view uri) {
@@ -943,12 +1183,20 @@ inline std::expected<void, std::string> upsert_native_mcp_servers(
     return NativeMcpRuntime::instance().upsert(std::move(servers));
 }
 
+inline std::expected<void, std::string> reload_native_mcp_servers_from_config() {
+    return NativeMcpRuntime::instance().reload_from_config();
+}
+
 inline std::expected<NativeMcpServerStatus, std::string> restart_native_mcp_server(std::string_view server_name) {
     return NativeMcpRuntime::instance().restart(server_name);
 }
 
 inline std::optional<NativeMcpServerStatus> native_mcp_status(std::string_view server_name) {
     return NativeMcpRuntime::instance().status(server_name);
+}
+
+inline std::optional<NativeMcpConfiguredServer> native_mcp_configured_server(std::string_view server_name) {
+    return NativeMcpRuntime::instance().configured_server(server_name);
 }
 
 inline std::vector<NativeMcpServerStatus> native_mcp_statuses() {
@@ -1037,18 +1285,12 @@ public:
             args_json += "}";
         }
 
-        if (auto native = NativeMcpRuntime::instance().call_tool(
-            request.server_name, request.tool_name, args_json); native) {
-            return native;
-        }
-
-        if (auto v = validate(request); !v) return std::unexpected(v.error());
-
-        return McpToolResult{
-            .content = std::format("[MCP call: {}/{} with {}]",
-                request.server_name, request.tool_name, args_json),
-            .content_type = "text",
-        };
+	if (auto native = NativeMcpRuntime::instance().call_tool(
+	    request.server_name, request.tool_name, args_json); native) {
+	    return native;
+	} else {
+	    return std::unexpected(native.error());
+	}
     }
 
     auto schema() const -> std::string {
@@ -1119,17 +1361,11 @@ public:
         if (server_name.empty() || resource_uri.empty()) {
             return std::unexpected(McpError::InvalidInput);
         }
-        if (auto native = read_native_mcp_resource(server_name, resource_uri); native) {
-            return native;
-        }
-        auto server = global_mcp_router().find_server(server_name);
-        if (!server) return std::unexpected(server.error());
-
-
-        return McpToolResult{
-            .content = std::format("[Resource content: {}://{}]", server_name, resource_uri),
-            .content_type = "text",
-        };
+	if (auto native = read_native_mcp_resource(server_name, resource_uri); native) {
+	    return native;
+	} else {
+	    return std::unexpected(native.error());
+	}
     }
 
     auto schema() const -> std::string {
@@ -1155,20 +1391,88 @@ public:
     static constexpr std::string_view description = "Handle OAuth authentication for MCP servers";
 
     auto execute(std::string server_name, std::optional<std::string> auth_code)
-        -> std::expected<std::string, McpError>
+	-> std::expected<std::string, McpError>
     {
-        if (server_name.empty()) return std::unexpected(McpError::InvalidInput);
+	if (server_name.empty()) return std::unexpected(McpError::InvalidInput);
 
-        auto server = global_mcp_router().find_server(server_name);
-        if (!server) return std::unexpected(server.error());
+	if (auth_code) {
+	    return "Manual MCP auth code completion is not used by the native runtime; complete the browser callback opened by mcp_auth instead.";
+	}
 
-        if (auth_code) {
+	auto configured = native_mcp_configured_server(server_name);
+	if (!configured) return std::unexpected(McpError::ServerNotFound);
+	if (configured->transport != svc_mcp::TransportType::Sse &&
+	    configured->transport != svc_mcp::TransportType::StreamableHttp &&
+	    configured->transport != svc_mcp::TransportType::Http) {
+	    return std::format(
+	        "Server '{}' uses {} transport and cannot be authenticated with MCP OAuth.",
+	        server_name,
+	        transport_to_auth_type(configured->transport)
+	    );
+	}
+	if (!configured->oauth) {
+	    return std::format(
+	        "Server '{}' has no OAuth configuration. Configure oauth.authServerMetadataUrl or oauth.xaa before using mcp_auth.",
+	        server_name
+	    );
+	}
 
-            (*server)->authenticated = true;
-            return std::format("Successfully authenticated with '{}'", server_name);
-        }
+	struct AuthFlowState {
+	    std::mutex mutex;
+	    std::condition_variable cv;
+	    std::optional<std::string> auth_url;
+	    std::optional<std::string> error;
+	    bool completed = false;
+	};
 
-        return std::format("Please authorize at: {}/oauth/authorize", (*server)->endpoint);
+	auto state = std::make_shared<AuthFlowState>();
+	auto oauth_config = to_oauth_server_config(*configured);
+	std::thread([state, server_name, oauth_config = std::move(oauth_config)]() mutable {
+	    auto result = svc_mcp::perform_mcp_oauth_flow(
+	        server_name,
+	        oauth_config,
+	        [state](const std::string& url) {
+	            {
+	                std::lock_guard lock(state->mutex);
+	                state->auth_url = url;
+	            }
+	            state->cv.notify_all();
+	        },
+	        std::nullopt,
+	        true
+	    );
+	    {
+	        std::lock_guard lock(state->mutex);
+	        if (!result) state->error = result.error().message();
+	        state->completed = true;
+	    }
+	    state->cv.notify_all();
+	    if (result) {
+	        (void)NativeMcpRuntime::instance().restart(server_name);
+	    }
+	}).detach();
+
+	std::unique_lock lock(state->mutex);
+	state->cv.wait_for(lock, std::chrono::seconds{10}, [&] {
+	    return state->auth_url.has_value() || state->completed;
+	});
+	if (state->auth_url) {
+	    return std::format(
+	        "Ask the user to open this URL in their browser to authorize the '{}' MCP server:\n\n{}\n\nOnce the callback completes, the native runtime will reconnect the server.",
+	        server_name,
+	        *state->auth_url
+	    );
+	}
+	if (state->completed && state->error) {
+	    return std::format("Failed to start OAuth flow for '{}': {}", server_name, *state->error);
+	}
+	if (state->completed) {
+	    return std::format("Authentication completed silently for '{}'.", server_name);
+	}
+	return std::format(
+	    "Started OAuth flow for '{}', but no authorization URL was produced within 10 seconds.",
+	    server_name
+	);
     }
 
     auto schema() const -> std::string {

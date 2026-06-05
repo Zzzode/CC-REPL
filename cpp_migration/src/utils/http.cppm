@@ -294,6 +294,51 @@ public:
     }
 
 
+    [[nodiscard]] auto delete_request(std::string_view url,
+        const std::unordered_map<std::string, std::string>& headers = {})
+        -> std::expected<HttpResponse, HttpError> {
+        if (url.empty()) return std::unexpected(HttpError{HttpError::connection_failed, "empty URL"});
+
+        auto parsed = parse_url(url);
+        if (!parsed) return std::unexpected(parsed.error());
+
+        auto start = std::chrono::steady_clock::now();
+        auto h = build_headers(headers);
+
+        for (uint32_t attempt = 0; attempt <= config_.max_retries; ++attempt) {
+            if (attempt > 0) {
+                std::this_thread::sleep_for(
+                    std::chrono::milliseconds(config_.retry_backoff_ms * attempt));
+            }
+
+            auto cli = make_client(parsed->base_url);
+
+            auto res = cli.Delete(parsed->path, h);
+            if (!res) {
+                auto err = classify_error(res.error());
+                if (attempt == config_.max_retries) return std::unexpected(err);
+                continue;
+            }
+
+            HttpResponse response;
+            response.status = res->status;
+            response.body = std::move(res->body);
+            for (const auto& [k, v] : res->headers) {
+                response.headers[k] = v;
+            }
+            response.elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - start);
+
+            if ((response.status >= 500 || response.status == 429) && attempt < config_.max_retries) {
+                continue;
+            }
+            return response;
+        }
+
+        return std::unexpected(HttpError{HttpError::connection_failed, "max retries exceeded"});
+    }
+
+
     [[nodiscard]] auto stream_sse(std::string_view url,
         const std::unordered_map<std::string, std::string>& headers,
         SseCallback on_event) -> std::expected<void, HttpError> {
@@ -405,6 +450,146 @@ public:
             return std::unexpected(HttpError{
                 HttpError::connection_failed,
                 std::format("SSE connection failed with status {}: {}", res->status, res->body)});
+        }
+
+        return {};
+    }
+
+
+    [[nodiscard]] auto post_stream_sse(std::string_view url,
+        std::string_view body,
+        const std::unordered_map<std::string, std::string>& headers,
+        SseCallback on_event) -> std::expected<void, HttpError> {
+        if (url.empty()) return std::unexpected(HttpError{HttpError::connection_failed, "empty URL"});
+
+        auto parsed = parse_url(url);
+        if (!parsed) return std::unexpected(parsed.error());
+
+        auto h = build_headers(headers);
+        h.emplace("Accept", "text/event-stream");
+        h.emplace("Cache-Control", "no-cache");
+
+        std::string content_type = "application/json";
+        bool has_content_type = false;
+        for (const auto& [k, v] : headers) {
+            if (k == "Content-Type" || k == "content-type") {
+                content_type = v;
+                has_content_type = true;
+                break;
+            }
+        }
+        if (!has_content_type) {
+            h.emplace("Content-Type", content_type);
+        }
+
+        auto cli = make_client(parsed->base_url);
+        cli.set_read_timeout(static_cast<int>(config_.timeout_ms / 1000),
+            static_cast<int>((config_.timeout_ms % 1000) * 1000));
+
+        std::string sse_buffer;
+        auto process_sse_buffer = [&]() {
+            while (true) {
+                auto double_nl = sse_buffer.find("\n\n");
+                auto crlf_double_nl = sse_buffer.find("\r\n\r\n");
+                std::size_t delimiter = std::string::npos;
+                std::size_t delimiter_size = 0;
+                if (double_nl != std::string::npos &&
+                    (crlf_double_nl == std::string::npos || double_nl < crlf_double_nl)) {
+                    delimiter = double_nl;
+                    delimiter_size = 2;
+                } else if (crlf_double_nl != std::string::npos) {
+                    delimiter = crlf_double_nl;
+                    delimiter_size = 4;
+                }
+                if (delimiter == std::string::npos) break;
+
+                std::string event_block = sse_buffer.substr(0, delimiter);
+                sse_buffer.erase(0, delimiter + delimiter_size);
+
+                std::string event_type;
+                std::string event_data;
+                std::string event_id;
+                size_t pos = 0;
+                while (pos < event_block.size()) {
+                    auto nl = event_block.find('\n', pos);
+                    std::string line;
+                    if (nl == std::string::npos) {
+                        line = event_block.substr(pos);
+                        pos = event_block.size();
+                    } else {
+                        line = event_block.substr(pos, nl - pos);
+                        pos = nl + 1;
+                    }
+                    if (!line.empty() && line.back() == '\r') {
+                        line.pop_back();
+                    }
+
+                    if (line.starts_with(":")) continue;
+                    if (line.starts_with("event: ")) {
+                        event_type = line.substr(7);
+                    } else if (line.starts_with("event:")) {
+                        event_type = line.substr(6);
+                    } else if (line.starts_with("data: ")) {
+                        if (!event_data.empty()) event_data += "\n";
+                        event_data += line.substr(6);
+                    } else if (line.starts_with("data:")) {
+                        if (!event_data.empty()) event_data += "\n";
+                        event_data += line.substr(5);
+                    } else if (line == "data") {
+                        if (!event_data.empty()) event_data += "\n";
+                    } else if (line.starts_with("id: ")) {
+                        event_id = line.substr(4);
+                    } else if (line.starts_with("id:")) {
+                        event_id = line.substr(3);
+                    }
+                }
+
+                if (!event_data.empty() || !event_type.empty()) {
+                    if (on_event) {
+                        on_event(SseEvent{
+                            .event = event_type.empty() ? "message" : event_type,
+                            .data = event_data,
+                            .id = event_id
+                        });
+                    }
+                }
+            }
+        };
+
+        httplib::Request req;
+        req.method = "POST";
+        req.path = parsed->path;
+        req.headers = std::move(h);
+        req.body = std::string(body);
+        req.content_receiver = [&](const char* data, size_t len,
+                                   uint64_t /*offset*/, uint64_t /*total*/) -> bool {
+            sse_buffer.append(data, len);
+            process_sse_buffer();
+            return true;
+        };
+
+        httplib::Response res;
+        httplib::Error err;
+        const bool ok = cli.send(req, res, err);
+
+        if (!sse_buffer.empty()) {
+            if (!sse_buffer.ends_with("\n\n") && !sse_buffer.ends_with("\r\n\r\n")) {
+                sse_buffer += "\n\n";
+            }
+            process_sse_buffer();
+        }
+
+        if (!ok) {
+            if (err == httplib::Error::Read) {
+                return {};
+            }
+            return std::unexpected(classify_error(err));
+        }
+
+        if (res.status >= 400) {
+            return std::unexpected(HttpError{
+                HttpError::connection_failed,
+                std::format("SSE POST failed with status {}: {}", res.status, res.body)});
         }
 
         return {};

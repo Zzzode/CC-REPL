@@ -7,6 +7,7 @@ module;
 #include <vector>
 #include <memory>
 #include <optional>
+#include <expected>
 #include <functional>
 #include <chrono>
 #include <format>
@@ -48,6 +49,37 @@ export namespace cc::ui {
 using namespace ftxui;
 using namespace cc::ui::components;
 using namespace cc::core;
+
+[[nodiscard]] inline std::vector<Message> compact_runtime_messages(void* state) {
+    auto* engine = static_cast<core::QueryEngine*>(state);
+    return engine ? engine->get_conversation() : std::vector<Message>{};
+}
+
+[[nodiscard]] inline VoidResult compact_runtime_apply(void* state) {
+    auto* engine = static_cast<core::QueryEngine*>(state);
+    if (!engine) {
+        return std::unexpected(Error::make(
+            ErrorCode::InternalError,
+            "No active query engine is available for compaction"));
+    }
+    auto compacted = engine->compact_conversation();
+    if (!compacted) {
+        return std::unexpected(Error::make(
+            ErrorCode::InternalError,
+            compacted.error().format()));
+    }
+    return VoidResult{};
+}
+
+[[nodiscard]] inline CommandContext command_context_for_engine(core::QueryEngine* engine) {
+    return CommandContext{
+        .args = {},
+        .raw_input = {},
+        .runtime_state = engine,
+        .compact_message_provider = compact_runtime_messages,
+        .compact_applier = compact_runtime_apply,
+    };
+}
 
 // ============================================================
 // Message Rendering
@@ -470,7 +502,7 @@ public:
 
         // Delegate to command registry for all other commands
         if (cmd_registry_) {
-            auto result = cmd_registry_->execute(std::string(cmd), CommandContext{});
+            auto result = cmd_registry_->execute(std::string(cmd), command_context_for_engine(engine_));
             if (result) {
                 // Handle special result types
                 if (result->status == CommandStatus::Injected) {
@@ -819,3 +851,12 @@ public:
 }
 
 } // namespace cc::ui
+
+extern "C" int cc_ui_run_app_bridge(
+    cc::core::QueryEngine* engine,
+    cc::commands::AppCommandRegistry* cmd_registry,
+    cc::utils::SessionStorage* storage,
+    cc::hooks::ToolPermissionHook* permission_hook
+) {
+    return cc::ui::RunApp(*engine, *cmd_registry, *storage, permission_hook);
+}

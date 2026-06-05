@@ -49,6 +49,7 @@ struct ServerConfig {
     std::string url;                 // Server URL for SSE/HTTP
     std::map<std::string, std::string> headers; // Custom HTTP headers
     std::string headers_helper;      // Optional command that prints JSON headers
+    std::optional<McpOAuthConfig> oauth; // OAuth/XAA settings for remote servers
 
     // Behavior settings
     std::chrono::milliseconds timeout{30000};

@@ -24,6 +24,7 @@ import cc.services.mcp.types;
 import cc.services.mcp.client;
 import cc.services.mcp.config;
 import cc.services.mcp.headers_helper;
+import cc.services.mcp.auth;
 import cc.utils.json;
 
 export namespace cc::services::mcp {
@@ -438,15 +439,37 @@ private:
         
         // Connect based on transport type
         McpResult<void> connect_result;
-        auto remote_headers = [&] {
-            auto headers = get_mcp_server_headers(
-                server_name,
-                server_config.headers,
-                server_config.url,
-                server_config.headers_helper
-            );
-            return headers;
-        };
+	auto remote_headers = [&] {
+	    auto headers = get_mcp_server_headers(
+	        server_name,
+	        server_config.headers,
+	        server_config.url,
+	        server_config.headers_helper
+	    );
+	    McpServerConfig auth_config;
+	    switch (server_config.transport) {
+	        case TransportType::Sse:
+	            auth_config.type = "sse";
+	            break;
+	        case TransportType::Http:
+	        case TransportType::StreamableHttp:
+	            auth_config.type = "http";
+	            break;
+	        case TransportType::Stdio:
+	        default:
+	            auth_config.type = "stdio";
+	            break;
+	    }
+	    auth_config.url = server_config.url;
+	    for (const auto& [key, value] : server_config.headers) {
+	        auth_config.headers[key] = value;
+	    }
+	    auth_config.oauth = server_config.oauth;
+	    if (auto token = load_server_access_token_from_local_storage(server_name, auth_config)) {
+	        headers["Authorization"] = "Bearer " + *token;
+	    }
+	    return headers;
+	};
         
         switch (server_config.transport) {
             case TransportType::Stdio:

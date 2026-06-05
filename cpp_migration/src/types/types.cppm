@@ -143,9 +143,23 @@ struct AssistantMessage : MessageBase {
 };
 
 /// System prompt message
+struct CompactPreservedSegment {
+    std::string head_uuid;
+    std::string anchor_uuid;
+    std::string tail_uuid;
+};
+
+struct CompactMetadata {
+    std::string trigger;
+    std::uint32_t pre_tokens = 0;
+    std::optional<CompactPreservedSegment> preserved_segment;
+};
+
 struct SystemMessage : MessageBase {
     static constexpr Role role = Role::System;
     std::optional<std::string> cache_control; // Cache policy for this prompt
+    std::optional<std::string> subtype;       // e.g. compact_boundary
+    std::optional<CompactMetadata> compact_metadata;
 };
 
 /// Tool invocation message (assistant requesting tool use)

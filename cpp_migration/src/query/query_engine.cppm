@@ -497,7 +497,7 @@ public:
 
     /// Compact conversation history to fit within context window.
     /// Preserves system prompt and recent messages, summarizes middle.
-    [[nodiscard]] cc::utils::VoidResult compact_conversation() {
+    [[nodiscard]] cc::utils::VoidResult compact_conversation(std::string_view trigger = "manual") {
         std::lock_guard lock(conversation_mutex_);
         if (conversation_.size() <= 4) {
             return {};  // Nothing to compact
@@ -507,24 +507,48 @@ public:
         constexpr std::size_t keep_recent = 6;
         if (conversation_.size() <= keep_recent + 1) return {};
 
+        const auto pre_tokens = estimate_conversation_tokens_locked();
         auto recent_start = conversation_.end() - static_cast<std::ptrdiff_t>(keep_recent);
         auto summary_text = build_compaction_summary(
             conversation_.begin() + 1,
             recent_start);
 
-        // Replace middle section with a summary marker
+        std::vector<Message> retained_recent;
+        retained_recent.reserve(keep_recent);
+        for (auto it = recent_start; it != conversation_.end(); ++it) {
+            if (is_compact_boundary_message(*it)) continue;
+            retained_recent.push_back(*it);
+        }
+
+        const auto summary_id = generate_id();
+        CompactMetadata metadata{
+            .trigger = std::string(trigger),
+            .pre_tokens = pre_tokens,
+            .preserved_segment = compact_preserved_segment(retained_recent.begin(), retained_recent.end(), summary_id),
+        };
+
+        // Replace middle section with a compact boundary and summary marker.
         std::vector<Message> compacted;
         compacted.push_back(conversation_.front());  // System prompt
 
-        // Insert compaction marker as user message
+        SystemMessage boundary{};
+        boundary.id.value = generate_id();
+        boundary.timestamp = std::chrono::system_clock::now();
+        boundary.subtype = "compact_boundary";
+        boundary.compact_metadata = std::move(metadata);
+        boundary.content.push_back(TextBlock{std::format(
+            "Conversation compacted by {} compact.",
+            trigger.empty() ? std::string_view{"manual"} : trigger)});
+        compacted.push_back(Message{std::move(boundary)});
+
         UserMessage marker{};
-        marker.id.value = generate_id();
+        marker.id.value = summary_id;
         marker.timestamp = std::chrono::system_clock::now();
         marker.content.push_back(TextBlock{std::move(summary_text)});
         compacted.push_back(Message{std::move(marker)});
 
-        // Keep recent messages
-        compacted.insert(compacted.end(), recent_start, conversation_.end());
+        // Keep recent messages, dropping stale compact boundaries from prior compaction chains.
+        compacted.insert(compacted.end(), retained_recent.begin(), retained_recent.end());
 
         conversation_ = std::move(compacted);
         return {};
@@ -691,7 +715,7 @@ private:
         }
         // Lock released — safe to call compact which re-acquires
         if (should_compact) {
-            (void)compact_conversation();
+            (void)compact_conversation("auto");
         }
     }
 
@@ -739,6 +763,29 @@ private:
         }, message);
         if (text.empty()) return "[empty message]";
         return truncate_for_compaction(std::move(text), 300);
+    }
+
+    [[nodiscard]] static bool is_compact_boundary_message(const Message& message) {
+        const auto* system = std::get_if<SystemMessage>(&message);
+        return system && system->subtype == "compact_boundary";
+    }
+
+    [[nodiscard]] static std::string message_id_value(const Message& message) {
+        return std::visit([](const auto& value) {
+            return value.id.value;
+        }, message);
+    }
+
+    [[nodiscard]] static std::optional<CompactPreservedSegment> compact_preserved_segment(
+        std::vector<Message>::const_iterator first,
+        std::vector<Message>::const_iterator last,
+        std::string_view anchor_id) {
+        if (first == last) return std::nullopt;
+        return CompactPreservedSegment{
+            .head_uuid = message_id_value(*first),
+            .anchor_uuid = std::string(anchor_id),
+            .tail_uuid = message_id_value(*(last - 1)),
+        };
     }
 
     [[nodiscard]] static std::string build_compaction_summary(
@@ -926,8 +973,11 @@ private:
         {
             std::lock_guard lock(conversation_mutex_);
             for (const auto& msg : conversation_) {
-                // Extract system prompt from first SystemMessage
                 if (const auto* sys = std::get_if<SystemMessage>(&msg)) {
+                    if (sys->subtype == "compact_boundary") {
+                        continue;
+                    }
+                    // Extract system prompt from first non-boundary SystemMessage.
                     if (system_prompt_text.empty()) {
                         for (const auto& block : sys->content) {
                             if (const auto* tb = std::get_if<TextBlock>(&block)) {
@@ -1185,7 +1235,7 @@ private:
                 (res->status == 413 ||
                  res->body.find("prompt_too_long") != std::string::npos ||
                  res->body.find("Prompt is too long") != std::string::npos)) {
-                auto compact_result = compact_conversation();
+                auto compact_result = compact_conversation("auto");
                 if (compact_result) {
                     // Retry once after compaction
                     return send_request(options, /*is_retry_after_compact=*/true);
@@ -1745,6 +1795,10 @@ private:
 
     /// Estimate total tokens currently consumed by conversation
     [[nodiscard]] std::uint32_t estimate_conversation_tokens() const noexcept {
+        return estimate_conversation_tokens_locked();
+    }
+
+    [[nodiscard]] std::uint32_t estimate_conversation_tokens_locked() const noexcept {
         // Rough estimate: ~4 chars per token for English text
         std::uint32_t total_chars = 0;
         for (const auto& msg : conversation_) {

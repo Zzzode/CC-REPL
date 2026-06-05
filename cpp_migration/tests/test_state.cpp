@@ -372,6 +372,56 @@ TEST(SessionHistory, LoadAllRestoresSavedMessages) {
     std::filesystem::remove(storage_path);
 }
 
+TEST(SessionHistory, LoadAllRestoresCompactBoundaryMetadata) {
+    auto storage_path = std::filesystem::temp_directory_path() /
+        "cc_repl_history_compact_boundary_test.json";
+    std::filesystem::remove(storage_path);
+
+    {
+        cc::core::ConversationStore store(storage_path.string());
+        auto* conversation = store.create_conversation();
+        conversation->add_message(cc::core::SystemMessage{
+            cc::core::MessageBase{
+                cc::core::MessageId{"compact-boundary-1"},
+                std::chrono::system_clock::now(),
+                {cc::core::TextBlock{"Conversation compacted."}}
+            },
+            std::nullopt,
+            std::string{"compact_boundary"},
+            cc::core::CompactMetadata{
+                .trigger = "manual",
+                .pre_tokens = 1234,
+                .preserved_segment = cc::core::CompactPreservedSegment{
+                    .head_uuid = "head-message",
+                    .anchor_uuid = "summary-message",
+                    .tail_uuid = "tail-message",
+                },
+            },
+        });
+        ASSERT_TRUE(store.save_all().has_value());
+    }
+
+    cc::core::ConversationStore loaded(storage_path.string());
+    ASSERT_TRUE(loaded.load_all().has_value());
+    auto* active = loaded.get_active_conversation();
+    auto messages = active->get_messages();
+
+    ASSERT_EQ(messages.size(), 1u);
+    ASSERT_TRUE(std::holds_alternative<cc::core::SystemMessage>(messages.front()));
+    const auto& boundary = std::get<cc::core::SystemMessage>(messages.front());
+    ASSERT_TRUE(boundary.subtype.has_value());
+    EXPECT_EQ(*boundary.subtype, "compact_boundary");
+    ASSERT_TRUE(boundary.compact_metadata.has_value());
+    EXPECT_EQ(boundary.compact_metadata->trigger, "manual");
+    EXPECT_EQ(boundary.compact_metadata->pre_tokens, 1234u);
+    ASSERT_TRUE(boundary.compact_metadata->preserved_segment.has_value());
+    EXPECT_EQ(boundary.compact_metadata->preserved_segment->head_uuid, "head-message");
+    EXPECT_EQ(boundary.compact_metadata->preserved_segment->anchor_uuid, "summary-message");
+    EXPECT_EQ(boundary.compact_metadata->preserved_segment->tail_uuid, "tail-message");
+
+    std::filesystem::remove(storage_path);
+}
+
 TEST(SessionHistory, LoadAllRestoresImageAndDocumentBlocks) {
     auto storage_path = std::filesystem::temp_directory_path() /
         "cc_repl_history_rich_content_test.json";

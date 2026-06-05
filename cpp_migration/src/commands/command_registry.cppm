@@ -190,7 +190,7 @@ public:
             return help;
         }
 
-        auto result = registry_.execute(parsed->raw);
+        auto result = registry_.execute(parsed->raw, ctx);
         if (!result) {
             auto fail = CommandResult::fail(std::format("Unknown command: /{}", parsed->name));
             record_history(parsed->raw, fail.status);

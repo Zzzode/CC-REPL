@@ -13,10 +13,16 @@ module;
 #include <algorithm>
 #include <span>
 #include <array>
+#include <cctype>
 #include <cstdlib>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <functional>
+#include <iostream>
+#include <sstream>
+#include <termios.h>
+#include <unistd.h>
 
 export module cc.commands.login;
 
@@ -28,6 +34,20 @@ import cc.constants.oauth;
 export namespace cc::commands {
 
 using namespace cc::core;
+
+using ApiKeyReader = std::function<std::expected<std::string, std::string>()>;
+
+namespace detail {
+inline std::optional<ApiKeyReader> api_key_reader_override;
+}
+
+inline void set_login_api_key_reader_for_testing(ApiKeyReader reader) {
+    detail::api_key_reader_override = std::move(reader);
+}
+
+inline void clear_login_api_key_reader_for_testing() {
+    detail::api_key_reader_override.reset();
+}
 
 /// Authentication method used for login
 enum class AuthMethod : std::uint8_t {
@@ -51,14 +71,14 @@ public:
         return CommandDefinition{
             .name = "login",
             .description = "Authenticate with Anthropic API",
-            .aliases = {"auth"},
             .args = {
                 CommandArg{.name = "method", .description = "oauth | apikey | status",
                            .type = ArgType::Choice, .required = false,
                            .choices = {"oauth", "apikey", "status"}},
             },
-            .hidden = false,
             .category = "auth",
+            .aliases = {"auth"},
+            .hidden = false,
         };
     }
 
@@ -179,6 +199,70 @@ private:
         return write_credential_file(body);
     }
 
+    [[nodiscard]] static std::string trim(std::string value) {
+        auto begin = std::ranges::find_if(value, [](unsigned char ch) {
+            return !std::isspace(ch);
+        });
+        auto end = std::find_if(value.rbegin(), value.rend(), [](unsigned char ch) {
+            return !std::isspace(ch);
+        }).base();
+        if (begin >= end) return {};
+        return std::string(begin, end);
+    }
+
+    [[nodiscard]] static std::expected<std::string, std::string> read_api_key_interactive() {
+        if (!::isatty(STDIN_FILENO)) {
+            return std::unexpected(
+                "Interactive API key entry requires a TTY. Set ANTHROPIC_API_KEY or rerun from an interactive terminal.");
+        }
+
+        std::cout << "Enter Anthropic API key: " << std::flush;
+
+        termios previous{};
+        if (::tcgetattr(STDIN_FILENO, &previous) != 0) {
+            return std::unexpected("Failed to read terminal settings for secure API key entry.");
+        }
+        termios hidden = previous;
+        hidden.c_lflag &= static_cast<tcflag_t>(~ECHO);
+        if (::tcsetattr(STDIN_FILENO, TCSAFLUSH, &hidden) != 0) {
+            return std::unexpected("Failed to disable terminal echo for secure API key entry.");
+        }
+
+        std::string key;
+        std::getline(std::cin, key);
+        auto restore_status = ::tcsetattr(STDIN_FILENO, TCSAFLUSH, &previous);
+        std::cout << '\n';
+        if (restore_status != 0) {
+            return std::unexpected("Failed to restore terminal echo after API key entry.");
+        }
+        if (!std::cin) {
+            return std::unexpected("Failed to read API key from terminal.");
+        }
+        return trim(std::move(key));
+    }
+
+    [[nodiscard]] static Result<CommandResult> persist_api_key(
+        std::string_view key,
+        std::string_view success_message,
+        AuthState& state
+    ) {
+        if (key.empty()) {
+            return std::unexpected(Error::make(
+                ErrorCode::AuthenticationFailed,
+                "API key cannot be empty."));
+        }
+        if (!key.starts_with("sk-")) {
+            return std::unexpected(Error::make(
+                ErrorCode::AuthenticationFailed,
+                "API key does not look like an Anthropic API key."));
+        }
+        auto saved = write_credentials("api_key", key);
+        if (!saved) return saved;
+        state.authenticated = true;
+        state.method = AuthMethod::ApiKey;
+        return CommandResult::success(std::string(success_message));
+    }
+
     [[nodiscard]] static Result<CommandResult> write_oauth_credentials(
         const cc::services::oauth::TokenPair& token) {
         auto expires_at = token.issued_at + std::chrono::seconds(token.expires_in);
@@ -276,19 +360,17 @@ private:
     [[nodiscard]] Result<CommandResult> start_apikey_flow() {
         if (const char* key = std::getenv("ANTHROPIC_API_KEY")) {
             std::string_view key_view(key);
-            if (!key_view.starts_with("sk-")) {
-                return std::unexpected(Error::make(ErrorCode::AuthenticationFailed,
-                    "ANTHROPIC_API_KEY does not look like an Anthropic API key."));
-            }
-            auto saved = write_credentials("api_key", key_view);
-            if (!saved) return saved;
-            state_.authenticated = true;
-            state_.method = AuthMethod::ApiKey;
-            return CommandResult::success("Authenticated with ANTHROPIC_API_KEY.");
+            return persist_api_key(key_view, "Authenticated with ANTHROPIC_API_KEY.", state_);
         }
-        return std::unexpected(Error::make(
-            ErrorCode::AuthenticationFailed,
-            "Secure interactive API key entry is not available in this native command path. Set ANTHROPIC_API_KEY and rerun /login apikey."));
+
+        auto reader = detail::api_key_reader_override.value_or(ApiKeyReader{read_api_key_interactive});
+        auto key = reader();
+        if (!key) {
+            return std::unexpected(Error::make(
+                ErrorCode::AuthenticationFailed,
+                key.error()));
+        }
+        return persist_api_key(*key, "Authenticated with API key.", state_);
     }
 };
 

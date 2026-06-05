@@ -132,11 +132,23 @@ struct NetworkSettings {
 };
 
 /// MCP (Model Context Protocol) server configuration
+struct McpOAuthConfig {
+    std::optional<std::string> auth_server_metadata_url;
+    std::optional<int> callback_port;
+    std::optional<std::string> client_id;
+    bool xaa = false;
+};
+
 struct McpServerConfig {
     std::string name;                              // Server identifier
     std::string command;                           // Launch command
     std::vector<std::string> args;                 // Command arguments
     std::unordered_map<std::string, std::string> env;  // Environment variables
+    std::string transport = "stdio";               // stdio, sse, or http
+    std::optional<std::string> url;                 // Remote MCP endpoint
+    std::unordered_map<std::string, std::string> headers; // Static HTTP headers
+    std::optional<std::string> headers_helper;      // Command that emits dynamic headers JSON
+    std::optional<McpOAuthConfig> oauth;            // Remote OAuth/XAA settings
 };
 
 /// Top-level settings aggregating all configuration sections
@@ -432,8 +444,14 @@ private:
 
                 McpServerConfig cfg;
                 cfg.name = std::string(key.as_str());
+                cfg.transport = json_string(val, "type")
+                    .or_else([&] { return json_string(val, "transport"); })
+                    .value_or(val.get("url").is_str() ? std::string("http") : std::string("stdio"));
                 if (auto cmd = val.get("command"); cmd.is_str()) {
                     cfg.command = std::string(cmd.as_str());
+                }
+                if (auto url = val.get("url"); url.is_str()) {
+                    cfg.url = std::string(url.as_str());
                 }
                 if (auto args = val.get("args"); args.is_arr()) {
                     for (std::size_t j = 0; j < args.size(); ++j) {
@@ -448,6 +466,31 @@ private:
                             cfg.env[std::string(ek.as_str())] = std::string(ev.as_str());
                         }
                     });
+                }
+                if (auto headers = val.get("headers"); headers.is_obj()) {
+                    headers.iter_obj([&](auto hk, auto hv) {
+                        if (hk.is_str() && hv.is_str()) {
+                            cfg.headers[std::string(hk.as_str())] = std::string(hv.as_str());
+                        }
+                    });
+                }
+                cfg.headers_helper = json_string(val, "headersHelper")
+                    .or_else([&] { return json_string(val, "headers_helper"); });
+                if (auto oauth = val.get("oauth"); oauth.is_obj()) {
+                    McpOAuthConfig oauth_cfg;
+                    oauth_cfg.auth_server_metadata_url = json_string(oauth, "authServerMetadataUrl")
+                        .or_else([&] { return json_string(oauth, "auth_server_metadata_url"); });
+                    if (auto callback_port = oauth.get("callbackPort"); callback_port.is_num()) {
+                        oauth_cfg.callback_port = static_cast<int>(callback_port.as_int());
+                    } else if (auto callback_port = oauth.get("callback_port"); callback_port.is_num()) {
+                        oauth_cfg.callback_port = static_cast<int>(callback_port.as_int());
+                    }
+                    oauth_cfg.client_id = json_string(oauth, "clientId")
+                        .or_else([&] { return json_string(oauth, "client_id"); });
+                    if (auto xaa = oauth.get("xaa"); xaa.is_bool()) {
+                        oauth_cfg.xaa = xaa.as_bool();
+                    }
+                    cfg.oauth = std::move(oauth_cfg);
                 }
                 settings_.mcp_servers.push_back(std::move(cfg));
             });
@@ -573,31 +616,97 @@ private:
         json += "]";
     }
 
+    static void append_string_map(
+        std::string& json,
+        const std::unordered_map<std::string, std::string>& values
+    ) {
+        json += "{";
+        std::size_t index = 0;
+        for (const auto& [key, value] : values) {
+            if (index++ > 0) json += ", ";
+            json += std::format("\"{}\": \"{}\"", escape_json(key), escape_json(value));
+        }
+        json += "}";
+    }
+
     void append_mcp_servers(std::string& json) const {
         json += "{";
         if (!settings_.mcp_servers.empty()) json += "\n";
         for (std::size_t i = 0; i < settings_.mcp_servers.size(); ++i) {
             const auto& server = settings_.mcp_servers[i];
             json += std::format("    \"{}\": {{\n", escape_json(server.name));
-            json += std::format("      \"command\": \"{}\"", escape_json(server.command));
+            bool wrote_field = false;
+            auto add_field = [&](std::string field) {
+                if (wrote_field) json += ",\n";
+                json += "      ";
+                json += field;
+                wrote_field = true;
+            };
+
+            add_field(std::format("\"type\": \"{}\"",
+                escape_json(server.transport.empty() ? std::string_view("stdio") : std::string_view(server.transport))));
+            if (!server.command.empty()) {
+                add_field(std::format("\"command\": \"{}\"", escape_json(server.command)));
+            }
             if (!server.args.empty()) {
-                json += ",\n      \"args\": ";
-                append_string_array(json, server.args);
+                std::string args_json = "\"args\": ";
+                append_string_array(args_json, server.args);
+                add_field(std::move(args_json));
             }
             if (!server.env.empty()) {
-                json += ",\n      \"env\": {";
-                std::size_t env_index = 0;
-                for (const auto& [key, value] : server.env) {
-                    if (env_index++ > 0) json += ", ";
-                    json += std::format("\"{}\": \"{}\"", escape_json(key), escape_json(value));
+                std::string env_json = "\"env\": ";
+                append_string_map(env_json, server.env);
+                add_field(std::move(env_json));
+            }
+            if (server.url) {
+                add_field(std::format("\"url\": \"{}\"", escape_json(*server.url)));
+            }
+            if (!server.headers.empty()) {
+                std::string headers_json = "\"headers\": ";
+                append_string_map(headers_json, server.headers);
+                add_field(std::move(headers_json));
+            }
+            if (server.headers_helper) {
+                add_field(std::format("\"headersHelper\": \"{}\"", escape_json(*server.headers_helper)));
+            }
+            if (server.oauth) {
+                std::string oauth_json = "\"oauth\": {";
+                bool wrote_oauth = false;
+                auto add_oauth = [&](std::string field) {
+                    if (wrote_oauth) oauth_json += ", ";
+                    oauth_json += field;
+                    wrote_oauth = true;
+                };
+                if (server.oauth->auth_server_metadata_url) {
+                    add_oauth(std::format("\"authServerMetadataUrl\": \"{}\"",
+                        escape_json(*server.oauth->auth_server_metadata_url)));
                 }
-                json += "}";
+                if (server.oauth->callback_port) {
+                    add_oauth(std::format("\"callbackPort\": {}", *server.oauth->callback_port));
+                }
+                if (server.oauth->client_id) {
+                    add_oauth(std::format("\"clientId\": \"{}\"", escape_json(*server.oauth->client_id)));
+                }
+                if (server.oauth->xaa) {
+                    add_oauth("\"xaa\": true");
+                }
+                oauth_json += "}";
+                add_field(std::move(oauth_json));
             }
             json += "\n    }";
             if (i + 1 < settings_.mcp_servers.size()) json += ",";
             json += "\n";
         }
         json += settings_.mcp_servers.empty() ? "}" : "  }";
+    }
+
+    [[nodiscard]] static std::optional<std::string> json_string(
+        cc::utils::json::JsonVal value,
+        std::string_view key
+    ) {
+        auto child = value.get(key);
+        if (!child.is_str()) return std::nullopt;
+        return std::string(child.as_str());
     }
 
     /// Get default global config path (~/.config/claude/config.json)

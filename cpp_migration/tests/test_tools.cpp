@@ -11,6 +11,7 @@
 #include <fstream>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -26,8 +27,10 @@ import cc.tools.agent_runtime;
 import cc.tools.notebook;
 import cc.tools.registry;
 import cc.tools.runtime_registry;
+import cc.tools.team;
 import cc.tools.tool;
 import cc.utils.json;
+import cc.services.mcp.types;
 
 namespace fs = std::filesystem;
 
@@ -65,6 +68,72 @@ struct EnvironmentGuard {
         }
     }
 };
+
+struct EnvironmentUnsetGuard {
+    std::string name;
+    std::optional<std::string> previous;
+
+    explicit EnvironmentUnsetGuard(std::string key) : name(std::move(key)) {
+        if (const char* existing = std::getenv(name.c_str())) {
+            previous = existing;
+        }
+        unsetenv(name.c_str());
+    }
+
+    ~EnvironmentUnsetGuard() {
+        if (previous) {
+            setenv(name.c_str(), previous->c_str(), 1);
+        } else {
+            unsetenv(name.c_str());
+        }
+    }
+};
+
+struct RuntimeComputerUseProviderGuard {
+    ~RuntimeComputerUseProviderGuard() {
+        cc::tools::clear_runtime_computer_use_capture_provider_for_testing();
+        cc::tools::clear_runtime_computer_use_input_provider_for_testing();
+    }
+};
+
+std::optional<std::string> extract_background_task_id(std::string_view text) {
+    constexpr std::string_view marker = "Task ID: ";
+    const auto start = text.find(marker);
+    if (start == std::string_view::npos) {
+        return std::nullopt;
+    }
+    const auto value_start = start + marker.size();
+    const auto value_end = text.find_first_of("\r\n", value_start);
+    return std::string(text.substr(value_start, value_end == std::string_view::npos
+        ? std::string_view::npos
+        : value_end - value_start));
+}
+
+std::optional<std::string> extract_background_pid(std::string_view text) {
+    constexpr std::string_view marker = "PID: ";
+    const auto start = text.find(marker);
+    if (start == std::string_view::npos) {
+        return std::nullopt;
+    }
+    const auto value_start = start + marker.size();
+    const auto value_end = text.find_first_of("\r\n", value_start);
+    return std::string(text.substr(value_start, value_end == std::string_view::npos
+        ? std::string_view::npos
+        : value_end - value_start));
+}
+
+std::string shell_quote_for_test(std::string_view value) {
+    std::string out = "'";
+    for (char ch : value) {
+        if (ch == '\'') {
+            out += "'\\''";
+        } else {
+            out += ch;
+        }
+    }
+    out += "'";
+    return out;
+}
 
 } // namespace
 
@@ -144,6 +213,110 @@ TEST(Tools, WebBrowserToolUsesScreenshotBackend) {
     EXPECT_EQ(result->media_type, std::optional<std::string>{"image/png"});
 }
 
+TEST(Tools, WebBrowserToolRejectsInteractiveActionsWithoutAutomationBackend) {
+    cc::tools::WebBrowserTool tool;
+
+    auto click = tool.execute(cc::tools::BrowserRequest{
+        .action = cc::tools::BrowserAction::Click,
+        .selector = "#submit",
+    });
+    ASSERT_FALSE(click.has_value());
+    EXPECT_EQ(click.error(), cc::tools::BrowserError::BrowserNotAvailable);
+
+    auto fill = tool.execute(cc::tools::BrowserRequest{
+        .action = cc::tools::BrowserAction::FillForm,
+        .form_fields = {{
+            .selector = "#email",
+            .value = "ada@example.test",
+        }},
+    });
+    ASSERT_FALSE(fill.has_value());
+    EXPECT_EQ(fill.error(), cc::tools::BrowserError::BrowserNotAvailable);
+}
+
+TEST(Tools, WebBrowserToolUsesAutomationBackendForClickAndFillForm) {
+    std::vector<cc::tools::BrowserRequest> requests;
+    cc::tools::WebBrowserTool tool(
+        {},
+        [&](const cc::tools::BrowserRequest& request,
+            const cc::tools::PageState&) -> std::expected<cc::tools::BrowserResult, cc::tools::BrowserError> {
+            requests.push_back(request);
+            return cc::tools::BrowserResult{
+                .content = std::format("automated {}", cc::tools::action_name(request.action)),
+            };
+        });
+
+    auto click = tool.execute(cc::tools::BrowserRequest{
+        .action = cc::tools::BrowserAction::Click,
+        .selector = "#submit",
+    });
+    ASSERT_TRUE(click.has_value());
+    EXPECT_EQ(click->content, "automated click");
+
+    auto fill = tool.execute(cc::tools::BrowserRequest{
+        .action = cc::tools::BrowserAction::FillForm,
+        .form_fields = {{
+            .selector = "#email",
+            .value = "ada@example.test",
+        }},
+    });
+    ASSERT_TRUE(fill.has_value());
+    EXPECT_EQ(fill->content, "automated fill_form");
+
+    ASSERT_EQ(requests.size(), 2u);
+    ASSERT_TRUE(requests[0].selector.has_value());
+    EXPECT_EQ(*requests[0].selector, "#submit");
+    ASSERT_EQ(requests[1].form_fields.size(), 1u);
+    EXPECT_EQ(requests[1].form_fields.front().selector, "#email");
+    EXPECT_EQ(requests[1].form_fields.front().value, "ada@example.test");
+}
+
+TEST(Tools, RuntimeWebBrowserUsesAutomationCommandBackend) {
+    EnvironmentGuard automation_guard(
+        "CC_REPL_BROWSER_AUTOMATION_CMD",
+        "printf '%s' '{\"content\":\"clicked via command\"}' # {request}"
+    );
+
+    cc::core::ToolRegistry registry;
+    cc::tools::register_runtime_tools(registry);
+    auto result = registry.execute("web_browser", cc::core::ToolInput::from_json(R"({
+      "action": "click",
+      "selector": "#submit"
+    })"));
+
+    ASSERT_TRUE(result.has_value());
+    EXPECT_FALSE(result->is_error);
+    ASSERT_FALSE(result->content.empty());
+    EXPECT_NE(result->content.front().text.find("clicked via command"), std::string::npos);
+}
+
+TEST(Tools, RuntimeWebBrowserKeepsPageStateAcrossCalls) {
+    EnvironmentUnsetGuard clear_automation_guard("CC_REPL_BROWSER_AUTOMATION_CMD");
+    cc::core::ToolRegistry registry;
+    cc::tools::register_runtime_tools(registry);
+
+    {
+        EnvironmentGuard automation_guard(
+            "CC_REPL_BROWSER_AUTOMATION_CMD",
+            "printf '%s' '{\"content\":\"navigated\",\"title\":\"Runtime Browser State\",\"url\":\"https://example.test\"}' # {request}"
+        );
+        auto navigate = registry.execute("web_browser", cc::core::ToolInput::from_json(R"({
+          "action": "navigate",
+          "url": "https://example.test"
+        })"));
+        ASSERT_TRUE(navigate.has_value());
+        ASSERT_FALSE(navigate->is_error);
+    }
+
+    auto title = registry.execute("web_browser", cc::core::ToolInput::from_json(R"({
+      "action": "get_title"
+    })"));
+    ASSERT_TRUE(title.has_value());
+    EXPECT_FALSE(title->is_error);
+    ASSERT_FALSE(title->content.empty());
+    EXPECT_EQ(title->content.front().text, "Runtime Browser State");
+}
+
 TEST(Tools, ComputerUseManagerUsesCaptureProviderForScreenshot) {
     using namespace cc::core::computer_use;
 
@@ -180,6 +353,162 @@ TEST(Tools, ComputerUseManagerUsesCaptureProviderForScreenshot) {
     EXPECT_EQ(result.screenshot->width, 3u);
     EXPECT_EQ(result.screenshot->height, 4u);
     EXPECT_EQ(result.screenshot->format, "rgba");
+}
+
+TEST(Tools, RuntimeComputerUseScreenshotReturnsImageContentFromCaptureProvider) {
+    using namespace cc::core::computer_use;
+
+    RuntimeComputerUseProviderGuard guard;
+    bool saw_region = false;
+    cc::tools::set_runtime_computer_use_capture_provider_for_testing(
+        [&](std::optional<Rect> region) -> std::expected<ImageData, std::string> {
+            saw_region = region.has_value();
+            if (!region) return std::unexpected("missing region");
+            EXPECT_EQ(region->x, 5);
+            EXPECT_EQ(region->y, 6);
+            EXPECT_EQ(region->width, 2u);
+            EXPECT_EQ(region->height, 2u);
+            return ImageData{
+                .pixels = {1, 2, 3, 4},
+                .width = 2,
+                .height = 2,
+                .format = "rgba",
+            };
+        });
+
+    cc::core::ToolRegistry registry;
+    cc::tools::register_runtime_tools(registry);
+    auto result = registry.execute("computer_use", cc::core::ToolInput::from_json(R"({
+      "action": "screenshot",
+      "x": 5,
+      "y": 6,
+      "width": 2,
+      "height": 2
+    })"));
+
+    ASSERT_TRUE(result.has_value());
+    EXPECT_FALSE(result->is_error);
+    EXPECT_TRUE(saw_region);
+    ASSERT_EQ(result->content.size(), 2u);
+    EXPECT_NE(result->content[0].text.find("Captured screenshot 2x2."), std::string::npos);
+    EXPECT_EQ(result->content[1].format, std::optional<std::string>{"image"});
+    EXPECT_EQ(result->content[1].media_type, std::optional<std::string>{"image/rgba"});
+    EXPECT_EQ(result->content[1].data, std::optional<std::string>{"AQIDBA=="});
+}
+
+TEST(Tools, ComputerUseManagerFailsInputActionsWithoutInputProvider) {
+    using namespace cc::core::computer_use;
+
+    ComputerUseManager manager;
+    auto result = manager.execute_action(ComputerAction{
+        .type = ActionType::MouseClick,
+        .position = Point{.x = 10, .y = 20},
+        .drag_end = std::nullopt,
+        .text = std::nullopt,
+        .region = std::nullopt,
+        .keys = {},
+    });
+
+    EXPECT_FALSE(result.success);
+    EXPECT_EQ(result.error_message, "Computer input control not available");
+}
+
+TEST(Tools, NativeComputerUseInputProviderHonorsDisableEnv) {
+    EnvironmentGuard guard("CC_REPL_DISABLE_NATIVE_COMPUTER_INPUT", "1");
+    auto provider = cc::core::computer_use::make_native_input_provider();
+    EXPECT_FALSE(static_cast<bool>(provider));
+}
+
+TEST(Tools, NativeComputerUseInputProviderIsAvailableOnApple) {
+    if (const char* disabled = std::getenv("CC_REPL_DISABLE_NATIVE_COMPUTER_INPUT");
+        disabled && std::string_view(disabled) == "1") {
+        GTEST_SKIP() << "native computer input is disabled by environment";
+    }
+    auto provider = cc::core::computer_use::make_native_input_provider();
+#ifdef __APPLE__
+    EXPECT_TRUE(static_cast<bool>(provider));
+#else
+    EXPECT_FALSE(static_cast<bool>(provider));
+#endif
+}
+
+TEST(Tools, RuntimeComputerUseDispatchesInputActionsToProvider) {
+    using namespace cc::core::computer_use;
+
+    RuntimeComputerUseProviderGuard guard;
+    std::vector<ComputerAction> actions;
+    cc::tools::set_runtime_computer_use_input_provider_for_testing(
+        [&](const ComputerAction& action) -> std::expected<void, std::string> {
+            actions.push_back(action);
+            return {};
+        });
+
+    cc::core::ToolRegistry registry;
+    cc::tools::register_runtime_tools(registry);
+
+    auto click = registry.execute("computer_use", cc::core::ToolInput::from_json(R"({
+      "action": "click",
+      "x": 11,
+      "y": 12
+    })"));
+    ASSERT_TRUE(click.has_value());
+    EXPECT_FALSE(click->is_error);
+
+    auto typed = registry.execute("computer_use", cc::core::ToolInput::from_json(R"({
+      "action": "type",
+      "text": "hello"
+    })"));
+    ASSERT_TRUE(typed.has_value());
+    EXPECT_FALSE(typed->is_error);
+
+    auto hotkey = registry.execute("computer_use", cc::core::ToolInput::from_json(R"({
+      "action": "hotkey",
+      "keys": ["cmd", "k"]
+    })"));
+    ASSERT_TRUE(hotkey.has_value());
+    EXPECT_FALSE(hotkey->is_error);
+
+    auto scroll = registry.execute("computer_use", cc::core::ToolInput::from_json(R"({
+      "action": "scroll",
+      "x": 0,
+      "y": -3
+    })"));
+    ASSERT_TRUE(scroll.has_value());
+    EXPECT_FALSE(scroll->is_error);
+
+    ASSERT_EQ(actions.size(), 4u);
+    EXPECT_EQ(actions[0].type, ActionType::MouseClick);
+    ASSERT_TRUE(actions[0].position.has_value());
+    EXPECT_EQ(actions[0].position->x, 11);
+    EXPECT_EQ(actions[0].position->y, 12);
+    EXPECT_EQ(actions[1].type, ActionType::KeyType);
+    EXPECT_EQ(actions[1].text, std::optional<std::string>{"hello"});
+    EXPECT_EQ(actions[2].type, ActionType::KeyHotkey);
+    ASSERT_EQ(actions[2].keys.size(), 2u);
+    EXPECT_EQ(actions[2].keys[0], "cmd");
+    EXPECT_EQ(actions[2].keys[1], "k");
+    EXPECT_EQ(actions[3].type, ActionType::Scroll);
+    ASSERT_TRUE(actions[3].position.has_value());
+    EXPECT_EQ(actions[3].position->x, 0);
+    EXPECT_EQ(actions[3].position->y, -3);
+}
+
+TEST(Tools, RuntimeComputerUseRejectsInputActionsWithoutProvider) {
+    RuntimeComputerUseProviderGuard guard;
+    EnvironmentGuard disable_native_input("CC_REPL_DISABLE_NATIVE_COMPUTER_INPUT", "1");
+
+    cc::core::ToolRegistry registry;
+    cc::tools::register_runtime_tools(registry);
+    auto result = registry.execute("computer_use", cc::core::ToolInput::from_json(R"({
+      "action": "click",
+      "x": 1,
+      "y": 2
+    })"));
+
+    ASSERT_TRUE(result.has_value());
+    EXPECT_TRUE(result->is_error);
+    ASSERT_FALSE(result->content.empty());
+    EXPECT_NE(result->content.front().text.find("Computer input control not available"), std::string::npos);
 }
 
 TEST(Tools, LspToolUsesConfiguredLanguageServer) {
@@ -429,7 +758,7 @@ TEST(Tools, BashToolStartsBackgroundCommands) {
     fs::create_directories(root);
 
     cc::tools::BashTool tool;
-    auto input = std::format(R"({{"command":"sleep 0.1; printf done > background.txt","cwd":"{}","run_in_background":true}})",
+    auto input = std::format(R"({{"command":"printf start; sleep 0.1; printf done > background.txt; printf done","cwd":"{}","run_in_background":true}})",
         root.string());
     auto result = tool.execute(cc::core::ToolInput::from_json(input));
 
@@ -437,6 +766,8 @@ TEST(Tools, BashToolStartsBackgroundCommands) {
     EXPECT_FALSE(result->is_error);
     ASSERT_FALSE(result->content.empty());
     EXPECT_NE(result->content.front().text.find("Background task started"), std::string::npos);
+    auto task_id = extract_background_task_id(result->content.front().text);
+    ASSERT_TRUE(task_id.has_value()) << result->content.front().text;
     EXPECT_EQ(result->content.front().text.find("coming soon"), std::string::npos);
 
     const auto output_path = root / "background.txt";
@@ -445,7 +776,117 @@ TEST(Tools, BashToolStartsBackgroundCommands) {
     }
 
     EXPECT_TRUE(fs::exists(output_path));
+
+    cc::core::ToolRegistry registry;
+    cc::tools::register_runtime_tools(registry);
+    std::string task_output;
+    for (int attempt = 0; attempt < 20; ++attempt) {
+        auto output = registry.execute("task_output", cc::core::ToolInput::from_json(
+            std::format(R"({{"task_id":"{}"}})", *task_id)));
+        ASSERT_TRUE(output.has_value());
+        ASSERT_FALSE(output->content.empty());
+        task_output = output->content.front().text;
+        if (task_output.find("start") != std::string::npos &&
+            task_output.find("done") != std::string::npos) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    EXPECT_NE(task_output.find("Task: " + *task_id), std::string::npos);
+    EXPECT_NE(task_output.find("Output:"), std::string::npos);
+    EXPECT_NE(task_output.find("start"), std::string::npos);
+    EXPECT_NE(task_output.find("done"), std::string::npos);
+
     fs::remove_all(root);
+}
+
+TEST(Tools, TaskStopStopsBackgroundBashCommands) {
+    cc::tools::BashTool tool;
+    auto result = tool.execute(cc::core::ToolInput::from_json(R"({
+      "command": "trap 'printf stopped; exit 0' TERM; printf ready; sleep 5",
+      "run_in_background": true
+    })"));
+
+    ASSERT_TRUE(result.has_value());
+    ASSERT_FALSE(result->content.empty());
+    auto task_id = extract_background_task_id(result->content.front().text);
+    ASSERT_TRUE(task_id.has_value()) << result->content.front().text;
+
+    cc::core::ToolRegistry registry;
+    cc::tools::register_runtime_tools(registry);
+    for (int attempt = 0; attempt < 20; ++attempt) {
+        auto output = registry.execute("task_output", cc::core::ToolInput::from_json(
+            std::format(R"({{"task_id":"{}"}})", *task_id)));
+        ASSERT_TRUE(output.has_value());
+        ASSERT_FALSE(output->content.empty());
+        if (output->content.front().text.find("ready") != std::string::npos) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+
+    auto stopped = registry.execute("task_stop", cc::core::ToolInput::from_json(
+        std::format(R"({{"task_id":"{}"}})", *task_id)));
+    ASSERT_TRUE(stopped.has_value());
+    EXPECT_FALSE(stopped->is_error);
+    ASSERT_FALSE(stopped->content.empty());
+    EXPECT_NE(stopped->content.front().text.find("Status: stopped"), std::string::npos);
+
+    auto output = registry.execute("task_output", cc::core::ToolInput::from_json(
+        std::format(R"({{"task_id":"{}"}})", *task_id)));
+    ASSERT_TRUE(output.has_value());
+    EXPECT_FALSE(output->is_error);
+    ASSERT_FALSE(output->content.empty());
+    EXPECT_NE(output->content.front().text.find("Status: stopped"), std::string::npos);
+    EXPECT_NE(output->content.front().text.find("Output:"), std::string::npos);
+}
+
+TEST(Tools, TaskOutputAndStopAcceptBackgroundProcessPid) {
+    cc::tools::BashTool tool;
+    auto result = tool.execute(cc::core::ToolInput::from_json(R"({
+      "command": "trap 'printf stopped-by-pid; exit 0' TERM; printf pid-ready; sleep 5",
+      "run_in_background": true
+    })"));
+
+    ASSERT_TRUE(result.has_value());
+    ASSERT_FALSE(result->is_error);
+    ASSERT_FALSE(result->content.empty());
+    auto pid = extract_background_pid(result->content.front().text);
+    ASSERT_TRUE(pid.has_value()) << result->content.front().text;
+
+    cc::core::ToolRegistry registry;
+    cc::tools::register_runtime_tools(registry);
+    std::string output_text;
+    for (int attempt = 0; attempt < 20; ++attempt) {
+        auto output = registry.execute("task_output", cc::core::ToolInput::from_json(
+            std::format(R"({{"pid":{}}})", *pid)));
+        ASSERT_TRUE(output.has_value());
+        ASSERT_FALSE(output->is_error);
+        ASSERT_FALSE(output->content.empty());
+        output_text = output->content.front().text;
+        if (output_text.find("pid-ready") != std::string::npos) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+
+    EXPECT_NE(output_text.find("PID: " + *pid), std::string::npos);
+    EXPECT_NE(output_text.find("pid-ready"), std::string::npos);
+
+    auto stopped = registry.execute("task_stop", cc::core::ToolInput::from_json(
+        std::format(R"({{"pid":{}}})", *pid)));
+    ASSERT_TRUE(stopped.has_value());
+    EXPECT_FALSE(stopped->is_error);
+    ASSERT_FALSE(stopped->content.empty());
+    EXPECT_NE(stopped->content.front().text.find("Status: stopped"), std::string::npos);
+
+    auto final_output = registry.execute("task_output", cc::core::ToolInput::from_json(
+        std::format(R"({{"pid":{}}})", *pid)));
+    ASSERT_TRUE(final_output.has_value());
+    EXPECT_FALSE(final_output->is_error);
+    ASSERT_FALSE(final_output->content.empty());
+    EXPECT_NE(final_output->content.front().text.find("Status: stopped"), std::string::npos);
+    EXPECT_NE(final_output->content.front().text.find("Output:"), std::string::npos);
 }
 
 TEST(Tools, WebFetchParsesEscapedUrlFromJson) {
@@ -945,9 +1386,50 @@ TEST(Tools, AgentToolLoadsPluginAgentsAndPluginSkills) {
     const auto plugin_root = root / ".claude" / "plugins" / "plugin-fixture";
     fs::create_directories(plugin_root / "agents");
     fs::create_directories(plugin_root / "skills" / "review-skill");
+    const auto server_path = plugin_root / "server.js";
     {
         std::ofstream entry(plugin_root / "plugin.js");
         entry << "process.exit(0)\n";
+    }
+    {
+        std::ofstream server(server_path);
+        server << R"JS(
+const readline = require('node:readline');
+const rl = readline.createInterface({ input: process.stdin });
+
+function send(message) {
+  process.stdout.write(JSON.stringify(message) + '\n');
+}
+
+rl.on('line', line => {
+  const request = JSON.parse(line);
+  if (request.method === 'initialize') {
+    send({
+      jsonrpc: '2.0',
+      id: request.id,
+      result: {
+        protocolVersion: '2024-11-05',
+        capabilities: { tools: {} },
+        serverInfo: { name: process.env.SERVER_NAME || 'plugin-agent-fixture', version: '1.0.0' }
+      }
+    });
+    return;
+  }
+  if (request.method === 'tools/list') {
+    send({
+      jsonrpc: '2.0',
+      id: request.id,
+      result: {
+        tools: [{
+          name: process.env.TOOL_NAME || 'lookup',
+          description: ['plugin tool', process.env.SERVER_NAME].filter(Boolean).join(':'),
+          inputSchema: { type: 'object' }
+        }]
+      }
+    });
+  }
+});
+)JS";
     }
     {
         std::ofstream manifest(plugin_root / "plugin.json");
@@ -960,15 +1442,27 @@ TEST(Tools, AgentToolLoadsPluginAgentsAndPluginSkills) {
     }
     {
         std::ofstream agent(plugin_root / "agents" / "reviewer.md");
-        agent << R"MD(---
+        agent << std::format(R"MD(---
 name: reviewer
 description: Reviews using plugin resources
 skills: [review-skill]
-hooks: [ignored-for-plugin-agents]
-mcpServers: [ignored-server]
+requiredMcpServers: [review-context]
+mcpServers:
+  - review-context
+  - inline-review:
+      type: stdio
+      command: node
+      args:
+        - "{}"
+      env:
+        SERVER_NAME: plugin-fixture:inline-review
+        TOOL_NAME: inline_lookup
+hooks:
+  SubagentStart:
+    - command: "echo plugin-hook-started"
 ---
 Review with plugin context.
-)MD";
+)MD", server_path.string());
     }
     {
         std::ofstream skill(plugin_root / "skills" / "review-skill" / "SKILL.md");
@@ -987,8 +1481,27 @@ Use the plugin review checklist.
         });
         ASSERT_NE(it, agents.end());
         EXPECT_EQ(it->source, "plugin");
-        EXPECT_FALSE(it->hooks_present);
-        EXPECT_TRUE(it->mcp_servers.empty());
+        EXPECT_TRUE(it->hooks_present);
+        EXPECT_TRUE(it->hooks.contains("SubagentStart"));
+        ASSERT_EQ(it->required_mcp_servers.size(), 1u);
+        EXPECT_EQ(it->required_mcp_servers.front(), "plugin:plugin-fixture:review-context");
+        ASSERT_EQ(it->mcp_servers.size(), 1u);
+        EXPECT_EQ(it->mcp_servers.front(), "plugin:plugin-fixture:review-context");
+        ASSERT_EQ(it->inline_mcp_servers.size(), 1u);
+        EXPECT_EQ(it->inline_mcp_servers.front().name, "plugin:plugin-fixture:inline-review");
+
+        auto synced = cc::tools::sync_native_mcp_servers({
+            cc::tools::NativeMcpConfiguredServer{
+                .name = "plugin:plugin-fixture:review-context",
+                .command = "node",
+                .args = {server_path.string()},
+                .env = {{"SERVER_NAME", "plugin:plugin-fixture:review-context"}, {"TOOL_NAME", "review_lookup"}},
+            },
+        });
+        ASSERT_TRUE(synced.has_value());
+        auto restarted = cc::tools::restart_native_mcp_server("plugin:plugin-fixture:review-context");
+        ASSERT_TRUE(restarted.has_value()) << restarted.error();
+        ASSERT_EQ(restarted->status, "ready");
 
         cc::tools::AgentConfig config;
         cc::tools::agent::AgentToolRequest request;
@@ -1001,6 +1514,18 @@ Use the plugin review checklist.
         ASSERT_EQ(plan->preloaded_skill_messages.size(), 1u);
         EXPECT_NE(plan->preloaded_skill_messages.front().find("plugin-fixture:review-skill"), std::string::npos);
         EXPECT_NE(plan->preloaded_skill_messages.front().find("Use the plugin review checklist"), std::string::npos);
+        ASSERT_EQ(plan->agent_mcp_servers.size(), 2u);
+        EXPECT_EQ(plan->agent_mcp_servers[0], "plugin:plugin-fixture:review-context");
+        EXPECT_EQ(plan->agent_mcp_servers[1], "plugin:plugin-fixture:inline-review");
+        ASSERT_EQ(plan->agent_mcp_tools.size(), 2u);
+        EXPECT_EQ(plan->agent_mcp_tools[0].server_name, "plugin:plugin-fixture:review-context");
+        EXPECT_EQ(plan->agent_mcp_tools[0].tool_name, "review_lookup");
+        EXPECT_EQ(plan->agent_mcp_tools[1].server_name, "plugin:plugin-fixture:inline-review");
+        EXPECT_EQ(plan->agent_mcp_tools[1].tool_name, "inline_lookup");
+        ASSERT_TRUE(plan->agent_mcp_context_message.has_value());
+        EXPECT_NE(plan->agent_mcp_context_message->find("plugin:plugin-fixture:review-context/review_lookup"), std::string::npos);
+        EXPECT_NE(plan->agent_mcp_context_message->find("plugin:plugin-fixture:inline-review/inline_lookup"), std::string::npos);
+        EXPECT_TRUE(plan->frontmatter_hooks.contains("SubagentStart"));
 
         cc::core::ToolRegistry registry;
         cc::tools::register_runtime_tools(registry);
@@ -1013,6 +1538,7 @@ Use the plugin review checklist.
         EXPECT_NE(skill->content.front().text.find("Use the plugin review checklist"), std::string::npos);
     }
 
+    ASSERT_TRUE(cc::tools::sync_native_mcp_servers({}).has_value());
     fs::remove_all(root);
 }
 
@@ -1548,6 +2074,32 @@ TEST(Tools, RuntimeSendMessageDeliversToBackgroundAgentQueue) {
     EXPECT_NE(delivered->content.front().text.find("message-target"), std::string::npos);
 }
 
+TEST(Tools, RuntimeRemoteTriggerUsesTypedValidationAndFallbackCommand) {
+    cc::core::ToolRegistry registry;
+    cc::tools::register_runtime_tools(registry);
+
+    auto blocked = registry.execute("remote_trigger", cc::core::ToolInput::from_json(R"({
+      "target": "http://127.0.0.1:65535/hook",
+      "message": "should be blocked",
+      "params": {"branch": "main"}
+    })"));
+
+    ASSERT_TRUE(blocked.has_value());
+    ASSERT_TRUE(blocked->is_error);
+    ASSERT_FALSE(blocked->content.empty());
+    EXPECT_NE(blocked->content.front().text.find("Cannot trigger internal network addresses"), std::string::npos);
+
+    EnvironmentGuard fallback_guard("CC_REPL_REMOTE_TRIGGER_COMMAND", "printf remote-fallback");
+    auto fallback = registry.execute("remote_trigger", cc::core::ToolInput::from_json(R"({
+      "payload": "fallback payload"
+    })"));
+
+    ASSERT_TRUE(fallback.has_value());
+    EXPECT_FALSE(fallback->is_error);
+    ASSERT_FALSE(fallback->content.empty());
+    EXPECT_NE(fallback->content.front().text.find("remote-fallback"), std::string::npos);
+}
+
 TEST(Tools, RuntimeTeamCreateRegistersMembersAndSharedTasks) {
     cc::core::ToolRegistry registry;
     cc::tools::register_runtime_tools(registry);
@@ -1573,6 +2125,23 @@ TEST(Tools, RuntimeTeamCreateRegistersMembersAndSharedTasks) {
     ASSERT_TRUE(record.has_value());
     ASSERT_TRUE(record->team_name.has_value());
     EXPECT_EQ(*record->team_name, "Runtime Team Members");
+
+    auto team = cc::tools::global_team_store().get("runtime-team-members");
+    ASSERT_TRUE(team.has_value()) << std::string(cc::tools::format_error(team.error()));
+    ASSERT_EQ((*team)->task_list.size(), 1u);
+    ASSERT_TRUE((*team)->task_list.front().assigned_to.has_value());
+    EXPECT_EQ(*(*team)->task_list.front().assigned_to, "team-researcher");
+    auto member = std::ranges::find_if((*team)->members, [](const auto& candidate) {
+        return candidate.agent_id == "team-researcher";
+    });
+    ASSERT_NE(member, (*team)->members.end());
+    EXPECT_EQ(member->status, cc::tools::MemberStatus::Working);
+    ASSERT_TRUE(member->current_task.has_value());
+    EXPECT_EQ(*member->current_task, "task-1");
+
+    auto researcher = cc::tools::agent_runtime::native_agent_store().get("team-researcher");
+    ASSERT_TRUE(researcher.has_value());
+    EXPECT_EQ(researcher->status, cc::tools::agent_runtime::NativeAgentStatus::Running);
 
     auto delivered = registry.execute("send_message", cc::core::ToolInput::from_json(R"({
       "target_agent": "team-reviewer",
@@ -1815,6 +2384,93 @@ rl.on('line', line => {
     fs::remove_all(root);
 }
 
+TEST(Tools, NativeMcpRuntimeLoadsRemoteConfigWithOAuthFromConfigFiles) {
+    auto root = fs::weakly_canonical(fs::temp_directory_path()) / "cc_repl_mcp_remote_config_runtime_test";
+    fs::remove_all(root);
+    fs::create_directories(root / ".claude");
+    EnvironmentGuard home_guard("HOME", root.string());
+
+    {
+        std::ofstream config(root / ".claude" / "config.json");
+        config << R"JSON({
+  "mcpServers": {
+    "remote_fixture": {
+      "type": "http",
+      "url": "https://mcp.example.com/mcp",
+      "headers": {"X-Test": "present"},
+      "headersHelper": "node headers.js",
+      "oauth": {
+        "authServerMetadataUrl": "https://auth.example.com/.well-known/oauth-authorization-server",
+        "callbackPort": 19485,
+        "clientId": "client-1",
+        "xaa": true
+      }
+    }
+  }
+})JSON";
+    }
+
+    {
+        CurrentPathGuard cwd(root);
+        auto reloaded = cc::tools::reload_native_mcp_servers_from_config();
+        ASSERT_TRUE(reloaded.has_value()) << reloaded.error();
+        auto configured = cc::tools::native_mcp_configured_server("remote_fixture");
+        ASSERT_TRUE(configured.has_value());
+        EXPECT_EQ(configured->transport, cc::services::mcp::TransportType::StreamableHttp);
+        EXPECT_EQ(configured->url, "https://mcp.example.com/mcp");
+        EXPECT_EQ(configured->headers.at("X-Test"), "present");
+        EXPECT_EQ(configured->headers_helper, "node headers.js");
+        ASSERT_TRUE(configured->oauth.has_value());
+        ASSERT_TRUE(configured->oauth->auth_server_metadata_url.has_value());
+        EXPECT_EQ(*configured->oauth->auth_server_metadata_url, "https://auth.example.com/.well-known/oauth-authorization-server");
+        ASSERT_TRUE(configured->oauth->callback_port.has_value());
+        EXPECT_EQ(*configured->oauth->callback_port, 19485);
+        ASSERT_TRUE(configured->oauth->client_id.has_value());
+        EXPECT_EQ(*configured->oauth->client_id, "client-1");
+        EXPECT_TRUE(configured->oauth->xaa);
+    }
+
+    ASSERT_TRUE(cc::tools::sync_native_mcp_servers({}).has_value());
+    fs::remove_all(root);
+}
+
+TEST(Tools, McpAuthUsesNativeOAuthFlowForConfiguredRemoteServers) {
+    EnvironmentGuard xaa_guard("CLAUDE_CODE_ENABLE_XAA", "0");
+    cc::tools::NativeMcpConfiguredServer server;
+    server.name = "auth_fixture";
+    server.transport = cc::services::mcp::TransportType::StreamableHttp;
+    server.url = "https://mcp.example.com/mcp";
+    server.oauth = cc::services::mcp::McpOAuthConfig{.xaa = true};
+    ASSERT_TRUE(cc::tools::sync_native_mcp_servers({server}).has_value());
+
+    cc::core::ToolRegistry registry;
+    cc::tools::register_runtime_tools(registry);
+    auto result = registry.execute("mcp_auth", cc::core::ToolInput::from_json(
+        R"({"server_name":"auth_fixture"})"));
+
+    ASSERT_TRUE(result.has_value());
+    ASSERT_FALSE(result->is_error);
+    ASSERT_FALSE(result->content.empty());
+    EXPECT_NE(result->content.front().text.find("Failed to start OAuth flow"), std::string::npos);
+    EXPECT_NE(result->content.front().text.find("XAA is not enabled"), std::string::npos);
+
+    ASSERT_TRUE(cc::tools::sync_native_mcp_servers({}).has_value());
+}
+
+TEST(Tools, McpToolReturnsErrorWhenNativeServerIsMissing) {
+    ASSERT_TRUE(cc::tools::sync_native_mcp_servers({}).has_value());
+
+    cc::core::ToolRegistry registry;
+    cc::tools::register_runtime_tools(registry);
+    auto result = registry.execute("mcp", cc::core::ToolInput::from_json(
+        R"({"server_name":"missing_fixture","tool_name":"echo","arguments":{"value":"hello"}})"));
+
+    ASSERT_TRUE(result.has_value());
+    ASSERT_TRUE(result->is_error);
+    ASSERT_FALSE(result->content.empty());
+    EXPECT_NE(result->content.front().text.find("MCP server not found"), std::string::npos);
+}
+
 TEST(Tools, McpRuntimeLoadsPluginManifestMcpServers) {
     auto root = fs::weakly_canonical(fs::temp_directory_path()) / "cc_repl_plugin_mcp_test";
     fs::remove_all(root);
@@ -1979,6 +2635,147 @@ rl.on('line', line => {
             result->content.front().text,
             "plugin:hello:configured:secret-token:" + plugin_root.string()
         );
+    }
+
+    ASSERT_TRUE(cc::tools::sync_native_mcp_servers({}).has_value());
+    fs::remove_all(root);
+}
+
+TEST(Tools, McpRuntimeLoadsPluginMcpbServers) {
+    auto root = fs::weakly_canonical(fs::temp_directory_path()) / "cc_repl_plugin_mcpb_test";
+    fs::remove_all(root);
+    EnvironmentGuard home_guard("HOME", root.string());
+    EnvironmentGuard plugin_cache_guard(
+        "CLAUDE_CODE_PLUGIN_CACHE_DIR",
+        (root / ".claude" / "plugins").string()
+    );
+
+    const auto plugin_root = root / ".claude" / "plugins" / "mcpb-fixture";
+    const auto bundle_src = root / "bundle-src";
+    fs::create_directories(plugin_root);
+    fs::create_directories(bundle_src);
+    {
+        std::ofstream manifest(plugin_root / "plugin.json");
+        manifest << R"JSON({
+  "name": "mcpb-fixture",
+  "version": "1.0.0",
+  "entry_point": "plugin.js",
+  "mcpServers": ["bundle.mcpb"]
+})JSON";
+    }
+    {
+        std::ofstream entry(plugin_root / "plugin.js");
+        entry << "process.exit(0)\n";
+    }
+    {
+        std::ofstream manifest(bundle_src / "manifest.json");
+        manifest << R"JSON({
+  "name": "bundle",
+  "version": "1.0.0",
+  "server": {
+    "type": "stdio",
+    "command": "node",
+    "args": ["${CLAUDE_PLUGIN_ROOT}/server.js"],
+    "env": {
+      "PLUGIN_MCPB_VALUE": "from-bundle"
+    }
+  }
+})JSON";
+    }
+    {
+        std::ofstream server(bundle_src / "server.js");
+        server << R"JS(
+const readline = require('node:readline');
+const rl = readline.createInterface({ input: process.stdin });
+
+function send(message) {
+  process.stdout.write(JSON.stringify(message) + '\n');
+}
+
+rl.on('line', line => {
+  const request = JSON.parse(line);
+  if (request.method === 'initialize') {
+    send({
+      jsonrpc: '2.0',
+      id: request.id,
+      result: {
+        protocolVersion: '2024-11-05',
+        capabilities: { tools: {} },
+        serverInfo: { name: 'mcpb-fixture', version: '1.0.0' }
+      }
+    });
+    return;
+  }
+  if (request.method === 'tools/list') {
+    send({
+      jsonrpc: '2.0',
+      id: request.id,
+      result: {
+        tools: [{ name: 'bundle_echo', description: 'Echo from MCPB', inputSchema: { type: 'object' } }]
+      }
+    });
+    return;
+  }
+  if (request.method === 'tools/call') {
+    send({
+      jsonrpc: '2.0',
+      id: request.id,
+      result: {
+        isError: false,
+        content: [{
+          type: 'text',
+          text: ['mcpb', request.params.arguments.value, process.env.PLUGIN_MCPB_VALUE, process.env.CLAUDE_PLUGIN_ROOT].join(':')
+        }]
+      }
+    });
+  }
+});
+)JS";
+    }
+
+    const auto bundle_path = plugin_root / "bundle.mcpb";
+    const auto zip_command = std::format(
+        "cd {} && zip -qr {} .",
+        shell_quote_for_test(bundle_src.string()),
+        shell_quote_for_test(bundle_path.string()));
+    if (std::system(zip_command.c_str()) != 0) {
+        GTEST_SKIP() << "zip command is not available";
+    }
+
+    {
+        CurrentPathGuard cwd(root);
+        auto servers = cc::tools::discover_plugin_native_mcp_servers();
+        auto it = std::ranges::find_if(servers, [](const auto& server) {
+            return server.name == "plugin:mcpb-fixture:bundle";
+        });
+        ASSERT_NE(it, servers.end());
+        EXPECT_EQ(it->command, "node");
+        ASSERT_EQ(it->args.size(), 1u);
+        EXPECT_NE(it->args.front().find("mcpb/bundle/server.js"), std::string::npos);
+        EXPECT_EQ(it->env.at("PLUGIN_MCPB_VALUE"), "from-bundle");
+        EXPECT_NE(it->env.at("CLAUDE_PLUGIN_ROOT").find("mcpb/bundle"), std::string::npos);
+
+        auto synced = cc::tools::sync_native_mcp_servers(std::move(servers));
+        ASSERT_TRUE(synced.has_value()) << synced.error();
+        auto restarted = cc::tools::restart_native_mcp_server("plugin:mcpb-fixture:bundle");
+        ASSERT_TRUE(restarted.has_value()) << restarted.error();
+        EXPECT_EQ(restarted->status, "ready");
+        ASSERT_EQ(restarted->tools.size(), 1u);
+        EXPECT_EQ(restarted->tools.front().name, "bundle_echo");
+
+        cc::core::ToolRegistry registry;
+        cc::tools::register_runtime_tools(registry);
+        auto result = registry.execute("mcp", cc::core::ToolInput::from_json(R"({
+          "server_name": "plugin:mcpb-fixture:bundle",
+          "tool_name": "bundle_echo",
+          "arguments": {"value": "hello"}
+        })"));
+
+        ASSERT_TRUE(result.has_value());
+        ASSERT_FALSE(result->is_error);
+        ASSERT_FALSE(result->content.empty());
+        EXPECT_NE(result->content.front().text.find("mcpb:hello:from-bundle:"), std::string::npos);
+        EXPECT_NE(result->content.front().text.find("mcpb/bundle"), std::string::npos);
     }
 
     ASSERT_TRUE(cc::tools::sync_native_mcp_servers({}).has_value());

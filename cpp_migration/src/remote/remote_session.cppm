@@ -37,6 +37,7 @@ struct RemoteSessionConfig {
     std::string api_version = "v1";
     std::chrono::seconds ping_interval{30};
     std::chrono::seconds connect_timeout{10};
+    bool use_tls{true};
 };
 
 // ============================================================
@@ -224,7 +225,8 @@ public:
 private:
     /// Build the WebSocket URL for session connection
     std::string build_ws_url() const {
-        std::string url = std::format("wss://{}:{}/{}/sessions/ws",
+        std::string url = std::format("{}://{}:{}/{}/sessions/ws",
+            config_.use_tls ? "wss" : "ws",
             config_.host, config_.port, config_.api_version);
         
         if (config_.session_id.has_value()) {
@@ -332,8 +334,7 @@ private:
         switch (new_state) {
             case ConnectionState::Connected:
                 // Re-authenticate and re-subscribe after reconnection
-                if (status_ == SessionStatus::Disconnected || 
-                    status_ == SessionStatus::Connecting) {
+                if (status_ == SessionStatus::Disconnected) {
                     send_auth();
                     send_subscribe();
                     set_status(SessionStatus::Subscribed);
@@ -350,10 +351,13 @@ private:
 
     /// Start keepalive ping thread
     void start_keepalive() {
-        keepalive_running_ = true;
+        if (keepalive_running_.exchange(true)) return;
         keepalive_thread_ = std::thread([this] {
             while (keepalive_running_) {
-                std::this_thread::sleep_for(config_.ping_interval);
+                auto deadline = std::chrono::steady_clock::now() + config_.ping_interval;
+                while (keepalive_running_ && std::chrono::steady_clock::now() < deadline) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds{50});
+                }
                 if (!keepalive_running_) break;
                 connection_.send_ping();
             }

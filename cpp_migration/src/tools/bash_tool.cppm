@@ -14,9 +14,12 @@ module;
 #include <functional>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <thread>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -162,6 +165,36 @@ namespace detail {
 
 constexpr size_t kMaxOutput = 30000;
 
+struct BackgroundTaskStart {
+    std::string id;
+    pid_t pid = -1;
+};
+
+struct BackgroundTaskState {
+    std::string id;
+    pid_t pid = -1;
+    std::string command;
+    std::string output;
+    bool running = true;
+    bool stopped = false;
+    std::optional<int> exit_code;
+    std::optional<std::string> error;
+    std::chrono::steady_clock::time_point created_at;
+};
+
+inline std::mutex background_tasks_mutex;
+inline std::unordered_map<std::string, std::shared_ptr<BackgroundTaskState>> background_tasks;
+
+[[nodiscard]] std::optional<pid_t> parse_pid_key(std::string_view key) {
+    if (key.empty()) return std::nullopt;
+    pid_t value = 0;
+    for (char ch : key) {
+        if (ch < '0' || ch > '9') return std::nullopt;
+        value = static_cast<pid_t>((value * 10) + (ch - '0'));
+    }
+    return value > 0 ? std::optional<pid_t>{value} : std::nullopt;
+}
+
 struct ShellInvocation {
     std::string shell_path;
     std::vector<std::string> args;
@@ -267,45 +300,47 @@ void close_if_open(int& fd) noexcept {
     }
 }
 
-[[nodiscard]] std::expected<pid_t, std::string> spawn_background_shell(
+inline void append_background_output(BackgroundTaskState& state, std::string_view data) {
+    state.output.append(data);
+    if (state.output.size() > kMaxOutput) {
+        state.output.erase(0, state.output.size() - kMaxOutput);
+    }
+}
+
+[[nodiscard]] std::expected<BackgroundTaskStart, std::string> spawn_background_shell(
     const BashToolInput& input) {
     auto invocation = build_shell_invocation(input);
-    int pid_pipe[2]{-1, -1};
-    if (pipe(pid_pipe) != 0) {
-        return std::unexpected(std::format("Failed to create pid pipe: {}", std::strerror(errno)));
+    int output_pipe[2]{-1, -1};
+    if (pipe(output_pipe) != 0) {
+        return std::unexpected(std::format("Failed to create output pipe: {}", std::strerror(errno)));
     }
 
-    const pid_t supervisor = fork();
-    if (supervisor < 0) {
-        close_if_open(pid_pipe[0]);
-        close_if_open(pid_pipe[1]);
+    const pid_t worker = fork();
+    if (worker < 0) {
+        close_if_open(output_pipe[0]);
+        close_if_open(output_pipe[1]);
         return std::unexpected(std::format("Failed to fork background process: {}", std::strerror(errno)));
     }
 
-    if (supervisor == 0) {
-        close_if_open(pid_pipe[0]);
-        if (setsid() < 0) _exit(126);
-
-        const pid_t worker = fork();
-        if (worker < 0) _exit(126);
-        if (worker > 0) {
-            const auto bytes = write(pid_pipe[1], &worker, sizeof(worker));
-            (void)bytes;
-            close_if_open(pid_pipe[1]);
-            _exit(0);
-        }
+    if (worker == 0) {
+        close_if_open(output_pipe[0]);
+        setpgid(0, 0);
 
         if (input.cwd && !input.cwd->empty() && chdir(input.cwd->c_str()) != 0) {
+            const auto message = std::format("cd: {}: {}\n", *input.cwd, std::strerror(errno));
+            const auto bytes = write(output_pipe[1], message.data(), message.size());
+            (void)bytes;
             _exit(126);
         }
 
-        const int dev_null = open("/dev/null", O_RDWR);
+        const int dev_null = open("/dev/null", O_RDONLY);
         if (dev_null >= 0) {
             dup2(dev_null, STDIN_FILENO);
-            dup2(dev_null, STDOUT_FILENO);
-            dup2(dev_null, STDERR_FILENO);
-            if (dev_null > STDERR_FILENO) close(dev_null);
+            if (dev_null > STDIN_FILENO) close(dev_null);
         }
+        dup2(output_pipe[1], STDOUT_FILENO);
+        dup2(output_pipe[1], STDERR_FILENO);
+        close_if_open(output_pipe[1]);
 
         apply_env_overrides(invocation.env);
         auto argv = make_exec_argv(invocation.shell_path, invocation.args);
@@ -313,19 +348,53 @@ void close_if_open(int& fd) noexcept {
         _exit(127);
     }
 
-    close_if_open(pid_pipe[1]);
-    pid_t worker_pid = -1;
-    const auto nread = read(pid_pipe[0], &worker_pid, sizeof(worker_pid));
-    close_if_open(pid_pipe[0]);
-
-    int status = 0;
-    waitpid(supervisor, &status, 0);
-
-    if (nread != static_cast<ssize_t>(sizeof(worker_pid)) || worker_pid <= 0) {
-        return std::unexpected("Failed to start background process");
+    close_if_open(output_pipe[1]);
+    const auto task_id = std::format("task_{}", worker);
+    auto state = std::make_shared<BackgroundTaskState>(BackgroundTaskState{
+        .id = task_id,
+        .pid = worker,
+        .command = input.command,
+        .created_at = std::chrono::steady_clock::now(),
+    });
+    {
+        std::lock_guard lock(background_tasks_mutex);
+        background_tasks[task_id] = state;
     }
 
-    return worker_pid;
+    std::thread([state, read_fd = output_pipe[0]]() mutable {
+        std::array<char, 4096> buffer{};
+        while (true) {
+            const auto nread = read(read_fd, buffer.data(), buffer.size());
+            if (nread > 0) {
+                std::lock_guard lock(background_tasks_mutex);
+                append_background_output(*state, std::string_view(buffer.data(), static_cast<std::size_t>(nread)));
+                continue;
+            }
+            if (nread == 0) break;
+            if (errno == EINTR) continue;
+            break;
+        }
+        close_if_open(read_fd);
+
+        int status = 0;
+        const auto waited = waitpid(state->pid, &status, 0);
+        std::lock_guard lock(background_tasks_mutex);
+        state->running = false;
+        if (waited < 0) {
+            state->error = std::format("waitpid failed: {}", std::strerror(errno));
+            return;
+        }
+        if (WIFEXITED(status)) {
+            state->exit_code = WEXITSTATUS(status);
+        } else if (WIFSIGNALED(status)) {
+            state->exit_code = 128 + WTERMSIG(status);
+            if (!state->stopped) {
+                state->error = std::format("terminated by signal {}", WTERMSIG(status));
+            }
+        }
+    }).detach();
+
+    return BackgroundTaskStart{.id = task_id, .pid = worker};
 }
 
 [[nodiscard]] std::expected<BashToolOutput, std::string> execute_shell(
@@ -458,6 +527,86 @@ void close_if_open(int& fd) noexcept {
 }
 
 } // namespace detail
+
+struct BackgroundTaskSnapshot {
+    std::string id;
+    pid_t pid = -1;
+    std::string command;
+    std::string output;
+    bool running = false;
+    bool stopped = false;
+    std::optional<int> exit_code;
+    std::optional<std::string> error;
+};
+
+[[nodiscard]] BackgroundTaskSnapshot snapshot_from_state(const detail::BackgroundTaskState& state) {
+    return BackgroundTaskSnapshot{
+        .id = state.id,
+        .pid = state.pid,
+        .command = state.command,
+        .output = state.output,
+        .running = state.running,
+        .stopped = state.stopped,
+        .exit_code = state.exit_code,
+        .error = state.error,
+    };
+}
+
+[[nodiscard]] std::optional<BackgroundTaskSnapshot> get_background_task_snapshot(std::string_view id) {
+    std::lock_guard lock(detail::background_tasks_mutex);
+    const auto it = detail::background_tasks.find(std::string(id));
+    if (it != detail::background_tasks.end()) {
+        return snapshot_from_state(*it->second);
+    }
+
+    auto pid = detail::parse_pid_key(id);
+    if (!pid) {
+        return std::nullopt;
+    }
+    for (const auto& [_, state] : detail::background_tasks) {
+        if (state->pid == *pid) {
+            return snapshot_from_state(*state);
+        }
+    }
+    return std::nullopt;
+}
+
+[[nodiscard]] bool stop_background_task(std::string_view id) {
+    pid_t pid = -1;
+    {
+        std::lock_guard lock(detail::background_tasks_mutex);
+        auto it = detail::background_tasks.find(std::string(id));
+        if (it == detail::background_tasks.end()) {
+            if (auto pid_key = detail::parse_pid_key(id)) {
+                for (auto candidate = detail::background_tasks.begin();
+                     candidate != detail::background_tasks.end();
+                     ++candidate) {
+                    if (candidate->second->pid == *pid_key) {
+                        it = candidate;
+                        break;
+                    }
+                }
+            }
+        }
+        if (it == detail::background_tasks.end()) {
+            return false;
+        }
+        auto& state = *it->second;
+        state.stopped = true;
+        pid = state.pid;
+        if (!state.running) {
+            return true;
+        }
+    }
+
+    if (pid <= 0) {
+        return false;
+    }
+    if (kill(-pid, SIGTERM) == 0) {
+        return true;
+    }
+    return kill(pid, SIGTERM) == 0 || errno == ESRCH;
+}
 
 // =========================================================================
 // Command Classification and Validation
@@ -670,15 +819,18 @@ private:
             }
 
             if (input.run_in_background) {
-                auto background_pid = detail::spawn_background_shell(input);
-                if (!background_pid) {
-                    return ToolResult::error(background_pid.error());
+                auto background_task = detail::spawn_background_shell(input);
+                if (!background_task) {
+                    return ToolResult::error(background_task.error());
                 }
 
                 BashToolOutput output{
-                    .stdout = std::format("Background task started\nPID: {}", *background_pid),
+                    .stdout = std::format(
+                        "Background task started\nTask ID: {}\nPID: {}",
+                        background_task->id,
+                        background_task->pid),
                     .exit_code = 0,
-                    .background_task_id = std::to_string(*background_pid),
+                    .background_task_id = background_task->id,
                     .no_output_expected = false
                 };
                 return format_result(output);

@@ -103,26 +103,52 @@ public:
 
     [[nodiscard]] Result<CommandResult> execute(const CommandContext& ctx) {
         auto opts = parse_options(ctx.args);
+        auto active_messages = conversation_messages_;
+        if (active_messages.empty() && ctx.compact_message_provider) {
+            active_messages = ctx.compact_message_provider(ctx.runtime_state);
+        }
+        if (active_messages.empty()) {
+            return CommandResult::fail("No active conversation to compact.");
+        }
+
+        auto budget = budget_;
+        if (opts.target) budget.target_after_compact = *opts.target;
 
         // Step 1: Analyze current conversation state
-        auto analysis = analyze_conversation(conversation_messages_);
-        if (analysis.tokens_before <= budget_.effective_target()) {
+        auto analysis = analyze_conversation(active_messages);
+        if (analysis.tokens_before <= budget.effective_target()) {
             return CommandResult::success(std::format(
                 "Context is already within budget (~{} tokens, target: {}).\n"
                 "No compaction needed.",
-                analysis.tokens_before, budget_.effective_target()
+                analysis.tokens_before, budget.effective_target()
             ));
         }
 
         // Step 2: Build compaction plan
-        auto plan = build_compaction_plan(conversation_messages_, opts.aggressive);
+        auto plan = build_compaction_plan(active_messages, opts.aggressive);
 
         // Step 3: Dry-run mode - show plan without applying
         if (opts.dry_run) {
             return CommandResult::success(format_plan(plan, analysis));
         }
 
+        if (ctx.compact_applier) {
+            auto compacted = ctx.compact_applier(ctx.runtime_state);
+            if (!compacted) return std::unexpected(compacted.error());
+
+            auto after_messages = ctx.compact_message_provider
+                ? ctx.compact_message_provider(ctx.runtime_state)
+                : active_messages;
+            analysis.messages_after = static_cast<std::uint32_t>(after_messages.size());
+            analysis.tokens_after = estimate_messages_tokens(after_messages);
+            analysis.compression_ratio = analysis.tokens_before == 0
+                ? 1.0
+                : static_cast<double>(analysis.tokens_after) / static_cast<double>(analysis.tokens_before);
+            return CommandResult::success(analysis.format());
+        }
+
         // Step 4: Generate summary via LLM for content that will be compressed
+        conversation_messages_ = active_messages;
         auto summary_prompt = build_summary_prompt(plan);
         return CommandResult::inject(std::move(summary_prompt));
     }
@@ -188,10 +214,15 @@ private:
         stats.messages_before = static_cast<std::uint32_t>(messages.size());
 
         // Estimate tokens (rough: 4 chars ~= 1 token)
-        for (const auto& msg : messages) {
-            stats.tokens_before += estimate_message_tokens(msg);
-        }
+        stats.tokens_before = estimate_messages_tokens(messages);
         return stats;
+    }
+
+    [[nodiscard]] static std::uint32_t estimate_messages_tokens(const std::vector<Message>& messages) {
+        return std::accumulate(messages.begin(), messages.end(), std::uint32_t{0},
+            [](std::uint32_t total, const Message& msg) {
+                return total + estimate_message_tokens(msg);
+            });
     }
 
     /// Estimate token count for a message (simplified heuristic)

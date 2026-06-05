@@ -372,6 +372,22 @@ private:
         return arr;
     }
 
+    [[nodiscard]] static cc::utils::json::JsonMutVal serialize_compact_metadata(
+        cc::utils::json::JsonMutDoc& doc,
+        const CompactMetadata& metadata) {
+        auto obj = doc.object();
+        obj.add("trigger", doc.string(metadata.trigger));
+        obj.add("pre_tokens", doc.number(static_cast<int64_t>(metadata.pre_tokens)));
+        if (metadata.preserved_segment) {
+            auto preserved = doc.object();
+            preserved.add("head_uuid", doc.string(metadata.preserved_segment->head_uuid));
+            preserved.add("anchor_uuid", doc.string(metadata.preserved_segment->anchor_uuid));
+            preserved.add("tail_uuid", doc.string(metadata.preserved_segment->tail_uuid));
+            obj.add("preserved_segment", preserved);
+        }
+        return obj;
+    }
+
     [[nodiscard]] static cc::utils::json::JsonMutVal serialize_message(
         cc::utils::json::JsonMutDoc& doc,
         const Message& message) {
@@ -388,6 +404,10 @@ private:
                 if (value.model) obj.add("model", doc.string(*value.model));
             } else if constexpr (std::is_same_v<T, SystemMessage>) {
                 if (value.cache_control) obj.add("cache_control", doc.string(*value.cache_control));
+                if (value.subtype) obj.add("subtype", doc.string(*value.subtype));
+                if (value.compact_metadata) {
+                    obj.add("compact_metadata", serialize_compact_metadata(doc, *value.compact_metadata));
+                }
             } else if constexpr (std::is_same_v<T, ToolUseMessage>) {
                 obj.add("tool_name", doc.string(value.tool_name));
                 obj.add("tool_input_json", doc.string(value.tool_input_json));
@@ -474,6 +494,26 @@ private:
         return blocks;
     }
 
+    [[nodiscard]] static std::optional<CompactMetadata> parse_compact_metadata(
+        cc::utils::json::JsonVal value) {
+        if (!value.valid() || !value.is_obj()) return std::nullopt;
+        CompactMetadata metadata;
+        metadata.trigger = value.get_string("trigger");
+        auto pre_tokens = value.get("pre_tokens");
+        if (pre_tokens.is_num()) {
+            metadata.pre_tokens = static_cast<std::uint32_t>(pre_tokens.as_int());
+        }
+        auto preserved = value.get("preserved_segment");
+        if (preserved.valid() && preserved.is_obj()) {
+            metadata.preserved_segment = CompactPreservedSegment{
+                .head_uuid = preserved.get_string("head_uuid"),
+                .anchor_uuid = preserved.get_string("anchor_uuid"),
+                .tail_uuid = preserved.get_string("tail_uuid"),
+            };
+        }
+        return metadata;
+    }
+
     [[nodiscard]] static Result<Message> parse_message(cc::utils::json::JsonVal value) {
         if (!value.is_obj()) {
             return std::unexpected(Error::make(ErrorCode::SessionCorrupted,
@@ -506,7 +546,16 @@ private:
         if (role == "system") {
             std::optional<std::string> cache_control;
             if (auto cache = value.get("cache_control"); cache.is_str()) cache_control = std::string(cache.as_str());
-            return SystemMessage{std::move(base), std::move(cache_control)};
+            std::optional<std::string> subtype;
+            if (auto subtype_value = value.get("subtype"); subtype_value.is_str()) {
+                subtype = std::string(subtype_value.as_str());
+            }
+            return SystemMessage{
+                std::move(base),
+                std::move(cache_control),
+                std::move(subtype),
+                parse_compact_metadata(value.get("compact_metadata")),
+            };
         }
         if (role == "tool") {
             return ToolResultMessage{

@@ -34,9 +34,15 @@ import cc.commands.command;
 import cc.commands.registry;
 import cc.constants.product;
 import cc.utils.session_storage;
-import cc.ui.app;
 
 namespace fs = std::filesystem;
+
+extern "C" [[nodiscard]] int cc_ui_run_app_bridge(
+    cc::core::QueryEngine* engine,
+    cc::commands::AppCommandRegistry* cmd_registry,
+    cc::utils::SessionStorage* storage,
+    cc::hooks::ToolPermissionHook* permission_hook
+);
 
 // Application version constant
 constexpr std::string_view kVersion = cc::constants::product::CC_REPL_VERSION;
@@ -148,6 +154,37 @@ auto load_config() -> cc::core::QueryEngineConfig {
     return config;
 }
 
+std::vector<cc::core::Message> compact_runtime_messages(void* state) {
+    auto* engine = static_cast<cc::core::QueryEngine*>(state);
+    return engine ? engine->get_conversation() : std::vector<cc::core::Message>{};
+}
+
+cc::core::VoidResult compact_runtime_apply(void* state) {
+    auto* engine = static_cast<cc::core::QueryEngine*>(state);
+    if (!engine) {
+        return std::unexpected(cc::core::Error::make(
+            cc::core::ErrorCode::InternalError,
+            "No active query engine is available for compaction"));
+    }
+    auto compacted = engine->compact_conversation();
+    if (!compacted) {
+        return std::unexpected(cc::core::Error::make(
+            cc::core::ErrorCode::InternalError,
+            compacted.error().format()));
+    }
+    return cc::core::VoidResult{};
+}
+
+cc::core::CommandContext command_context_for_engine(cc::core::QueryEngine* engine) {
+    return cc::core::CommandContext{
+        .args = {},
+        .raw_input = {},
+        .runtime_state = engine,
+        .compact_message_provider = compact_runtime_messages,
+        .compact_applier = compact_runtime_apply,
+    };
+}
+
 // Global for signal handling
 static std::atomic<bool> g_should_exit{false};
 
@@ -172,7 +209,7 @@ auto run_simple_ui(
         if (input.empty()) continue;
 
         if (input.starts_with('/')) {
-            auto result = cmd_registry.execute(input, cc::core::CommandContext{});
+            auto result = cmd_registry.execute(input, command_context_for_engine(engine));
             if (!result) {
                 std::println("Error: {}", result.error().message);
                 continue;
@@ -320,7 +357,7 @@ int main(int argc, const char* argv[]) {
         if (opts.use_simple_ui) {
             return run_simple_ui(&engine, cmd_registry);
         } else {
-            return cc::ui::RunApp(engine, cmd_registry, storage, &permission_hook);
+            return cc_ui_run_app_bridge(&engine, &cmd_registry, &storage, &permission_hook);
         }
     } catch (const std::exception& e) {
         std::println(stderr, "UI startup failed: {}", e.what());

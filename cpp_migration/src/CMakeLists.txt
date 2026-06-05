@@ -616,6 +616,9 @@ target_link_libraries(cc_tools
         yyjson
         uv_a
 )
+if(APPLE)
+    target_link_libraries(cc_tools PUBLIC "-framework ApplicationServices")
+endif()
 
 target_link_libraries(cc_query PUBLIC cc_tools cc_hooks)
 
@@ -1361,7 +1364,7 @@ target_sources(cc_server
         server/server_main.cppm
         server/server_routes.cppm
 )
-target_link_libraries(cc_server PUBLIC cc_utils)
+target_link_libraries(cc_server PUBLIC cc_utils cc_session cc_query cc_tools)
 
 # ─── cc_screens: Screen System ────────────────────────────────────────────────
 add_library(cc_screens)

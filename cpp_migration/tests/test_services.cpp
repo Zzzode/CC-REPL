@@ -2,6 +2,7 @@
 /// @brief Service layer smoke tests aligned with current C++ module APIs.
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -25,9 +26,15 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#ifdef __APPLE__
+#include <CommonCrypto/CommonDigest.h>
+#else
+#include <openssl/sha.h>
+#endif
 
 #include <gtest/gtest.h>
 
+import cc.cli.ccr_client;
 import cc.config.config;
 import cc.services.api.client;
 import cc.services.api.errors;
@@ -44,7 +51,10 @@ import cc.services.rate_limit;
 import cc.services.telemetry;
 import cc.services.token_estimation;
 import cc.services.voice.voice;
+import cc.server.server_routes;
+import cc.session.storage;
 import cc.query.query_engine;
+import cc.remote.remote_session;
 import cc.tools.tool;
 import cc.types.types;
 import cc.utils.error;
@@ -162,6 +172,16 @@ public:
         return request_body_;
     }
 
+    [[nodiscard]] std::optional<std::vector<std::string>> wait_for_bodies(
+        std::size_t count,
+        std::chrono::milliseconds timeout = std::chrono::seconds(3)) {
+        std::unique_lock lock(mutex_);
+        if (!cv_.wait_for(lock, timeout, [this, count] { return request_bodies_.size() >= count; })) {
+            return std::nullopt;
+        }
+        return request_bodies_;
+    }
+
 private:
     void accept_loop(std::stop_token stop) {
         while (!stop.stop_requested() && running_.load()) {
@@ -174,7 +194,6 @@ private:
             }
             handle_client(client_fd);
             ::close(client_fd);
-            break;
         }
     }
 
@@ -216,7 +235,8 @@ private:
         auto body = read_request_body(fd);
         {
             std::lock_guard lock(mutex_);
-            request_body_ = body;
+            if (!request_body_) request_body_ = body;
+            request_bodies_.push_back(body);
         }
         cv_.notify_all();
 
@@ -236,6 +256,193 @@ private:
     std::mutex mutex_;
     std::condition_variable cv_;
     std::optional<std::string> request_body_;
+    std::vector<std::string> request_bodies_;
+};
+
+struct LocalCcrHttpRequest {
+    std::string method;
+    std::string path;
+    std::string headers;
+    std::string body;
+};
+
+class LocalCcrHttpServer {
+public:
+    LocalCcrHttpServer() {
+        listen_fd_ = ::socket(AF_INET, SOCK_STREAM, 0);
+        if (listen_fd_ < 0) return;
+        int yes = 1;
+        setsockopt(listen_fd_, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
+
+        sockaddr_in addr{};
+        addr.sin_family = AF_INET;
+        addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        addr.sin_port = 0;
+        if (::bind(listen_fd_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0) {
+            ::close(listen_fd_);
+            listen_fd_ = -1;
+            return;
+        }
+        if (::listen(listen_fd_, 8) != 0) {
+            ::close(listen_fd_);
+            listen_fd_ = -1;
+            return;
+        }
+
+        socklen_t len = sizeof(addr);
+        if (::getsockname(listen_fd_, reinterpret_cast<sockaddr*>(&addr), &len) == 0) {
+            port_ = ntohs(addr.sin_port);
+        }
+
+        running_.store(true);
+        accept_thread_ = std::jthread([this](std::stop_token stop) {
+            accept_loop(stop);
+        });
+    }
+
+    ~LocalCcrHttpServer() {
+        running_.store(false);
+        if (listen_fd_ >= 0) {
+            ::shutdown(listen_fd_, SHUT_RDWR);
+            ::close(listen_fd_);
+            listen_fd_ = -1;
+        }
+    }
+
+    [[nodiscard]] bool ready() const noexcept { return listen_fd_ >= 0 && port_ != 0; }
+
+    [[nodiscard]] std::string base_url() const {
+        return std::format("http://127.0.0.1:{}", port_);
+    }
+
+    [[nodiscard]] std::optional<std::vector<LocalCcrHttpRequest>> wait_for_requests(
+        std::size_t count,
+        std::chrono::milliseconds timeout = std::chrono::seconds(3)) {
+        std::unique_lock lock(mutex_);
+        if (!cv_.wait_for(lock, timeout, [this, count] { return requests_.size() >= count; })) {
+            return std::nullopt;
+        }
+        return requests_;
+    }
+
+private:
+    void accept_loop(std::stop_token stop) {
+        while (!stop.stop_requested() && running_.load()) {
+            sockaddr_in client_addr{};
+            socklen_t client_len = sizeof(client_addr);
+            int client_fd = ::accept(listen_fd_, reinterpret_cast<sockaddr*>(&client_addr), &client_len);
+            if (client_fd < 0) {
+                if (!running_.load()) break;
+                continue;
+            }
+            handle_client(client_fd);
+            ::close(client_fd);
+        }
+    }
+
+    static std::optional<LocalCcrHttpRequest> read_request(int fd) {
+        std::string request;
+        char buffer[4096];
+        std::size_t header_end = std::string::npos;
+        while ((header_end = request.find("\r\n\r\n")) == std::string::npos) {
+            auto n = ::recv(fd, buffer, sizeof(buffer), 0);
+            if (n <= 0) return std::nullopt;
+            request.append(buffer, buffer + n);
+            if (request.size() > 64 * 1024) return std::nullopt;
+        }
+
+        const auto headers = request.substr(0, header_end + 4);
+        std::size_t content_length = 0;
+        auto length_pos = headers.find("Content-Length:");
+        if (length_pos == std::string::npos) {
+            length_pos = headers.find("content-length:");
+        }
+        if (length_pos != std::string::npos) {
+            auto value_start = headers.find(':', length_pos);
+            auto value_end = headers.find("\r\n", value_start);
+            if (value_start != std::string::npos && value_end != std::string::npos) {
+                content_length = static_cast<std::size_t>(
+                    std::stoul(headers.substr(value_start + 1, value_end - value_start - 1)));
+            }
+        }
+
+        const std::size_t body_start = header_end + 4;
+        while (request.size() - body_start < content_length) {
+            auto n = ::recv(fd, buffer, sizeof(buffer), 0);
+            if (n <= 0) break;
+            request.append(buffer, buffer + n);
+        }
+
+        auto first_line_end = headers.find("\r\n");
+        if (first_line_end == std::string::npos) return std::nullopt;
+        std::istringstream first_line(headers.substr(0, first_line_end));
+        LocalCcrHttpRequest parsed;
+        first_line >> parsed.method >> parsed.path;
+        parsed.headers = headers;
+        parsed.body = request.substr(body_start, content_length);
+        return parsed;
+    }
+
+    static bool send_response(int fd, int status, std::string_view reason, std::string_view body) {
+        const auto response = std::format(
+            "HTTP/1.1 {} {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            status,
+            reason,
+            body.size(),
+            body);
+        return send_all(fd, response);
+    }
+
+    static bool send_sse_response(int fd, std::string_view body) {
+        const auto response = std::format(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.size(),
+            body);
+        return send_all(fd, response);
+    }
+
+    void handle_client(int fd) {
+        auto request = read_request(fd);
+        if (!request) return;
+        {
+            std::lock_guard lock(mutex_);
+            requests_.push_back(*request);
+        }
+        cv_.notify_all();
+
+        if (request->method == "POST" && request->path == "/api/sessions") {
+            send_response(fd, 201, "Created", R"({"id":"remote-session-1"})");
+            return;
+        }
+        if (request->method == "POST" && request->path == "/api/sessions/remote-session-1/messages") {
+            send_response(fd, 200, "OK", R"({"content":"remote-ok"})");
+            return;
+        }
+        if (request->method == "POST" && request->path == "/api/sessions/remote-session-1/messages?stream=true") {
+            send_sse_response(fd,
+                "event: message\r\n"
+                "data: {\"delta\":\"one\"}\r\n"
+                "\r\n"
+                "data: {\"delta\":\"two\"}\r\n"
+                "\r\n"
+                "data: [DONE]\r\n"
+                "\r\n");
+            return;
+        }
+        if (request->method == "DELETE" && request->path == "/api/sessions/remote-session-1") {
+            send_response(fd, 204, "No Content", "");
+            return;
+        }
+        send_response(fd, 404, "Not Found", R"({"error":"not found"})");
+    }
+
+    int listen_fd_ = -1;
+    std::uint16_t port_ = 0;
+    std::atomic<bool> running_{false};
+    std::jthread accept_thread_;
+    std::mutex mutex_;
+    std::condition_variable cv_;
+    std::vector<LocalCcrHttpRequest> requests_;
 };
 
 class LocalWebSocketMcpServer {
@@ -663,6 +870,268 @@ private:
     int sse_fd_ = -1;
     mutable std::mutex posts_mutex_;
     std::vector<std::string> post_bodies_;
+};
+
+std::string remote_ws_base64_encode(const unsigned char* data, std::size_t len) {
+    static constexpr char table[] =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string result;
+    result.reserve(((len + 2) / 3) * 4);
+    for (std::size_t i = 0; i < len; i += 3) {
+        std::uint32_t n = static_cast<std::uint32_t>(data[i]) << 16;
+        if (i + 1 < len) n |= static_cast<std::uint32_t>(data[i + 1]) << 8;
+        if (i + 2 < len) n |= static_cast<std::uint32_t>(data[i + 2]);
+        result.push_back(table[(n >> 18) & 0x3f]);
+        result.push_back(table[(n >> 12) & 0x3f]);
+        result.push_back((i + 1 < len) ? table[(n >> 6) & 0x3f] : '=');
+        result.push_back((i + 2 < len) ? table[n & 0x3f] : '=');
+    }
+    return result;
+}
+
+std::string remote_ws_accept_key(std::string_view key) {
+    const std::string input = std::string(key) + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+    std::array<unsigned char, 20> hash{};
+#ifdef __APPLE__
+    CC_SHA1(input.data(), static_cast<CC_LONG>(input.size()), hash.data());
+#else
+    SHA1(reinterpret_cast<const unsigned char*>(input.data()), input.size(), hash.data());
+#endif
+    return remote_ws_base64_encode(hash.data(), hash.size());
+}
+
+class LocalRemoteSessionWebSocketServer {
+public:
+    LocalRemoteSessionWebSocketServer() {
+        listen_fd_ = ::socket(AF_INET, SOCK_STREAM, 0);
+        if (listen_fd_ < 0) return;
+        int yes = 1;
+        setsockopt(listen_fd_, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
+
+        sockaddr_in addr{};
+        addr.sin_family = AF_INET;
+        addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        addr.sin_port = 0;
+        if (::bind(listen_fd_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0) {
+            ::close(listen_fd_);
+            listen_fd_ = -1;
+            return;
+        }
+        if (::listen(listen_fd_, 4) != 0) {
+            ::close(listen_fd_);
+            listen_fd_ = -1;
+            return;
+        }
+
+        socklen_t len = sizeof(addr);
+        if (::getsockname(listen_fd_, reinterpret_cast<sockaddr*>(&addr), &len) == 0) {
+            port_ = ntohs(addr.sin_port);
+        }
+
+        running_.store(true);
+        accept_thread_ = std::jthread([this](std::stop_token stop) {
+            accept_loop(stop);
+        });
+    }
+
+    ~LocalRemoteSessionWebSocketServer() {
+        running_.store(false);
+        if (listen_fd_ >= 0) {
+            ::shutdown(listen_fd_, SHUT_RDWR);
+            ::close(listen_fd_);
+            listen_fd_ = -1;
+        }
+    }
+
+    [[nodiscard]] bool ready() const noexcept { return listen_fd_ >= 0 && port_ != 0; }
+    [[nodiscard]] std::uint16_t port() const noexcept { return port_; }
+
+    [[nodiscard]] std::string handshake_headers() const {
+        std::lock_guard lock(mutex_);
+        return handshake_headers_;
+    }
+
+    [[nodiscard]] std::string handshake_path() const {
+        std::lock_guard lock(mutex_);
+        return handshake_path_;
+    }
+
+    [[nodiscard]] std::optional<std::vector<std::string>> wait_for_text_frames(
+        std::size_t count,
+        std::chrono::milliseconds timeout = std::chrono::seconds(3)) {
+        std::unique_lock lock(mutex_);
+        if (!cv_.wait_for(lock, timeout, [this, count] { return text_frames_.size() >= count; })) {
+            return std::nullopt;
+        }
+        return text_frames_;
+    }
+
+private:
+    struct Frame {
+        std::uint8_t opcode = 0;
+        std::string payload;
+    };
+
+    void accept_loop(std::stop_token stop) {
+        while (!stop.stop_requested() && running_.load()) {
+            sockaddr_in client_addr{};
+            socklen_t client_len = sizeof(client_addr);
+            int client_fd = ::accept(listen_fd_, reinterpret_cast<sockaddr*>(&client_addr), &client_len);
+            if (client_fd < 0) {
+                if (!running_.load()) break;
+                continue;
+            }
+            handle_client(client_fd);
+            ::close(client_fd);
+            break;
+        }
+    }
+
+    static std::optional<std::string> read_http_headers(int fd) {
+        std::string request;
+        char buffer[1024];
+        while (request.find("\r\n\r\n") == std::string::npos) {
+            auto n = ::recv(fd, buffer, sizeof(buffer), 0);
+            if (n <= 0) return std::nullopt;
+            request.append(buffer, buffer + n);
+            if (request.size() > 64 * 1024) return std::nullopt;
+        }
+        return request;
+    }
+
+    static std::string request_path(std::string_view headers) {
+        auto first_line_end = headers.find("\r\n");
+        if (first_line_end == std::string_view::npos) return {};
+        std::istringstream line(std::string(headers.substr(0, first_line_end)));
+        std::string method;
+        std::string path;
+        line >> method >> path;
+        return path;
+    }
+
+    static std::string header_value(std::string_view headers, std::string_view name) {
+        auto pos = headers.find(name);
+        if (pos == std::string_view::npos) return {};
+        auto value_start = headers.find(':', pos);
+        if (value_start == std::string_view::npos) return {};
+        ++value_start;
+        while (value_start < headers.size() && headers[value_start] == ' ') ++value_start;
+        auto value_end = headers.find("\r\n", value_start);
+        if (value_end == std::string_view::npos) return {};
+        return std::string(headers.substr(value_start, value_end - value_start));
+    }
+
+    static bool read_exact(int fd, char* data, std::size_t size) {
+        while (size > 0) {
+            auto n = ::recv(fd, data, size, 0);
+            if (n <= 0) return false;
+            data += n;
+            size -= static_cast<std::size_t>(n);
+        }
+        return true;
+    }
+
+    static std::optional<Frame> read_frame(int fd) {
+        unsigned char header[2]{};
+        if (!read_exact(fd, reinterpret_cast<char*>(header), 2)) return std::nullopt;
+
+        Frame frame;
+        frame.opcode = header[0] & 0x0f;
+        const bool masked = (header[1] & 0x80) != 0;
+        std::uint64_t len = header[1] & 0x7f;
+        if (len == 126) {
+            unsigned char ext[2]{};
+            if (!read_exact(fd, reinterpret_cast<char*>(ext), 2)) return std::nullopt;
+            len = (static_cast<std::uint64_t>(ext[0]) << 8) | ext[1];
+        } else if (len == 127) {
+            unsigned char ext[8]{};
+            if (!read_exact(fd, reinterpret_cast<char*>(ext), 8)) return std::nullopt;
+            len = 0;
+            for (unsigned char byte : ext) len = (len << 8) | byte;
+        }
+
+        std::array<unsigned char, 4> mask{};
+        if (masked && !read_exact(fd, reinterpret_cast<char*>(mask.data()), mask.size())) {
+            return std::nullopt;
+        }
+
+        frame.payload.resize(static_cast<std::size_t>(len));
+        if (len > 0 && !read_exact(fd, frame.payload.data(), frame.payload.size())) {
+            return std::nullopt;
+        }
+        if (masked) {
+            for (std::size_t i = 0; i < frame.payload.size(); ++i) {
+                frame.payload[i] = static_cast<char>(frame.payload[i] ^ mask[i % 4]);
+            }
+        }
+        return frame;
+    }
+
+    static bool send_text_frame(int fd, std::string_view payload) {
+        std::string frame;
+        frame.push_back(static_cast<char>(0x81));
+        const auto len = payload.size();
+        if (len < 126) {
+            frame.push_back(static_cast<char>(len));
+        } else if (len <= 0xffff) {
+            frame.push_back(static_cast<char>(126));
+            frame.push_back(static_cast<char>((len >> 8) & 0xff));
+            frame.push_back(static_cast<char>(len & 0xff));
+        } else {
+            frame.push_back(static_cast<char>(127));
+            for (int shift = 56; shift >= 0; shift -= 8) {
+                frame.push_back(static_cast<char>((len >> shift) & 0xff));
+            }
+        }
+        frame.append(payload);
+        return send_all(fd, frame);
+    }
+
+    void handle_client(int fd) {
+        auto headers = read_http_headers(fd);
+        if (!headers) return;
+        const auto key = header_value(*headers, "Sec-WebSocket-Key");
+        {
+            std::lock_guard lock(mutex_);
+            handshake_headers_ = *headers;
+            handshake_path_ = request_path(*headers);
+        }
+
+        const auto response = std::format(
+            "HTTP/1.1 101 Switching Protocols\r\n"
+            "Upgrade: websocket\r\n"
+            "Connection: Upgrade\r\n"
+            "Sec-WebSocket-Accept: {}\r\n\r\n",
+            remote_ws_accept_key(key));
+        if (!send_all(fd, response)) return;
+
+        while (running_.load()) {
+            auto frame = read_frame(fd);
+            if (!frame) break;
+            if (frame->opcode == 0x8) break;
+            if (frame->opcode != 0x1) continue;
+            {
+                std::lock_guard lock(mutex_);
+                text_frames_.push_back(frame->payload);
+            }
+            cv_.notify_all();
+
+            if (frame->payload.find(R"("type":"request")") != std::string::npos) {
+                send_text_frame(fd,
+                    R"({"type":"response","id":"server-response","method":"agent.message","payload":{"ok":true}})");
+            }
+        }
+    }
+
+    int listen_fd_ = -1;
+    std::uint16_t port_ = 0;
+    std::atomic<bool> running_{false};
+    std::jthread accept_thread_;
+    mutable std::mutex mutex_;
+    std::condition_variable cv_;
+    std::string handshake_headers_;
+    std::string handshake_path_;
+    std::vector<std::string> text_frames_;
 };
 
 class LocalStreamableHttpMcpServer {
@@ -1154,6 +1623,165 @@ process.stdin.resume();
     fs::remove_all(root);
 }
 
+TEST(CcrClient, UsesDefaultHttpTransportForRemoteSessionLifecycle) {
+    LocalCcrHttpServer server;
+    ASSERT_TRUE(server.ready());
+
+    cc::cli::CcrClient client;
+    auto connected = client.connect(server.base_url() + "/api", "ccr-token");
+    ASSERT_TRUE(connected.has_value()) << connected.error();
+
+    auto message = client.send_message("hello \"remote\"\nline");
+    ASSERT_TRUE(message.has_value()) << message.error();
+    EXPECT_EQ(*message, R"({"content":"remote-ok"})");
+
+    auto info = client.get_session_info();
+    EXPECT_EQ(info.id, "remote-session-1");
+    EXPECT_EQ(info.status, "connected");
+    EXPECT_EQ(info.messages_sent, 1u);
+    EXPECT_EQ(info.messages_received, 1u);
+
+    client.disconnect();
+
+    auto requests = server.wait_for_requests(3);
+    ASSERT_TRUE(requests.has_value());
+    ASSERT_GE(requests->size(), 3u);
+
+    EXPECT_EQ((*requests)[0].method, "POST");
+    EXPECT_EQ((*requests)[0].path, "/api/sessions");
+    EXPECT_NE((*requests)[0].headers.find("Authorization: Bearer ccr-token"), std::string::npos);
+    EXPECT_NE((*requests)[0].body.find(R"("token":"ccr-token")"), std::string::npos);
+
+    EXPECT_EQ((*requests)[1].method, "POST");
+    EXPECT_EQ((*requests)[1].path, "/api/sessions/remote-session-1/messages");
+    EXPECT_NE((*requests)[1].headers.find("Authorization: Bearer ccr-token"), std::string::npos);
+    EXPECT_NE((*requests)[1].body.find(R"("session_id":"remote-session-1")"), std::string::npos);
+    EXPECT_NE((*requests)[1].body.find(R"(hello \"remote\"\nline)"), std::string::npos);
+
+    EXPECT_EQ((*requests)[2].method, "DELETE");
+    EXPECT_EQ((*requests)[2].path, "/api/sessions/remote-session-1");
+    EXPECT_NE((*requests)[2].headers.find("Authorization: Bearer ccr-token"), std::string::npos);
+}
+
+TEST(RemoteSession, ConnectsAuthenticatesSubscribesRequestsAndUnsubscribesOverWebSocket) {
+    LocalRemoteSessionWebSocketServer server;
+    ASSERT_TRUE(server.ready());
+
+    cc::remote::RemoteSession session;
+    std::vector<cc::remote::SessionMessage> messages;
+    std::vector<std::string> errors;
+    session.on_message([&](const cc::remote::SessionMessage& message) {
+        messages.push_back(message);
+    });
+    session.on_error([&](std::string_view error) {
+        errors.emplace_back(error);
+    });
+
+    auto connected = session.connect(cc::remote::RemoteSessionConfig{
+        .host = "127.0.0.1",
+        .port = server.port(),
+        .token = "remote-token",
+        .session_id = std::string{"remote-session-1"},
+        .api_version = "v1",
+        .ping_interval = std::chrono::seconds{30},
+        .connect_timeout = std::chrono::seconds{3},
+        .use_tls = false,
+    });
+    ASSERT_TRUE(connected.has_value()) << connected.error();
+    EXPECT_EQ(session.status(), cc::remote::SessionStatus::Subscribed);
+
+    auto sent = session.send_request("agent.message", R"({"content":"hello"})");
+    ASSERT_TRUE(sent.has_value()) << sent.error();
+
+    for (int attempt = 0; attempt < 30 && messages.empty(); ++attempt) {
+        session.poll(std::chrono::milliseconds{50});
+    }
+    ASSERT_FALSE(messages.empty());
+    EXPECT_EQ(messages.front().type, cc::remote::SessionMessageType::Response);
+    EXPECT_EQ(messages.front().method, "agent.message");
+    EXPECT_NE(messages.front().payload.find(R"("ok":true)"), std::string::npos);
+    EXPECT_TRUE(errors.empty());
+
+    session.disconnect();
+    EXPECT_EQ(session.status(), cc::remote::SessionStatus::Disconnected);
+
+    auto frames = server.wait_for_text_frames(4);
+    ASSERT_TRUE(frames.has_value());
+    ASSERT_EQ(frames->size(), 4u);
+
+    EXPECT_EQ(server.handshake_path(), "/v1/sessions/ws/remote-session-1/subscribe");
+    const auto headers = server.handshake_headers();
+    EXPECT_NE(headers.find("Authorization: Bearer remote-token"), std::string::npos);
+    EXPECT_NE(headers.find("X-Api-Version: v1"), std::string::npos);
+
+    EXPECT_NE((*frames)[0].find(R"("type":"auth")"), std::string::npos);
+    EXPECT_NE((*frames)[0].find(R"("token":"remote-token")"), std::string::npos);
+    EXPECT_NE((*frames)[1].find(R"("type":"subscribe")"), std::string::npos);
+    EXPECT_NE((*frames)[1].find(R"("session_id":"remote-session-1")"), std::string::npos);
+    EXPECT_NE((*frames)[2].find(R"("type":"request")"), std::string::npos);
+    EXPECT_NE((*frames)[2].find(R"("method":"agent.message")"), std::string::npos);
+    EXPECT_NE((*frames)[2].find(R"("content":"hello")"), std::string::npos);
+    EXPECT_NE((*frames)[3].find(R"("type":"unsubscribe")"), std::string::npos);
+    EXPECT_NE((*frames)[3].find(R"("session_id":"remote-session-1")"), std::string::npos);
+}
+
+TEST(CcrClient, StreamsMessagesThroughDefaultHttpTransport) {
+    LocalCcrHttpServer server;
+    ASSERT_TRUE(server.ready());
+
+    cc::cli::CcrClient client;
+    auto connected = client.connect(server.base_url() + "/api", "ccr-token");
+    ASSERT_TRUE(connected.has_value()) << connected.error();
+
+    std::vector<std::pair<std::string, bool>> chunks;
+    auto streamed = client.send_message_streaming("stream \"remote\"", [&](std::string_view chunk, bool is_final) {
+        chunks.emplace_back(std::string(chunk), is_final);
+    });
+    ASSERT_TRUE(streamed.has_value()) << streamed.error();
+
+    ASSERT_EQ(chunks.size(), 3u);
+    EXPECT_EQ(chunks[0].first, R"({"delta":"one"})");
+    EXPECT_FALSE(chunks[0].second);
+    EXPECT_EQ(chunks[1].first, R"({"delta":"two"})");
+    EXPECT_FALSE(chunks[1].second);
+    EXPECT_EQ(chunks[2].first, "[DONE]");
+    EXPECT_TRUE(chunks[2].second);
+
+    auto info = client.get_session_info();
+    EXPECT_EQ(info.id, "remote-session-1");
+    EXPECT_EQ(info.messages_sent, 1u);
+    EXPECT_EQ(info.messages_received, 1u);
+
+    client.disconnect();
+
+    auto requests = server.wait_for_requests(3);
+    ASSERT_TRUE(requests.has_value());
+    ASSERT_GE(requests->size(), 3u);
+
+    EXPECT_EQ((*requests)[1].method, "POST");
+    EXPECT_EQ((*requests)[1].path, "/api/sessions/remote-session-1/messages?stream=true");
+    EXPECT_NE((*requests)[1].headers.find("Authorization: Bearer ccr-token"), std::string::npos);
+    EXPECT_NE((*requests)[1].headers.find("Accept: text/event-stream"), std::string::npos);
+    EXPECT_NE((*requests)[1].body.find(R"("session_id":"remote-session-1")"), std::string::npos);
+    EXPECT_NE((*requests)[1].body.find(R"(stream \"remote\")"), std::string::npos);
+
+    EXPECT_EQ((*requests)[2].method, "DELETE");
+    EXPECT_EQ((*requests)[2].path, "/api/sessions/remote-session-1");
+}
+
+TEST(CcrClient, DoesNotInventSessionWhenRemoteHandshakeFails) {
+    cc::cli::CcrClient client;
+    client.set_http_transport([](const cc::cli::CcrHttpRequest&)
+        -> std::expected<cc::cli::CcrHttpResponse, std::string> {
+        return std::unexpected("network down");
+    });
+
+    auto connected = client.connect("https://remote.example/api", "ccr-token");
+    ASSERT_FALSE(connected.has_value());
+    EXPECT_NE(connected.error().find("Remote session handshake failed: network down"), std::string::npos);
+    EXPECT_FALSE(client.is_connected());
+}
+
 TEST(ApiErrors, ClassifiesHttpStatusCodes) {
     using cc::services::api::errors::ApiErrorCategory;
     using cc::services::api::errors::ErrorClassifier;
@@ -1341,13 +1969,25 @@ TEST(QueryEngine, CompactConversationPreservesSummarizedHistoryDetails) {
     ASSERT_TRUE(compacted.has_value());
 
     auto conversation = engine.get_conversation();
-    ASSERT_EQ(conversation.size(), 8u);
+    ASSERT_EQ(conversation.size(), 9u);
 
-    const auto* marker = std::get_if<cc::core::UserMessage>(&conversation[1]);
+    const auto* boundary = std::get_if<cc::core::SystemMessage>(&conversation[1]);
+    ASSERT_NE(boundary, nullptr);
+    ASSERT_TRUE(boundary->subtype.has_value());
+    EXPECT_EQ(*boundary->subtype, "compact_boundary");
+    ASSERT_TRUE(boundary->compact_metadata.has_value());
+    EXPECT_EQ(boundary->compact_metadata->trigger, "manual");
+    EXPECT_GT(boundary->compact_metadata->pre_tokens, 0u);
+    ASSERT_TRUE(boundary->compact_metadata->preserved_segment.has_value());
+    EXPECT_EQ(boundary->compact_metadata->preserved_segment->head_uuid, "user-recent one");
+    EXPECT_EQ(boundary->compact_metadata->preserved_segment->tail_uuid, "assistant-recent six");
+
+    const auto* marker = std::get_if<cc::core::UserMessage>(&conversation[2]);
     ASSERT_NE(marker, nullptr);
     ASSERT_EQ(marker->content.size(), 1u);
     const auto* summary = std::get_if<cc::core::TextBlock>(&marker->content.front());
     ASSERT_NE(summary, nullptr);
+    EXPECT_EQ(boundary->compact_metadata->preserved_segment->anchor_uuid, marker->id.value);
 
     EXPECT_NE(summary->text.find("legacy requirement alpha"), std::string::npos);
     EXPECT_NE(summary->text.find("assistant decision beta"), std::string::npos);
@@ -1605,12 +2245,18 @@ TEST(McpConfigParser, ParsesJsonFieldsAndExplicitTransports) {
           "autoStart": false,
           "enabled": false
         },
-        "sse_fixture": {
-          "type": "sse",
-          "url": "http://127.0.0.1:8123/events",
-          "headers": {"Authorization": "Bearer token"},
-          "headersHelper": "node helper.js"
-        },
+	"sse_fixture": {
+	  "type": "sse",
+	  "url": "http://127.0.0.1:8123/events",
+	  "headers": {"Authorization": "Bearer token"},
+	  "headersHelper": "node helper.js",
+	  "oauth": {
+	    "authServerMetadataUrl": "https://auth.example.com/.well-known/oauth-authorization-server",
+	    "callbackPort": 19485,
+	    "clientId": "client-1",
+	    "xaa": true
+	  }
+	},
         "http_fixture": {
           "type": "http",
           "url": "http://127.0.0.1:8124/mcp",
@@ -1646,11 +2292,19 @@ TEST(McpConfigParser, ParsesJsonFieldsAndExplicitTransports) {
     EXPECT_FALSE(stdio.enabled);
     EXPECT_EQ(stdio.scope, cc::services::mcp::ConfigScope::Project);
 
-    const auto& sse = parsed->at("sse_fixture");
-    EXPECT_EQ(sse.transport, cc::services::mcp::TransportType::Sse);
-    EXPECT_EQ(sse.url, "http://127.0.0.1:8123/events");
-    EXPECT_EQ(sse.headers.at("Authorization"), "Bearer token");
-    EXPECT_EQ(sse.headers_helper, "node helper.js");
+	const auto& sse = parsed->at("sse_fixture");
+	EXPECT_EQ(sse.transport, cc::services::mcp::TransportType::Sse);
+	EXPECT_EQ(sse.url, "http://127.0.0.1:8123/events");
+	EXPECT_EQ(sse.headers.at("Authorization"), "Bearer token");
+	EXPECT_EQ(sse.headers_helper, "node helper.js");
+	ASSERT_TRUE(sse.oauth.has_value());
+	ASSERT_TRUE(sse.oauth->auth_server_metadata_url.has_value());
+	EXPECT_EQ(*sse.oauth->auth_server_metadata_url, "https://auth.example.com/.well-known/oauth-authorization-server");
+	ASSERT_TRUE(sse.oauth->callback_port.has_value());
+	EXPECT_EQ(*sse.oauth->callback_port, 19485);
+	ASSERT_TRUE(sse.oauth->client_id.has_value());
+	EXPECT_EQ(*sse.oauth->client_id, "client-1");
+	EXPECT_TRUE(sse.oauth->xaa);
 
     const auto& http = parsed->at("http_fixture");
     EXPECT_EQ(http.transport, cc::services::mcp::TransportType::StreamableHttp);
@@ -2417,8 +3071,190 @@ TEST(ConfigManager, PersistsMcpServerSettings) {
     ASSERT_EQ(loaded.settings().mcp_servers.front().args.size(), 2u);
     EXPECT_EQ(loaded.settings().mcp_servers.front().args[0], "server.js");
     EXPECT_EQ(loaded.settings().mcp_servers.front().args[1], "--flag");
-    EXPECT_EQ(loaded.settings().mcp_servers.front().env.at("FOO"), "bar");
+	EXPECT_EQ(loaded.settings().mcp_servers.front().env.at("FOO"), "bar");
 
+	fs::remove_all(root);
+}
+
+TEST(ConfigManager, PreservesRemoteMcpServerAuthSettings) {
+    const auto suffix = std::chrono::system_clock::now().time_since_epoch().count();
+    const auto root = fs::temp_directory_path() / ("cc_repl_remote_mcp_config_test_" + std::to_string(suffix));
+    fs::create_directories(root);
+
+    cc::core::ConfigManager manager(root / "global.json", root / "project.json");
+    auto& settings = manager.settings_mut();
+    settings.mcp_servers.push_back(cc::core::McpServerConfig{
+        .name = "remote",
+        .command = {},
+        .args = {},
+        .env = {},
+        .transport = "http",
+        .url = "https://mcp.example.com/mcp",
+        .headers = {{"X-Test", "present"}},
+        .headers_helper = "node headers.js",
+        .oauth = cc::core::McpOAuthConfig{
+            .auth_server_metadata_url = "https://auth.example.com/.well-known/oauth-authorization-server",
+            .callback_port = 19485,
+            .client_id = "client-1",
+            .xaa = true,
+        },
+    });
+
+    ASSERT_TRUE(manager.save(cc::core::ConfigSource::ProjectConfig).has_value());
+
+    cc::core::ConfigManager loaded(root / "global.json", root / "project.json");
+    ASSERT_TRUE(loaded.load().has_value());
+    ASSERT_EQ(loaded.settings().mcp_servers.size(), 1u);
+    const auto& server = loaded.settings().mcp_servers.front();
+    EXPECT_EQ(server.name, "remote");
+    EXPECT_EQ(server.transport, "http");
+    ASSERT_TRUE(server.url.has_value());
+    EXPECT_EQ(*server.url, "https://mcp.example.com/mcp");
+    EXPECT_EQ(server.headers.at("X-Test"), "present");
+    ASSERT_TRUE(server.headers_helper.has_value());
+    EXPECT_EQ(*server.headers_helper, "node headers.js");
+    ASSERT_TRUE(server.oauth.has_value());
+    ASSERT_TRUE(server.oauth->auth_server_metadata_url.has_value());
+    EXPECT_EQ(*server.oauth->auth_server_metadata_url, "https://auth.example.com/.well-known/oauth-authorization-server");
+    ASSERT_TRUE(server.oauth->callback_port.has_value());
+    EXPECT_EQ(*server.oauth->callback_port, 19485);
+    ASSERT_TRUE(server.oauth->client_id.has_value());
+    EXPECT_EQ(*server.oauth->client_id, "client-1");
+    EXPECT_TRUE(server.oauth->xaa);
+
+    fs::remove_all(root);
+}
+
+TEST(ServerRoutes, MessageSessionsAndCompactUsePersistentState) {
+    const auto suffix = std::chrono::system_clock::now().time_since_epoch().count();
+    const auto root = fs::temp_directory_path() / ("cc_repl_server_routes_test_" + std::to_string(suffix));
+    const auto sessions_dir = root / "sessions";
+    fs::remove_all(root);
+    fs::create_directories(sessions_dir);
+
+    LocalAnthropicMessagesServer server;
+    ASSERT_NE(server.port(), 0);
+    EnvironmentGuard api_key_guard("ANTHROPIC_API_KEY", "test-key");
+    EnvironmentGuard base_url_guard("ANTHROPIC_BASE_URL", server.base_url());
+    EnvironmentGuard model_guard("CLAUDE_MODEL", "direct-route-test-model");
+    CurrentPathGuard cwd_guard(root);
+
+    cc::server::reset_route_state_for_testing();
+    cc::server::set_sessions_dir_for_testing(sessions_dir);
+    auto routes = cc::server::get_default_routes();
+    auto find_route = [&](std::string_view method, std::string_view path) -> const cc::server::Route* {
+        auto it = std::ranges::find_if(routes, [&](const auto& route) {
+            return route.method == method && route.path == path;
+        });
+        return it == routes.end() ? nullptr : &*it;
+    };
+
+    const auto* message_route = find_route("POST", "/message");
+    const auto* sessions_route = find_route("GET", "/sessions");
+    const auto* compact_route = find_route("POST", "/compact");
+    ASSERT_NE(message_route, nullptr);
+    ASSERT_NE(sessions_route, nullptr);
+    ASSERT_NE(compact_route, nullptr);
+
+    auto first_response = message_route->handler({{"content", "hello server route"}, {"model", "test-model"}});
+    auto first_json = cc::utils::json::parse(first_response);
+    ASSERT_TRUE(first_json.has_value()) << first_response;
+    auto session_id_value = first_json->root().get("session_id");
+    ASSERT_TRUE(session_id_value.is_str());
+    std::string session_id(session_id_value.as_str());
+    EXPECT_EQ(first_json->root().get_string("status"), "completed");
+    EXPECT_EQ(first_json->root().get_string("response"), "ok");
+    EXPECT_EQ(first_json->root().get_string("model"), "claude-test");
+
+    for (int i = 0; i < 4; ++i) {
+        auto response = message_route->handler({
+            {"session_id", session_id},
+            {"content", "follow up " + std::to_string(i)}
+        });
+        auto parsed = cc::utils::json::parse(response);
+        ASSERT_TRUE(parsed.has_value()) << response;
+        EXPECT_EQ(parsed->root().get_string("session_id"), session_id);
+        EXPECT_EQ(parsed->root().get_string("response"), "ok");
+    }
+
+    auto request_bodies = server.wait_for_bodies(5);
+    ASSERT_TRUE(request_bodies.has_value());
+    auto last_request_json = cc::utils::json::parse(request_bodies->back());
+    ASSERT_TRUE(last_request_json.has_value()) << request_bodies->back();
+    auto request_messages = last_request_json->root().get("messages");
+    ASSERT_TRUE(request_messages.is_arr()) << request_bodies->back();
+    ASSERT_EQ(request_messages.size(), 9u) << request_bodies->back();
+    std::string request_history_text;
+    request_messages.iter([&](cc::utils::json::JsonVal message) {
+        auto content = message.get("content");
+        if (content.is_str()) {
+            request_history_text += std::string(content.as_str()) + "\n";
+        } else if (content.is_arr()) {
+            content.iter([&](cc::utils::json::JsonVal block) {
+                auto text = block.get("text");
+                if (text.valid() && text.is_str()) {
+                    request_history_text += std::string(text.as_str()) + "\n";
+                }
+            });
+        }
+    });
+    EXPECT_NE(request_history_text.find("hello server route"), std::string::npos);
+    EXPECT_NE(request_history_text.find("follow up 0"), std::string::npos);
+    EXPECT_NE(request_history_text.find("follow up 3"), std::string::npos);
+    EXPECT_NE(request_history_text.find("ok"), std::string::npos);
+
+    auto sessions_response = sessions_route->handler({{"limit", "5"}});
+    auto sessions_json = cc::utils::json::parse(sessions_response);
+    ASSERT_TRUE(sessions_json.has_value()) << sessions_response;
+    EXPECT_EQ(sessions_json->root().get("total").as_int(), 1);
+    auto sessions = sessions_json->root().get("sessions");
+    ASSERT_TRUE(sessions.is_arr());
+    ASSERT_EQ(sessions.size(), 1u);
+    EXPECT_EQ(sessions.at(0).get_string("session_id"), session_id);
+    EXPECT_EQ(sessions.at(0).get("message_count").as_int(), 10);
+
+    auto compact_response = compact_route->handler({{"session_id", session_id}});
+    auto compact_json = cc::utils::json::parse(compact_response);
+    ASSERT_TRUE(compact_json.has_value()) << compact_response;
+    EXPECT_EQ(compact_json->root().get_string("status"), "compacted");
+    EXPECT_EQ(compact_json->root().get("messages_before").as_int(), 10);
+    EXPECT_EQ(compact_json->root().get("messages_after").as_int(), 7);
+    EXPECT_EQ(compact_json->root().get("messages_removed").as_int(), 3);
+    EXPECT_EQ(compact_json->root().get("messages_summarized").as_int(), 4);
+    ASSERT_TRUE(compact_json->root().get("compact_boundary_id").is_str());
+
+    auto metadata = cc::session::load_session_metadata(sessions_dir, session_id);
+    ASSERT_TRUE(metadata.has_value());
+    EXPECT_EQ(metadata->message_count, 7);
+
+    std::ifstream messages_file(cc::session::get_messages_path(sessions_dir, session_id));
+    ASSERT_TRUE(messages_file.is_open());
+    std::vector<std::string> compacted_lines;
+    std::string line;
+    while (std::getline(messages_file, line)) {
+        if (!line.empty()) compacted_lines.push_back(line);
+    }
+    ASSERT_EQ(compacted_lines.size(), 7u);
+    auto boundary_json = cc::utils::json::parse(compacted_lines.front());
+    ASSERT_TRUE(boundary_json.has_value()) << compacted_lines.front();
+    EXPECT_EQ(boundary_json->root().get_string("role"), "system");
+    EXPECT_EQ(boundary_json->root().get_string("subtype"), "compact_boundary");
+    EXPECT_EQ(
+        boundary_json->root().get_string("id"),
+        compact_json->root().get_string("compact_boundary_id"));
+    auto boundary_metadata = boundary_json->root().get("compact_metadata");
+    ASSERT_TRUE(boundary_metadata.is_obj());
+    EXPECT_EQ(boundary_metadata.get("messages_before").as_int(), 10);
+    EXPECT_EQ(boundary_metadata.get("messages_after").as_int(), 7);
+    EXPECT_EQ(boundary_metadata.get("messages_removed").as_int(), 3);
+    EXPECT_EQ(boundary_metadata.get("messages_summarized").as_int(), 4);
+    EXPECT_EQ(boundary_metadata.get("preserved_recent_messages").as_int(), 6);
+    auto boundary_content = boundary_json->root().get_string("content");
+    EXPECT_NE(boundary_content.find("hello server route"), std::string::npos);
+    EXPECT_NE(boundary_content.find("follow up 0"), std::string::npos);
+    EXPECT_NE(boundary_content.find("Preserve these details"), std::string::npos);
+
+    cc::server::reset_route_state_for_testing();
     fs::remove_all(root);
 }
 

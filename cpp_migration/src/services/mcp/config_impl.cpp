@@ -75,15 +75,31 @@ parse_single_server(std::string name, JsonVal value, ConfigScope scope) {
     config.transport = *transport;
     config.command = json_string(value, "command").value_or(std::string{});
     config.url = json_string(value, "url").value_or(std::string{});
-    config.headers_helper = json_string(value, "headersHelper")
-        .or_else([&] { return json_string(value, "headers_helper"); })
-        .value_or(std::string{});
-    append_string_array(value.get("args"), config.args);
-    append_string_map(value.get("env"), config.env);
-    append_string_map(value.get("headers"), config.headers);
-    if (auto timeout = value.get("timeout"); timeout.is_num()) {
-        config.timeout = std::chrono::milliseconds{timeout.as_int()};
-    }
+	config.headers_helper = json_string(value, "headersHelper")
+	    .or_else([&] { return json_string(value, "headers_helper"); })
+	    .value_or(std::string{});
+	append_string_array(value.get("args"), config.args);
+	append_string_map(value.get("env"), config.env);
+	append_string_map(value.get("headers"), config.headers);
+	if (auto oauth = value.get("oauth"); oauth.is_obj()) {
+	    McpOAuthConfig oauth_config;
+	    oauth_config.auth_server_metadata_url = json_string(oauth, "authServerMetadataUrl")
+	        .or_else([&] { return json_string(oauth, "auth_server_metadata_url"); });
+	    if (auto callback_port = oauth.get("callbackPort"); callback_port.is_num()) {
+	        oauth_config.callback_port = static_cast<int>(callback_port.as_int());
+	    } else if (auto callback_port = oauth.get("callback_port"); callback_port.is_num()) {
+	        oauth_config.callback_port = static_cast<int>(callback_port.as_int());
+	    }
+	    oauth_config.client_id = json_string(oauth, "clientId")
+	        .or_else([&] { return json_string(oauth, "client_id"); });
+	    if (auto xaa = oauth.get("xaa"); xaa.is_bool()) {
+	        oauth_config.xaa = xaa.as_bool();
+	    }
+	    config.oauth = std::move(oauth_config);
+	}
+	if (auto timeout = value.get("timeout"); timeout.is_num()) {
+	    config.timeout = std::chrono::milliseconds{timeout.as_int()};
+	}
     if (auto auto_start = value.get("autoStart"); auto_start.is_bool()) {
         config.auto_start = auto_start.as_bool();
     }
@@ -278,11 +294,45 @@ std::string ConfigLoader::serialize_server(const ServerConfig& server) {
             }
             json += "]";
         }
-    } else {
-        json += std::format(R"("url":"{}")", server.url);
-    }
-    json += "}";
-    return json;
+	} else {
+	    json += std::format(R"("url":"{}")", server.url);
+	}
+	if (!server.headers.empty()) {
+	    json += R"(,"headers":{)";
+	    std::size_t header_index = 0;
+	    for (const auto& [key, value] : server.headers) {
+	        if (header_index++ > 0) json += ",";
+	        json += std::format(R"("{}":"{}")", key, value);
+	    }
+	    json += "}";
+	}
+	if (!server.headers_helper.empty()) {
+	    json += std::format(R"(,"headersHelper":"{}")", server.headers_helper);
+	}
+	if (server.oauth) {
+	    json += R"(,"oauth":{)";
+	    bool wrote_oauth = false;
+	    auto add_oauth = [&](std::string field) {
+	        if (wrote_oauth) json += ",";
+	        json += field;
+	        wrote_oauth = true;
+	    };
+	    if (server.oauth->auth_server_metadata_url) {
+	        add_oauth(std::format(R"("authServerMetadataUrl":"{}")", *server.oauth->auth_server_metadata_url));
+	    }
+	    if (server.oauth->callback_port) {
+	        add_oauth(std::format(R"("callbackPort":{})", *server.oauth->callback_port));
+	    }
+	    if (server.oauth->client_id) {
+	        add_oauth(std::format(R"("clientId":"{}")", *server.oauth->client_id));
+	    }
+	    if (server.oauth->xaa) {
+	        add_oauth(R"("xaa":true)");
+	    }
+	    json += "}";
+	}
+	json += "}";
+	return json;
 }
 
 } // namespace cc::services::mcp

@@ -72,9 +72,15 @@ enum class CommandStatus : std::uint8_t {
 };
 
 /// Context available to command handlers
+using RuntimeMessageProvider = std::vector<Message> (*)(void*);
+using RuntimeCompactApplier = VoidResult (*)(void*);
+
 struct CommandContext {
     std::vector<std::string> args;
     std::string raw_input;
+    void* runtime_state = nullptr;
+    RuntimeMessageProvider compact_message_provider = nullptr;
+    RuntimeCompactApplier compact_applier = nullptr;
 };
 
 // ============================================================
@@ -233,7 +239,8 @@ public:
     }
 
     /// Execute a command from input
-    [[nodiscard]] std::optional<CommandResult> execute(const std::string& input) const {
+    [[nodiscard]] std::optional<CommandResult> execute(const std::string& input,
+                                                       CommandContext ctx) const {
         if (input.empty() || input[0] != '/') {
             return std::nullopt;
         }
@@ -249,7 +256,8 @@ public:
         }
 
         if (auto* typed_cmd = get(cmd_name)) {
-            CommandContext ctx{args, input};
+            ctx.args = std::move(args);
+            ctx.raw_input = input;
             if (auto validation = typed_cmd->validate(ctx); !validation) {
                 return CommandResult::fail(validation.error().message);
             }
@@ -265,8 +273,14 @@ public:
             return CommandResult{false, std::format("Unknown command: /{}", cmd_name), std::nullopt};
         }
 
-        CommandContext ctx{args, input};
+        ctx.args = std::move(args);
+        ctx.raw_input = input;
         return cmd->handler(ctx);
+    }
+
+    /// Execute a command from input without runtime context.
+    [[nodiscard]] std::optional<CommandResult> execute(const std::string& input) const {
+        return execute(input, CommandContext{});
     }
 
     /// Get all visible commands
