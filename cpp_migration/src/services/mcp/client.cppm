@@ -21,6 +21,10 @@ module;
 #include <variant>
 #include <cerrno>
 #include <csignal>
+#include <cctype>
+#include <algorithm>
+#include <array>
+#include <unordered_map>
 #include <sys/socket.h>
 #include <netdb.h>
 #include <unistd.h>
@@ -30,6 +34,7 @@ export module cc.services.mcp.client;
 
 import cc.services.mcp.types;
 import cc.utils.json;
+import cc.utils.http;
 
 export namespace cc::services::mcp {
 
@@ -256,16 +261,20 @@ public:
             return std::unexpected(McpClientError::ConnectionFailed);
         }
 
+        unauthorized_.store(false);
         should_run_.store(true);
         reader_thread_ = std::jthread([this](std::stop_token stop) {
             connection_loop(stop);
         });
 
         // Wait briefly for initial connection
-        for (int i = 0; i < 50 && !connected_.load(); ++i) {
+        for (int i = 0; i < 50 && !connected_.load() && !unauthorized_.load(); ++i) {
             std::this_thread::sleep_for(100ms);
         }
 
+        if (unauthorized_.load()) {
+            return std::unexpected(McpClientError::Unauthorized);
+        }
         if (!connected_.load()) {
             return std::unexpected(McpClientError::ConnectionFailed);
         }
@@ -276,16 +285,22 @@ public:
         if (!connected_.load()) {
             return std::unexpected(McpClientError::NotConnected);
         }
-        // MCP over SSE: messages are sent via HTTP POST to the endpoint URL
-        // Queue for the post sender thread
+
+        auto target = wait_for_post_target();
+        if (!target) {
+            return std::unexpected(McpClientError::TransportError);
+        }
+
         std::lock_guard lock(send_mutex_);
-        pending_sends_.emplace_back(message);
-        return {};
+        return send_post_request(*target, std::string(message));
     }
 
     [[nodiscard]] McpResult<std::string> receive() override {
         std::unique_lock lock(recv_mutex_);
-        if (recv_cv_.wait_for(lock, 5s, [this] { return !receive_queue_.empty(); })) {
+        if (recv_cv_.wait_for(lock, 5s, [this] { return !receive_queue_.empty() || !connected_.load(); })) {
+            if (receive_queue_.empty()) {
+                return std::unexpected(McpClientError::NotConnected);
+            }
             auto msg = std::move(receive_queue_.front());
             receive_queue_.pop_front();
             return msg;
@@ -303,6 +318,8 @@ public:
     void close() override {
         should_run_.store(false);
         connected_.store(false);
+        post_cv_.notify_all();
+        recv_cv_.notify_all();
 
         if (socket_fd_.load() >= 0) {
             ::shutdown(socket_fd_.load(), SHUT_RDWR);
@@ -316,28 +333,153 @@ public:
         }
     }
 
-    [[nodiscard]] std::string get_post_url() const { return post_url_; }
+    [[nodiscard]] std::string get_post_url() const {
+        std::lock_guard lock(post_mutex_);
+        return post_url_;
+    }
 
 private:
     // URL components
     struct UrlParts { bool https; std::string host; uint16_t port; std::string path; };
 
-    bool parse_url(const std::string& url) {
-        std::string_view sv(url);
-        if (sv.starts_with("https://")) { parts_.https = true; sv.remove_prefix(8); parts_.port = 443; }
-        else if (sv.starts_with("http://")) { parts_.https = false; sv.remove_prefix(7); parts_.port = 80; }
-        else return false;
+    static std::optional<UrlParts> parse_url_parts(std::string_view sv) {
+        UrlParts parts{};
+        if (sv.starts_with("https://")) {
+            parts.https = true;
+            sv.remove_prefix(8);
+            parts.port = 443;
+        } else if (sv.starts_with("http://")) {
+            parts.https = false;
+            sv.remove_prefix(7);
+            parts.port = 80;
+        } else {
+            return std::nullopt;
+        }
         auto slash = sv.find('/');
         auto host_part = (slash != std::string_view::npos) ? sv.substr(0, slash) : sv;
-        parts_.path = (slash != std::string_view::npos) ? std::string(sv.substr(slash)) : "/";
+        parts.path = (slash != std::string_view::npos) ? std::string(sv.substr(slash)) : "/";
         auto colon = host_part.find(':');
         if (colon != std::string_view::npos) {
-            parts_.host = std::string(host_part.substr(0, colon));
-            parts_.port = static_cast<uint16_t>(std::atoi(std::string(host_part.substr(colon+1)).c_str()));
+            parts.host = std::string(host_part.substr(0, colon));
+            parts.port = static_cast<uint16_t>(std::atoi(std::string(host_part.substr(colon + 1)).c_str()));
         } else {
-            parts_.host = std::string(host_part);
+            parts.host = std::string(host_part);
         }
-        return !parts_.host.empty();
+        if (parts.host.empty() || parts.port == 0) return std::nullopt;
+        return parts;
+    }
+
+    bool parse_url(const std::string& url) {
+        auto parsed = parse_url_parts(url);
+        if (!parsed) return false;
+        parts_ = std::move(*parsed);
+        return true;
+    }
+
+    [[nodiscard]] std::optional<UrlParts> resolve_post_endpoint(std::string_view endpoint) const {
+        if (endpoint.starts_with("http://") || endpoint.starts_with("https://")) {
+            return parse_url_parts(endpoint);
+        }
+
+        UrlParts target = parts_;
+        if (endpoint.empty()) {
+            target.path = parts_.path.empty() ? "/" : parts_.path;
+        } else if (endpoint.front() == '/') {
+            target.path = std::string(endpoint);
+        } else {
+            const auto slash = parts_.path.rfind('/');
+            const auto base = slash == std::string::npos ? std::string{"/"} : parts_.path.substr(0, slash + 1);
+            target.path = base + std::string(endpoint);
+        }
+        return target;
+    }
+
+    [[nodiscard]] std::optional<UrlParts> wait_for_post_target() {
+        std::string endpoint;
+        {
+            std::unique_lock lock(post_mutex_);
+            post_cv_.wait_for(lock, 5s, [this] {
+                return !post_url_.empty() || !connected_.load() || !should_run_.load();
+            });
+            endpoint = post_url_;
+        }
+        return resolve_post_endpoint(endpoint);
+    }
+
+    static bool send_all(int fd, std::string_view data) {
+        std::size_t sent = 0;
+        while (sent < data.size()) {
+            auto n = ::send(fd, data.data() + sent, data.size() - sent, 0);
+            if (n <= 0) return false;
+            sent += static_cast<std::size_t>(n);
+        }
+        return true;
+    }
+
+    [[nodiscard]] McpResult<void> send_post_request(const UrlParts& target, const std::string& body) {
+        if (target.https) return std::unexpected(McpClientError::ConnectionFailed);
+
+        int fd = tcp_connect(target);
+        if (fd < 0) return std::unexpected(McpClientError::ConnectionFailed);
+
+        std::string host = target.host;
+        if ((target.port != 80 && !target.https) || (target.port != 443 && target.https)) {
+            host += ":" + std::to_string(target.port);
+        }
+
+        std::string req = "POST " + (target.path.empty() ? std::string{"/"} : target.path) + " HTTP/1.1\r\n";
+        req += "Host: " + host + "\r\n";
+        req += "Content-Type: application/json\r\n";
+        req += "Accept: application/json\r\n";
+        req += "Content-Length: " + std::to_string(body.size()) + "\r\n";
+        req += "Connection: close\r\n";
+        for (auto& [k, v] : headers_) req += k + ": " + v + "\r\n";
+        req += "\r\n";
+        req += body;
+
+        auto result = send_all(fd, req)
+            ? read_http_success_headers(fd)
+            : McpResult<void>{std::unexpected(McpClientError::TransportError)};
+        ::close(fd);
+        return result;
+    }
+
+    [[nodiscard]] McpResult<void> read_http_success_headers(int fd) {
+        std::string hdr;
+        char c;
+        while (hdr.size() < 8192) {
+            if (::recv(fd, &c, 1, 0) <= 0) return std::unexpected(McpClientError::TransportError);
+            hdr += c;
+            if (hdr.size() >= 4 && hdr.ends_with("\r\n\r\n")) break;
+        }
+        auto sp = hdr.find(' ');
+        if (sp == std::string::npos || sp + 4 > hdr.size()) return std::unexpected(McpClientError::TransportError);
+        int code = std::atoi(hdr.substr(sp + 1, 3).c_str());
+        if (code == 401) return std::unexpected(McpClientError::Unauthorized);
+        if (code < 200 || code >= 300) return std::unexpected(McpClientError::TransportError);
+        return {};
+    }
+
+    int tcp_connect(const UrlParts& parts) {
+        struct addrinfo hints{}, *res = nullptr;
+        hints.ai_family = AF_UNSPEC;
+        hints.ai_socktype = SOCK_STREAM;
+        auto port_s = std::to_string(parts.port);
+        if (getaddrinfo(parts.host.c_str(), port_s.c_str(), &hints, &res) != 0) return -1;
+        int fd = -1;
+        for (auto* r = res; r; r = r->ai_next) {
+            fd = ::socket(r->ai_family, r->ai_socktype, r->ai_protocol);
+            if (fd < 0) continue;
+            struct timeval tv{};
+            tv.tv_sec = policy_.liveness_timeout.count();
+            setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+            setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+            if (::connect(fd, r->ai_addr, r->ai_addrlen) == 0) break;
+            ::close(fd);
+            fd = -1;
+        }
+        freeaddrinfo(res);
+        return fd;
     }
 
     void connection_loop(std::stop_token stop) {
@@ -356,7 +498,16 @@ private:
             }
 
             socket_fd_.store(fd);
-            if (!send_sse_request(fd) || !read_headers(fd)) {
+            auto header_result = send_sse_request(fd)
+                ? read_headers(fd)
+                : McpResult<void>{std::unexpected(McpClientError::TransportError)};
+            if (!header_result) {
+                if (header_result.error() == McpClientError::Unauthorized) {
+                    unauthorized_.store(true);
+                    ::close(fd);
+                    socket_fd_.store(-1);
+                    break;
+                }
                 ::close(fd); socket_fd_.store(-1);
                 if (++retries > policy_.max_retries) break;
                 sleep_with_backoff(stop, delay);
@@ -381,22 +532,8 @@ private:
     }
 
     int tcp_connect() {
-        struct addrinfo hints{}, *res = nullptr;
-        hints.ai_family = AF_UNSPEC;
-        hints.ai_socktype = SOCK_STREAM;
-        auto port_s = std::to_string(parts_.port);
-        if (getaddrinfo(parts_.host.c_str(), port_s.c_str(), &hints, &res) != 0) return -1;
-        int fd = -1;
-        for (auto* r = res; r; r = r->ai_next) {
-            fd = ::socket(r->ai_family, r->ai_socktype, r->ai_protocol);
-            if (fd < 0) continue;
-            struct timeval tv{}; tv.tv_sec = policy_.liveness_timeout.count();
-            setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-            if (::connect(fd, r->ai_addr, r->ai_addrlen) == 0) break;
-            ::close(fd); fd = -1;
-        }
-        freeaddrinfo(res);
-        return fd;
+        if (parts_.https) return -1;
+        return tcp_connect(parts_);
     }
 
     bool send_sse_request(int fd) {
@@ -414,20 +551,21 @@ private:
         return true;
     }
 
-    bool read_headers(int fd) {
+    [[nodiscard]] McpResult<void> read_headers(int fd) {
         std::string hdr; char c;
         while (hdr.size() < 8192) {
-            if (::recv(fd, &c, 1, 0) <= 0) return false;
+            if (::recv(fd, &c, 1, 0) <= 0) return std::unexpected(McpClientError::TransportError);
             hdr += c;
             if (hdr.size() >= 4 && hdr.ends_with("\r\n\r\n")) break;
         }
         // Check 2xx
         auto sp = hdr.find(' ');
-        if (sp == std::string::npos) return false;
+        if (sp == std::string::npos) return std::unexpected(McpClientError::TransportError);
         int code = std::atoi(hdr.substr(sp+1, 3).c_str());
-        if (code < 200 || code >= 300) return false;
+        if (code == 401) return std::unexpected(McpClientError::Unauthorized);
+        if (code < 200 || code >= 300) return std::unexpected(McpClientError::TransportError);
         // Extract POST endpoint from response if provided (Link header or endpoint event)
-        return true;
+        return {};
     }
 
     void stream_events(int fd, std::stop_token& stop) {
@@ -450,7 +588,11 @@ private:
 
                             // "endpoint" event tells us where to POST
                             if (event_type == "endpoint") {
-                                post_url_ = data_buf;
+                                {
+                                    std::lock_guard lock(post_mutex_);
+                                    post_url_ = data_buf;
+                                }
+                                post_cv_.notify_all();
                             } else {
                                 std::lock_guard lock(recv_mutex_);
                                 receive_queue_.push_back(std::move(data_buf));
@@ -498,12 +640,379 @@ private:
 
     std::atomic<bool> connected_{false};
     std::atomic<bool> should_run_{false};
+    std::atomic<bool> unauthorized_{false};
     std::atomic<int> socket_fd_{-1};
     std::jthread reader_thread_;
 
     std::mutex send_mutex_;
-    std::vector<std::string> pending_sends_;
+    mutable std::mutex post_mutex_;
+    std::condition_variable post_cv_;
 
+    mutable std::mutex recv_mutex_;
+    std::condition_variable recv_cv_;
+    std::deque<std::string> receive_queue_;
+};
+
+// =========================================================================
+// Streamable HTTP Transport
+// =========================================================================
+
+class StreamableHttpTransport : public IMcpTransport {
+public:
+    explicit StreamableHttpTransport(std::string url, std::map<std::string, std::string> headers = {})
+        : url_(std::move(url))
+        , headers_(std::move(headers)) {}
+
+    ~StreamableHttpTransport() override { close(); }
+
+    [[nodiscard]] McpResult<void> start() override {
+        if (connected_.load()) return {};
+        auto parsed = parse_url_parts(url_);
+        if (!parsed) {
+            return std::unexpected(McpClientError::ConnectionFailed);
+        }
+        parts_ = std::move(*parsed);
+        connected_.store(true);
+        return {};
+    }
+
+    [[nodiscard]] McpResult<void> send(std::string_view message) override {
+        if (!connected_.load()) {
+            return std::unexpected(McpClientError::NotConnected);
+        }
+
+        std::lock_guard lock(send_mutex_);
+        auto response = send_post_request(std::string(message));
+        if (!response) {
+            return std::unexpected(response.error());
+        }
+        enqueue_response(*response);
+        return {};
+    }
+
+    [[nodiscard]] McpResult<std::string> receive() override {
+        std::unique_lock lock(recv_mutex_);
+        if (recv_cv_.wait_for(lock, 5s, [this] {
+            return !receive_queue_.empty() || !connected_.load();
+        })) {
+            if (receive_queue_.empty()) {
+                return std::unexpected(McpClientError::NotConnected);
+            }
+            auto msg = std::move(receive_queue_.front());
+            receive_queue_.pop_front();
+            return msg;
+        }
+        if (!connected_.load()) {
+            return std::unexpected(McpClientError::NotConnected);
+        }
+        return std::unexpected(McpClientError::Timeout);
+    }
+
+    [[nodiscard]] bool is_connected() const override {
+        return connected_.load();
+    }
+
+    void close() override {
+        connected_.store(false);
+        recv_cv_.notify_all();
+    }
+
+private:
+    struct UrlParts {
+        bool https = false;
+        std::string host;
+        uint16_t port = 0;
+        std::string path;
+    };
+
+    struct HttpResponse {
+        int status_code = 0;
+        std::map<std::string, std::string> headers;
+        std::string body;
+    };
+
+    static std::optional<UrlParts> parse_url_parts(std::string_view sv) {
+        UrlParts parts{};
+        if (sv.starts_with("https://")) {
+            parts.https = true;
+            sv.remove_prefix(8);
+            parts.port = 443;
+        } else if (sv.starts_with("http://")) {
+            parts.https = false;
+            sv.remove_prefix(7);
+            parts.port = 80;
+        } else {
+            return std::nullopt;
+        }
+
+        const auto slash = sv.find('/');
+        const auto host_part = (slash != std::string_view::npos) ? sv.substr(0, slash) : sv;
+        parts.path = (slash != std::string_view::npos) ? std::string(sv.substr(slash)) : "/";
+
+        const auto colon = host_part.find(':');
+        if (colon != std::string_view::npos) {
+            parts.host = std::string(host_part.substr(0, colon));
+            parts.port = static_cast<uint16_t>(std::atoi(std::string(host_part.substr(colon + 1)).c_str()));
+        } else {
+            parts.host = std::string(host_part);
+        }
+        if (parts.host.empty() || parts.port == 0) return std::nullopt;
+        return parts;
+    }
+
+    static std::string lower_ascii(std::string value) {
+        std::ranges::transform(value, value.begin(), [](unsigned char ch) {
+            return static_cast<char>(std::tolower(ch));
+        });
+        return value;
+    }
+
+    static std::string trim(std::string_view value) {
+        while (!value.empty() && std::isspace(static_cast<unsigned char>(value.front()))) {
+            value.remove_prefix(1);
+        }
+        while (!value.empty() && std::isspace(static_cast<unsigned char>(value.back()))) {
+            value.remove_suffix(1);
+        }
+        return std::string(value);
+    }
+
+    static bool send_all(int fd, std::string_view data) {
+        std::size_t sent = 0;
+        while (sent < data.size()) {
+            auto n = ::send(fd, data.data() + sent, data.size() - sent, 0);
+            if (n <= 0) return false;
+            sent += static_cast<std::size_t>(n);
+        }
+        return true;
+    }
+
+    [[nodiscard]] McpResult<HttpResponse> send_post_request(const std::string& body) {
+        if (parts_.https) return send_post_request_with_http_client(body);
+
+        const int fd = tcp_connect(parts_);
+        if (fd < 0) return std::unexpected(McpClientError::ConnectionFailed);
+
+        std::string host = parts_.host;
+        if (parts_.port != 80) {
+            host += ":" + std::to_string(parts_.port);
+        }
+
+        std::string req = "POST " + (parts_.path.empty() ? std::string{"/"} : parts_.path) + " HTTP/1.1\r\n";
+        req += "Host: " + host + "\r\n";
+        req += "Content-Type: application/json\r\n";
+        req += "Accept: application/json, text/event-stream\r\n";
+        req += "Content-Length: " + std::to_string(body.size()) + "\r\n";
+        req += "Connection: close\r\n";
+        for (const auto& [key, value] : headers_) {
+            req += key + ": " + value + "\r\n";
+        }
+        req += "\r\n";
+        req += body;
+
+        auto response = send_all(fd, req) ? read_http_response(fd) : std::optional<HttpResponse>{};
+        ::close(fd);
+        if (!response) {
+            return std::unexpected(McpClientError::TransportError);
+        }
+        if (response->status_code == 401) {
+            return std::unexpected(McpClientError::Unauthorized);
+        }
+        if (response->status_code < 200 || response->status_code >= 300) {
+            return std::unexpected(McpClientError::TransportError);
+        }
+        return *response;
+    }
+
+    [[nodiscard]] McpResult<HttpResponse> send_post_request_with_http_client(const std::string& body) {
+        std::unordered_map<std::string, std::string> request_headers;
+        request_headers["Content-Type"] = "application/json";
+        request_headers["Accept"] = "application/json, text/event-stream";
+        for (const auto& [key, value] : headers_) {
+            request_headers[key] = value;
+        }
+
+        cc::utils::HttpConfig config;
+        config.max_retries = 0;
+        cc::utils::HttpClient client(std::move(config));
+        auto response = client.post(url_, body, request_headers);
+        if (!response) {
+            switch (response.error().code) {
+                case cc::utils::HttpError::timeout:
+                    return std::unexpected(McpClientError::Timeout);
+                case cc::utils::HttpError::ssl_error:
+                case cc::utils::HttpError::dns_error:
+                case cc::utils::HttpError::connection_failed:
+                case cc::utils::HttpError::cancelled:
+                    return std::unexpected(McpClientError::ConnectionFailed);
+            }
+            return std::unexpected(McpClientError::ConnectionFailed);
+        }
+
+        if (response->status == 401) {
+            return std::unexpected(McpClientError::Unauthorized);
+        }
+        if (response->status < 200 || response->status >= 300) {
+            return std::unexpected(McpClientError::TransportError);
+        }
+
+        HttpResponse converted;
+        converted.status_code = response->status;
+        converted.body = std::move(response->body);
+        for (const auto& [key, value] : response->headers) {
+            converted.headers[lower_ascii(key)] = value;
+        }
+        return converted;
+    }
+
+    [[nodiscard]] static std::optional<HttpResponse> read_http_response(int fd) {
+        std::string buffer;
+        std::array<char, 4096> chunk{};
+        std::size_t header_end = std::string::npos;
+        while (buffer.size() < 65536) {
+            header_end = buffer.find("\r\n\r\n");
+            if (header_end != std::string::npos) break;
+            auto n = ::recv(fd, chunk.data(), chunk.size(), 0);
+            if (n <= 0) return std::nullopt;
+            buffer.append(chunk.data(), static_cast<std::size_t>(n));
+        }
+        if (header_end == std::string::npos) {
+            header_end = buffer.find("\r\n\r\n");
+        }
+        if (header_end == std::string::npos) return std::nullopt;
+
+        HttpResponse response;
+        const auto header_block = buffer.substr(0, header_end);
+        response.body = buffer.substr(header_end + 4);
+
+        const auto status_end = header_block.find("\r\n");
+        const auto status_line = header_block.substr(0, status_end);
+        const auto first_space = status_line.find(' ');
+        if (first_space == std::string::npos || first_space + 4 > status_line.size()) {
+            return std::nullopt;
+        }
+        response.status_code = std::atoi(status_line.substr(first_space + 1, 3).c_str());
+
+        std::size_t line_start = status_end == std::string::npos ? header_block.size() : status_end + 2;
+        while (line_start < header_block.size()) {
+            const auto line_end = header_block.find("\r\n", line_start);
+            const auto line = header_block.substr(line_start, line_end == std::string::npos ? std::string::npos : line_end - line_start);
+            const auto colon = line.find(':');
+            if (colon != std::string::npos) {
+                response.headers[lower_ascii(line.substr(0, colon))] = trim(std::string_view(line).substr(colon + 1));
+            }
+            if (line_end == std::string::npos) break;
+            line_start = line_end + 2;
+        }
+
+        std::size_t content_length = 0;
+        if (auto it = response.headers.find("content-length"); it != response.headers.end()) {
+            content_length = static_cast<std::size_t>(std::strtoull(it->second.c_str(), nullptr, 10));
+        }
+        while (content_length > 0 && response.body.size() < content_length) {
+            auto n = ::recv(fd, chunk.data(), chunk.size(), 0);
+            if (n <= 0) break;
+            response.body.append(chunk.data(), static_cast<std::size_t>(n));
+        }
+        if (content_length > 0 && response.body.size() > content_length) {
+            response.body.resize(content_length);
+        }
+        return response;
+    }
+
+    int tcp_connect(const UrlParts& parts) {
+        struct addrinfo hints{}, *res = nullptr;
+        hints.ai_family = AF_UNSPEC;
+        hints.ai_socktype = SOCK_STREAM;
+        const auto port = std::to_string(parts.port);
+        if (getaddrinfo(parts.host.c_str(), port.c_str(), &hints, &res) != 0) return -1;
+
+        int fd = -1;
+        for (auto* r = res; r; r = r->ai_next) {
+            fd = ::socket(r->ai_family, r->ai_socktype, r->ai_protocol);
+            if (fd < 0) continue;
+            struct timeval tv{};
+            tv.tv_sec = 5;
+            setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+            setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+            if (::connect(fd, r->ai_addr, r->ai_addrlen) == 0) break;
+            ::close(fd);
+            fd = -1;
+        }
+        freeaddrinfo(res);
+        return fd;
+    }
+
+    void enqueue_response(const HttpResponse& response) {
+        if (trim(response.body).empty()) return;
+        const auto content_type = [&]() {
+            auto it = response.headers.find("content-type");
+            return it == response.headers.end() ? std::string{} : lower_ascii(it->second);
+        }();
+        if (content_type.contains("text/event-stream")) {
+            enqueue_sse_body(response.body);
+            return;
+        }
+        enqueue_message(response.body);
+    }
+
+    void enqueue_sse_body(std::string_view body) {
+        std::string event_type, data_buf, id_buf, line;
+        auto dispatch = [&]() {
+            if (data_buf.empty()) return;
+            if (data_buf.back() == '\n') data_buf.pop_back();
+            if (event_type.empty() || event_type == "message") {
+                enqueue_message(data_buf);
+            }
+        };
+
+        for (char ch : body) {
+            if (ch == '\r') continue;
+            if (ch == '\n') {
+                if (line.empty()) {
+                    dispatch();
+                    event_type.clear();
+                    data_buf.clear();
+                    id_buf.clear();
+                } else {
+                    parse_sse_field(line, event_type, data_buf, id_buf);
+                    line.clear();
+                }
+            } else {
+                line.push_back(ch);
+            }
+        }
+        if (!line.empty()) {
+            parse_sse_field(line, event_type, data_buf, id_buf);
+        }
+        dispatch();
+    }
+
+    static void parse_sse_field(const std::string& line, std::string& event,
+                                std::string& data, std::string& id) {
+        if (line.empty() || line[0] == ':') return;
+        auto col = line.find(':');
+        std::string_view field = (col != std::string::npos) ? std::string_view(line).substr(0, col) : std::string_view(line);
+        std::string_view val = (col != std::string::npos) ? std::string_view(line).substr(col + 1) : std::string_view{};
+        if (!val.empty() && val[0] == ' ') val.remove_prefix(1);
+        if (field == "event") event = std::string(val);
+        else if (field == "data") { data += std::string(val); data += '\n'; }
+        else if (field == "id") id = std::string(val);
+    }
+
+    void enqueue_message(std::string message) {
+        {
+            std::lock_guard lock(recv_mutex_);
+            receive_queue_.push_back(std::move(message));
+        }
+        recv_cv_.notify_one();
+    }
+
+    std::string url_;
+    UrlParts parts_{};
+    std::map<std::string, std::string> headers_;
+    std::atomic<bool> connected_{false};
+    std::mutex send_mutex_;
     mutable std::mutex recv_mutex_;
     std::condition_variable recv_cv_;
     std::deque<std::string> receive_queue_;
@@ -584,6 +1093,26 @@ public:
             return result;
         }
         
+        return initialize();
+    }
+
+    // Connect to server using streamable HTTP transport
+    [[nodiscard]] McpResult<void> connect_streamable_http(
+        std::string url, std::map<std::string, std::string> headers = {}) {
+
+        if (state_ != ServerState::NotStarted && state_ != ServerState::Stopped) {
+            return std::unexpected(McpClientError::AlreadyConnected);
+        }
+
+        state_ = ServerState::Starting;
+        transport_ = std::make_unique<StreamableHttpTransport>(std::move(url), std::move(headers));
+
+        auto result = transport_->start();
+        if (!result) {
+            state_ = ServerState::Error;
+            return result;
+        }
+
         return initialize();
     }
     
@@ -814,12 +1343,12 @@ public:
                 // Parse messages
                 auto messages_node = result_node.get("messages");
                 if (messages_node.is_arr()) {
-                    messages_node.iter([&result](JsonVal msg_val) {
+                    messages_node.iter([&result, this](JsonVal msg_val) {
                         if (msg_val.is_obj()) {
                             McpPromptMessage msg;
                             auto role_str = std::string(msg_val.get("role").as_str());
                             msg.role = (role_str == "assistant") ? PromptRole::Assistant : PromptRole::User;
-                            msg.content = std::string(msg_val.get("content").as_str());
+                            msg.content = prompt_message_content_to_text(msg_val.get("content"));
                             result.messages.push_back(std::move(msg));
                         }
                     });
@@ -986,7 +1515,7 @@ private:
     void send_notification(std::string_view method, std::optional<std::string> params) {
         auto notif = make_notification(std::string(method), std::move(params));
         auto serialized = serialize_notification(notif);
-        transport_send(serialized);  // Fire and forget
+        (void)transport_send(serialized);
     }
     
     // Transport layer abstraction
@@ -995,6 +1524,101 @@ private:
             return std::unexpected(McpClientError::NotConnected);
         }
         return transport_->send(message);
+    }
+
+    [[nodiscard]] std::string prompt_message_content_to_text(JsonVal content) const {
+        if (content.is_str()) {
+            return std::string(content.as_str());
+        }
+        if (content.is_arr()) {
+            std::string joined;
+            content.iter([&](JsonVal item) {
+                auto text = prompt_message_content_to_text(item);
+                if (text.empty()) return;
+                if (!joined.empty()) joined += "\n";
+                joined += std::move(text);
+            });
+            return joined;
+        }
+        if (!content.is_obj()) return {};
+
+        const auto type = std::string(content.get("type").as_str());
+        if (type == "text") {
+            return std::string(content.get("text").as_str());
+        }
+        if (type == "resource") {
+            auto resource = content.get("resource");
+            if (!resource.is_obj()) return {};
+            const auto uri = std::string(resource.get("uri").as_str());
+            std::string prefix = std::format("[Resource from {} at {}] ", config_.name, uri);
+            if (auto text = resource.get("text"); text.is_str()) {
+                return prefix + std::string(text.as_str());
+            }
+            if (auto blob = resource.get("blob"); blob.is_str()) {
+                const auto mime_type = std::string(resource.get("mimeType").as_str());
+                const auto mime_label = mime_type.empty() ? std::string{"unknown type"} : mime_type;
+                return prefix + std::format(
+                    "Binary content ({}, {} base64 characters)",
+                    mime_label,
+                    blob.as_str().size());
+            }
+            return prefix;
+        }
+        if (type == "resource_link") {
+            const auto name = std::string(content.get("name").as_str());
+            const auto uri = std::string(content.get("uri").as_str());
+            std::string text = std::format("[Resource link: {}] {}", name.empty() ? uri : name, uri);
+            if (auto description = content.get("description"); description.is_str() && !description.as_str().empty()) {
+                text += std::format(" ({})", description.as_str());
+            }
+            return text;
+        }
+        if (type == "image" || type == "audio") {
+            const auto mime_type = std::string(content.get("mimeType").as_str());
+            const auto mime_label = mime_type.empty() ? std::string{"unknown type"} : mime_type;
+            const auto data = content.get("data");
+            return std::format(
+                "[{} from {}] Binary content ({}, {} base64 characters)",
+                type == "image" ? "Image" : "Audio",
+                config_.name,
+                mime_label,
+                data.is_str() ? data.as_str().size() : 0);
+        }
+
+        return serialize_json_value(content).value_or(std::string{});
+    }
+
+    [[nodiscard]] static std::optional<std::string> serialize_json_value(JsonVal value) {
+        if (!value.valid() || value.is_null()) return std::nullopt;
+        JsonMutDoc doc;
+        auto copy = doc.copy_val(value);
+        if (!copy.valid()) return std::nullopt;
+        doc.set_root(copy);
+        return doc.to_string();
+    }
+
+    [[nodiscard]] static std::optional<RequestId> parse_request_id(JsonVal id_node) {
+        if (!id_node.valid() || id_node.is_null()) return std::nullopt;
+        if (id_node.is_num()) return RequestId{static_cast<int64_t>(id_node.as_int())};
+        if (id_node.is_str()) return RequestId{std::string(id_node.as_str())};
+        return std::nullopt;
+    }
+
+    void send_error_response(const RequestId& id, JsonRpcErrorCode code, std::string_view message) {
+        JsonMutDoc doc;
+        auto root = doc.object();
+        root.add("jsonrpc", doc.string("2.0"));
+        if (std::holds_alternative<int64_t>(id)) {
+            root.add("id", doc.number(std::get<int64_t>(id)));
+        } else {
+            root.add("id", doc.string(std::get<std::string>(id)));
+        }
+        auto error = doc.object();
+        error.add("code", doc.number(static_cast<int64_t>(code)));
+        error.add("message", doc.string(message));
+        root.add("error", error);
+        doc.set_root(root);
+        (void)transport_send(doc.to_string());
     }
     
     // Receive loop (runs in background thread)
@@ -1034,16 +1658,37 @@ private:
             return;
         }
         
-        // Check if it's a response (has id)
+        auto method_node = root.get("method");
         auto id_node = root.get("id");
-        if (id_node.valid() && !id_node.is_null()) {
-            // Handle response
-            RequestId id;
-            if (id_node.is_num()) {
-                id = static_cast<int64_t>(id_node.as_int());
-            } else {
-                id = std::string(id_node.as_str());
+
+        if (method_node.is_str()) {
+            std::string method = std::string(method_node.as_str());
+            auto request_id = parse_request_id(id_node);
+
+            if (request_id) {
+                if (method == "roots/list") {
+                    handle_roots_list_request(*request_id);
+                } else {
+                    send_error_response(
+                        *request_id,
+                        JsonRpcErrorCode::MethodNotFound,
+                        "Unsupported server request");
+                }
+                return;
             }
+
+            JsonRpcNotification notif;
+            notif.method = std::move(method);
+            notif.params_json = serialize_json_value(root.get("params"));
+
+            if (notification_callback_) {
+                notification_callback_(notif);
+            }
+            return;
+        }
+
+        if (auto response_id = parse_request_id(id_node)) {
+            RequestId id = std::move(*response_id);
             
             std::lock_guard<std::mutex> lock(pending_mutex_);
             auto it = pending_requests_.find(id);
@@ -1054,52 +1699,11 @@ private:
                 }
                 pending_requests_.erase(it);
             }
-        } else {
-            // Check if it's a request (method without id) or notification
-            auto method_node = root.get("method");
-            if (method_node.is_str()) {
-                std::string method = std::string(method_node.as_str());
-                
-                // Handle server requests
-                if (method == "roots/list") {
-                    handle_roots_list_request(message);
-                } else {
-                    // Handle as notification
-                    JsonRpcNotification notif;
-                    notif.method = method;
-                    // Extract params
-                    auto params_node = root.get("params");
-                    if (params_node.valid() && !params_node.is_null()) {
-                        JsonMutDoc params_doc;
-                        // Re-serialize params
-                        notif.params_json = message;  // Simplified
-                    }
-                    
-                    if (notification_callback_) {
-                        notification_callback_(notif);
-                    }
-                }
-            }
         }
     }
     
     // Handle roots/list request from server
-    void handle_roots_list_request(const std::string& message) {
-        // Parse request to get id
-        auto doc = parse(message);
-        if (!doc) return;
-        
-        auto root = doc->root();
-        auto id_node = root.get("id");
-        if (!id_node.valid()) return;
-        
-        RequestId id;
-        if (id_node.is_num()) {
-            id = static_cast<int64_t>(id_node.as_int());
-        } else {
-            id = std::string(id_node.as_str());
-        }
-        
+    void handle_roots_list_request(const RequestId& id) {
         // Build response
         JsonMutDoc resp_doc;
         auto resp_root = resp_doc.object();
@@ -1131,7 +1735,7 @@ private:
         resp_root.add("result", result);
         
         resp_doc.set_root(resp_root);
-        transport_send(resp_doc.to_string());
+        (void)transport_send(resp_doc.to_string());
     }
     
     // Check for timed-out pending requests

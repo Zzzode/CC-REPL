@@ -41,6 +41,7 @@ enum class McpClientError {
     ProtocolError,
     ServerNotFound,
     ToolNotFound,
+    Unauthorized,
 };
 
 // Result type for MCP operations
@@ -55,6 +56,7 @@ enum class ConnectionStatus {
     Disconnected,
     Connecting,
     Connected,
+    NeedsAuth,
     Error,
 };
 
@@ -176,8 +178,12 @@ struct ServerInfo {
 
 struct ServerCapabilities {
     bool tools = false;
+    bool tools_list_changed = false;
     bool resources = false;
+    bool resources_list_changed = false;
+    bool resources_subscribe = false;
     bool prompts = false;
+    bool prompts_list_changed = false;
     bool logging = false;
 };
 
@@ -317,9 +323,22 @@ inline std::optional<InitializeResult> parse_initialize_result(const std::string
     
     auto caps_node = result_node.get("capabilities");
     if (caps_node.is_obj()) {
-        result.capabilities.tools = caps_node.get("tools").valid();
-        result.capabilities.resources = caps_node.get("resources").valid();
-        result.capabilities.prompts = caps_node.get("prompts").valid();
+        auto tools_node = caps_node.get("tools");
+        result.capabilities.tools = tools_node.valid();
+        if (tools_node.is_obj()) {
+            result.capabilities.tools_list_changed = tools_node.get("listChanged").as_bool();
+        }
+        auto resources_node = caps_node.get("resources");
+        result.capabilities.resources = resources_node.valid();
+        if (resources_node.is_obj()) {
+            result.capabilities.resources_list_changed = resources_node.get("listChanged").as_bool();
+            result.capabilities.resources_subscribe = resources_node.get("subscribe").as_bool();
+        }
+        auto prompts_node = caps_node.get("prompts");
+        result.capabilities.prompts = prompts_node.valid();
+        if (prompts_node.is_obj()) {
+            result.capabilities.prompts_list_changed = prompts_node.get("listChanged").as_bool();
+        }
         result.capabilities.logging = caps_node.get("logging").valid();
     }
     

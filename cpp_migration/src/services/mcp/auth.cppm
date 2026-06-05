@@ -41,7 +41,6 @@ public:
     AuthenticationCancelledError() : std::runtime_error("Authentication was cancelled") {}
 };
 
-// Token storage structure
 struct McpOAuthTokenData {
     std::string server_name;
     std::string server_url;
@@ -360,37 +359,33 @@ inline Result<void> store_token_data(std::string_view server_key, const McpOAuth
 
 } // namespace detail
 
-// Generate server key based on name and config hash
-std::string get_server_key(const std::string& server_name, 
-                                   const McpServerConfig& server_config) {
-    // Hash config to create unique key
+std::string get_server_key(const std::string& server_name,
+                           const McpServerConfig& server_config) {
     JsonMutDoc doc;
     auto obj = doc.object();
     obj.add("type", doc.string(server_config.type));
     obj.add("url", doc.string(server_config.url));
-    
+
     auto headers_obj = doc.object();
-    for (const auto& [k, v] : server_config.headers) {
-        headers_obj.add(k, doc.string(v));
+    for (const auto& [key, value] : server_config.headers) {
+        headers_obj.add(key, doc.string(value));
     }
     obj.add("headers", headers_obj);
-    
+
     doc.set_root(obj);
     auto config_json = doc.to_string();
-    
-    // Simple hash (in real code, use proper SHA256)
+
     std::hash<std::string> hasher;
     auto hash = hasher(config_json);
-    std::stringstream ss;
-    ss << std::hex << hash;
-    auto hash_str = ss.str().substr(0, 16);
-    
+    std::stringstream stream;
+    stream << std::hex << hash;
+    auto hash_str = stream.str().substr(0, 16);
+
     return server_name + "|" + hash_str;
 }
 
-// Check if we have discovery but no token
 bool has_mcp_discovery_but_no_token(const std::string& server_name,
-                                            const McpServerConfig& server_config) {
+                                    const McpServerConfig& server_config) {
     auto server_key = get_server_key(server_name, server_config);
     const auto token_path = detail::token_path_for_key(server_key);
     const bool has_discovery = server_config.oauth.has_value() &&
@@ -399,18 +394,16 @@ bool has_mcp_discovery_but_no_token(const std::string& server_name,
     return has_discovery && !std::filesystem::exists(token_path);
 }
 
-// Clear tokens from local storage
 void clear_server_tokens_from_local_storage(const std::string& server_name,
-                                                   const McpServerConfig& server_config) {
+                                            const McpServerConfig& server_config) {
     auto server_key = get_server_key(server_name, server_config);
     std::error_code ec;
     std::filesystem::remove(detail::token_path_for_key(server_key), ec);
 }
 
-// Revoke tokens (best effort)
 Result<void> revoke_server_tokens(const std::string& server_name,
-                                          const McpServerConfig& server_config,
-                                          bool preserve_step_up_state = false) {
+                                  const McpServerConfig& server_config,
+                                  bool preserve_step_up_state = false) {
     (void)preserve_step_up_state;
     clear_server_tokens_from_local_storage(server_name, server_config);
     return {};

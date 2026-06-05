@@ -12,12 +12,18 @@ module;
 #include <mutex>
 #include <functional>
 #include <filesystem>
+#include <atomic>
+#include <thread>
+#include <algorithm>
+#include <cctype>
+#include <unordered_map>
 
 export module cc.services.mcp.connection_manager;
 
 import cc.services.mcp.types;
 import cc.services.mcp.client;
 import cc.services.mcp.config;
+import cc.services.mcp.headers_helper;
 import cc.utils.json;
 
 export namespace cc::services::mcp {
@@ -38,6 +44,7 @@ using namespace cc::utils::json;
         case McpClientError::ProtocolError: return "protocol error";
         case McpClientError::ServerNotFound: return "server not found";
         case McpClientError::ToolNotFound: return "tool not found";
+        case McpClientError::Unauthorized: return "authentication required";
     }
     return "unknown error";
 }
@@ -96,6 +103,7 @@ public:
     
     // Initialize manager lifecycle
     McpResult<void> initialize() {
+        shutting_down_.store(false);
         // Load configuration
         auto config_result = load_configuration();
         if (!config_result) {
@@ -111,8 +119,10 @@ public:
     }
     
     void shutdown() {
+        shutting_down_.store(true);
         // Disconnect all servers
         disconnect_all_servers();
+        join_notification_workers();
     }
     
     // Configuration management
@@ -127,14 +137,18 @@ public:
     }
     
     McpResult<void> reload_configuration() {
+        shutting_down_.store(true);
         // Disconnect all first
         disconnect_all_servers();
+        join_notification_workers();
         
         // Reload config
         auto result = load_configuration();
         if (!result) {
             return result;
         }
+
+        shutting_down_.store(false);
         
         // Reconnect
         if (config_.auto_connect_on_start) {
@@ -145,10 +159,13 @@ public:
     }
 
     void set_configuration(McpConfig config) {
+        shutting_down_.store(true);
         disconnect_all_servers();
+        join_notification_workers();
         std::lock_guard<std::mutex> lock(connections_mutex_);
         connections_.clear();
         mcp_config_ = std::move(config);
+        shutting_down_.store(false);
     }
     
     // Server connection management
@@ -414,9 +431,22 @@ private:
         client->set_roots_handler([this]() {
             return get_default_roots();
         });
+
+        client->set_notification_callback([this, server_name](const JsonRpcNotification& notification) {
+            handle_server_notification(server_name, notification);
+        });
         
         // Connect based on transport type
         McpResult<void> connect_result;
+        auto remote_headers = [&] {
+            auto headers = get_mcp_server_headers(
+                server_name,
+                server_config.headers,
+                server_config.url,
+                server_config.headers_helper
+            );
+            return headers;
+        };
         
         switch (server_config.transport) {
             case TransportType::Stdio:
@@ -428,10 +458,17 @@ private:
                 break;
                 
             case TransportType::Sse:
-            case TransportType::StreamableHttp:
                 connect_result = client->connect_sse(
                     server_config.url,
-                    server_config.headers
+                    remote_headers()
+                );
+                break;
+
+            case TransportType::Http:
+            case TransportType::StreamableHttp:
+                connect_result = client->connect_streamable_http(
+                    server_config.url,
+                    remote_headers()
                 );
                 break;
                 
@@ -443,7 +480,9 @@ private:
             // Update connection status
             auto it = connections_.find(server_name);
             if (it != connections_.end()) {
-                it->second.status = ConnectionStatus::Error;
+                it->second.status = connect_result.error() == McpClientError::Unauthorized
+                    ? ConnectionStatus::NeedsAuth
+                    : ConnectionStatus::Error;
                 it->second.last_error = error_to_string(connect_result.error());
                 it->second.retry_count++;
                 
@@ -529,6 +568,76 @@ private:
             client.list_prompts();
         }
     }
+
+    enum class ListChangedKind {
+        Tools,
+        Resources,
+        Prompts,
+    };
+
+    void handle_server_notification(const std::string& server_name, const JsonRpcNotification& notification) {
+        if (notification.method == "notifications/tools/list_changed") {
+            start_notification_refresh(server_name, ListChangedKind::Tools);
+        } else if (notification.method == "notifications/resources/list_changed") {
+            start_notification_refresh(server_name, ListChangedKind::Resources);
+        } else if (notification.method == "notifications/prompts/list_changed") {
+            start_notification_refresh(server_name, ListChangedKind::Prompts);
+        }
+    }
+
+    void start_notification_refresh(std::string server_name, ListChangedKind kind) {
+        if (shutting_down_.load()) return;
+        std::lock_guard lock(notification_workers_mutex_);
+        if (shutting_down_.load()) return;
+        notification_workers_.emplace_back([this, server_name = std::move(server_name), kind] {
+            refresh_after_list_changed(server_name, kind);
+        });
+    }
+
+    void refresh_after_list_changed(const std::string& server_name, ListChangedKind kind) {
+        std::lock_guard<std::mutex> lock(connections_mutex_);
+        auto it = connections_.find(server_name);
+        if (it == connections_.end() || it->second.status != ConnectionStatus::Connected || !it->second.client) {
+            return;
+        }
+
+        auto& client = *it->second.client;
+        const auto& caps = client.server_capabilities();
+        switch (kind) {
+            case ListChangedKind::Tools: {
+                if (!caps.tools || !caps.tools_list_changed) return;
+                auto tools_result = client.list_tools();
+                if (tools_result && tools_updated_callback_) {
+                    std::vector<std::string> tool_names;
+                    tool_names.reserve(tools_result->tools.size());
+                    for (const auto& tool : tools_result->tools) {
+                        tool_names.push_back(tool.name);
+                    }
+                    tools_updated_callback_(server_name, tool_names);
+                }
+                break;
+            }
+            case ListChangedKind::Resources:
+                if (!caps.resources || !caps.resources_list_changed) return;
+                (void)client.list_resources();
+                break;
+            case ListChangedKind::Prompts:
+                if (!caps.prompts || !caps.prompts_list_changed) return;
+                (void)client.list_prompts();
+                break;
+        }
+    }
+
+    void join_notification_workers() {
+        std::vector<std::thread> workers;
+        {
+            std::lock_guard lock(notification_workers_mutex_);
+            workers.swap(notification_workers_);
+        }
+        for (auto& worker : workers) {
+            if (worker.joinable()) worker.join();
+        }
+    }
     
     // Get default roots for this system
     std::vector<Root> get_default_roots() {
@@ -553,6 +662,9 @@ private:
     
     std::map<std::string, ServerConnection> connections_;
     std::mutex connections_mutex_;
+    std::atomic<bool> shutting_down_{false};
+    std::mutex notification_workers_mutex_;
+    std::vector<std::thread> notification_workers_;
     
     ServerConnectedCallback server_connected_callback_;
     ServerDisconnectedCallback server_disconnected_callback_;
