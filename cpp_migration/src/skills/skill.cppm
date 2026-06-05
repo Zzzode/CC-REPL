@@ -132,6 +132,45 @@ public:
         return skills;
     }
 
+    /// Load skills from a directory and prefix their names, used by plugin skills.
+    [[nodiscard]] Result<std::vector<SkillDefinition>> load_from_directory_with_prefix(
+        const std::filesystem::path& dir,
+        std::string_view prefix) const {
+        std::vector<SkillDefinition> loaded;
+        if (std::filesystem::is_regular_file(dir) && dir.extension() == ".md") {
+            if (auto skill = parse_skill_file(dir)) loaded.push_back(std::move(*skill));
+        } else if (std::filesystem::is_directory(dir) &&
+                   (std::filesystem::exists(dir / "SKILL.md") ||
+                    std::filesystem::exists(dir / "skill.md") ||
+                    std::filesystem::exists(dir / "prompt.md"))) {
+            if (auto skill = parse_skill_directory(dir)) loaded.push_back(std::move(*skill));
+        } else {
+            auto skills = load_from_directory(dir);
+            if (!skills) return skills;
+            loaded = std::move(*skills);
+        }
+        for (auto& skill : loaded) {
+            if (!skill.name.starts_with(prefix)) {
+                skill.name = std::format("{}:{}", prefix, skill.name);
+            }
+        }
+        return loaded;
+    }
+
+    [[nodiscard]] Result<std::vector<SkillDefinition>> discover_all_with_plugin_skills(
+        const std::vector<std::pair<std::string, std::filesystem::path>>& plugin_paths) const {
+        auto skills = discover_all();
+        if (!skills) return skills;
+        for (const auto& [plugin_name, path] : plugin_paths) {
+            auto plugin_skills = load_from_directory_with_prefix(path, plugin_name);
+            if (!plugin_skills) continue;
+            for (auto& skill : *plugin_skills) {
+                skills->push_back(std::move(skill));
+            }
+        }
+        return skills;
+    }
+
     /// Discover all custom skills from configured search paths
     [[nodiscard]] Result<std::vector<SkillDefinition>> discover_all() const {
         std::vector<SkillDefinition> all_skills;

@@ -98,9 +98,19 @@ struct SemVer {
 struct PluginManifest {
     PluginDefinition definition;
     PluginCapabilities capabilities;
+    std::filesystem::path plugin_dir;
+    std::vector<std::filesystem::path> agents_paths;
+    std::vector<std::filesystem::path> skills_paths;
     std::string min_host_version;              // Minimum CLI version required
     std::unordered_map<std::string, std::string> env; // Environment variables
     std::optional<std::string> sandbox_policy;  // Sandbox configuration
+};
+
+struct PluginComponentPaths {
+    std::string plugin_name;
+    std::filesystem::path plugin_dir;
+    std::vector<std::filesystem::path> agents_paths;
+    std::vector<std::filesystem::path> skills_paths;
 };
 
 // ============================================================
@@ -315,6 +325,7 @@ private:
 
         auto root = doc_result->root();
         PluginManifest manifest{};
+        manifest.plugin_dir = plugin_dir;
 
         // Required fields
         auto name_val = root.get("name");
@@ -340,6 +351,39 @@ private:
             manifest.definition.license = std::string(v.as_str());
         if (auto v = root.get("min_host_version"); v && v.is_str())
             manifest.min_host_version = std::string(v.as_str());
+
+        auto append_component_path = [&](cc::utils::json::JsonVal value,
+                                         std::vector<std::filesystem::path>& out) {
+            auto append_one = [&](std::string_view raw) {
+                if (raw.empty()) return;
+                std::filesystem::path path{std::string(raw)};
+                if (path.is_relative()) path = plugin_dir / path;
+                if (std::filesystem::exists(path)) out.push_back(std::move(path));
+            };
+            if (value.is_str()) {
+                append_one(value.as_str());
+            } else if (value.is_arr()) {
+                value.iter([&](cc::utils::json::JsonVal item) {
+                    if (item.is_str()) append_one(item.as_str());
+                });
+            }
+        };
+
+        const auto default_agents = plugin_dir / "agents";
+        if (std::filesystem::exists(default_agents)) {
+            manifest.agents_paths.push_back(default_agents);
+        }
+        if (auto agents = root.get("agents"); agents.valid()) {
+            append_component_path(agents, manifest.agents_paths);
+        }
+
+        const auto default_skills = plugin_dir / "skills";
+        if (std::filesystem::exists(default_skills)) {
+            manifest.skills_paths.push_back(default_skills);
+        }
+        if (auto skills = root.get("skills"); skills.valid()) {
+            append_component_path(skills, manifest.skills_paths);
+        }
 
         // Capabilities
         if (auto caps = root.get("capabilities"); caps && caps.is_obj()) {
@@ -404,5 +448,24 @@ private:
         return check_compatibility(manifest);
     }
 };
+
+[[nodiscard]] inline Result<std::vector<PluginComponentPaths>> discover_plugin_component_paths() {
+    PluginLoader loader(uv_default_loop());
+    auto manifests = loader.discover_all();
+    if (!manifests) return std::unexpected(manifests.error());
+
+    std::vector<PluginComponentPaths> paths;
+    paths.reserve(manifests->size());
+    for (const auto& manifest : *manifests) {
+        if (manifest.agents_paths.empty() && manifest.skills_paths.empty()) continue;
+        paths.push_back(PluginComponentPaths{
+            .plugin_name = manifest.definition.name,
+            .plugin_dir = manifest.plugin_dir,
+            .agents_paths = manifest.agents_paths,
+            .skills_paths = manifest.skills_paths,
+        });
+    }
+    return paths;
+}
 
 } // namespace cc::plugins

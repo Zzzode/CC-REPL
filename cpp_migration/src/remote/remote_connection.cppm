@@ -26,6 +26,8 @@ module;
 #include <netdb.h>
 #include <unistd.h>
 #include <poll.h>
+#include <openssl/err.h>
+#include <openssl/ssl.h>
 
 #ifdef __APPLE__
 #include <CommonCrypto/CommonDigest.h>
@@ -262,8 +264,7 @@ public:
         }
 
         auto frame = detail::encode_ws_frame(WsOpcode::Text, message);
-        ssize_t written = ::write(socket_fd_, frame.data(), frame.size());
-        if (written < 0 || static_cast<size_t>(written) != frame.size()) {
+        if (!send_all(frame)) {
             handle_disconnect("Write failed");
             return std::unexpected("Send failed");
         }
@@ -278,8 +279,7 @@ public:
         }
 
         auto frame = detail::encode_ws_frame(WsOpcode::Ping, "");
-        ssize_t written = ::write(socket_fd_, frame.data(), frame.size());
-        if (written < 0) {
+        if (!send_all(frame)) {
             handle_disconnect("Ping write failed");
             return std::unexpected("Ping failed");
         }
@@ -325,7 +325,7 @@ public:
         // Send close frame if connected
         if (socket_fd_ >= 0 && state_ == ConnectionState::Connected) {
             auto frame = detail::encode_ws_frame(WsOpcode::Close, "");
-            ::write(socket_fd_, frame.data(), frame.size());
+            (void)send_all(frame);
         }
 
         close_socket();
@@ -419,9 +419,6 @@ private:
         auto url_parts = parse_ws_url(url_);
         if (!url_parts) return std::unexpected(url_parts.error());
 
-        // TLS endpoints are routed through the higher-level remote transport.
-        // This socket path handles plain ws:// connections.
-
         // DNS resolve
         struct addrinfo hints{}, *res = nullptr;
         hints.ai_family = AF_UNSPEC;
@@ -447,6 +444,14 @@ private:
                 url_parts->host, url_parts->port));
         }
         ::freeaddrinfo(res);
+
+        if (url_parts->tls) {
+            auto tls_result = connect_tls(url_parts->host);
+            if (!tls_result) {
+                close_socket();
+                return std::unexpected(tls_result.error());
+            }
+        }
 
         // Perform WebSocket upgrade handshake
         return perform_handshake(url_parts->host, url_parts->port, url_parts->path);
@@ -475,14 +480,13 @@ private:
         request += "\r\n";
 
         // Send request
-        ssize_t written = ::write(socket_fd_, request.data(), request.size());
-        if (written < 0 || static_cast<size_t>(written) != request.size()) {
+        if (!send_all(request)) {
             return std::unexpected("Failed to send handshake");
         }
 
         // Read response (up to 4KB should be sufficient for headers)
         std::array<char, 4096> buf{};
-        ssize_t bytes_read = ::read(socket_fd_, buf.data(), buf.size() - 1);
+        ssize_t bytes_read = read_some(buf.data(), buf.size() - 1);
         if (bytes_read <= 0) {
             return std::unexpected("No handshake response");
         }
@@ -508,7 +512,7 @@ private:
     /// Read incoming data and process WebSocket frames
     bool read_and_process() {
         std::array<uint8_t, 65536> buf{};
-        ssize_t n = ::read(socket_fd_, buf.data(), buf.size());
+        ssize_t n = read_some(reinterpret_cast<char*>(buf.data()), buf.size());
         if (n <= 0) {
             handle_disconnect("Read returned 0 or error");
             return false;
@@ -558,7 +562,93 @@ private:
     void send_pong(std::string_view payload) {
         if (socket_fd_ < 0) return;
         auto frame = detail::encode_ws_frame(WsOpcode::Pong, payload);
-        ::write(socket_fd_, frame.data(), frame.size());
+        (void)send_all(frame);
+    }
+
+    static std::string ssl_error_message(std::string_view prefix) {
+        const unsigned long err = ERR_get_error();
+        if (err == 0) return std::string(prefix);
+        std::array<char, 256> buffer{};
+        ERR_error_string_n(err, buffer.data(), buffer.size());
+        return std::format("{}: {}", prefix, buffer.data());
+    }
+
+    auto connect_tls(const std::string& host) -> std::expected<void, std::string> {
+        static std::once_flag init_flag;
+        std::call_once(init_flag, [] {
+            SSL_library_init();
+            SSL_load_error_strings();
+            OpenSSL_add_ssl_algorithms();
+        });
+
+        ssl_ctx_ = SSL_CTX_new(TLS_client_method());
+        if (ssl_ctx_ == nullptr) {
+            return std::unexpected(ssl_error_message("Failed to create TLS context"));
+        }
+        SSL_CTX_set_verify(ssl_ctx_, SSL_VERIFY_PEER, nullptr);
+        if (SSL_CTX_set_default_verify_paths(ssl_ctx_) != 1) {
+            cleanup_tls();
+            return std::unexpected(ssl_error_message("Failed to load default TLS trust store"));
+        }
+
+        ssl_ = SSL_new(ssl_ctx_);
+        if (ssl_ == nullptr) {
+            cleanup_tls();
+            return std::unexpected(ssl_error_message("Failed to create TLS session"));
+        }
+
+        SSL_set_fd(ssl_, socket_fd_);
+        SSL_set_tlsext_host_name(ssl_, host.c_str());
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+        SSL_set1_host(ssl_, host.c_str());
+#endif
+
+        if (SSL_connect(ssl_) != 1) {
+            auto message = ssl_error_message("TLS handshake failed");
+            cleanup_tls();
+            return std::unexpected(message);
+        }
+        return {};
+    }
+
+    [[nodiscard]] bool send_all(std::string_view data) {
+        while (!data.empty()) {
+            const auto written = write_some(data.data(), data.size());
+            if (written <= 0) return false;
+            data.remove_prefix(static_cast<std::size_t>(written));
+        }
+        return true;
+    }
+
+    [[nodiscard]] bool send_all(const std::vector<uint8_t>& data) {
+        auto view = std::string_view(reinterpret_cast<const char*>(data.data()), data.size());
+        return send_all(view);
+    }
+
+    [[nodiscard]] ssize_t write_some(const char* data, std::size_t size) {
+        if (ssl_ == nullptr) {
+            return ::write(socket_fd_, data, size);
+        }
+        while (true) {
+            const int written = SSL_write(ssl_, data, static_cast<int>(size));
+            if (written > 0) return written;
+            const int err = SSL_get_error(ssl_, written);
+            if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) continue;
+            return -1;
+        }
+    }
+
+    [[nodiscard]] ssize_t read_some(char* data, std::size_t size) {
+        if (ssl_ == nullptr) {
+            return ::read(socket_fd_, data, size);
+        }
+        while (true) {
+            const int read = SSL_read(ssl_, data, static_cast<int>(size));
+            if (read > 0) return read;
+            const int err = SSL_get_error(ssl_, read);
+            if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) continue;
+            return -1;
+        }
     }
 
     /// Handle a disconnection — attempt reconnect if policy allows
@@ -595,11 +685,24 @@ private:
 
     /// Close the socket file descriptor
     void close_socket() {
+        cleanup_tls();
         if (socket_fd_ >= 0) {
             ::close(socket_fd_);
             socket_fd_ = -1;
         }
         read_buffer_.clear();
+    }
+
+    void cleanup_tls() {
+        if (ssl_ != nullptr) {
+            SSL_shutdown(ssl_);
+            SSL_free(ssl_);
+            ssl_ = nullptr;
+        }
+        if (ssl_ctx_ != nullptr) {
+            SSL_CTX_free(ssl_ctx_);
+            ssl_ctx_ = nullptr;
+        }
     }
 
     /// Update state and notify handler
@@ -616,6 +719,8 @@ private:
     std::map<std::string, std::string> headers_;
     std::string ws_key_;
     int socket_fd_ = -1;
+    SSL_CTX* ssl_ctx_ = nullptr;
+    SSL* ssl_ = nullptr;
     ConnectionState state_ = ConnectionState::Disconnected;
     ReconnectPolicy policy_;
     int retry_count_ = 0;

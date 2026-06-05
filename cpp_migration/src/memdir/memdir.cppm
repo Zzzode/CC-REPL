@@ -4,6 +4,7 @@ module;
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <iomanip>
 #include <optional>
 #include <sstream>
@@ -14,6 +15,7 @@ module;
 
 export module core.memdir;
 
+import cc.utils.env_utils;
 
 export namespace memdir {
 
@@ -556,8 +558,17 @@ public:
 
 // Team memory paths
 inline bool is_team_memory_enabled() {
-    // Simplified: always return false for now (no feature flags)
-    return false;
+    if (cc::utils::is_env_truthy(std::getenv("CLAUDE_CODE_DISABLE_AUTO_MEMORY"))) {
+        return false;
+    }
+    if (cc::utils::is_env_defined_falsy(std::getenv("CLAUDE_CODE_ENABLE_TEAM_MEMORY"))) {
+        return false;
+    }
+    if (cc::utils::is_env_truthy(std::getenv("CLAUDE_CODE_ENABLE_TEAM_MEMORY"))) {
+        return true;
+    }
+    return std::getenv("CC_TEAM_MEMORY_SYNC_URL") != nullptr ||
+           std::getenv("TEAM_MEMORY_SYNC_URL") != nullptr;
 }
 
 inline std::string get_team_mem_path(const std::string& auto_mem_path) {

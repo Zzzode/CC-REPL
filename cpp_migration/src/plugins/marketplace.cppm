@@ -22,6 +22,7 @@ module;
 
 export module cc.plugins.marketplace;
 
+import cc.utils.crypto;
 
 export namespace cc::plugins {
 
@@ -179,25 +180,9 @@ inline HttpResponse http_get(std::string_view host, uint16_t port, std::string_v
     return resp;
 }
 
-// Simple SHA256 for archive verification (using CommonCrypto on macOS)
+// SHA-256 for archive integrity verification
 inline std::string sha256_hex(const std::string& data) {
-    // Simplified hash for integrity check — use CC_SHA256 on macOS
-    // Compute a basic checksum for now; real impl would use platform crypto
-    uint64_t h = 0xcbf29ce484222325ULL;
-    for (unsigned char c : data) {
-        h ^= c;
-        h *= 0x100000001b3ULL;
-    }
-    uint64_t h2 = 0x6c62272e07bb0142ULL;
-    for (unsigned char c : data) {
-        h2 ^= c;
-        h2 *= 0x100000001b3ULL;
-    }
-    char hex[65];
-    std::snprintf(hex, sizeof(hex), "%016llx%016llx%016llx%016llx",
-                  (unsigned long long)h, (unsigned long long)h2,
-                  (unsigned long long)(h ^ h2), (unsigned long long)(h + h2));
-    return hex;
+    return cc::utils::crypto::sha256(data);
 }
 
 // Extract a simple tar-like archive (plugin bundle is just directory listing in JSON + files)

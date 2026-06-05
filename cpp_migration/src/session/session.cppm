@@ -591,6 +591,12 @@ private:
                 return std::format(R"({{"type":"tool_result","tool_use_id":"{}","content":"{}","is_error":{}}})",
                     b.tool_use_id.str(), escape_json(b.content),
                     b.is_error ? "true" : "false");
+            } else if constexpr (std::is_same_v<T, ImageBlock>) {
+                return std::format(R"({{"type":"image","media_type":"{}","data":"{}"}})",
+                    escape_json(b.media_type), escape_json(b.data));
+            } else if constexpr (std::is_same_v<T, DocumentBlock>) {
+                return std::format(R"({{"type":"document","media_type":"{}","data":"{}"}})",
+                    escape_json(b.media_type), escape_json(b.data));
             } else if constexpr (std::is_same_v<T, ThinkingBlock>) {
                 return std::format(R"({{"type":"thinking","thinking":"{}","signature":"{}"}})",
                     escape_json(b.thinking), escape_json(b.signature));

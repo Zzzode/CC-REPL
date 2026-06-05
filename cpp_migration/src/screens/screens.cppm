@@ -7,6 +7,7 @@ module;
 #include <map>
 #include <memory>
 #include <optional>
+#include <regex>
 #include <string>
 #include <utility>
 #include <variant>
@@ -169,28 +170,30 @@ struct Message {
 
 // Helper functions
 inline std::optional<int> parsePrIdentifier(const std::string& value) {
-    // Try direct number parsing
-    try {
-        int num = std::stoi(value);
-        if (num > 0) {
-            return num;
-        }
-    } catch (...) {}
-    
-    // Try URL parsing
-    std::string urlPattern = R"(github\.com/[^/]+/[^/]+/pull/(\d+))";
-    // Simplified: in real implementation, use regex
-    size_t pos = value.find("pull/");
-    if (pos != std::string::npos) {
-        std::string numStr = value.substr(pos + 5);
+    auto parse_positive_int = [](const std::string& digits) -> std::optional<int> {
         try {
-            int num = std::stoi(numStr);
+            int num = std::stoi(digits);
             if (num > 0) {
                 return num;
             }
         } catch (...) {}
+        return std::nullopt;
+    };
+
+    std::smatch match;
+
+    static const std::regex direct_number(R"(^\s*([1-9]\d*)\s*$)", std::regex::optimize);
+    if (std::regex_match(value, match, direct_number)) {
+        return parse_positive_int(match[1].str());
     }
-    
+
+    static const std::regex github_pull_url(
+        R"(^\s*(?:https?://)?github\.com/[^/\s]+/[^/\s]+/pull/([1-9]\d*)(?:[/#?].*)?\s*$)",
+        std::regex::icase | std::regex::optimize);
+    if (std::regex_match(value, match, github_pull_url)) {
+        return parse_positive_int(match[1].str());
+    }
+
     return std::nullopt;
 }
 
@@ -275,7 +278,6 @@ private:
     Screen screen_ = Screen::Prompt;
     SpinnerMode streamMode_ = SpinnerMode::Responding;
     bool showAllInTranscript_ = false;
-    bool dumpMode_ = false;
     std::string editorStatus_;
     std::vector<StreamingToolUse> streamingToolUses_;
     std::optional<StreamingThinking> streamingThinking_;
@@ -350,7 +352,7 @@ public:
         // In real implementation, this would exit the process
     }
     
-    void selectLog(const LogOption& log) {
+    void selectLog([[maybe_unused]] const LogOption& log) {
         // Implementation would handle log selection
     }
     

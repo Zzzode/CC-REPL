@@ -209,6 +209,7 @@ struct WizardNavigationFooterProps {
         WizardState wizard_state;
         WizardDialogLayoutProps layout;
         WizardNavigationFooterProps nav;
+        std::vector<Component> step_components;
     };
 
     auto state = std::make_shared<InternalState>();
@@ -216,9 +217,29 @@ struct WizardNavigationFooterProps {
     state->wizard_state.total_steps = static_cast<int>(state->props.steps.size());
     state->wizard_state.title = state->props.title;
     state->wizard_state.show_step_counter = state->props.show_step_counter;
+    state->step_components.reserve(state->props.steps.size());
+    for (const auto& step : state->props.steps) {
+        if (step.create_content) {
+            auto component = step.create_content();
+            if (component) {
+                state->step_components.push_back(std::move(component));
+                continue;
+            }
+        }
+        state->step_components.push_back(Renderer([step] {
+            return RenderPlaceholderStep(step);
+        }));
+    }
 
     // Update navigation hints based on current position
     auto update_nav = [](InternalState& s) {
+        if (s.wizard_state.total_steps <= 0) {
+            s.nav.can_go_back = false;
+            s.nav.can_go_next = false;
+            s.nav.can_skip = false;
+            s.nav.next_label = "Next";
+            return;
+        }
         s.nav.can_go_back = (s.wizard_state.current_step_index > 0);
         s.nav.can_go_next = (s.wizard_state.current_step_index
                              < s.wizard_state.total_steps - 1);
@@ -239,12 +260,11 @@ struct WizardNavigationFooterProps {
             auto idx = std::min(
                 state->wizard_state.current_step_index,
                 static_cast<int>(state->props.steps.size()) - 1);
-            const auto& step = state->props.steps[idx];
-            if (step.create_content) {
-                // In a real implementation, this would render the component
-                step_content = RenderPlaceholderStep(step);
+            if (idx >= 0 && idx < static_cast<int>(state->step_components.size()) &&
+                state->step_components[idx]) {
+                step_content = state->step_components[idx]->Render();
             } else {
-                step_content = RenderPlaceholderStep(step);
+                step_content = RenderPlaceholderStep(state->props.steps[idx]);
             }
         }
 
@@ -254,6 +274,9 @@ struct WizardNavigationFooterProps {
         // Next / Complete
         if (event == Event::Return) {
             auto& ws = state->wizard_state;
+            if (ws.total_steps <= 0) {
+                return false;
+            }
             if (ws.current_step_index >= ws.total_steps - 1) {
                 // Complete
                 ws.is_completed = true;
@@ -269,6 +292,9 @@ struct WizardNavigationFooterProps {
         // Back
         if (event == Event::Escape) {
             auto& ws = state->wizard_state;
+            if (ws.total_steps <= 0) {
+                return false;
+            }
             if (!ws.navigation_history.empty()) {
                 ws.current_step_index = ws.navigation_history.back();
                 ws.navigation_history.pop_back();
@@ -283,6 +309,9 @@ struct WizardNavigationFooterProps {
         // Skip (Tab)
         if (event == Event::Tab) {
             auto& ws = state->wizard_state;
+            if (ws.total_steps <= 0) {
+                return false;
+            }
             if (ws.current_step_index < ws.total_steps - 1) {
                 ws.navigation_history.push_back(ws.current_step_index);
                 ws.current_step_index++;
@@ -291,6 +320,11 @@ struct WizardNavigationFooterProps {
             return true;
         }
 
+        const auto idx = state->wizard_state.current_step_index;
+        if (idx >= 0 && idx < static_cast<int>(state->step_components.size()) &&
+            state->step_components[idx]) {
+            return state->step_components[idx]->OnEvent(event);
+        }
         return false;
     });
 }

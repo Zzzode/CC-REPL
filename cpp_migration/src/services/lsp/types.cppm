@@ -1,6 +1,7 @@
 // LSP Types Module
 module;
 #include <string>
+#include <optional>
 #include <unordered_map>
 #include <vector>
 
@@ -18,7 +19,8 @@ struct ScopedLspServerConfig {
     std::vector<std::string> args;
     std::unordered_map<std::string, std::string> env;
     std::unordered_map<std::string, std::string> extension_to_language;
-    // More config fields
+    std::optional<std::string> workspace_folder;
+    std::string initialization_options_json = "{}";
 };
 
 // LSP Client config

@@ -345,6 +345,14 @@ private:
                 obj.add("tool_use_id", doc.string(value.tool_use_id.value));
                 obj.add("content", doc.string(value.content));
                 obj.add("is_error", doc.boolean(value.is_error));
+            } else if constexpr (std::is_same_v<T, ImageBlock>) {
+                obj.add("type", doc.string("image"));
+                obj.add("media_type", doc.string(value.media_type));
+                obj.add("data", doc.string(value.data));
+            } else if constexpr (std::is_same_v<T, DocumentBlock>) {
+                obj.add("type", doc.string("document"));
+                obj.add("media_type", doc.string(value.media_type));
+                obj.add("data", doc.string(value.data));
             } else if constexpr (std::is_same_v<T, ThinkingBlock>) {
                 obj.add("type", doc.string("thinking"));
                 obj.add("thinking", doc.string(value.thinking));
@@ -429,6 +437,12 @@ private:
                 ToolUseId{block.get_string("tool_use_id")},
                 block.get_string("content"),
                 block.get("is_error").is_bool() && block.get("is_error").as_bool()};
+        }
+        if (type == "image") {
+            return ImageBlock{block.get_string("media_type"), block.get_string("data")};
+        }
+        if (type == "document") {
+            return DocumentBlock{block.get_string("media_type"), block.get_string("data")};
         }
         if (type == "thinking") {
             return ThinkingBlock{block.get_string("thinking"), block.get_string("signature")};
