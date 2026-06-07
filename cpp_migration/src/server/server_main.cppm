@@ -502,6 +502,17 @@ struct ControlResponseDecision {
     if (!request_id.is_str()) return std::nullopt;
     cc::hooks::PermissionResponse permission_response{};
     permission_response.decision = cc::hooks::PermissionDecision::deny;
+    auto subtype = response.get("subtype");
+    if (subtype.is_str() && subtype.as_str() == std::string_view("error")) {
+        auto error = response.get("error");
+        if (error.is_str()) {
+            permission_response.message = std::string(error.as_str());
+        }
+        return ControlResponseDecision{
+            .request_id = std::string(request_id.as_str()),
+            .response = std::move(permission_response),
+        };
+    }
     auto body = response.get("response");
     if (body.is_obj()) {
         auto behavior = body.get("behavior");

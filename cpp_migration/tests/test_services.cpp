@@ -1566,6 +1566,18 @@ bool direct_connect_send_permission_response(
     return direct_connect_send_client_text_frame(fd, payload);
 }
 
+bool direct_connect_send_permission_error_response(
+    int fd,
+    std::string_view request_id,
+    std::string_view error
+) {
+    const auto payload = std::format(
+        R"({{"type":"control_response","response":{{"subtype":"error","request_id":"{}","error":"{}"}}}})",
+        request_id,
+        error);
+    return direct_connect_send_client_text_frame(fd, payload);
+}
+
 class LocalStreamableHttpMcpServer {
 public:
     LocalStreamableHttpMcpServer() {
@@ -6151,6 +6163,11 @@ TEST(ServerMain, DirectConnectPermissionControlCanAllowAndDenyToolUse) {
         std::ofstream output(denied_file);
         output << "denied permission content\n";
     }
+    const auto errored_file = root / "errored.txt";
+    {
+        std::ofstream output(errored_file);
+        output << "errored permission content\n";
+    }
     const auto allowed_dir = root / "allowed-dir";
     fs::create_directories(allowed_dir);
     const auto directory_file = allowed_dir / "directory.txt";
@@ -6180,6 +6197,10 @@ TEST(ServerMain, DirectConnectPermissionControlCanAllowAndDenyToolUse) {
             R"({{"id":"msg_read_deny_tool","type":"message","role":"assistant","model":"claude-test","content":[{{"type":"tool_use","id":"toolu_read_deny","name":"Read","input":{{"file_path":"{}"}}}}],"stop_reason":"tool_use","usage":{{"input_tokens":1,"output_tokens":1}}}})",
             denied_file.string()),
         R"({"id":"msg_read_deny_done","type":"message","role":"assistant","model":"claude-test","content":[{"type":"text","text":"read denied"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}})",
+        std::format(
+            R"({{"id":"msg_read_error_tool","type":"message","role":"assistant","model":"claude-test","content":[{{"type":"tool_use","id":"toolu_read_error","name":"Read","input":{{"file_path":"{}"}}}}],"stop_reason":"tool_use","usage":{{"input_tokens":1,"output_tokens":1}}}})",
+            errored_file.string()),
+        R"({"id":"msg_read_error_done","type":"message","role":"assistant","model":"claude-test","content":[{"type":"text","text":"read permission error"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}})",
     });
     ASSERT_NE(anthropic.port(), 0);
 
@@ -6217,7 +6238,7 @@ TEST(ServerMain, DirectConnectPermissionControlCanAllowAndDenyToolUse) {
                                            std::string_view expected_tool_use_id,
                                            std::string_view expected_file_path,
                                            std::string_view expected_text,
-                                           std::string_view extra_response_fields_json = {}) {
+                                           std::string_view extra_response_fields_or_error_message = {}) {
         const auto user_payload = std::format(
             R"({{"type":"user","message":{{"role":"user","content":"{}"}},"parent_tool_use_id":null,"session_id":""}})",
             prompt);
@@ -6244,11 +6265,18 @@ TEST(ServerMain, DirectConnectPermissionControlCanAllowAndDenyToolUse) {
         EXPECT_EQ(request.get_string("tool_name"), "Read");
         EXPECT_EQ(request.get_string("tool_use_id"), expected_tool_use_id);
         EXPECT_EQ(request.get("input").get_string("file_path"), expected_file_path);
-        ASSERT_TRUE(direct_connect_send_permission_response(
-            *ws_fd,
-            request_id,
-            behavior,
-            extra_response_fields_json));
+        if (behavior == std::string_view("error")) {
+            ASSERT_TRUE(direct_connect_send_permission_error_response(
+                *ws_fd,
+                request_id,
+                extra_response_fields_or_error_message));
+        } else {
+            ASSERT_TRUE(direct_connect_send_permission_response(
+                *ws_fd,
+                request_id,
+                behavior,
+                extra_response_fields_or_error_message));
+        }
 
         auto assistant_frame = direct_connect_read_ws_frame(*ws_fd);
         ASSERT_TRUE(assistant_frame.has_value());
@@ -6321,10 +6349,17 @@ TEST(ServerMain, DirectConnectPermissionControlCanAllowAndDenyToolUse) {
         denied_file.string(),
         "read denied",
         R"(,"message":"denied by direct permission test")");
+    send_prompt_with_permission(
+        "read with permission error response",
+        "error",
+        "toolu_read_error",
+        errored_file.string(),
+        "read permission error",
+        "client callback failed direct permission test");
 
-    auto request_bodies = anthropic.wait_for_bodies(10);
+    auto request_bodies = anthropic.wait_for_bodies(12);
     ASSERT_TRUE(request_bodies.has_value());
-    ASSERT_EQ(request_bodies->size(), 10u);
+    ASSERT_EQ(request_bodies->size(), 12u);
     EXPECT_NE((*request_bodies)[1].find("permission bridge content"), std::string::npos);
     EXPECT_NE((*request_bodies)[3].find("updated permission content"), std::string::npos);
     EXPECT_EQ((*request_bodies)[3].find("original input content"), std::string::npos);
@@ -6332,6 +6367,8 @@ TEST(ServerMain, DirectConnectPermissionControlCanAllowAndDenyToolUse) {
     EXPECT_NE((*request_bodies)[7].find("directory permission content"), std::string::npos);
     EXPECT_NE((*request_bodies)[9].find("denied by direct permission test"), std::string::npos);
     EXPECT_EQ((*request_bodies)[9].find("Permission denied for tool: Read"), std::string::npos);
+    EXPECT_NE((*request_bodies)[11].find("client callback failed direct permission test"), std::string::npos);
+    EXPECT_EQ((*request_bodies)[11].find("Permission denied for tool: Read"), std::string::npos);
 
     ::shutdown(*ws_fd, SHUT_RDWR);
     ::close(*ws_fd);
