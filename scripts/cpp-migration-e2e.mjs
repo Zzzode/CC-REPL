@@ -1920,6 +1920,315 @@ async function runNativeMcpAuthBrowserCallbackE2e() {
   }
 }
 
+async function runNativeMcpAuthRefreshRemoteToolE2e() {
+  const requests = []
+  const parseRequestBody = body => {
+    try {
+      return JSON.parse(body)
+    } catch {
+      return null
+    }
+  }
+  const jsonRpcId = request => {
+    if (request?.id === undefined || request?.id === null) return 'null'
+    return JSON.stringify(request.id)
+  }
+  const sendJson = (res, payload, status = 200) => {
+    const body = typeof payload === 'string' ? payload : JSON.stringify(payload)
+    res.writeHead(status, {
+      'Content-Type': 'application/json',
+      'Content-Length': String(Buffer.byteLength(body)),
+    })
+    res.end(body)
+  }
+  const sendEmpty = (res, status) => {
+    res.writeHead(status, {
+      'Content-Type': 'text/plain',
+      'Content-Length': '0',
+    })
+    res.end('')
+  }
+  const server = createServer((req, res) => {
+    let body = ''
+    req.setEncoding('utf8')
+    req.on('data', chunk => {
+      body += chunk
+    })
+    req.on('end', () => {
+      const record = {
+        method: req.method,
+        path: req.url,
+        headers: req.headers,
+        body,
+      }
+      requests.push(record)
+      if (req.method === 'GET' && req.url === '/.well-known/oauth-authorization-server') {
+        const { port } = server.address()
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({
+          authorization_endpoint: `http://127.0.0.1:${port}/authorize`,
+          token_endpoint: `http://127.0.0.1:${port}/token`,
+          revocation_endpoint: `http://127.0.0.1:${port}/revoke`,
+          scope: 'tools',
+        }))
+        return
+      }
+      if (req.method === 'POST' && req.url === '/token') {
+        const params = new URLSearchParams(body)
+        if (params.get('grant_type') === 'authorization_code') {
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({
+            access_token: 'callback-access-cli',
+            refresh_token: 'callback-refresh-cli',
+            expires_in: 3600,
+            scope: 'tools',
+          }))
+          return
+        }
+        if (params.get('grant_type') === 'refresh_token' &&
+            params.get('refresh_token') === 'old-refresh-cli' &&
+            params.get('client_id') === 'client-1') {
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({
+            access_token: 'fresh-access-cli',
+            refresh_token: 'fresh-refresh-cli',
+            expires_in: 3600,
+            scope: 'tools',
+          }))
+          return
+        }
+        res.writeHead(400, { 'Content-Type': 'application/json' })
+        res.end('{"error":"invalid_request"}')
+        return
+      }
+      if (req.method === 'POST' && req.url === '/mcp') {
+        const authorization = req.headers.authorization
+        if (authorization !== 'Bearer fresh-access-cli') {
+          sendEmpty(res, 401)
+          return
+        }
+
+        const rpc = parseRequestBody(body)
+        if (!rpc) {
+          sendEmpty(res, 400)
+          return
+        }
+        if (rpc.method === 'notifications/initialized' || rpc.method === 'notifications/cancelled') {
+          sendEmpty(res, 202)
+          return
+        }
+        if (rpc.method === 'initialize') {
+          sendJson(res, `{"jsonrpc":"2.0","id":${jsonRpcId(rpc)},"result":{"protocolVersion":"2024-11-05","capabilities":{"tools":{}},"serverInfo":{"name":"refresh-fixture","version":"1.0.0"}}}`)
+          return
+        }
+        if (rpc.method === 'tools/list') {
+          sendJson(res, `{"jsonrpc":"2.0","id":${jsonRpcId(rpc)},"result":{"tools":[{"name":"refresh_lookup","description":"Lookup after OAuth refresh","inputSchema":{"type":"object"}}]}}`)
+          return
+        }
+        if (rpc.method === 'tools/call') {
+          const query = rpc.params?.arguments?.query ?? 'missing'
+          sendJson(res, {
+            jsonrpc: '2.0',
+            id: rpc.id,
+            result: {
+              content: [{
+                type: 'text',
+                text: `refresh:${query}:${authorization}`,
+              }],
+            },
+          })
+          return
+        }
+
+        sendEmpty(res, 404)
+        return
+      }
+      res.writeHead(404, { 'Content-Type': 'application/json' })
+      res.end('{"error":"not found"}')
+    })
+  })
+
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  const { port } = server.address()
+  const root = mkdtempSync(join(tmpdir(), 'cc-repl-native-mcp-refresh-'))
+  const urlFile = join(root, 'auth-url.txt')
+  mkdirSync(join(root, '.claude'), { recursive: true })
+  const mcpConfig = {
+    mcpServers: {
+      refresh_fixture: {
+        type: 'http',
+        url: `http://127.0.0.1:${port}/mcp`,
+        oauth: {
+          authServerMetadataUrl: `http://127.0.0.1:${port}/.well-known/oauth-authorization-server`,
+          clientId: 'client-1',
+        },
+      },
+    },
+  }
+  writeFileSync(join(root, '.claude', 'config.json'), JSON.stringify(mcpConfig), 'utf8')
+  writeFileSync(join(root, '.claude', 'mcp_servers.json'), JSON.stringify(mcpConfig), 'utf8')
+
+  const authOutput = []
+  const child = spawn(
+    nativeBinary,
+    [
+      '--run-runtime-tool',
+      'mcp_auth',
+      '--runtime-tool-input',
+      JSON.stringify({
+        server_name: 'refresh_fixture',
+        wait_for_callback: true,
+        authorization_url_file: urlFile,
+      }),
+    ],
+    {
+      cwd: root,
+      env: {
+        ...process.env,
+        HOME: root,
+        XDG_CONFIG_HOME: root,
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    },
+  )
+  child.stdout.on('data', chunk => authOutput.push(String(chunk)))
+  child.stderr.on('data', chunk => authOutput.push(String(chunk)))
+
+  try {
+    await waitFor(
+      () => existsSync(urlFile) && readFileSync(urlFile, 'utf8').includes('/authorize'),
+      8000,
+      'native mcp_auth refresh fixture authorization URL file',
+    )
+    const authUrl = readFileSync(urlFile, 'utf8')
+    const parsedAuthUrl = new URL(authUrl)
+    const redirectUri = parsedAuthUrl.searchParams.get('redirect_uri')
+    const state = parsedAuthUrl.searchParams.get('state')
+    if (!redirectUri || !state || parsedAuthUrl.searchParams.get('client_id') !== 'client-1') {
+      throw new Error(`native mcp_auth refresh fixture emitted invalid URL:\n${authUrl}`)
+    }
+    const callbackUrl = new URL(redirectUri)
+    callbackUrl.searchParams.set('code', 'refresh-bootstrap-code-cli')
+    callbackUrl.searchParams.set('state', state)
+    const callbackResponse = await fetch(callbackUrl)
+    if (!callbackResponse.ok) {
+      throw new Error(`native mcp_auth refresh fixture callback returned HTTP ${callbackResponse.status}`)
+    }
+
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        child.kill('SIGKILL')
+        reject(new Error(`timed out waiting for native mcp_auth refresh fixture callback\n${authOutput.join('')}`))
+      }, 8000)
+      child.once('exit', code => {
+        clearTimeout(timer)
+        if (code !== 0) {
+          reject(new Error(`native mcp_auth refresh fixture exited with code ${code}\n${authOutput.join('')}`))
+          return
+        }
+        resolve()
+      })
+    })
+
+    if (!authOutput.join('').includes("Authentication completed with browser callback for 'refresh_fixture'.")) {
+      throw new Error(`native mcp_auth refresh fixture did not complete:\n${authOutput.join('')}`)
+    }
+
+    const tokenDir = join(root, 'cc-repl', 'mcp')
+    const tokenFiles = readdirSync(tokenDir).filter(name => name.endsWith('.json'))
+    if (tokenFiles.length !== 1) {
+      throw new Error(`native mcp_auth refresh fixture wrote ${tokenFiles.length} token files`)
+    }
+    const tokenPath = join(tokenDir, tokenFiles[0])
+    const expiredToken = JSON.parse(readFileSync(tokenPath, 'utf8'))
+    expiredToken.access_token = 'old-access-cli'
+    expiredToken.refresh_token = 'old-refresh-cli'
+    expiredToken.expires_at = 1
+    writeFileSync(tokenPath, JSON.stringify(expiredToken, null, 2), 'utf8')
+
+    const requestOffset = requests.length
+    const runtimeArgs = [
+      '--run-runtime-tool',
+      'mcp',
+      '--runtime-tool-input',
+      JSON.stringify({
+        server_name: 'refresh_fixture',
+        tool_name: 'refresh_lookup',
+        arguments: { query: 'after-refresh' },
+      }),
+    ]
+    const runtimeOutput = []
+    const runtimeChild = spawn(nativeBinary, runtimeArgs, {
+      cwd: root,
+      env: {
+        ...process.env,
+        HOME: root,
+        XDG_CONFIG_HOME: root,
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    runtimeChild.stdout.on('data', chunk => runtimeOutput.push(String(chunk)))
+    runtimeChild.stderr.on('data', chunk => runtimeOutput.push(String(chunk)))
+
+    const runtimeCode = await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        runtimeChild.kill('SIGKILL')
+        reject(new Error(`timed out waiting for native MCP OAuth refresh remote tool e2e\n${runtimeOutput.join('')}\nRuntime requests: ${JSON.stringify(requests.slice(requestOffset), null, 2)}`))
+      }, 10000)
+      runtimeChild.once('exit', code => {
+        clearTimeout(timer)
+        resolve(code)
+      })
+      runtimeChild.once('error', error => {
+        clearTimeout(timer)
+        reject(error)
+      })
+    })
+    const runtimeText = runtimeOutput.join('')
+    const runtimeRequests = requests.slice(requestOffset)
+    if (runtimeCode !== 0 ||
+        !runtimeText.includes('refresh:after-refresh:Bearer fresh-access-cli')) {
+      process.stderr.write(runtimeText)
+      throw new Error(`native MCP OAuth refresh remote tool e2e failed with exit code ${runtimeCode}\nToken files: ${JSON.stringify(tokenFiles)}\nExpired token: ${readFileSync(tokenPath, 'utf8')}\nRuntime requests: ${JSON.stringify(runtimeRequests, null, 2)}`)
+    }
+
+    const refreshRequest = runtimeRequests.find(request =>
+      request.method === 'POST' &&
+      request.path === '/token' &&
+      request.body.includes('grant_type=refresh_token') &&
+      request.body.includes('refresh_token=old-refresh-cli') &&
+      request.body.includes('client_id=client-1'))
+    if (!refreshRequest) {
+      throw new Error(`native runtime MCP call did not refresh the expired OAuth token:\n${JSON.stringify(runtimeRequests, null, 2)}`)
+    }
+    const runtimeMcpRequests = runtimeRequests.filter(request => request.method === 'POST' && request.path === '/mcp')
+    if (runtimeMcpRequests.length < 3 ||
+        !runtimeMcpRequests.every(request => request.headers.authorization === 'Bearer fresh-access-cli')) {
+      throw new Error(`native runtime MCP call did not use the refreshed bearer for all remote requests:\n${JSON.stringify(runtimeMcpRequests, null, 2)}`)
+    }
+    const runtimeMethods = new Set(runtimeMcpRequests.map(request => parseRequestBody(request.body)?.method))
+    for (const method of ['initialize', 'tools/list', 'tools/call']) {
+      if (!runtimeMethods.has(method)) {
+        throw new Error(`native runtime MCP refresh path did not send ${method}`)
+      }
+    }
+
+    const refreshedToken = JSON.parse(readFileSync(tokenPath, 'utf8'))
+    if (refreshedToken.access_token !== 'fresh-access-cli' ||
+        refreshedToken.refresh_token !== 'fresh-refresh-cli' ||
+        refreshedToken.server_name !== 'refresh_fixture' ||
+        refreshedToken.server_url !== `http://127.0.0.1:${port}/mcp` ||
+        refreshedToken.client_id !== 'client-1') {
+      throw new Error(`native runtime MCP refresh persisted an invalid token: ${JSON.stringify(refreshedToken)}`)
+    }
+    console.log('ok - native MCP OAuth refresh remote tool e2e')
+  } finally {
+    child.kill('SIGKILL')
+    rmSync(root, { recursive: true, force: true })
+    await new Promise(resolve => server.close(resolve))
+  }
+}
+
 async function runNativeMcpAuthXaaIdpE2e() {
   const requests = []
   const server = createServer((req, res) => {
@@ -2174,6 +2483,19 @@ rl.on('line', line => {
 
 if (!existsSync(nativeBinary)) {
   throw new Error(`Native binary not found at ${nativeBinary}. Run bun run build first.`)
+}
+
+const requestedScenario = process.env.CC_REPL_CPP_MIGRATION_E2E_ONLY
+if (requestedScenario) {
+  const scenarios = {
+    'mcp-auth-refresh-remote-tool': runNativeMcpAuthRefreshRemoteToolE2e,
+  }
+  const scenario = scenarios[requestedScenario]
+  if (!scenario) {
+    throw new Error(`Unknown CC_REPL_CPP_MIGRATION_E2E_ONLY scenario: ${requestedScenario}`)
+  }
+  await scenario()
+  process.exit(0)
 }
 
 run('native version', nativeBinary, ['--version'], 'cc-repl 1.0.0-cpp')
@@ -2556,6 +2878,7 @@ run(
 runNativeMcpAuthRemoteOAuthConfigE2e()
 await runNativeMcpAuthStandardOAuthUrlE2e()
 await runNativeMcpAuthBrowserCallbackE2e()
+await runNativeMcpAuthRefreshRemoteToolE2e()
 await runNativeMcpAuthXaaIdpE2e()
 
 await runBridgeDaemonOneShotProductE2e()
