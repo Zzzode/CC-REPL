@@ -147,12 +147,14 @@ async function main() {
   const allowedFile = join(root, 'allowed.txt')
   const deniedFile = join(root, 'denied.txt')
   const updatedFile = join(root, 'updated.txt')
+  const removalFile = join(root, 'remove-permissions.txt')
   const allowedDir = join(root, 'allowed-dir')
   const directoryFile = join(allowedDir, 'directory.txt')
   mkdirSync(allowedDir)
   writeFileSync(allowedFile, 'original direct input content\n')
   writeFileSync(deniedFile, 'denied direct input content\n')
   writeFileSync(updatedFile, 'updated direct input content\n')
+  writeFileSync(removalFile, 'remove direct permissions content\n')
   writeFileSync(directoryFile, 'directory direct input content\n')
 
   const anthropic = startAnthropicFixture([
@@ -199,6 +201,48 @@ async function main() {
       content: [{ type: 'text', text: 'ts client cached directory read allowed' }],
     }),
     anthropicMessage({
+      id: 'msg_ts_read_remove_permissions_tool',
+      stopReason: 'tool_use',
+      content: [{
+        type: 'tool_use',
+        id: 'toolu_ts_read_remove_permissions',
+        name: 'Read',
+        input: { file_path: removalFile },
+      }],
+    }),
+    anthropicMessage({
+      id: 'msg_ts_read_remove_permissions_done',
+      content: [{ type: 'text', text: 'ts client removed cached permissions' }],
+    }),
+    anthropicMessage({
+      id: 'msg_ts_read_removed_rule_tool',
+      stopReason: 'tool_use',
+      content: [{
+        type: 'tool_use',
+        id: 'toolu_ts_read_removed_rule',
+        name: 'Read',
+        input: { file_path: allowedFile },
+      }],
+    }),
+    anthropicMessage({
+      id: 'msg_ts_read_removed_rule_done',
+      content: [{ type: 'text', text: 'ts client removed rule denied' }],
+    }),
+    anthropicMessage({
+      id: 'msg_ts_read_removed_directory_tool',
+      stopReason: 'tool_use',
+      content: [{
+        type: 'tool_use',
+        id: 'toolu_ts_read_removed_directory',
+        name: 'Read',
+        input: { file_path: directoryFile },
+      }],
+    }),
+    anthropicMessage({
+      id: 'msg_ts_read_removed_directory_done',
+      content: [{ type: 'text', text: 'ts client removed directory denied' }],
+    }),
+    anthropicMessage({
       id: 'msg_ts_read_deny_tool',
       stopReason: 'tool_use',
       content: [{
@@ -238,8 +282,61 @@ async function main() {
     const permissionRequests = []
     const callbackErrors = []
     const expectedPermissions = [
-      { behavior: 'allow', toolUseId: 'toolu_ts_read_allow', filePath: allowedFile },
-      { behavior: 'deny', toolUseId: 'toolu_ts_read_deny', filePath: deniedFile },
+      {
+        behavior: 'allow',
+        toolUseId: 'toolu_ts_read_allow',
+        filePath: allowedFile,
+        response: {
+          behavior: 'allow',
+          updatedInput: { file_path: updatedFile },
+          updatedPermissions: [{
+            type: 'addRules',
+            rules: [{ toolName: 'Read', ruleContent: allowedFile }],
+            behavior: 'allow',
+            destination: 'session',
+          }, {
+            type: 'addDirectories',
+            directories: [allowedDir],
+            destination: 'session',
+          }],
+        },
+      },
+      {
+        behavior: 'allow',
+        toolUseId: 'toolu_ts_read_remove_permissions',
+        filePath: removalFile,
+        response: {
+          behavior: 'allow',
+          updatedPermissions: [{
+            type: 'removeRules',
+            rules: [{ toolName: 'Read', ruleContent: allowedFile }],
+            behavior: 'allow',
+            destination: 'session',
+          }, {
+            type: 'removeDirectories',
+            directories: [allowedDir],
+            destination: 'session',
+          }],
+        },
+      },
+      {
+        behavior: 'deny',
+        toolUseId: 'toolu_ts_read_removed_rule',
+        filePath: allowedFile,
+        response: { behavior: 'deny', message: 'denied after removed cached rule' },
+      },
+      {
+        behavior: 'deny',
+        toolUseId: 'toolu_ts_read_removed_directory',
+        filePath: directoryFile,
+        response: { behavior: 'deny', message: 'denied after removed cached directory' },
+      },
+      {
+        behavior: 'deny',
+        toolUseId: 'toolu_ts_read_deny',
+        filePath: deniedFile,
+        response: { behavior: 'deny', message: 'denied by TS direct client e2e' },
+      },
     ]
 
     async function connectManager() {
@@ -264,25 +361,7 @@ async function main() {
             assert(request.tool_use_id === expected.toolUseId, `unexpected tool_use_id: ${request.tool_use_id}`)
             assert(request.input?.file_path === expected.filePath, `unexpected permission file path: ${request.input?.file_path}`)
             permissionRequests.push({ requestId, request, behavior: expected.behavior })
-            manager.respondToPermissionRequest(
-              requestId,
-              expected.behavior === 'allow'
-                ? {
-                    behavior: 'allow',
-                    updatedInput: { file_path: updatedFile },
-                    updatedPermissions: [{
-                      type: 'addRules',
-                      rules: [{ toolName: 'Read', ruleContent: allowedFile }],
-                      behavior: 'allow',
-                      destination: 'session',
-                    }, {
-                      type: 'addDirectories',
-                      directories: [allowedDir],
-                      destination: 'session',
-                    }],
-                  }
-                : { behavior: 'deny', message: 'denied by TS direct client e2e' },
-            )
+            manager.respondToPermissionRequest(requestId, expected.response)
           } catch (error) {
             callbackErrors.push(error)
             manager.respondToPermissionRequest(requestId, {
@@ -320,11 +399,14 @@ async function main() {
     await connectManager()
     await sendAndExpect('read through TS direct client cached allow after reconnect', 'ts client cached read allowed')
     await sendAndExpect('read through TS direct client cached directory after reconnect', 'ts client cached directory read allowed')
+    await sendAndExpect('read through TS direct client remove cached permissions', 'ts client removed cached permissions')
+    await sendAndExpect('read through TS direct client cached allow after removal', 'ts client removed rule denied')
+    await sendAndExpect('read through TS direct client cached directory after removal', 'ts client removed directory denied')
     await sendAndExpect('read through TS direct client deny after reconnect', 'ts client read denied')
 
     assert(callbackErrors.length === 0, callbackErrors.map(error => error.stack || error.message || String(error)).join('\n'))
-    assert(permissionRequests.length === 2, `expected 2 permission requests, saw ${permissionRequests.length}`)
-    const bodies = await anthropic.waitForBodies(8)
+    assert(permissionRequests.length === 5, `expected 5 permission requests, saw ${permissionRequests.length}`)
+    const bodies = await anthropic.waitForBodies(14)
     assert(bodies[0].includes('read through TS direct client allow'), 'first model request did not include the allow prompt')
     assert(bodies[1].includes('updated direct input content'), 'updatedInput Read result did not reach the follow-up model request')
     assert(!bodies[1].includes('original direct input content'), 'original Read input was used despite updatedInput')
@@ -332,9 +414,19 @@ async function main() {
     assert(bodies[3].includes('original direct input content'), 'updatedPermissions allow rule did not let the cached Read result reach the model request')
     assert(bodies[4].includes('read through TS direct client cached directory after reconnect'), 'cached directory model request did not include the prompt')
     assert(bodies[5].includes('directory direct input content'), 'updatedPermissions addDirectories did not let the cached Read result reach the model request')
-    assert(bodies[6].includes('read through TS direct client deny after reconnect'), 'deny model request did not include the prompt')
-    assert(bodies[7].includes('denied by TS direct client e2e'), 'denied Read message did not reach the follow-up model request')
-    assert(!bodies[7].includes('Permission denied for tool: Read'), 'default deny message was used despite SDK deny message')
+    assert(bodies[6].includes('read through TS direct client remove cached permissions'), 'remove permissions model request did not include the prompt')
+    assert(bodies[7].includes('remove direct permissions content'), 'removeRules/removeDirectories trigger Read result did not reach the follow-up model request')
+    assert(bodies[8].includes('read through TS direct client cached allow after removal'), 'removed rule model request did not include the prompt')
+    assert(bodies[9].includes('denied after removed cached rule'), 'removeRules did not cause the cached file permission to be requested again')
+    assert(!bodies[9].includes('original direct input content'), 'removeRules failed and the cached file Read still reached the model request')
+    assert(!bodies[9].includes('Permission denied for tool: Read'), 'default deny message was used after removeRules')
+    assert(bodies[10].includes('read through TS direct client cached directory after removal'), 'removed directory model request did not include the prompt')
+    assert(bodies[11].includes('denied after removed cached directory'), 'removeDirectories did not cause the cached directory permission to be requested again')
+    assert(!bodies[11].includes('directory direct input content'), 'removeDirectories failed and the cached directory Read still reached the model request')
+    assert(!bodies[11].includes('Permission denied for tool: Read'), 'default deny message was used after removeDirectories')
+    assert(bodies[12].includes('read through TS direct client deny after reconnect'), 'deny model request did not include the prompt')
+    assert(bodies[13].includes('denied by TS direct client e2e'), 'denied Read message did not reach the follow-up model request')
+    assert(!bodies[13].includes('Permission denied for tool: Read'), 'default deny message was used despite SDK deny message')
 
     console.log('ok - direct-connect TS client permission/reconnect e2e')
   } finally {
