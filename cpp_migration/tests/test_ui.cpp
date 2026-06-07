@@ -927,6 +927,50 @@ TEST(AppRuntime, PermissionCallbackRendersAndResolvesUserChoices) {
     EXPECT_FALSE(deny_result.load(std::memory_order_acquire));
     deny_worker.join();
 
+    std::atomic<bool> always_done{false};
+    std::atomic<bool> always_result{false};
+    std::jthread always_worker([&] {
+        always_result.store(permission_callback("Read", "Read package.json"), std::memory_order_release);
+        always_done.store(true, std::memory_order_release);
+    });
+
+    const bool always_prompt_shown = wait_until([&] {
+        auto rendered = render_to_plain_text(app->Render(), 120, 34);
+        return rendered.find("Permission Required") != std::string::npos &&
+               rendered.find("Tool: Read") != std::string::npos &&
+               rendered.find("Read package.json") != std::string::npos;
+    }, std::chrono::milliseconds(1000));
+    EXPECT_TRUE(always_prompt_shown);
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::Character('a')));
+    EXPECT_TRUE(wait_until([&] { return always_done.load(std::memory_order_acquire); },
+                           std::chrono::milliseconds(1000)));
+    EXPECT_TRUE(always_result.load(std::memory_order_acquire));
+    always_worker.join();
+
+    std::atomic<bool> repeated_done{false};
+    std::atomic<bool> repeated_result{false};
+    std::jthread repeated_worker([&] {
+        repeated_result.store(permission_callback("Read", "Read package-lock.json"), std::memory_order_release);
+        repeated_done.store(true, std::memory_order_release);
+    });
+
+    const bool completed_without_prompt = wait_until(
+        [&] { return repeated_done.load(std::memory_order_acquire); },
+        std::chrono::milliseconds(200));
+    EXPECT_TRUE(completed_without_prompt);
+    if (!completed_without_prompt) {
+        EXPECT_TRUE(wait_until([&] {
+            auto rendered = render_to_plain_text(app->Render(), 120, 34);
+            return rendered.find("Permission Required") != std::string::npos &&
+                   rendered.find("Read package-lock.json") != std::string::npos;
+        }, std::chrono::milliseconds(1000)));
+        EXPECT_TRUE(app->OnEvent(ftxui::Event::Character('y')));
+        EXPECT_TRUE(wait_until([&] { return repeated_done.load(std::memory_order_acquire); },
+                               std::chrono::milliseconds(1000)));
+    }
+    EXPECT_TRUE(repeated_result.load(std::memory_order_acquire));
+    repeated_worker.join();
+
     fs::remove_all(storage_root);
 }
 

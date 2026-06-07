@@ -889,6 +889,9 @@ public:
             // Post permission request to UI thread
             {
                 std::lock_guard lk(permission_mutex_);
+                if (always_allowed_tools_.contains(std::string(tool_name))) {
+                    return true;
+                }
                 pending_permission_ = PermissionRequest{
                     std::string(tool_name), std::string(description)};
                 permission_response_.reset();
