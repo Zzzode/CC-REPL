@@ -1,6 +1,7 @@
 // C++23 Module: Command queue for serialized execution with priority and deduplication
 module;
 
+#include <algorithm>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>

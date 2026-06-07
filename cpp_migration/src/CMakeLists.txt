@@ -288,6 +288,9 @@ target_sources(cc_utils
         utils/cron_helpers.cppm
         utils/file_index.cppm
 )
+set_source_files_properties(utils/swarm_backends.cppm PROPERTIES
+    COMPILE_OPTIONS "$<$<CXX_COMPILER_ID:Clang>:-O0>"
+)
 target_link_libraries(cc_utils
     PUBLIC
         yyjson
@@ -1097,6 +1100,7 @@ target_link_libraries(cc_bridge
     PUBLIC
         cc_utils
         cc_types
+        OpenSSL::Crypto
         yyjson
         uv_a
 )
@@ -1334,7 +1338,7 @@ target_sources(cc_daemon
         daemon/daemon_client.cppm
         daemon/daemon_server.cppm
 )
-target_link_libraries(cc_daemon PUBLIC cc_utils)
+target_link_libraries(cc_daemon PUBLIC cc_utils cc_bridge)
 
 # ─── cc_remote: Remote Connections ────────────────────────────────────────────
 add_library(cc_remote)
@@ -1364,7 +1368,7 @@ target_sources(cc_server
         server/server_main.cppm
         server/server_routes.cppm
 )
-target_link_libraries(cc_server PUBLIC cc_utils cc_session cc_query cc_tools)
+target_link_libraries(cc_server PUBLIC cc_utils cc_session cc_query cc_tools OpenSSL::Crypto)
 
 # ─── cc_screens: Screen System ────────────────────────────────────────────────
 add_library(cc_screens)
@@ -1464,6 +1468,10 @@ target_link_libraries(cc_repl
         cc_hooks
         cc_commands
         cc_constants
+        cc_cli
+        cc_daemon
+        cc_server
+        cc_session
         cc_utils
         cc_ui
 )

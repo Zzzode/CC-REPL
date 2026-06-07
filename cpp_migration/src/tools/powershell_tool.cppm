@@ -4,9 +4,11 @@ module;
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <expected>
 #include <filesystem>
 #include <format>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -82,6 +84,155 @@ struct PowerShellResult {
     bool timed_out{false};
 };
 
+[[nodiscard]] inline std::string powershell_single_quote(std::string_view value) {
+    std::string quoted = "'";
+    for (const char ch : value) {
+        if (ch == '\'') {
+            quoted += "''";
+        } else {
+            quoted.push_back(ch);
+        }
+    }
+    quoted.push_back('\'');
+    return quoted;
+}
+
+[[nodiscard]] inline std::string powershell_base64_encode(std::string_view bytes) {
+    static constexpr char table[] =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string encoded;
+    encoded.reserve(((bytes.size() + 2) / 3) * 4);
+    std::size_t i = 0;
+    while (i + 3 <= bytes.size()) {
+        const auto b0 = static_cast<unsigned char>(bytes[i++]);
+        const auto b1 = static_cast<unsigned char>(bytes[i++]);
+        const auto b2 = static_cast<unsigned char>(bytes[i++]);
+        encoded.push_back(table[b0 >> 2]);
+        encoded.push_back(table[((b0 & 0x03) << 4) | (b1 >> 4)]);
+        encoded.push_back(table[((b1 & 0x0f) << 2) | (b2 >> 6)]);
+        encoded.push_back(table[b2 & 0x3f]);
+    }
+    if (i < bytes.size()) {
+        const auto b0 = static_cast<unsigned char>(bytes[i++]);
+        encoded.push_back(table[b0 >> 2]);
+        if (i < bytes.size()) {
+            const auto b1 = static_cast<unsigned char>(bytes[i++]);
+            encoded.push_back(table[((b0 & 0x03) << 4) | (b1 >> 4)]);
+            encoded.push_back(table[(b1 & 0x0f) << 2]);
+            encoded.push_back('=');
+        } else {
+            encoded.push_back(table[(b0 & 0x03) << 4]);
+            encoded.push_back('=');
+            encoded.push_back('=');
+        }
+    }
+    return encoded;
+}
+
+inline void append_powershell_utf16le(std::string& output, char32_t code_point) {
+    auto append_unit = [&](std::uint16_t unit) {
+        output.push_back(static_cast<char>(unit & 0xff));
+        output.push_back(static_cast<char>((unit >> 8) & 0xff));
+    };
+
+    if (code_point > 0x10ffff) code_point = 0xfffd;
+    if (code_point <= 0xffff) {
+        if (code_point >= 0xd800 && code_point <= 0xdfff) code_point = 0xfffd;
+        append_unit(static_cast<std::uint16_t>(code_point));
+        return;
+    }
+
+    code_point -= 0x10000;
+    append_unit(static_cast<std::uint16_t>(0xd800 + ((code_point >> 10) & 0x3ff)));
+    append_unit(static_cast<std::uint16_t>(0xdc00 + (code_point & 0x3ff)));
+}
+
+[[nodiscard]] inline std::string powershell_utf8_to_utf16le(std::string_view value) {
+    std::string utf16le;
+    utf16le.reserve(value.size() * 2);
+    for (std::size_t i = 0; i < value.size();) {
+        const auto b0 = static_cast<unsigned char>(value[i]);
+        char32_t code_point = 0xfffd;
+        std::size_t consumed = 1;
+        auto continuation = [&](std::size_t offset) -> std::optional<unsigned char> {
+            if (i + offset >= value.size()) return std::nullopt;
+            const auto byte = static_cast<unsigned char>(value[i + offset]);
+            if ((byte & 0xc0) != 0x80) return std::nullopt;
+            return byte;
+        };
+
+        if (b0 < 0x80) {
+            code_point = b0;
+        } else if ((b0 & 0xe0) == 0xc0) {
+            if (auto b1 = continuation(1)) {
+                const auto candidate = static_cast<char32_t>(((b0 & 0x1f) << 6) | (*b1 & 0x3f));
+                if (candidate >= 0x80) {
+                    code_point = candidate;
+                    consumed = 2;
+                }
+            }
+        } else if ((b0 & 0xf0) == 0xe0) {
+            auto b1 = continuation(1);
+            auto b2 = continuation(2);
+            if (b1 && b2) {
+                const auto candidate = static_cast<char32_t>(
+                    ((b0 & 0x0f) << 12) | ((*b1 & 0x3f) << 6) | (*b2 & 0x3f)
+                );
+                if (candidate >= 0x800 && (candidate < 0xd800 || candidate > 0xdfff)) {
+                    code_point = candidate;
+                    consumed = 3;
+                }
+            }
+        } else if ((b0 & 0xf8) == 0xf0) {
+            auto b1 = continuation(1);
+            auto b2 = continuation(2);
+            auto b3 = continuation(3);
+            if (b1 && b2 && b3) {
+                const auto candidate = static_cast<char32_t>(
+                    ((b0 & 0x07) << 18) | ((*b1 & 0x3f) << 12) |
+                    ((*b2 & 0x3f) << 6) | (*b3 & 0x3f)
+                );
+                if (candidate >= 0x10000 && candidate <= 0x10ffff) {
+                    code_point = candidate;
+                    consumed = 4;
+                }
+            }
+        }
+
+        append_powershell_utf16le(utf16le, code_point);
+        i += consumed;
+    }
+    return utf16le;
+}
+
+[[nodiscard]] inline std::string powershell_encoded_command(std::string_view script) {
+    return powershell_base64_encode(powershell_utf8_to_utf16le(script));
+}
+
+[[nodiscard]] inline std::string powershell_path_string(const std::filesystem::path& path) {
+    const auto utf8_path = path.u8string();
+    return std::string(reinterpret_cast<const char*>(utf8_path.data()), utf8_path.size());
+}
+
+[[nodiscard]] inline std::string build_powershell_script(
+    const PowerShellConfig& config,
+    const std::filesystem::path& default_cwd
+) {
+    auto cwd = config.working_directory.empty() ? default_cwd : config.working_directory;
+    return "Set-Location -LiteralPath " + powershell_single_quote(powershell_path_string(cwd)) + "\n" + config.command;
+}
+
+[[nodiscard]] inline std::string build_powershell_process_command(
+    const PowerShellConfig& config,
+    const std::filesystem::path& default_cwd = std::filesystem::current_path()
+) {
+    std::string command = "powershell.exe";
+    if (config.no_profile) command += " -NoProfile";
+    if (config.non_interactive) command += " -NonInteractive";
+    command += " -EncodedCommand " + powershell_encoded_command(build_powershell_script(config, default_cwd));
+    return command;
+}
+
 
 class EncodingHandler {
 public:
@@ -156,7 +307,7 @@ public:
             return std::unexpected(PowerShellError::InvalidWorkingDirectory);
         }
 
-        if (check_permission(config.command) == CmdletPermission::Denied) {
+        if (check_permission(config.command) != CmdletPermission::Allowed) {
             return std::unexpected(PowerShellError::DangerousCmdlet);
         }
         return {};
@@ -169,10 +320,7 @@ public:
         auto start_time = std::chrono::steady_clock::now();
 
 
-        std::string ps_cmd = "powershell.exe";
-        if (config.no_profile) ps_cmd += " -NoProfile";
-        if (config.non_interactive) ps_cmd += " -NonInteractive";
-        ps_cmd += std::format(" -Command \"{}\"", config.command);
+        const auto ps_cmd = build_powershell_process_command(config, default_cwd_);
 
 
         FILE* pipe = ::popen(ps_cmd.c_str(), "r");
@@ -191,7 +339,9 @@ public:
         return PowerShellResult{
             .exit_code = status,
             .stdout_output = std::move(output),
+            .stderr_output = {},
             .duration = elapsed,
+            .timed_out = false,
         };
     }
 

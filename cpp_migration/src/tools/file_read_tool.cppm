@@ -344,7 +344,9 @@ public:
                 }
             },
             .permission = ToolPermission::ReadOnly,
-            .category = "filesystem"
+            .category = "filesystem",
+            .max_result_size_chars = 0,
+            .max_result_size_unbounded = true
         };
     }
     

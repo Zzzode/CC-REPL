@@ -2,10 +2,17 @@
 /// @brief cc_ui module unit tests for the migrated FTXUI-based APIs.
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
+#include <condition_variable>
+#include <filesystem>
+#include <functional>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
+#include <thread>
+#include <utility>
 #include <vector>
 
 #include <ftxui/dom/elements.hpp>
@@ -14,6 +21,7 @@
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/event.hpp>
 #include <gtest/gtest.h>
+#include <httplib.h>
 
 import cc.ui.terminal;
 import cc.ui.components;
@@ -23,8 +31,15 @@ import cc.ui.prompt_input;
 import cc.ui.markdown;
 import cc.ui.components_extended;
 import cc.ui.wizard_dialog;
+import cc.ui.app;
+import cc.commands.registry;
+import cc.query.query_engine;
+import cc.tools.tool;
+import cc.utils.session_storage;
 
 namespace {
+
+namespace fs = std::filesystem;
 
 void expect_element(const ftxui::Element& element) {
     EXPECT_NE(element, nullptr);
@@ -35,6 +50,399 @@ std::string render_to_plain_text(ftxui::Element element, int width = 80, int hei
     ftxui::Render(screen, element);
     return screen.ToString();
 }
+
+bool wait_until(std::function<bool()> predicate, std::chrono::milliseconds timeout) {
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (std::chrono::steady_clock::now() < deadline) {
+        if (predicate()) return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    return predicate();
+}
+
+class LocalChunkedAnthropicStreamServer {
+public:
+    LocalChunkedAnthropicStreamServer() {
+        server_.Post("/v1/messages", [&](const httplib::Request& req, httplib::Response& res) {
+            {
+                std::lock_guard lock(mutex_);
+                ++request_count_;
+                last_body_ = req.body;
+            }
+            cv_.notify_all();
+
+            res.set_header("x-usage-input-tokens", "7");
+            auto phase = std::make_shared<int>(0);
+            res.set_chunked_content_provider(
+                "text/event-stream",
+                [this, phase](size_t /*offset*/, httplib::DataSink& sink) {
+                    if (*phase == 0) {
+                        sink.os <<
+                            "event: message_start\n"
+                            "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_ui_cancel\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-test\",\"content\":[]}}\n\n"
+                            "event: content_block_start\n"
+                            "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n"
+                            "event: content_block_delta\n"
+                            "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"partial UI stream\"}}\n\n";
+                        {
+                            std::lock_guard lock(mutex_);
+                            first_delta_sent_ = true;
+                        }
+                        cv_.notify_all();
+                        ++(*phase);
+                        return true;
+                    }
+
+                    {
+                        std::unique_lock lock(mutex_);
+                        if (!cv_.wait_for(lock, std::chrono::seconds(3), [this] {
+                                return continue_after_cancel_;
+                            })) {
+                            return false;
+                        }
+                    }
+
+                    sink.os <<
+                        "event: content_block_delta\n"
+                        "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\" after cancel\"}}\n\n"
+                        "event: content_block_stop\n"
+                        "data: {\"type\":\"content_block_stop\",\"index\":0}\n\n"
+                        "event: message_delta\n"
+                        "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":3}}\n\n"
+                        "event: message_stop\n"
+                        "data: {\"type\":\"message_stop\"}\n\n";
+                    sink.done();
+                    ++(*phase);
+                    return true;
+                });
+        });
+
+        port_ = server_.bind_to_any_port("127.0.0.1");
+        thread_ = std::thread([this] {
+            server_.listen_after_bind();
+        });
+        server_.wait_until_ready();
+    }
+
+    ~LocalChunkedAnthropicStreamServer() {
+        release_after_cancel();
+        server_.stop();
+        if (thread_.joinable()) thread_.join();
+    }
+
+    [[nodiscard]] bool valid() const noexcept {
+        return port_ > 0;
+    }
+
+    [[nodiscard]] std::string base_url() const {
+        return "http://127.0.0.1:" + std::to_string(port_);
+    }
+
+    void release_after_cancel() {
+        {
+            std::lock_guard lock(mutex_);
+            continue_after_cancel_ = true;
+        }
+        cv_.notify_all();
+    }
+
+    [[nodiscard]] bool wait_for_first_delta(
+        std::chrono::milliseconds timeout = std::chrono::seconds(3)) {
+        std::unique_lock lock(mutex_);
+        return cv_.wait_for(lock, timeout, [this] {
+            return first_delta_sent_;
+        });
+    }
+
+    [[nodiscard]] std::optional<std::string> last_body() const {
+        std::lock_guard lock(mutex_);
+        return last_body_;
+    }
+
+private:
+    httplib::Server server_;
+    int port_{0};
+    std::thread thread_;
+    mutable std::mutex mutex_;
+    std::condition_variable cv_;
+    std::size_t request_count_{0};
+    std::optional<std::string> last_body_;
+    bool first_delta_sent_{false};
+    bool continue_after_cancel_{false};
+};
+
+struct ReleaseAfterCancelGuard {
+    LocalChunkedAnthropicStreamServer& server;
+
+    ~ReleaseAfterCancelGuard() {
+        server.release_after_cancel();
+    }
+};
+
+class LocalToolUseAnthropicStreamServer {
+public:
+    LocalToolUseAnthropicStreamServer() {
+        server_.Post("/v1/messages", [&](const httplib::Request& req, httplib::Response& res) {
+            std::size_t request_number = 0;
+            {
+                std::lock_guard lock(mutex_);
+                request_number = ++request_count_;
+                last_body_ = req.body;
+            }
+            cv_.notify_all();
+
+            res.set_header("x-usage-input-tokens", "11");
+            auto phase = std::make_shared<int>(0);
+            res.set_chunked_content_provider(
+                "text/event-stream",
+                [this, phase, request_number](size_t /*offset*/, httplib::DataSink& sink) {
+                    if (request_number > 1) {
+                        if (*phase > 0) return false;
+                        sink.os <<
+                            "event: message_start\n"
+                            "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_ui_tool_followup\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-test\",\"content\":[]}}\n\n"
+                            "event: content_block_start\n"
+                            "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n"
+                            "event: content_block_delta\n"
+                            "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"tool preview done\"}}\n\n"
+                            "event: content_block_stop\n"
+                            "data: {\"type\":\"content_block_stop\",\"index\":0}\n\n"
+                            "event: message_delta\n"
+                            "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":4}}\n\n"
+                            "event: message_stop\n"
+                            "data: {\"type\":\"message_stop\"}\n\n";
+                        sink.done();
+                        ++(*phase);
+                        return true;
+                    }
+
+                    if (*phase == 0) {
+                        sink.os <<
+                            "event: message_start\n"
+                            "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_ui_tool\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-test\",\"content\":[]}}\n\n"
+                            "event: content_block_start\n"
+                            "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_ui_1\",\"name\":\"Bash\",\"input\":{}}}\n\n"
+                            "event: content_block_delta\n"
+                            "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"command\\\":\\\"npm test\\\"}\"}}\n\n";
+                        {
+                            std::lock_guard lock(mutex_);
+                            tool_delta_sent_ = true;
+                        }
+                        cv_.notify_all();
+                        ++(*phase);
+                        return true;
+                    }
+
+                    if (*phase > 1) return false;
+
+                    {
+                        std::unique_lock lock(mutex_);
+                        if (!cv_.wait_for(lock, std::chrono::seconds(3), [this] {
+                                return continue_after_preview_;
+                            })) {
+                            return false;
+                        }
+                    }
+
+                    sink.os <<
+                        "event: content_block_stop\n"
+                        "data: {\"type\":\"content_block_stop\",\"index\":0}\n\n"
+                        "event: message_delta\n"
+                        "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":5}}\n\n"
+                        "event: message_stop\n"
+                        "data: {\"type\":\"message_stop\"}\n\n";
+                    sink.done();
+                    ++(*phase);
+                    return true;
+                });
+        });
+
+        port_ = server_.bind_to_any_port("127.0.0.1");
+        thread_ = std::thread([this] {
+            server_.listen_after_bind();
+        });
+        server_.wait_until_ready();
+    }
+
+    ~LocalToolUseAnthropicStreamServer() {
+        release_after_preview();
+        server_.stop();
+        if (thread_.joinable()) thread_.join();
+    }
+
+    [[nodiscard]] bool valid() const noexcept {
+        return port_ > 0;
+    }
+
+    [[nodiscard]] std::string base_url() const {
+        return "http://127.0.0.1:" + std::to_string(port_);
+    }
+
+    void release_after_preview() {
+        {
+            std::lock_guard lock(mutex_);
+            continue_after_preview_ = true;
+        }
+        cv_.notify_all();
+    }
+
+    [[nodiscard]] bool wait_for_tool_delta(
+        std::chrono::milliseconds timeout = std::chrono::seconds(3)) {
+        std::unique_lock lock(mutex_);
+        return cv_.wait_for(lock, timeout, [this] {
+            return tool_delta_sent_;
+        });
+    }
+
+    [[nodiscard]] std::optional<std::string> last_body() const {
+        std::lock_guard lock(mutex_);
+        return last_body_;
+    }
+
+private:
+    httplib::Server server_;
+    int port_{0};
+    std::thread thread_;
+    mutable std::mutex mutex_;
+    std::condition_variable cv_;
+    std::size_t request_count_{0};
+    std::optional<std::string> last_body_;
+    bool tool_delta_sent_{false};
+    bool continue_after_preview_{false};
+};
+
+struct ReleaseAfterToolPreviewGuard {
+    LocalToolUseAnthropicStreamServer& server;
+
+    ~ReleaseAfterToolPreviewGuard() {
+        server.release_after_preview();
+    }
+};
+
+class LocalThinkingAnthropicStreamServer {
+public:
+    LocalThinkingAnthropicStreamServer() {
+        server_.Post("/v1/messages", [&](const httplib::Request& req, httplib::Response& res) {
+            {
+                std::lock_guard lock(mutex_);
+                ++request_count_;
+                last_body_ = req.body;
+            }
+            cv_.notify_all();
+
+            res.set_header("x-usage-input-tokens", "13");
+            auto phase = std::make_shared<int>(0);
+            res.set_chunked_content_provider(
+                "text/event-stream",
+                [this, phase](size_t /*offset*/, httplib::DataSink& sink) {
+                    if (*phase == 0) {
+                        sink.os <<
+                            "event: message_start\n"
+                            "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_ui_thinking\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-test\",\"content\":[]}}\n\n"
+                            "event: content_block_start\n"
+                            "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"thinking\",\"thinking\":\"\"}}\n\n"
+                            "event: content_block_delta\n"
+                            "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"private streaming thinking\"}}\n\n";
+                        {
+                            std::lock_guard lock(mutex_);
+                            thinking_delta_sent_ = true;
+                        }
+                        cv_.notify_all();
+                        ++(*phase);
+                        return true;
+                    }
+
+                    if (*phase > 1) return false;
+
+                    {
+                        std::unique_lock lock(mutex_);
+                        if (!cv_.wait_for(lock, std::chrono::seconds(3), [this] {
+                                return continue_after_preview_;
+                            })) {
+                            return false;
+                        }
+                    }
+
+                    sink.os <<
+                        "event: content_block_stop\n"
+                        "data: {\"type\":\"content_block_stop\",\"index\":0}\n\n"
+                        "event: content_block_start\n"
+                        "data: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n"
+                        "event: content_block_delta\n"
+                        "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"visible answer after thinking\"}}\n\n"
+                        "event: content_block_stop\n"
+                        "data: {\"type\":\"content_block_stop\",\"index\":1}\n\n"
+                        "event: message_delta\n"
+                        "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":6}}\n\n"
+                        "event: message_stop\n"
+                        "data: {\"type\":\"message_stop\"}\n\n";
+                    sink.done();
+                    ++(*phase);
+                    return true;
+                });
+        });
+
+        port_ = server_.bind_to_any_port("127.0.0.1");
+        thread_ = std::thread([this] {
+            server_.listen_after_bind();
+        });
+        server_.wait_until_ready();
+    }
+
+    ~LocalThinkingAnthropicStreamServer() {
+        release_after_preview();
+        server_.stop();
+        if (thread_.joinable()) thread_.join();
+    }
+
+    [[nodiscard]] bool valid() const noexcept {
+        return port_ > 0;
+    }
+
+    [[nodiscard]] std::string base_url() const {
+        return "http://127.0.0.1:" + std::to_string(port_);
+    }
+
+    void release_after_preview() {
+        {
+            std::lock_guard lock(mutex_);
+            continue_after_preview_ = true;
+        }
+        cv_.notify_all();
+    }
+
+    [[nodiscard]] bool wait_for_thinking_delta(
+        std::chrono::milliseconds timeout = std::chrono::seconds(3)) {
+        std::unique_lock lock(mutex_);
+        return cv_.wait_for(lock, timeout, [this] {
+            return thinking_delta_sent_;
+        });
+    }
+
+    [[nodiscard]] std::optional<std::string> last_body() const {
+        std::lock_guard lock(mutex_);
+        return last_body_;
+    }
+
+private:
+    httplib::Server server_;
+    int port_{0};
+    std::thread thread_;
+    mutable std::mutex mutex_;
+    std::condition_variable cv_;
+    std::size_t request_count_{0};
+    std::optional<std::string> last_body_;
+    bool thinking_delta_sent_{false};
+    bool continue_after_preview_{false};
+};
+
+struct ReleaseAfterThinkingPreviewGuard {
+    LocalThinkingAnthropicStreamServer& server;
+
+    ~ReleaseAfterThinkingPreviewGuard() {
+        server.release_after_preview();
+    }
+};
 
 } // namespace
 
@@ -90,6 +498,23 @@ TEST(Terminal, TerminalUIExposesControlAPI) {
     EXPECT_FALSE(interrupted);
 }
 
+TEST(Terminal, StatusBarRendersTokensAndCost) {
+    cc::ui::StatusBarData data{
+        .model_name = "claude-test",
+        .input_tokens = 123,
+        .output_tokens = 45,
+        .cost_usd = 0.0123,
+        .session_id = std::optional<std::string>{"session-1"},
+    };
+
+    auto rendered = render_to_plain_text(cc::ui::render_status_bar(data, cc::ui::ColorTheme::dark()), 90, 5);
+
+    EXPECT_NE(rendered.find("claude-test"), std::string::npos);
+    EXPECT_NE(rendered.find("123"), std::string::npos);
+    EXPECT_NE(rendered.find("45"), std::string::npos);
+    EXPECT_NE(rendered.find("$0.0123"), std::string::npos);
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // cc.ui.components: reusable FTXUI render helpers
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -104,7 +529,12 @@ TEST(Components, RenderToolUseReturnsElement) {
         .duration = std::chrono::milliseconds(12),
     };
 
-    expect_element(cc::ui::render_tool_use(data));
+    auto rendered = render_to_plain_text(cc::ui::render_tool_use(data), 80, 8);
+
+    EXPECT_NE(rendered.find("bash"), std::string::npos);
+    EXPECT_NE(rendered.find("ls -la"), std::string::npos);
+    EXPECT_NE(rendered.find("ok"), std::string::npos);
+    EXPECT_NE(rendered.find("12ms"), std::string::npos);
 }
 
 TEST(Components, RenderPermissionPromptReturnsElement) {
@@ -115,7 +545,13 @@ TEST(Components, RenderPermissionPromptReturnsElement) {
         .affected_paths = {"src/main.cpp"},
     };
 
-    expect_element(cc::ui::render_permission_prompt(data));
+    auto rendered = render_to_plain_text(cc::ui::render_permission_prompt(data), 90, 10);
+
+    EXPECT_NE(rendered.find("Permission Required"), std::string::npos);
+    EXPECT_NE(rendered.find("Edit"), std::string::npos);
+    EXPECT_NE(rendered.find("Modify a file"), std::string::npos);
+    EXPECT_NE(rendered.find("src/main.cpp"), std::string::npos);
+    EXPECT_NE(rendered.find("[y]es"), std::string::npos);
 }
 
 TEST(Components, RenderSearchBoxReturnsElement) {
@@ -182,6 +618,338 @@ TEST(WizardDialog, RendersStepFactoryContent) {
     auto rendered = render_to_plain_text(component->Render(), 80, 12);
     EXPECT_NE(rendered.find("custom factory body"), std::string::npos);
     EXPECT_EQ(rendered.find("Fallback description"), std::string::npos);
+}
+
+TEST(AppRuntime, CommandsNavigationAndStatusRenderWithoutTerminalLoop) {
+    cc::core::ToolRegistry tools;
+    cc::core::QueryEngineConfig config;
+    config.context_window.auto_compact = false;
+    config.cwd = fs::temp_directory_path().string();
+    cc::core::QueryEngine engine(std::move(config), tools);
+
+    cc::commands::AppCommandRegistry commands;
+    const auto storage_root = fs::temp_directory_path() /
+        ("cc_repl_ui_app_runtime_test_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    cc::utils::SessionStorage storage(storage_root);
+
+    bool exited = false;
+    auto app = ftxui::Make<cc::ui::AppComponent>(
+        &engine,
+        &commands,
+        &storage,
+        [&] {
+            exited = true;
+        });
+
+    app->SyncMessages();
+    auto initial = render_to_plain_text(app->Render(), 120, 28);
+    EXPECT_NE(initial.find("CC-REPL (C++23)"), std::string::npos);
+    EXPECT_NE(initial.find("Resume"), std::string::npos);
+    EXPECT_NE(initial.find("All"), std::string::npos);
+
+    app->HandleCommand("/stats");
+    auto stats = render_to_plain_text(app->Render(), 120, 34);
+    EXPECT_NE(stats.find("Stats Overview"), std::string::npos);
+    EXPECT_NE(stats.find("Favorite model:"), std::string::npos);
+    EXPECT_NE(stats.find("You're using C++23!"), std::string::npos);
+
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::Tab));
+    auto models = render_to_plain_text(app->Render(), 120, 34);
+    EXPECT_NE(models.find("Model Usage"), std::string::npos);
+
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::Character('r')));
+    auto date_range = render_to_plain_text(app->Render(), 120, 34);
+    EXPECT_NE(date_range.find("Last 7 days"), std::string::npos);
+
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::Escape));
+    auto closed_stats = render_to_plain_text(app->Render(), 120, 28);
+    EXPECT_EQ(closed_stats.find("Stats Overview"), std::string::npos);
+
+    app->HandleCommand("/model haiku-runtime");
+    auto switched = render_to_plain_text(app->Render(), 120, 28);
+    EXPECT_NE(switched.find("Switched to: haiku-runtime"), std::string::npos);
+
+    app->HandleCommand("/model");
+    auto model_status = render_to_plain_text(app->Render(), 120, 28);
+    EXPECT_NE(model_status.find("Model: haiku-runtime"), std::string::npos);
+
+    app->HandleCommand("/cost");
+    auto cost_status = render_to_plain_text(app->Render(), 120, 28);
+    EXPECT_NE(cost_status.find("Cost: $"), std::string::npos);
+    EXPECT_NE(cost_status.find("In: "), std::string::npos);
+    EXPECT_NE(cost_status.find("Out: "), std::string::npos);
+
+    app->HandleCommand("/exit");
+    EXPECT_TRUE(exited);
+
+    fs::remove_all(storage_root);
+}
+
+TEST(AppRuntime, CtrlCWithoutRunningQueryRequestsExit) {
+    cc::core::ToolRegistry tools;
+    cc::core::QueryEngineConfig config;
+    config.context_window.auto_compact = false;
+    config.cwd = fs::temp_directory_path().string();
+    cc::core::QueryEngine engine(std::move(config), tools);
+
+    cc::commands::AppCommandRegistry commands;
+    const auto storage_root = fs::temp_directory_path() /
+        ("cc_repl_ui_interrupt_test_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    cc::utils::SessionStorage storage(storage_root);
+
+    bool exited = false;
+    auto app = ftxui::Make<cc::ui::AppComponent>(
+        &engine,
+        &commands,
+        &storage,
+        [&] {
+            exited = true;
+        });
+
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::Special("\x03")));
+    EXPECT_TRUE(exited);
+
+    fs::remove_all(storage_root);
+}
+
+TEST(AppRuntime, CtrlCWhileStreamingQueryCancelsWithoutExiting) {
+    LocalChunkedAnthropicStreamServer server;
+    ASSERT_TRUE(server.valid());
+
+    cc::core::ToolRegistry tools;
+    cc::core::QueryEngineConfig config;
+    config.api_key = "test-key";
+    config.base_url = server.base_url();
+    config.context_window.auto_compact = false;
+    config.cwd = fs::temp_directory_path().string();
+    cc::core::QueryEngine engine(std::move(config), tools);
+
+    cc::commands::AppCommandRegistry commands;
+    const auto storage_root = fs::temp_directory_path() /
+        ("cc_repl_ui_stream_cancel_test_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    cc::utils::SessionStorage storage(storage_root);
+
+    bool exited = false;
+    auto app = ftxui::Make<cc::ui::AppComponent>(
+        &engine,
+        &commands,
+        &storage,
+        [&] {
+            exited = true;
+        });
+    ReleaseAfterCancelGuard release_guard{server};
+
+    app->HandleSubmit("show streaming cancel behavior");
+    ASSERT_TRUE(server.wait_for_first_delta());
+    ASSERT_TRUE(wait_until([&] {
+        auto rendered = render_to_plain_text(app->Render(), 120, 32);
+        return rendered.find("partial UI stream") != std::string::npos;
+    }, std::chrono::seconds(2)));
+    EXPECT_TRUE(app->is_loading_for_testing());
+    EXPECT_TRUE(app->is_query_running_for_testing());
+
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::Special("\x03")));
+    EXPECT_FALSE(exited);
+    EXPECT_TRUE(app->is_loading_for_testing());
+    EXPECT_TRUE(app->is_query_running_for_testing());
+    EXPECT_EQ(app->status_message_for_testing(), "Cancelling...");
+
+    auto cancelling = render_to_plain_text(app->Render(), 120, 32);
+    EXPECT_NE(cancelling.find("Cancelling..."), std::string::npos);
+    EXPECT_NE(cancelling.find("partial UI stream"), std::string::npos);
+
+    server.release_after_cancel();
+    EXPECT_TRUE(wait_until([&] {
+        (void)app->Render();
+        return !app->is_query_running_for_testing();
+    }, std::chrono::seconds(3)));
+    (void)app->Render();
+    EXPECT_FALSE(app->is_loading_for_testing());
+
+    fs::remove_all(storage_root);
+}
+
+TEST(AppRuntime, StreamingToolUseRendersRunningPreview) {
+    LocalToolUseAnthropicStreamServer server;
+    ASSERT_TRUE(server.valid());
+
+    cc::core::ToolRegistry tools;
+    cc::core::QueryEngineConfig config;
+    config.api_key = "test-key";
+    config.base_url = server.base_url();
+    config.context_window.auto_compact = false;
+    config.cwd = fs::temp_directory_path().string();
+    cc::core::QueryEngine engine(std::move(config), tools);
+
+    cc::commands::AppCommandRegistry commands;
+    const auto storage_root = fs::temp_directory_path() /
+        ("cc_repl_ui_stream_tool_test_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    cc::utils::SessionStorage storage(storage_root);
+
+    auto app = ftxui::Make<cc::ui::AppComponent>(
+        &engine,
+        &commands,
+        &storage,
+        [] {});
+    ReleaseAfterToolPreviewGuard release_guard{server};
+
+    app->HandleSubmit("show streaming tool use");
+    ASSERT_TRUE(server.wait_for_tool_delta());
+    ASSERT_TRUE(wait_until([&] {
+        auto rendered = render_to_plain_text(app->Render(), 140, 36);
+        return rendered.find("Bash") != std::string::npos &&
+               rendered.find(R"({"command":"npm test"})") != std::string::npos;
+    }, std::chrono::seconds(2)));
+    EXPECT_TRUE(app->is_loading_for_testing());
+    EXPECT_TRUE(app->is_query_running_for_testing());
+
+    server.release_after_preview();
+    EXPECT_TRUE(wait_until([&] {
+        (void)app->Render();
+        return !app->is_query_running_for_testing();
+    }, std::chrono::seconds(4)));
+    (void)app->Render();
+    EXPECT_FALSE(app->is_loading_for_testing());
+
+    fs::remove_all(storage_root);
+}
+
+TEST(AppRuntime, StreamingThinkingRendersRunningPreview) {
+    LocalThinkingAnthropicStreamServer server;
+    ASSERT_TRUE(server.valid());
+
+    cc::core::ToolRegistry tools;
+    cc::core::QueryEngineConfig config;
+    config.api_key = "test-key";
+    config.base_url = server.base_url();
+    config.context_window.auto_compact = false;
+    config.cwd = fs::temp_directory_path().string();
+    cc::core::QueryEngine engine(std::move(config), tools);
+
+    cc::commands::AppCommandRegistry commands;
+    const auto storage_root = fs::temp_directory_path() /
+        ("cc_repl_ui_stream_thinking_test_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    cc::utils::SessionStorage storage(storage_root);
+
+    auto app = ftxui::Make<cc::ui::AppComponent>(
+        &engine,
+        &commands,
+        &storage,
+        [] {});
+    ReleaseAfterThinkingPreviewGuard release_guard{server};
+
+    app->HandleSubmit("show streaming thinking");
+    ASSERT_TRUE(server.wait_for_thinking_delta());
+    ASSERT_TRUE(wait_until([&] {
+        auto rendered = render_to_plain_text(app->Render(), 140, 36);
+        return rendered.find("Thinking") != std::string::npos &&
+               rendered.find("private streaming thinking") != std::string::npos;
+    }, std::chrono::seconds(2)));
+    EXPECT_TRUE(app->is_loading_for_testing());
+    EXPECT_TRUE(app->is_query_running_for_testing());
+
+    server.release_after_preview();
+    EXPECT_TRUE(wait_until([&] {
+        (void)app->Render();
+        return !app->is_query_running_for_testing();
+    }, std::chrono::seconds(4)));
+    auto done = render_to_plain_text(app->Render(), 140, 36);
+    EXPECT_FALSE(app->is_loading_for_testing());
+    EXPECT_NE(done.find("Thinking"), std::string::npos);
+    EXPECT_NE(done.find("private streaming thinking"), std::string::npos);
+    EXPECT_NE(done.find("visible answer after thinking"), std::string::npos);
+
+    fs::remove_all(storage_root);
+}
+
+TEST(AppRuntime, PermissionCallbackRendersAndResolvesUserChoices) {
+    cc::core::ToolRegistry tools;
+    cc::core::QueryEngineConfig config;
+    config.context_window.auto_compact = false;
+    config.cwd = fs::temp_directory_path().string();
+    cc::core::QueryEngine engine(std::move(config), tools);
+
+    cc::commands::AppCommandRegistry commands;
+    const auto storage_root = fs::temp_directory_path() /
+        ("cc_repl_ui_permission_dialog_test_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    cc::utils::SessionStorage storage(storage_root);
+
+    auto app = ftxui::Make<cc::ui::AppComponent>(
+        &engine,
+        &commands,
+        &storage,
+        [] {});
+    auto permission_callback = app->get_permission_callback();
+
+    std::atomic<bool> allow_done{false};
+    std::atomic<bool> allow_result{false};
+    std::jthread allow_worker([&] {
+        allow_result.store(permission_callback("Bash", "Run npm test"), std::memory_order_release);
+        allow_done.store(true, std::memory_order_release);
+    });
+
+    const bool allow_prompt_shown = wait_until([&] {
+        auto rendered = render_to_plain_text(app->Render(), 120, 34);
+        return rendered.find("Permission Required") != std::string::npos &&
+               rendered.find("Tool: Bash") != std::string::npos &&
+               rendered.find("Run npm test") != std::string::npos;
+    }, std::chrono::milliseconds(1000));
+    EXPECT_TRUE(allow_prompt_shown);
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::Character('y')));
+    EXPECT_TRUE(wait_until([&] { return allow_done.load(std::memory_order_acquire); },
+                           std::chrono::milliseconds(1000)));
+    EXPECT_TRUE(allow_result.load(std::memory_order_acquire));
+    allow_worker.join();
+
+    std::atomic<bool> deny_done{false};
+    std::atomic<bool> deny_result{true};
+    std::jthread deny_worker([&] {
+        deny_result.store(permission_callback("Write", "Modify src/main.cpp"), std::memory_order_release);
+        deny_done.store(true, std::memory_order_release);
+    });
+
+    const bool deny_prompt_shown = wait_until([&] {
+        auto rendered = render_to_plain_text(app->Render(), 120, 34);
+        return rendered.find("Permission Required") != std::string::npos &&
+               rendered.find("Tool: Write") != std::string::npos &&
+               rendered.find("Modify src/main.cpp") != std::string::npos;
+    }, std::chrono::milliseconds(1000));
+    EXPECT_TRUE(deny_prompt_shown);
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::Character('n')));
+    EXPECT_TRUE(wait_until([&] { return deny_done.load(std::memory_order_acquire); },
+                           std::chrono::milliseconds(1000)));
+    EXPECT_FALSE(deny_result.load(std::memory_order_acquire));
+    deny_worker.join();
+
+    fs::remove_all(storage_root);
+}
+
+TEST(AppRuntime, RenderMessageShowsThinkingToolUseAndAssistantText) {
+    cc::core::AssistantMessage assistant;
+    assistant.content.push_back(cc::core::ThinkingBlock{
+        .thinking = "private reasoning preview",
+        .signature = "sig-1",
+    });
+    assistant.content.push_back(cc::core::ToolUseBlock{
+        .id = cc::core::ToolUseId{"tool-ui-1"},
+        .name = "Bash",
+        .input_json = R"({"command":"npm test"})",
+    });
+    assistant.content.push_back(cc::core::TextBlock{"visible assistant answer"});
+
+    auto rendered = render_to_plain_text(cc::ui::RenderMessage(cc::core::Message{std::move(assistant)}), 140, 24);
+
+    EXPECT_NE(rendered.find("Thinking"), std::string::npos);
+    EXPECT_NE(rendered.find("private reasoning preview"), std::string::npos);
+    EXPECT_NE(rendered.find("Bash"), std::string::npos);
+    EXPECT_NE(rendered.find(R"({"command":"npm test"})"), std::string::npos);
+    EXPECT_NE(rendered.find("visible assistant answer"), std::string::npos);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

@@ -1,7 +1,10 @@
 // TeamCreateTool - Creates a new multi-agent swarm team for parallel coordination
 module;
+#include <algorithm>
 #include <chrono>
 #include <expected>
+#include <filesystem>
+#include <fstream>
 #include <format>
 #include <optional>
 #include <string>
@@ -11,6 +14,8 @@ module;
 export module cc.tools.team_create;
 
 import cc.tools.tool;
+import cc.tools.runtime_registry;
+import cc.tools.team;
 import cc.utils.json;
 import cc.utils.error;
 
@@ -120,10 +125,106 @@ public:
     void register_for_cleanup(const std::string& team_name);
 };
 
+namespace detail {
+
+[[nodiscard]] std::optional<std::string> json_string_field(
+    cc::utils::json::JsonVal object,
+    std::string_view key
+) {
+    auto value = object.get(key);
+    if (!value.is_str()) return std::nullopt;
+    auto text = std::string(value.as_str());
+    return text.empty() ? std::nullopt : std::optional<std::string>{std::move(text)};
+}
+
+} // namespace detail
+
+std::expected<TeamCreateInput, std::string> TeamCreateInput::from_json(std::string_view json) {
+    auto parsed = cc::utils::json::parse(json);
+    if (!parsed || !parsed->root().is_obj()) return std::unexpected("team_create input must be a JSON object");
+
+    auto root = parsed->root();
+    TeamCreateInput input{
+        .team_name = detail::json_string_field(root, "team_name")
+            .or_else([&] { return detail::json_string_field(root, "name"); })
+            .value_or(""),
+        .description = detail::json_string_field(root, "description"),
+        .agent_type = detail::json_string_field(root, "agent_type"),
+    };
+    if (input.team_name.empty()) return std::unexpected("team_create requires team_name");
+    return input;
+}
+
+cc::utils::Result<ToolResult> TeamCreateTool::execute(const ToolInput& input) {
+    auto parsed = TeamCreateInput::from_json(input.json());
+    if (!parsed) return ToolResult::error(parsed.error());
+    if (auto error = validate_input(*parsed)) return ToolResult::error(*error);
+
+    cc::core::ToolRegistry registry;
+    cc::tools::register_runtime_tools(registry);
+    auto delegated = registry.execute("team_create", input);
+    if (!delegated) return ToolResult::error(delegated.error().format());
+    return std::move(*delegated);
+}
+
+bool TeamCreateTool::is_enabled() {
+    return true;
+}
+
+std::optional<std::string> TeamCreateTool::validate_input(const TeamCreateInput& input) {
+    if (input.team_name.empty()) return "team_name is required";
+    if (input.team_name.size() > 128) return "team_name is too long";
+    return std::nullopt;
+}
+
+std::string TeamCreateTool::generate_unique_team_name(const std::string& provided_name) {
+    auto base = provided_name.empty() ? std::string{"team"} : provided_name;
+    if (!cc::tools::global_team_store().get_by_id_or_name(base)) return base;
+
+    for (int suffix = 2; suffix < 10'000; ++suffix) {
+        auto candidate = std::format("{}-{}", base, suffix);
+        if (!cc::tools::global_team_store().get_by_id_or_name(candidate)) return candidate;
+    }
+    return std::format("{}-{}", base, std::chrono::steady_clock::now().time_since_epoch().count());
+}
+
+std::expected<std::string, std::string> TeamCreateTool::write_team_file(
+    const std::string& team_name,
+    const TeamFile& file
+) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    auto path = cc::tools::team_runtime_dir() / (cc::tools::safe_team_filename(team_name) + ".json");
+    fs::create_directories(path.parent_path(), ec);
+    if (ec) return std::unexpected(std::format("failed to create team directory: {}", ec.message()));
+
+    std::ofstream out(path, std::ios::trunc);
+    if (!out) return std::unexpected(std::format("failed to write team file: {}", path.string()));
+    out << R"({"name":")" << cc::tools::team_json_escape(file.name)
+        << R"(","lead_agent_id":")" << cc::tools::team_json_escape(file.lead_agent_id)
+        << R"(","lead_session_id":")" << cc::tools::team_json_escape(file.lead_session_id)
+        << R"(","members":[)";
+    for (std::size_t i = 0; i < file.members.size(); ++i) {
+        const auto& member = file.members[i];
+        if (i != 0) out << ',';
+        out << R"({"agent_id":")" << cc::tools::team_json_escape(member.agent_id)
+            << R"(","name":")" << cc::tools::team_json_escape(member.name)
+            << R"(","agent_type":")" << cc::tools::team_json_escape(member.agent_type)
+            << R"(","model":")" << cc::tools::team_json_escape(member.model)
+            << R"(","tmux_pane_id":")" << cc::tools::team_json_escape(member.tmux_pane_id)
+            << R"(","cwd":")" << cc::tools::team_json_escape(member.cwd)
+            << R"("})";
+    }
+    out << "]}";
+    if (!out.good()) return std::unexpected(std::format("failed to write team file: {}", path.string()));
+    return path.string();
+}
+
+void TeamCreateTool::register_for_cleanup(const std::string&) {}
+
 } // namespace cc::tools::team_create
 
 export namespace cc::tools {
-    using cc::tools::team_create::TeamCreateTool;
     using cc::tools::team_create::TeamCreateInput;
     using cc::tools::team_create::TeamCreateOutput;
     using cc::tools::team_create::TeamFile;

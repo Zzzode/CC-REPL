@@ -3,6 +3,7 @@
 /// Migrated from src/coordinator/coordinatorMode.ts (supplements existing coordinator.cppm)
 module;
 
+#include <cstdint>
 #include <string>
 #include <vector>
 #include <optional>

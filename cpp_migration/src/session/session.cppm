@@ -652,6 +652,14 @@ private:
                     }
                     json += "}";
                 }
+                if (m.snip_metadata) {
+                    json += R"(,"snip_metadata":{"removed_uuids":[)";
+                    for (std::size_t i = 0; i < m.snip_metadata->removed_uuids.size(); ++i) {
+                        if (i > 0) json += ",";
+                        json += std::format(R"("{}")", escape_json(m.snip_metadata->removed_uuids[i]));
+                    }
+                    json += "]}";
+                }
             } else if constexpr (std::is_same_v<T, ToolUseMessage>) {
                 json += std::format(R"(,"tool_name":"{}","tool_input":{})",
                     escape_json(m.tool_name),

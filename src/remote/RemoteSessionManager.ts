@@ -1,4 +1,5 @@
 import type { SDKMessage } from '../entrypoints/agentSdkTypes.js'
+import type { PermissionUpdate } from '../entrypoints/sdk/coreTypes.js'
 import type {
   SDKControlCancelRequest,
   SDKControlPermissionRequest,
@@ -38,10 +39,11 @@ function isSDKMessage(
  * This is a simplified version of PermissionResult for CCR communication.
  */
 export type RemotePermissionResponse =
-  | {
-      behavior: 'allow'
-      updatedInput: Record<string, unknown>
-    }
+	  | {
+	      behavior: 'allow'
+	      updatedInput: Record<string, unknown>
+	      updatedPermissions?: PermissionUpdate[]
+	    }
   | {
       behavior: 'deny'
       message: string

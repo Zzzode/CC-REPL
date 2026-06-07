@@ -439,37 +439,81 @@ private:
         
         // Connect based on transport type
         McpResult<void> connect_result;
-	auto remote_headers = [&] {
-	    auto headers = get_mcp_server_headers(
-	        server_name,
-	        server_config.headers,
-	        server_config.url,
-	        server_config.headers_helper
-	    );
-	    McpServerConfig auth_config;
-	    switch (server_config.transport) {
-	        case TransportType::Sse:
-	            auth_config.type = "sse";
-	            break;
-	        case TransportType::Http:
-	        case TransportType::StreamableHttp:
-	            auth_config.type = "http";
-	            break;
-	        case TransportType::Stdio:
-	        default:
-	            auth_config.type = "stdio";
-	            break;
-	    }
-	    auth_config.url = server_config.url;
-	    for (const auto& [key, value] : server_config.headers) {
-	        auth_config.headers[key] = value;
-	    }
-	    auth_config.oauth = server_config.oauth;
-	    if (auto token = load_server_access_token_from_local_storage(server_name, auth_config)) {
-	        headers["Authorization"] = "Bearer " + *token;
-	    }
-	    return headers;
-	};
+        auto current_epoch_seconds = [] {
+            return std::chrono::duration_cast<std::chrono::seconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+        };
+        auto mark_auth_failure = [&](std::string message) -> McpResult<void> {
+            auto it = connections_.find(server_name);
+            if (it != connections_.end()) {
+                it->second.status = ConnectionStatus::NeedsAuth;
+                it->second.last_error = std::move(message);
+                it->second.retry_count++;
+                if (server_error_callback_) {
+                    server_error_callback_(server_name, *it->second.last_error);
+                }
+            }
+            return std::unexpected(McpClientError::Unauthorized);
+        };
+        auto remote_headers = [&]() -> std::expected<HeaderMap, std::string> {
+            auto headers = get_mcp_server_headers(
+                server_name,
+                server_config.headers,
+                server_config.url,
+                server_config.headers_helper
+            );
+            McpServerConfig auth_config;
+            switch (server_config.transport) {
+                case TransportType::Sse:
+                    auth_config.type = "sse";
+                    break;
+                case TransportType::Http:
+                case TransportType::StreamableHttp:
+                    auth_config.type = "http";
+                    break;
+                case TransportType::Stdio:
+                default:
+                    auth_config.type = "stdio";
+                    break;
+            }
+            auth_config.url = server_config.url;
+            for (const auto& [key, value] : server_config.headers) {
+                auth_config.headers[key] = value;
+            }
+            auth_config.oauth = server_config.oauth;
+
+            if (has_mcp_discovery_but_no_token(server_name, auth_config)) {
+                return std::unexpected(std::string{
+                    "MCP OAuth authentication required: no stored token"});
+            }
+
+            auto token = load_server_tokens_from_local_storage(server_name, auth_config);
+            if (!token || token->access_token.empty()) {
+                return headers;
+            }
+
+            const auto expires_at = token->expires_at;
+            const bool is_expired_or_expiring =
+                expires_at > 0 && expires_at <= current_epoch_seconds() + 300;
+            if (!is_expired_or_expiring) {
+                headers["Authorization"] = "Bearer " + token->access_token;
+                return headers;
+            }
+
+            if (token->refresh_token.empty()) {
+                return std::unexpected(std::string{
+                    "OAuth token refresh failed: stored token has no refresh_token"});
+            }
+            auto refreshed = refresh_server_tokens_from_local_storage(server_name, auth_config);
+            if (!refreshed) {
+                return std::unexpected("OAuth token refresh failed: " + refreshed.error().message());
+            }
+            if (refreshed->access_token.empty()) {
+                return std::unexpected(std::string{"OAuth token refresh failed: empty access_token"});
+            }
+            headers["Authorization"] = "Bearer " + refreshed->access_token;
+            return headers;
+        };
         
         switch (server_config.transport) {
             case TransportType::Stdio:
@@ -481,18 +525,26 @@ private:
                 break;
                 
             case TransportType::Sse:
-                connect_result = client->connect_sse(
-                    server_config.url,
-                    remote_headers()
-                );
+                if (auto headers = remote_headers()) {
+                    connect_result = client->connect_sse(
+                        server_config.url,
+                        *headers
+                    );
+                } else {
+                    return mark_auth_failure(headers.error());
+                }
                 break;
 
             case TransportType::Http:
             case TransportType::StreamableHttp:
-                connect_result = client->connect_streamable_http(
-                    server_config.url,
-                    remote_headers()
-                );
+                if (auto headers = remote_headers()) {
+                    connect_result = client->connect_streamable_http(
+                        server_config.url,
+                        *headers
+                    );
+                } else {
+                    return mark_auth_failure(headers.error());
+                }
                 break;
                 
             default:

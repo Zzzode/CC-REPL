@@ -1,6 +1,7 @@
 module;
 #include <algorithm>
 #include <expected>
+#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>

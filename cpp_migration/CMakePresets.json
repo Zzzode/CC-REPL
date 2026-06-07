@@ -48,26 +48,6 @@
       }
     },
     {
-      "name": "gcc-debug",
-      "displayName": "GCC 14 Debug",
-      "description": "Debug build using GCC 14 with full module support",
-      "inherits": "base",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug",
-        "CMAKE_CXX_COMPILER": "g++-14"
-      }
-    },
-    {
-      "name": "gcc-release",
-      "displayName": "GCC 14 Release",
-      "description": "Optimized release build using GCC 14",
-      "inherits": "base",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release",
-        "CMAKE_CXX_COMPILER": "g++-14"
-      }
-    },
-    {
       "name": "clang-debug",
       "displayName": "Homebrew LLVM Clang Debug",
       "description": "Debug build using Homebrew LLVM Clang with module dependency scanning",
@@ -89,6 +69,46 @@
         "CMAKE_C_COMPILER": "/opt/homebrew/opt/llvm/bin/clang",
         "CMAKE_CXX_COMPILER": "/opt/homebrew/opt/llvm/bin/clang++",
         "CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS": "/opt/homebrew/opt/llvm/bin/clang-scan-deps"
+      }
+    },
+    {
+      "name": "linux-debug",
+      "displayName": "Linux LLVM Clang 21 Debug",
+      "description": "Linux debug build using user-local LLVM Clang 21 with system libstdc++",
+      "inherits": "base",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_C_COMPILER": "$env{HOME}/.local/bin/clang-21-local",
+        "CMAKE_CXX_COMPILER": "$env{HOME}/.local/bin/clang++-21-local",
+        "CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS": "$env{HOME}/.local/bin/clang-scan-deps-21-local",
+        "CMAKE_C_FLAGS": "-resource-dir $env{HOME}/.local/opt/llvm-21/usr/lib/llvm-21/lib/clang/21",
+        "CMAKE_CXX_FLAGS": "-resource-dir $env{HOME}/.local/opt/llvm-21/usr/lib/llvm-21/lib/clang/21",
+        "CMAKE_C_FLAGS_RELEASE": "-O2 -DNDEBUG",
+        "CMAKE_CXX_FLAGS_RELEASE": "-O2 -DNDEBUG"
+      }
+    },
+    {
+      "name": "linux-release",
+      "displayName": "Linux LLVM Clang 21 Release",
+      "description": "Linux release build using user-local LLVM Clang 21 with system libstdc++",
+      "inherits": "base",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_C_COMPILER": "$env{HOME}/.local/bin/clang-21-local",
+        "CMAKE_CXX_COMPILER": "$env{HOME}/.local/bin/clang++-21-local",
+        "CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS": "$env{HOME}/.local/bin/clang-scan-deps-21-local",
+        "CMAKE_C_FLAGS": "-resource-dir $env{HOME}/.local/opt/llvm-21/usr/lib/llvm-21/lib/clang/21",
+        "CMAKE_CXX_FLAGS": "-resource-dir $env{HOME}/.local/opt/llvm-21/usr/lib/llvm-21/lib/clang/21"
       }
     },
     {
@@ -124,16 +144,6 @@
       "jobs": 0
     },
     {
-      "name": "gcc-debug",
-      "configurePreset": "gcc-debug",
-      "jobs": 0
-    },
-    {
-      "name": "gcc-release",
-      "configurePreset": "gcc-release",
-      "jobs": 0
-    },
-    {
       "name": "clang-debug",
       "configurePreset": "clang-debug",
       "jobs": 0
@@ -141,6 +151,16 @@
     {
       "name": "clang-release",
       "configurePreset": "clang-release",
+      "jobs": 0
+    },
+    {
+      "name": "linux-debug",
+      "configurePreset": "linux-debug",
+      "jobs": 0
+    },
+    {
+      "name": "linux-release",
+      "configurePreset": "linux-release",
       "jobs": 0
     },
     {

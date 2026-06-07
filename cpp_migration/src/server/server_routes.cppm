@@ -1,5 +1,6 @@
 module;
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
@@ -9,6 +10,8 @@ module;
 #include <fstream>
 #include <string>
 #include <string_view>
+#include <memory>
+#include <unordered_map>
 #include <vector>
 #include <functional>
 #include <map>
@@ -20,7 +23,9 @@ module;
 export module cc.server.server_routes;
 
 import cc.config.config;
+import cc.hooks.tool_permissions;
 import cc.query.query_engine;
+import cc.services.api.session_ingress;
 import cc.session.storage;
 import cc.tools.runtime_registry;
 import cc.tools.tool;
@@ -43,13 +48,40 @@ namespace detail {
     inline std::optional<std::string> active_session_id;
     inline std::uint64_t message_counter = 0;
 
-    struct DirectQueryRequest {
-        std::string session_id;
-        std::string content;
-        std::optional<std::string> requested_model;
-        std::filesystem::path sessions_dir;
-        std::vector<std::string> prior_message_lines;
-    };
+	    struct DirectQueryRequest {
+	        std::string session_id;
+	        std::string content;
+	        std::optional<std::string> requested_model;
+	        std::filesystem::path sessions_dir;
+	        std::vector<std::string> prior_message_lines;
+	        std::shared_ptr<std::atomic_bool> cancel_flag;
+	    };
+
+		    struct DirectPermissionRequest {
+		        std::string request_id;
+		        std::string session_id;
+		        std::string tool_name;
+		        std::string input_json;
+		        std::string tool_use_id;
+		    };
+
+	    struct DirectPermissionRule {
+	        std::string tool_name;
+	        std::optional<std::string> rule_content;
+	        cc::hooks::PermissionDecision decision{cc::hooks::PermissionDecision::ask_user};
+	        std::string destination;
+	    };
+
+	    struct DirectPermissionDirectory {
+	        std::string path;
+	        std::string destination;
+	    };
+
+	    struct DirectPermissionSessionState {
+	        std::vector<DirectPermissionRule> rules;
+	        std::vector<DirectPermissionDirectory> additional_directories;
+	        std::optional<std::string> mode;
+	    };
 
     struct DirectQueryResult {
         std::string assistant_id;
@@ -61,8 +93,13 @@ namespace detail {
         std::int64_t elapsed_ms = 0;
     };
 
-    using DirectQueryExecutor = std::function<std::expected<DirectQueryResult, std::string>(const DirectQueryRequest&)>;
-    inline std::optional<DirectQueryExecutor> query_executor_override;
+		    using DirectQueryExecutor = std::function<std::expected<DirectQueryResult, std::string>(const DirectQueryRequest&)>;
+		    using DirectPermissionHandler = std::function<cc::hooks::PermissionResponse(const DirectPermissionRequest&)>;
+		    inline std::optional<DirectQueryExecutor> query_executor_override;
+		    inline std::unordered_map<std::string, std::shared_ptr<std::atomic_bool>> active_query_cancels;
+		    inline std::unordered_map<std::string, DirectPermissionHandler> direct_permission_handlers;
+	    inline std::unordered_map<std::string, DirectPermissionSessionState> direct_permission_states;
+		    inline std::uint64_t permission_request_counter = 0;
 
     [[nodiscard]] inline std::string json_escape(std::string_view value) {
         std::string out;
@@ -139,6 +176,52 @@ namespace detail {
         }
         out << "}";
         return out.str();
+    }
+
+    [[nodiscard]] inline std::string sdk_assistant_ingress_event(
+        std::string_view session_id,
+        std::string_view assistant_message_id,
+        const DirectQueryResult& query_result
+    ) {
+        std::ostringstream out;
+        out << R"({"type":"assistant","message":{"id":")" << json_escape(assistant_message_id)
+            << R"(","role":"assistant","model":")" << json_escape(query_result.model)
+            << R"(","content":[{"type":"text","text":")" << json_escape(query_result.content)
+            << R"("}]},"parent_tool_use_id":null,"uuid":")" << json_escape(assistant_message_id)
+            << R"(","session_id":")" << json_escape(session_id) << "\"}";
+        return out.str();
+    }
+
+    [[nodiscard]] inline std::string sdk_result_ingress_event(
+        std::string_view session_id,
+        std::string_view assistant_message_id,
+        const DirectQueryResult& query_result
+    ) {
+        std::ostringstream out;
+        out << R"({"type":"result","subtype":"success","duration_ms":)" << query_result.elapsed_ms
+            << R"(,"duration_api_ms":)" << query_result.elapsed_ms
+            << R"(,"is_error":false,"num_turns":1,"result":")" << json_escape(query_result.content)
+            << R"(","stop_reason":"end_turn","total_cost_usd":0)"
+            << R"(,"usage":{"input_tokens":)" << query_result.input_tokens
+            << R"(,"output_tokens":)" << query_result.output_tokens
+            << R"(,"cache_creation_input_tokens":0,"cache_read_input_tokens":0)"
+            << R"(,"server_tool_use":{"web_search_requests":0}})"
+            << R"(,"modelUsage":{},"permission_denials":[],"tool_rounds":)" << query_result.tool_rounds
+            << R"(,"uuid":"result_)" << json_escape(assistant_message_id)
+            << R"(","session_id":")" << json_escape(session_id) << "\"}";
+        return out.str();
+    }
+
+    inline void publish_direct_query_ingress_events(
+        std::string_view session_id,
+        std::string_view assistant_message_id,
+        const DirectQueryResult& query_result
+    ) {
+        if (!cc::services::api::is_ingress_active()) return;
+        (void)cc::services::api::send_ingress_message(
+            sdk_assistant_ingress_event(session_id, assistant_message_id, query_result));
+        (void)cc::services::api::send_ingress_message(
+            sdk_result_ingress_event(session_id, assistant_message_id, query_result));
     }
 
     [[nodiscard]] inline std::optional<std::string> json_line_string_field(
@@ -276,19 +359,366 @@ namespace detail {
         }
     }
 
-    [[nodiscard]] inline std::string assistant_text(const cc::core::AssistantMessage& message) {
-        std::string text;
-        for (const auto& block : message.content) {
-            if (const auto* text_block = std::get_if<cc::core::TextBlock>(&block)) {
-                text += text_block->text;
-            }
-        }
-        return text;
+	    [[nodiscard]] inline std::string assistant_text(const cc::core::AssistantMessage& message) {
+	        std::string text;
+	        for (const auto& block : message.content) {
+	            if (const auto* text_block = std::get_if<cc::core::TextBlock>(&block)) {
+	                text += text_block->text;
+	            }
+	        }
+	        return text;
+	    }
+
+		    [[nodiscard]] inline std::string make_permission_request_id();
+
+		    [[nodiscard]] inline std::optional<DirectPermissionHandler> permission_handler_for_session(
+		        std::string_view session_id
+		    );
+
+	    [[nodiscard]] inline cc::hooks::PermissionDecision direct_permission_decision_from_behavior(
+	        std::string_view behavior
+	    ) {
+	        if (behavior == "allow") return cc::hooks::PermissionDecision::allow;
+	        if (behavior == "deny") return cc::hooks::PermissionDecision::deny;
+	        return cc::hooks::PermissionDecision::ask_user;
+	    }
+
+	    inline void append_direct_permission_input_field(
+	        std::vector<std::string>& values,
+	        cc::utils::json::JsonVal root,
+	        std::string_view key
+	    ) {
+	        auto value = root.get(key);
+	        if (value.is_str()) values.emplace_back(value.as_str());
+	    }
+
+	    [[nodiscard]] inline std::vector<std::string> direct_permission_input_values(
+	        std::string_view input_json
+	    ) {
+	        std::vector<std::string> values;
+	        auto parsed = cc::utils::json::parse(input_json);
+	        if (!parsed || !parsed->root().is_obj()) return values;
+	        auto root = parsed->root();
+	        append_direct_permission_input_field(values, root, "file_path");
+	        append_direct_permission_input_field(values, root, "path");
+	        append_direct_permission_input_field(values, root, "notebook_path");
+	        append_direct_permission_input_field(values, root, "command");
+	        append_direct_permission_input_field(values, root, "pattern");
+	        append_direct_permission_input_field(values, root, "url");
+	        return values;
+	    }
+
+	    [[nodiscard]] inline std::vector<std::string> direct_permission_file_path_values(
+	        std::string_view input_json
+	    ) {
+	        std::vector<std::string> values;
+	        auto parsed = cc::utils::json::parse(input_json);
+	        if (!parsed || !parsed->root().is_obj()) return values;
+	        auto root = parsed->root();
+	        append_direct_permission_input_field(values, root, "file_path");
+	        append_direct_permission_input_field(values, root, "path");
+	        append_direct_permission_input_field(values, root, "notebook_path");
+	        return values;
+	    }
+
+	    [[nodiscard]] inline bool direct_permission_tool_uses_file_paths(std::string_view tool_name) {
+	        return tool_name == "Read" ||
+	               tool_name == "Write" ||
+	               tool_name == "Edit" ||
+	               tool_name == "MultiEdit" ||
+	               tool_name == "NotebookEdit";
+	    }
+
+	    [[nodiscard]] inline std::string direct_permission_normalized_path(std::string_view path) {
+	        return std::filesystem::path(std::string(path)).lexically_normal().string();
+	    }
+
+	    [[nodiscard]] inline bool direct_permission_path_is_under_directory(
+	        std::string_view path,
+	        std::string_view directory
+	    ) {
+	        auto normalized_path = direct_permission_normalized_path(path);
+	        auto normalized_directory = direct_permission_normalized_path(directory);
+	        if (normalized_path == normalized_directory) return true;
+	        if (normalized_directory.empty()) return false;
+	        if (normalized_directory.back() != std::filesystem::path::preferred_separator) {
+	            normalized_directory.push_back(std::filesystem::path::preferred_separator);
+	        }
+	        return std::string_view(normalized_path).starts_with(normalized_directory);
+	    }
+
+	    [[nodiscard]] inline bool direct_permission_directory_allows_request(
+	        const DirectPermissionSessionState& state,
+	        const DirectPermissionRequest& request
+	    ) {
+	        if (state.additional_directories.empty() ||
+	            !direct_permission_tool_uses_file_paths(request.tool_name)) {
+	            return false;
+	        }
+	        auto paths = direct_permission_file_path_values(request.input_json);
+	        for (const auto& path : paths) {
+	            for (const auto& directory : state.additional_directories) {
+	                if (direct_permission_path_is_under_directory(path, directory.path)) return true;
+	            }
+	        }
+	        return false;
+	    }
+
+	    [[nodiscard]] inline bool direct_permission_rule_content_matches(
+	        std::string_view rule_content,
+	        const std::vector<std::string>& input_values
+	    ) {
+	        if (rule_content.empty()) return true;
+	        bool prefix_rule = false;
+	        auto prefix = rule_content;
+	        if (rule_content.ends_with(":*")) {
+	            prefix_rule = true;
+	            prefix = rule_content.substr(0, rule_content.size() - 2);
+	        }
+	        for (const auto& value : input_values) {
+	            if (value == rule_content) return true;
+	            if (prefix_rule && std::string_view(value).starts_with(prefix)) return true;
+	        }
+	        return false;
+	    }
+
+	    [[nodiscard]] inline bool direct_permission_rule_matches(
+	        const DirectPermissionRule& rule,
+	        const DirectPermissionRequest& request,
+	        const std::vector<std::string>& input_values
+	    ) {
+	        if (rule.tool_name != "*" && rule.tool_name != request.tool_name) return false;
+	        if (!rule.rule_content) return true;
+	        return direct_permission_rule_content_matches(*rule.rule_content, input_values);
+	    }
+
+	    [[nodiscard]] inline bool direct_permission_mode_allows_tool(
+	        std::string_view mode,
+	        std::string_view tool_name
+	    ) {
+	        if (mode == "bypassPermissions") return true;
+	        if (mode != "acceptEdits") return false;
+	        return tool_name == "Edit" ||
+	               tool_name == "MultiEdit" ||
+	               tool_name == "Write" ||
+	               tool_name == "NotebookEdit";
+	    }
+
+	    [[nodiscard]] inline bool direct_permission_mode_denies_tool(std::string_view mode) {
+	        return mode == "dontAsk" || mode == "plan";
+	    }
+
+	    [[nodiscard]] inline std::optional<cc::hooks::PermissionResponse> direct_permission_response_for_session(
+	        std::string_view session_id,
+	        const DirectPermissionRequest& request
+	    ) {
+	        std::lock_guard lock(state_mutex);
+	        auto state_it = direct_permission_states.find(std::string(session_id));
+	        if (state_it == direct_permission_states.end()) return std::nullopt;
+	        const auto& state = state_it->second;
+	        if (state.mode && direct_permission_mode_allows_tool(*state.mode, request.tool_name)) {
+	            cc::hooks::PermissionResponse response{};
+	            response.decision = cc::hooks::PermissionDecision::allow;
+	            return response;
+	        }
+	        if (state.mode && direct_permission_mode_denies_tool(*state.mode)) {
+	            cc::hooks::PermissionResponse response{};
+	            response.decision = cc::hooks::PermissionDecision::deny;
+	            response.message = "Permission denied by session permission mode";
+	            return response;
+	        }
+
+	        if (direct_permission_directory_allows_request(state, request)) {
+	            cc::hooks::PermissionResponse response{};
+	            response.decision = cc::hooks::PermissionDecision::allow;
+	            return response;
+	        }
+
+	        auto input_values = direct_permission_input_values(request.input_json);
+	        for (auto it = state.rules.rbegin(); it != state.rules.rend(); ++it) {
+	            if (!direct_permission_rule_matches(*it, request, input_values)) continue;
+	            if (it->decision == cc::hooks::PermissionDecision::ask_user) return std::nullopt;
+	            cc::hooks::PermissionResponse response{};
+	            response.decision = it->decision;
+	            if (it->decision == cc::hooks::PermissionDecision::deny) {
+	                response.message = "Permission denied by session permission rule";
+	            }
+	            return response;
+	        }
+	        return std::nullopt;
+	    }
+
+	    inline void append_direct_permission_rules_from_update(
+	        DirectPermissionSessionState& state,
+	        cc::utils::json::JsonVal update,
+	        cc::hooks::PermissionDecision decision,
+	        std::string_view destination
+	    ) {
+	        auto rules = update.get("rules");
+	        if (!rules.is_arr()) return;
+	        rules.iter([&](cc::utils::json::JsonVal rule) {
+	            if (!rule.is_obj()) return;
+	            auto tool_name = rule.get("toolName");
+	            if (!tool_name.is_str() || tool_name.as_str().empty()) return;
+	            DirectPermissionRule stored_rule{};
+	            stored_rule.tool_name = std::string(tool_name.as_str());
+	            auto rule_content = rule.get("ruleContent");
+	            if (rule_content.is_str()) stored_rule.rule_content = std::string(rule_content.as_str());
+	            stored_rule.decision = decision;
+	            stored_rule.destination = std::string(destination);
+	            state.rules.push_back(std::move(stored_rule));
+	        });
+	    }
+
+	    inline void remove_direct_permission_rules_from_update(
+	        DirectPermissionSessionState& state,
+	        cc::utils::json::JsonVal update,
+	        cc::hooks::PermissionDecision decision,
+	        std::string_view destination
+	    ) {
+	        auto rules = update.get("rules");
+	        if (!rules.is_arr()) return;
+	        std::vector<DirectPermissionRule> removals;
+	        rules.iter([&](cc::utils::json::JsonVal rule) {
+	            if (!rule.is_obj()) return;
+	            auto tool_name = rule.get("toolName");
+	            if (!tool_name.is_str() || tool_name.as_str().empty()) return;
+	            DirectPermissionRule removal{};
+	            removal.tool_name = std::string(tool_name.as_str());
+	            auto rule_content = rule.get("ruleContent");
+	            if (rule_content.is_str()) removal.rule_content = std::string(rule_content.as_str());
+	            removal.decision = decision;
+	            removal.destination = std::string(destination);
+	            removals.push_back(std::move(removal));
+	        });
+	        state.rules.erase(
+	            std::remove_if(state.rules.begin(), state.rules.end(), [&](const DirectPermissionRule& existing) {
+	                for (const auto& removal : removals) {
+	                    if (existing.tool_name == removal.tool_name &&
+	                        existing.rule_content == removal.rule_content &&
+	                        existing.decision == removal.decision &&
+	                        existing.destination == removal.destination) {
+	                        return true;
+	                    }
+	                }
+	                return false;
+	            }),
+	            state.rules.end());
+	    }
+
+	    inline void replace_direct_permission_rules_from_update(
+	        DirectPermissionSessionState& state,
+	        cc::utils::json::JsonVal update,
+	        cc::hooks::PermissionDecision decision,
+	        std::string_view destination
+	    ) {
+	        state.rules.erase(
+	            std::remove_if(state.rules.begin(), state.rules.end(), [&](const DirectPermissionRule& existing) {
+	                return existing.decision == decision && existing.destination == destination;
+	            }),
+	            state.rules.end());
+	        append_direct_permission_rules_from_update(state, update, decision, destination);
+	    }
+
+	    inline void add_direct_permission_directories_from_update(
+	        DirectPermissionSessionState& state,
+	        cc::utils::json::JsonVal update,
+	        std::string_view destination
+	    ) {
+	        auto directories = update.get("directories");
+	        if (!directories.is_arr()) return;
+	        directories.iter([&](cc::utils::json::JsonVal directory) {
+	            if (!directory.is_str() || directory.as_str().empty()) return;
+	            DirectPermissionDirectory stored_directory{};
+	            stored_directory.path = std::string(directory.as_str());
+	            stored_directory.destination = std::string(destination);
+	            state.additional_directories.push_back(std::move(stored_directory));
+	        });
+	    }
+
+	    inline void remove_direct_permission_directories_from_update(
+	        DirectPermissionSessionState& state,
+	        cc::utils::json::JsonVal update
+	    ) {
+	        auto directories = update.get("directories");
+	        if (!directories.is_arr()) return;
+	        std::vector<std::string> removals;
+	        directories.iter([&](cc::utils::json::JsonVal directory) {
+	            if (directory.is_str() && !directory.as_str().empty()) {
+	                removals.emplace_back(directory.as_str());
+	            }
+	        });
+	        state.additional_directories.erase(
+	            std::remove_if(
+	                state.additional_directories.begin(),
+	                state.additional_directories.end(),
+	                [&](const DirectPermissionDirectory& existing) {
+	                    for (const auto& removal : removals) {
+	                        if (direct_permission_normalized_path(existing.path) ==
+	                            direct_permission_normalized_path(removal)) {
+	                            return true;
+	                        }
+	                    }
+	                    return false;
+	                }),
+	            state.additional_directories.end());
+	    }
+
+		    inline void apply_direct_permission_updates(
+		        std::string_view session_id,
+		        std::string_view updated_permissions_json
+	    ) {
+	        auto parsed = cc::utils::json::parse(updated_permissions_json);
+	        if (!parsed || !parsed->root().is_arr()) return;
+	        std::lock_guard lock(state_mutex);
+	        auto& state = direct_permission_states[std::string(session_id)];
+	        parsed->root().iter([&](cc::utils::json::JsonVal update) {
+	            if (!update.is_obj()) return;
+	            const auto type = update.get_string("type");
+	            const auto destination = update.get_string("destination").empty()
+	                ? std::string("session")
+	                : update.get_string("destination");
+	            if (type == "setMode") {
+	                auto mode = update.get("mode");
+	                if (mode.is_str()) state.mode = std::string(mode.as_str());
+	                return;
+	            }
+	            const auto decision = direct_permission_decision_from_behavior(update.get_string("behavior"));
+	            if (type == "addRules") {
+	                append_direct_permission_rules_from_update(state, update, decision, destination);
+	            } else if (type == "removeRules") {
+	                remove_direct_permission_rules_from_update(state, update, decision, destination);
+	            } else if (type == "replaceRules") {
+	                replace_direct_permission_rules_from_update(state, update, decision, destination);
+	            } else if (type == "addDirectories") {
+	                add_direct_permission_directories_from_update(state, update, destination);
+	            } else if (type == "removeDirectories") {
+	                remove_direct_permission_directories_from_update(state, update);
+	            }
+		        });
+		    }
+
+    [[nodiscard]] inline cc::tools::AgentLivePermissionCheck check_agent_tool_permission(
+        cc::hooks::ToolPermissionHook& permission_hook,
+        std::string_view tool_name,
+        std::string_view input_json,
+        std::string_view tool_use_id
+    ) {
+        permission_hook.set_current_tool_use_id(tool_use_id);
+        auto response = permission_hook.can_use_response(tool_name, input_json);
+        permission_hook.clear_current_tool_use_id();
+
+        cc::tools::AgentLivePermissionCheck check;
+        check.allowed = response.decision == cc::hooks::PermissionDecision::allow ||
+                        response.decision == cc::hooks::PermissionDecision::allow_once;
+        check.updated_input_json = std::move(response.updated_input_json);
+        check.message = std::move(response.message);
+        return check;
     }
 
-    [[nodiscard]] inline std::expected<DirectQueryResult, std::string> execute_native_query(
-        const DirectQueryRequest& request
-    ) {
+			    [[nodiscard]] inline std::expected<DirectQueryResult, std::string> execute_native_query(
+			        const DirectQueryRequest& request
+		    ) {
         if (query_executor_override) return (*query_executor_override)(request);
 
         cc::core::ConfigManager manager;
@@ -315,15 +745,71 @@ namespace detail {
             return std::unexpected("ANTHROPIC_API_KEY is required for direct-connect /message");
         }
 
+        auto permission_handler = permission_handler_for_session(request.session_id);
+        cc::hooks::ToolPermissionHook permission_hook;
+        if (permission_handler) {
+            permission_hook.set_auto_approve(false);
+            permission_hook.set_working_dir(std::filesystem::current_path().string());
+            permission_hook.set_ask_user_response_fn(
+                [handler = *permission_handler, session_id = request.session_id](
+                    const cc::hooks::PermissionContext& ctx
+                ) -> cc::hooks::PermissionResponse {
+                    auto cached_request = DirectPermissionRequest{
+                        .request_id = {},
+                        .session_id = session_id,
+                        .tool_name = ctx.tool_name,
+                        .input_json = ctx.args,
+                        .tool_use_id = ctx.tool_use_id,
+                    };
+                    if (auto cached = direct_permission_response_for_session(session_id, cached_request)) {
+                        return *cached;
+                    }
+
+                    auto request_id = make_permission_request_id();
+                    cached_request.request_id = std::move(request_id);
+                    if (cached_request.tool_use_id.empty()) {
+                        cached_request.tool_use_id = cached_request.request_id;
+                    }
+                    auto response = handler(cached_request);
+                    if (response.decision == cc::hooks::PermissionDecision::allow &&
+                        response.updated_permissions_json) {
+                        apply_direct_permission_updates(session_id, *response.updated_permissions_json);
+                    }
+                    return response;
+                });
+        }
+
         cc::core::ToolRegistry registry;
-        cc::tools::register_runtime_tools(registry);
+        cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{
+            .permission_check = permission_handler
+                ? cc::tools::AgentLivePermissionCheckFn{[&permission_hook](
+                    std::string_view tool_name,
+                    std::string_view input_json,
+                    std::string_view tool_use_id
+                ) {
+                    return check_agent_tool_permission(permission_hook, tool_name, input_json, tool_use_id);
+                }}
+                : cc::tools::AgentLivePermissionCheckFn{},
+            .permission_hook_valid_for_background = false,
+        });
         config.tools = registry.get_visible_definitions();
 
         cc::core::QueryEngine engine(std::move(config), registry);
+        if (request.cancel_flag) {
+            engine.set_external_abort_callback([flag = request.cancel_flag] {
+                return flag->load();
+            });
+        }
+        if (permission_handler) {
+            engine.set_permission_hook(&permission_hook);
+        }
         seed_query_engine_from_session(engine, request.prior_message_lines);
 
-        auto response = engine.query(request.content);
-        if (!response) return std::unexpected(response.error().format());
+	        if (request.cancel_flag && request.cancel_flag->load()) {
+	            return std::unexpected("Query interrupted");
+	        }
+	        auto response = engine.query(request.content);
+	        if (!response) return std::unexpected(response.error().format());
 
         return DirectQueryResult{
             .assistant_id = response->message.id.value,
@@ -374,16 +860,64 @@ namespace detail {
         };
     }
 
-    [[nodiscard]] inline std::string get_param(
-        const std::map<std::string, std::string>& params,
-        std::string_view key
-    ) {
-        auto it = params.find(std::string(key));
-        return it == params.end() ? std::string{} : it->second;
-    }
+	    [[nodiscard]] inline std::string get_param(
+	        const std::map<std::string, std::string>& params,
+	        std::string_view key
+	    ) {
+	        auto it = params.find(std::string(key));
+	        return it == params.end() ? std::string{} : it->second;
+	    }
 
-    [[nodiscard]] inline std::size_t parse_limit(
-        const std::map<std::string, std::string>& params,
+	    [[nodiscard]] inline std::shared_ptr<std::atomic_bool> register_active_query_cancel(
+	        std::string_view session_id
+	    ) {
+	        auto flag = std::make_shared<std::atomic_bool>(false);
+	        std::lock_guard lock(state_mutex);
+	        active_query_cancels[std::string(session_id)] = flag;
+	        return flag;
+	    }
+
+	    inline void clear_active_query_cancel(
+	        std::string_view session_id,
+	        const std::shared_ptr<std::atomic_bool>& flag
+	    ) {
+	        std::lock_guard lock(state_mutex);
+	        auto it = active_query_cancels.find(std::string(session_id));
+	        if (it != active_query_cancels.end() && it->second == flag) {
+	            active_query_cancels.erase(it);
+	        }
+	    }
+
+	    [[nodiscard]] inline bool cancel_active_query(std::string_view session_id) {
+	        std::shared_ptr<std::atomic_bool> flag;
+	        {
+	            std::lock_guard lock(state_mutex);
+	            auto it = active_query_cancels.find(std::string(session_id));
+	            if (it == active_query_cancels.end()) return false;
+	            flag = it->second;
+	        }
+	        flag->store(true);
+	        return true;
+	    }
+
+	    [[nodiscard]] inline std::string make_permission_request_id() {
+	        std::lock_guard lock(state_mutex);
+	        const auto now = std::chrono::duration_cast<std::chrono::microseconds>(
+	            std::chrono::system_clock::now().time_since_epoch()).count();
+	        return "perm_" + std::to_string(now) + "_" + std::to_string(++permission_request_counter);
+	    }
+
+	    [[nodiscard]] inline std::optional<DirectPermissionHandler> permission_handler_for_session(
+	        std::string_view session_id
+	    ) {
+	        std::lock_guard lock(state_mutex);
+	        auto it = direct_permission_handlers.find(std::string(session_id));
+	        if (it == direct_permission_handlers.end()) return std::nullopt;
+	        return it->second;
+	    }
+
+	    [[nodiscard]] inline std::size_t parse_limit(
+	        const std::map<std::string, std::string>& params,
         std::size_t fallback
     ) {
         auto text = get_param(params, "limit");
@@ -420,18 +954,21 @@ namespace detail {
             user_message_id = make_message_id();
         }
 
-        auto requested_model = get_param(params, "model");
-        auto query_result = execute_native_query(DirectQueryRequest{
-            .session_id = metadata.session_id,
-            .content = content,
-            .requested_model = requested_model.empty()
-                ? std::nullopt
-                : std::optional<std::string>{requested_model},
-            .sessions_dir = sessions_dir,
-            .prior_message_lines = prior_lines,
-        });
-        if (!query_result) {
-            std::ostringstream error;
+	        auto requested_model = get_param(params, "model");
+	        auto cancel_flag = register_active_query_cancel(metadata.session_id);
+	        auto query_result = execute_native_query(DirectQueryRequest{
+	            .session_id = metadata.session_id,
+	            .content = content,
+	            .requested_model = requested_model.empty()
+	                ? std::nullopt
+	                : std::optional<std::string>{requested_model},
+	            .sessions_dir = sessions_dir,
+	            .prior_message_lines = prior_lines,
+	            .cancel_flag = cancel_flag,
+	        });
+	        clear_active_query_cancel(metadata.session_id, cancel_flag);
+	        if (!query_result) {
+	            std::ostringstream error;
             error << R"({"error":")" << json_escape(query_result.error())
                   << R"(","session_id":")" << json_escape(metadata.session_id)
                   << R"(","status":"failed"})";
@@ -473,6 +1010,8 @@ namespace detail {
             save_active_session_metadata(sessions_dir, metadata);
             active_session_id = metadata.session_id;
         }
+
+        publish_direct_query_ingress_events(metadata.session_id, assistant_message_id, *query_result);
 
         std::ostringstream response;
         response << R"({"id":")" << json_escape(assistant_message_id)
@@ -581,8 +1120,34 @@ inline void reset_route_state_for_testing() {
     detail::sessions_dir_override.reset();
     detail::active_session_id.reset();
     detail::message_counter = 0;
-    detail::query_executor_override.reset();
-    detail::routes.clear();
+	    detail::permission_request_counter = 0;
+	    detail::query_executor_override.reset();
+	    detail::active_query_cancels.clear();
+	    detail::direct_permission_handlers.clear();
+	    detail::direct_permission_states.clear();
+	    detail::routes.clear();
+	}
+
+inline bool request_direct_query_cancel(std::string_view session_id) {
+    return detail::cancel_active_query(session_id);
+}
+
+inline void register_direct_permission_handler(
+    std::string_view session_id,
+    detail::DirectPermissionHandler handler
+) {
+    std::lock_guard lock(detail::state_mutex);
+    detail::direct_permission_handlers[std::string(session_id)] = std::move(handler);
+}
+
+inline void unregister_direct_permission_handler(std::string_view session_id) {
+    std::lock_guard lock(detail::state_mutex);
+    detail::direct_permission_handlers.erase(std::string(session_id));
+}
+
+inline void set_query_executor_for_testing(detail::DirectQueryExecutor executor) {
+    std::lock_guard lock(detail::state_mutex);
+    detail::query_executor_override = std::move(executor);
 }
 
 // Register a route handler

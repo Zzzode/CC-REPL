@@ -155,11 +155,16 @@ struct CompactMetadata {
     std::optional<CompactPreservedSegment> preserved_segment;
 };
 
+struct SnipMetadata {
+    std::vector<std::string> removed_uuids;
+};
+
 struct SystemMessage : MessageBase {
     static constexpr Role role = Role::System;
     std::optional<std::string> cache_control; // Cache policy for this prompt
     std::optional<std::string> subtype;       // e.g. compact_boundary
     std::optional<CompactMetadata> compact_metadata;
+    std::optional<SnipMetadata> snip_metadata;
 };
 
 /// Tool invocation message (assistant requesting tool use)

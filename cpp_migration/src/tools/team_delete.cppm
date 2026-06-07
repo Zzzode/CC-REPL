@@ -1,6 +1,8 @@
 // TeamDeleteTool - Disbands a swarm team, cleans up directories and worktrees
 module;
+#include <cstdlib>
 #include <expected>
+#include <filesystem>
 #include <format>
 #include <optional>
 #include <string>
@@ -10,6 +12,8 @@ module;
 export module cc.tools.team_delete;
 
 import cc.tools.tool;
+import cc.tools.runtime_registry;
+import cc.tools.team;
 import cc.utils.json;
 import cc.utils.error;
 
@@ -25,7 +29,8 @@ using cc::core::SchemaProperty;
 
 /// Input parameters for TeamDeleteTool (empty - operates on current team)
 struct TeamDeleteInput {
-    // No input required - operates on the current team context
+    std::optional<std::string> team_id;
+    std::optional<std::string> team_name;
 
     static std::expected<TeamDeleteInput, std::string> from_json(std::string_view json);
 };
@@ -51,7 +56,20 @@ public:
             .name = std::string(kName),
             .description = std::string(kDescription),
             .input_schema = InputSchema{
-                .properties = {}  // No input parameters
+                .properties = {
+                    SchemaProperty{
+                        .name = "team_id",
+                        .type = "string",
+                        .description = "Team id to delete",
+                        .required = false
+                    },
+                    SchemaProperty{
+                        .name = "team_name",
+                        .type = "string",
+                        .description = "Team name to delete",
+                        .required = false
+                    },
+                }
             },
             .permission = ToolPermission::Write,
             .category = "team"
@@ -84,10 +102,115 @@ public:
     void clear_teammate_colors();
 };
 
+namespace detail {
+
+[[nodiscard]] std::optional<std::string> json_string_field(
+    cc::utils::json::JsonVal object,
+    std::string_view key
+) {
+    auto value = object.get(key);
+    if (!value.is_str()) return std::nullopt;
+    auto text = std::string(value.as_str());
+    return text.empty() ? std::nullopt : std::optional<std::string>{std::move(text)};
+}
+
+[[nodiscard]] std::optional<std::string> env_team_name() {
+    if (const char* value = std::getenv("CC_REPL_TEAM_NAME"); value && *value) return std::string(value);
+    if (const char* value = std::getenv("CLAUDE_CODE_TEAM_NAME"); value && *value) return std::string(value);
+    return std::nullopt;
+}
+
+[[nodiscard]] std::string delete_input_json_for_target(const TeamDeleteInput& input) {
+    if (input.team_id && !input.team_id->empty()) {
+        return std::format(R"({{"team_id":"{}"}})", cc::tools::team_json_escape(*input.team_id));
+    }
+    if (input.team_name && !input.team_name->empty()) {
+        return std::format(R"({{"team_name":"{}"}})", cc::tools::team_json_escape(*input.team_name));
+    }
+    return "{}";
+}
+
+} // namespace detail
+
+std::expected<TeamDeleteInput, std::string> TeamDeleteInput::from_json(std::string_view json) {
+    TeamDeleteInput input;
+    auto parsed = cc::utils::json::parse(json);
+    if (parsed && parsed->root().is_obj()) {
+        auto root = parsed->root();
+        input.team_id = detail::json_string_field(root, "team_id")
+            .or_else([&] { return detail::json_string_field(root, "id"); });
+        input.team_name = detail::json_string_field(root, "team_name")
+            .or_else([&] { return detail::json_string_field(root, "name"); });
+    } else if (!json.empty() && json != "{}") {
+        return std::unexpected("team_delete input must be a JSON object");
+    }
+    if (!input.team_id && !input.team_name) input.team_name = detail::env_team_name();
+    if (!input.team_id && !input.team_name) return std::unexpected("team_delete requires team_id or team_name");
+    return input;
+}
+
+cc::utils::Result<ToolResult> TeamDeleteTool::execute(const ToolInput& input) {
+    auto parsed = TeamDeleteInput::from_json(input.json());
+    if (!parsed) return ToolResult::error(parsed.error());
+
+    cc::core::ToolRegistry registry;
+    cc::tools::register_runtime_tools(registry);
+    auto delegated = registry.execute("team_delete", ToolInput::from_json(detail::delete_input_json_for_target(*parsed)));
+    if (!delegated) return ToolResult::error(delegated.error().format());
+    return std::move(*delegated);
+}
+
+bool TeamDeleteTool::is_enabled() {
+    return true;
+}
+
+std::optional<std::string> TeamDeleteTool::validate_can_delete() {
+    auto team_name = detail::env_team_name();
+    if (!team_name) return "no current team context";
+    auto active = get_active_members(*team_name);
+    if (!active.empty()) return std::format("{} active team member(s) still running", active.size());
+    return std::nullopt;
+}
+
+std::vector<std::string> TeamDeleteTool::get_active_members(const std::string& team_name) {
+    std::vector<std::string> active;
+    auto team = cc::tools::global_team_store().get_by_id_or_name(team_name);
+    if (!team) return active;
+    for (const auto& member : (*team)->members) {
+        if (member.role == cc::tools::MemberRole::Leader) continue;
+        if (member.status == cc::tools::MemberStatus::Idle ||
+            member.status == cc::tools::MemberStatus::Done ||
+            member.status == cc::tools::MemberStatus::Error) {
+            continue;
+        }
+        active.push_back(member.agent_id);
+    }
+    return active;
+}
+
+std::expected<void, std::string> TeamDeleteTool::cleanup_team_directories(const std::string& team_name) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    auto root = cc::tools::team_runtime_dir();
+    fs::remove_all(root / cc::tools::safe_team_filename(team_name), ec);
+    if (ec) return std::unexpected(ec.message());
+    fs::remove(root / (cc::tools::safe_team_filename(team_name) + ".json"), ec);
+    if (ec) return std::unexpected(ec.message());
+    return {};
+}
+
+void TeamDeleteTool::clear_team_context() {
+    unsetenv("CC_REPL_TEAM_NAME");
+    unsetenv("CLAUDE_CODE_TEAM_NAME");
+}
+
+void TeamDeleteTool::unregister_from_cleanup(const std::string&) {}
+
+void TeamDeleteTool::clear_teammate_colors() {}
+
 } // namespace cc::tools::team_delete
 
 export namespace cc::tools {
-    using cc::tools::team_delete::TeamDeleteTool;
     using cc::tools::team_delete::TeamDeleteInput;
     using cc::tools::team_delete::TeamDeleteOutput;
 }

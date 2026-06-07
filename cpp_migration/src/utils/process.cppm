@@ -6,6 +6,7 @@ module;
 #include <coroutine>
 #include <cstddef>
 #include <cstdint>
+#include <deque>
 #include <expected>
 #include <format>
 #include <functional>

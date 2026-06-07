@@ -3,6 +3,7 @@
 /// Migrated from src/types/command.ts
 module;
 
+#include <cstdint>
 #include <string>
 #include <vector>
 #include <optional>

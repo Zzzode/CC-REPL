@@ -3,6 +3,7 @@
 /// Migrated from src/types/permissions.ts
 module;
 
+#include <cstdint>
 #include <string>
 #include <string_view>
 #include <vector>

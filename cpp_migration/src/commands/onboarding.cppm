@@ -22,18 +22,15 @@ struct CommandResponse { bool ok{true}; std::string message; };
 
     const bool has_agent_docs = exists("AGENTS.md") || exists("CLAUDE.md");
     const bool has_package = exists("package.json");
-    const bool has_cpp_plan = exists("docs/plan/CPP_MIGRATION_PLAN.md");
     const bool has_native_binary = exists("dist/cc-repl");
 
     return {.ok = true, .message = std::format(
         "Onboarding status\n"
         "Project instructions: {}\n"
         "Package manifest: {}\n"
-        "C++ migration plan: {}\n"
         "Native binary: {}",
         has_agent_docs ? "present" : "missing",
         has_package ? "present" : "missing",
-        has_cpp_plan ? "present" : "missing",
         has_native_binary ? "present" : "missing")};
 }
 }

@@ -18,7 +18,7 @@ enum class AgentType {
 };
 
 
-struct AgentConfig {
+struct MultiAgentAgentConfig {
     AgentType type;
     std::string name;
     std::string model;
@@ -28,7 +28,7 @@ struct AgentConfig {
 };
 
 
-struct AgentResult {
+struct MultiAgentResult {
     std::string output;
     int turns_used;
     int tokens_used;

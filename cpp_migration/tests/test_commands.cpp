@@ -299,6 +299,7 @@ TEST(LoginCommand, ApiKeyFlowRejectsInvalidInteractiveSecret) {
 }
 
 TEST(AgentsCommand, ListsRealAgentDefinitions) {
+    EnvironmentGuard explore_enabled("CLAUDE_CODE_ENABLE_EXPLORE_PLAN_AGENTS", "1");
     cc::commands::AgentsCommand agents;
 
     auto list = agents.execute(ctx({"list"}));

@@ -4,6 +4,7 @@ module;
 #include <functional>
 #include <expected>
 #include <format>
+#include <optional>
 #include <atomic>
 #include <thread>
 #include <mutex>
@@ -34,7 +35,10 @@ public:
     ~WebSocketTransport() { close(); }
 
     // Establish WebSocket connection to the given URL
-    std::expected<void, std::string> connect(std::string_view url) {
+    std::expected<void, std::string> connect(
+        std::string_view url,
+        std::optional<std::string_view> bearer_token = std::nullopt
+    ) {
         if (connected_.load()) {
             return std::unexpected("Already connected");
         }
@@ -61,7 +65,7 @@ public:
             tls_ = true;
         }
 
-        auto handshake = perform_handshake(*fd, ssl_, *parsed);
+        auto handshake = perform_handshake(*fd, ssl_, *parsed, bearer_token);
         if (!handshake) {
             cleanup_tls();
             ::close(*fd);
@@ -333,7 +337,20 @@ private:
         return out;
     }
 
-    [[nodiscard]] static std::expected<void, std::string> perform_handshake(int fd, SSL* ssl, const UrlParts& parts) {
+    [[nodiscard]] static std::string http_status_line(std::string_view response) {
+        auto line_end = response.find("\r\n");
+        if (line_end == std::string_view::npos) line_end = response.find('\n');
+        auto line = line_end == std::string_view::npos ? response : response.substr(0, line_end);
+        while (!line.empty() && line.back() == '\r') line.remove_suffix(1);
+        return std::string(line);
+    }
+
+    [[nodiscard]] static std::expected<void, std::string> perform_handshake(
+        int fd,
+        SSL* ssl,
+        const UrlParts& parts,
+        std::optional<std::string_view> bearer_token
+    ) {
         auto key = handshake_key();
         auto request =
             "GET " + parts.path + " HTTP/1.1\r\n" +
@@ -341,12 +358,20 @@ private:
             "Connection: Upgrade\r\n"
             "Upgrade: websocket\r\n"
             "Sec-WebSocket-Version: 13\r\n"
-            "Sec-WebSocket-Key: " + key + "\r\n\r\n";
+            "Sec-WebSocket-Key: " + key + "\r\n";
+        if (bearer_token && !bearer_token->empty()) {
+            request += "Authorization: Bearer " + std::string(*bearer_token) + "\r\n";
+        }
+        request += "\r\n";
         if (!send_all(fd, ssl, request)) return std::unexpected("Failed to send WebSocket handshake");
         auto response = read_http_headers(fd, ssl);
         if (!response) return std::unexpected(response.error());
         if (response->find(" 101 ") == std::string::npos &&
             response->find(" 101\r\n") == std::string::npos) {
+            auto status_line = http_status_line(*response);
+            if (!status_line.empty()) {
+                return std::unexpected(std::format("WebSocket handshake failed: {}", status_line));
+            }
             return std::unexpected("WebSocket handshake failed: expected HTTP 101");
         }
         if (response->find("Upgrade") == std::string::npos &&

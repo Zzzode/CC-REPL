@@ -1,6 +1,7 @@
 // C++23 Module: File watching hooks using polling (std::jthread + last_write_time)
 module;
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstddef>

@@ -158,12 +158,34 @@ public:
         return create_conversation_locked();
     }
 
+    /// Get an existing conversation by ID, or create it and make it active.
+    [[nodiscard]] Conversation* get_or_create_conversation(std::string id) {
+        std::lock_guard lock(mutex_);
+        if (id.empty()) return create_conversation_locked();
+        if (auto it = conversations_.find(id); it != conversations_.end()) {
+            active_conversation_id_ = id;
+            return it->second.get();
+        }
+
+        auto conversation = std::make_unique<Conversation>(ConversationId{id});
+        auto* ptr = conversation.get();
+        conversations_[id] = std::move(conversation);
+        active_conversation_id_ = std::move(id);
+        return ptr;
+    }
+
     /// Get active conversation
     [[nodiscard]] Conversation* get_active_conversation() {
         std::lock_guard lock(mutex_);
         if (!active_conversation_id_) return create_conversation_locked();
         auto it = conversations_.find(*active_conversation_id_);
         return it != conversations_.end() ? it->second.get() : create_conversation_locked();
+    }
+
+    /// Get the active conversation ID, if one has been selected or loaded.
+    [[nodiscard]] std::optional<std::string> active_conversation_id() const {
+        std::lock_guard lock(const_cast<std::mutex&>(mutex_));
+        return active_conversation_id_;
     }
 
     /// Switch to a conversation
@@ -388,6 +410,18 @@ private:
         return obj;
     }
 
+    [[nodiscard]] static cc::utils::json::JsonMutVal serialize_snip_metadata(
+        cc::utils::json::JsonMutDoc& doc,
+        const SnipMetadata& metadata) {
+        auto obj = doc.object();
+        auto removed = doc.array();
+        for (const auto& uuid : metadata.removed_uuids) {
+            removed.append(doc.string(uuid));
+        }
+        obj.add("removed_uuids", removed);
+        return obj;
+    }
+
     [[nodiscard]] static cc::utils::json::JsonMutVal serialize_message(
         cc::utils::json::JsonMutDoc& doc,
         const Message& message) {
@@ -407,6 +441,9 @@ private:
                 if (value.subtype) obj.add("subtype", doc.string(*value.subtype));
                 if (value.compact_metadata) {
                     obj.add("compact_metadata", serialize_compact_metadata(doc, *value.compact_metadata));
+                }
+                if (value.snip_metadata) {
+                    obj.add("snip_metadata", serialize_snip_metadata(doc, *value.snip_metadata));
                 }
             } else if constexpr (std::is_same_v<T, ToolUseMessage>) {
                 obj.add("tool_name", doc.string(value.tool_name));
@@ -514,6 +551,22 @@ private:
         return metadata;
     }
 
+    [[nodiscard]] static std::optional<SnipMetadata> parse_snip_metadata(
+        cc::utils::json::JsonVal value) {
+        if (!value.valid() || !value.is_obj()) return std::nullopt;
+        auto removed = value.get("removed_uuids");
+        if (!removed.is_arr()) return std::nullopt;
+
+        SnipMetadata metadata;
+        removed.iter([&](cc::utils::json::JsonVal item) {
+            if (item.is_str()) {
+                metadata.removed_uuids.emplace_back(item.as_str());
+            }
+        });
+        if (metadata.removed_uuids.empty()) return std::nullopt;
+        return metadata;
+    }
+
     [[nodiscard]] static Result<Message> parse_message(cc::utils::json::JsonVal value) {
         if (!value.is_obj()) {
             return std::unexpected(Error::make(ErrorCode::SessionCorrupted,
@@ -555,6 +608,7 @@ private:
                 std::move(cache_control),
                 std::move(subtype),
                 parse_compact_metadata(value.get("compact_metadata")),
+                parse_snip_metadata(value.get("snip_metadata")),
             };
         }
         if (role == "tool") {

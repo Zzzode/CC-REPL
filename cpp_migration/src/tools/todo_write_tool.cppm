@@ -6,9 +6,11 @@ module;
 #include <expected>
 #include <format>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -92,6 +94,7 @@ constexpr auto format_error(TodoError err) -> std::string_view {
 struct TodoWriteRequest {
     std::vector<TodoItem> items;
     bool merge{false};  // true: merge by id; false: replace all
+    std::optional<std::string> agent_id;
 };
 
 // Result of todo write operation
@@ -108,6 +111,7 @@ public:
     static constexpr std::string_view name = "todo_write";
     static constexpr std::string_view description = "Create and manage a structured task list";
     static constexpr size_t kMaxItems = 10;
+    static constexpr std::string_view kDefaultScope = "session";
 
     TodoWriteTool() = default;
 
@@ -162,28 +166,31 @@ public:
             return std::unexpected(result.error());
         }
 
+        const auto scope = scope_key(request);
+        std::scoped_lock lock(mutex_);
+        auto& items = items_by_scope_[scope];
         TodoWriteResult result;
 
         if (!request.merge) {
             // Replace mode: swap entire list
-            result.items_removed = items_.size();
+            result.items_removed = items.size();
             result.items_added = request.items.size();
-            items_.clear();
+            items.clear();
 
             for (auto& item : request.items) {
                 if (item.created_at == std::chrono::system_clock::time_point{}) {
                     item.created_at = std::chrono::system_clock::now();
                 }
-                items_.push_back(std::move(item));
+                items.push_back(std::move(item));
             }
         } else {
             // Merge mode: update existing items by id, add new ones
             for (auto& item : request.items) {
-                auto it = std::find_if(items_.begin(), items_.end(), [&](const auto& existing) {
+                auto it = std::find_if(items.begin(), items.end(), [&](const auto& existing) {
                     return existing.id == item.id;
                 });
 
-                if (it != items_.end()) {
+                if (it != items.end()) {
                     // Update existing item (preserve created_at)
                     auto created = it->created_at;
                     *it = std::move(item);
@@ -191,38 +198,44 @@ public:
                     result.items_updated++;
                 } else {
                     // Add new item
-                    if (items_.size() >= kMaxItems) {
+                    if (items.size() >= kMaxItems) {
                         return std::unexpected(TodoError::TooManyItems);
                     }
                     if (item.created_at == std::chrono::system_clock::time_point{}) {
                         item.created_at = std::chrono::system_clock::now();
                     }
-                    items_.push_back(std::move(item));
+                    items.push_back(std::move(item));
                     result.items_added++;
                 }
             }
         }
 
         // Final constraint validation on the resulting list
-        size_t in_progress = static_cast<size_t>(std::count_if(items_.begin(), items_.end(), [](const auto& item) {
+        size_t in_progress = static_cast<size_t>(std::count_if(items.begin(), items.end(), [](const auto& item) {
             return item.status == TodoStatus::InProgress;
         }));
         if (in_progress > 1) {
             return std::unexpected(TodoError::MultipleInProgress);
         }
 
-        result.total_items = items_.size();
+        result.total_items = items.size();
+        if (items.empty()) {
+            items_by_scope_.erase(scope);
+        }
         return result;
     }
 
     // Get all current items
-    [[nodiscard]] auto get_items() const -> const std::vector<TodoItem>& {
-        return items_;
+    [[nodiscard]] auto get_items(std::optional<std::string_view> scope = std::nullopt) const -> std::vector<TodoItem> {
+        std::scoped_lock lock(mutex_);
+        auto it = items_by_scope_.find(scope ? std::string(*scope) : std::string(kDefaultScope));
+        if (it == items_by_scope_.end()) return {};
+        return it->second;
     }
 
     // Get items sorted for display (in_progress > pending > completed, then by priority)
-    [[nodiscard]] auto get_sorted_items() const -> std::vector<TodoItem> {
-        auto sorted = items_;
+    [[nodiscard]] auto get_sorted_items(std::optional<std::string_view> scope = std::nullopt) const -> std::vector<TodoItem> {
+        auto sorted = get_items(scope);
         std::sort(sorted.begin(), sorted.end(), [](const auto& a, const auto& b) {
             // Status order: in_progress(0) > pending(1) > completed(2)
             auto status_rank = [](TodoStatus s) -> int {
@@ -250,6 +263,29 @@ public:
             return a.created_at < b.created_at;
         });
         return sorted;
+    }
+
+    [[nodiscard]] auto clear_scope(std::string_view scope) -> bool {
+        if (scope.empty()) return false;
+        std::scoped_lock lock(mutex_);
+        return items_by_scope_.erase(std::string(scope)) > 0;
+    }
+
+    [[nodiscard]] auto count_scope(std::string_view scope) const -> std::size_t {
+        if (scope.empty()) return 0;
+        std::scoped_lock lock(mutex_);
+        auto it = items_by_scope_.find(std::string(scope));
+        return it == items_by_scope_.end() ? 0 : it->second.size();
+    }
+
+    [[nodiscard]] auto scope_count() const -> std::size_t {
+        std::scoped_lock lock(mutex_);
+        return items_by_scope_.size();
+    }
+
+    void clear_all() {
+        std::scoped_lock lock(mutex_);
+        items_by_scope_.clear();
     }
 
     // Generate JSON schema for LLM tool invocation
@@ -285,8 +321,35 @@ public:
     }
 
 private:
-    std::vector<TodoItem> items_;
+    [[nodiscard]] static auto scope_key(const TodoWriteRequest& request) -> std::string {
+        if (request.agent_id && !request.agent_id->empty()) return *request.agent_id;
+        return std::string(kDefaultScope);
+    }
+
+    std::unordered_map<std::string, std::vector<TodoItem>> items_by_scope_;
+    mutable std::mutex mutex_;
 };
+
+[[nodiscard]] inline auto todo_write_store() -> TodoWriteTool& {
+    static TodoWriteTool tool;
+    return tool;
+}
+
+[[nodiscard]] inline auto clear_todos_for_agent(std::string_view agent_id) -> bool {
+    return todo_write_store().clear_scope(agent_id);
+}
+
+[[nodiscard]] inline auto todo_count_for_agent(std::string_view agent_id) -> std::size_t {
+    return todo_write_store().count_scope(agent_id);
+}
+
+[[nodiscard]] inline auto todo_scope_count_for_testing() -> std::size_t {
+    return todo_write_store().scope_count();
+}
+
+inline void clear_all_todos_for_testing() {
+    todo_write_store().clear_all();
+}
 
 namespace detail {
 
@@ -364,6 +427,11 @@ using JsonVal = cc::utils::json::JsonVal;
 
     TodoWriteRequest request;
     request.merge = json_bool(root, "merge", false);
+    request.agent_id = json_string(root, "agent_id");
+    if (!request.agent_id) request.agent_id = json_string(root, "agentId");
+    if (!request.agent_id) request.agent_id = json_string(root, "session_id");
+    if (!request.agent_id) request.agent_id = json_string(root, "sessionId");
+    if (request.agent_id && request.agent_id->empty()) request.agent_id.reset();
 
     std::size_t index = 0;
     std::optional<std::string> error;
@@ -395,7 +463,6 @@ using JsonVal = cc::utils::json::JsonVal;
 /// Factory: create TodoWriteTool wrapped as ITool for registry integration
 [[nodiscard]] auto make_todo_write_tool() -> std::unique_ptr<cc::core::ITool> {
     struct Adapter final : cc::core::ITool {
-        TodoWriteTool tool_;
         cc::core::ToolDefinition def_{
             .name = std::string(TodoWriteTool::name),
             .description = std::string(TodoWriteTool::description),
@@ -413,6 +480,12 @@ using JsonVal = cc::utils::json::JsonVal;
                         .description = "Merge with existing list by id (true) or replace all (false)",
                         .required = false,
                         .default_value = "false"
+                    },
+                    cc::core::SchemaProperty{
+                        .name = "agent_id",
+                        .type = "string",
+                        .description = "Runtime scope id injected for sub-agent todo isolation",
+                        .required = false
                     }
                 }
             },
@@ -430,7 +503,7 @@ using JsonVal = cc::utils::json::JsonVal;
                     request.error()));
             }
 
-            auto result = tool_.execute(std::move(*request));
+            auto result = todo_write_store().execute(std::move(*request));
             if (result) {
                 auto msg = std::format("Todo list updated: {} total, {} added, {} updated, {} removed",
                     result->total_items, result->items_added, result->items_updated, result->items_removed);

@@ -5,6 +5,7 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <cctype>
 #include <condition_variable>
 #include <cstdint>
 #include <cstdlib>
@@ -13,6 +14,7 @@
 #include <format>
 #include <fstream>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <span>
@@ -25,6 +27,7 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <unistd.h>
 #ifdef __APPLE__
 #include <CommonCrypto/CommonDigest.h>
@@ -33,18 +36,23 @@
 #endif
 
 #include <gtest/gtest.h>
+#include <httplib.h>
 
 import cc.cli.ccr_client;
 import cc.config.config;
 import cc.services.api.client;
 import cc.services.api.errors;
+import cc.services.api.session_ingress;
 import cc.services.api.streaming;
+import cc.services.compact.api_microcompact;
 import cc.services.lsp.LSPServerManager;
 import cc.services.mcp.client;
+import cc.services.mcp.auth;
 import cc.services.mcp.config;
 import cc.services.mcp.connection_manager;
 import cc.services.mcp.elicitation_handler;
 import cc.services.mcp.headers_helper;
+import cc.services.mcp.vscode_sdk_mcp;
 import cc.services.memory.sessionMemory;
 import cc.services.mcp.types;
 import cc.services.rate_limit;
@@ -52,14 +60,19 @@ import cc.services.telemetry;
 import cc.services.token_estimation;
 import cc.services.voice.voice;
 import cc.server.server_routes;
+import cc.server.server_main;
 import cc.session.storage;
+import cc.session.history;
 import cc.query.query_engine;
 import cc.remote.remote_session;
+import cc.tools.agent_runtime;
+import cc.tools.team;
 import cc.tools.tool;
 import cc.types.types;
 import cc.utils.error;
 import cc.utils.ide_integration;
 import cc.utils.json;
+import cc.utils.team_helpers;
 
 namespace fs = std::filesystem;
 
@@ -98,6 +111,48 @@ struct EnvironmentGuard {
     }
 };
 
+struct EnvironmentUnsetGuard {
+    std::string name;
+    std::optional<std::string> previous;
+
+    explicit EnvironmentUnsetGuard(std::string key) : name(std::move(key)) {
+        if (const char* existing = std::getenv(name.c_str())) {
+            previous = existing;
+        }
+        unsetenv(name.c_str());
+    }
+
+    ~EnvironmentUnsetGuard() {
+        if (previous) {
+            setenv(name.c_str(), previous->c_str(), 1);
+        } else {
+            unsetenv(name.c_str());
+        }
+    }
+};
+
+class DefinitionOnlyTool final : public cc::core::ITool {
+public:
+    explicit DefinitionOnlyTool(cc::core::ToolDefinition definition)
+        : definition_(std::move(definition)) {}
+
+    [[nodiscard]] const cc::core::ToolDefinition& definition() const override {
+        return definition_;
+    }
+
+    [[nodiscard]] cc::core::Result<cc::core::ToolResult> execute(
+        const cc::core::ToolInput& /*input*/) override {
+        return cc::core::ToolResult::success("unused");
+    }
+
+    [[nodiscard]] bool check_permission(const cc::core::ToolInput& /*input*/) const override {
+        return true;
+    }
+
+private:
+    cc::core::ToolDefinition definition_;
+};
+
 bool send_all(int fd, std::string_view data) {
     std::size_t sent = 0;
     while (sent < data.size()) {
@@ -114,9 +169,75 @@ std::string json_id_literal(cc::utils::json::JsonVal id) {
     return "null";
 }
 
+int test_hex_value(char ch) {
+    if (ch >= '0' && ch <= '9') return ch - '0';
+    if (ch >= 'a' && ch <= 'f') return 10 + ch - 'a';
+    if (ch >= 'A' && ch <= 'F') return 10 + ch - 'A';
+    return -1;
+}
+
+std::string test_url_decode(std::string_view value) {
+    std::string out;
+    out.reserve(value.size());
+    for (std::size_t i = 0; i < value.size(); ++i) {
+        if (value[i] == '+') {
+            out.push_back(' ');
+        } else if (value[i] == '%' && i + 2 < value.size()) {
+            const auto hi = test_hex_value(value[i + 1]);
+            const auto lo = test_hex_value(value[i + 2]);
+            if (hi >= 0 && lo >= 0) {
+                out.push_back(static_cast<char>((hi << 4) | lo));
+                i += 2;
+            } else {
+                out.push_back(value[i]);
+            }
+        } else {
+            out.push_back(value[i]);
+        }
+    }
+    return out;
+}
+
+std::optional<std::string> test_query_param(std::string_view url, std::string_view key) {
+    auto query_start = url.find('?');
+    if (query_start == std::string_view::npos) return std::nullopt;
+    auto fragment_start = url.find('#', query_start);
+    auto query = url.substr(
+        query_start + 1,
+        fragment_start == std::string_view::npos ? std::string_view::npos : fragment_start - query_start - 1);
+    std::string pattern(key);
+    pattern.push_back('=');
+    std::size_t pos = 0;
+    while (pos < query.size()) {
+        auto next = query.find('&', pos);
+        auto part = query.substr(pos, next == std::string_view::npos ? std::string_view::npos : next - pos);
+        if (part.starts_with(pattern)) return test_url_decode(part.substr(pattern.size()));
+        if (next == std::string_view::npos) break;
+        pos = next + 1;
+    }
+    return std::nullopt;
+}
+
+std::optional<int> localhost_url_port(std::string_view url) {
+    constexpr std::string_view prefix = "http://localhost:";
+    if (!url.starts_with(prefix)) return std::nullopt;
+    auto port_start = prefix.size();
+    auto path_start = url.find('/', port_start);
+    if (path_start == std::string_view::npos) return std::nullopt;
+    try {
+        return std::stoi(std::string(url.substr(port_start, path_start - port_start)));
+    } catch (...) {
+        return std::nullopt;
+    }
+}
+
 class LocalAnthropicMessagesServer {
 public:
-    LocalAnthropicMessagesServer() {
+    explicit LocalAnthropicMessagesServer(
+        std::vector<std::string> response_bodies = {},
+        std::vector<int> response_statuses = {})
+        : response_bodies_(std::move(response_bodies)),
+          response_statuses_(std::move(response_statuses)) {
         listen_fd_ = ::socket(AF_INET, SOCK_STREAM, 0);
         if (listen_fd_ < 0) return;
         int yes = 1;
@@ -172,6 +293,15 @@ public:
         return request_body_;
     }
 
+    [[nodiscard]] std::optional<std::string> wait_for_headers(
+        std::chrono::milliseconds timeout = std::chrono::seconds(3)) {
+        std::unique_lock lock(mutex_);
+        if (!cv_.wait_for(lock, timeout, [this] { return request_headers_.has_value(); })) {
+            return std::nullopt;
+        }
+        return request_headers_;
+    }
+
     [[nodiscard]] std::optional<std::vector<std::string>> wait_for_bodies(
         std::size_t count,
         std::chrono::milliseconds timeout = std::chrono::seconds(3)) {
@@ -197,7 +327,12 @@ private:
         }
     }
 
-    static std::string read_request_body(int fd) {
+    struct RawRequest {
+        std::string headers;
+        std::string body;
+    };
+
+    static RawRequest read_request(int fd) {
         std::string request;
         char buffer[4096];
         std::size_t header_end = std::string::npos;
@@ -228,22 +363,41 @@ private:
             if (n <= 0) break;
             request.append(buffer, buffer + n);
         }
-        return request.substr(body_start, content_length);
+        return RawRequest{header, request.substr(body_start, content_length)};
     }
 
     void handle_client(int fd) {
-        auto body = read_request_body(fd);
+        auto request = read_request(fd);
+        auto body = request.body;
+        std::size_t request_index = 0;
         {
             std::lock_guard lock(mutex_);
             if (!request_body_) request_body_ = body;
+            if (!request_headers_) request_headers_ = request.headers;
             request_bodies_.push_back(body);
+            request_index = request_bodies_.size() - 1;
         }
         cv_.notify_all();
 
-        const std::string response_body =
+        std::string response_body =
             R"({"id":"msg_test","type":"message","role":"assistant","model":"claude-test","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}})";
+        if (!response_bodies_.empty()) {
+            response_body = response_bodies_[std::min(request_index, response_bodies_.size() - 1)];
+        }
+        int response_status = 200;
+        std::string response_reason = "OK";
+        if (!response_statuses_.empty()) {
+            response_status = response_statuses_[std::min(request_index, response_statuses_.size() - 1)];
+            if (response_status == 413) {
+                response_reason = "Payload Too Large";
+            } else if (response_status >= 400) {
+                response_reason = "Error";
+            }
+        }
         const auto response = std::format(
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            "HTTP/1.1 {} {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            response_status,
+            response_reason,
             response_body.size(),
             response_body);
         send_all(fd, response);
@@ -256,7 +410,10 @@ private:
     std::mutex mutex_;
     std::condition_variable cv_;
     std::optional<std::string> request_body_;
+    std::optional<std::string> request_headers_;
     std::vector<std::string> request_bodies_;
+    std::vector<std::string> response_bodies_;
+    std::vector<int> response_statuses_;
 };
 
 struct LocalCcrHttpRequest {
@@ -416,6 +573,10 @@ private:
         }
         if (request->method == "POST" && request->path == "/api/sessions/remote-session-1/messages") {
             send_response(fd, 200, "OK", R"({"content":"remote-ok"})");
+            return;
+        }
+        if (request->method == "POST" && request->path == "/v1/sessions/session_1/events") {
+            send_response(fd, 201, "Created", R"({"ok":true})");
             return;
         }
         if (request->method == "POST" && request->path == "/api/sessions/remote-session-1/messages?stream=true") {
@@ -872,6 +1033,67 @@ private:
     std::vector<std::string> post_bodies_;
 };
 
+class LocalReconnectSseStreamServer {
+public:
+    LocalReconnectSseStreamServer() {
+        server_.Get("/sse", [this](const httplib::Request& req, httplib::Response& res) {
+            {
+                std::lock_guard lock(mutex_);
+                stream_last_event_ids_.push_back(req.get_header_value("Last-Event-ID"));
+            }
+            cv_.notify_all();
+            res.set_header("Cache-Control", "no-cache");
+            res.set_header("Connection", "close");
+            res.set_content(
+                "id: 1\n"
+                "event: endpoint\n"
+                "data: /messages\n\n",
+                "text/event-stream");
+        });
+
+        port_ = server_.bind_to_any_port("127.0.0.1");
+        thread_ = std::thread([this] {
+            server_.listen_after_bind();
+        });
+        server_.wait_until_ready();
+    }
+
+    ~LocalReconnectSseStreamServer() {
+        server_.stop();
+        if (thread_.joinable()) thread_.join();
+    }
+
+    [[nodiscard]] bool ready() const {
+        return port_ > 0;
+    }
+
+    [[nodiscard]] std::string url() const {
+        return std::format("http://127.0.0.1:{}/sse", port_);
+    }
+
+    [[nodiscard]] std::vector<std::string> stream_last_event_ids() const {
+        std::lock_guard lock(mutex_);
+        return stream_last_event_ids_;
+    }
+
+    [[nodiscard]] bool wait_for_stream_requests(
+        std::size_t count,
+        std::chrono::milliseconds timeout = std::chrono::seconds(3)) {
+        std::unique_lock lock(mutex_);
+        return cv_.wait_for(lock, timeout, [this, count] {
+            return stream_last_event_ids_.size() >= count;
+        });
+    }
+
+private:
+    httplib::Server server_;
+    int port_{0};
+    std::thread thread_;
+    mutable std::mutex mutex_;
+    std::condition_variable cv_;
+    std::vector<std::string> stream_last_event_ids_;
+};
+
 std::string remote_ws_base64_encode(const unsigned char* data, std::size_t len) {
     static constexpr char table[] =
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -1133,6 +1355,216 @@ private:
     std::string handshake_path_;
     std::vector<std::string> text_frames_;
 };
+
+struct DirectConnectHttpResponse {
+    int status = 0;
+    std::string body;
+};
+
+struct DirectConnectWsFrame {
+    std::uint8_t opcode = 0;
+    std::string payload;
+};
+
+void direct_connect_set_timeouts(int fd) {
+    timeval timeout{};
+    timeout.tv_sec = 3;
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+}
+
+int direct_connect_open_socket(std::uint16_t port) {
+    int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) return -1;
+    direct_connect_set_timeouts(fd);
+
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = htons(port);
+    if (::connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0) {
+        ::close(fd);
+        return -1;
+    }
+    return fd;
+}
+
+std::optional<DirectConnectHttpResponse> direct_connect_http_request(
+    std::uint16_t port,
+    std::string_view method,
+    std::string_view target,
+    std::string_view body = {}
+) {
+    const int fd = direct_connect_open_socket(port);
+    if (fd < 0) return std::nullopt;
+
+    std::ostringstream request;
+    request << method << " " << target << " HTTP/1.1\r\n"
+            << "Host: 127.0.0.1:" << port << "\r\n"
+            << "Connection: close\r\n";
+    if (!body.empty() || method == "POST") {
+        request << "Content-Type: application/json\r\n"
+                << "Content-Length: " << body.size() << "\r\n";
+    }
+    request << "\r\n" << body;
+    if (!send_all(fd, request.str())) {
+        ::close(fd);
+        return std::nullopt;
+    }
+
+    std::string raw;
+    std::array<char, 4096> buffer{};
+    while (true) {
+        auto n = ::recv(fd, buffer.data(), buffer.size(), 0);
+        if (n <= 0) break;
+        raw.append(buffer.data(), static_cast<std::size_t>(n));
+    }
+    ::close(fd);
+
+    const auto header_end = raw.find("\r\n\r\n");
+    if (header_end == std::string::npos) return std::nullopt;
+
+    DirectConnectHttpResponse response;
+    std::istringstream first_line(raw.substr(0, raw.find("\r\n")));
+    std::string http_version;
+    first_line >> http_version >> response.status;
+    response.body = raw.substr(header_end + 4);
+    return response;
+}
+
+bool direct_connect_read_exact(int fd, char* data, std::size_t size) {
+    while (size > 0) {
+        auto n = ::recv(fd, data, size, 0);
+        if (n <= 0) return false;
+        data += n;
+        size -= static_cast<std::size_t>(n);
+    }
+    return true;
+}
+
+std::optional<DirectConnectWsFrame> direct_connect_read_ws_frame(int fd) {
+    unsigned char header[2]{};
+    if (!direct_connect_read_exact(fd, reinterpret_cast<char*>(header), 2)) return std::nullopt;
+
+    DirectConnectWsFrame frame;
+    frame.opcode = header[0] & 0x0f;
+    const bool masked = (header[1] & 0x80) != 0;
+    std::uint64_t len = header[1] & 0x7f;
+    if (len == 126) {
+        unsigned char ext[2]{};
+        if (!direct_connect_read_exact(fd, reinterpret_cast<char*>(ext), 2)) return std::nullopt;
+        len = (static_cast<std::uint64_t>(ext[0]) << 8) | ext[1];
+    } else if (len == 127) {
+        unsigned char ext[8]{};
+        if (!direct_connect_read_exact(fd, reinterpret_cast<char*>(ext), 8)) return std::nullopt;
+        len = 0;
+        for (unsigned char byte : ext) len = (len << 8) | byte;
+    }
+
+    std::array<unsigned char, 4> mask{};
+    if (masked && !direct_connect_read_exact(fd, reinterpret_cast<char*>(mask.data()), mask.size())) {
+        return std::nullopt;
+    }
+
+    frame.payload.resize(static_cast<std::size_t>(len));
+    if (len > 0 && !direct_connect_read_exact(fd, frame.payload.data(), frame.payload.size())) {
+        return std::nullopt;
+    }
+    if (masked) {
+        for (std::size_t i = 0; i < frame.payload.size(); ++i) {
+            frame.payload[i] = static_cast<char>(frame.payload[i] ^ mask[i % 4]);
+        }
+    }
+    return frame;
+}
+
+bool direct_connect_send_client_text_frame(int fd, std::string_view payload) {
+    std::string frame;
+    frame.push_back(static_cast<char>(0x81));
+    const auto len = payload.size();
+    if (len < 126) {
+        frame.push_back(static_cast<char>(0x80 | len));
+    } else if (len <= 0xffff) {
+        frame.push_back(static_cast<char>(0x80 | 126));
+        frame.push_back(static_cast<char>((len >> 8) & 0xff));
+        frame.push_back(static_cast<char>(len & 0xff));
+    } else {
+        frame.push_back(static_cast<char>(0x80 | 127));
+        for (int shift = 56; shift >= 0; shift -= 8) {
+            frame.push_back(static_cast<char>((len >> shift) & 0xff));
+        }
+    }
+
+    constexpr std::array<unsigned char, 4> mask{0x11, 0x22, 0x33, 0x44};
+    for (auto byte : mask) frame.push_back(static_cast<char>(byte));
+    for (std::size_t i = 0; i < payload.size(); ++i) {
+        frame.push_back(static_cast<char>(payload[i] ^ mask[i % mask.size()]));
+    }
+    return send_all(fd, frame);
+}
+
+std::optional<int> direct_connect_open_websocket(std::uint16_t port, std::string_view path) {
+    const int fd = direct_connect_open_socket(port);
+    if (fd < 0) return std::nullopt;
+
+    const std::string key = "dGhlIHNhbXBsZSBub25jZQ==";
+    const auto request = std::format(
+        "GET {} HTTP/1.1\r\n"
+        "Host: 127.0.0.1:{}\r\n"
+        "Upgrade: websocket\r\n"
+        "Connection: Upgrade\r\n"
+        "Sec-WebSocket-Key: {}\r\n"
+        "Sec-WebSocket-Version: 13\r\n\r\n",
+        path,
+        port,
+        key);
+    if (!send_all(fd, request)) {
+        ::close(fd);
+        return std::nullopt;
+    }
+
+    std::string headers;
+    std::array<char, 1024> buffer{};
+    while (headers.find("\r\n\r\n") == std::string::npos) {
+        auto n = ::recv(fd, buffer.data(), buffer.size(), 0);
+        if (n <= 0) {
+            ::close(fd);
+            return std::nullopt;
+        }
+        headers.append(buffer.data(), static_cast<std::size_t>(n));
+        if (headers.size() > 64 * 1024) {
+            ::close(fd);
+            return std::nullopt;
+        }
+    }
+    if (headers.find("101 Switching Protocols") == std::string::npos ||
+        headers.find(remote_ws_accept_key(key)) == std::string::npos) {
+        ::close(fd);
+        return std::nullopt;
+    }
+    return fd;
+}
+
+std::string direct_connect_trim_json_line(std::string payload) {
+    while (!payload.empty() && std::isspace(static_cast<unsigned char>(payload.back()))) {
+        payload.pop_back();
+    }
+    return payload;
+}
+
+bool direct_connect_send_permission_response(
+    int fd,
+    std::string_view request_id,
+    std::string_view behavior,
+    std::string_view extra_response_fields_json = {}
+) {
+    const auto payload = std::format(
+        R"({{"type":"control_response","response":{{"subtype":"success","request_id":"{}","response":{{"behavior":"{}"{}}}}}}})",
+        request_id,
+        behavior,
+        extra_response_fields_json);
+    return direct_connect_send_client_text_frame(fd, payload);
+}
 
 class LocalStreamableHttpMcpServer {
 public:
@@ -1440,6 +1872,327 @@ private:
     std::vector<std::string> requests_;
 };
 
+class LocalRefreshingStreamableHttpMcpServer {
+public:
+    explicit LocalRefreshingStreamableHttpMcpServer(bool fail_refresh = false)
+        : fail_refresh_(fail_refresh) {
+        server_.Get("/metadata", [this](const httplib::Request&, httplib::Response& res) {
+            res.set_content(std::format(R"({{
+              "authorization_endpoint": "{0}/authorize",
+              "token_endpoint": "{0}/token",
+              "scope": "tools"
+            }})", base_url()), "application/json");
+        });
+
+        server_.Post("/token", [this](const httplib::Request& req, httplib::Response& res) {
+            {
+                std::lock_guard lock(mutex_);
+                token_request_body_ = req.body;
+                ++token_request_count_;
+            }
+            cv_.notify_all();
+            if (req.body.find("grant_type=refresh_token") == std::string::npos ||
+                req.body.find("refresh_token=old-refresh") == std::string::npos ||
+                req.body.find("client_id=client-1") == std::string::npos) {
+                res.status = 400;
+                res.set_content(R"({"error":"invalid_request"})", "application/json");
+                return;
+            }
+            if (fail_refresh_) {
+                res.status = 400;
+                res.set_content(R"({"error":"invalid_grant"})", "application/json");
+                return;
+            }
+            res.set_content(R"({
+              "access_token": "fresh-access",
+              "refresh_token": "fresh-refresh",
+              "expires_in": 3600,
+              "scope": "tools"
+            })", "application/json");
+        });
+
+        server_.Post("/mcp", [this](const httplib::Request& req, httplib::Response& res) {
+            {
+                std::lock_guard lock(mutex_);
+                mcp_authorization_headers_.push_back(req.get_header_value("Authorization"));
+                mcp_request_bodies_.push_back(req.body);
+            }
+            cv_.notify_all();
+
+            if (req.get_header_value("Authorization") != "Bearer fresh-access") {
+                res.status = 401;
+                res.set_content("", "text/plain");
+                return;
+            }
+
+            auto parsed = cc::utils::json::parse(req.body);
+            if (!parsed) {
+                res.status = 400;
+                res.set_content("", "text/plain");
+                return;
+            }
+
+            auto root = parsed->root();
+            const auto method = std::string(root.get("method").as_str());
+            if (method == "notifications/initialized" || method == "notifications/cancelled") {
+                res.status = 202;
+                res.set_content("", "text/plain");
+                return;
+            }
+
+            const auto id = json_id_literal(root.get("id"));
+            if (method == "initialize") {
+                res.set_content(std::format(
+                    R"({{"jsonrpc":"2.0","id":{},"result":{{"protocolVersion":"2024-11-05","capabilities":{{"tools":{{}}}},"serverInfo":{{"name":"refresh-fixture","version":"1.0.0"}}}}}})",
+                    id), "application/json");
+                return;
+            }
+            if (method == "tools/list") {
+                res.set_content(std::format(
+                    R"({{"jsonrpc":"2.0","id":{},"result":{{"tools":[{{"name":"refresh_lookup","description":"Lookup after refresh","inputSchema":{{"type":"object"}}}}]}}}})",
+                    id), "application/json");
+                return;
+            }
+
+            res.status = 404;
+            res.set_content("", "text/plain");
+        });
+
+        port_ = server_.bind_to_any_port("127.0.0.1");
+        thread_ = std::thread([this] {
+            server_.listen_after_bind();
+        });
+        server_.wait_until_ready();
+    }
+
+    ~LocalRefreshingStreamableHttpMcpServer() {
+        server_.stop();
+        if (thread_.joinable()) thread_.join();
+    }
+
+    [[nodiscard]] bool ready() const {
+        return port_ > 0;
+    }
+
+    [[nodiscard]] std::string base_url() const {
+        return std::format("http://127.0.0.1:{}", port_);
+    }
+
+    [[nodiscard]] std::string mcp_url() const {
+        return base_url() + "/mcp";
+    }
+
+    [[nodiscard]] std::string metadata_url() const {
+        return base_url() + "/metadata";
+    }
+
+    [[nodiscard]] std::string token_request_body() const {
+        std::lock_guard lock(mutex_);
+        return token_request_body_;
+    }
+
+    [[nodiscard]] std::vector<std::string> mcp_authorization_headers() const {
+        std::lock_guard lock(mutex_);
+        return mcp_authorization_headers_;
+    }
+
+    [[nodiscard]] bool wait_for_token_request(std::chrono::milliseconds timeout = std::chrono::seconds(3)) {
+        std::unique_lock lock(mutex_);
+        return cv_.wait_for(lock, timeout, [this] { return token_request_count_ > 0; });
+    }
+
+private:
+    httplib::Server server_;
+    int port_{0};
+    std::thread thread_;
+    mutable std::mutex mutex_;
+    std::condition_variable cv_;
+    int token_request_count_{0};
+    std::string token_request_body_;
+    std::vector<std::string> mcp_authorization_headers_;
+    std::vector<std::string> mcp_request_bodies_;
+    bool fail_refresh_{false};
+};
+
+class LocalOAuthRevocationServer {
+public:
+    LocalOAuthRevocationServer() {
+        server_.Get("/metadata", [this](const httplib::Request&, httplib::Response& res) {
+            res.set_content(std::format(R"({{
+              "authorization_endpoint": "{0}/authorize",
+              "token_endpoint": "{0}/token",
+              "revocation_endpoint": "{0}/revoke",
+              "revocation_endpoint_auth_methods_supported": ["client_secret_post"],
+              "scope": "tools"
+            }})", base_url()), "application/json");
+        });
+
+        server_.Post("/token", [this](const httplib::Request& req, httplib::Response& res) {
+            {
+                std::lock_guard lock(mutex_);
+                token_request_body_ = req.body;
+                ++token_request_count_;
+            }
+            cv_.notify_all();
+            if (req.body.find("grant_type=authorization_code") == std::string::npos ||
+                req.body.find("code=callback-code") == std::string::npos ||
+                req.body.find("client_id=client-1") == std::string::npos ||
+                req.body.find("code_verifier=") == std::string::npos ||
+                req.body.find("redirect_uri=http%3A%2F%2Flocalhost%3A") == std::string::npos) {
+                res.status = 400;
+                res.set_content(R"({"error":"invalid_request"})", "application/json");
+                return;
+            }
+            res.set_content(R"({
+              "access_token": "callback-access",
+              "refresh_token": "callback-refresh",
+              "expires_in": 3600,
+              "scope": "tools"
+            })", "application/json");
+        });
+
+        server_.Post("/revoke", [this](const httplib::Request& req, httplib::Response& res) {
+            {
+                std::lock_guard lock(mutex_);
+                revoke_request_bodies_.push_back(req.body);
+                revoke_authorization_headers_.push_back(req.get_header_value("Authorization"));
+            }
+            cv_.notify_all();
+            res.status = 200;
+            res.set_content(R"({"ok":true})", "application/json");
+        });
+
+        port_ = server_.bind_to_any_port("127.0.0.1");
+        thread_ = std::thread([this] {
+            server_.listen_after_bind();
+        });
+        server_.wait_until_ready();
+    }
+
+    ~LocalOAuthRevocationServer() {
+        server_.stop();
+        if (thread_.joinable()) thread_.join();
+    }
+
+    [[nodiscard]] bool ready() const {
+        return port_ > 0;
+    }
+
+    [[nodiscard]] std::string base_url() const {
+        return std::format("http://127.0.0.1:{}", port_);
+    }
+
+    [[nodiscard]] std::string metadata_url() const {
+        return base_url() + "/metadata";
+    }
+
+    [[nodiscard]] std::string token_request_body() const {
+        std::lock_guard lock(mutex_);
+        return token_request_body_;
+    }
+
+    [[nodiscard]] std::vector<std::string> revoke_request_bodies() const {
+        std::lock_guard lock(mutex_);
+        return revoke_request_bodies_;
+    }
+
+    [[nodiscard]] std::vector<std::string> revoke_authorization_headers() const {
+        std::lock_guard lock(mutex_);
+        return revoke_authorization_headers_;
+    }
+
+    [[nodiscard]] bool wait_for_revoke_requests(
+        std::size_t count,
+        std::chrono::milliseconds timeout = std::chrono::seconds(3)) {
+        std::unique_lock lock(mutex_);
+        return cv_.wait_for(lock, timeout, [this, count] {
+            return revoke_request_bodies_.size() >= count;
+        });
+    }
+
+    [[nodiscard]] bool wait_for_token_request(std::chrono::milliseconds timeout = std::chrono::seconds(3)) {
+        std::unique_lock lock(mutex_);
+        return cv_.wait_for(lock, timeout, [this] { return token_request_count_ > 0; });
+    }
+
+private:
+    httplib::Server server_;
+    int port_{0};
+    std::thread thread_;
+    mutable std::mutex mutex_;
+    std::condition_variable cv_;
+    int token_request_count_{0};
+    std::string token_request_body_;
+    std::vector<std::string> revoke_request_bodies_;
+    std::vector<std::string> revoke_authorization_headers_;
+};
+
+class LocalXaaIdpServer {
+public:
+    LocalXaaIdpServer() {
+        server_.Post("/device/code", [this](const httplib::Request& req, httplib::Response& res) {
+            {
+                std::lock_guard lock(mutex_);
+                device_code_request_body_ = req.body;
+                ++device_code_request_count_;
+            }
+            cv_.notify_all();
+
+            if (req.body.find(R"("client_id":"idp-client-1")") == std::string::npos ||
+                req.body.find(R"("scope":"openid profile mcp")") == std::string::npos) {
+                res.status = 400;
+                res.set_content(R"({"error":"invalid_request"})", "application/json");
+                return;
+            }
+            res.set_content(R"({
+              "access_token": "xaa-access",
+              "refresh_token": "xaa-refresh",
+              "org_id": "org-1"
+            })", "application/json");
+        });
+
+        port_ = server_.bind_to_any_port("127.0.0.1");
+        thread_ = std::thread([this] {
+            server_.listen_after_bind();
+        });
+        server_.wait_until_ready();
+    }
+
+    ~LocalXaaIdpServer() {
+        server_.stop();
+        if (thread_.joinable()) thread_.join();
+    }
+
+    [[nodiscard]] bool ready() const {
+        return port_ > 0;
+    }
+
+    [[nodiscard]] std::string base_url() const {
+        return std::format("http://127.0.0.1:{}", port_);
+    }
+
+    [[nodiscard]] std::string device_code_request_body() const {
+        std::lock_guard lock(mutex_);
+        return device_code_request_body_;
+    }
+
+    [[nodiscard]] bool wait_for_device_code_request(std::chrono::milliseconds timeout = std::chrono::seconds(3)) {
+        std::unique_lock lock(mutex_);
+        return cv_.wait_for(lock, timeout, [this] {
+            return device_code_request_count_ > 0;
+        });
+    }
+
+private:
+    httplib::Server server_;
+    int port_{0};
+    std::thread thread_;
+    mutable std::mutex mutex_;
+    std::condition_variable cv_;
+    int device_code_request_count_{0};
+    std::string device_code_request_body_;
+};
+
 } // namespace
 
 TEST(LspConfig, LoadsPluginLspServersFromManifestAndRoutesExtension) {
@@ -1661,6 +2414,98 @@ TEST(CcrClient, UsesDefaultHttpTransportForRemoteSessionLifecycle) {
     EXPECT_EQ((*requests)[2].method, "DELETE");
     EXPECT_EQ((*requests)[2].path, "/api/sessions/remote-session-1");
     EXPECT_NE((*requests)[2].headers.find("Authorization: Bearer ccr-token"), std::string::npos);
+}
+
+TEST(SessionIngress, PostsSessionEventsWithBearerAuth) {
+    LocalCcrHttpServer server;
+    ASSERT_TRUE(server.ready());
+
+    auto created = cc::services::api::create_ingress(cc::services::api::IngressConfig{
+        .endpoint = server.base_url(),
+        .session_id = "session_1",
+        .auth_token = "session-jwt-token",
+        .organization_uuid = std::nullopt,
+    });
+    ASSERT_TRUE(created.has_value()) << created.error();
+
+    auto sent = cc::services::api::send_ingress_message(
+        R"({"type":"control_response","response":{"request_id":"permission-1","subtype":"success"}})");
+    ASSERT_TRUE(sent.has_value()) << sent.error();
+
+    auto requests = server.wait_for_requests(1);
+    ASSERT_TRUE(requests.has_value());
+    ASSERT_EQ(requests->size(), 1u);
+    EXPECT_EQ((*requests)[0].method, "POST");
+    EXPECT_EQ((*requests)[0].path, "/v1/sessions/session_1/events");
+    EXPECT_NE((*requests)[0].headers.find("Authorization: Bearer session-jwt-token"), std::string::npos);
+    EXPECT_NE((*requests)[0].body.find(R"("events":[)"), std::string::npos);
+    EXPECT_NE((*requests)[0].body.find(R"("type":"control_response")"), std::string::npos);
+    EXPECT_NE((*requests)[0].body.find(R"("request_id":"permission-1")"), std::string::npos);
+
+    cc::services::api::close_ingress();
+}
+
+TEST(SessionIngress, PostsSessionEventsWithSessionCookieAuth) {
+    LocalCcrHttpServer server;
+    ASSERT_TRUE(server.ready());
+
+    auto created = cc::services::api::create_ingress(cc::services::api::IngressConfig{
+        .endpoint = server.base_url(),
+        .session_id = "session_1",
+        .auth_token = "sk-ant-sid01-test",
+        .organization_uuid = "org-uuid-1",
+    });
+    ASSERT_TRUE(created.has_value()) << created.error();
+
+    auto sent = cc::services::api::send_ingress_message(R"({"type":"progress","value":0.5})");
+    ASSERT_TRUE(sent.has_value()) << sent.error();
+
+    auto requests = server.wait_for_requests(1);
+    ASSERT_TRUE(requests.has_value());
+    ASSERT_EQ(requests->size(), 1u);
+    EXPECT_EQ((*requests)[0].method, "POST");
+    EXPECT_EQ((*requests)[0].path, "/v1/sessions/session_1/events");
+    EXPECT_NE((*requests)[0].headers.find("Cookie: sessionKey=sk-ant-sid01-test"), std::string::npos);
+    EXPECT_NE((*requests)[0].headers.find("X-Organization-Uuid: org-uuid-1"), std::string::npos);
+    EXPECT_EQ((*requests)[0].headers.find("Authorization:"), std::string::npos);
+    EXPECT_NE((*requests)[0].body.find(R"("type":"progress")"), std::string::npos);
+
+    cc::services::api::close_ingress();
+}
+
+TEST(SessionIngress, CreatesIngressFromDaemonEnvironmentAndSendsLifecycleEvent) {
+    EnvironmentGuard endpoint("CLAUDE_CODE_REMOTE_API_BASE_URL", "placeholder");
+    EnvironmentGuard session("CC_REMOTE_SESSION_ID", "session_1");
+    EnvironmentGuard token("CLAUDE_CODE_SESSION_ACCESS_TOKEN", "env-session-token");
+    EnvironmentUnsetGuard compat_endpoint("CC_REPL_REMOTE_API_BASE_URL");
+    EnvironmentUnsetGuard ingress_endpoint("CLAUDE_CODE_SESSION_INGRESS_URL");
+    EnvironmentUnsetGuard compat_ingress_endpoint("CC_REPL_SESSION_INGRESS_URL");
+    EnvironmentUnsetGuard compat_session("CLAUDE_CODE_REMOTE_SESSION_ID");
+
+    LocalCcrHttpServer server;
+    ASSERT_TRUE(server.ready());
+    setenv("CLAUDE_CODE_REMOTE_API_BASE_URL", server.base_url().c_str(), 1);
+
+    cc::services::api::close_ingress();
+    auto created = cc::services::api::create_ingress_from_environment();
+    ASSERT_TRUE(created.has_value()) << created.error();
+    EXPECT_TRUE(*created);
+    EXPECT_TRUE(cc::services::api::is_ingress_active());
+
+    auto sent = cc::services::api::send_ingress_lifecycle_event("started", std::string_view{"work_1"});
+    ASSERT_TRUE(sent.has_value()) << sent.error();
+
+    auto requests = server.wait_for_requests(1);
+    ASSERT_TRUE(requests.has_value());
+    ASSERT_EQ(requests->size(), 1u);
+    EXPECT_EQ((*requests)[0].method, "POST");
+    EXPECT_EQ((*requests)[0].path, "/v1/sessions/session_1/events");
+    EXPECT_NE((*requests)[0].headers.find("Authorization: Bearer env-session-token"), std::string::npos);
+    EXPECT_NE((*requests)[0].body.find(R"("type":"session_lifecycle")"), std::string::npos);
+    EXPECT_NE((*requests)[0].body.find(R"("status":"started")"), std::string::npos);
+    EXPECT_NE((*requests)[0].body.find(R"("bridge_work_id":"work_1")"), std::string::npos);
+
+    cc::services::api::close_ingress();
 }
 
 TEST(RemoteSession, ConnectsAuthenticatesSubscribesRequestsAndUnsubscribesOverWebSocket) {
@@ -1931,6 +2776,318 @@ TEST(QueryEngine, AppliesPerQueryEnabledToolsToAnthropicRequest) {
     fs::remove_all(root);
 }
 
+TEST(QueryEngine, SnipMetadataProjectsRemovedMessagesFromAnthropicRequest) {
+    LocalAnthropicMessagesServer server;
+    ASSERT_NE(server.port(), 0);
+
+    auto root = fs::temp_directory_path() / "cc-repl-query-engine-snip-projection-test";
+    fs::remove_all(root);
+    fs::create_directories(root);
+
+    cc::core::ToolRegistry registry;
+    cc::core::QueryEngineConfig config;
+    config.api_key = "test-key";
+    config.base_url = server.base_url();
+    config.cwd = root.string();
+    config.retry_policy.max_retries = 0;
+    config.thinking_config.mode = cc::core::ThinkingConfig::Mode::Disabled;
+    cc::core::QueryEngine engine(std::move(config), registry);
+
+    cc::core::UserMessage old_user{};
+    old_user.id.value = "snipped-user-id";
+    old_user.timestamp = std::chrono::system_clock::now();
+    old_user.content.push_back(cc::core::TextBlock{"SNIPPED_USER_PAYLOAD_DO_NOT_SEND"});
+    engine.append_message_for_testing(cc::core::Message{std::move(old_user)});
+
+    cc::core::AssistantMessage old_assistant{};
+    old_assistant.id.value = "snipped-assistant-id";
+    old_assistant.timestamp = std::chrono::system_clock::now();
+    old_assistant.content.push_back(cc::core::TextBlock{"SNIPPED_ASSISTANT_PAYLOAD_DO_NOT_SEND"});
+    engine.append_message_for_testing(cc::core::Message{std::move(old_assistant)});
+
+    cc::core::SystemMessage snip_boundary{};
+    snip_boundary.id.value = "snip-boundary-id";
+    snip_boundary.timestamp = std::chrono::system_clock::now();
+    snip_boundary.subtype = "snip_boundary";
+    snip_boundary.content.push_back(cc::core::TextBlock{"Conversation snipped."});
+    snip_boundary.snip_metadata = cc::core::SnipMetadata{
+        .removed_uuids = {"snipped-user-id", "snipped-assistant-id"},
+    };
+    engine.append_message_for_testing(cc::core::Message{std::move(snip_boundary)});
+
+    cc::core::UserMessage survivor{};
+    survivor.id.value = "survivor-user-id";
+    survivor.timestamp = std::chrono::system_clock::now();
+    survivor.content.push_back(cc::core::TextBlock{"SURVIVOR_PAYLOAD_SHOULD_SEND"});
+    engine.append_message_for_testing(cc::core::Message{std::move(survivor)});
+
+    auto response = engine.query("fresh prompt after snip");
+    ASSERT_TRUE(response.has_value()) << response.error().message;
+
+    auto request_body = server.wait_for_body();
+    ASSERT_TRUE(request_body.has_value());
+    EXPECT_EQ(request_body->find("SNIPPED_USER_PAYLOAD_DO_NOT_SEND"), std::string::npos)
+        << *request_body;
+    EXPECT_EQ(request_body->find("SNIPPED_ASSISTANT_PAYLOAD_DO_NOT_SEND"), std::string::npos)
+        << *request_body;
+    EXPECT_EQ(request_body->find("snipped-user-id"), std::string::npos) << *request_body;
+    EXPECT_EQ(request_body->find("snipped-assistant-id"), std::string::npos) << *request_body;
+    EXPECT_NE(request_body->find("SURVIVOR_PAYLOAD_SHOULD_SEND"), std::string::npos)
+        << *request_body;
+    EXPECT_NE(request_body->find("fresh prompt after snip"), std::string::npos)
+        << *request_body;
+
+    auto conversation = engine.get_conversation();
+    auto contains_message_id = [&](std::string_view id) {
+        return std::ranges::any_of(conversation, [&](const cc::core::Message& msg) {
+            return std::visit([&](const auto& value) {
+                return value.id.value == id;
+            }, msg);
+        });
+    };
+    EXPECT_FALSE(contains_message_id("snipped-user-id"));
+    EXPECT_FALSE(contains_message_id("snipped-assistant-id"));
+    EXPECT_TRUE(contains_message_id("snip-boundary-id"));
+    EXPECT_TRUE(contains_message_id("survivor-user-id"));
+
+    fs::remove_all(root);
+}
+
+TEST(ApiMicrocompact, BuildsThinkingAndToolContextManagementStrategies) {
+    EnvironmentGuard user_type_guard("USER_TYPE", "ant");
+    EnvironmentGuard clear_results_guard("USE_API_CLEAR_TOOL_RESULTS", "1");
+    EnvironmentGuard clear_uses_guard("USE_API_CLEAR_TOOL_USES", "true");
+    EnvironmentGuard max_tokens_guard("API_MAX_INPUT_TOKENS", "1000");
+    EnvironmentGuard target_tokens_guard("API_TARGET_INPUT_TOKENS", "250");
+
+    auto context = cc::services::compact::get_api_context_management({
+        .has_thinking = true,
+        .is_redact_thinking_active = false,
+        .clear_all_thinking = true,
+    });
+
+    ASSERT_TRUE(context.has_value());
+    ASSERT_EQ(context->edits.size(), 3u);
+
+    EXPECT_EQ(context->edits[0].type, "clear_thinking_20251015");
+    EXPECT_TRUE(context->edits[0].has_thinking_keep);
+    ASSERT_TRUE(context->edits[0].keep_thinking_turns.has_value());
+    EXPECT_EQ(*context->edits[0].keep_thinking_turns, 1u);
+
+    EXPECT_EQ(context->edits[1].type, "clear_tool_uses_20250919");
+    ASSERT_TRUE(context->edits[1].trigger_input_tokens.has_value());
+    ASSERT_TRUE(context->edits[1].clear_at_least_input_tokens.has_value());
+    EXPECT_EQ(*context->edits[1].trigger_input_tokens, 1000u);
+    EXPECT_EQ(*context->edits[1].clear_at_least_input_tokens, 750u);
+    EXPECT_TRUE(std::ranges::contains(context->edits[1].clear_tool_inputs, std::string{"Bash"}));
+    EXPECT_TRUE(std::ranges::contains(context->edits[1].clear_tool_inputs, std::string{"Read"}));
+
+    EXPECT_EQ(context->edits[2].type, "clear_tool_uses_20250919");
+    EXPECT_TRUE(std::ranges::contains(context->edits[2].exclude_tools, std::string{"Edit"}));
+    EXPECT_TRUE(std::ranges::contains(context->edits[2].exclude_tools, std::string{"Write"}));
+    EXPECT_TRUE(std::ranges::contains(context->edits[2].exclude_tools, std::string{"NotebookEdit"}));
+}
+
+TEST(QueryEngine, SerializesTaskBudgetAndApiContextManagementRequestConfig) {
+    EnvironmentUnsetGuard disable_thinking_guard("CLAUDE_CODE_DISABLE_THINKING");
+    EnvironmentGuard user_type_guard("USER_TYPE", "ant");
+    EnvironmentGuard clear_results_guard("USE_API_CLEAR_TOOL_RESULTS", "1");
+    EnvironmentGuard clear_uses_guard("USE_API_CLEAR_TOOL_USES", "1");
+    EnvironmentGuard max_tokens_guard("API_MAX_INPUT_TOKENS", "1000");
+    EnvironmentGuard target_tokens_guard("API_TARGET_INPUT_TOKENS", "250");
+
+    LocalAnthropicMessagesServer server;
+    ASSERT_NE(server.port(), 0);
+
+    auto root = fs::temp_directory_path() / "cc-repl-query-engine-task-budget-context-management-test";
+    fs::remove_all(root);
+    fs::create_directories(root);
+
+    cc::core::ToolRegistry registry;
+    cc::core::QueryEngineConfig config;
+    config.api_key = "test-key";
+    config.base_url = server.base_url();
+    config.cwd = root.string();
+    config.retry_policy.max_retries = 0;
+    config.thinking_config.mode = cc::core::ThinkingConfig::Mode::Adaptive;
+    config.task_budget = cc::core::QueryEngineConfig::TaskBudget{
+        .total = 12'000,
+        .remaining = 6'000,
+    };
+
+    cc::core::QueryEngine engine(std::move(config), registry);
+    auto response = engine.query("hello");
+    ASSERT_TRUE(response.has_value()) << response.error().message;
+
+    auto request_body = server.wait_for_body();
+    ASSERT_TRUE(request_body.has_value());
+    auto parsed = cc::utils::json::parse(*request_body);
+    ASSERT_TRUE(parsed.has_value()) << parsed.error().message();
+
+    auto output_config = parsed->root().get("output_config");
+    ASSERT_TRUE(output_config.is_obj()) << *request_body;
+    auto task_budget = output_config.get("task_budget");
+    ASSERT_TRUE(task_budget.is_obj()) << *request_body;
+    EXPECT_EQ(task_budget.get("type").as_str(), "tokens");
+    EXPECT_EQ(task_budget.get("total").as_int(), 12'000);
+    EXPECT_EQ(task_budget.get("remaining").as_int(), 6'000);
+
+    auto context_management = parsed->root().get("context_management");
+    ASSERT_TRUE(context_management.is_obj()) << *request_body;
+    auto edits = context_management.get("edits");
+    ASSERT_TRUE(edits.is_arr()) << *request_body;
+    ASSERT_EQ(edits.size(), 3u) << *request_body;
+
+    EXPECT_EQ(edits.at(0).get("type").as_str(), "clear_thinking_20251015");
+    EXPECT_EQ(edits.at(0).get("keep").as_str(), "all");
+    EXPECT_EQ(edits.at(1).get("trigger").get("value").as_int(), 1000);
+    EXPECT_EQ(edits.at(1).get("clear_at_least").get("value").as_int(), 750);
+    EXPECT_TRUE(edits.at(1).get("clear_tool_inputs").is_arr());
+    EXPECT_TRUE(edits.at(2).get("exclude_tools").is_arr());
+
+    auto headers = server.wait_for_headers();
+    ASSERT_TRUE(headers.has_value());
+    EXPECT_NE(headers->find("task-budgets-2026-03-13"), std::string::npos) << *headers;
+    EXPECT_NE(headers->find("context-management-2025-06-27"), std::string::npos) << *headers;
+
+    fs::remove_all(root);
+}
+
+TEST(QueryEngine, DisableThinkingEnvSuppressesThinkingAndClearThinkingContextManagement) {
+    EnvironmentGuard disable_thinking_guard("CLAUDE_CODE_DISABLE_THINKING", "1");
+    EnvironmentUnsetGuard user_type_guard("USER_TYPE");
+    EnvironmentUnsetGuard clear_results_guard("USE_API_CLEAR_TOOL_RESULTS");
+    EnvironmentUnsetGuard clear_uses_guard("USE_API_CLEAR_TOOL_USES");
+
+    LocalAnthropicMessagesServer server;
+    ASSERT_NE(server.port(), 0);
+
+    auto root = fs::temp_directory_path() / "cc-repl-query-engine-disable-thinking-test";
+    fs::remove_all(root);
+    fs::create_directories(root);
+
+    cc::core::ToolRegistry registry;
+    cc::core::QueryEngineConfig config;
+    config.api_key = "test-key";
+    config.base_url = server.base_url();
+    config.cwd = root.string();
+    config.retry_policy.max_retries = 0;
+    config.thinking_config.mode = cc::core::ThinkingConfig::Mode::Adaptive;
+
+    cc::core::QueryEngine engine(std::move(config), registry);
+    auto response = engine.query("hello");
+    ASSERT_TRUE(response.has_value()) << response.error().message;
+
+    auto request_body = server.wait_for_body();
+    ASSERT_TRUE(request_body.has_value());
+    auto parsed = cc::utils::json::parse(*request_body);
+    ASSERT_TRUE(parsed.has_value()) << parsed.error().message();
+    EXPECT_FALSE(parsed->root().get("thinking").valid()) << *request_body;
+    EXPECT_FALSE(parsed->root().get("context_management").valid()) << *request_body;
+
+    auto headers = server.wait_for_headers();
+    ASSERT_TRUE(headers.has_value());
+    EXPECT_EQ(headers->find("context-management-2025-06-27"), std::string::npos)
+        << *headers;
+
+    fs::remove_all(root);
+}
+
+TEST(QueryEngine, InjectsPendingNativeAgentTaskNotificationsIntoRequest) {
+    LocalAnthropicMessagesServer server;
+    ASSERT_NE(server.port(), 0);
+
+    auto root = fs::temp_directory_path() / "cc-repl-query-engine-agent-notification-test";
+    fs::remove_all(root);
+    fs::create_directories(root);
+    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    cc::tools::agent_runtime::native_agent_store().clear_for_testing();
+
+    cc::tools::agent_runtime::native_agent_store().upsert(cc::tools::agent_runtime::NativeAgentRecord{
+        .agent_id = "query-notify-agent",
+        .agent_type = "general-purpose",
+        .description = "Query notify agent",
+        .background = true,
+        .status = cc::tools::agent_runtime::NativeAgentStatus::Completed,
+        .output = std::string("native agent completed with useful context"),
+    });
+
+    cc::core::ToolRegistry registry;
+    cc::core::QueryEngineConfig config;
+    config.api_key = "test-key";
+    config.base_url = server.base_url();
+    config.cwd = root.string();
+    config.retry_policy.max_retries = 0;
+    config.thinking_config.mode = cc::core::ThinkingConfig::Mode::Disabled;
+
+    cc::core::QueryEngine engine(std::move(config), registry);
+    auto first_response = engine.query("hello");
+    ASSERT_TRUE(first_response.has_value()) << first_response.error().message;
+
+    auto first_body = server.wait_for_body();
+    ASSERT_TRUE(first_body.has_value());
+    auto first_json = cc::utils::json::parse(*first_body);
+    ASSERT_TRUE(first_json.has_value()) << first_json.error().message();
+
+    auto message_text = [](cc::utils::json::JsonVal message) {
+        auto content = message.get("content");
+        if (content.is_str()) return std::string(content.as_str());
+        std::string text;
+        if (content.is_arr()) {
+            content.iter([&](cc::utils::json::JsonVal block) {
+                auto block_text = block.get("text");
+                if (block_text.is_str()) text += block_text.as_str();
+            });
+        }
+        return text;
+    };
+    auto notification_count = [&](cc::utils::json::JsonVal messages) {
+        std::size_t count = 0;
+        messages.iter([&](cc::utils::json::JsonVal message) {
+            if (message_text(message).find("<task_notification>") != std::string::npos) {
+                ++count;
+            }
+        });
+        return count;
+    };
+
+    auto first_messages = first_json->root().get("messages");
+    ASSERT_TRUE(first_messages.is_arr()) << *first_body;
+    ASSERT_EQ(notification_count(first_messages), 1u) << *first_body;
+
+    bool saw_user_notification = false;
+    first_messages.iter([&](cc::utils::json::JsonVal message) {
+        const auto text = message_text(message);
+        if (text.find("<task_notification>") == std::string::npos) return;
+        EXPECT_EQ(std::string(message.get("role").as_str()), "user");
+        EXPECT_NE(text.find("<task_id>query-notify-agent</task_id>"), std::string::npos);
+        EXPECT_NE(text.find("<status>completed</status>"), std::string::npos);
+        EXPECT_NE(text.find("native agent completed with useful context"), std::string::npos);
+        saw_user_notification = true;
+    });
+    EXPECT_TRUE(saw_user_notification);
+
+    auto delivered_record = cc::tools::agent_runtime::native_agent_store().get("query-notify-agent");
+    ASSERT_TRUE(delivered_record.has_value());
+    EXPECT_TRUE(delivered_record->notification_delivered);
+    EXPECT_TRUE(cc::tools::agent_runtime::native_agent_store().take_pending_task_notifications().empty());
+
+    auto second_response = engine.query("follow up");
+    ASSERT_TRUE(second_response.has_value()) << second_response.error().message;
+    auto request_bodies = server.wait_for_bodies(2);
+    ASSERT_TRUE(request_bodies.has_value());
+    ASSERT_EQ(request_bodies->size(), 2u);
+
+    auto second_json = cc::utils::json::parse(request_bodies->back());
+    ASSERT_TRUE(second_json.has_value()) << second_json.error().message();
+    auto second_messages = second_json->root().get("messages");
+    ASSERT_TRUE(second_messages.is_arr()) << request_bodies->back();
+    EXPECT_EQ(notification_count(second_messages), 1u) << request_bodies->back();
+
+    cc::tools::agent_runtime::native_agent_store().clear_for_testing();
+    fs::remove_all(root);
+}
+
 TEST(QueryEngine, CompactConversationPreservesSummarizedHistoryDetails) {
     cc::core::ToolRegistry registry;
     cc::core::QueryEngineConfig config;
@@ -1998,6 +3155,631 @@ TEST(QueryEngine, CompactConversationPreservesSummarizedHistoryDetails) {
     const auto* last_text = std::get_if<cc::core::TextBlock>(&last->content.front());
     ASSERT_NE(last_text, nullptr);
     EXPECT_EQ(last_text->text, "recent six");
+}
+
+TEST(QueryEngine, CompactConversationCarriesTaskBudgetRemainingIntoNextRequest) {
+    LocalAnthropicMessagesServer server;
+    ASSERT_NE(server.port(), 0);
+
+    auto root = fs::temp_directory_path() / "cc-repl-query-task-budget-compact-carry-test";
+    fs::remove_all(root);
+    fs::create_directories(root);
+
+    cc::core::ToolRegistry registry;
+    cc::core::QueryEngineConfig config;
+    config.api_key = "test-key";
+    config.base_url = server.base_url();
+    config.context_window.auto_compact = false;
+    config.cwd = root.string();
+    config.retry_policy.max_retries = 0;
+    config.thinking_config.mode = cc::core::ThinkingConfig::Mode::Disabled;
+    config.task_budget = cc::core::QueryEngineConfig::TaskBudget{
+        .total = 10'000,
+        .remaining = std::nullopt,
+    };
+
+    cc::core::QueryEngine engine(std::move(config), registry);
+
+    auto make_user = [](std::string text) {
+        cc::core::UserMessage msg{};
+        msg.id.value = "user-" + text.substr(0, 12);
+        msg.timestamp = std::chrono::system_clock::now();
+        msg.content.push_back(cc::core::TextBlock{std::move(text)});
+        return cc::core::Message{std::move(msg)};
+    };
+    auto make_assistant = [](std::string text) {
+        cc::core::AssistantMessage msg{};
+        msg.id.value = "assistant-" + text.substr(0, 12);
+        msg.timestamp = std::chrono::system_clock::now();
+        msg.content.push_back(cc::core::TextBlock{std::move(text)});
+        return cc::core::Message{std::move(msg)};
+    };
+
+    for (int i = 0; i < 5; ++i) {
+        engine.append_message_for_testing(make_user("legacy user context " + std::to_string(i) + std::string(160, 'u')));
+        engine.append_message_for_testing(make_assistant("legacy assistant context " + std::to_string(i) + std::string(160, 'a')));
+    }
+
+    auto compacted = engine.compact_conversation("auto");
+    ASSERT_TRUE(compacted.has_value());
+
+    auto conversation = engine.get_conversation();
+    auto boundary_it = std::ranges::find_if(conversation, [](const cc::core::Message& message) {
+        const auto* system = std::get_if<cc::core::SystemMessage>(&message);
+        return system && system->subtype && *system->subtype == "compact_boundary";
+    });
+    ASSERT_NE(boundary_it, conversation.end());
+    const auto* boundary = std::get_if<cc::core::SystemMessage>(&*boundary_it);
+    ASSERT_NE(boundary, nullptr);
+    ASSERT_TRUE(boundary->compact_metadata.has_value());
+    const auto pre_tokens = boundary->compact_metadata->pre_tokens;
+    ASSERT_GT(pre_tokens, 0u);
+    ASSERT_LT(pre_tokens, 10'000u);
+
+    auto response = engine.query("continue after compact");
+    ASSERT_TRUE(response.has_value()) << response.error().message;
+
+    auto request_body = server.wait_for_body();
+    ASSERT_TRUE(request_body.has_value());
+    auto parsed = cc::utils::json::parse(*request_body);
+    ASSERT_TRUE(parsed.has_value()) << parsed.error().message();
+    auto task_budget = parsed->root().get("output_config").get("task_budget");
+    ASSERT_TRUE(task_budget.is_obj()) << *request_body;
+    EXPECT_EQ(task_budget.get("total").as_int(), 10'000);
+    EXPECT_EQ(task_budget.get("remaining").as_int(), 10'000 - pre_tokens);
+
+    fs::remove_all(root);
+}
+
+TEST(QueryEngine, RestoreConversationDerivesTaskBudgetRemainingFromCompactBoundaryMetadata) {
+    auto root = fs::temp_directory_path() / "cc-repl-query-task-budget-restore-test";
+    fs::remove_all(root);
+    fs::create_directories(root);
+
+    cc::core::ToolRegistry registry;
+    cc::core::QueryEngineConfig config;
+    config.context_window.auto_compact = false;
+    config.cwd = root.string();
+    config.thinking_config.mode = cc::core::ThinkingConfig::Mode::Disabled;
+    config.task_budget = cc::core::QueryEngineConfig::TaskBudget{
+        .total = 10'000,
+        .remaining = std::nullopt,
+    };
+
+    cc::core::QueryEngine engine(std::move(config), registry);
+
+    auto make_user = [](std::string text) {
+        cc::core::UserMessage msg{};
+        msg.id.value = "restore-user-" + text.substr(0, 12);
+        msg.timestamp = std::chrono::system_clock::now();
+        msg.content.push_back(cc::core::TextBlock{std::move(text)});
+        return cc::core::Message{std::move(msg)};
+    };
+    auto make_assistant = [](std::string text) {
+        cc::core::AssistantMessage msg{};
+        msg.id.value = "restore-assistant-" + text.substr(0, 12);
+        msg.timestamp = std::chrono::system_clock::now();
+        msg.content.push_back(cc::core::TextBlock{std::move(text)});
+        return cc::core::Message{std::move(msg)};
+    };
+
+    for (int i = 0; i < 5; ++i) {
+        engine.append_message_for_testing(make_user("restored legacy user context " + std::to_string(i) + std::string(160, 'u')));
+        engine.append_message_for_testing(make_assistant("restored legacy assistant context " + std::to_string(i) + std::string(160, 'a')));
+    }
+
+    auto compacted = engine.compact_conversation("auto");
+    ASSERT_TRUE(compacted.has_value());
+
+    auto restored_messages = engine.get_conversation();
+    auto boundary_it = std::ranges::find_if(restored_messages, [](const cc::core::Message& message) {
+        const auto* system = std::get_if<cc::core::SystemMessage>(&message);
+        return system && system->subtype && *system->subtype == "compact_boundary";
+    });
+    ASSERT_NE(boundary_it, restored_messages.end());
+    const auto* boundary = std::get_if<cc::core::SystemMessage>(&*boundary_it);
+    ASSERT_NE(boundary, nullptr);
+    ASSERT_TRUE(boundary->compact_metadata.has_value());
+    const auto pre_tokens = boundary->compact_metadata->pre_tokens;
+    ASSERT_GT(pre_tokens, 0u);
+    ASSERT_LT(pre_tokens, 10'000u);
+
+    LocalAnthropicMessagesServer resumed_server;
+    ASSERT_NE(resumed_server.port(), 0);
+    cc::core::ToolRegistry restored_registry;
+    cc::core::QueryEngineConfig restored_config;
+    restored_config.api_key = "test-key";
+    restored_config.base_url = resumed_server.base_url();
+    restored_config.context_window.auto_compact = false;
+    restored_config.cwd = root.string();
+    restored_config.retry_policy.max_retries = 0;
+    restored_config.thinking_config.mode = cc::core::ThinkingConfig::Mode::Disabled;
+    restored_config.task_budget = cc::core::QueryEngineConfig::TaskBudget{
+        .total = 10'000,
+        .remaining = std::nullopt,
+    };
+
+    cc::core::QueryEngine restored_engine(std::move(restored_config), restored_registry);
+    restored_engine.restore_conversation(std::move(restored_messages));
+
+    auto response = restored_engine.query("continue after restore");
+    ASSERT_TRUE(response.has_value()) << response.error().message;
+
+    auto request_body = resumed_server.wait_for_body();
+    ASSERT_TRUE(request_body.has_value());
+    auto parsed = cc::utils::json::parse(*request_body);
+    ASSERT_TRUE(parsed.has_value()) << parsed.error().message();
+    auto task_budget = parsed->root().get("output_config").get("task_budget");
+    ASSERT_TRUE(task_budget.is_obj()) << *request_body;
+    EXPECT_EQ(task_budget.get("total").as_int(), 10'000);
+    EXPECT_EQ(task_budget.get("remaining").as_int(), 10'000 - pre_tokens);
+
+    fs::remove_all(root);
+}
+
+TEST(QueryEngine, RepeatedCompactDoesNotSummarizePriorCompactBoundaries) {
+    cc::core::ToolRegistry registry;
+    cc::core::QueryEngineConfig config;
+    config.context_window.auto_compact = false;
+    config.cwd = fs::temp_directory_path().string();
+
+    cc::core::QueryEngine engine(std::move(config), registry);
+
+    auto make_user = [](std::string text) {
+        cc::core::UserMessage msg{};
+        msg.id.value = "repeat-user-" + text;
+        msg.timestamp = std::chrono::system_clock::now();
+        msg.content.push_back(cc::core::TextBlock{std::move(text)});
+        return cc::core::Message{std::move(msg)};
+    };
+    auto make_assistant = [](std::string text) {
+        cc::core::AssistantMessage msg{};
+        msg.id.value = "repeat-assistant-" + text;
+        msg.timestamp = std::chrono::system_clock::now();
+        msg.content.push_back(cc::core::TextBlock{std::move(text)});
+        return cc::core::Message{std::move(msg)};
+    };
+
+    for (int i = 0; i < 10; ++i) {
+        engine.append_message_for_testing(i % 2 == 0
+            ? make_user("initial " + std::to_string(i))
+            : make_assistant("initial " + std::to_string(i)));
+    }
+
+    auto first = engine.compact_conversation();
+    ASSERT_TRUE(first.has_value());
+
+    for (int i = 0; i < 6; ++i) {
+        engine.append_message_for_testing(i % 2 == 0
+            ? make_user("second wave " + std::to_string(i))
+            : make_assistant("second wave " + std::to_string(i)));
+    }
+
+    auto second = engine.compact_conversation();
+    ASSERT_TRUE(second.has_value());
+
+    auto conversation = engine.get_conversation();
+    auto boundary_count = std::ranges::count_if(conversation, [](const cc::core::Message& message) {
+        const auto* system = std::get_if<cc::core::SystemMessage>(&message);
+        return system && system->subtype && *system->subtype == "compact_boundary";
+    });
+    EXPECT_EQ(boundary_count, 1);
+
+    const auto* marker = std::get_if<cc::core::UserMessage>(&conversation.at(2));
+    ASSERT_NE(marker, nullptr);
+    ASSERT_EQ(marker->content.size(), 1u);
+    const auto* summary = std::get_if<cc::core::TextBlock>(&marker->content.front());
+    ASSERT_NE(summary, nullptr);
+    EXPECT_EQ(summary->text.find("Conversation compacted by manual compact."), std::string::npos);
+    EXPECT_NE(summary->text.find("initial 0"), std::string::npos);
+
+    bool kept_second_wave = false;
+    for (const auto& message : conversation) {
+        const auto* user = std::get_if<cc::core::UserMessage>(&message);
+        if (!user || user->content.empty()) continue;
+        const auto* text = std::get_if<cc::core::TextBlock>(&user->content.front());
+        if (text && text->text == "second wave 0") {
+            kept_second_wave = true;
+            break;
+        }
+    }
+    EXPECT_TRUE(kept_second_wave);
+}
+
+TEST(QueryEngine, AutoCompactWritesBoundaryMetadataAndKeepsRecentTail) {
+    cc::core::ToolRegistry registry;
+    cc::core::QueryEngineConfig config;
+    config.context_window.auto_compact = true;
+    config.context_window.max_context_tokens = 2000;
+    config.context_window.compaction_threshold = 0.05;
+    config.cwd = fs::temp_directory_path().string();
+
+    cc::core::QueryEngine engine(std::move(config), registry);
+
+    auto make_user = [](int index) {
+        cc::core::UserMessage msg{};
+        msg.id.value = "auto-user-" + std::to_string(index);
+        msg.timestamp = std::chrono::system_clock::now();
+        msg.content.push_back(cc::core::TextBlock{
+            "auto compact payload " + std::to_string(index) + " " + std::string(900, 'x')});
+        return cc::core::Message{std::move(msg)};
+    };
+
+    for (int i = 0; i < 12; ++i) {
+        engine.append_message_for_testing(make_user(i));
+    }
+
+    auto conversation = engine.get_conversation();
+    auto boundary_count = std::ranges::count_if(conversation, [](const cc::core::Message& message) {
+        const auto* system = std::get_if<cc::core::SystemMessage>(&message);
+        return system && system->subtype && *system->subtype == "compact_boundary";
+    });
+    ASSERT_EQ(boundary_count, 1);
+    ASSERT_LE(conversation.size(), 9u);
+
+    auto boundary_it = std::ranges::find_if(conversation, [](const cc::core::Message& message) {
+        const auto* system = std::get_if<cc::core::SystemMessage>(&message);
+        return system && system->subtype && *system->subtype == "compact_boundary";
+    });
+    ASSERT_NE(boundary_it, conversation.end());
+    const auto boundary_index = static_cast<std::size_t>(std::distance(conversation.begin(), boundary_it));
+
+    const auto* boundary = std::get_if<cc::core::SystemMessage>(&*boundary_it);
+    ASSERT_NE(boundary, nullptr);
+    ASSERT_TRUE(boundary->compact_metadata.has_value());
+    EXPECT_EQ(boundary->compact_metadata->trigger, "auto");
+    EXPECT_GT(boundary->compact_metadata->pre_tokens, 0u);
+    ASSERT_TRUE(boundary->compact_metadata->preserved_segment.has_value());
+
+    ASSERT_LT(boundary_index + 1, conversation.size());
+    const auto* marker = std::get_if<cc::core::UserMessage>(&conversation[boundary_index + 1]);
+    ASSERT_NE(marker, nullptr);
+    EXPECT_EQ(boundary->compact_metadata->preserved_segment->anchor_uuid, marker->id.value);
+
+    const auto last_id = std::visit([](const auto& msg) { return msg.id.value; }, conversation.back());
+    EXPECT_EQ(boundary->compact_metadata->preserved_segment->tail_uuid, last_id);
+
+    ASSERT_EQ(marker->content.size(), 1u);
+    const auto* summary = std::get_if<cc::core::TextBlock>(&marker->content.front());
+    ASSERT_NE(summary, nullptr);
+    EXPECT_NE(summary->text.find("Preserve these details"), std::string::npos);
+    EXPECT_NE(summary->text.find("auto compact payload"), std::string::npos);
+}
+
+TEST(QueryEngine, ReactiveCompactRetriesPromptTooLongAfterWritingBoundary) {
+    LocalAnthropicMessagesServer server(
+        {
+            R"({"error":{"type":"invalid_request_error","message":"prompt_too_long"}})",
+            R"({"id":"msg_reactive","type":"message","role":"assistant","model":"claude-test","content":[{"type":"text","text":"reactive-ok"}],"stop_reason":"end_turn","usage":{"input_tokens":2,"output_tokens":3}})",
+        },
+        {413, 200});
+    ASSERT_NE(server.port(), 0);
+
+    cc::core::ToolRegistry registry;
+    cc::core::QueryEngineConfig config;
+    config.api_key = "test-key";
+    config.base_url = server.base_url();
+    config.context_window.auto_compact = false;
+    config.cwd = fs::temp_directory_path().string();
+    config.retry_policy.max_retries = 0;
+    config.thinking_config.mode = cc::core::ThinkingConfig::Mode::Disabled;
+
+    cc::core::QueryEngine engine(std::move(config), registry);
+
+    for (int i = 0; i < 10; ++i) {
+        cc::core::UserMessage msg{};
+        msg.id.value = "reactive-user-" + std::to_string(i);
+        msg.timestamp = std::chrono::system_clock::now();
+        msg.content.push_back(cc::core::TextBlock{
+            "reactive legacy " + std::to_string(i) + " " + std::string(600, 'r')});
+        engine.append_message_for_testing(cc::core::Message{std::move(msg)});
+    }
+
+    auto response = engine.query("trigger reactive compact");
+    ASSERT_TRUE(response.has_value()) << response.error().message;
+    ASSERT_FALSE(response->message.content.empty());
+    const auto* response_text = std::get_if<cc::core::TextBlock>(&response->message.content.front());
+    ASSERT_NE(response_text, nullptr);
+    EXPECT_EQ(response_text->text, "reactive-ok");
+
+    auto request_bodies = server.wait_for_bodies(2);
+    ASSERT_TRUE(request_bodies.has_value());
+    ASSERT_EQ(request_bodies->size(), 2u);
+
+    auto count_messages = [](std::string_view body) {
+        auto parsed = cc::utils::json::parse(body);
+        if (!parsed) return std::size_t{0};
+        std::size_t count = 0;
+        auto messages = parsed->root().get("messages");
+        if (messages.is_arr()) {
+            messages.iter([&](cc::utils::json::JsonVal) { ++count; });
+        }
+        return count;
+    };
+
+    const auto first_count = count_messages(request_bodies->front());
+    const auto second_count = count_messages(request_bodies->back());
+    EXPECT_GT(first_count, second_count);
+    EXPECT_NE(request_bodies->back().find("Preserve these details"), std::string::npos);
+    EXPECT_EQ(request_bodies->back().find("compact_boundary"), std::string::npos);
+
+    auto conversation = engine.get_conversation();
+    auto boundary_it = std::ranges::find_if(conversation, [](const cc::core::Message& message) {
+        const auto* system = std::get_if<cc::core::SystemMessage>(&message);
+        return system && system->subtype && *system->subtype == "compact_boundary";
+    });
+    ASSERT_NE(boundary_it, conversation.end());
+    const auto* boundary = std::get_if<cc::core::SystemMessage>(&*boundary_it);
+    ASSERT_NE(boundary, nullptr);
+    ASSERT_TRUE(boundary->compact_metadata.has_value());
+    EXPECT_EQ(boundary->compact_metadata->trigger, "reactive");
+}
+
+TEST(QueryEngine, AppliesMainThreadToolResultBudgetBeforeModelRequest) {
+    LocalAnthropicMessagesServer server;
+    ASSERT_NE(server.port(), 0);
+
+    auto root = fs::temp_directory_path() / "cc-repl-query-tool-result-budget-test";
+    fs::remove_all(root);
+    fs::create_directories(root);
+    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+
+    cc::core::ToolRegistry registry;
+    registry.register_tool(std::make_unique<DefinitionOnlyTool>(cc::core::ToolDefinition{
+        .name = "Bash",
+        .description = "Execute shell",
+        .input_schema = {},
+        .permission = cc::core::ToolPermission::Execute,
+        .max_result_size_chars = 30'000,
+    }));
+    registry.register_tool(std::make_unique<DefinitionOnlyTool>(cc::core::ToolDefinition{
+        .name = "Read",
+        .description = "Read file",
+        .input_schema = {},
+        .permission = cc::core::ToolPermission::ReadOnly,
+        .max_result_size_chars = 0,
+        .max_result_size_unbounded = true,
+    }));
+
+    cc::core::QueryEngineConfig config;
+    config.api_key = "test-key";
+    config.base_url = server.base_url();
+    config.context_window.auto_compact = false;
+    config.cwd = root.string();
+    config.retry_policy.max_retries = 0;
+    config.thinking_config.mode = cc::core::ThinkingConfig::Mode::Disabled;
+
+    cc::core::QueryEngine engine(std::move(config), registry);
+
+    cc::core::AssistantMessage assistant{};
+    assistant.id.value = "assistant-tool-uses";
+    assistant.timestamp = std::chrono::system_clock::now();
+    assistant.content.push_back(cc::core::ToolUseBlock{
+        .id = cc::core::ToolUseId{"bash-large-1"},
+        .name = "Bash",
+        .input_json = R"({"command":"one"})",
+    });
+    assistant.content.push_back(cc::core::ToolUseBlock{
+        .id = cc::core::ToolUseId{"bash-large-2"},
+        .name = "Bash",
+        .input_json = R"({"command":"two"})",
+    });
+    assistant.content.push_back(cc::core::ToolUseBlock{
+        .id = cc::core::ToolUseId{"read-unbounded"},
+        .name = "Read",
+        .input_json = R"({"file_path":"huge.txt"})",
+    });
+    engine.append_message_for_testing(cc::core::Message{std::move(assistant)});
+
+    auto append_tool_result = [&](std::string id, std::string text) {
+        cc::core::ToolResultMessage result{};
+        result.id.value = "result-" + id;
+        result.timestamp = std::chrono::system_clock::now();
+        result.tool_use_id = cc::core::ToolUseId{std::move(id)};
+        result.content.push_back(cc::core::TextBlock{std::move(text)});
+        engine.append_message_for_testing(cc::core::Message{std::move(result)});
+    };
+
+    append_tool_result("bash-large-1", std::string(170'000, 'b'));
+    append_tool_result("bash-large-2", std::string(160'000, 'c'));
+    append_tool_result("read-unbounded", std::string(250'000, 'r'));
+
+    auto response = engine.query("continue after tools");
+    ASSERT_TRUE(response.has_value()) << response.error().message;
+
+    auto request_body = server.wait_for_body();
+    ASSERT_TRUE(request_body.has_value());
+    EXPECT_NE(request_body->find("<persisted-output>"), std::string::npos);
+    EXPECT_NE(request_body->find("Output too large (170000 bytes)"), std::string::npos);
+    EXPECT_EQ(request_body->find(std::string(2'500, 'b')), std::string::npos);
+    EXPECT_NE(request_body->find(std::string(2'500, 'c')), std::string::npos);
+    EXPECT_NE(request_body->find(std::string(2'500, 'r')), std::string::npos);
+
+    auto persisted_dir = root / "runtime" / "tool-results";
+    ASSERT_TRUE(fs::exists(persisted_dir));
+    bool saw_persisted_file = false;
+    for (const auto& entry : fs::directory_iterator(persisted_dir)) {
+        if (!entry.is_regular_file()) continue;
+        if (entry.path().filename().string().find("bash-large-1") != std::string::npos) {
+            saw_persisted_file = true;
+            EXPECT_EQ(fs::file_size(entry.path()), 170'000u);
+        }
+    }
+    EXPECT_TRUE(saw_persisted_file);
+
+    const auto conversation = engine.get_conversation();
+    auto replacement_for = [](const std::vector<cc::core::Message>& messages, std::string_view tool_use_id) {
+        for (const auto& message : messages) {
+            const auto* tool_result = std::get_if<cc::core::ToolResultMessage>(&message);
+            if (!tool_result || tool_result->tool_use_id.value != tool_use_id) continue;
+            if (tool_result->content.empty()) return std::optional<std::string>{};
+            const auto* text = std::get_if<cc::core::TextBlock>(&tool_result->content.front());
+            if (!text) return std::optional<std::string>{};
+            return std::optional<std::string>{text->text};
+        }
+        return std::optional<std::string>{};
+    };
+    auto original_replacement = replacement_for(conversation, "bash-large-1");
+    ASSERT_TRUE(original_replacement.has_value());
+    ASSERT_NE(original_replacement->find("<persisted-output>"), std::string::npos);
+
+    auto storage_path = root / "history.json";
+    {
+        cc::core::ConversationStore store(storage_path.string());
+        auto* stored = store.create_conversation();
+        for (const auto& message : conversation) {
+            stored->add_message(message);
+        }
+        ASSERT_TRUE(store.save_all().has_value());
+    }
+
+    cc::core::ConversationStore loaded(storage_path.string());
+    ASSERT_TRUE(loaded.load_all().has_value());
+    auto restored_messages = loaded.get_active_conversation()->get_messages();
+    auto restored_replacement = replacement_for(restored_messages, "bash-large-1");
+    ASSERT_TRUE(restored_replacement.has_value());
+    EXPECT_EQ(*restored_replacement, *original_replacement);
+
+    LocalAnthropicMessagesServer resumed_server;
+    ASSERT_NE(resumed_server.port(), 0);
+    cc::core::ToolRegistry restored_registry;
+    restored_registry.register_tool(std::make_unique<DefinitionOnlyTool>(cc::core::ToolDefinition{
+        .name = "Bash",
+        .description = "Execute shell",
+        .input_schema = {},
+        .permission = cc::core::ToolPermission::Execute,
+        .max_result_size_chars = 30'000,
+    }));
+    restored_registry.register_tool(std::make_unique<DefinitionOnlyTool>(cc::core::ToolDefinition{
+        .name = "Read",
+        .description = "Read file",
+        .input_schema = {},
+        .permission = cc::core::ToolPermission::ReadOnly,
+        .max_result_size_chars = 0,
+        .max_result_size_unbounded = true,
+    }));
+
+    cc::core::QueryEngineConfig restored_config;
+    restored_config.api_key = "test-key";
+    restored_config.base_url = resumed_server.base_url();
+    restored_config.context_window.auto_compact = false;
+    restored_config.cwd = root.string();
+    restored_config.retry_policy.max_retries = 0;
+    restored_config.thinking_config.mode = cc::core::ThinkingConfig::Mode::Disabled;
+
+    cc::core::QueryEngine restored_engine(std::move(restored_config), restored_registry);
+    restored_engine.restore_conversation(std::move(restored_messages));
+    auto resumed_response = restored_engine.query("after resume");
+    ASSERT_TRUE(resumed_response.has_value()) << resumed_response.error().message;
+
+    auto resumed_body = resumed_server.wait_for_body();
+    ASSERT_TRUE(resumed_body.has_value());
+    EXPECT_NE(resumed_body->find("<persisted-output>"), std::string::npos);
+    EXPECT_NE(resumed_body->find("Output too large (170000 bytes)"), std::string::npos);
+    EXPECT_EQ(resumed_body->find(std::string(2'500, 'b')), std::string::npos);
+    EXPECT_NE(resumed_body->find(std::string(2'500, 'c')), std::string::npos);
+    EXPECT_NE(resumed_body->find(std::string(2'500, 'r')), std::string::npos);
+
+    fs::remove_all(root);
+}
+
+TEST(QueryEngine, TimeBasedMicrocompactClearsOldCompactableToolResultsBeforeRequest) {
+    EnvironmentGuard enable_guard("CC_REPL_TIME_BASED_MICROCOMPACT", "1");
+    EnvironmentGuard gap_guard("CC_REPL_TIME_BASED_MICROCOMPACT_GAP_MINUTES", "30");
+    EnvironmentGuard keep_guard("CC_REPL_TIME_BASED_MICROCOMPACT_KEEP_RECENT", "1");
+
+    LocalAnthropicMessagesServer server;
+    ASSERT_NE(server.port(), 0);
+
+    auto root = fs::temp_directory_path() / "cc-repl-query-time-based-microcompact-test";
+    fs::remove_all(root);
+    fs::create_directories(root);
+
+    cc::core::ToolRegistry registry;
+    cc::core::QueryEngineConfig config;
+    config.api_key = "test-key";
+    config.base_url = server.base_url();
+    config.context_window.auto_compact = false;
+    config.cwd = root.string();
+    config.retry_policy.max_retries = 0;
+    config.thinking_config.mode = cc::core::ThinkingConfig::Mode::Disabled;
+
+    cc::core::QueryEngine engine(std::move(config), registry);
+
+    const auto old_time = std::chrono::system_clock::now() - std::chrono::hours(2);
+    cc::core::AssistantMessage assistant{};
+    assistant.id.value = "assistant-old-tool-uses";
+    assistant.timestamp = old_time;
+    assistant.content.push_back(cc::core::ToolUseBlock{
+        .id = cc::core::ToolUseId{"read-old"},
+        .name = "Read",
+        .input_json = R"({"file_path":"old.txt"})",
+    });
+    assistant.content.push_back(cc::core::ToolUseBlock{
+        .id = cc::core::ToolUseId{"bash-old"},
+        .name = "Bash",
+        .input_json = R"({"command":"old"})",
+    });
+    assistant.content.push_back(cc::core::ToolUseBlock{
+        .id = cc::core::ToolUseId{"task-noncompact"},
+        .name = "Task",
+        .input_json = R"({"description":"noncompact"})",
+    });
+    assistant.content.push_back(cc::core::ToolUseBlock{
+        .id = cc::core::ToolUseId{"edit-recent"},
+        .name = "Edit",
+        .input_json = R"({"file_path":"recent.txt"})",
+    });
+    engine.append_message_for_testing(cc::core::Message{std::move(assistant)});
+
+    auto append_tool_result = [&](std::string id, std::string text) {
+        cc::core::ToolResultMessage result{};
+        result.id.value = "result-" + id;
+        result.timestamp = old_time;
+        result.tool_use_id = cc::core::ToolUseId{std::move(id)};
+        result.content.push_back(cc::core::TextBlock{std::move(text)});
+        engine.append_message_for_testing(cc::core::Message{std::move(result)});
+    };
+
+    append_tool_result("read-old", "OLD_READ_RESULT_SHOULD_CLEAR");
+    append_tool_result("bash-old", "OLD_BASH_RESULT_SHOULD_CLEAR");
+    append_tool_result("task-noncompact", "NONCOMPACT_TASK_RESULT_SHOULD_STAY");
+    append_tool_result("edit-recent", "RECENT_EDIT_RESULT_SHOULD_STAY");
+
+    auto response = engine.query("continue after cold cache");
+    ASSERT_TRUE(response.has_value()) << response.error().message;
+
+    auto request_body = server.wait_for_body();
+    ASSERT_TRUE(request_body.has_value());
+    EXPECT_EQ(request_body->find("OLD_READ_RESULT_SHOULD_CLEAR"), std::string::npos)
+        << *request_body;
+    EXPECT_EQ(request_body->find("OLD_BASH_RESULT_SHOULD_CLEAR"), std::string::npos)
+        << *request_body;
+    EXPECT_NE(request_body->find("[Old tool result content cleared]"), std::string::npos)
+        << *request_body;
+    EXPECT_NE(request_body->find("NONCOMPACT_TASK_RESULT_SHOULD_STAY"), std::string::npos)
+        << *request_body;
+    EXPECT_NE(request_body->find("RECENT_EDIT_RESULT_SHOULD_STAY"), std::string::npos)
+        << *request_body;
+
+    auto conversation = engine.get_conversation();
+    auto tool_result_text = [&](std::string_view tool_use_id) -> std::optional<std::string> {
+        for (const auto& message : conversation) {
+            const auto* result = std::get_if<cc::core::ToolResultMessage>(&message);
+            if (!result || result->tool_use_id.value != tool_use_id) continue;
+            if (result->content.empty()) return std::nullopt;
+            const auto* text = std::get_if<cc::core::TextBlock>(&result->content.front());
+            if (!text) return std::nullopt;
+            return text->text;
+        }
+        return std::nullopt;
+    };
+    EXPECT_EQ(tool_result_text("read-old"), std::optional<std::string>{"[Old tool result content cleared]"});
+    EXPECT_EQ(tool_result_text("bash-old"), std::optional<std::string>{"[Old tool result content cleared]"});
+    EXPECT_EQ(tool_result_text("task-noncompact"), std::optional<std::string>{"NONCOMPACT_TASK_RESULT_SHOULD_STAY"});
+    EXPECT_EQ(tool_result_text("edit-recent"), std::optional<std::string>{"RECENT_EDIT_RESULT_SHOULD_STAY"});
+
+    fs::remove_all(root);
 }
 
 TEST(ApiClient, MessageFromTextCreatesSingleTextBlock) {
@@ -2134,6 +3916,34 @@ TEST(ApiClient, RequestSerializerPreservesImageAndDocumentBlocks) {
     EXPECT_EQ(document.get("source").get("type").as_str(), "base64");
     EXPECT_EQ(document.get("source").get("media_type").as_str(), "application/pdf");
     EXPECT_EQ(document.get("source").get("data").as_str(), "JVBERi0xLjQ=");
+}
+
+TEST(ApiClient, RequestSerializerSerializesEffortConfig) {
+    cc::services::api::CreateMessageRequest request;
+    request.model = "claude-test";
+    request.messages.push_back(cc::services::api::Message::from_text("user", "hello"));
+    request.output_effort = "high";
+    request.task_budget = cc::services::api::TaskBudget{
+        .total = 12000,
+        .remaining = 3456,
+    };
+    request.internal_effort_override = 77;
+
+    auto serialized = cc::services::api::RequestSerializer::serialize(request);
+    auto parsed = cc::utils::json::parse(serialized);
+
+    ASSERT_TRUE(parsed.has_value()) << parsed.error().message();
+    auto output_config = parsed->root().get("output_config");
+    ASSERT_TRUE(output_config.is_obj());
+    EXPECT_EQ(output_config.get("effort").as_str(), "high");
+    auto task_budget = output_config.get("task_budget");
+    ASSERT_TRUE(task_budget.is_obj());
+    EXPECT_EQ(task_budget.get("type").as_str(), "tokens");
+    EXPECT_EQ(task_budget.get("total").as_int(), 12000);
+    EXPECT_EQ(task_budget.get("remaining").as_int(), 3456);
+    auto anthropic_internal = parsed->root().get("anthropic_internal");
+    ASSERT_TRUE(anthropic_internal.is_obj());
+    EXPECT_EQ(anthropic_internal.get("effort_override").as_int(), 77);
 }
 
 TEST(ApiClient, ResponseParserPreservesToolUseInputJson) {
@@ -2503,6 +4313,115 @@ TEST(IdeIntegration, CallsIdeWebSocketMcpToolFromLockfile) {
     fs::remove_all(temp_home);
 }
 
+TEST(IdeIntegration, DiscoversVSCodeWorkspaceMcpServersFromObjectConfig) {
+    const auto suffix = std::chrono::system_clock::now().time_since_epoch().count();
+    const auto root = fs::temp_directory_path() / ("cc_repl_vscode_mcp_workspace_" + std::to_string(suffix));
+    const auto workspace = root / "workspace";
+    const auto home = root / "home";
+    fs::create_directories(workspace / ".vscode");
+    fs::create_directories(home);
+    EnvironmentGuard home_guard("HOME", home.string());
+
+    {
+        std::ofstream config(workspace / ".vscode" / "mcp.json");
+        config << R"JSON({
+  "servers": {
+    "workspace-stdio": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["server.js"]
+    },
+    "workspace-sse": {
+      "type": "sse",
+      "url": "http://127.0.0.1:9012/sse"
+    }
+  },
+  "mcpServers": {
+    "legacy-stdio": {
+      "command": "python"
+    }
+  }
+})JSON";
+    }
+
+    auto servers = cc::services::mcp::discover_vscode_mcp_servers(workspace.string());
+    auto find_server = [&servers](std::string_view name) {
+        return std::find_if(servers.begin(), servers.end(), [name](const auto& server) {
+            return server.name == name;
+        });
+    };
+
+    auto stdio = find_server("workspace-stdio");
+    ASSERT_NE(stdio, servers.end());
+    EXPECT_EQ(stdio->transport_type, "stdio");
+    EXPECT_EQ(stdio->connection_string, "node");
+    EXPECT_TRUE(cc::services::mcp::connect_vscode_mcp(*stdio));
+
+    auto sse = find_server("workspace-sse");
+    ASSERT_NE(sse, servers.end());
+    EXPECT_EQ(sse->transport_type, "sse");
+    EXPECT_EQ(sse->connection_string, "http://127.0.0.1:9012/sse");
+    EXPECT_TRUE(cc::services::mcp::connect_vscode_mcp(*sse));
+
+    auto legacy = find_server("legacy-stdio");
+    ASSERT_NE(legacy, servers.end());
+    EXPECT_EQ(legacy->transport_type, "stdio");
+    EXPECT_EQ(legacy->connection_string, "python");
+
+    fs::remove_all(root);
+}
+
+TEST(IdeIntegration, DiscoversVSCodeExtensionContributedMcpServers) {
+    const auto suffix = std::chrono::system_clock::now().time_since_epoch().count();
+    const auto root = fs::temp_directory_path() / ("cc_repl_vscode_mcp_extension_" + std::to_string(suffix));
+    const auto workspace = root / "workspace";
+    const auto home = root / "home";
+    const auto extension = home / ".vscode" / "extensions" / "publisher.fixture-1.0.0";
+    fs::create_directories(workspace);
+    fs::create_directories(extension);
+    EnvironmentGuard home_guard("HOME", home.string());
+
+    {
+        std::ofstream package(extension / "package.json");
+        package << R"JSON({
+  "name": "fixture-extension",
+  "contributes": {
+    "mcp": {
+      "servers": {
+        "extension-stdio": {
+          "command": "node"
+        },
+        "extension-ws": {
+          "url": "ws://127.0.0.1:8020/mcp"
+        }
+      }
+    }
+  }
+})JSON";
+    }
+
+    auto servers = cc::services::mcp::discover_vscode_mcp_servers(workspace.string());
+    auto find_server = [&servers](std::string_view name) {
+        return std::find_if(servers.begin(), servers.end(), [name](const auto& server) {
+            return server.name == name;
+        });
+    };
+
+    auto stdio = find_server("extension-stdio");
+    ASSERT_NE(stdio, servers.end());
+    EXPECT_EQ(stdio->transport_type, "stdio");
+    EXPECT_EQ(stdio->connection_string, "node");
+    EXPECT_TRUE(cc::services::mcp::connect_vscode_mcp(*stdio));
+
+    auto ws = find_server("extension-ws");
+    ASSERT_NE(ws, servers.end());
+    EXPECT_EQ(ws->transport_type, "ws");
+    EXPECT_EQ(ws->connection_string, "ws://127.0.0.1:8020/mcp");
+    EXPECT_TRUE(cc::services::mcp::connect_vscode_mcp(*ws));
+
+    fs::remove_all(root);
+}
+
 TEST(McpClient, MapsSseUnauthorizedToUnauthorizedError) {
     LocalUnauthorizedStreamableHttpMcpServer server;
     ASSERT_TRUE(server.ready());
@@ -2522,6 +4441,31 @@ TEST(McpClient, MapsSseUnauthorizedToUnauthorizedError) {
     EXPECT_NE(requests.front().find("GET /mcp HTTP/1.1"), std::string::npos) << requests.front();
 
     client.shutdown();
+}
+
+TEST(McpClient, SseReconnectResumesWithLastEventId) {
+    LocalReconnectSseStreamServer server;
+    ASSERT_TRUE(server.ready());
+
+    cc::services::mcp::SseTransport::ReconnectPolicy policy{
+        .initial_delay = std::chrono::milliseconds{10},
+        .max_delay = std::chrono::milliseconds{20},
+        .backoff_multiplier = 2.0,
+        .jitter_factor = 0.0,
+        .max_retries = 5,
+        .liveness_timeout = std::chrono::seconds{1},
+    };
+    cc::services::mcp::SseTransport transport(server.url(), {}, policy);
+
+    auto started = transport.start();
+    ASSERT_TRUE(started.has_value()) << static_cast<int>(started.error());
+    ASSERT_TRUE(server.wait_for_stream_requests(2));
+    transport.close();
+
+    const auto last_event_ids = server.stream_last_event_ids();
+    ASSERT_GE(last_event_ids.size(), 2u);
+    EXPECT_TRUE(last_event_ids.front().empty());
+    EXPECT_EQ(last_event_ids[1], "1");
 }
 
 TEST(McpConnectionManager, ConnectsStreamableHttpServerWithDirectPostTransport) {
@@ -2663,6 +4607,545 @@ printf '{"X-Test-Header":"dynamic","X-Helper-Server":"%s","X-Helper-Url":"%s"}\n
     EXPECT_NE(joined_requests.find("X-Helper-Url: " + server.url()), std::string::npos) << joined_requests;
 
     manager.shutdown();
+    fs::remove_all(root);
+}
+
+TEST(McpConnectionManager, RefreshesExpiredOAuthTokenBeforeRemoteConnection) {
+    LocalRefreshingStreamableHttpMcpServer server;
+    ASSERT_TRUE(server.ready());
+
+    const auto suffix = std::chrono::system_clock::now().time_since_epoch().count();
+    const auto root = fs::temp_directory_path() / ("cc_repl_mcp_refresh_" + std::to_string(suffix));
+    fs::remove_all(root);
+    fs::create_directories(root);
+    EnvironmentGuard xdg_config_guard("XDG_CONFIG_HOME", root.string());
+
+    cc::services::mcp::ServerConfig server_config;
+    server_config.name = "refresh-fixture";
+    server_config.transport = cc::services::mcp::TransportType::StreamableHttp;
+    server_config.url = server.mcp_url();
+    server_config.enabled = true;
+    server_config.auto_start = true;
+    server_config.oauth = cc::services::mcp::McpOAuthConfig{
+        .auth_server_metadata_url = server.metadata_url(),
+        .client_id = "client-1",
+    };
+
+    cc::services::mcp::McpServerConfig auth_config;
+    auth_config.type = "http";
+    auth_config.url = server_config.url;
+    auth_config.oauth = server_config.oauth;
+    const auto server_key = cc::services::mcp::get_server_key(server_config.name, auth_config);
+    auto sanitize_key = [](std::string_view key) {
+        std::string sanitized;
+        sanitized.reserve(key.size());
+        for (unsigned char ch : key) {
+            sanitized.push_back(std::isalnum(ch) ? static_cast<char>(ch) : '_');
+        }
+        return sanitized;
+    };
+    const auto token_path = root / "cc-repl" / "mcp" / (sanitize_key(server_key) + ".json");
+    fs::create_directories(token_path.parent_path());
+    const auto expired_at = std::chrono::duration_cast<std::chrono::seconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count() - 60;
+    {
+        std::ofstream token_file(token_path);
+        token_file << std::format(R"({{
+          "server_name": "refresh-fixture",
+          "server_url": "{}",
+          "access_token": "old-access",
+          "refresh_token": "old-refresh",
+          "expires_at": {},
+          "scope": "tools",
+          "client_id": "client-1",
+          "client_secret": "",
+          "discovery_state": {{}}
+        }})", server.mcp_url(), expired_at);
+    }
+
+    cc::services::mcp::ConnectionManagerConfig manager_config;
+    manager_config.config_directory = root;
+    manager_config.connection_timeout = std::chrono::milliseconds{2000};
+    manager_config.auto_connect_on_start = false;
+
+    cc::services::mcp::McpConnectionManager manager(std::move(manager_config));
+
+    cc::services::mcp::McpConfig mcp_config;
+    mcp_config.servers.emplace(server_config.name, std::move(server_config));
+    manager.set_configuration(std::move(mcp_config));
+
+    auto connected = manager.connect_server("refresh-fixture");
+    ASSERT_TRUE(connected.has_value()) << static_cast<int>(connected.error());
+    ASSERT_TRUE(server.wait_for_token_request());
+    EXPECT_NE(server.token_request_body().find("grant_type=refresh_token"), std::string::npos);
+    EXPECT_NE(server.token_request_body().find("refresh_token=old-refresh"), std::string::npos);
+
+    auto snapshot = manager.snapshot_server("refresh-fixture");
+    ASSERT_TRUE(snapshot.has_value());
+    EXPECT_EQ(snapshot->status, cc::services::mcp::ConnectionStatus::Connected);
+    ASSERT_EQ(snapshot->tools.size(), 1u);
+    EXPECT_EQ(snapshot->tools.front().name, "refresh_lookup");
+
+    const auto auth_headers = server.mcp_authorization_headers();
+    ASSERT_FALSE(auth_headers.empty());
+    EXPECT_TRUE(std::ranges::all_of(auth_headers, [](const auto& header) {
+        return header == "Bearer fresh-access";
+    }));
+
+    auto persisted = cc::utils::json::parse_file(token_path);
+    ASSERT_TRUE(persisted.has_value());
+    EXPECT_EQ(persisted->root().get_string("access_token"), "fresh-access");
+    EXPECT_EQ(persisted->root().get_string("refresh_token"), "fresh-refresh");
+
+    manager.shutdown();
+    fs::remove_all(root);
+}
+
+TEST(McpConnectionManager, MarksRefreshFailureAsNeedsAuthWithoutRemoteConnect) {
+    LocalRefreshingStreamableHttpMcpServer server(/*fail_refresh=*/true);
+    ASSERT_TRUE(server.ready());
+
+    const auto suffix = std::chrono::system_clock::now().time_since_epoch().count();
+    const auto root = fs::temp_directory_path() / ("cc_repl_mcp_refresh_failure_" + std::to_string(suffix));
+    fs::remove_all(root);
+    fs::create_directories(root);
+    EnvironmentGuard xdg_config_guard("XDG_CONFIG_HOME", root.string());
+
+    cc::services::mcp::ServerConfig server_config;
+    server_config.name = "refresh-failure-fixture";
+    server_config.transport = cc::services::mcp::TransportType::StreamableHttp;
+    server_config.url = server.mcp_url();
+    server_config.enabled = true;
+    server_config.auto_start = true;
+    server_config.oauth = cc::services::mcp::McpOAuthConfig{
+        .auth_server_metadata_url = server.metadata_url(),
+        .client_id = "client-1",
+    };
+
+    cc::services::mcp::McpServerConfig auth_config;
+    auth_config.type = "http";
+    auth_config.url = server_config.url;
+    auth_config.oauth = server_config.oauth;
+    const auto server_key = cc::services::mcp::get_server_key(server_config.name, auth_config);
+    auto sanitize_key = [](std::string_view key) {
+        std::string sanitized;
+        sanitized.reserve(key.size());
+        for (unsigned char ch : key) {
+            sanitized.push_back(std::isalnum(ch) ? static_cast<char>(ch) : '_');
+        }
+        return sanitized;
+    };
+    const auto token_path = root / "cc-repl" / "mcp" / (sanitize_key(server_key) + ".json");
+    fs::create_directories(token_path.parent_path());
+    const auto expired_at = std::chrono::duration_cast<std::chrono::seconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count() - 60;
+    {
+        std::ofstream token_file(token_path);
+        token_file << std::format(R"({{
+          "server_name": "refresh-failure-fixture",
+          "server_url": "{}",
+          "access_token": "old-access",
+          "refresh_token": "old-refresh",
+          "expires_at": {},
+          "scope": "tools",
+          "client_id": "client-1",
+          "client_secret": "",
+          "discovery_state": {{}}
+        }})", server.mcp_url(), expired_at);
+    }
+
+    cc::services::mcp::ConnectionManagerConfig manager_config;
+    manager_config.config_directory = root;
+    manager_config.connection_timeout = std::chrono::milliseconds{2000};
+    manager_config.auto_connect_on_start = false;
+
+    cc::services::mcp::McpConnectionManager manager(std::move(manager_config));
+
+    cc::services::mcp::McpConfig mcp_config;
+    mcp_config.servers.emplace(server_config.name, std::move(server_config));
+    manager.set_configuration(std::move(mcp_config));
+
+    auto connected = manager.connect_server("refresh-failure-fixture");
+    ASSERT_FALSE(connected.has_value());
+    EXPECT_EQ(connected.error(), cc::services::mcp::McpClientError::Unauthorized);
+    ASSERT_TRUE(server.wait_for_token_request());
+    EXPECT_NE(server.token_request_body().find("grant_type=refresh_token"), std::string::npos);
+    EXPECT_NE(server.token_request_body().find("refresh_token=old-refresh"), std::string::npos);
+
+    auto snapshot = manager.snapshot_server("refresh-failure-fixture");
+    ASSERT_TRUE(snapshot.has_value());
+    EXPECT_EQ(snapshot->status, cc::services::mcp::ConnectionStatus::NeedsAuth);
+    ASSERT_TRUE(snapshot->last_error.has_value());
+    EXPECT_NE(snapshot->last_error->find("OAuth token refresh failed"), std::string::npos);
+    EXPECT_TRUE(server.mcp_authorization_headers().empty());
+
+    auto persisted = cc::utils::json::parse_file(token_path);
+    ASSERT_TRUE(persisted.has_value());
+    EXPECT_EQ(persisted->root().get_string("access_token"), "old-access");
+    EXPECT_EQ(persisted->root().get_string("refresh_token"), "old-refresh");
+
+    manager.shutdown();
+    fs::remove_all(root);
+}
+
+TEST(McpConnectionManager, MarksDiscoveryServerWithoutTokenAsNeedsAuthThenReconnectsWithStoredToken) {
+    LocalRefreshingStreamableHttpMcpServer server;
+    ASSERT_TRUE(server.ready());
+
+    const auto suffix = std::chrono::system_clock::now().time_since_epoch().count();
+    const auto root = fs::temp_directory_path() / ("cc_repl_mcp_auth_needed_" + std::to_string(suffix));
+    fs::remove_all(root);
+    fs::create_directories(root);
+    EnvironmentGuard xdg_config_guard("XDG_CONFIG_HOME", root.string());
+
+    cc::services::mcp::ServerConfig server_config;
+    server_config.name = "auth-needed-fixture";
+    server_config.transport = cc::services::mcp::TransportType::StreamableHttp;
+    server_config.url = server.mcp_url();
+    server_config.enabled = true;
+    server_config.auto_start = true;
+    server_config.oauth = cc::services::mcp::McpOAuthConfig{
+        .auth_server_metadata_url = server.metadata_url(),
+        .client_id = "client-1",
+    };
+
+    cc::services::mcp::McpServerConfig auth_config;
+    auth_config.type = "http";
+    auth_config.url = server_config.url;
+    auth_config.oauth = server_config.oauth;
+    const auto server_key = cc::services::mcp::get_server_key(server_config.name, auth_config);
+    auto sanitize_key = [](std::string_view key) {
+        std::string sanitized;
+        sanitized.reserve(key.size());
+        for (unsigned char ch : key) {
+            sanitized.push_back(std::isalnum(ch) ? static_cast<char>(ch) : '_');
+        }
+        return sanitized;
+    };
+    const auto token_path = root / "cc-repl" / "mcp" / (sanitize_key(server_key) + ".json");
+
+    cc::services::mcp::ConnectionManagerConfig manager_config;
+    manager_config.config_directory = root;
+    manager_config.connection_timeout = std::chrono::milliseconds{2000};
+    manager_config.auto_connect_on_start = false;
+
+    cc::services::mcp::McpConnectionManager manager(std::move(manager_config));
+
+    cc::services::mcp::McpConfig mcp_config;
+    mcp_config.servers.emplace(server_config.name, std::move(server_config));
+    manager.set_configuration(std::move(mcp_config));
+
+    auto auth_needed = manager.connect_server("auth-needed-fixture");
+    ASSERT_FALSE(auth_needed.has_value());
+    EXPECT_EQ(auth_needed.error(), cc::services::mcp::McpClientError::Unauthorized);
+    EXPECT_TRUE(server.mcp_authorization_headers().empty());
+    EXPECT_TRUE(server.token_request_body().empty());
+
+    auto snapshot = manager.snapshot_server("auth-needed-fixture");
+    ASSERT_TRUE(snapshot.has_value());
+    EXPECT_EQ(snapshot->status, cc::services::mcp::ConnectionStatus::NeedsAuth);
+    ASSERT_TRUE(snapshot->last_error.has_value());
+    EXPECT_NE(snapshot->last_error->find("MCP OAuth authentication required"), std::string::npos);
+
+    fs::create_directories(token_path.parent_path());
+    const auto expires_at = std::chrono::duration_cast<std::chrono::seconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count() + 3600;
+    {
+        std::ofstream token_file(token_path);
+        token_file << std::format(R"({{
+          "server_name": "auth-needed-fixture",
+          "server_url": "{}",
+          "access_token": "fresh-access",
+          "refresh_token": "",
+          "expires_at": {},
+          "scope": "tools",
+          "client_id": "client-1",
+          "client_secret": "",
+          "discovery_state": {{}}
+        }})", server.mcp_url(), expires_at);
+    }
+
+    auto connected = manager.connect_server("auth-needed-fixture");
+    ASSERT_TRUE(connected.has_value()) << static_cast<int>(connected.error());
+
+    snapshot = manager.snapshot_server("auth-needed-fixture");
+    ASSERT_TRUE(snapshot.has_value());
+    EXPECT_EQ(snapshot->status, cc::services::mcp::ConnectionStatus::Connected);
+    ASSERT_EQ(snapshot->tools.size(), 1u);
+    EXPECT_EQ(snapshot->tools.front().name, "refresh_lookup");
+
+    const auto auth_headers = server.mcp_authorization_headers();
+    ASSERT_FALSE(auth_headers.empty());
+    EXPECT_TRUE(std::ranges::all_of(auth_headers, [](const auto& header) {
+        return header == "Bearer fresh-access";
+    }));
+
+    manager.shutdown();
+    fs::remove_all(root);
+}
+
+TEST(McpAuth, RevokesOAuthTokensViaMetadataEndpointAndClearsLocalStorage) {
+    LocalOAuthRevocationServer server;
+    ASSERT_TRUE(server.ready());
+
+    const auto suffix = std::chrono::system_clock::now().time_since_epoch().count();
+    const auto root = fs::temp_directory_path() / ("cc_repl_mcp_revoke_" + std::to_string(suffix));
+    fs::remove_all(root);
+    fs::create_directories(root);
+    EnvironmentGuard xdg_config_guard("XDG_CONFIG_HOME", root.string());
+
+    cc::services::mcp::McpServerConfig auth_config;
+    auth_config.type = "http";
+    auth_config.url = "https://mcp.example.test/mcp";
+    auth_config.oauth = cc::services::mcp::McpOAuthConfig{
+        .auth_server_metadata_url = server.metadata_url(),
+        .client_id = "client-1",
+    };
+    const auto server_key = cc::services::mcp::get_server_key("revoke-fixture", auth_config);
+    auto sanitize_key = [](std::string_view key) {
+        std::string sanitized;
+        sanitized.reserve(key.size());
+        for (unsigned char ch : key) {
+            sanitized.push_back(std::isalnum(ch) ? static_cast<char>(ch) : '_');
+        }
+        return sanitized;
+    };
+    const auto token_path = root / "cc-repl" / "mcp" / (sanitize_key(server_key) + ".json");
+    fs::create_directories(token_path.parent_path());
+    const auto expires_at = std::chrono::duration_cast<std::chrono::seconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count() + 3600;
+    {
+        std::ofstream token_file(token_path);
+        token_file << std::format(R"({{
+          "server_name": "revoke-fixture",
+          "server_url": "{}",
+          "access_token": "old-access",
+          "refresh_token": "old-refresh",
+          "expires_at": {},
+          "scope": "tools",
+          "client_id": "client-1",
+          "client_secret": "secret-1",
+          "discovery_state": {{}}
+        }})", auth_config.url, expires_at);
+    }
+
+    auto revoked = cc::services::mcp::revoke_server_tokens("revoke-fixture", auth_config);
+    ASSERT_TRUE(revoked.has_value()) << revoked.error().message();
+    ASSERT_TRUE(server.wait_for_revoke_requests(2));
+
+    const auto bodies = server.revoke_request_bodies();
+    ASSERT_EQ(bodies.size(), 2u);
+    EXPECT_NE(bodies[0].find("token=old-refresh"), std::string::npos) << bodies[0];
+    EXPECT_NE(bodies[0].find("token_type_hint=refresh_token"), std::string::npos) << bodies[0];
+    EXPECT_NE(bodies[0].find("client_id=client-1"), std::string::npos) << bodies[0];
+    EXPECT_NE(bodies[0].find("client_secret=secret-1"), std::string::npos) << bodies[0];
+    EXPECT_NE(bodies[1].find("token=old-access"), std::string::npos) << bodies[1];
+    EXPECT_NE(bodies[1].find("token_type_hint=access_token"), std::string::npos) << bodies[1];
+
+    const auto auth_headers = server.revoke_authorization_headers();
+    ASSERT_EQ(auth_headers.size(), 2u);
+    EXPECT_TRUE(auth_headers[0].empty());
+    EXPECT_TRUE(auth_headers[1].empty());
+    EXPECT_FALSE(fs::exists(token_path));
+
+    fs::remove_all(root);
+}
+
+TEST(McpAuth, CompletesOAuthBrowserCallbackFlowAndStoresTokens) {
+    LocalOAuthRevocationServer server;
+    ASSERT_TRUE(server.ready());
+
+    const auto suffix = std::chrono::system_clock::now().time_since_epoch().count();
+    const auto root = fs::temp_directory_path() / ("cc_repl_mcp_oauth_callback_" + std::to_string(suffix));
+    fs::remove_all(root);
+    fs::create_directories(root);
+    EnvironmentGuard xdg_config_guard("XDG_CONFIG_HOME", root.string());
+
+    cc::services::mcp::McpServerConfig auth_config;
+    auth_config.type = "http";
+    auth_config.url = "https://mcp.example.test/mcp";
+    auth_config.oauth = cc::services::mcp::McpOAuthConfig{
+        .auth_server_metadata_url = server.metadata_url(),
+        .client_id = "client-1",
+    };
+
+    std::mutex mutex;
+    std::condition_variable cv;
+    std::optional<std::string> auth_url;
+    std::optional<std::string> flow_error;
+    bool flow_done = false;
+    std::jthread flow_thread([&](std::stop_token) {
+        auto result = cc::services::mcp::perform_mcp_oauth_flow(
+            "callback-fixture",
+            auth_config,
+            [&](const std::string& url) {
+                {
+                    std::lock_guard lock(mutex);
+                    auth_url = url;
+                }
+                cv.notify_all();
+            },
+            std::nullopt,
+            true);
+        {
+            std::lock_guard lock(mutex);
+            if (!result) flow_error = result.error().message();
+            flow_done = true;
+        }
+        cv.notify_all();
+    });
+
+    std::string captured_url;
+    {
+        std::unique_lock lock(mutex);
+        ASSERT_TRUE(cv.wait_for(lock, std::chrono::seconds(3), [&] {
+            return auth_url.has_value() || flow_done;
+        }));
+        ASSERT_TRUE(auth_url.has_value()) << flow_error.value_or("OAuth flow ended before authorization URL");
+        captured_url = *auth_url;
+    }
+
+    auto redirect_uri = test_query_param(captured_url, "redirect_uri");
+    auto state = test_query_param(captured_url, "state");
+    ASSERT_TRUE(redirect_uri.has_value()) << captured_url;
+    ASSERT_TRUE(state.has_value()) << captured_url;
+    EXPECT_NE(captured_url.find("response_type=code"), std::string::npos) << captured_url;
+    EXPECT_NE(captured_url.find("client_id=client-1"), std::string::npos) << captured_url;
+    EXPECT_NE(captured_url.find("code_challenge_method=S256"), std::string::npos) << captured_url;
+    EXPECT_NE(captured_url.find("scope=tools"), std::string::npos) << captured_url;
+
+    auto callback_port = localhost_url_port(*redirect_uri);
+    ASSERT_TRUE(callback_port.has_value()) << *redirect_uri;
+    httplib::Client callback_client(std::format("http://localhost:{}", *callback_port));
+    auto callback_response = callback_client.Get(
+        std::format("/oauth/callback?code=callback-code&state={}", *state));
+    ASSERT_TRUE(callback_response);
+    EXPECT_EQ(callback_response->status, 200);
+
+    {
+        std::unique_lock lock(mutex);
+        ASSERT_TRUE(cv.wait_for(lock, std::chrono::seconds(3), [&] { return flow_done; }));
+        ASSERT_FALSE(flow_error.has_value()) << *flow_error;
+    }
+    ASSERT_TRUE(server.wait_for_token_request());
+    const auto token_body = server.token_request_body();
+    EXPECT_NE(token_body.find("grant_type=authorization_code"), std::string::npos) << token_body;
+    EXPECT_NE(token_body.find("code=callback-code"), std::string::npos) << token_body;
+    EXPECT_NE(token_body.find("client_id=client-1"), std::string::npos) << token_body;
+    EXPECT_NE(token_body.find("code_verifier="), std::string::npos) << token_body;
+
+    const auto server_key = cc::services::mcp::get_server_key("callback-fixture", auth_config);
+    auto sanitize_key = [](std::string_view key) {
+        std::string sanitized;
+        sanitized.reserve(key.size());
+        for (unsigned char ch : key) {
+            sanitized.push_back(std::isalnum(ch) ? static_cast<char>(ch) : '_');
+        }
+        return sanitized;
+    };
+    const auto token_path = root / "cc-repl" / "mcp" / (sanitize_key(server_key) + ".json");
+    auto persisted = cc::utils::json::parse_file(token_path);
+    ASSERT_TRUE(persisted.has_value());
+    EXPECT_EQ(persisted->root().get_string("server_name"), "callback-fixture");
+    EXPECT_EQ(persisted->root().get_string("server_url"), auth_config.url);
+    EXPECT_EQ(persisted->root().get_string("access_token"), "callback-access");
+    EXPECT_EQ(persisted->root().get_string("refresh_token"), "callback-refresh");
+    EXPECT_EQ(persisted->root().get_string("scope"), "tools");
+    EXPECT_EQ(persisted->root().get_string("client_id"), "client-1");
+
+    fs::remove_all(root);
+}
+
+TEST(McpAuth, PerformsXaaIdpLoginAndStoresTokens) {
+    LocalXaaIdpServer server;
+    ASSERT_TRUE(server.ready());
+
+    const auto suffix = std::chrono::system_clock::now().time_since_epoch().count();
+    const auto root = fs::temp_directory_path() / ("cc_repl_mcp_xaa_idp_" + std::to_string(suffix));
+    fs::remove_all(root);
+    fs::create_directories(root / ".cc-repl");
+    EnvironmentGuard home_guard("HOME", root.string());
+    EnvironmentGuard xdg_config_guard("XDG_CONFIG_HOME", root.string());
+    EnvironmentGuard xaa_enabled_guard("CLAUDE_CODE_ENABLE_XAA", "1");
+    {
+        std::ofstream idp_config(root / ".cc-repl" / "xaa-idp.txt");
+        idp_config << "idp_url=" << server.base_url() << "\n";
+        idp_config << "client_id=idp-client-1\n";
+        idp_config << "scope=openid profile mcp\n";
+    }
+
+    cc::services::mcp::McpServerConfig auth_config;
+    auth_config.type = "http";
+    auth_config.url = "https://mcp.example.test/mcp";
+    auth_config.oauth = cc::services::mcp::McpOAuthConfig{
+        .client_id = "as-client-1",
+        .xaa = true,
+    };
+
+    bool authorization_url_called = false;
+    auto result = cc::services::mcp::perform_mcp_oauth_flow(
+        "xaa-fixture",
+        auth_config,
+        [&](const std::string&) {
+            authorization_url_called = true;
+        },
+        std::nullopt,
+        true);
+    ASSERT_TRUE(result.has_value()) << result.error().message();
+    EXPECT_FALSE(authorization_url_called);
+    ASSERT_TRUE(server.wait_for_device_code_request());
+    const auto request_body = server.device_code_request_body();
+    EXPECT_NE(request_body.find(R"("client_id":"idp-client-1")"), std::string::npos) << request_body;
+    EXPECT_NE(request_body.find(R"("scope":"openid profile mcp")"), std::string::npos) << request_body;
+
+    const auto server_key = cc::services::mcp::get_server_key("xaa-fixture", auth_config);
+    auto sanitize_key = [](std::string_view key) {
+        std::string sanitized;
+        sanitized.reserve(key.size());
+        for (unsigned char ch : key) {
+            sanitized.push_back(std::isalnum(ch) ? static_cast<char>(ch) : '_');
+        }
+        return sanitized;
+    };
+    const auto token_path = root / "cc-repl" / "mcp" / (sanitize_key(server_key) + ".json");
+    auto persisted = cc::utils::json::parse_file(token_path);
+    ASSERT_TRUE(persisted.has_value());
+    EXPECT_EQ(persisted->root().get_string("server_name"), "xaa-fixture");
+    EXPECT_EQ(persisted->root().get_string("server_url"), auth_config.url);
+    EXPECT_EQ(persisted->root().get_string("access_token"), "xaa-access");
+    EXPECT_EQ(persisted->root().get_string("refresh_token"), "xaa-refresh");
+    EXPECT_EQ(persisted->root().get_string("scope"), "openid profile mcp");
+    EXPECT_EQ(persisted->root().get_string("client_id"), "idp-client-1");
+
+    fs::remove_all(root);
+}
+
+TEST(McpAuth, XaaEnabledServerRequiresConfiguredIdpConnection) {
+    const auto suffix = std::chrono::system_clock::now().time_since_epoch().count();
+    const auto root = fs::temp_directory_path() / ("cc_repl_mcp_xaa_missing_idp_" + std::to_string(suffix));
+    fs::remove_all(root);
+    fs::create_directories(root);
+    EnvironmentGuard home_guard("HOME", root.string());
+    EnvironmentGuard xdg_config_guard("XDG_CONFIG_HOME", root.string());
+    EnvironmentGuard xaa_enabled_guard("CLAUDE_CODE_ENABLE_XAA", "1");
+
+    cc::services::mcp::McpServerConfig auth_config;
+    auth_config.type = "http";
+    auth_config.url = "https://mcp.example.test/mcp";
+    auth_config.oauth = cc::services::mcp::McpOAuthConfig{
+        .client_id = "as-client-1",
+        .xaa = true,
+    };
+
+    auto result = cc::services::mcp::perform_mcp_oauth_flow(
+        "xaa-missing-idp",
+        auth_config,
+        [](const std::string&) {},
+        std::nullopt,
+        true);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_NE(result.error().message().find("configured IdP connection"), std::string::npos);
+
     fs::remove_all(root);
 }
 
@@ -3254,7 +5737,768 @@ TEST(ServerRoutes, MessageSessionsAndCompactUsePersistentState) {
     EXPECT_NE(boundary_content.find("follow up 0"), std::string::npos);
     EXPECT_NE(boundary_content.find("Preserve these details"), std::string::npos);
 
+	cc::server::reset_route_state_for_testing();
+	fs::remove_all(root);
+}
+
+TEST(ServerRoutes, MessageRoutePublishesAssistantAndResultIngressEvents) {
+    const auto suffix = std::chrono::system_clock::now().time_since_epoch().count();
+    const auto root = fs::temp_directory_path() / ("cc_repl_server_routes_ingress_test_" + std::to_string(suffix));
+    const auto sessions_dir = root / "sessions";
+    fs::remove_all(root);
+    fs::create_directories(sessions_dir);
+
+    LocalAnthropicMessagesServer anthropic;
+    ASSERT_NE(anthropic.port(), 0);
+    LocalCcrHttpServer ccr;
+    ASSERT_TRUE(ccr.ready());
+
+    EnvironmentGuard api_key_guard("ANTHROPIC_API_KEY", "test-key");
+    EnvironmentGuard base_url_guard("ANTHROPIC_BASE_URL", anthropic.base_url());
+    EnvironmentGuard model_guard("CLAUDE_MODEL", "direct-ingress-test-model");
+    CurrentPathGuard cwd_guard(root);
+
+    const auto now = std::chrono::system_clock::now();
+    ASSERT_TRUE(cc::session::save_session_metadata(
+        sessions_dir,
+        cc::session::SessionMetadata{
+            .session_id = "session_1",
+            .model = "direct-ingress-test-model",
+            .cwd = root,
+            .created_at = now,
+            .last_active = now,
+            .message_count = 0,
+            .title = std::string("Ingress route test"),
+            .is_archived = false,
+        }));
+
+    cc::services::api::close_ingress();
+    auto created = cc::services::api::create_ingress(cc::services::api::IngressConfig{
+        .endpoint = ccr.base_url(),
+        .session_id = "session_1",
+        .auth_token = "session-route-token",
+        .organization_uuid = std::nullopt,
+    });
+    ASSERT_TRUE(created.has_value()) << created.error();
+
     cc::server::reset_route_state_for_testing();
+    cc::server::set_sessions_dir_for_testing(sessions_dir);
+    auto routes = cc::server::get_default_routes();
+    auto it = std::ranges::find_if(routes, [](const auto& route) {
+        return route.method == "POST" && route.path == "/message";
+    });
+    ASSERT_NE(it, routes.end());
+
+    auto response = it->handler({
+        {"session_id", "session_1"},
+        {"content", "hello ingress route"}
+    });
+    auto parsed = cc::utils::json::parse(response);
+    ASSERT_TRUE(parsed.has_value()) << response;
+    EXPECT_EQ(parsed->root().get_string("status"), "completed");
+    EXPECT_EQ(parsed->root().get_string("session_id"), "session_1");
+    EXPECT_EQ(parsed->root().get_string("response"), "ok");
+
+    auto requests = ccr.wait_for_requests(2, std::chrono::seconds(5));
+    ASSERT_TRUE(requests.has_value());
+    ASSERT_EQ(requests->size(), 2u);
+    EXPECT_EQ((*requests)[0].method, "POST");
+    EXPECT_EQ((*requests)[0].path, "/v1/sessions/session_1/events");
+    EXPECT_NE((*requests)[0].headers.find("Authorization: Bearer session-route-token"), std::string::npos);
+    EXPECT_NE((*requests)[0].body.find(R"("events":[)"), std::string::npos);
+    EXPECT_NE((*requests)[0].body.find(R"("type":"assistant")"), std::string::npos);
+    EXPECT_NE((*requests)[0].body.find(R"("role":"assistant")"), std::string::npos);
+    EXPECT_NE((*requests)[0].body.find(R"("session_id":"session_1")"), std::string::npos);
+    EXPECT_NE((*requests)[0].body.find(R"("text":"ok")"), std::string::npos);
+
+    EXPECT_EQ((*requests)[1].method, "POST");
+    EXPECT_EQ((*requests)[1].path, "/v1/sessions/session_1/events");
+    EXPECT_NE((*requests)[1].headers.find("Authorization: Bearer session-route-token"), std::string::npos);
+    EXPECT_NE((*requests)[1].body.find(R"("type":"result")"), std::string::npos);
+    EXPECT_NE((*requests)[1].body.find(R"("subtype":"success")"), std::string::npos);
+    EXPECT_NE((*requests)[1].body.find(R"("result":"ok")"), std::string::npos);
+    EXPECT_NE((*requests)[1].body.find(R"("session_id":"session_1")"), std::string::npos);
+
+    auto metadata = cc::session::load_session_metadata(sessions_dir, "session_1");
+    ASSERT_TRUE(metadata.has_value());
+    EXPECT_EQ(metadata->message_count, 2);
+
+    std::ifstream messages_file(cc::session::get_messages_path(sessions_dir, "session_1"));
+    ASSERT_TRUE(messages_file.is_open());
+    std::vector<std::string> lines;
+    std::string line;
+    while (std::getline(messages_file, line)) {
+        if (!line.empty()) lines.push_back(line);
+    }
+    ASSERT_EQ(lines.size(), 2u);
+    EXPECT_NE(lines[0].find(R"("role":"user")"), std::string::npos);
+    EXPECT_NE(lines[1].find(R"("role":"assistant")"), std::string::npos);
+
+    cc::services::api::close_ingress();
+    cc::server::reset_route_state_for_testing();
+    fs::remove_all(root);
+}
+
+TEST(ServerMain, DirectConnectSessionsAndWebSocketUsePersistentRoutes) {
+    const auto suffix = std::chrono::system_clock::now().time_since_epoch().count();
+    const auto root = fs::temp_directory_path() / ("cc_repl_server_main_test_" + std::to_string(suffix));
+    const auto sessions_dir = root / "sessions";
+    fs::remove_all(root);
+    fs::create_directories(sessions_dir);
+
+    LocalAnthropicMessagesServer anthropic;
+    ASSERT_NE(anthropic.port(), 0);
+    EnvironmentGuard api_key_guard("ANTHROPIC_API_KEY", "test-key");
+    EnvironmentGuard base_url_guard("ANTHROPIC_BASE_URL", anthropic.base_url());
+    EnvironmentGuard model_guard("CLAUDE_MODEL", "direct-server-test-model");
+    EnvironmentGuard sessions_guard("CC_REPL_SERVER_SESSIONS_DIR", sessions_dir.string());
+    CurrentPathGuard cwd_guard(root);
+    cc::server::reset_route_state_for_testing();
+
+    cc::server::HttpServer direct_server;
+    auto started = direct_server.start(cc::server::ServerConfig{
+        .port = 0,
+        .host = "127.0.0.1",
+        .cors = false,
+        .auth_token = std::nullopt,
+    });
+    ASSERT_TRUE(started.has_value()) << started.error();
+    const auto server_port = direct_server.get_config().port;
+    ASSERT_NE(server_port, 0);
+
+    const auto create_body = std::format(R"({{"cwd":"{}"}})", root.string());
+    auto create_response = direct_connect_http_request(server_port, "POST", "/sessions", create_body);
+    ASSERT_TRUE(create_response.has_value());
+    ASSERT_EQ(create_response->status, 200) << create_response->body;
+    auto create_json = cc::utils::json::parse(create_response->body);
+    ASSERT_TRUE(create_json.has_value()) << create_response->body;
+    const auto session_id = std::string(create_json->root().get_string("session_id"));
+    ASSERT_FALSE(session_id.empty());
+    EXPECT_NE(
+        std::string(create_json->root().get_string("ws_url")).find("/sessions/ws/" + session_id),
+        std::string::npos);
+    EXPECT_EQ(
+        std::string(create_json->root().get_string("work_dir")),
+        fs::weakly_canonical(root).string());
+
+    auto initial_metadata = cc::session::load_session_metadata(sessions_dir, session_id);
+    ASSERT_TRUE(initial_metadata.has_value());
+    EXPECT_EQ(initial_metadata->message_count, 0);
+
+    auto ws_fd = direct_connect_open_websocket(server_port, "/sessions/ws/" + session_id);
+    ASSERT_TRUE(ws_fd.has_value());
+
+    const std::vector<std::string> prompts{
+        "hello direct connect",
+        "follow up direct connect 1",
+        "follow up direct connect 2",
+        "follow up direct connect 3",
+        "follow up direct connect 4",
+    };
+    for (const auto& prompt : prompts) {
+        const auto user_payload = std::format(
+            R"({{"type":"user","message":{{"role":"user","content":"{}"}},"parent_tool_use_id":null,"session_id":""}})",
+            prompt);
+        ASSERT_TRUE(direct_connect_send_client_text_frame(*ws_fd, user_payload));
+
+        auto assistant_frame = direct_connect_read_ws_frame(*ws_fd);
+        ASSERT_TRUE(assistant_frame.has_value());
+        ASSERT_EQ(assistant_frame->opcode, 0x1);
+        auto assistant_json = cc::utils::json::parse(direct_connect_trim_json_line(assistant_frame->payload));
+        ASSERT_TRUE(assistant_json.has_value()) << assistant_frame->payload;
+        EXPECT_EQ(assistant_json->root().get_string("type"), "assistant");
+        EXPECT_EQ(assistant_json->root().get_string("session_id"), session_id);
+        auto assistant_content = assistant_json->root().get("message").get("content");
+        ASSERT_TRUE(assistant_content.is_arr()) << assistant_frame->payload;
+        ASSERT_GE(assistant_content.size(), 1u);
+        EXPECT_EQ(assistant_content.at(0).get_string("text"), "ok");
+
+        auto result_frame = direct_connect_read_ws_frame(*ws_fd);
+        ASSERT_TRUE(result_frame.has_value());
+        ASSERT_EQ(result_frame->opcode, 0x1);
+        auto result_json = cc::utils::json::parse(direct_connect_trim_json_line(result_frame->payload));
+        ASSERT_TRUE(result_json.has_value()) << result_frame->payload;
+        EXPECT_EQ(result_json->root().get_string("type"), "result");
+        EXPECT_EQ(result_json->root().get_string("subtype"), "success");
+        EXPECT_EQ(result_json->root().get_string("result"), "ok");
+        EXPECT_EQ(result_json->root().get_string("session_id"), session_id);
+    }
+
+    const std::string interrupt_payload =
+        R"({"type":"control_request","request_id":"interrupt-test","request":{"subtype":"interrupt"}})";
+    ASSERT_TRUE(direct_connect_send_client_text_frame(*ws_fd, interrupt_payload));
+    auto control_frame = direct_connect_read_ws_frame(*ws_fd);
+    ASSERT_TRUE(control_frame.has_value());
+    auto control_json = cc::utils::json::parse(direct_connect_trim_json_line(control_frame->payload));
+    ASSERT_TRUE(control_json.has_value()) << control_frame->payload;
+    EXPECT_EQ(control_json->root().get_string("type"), "control_response");
+    auto control_response = control_json->root().get("response");
+    EXPECT_EQ(control_response.get_string("subtype"), "success");
+    EXPECT_EQ(control_response.get_string("request_id"), "interrupt-test");
+
+    ::shutdown(*ws_fd, SHUT_RDWR);
+    ::close(*ws_fd);
+
+    auto request_bodies = anthropic.wait_for_bodies(prompts.size());
+    ASSERT_TRUE(request_bodies.has_value());
+    auto request_json = cc::utils::json::parse(request_bodies->back());
+    ASSERT_TRUE(request_json.has_value()) << request_bodies->back();
+    auto request_messages = request_json->root().get("messages");
+    ASSERT_TRUE(request_messages.is_arr()) << request_bodies->back();
+    ASSERT_EQ(request_messages.size(), 9u);
+    EXPECT_NE(
+        std::string(request_messages.at(0).get_string("content")).find("hello direct connect"),
+        std::string::npos);
+    EXPECT_NE(
+        std::string(request_messages.at(8).get_string("content")).find("follow up direct connect 4"),
+        std::string::npos);
+
+    auto sessions_response = direct_connect_http_request(server_port, "GET", "/sessions?limit=5");
+    ASSERT_TRUE(sessions_response.has_value());
+    ASSERT_EQ(sessions_response->status, 200) << sessions_response->body;
+    auto sessions_json = cc::utils::json::parse(sessions_response->body);
+    ASSERT_TRUE(sessions_json.has_value()) << sessions_response->body;
+    EXPECT_EQ(sessions_json->root().get("total").as_int(), 1);
+    auto sessions = sessions_json->root().get("sessions");
+    ASSERT_TRUE(sessions.is_arr());
+    ASSERT_EQ(sessions.size(), 1u);
+    EXPECT_EQ(sessions.at(0).get_string("session_id"), session_id);
+    EXPECT_EQ(sessions.at(0).get("message_count").as_int(), 10);
+
+    const auto compact_body = std::format(R"({{"session_id":"{}"}})", session_id);
+    auto compact_response = direct_connect_http_request(server_port, "POST", "/compact", compact_body);
+    ASSERT_TRUE(compact_response.has_value());
+    ASSERT_EQ(compact_response->status, 200) << compact_response->body;
+    auto compact_json = cc::utils::json::parse(compact_response->body);
+    ASSERT_TRUE(compact_json.has_value()) << compact_response->body;
+    EXPECT_EQ(compact_json->root().get_string("status"), "compacted");
+    EXPECT_EQ(compact_json->root().get_string("session_id"), session_id);
+    EXPECT_EQ(compact_json->root().get("messages_before").as_int(), 10);
+    EXPECT_EQ(compact_json->root().get("messages_after").as_int(), 7);
+    EXPECT_EQ(compact_json->root().get("messages_removed").as_int(), 3);
+    EXPECT_EQ(compact_json->root().get("messages_summarized").as_int(), 4);
+    ASSERT_TRUE(compact_json->root().get("compact_boundary_id").is_str());
+
+    auto metadata = cc::session::load_session_metadata(sessions_dir, session_id);
+    ASSERT_TRUE(metadata.has_value());
+    EXPECT_EQ(metadata->message_count, 7);
+
+    std::ifstream messages_file(cc::session::get_messages_path(sessions_dir, session_id));
+    ASSERT_TRUE(messages_file.is_open());
+    std::vector<std::string> lines;
+    std::string line;
+    while (std::getline(messages_file, line)) {
+        if (!line.empty()) lines.push_back(line);
+    }
+    ASSERT_EQ(lines.size(), 7u);
+    auto boundary_json = cc::utils::json::parse(lines.front());
+    ASSERT_TRUE(boundary_json.has_value()) << lines.front();
+    EXPECT_EQ(boundary_json->root().get_string("role"), "system");
+    EXPECT_EQ(boundary_json->root().get_string("subtype"), "compact_boundary");
+    EXPECT_EQ(
+        boundary_json->root().get_string("id"),
+        compact_json->root().get_string("compact_boundary_id"));
+    auto boundary_metadata = boundary_json->root().get("compact_metadata");
+    ASSERT_TRUE(boundary_metadata.is_obj());
+    EXPECT_EQ(boundary_metadata.get("messages_before").as_int(), 10);
+    EXPECT_EQ(boundary_metadata.get("messages_after").as_int(), 7);
+    EXPECT_EQ(boundary_metadata.get("messages_removed").as_int(), 3);
+    EXPECT_EQ(boundary_metadata.get("messages_summarized").as_int(), 4);
+    EXPECT_EQ(boundary_metadata.get("preserved_recent_messages").as_int(), 6);
+    auto boundary_content = boundary_json->root().get_string("content");
+    EXPECT_NE(boundary_content.find("hello direct connect"), std::string::npos);
+    EXPECT_NE(boundary_content.find("follow up direct connect 1"), std::string::npos);
+    EXPECT_NE(boundary_content.find("Preserve these details"), std::string::npos);
+    EXPECT_NE(lines.back().find("ok"), std::string::npos);
+
+    direct_server.stop();
+	cc::server::reset_route_state_for_testing();
+	fs::remove_all(root);
+}
+
+TEST(ServerMain, DirectConnectInterruptCancelsActiveMessageRoute) {
+    const auto suffix = std::chrono::system_clock::now().time_since_epoch().count();
+    const auto root = fs::temp_directory_path() / ("cc_repl_server_interrupt_cancel_test_" + std::to_string(suffix));
+    const auto sessions_dir = root / "sessions";
+    fs::remove_all(root);
+    fs::create_directories(sessions_dir);
+
+    EnvironmentGuard sessions_guard("CC_REPL_SERVER_SESSIONS_DIR", sessions_dir.string());
+    CurrentPathGuard cwd_guard(root);
+    cc::server::reset_route_state_for_testing();
+
+    std::mutex executor_mutex;
+    std::condition_variable executor_cv;
+    bool executor_started = false;
+    std::atomic<bool> executor_saw_cancel{false};
+    cc::server::set_query_executor_for_testing(
+        [&](const cc::server::detail::DirectQueryRequest& request)
+            -> std::expected<cc::server::detail::DirectQueryResult, std::string> {
+            {
+                std::lock_guard lock(executor_mutex);
+                executor_started = true;
+            }
+            executor_cv.notify_all();
+
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+            while (std::chrono::steady_clock::now() < deadline) {
+                if (request.cancel_flag && request.cancel_flag->load()) {
+                    executor_saw_cancel.store(true);
+                    return std::unexpected(std::string("Query interrupted"));
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+            return cc::server::detail::DirectQueryResult{
+                .assistant_id = "msg_not_cancelled",
+                .content = "not cancelled",
+                .model = "test-model",
+                .input_tokens = 1,
+                .output_tokens = 1,
+                .tool_rounds = 0,
+                .elapsed_ms = 3000,
+            };
+        });
+
+    cc::server::HttpServer direct_server;
+    auto started = direct_server.start(cc::server::ServerConfig{
+        .port = 0,
+        .host = "127.0.0.1",
+        .cors = false,
+        .auth_token = std::nullopt,
+    });
+    ASSERT_TRUE(started.has_value()) << started.error();
+    const auto server_port = direct_server.get_config().port;
+    ASSERT_NE(server_port, 0);
+
+    const auto create_body = std::format(R"({{"cwd":"{}"}})", root.string());
+    auto create_response = direct_connect_http_request(server_port, "POST", "/sessions", create_body);
+    ASSERT_TRUE(create_response.has_value());
+    ASSERT_EQ(create_response->status, 200) << create_response->body;
+    auto create_json = cc::utils::json::parse(create_response->body);
+    ASSERT_TRUE(create_json.has_value()) << create_response->body;
+    const auto session_id = std::string(create_json->root().get_string("session_id"));
+    ASSERT_FALSE(session_id.empty());
+
+    auto ws_fd = direct_connect_open_websocket(server_port, "/sessions/ws/" + session_id);
+    ASSERT_TRUE(ws_fd.has_value());
+    const auto user_payload = R"({"type":"user","message":{"role":"user","content":"start long direct route"},"parent_tool_use_id":null,"session_id":""})";
+    ASSERT_TRUE(direct_connect_send_client_text_frame(*ws_fd, user_payload));
+
+    {
+        std::unique_lock lock(executor_mutex);
+        ASSERT_TRUE(executor_cv.wait_for(lock, std::chrono::seconds(1), [&] {
+            return executor_started;
+        }));
+    }
+
+    const std::string interrupt_payload =
+        R"({"type":"control_request","request_id":"active-interrupt","request":{"subtype":"interrupt"}})";
+    ASSERT_TRUE(direct_connect_send_client_text_frame(*ws_fd, interrupt_payload));
+
+    auto control_frame = direct_connect_read_ws_frame(*ws_fd);
+    ASSERT_TRUE(control_frame.has_value());
+    auto control_json = cc::utils::json::parse(direct_connect_trim_json_line(control_frame->payload));
+    ASSERT_TRUE(control_json.has_value()) << control_frame->payload;
+    EXPECT_EQ(control_json->root().get_string("type"), "control_response");
+    auto control_response = control_json->root().get("response");
+    EXPECT_EQ(control_response.get_string("subtype"), "success");
+    EXPECT_EQ(control_response.get_string("request_id"), "active-interrupt");
+    EXPECT_TRUE(control_response.get("response").get("interrupted").as_bool());
+
+    auto error_frame = direct_connect_read_ws_frame(*ws_fd);
+    ASSERT_TRUE(error_frame.has_value());
+    auto error_json = cc::utils::json::parse(direct_connect_trim_json_line(error_frame->payload));
+    ASSERT_TRUE(error_json.has_value()) << error_frame->payload;
+    EXPECT_EQ(error_json->root().get_string("type"), "result");
+    EXPECT_EQ(error_json->root().get_string("subtype"), "error_during_execution");
+    EXPECT_TRUE(error_json->root().get("is_error").as_bool());
+    auto errors = error_json->root().get("errors");
+    ASSERT_TRUE(errors.is_arr());
+    ASSERT_GE(errors.size(), 1u);
+    EXPECT_NE(std::string(errors.at(0).as_str()).find("Query interrupted"), std::string::npos);
+    EXPECT_TRUE(executor_saw_cancel.load());
+
+    ::shutdown(*ws_fd, SHUT_RDWR);
+    ::close(*ws_fd);
+    direct_server.stop();
+	cc::server::reset_route_state_for_testing();
+	fs::remove_all(root);
+}
+
+TEST(ServerMain, DirectConnectPermissionControlCanAllowAndDenyToolUse) {
+    const auto suffix = std::chrono::system_clock::now().time_since_epoch().count();
+    const auto root = fs::temp_directory_path() / ("cc_repl_direct_permission_test_" + std::to_string(suffix));
+    const auto sessions_dir = root / "sessions";
+    fs::remove_all(root);
+    fs::create_directories(root);
+    const auto allowed_file = root / "allowed.txt";
+    {
+        std::ofstream output(allowed_file);
+        output << "permission bridge content\n";
+    }
+    const auto original_file = root / "original.txt";
+    {
+        std::ofstream output(original_file);
+        output << "original input content\n";
+    }
+    const auto updated_file = root / "updated.txt";
+    {
+        std::ofstream output(updated_file);
+        output << "updated permission content\n";
+    }
+    const auto denied_file = root / "denied.txt";
+    {
+        std::ofstream output(denied_file);
+        output << "denied permission content\n";
+    }
+    const auto allowed_dir = root / "allowed-dir";
+    fs::create_directories(allowed_dir);
+    const auto directory_file = allowed_dir / "directory.txt";
+    {
+        std::ofstream output(directory_file);
+        output << "directory permission content\n";
+    }
+
+    LocalAnthropicMessagesServer anthropic({
+        std::format(
+            R"({{"id":"msg_read_allow_tool","type":"message","role":"assistant","model":"claude-test","content":[{{"type":"tool_use","id":"toolu_read_allow","name":"Read","input":{{"file_path":"{}"}}}}],"stop_reason":"tool_use","usage":{{"input_tokens":1,"output_tokens":1}}}})",
+            allowed_file.string()),
+        R"({"id":"msg_read_allow_done","type":"message","role":"assistant","model":"claude-test","content":[{"type":"text","text":"read allowed"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}})",
+        std::format(
+            R"({{"id":"msg_read_update_tool","type":"message","role":"assistant","model":"claude-test","content":[{{"type":"tool_use","id":"toolu_read_update","name":"Read","input":{{"file_path":"{}"}}}}],"stop_reason":"tool_use","usage":{{"input_tokens":1,"output_tokens":1}}}})",
+            original_file.string()),
+        R"({"id":"msg_read_update_done","type":"message","role":"assistant","model":"claude-test","content":[{"type":"text","text":"read updated"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}})",
+        std::format(
+            R"({{"id":"msg_read_cached_tool","type":"message","role":"assistant","model":"claude-test","content":[{{"type":"tool_use","id":"toolu_read_cached","name":"Read","input":{{"file_path":"{}"}}}}],"stop_reason":"tool_use","usage":{{"input_tokens":1,"output_tokens":1}}}})",
+            original_file.string()),
+        R"({"id":"msg_read_cached_done","type":"message","role":"assistant","model":"claude-test","content":[{"type":"text","text":"read cached"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}})",
+        std::format(
+            R"({{"id":"msg_read_directory_tool","type":"message","role":"assistant","model":"claude-test","content":[{{"type":"tool_use","id":"toolu_read_directory","name":"Read","input":{{"file_path":"{}"}}}}],"stop_reason":"tool_use","usage":{{"input_tokens":1,"output_tokens":1}}}})",
+            directory_file.string()),
+        R"({"id":"msg_read_directory_done","type":"message","role":"assistant","model":"claude-test","content":[{"type":"text","text":"read directory cached"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}})",
+        std::format(
+            R"({{"id":"msg_read_deny_tool","type":"message","role":"assistant","model":"claude-test","content":[{{"type":"tool_use","id":"toolu_read_deny","name":"Read","input":{{"file_path":"{}"}}}}],"stop_reason":"tool_use","usage":{{"input_tokens":1,"output_tokens":1}}}})",
+            denied_file.string()),
+        R"({"id":"msg_read_deny_done","type":"message","role":"assistant","model":"claude-test","content":[{"type":"text","text":"read denied"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}})",
+    });
+    ASSERT_NE(anthropic.port(), 0);
+
+    EnvironmentGuard api_key_guard("ANTHROPIC_API_KEY", "test-key");
+    EnvironmentGuard base_url_guard("ANTHROPIC_BASE_URL", anthropic.base_url());
+    EnvironmentGuard sessions_guard("CC_REPL_SERVER_SESSIONS_DIR", sessions_dir.string());
+    CurrentPathGuard cwd_guard(root);
+    cc::server::reset_route_state_for_testing();
+
+    cc::server::HttpServer direct_server;
+    auto started = direct_server.start(cc::server::ServerConfig{
+        .port = 0,
+        .host = "127.0.0.1",
+        .cors = false,
+        .auth_token = std::nullopt,
+    });
+    ASSERT_TRUE(started.has_value()) << started.error();
+    const auto server_port = direct_server.get_config().port;
+    ASSERT_NE(server_port, 0);
+
+    const auto create_body = std::format(R"({{"cwd":"{}"}})", root.string());
+    auto create_response = direct_connect_http_request(server_port, "POST", "/sessions", create_body);
+    ASSERT_TRUE(create_response.has_value());
+    ASSERT_EQ(create_response->status, 200) << create_response->body;
+    auto create_json = cc::utils::json::parse(create_response->body);
+    ASSERT_TRUE(create_json.has_value()) << create_response->body;
+    const auto session_id = std::string(create_json->root().get_string("session_id"));
+    ASSERT_FALSE(session_id.empty());
+
+    auto ws_fd = direct_connect_open_websocket(server_port, "/sessions/ws/" + session_id);
+    ASSERT_TRUE(ws_fd.has_value());
+
+    auto send_prompt_with_permission = [&](std::string_view prompt,
+                                           std::string_view behavior,
+                                           std::string_view expected_tool_use_id,
+                                           std::string_view expected_file_path,
+                                           std::string_view expected_text,
+                                           std::string_view extra_response_fields_json = {}) {
+        const auto user_payload = std::format(
+            R"({{"type":"user","message":{{"role":"user","content":"{}"}},"parent_tool_use_id":null,"session_id":""}})",
+            prompt);
+        ASSERT_TRUE(direct_connect_send_client_text_frame(*ws_fd, user_payload));
+
+        std::optional<cc::utils::json::JsonDoc> permission_json;
+        for (int attempt = 0; attempt < 4; ++attempt) {
+            auto permission_frame = direct_connect_read_ws_frame(*ws_fd);
+            ASSERT_TRUE(permission_frame.has_value());
+            auto parsed = cc::utils::json::parse(direct_connect_trim_json_line(permission_frame->payload));
+            ASSERT_TRUE(parsed.has_value()) << permission_frame->payload;
+            if (parsed->root().get_string("type") == "control_request") {
+                permission_json.emplace(std::move(*parsed));
+                break;
+            }
+        }
+        ASSERT_TRUE(permission_json.has_value());
+        EXPECT_EQ(permission_json->root().get_string("type"), "control_request");
+        ASSERT_TRUE(permission_json->root().get("request_id").is_str());
+        const auto request_id = std::string(permission_json->root().get_string("request_id"));
+        auto request = permission_json->root().get("request");
+        ASSERT_TRUE(request.is_obj());
+        EXPECT_EQ(request.get_string("subtype"), "can_use_tool");
+        EXPECT_EQ(request.get_string("tool_name"), "Read");
+        EXPECT_EQ(request.get_string("tool_use_id"), expected_tool_use_id);
+        EXPECT_EQ(request.get("input").get_string("file_path"), expected_file_path);
+        ASSERT_TRUE(direct_connect_send_permission_response(
+            *ws_fd,
+            request_id,
+            behavior,
+            extra_response_fields_json));
+
+        auto assistant_frame = direct_connect_read_ws_frame(*ws_fd);
+        ASSERT_TRUE(assistant_frame.has_value());
+        auto assistant_json = cc::utils::json::parse(direct_connect_trim_json_line(assistant_frame->payload));
+        ASSERT_TRUE(assistant_json.has_value()) << assistant_frame->payload;
+        EXPECT_EQ(assistant_json->root().get_string("type"), "assistant");
+        auto assistant_content = assistant_json->root().get("message").get("content");
+        ASSERT_TRUE(assistant_content.is_arr()) << assistant_frame->payload;
+        ASSERT_GE(assistant_content.size(), 1u);
+        EXPECT_EQ(assistant_content.at(0).get_string("text"), expected_text);
+
+        auto result_frame = direct_connect_read_ws_frame(*ws_fd);
+        ASSERT_TRUE(result_frame.has_value());
+        auto result_json = cc::utils::json::parse(direct_connect_trim_json_line(result_frame->payload));
+        ASSERT_TRUE(result_json.has_value()) << result_frame->payload;
+        EXPECT_EQ(result_json->root().get_string("type"), "result");
+        EXPECT_EQ(result_json->root().get_string("subtype"), "success");
+	        EXPECT_EQ(result_json->root().get_string("result"), expected_text);
+	    };
+
+    auto send_prompt_without_permission = [&](std::string_view prompt,
+                                              std::string_view expected_text) {
+        const auto user_payload = std::format(
+            R"({{"type":"user","message":{{"role":"user","content":"{}"}},"parent_tool_use_id":null,"session_id":""}})",
+            prompt);
+        ASSERT_TRUE(direct_connect_send_client_text_frame(*ws_fd, user_payload));
+
+        auto assistant_frame = direct_connect_read_ws_frame(*ws_fd);
+        ASSERT_TRUE(assistant_frame.has_value());
+        auto assistant_json = cc::utils::json::parse(direct_connect_trim_json_line(assistant_frame->payload));
+        ASSERT_TRUE(assistant_json.has_value()) << assistant_frame->payload;
+        EXPECT_EQ(assistant_json->root().get_string("type"), "assistant");
+        auto assistant_content = assistant_json->root().get("message").get("content");
+        ASSERT_TRUE(assistant_content.is_arr()) << assistant_frame->payload;
+        ASSERT_GE(assistant_content.size(), 1u);
+        EXPECT_EQ(assistant_content.at(0).get_string("text"), expected_text);
+
+        auto result_frame = direct_connect_read_ws_frame(*ws_fd);
+        ASSERT_TRUE(result_frame.has_value());
+        auto result_json = cc::utils::json::parse(direct_connect_trim_json_line(result_frame->payload));
+        ASSERT_TRUE(result_json.has_value()) << result_frame->payload;
+        EXPECT_EQ(result_json->root().get_string("type"), "result");
+        EXPECT_EQ(result_json->root().get_string("subtype"), "success");
+        EXPECT_EQ(result_json->root().get_string("result"), expected_text);
+    };
+
+    send_prompt_with_permission(
+        "read with permission allow",
+        "allow",
+        "toolu_read_allow",
+        allowed_file.string(),
+        "read allowed");
+    send_prompt_with_permission(
+        "read with permission updated input",
+        "allow",
+        "toolu_read_update",
+        original_file.string(),
+	        "read updated",
+	        std::format(
+	            R"(,"updatedInput":{{"file_path":"{}"}},"updatedPermissions":[{{"type":"addRules","rules":[{{"toolName":"Read","ruleContent":"{}"}}],"behavior":"allow","destination":"session"}},{{"type":"addDirectories","directories":["{}"],"destination":"session"}}])",
+	            updated_file.string(),
+	            original_file.string(),
+	            allowed_dir.string()));
+	    send_prompt_without_permission("read with cached permission update", "read cached");
+    send_prompt_without_permission("read with cached directory permission", "read directory cached");
+	    send_prompt_with_permission(
+	        "read with permission deny",
+        "deny",
+        "toolu_read_deny",
+        denied_file.string(),
+        "read denied",
+        R"(,"message":"denied by direct permission test")");
+
+    auto request_bodies = anthropic.wait_for_bodies(10);
+    ASSERT_TRUE(request_bodies.has_value());
+    ASSERT_EQ(request_bodies->size(), 10u);
+    EXPECT_NE((*request_bodies)[1].find("permission bridge content"), std::string::npos);
+    EXPECT_NE((*request_bodies)[3].find("updated permission content"), std::string::npos);
+    EXPECT_EQ((*request_bodies)[3].find("original input content"), std::string::npos);
+    EXPECT_NE((*request_bodies)[5].find("original input content"), std::string::npos);
+    EXPECT_NE((*request_bodies)[7].find("directory permission content"), std::string::npos);
+    EXPECT_NE((*request_bodies)[9].find("denied by direct permission test"), std::string::npos);
+    EXPECT_EQ((*request_bodies)[9].find("Permission denied for tool: Read"), std::string::npos);
+
+    ::shutdown(*ws_fd, SHUT_RDWR);
+    ::close(*ws_fd);
+    direct_server.stop();
+    cc::server::reset_route_state_for_testing();
+    fs::remove_all(root);
+}
+
+TEST(ServerMain, DirectConnectToolLoopPersistsTeamCreateAndSendMessage) {
+    const auto suffix = std::chrono::system_clock::now().time_since_epoch().count();
+    const auto root = fs::temp_directory_path() / ("cc_repl_direct_team_tool_test_" + std::to_string(suffix));
+    const auto sessions_dir = root / "sessions";
+    fs::remove_all(root);
+    fs::create_directories(root);
+
+    LocalAnthropicMessagesServer anthropic({
+        R"({"id":"msg_team_create_tool","type":"message","role":"assistant","model":"claude-test","content":[{"type":"tool_use","id":"toolu_team_create","name":"team_create","input":{"team_id":"direct-team-id","team_name":"Direct Team","members":[{"agent_id":"reviewer-one","role":"reviewer"},{"agent_id":"researcher-one","role":"worker"}],"task_list":[{"id":"direct-task","description":"Inspect direct connect team migration","assigned_to":"reviewer-one"}]}}],"stop_reason":"tool_use","usage":{"input_tokens":1,"output_tokens":1}})",
+        R"({"id":"msg_team_create_done","type":"message","role":"assistant","model":"claude-test","content":[{"type":"text","text":"direct team created"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}})",
+        R"({"id":"msg_send_message_tool","type":"message","role":"assistant","model":"claude-test","content":[{"type":"tool_use","id":"toolu_send_message","name":"send_message","input":{"target_agent":"reviewer-one","team_name":"Direct Team","content":"Please review direct connect team output","summary":"direct team follow-up"}}],"stop_reason":"tool_use","usage":{"input_tokens":1,"output_tokens":1}})",
+        R"({"id":"msg_send_message_done","type":"message","role":"assistant","model":"claude-test","content":[{"type":"text","text":"direct team message delivered"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}})",
+    });
+    ASSERT_NE(anthropic.port(), 0);
+
+    EnvironmentGuard api_key_guard("ANTHROPIC_API_KEY", "test-key");
+    EnvironmentGuard base_url_guard("ANTHROPIC_BASE_URL", anthropic.base_url());
+    EnvironmentGuard sessions_guard("CC_REPL_SERVER_SESSIONS_DIR", sessions_dir.string());
+    EnvironmentGuard team_dir_guard("CC_REPL_TEAM_RUNTIME_DIR", (root / "teams").string());
+    EnvironmentGuard agent_runtime_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "agents").string());
+    CurrentPathGuard cwd_guard(root);
+    cc::server::reset_route_state_for_testing();
+    cc::tools::global_team_store().clear_for_testing();
+    cc::tools::agent_runtime::native_agent_store().clear_for_testing();
+
+    cc::server::HttpServer direct_server;
+    auto started = direct_server.start(cc::server::ServerConfig{
+        .port = 0,
+        .host = "127.0.0.1",
+        .cors = false,
+        .auth_token = std::nullopt,
+    });
+    ASSERT_TRUE(started.has_value()) << started.error();
+    const auto server_port = direct_server.get_config().port;
+    ASSERT_NE(server_port, 0);
+
+    const auto create_body = std::format(R"({{"cwd":"{}"}})", root.string());
+    auto create_response = direct_connect_http_request(server_port, "POST", "/sessions", create_body);
+    ASSERT_TRUE(create_response.has_value());
+    ASSERT_EQ(create_response->status, 200) << create_response->body;
+    auto create_json = cc::utils::json::parse(create_response->body);
+    ASSERT_TRUE(create_json.has_value()) << create_response->body;
+    const auto session_id = std::string(create_json->root().get_string("session_id"));
+    ASSERT_FALSE(session_id.empty());
+
+    auto ws_fd = direct_connect_open_websocket(server_port, "/sessions/ws/" + session_id);
+    ASSERT_TRUE(ws_fd.has_value());
+
+    auto read_non_permission_frame = [&]() -> std::optional<DirectConnectWsFrame> {
+        while (true) {
+            auto frame = direct_connect_read_ws_frame(*ws_fd);
+            if (!frame) return std::nullopt;
+            auto parsed = cc::utils::json::parse(direct_connect_trim_json_line(frame->payload));
+            if (!parsed || !parsed->root().is_obj()) return frame;
+            if (parsed->root().get_string("type") == "control_request") {
+                auto request_id_value = parsed->root().get("request_id");
+                auto request = parsed->root().get("request");
+                if (request_id_value.is_str() &&
+                    request.is_obj() &&
+                    request.get_string("subtype") == "can_use_tool") {
+                    EXPECT_TRUE(direct_connect_send_permission_response(
+                        *ws_fd,
+                        std::string(request_id_value.as_str()),
+                        "allow"));
+                    continue;
+                }
+            }
+            return frame;
+        }
+    };
+
+    auto send_user_prompt = [&](std::string_view prompt, std::string_view expected_text) {
+        const auto user_payload = std::format(
+            R"({{"type":"user","message":{{"role":"user","content":"{}"}},"parent_tool_use_id":null,"session_id":""}})",
+            prompt);
+        ASSERT_TRUE(direct_connect_send_client_text_frame(*ws_fd, user_payload));
+
+        auto assistant_frame = read_non_permission_frame();
+        ASSERT_TRUE(assistant_frame.has_value());
+        auto assistant_json = cc::utils::json::parse(direct_connect_trim_json_line(assistant_frame->payload));
+        ASSERT_TRUE(assistant_json.has_value()) << assistant_frame->payload;
+        EXPECT_EQ(assistant_json->root().get_string("type"), "assistant");
+        EXPECT_EQ(assistant_json->root().get_string("session_id"), session_id);
+        auto assistant_content = assistant_json->root().get("message").get("content");
+        ASSERT_TRUE(assistant_content.is_arr()) << assistant_frame->payload;
+        ASSERT_GE(assistant_content.size(), 1u);
+        EXPECT_EQ(assistant_content.at(0).get_string("text"), expected_text);
+
+        auto result_frame = read_non_permission_frame();
+        ASSERT_TRUE(result_frame.has_value());
+        auto result_json = cc::utils::json::parse(direct_connect_trim_json_line(result_frame->payload));
+        ASSERT_TRUE(result_json.has_value()) << result_frame->payload;
+        EXPECT_EQ(result_json->root().get_string("type"), "result");
+        EXPECT_EQ(result_json->root().get_string("subtype"), "success");
+        EXPECT_EQ(result_json->root().get_string("result"), expected_text);
+    };
+
+    send_user_prompt("create a direct connect team", "direct team created");
+    send_user_prompt("message reviewer-one on the direct team", "direct team message delivered");
+
+    ::shutdown(*ws_fd, SHUT_RDWR);
+    ::close(*ws_fd);
+
+    auto request_bodies = anthropic.wait_for_bodies(4);
+    ASSERT_TRUE(request_bodies.has_value());
+    ASSERT_EQ(request_bodies->size(), 4u);
+    auto first_request = cc::utils::json::parse(request_bodies->front());
+    ASSERT_TRUE(first_request.has_value()) << request_bodies->front();
+    auto tools = first_request->root().get("tools");
+    ASSERT_TRUE(tools.is_arr()) << request_bodies->front();
+    bool exposed_team_create = false;
+    bool exposed_send_message = false;
+    tools.iter([&](cc::utils::json::JsonVal tool) {
+        const auto name = std::string(tool.get_string("name"));
+        if (name == "team_create") exposed_team_create = true;
+        if (name == "send_message") exposed_send_message = true;
+    });
+    EXPECT_TRUE(exposed_team_create);
+    EXPECT_TRUE(exposed_send_message);
+
+    auto team = cc::tools::global_team_store().get("direct-team-id");
+    ASSERT_TRUE(team.has_value()) << std::string(cc::tools::format_error(team.error()));
+    EXPECT_EQ((*team)->name, "Direct Team");
+    ASSERT_EQ((*team)->members.size(), 2u);
+    ASSERT_EQ((*team)->task_list.size(), 1u);
+    EXPECT_EQ((*team)->task_list.front().id, "direct-task");
+    ASSERT_TRUE((*team)->task_list.front().assigned_to.has_value());
+    EXPECT_EQ(*(*team)->task_list.front().assigned_to, "reviewer-one");
+
+    const auto team_dir = root / "teams" / "direct-team";
+    EXPECT_TRUE(fs::exists(root / "teams" / "direct-team-id.json"));
+    EXPECT_TRUE(fs::exists(team_dir / "config.json"));
+    EXPECT_TRUE(fs::exists(team_dir / "tasks.json"));
+    EXPECT_TRUE(fs::exists(team_dir / "inboxes" / "reviewer-one.json"));
+
+    auto reviewer_record = cc::tools::agent_runtime::native_agent_store().get("reviewer-one");
+    ASSERT_TRUE(reviewer_record.has_value());
+    ASSERT_TRUE(reviewer_record->team_name.has_value());
+    EXPECT_EQ(*reviewer_record->team_name, "Direct Team");
+    ASSERT_EQ(reviewer_record->pending_messages.size(), 2u);
+    EXPECT_NE(reviewer_record->pending_messages.front().find("Inspect direct connect team migration"), std::string::npos);
+    EXPECT_NE(reviewer_record->pending_messages.back().find("Please review direct connect team output"), std::string::npos);
+
+    auto inbox = cc::utils::read_inbox("reviewer-one", std::optional<std::string_view>{"Direct Team"});
+    ASSERT_TRUE(inbox.has_value()) << inbox.error();
+    ASSERT_EQ(inbox->size(), 1u);
+    EXPECT_EQ(inbox->front().from, "team-lead");
+    EXPECT_EQ(inbox->front().text, "Please review direct connect team output");
+    ASSERT_TRUE(inbox->front().summary.has_value());
+    EXPECT_EQ(*inbox->front().summary, "direct team follow-up");
+
+    auto metadata = cc::session::load_session_metadata(sessions_dir, session_id);
+    ASSERT_TRUE(metadata.has_value());
+    EXPECT_EQ(metadata->message_count, 4);
+
+    direct_server.stop();
+    cc::server::reset_route_state_for_testing();
+    cc::tools::global_team_store().clear_for_testing();
+    cc::tools::agent_runtime::native_agent_store().clear_for_testing();
     fs::remove_all(root);
 }
 

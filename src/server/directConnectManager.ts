@@ -6,8 +6,6 @@ import type {
   StdoutMessage,
 } from '../entrypoints/sdk/controlTypes.js'
 import type { RemotePermissionResponse } from '../remote/RemoteSessionManager.js'
-import { logForDebugging } from '../utils/debug.js'
-import { jsonParse, jsonStringify } from '../utils/slowOperations.js'
 import type { RemoteMessageContent } from '../utils/teleport/api.js'
 
 export type DirectConnectConfig = {
@@ -68,7 +66,7 @@ export class DirectConnectSessionManager {
       for (const line of lines) {
         let raw: unknown
         try {
-          raw = jsonParse(line)
+          raw = JSON.parse(line)
         } catch {
           continue
         }
@@ -88,9 +86,6 @@ export class DirectConnectSessionManager {
           } else {
             // Send an error response for unrecognized subtypes so the
             // server doesn't hang waiting for a reply that never comes.
-            logForDebugging(
-              `[DirectConnect] Unsupported control request subtype: ${parsed.request.subtype}`,
-            )
             this.sendErrorResponse(
               parsed.request_id,
               `Unsupported control request subtype: ${parsed.request.subtype}`,
@@ -128,7 +123,7 @@ export class DirectConnectSessionManager {
     }
 
     // Must match SDKUserMessage format expected by `--input-format stream-json`
-    const message = jsonStringify({
+    const message = JSON.stringify({
       type: 'user',
       message: {
         role: 'user',
@@ -150,17 +145,20 @@ export class DirectConnectSessionManager {
     }
 
     // Must match SDKControlResponse format expected by StructuredIO
-    const response = jsonStringify({
+    const response = JSON.stringify({
       type: 'control_response',
       response: {
         subtype: 'success',
         request_id: requestId,
         response: {
-          behavior: result.behavior,
-          ...(result.behavior === 'allow'
-            ? { updatedInput: result.updatedInput }
-            : { message: result.message }),
-        },
+	          behavior: result.behavior,
+	          ...(result.behavior === 'allow'
+	            ? {
+	                updatedInput: result.updatedInput,
+	                updatedPermissions: result.updatedPermissions,
+	              }
+	            : { message: result.message }),
+	        },
       },
     })
     this.ws.send(response)
@@ -175,7 +173,7 @@ export class DirectConnectSessionManager {
     }
 
     // Must match SDKControlRequest format expected by StructuredIO
-    const request = jsonStringify({
+    const request = JSON.stringify({
       type: 'control_request',
       request_id: crypto.randomUUID(),
       request: {
@@ -189,7 +187,7 @@ export class DirectConnectSessionManager {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       return
     }
-    const response = jsonStringify({
+    const response = JSON.stringify({
       type: 'control_response',
       response: {
         subtype: 'error',

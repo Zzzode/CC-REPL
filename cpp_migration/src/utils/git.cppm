@@ -3,6 +3,7 @@
 module;
 
 #include <cstdlib>
+#include <cctype>
 #include <expected>
 #include <filesystem>
 #include <format>

@@ -113,7 +113,78 @@ inline void append_nfkc_compat(std::string& output, std::uint32_t cp) {
         output.push_back(static_cast<char>(cp - 0xFEE0u));
         return;
     }
+    if (cp >= 0x2460u && cp <= 0x2468u) {
+        output.push_back(static_cast<char>('1' + (cp - 0x2460u)));
+        return;
+    }
+    if (cp == 0x24EAu) {
+        output.push_back('0');
+        return;
+    }
+    if (cp >= 0x24F5u && cp <= 0x24FEu) {
+        output.push_back(static_cast<char>('0' + (cp - 0x24F5u)));
+        return;
+    }
+    if (cp == 0x00B2u) {
+        output.push_back('2');
+        return;
+    }
+    if (cp == 0x00B3u) {
+        output.push_back('3');
+        return;
+    }
+    if (cp == 0x00B9u) {
+        output.push_back('1');
+        return;
+    }
+    if (cp == 0x2070u) {
+        output.push_back('0');
+        return;
+    }
+    if (cp >= 0x2074u && cp <= 0x2079u) {
+        output.push_back(static_cast<char>('4' + (cp - 0x2074u)));
+        return;
+    }
     switch (cp) {
+        case 0x2160u:
+            output += "I";
+            return;
+        case 0x2161u:
+            output += "II";
+            return;
+        case 0x2162u:
+            output += "III";
+            return;
+        case 0x2163u:
+            output += "IV";
+            return;
+        case 0x2164u:
+            output += "V";
+            return;
+        case 0x2165u:
+            output += "VI";
+            return;
+        case 0x2166u:
+            output += "VII";
+            return;
+        case 0x2167u:
+            output += "VIII";
+            return;
+        case 0x2168u:
+            output += "IX";
+            return;
+        case 0x2169u:
+            output += "X";
+            return;
+        case 0x216Au:
+            output += "XI";
+            return;
+        case 0x216Bu:
+            output += "XII";
+            return;
+        case 0x338Fu:
+            output += "kg";
+            return;
         case 0xFB00u:
             output += "ff";
             return;

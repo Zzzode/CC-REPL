@@ -7,6 +7,7 @@ module;
 #include <format>
 #include <functional>
 #include <mutex>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -25,6 +26,13 @@ enum class PermissionDecision {
     deny,
     ask_user,
     allow_once,
+};
+
+struct PermissionResponse {
+    PermissionDecision decision{PermissionDecision::ask_user};
+    std::optional<std::string> updated_input_json;
+    std::optional<std::string> updated_permissions_json;
+    std::optional<std::string> message;
 };
 
 
@@ -66,6 +74,7 @@ private:
 struct PermissionContext {
     std::string tool_name;
     std::string args;
+    std::string tool_use_id;
     std::string working_dir;
     std::vector<PermissionRule> session_rules;
 };
@@ -80,7 +89,6 @@ struct AuditEntry {
 
 
     [[nodiscard]] auto format() const -> std::string {
-        auto time_t = std::chrono::system_clock::to_time_t(timestamp);
         std::string decision_str;
         switch (decision) {
             case PermissionDecision::allow:      decision_str = "ALLOW"; break;
@@ -94,6 +102,7 @@ struct AuditEntry {
 
 
 using AskUserFn = std::function<PermissionDecision(const PermissionContext&)>;
+using AskUserResponseFn = std::function<PermissionResponse(const PermissionContext&)>;
 
 
 class ToolPermissionHook {
@@ -104,47 +113,70 @@ public:
      * Check whether a tool may run in the current context.
      * Rules are matched by priority, and auto-approval mode skips prompts.
      */
-    [[nodiscard]] auto can_use(std::string_view tool_name,
-                                std::string_view args = "") -> PermissionDecision {
+    [[nodiscard]] auto can_use_response(std::string_view tool_name,
+                                         std::string_view args = "") -> PermissionResponse {
         std::lock_guard lock{mu_};
 
 
         if (auto_approve_) {
             auto decision = PermissionDecision::allow;
             log_decision(tool_name, args, decision, "auto-approve mode");
-            return decision;
+            PermissionResponse response{};
+            response.decision = decision;
+            return response;
         }
 
 
         if (auto it = session_decisions_.find(std::string(tool_name));
             it != session_decisions_.end()) {
             log_decision(tool_name, args, it->second, "session memory");
-            return it->second;
+            PermissionResponse response{};
+            response.decision = it->second;
+            return response;
         }
 
 
         for (const auto& rule : rules_) {
             if (rule.matches(tool_name, extract_path(args))) {
                 log_decision(tool_name, args, rule.decision, rule.reason);
-                return rule.decision;
+                PermissionResponse response{};
+                response.decision = rule.decision;
+                return response;
             }
         }
 
 
-        auto decision = PermissionDecision::ask_user;
+        PermissionResponse response{};
+        response.decision = PermissionDecision::ask_user;
 
 
-        if (ask_user_fn_) {
+        if (ask_user_response_fn_) {
             PermissionContext ctx{
                 .tool_name = std::string(tool_name),
                 .args = std::string(args),
+                .tool_use_id = current_tool_use_id_,
                 .working_dir = working_dir_,
+                .session_rules = {},
             };
-            decision = ask_user_fn_(ctx);
+            response = ask_user_response_fn_(ctx);
+        } else if (ask_user_fn_) {
+            PermissionContext ctx{
+                .tool_name = std::string(tool_name),
+                .args = std::string(args),
+                .tool_use_id = current_tool_use_id_,
+                .working_dir = working_dir_,
+                .session_rules = {},
+            };
+            response.decision = ask_user_fn_(ctx);
         }
 
-        log_decision(tool_name, args, decision, "default policy");
-        return decision;
+        log_decision(tool_name, args, response.decision, response.message.value_or("default policy"));
+        return response;
+    }
+
+    [[nodiscard]] auto can_use(std::string_view tool_name,
+                                std::string_view args = "") -> PermissionDecision {
+        return can_use_response(tool_name, args).decision;
     }
 
 
@@ -215,6 +247,23 @@ public:
     auto set_ask_user_fn(AskUserFn fn) -> void {
         std::lock_guard lock{mu_};
         ask_user_fn_ = std::move(fn);
+        ask_user_response_fn_ = {};
+    }
+
+    auto set_ask_user_response_fn(AskUserResponseFn fn) -> void {
+        std::lock_guard lock{mu_};
+        ask_user_response_fn_ = std::move(fn);
+        ask_user_fn_ = {};
+    }
+
+    auto set_current_tool_use_id(std::string_view tool_use_id) -> void {
+        std::lock_guard lock{mu_};
+        current_tool_use_id_ = std::string(tool_use_id);
+    }
+
+    auto clear_current_tool_use_id() -> void {
+        std::lock_guard lock{mu_};
+        current_tool_use_id_.clear();
     }
 
 
@@ -237,7 +286,9 @@ private:
     std::vector<AuditEntry> audit_log_;
     bool auto_approve_{false};
     std::string working_dir_;
+    std::string current_tool_use_id_;
     AskUserFn ask_user_fn_;
+    AskUserResponseFn ask_user_response_fn_;
     static constexpr std::size_t max_audit_entries_ = 1000;
 
 

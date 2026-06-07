@@ -361,7 +361,7 @@ private:
             // Validate edit if requested
             if (input.validate_before_write) {
                 auto validation = validate_edit(original_content, current_content);
-                if (!validation.has_value()) {
+                if (validation.has_value()) {
                     return ToolResult::error(*validation);
                 }
             }

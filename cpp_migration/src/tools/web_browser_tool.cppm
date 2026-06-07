@@ -1,5 +1,6 @@
 // WebBrowserTool - Browser automation for navigation, interaction, and content extraction
 module;
+#include <algorithm>
 #include <array>
 #include <cctype>
 #include <chrono>

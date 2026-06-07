@@ -887,6 +887,29 @@ public:
         return {};
     }
 
+    [[nodiscard]] std::expected<void, std::string> remove(std::vector<std::string> server_names) {
+        if (auto loaded = ensure_loaded_from_config(); !loaded) return std::unexpected(loaded.error());
+
+        std::lock_guard lock(mutex_);
+        bool changed = false;
+        for (const auto& server_name : server_names) {
+            if (server_name.empty()) continue;
+            manager_->disconnect_server(server_name);
+            const auto before = configured_servers_.size();
+            std::erase_if(configured_servers_, [&](const NativeMcpConfiguredServer& server) {
+                return server.name == server_name;
+            });
+            changed = changed || configured_servers_.size() != before;
+        }
+        if (!changed) return {};
+
+        ensure_manager_locked();
+        manager_->set_configuration(make_native_config(configured_servers_));
+        config_signature_ = signature(configured_servers_);
+        loaded_ = true;
+        return {};
+    }
+
     [[nodiscard]] std::expected<void, std::string> ensure_loaded_from_config() {
 	std::lock_guard lock(mutex_);
 	if (loaded_) return {};
@@ -1183,6 +1206,12 @@ inline std::expected<void, std::string> upsert_native_mcp_servers(
     return NativeMcpRuntime::instance().upsert(std::move(servers));
 }
 
+inline std::expected<void, std::string> remove_native_mcp_servers(
+    std::vector<std::string> server_names
+) {
+    return NativeMcpRuntime::instance().remove(std::move(server_names));
+}
+
 inline std::expected<void, std::string> reload_native_mcp_servers_from_config() {
     return NativeMcpRuntime::instance().reload_from_config();
 }
@@ -1390,7 +1419,12 @@ public:
     static constexpr std::string_view name = "mcp_auth";
     static constexpr std::string_view description = "Handle OAuth authentication for MCP servers";
 
-    auto execute(std::string server_name, std::optional<std::string> auth_code)
+    auto execute(
+        std::string server_name,
+        std::optional<std::string> auth_code,
+        bool wait_for_callback = false,
+        std::optional<std::string> authorization_url_file = std::nullopt
+    )
 	-> std::expected<std::string, McpError>
     {
 	if (server_name.empty()) return std::unexpected(McpError::InvalidInput);
@@ -1415,6 +1449,34 @@ public:
 	        "Server '{}' has no OAuth configuration. Configure oauth.authServerMetadataUrl or oauth.xaa before using mcp_auth.",
 	        server_name
 	    );
+	}
+
+	if (wait_for_callback) {
+	    if (!authorization_url_file || authorization_url_file->empty()) {
+	        return std::unexpected(McpError::InvalidInput);
+	    }
+	    auto oauth_config = to_oauth_server_config(*configured);
+	    auto result = svc_mcp::perform_mcp_oauth_flow(
+	        server_name,
+	        oauth_config,
+	        [path = fs::path{*authorization_url_file}](const std::string& url) {
+	            std::error_code ec;
+	            if (auto parent = path.parent_path(); !parent.empty()) {
+	                fs::create_directories(parent, ec);
+	            }
+	            std::ofstream out(path, std::ios::trunc);
+	            if (out.is_open()) {
+	                out << url;
+	            }
+	        },
+	        std::nullopt,
+	        true
+	    );
+	    if (!result) {
+	        return std::unexpected(McpError::AuthFailed);
+	    }
+	    (void)NativeMcpRuntime::instance().restart(server_name);
+	    return std::format("Authentication completed with browser callback for '{}'.", server_name);
 	}
 
 	struct AuthFlowState {

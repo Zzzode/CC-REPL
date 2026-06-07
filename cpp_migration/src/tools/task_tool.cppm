@@ -15,6 +15,7 @@ module;
 
 export module cc.tools.task;
 
+import cc.tools.agent_runtime;
 
 export namespace cc::tools {
 
@@ -195,6 +196,132 @@ inline TaskStore& global_task_store() {
     return store;
 }
 
+[[nodiscard]] inline bool native_record_is_task(const agent_runtime::NativeAgentRecord& record) {
+    return record.background;
+}
+
+[[nodiscard]] inline TaskStatus native_task_status(agent_runtime::NativeAgentStatus status) {
+    switch (status) {
+        case agent_runtime::NativeAgentStatus::Queued: return TaskStatus::Pending;
+        case agent_runtime::NativeAgentStatus::Running: return TaskStatus::Running;
+        case agent_runtime::NativeAgentStatus::Completed: return TaskStatus::Completed;
+        case agent_runtime::NativeAgentStatus::Failed: return TaskStatus::Failed;
+        case agent_runtime::NativeAgentStatus::Cancelled: return TaskStatus::Cancelled;
+    }
+    return TaskStatus::Pending;
+}
+
+[[nodiscard]] inline AgentType native_task_agent_type(std::string_view agent_type) {
+    return agent_type == "search" ? AgentType::Search : AgentType::GeneralPurpose;
+}
+
+[[nodiscard]] inline std::string native_task_description(const agent_runtime::NativeAgentRecord& record) {
+    if (record.description && !record.description->empty()) return *record.description;
+    if (record.name && !record.name->empty()) return *record.name;
+    return std::format("Agent {}", record.agent_type.empty() ? std::string{"general-purpose"} : record.agent_type);
+}
+
+[[nodiscard]] inline std::string native_task_output_text(const agent_runtime::NativeAgentRecord& record) {
+    std::string output;
+    if (record.output && !record.output->empty()) {
+        output += *record.output;
+    } else if (record.error && !record.error->empty()) {
+        output += *record.error;
+    }
+    if (!record.transcript.empty()) {
+        if (!output.empty()) output += "\n\n";
+        output += "Transcript:\n";
+        for (const auto& line : record.transcript) {
+            output += line + "\n";
+        }
+    }
+    if (record.output_file_path && !record.output_file_path->empty()) {
+        if (!output.empty()) output += "\n";
+        output += "output_file: " + *record.output_file_path + "\n";
+    }
+    return output;
+}
+
+[[nodiscard]] inline Task native_task_from_record(const agent_runtime::NativeAgentRecord& record) {
+    return Task{
+        .id = record.agent_id,
+        .description = native_task_description(record),
+        .status = native_task_status(record.status),
+        .agent_type = native_task_agent_type(record.agent_type),
+        .result = record.output,
+        .error_message = record.error,
+        .output = native_task_output_text(record),
+        .created_at = std::chrono::steady_clock::now(),
+    };
+}
+
+[[nodiscard]] inline std::string xml_escape_task_text(std::string_view text) {
+    std::string out;
+    out.reserve(text.size());
+    for (char ch : text) {
+        switch (ch) {
+            case '&': out += "&amp;"; break;
+            case '<': out += "&lt;"; break;
+            case '>': out += "&gt;"; break;
+            case '"': out += "&quot;"; break;
+            case '\'': out += "&apos;"; break;
+            default: out.push_back(ch); break;
+        }
+    }
+    return out;
+}
+
+[[nodiscard]] inline std::optional<std::string> native_task_terminal_status(TaskStatus status) {
+    switch (status) {
+        case TaskStatus::Completed: return "completed";
+        case TaskStatus::Failed: return "failed";
+        case TaskStatus::Cancelled: return "stopped";
+        case TaskStatus::Pending:
+        case TaskStatus::Running:
+            return std::nullopt;
+    }
+    return std::nullopt;
+}
+
+[[nodiscard]] inline std::string native_task_notification(const agent_runtime::NativeAgentRecord& record) {
+    auto status = native_task_terminal_status(native_task_status(record.status));
+    if (!status) return {};
+    auto output_file = record.output_file_path
+        .or_else([&] { return record.transcript_path; })
+        .value_or(agent_runtime::agent_output_file_path(record.agent_id).string());
+    auto result = record.output && !record.output->empty()
+        ? std::optional<std::string>{*record.output}
+        : record.error;
+    return std::format(
+        "<task_notification>\n"
+        "<task_id>{}</task_id>\n"
+        "<output_file>{}</output_file>\n"
+        "<status>{}</status>\n"
+        "<summary>{}</summary>{}\n"
+        "</task_notification>",
+        xml_escape_task_text(record.agent_id),
+        xml_escape_task_text(output_file),
+        xml_escape_task_text(*status),
+        xml_escape_task_text(native_task_description(record)),
+        result && !result->empty()
+            ? std::format("\n<result>{}</result>", xml_escape_task_text(*result))
+            : std::string{});
+}
+
+[[nodiscard]] inline std::string native_task_full_output(const agent_runtime::NativeAgentRecord& record) {
+    auto task = native_task_from_record(record);
+    std::string out = std::format("{} [{}] {}", task.id, task_status_name(task.status), task.description);
+    if (!task.output.empty()) out += "\n\nOutput:\n" + task.output;
+    if (auto notification = native_task_notification(record); !notification.empty()) {
+        out += "\n" + notification;
+    }
+    return out;
+}
+
+inline thread_local std::vector<Task> native_task_list_snapshot;
+inline thread_local std::optional<Task> native_task_get_snapshot;
+inline thread_local std::string native_task_output_snapshot;
+
 // TaskCreateTool - creates a new task and starts execution
 class TaskCreateTool {
 public:
@@ -237,7 +364,15 @@ public:
     static constexpr std::string_view description = "Get the status and details of a task";
 
     auto execute(const std::string& id) -> std::expected<const Task*, TaskError> {
-        return global_task_store().get(id);
+        if (auto task = global_task_store().get(id)) {
+            return *task;
+        }
+        if (auto record = agent_runtime::native_agent_store().get_by_task_id_or_remote_id(id);
+            record && native_record_is_task(*record)) {
+            native_task_get_snapshot = native_task_from_record(*record);
+            return &*native_task_get_snapshot;
+        }
+        return std::unexpected(TaskError::TaskNotFound);
     }
 
     auto schema() const -> std::string {
@@ -265,13 +400,26 @@ public:
         -> std::vector<const Task*>
     {
         auto all = global_task_store().list();
-        if (!filter) return all;
+        std::vector<const Task*> listed;
+        listed.reserve(all.size());
+        if (!filter) {
+            listed = std::move(all);
+        } else {
+            std::copy_if(all.begin(), all.end(), std::back_inserter(listed), [&](const Task* t) {
+                return t->status == *filter;
+            });
+        }
 
-        std::vector<const Task*> filtered;
-        std::copy_if(all.begin(), all.end(), std::back_inserter(filtered), [&](const Task* t) {
-            return t->status == *filter;
-        });
-        return filtered;
+        native_task_list_snapshot.clear();
+        for (const auto& record : agent_runtime::native_agent_store().list()) {
+            if (!native_record_is_task(record)) continue;
+            auto task = native_task_from_record(record);
+            if (filter && task.status != *filter) continue;
+            native_task_list_snapshot.push_back(std::move(task));
+        }
+        listed.reserve(listed.size() + native_task_list_snapshot.size());
+        for (const auto& task : native_task_list_snapshot) listed.push_back(&task);
+        return listed;
     }
 
     auto schema() const -> std::string {
@@ -295,7 +443,16 @@ public:
     static constexpr std::string_view description = "Stop/cancel a running task";
 
     auto execute(const std::string& id) -> std::expected<void, TaskError> {
-        return global_task_store().cancel(id);
+        if (auto task = global_task_store().get(id)) {
+            (void)task;
+            return global_task_store().cancel(id);
+        }
+        if (auto record = agent_runtime::native_agent_store().get_by_task_id_or_remote_id(id);
+            record && native_record_is_task(*record)) {
+            agent_runtime::native_agent_store().request_cancel(record->agent_id, "stop requested");
+            return {};
+        }
+        return std::unexpected(TaskError::TaskNotFound);
     }
 
     auto schema() const -> std::string {
@@ -361,8 +518,13 @@ public:
 
     auto execute(const std::string& id) -> std::expected<std::string_view, TaskError> {
         auto task = global_task_store().get(id);
-        if (!task) return std::unexpected(task.error());
-        return std::string_view((*task)->output);
+        if (task) return std::string_view((*task)->output);
+        if (auto record = agent_runtime::native_agent_store().get_by_task_id_or_remote_id(id);
+            record && native_record_is_task(*record)) {
+            native_task_output_snapshot = native_task_full_output(*record);
+            return std::string_view(native_task_output_snapshot);
+        }
+        return std::unexpected(TaskError::TaskNotFound);
     }
 
     auto schema() const -> std::string {

@@ -3,12 +3,20 @@ module;
 
 #include <format>
 #include <array>
+#include <cerrno>
+#include <chrono>
 #include <cstdio>
+#include <fcntl.h>
+#include <functional>
+#include <signal.h>
 #include <string>
 #include <string_view>
 #include <optional>
 #include <memory>
 #include <expected>
+#include <sys/wait.h>
+#include <thread>
+#include <unistd.h>
 
 export module cc.tools.web_fetch;
 
@@ -19,6 +27,12 @@ import cc.utils.json;
 export namespace cc::tools::web_fetch {
 
 namespace detail {
+struct CurlRunResult {
+    std::string output;
+    bool cancelled = false;
+    int exit_status = 0;
+};
+
 [[nodiscard]] inline auto shell_quote(std::string_view s) -> std::string {
     std::string out = "'";
     for (char ch : s) {
@@ -29,16 +43,94 @@ namespace detail {
     return out;
 }
 
-[[nodiscard]] inline auto run_curl(std::string_view url) -> std::optional<std::string> {
-    const auto cmd = "curl -fsSL --max-time 30 " + shell_quote(url) + " 2>&1";
+[[nodiscard]] inline auto run_curl_with_cancel(
+    std::string_view url,
+    std::function<bool()> should_cancel
+) -> std::expected<CurlRunResult, std::string> {
+    const auto cmd = "curl -fsSL --noproxy localhost,127.0.0.1,::1 --max-time 30 " +
+        shell_quote(url) + " 2>&1";
+    int pipefd[2]{-1, -1};
+    if (pipe(pipefd) != 0) return std::unexpected("failed to create curl pipe");
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        close(pipefd[0]);
+        close(pipefd[1]);
+        return std::unexpected("failed to fork curl process");
+    }
+
+    if (pid == 0) {
+        (void)setpgid(0, 0);
+        close(pipefd[0]);
+        dup2(pipefd[1], STDOUT_FILENO);
+        dup2(pipefd[1], STDERR_FILENO);
+        close(pipefd[1]);
+        execl("/bin/sh", "sh", "-c", cmd.c_str(), static_cast<char*>(nullptr));
+        _exit(127);
+    }
+
+    (void)setpgid(pid, pid);
+    close(pipefd[1]);
+    const int flags = fcntl(pipefd[0], F_GETFL, 0);
+    if (flags >= 0) (void)fcntl(pipefd[0], F_SETFL, flags | O_NONBLOCK);
+
+    CurlRunResult result;
     std::array<char, 4096> buf{};
-    std::string out;
-    FILE* pipe = popen(cmd.c_str(), "r");
-    if (!pipe) return std::nullopt;
-    while (fgets(buf.data(), static_cast<int>(buf.size()), pipe) != nullptr) out += buf.data();
-    const int status = pclose(pipe);
-    if (status != 0) return std::nullopt;
-    return out;
+    int status = 0;
+    bool exited = false;
+    bool cancelled = false;
+
+    auto drain_available = [&] {
+        while (true) {
+            const auto n = read(pipefd[0], buf.data(), buf.size());
+            if (n > 0) {
+                result.output.append(buf.data(), static_cast<std::size_t>(n));
+                continue;
+            }
+            if (n == 0) break;
+            if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) break;
+            break;
+        }
+    };
+
+    while (!exited) {
+        drain_available();
+        const auto wait_result = waitpid(pid, &status, WNOHANG);
+        if (wait_result == pid) {
+            exited = true;
+            break;
+        }
+        if (wait_result < 0 && errno != EINTR) {
+            close(pipefd[0]);
+            return std::unexpected("failed to wait for curl process");
+        }
+
+        if (!cancelled && should_cancel && should_cancel()) {
+            cancelled = true;
+            kill(-pid, SIGTERM);
+        } else if (cancelled) {
+            kill(-pid, SIGKILL);
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    drain_available();
+    close(pipefd[0]);
+
+    result.cancelled = cancelled;
+    if (WIFEXITED(status)) {
+        result.exit_status = WEXITSTATUS(status);
+    } else if (WIFSIGNALED(status)) {
+        result.exit_status = 128 + WTERMSIG(status);
+    } else {
+        result.exit_status = 1;
+    }
+    return result;
+}
+
+[[nodiscard]] inline auto run_curl(std::string_view url) -> std::optional<std::string> {
+    auto result = run_curl_with_cancel(url, {});
+    if (!result || result->cancelled || result->exit_status != 0) return std::nullopt;
+    return std::move(result->output);
 }
 
 [[nodiscard]] inline auto parse_url(std::string_view json) -> std::expected<std::string, std::string> {

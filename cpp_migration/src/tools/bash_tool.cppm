@@ -34,6 +34,7 @@ export module cc.tools.bash;
 import cc.utils.error;
 import cc.utils.async;
 import cc.tools.tool;
+import cc.tools.agent_runtime;
 import cc.utils.json;
 import cc.utils.shell_providers;
 
@@ -83,6 +84,7 @@ struct BashToolInput {
     std::optional<std::string> cwd;
     std::optional<std::chrono::milliseconds> timeout;
     std::optional<std::string> description;
+    std::optional<std::string> agent_id;
     bool run_in_background = false;
     bool dangerously_disable_sandbox = false;
 
@@ -126,6 +128,12 @@ struct BashToolInput {
             input.description = std::string(desc_node.as_str());
         }
 
+        auto agent_id_node = root.get("agent_id");
+        if (!agent_id_node.is_str()) agent_id_node = root.get("agentId");
+        if (agent_id_node.is_str()) {
+            input.agent_id = std::string(agent_id_node.as_str());
+        }
+
         // Extract run_in_background (optional)
         auto bg_node = root.get("run_in_background");
         if (bg_node.is_bool()) {
@@ -157,6 +165,7 @@ struct BashToolOutput {
     std::optional<std::string> return_code_interpretation;
     bool no_output_expected = false;
     std::optional<std::string> persisted_output_path;
+    std::optional<std::string> interrupted_reason;
 };
 
 [[nodiscard]] bool should_use_sandbox(std::string_view command) noexcept;
@@ -174,6 +183,7 @@ struct BackgroundTaskState {
     std::string id;
     pid_t pid = -1;
     std::string command;
+    std::optional<std::string> agent_id;
     std::string output;
     bool running = true;
     bool stopped = false;
@@ -300,6 +310,11 @@ void close_if_open(int& fd) noexcept {
     }
 }
 
+[[nodiscard]] bool agent_cancel_requested(const BashToolInput& input) {
+    return input.agent_id &&
+        cc::tools::agent_runtime::native_agent_store().is_cancel_requested(*input.agent_id);
+}
+
 inline void append_background_output(BackgroundTaskState& state, std::string_view data) {
     state.output.append(data);
     if (state.output.size() > kMaxOutput) {
@@ -354,6 +369,7 @@ inline void append_background_output(BackgroundTaskState& state, std::string_vie
         .id = task_id,
         .pid = worker,
         .command = input.command,
+        .agent_id = input.agent_id,
         .created_at = std::chrono::steady_clock::now(),
     });
     {
@@ -458,6 +474,9 @@ inline void append_background_output(BackgroundTaskState& state, std::string_vie
     int status = 0;
     const auto timeout = input.timeout.value_or(std::chrono::seconds(120));
     const auto deadline = std::chrono::steady_clock::now() + timeout;
+    bool cancel_requested = false;
+    bool cancel_kill_sent = false;
+    std::optional<std::chrono::steady_clock::time_point> cancel_kill_deadline;
 
     while (stdout_open || stderr_open || !process_exited) {
         if (!process_exited) {
@@ -472,8 +491,28 @@ inline void append_background_output(BackgroundTaskState& state, std::string_vie
         }
 
         const auto now = std::chrono::steady_clock::now();
+        if (!process_exited && !cancel_requested && agent_cancel_requested(input)) {
+            cancel_requested = true;
+            output.interrupted = true;
+            output.interrupted_reason = "Command cancelled";
+            if (kill(-pid, SIGTERM) != 0) {
+                kill(pid, SIGTERM);
+            }
+            cancel_kill_deadline = now + std::chrono::milliseconds(250);
+        }
+        if (!process_exited &&
+            cancel_requested &&
+            !cancel_kill_sent &&
+            cancel_kill_deadline &&
+            now >= *cancel_kill_deadline) {
+            cancel_kill_sent = true;
+            if (kill(-pid, SIGKILL) != 0) {
+                kill(pid, SIGKILL);
+            }
+        }
         if (!process_exited && !output.interrupted && now >= deadline) {
             output.interrupted = true;
+            output.interrupted_reason = "Command timed out";
             if (kill(-pid, SIGKILL) != 0) {
                 kill(pid, SIGKILL);
             }
@@ -532,6 +571,7 @@ struct BackgroundTaskSnapshot {
     std::string id;
     pid_t pid = -1;
     std::string command;
+    std::optional<std::string> agent_id;
     std::string output;
     bool running = false;
     bool stopped = false;
@@ -544,6 +584,7 @@ struct BackgroundTaskSnapshot {
         .id = state.id,
         .pid = state.pid,
         .command = state.command,
+        .agent_id = state.agent_id,
         .output = state.output,
         .running = state.running,
         .stopped = state.stopped,
@@ -606,6 +647,31 @@ struct BackgroundTaskSnapshot {
         return true;
     }
     return kill(pid, SIGTERM) == 0 || errno == ESRCH;
+}
+
+[[nodiscard]] std::vector<BackgroundTaskSnapshot> stop_background_tasks_for_agent(std::string_view agent_id) {
+    if (agent_id.empty()) return {};
+
+    std::vector<std::string> task_ids;
+    {
+        std::lock_guard lock(detail::background_tasks_mutex);
+        for (const auto& [id, state] : detail::background_tasks) {
+            if (state->agent_id && *state->agent_id == agent_id && state->running) {
+                task_ids.push_back(id);
+            }
+        }
+    }
+
+    std::vector<BackgroundTaskSnapshot> stopped;
+    stopped.reserve(task_ids.size());
+    for (const auto& task_id : task_ids) {
+        if (stop_background_task(task_id)) {
+            if (auto snapshot = get_background_task_snapshot(task_id)) {
+                stopped.push_back(std::move(*snapshot));
+            }
+        }
+    }
+    return stopped;
 }
 
 // =========================================================================
@@ -716,7 +782,8 @@ public:
                 }
             },
             .permission = ToolPermission::Execute,
-            .category = "execution"
+            .category = "execution",
+            .max_result_size_chars = 30'000
         };
     }
     
@@ -860,7 +927,9 @@ private:
         std::string result_text;
         
         if (is_error(output)) {
-            result_text = output.interrupted ? "Command timed out" : "Command failed";
+            result_text = output.interrupted
+                ? output.interrupted_reason.value_or("Command timed out")
+                : "Command failed";
             if (!output.stderr.empty()) {
                 result_text += ":\n" + output.stderr;
             }

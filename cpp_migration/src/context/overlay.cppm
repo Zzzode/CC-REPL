@@ -3,6 +3,7 @@
 /// Migrated from src/context/overlayContext.tsx and promptOverlayContext.tsx
 module;
 
+#include <cstdint>
 #include <string>
 #include <optional>
 #include <functional>

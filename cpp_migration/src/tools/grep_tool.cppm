@@ -65,7 +65,8 @@ public:
                 }
             },
             .permission = ToolPermission::ReadOnly,
-            .category = "filesystem"
+            .category = "filesystem",
+            .max_result_size_chars = 20'000
         };
     }
     

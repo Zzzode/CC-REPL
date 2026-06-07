@@ -26,19 +26,28 @@ struct XaaLoginResult {
 /// 2. Present user_code to the user for browser verification
 /// 3. Poll {idp_url}/token until the user completes authorization
 [[nodiscard]] inline std::expected<XaaLoginResult, std::string> perform_xaa_login(
-    std::string_view idp_url)
+    std::string_view idp_url,
+    std::string_view client_id = "cc-repl",
+    std::optional<std::string_view> scope = std::nullopt)
 {
     if (idp_url.empty()) {
         return std::unexpected(std::string{"IDP URL must not be empty"});
     }
-    if (!idp_url.starts_with("https://")) {
+    auto is_loopback_http = [](std::string_view url) {
+        return url.starts_with("http://127.0.0.1:") ||
+               url.starts_with("http://localhost:");
+    };
+    if (!idp_url.starts_with("https://") && !is_loopback_http(idp_url)) {
         return std::unexpected(std::string{"IDP URL must use HTTPS"});
+    }
+    if (client_id.empty()) {
+        return std::unexpected(std::string{"Client ID must not be empty"});
     }
 
     std::string device_code_url = std::string(idp_url) + "/device/code";
     auto request = cc::utils::json::object();
-    request.set("client_id", "cc-repl");
-    request.set("scope", "openid profile");
+    request.set("client_id", std::string(client_id));
+    request.set("scope", scope && !scope->empty() ? std::string(*scope) : std::string("openid profile"));
 
     cc::utils::HttpClient client;
     auto response = client.post(device_code_url, request.serialize(), std::unordered_map<std::string, std::string>{

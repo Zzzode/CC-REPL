@@ -294,6 +294,115 @@ public:
     }
 
 
+    [[nodiscard]] auto patch(std::string_view url, std::string_view body,
+        const std::unordered_map<std::string, std::string>& headers = {})
+        -> std::expected<HttpResponse, HttpError> {
+        if (url.empty()) return std::unexpected(HttpError{HttpError::connection_failed, "empty URL"});
+
+        auto parsed = parse_url(url);
+        if (!parsed) return std::unexpected(parsed.error());
+
+        auto start = std::chrono::steady_clock::now();
+        auto h = build_headers(headers);
+
+        std::string content_type = "application/json";
+        for (const auto& [k, v] : headers) {
+            if (k == "Content-Type" || k == "content-type") {
+                content_type = v;
+                break;
+            }
+        }
+
+        std::string body_str(body);
+
+        for (uint32_t attempt = 0; attempt <= config_.max_retries; ++attempt) {
+            if (attempt > 0) {
+                std::this_thread::sleep_for(
+                    std::chrono::milliseconds(config_.retry_backoff_ms * attempt));
+            }
+
+            auto cli = make_client(parsed->base_url);
+
+            auto res = cli.Patch(parsed->path, h, body_str, content_type);
+            if (!res) {
+                auto err = classify_error(res.error());
+                if (attempt == config_.max_retries) return std::unexpected(err);
+                continue;
+            }
+
+            HttpResponse response;
+            response.status = res->status;
+            response.body = std::move(res->body);
+            for (const auto& [k, v] : res->headers) {
+                response.headers[k] = v;
+            }
+            response.elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - start);
+
+            if ((response.status >= 500 || response.status == 429) && attempt < config_.max_retries) {
+                continue;
+            }
+            return response;
+        }
+
+        return std::unexpected(HttpError{HttpError::connection_failed, "max retries exceeded"});
+    }
+
+    [[nodiscard]] auto put(std::string_view url, std::string_view body,
+        const std::unordered_map<std::string, std::string>& headers = {})
+        -> std::expected<HttpResponse, HttpError> {
+        if (url.empty()) return std::unexpected(HttpError{HttpError::connection_failed, "empty URL"});
+
+        auto parsed = parse_url(url);
+        if (!parsed) return std::unexpected(parsed.error());
+
+        auto start = std::chrono::steady_clock::now();
+        auto h = build_headers(headers);
+
+        std::string content_type = "application/json";
+        for (const auto& [k, v] : headers) {
+            if (k == "Content-Type" || k == "content-type") {
+                content_type = v;
+                break;
+            }
+        }
+
+        std::string body_str(body);
+
+        for (uint32_t attempt = 0; attempt <= config_.max_retries; ++attempt) {
+            if (attempt > 0) {
+                std::this_thread::sleep_for(
+                    std::chrono::milliseconds(config_.retry_backoff_ms * attempt));
+            }
+
+            auto cli = make_client(parsed->base_url);
+
+            auto res = cli.Put(parsed->path, h, body_str, content_type);
+            if (!res) {
+                auto err = classify_error(res.error());
+                if (attempt == config_.max_retries) return std::unexpected(err);
+                continue;
+            }
+
+            HttpResponse response;
+            response.status = res->status;
+            response.body = std::move(res->body);
+            for (const auto& [k, v] : res->headers) {
+                response.headers[k] = v;
+            }
+            response.elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - start);
+
+            if ((response.status >= 500 || response.status == 429) && attempt < config_.max_retries) {
+                continue;
+            }
+            return response;
+        }
+
+        return std::unexpected(HttpError{HttpError::connection_failed, "max retries exceeded"});
+    }
+
+
     [[nodiscard]] auto delete_request(std::string_view url,
         const std::unordered_map<std::string, std::string>& headers = {})
         -> std::expected<HttpResponse, HttpError> {
@@ -352,9 +461,6 @@ public:
         h.emplace("Cache-Control", "no-cache");
 
         auto cli = make_client(parsed->base_url);
-
-        cli.set_read_timeout(300, 0);
-
 
         std::string sse_buffer;
         std::string current_event;

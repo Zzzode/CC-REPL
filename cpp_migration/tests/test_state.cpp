@@ -422,6 +422,48 @@ TEST(SessionHistory, LoadAllRestoresCompactBoundaryMetadata) {
     std::filesystem::remove(storage_path);
 }
 
+TEST(SessionHistory, LoadAllRestoresSnipMetadata) {
+    auto storage_path = std::filesystem::temp_directory_path() /
+        "cc_repl_history_snip_metadata_test.json";
+    std::filesystem::remove(storage_path);
+
+    {
+        cc::core::ConversationStore store(storage_path.string());
+        auto* conversation = store.create_conversation();
+        conversation->add_message(cc::core::SystemMessage{
+            cc::core::MessageBase{
+                cc::core::MessageId{"snip-boundary-1"},
+                std::chrono::system_clock::now(),
+                {cc::core::TextBlock{"Conversation snipped."}}
+            },
+            std::nullopt,
+            std::string{"snip_boundary"},
+            std::nullopt,
+            cc::core::SnipMetadata{
+                .removed_uuids = {"old-user-1", "old-assistant-1"},
+            },
+        });
+        ASSERT_TRUE(store.save_all().has_value());
+    }
+
+    cc::core::ConversationStore loaded(storage_path.string());
+    ASSERT_TRUE(loaded.load_all().has_value());
+    auto* active = loaded.get_active_conversation();
+    auto messages = active->get_messages();
+
+    ASSERT_EQ(messages.size(), 1u);
+    ASSERT_TRUE(std::holds_alternative<cc::core::SystemMessage>(messages.front()));
+    const auto& boundary = std::get<cc::core::SystemMessage>(messages.front());
+    ASSERT_TRUE(boundary.subtype.has_value());
+    EXPECT_EQ(*boundary.subtype, "snip_boundary");
+    ASSERT_TRUE(boundary.snip_metadata.has_value());
+    ASSERT_EQ(boundary.snip_metadata->removed_uuids.size(), 2u);
+    EXPECT_EQ(boundary.snip_metadata->removed_uuids[0], "old-user-1");
+    EXPECT_EQ(boundary.snip_metadata->removed_uuids[1], "old-assistant-1");
+
+    std::filesystem::remove(storage_path);
+}
+
 TEST(SessionHistory, LoadAllRestoresImageAndDocumentBlocks) {
     auto storage_path = std::filesystem::temp_directory_path() /
         "cc_repl_history_rich_content_test.json";

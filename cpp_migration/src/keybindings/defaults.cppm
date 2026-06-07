@@ -3,6 +3,7 @@
 /// Migrated from src/keybindings/defaultBindings.ts, reservedShortcuts.ts
 module;
 
+#include <algorithm>
 #include <string>
 #include <string_view>
 #include <vector>

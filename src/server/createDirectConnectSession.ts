@@ -1,9 +1,6 @@
 /* eslint-disable eslint-plugin-n/no-unsupported-features/node-builtins */
 
-import { errorMessage } from '../utils/errors.js'
-import { jsonStringify } from '../utils/slowOperations.js'
 import type { DirectConnectConfig } from './directConnectManager.js'
-import { connectResponseSchema } from './types.js'
 
 /**
  * Errors thrown by createDirectConnectSession when the connection fails.
@@ -12,6 +9,38 @@ export class DirectConnectError extends Error {
   constructor(message: string) {
     super(message)
     this.name = 'DirectConnectError'
+  }
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+function parseConnectResponse(value: unknown): {
+  session_id: string
+  ws_url: string
+  work_dir?: string
+} {
+  if (typeof value !== 'object' || value === null) {
+    throw new DirectConnectError('response body is not an object')
+  }
+  const record = value as Record<string, unknown>
+  if (typeof record.session_id !== 'string' || record.session_id.length === 0) {
+    throw new DirectConnectError('response is missing session_id')
+  }
+  if (typeof record.ws_url !== 'string' || record.ws_url.length === 0) {
+    throw new DirectConnectError('response is missing ws_url')
+  }
+  if (
+    record.work_dir !== undefined &&
+    typeof record.work_dir !== 'string'
+  ) {
+    throw new DirectConnectError('response work_dir must be a string')
+  }
+  return {
+    session_id: record.session_id,
+    ws_url: record.ws_url,
+    ...(typeof record.work_dir === 'string' && { work_dir: record.work_dir }),
   }
 }
 
@@ -49,7 +78,7 @@ export async function createDirectConnectSession({
     resp = await fetch(`${serverUrl}/sessions`, {
       method: 'POST',
       headers,
-      body: jsonStringify({
+      body: JSON.stringify({
         cwd,
         ...(dangerouslySkipPermissions && {
           dangerously_skip_permissions: true,
@@ -68,14 +97,15 @@ export async function createDirectConnectSession({
     )
   }
 
-  const result = connectResponseSchema().safeParse(await resp.json())
-  if (!result.success) {
+  let data: ReturnType<typeof parseConnectResponse>
+  try {
+    data = parseConnectResponse(await resp.json())
+  } catch (err) {
     throw new DirectConnectError(
-      `Invalid session response: ${result.error.message}`,
+      `Invalid session response: ${errorMessage(err)}`,
     )
   }
 
-  const data = result.data
   return {
     config: {
       serverUrl,

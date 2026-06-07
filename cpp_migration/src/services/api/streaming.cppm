@@ -2,7 +2,10 @@
 module;
 #include <chrono>
 #include <concepts>
+#include <cstdlib>
 #include <expected>
+#include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -431,10 +434,22 @@ struct StreamState {
 // =========================================================================
 
 class StreamParser {
+    struct SharedState {
+        explicit SharedState(StreamConfig cfg) : config(std::move(cfg)) {}
+
+        StreamConfig config;
+        ConnectionState connection = ConnectionState::Idle;
+        SseBuffer buffer;
+        StreamStatistics statistics;
+        StreamState stream_state;
+        std::optional<ApiErrorDetails> error_details;
+        int reconnect_attempts = 0;
+        mutable std::mutex mutex;
+    };
+
 public:
     explicit StreamParser(StreamConfig config = {})
-        : config_(std::move(config))
-        , state_(ConnectionState::Idle) {}
+        : state_(std::make_shared<SharedState>(std::move(config))) {}
 
     // Factory method for parser setup; AnthropicClient owns the HTTP transfer.
     static std::optional<StreamParser> create(
@@ -443,20 +458,25 @@ public:
         const std::vector<std::string>& headers,
         std::chrono::milliseconds timeout) {
         StreamParser parser;
-        parser.config_.connect_timeout = timeout;
+        {
+            std::scoped_lock lock(parser.state_->mutex);
+            parser.state_->config.connect_timeout = timeout;
+        }
         parser.feed({});
         return parser;
     }
 
     // Feed raw data
     void feed(std::string_view data) {
-        buffer_.append(data);
+        std::scoped_lock lock(state_->mutex);
+        state_->buffer.append(data);
     }
 
     // Get next parsed event
     [[nodiscard]] Result<std::optional<StreamEvent>> next_event() {
+        std::scoped_lock lock(state_->mutex);
         while (true) {
-            auto raw_event = buffer_.next_event();
+            auto raw_event = state_->buffer.next_event();
             if (!raw_event) {
                 return std::nullopt;
             }
@@ -468,8 +488,8 @@ public:
                 return std::unexpected(parse_result.error());
             }
 
-            update_statistics(*parse_result);
-            update_stream_state(*parse_result);
+            update_statistics_locked(*state_, *parse_result);
+            update_stream_state_locked(*state_, *parse_result);
 
             return std::move(*parse_result);
         }
@@ -490,31 +510,53 @@ public:
     }
 
     // State access
-    [[nodiscard]] ConnectionState connection_state() const { return state_; }
-    [[nodiscard]] bool is_connected() const { return state_ == ConnectionState::Connected; }
-    [[nodiscard]] bool is_finished() const {
-        return state_ == ConnectionState::Finished || state_ == ConnectionState::Error;
+    [[nodiscard]] ConnectionState connection_state() const {
+        std::scoped_lock lock(state_->mutex);
+        return state_->connection;
     }
-    [[nodiscard]] bool has_error() const { return stream_state_.has_error; }
+    [[nodiscard]] bool is_connected() const { return connection_state() == ConnectionState::Connected; }
+    [[nodiscard]] bool is_finished() const {
+        const auto state = connection_state();
+        return state == ConnectionState::Finished || state == ConnectionState::Error;
+    }
+    [[nodiscard]] bool has_error() const {
+        std::scoped_lock lock(state_->mutex);
+        return state_->stream_state.has_error;
+    }
+    [[nodiscard]] std::optional<ApiErrorDetails> error_details() const {
+        std::scoped_lock lock(state_->mutex);
+        return state_->error_details;
+    }
 
     // Statistics
-    [[nodiscard]] const StreamStatistics& statistics() const { return statistics_; }
+    [[nodiscard]] StreamStatistics statistics() const {
+        std::scoped_lock lock(state_->mutex);
+        return state_->statistics;
+    }
 
     // Accumulated state
-    [[nodiscard]] const StreamState& stream_state() const { return stream_state_; }
-    [[nodiscard]] std::string full_text() const { return stream_state_.full_text; }
+    [[nodiscard]] StreamState stream_state() const {
+        std::scoped_lock lock(state_->mutex);
+        return state_->stream_state;
+    }
+    [[nodiscard]] std::string full_text() const {
+        std::scoped_lock lock(state_->mutex);
+        return state_->stream_state.full_text;
+    }
 
     // Reconnection
     [[nodiscard]] bool can_reconnect() const {
-        return config_.enable_reconnect &&
-               reconnect_attempts_ < config_.max_reconnect_attempts;
+        std::scoped_lock lock(state_->mutex);
+        return state_->config.enable_reconnect &&
+               state_->reconnect_attempts < state_->config.max_reconnect_attempts;
     }
 
     [[nodiscard]] std::chrono::milliseconds next_reconnect_delay() const {
+        std::scoped_lock lock(state_->mutex);
         // Exponential backoff with jitter
-        auto delay = config_.base_reconnect_delay * (1 << reconnect_attempts_);
-        if (delay > config_.max_reconnect_delay) {
-            delay = config_.max_reconnect_delay;
+        auto delay = state_->config.base_reconnect_delay * (1 << state_->reconnect_attempts);
+        if (delay > state_->config.max_reconnect_delay) {
+            delay = state_->config.max_reconnect_delay;
         }
         // Add jitter (±20%)
         auto jitter = static_cast<double>(std::rand()) / RAND_MAX * 0.4 - 0.2;
@@ -522,65 +564,74 @@ public:
     }
 
     void reset_reconnect_attempts() {
-        reconnect_attempts_ = 0;
+        std::scoped_lock lock(state_->mutex);
+        state_->reconnect_attempts = 0;
     }
 
     void mark_reconnect() {
-        ++reconnect_attempts_;
-        ++statistics_.reconnects;
+        std::scoped_lock lock(state_->mutex);
+        ++state_->reconnect_attempts;
+        ++state_->statistics.reconnects;
     }
 
     // Lifecycle
     void start() {
-        state_ = ConnectionState::Connected;
-        statistics_.start_time = std::chrono::steady_clock::now();
+        std::scoped_lock lock(state_->mutex);
+        state_->connection = ConnectionState::Connected;
+        state_->statistics.start_time = std::chrono::steady_clock::now();
     }
 
     void finish() {
-        state_ = ConnectionState::Finished;
-        statistics_.end_time = std::chrono::steady_clock::now();
+        std::scoped_lock lock(state_->mutex);
+        state_->connection = ConnectionState::Finished;
+        state_->statistics.end_time = std::chrono::steady_clock::now();
     }
 
     void set_error(const ApiErrorDetails& error) {
-        state_ = ConnectionState::Error;
-        stream_state_.has_error = true;
-        statistics_.end_time = std::chrono::steady_clock::now();
+        std::scoped_lock lock(state_->mutex);
+        state_->connection = ConnectionState::Error;
+        state_->stream_state.has_error = true;
+        state_->error_details = error;
+        state_->statistics.end_time = std::chrono::steady_clock::now();
     }
 
     void clear() {
-        buffer_.clear();
-        stream_state_ = StreamState{};
-        statistics_ = StreamStatistics{};
-        reconnect_attempts_ = 0;
-        state_ = ConnectionState::Idle;
+        std::scoped_lock lock(state_->mutex);
+        state_->buffer.clear();
+        state_->stream_state = StreamState{};
+        state_->error_details = std::nullopt;
+        state_->statistics = StreamStatistics{};
+        state_->reconnect_attempts = 0;
+        state_->connection = ConnectionState::Idle;
     }
 
-    [[nodiscard]] const std::string& last_event_id() const {
-        return buffer_.last_event_id();
+    [[nodiscard]] std::string last_event_id() const {
+        std::scoped_lock lock(state_->mutex);
+        return state_->buffer.last_event_id();
     }
 
 private:
-    void update_statistics(const StreamEvent& event) {
-        ++statistics_.total_events;
+    static void update_statistics_locked(SharedState& state, const StreamEvent& event) {
+        ++state.statistics.total_events;
 
-        if (statistics_.total_events == 1) {
-            statistics_.time_to_first_token =
+        if (state.statistics.total_events == 1) {
+            state.statistics.time_to_first_token =
                 std::chrono::duration_cast<std::chrono::milliseconds>(
-                    std::chrono::steady_clock::now() - statistics_.start_time);
+                    std::chrono::steady_clock::now() - state.statistics.start_time);
         }
 
         switch (event.type) {
             case StreamEventType::ContentBlockStart:
                 if (event.block_type == StreamContentBlockType::Text) {
-                    ++statistics_.text_blocks;
+                    ++state.statistics.text_blocks;
                 } else if (event.block_type == StreamContentBlockType::ToolUse) {
-                    ++statistics_.tool_use_blocks;
+                    ++state.statistics.tool_use_blocks;
                 }
                 break;
 
             case StreamEventType::MessageDelta:
                 if (event.message_delta.usage.output_tokens) {
-                    statistics_.output_tokens = *event.message_delta.usage.output_tokens;
+                    state.statistics.output_tokens = *event.message_delta.usage.output_tokens;
                 }
                 break;
 
@@ -589,34 +640,34 @@ private:
         }
     }
 
-    void update_stream_state(const StreamEvent& event) {
+    static void update_stream_state_locked(SharedState& state, const StreamEvent& event) {
         switch (event.type) {
             case StreamEventType::MessageStart:
-                stream_state_.message_id = event.message_id;
-                stream_state_.model = event.model;
+                state.stream_state.message_id = event.message_id;
+                state.stream_state.model = event.model;
                 break;
 
             case StreamEventType::ContentBlockDelta:
                 if (event.delta.type == StreamContentBlockType::Text) {
-                    stream_state_.full_text += event.delta.text;
+                    state.stream_state.full_text += event.delta.text;
                 }
                 break;
 
             case StreamEventType::MessageDelta:
                 if (event.message_delta.stop_reason) {
-                    stream_state_.stop_reason = *event.message_delta.stop_reason;
+                    state.stream_state.stop_reason = *event.message_delta.stop_reason;
                 }
                 if (event.message_delta.usage.output_tokens) {
-                    stream_state_.output_tokens = *event.message_delta.usage.output_tokens;
+                    state.stream_state.output_tokens = *event.message_delta.usage.output_tokens;
                 }
                 break;
 
             case StreamEventType::MessageStop:
-                stream_state_.is_complete = true;
+                state.stream_state.is_complete = true;
                 break;
 
             case StreamEventType::Error:
-                stream_state_.has_error = true;
+                state.stream_state.has_error = true;
                 break;
 
             default:
@@ -624,12 +675,7 @@ private:
         }
     }
 
-    StreamConfig config_;
-    ConnectionState state_;
-    SseBuffer buffer_;
-    StreamStatistics statistics_;
-    StreamState stream_state_;
-    int reconnect_attempts_ = 0;
+    std::shared_ptr<SharedState> state_;
 };
 
 // =========================================================================

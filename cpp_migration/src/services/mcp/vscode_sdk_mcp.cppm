@@ -6,9 +6,12 @@ module;
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 export module cc.services.mcp.vscode_sdk_mcp;
+
+import cc.utils.json;
 
 export namespace cc::services::mcp {
 
@@ -28,6 +31,95 @@ struct VSCodeMCPServer {
     std::vector<std::string> capabilities;
 };
 
+namespace detail {
+
+[[nodiscard]] inline std::optional<std::string> json_string(
+    cc::utils::json::JsonVal object,
+    std::string_view key) {
+    if (!object.is_obj()) return std::nullopt;
+    auto value = object.get(key);
+    if (!value.is_str()) return std::nullopt;
+    return std::string(value.as_str());
+}
+
+[[nodiscard]] inline std::string normalize_transport(
+    cc::utils::json::JsonVal config,
+    const std::string& connection_string) {
+    auto transport = json_string(config, "type");
+    if (!transport) transport = json_string(config, "transport");
+    if (!transport && connection_string.starts_with("ws://")) return "ws";
+    if (!transport && (connection_string.starts_with("http://") ||
+                       connection_string.starts_with("https://"))) return "sse";
+    return transport.value_or("stdio");
+}
+
+inline void add_server_from_config(
+    std::vector<VSCodeMCPServer>& servers,
+    std::string name,
+    cc::utils::json::JsonVal config) {
+    if (!config.is_obj()) return;
+
+    if (auto explicit_name = json_string(config, "name"); explicit_name && !explicit_name->empty()) {
+        name = std::move(*explicit_name);
+    }
+
+    std::string connection_string;
+    if (auto command = json_string(config, "command"); command && !command->empty()) {
+        connection_string = std::move(*command);
+    } else if (auto url = json_string(config, "url"); url && !url->empty()) {
+        connection_string = std::move(*url);
+    } else if (auto socket = json_string(config, "socketPath"); socket && !socket->empty()) {
+        connection_string = std::move(*socket);
+    } else if (auto socket = json_string(config, "socket_path"); socket && !socket->empty()) {
+        connection_string = std::move(*socket);
+    }
+
+    if (name.empty() || connection_string.empty()) return;
+
+    VSCodeMCPServer server;
+    server.name = std::move(name);
+    server.transport_type = normalize_transport(config, connection_string);
+    server.connection_string = std::move(connection_string);
+    server.capabilities = {"tools"};
+    servers.push_back(std::move(server));
+}
+
+inline void add_servers_from_object(
+    std::vector<VSCodeMCPServer>& servers,
+    cc::utils::json::JsonVal object) {
+    if (!object.is_obj()) return;
+    object.iter_obj([&servers](cc::utils::json::JsonVal key, cc::utils::json::JsonVal value) {
+        if (!key.is_str()) return;
+        add_server_from_config(servers, std::string(key.as_str()), value);
+    });
+}
+
+inline void add_servers_from_document(
+    std::vector<VSCodeMCPServer>& servers,
+    cc::utils::json::JsonVal root) {
+    if (!root.is_obj()) return;
+
+    const auto before_count = servers.size();
+    add_servers_from_object(servers, root.get("servers"));
+    add_servers_from_object(servers, root.get("mcpServers"));
+
+    auto contributes = root.get("contributes");
+    if (contributes.is_obj()) {
+        add_servers_from_object(servers, contributes.get("mcpServers"));
+        auto mcp = contributes.get("mcp");
+        if (mcp.is_obj()) {
+            add_servers_from_object(servers, mcp.get("servers"));
+            add_servers_from_object(servers, mcp.get("mcpServers"));
+        }
+    }
+
+    if (servers.size() == before_count && root.get("name").is_str()) {
+        add_server_from_config(servers, std::string(root.get("name").as_str()), root);
+    }
+}
+
+} // namespace detail
+
 /// Discover MCP servers from VS Code extensions
 inline std::vector<VSCodeMCPServer> discover_vscode_mcp_servers(
     std::string_view workspace_path) {
@@ -43,20 +135,9 @@ inline std::vector<VSCodeMCPServer> discover_vscode_mcp_servers(
         std::string content((std::istreambuf_iterator<char>(ifs)),
                              std::istreambuf_iterator<char>());
 
-        // Parse servers from mcp.json (simplified: extract "name" and "command" fields)
-        std::size_t pos = 0;
-        while ((pos = content.find("\"name\"", pos)) != std::string::npos) {
-            auto colon = content.find(':', pos);
-            auto q1 = content.find('"', colon + 1);
-            auto q2 = content.find('"', q1 + 1);
-            if (q1 == std::string::npos || q2 == std::string::npos) break;
-
-            VSCodeMCPServer server;
-            server.name = content.substr(q1 + 1, q2 - q1 - 1);
-            server.transport_type = "stdio";
-            server.connection_string = server.name;
-            servers.push_back(std::move(server));
-            pos = q2 + 1;
+        auto doc = cc::utils::json::parse(content);
+        if (doc) {
+            detail::add_servers_from_document(servers, doc->root());
         }
     }
 
@@ -78,24 +159,25 @@ inline std::vector<VSCodeMCPServer> discover_vscode_mcp_servers(
                 // Check if extension contributes MCP servers
                 if (pkg.find("\"mcp\"") != std::string::npos ||
                     pkg.find("\"mcpServers\"") != std::string::npos) {
-                    VSCodeMCPServer server;
-                    // Extract extension name
-                    auto name_pos = pkg.find("\"name\"");
-                    if (name_pos != std::string::npos) {
-                        auto c = pkg.find(':', name_pos);
-                        auto q1 = pkg.find('"', c + 1);
-                        auto q2 = pkg.find('"', q1 + 1);
-                        if (q1 != std::string::npos && q2 != std::string::npos) {
-                            server.name = pkg.substr(q1 + 1, q2 - q1 - 1);
-                        }
+                    const auto before_count = servers.size();
+                    auto doc = cc::utils::json::parse(pkg);
+                    if (doc) {
+                        detail::add_servers_from_document(servers, doc->root());
                     }
-                    if (server.name.empty()) {
+                    if (servers.size() == before_count) {
+                        VSCodeMCPServer server;
                         server.name = entry.path().filename().string();
+                        if (doc) {
+                            if (auto name = detail::json_string(doc->root(), "name");
+                                name && !name->empty()) {
+                                server.name = std::move(*name);
+                            }
+                        }
+                        server.transport_type = "stdio";
+                        server.connection_string = entry.path().string();
+                        server.capabilities = {"tools", "resources"};
+                        servers.push_back(std::move(server));
                     }
-                    server.transport_type = "stdio";
-                    server.connection_string = entry.path().string();
-                    server.capabilities = {"tools", "resources"};
-                    servers.push_back(std::move(server));
                 }
             }
         }
@@ -125,6 +207,17 @@ inline bool connect_vscode_mcp(const VSCodeMCPServer& server) {
     if (server.transport_type == "socket") {
         namespace fs = std::filesystem;
         return fs::exists(server.connection_string);
+    }
+
+    if (server.transport_type == "sse" ||
+        server.transport_type == "http" ||
+        server.transport_type == "streamable_http" ||
+        server.transport_type == "ws" ||
+        server.transport_type == "websocket") {
+        return server.connection_string.starts_with("http://") ||
+               server.connection_string.starts_with("https://") ||
+               server.connection_string.starts_with("ws://") ||
+               server.connection_string.starts_with("wss://");
     }
 
     return false;

@@ -3,6 +3,7 @@
 /// Migrated from src/context/voice.tsx
 module;
 
+#include <cstdint>
 #include <string>
 #include <optional>
 #include <functional>

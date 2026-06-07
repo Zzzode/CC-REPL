@@ -212,6 +212,36 @@ public:
         return call("spawn", params);
     }
 
+    /// Write one chunk to a daemon-managed headless session stdin.
+    auto send_stdin(std::string_view session_id, std::string_view data) -> std::expected<std::string, std::string> {
+        auto params = std::format(
+            R"({{"session_id":"{}","data":"{}"}})",
+            json_escape(session_id),
+            json_escape(data));
+        return call("stdin", params);
+    }
+
+    /// Deliver one raw remote SDK/control event to a daemon-managed headless session.
+    auto send_event(std::string_view session_id, std::string_view event_json) -> std::expected<std::string, std::string> {
+        auto params = std::format(
+            R"({{"session_id":"{}","event":{}}})",
+            json_escape(session_id),
+            event_json);
+        return call("event", params);
+    }
+
+    /// Close a daemon-managed headless session stdin.
+    auto close_stdin(std::string_view session_id) -> std::expected<std::string, std::string> {
+        auto params = std::format(R"({{"session_id":"{}"}})", json_escape(session_id));
+        return call("close_stdin", params);
+    }
+
+    /// Read captured child stdout lines for a daemon-managed session.
+    auto stdout_lines(std::string_view session_id) -> std::expected<std::string, std::string> {
+        auto params = std::format(R"({{"session_id":"{}"}})", json_escape(session_id));
+        return call("stdout", params);
+    }
+
     /// Request graceful daemon shutdown
     auto shutdown() -> std::expected<std::string, std::string> {
         return call("shutdown");
@@ -230,6 +260,24 @@ public:
     }
 
 private:
+    static std::string json_escape(std::string_view value) {
+        std::string out;
+        out.reserve(value.size() + 8);
+        for (char ch : value) {
+            switch (ch) {
+                case '\\': out += R"(\\)"; break;
+                case '"': out += R"(\")"; break;
+                case '\b': out += R"(\b)"; break;
+                case '\f': out += R"(\f)"; break;
+                case '\n': out += R"(\n)"; break;
+                case '\r': out += R"(\r)"; break;
+                case '\t': out += R"(\t)"; break;
+                default: out.push_back(ch); break;
+            }
+        }
+        return out;
+    }
+
     int fd_ = -1;
     uint16_t port_ = 0;
     bool connected_ = false;

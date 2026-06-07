@@ -3,6 +3,7 @@
 /// Provides predefined skills: debug, verify, loop, batch, stuck.
 module;
 
+#include <algorithm>
 #include <string>
 #include <vector>
 #include <array>

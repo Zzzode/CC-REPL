@@ -6,6 +6,7 @@ module;
 #include <optional>
 #include <cstdlib>
 #include <algorithm>
+#include <cctype>
 #include <sstream>
 
 export module cc.utils.proxy_utils;
@@ -47,33 +48,94 @@ inline std::vector<std::string> parse_no_proxy(const char* no_proxy_env) {
     std::vector<std::string> entries;
     if (!no_proxy_env) return entries;
 
-    std::istringstream stream(no_proxy_env);
     std::string entry;
-    while (std::getline(stream, entry, ',')) {
-        // Trim whitespace
-        auto start = entry.find_first_not_of(" \t");
-        auto end = entry.find_last_not_of(" \t");
-        if (start != std::string::npos && end != std::string::npos) {
-            entries.push_back(entry.substr(start, end - start + 1));
+    auto flush = [&] {
+        if (!entry.empty()) {
+            entries.push_back(entry);
+            entry.clear();
+        }
+    };
+
+    for (const char ch : std::string_view(no_proxy_env)) {
+        if (ch == ',' || std::isspace(static_cast<unsigned char>(ch))) {
+            flush();
+        } else {
+            entry.push_back(ch);
         }
     }
+    flush();
     return entries;
+}
+
+[[nodiscard]] inline std::string lower(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    return value;
+}
+
+struct TargetHost {
+    std::string host;
+    std::string port;
+};
+
+[[nodiscard]] inline TargetHost parse_target_host(std::string_view url) {
+    const bool is_https = url.starts_with("https://");
+    const bool is_http = url.starts_with("http://");
+    if (auto scheme_end = url.find("://"); scheme_end != std::string_view::npos) {
+        url = url.substr(scheme_end + 3);
+    }
+
+    if (auto authority_end = url.find_first_of("/?#"); authority_end != std::string_view::npos) {
+        url = url.substr(0, authority_end);
+    }
+    if (auto at = url.rfind('@'); at != std::string_view::npos) {
+        url = url.substr(at + 1);
+    }
+
+    TargetHost target;
+    target.port = is_https ? "443" : (is_http ? "80" : "");
+
+    if (url.starts_with("[")) {
+        if (auto close = url.find(']'); close != std::string_view::npos) {
+            target.host = std::string(url.substr(1, close - 1));
+            if (close + 1 < url.size() && url[close + 1] == ':') {
+                target.port = std::string(url.substr(close + 2));
+            }
+            target.host = lower(std::move(target.host));
+            return target;
+        }
+    }
+
+    const auto first_colon = url.find(':');
+    const auto last_colon = url.rfind(':');
+    if (first_colon != std::string_view::npos && first_colon == last_colon) {
+        target.host = std::string(url.substr(0, first_colon));
+        target.port = std::string(url.substr(first_colon + 1));
+    } else {
+        target.host = std::string(url);
+    }
+    target.host = lower(std::move(target.host));
+    return target;
+}
+
+[[nodiscard]] inline bool pattern_has_port(std::string_view pattern) {
+    return pattern.find(':') != std::string_view::npos;
 }
 
 } // namespace detail
 
 // Resolve proxy configuration from environment variables
 inline std::optional<ProxyConfig> resolve_proxy() {
-    // Check in order: HTTPS_PROXY, HTTP_PROXY, ALL_PROXY (case-insensitive)
+    // Match TS behavior: lowercase variants take precedence, then uppercase.
     const char* proxy_url = nullptr;
 
-    // Check uppercase first, then lowercase
-    if (!proxy_url) proxy_url = std::getenv("HTTPS_PROXY");
     if (!proxy_url) proxy_url = std::getenv("https_proxy");
-    if (!proxy_url) proxy_url = std::getenv("HTTP_PROXY");
+    if (!proxy_url) proxy_url = std::getenv("HTTPS_PROXY");
     if (!proxy_url) proxy_url = std::getenv("http_proxy");
-    if (!proxy_url) proxy_url = std::getenv("ALL_PROXY");
+    if (!proxy_url) proxy_url = std::getenv("HTTP_PROXY");
     if (!proxy_url) proxy_url = std::getenv("all_proxy");
+    if (!proxy_url) proxy_url = std::getenv("ALL_PROXY");
 
     if (!proxy_url || std::string_view(proxy_url).empty()) return std::nullopt;
 
@@ -82,8 +144,8 @@ inline std::optional<ProxyConfig> resolve_proxy() {
     detail::parse_proxy_auth(config.url, config);
 
     // Parse NO_PROXY
-    const char* no_proxy = std::getenv("NO_PROXY");
-    if (!no_proxy) no_proxy = std::getenv("no_proxy");
+    const char* no_proxy = std::getenv("no_proxy");
+    if (!no_proxy) no_proxy = std::getenv("NO_PROXY");
     config.no_proxy = detail::parse_no_proxy(no_proxy);
 
     return config;
@@ -94,31 +156,31 @@ inline bool should_use_proxy(std::string_view url) {
     auto config = resolve_proxy();
     if (!config) return false; // No proxy configured
 
-    // Extract hostname from URL
-    std::string host;
-    auto scheme_end = url.find("://");
-    if (scheme_end != std::string_view::npos) {
-        auto host_start = scheme_end + 3;
-        auto host_end = url.find_first_of(":/", host_start);
-        host = std::string(url.substr(host_start, host_end - host_start));
-    } else {
-        auto host_end = url.find_first_of(":/");
-        host = std::string(url.substr(0, host_end));
-    }
+    const auto target = detail::parse_target_host(url);
+    const auto host_with_port = target.port.empty()
+        ? target.host
+        : target.host + ":" + target.port;
 
     // Check against NO_PROXY entries
     for (const auto& pattern : config->no_proxy) {
-        if (pattern == "*") return false;
+        auto lower_pattern = detail::lower(pattern);
+        if (lower_pattern == "*") return false;
 
-        // Match exact hostname or suffix (with leading dot)
-        std::string lower_host = host;
-        std::string lower_pattern = pattern;
-        std::transform(lower_host.begin(), lower_host.end(), lower_host.begin(), ::tolower);
-        std::transform(lower_pattern.begin(), lower_pattern.end(), lower_pattern.begin(), ::tolower);
+        // Port-specific patterns are exact host:port matches.
+        if (detail::pattern_has_port(lower_pattern)) {
+            if (host_with_port == lower_pattern) return false;
+            continue;
+        }
 
-        if (lower_host == lower_pattern) return false;
-        if (lower_pattern[0] == '.' && lower_host.ends_with(lower_pattern)) return false;
-        if (lower_host.ends_with("." + lower_pattern)) return false;
+        if (lower_pattern.starts_with(".")) {
+            if (target.host == lower_pattern.substr(1) ||
+                target.host.ends_with(lower_pattern)) {
+                return false;
+            }
+            continue;
+        }
+
+        if (target.host == lower_pattern) return false;
     }
 
     return true; // Should use proxy
@@ -127,25 +189,9 @@ inline bool should_use_proxy(std::string_view url) {
 // Get the proxy URL appropriate for a given target URL
 inline std::optional<std::string> get_proxy_for_url(std::string_view url) {
     if (!should_use_proxy(url)) return std::nullopt;
-
-    // HTTPS URLs use HTTPS_PROXY, HTTP uses HTTP_PROXY
-    bool is_https = url.starts_with("https://");
-
-    const char* proxy = nullptr;
-    if (is_https) {
-        proxy = std::getenv("HTTPS_PROXY");
-        if (!proxy) proxy = std::getenv("https_proxy");
-    } else {
-        proxy = std::getenv("HTTP_PROXY");
-        if (!proxy) proxy = std::getenv("http_proxy");
-    }
-    if (!proxy) {
-        proxy = std::getenv("ALL_PROXY");
-        if (!proxy) proxy = std::getenv("all_proxy");
-    }
-
-    if (proxy && std::string_view(proxy).size() > 0) return std::string(proxy);
-    return std::nullopt;
+    auto config = resolve_proxy();
+    if (!config) return std::nullopt;
+    return config->url;
 }
 
 } // namespace cc::utils

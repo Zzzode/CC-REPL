@@ -10,6 +10,8 @@
     "migration:inventory": "node scripts/cpp-migration-inventory.mjs",
     "migration:inventory:json": "node scripts/cpp-migration-inventory.mjs --json",
     "migration:e2e": "node scripts/cpp-migration-e2e.mjs",
+    "migration:ctest-gates": "node scripts/cpp-migration-ctest-gates.mjs",
+    "migration:direct-connect-client-e2e": "bun scripts/cpp-direct-connect-client-e2e.mjs",
     "start": "./dist/cc-repl",
     "start:cu": "ALLOW_ANT_COMPUTER_USE_MCP=1 DISABLE_TELEMETRY= ./dist/cc-repl",
     "start:cu:mcp": "ALLOW_ANT_COMPUTER_USE_MCP=1 DISABLE_TELEMETRY= ./dist/cc-repl --computer-use-mcp",

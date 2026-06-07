@@ -96,6 +96,11 @@ struct ToolDefinition {
     bool defer_load = false;
 };
 
+struct TaskBudget {
+    int total = 0;
+    std::optional<int> remaining;
+};
+
 // =========================================================================
 // API Request
 // =========================================================================
@@ -113,6 +118,9 @@ struct CreateMessageRequest {
     std::vector<ToolDefinition> tools;
     std::optional<std::string> tool_choice;
     std::optional<int> thinking_budget;
+    std::optional<std::string> output_effort;
+    std::optional<TaskBudget> task_budget;
+    std::optional<int> internal_effort_override;
     std::vector<std::string> betas;
     std::optional<std::string> metadata_user_id;
 };
@@ -197,6 +205,20 @@ public:
 private:
     void* handle_;
 };
+
+[[nodiscard]] bool is_loopback_url(std::string_view url) {
+    return url.starts_with("http://127.0.0.1") ||
+           url.starts_with("https://127.0.0.1") ||
+           url.starts_with("http://localhost") ||
+           url.starts_with("https://localhost") ||
+           url.starts_with("http://[::1]") ||
+           url.starts_with("https://[::1]");
+}
+
+void apply_loopback_no_proxy(CurlHandle& curl, std::string_view url) {
+    if (!is_loopback_url(url)) return;
+    curl.setopt(CURLOPT_NOPROXY, "localhost,127.0.0.1,::1");
+}
 
 // =========================================================================
 // HTTP Response
@@ -333,6 +355,31 @@ public:
             thinking.add("type", doc.string("enabled"));
             thinking.add("budget_tokens", doc.number(static_cast<int64_t>(*request.thinking_budget)));
             root.add("thinking", thinking);
+        }
+        if (request.output_effort || request.task_budget) {
+            auto output_config = doc.object();
+            if (request.output_effort) {
+                output_config.add("effort", doc.string(*request.output_effort));
+            }
+            if (request.task_budget) {
+                auto task_budget = doc.object();
+                task_budget.add("type", doc.string("tokens"));
+                task_budget.add("total", doc.number(static_cast<int64_t>(request.task_budget->total)));
+                if (request.task_budget->remaining) {
+                    task_budget.add(
+                        "remaining",
+                        doc.number(static_cast<int64_t>(*request.task_budget->remaining)));
+                }
+                output_config.add("task_budget", task_budget);
+            }
+            root.add("output_config", output_config);
+        }
+        if (request.internal_effort_override) {
+            auto anthropic_internal = doc.object();
+            anthropic_internal.add(
+                "effort_override",
+                doc.number(static_cast<int64_t>(*request.internal_effort_override)));
+            root.add("anthropic_internal", anthropic_internal);
         }
 
         doc.set_root(root);
@@ -479,6 +526,7 @@ public:
 
         // Set URL
         curl.setopt(CURLOPT_URL, url.c_str());
+        apply_loopback_no_proxy(curl, url);
 
         // Set POST data
         curl.setopt(CURLOPT_POSTFIELDS, body.c_str());
@@ -754,7 +802,7 @@ public:
 
         auto json_body = RequestSerializer::serialize(stream_request);
         auto url = std::format("{}/v1/messages", config_.base_url);
-        auto headers = build_headers();
+        auto headers = build_headers(betas_for_request(request));
         headers.push_back("Accept: text/event-stream");
         headers.push_back("Cache-Control: no-cache");
         headers.push_back("Connection: keep-alive");
@@ -768,14 +816,14 @@ public:
 
         // Launch streaming CURL transfer in a detached thread.
         // The parser is shared between the producer thread and the consumer.
-        auto parser_weak = std::weak_ptr<StreamParser>(parser);
         std::thread([url = std::move(url),
                      json_body = std::move(json_body),
                      headers = std::move(headers),
                      timeout = config_.timeout,
-                     parser_weak]() {
+                     parser]() {
             CurlHandle curl;
             curl.setopt(CURLOPT_URL, url.c_str());
+            apply_loopback_no_proxy(curl, url);
             curl.setopt(CURLOPT_POSTFIELDS, json_body.c_str());
             curl.setopt(CURLOPT_POSTFIELDSIZE, static_cast<long>(json_body.size()));
             curl.setopt(CURLOPT_TIMEOUT_MS, static_cast<long>(timeout.count()));
@@ -790,16 +838,14 @@ public:
 
             // WRITEFUNCTION: feed chunks into StreamParser
             struct WriteCtx {
-                std::weak_ptr<StreamParser> parser;
+                std::shared_ptr<StreamParser> parser;
             };
-            WriteCtx ctx{parser_weak};
+            WriteCtx ctx{parser};
 
             auto write_cb = +[](char* ptr, size_t size, size_t nmemb, void* userdata) -> size_t {
                 auto* wctx = static_cast<WriteCtx*>(userdata);
-                auto sp = wctx->parser.lock();
-                if (!sp) return 0; // abort if parser destroyed
                 size_t bytes = size * nmemb;
-                sp->feed(std::string_view(ptr, bytes));
+                wctx->parser->feed(std::string_view(ptr, bytes));
                 return bytes;
             };
             curl.setopt(CURLOPT_WRITEFUNCTION, write_cb);
@@ -810,31 +856,29 @@ public:
             curl_slist_free_all(header_list);
 
             // Signal completion/error to the parser
-            if (auto sp = parser_weak.lock()) {
-                if (res != CURLE_OK) {
-                    sp->set_error(ApiErrorDetails{
-                        .category = errors::ApiErrorCategory::NetworkError,
-                        .error_type = "curl_error",
-                        .error_message = curl_easy_strerror(res)
-                    });
+            if (res != CURLE_OK) {
+                parser->set_error(ApiErrorDetails{
+                    .category = errors::ApiErrorCategory::NetworkError,
+                    .error_type = "curl_error",
+                    .error_message = curl_easy_strerror(res)
+                });
+            } else {
+                // Check HTTP status
+                long http_code = 0;
+                curl_easy_getinfo(static_cast<CURL*>(curl.get()), CURLINFO_RESPONSE_CODE, &http_code);
+                if (http_code >= 400) {
+                    parser->set_error(ErrorFactory::from_http(
+                        static_cast<int>(http_code),
+                        std::format("HTTP {} error during streaming at {}", http_code, url)));
                 } else {
-                    // Check HTTP status
-                    long http_code = 0;
-                    curl_easy_getinfo(static_cast<CURL*>(curl.get()), CURLINFO_RESPONSE_CODE, &http_code);
-                    if (http_code >= 400) {
-                        sp->set_error(ErrorFactory::from_http(
-                            static_cast<int>(http_code), "HTTP error during streaming"));
-                    } else {
-                        sp->finish();
-                    }
+                    parser->finish();
                 }
             }
         }).detach();
 
-        // Move the shared_ptr into a local StreamParser by value for the caller.
-        // We return the parser by value; caller can consume events via next_event()/process_events().
-        // Note: We use a local copy — the shared_ptr in the thread keeps it alive.
-        return std::move(*parser);
+        // Return a StreamParser by value; the returned copy and curl thread share
+        // parser state, so next_event()/process_events() observe producer writes.
+        return *parser;
     }
 
     // Verify API key
@@ -858,12 +902,23 @@ public:
     void set_auth_token(std::string token) { config_.auth_token = std::move(token); }
 
 private:
+    [[nodiscard]] static std::vector<std::string> betas_for_request(
+        const CreateMessageRequest& request
+    ) {
+        auto betas = request.betas;
+        const auto task_budget_beta = std::string{"task-budgets-2026-03-13"};
+        if (request.task_budget && !std::ranges::contains(betas, task_budget_beta)) {
+            betas.push_back(task_budget_beta);
+        }
+        return betas;
+    }
+
     [[nodiscard]] Result<CreateMessageResponse> perform_request(
         const CreateMessageRequest& request) {
 
         auto json_body = RequestSerializer::serialize(request);
         auto url = std::format("{}/v1/messages", config_.base_url);
-        auto headers = build_headers();
+        auto headers = build_headers(betas_for_request(request));
 
         auto http_result = HttpClient::post(url, json_body, headers, config_.timeout);
         if (!http_result) {
@@ -881,7 +936,9 @@ private:
         return ResponseParser::parse(http_result->body);
     }
 
-    [[nodiscard]] std::vector<std::string> build_headers() const {
+    [[nodiscard]] std::vector<std::string> build_headers(
+        const std::vector<std::string>& request_betas = {}
+    ) const {
         std::vector<std::string> headers;
         headers.push_back("Content-Type: application/json");
         headers.push_back(std::format("anthropic-version: {}", config_.api_version));
@@ -895,9 +952,14 @@ private:
         }
 
         // Beta headers
-        for (const auto& beta : config_.beta_headers) {
+        auto append_beta = [&](const std::string& beta) {
+            for (const auto& header : headers) {
+                if (header == std::format("anthropic-beta: {}", beta)) return;
+            }
             headers.push_back(std::format("anthropic-beta: {}", beta));
-        }
+        };
+        for (const auto& beta : config_.beta_headers) append_beta(beta);
+        for (const auto& beta : request_betas) append_beta(beta);
 
         return headers;
     }

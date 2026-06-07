@@ -13,6 +13,7 @@ module;
 #include <format>
 #include <sstream>
 #include <deque>
+#include <map>
 #include <set>
 #include <variant>
 #include <thread>
@@ -118,6 +119,20 @@ Element RenderMessage(const Message& message) {
                             paragraph(thinking_preview) | dim,
                         }) | borderStyled(Color::GrayDark)
                     );
+                } else if (const auto* tool = std::get_if<ToolUseBlock>(&block)) {
+                    auto input_summary = tool->input_json.empty() ? std::string{"{}"} : tool->input_json;
+                    if (input_summary.size() > 500) {
+                        input_summary.resize(500);
+                        input_summary += "...";
+                    }
+                    content_elements.push_back(render_tool_use(ToolUseDisplayData{
+                        .tool_name = tool->name,
+                        .input_summary = std::move(input_summary),
+                        .output_preview = std::nullopt,
+                        .is_running = true,
+                        .is_error = false,
+                        .duration = std::chrono::milliseconds{0},
+                    }));
                 }
             }
             if (content_elements.empty()) {
@@ -231,6 +246,17 @@ private:
     std::mutex result_mutex_;
     std::optional<std::string> pending_error_;
     std::string streaming_text_;  // Accumulates streamed text during generation
+    struct StreamingToolPreview {
+        std::string tool_name;
+        std::string input_json;
+        bool complete = false;
+    };
+    struct StreamingThinkingPreview {
+        std::string text;
+        bool complete = false;
+    };
+    std::map<std::uint32_t, StreamingToolPreview> streaming_tools_;
+    std::map<std::uint32_t, StreamingThinkingPreview> streaming_thinking_;
     ScreenInteractive* screen_ = nullptr;
 
     // Permission confirmation
@@ -326,7 +352,10 @@ public:
         query_running_.store(true);
         {
             std::lock_guard lk(result_mutex_);
+            pending_error_.reset();
             streaming_text_.clear();
+            streaming_tools_.clear();
+            streaming_thinking_.clear();
         }
 
         // Launch async streaming query
@@ -338,9 +367,37 @@ public:
 
                 std::visit([this](const auto& e) {
                     using T = std::decay_t<decltype(e)>;
-                    if constexpr (std::is_same_v<T, core::ContentBlockDelta>) {
+                    if constexpr (std::is_same_v<T, core::ContentBlockStart>) {
                         std::lock_guard lk(result_mutex_);
-                        streaming_text_ += e.delta_text;
+                        if (const auto* tool = std::get_if<core::ToolUseBlock>(&e.block)) {
+                            streaming_tools_[e.index] = StreamingToolPreview{
+                                .tool_name = tool->name,
+                                .input_json = tool->input_json == "{}" ? std::string{} : tool->input_json,
+                                .complete = false,
+                            };
+                        } else if (const auto* thinking = std::get_if<core::ThinkingBlock>(&e.block)) {
+                            streaming_thinking_[e.index] = StreamingThinkingPreview{
+                                .text = thinking->thinking,
+                                .complete = false,
+                            };
+                        }
+                    } else if constexpr (std::is_same_v<T, core::ContentBlockDelta>) {
+                        std::lock_guard lk(result_mutex_);
+                        if (auto tool = streaming_tools_.find(e.index); tool != streaming_tools_.end()) {
+                            tool->second.input_json += e.delta_text;
+                        } else if (auto thinking = streaming_thinking_.find(e.index); thinking != streaming_thinking_.end()) {
+                            thinking->second.text += e.delta_text;
+                        } else {
+                            streaming_text_ += e.delta_text;
+                        }
+                    } else if constexpr (std::is_same_v<T, core::ContentBlockStop>) {
+                        std::lock_guard lk(result_mutex_);
+                        if (auto tool = streaming_tools_.find(e.index); tool != streaming_tools_.end()) {
+                            tool->second.complete = true;
+                        }
+                        if (auto thinking = streaming_thinking_.find(e.index); thinking != streaming_thinking_.end()) {
+                            thinking->second.complete = true;
+                        }
                     } else if constexpr (std::is_same_v<T, core::StreamError>) {
                         std::lock_guard lk(result_mutex_);
                         pending_error_ = e.message;
@@ -381,6 +438,8 @@ public:
             pending_error_.reset();
             state_.is_loading = false;
             streaming_text_.clear();
+            streaming_tools_.clear();
+            streaming_thinking_.clear();
             return;
         }
 
@@ -397,6 +456,8 @@ public:
 
         state_.is_loading = false;
         streaming_text_.clear();
+        streaming_tools_.clear();
+        streaming_thinking_.clear();
 
         // Persist session after successful query
         if (storage_) {
@@ -590,9 +651,30 @@ public:
 
             // Show streaming text preview if available
             std::string preview;
+            std::vector<StreamingThinkingPreview> thinking_previews;
+            std::vector<StreamingToolPreview> tool_previews;
             {
                 std::lock_guard lk(result_mutex_);
                 preview = streaming_text_;
+                for (const auto& [index, thinking] : streaming_thinking_) {
+                    (void)index;
+                    thinking_previews.push_back(thinking);
+                }
+                for (const auto& [index, tool] : streaming_tools_) {
+                    (void)index;
+                    tool_previews.push_back(tool);
+                }
+            }
+            for (const auto& thinking : thinking_previews) {
+                auto thinking_text = thinking.text;
+                if (thinking_text.size() > 500) {
+                    thinking_text = "..." + thinking_text.substr(thinking_text.size() - 500);
+                }
+                elements.push_back(
+                    vbox({
+                        ftxui::text(thinking.complete ? "Thinking" : "Thinking...") | dim | bold,
+                        paragraph(thinking_text.empty() ? std::string{"(waiting for thinking)"} : thinking_text) | dim,
+                    }) | borderStyled(Color::GrayDark));
             }
             if (!preview.empty()) {
                 // Show last ~500 chars of streaming text
@@ -600,6 +682,21 @@ public:
                     preview = "..." + preview.substr(preview.size() - 500);
                 }
                 elements.push_back(paragraph(preview) | color(Color::White) | border);
+            }
+            for (const auto& tool : tool_previews) {
+                auto input_summary = tool.input_json.empty() ? std::string{"{}"} : tool.input_json;
+                if (input_summary.size() > 500) {
+                    input_summary.resize(500);
+                    input_summary += "...";
+                }
+                elements.push_back(render_tool_use(ToolUseDisplayData{
+                    .tool_name = tool.tool_name,
+                    .input_summary = std::move(input_summary),
+                    .output_preview = std::nullopt,
+                    .is_running = !tool.complete,
+                    .is_error = false,
+                    .duration = std::chrono::milliseconds{0},
+                }));
             }
         }
 
@@ -768,6 +865,18 @@ public:
     /// Get current session ID
     [[nodiscard]] const std::string& session_id() const noexcept {
         return state_.current_session_id;
+    }
+
+    [[nodiscard]] bool is_query_running_for_testing() const noexcept {
+        return query_running_.load();
+    }
+
+    [[nodiscard]] bool is_loading_for_testing() const noexcept {
+        return state_.is_loading;
+    }
+
+    [[nodiscard]] const std::string& status_message_for_testing() const noexcept {
+        return state_.status_message;
     }
 
     /// Set screen pointer for async wake

@@ -15,9 +15,11 @@ module;
 #include <format>
 #include <algorithm>
 #include <concepts>
+#include <limits>
 #include <iterator>
 #include <ranges>
 #include <numeric>
+#include <cstdlib>
 #include <thread>
 #include <atomic>
 #include <mutex>
@@ -28,6 +30,7 @@ module;
 #include <filesystem>
 #include <fstream>
 #include <variant>
+#include <utility>
 #include <httplib.h>
 
 export module cc.query.query_engine;
@@ -37,8 +40,12 @@ import cc.tools.tool;
 import cc.config.config;
 import cc.utils.error;
 import cc.utils.json;
+import cc.utils.tool_helpers;
+import cc.utils.env_utils;
 import cc.hooks.tool_permissions;
 import cc.hooks.lifecycle_hooks;
+import cc.tools.agent_runtime;
+import cc.services.compact.api_microcompact;
 
 export namespace cc::core {
 
@@ -153,6 +160,11 @@ struct QueryEngineConfig {
     std::optional<std::string> cwd;                 // Working directory for operations
     std::optional<double> max_budget_usd;           // Max budget in USD
     std::optional<std::uint32_t> max_turns;         // Max conversation turns
+    struct TaskBudget {
+        std::uint32_t total{0};
+        std::optional<std::uint32_t> remaining;
+    };
+    std::optional<TaskBudget> task_budget;           // API-side output_config.task_budget
     std::vector<ToolDefinition> tools;              // Available tools for the model
     std::vector<std::string> agent_definitions;     // Agent definitions
     std::vector<std::string> fallback_models;       // Fallback models for capacity errors
@@ -384,7 +396,8 @@ public:
         std::uint32_t max_tokens_retries = 0;
         const std::uint32_t max_rounds = options.max_tool_rounds.value_or(20);
 
-        while (round < max_rounds && !aborted_.load() && !budget_tracker_.budget_exceeded) {
+        while (round < max_rounds && !should_abort() && !budget_tracker_.budget_exceeded) {
+            append_pending_native_agent_notifications();
             // Stream a single API call
             auto [assistant_msg, round_usage, has_tool_use] = stream_single_api_call(options);
 
@@ -459,6 +472,11 @@ public:
     /// Reset the abort flag for new queries
     void reset_abort() noexcept { aborted_.store(false); }
 
+    /// Set an external cancellation predicate for host-driven query control.
+    void set_external_abort_callback(std::function<bool()> callback) {
+        external_abort_callback_ = std::move(callback);
+    }
+
     /// Set the permission hook for tool execution policy
     void set_permission_hook(cc::hooks::ToolPermissionHook* hook) noexcept {
         permission_hook_ = hook;
@@ -488,6 +506,14 @@ public:
         return conversation_;
     }
 
+    /// Restore conversation history for resumed sessions and rebuild content replacement state.
+    void restore_conversation(std::vector<Message> messages) {
+        std::lock_guard lock(conversation_mutex_);
+        conversation_ = std::move(messages);
+        restore_task_budget_remaining_from_compact_boundaries_locked();
+        rebuild_content_replacement_state_locked();
+    }
+
     /// Clear conversation history (start fresh within same session)
     void clear_conversation() {
         std::lock_guard lock(conversation_mutex_);
@@ -508,6 +534,7 @@ public:
         if (conversation_.size() <= keep_recent + 1) return {};
 
         const auto pre_tokens = estimate_conversation_tokens_locked();
+        update_task_budget_remaining_after_compact(pre_tokens);
         auto recent_start = conversation_.end() - static_cast<std::ptrdiff_t>(keep_recent);
         auto summary_text = build_compaction_summary(
             conversation_.begin() + 1,
@@ -638,7 +665,7 @@ private:
     /// Populate user context with git branch and last commit info
     static void populate_git_context(UserContext& ctx, const std::string& cwd) {
         auto run_git_cmd = [&](const char* cmd) -> std::string {
-            auto full_cmd = std::format("cd \"{}\" && {} 2>/dev/null", cwd, cmd);
+            auto full_cmd = std::format("cd \"{}\" && ( {} ) 2>/dev/null", cwd, cmd);
             std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(full_cmd.c_str(), "r"), pclose);
             if (!pipe) return {};
             std::string result;
@@ -719,6 +746,392 @@ private:
         }
     }
 
+    void append_pending_native_agent_notifications() {
+        for (auto& notification : cc::tools::agent_runtime::native_agent_store().take_pending_task_notifications()) {
+            auto msg = make_user_message(notification);
+            append_message(Message{std::move(msg)});
+        }
+    }
+
+    struct QueryToolResultBudgetCandidate {
+        std::size_t message_index = 0;
+        std::string tool_use_id;
+        std::string tool_name;
+        std::size_t size = 0;
+    };
+
+    [[nodiscard]] static std::string lowercase_ascii(std::string_view value) {
+        std::string out;
+        out.reserve(value.size());
+        for (unsigned char ch : value) {
+            if (ch >= 'A' && ch <= 'Z') {
+                out.push_back(static_cast<char>(ch - 'A' + 'a'));
+            } else {
+                out.push_back(static_cast<char>(ch));
+            }
+        }
+        return out;
+    }
+
+    [[nodiscard]] static bool tool_result_already_replaced(std::string_view text) {
+        return text.starts_with(cc::utils::PERSISTED_OUTPUT_TAG);
+    }
+
+    [[nodiscard]] static bool env_truthy_any(std::initializer_list<const char*> names) {
+        for (const char* name : names) {
+            if (cc::utils::is_env_truthy(std::getenv(name))) return true;
+        }
+        return false;
+    }
+
+    [[nodiscard]] static std::uint32_t env_uint_or_default(
+        std::initializer_list<const char*> names,
+        std::uint32_t fallback) {
+        for (const char* name : names) {
+            const char* raw = std::getenv(name);
+            if (raw == nullptr || *raw == '\0') continue;
+            char* end = nullptr;
+            const auto value = std::strtoul(raw, &end, 10);
+            if (end == raw || value == 0) continue;
+            return static_cast<std::uint32_t>(
+                std::min<unsigned long>(value, std::numeric_limits<std::uint32_t>::max()));
+        }
+        return fallback;
+    }
+
+    [[nodiscard]] static bool time_based_microcompact_enabled() {
+        return env_truthy_any({
+            "CC_REPL_TIME_BASED_MICROCOMPACT",
+            "CLAUDE_CODE_TIME_BASED_MICROCOMPACT",
+        });
+    }
+
+    [[nodiscard]] static std::uint32_t time_based_microcompact_gap_minutes() {
+        return env_uint_or_default({
+            "CC_REPL_TIME_BASED_MICROCOMPACT_GAP_MINUTES",
+            "CLAUDE_CODE_TIME_BASED_MICROCOMPACT_GAP_MINUTES",
+        }, 60);
+    }
+
+    [[nodiscard]] static std::uint32_t time_based_microcompact_keep_recent() {
+        return std::max<std::uint32_t>(1, env_uint_or_default({
+            "CC_REPL_TIME_BASED_MICROCOMPACT_KEEP_RECENT",
+            "CLAUDE_CODE_TIME_BASED_MICROCOMPACT_KEEP_RECENT",
+        }, 5));
+    }
+
+    [[nodiscard]] static bool is_time_based_microcompact_tool(std::string_view tool_name) {
+        const auto name = lowercase_ascii(tool_name);
+        static const std::unordered_set<std::string> compactable = {
+            "bash",
+            "powershell",
+            "glob",
+            "grep",
+            "read",
+            "webfetch",
+            "websearch",
+            "edit",
+            "write",
+        };
+        return compactable.contains(name);
+    }
+
+    [[nodiscard]] std::unordered_set<std::string> unbounded_tool_result_budget_names() const {
+        std::unordered_set<std::string> names;
+        if (!tool_registry_) return names;
+        for (const auto& definition : tool_registry_->get_visible_definitions()) {
+            if (definition.max_result_size_unbounded) {
+                names.insert(lowercase_ascii(definition.name));
+            }
+        }
+        return names;
+    }
+
+    [[nodiscard]] static std::unordered_map<std::string, std::string> tool_name_by_tool_use_id(
+        const std::vector<Message>& messages) {
+        std::unordered_map<std::string, std::string> names;
+        for (const auto& message : messages) {
+            if (const auto* assistant = std::get_if<AssistantMessage>(&message)) {
+                for (const auto& block : assistant->content) {
+                    if (const auto* tool_use = std::get_if<ToolUseBlock>(&block)) {
+                        names[tool_use->id.value] = tool_use->name;
+                    }
+                }
+            } else if (const auto* tool_use_message = std::get_if<ToolUseMessage>(&message)) {
+                for (const auto& block : tool_use_message->content) {
+                    if (const auto* tool_use = std::get_if<ToolUseBlock>(&block)) {
+                        names[tool_use->id.value] = tool_use->name;
+                    }
+                }
+            }
+        }
+        return names;
+    }
+
+    [[nodiscard]] static std::optional<std::string> tool_result_plain_text_content(
+        const ToolResultMessage& message) {
+        std::string text;
+        for (const auto& block : message.content) {
+            if (const auto* text_block = std::get_if<TextBlock>(&block)) {
+                text += text_block->text;
+            } else {
+                return std::nullopt;
+            }
+        }
+        if (text.empty()) {
+            return std::nullopt;
+        }
+        return text;
+    }
+
+    [[nodiscard]] static std::optional<std::string> tool_result_text_for_budget(
+        const ToolResultMessage& message) {
+        auto text = tool_result_plain_text_content(message);
+        if (!text || tool_result_already_replaced(*text)) {
+            return std::nullopt;
+        }
+        return text;
+    }
+
+    [[nodiscard]] static std::vector<std::vector<QueryToolResultBudgetCandidate>>
+    collect_tool_result_budget_candidates_by_message(
+        const std::vector<Message>& messages,
+        const std::unordered_map<std::string, std::string>& tool_names) {
+        std::vector<std::vector<QueryToolResultBudgetCandidate>> groups;
+        std::vector<QueryToolResultBudgetCandidate> current;
+        auto flush = [&] {
+            if (!current.empty()) groups.push_back(std::exchange(current, {}));
+        };
+
+        for (std::size_t message_index = 0; message_index < messages.size(); ++message_index) {
+            const auto& message = messages[message_index];
+            if (std::holds_alternative<AssistantMessage>(message) ||
+                std::holds_alternative<ToolUseMessage>(message)) {
+                flush();
+                continue;
+            }
+            const auto* tool_result = std::get_if<ToolResultMessage>(&message);
+            if (!tool_result || tool_result->tool_use_id.value.empty()) continue;
+            auto text = tool_result_text_for_budget(*tool_result);
+            if (!text) continue;
+            std::string tool_name;
+            if (auto name = tool_names.find(tool_result->tool_use_id.value); name != tool_names.end()) {
+                tool_name = name->second;
+            }
+            current.push_back(QueryToolResultBudgetCandidate{
+                .message_index = message_index,
+                .tool_use_id = tool_result->tool_use_id.value,
+                .tool_name = std::move(tool_name),
+                .size = text->size(),
+            });
+        }
+        flush();
+        return groups;
+    }
+
+    [[nodiscard]] static std::optional<std::chrono::system_clock::time_point>
+    last_assistant_timestamp(const std::vector<Message>& messages) {
+        for (auto it = messages.rbegin(); it != messages.rend(); ++it) {
+            if (const auto* assistant = std::get_if<AssistantMessage>(&*it)) {
+                return assistant->timestamp;
+            }
+            if (const auto* tool_use = std::get_if<ToolUseMessage>(&*it)) {
+                return tool_use->timestamp;
+            }
+        }
+        return std::nullopt;
+    }
+
+    void apply_time_based_microcompact() {
+        if (!time_based_microcompact_enabled()) return;
+
+        std::lock_guard lock(conversation_mutex_);
+        const auto last_assistant = last_assistant_timestamp(conversation_);
+        if (!last_assistant) return;
+
+        const auto now = std::chrono::system_clock::now();
+        if (*last_assistant > now) return;
+        const auto gap = std::chrono::duration_cast<std::chrono::minutes>(now - *last_assistant);
+        if (gap < std::chrono::minutes{time_based_microcompact_gap_minutes()}) return;
+
+        std::vector<std::string> compactable_ids;
+        for (const auto& message : conversation_) {
+            if (const auto* assistant = std::get_if<AssistantMessage>(&message)) {
+                for (const auto& block : assistant->content) {
+                    const auto* tool_use = std::get_if<ToolUseBlock>(&block);
+                    if (tool_use && is_time_based_microcompact_tool(tool_use->name)) {
+                        compactable_ids.push_back(tool_use->id.value);
+                    }
+                }
+            } else if (const auto* tool_use_message = std::get_if<ToolUseMessage>(&message)) {
+                for (const auto& block : tool_use_message->content) {
+                    const auto* tool_use = std::get_if<ToolUseBlock>(&block);
+                    if (tool_use && is_time_based_microcompact_tool(tool_use->name)) {
+                        compactable_ids.push_back(tool_use->id.value);
+                    }
+                }
+            }
+        }
+
+        const auto keep_recent = static_cast<std::size_t>(time_based_microcompact_keep_recent());
+        if (compactable_ids.size() <= keep_recent) return;
+
+        std::unordered_set<std::string> keep_ids;
+        const auto keep_start = compactable_ids.size() - keep_recent;
+        for (std::size_t i = keep_start; i < compactable_ids.size(); ++i) {
+            keep_ids.insert(compactable_ids[i]);
+        }
+
+        std::unordered_set<std::string> clear_ids;
+        for (const auto& id : compactable_ids) {
+            if (!keep_ids.contains(id)) clear_ids.insert(id);
+        }
+        if (clear_ids.empty()) return;
+
+        bool changed = false;
+        for (auto& message : conversation_) {
+            auto* result = std::get_if<ToolResultMessage>(&message);
+            if (!result || !clear_ids.contains(result->tool_use_id.value)) continue;
+            auto existing_text = tool_result_plain_text_content(*result);
+            if (existing_text && *existing_text == cc::utils::TOOL_RESULT_CLEARED_MESSAGE) {
+                continue;
+            }
+            result->content.clear();
+            result->content.push_back(TextBlock{std::string(cc::utils::TOOL_RESULT_CLEARED_MESSAGE)});
+            changed = true;
+        }
+
+        if (changed) {
+            rebuild_content_replacement_state_locked();
+        }
+    }
+
+    [[nodiscard]] std::filesystem::path query_tool_result_path(std::string_view tool_use_id) const {
+        return cc::tools::agent_runtime::runtime_state_dir() /
+            "tool-results" /
+            (cc::tools::agent_runtime::safe_agent_filename(session_id_.str()) + "-" +
+                cc::tools::agent_runtime::safe_agent_filename(tool_use_id) + ".txt");
+    }
+
+    [[nodiscard]] std::optional<std::string> build_query_tool_result_replacement(
+        const QueryToolResultBudgetCandidate& candidate,
+        std::string_view content) const {
+        auto path = query_tool_result_path(candidate.tool_use_id);
+        std::error_code ec;
+        std::filesystem::create_directories(path.parent_path(), ec);
+        if (ec) return std::nullopt;
+        if (!std::filesystem::exists(path, ec)) {
+            std::ofstream out(path, std::ios::trunc);
+            if (!out) return std::nullopt;
+            out << content;
+            if (!out.good()) return std::nullopt;
+        }
+
+        constexpr std::size_t preview_size = 2'000;
+        const auto preview_len = std::min(preview_size, content.size());
+        std::string replacement;
+        replacement.reserve(preview_len + path.string().size() + 192);
+        replacement += cc::utils::PERSISTED_OUTPUT_TAG;
+        replacement += "\n";
+        replacement += std::format(
+            "Output too large ({} bytes). Full output saved to: {}\n\n",
+            content.size(),
+            path.string());
+        replacement += std::format("Preview (first {} bytes):\n", preview_len);
+        replacement += content.substr(0, preview_len);
+        replacement += content.size() > preview_len ? "\n...\n" : "\n";
+        replacement += cc::utils::PERSISTED_OUTPUT_CLOSING_TAG;
+        return replacement;
+    }
+
+    void replace_tool_result_message_locked(std::size_t message_index, std::string replacement) {
+        auto* tool_result = std::get_if<ToolResultMessage>(&conversation_[message_index]);
+        if (!tool_result) return;
+        tool_result->content.clear();
+        tool_result->content.push_back(TextBlock{std::move(replacement)});
+    }
+
+    void rebuild_content_replacement_state_locked() {
+        content_replacement_seen_ids_.clear();
+        content_replacements_.clear();
+        for (const auto& message : conversation_) {
+            const auto* tool_result = std::get_if<ToolResultMessage>(&message);
+            if (!tool_result || tool_result->tool_use_id.value.empty()) continue;
+            auto text = tool_result_plain_text_content(*tool_result);
+            if (!text) continue;
+            content_replacement_seen_ids_.insert(tool_result->tool_use_id.value);
+            if (tool_result_already_replaced(*text)) {
+                content_replacements_[tool_result->tool_use_id.value] = std::move(*text);
+            }
+        }
+    }
+
+    void apply_tool_result_budget() {
+        std::lock_guard lock(conversation_mutex_);
+        if (conversation_.empty()) return;
+
+        static constexpr std::size_t max_tool_results_per_message_chars = 200'000;
+        const auto tool_names = tool_name_by_tool_use_id(conversation_);
+        const auto skip_tool_names = unbounded_tool_result_budget_names();
+
+        for (const auto& candidates : collect_tool_result_budget_candidates_by_message(conversation_, tool_names)) {
+            std::vector<QueryToolResultBudgetCandidate> fresh;
+            std::size_t frozen_size = 0;
+            std::size_t fresh_size = 0;
+
+            for (const auto& candidate : candidates) {
+                if (auto replacement = content_replacements_.find(candidate.tool_use_id);
+                    replacement != content_replacements_.end()) {
+                    replace_tool_result_message_locked(candidate.message_index, replacement->second);
+                    content_replacement_seen_ids_.insert(candidate.tool_use_id);
+                } else if (content_replacement_seen_ids_.contains(candidate.tool_use_id)) {
+                    frozen_size += candidate.size;
+                } else if (!candidate.tool_name.empty() &&
+                           skip_tool_names.contains(lowercase_ascii(candidate.tool_name))) {
+                    content_replacement_seen_ids_.insert(candidate.tool_use_id);
+                } else {
+                    fresh.push_back(candidate);
+                    fresh_size += candidate.size;
+                }
+            }
+
+            if (fresh.empty()) continue;
+            std::vector<QueryToolResultBudgetCandidate> selected;
+            if (frozen_size + fresh_size > max_tool_results_per_message_chars) {
+                std::ranges::sort(fresh, {}, &QueryToolResultBudgetCandidate::size);
+                std::ranges::reverse(fresh);
+                auto remaining = frozen_size + fresh_size;
+                for (const auto& candidate : fresh) {
+                    if (remaining <= max_tool_results_per_message_chars) break;
+                    selected.push_back(candidate);
+                    remaining -= candidate.size;
+                }
+            }
+
+            std::unordered_set<std::string> selected_ids;
+            for (const auto& candidate : selected) {
+                selected_ids.insert(candidate.tool_use_id);
+            }
+            for (const auto& candidate : fresh) {
+                if (!selected_ids.contains(candidate.tool_use_id)) {
+                    content_replacement_seen_ids_.insert(candidate.tool_use_id);
+                }
+            }
+
+            for (const auto& candidate : selected) {
+                auto* tool_result = std::get_if<ToolResultMessage>(&conversation_[candidate.message_index]);
+                if (!tool_result) continue;
+                auto text = tool_result_text_for_budget(*tool_result);
+                content_replacement_seen_ids_.insert(candidate.tool_use_id);
+                if (!text) continue;
+                auto replacement = build_query_tool_result_replacement(candidate, *text);
+                if (!replacement) continue;
+                replace_tool_result_message_locked(candidate.message_index, *replacement);
+                content_replacements_[candidate.tool_use_id] = std::move(*replacement);
+            }
+        }
+    }
+
     [[nodiscard]] static std::string truncate_for_compaction(std::string text,
                                                              std::size_t limit) {
         if (text.size() <= limit) return text;
@@ -770,6 +1183,42 @@ private:
         return system && system->subtype == "compact_boundary";
     }
 
+    [[nodiscard]] static bool is_snip_boundary_message(const Message& message) {
+        const auto* system = std::get_if<SystemMessage>(&message);
+        return system && system->subtype == "snip_boundary" && system->snip_metadata.has_value();
+    }
+
+    void replay_snip_boundaries() {
+        std::lock_guard lock(conversation_mutex_);
+        std::unordered_set<std::string> removed_ids;
+        for (const auto& message : conversation_) {
+            const auto* system = std::get_if<SystemMessage>(&message);
+            if (!system || !system->snip_metadata) continue;
+            for (const auto& uuid : system->snip_metadata->removed_uuids) {
+                if (!uuid.empty()) removed_ids.insert(uuid);
+            }
+        }
+        if (removed_ids.empty()) return;
+
+        auto should_remove = [&](const Message& message) {
+            const auto id = message_id_value(message);
+            const bool protected_system =
+                std::holds_alternative<SystemMessage>(message) && !is_snip_boundary_message(message);
+            return removed_ids.contains(id) && !protected_system;
+        };
+        if (!std::ranges::any_of(conversation_, should_remove)) return;
+
+        std::vector<Message> projected;
+        projected.reserve(conversation_.size());
+        for (auto& message : conversation_) {
+            if (should_remove(message)) continue;
+            projected.push_back(std::move(message));
+        }
+
+        conversation_ = std::move(projected);
+        rebuild_content_replacement_state_locked();
+    }
+
     [[nodiscard]] static std::string message_id_value(const Message& message) {
         return std::visit([](const auto& value) {
             return value.id.value;
@@ -791,17 +1240,23 @@ private:
     [[nodiscard]] static std::string build_compaction_summary(
         std::vector<Message>::const_iterator first,
         std::vector<Message>::const_iterator last) {
-        const auto count = static_cast<std::size_t>(std::distance(first, last));
+        const auto count = static_cast<std::size_t>(std::ranges::count_if(
+            first,
+            last,
+            [](const Message& message) {
+                return !is_compact_boundary_message(message);
+            }));
         std::string summary = std::format(
             "[Conversation compacted: {} older messages summarized]\n"
             "Preserve these details from the compacted history:",
             count);
         constexpr std::size_t max_summary_chars = 8000;
         std::size_t index = 1;
-        for (auto it = first; it != last; ++it, ++index) {
+        for (auto it = first; it != last; ++it) {
+            if (is_compact_boundary_message(*it)) continue;
             auto line = std::format("\n- {} #{}: {}",
                 role_to_string(get_role(*it)),
-                index,
+                index++,
                 message_compaction_text(*it));
             if (summary.size() + line.size() > max_summary_chars) {
                 summary += "\n- [remaining compacted messages omitted due to summary size limit]";
@@ -826,7 +1281,8 @@ private:
         std::uint32_t max_tokens_retries = 0;
         const std::uint32_t max_rounds = options.max_tool_rounds.value_or(20);
 
-        while (round < max_rounds && !aborted_.load() && !budget_tracker_.budget_exceeded) {
+        while (round < max_rounds && !should_abort() && !budget_tracker_.budget_exceeded) {
+            append_pending_native_agent_notifications();
             auto api_result = call_api(options);
             if (!api_result) return std::unexpected(api_result.error());
 
@@ -898,13 +1354,18 @@ private:
         std::size_t fallback_idx = 0;
 
         for (std::uint32_t attempt = 0; attempt <= policy.max_retries; ++attempt) {
-            if (aborted_.load()) {
+            if (should_abort()) {
                 return std::unexpected(Error::make(
                     ErrorCode::InternalError,
                     "Query aborted"));
             }
 
             auto result = send_request(options);
+            if (should_abort()) {
+                return std::unexpected(Error::make(
+                    ErrorCode::InternalError,
+                    "Query aborted"));
+            }
             if (result) return *result;
 
             // Determine if error is retryable
@@ -956,6 +1417,150 @@ private:
         });
     }
 
+    [[nodiscard]] std::optional<cc::services::compact::ContextManagementConfig>
+    api_context_management() const {
+        return cc::services::compact::get_api_context_management({
+            .has_thinking = thinking_enabled_for_request(),
+            .is_redact_thinking_active = false,
+            .clear_all_thinking = false,
+        });
+    }
+
+    [[nodiscard]] bool thinking_enabled_for_request() const {
+        return config_.thinking_config.mode != ThinkingConfig::Mode::Disabled &&
+            !cc::utils::is_env_truthy(std::getenv("CLAUDE_CODE_DISABLE_THINKING"));
+    }
+
+    void add_input_tokens_object(
+        cc::utils::json::JsonMutVal& parent,
+        cc::utils::json::JsonMutDoc& doc,
+        std::string_view key,
+        std::uint32_t value
+    ) const {
+        auto obj = doc.object();
+        obj.add("type", doc.string("input_tokens"));
+        obj.add("value", doc.number(static_cast<int64_t>(value)));
+        parent.add(key, obj);
+    }
+
+    void add_string_array(
+        cc::utils::json::JsonMutVal& parent,
+        cc::utils::json::JsonMutDoc& doc,
+        std::string_view key,
+        const std::vector<std::string>& values
+    ) const {
+        auto arr = doc.array();
+        for (const auto& value : values) {
+            arr.append(doc.string(value));
+        }
+        parent.add(key, arr);
+    }
+
+    void add_context_management_to_json(
+        cc::utils::json::JsonMutVal& root,
+        cc::utils::json::JsonMutDoc& doc,
+        const cc::services::compact::ContextManagementConfig& config
+    ) const {
+        auto context_management = doc.object();
+        auto edits = doc.array();
+
+        for (const auto& edit : config.edits) {
+            auto obj = doc.object();
+            obj.add("type", doc.string(edit.type));
+
+            if (edit.trigger_input_tokens) {
+                add_input_tokens_object(obj, doc, "trigger", *edit.trigger_input_tokens);
+            }
+            if (edit.clear_at_least_input_tokens) {
+                add_input_tokens_object(obj, doc, "clear_at_least", *edit.clear_at_least_input_tokens);
+            }
+            if (edit.has_thinking_keep) {
+                if (edit.keep_all_thinking) {
+                    obj.add("keep", doc.string("all"));
+                } else if (edit.keep_thinking_turns) {
+                    auto keep = doc.object();
+                    keep.add("type", doc.string("thinking_turns"));
+                    keep.add("value", doc.number(static_cast<int64_t>(*edit.keep_thinking_turns)));
+                    obj.add("keep", keep);
+                }
+            } else if (edit.keep_tool_uses) {
+                auto keep = doc.object();
+                keep.add("type", doc.string("tool_uses"));
+                keep.add("value", doc.number(static_cast<int64_t>(*edit.keep_tool_uses)));
+                obj.add("keep", keep);
+            }
+            if (!edit.clear_tool_inputs.empty()) {
+                add_string_array(obj, doc, "clear_tool_inputs", edit.clear_tool_inputs);
+            }
+            if (!edit.exclude_tools.empty()) {
+                add_string_array(obj, doc, "exclude_tools", edit.exclude_tools);
+            }
+
+            edits.append(obj);
+        }
+
+        context_management.add("edits", edits);
+        root.add("context_management", context_management);
+    }
+
+    void add_output_config_to_json(
+        cc::utils::json::JsonMutVal& root,
+        cc::utils::json::JsonMutDoc& doc
+    ) const {
+        if (!config_.task_budget) return;
+
+        auto output_config = doc.object();
+        auto task_budget = doc.object();
+        task_budget.add("type", doc.string("tokens"));
+        task_budget.add("total", doc.number(static_cast<int64_t>(config_.task_budget->total)));
+        if (config_.task_budget->remaining) {
+            task_budget.add(
+                "remaining",
+                doc.number(static_cast<int64_t>(*config_.task_budget->remaining)));
+        }
+        output_config.add("task_budget", task_budget);
+        root.add("output_config", output_config);
+    }
+
+    void update_task_budget_remaining_after_compact(std::uint32_t pre_compact_tokens) {
+        if (!config_.task_budget) return;
+        const auto current = config_.task_budget->remaining.value_or(config_.task_budget->total);
+        config_.task_budget->remaining =
+            pre_compact_tokens >= current ? 0 : current - pre_compact_tokens;
+    }
+
+    void restore_task_budget_remaining_from_compact_boundaries_locked() {
+        if (!config_.task_budget || config_.task_budget->remaining) return;
+
+        std::uint64_t compacted_tokens = 0;
+        for (const auto& message : conversation_) {
+            const auto* system = std::get_if<SystemMessage>(&message);
+            if (!system || !system->subtype || *system->subtype != "compact_boundary" ||
+                !system->compact_metadata) {
+                continue;
+            }
+            compacted_tokens += system->compact_metadata->pre_tokens;
+            if (compacted_tokens >= config_.task_budget->total) {
+                config_.task_budget->remaining = 0;
+                return;
+            }
+        }
+
+        if (compacted_tokens > 0) {
+            config_.task_budget->remaining =
+                config_.task_budget->total - static_cast<std::uint32_t>(compacted_tokens);
+        }
+    }
+
+    void add_beta_headers(httplib::Headers& headers) const {
+        if (config_.task_budget) {
+            headers.emplace("anthropic-beta", "task-budgets-2026-03-13");
+        }
+        if (api_context_management()) {
+            headers.emplace("anthropic-beta", "context-management-2025-06-27");
+        }
+    }
+
     /// Build HTTP request body
     [[nodiscard]] std::string build_request_body(
         const QueryOptions& options,
@@ -972,7 +1577,23 @@ private:
         auto messages_arr = doc.array();
         {
             std::lock_guard lock(conversation_mutex_);
+            std::unordered_set<std::string> snipped_message_ids;
             for (const auto& msg : conversation_) {
+                const auto* sys = std::get_if<SystemMessage>(&msg);
+                if (!sys || !sys->snip_metadata) continue;
+                for (const auto& uuid : sys->snip_metadata->removed_uuids) {
+                    snipped_message_ids.insert(uuid);
+                }
+            }
+
+            for (const auto& msg : conversation_) {
+                const auto message_id = std::visit(
+                    [](const auto& value) { return value.id.value; },
+                    msg);
+                if (snipped_message_ids.contains(message_id)) {
+                    continue;
+                }
+
                 if (const auto* sys = std::get_if<SystemMessage>(&msg)) {
                     if (sys->subtype == "compact_boundary") {
                         continue;
@@ -1025,7 +1646,7 @@ private:
         }
 
         // Extended thinking configuration
-        if (config_.thinking_config.mode != ThinkingConfig::Mode::Disabled) {
+        if (thinking_enabled_for_request()) {
             auto thinking_obj = doc.object();
             if (config_.thinking_config.mode == ThinkingConfig::Mode::Adaptive) {
                 thinking_obj.add("type", doc.string("adaptive"));
@@ -1047,6 +1668,11 @@ private:
         if (config_.model_params.top_k) {
             root.add("top_k", doc.number(static_cast<int64_t>(*config_.model_params.top_k)));
         }
+
+        if (auto context_management = api_context_management()) {
+            add_context_management_to_json(root, doc, *context_management);
+        }
+        add_output_config_to_json(root, doc);
 
         doc.set_root(root);
         return doc.to_string();
@@ -1197,6 +1823,10 @@ private:
     [[nodiscard]] Result<ApiCallResult> send_request(
         const QueryOptions& options,
         bool is_retry_after_compact = false) {
+        replay_snip_boundaries();
+        apply_time_based_microcompact();
+        apply_tool_result_budget();
+
         // Build URL
         std::string url = api_config_.base_url;
         if (!url.ends_with("/")) url += "/";
@@ -1208,6 +1838,7 @@ private:
         headers.emplace("anthropic-version", api_config_.api_version);
         headers.emplace("x-api-key", api_config_.api_key);
         headers.emplace("User-Agent", "CC-REPL/1.0");
+        add_beta_headers(headers);
 
         // Build request body
         std::string body = build_request_body(options);
@@ -1235,7 +1866,7 @@ private:
                 (res->status == 413 ||
                  res->body.find("prompt_too_long") != std::string::npos ||
                  res->body.find("Prompt is too long") != std::string::npos)) {
-                auto compact_result = compact_conversation("auto");
+                auto compact_result = compact_conversation("reactive");
                 if (compact_result) {
                     // Retry once after compaction
                     return send_request(options, /*is_retry_after_compact=*/true);
@@ -1346,6 +1977,9 @@ private:
     /// Stream a single API call with event callbacks
     [[nodiscard]] StreamCallResult stream_single_api_call(const QueryOptions& options) {
         StreamCallResult result;
+        replay_snip_boundaries();
+        apply_time_based_microcompact();
+        apply_tool_result_budget();
 
         // Build headers
         httplib::Headers headers;
@@ -1353,6 +1987,7 @@ private:
         headers.emplace("anthropic-version", api_config_.api_version);
         headers.emplace("x-api-key", api_config_.api_key);
         headers.emplace("User-Agent", "CC-REPL/1.0");
+        add_beta_headers(headers);
 
         // Build streaming request body
         std::string body = build_request_body(options, /*stream=*/true);
@@ -1522,7 +2157,7 @@ private:
         req.body = body;
         req.content_receiver = [&](const char* data, size_t len,
                                    uint64_t /*offset*/, uint64_t /*total*/) -> bool {
-            if (aborted_.load()) return false;
+            if (should_abort()) return false;
 
             sse_buffer.append(data, len);
 
@@ -1678,6 +2313,12 @@ private:
         return result_msg;
     }
 
+    struct ToolPermissionCheck {
+        bool allowed = true;
+        std::optional<std::string> updated_input_json;
+        std::optional<std::string> message;
+    };
+
     /// Execute a single tool and return the result message
     [[nodiscard]] ToolResultMessage execute_single_tool(
         const ToolUseBlock& tool_use,
@@ -1688,9 +2329,9 @@ private:
                 std::format("Tool disabled for this query: {}", tool_use.name));
         }
 
-        // Check permission first
-        bool allowed = check_tool_permission(tool_use.name, tool_use.input_json);
-        if (!allowed) {
+        auto permission = check_tool_permission(tool_use.name, tool_use.input_json, tool_use.id.value);
+        std::string effective_input_json = permission.updated_input_json.value_or(tool_use.input_json);
+        if (!permission.allowed) {
             // Record denial
             {
                 std::lock_guard lock(state_mutex_);
@@ -1702,7 +2343,7 @@ private:
 
             return make_tool_error_result(
                 tool_use,
-                std::format("Permission denied for tool: {}", tool_use.name));
+                permission.message.value_or(std::format("Permission denied for tool: {}", tool_use.name)));
         }
 
         // Emit pre-tool-use hook
@@ -1710,14 +2351,14 @@ private:
         if (lifecycle_hooks_) {
             lifecycle_hooks_->emit_pre_tool_use(cc::hooks::PreToolUseEvent{
                 .tool_name = tool_use.name,
-                .tool_input_json = tool_use.input_json,
+                .tool_input_json = effective_input_json,
                 .tool_use_id = tool_use.id.value,
                 .timestamp = std::chrono::system_clock::now()
             });
         }
 
         // Execute via registry
-        auto input = ToolInput::from_json(tool_use.input_json);
+        auto input = ToolInput::from_json(effective_input_json);
         auto exec_result = tool_registry_->execute(tool_use.name, input);
 
         ToolResultMessage result_msg{};
@@ -1781,16 +2422,26 @@ private:
     }
 
     /// Check if tool execution is allowed by the permission policy
-    [[nodiscard]] bool check_tool_permission(std::string_view tool_name,
-                                               std::string_view input_json) {
+    [[nodiscard]] ToolPermissionCheck check_tool_permission(std::string_view tool_name,
+                                                            std::string_view input_json,
+                                                            std::string_view tool_use_id = {}) {
         if (!permission_hook_) {
             // No hook configured — allow all (auto-approve mode)
-            return true;
+            ToolPermissionCheck check{};
+            check.allowed = true;
+            return check;
         }
 
-        auto decision = permission_hook_->can_use(tool_name, input_json);
-        return decision == cc::hooks::PermissionDecision::allow ||
-               decision == cc::hooks::PermissionDecision::allow_once;
+        permission_hook_->set_current_tool_use_id(tool_use_id);
+        auto response = permission_hook_->can_use_response(tool_name, input_json);
+        permission_hook_->clear_current_tool_use_id();
+        const bool allowed = response.decision == cc::hooks::PermissionDecision::allow ||
+                             response.decision == cc::hooks::PermissionDecision::allow_once;
+        return ToolPermissionCheck{
+            .allowed = allowed,
+            .updated_input_json = std::move(response.updated_input_json),
+            .message = std::move(response.message),
+        };
     }
 
     /// Estimate total tokens currently consumed by conversation
@@ -1840,6 +2491,10 @@ private:
     // Member variables
     // ============================================================
 
+    [[nodiscard]] bool should_abort() const {
+        return aborted_.load() || (external_abort_callback_ && external_abort_callback_());
+    }
+
     QueryEngineConfig config_;
     ToolRegistry* tool_registry_;              // Non-owning reference to tools
     cc::hooks::ToolPermissionHook* permission_hook_ = nullptr;  // Optional permission policy
@@ -1847,6 +2502,7 @@ private:
     std::vector<Message> conversation_;        // Full conversation history
     TokenUsage cumulative_usage_;              // Session-wide token tracking
     std::atomic<bool> aborted_{false};         // Abort signal for in-flight requests
+    std::function<bool()> external_abort_callback_; // Host-provided cancellation predicate
     mutable std::mutex conversation_mutex_;    // Guards conversation history
     mutable std::mutex state_mutex_;           // Guards mutable state
     std::uint32_t token_budget_ = 0;           // Token budget for auto-continuation (0 = disabled)
@@ -1856,6 +2512,8 @@ private:
     std::vector<PermissionDenial> permission_denials_;  // Record of permission denials
     std::unordered_set<std::string> discovered_skills_;  // Skills discovered this session
     std::unordered_set<std::string> loaded_nested_memory_paths_;
+    std::unordered_set<std::string> content_replacement_seen_ids_;
+    std::unordered_map<std::string, std::string> content_replacements_;
     bool has_handled_orphaned_permission_ = false;
     std::chrono::system_clock::time_point session_start_;
     BudgetTracker budget_tracker_;

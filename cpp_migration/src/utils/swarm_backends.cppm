@@ -4,19 +4,26 @@
 module;
 
 #include <atomic>
+#include <array>
 #include <chrono>
+#include <cstdio>
 #include <cstdlib>
 #include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <string_view>
+#include <thread>
+#include <utility>
 #include <variant>
 #include <vector>
 
 export module cc.utils.swarm_backends;
+
+import cc.utils.team_helpers;
 
 export namespace cc::utils::swarm_backends {
 
@@ -92,6 +99,8 @@ struct TeammateSpawnConfig {
     std::string team_name;
     std::optional<AgentColor> color;
     bool plan_mode_required = false;
+    std::optional<std::string> permission_mode;
+    std::optional<std::string> agent_type;
 
     // Execution config
     std::string prompt;                     ///< Initial prompt to send
@@ -528,7 +537,7 @@ public:
 private:
     /// Track active in-process teammates
     mutable std::mutex mutex_;
-    std::map<std::string, bool> active_teammates_;
+    mutable std::map<std::string, bool> active_teammates_;
 };
 
 // ============================================================================
@@ -852,5 +861,586 @@ inline constexpr std::string_view SWARM_VIEW_WINDOW_NAME = "swarm-view";
 
 /// Hidden session name for pane hide/show
 inline constexpr std::string_view HIDDEN_SESSION_NAME = "claude-swarm-hidden";
+
+namespace detail {
+
+[[nodiscard]] inline std::string json_escape(std::string_view value) {
+    std::string out;
+    out.reserve(value.size() + 8);
+    for (char ch : value) {
+        switch (ch) {
+            case '\\': out += R"(\\)"; break;
+            case '"': out += R"(\")"; break;
+            case '\n': out += R"(\n)"; break;
+            case '\r': out += R"(\r)"; break;
+            case '\t': out += R"(\t)"; break;
+            default: out.push_back(ch); break;
+        }
+    }
+    return out;
+}
+
+[[nodiscard]] inline std::string timestamp_now() {
+    const auto now = std::chrono::system_clock::now().time_since_epoch();
+    const auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
+    return std::to_string(millis);
+}
+
+[[nodiscard]] inline bool write_backend_message_to_mailbox(
+    std::string_view agent_id,
+    const TeammateMessage& message
+) {
+    auto parsed = parse_agent_id(agent_id);
+    if (!parsed) return false;
+
+    cc::utils::TeammateMessage mailbox_message{
+        .from = message.from.empty() ? std::string("team-lead") : message.from,
+        .text = message.text,
+        .timestamp = message.timestamp.value_or(std::string{}),
+        .read = false,
+        .color = message.color,
+        .summary = message.summary,
+    };
+    auto delivered = cc::utils::write_to_mailbox(
+        parsed->agent_name,
+        std::move(mailbox_message),
+        std::optional<std::string_view>{parsed->team_name});
+    return delivered.has_value();
+}
+
+[[nodiscard]] inline TeammateMessage shutdown_request_message(
+    std::string_view agent_id,
+    std::optional<std::string_view> reason
+) {
+    const auto timestamp = timestamp_now();
+    std::string text = R"({"type":"shutdown_request","requestId":"shutdown-)";
+    text += json_escape(agent_id);
+    text += '-';
+    text += timestamp;
+    text += R"(","from":"team-lead")";
+    if (reason && !reason->empty()) {
+        text += R"(,"reason":")";
+        text += json_escape(*reason);
+        text += '"';
+    }
+    text += R"(,"timestamp":")";
+    text += timestamp;
+    text += R"("})";
+    return TeammateMessage{
+        .text = std::move(text),
+        .from = "team-lead",
+        .color = std::nullopt,
+        .timestamp = timestamp,
+        .summary = std::nullopt,
+    };
+}
+
+[[nodiscard]] inline std::string shell_quote(std::string_view value) {
+    std::string out = "'";
+    for (char ch : value) {
+        if (ch == '\'') {
+            out += "'\\''";
+        } else {
+            out.push_back(ch);
+        }
+    }
+    out.push_back('\'');
+    return out;
+}
+
+[[nodiscard]] inline int run_shell(std::string_view command) {
+    return std::system(std::string(command).c_str());
+}
+
+[[nodiscard]] inline bool command_available(std::string_view command) {
+    auto probe = "command -v " + std::string(command) + " >/dev/null 2>&1";
+    return run_shell(probe) == 0;
+}
+
+[[nodiscard]] inline std::string read_shell_output(std::string_view command) {
+    FILE* pipe = ::popen(std::string(command).c_str(), "r");
+    if (!pipe) return {};
+    std::array<char, 4096> buffer{};
+    std::string output;
+    while (std::fgets(buffer.data(), static_cast<int>(buffer.size()), pipe)) {
+        output += buffer.data();
+    }
+    (void)::pclose(pipe);
+    while (!output.empty() && (output.back() == '\n' || output.back() == '\r')) output.pop_back();
+    return output;
+}
+
+[[nodiscard]] inline std::string teammate_command() {
+    if (const char* env = std::getenv("CC_REPL_TEAMMATE_COMMAND"); env && *env) return std::string(env);
+    if (const char* env = std::getenv("CLAUDE_CODE_TEAMMATE_COMMAND"); env && *env) return std::string(env);
+    if (const char* env = std::getenv("CC_REPL_BINARY"); env && *env) return std::string(env);
+    return "cc-repl";
+}
+
+[[nodiscard]] inline std::string build_teammate_cli_command(const TeammateSpawnConfig& config) {
+    std::ostringstream command;
+    if (!config.cwd.empty()) command << "cd " << shell_quote(config.cwd) << " && ";
+    command << "env CLAUDECODE=1 CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 ";
+    command << shell_quote(teammate_command());
+    command << " --agent-id " << shell_quote(format_agent_id(config.name, config.team_name));
+    command << " --agent-name " << shell_quote(config.name);
+    command << " --team-name " << shell_quote(config.team_name);
+    if (config.color) command << " --agent-color " << shell_quote(std::string(agent_color_name(*config.color)));
+    if (!config.parent_session_id.empty()) command << " --parent-session-id " << shell_quote(config.parent_session_id);
+    if (config.plan_mode_required) command << " --plan-mode-required";
+    if (config.agent_type && !config.agent_type->empty()) command << " --agent-type " << shell_quote(*config.agent_type);
+    if (!config.plan_mode_required && config.permission_mode) {
+        if (*config.permission_mode == "bypassPermissions") {
+            command << " --dangerously-skip-permissions";
+        } else if (*config.permission_mode == "acceptEdits" || *config.permission_mode == "auto") {
+            command << " --permission-mode " << shell_quote(*config.permission_mode);
+        }
+    }
+    if (config.model && !config.model->empty()) command << " --model " << shell_quote(*config.model);
+    return command.str();
+}
+
+[[nodiscard]] inline std::optional<TeammateMode> forced_mode_from_env() {
+    const char* raw = std::getenv("CC_REPL_TEAMMATE_BACKEND");
+    if (!raw || !*raw) raw = std::getenv("CLAUDE_CODE_TEAMMATE_BACKEND");
+    if (!raw || !*raw) return std::nullopt;
+    std::string value(raw);
+    if (value == "in-process" || value == "inprocess" || value == "native") return TeammateMode::InProcess;
+    if (value == "tmux" || value == "pane") return TeammateMode::Tmux;
+    return std::nullopt;
+}
+
+} // namespace detail
+
+inline bool EnvironmentDetection::is_tmux_available() {
+    return detail::command_available(TMUX_COMMAND);
+}
+
+inline bool EnvironmentDetection::is_it2_cli_available() {
+    return detail::command_available(IT2_COMMAND);
+}
+
+inline bool TmuxBackend::is_available() const {
+    return EnvironmentDetection::is_tmux_available();
+}
+
+inline bool TmuxBackend::is_running_inside() const {
+    return EnvironmentDetection::is_inside_tmux();
+}
+
+inline CreatePaneResult TmuxBackend::create_teammate_pane(std::string_view name, AgentColor color) {
+    std::lock_guard lock(pane_creation_mutex_);
+    auto result = is_running_inside()
+        ? create_pane_with_leader(name, color)
+        : create_pane_external(name, color);
+    if (!result.pane_id.empty()) {
+        set_pane_title(result.pane_id, name, color, !is_running_inside());
+        set_pane_border_color(result.pane_id, color, !is_running_inside());
+    }
+    return result;
+}
+
+inline void TmuxBackend::send_command_to_pane(
+    const PaneId& pane_id,
+    std::string_view command,
+    bool use_external_session
+) {
+    (void)use_external_session;
+    if (pane_id.empty() || command.empty()) return;
+    auto cmd = "tmux send-keys -t " + detail::shell_quote(pane_id) + " " +
+        detail::shell_quote(command) + " Enter >/dev/null 2>&1";
+    (void)detail::run_shell(cmd);
+}
+
+inline void TmuxBackend::set_pane_border_color(
+    const PaneId& pane_id,
+    AgentColor color,
+    bool use_external_session
+) {
+    (void)use_external_session;
+    if (pane_id.empty()) return;
+    auto cmd = "tmux select-pane -t " + detail::shell_quote(pane_id) +
+        " -P '" + std::string(get_tmux_color(color)) + "' >/dev/null 2>&1";
+    (void)detail::run_shell(cmd);
+}
+
+inline void TmuxBackend::set_pane_title(
+    const PaneId& pane_id,
+    std::string_view name,
+    AgentColor color,
+    bool use_external_session
+) {
+    (void)color;
+    (void)use_external_session;
+    if (pane_id.empty()) return;
+    auto cmd = "tmux select-pane -t " + detail::shell_quote(pane_id) +
+        " -T " + detail::shell_quote(name) + " >/dev/null 2>&1";
+    (void)detail::run_shell(cmd);
+}
+
+inline void TmuxBackend::enable_pane_border_status(
+    std::optional<std::string_view> window_target,
+    bool use_external_session
+) {
+    (void)use_external_session;
+    std::string target = window_target ? " -t " + detail::shell_quote(*window_target) : "";
+    (void)detail::run_shell("tmux set-option" + target + " pane-border-status top >/dev/null 2>&1");
+}
+
+inline void TmuxBackend::rebalance_panes(std::string_view window_target, bool has_leader) {
+    if (has_leader) {
+        rebalance_with_leader(window_target);
+    } else {
+        rebalance_tiled(window_target);
+    }
+}
+
+inline bool TmuxBackend::kill_pane(const PaneId& pane_id, bool use_external_session) {
+    (void)use_external_session;
+    if (pane_id.empty()) return false;
+    auto cmd = "tmux kill-pane -t " + detail::shell_quote(pane_id) + " >/dev/null 2>&1";
+    return detail::run_shell(cmd) == 0;
+}
+
+inline bool TmuxBackend::hide_pane(const PaneId& pane_id, bool use_external_session) {
+    (void)use_external_session;
+    if (pane_id.empty()) return false;
+    auto cmd = "tmux break-pane -d -s " + detail::shell_quote(pane_id) +
+        " -t " + detail::shell_quote(HIDDEN_SESSION_NAME) + " >/dev/null 2>&1";
+    return detail::run_shell(cmd) == 0;
+}
+
+inline bool TmuxBackend::show_pane(
+    const PaneId& pane_id,
+    std::string_view target_window_or_pane,
+    bool use_external_session
+) {
+    (void)use_external_session;
+    if (pane_id.empty()) return false;
+    auto cmd = "tmux join-pane -s " + detail::shell_quote(pane_id) +
+        " -t " + detail::shell_quote(target_window_or_pane) + " >/dev/null 2>&1";
+    return detail::run_shell(cmd) == 0;
+}
+
+inline CreatePaneResult TmuxBackend::create_pane_with_leader(std::string_view name, AgentColor color) {
+    (void)name;
+    (void)color;
+    auto pane = detail::read_shell_output("tmux split-window -h -P -F '#{pane_id}' 2>/dev/null");
+    std::this_thread::sleep_for(std::chrono::milliseconds(kPaneShellInitDelayMs));
+    return CreatePaneResult{.pane_id = pane, .is_first_teammate = false};
+}
+
+inline CreatePaneResult TmuxBackend::create_pane_external(std::string_view name, AgentColor color) {
+    (void)name;
+    (void)color;
+    auto ensure = "tmux has-session -t " + std::string(SWARM_SESSION_NAME) +
+        " >/dev/null 2>&1 || tmux new-session -d -s " + std::string(SWARM_SESSION_NAME) +
+        " -n " + std::string(SWARM_VIEW_WINDOW_NAME) + " >/dev/null 2>&1";
+    if (detail::run_shell(ensure) != 0) return {};
+    const bool first = !first_pane_used_external_;
+    first_pane_used_external_ = true;
+    auto pane = first
+        ? detail::read_shell_output("tmux display-message -p -t claude-swarm:swarm-view '#{pane_id}' 2>/dev/null")
+        : detail::read_shell_output("tmux split-window -t claude-swarm:swarm-view -h -P -F '#{pane_id}' 2>/dev/null");
+    std::this_thread::sleep_for(std::chrono::milliseconds(kPaneShellInitDelayMs));
+    return CreatePaneResult{.pane_id = pane, .is_first_teammate = first};
+}
+
+inline void TmuxBackend::rebalance_with_leader(std::string_view window_target) {
+    auto cmd = "tmux select-layout -t " + detail::shell_quote(window_target) + " even-horizontal >/dev/null 2>&1";
+    (void)detail::run_shell(cmd);
+}
+
+inline void TmuxBackend::rebalance_tiled(std::string_view window_target) {
+    auto cmd = "tmux select-layout -t " + detail::shell_quote(window_target) + " tiled >/dev/null 2>&1";
+    (void)detail::run_shell(cmd);
+}
+
+inline std::optional<std::string> TmuxBackend::get_current_pane_id() const {
+    auto pane = detail::read_shell_output("tmux display-message -p '#{pane_id}' 2>/dev/null");
+    return pane.empty() ? std::nullopt : std::optional<std::string>{pane};
+}
+
+inline std::optional<std::string> TmuxBackend::get_current_window_target() const {
+    auto window = detail::read_shell_output("tmux display-message -p '#{session_name}:#{window_index}' 2>/dev/null");
+    return window.empty() ? std::nullopt : std::optional<std::string>{window};
+}
+
+inline std::string_view TmuxBackend::get_tmux_color(AgentColor color) {
+    switch (color) {
+        case AgentColor::Red: return "red";
+        case AgentColor::Blue: return "blue";
+        case AgentColor::Green: return "green";
+        case AgentColor::Yellow: return "yellow";
+        case AgentColor::Purple: return "magenta";
+        case AgentColor::Orange: return "colour208";
+        case AgentColor::Pink: return "colour205";
+        case AgentColor::Cyan: return "cyan";
+    }
+    return "white";
+}
+
+inline bool ITermBackend::is_available() const {
+    return EnvironmentDetection::is_in_iterm2() && EnvironmentDetection::is_it2_cli_available();
+}
+
+inline bool ITermBackend::is_running_inside() const {
+    return EnvironmentDetection::is_in_iterm2();
+}
+
+inline CreatePaneResult ITermBackend::create_teammate_pane(std::string_view name, AgentColor color) {
+    (void)name;
+    (void)color;
+    std::lock_guard lock(pane_creation_mutex_);
+    auto output = detail::read_shell_output("it2 session split right 2>/dev/null");
+    auto pane = parse_split_output(output);
+    if (!pane.empty()) teammate_session_ids_.push_back(pane);
+    const bool is_first = !first_pane_used_;
+    if (!pane.empty()) first_pane_used_ = true;
+    return CreatePaneResult{.pane_id = pane, .is_first_teammate = is_first};
+}
+
+inline void ITermBackend::send_command_to_pane(
+    const PaneId& pane_id,
+    std::string_view command,
+    bool use_external_session
+) {
+    (void)use_external_session;
+    if (pane_id.empty() || command.empty()) return;
+    auto cmd = "it2 session send-text -s " + detail::shell_quote(pane_id) + " " +
+        detail::shell_quote(std::string(command) + "\n") + " >/dev/null 2>&1";
+    (void)detail::run_shell(cmd);
+}
+
+inline void ITermBackend::set_pane_border_color(const PaneId&, AgentColor, bool) {}
+inline void ITermBackend::set_pane_title(const PaneId&, std::string_view, AgentColor, bool) {}
+inline void ITermBackend::enable_pane_border_status(std::optional<std::string_view>, bool) {}
+inline void ITermBackend::rebalance_panes(std::string_view, bool) {}
+
+inline bool ITermBackend::kill_pane(const PaneId& pane_id, bool use_external_session) {
+    (void)use_external_session;
+    if (pane_id.empty()) return false;
+    auto cmd = "it2 session close -s " + detail::shell_quote(pane_id) + " >/dev/null 2>&1";
+    return detail::run_shell(cmd) == 0;
+}
+
+inline bool ITermBackend::hide_pane(const PaneId&, bool) { return false; }
+inline bool ITermBackend::show_pane(const PaneId&, std::string_view, bool) { return false; }
+
+inline std::string ITermBackend::parse_split_output(std::string_view output) {
+    std::string text(output);
+    while (!text.empty() && (text.back() == '\n' || text.back() == '\r')) text.pop_back();
+    return text;
+}
+
+inline std::optional<std::string> ITermBackend::get_leader_session_id() {
+    if (const char* session = std::getenv("ITERM_SESSION_ID"); session && *session) {
+        return std::string(session);
+    }
+    return std::nullopt;
+}
+
+inline TeammateSpawnResult InProcessBackend::spawn(const TeammateSpawnConfig& config) {
+    if (config.name.empty() || config.team_name.empty()) {
+        return TeammateSpawnResult{
+            .success = false,
+            .agent_id = {},
+            .error = "teammate name and team_name are required",
+            .task_id = std::nullopt,
+            .pane_id = std::nullopt,
+        };
+    }
+    auto agent_id = format_agent_id(config.name, config.team_name);
+    {
+        std::lock_guard lock(mutex_);
+        active_teammates_[agent_id] = true;
+    }
+    return TeammateSpawnResult{
+        .success = true,
+        .agent_id = agent_id,
+        .error = std::nullopt,
+        .task_id = "in-process:" + agent_id,
+        .pane_id = std::nullopt,
+    };
+}
+
+inline void InProcessBackend::send_message(std::string_view agent_id, const TeammateMessage& message) {
+    const bool delivered = detail::write_backend_message_to_mailbox(agent_id, message);
+    if (!delivered) return;
+    std::lock_guard lock(mutex_);
+    if (!active_teammates_.contains(std::string(agent_id))) {
+        active_teammates_[std::string(agent_id)] = true;
+    }
+}
+
+inline bool InProcessBackend::terminate(std::string_view agent_id, std::optional<std::string_view> reason) {
+    {
+        std::lock_guard lock(mutex_);
+        auto it = active_teammates_.find(std::string(agent_id));
+        if (it == active_teammates_.end() || !it->second) return false;
+    }
+    return detail::write_backend_message_to_mailbox(
+        agent_id,
+        detail::shutdown_request_message(agent_id, reason));
+}
+
+inline bool InProcessBackend::kill(std::string_view agent_id) {
+    std::lock_guard lock(mutex_);
+    return active_teammates_.erase(std::string(agent_id)) > 0;
+}
+
+inline bool InProcessBackend::is_active(std::string_view agent_id) const {
+    std::lock_guard lock(mutex_);
+    auto it = active_teammates_.find(std::string(agent_id));
+    return it != active_teammates_.end() && it->second;
+}
+
+inline TeammateSpawnResult PaneBackendExecutor::spawn(const TeammateSpawnConfig& config) {
+    if (!backend_ || !backend_->is_available()) {
+        return TeammateSpawnResult{
+            .success = false,
+            .agent_id = {},
+            .error = "pane backend is not available",
+            .task_id = std::nullopt,
+            .pane_id = std::nullopt,
+        };
+    }
+    auto color = config.color.value_or(AgentColor::Cyan);
+    auto pane = backend_->create_teammate_pane(config.name, color);
+    if (pane.pane_id.empty()) {
+        return TeammateSpawnResult{
+            .success = false,
+            .agent_id = {},
+            .error = "failed to create teammate pane",
+            .task_id = std::nullopt,
+            .pane_id = std::nullopt,
+        };
+    }
+    auto agent_id = format_agent_id(config.name, config.team_name);
+    auto inside = backend_->is_running_inside();
+    backend_->send_command_to_pane(pane.pane_id, detail::build_teammate_cli_command(config), !inside);
+    {
+        std::lock_guard lock(spawned_mutex_);
+        spawned_teammates_[agent_id] = TeammateInfo{.pane_id = pane.pane_id, .inside_tmux = inside};
+    }
+    return TeammateSpawnResult{
+        .success = true,
+        .agent_id = agent_id,
+        .error = std::nullopt,
+        .task_id = std::nullopt,
+        .pane_id = pane.pane_id,
+    };
+}
+
+inline void PaneBackendExecutor::send_message(std::string_view agent_id, const TeammateMessage& message) {
+    (void)detail::write_backend_message_to_mailbox(agent_id, message);
+}
+
+inline bool PaneBackendExecutor::terminate(std::string_view agent_id, std::optional<std::string_view> reason) {
+    return detail::write_backend_message_to_mailbox(
+        agent_id,
+        detail::shutdown_request_message(agent_id, reason));
+}
+
+inline bool PaneBackendExecutor::kill(std::string_view agent_id) {
+    std::lock_guard lock(spawned_mutex_);
+    auto it = spawned_teammates_.find(std::string(agent_id));
+    if (it == spawned_teammates_.end()) return false;
+    auto pane_id = it->second.pane_id;
+    auto inside = it->second.inside_tmux;
+    spawned_teammates_.erase(it);
+    return backend_->kill_pane(pane_id, !inside);
+}
+
+inline bool PaneBackendExecutor::is_active(std::string_view agent_id) const {
+    std::lock_guard lock(spawned_mutex_);
+    return spawned_teammates_.contains(std::string(agent_id));
+}
+
+inline BackendDetectionResult BackendRegistry::detect_and_get_backend() {
+    std::lock_guard lock(mutex_);
+    if (cached_detection_result_) return *cached_detection_result_;
+
+    if (EnvironmentDetection::is_inside_tmux() && EnvironmentDetection::is_tmux_available()) {
+        cached_backend_ = std::make_shared<TmuxBackend>();
+        cached_detection_result_ = BackendDetectionResult{
+            .backend_type = BackendType::Tmux,
+            .is_native = true,
+        };
+        return *cached_detection_result_;
+    }
+    if (EnvironmentDetection::is_in_iterm2()) {
+        if (EnvironmentDetection::is_it2_cli_available()) {
+            cached_backend_ = std::make_shared<ITermBackend>();
+            cached_detection_result_ = BackendDetectionResult{
+                .backend_type = BackendType::ITerm2,
+                .is_native = true,
+            };
+            return *cached_detection_result_;
+        }
+        cached_detection_result_ = BackendDetectionResult{
+            .backend_type = BackendType::ITerm2,
+            .is_native = true,
+            .needs_it2_setup = true,
+        };
+        return *cached_detection_result_;
+    }
+    if (EnvironmentDetection::is_tmux_available()) {
+        cached_backend_ = std::make_shared<TmuxBackend>();
+        cached_detection_result_ = BackendDetectionResult{
+            .backend_type = BackendType::Tmux,
+            .is_native = false,
+        };
+        return *cached_detection_result_;
+    }
+    cached_detection_result_ = BackendDetectionResult{.backend_type = BackendType::InProcess};
+    return *cached_detection_result_;
+}
+
+inline std::shared_ptr<PaneBackend> BackendRegistry::get_backend_by_type(PaneBackendType type) {
+    switch (type) {
+        case PaneBackendType::Tmux: return std::make_shared<TmuxBackend>();
+        case PaneBackendType::ITerm2: return std::make_shared<ITermBackend>();
+    }
+    return std::make_shared<TmuxBackend>();
+}
+
+inline bool BackendRegistry::is_in_process_enabled() {
+    if (auto forced = detail::forced_mode_from_env()) {
+        return *forced == TeammateMode::InProcess;
+    }
+    auto mode = TeammateModeSnapshot::get();
+    if (mode == TeammateMode::InProcess) return true;
+    if (mode == TeammateMode::Tmux) return false;
+    if (in_process_fallback_active_) return true;
+    if (EnvironmentDetection::is_inside_tmux() || EnvironmentDetection::is_in_iterm2()) return false;
+    return !EnvironmentDetection::is_tmux_available();
+}
+
+inline std::shared_ptr<TeammateExecutor> BackendRegistry::get_in_process_backend() {
+    std::lock_guard lock(mutex_);
+    if (!cached_in_process_backend_) {
+        cached_in_process_backend_ = std::make_shared<InProcessBackend>();
+    }
+    return cached_in_process_backend_;
+}
+
+inline std::shared_ptr<TeammateExecutor> BackendRegistry::get_teammate_executor(bool prefer_in_process) {
+    if (prefer_in_process || is_in_process_enabled()) return get_in_process_backend();
+    auto detection = detect_and_get_backend();
+    if (detection.backend_type == BackendType::InProcess || detection.needs_it2_setup || !cached_backend_) {
+        mark_in_process_fallback();
+        return get_in_process_backend();
+    }
+    std::lock_guard lock(mutex_);
+    if (!cached_pane_executor_) {
+        cached_pane_executor_ = std::make_shared<PaneBackendExecutor>(cached_backend_);
+    }
+    return cached_pane_executor_;
+}
+
+inline std::string BackendRegistry::get_tmux_install_instructions() {
+    return "Install tmux or set CC_REPL_TEAMMATE_BACKEND=in-process to use in-process teammates.";
+}
 
 } // namespace cc::utils::swarm_backends

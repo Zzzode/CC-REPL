@@ -3,15 +3,20 @@
 
 
 #include <gtest/gtest.h>
+#include <atomic>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <map>
+#include <mutex>
 #include <optional>
 #include <set>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+#include <httplib.h>
 
 import cc.utils.string;
 import cc.utils.string_utils;
@@ -28,6 +33,7 @@ import cc.utils.settings_paths;
 import cc.utils.settings_merge;
 import cc.utils.plugin_marketplace_rules;
 import cc.utils.plugin_versioning;
+import cc.utils.plugin_loader;
 import cc.utils.argument_substitution;
 import cc.utils.semantic_boolean;
 import cc.utils.semantic_number;
@@ -61,6 +67,8 @@ import cc.utils.sanitization;
 import cc.utils.diff_utils;
 import cc.utils.shell_providers;
 import cc.utils.git_diff;
+import cc.utils.proxy_utils;
+import cc.utils.github_utils;
 import cc.plugins.marketplace;
 import core.memdir;
 import core.screens;
@@ -92,6 +100,170 @@ public:
 private:
     std::string name_;
     std::optional<std::string> previous_;
+};
+
+class CurrentPathGuard {
+public:
+    explicit CurrentPathGuard(const std::filesystem::path& next) : previous_(std::filesystem::current_path()) {
+        std::filesystem::current_path(next);
+    }
+
+    ~CurrentPathGuard() {
+        std::error_code ec;
+        std::filesystem::current_path(previous_, ec);
+    }
+
+private:
+    std::filesystem::path previous_;
+};
+
+std::string shell_quote_for_test(const std::filesystem::path& path) {
+    const auto value = path.string();
+    if (value.empty()) return "''";
+    std::string out = "'";
+    for (const char ch : value) {
+        if (ch == '\'') {
+            out += "'\\''";
+        } else {
+            out.push_back(ch);
+        }
+    }
+    out.push_back('\'');
+    return out;
+}
+
+bool command_available_for_test(std::string_view command) {
+    const auto check = "command -v " + std::string(command) + " >/dev/null 2>&1";
+    return std::system(check.c_str()) == 0;
+}
+
+void run_shell_ok_for_test(const std::string& command) {
+    ASSERT_EQ(std::system(command.c_str()), 0) << command;
+}
+
+class LocalGitHubApiServer {
+public:
+    std::atomic<int> user_requests{0};
+    std::atomic<int> issue_comment_requests{0};
+    std::atomic<int> review_comment_requests{0};
+    std::atomic<int> user_status{200};
+    std::atomic<bool> paginate_comments{false};
+
+    LocalGitHubApiServer() {
+        server_.Get("/user", [&](const httplib::Request& req, httplib::Response& res) {
+            ++user_requests;
+            capture_headers(req);
+            if (user_status.load() != 200) {
+                res.status = user_status.load();
+                res.set_content(R"({"message":"auth failed"})", "application/json");
+                return;
+            }
+            res.set_content(R"({
+              "login": "octocat",
+              "name": "The Octocat",
+              "email": "octocat@example.test",
+              "avatar_url": "https://avatars.example.test/octocat.png"
+            })", "application/json");
+        });
+        server_.Get(R"(/repos/([^/]+)/([^/]+)/issues/([0-9]+)/comments)", [&](const httplib::Request& req, httplib::Response& res) {
+            ++issue_comment_requests;
+            capture_headers(req);
+            if (paginate_comments.load()) {
+                const auto page = req.has_param("page") ? req.get_param_value("page") : "1";
+                if (page == "2") {
+                    res.set_content(R"([
+                      {
+                        "id": 102,
+                        "body": "issue conversation comment page two",
+                        "user": {"login": "reviewer-page-two"}
+                      }
+                    ])", "application/json");
+                    return;
+                }
+                res.set_header("Link", "<" + base_url() + req.path + "?page=2>; rel=\"next\"");
+            }
+            res.set_content(R"([
+              {
+                "id": 101,
+                "body": "issue conversation comment",
+                "user": {"login": "reviewer-a"}
+              }
+            ])", "application/json");
+        });
+        server_.Get(R"(/repos/([^/]+)/([^/]+)/pulls/([0-9]+)/comments)", [&](const httplib::Request& req, httplib::Response& res) {
+            ++review_comment_requests;
+            capture_headers(req);
+            if (paginate_comments.load()) {
+                const auto page = req.has_param("page") ? req.get_param_value("page") : "1";
+                if (page == "2") {
+                    res.set_content(R"([
+                      {
+                        "id": 203,
+                        "body": "inline review comment page two",
+                        "path": "src/next.cpp",
+                        "line": 7,
+                        "user": {"login": "reviewer-page-two"}
+                      }
+                    ])", "application/json");
+                    return;
+                }
+                res.set_header("Link", "<" + base_url() + req.path + "?page=2>; rel=\"next\"");
+            }
+            res.set_content(R"([
+              {
+                "id": 202,
+                "body": "inline review comment",
+                "path": "src/main.cpp",
+                "line": 42,
+                "user": {"login": "reviewer-b"}
+              }
+            ])", "application/json");
+        });
+
+        port_ = server_.bind_to_any_port("127.0.0.1");
+        if (port_ > 0) {
+            worker_ = std::jthread([this](std::stop_token) {
+                server_.listen_after_bind();
+            });
+        }
+    }
+
+    ~LocalGitHubApiServer() {
+        server_.stop();
+        if (worker_.joinable()) worker_.join();
+    }
+
+    [[nodiscard]] bool ready() const {
+        return port_ > 0;
+    }
+
+    [[nodiscard]] std::string base_url() const {
+        return "http://127.0.0.1:" + std::to_string(port_);
+    }
+
+    [[nodiscard]] std::string authorization() const {
+        std::lock_guard lock(mutex_);
+        return last_authorization_;
+    }
+
+    [[nodiscard]] std::string accept() const {
+        std::lock_guard lock(mutex_);
+        return last_accept_;
+    }
+
+private:
+    void capture_headers(const httplib::Request& req) {
+        std::lock_guard lock(mutex_);
+        last_authorization_ = req.get_header_value("Authorization");
+        last_accept_ = req.get_header_value("Accept");
+    }
+
+    httplib::Server server_;
+    int port_{0};
+    std::jthread worker_;
+    mutable std::mutex mutex_;
+    std::string last_authorization_;
+    std::string last_accept_;
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -396,6 +568,236 @@ TEST(ScriptToolEnabled, MirrorsScriptAndBashToolEnvironmentChecks) {
     EXPECT_FALSE(cc::utils::script_tool::is_bash_tool_disabled({{"DISABLE_BASH_TOOL", "false"}}));
 }
 
+TEST(ProxyUtils, MirrorsTypeScriptEnvironmentPriorityAndNoProxyRules) {
+    ScopedEnvVar https_upper("HTTPS_PROXY");
+    ScopedEnvVar https_lower("https_proxy");
+    ScopedEnvVar http_upper("HTTP_PROXY");
+    ScopedEnvVar http_lower("http_proxy");
+    ScopedEnvVar all_upper("ALL_PROXY");
+    ScopedEnvVar all_lower("all_proxy");
+    ScopedEnvVar no_proxy_upper("NO_PROXY");
+    ScopedEnvVar no_proxy_lower("no_proxy");
+
+    https_upper.unset();
+    https_lower.unset();
+    http_upper.unset();
+    http_lower.unset();
+    all_upper.unset();
+    all_lower.unset();
+    no_proxy_upper.unset();
+    no_proxy_lower.unset();
+
+    https_upper.set("http://upper-proxy:8080");
+    https_lower.set("http://lower-proxy:8080");
+    http_lower.set("http://http-lower-proxy:8081");
+    no_proxy_upper.set("*");
+    no_proxy_lower.set("localhost, .example.com api.local:8443 127.0.0.1");
+
+    auto resolved = cc::utils::resolve_proxy();
+    ASSERT_TRUE(resolved.has_value());
+    EXPECT_EQ(resolved->url, "http://lower-proxy:8080");
+    ASSERT_EQ(resolved->no_proxy.size(), 4u);
+
+    EXPECT_FALSE(cc::utils::should_use_proxy("http://localhost:3000"));
+    EXPECT_FALSE(cc::utils::should_use_proxy("https://127.0.0.1/status"));
+    EXPECT_FALSE(cc::utils::should_use_proxy("https://example.com/path"));
+    EXPECT_FALSE(cc::utils::should_use_proxy("https://sub.example.com/path"));
+    EXPECT_TRUE(cc::utils::should_use_proxy("https://notexample.com/path"));
+    EXPECT_FALSE(cc::utils::should_use_proxy("https://api.local:8443/path"));
+    EXPECT_TRUE(cc::utils::should_use_proxy("https://api.local:443/path"));
+
+    auto proxy = cc::utils::get_proxy_for_url("http://service.test/path");
+    ASSERT_TRUE(proxy.has_value());
+    EXPECT_EQ(*proxy, "http://lower-proxy:8080");
+
+    no_proxy_lower.set("*");
+    EXPECT_FALSE(cc::utils::should_use_proxy("https://service.test/path"));
+    EXPECT_FALSE(cc::utils::get_proxy_for_url("https://service.test/path").has_value());
+}
+
+TEST(GitHubUtils, ParsesCommonGitHubRemoteUrlForms) {
+    EXPECT_EQ(
+        cc::utils::github_detail::parse_repo_full_name("git@github.com:openai/codex.git"),
+        std::optional<std::string>{"openai/codex"}
+    );
+    EXPECT_EQ(
+        cc::utils::github_detail::parse_repo_full_name("https://github.com/openai/codex.git\n"),
+        std::optional<std::string>{"openai/codex"}
+    );
+    EXPECT_EQ(
+        cc::utils::github_detail::parse_repo_full_name("ssh://git@github.com/openai/codex"),
+        std::optional<std::string>{"openai/codex"}
+    );
+    EXPECT_FALSE(cc::utils::github_detail::parse_repo_full_name("https://gitlab.com/openai/codex.git").has_value());
+}
+
+TEST(GitHubUtils, FetchesAuthenticatedUserFromGitHubApi) {
+    LocalGitHubApiServer server;
+    ASSERT_TRUE(server.ready());
+
+    ScopedEnvVar gh_token("GH_TOKEN");
+    ScopedEnvVar github_token("GITHUB_TOKEN");
+    ScopedEnvVar github_user("GITHUB_USER");
+    ScopedEnvVar github_api_base("CC_REPL_GITHUB_API_BASE_URL");
+    gh_token.unset();
+    github_token.unset();
+    github_user.unset();
+    github_api_base.set(server.base_url().c_str());
+
+    cc::utils::GitHubUtils missing;
+    EXPECT_EQ(missing.check_auth(), cc::utils::GitHubAuthStatus::not_configured);
+    EXPECT_FALSE(missing.is_authenticated());
+    EXPECT_FALSE(missing.get_current_user().has_value());
+
+    github_token.set("github-token-for-test");
+    cc::utils::GitHubUtils configured;
+    EXPECT_EQ(configured.check_auth(), cc::utils::GitHubAuthStatus::authenticated);
+    EXPECT_TRUE(configured.is_authenticated());
+    auto current = configured.get_current_user();
+    ASSERT_TRUE(current.has_value());
+    EXPECT_EQ(current->login, "octocat");
+    EXPECT_EQ(current->name, "The Octocat");
+    EXPECT_EQ(current->email, "octocat@example.test");
+    EXPECT_EQ(current->avatar_url, "https://avatars.example.test/octocat.png");
+    EXPECT_EQ(server.authorization(), "Bearer github-token-for-test");
+    EXPECT_EQ(server.accept(), "application/vnd.github+json");
+
+    gh_token.set("gh-token-for-test");
+    cc::utils::GitHubUtils gh_configured;
+    EXPECT_EQ(gh_configured.check_auth(), cc::utils::GitHubAuthStatus::authenticated);
+    EXPECT_TRUE(gh_configured.is_authenticated());
+    auto gh_current = gh_configured.get_current_user();
+    ASSERT_TRUE(gh_current.has_value());
+    EXPECT_EQ(server.authorization(), "Bearer gh-token-for-test");
+}
+
+TEST(GitHubUtils, MapsApiAuthFailuresToAuthStatus) {
+    LocalGitHubApiServer server;
+    ASSERT_TRUE(server.ready());
+
+    ScopedEnvVar gh_token("GH_TOKEN");
+    ScopedEnvVar github_token("GITHUB_TOKEN");
+    ScopedEnvVar github_api_base("CC_REPL_GITHUB_API_BASE_URL");
+    gh_token.set("gh-token-for-auth-failure");
+    github_token.unset();
+    github_api_base.set(server.base_url().c_str());
+
+    server.user_status.store(401);
+    cc::utils::GitHubUtils expired;
+    EXPECT_FALSE(expired.get_current_user().has_value());
+    EXPECT_EQ(expired.auth_status(), cc::utils::GitHubAuthStatus::token_expired);
+    EXPECT_FALSE(expired.is_authenticated());
+
+    server.user_status.store(403);
+    cc::utils::GitHubUtils forbidden;
+    EXPECT_FALSE(forbidden.get_current_user().has_value());
+    EXPECT_EQ(forbidden.auth_status(), cc::utils::GitHubAuthStatus::rate_limited);
+    EXPECT_FALSE(forbidden.is_authenticated());
+
+    server.user_status.store(429);
+    cc::utils::GitHubUtils rate_limited;
+    EXPECT_FALSE(rate_limited.get_current_user().has_value());
+    EXPECT_EQ(rate_limited.auth_status(), cc::utils::GitHubAuthStatus::rate_limited);
+    EXPECT_FALSE(rate_limited.is_authenticated());
+}
+
+TEST(GitHubUtils, DetectRepoReadsLocalGitHubRemoteAndDefaultBranch) {
+    auto root = std::filesystem::temp_directory_path() / "cc_repl_github_detect_repo_test";
+    std::filesystem::remove_all(root);
+    std::filesystem::create_directories(root);
+
+    {
+        CurrentPathGuard cwd(root);
+        ASSERT_EQ(std::system("git init -q"), 0);
+        ASSERT_EQ(std::system("git remote add origin git@github.com:openai/codex.git"), 0);
+        ASSERT_EQ(std::system("git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/trunk"), 0);
+
+        auto repo = cc::utils::GitHubUtils::detect_repo();
+        ASSERT_TRUE(repo.has_value());
+        EXPECT_EQ(repo->full_name, "openai/codex");
+        EXPECT_EQ(repo->default_branch, "trunk");
+    }
+
+    std::filesystem::remove_all(root);
+}
+
+TEST(GitHubUtils, FetchesIssueAndReviewCommentsForDetectedRepo) {
+    LocalGitHubApiServer server;
+    ASSERT_TRUE(server.ready());
+
+    ScopedEnvVar gh_token("GH_TOKEN");
+    ScopedEnvVar github_token("GITHUB_TOKEN");
+    ScopedEnvVar github_api_base("CC_REPL_GITHUB_API_BASE_URL");
+    gh_token.set("gh-token-for-comments");
+    github_token.unset();
+    github_api_base.set(server.base_url().c_str());
+
+    auto root = std::filesystem::temp_directory_path() / "cc_repl_github_pr_comments_test";
+    std::filesystem::remove_all(root);
+    std::filesystem::create_directories(root);
+
+    {
+        CurrentPathGuard cwd(root);
+        ASSERT_EQ(std::system("git init -q"), 0);
+        ASSERT_EQ(std::system("git remote add origin https://github.com/openai/codex.git"), 0);
+
+        cc::utils::GitHubUtils github;
+        ASSERT_EQ(github.check_auth(), cc::utils::GitHubAuthStatus::authenticated);
+        auto comments = github.get_pr_comments(123);
+        ASSERT_EQ(comments.size(), 2u);
+        EXPECT_EQ(comments[0].id, 101);
+        EXPECT_EQ(comments[0].author, "reviewer-a");
+        EXPECT_EQ(comments[0].body, "issue conversation comment");
+        EXPECT_EQ(comments[1].id, 202);
+        EXPECT_EQ(comments[1].author, "reviewer-b");
+        EXPECT_EQ(comments[1].body, "inline review comment");
+        EXPECT_EQ(comments[1].path, "src/main.cpp");
+        EXPECT_EQ(comments[1].line, 42);
+    }
+
+    EXPECT_EQ(server.issue_comment_requests.load(), 1);
+    EXPECT_EQ(server.review_comment_requests.load(), 1);
+    EXPECT_EQ(server.authorization(), "Bearer gh-token-for-comments");
+    std::filesystem::remove_all(root);
+}
+
+TEST(GitHubUtils, PaginatesIssueAndReviewCommentsForDetectedRepo) {
+    LocalGitHubApiServer server;
+    ASSERT_TRUE(server.ready());
+    server.paginate_comments.store(true);
+
+    ScopedEnvVar gh_token("GH_TOKEN");
+    ScopedEnvVar github_token("GITHUB_TOKEN");
+    ScopedEnvVar github_api_base("CC_REPL_GITHUB_API_BASE_URL");
+    gh_token.set("gh-token-for-paginated-comments");
+    github_token.unset();
+    github_api_base.set(server.base_url().c_str());
+
+    auto root = std::filesystem::temp_directory_path() / "cc_repl_github_pr_comments_pagination_test";
+    std::filesystem::remove_all(root);
+    std::filesystem::create_directories(root);
+
+    {
+        CurrentPathGuard cwd(root);
+        ASSERT_EQ(std::system("git init -q"), 0);
+        ASSERT_EQ(std::system("git remote add origin https://github.com/openai/codex.git"), 0);
+
+        cc::utils::GitHubUtils github;
+        auto comments = github.get_pr_comments(456);
+        ASSERT_EQ(comments.size(), 4u);
+        EXPECT_EQ(comments[0].id, 101);
+        EXPECT_EQ(comments[1].id, 102);
+        EXPECT_EQ(comments[2].id, 202);
+        EXPECT_EQ(comments[3].id, 203);
+        EXPECT_EQ(comments[3].path, "src/next.cpp");
+        EXPECT_EQ(comments[3].line, 7);
+    }
+
+    EXPECT_EQ(server.issue_comment_requests.load(), 2);
+    EXPECT_EQ(server.review_comment_requests.load(), 2);
+    std::filesystem::remove_all(root);
+}
+
 TEST(PromptCategory, BuildsAgentAndReplQuerySources) {
     EXPECT_EQ(cc::utils::prompt_category::get_query_source_for_agent("reviewer", true), "agent:builtin:reviewer");
     EXPECT_EQ(cc::utils::prompt_category::get_query_source_for_agent(std::nullopt, true), "agent:default");
@@ -490,6 +892,13 @@ TEST(JsonUtils, ParseValidJson) {
     ASSERT_TRUE(doc.has_value());
     EXPECT_EQ(doc->get_string("name"), "test");
     EXPECT_EQ(doc->get_int("value"), 42);
+}
+
+TEST(JsonUtils, AsDoubleReadsIntegerAndRealNumbers) {
+    auto doc = cc::utils::json::parse(R"({"whole":1,"fractional":0.5})");
+    ASSERT_TRUE(doc.has_value());
+    EXPECT_DOUBLE_EQ(doc->root().get("whole").as_double(), 1.0);
+    EXPECT_DOUBLE_EQ(doc->root().get("fractional").as_double(), 0.5);
 }
 
 TEST(JsonUtils, ParseInvalidJsonReturnsError) {
@@ -795,6 +1204,302 @@ TEST(PluginIdentifier, ParsesBuildsAndMapsScopes) {
     EXPECT_EQ(source.value(), cc::utils::settings_sources::SettingSource::ProjectSettings);
     EXPECT_FALSE(cc::utils::plugin_identifier::scope_to_setting_source(cc::utils::plugin_identifier::PluginScope::Managed).has_value());
     EXPECT_EQ(cc::utils::plugin_identifier::setting_source_to_scope(cc::utils::settings_sources::SettingSource::LocalSettings), cc::utils::plugin_identifier::PluginScope::Local);
+}
+
+TEST(PluginLoader, CreatePluginFromPathLoadsManifestAndComponentPaths) {
+    namespace fs = std::filesystem;
+    auto root = fs::temp_directory_path() / "cc_repl_plugin_loader_manifest_test";
+    fs::remove_all(root);
+    fs::create_directories(root / ".claude-plugin");
+    fs::create_directories(root / "manifest");
+    fs::create_directories(root / "agents");
+    fs::create_directories(root / "output-styles");
+
+    {
+        std::ofstream manifest(root / ".claude-plugin" / "plugin.json");
+        manifest << R"JSON({
+  "name": "fixture-plugin",
+  "version": "1.2.3",
+  "description": "Fixture plugin",
+  "author": {"name": "Ada", "email": "ada@example.test"},
+  "commands": ["manifest/command.md"],
+  "agents": ["agents/reviewer.md"],
+  "outputStyles": ["output-styles/concise.md"]
+})JSON";
+    }
+    {
+        std::ofstream command(root / "manifest" / "command.md");
+        command << "Run the fixture command\n";
+    }
+    {
+        std::ofstream agent(root / "agents" / "reviewer.md");
+        agent << "Review the fixture\n";
+    }
+    {
+        std::ofstream style(root / "output-styles" / "concise.md");
+        style << "Be concise\n";
+    }
+
+    auto loaded = cc::utils::plugin_loader::create_plugin_from_path(
+        root,
+        "fixture-plugin@inline",
+        true,
+        "fallback-plugin"
+    );
+
+    ASSERT_TRUE(loaded.has_value()) << loaded.error();
+    const auto& plugin = loaded->first;
+    EXPECT_EQ(plugin.name, "fixture-plugin");
+    EXPECT_EQ(plugin.manifest.version, std::optional<std::string>{"1.2.3"});
+    ASSERT_TRUE(plugin.manifest.author.has_value());
+    EXPECT_EQ(plugin.manifest.author->name, "Ada");
+    EXPECT_TRUE(plugin.enabled);
+    ASSERT_TRUE(plugin.commands_paths.has_value());
+    ASSERT_EQ(plugin.commands_paths->size(), 1u);
+    EXPECT_EQ(plugin.commands_paths->front(), root / "manifest" / "command.md");
+    ASSERT_TRUE(plugin.agents_paths.has_value());
+    EXPECT_EQ(plugin.agents_paths->front(), root / "agents" / "reviewer.md");
+    ASSERT_TRUE(plugin.output_styles_paths.has_value());
+    EXPECT_EQ(plugin.output_styles_paths->front(), root / "output-styles" / "concise.md");
+    EXPECT_TRUE(loaded->second.empty());
+
+    fs::remove_all(root);
+}
+
+TEST(PluginLoader, CacheOnlyLoadsMarkdownCommandsAgentsAndOutputStyles) {
+    namespace fs = std::filesystem;
+    auto root = fs::temp_directory_path() / "cc_repl_plugin_loader_cache_test";
+    auto plugin_root = root / "cache-plugin";
+    fs::remove_all(root);
+    fs::create_directories(plugin_root / ".claude-plugin");
+    fs::create_directories(plugin_root / "commands");
+    fs::create_directories(plugin_root / "agents");
+    fs::create_directories(plugin_root / "output-styles");
+    ScopedEnvVar plugin_cache("CLAUDE_CODE_PLUGIN_CACHE_DIR");
+    plugin_cache.set(root.string().c_str());
+
+    {
+        std::ofstream manifest(plugin_root / ".claude-plugin" / "plugin.json");
+        manifest << R"JSON({
+  "name": "cache-plugin",
+  "version": "0.1.0",
+  "description": "Cache plugin"
+})JSON";
+    }
+    {
+        std::ofstream command(plugin_root / "commands" / "build.md");
+        command << "---\ndescription: Build fixture\n---\nBuild the fixture\n";
+    }
+    {
+        std::ofstream agent(plugin_root / "agents" / "reviewer.md");
+        agent << "---\ndescription: Review fixture\n---\nReview the fixture\n";
+    }
+    {
+        std::ofstream style(plugin_root / "output-styles" / "concise.md");
+        style << "---\ndescription: Concise style\n---\nAnswer briefly\n";
+    }
+
+    auto loaded = cc::utils::plugin_loader::load_all_plugins_cache_only();
+    ASSERT_EQ(loaded.plugins.size(), 1u);
+    EXPECT_TRUE(loaded.errors.empty());
+    EXPECT_EQ(loaded.plugins.front().name, "cache-plugin");
+    ASSERT_TRUE(loaded.plugins.front().commands_path.has_value());
+    EXPECT_EQ(*loaded.plugins.front().commands_path, plugin_root / "commands");
+    ASSERT_TRUE(loaded.plugins.front().agents_path.has_value());
+    ASSERT_TRUE(loaded.plugins.front().output_styles_path.has_value());
+
+    auto markdown = cc::utils::plugin_loader::walk_plugin_markdown(plugin_root / "commands");
+    ASSERT_EQ(markdown.size(), 1u);
+    EXPECT_EQ(markdown.front().name, "build");
+    EXPECT_EQ(markdown.front().frontmatter.at("description"), "Build fixture");
+    EXPECT_EQ(markdown.front().content, "Build the fixture\n");
+
+    auto commands = cc::utils::plugin_loader::load_plugin_commands();
+    ASSERT_EQ(commands.size(), 1u);
+    EXPECT_EQ(commands.front().name, "cache-plugin:build");
+    EXPECT_EQ(commands.front().content, "Build the fixture\n");
+
+    auto agents = cc::utils::plugin_loader::load_plugin_agents();
+    ASSERT_EQ(agents.size(), 1u);
+    EXPECT_EQ(agents.front().name, "cache-plugin:reviewer");
+    EXPECT_EQ(agents.front().content, "Review the fixture\n");
+
+    auto styles = cc::utils::plugin_loader::load_plugin_output_styles();
+    ASSERT_EQ(styles.size(), 1u);
+    EXPECT_EQ(styles.front().name, "cache-plugin:concise");
+    EXPECT_EQ(styles.front().content, "Answer briefly\n");
+
+    fs::remove_all(root);
+}
+
+TEST(PluginLoader, CachePluginClonesGitUrlAndLoadsManifest) {
+    namespace fs = std::filesystem;
+    if (!command_available_for_test("git")) GTEST_SKIP() << "git is not available";
+
+    auto root = fs::temp_directory_path() / "cc_repl_plugin_loader_git_cache_test";
+    auto repo = root / "repo";
+    auto cache_root = root / "plugins";
+    fs::remove_all(root);
+    fs::create_directories(repo / ".claude-plugin");
+    fs::create_directories(repo / "commands");
+    ScopedEnvVar plugin_cache("CLAUDE_CODE_PLUGIN_CACHE_DIR");
+    plugin_cache.set(cache_root.string().c_str());
+
+    {
+        std::ofstream manifest(repo / ".claude-plugin" / "plugin.json");
+        manifest << R"JSON({"name":"git-cache-plugin","version":"1.0.0","commands":["commands/run.md"]})JSON";
+    }
+    {
+        std::ofstream command(repo / "commands" / "run.md");
+        command << "Run from git\n";
+    }
+
+    run_shell_ok_for_test("git init --initial-branch main " + shell_quote_for_test(repo) + " >/dev/null");
+    run_shell_ok_for_test("git -C " + shell_quote_for_test(repo) + " config user.email test@example.invalid");
+    run_shell_ok_for_test("git -C " + shell_quote_for_test(repo) + " config user.name Test");
+    run_shell_ok_for_test("git -C " + shell_quote_for_test(repo) + " add .");
+    run_shell_ok_for_test("git -C " + shell_quote_for_test(repo) + " commit -m init >/dev/null");
+
+    cc::utils::plugin_loader::PluginSource source =
+        cc::utils::plugin_loader::GitUrlSource{.url = "file://" + repo.string()};
+    auto cached = cc::utils::plugin_loader::cache_plugin(source);
+
+    ASSERT_TRUE(cached.has_value()) << cached.error();
+    EXPECT_EQ(cached->manifest.name, "git-cache-plugin");
+    ASSERT_TRUE(cached->git_commit_sha.has_value());
+    EXPECT_TRUE(fs::exists(cached->path / ".claude-plugin" / "plugin.json"));
+    EXPECT_TRUE(fs::exists(cached->path / "commands" / "run.md"));
+
+    auto loaded = cc::utils::plugin_loader::create_plugin_from_path(cached->path, "git-cache-plugin@test", true, "fallback");
+    ASSERT_TRUE(loaded.has_value()) << loaded.error();
+    EXPECT_EQ(loaded->first.name, "git-cache-plugin");
+    ASSERT_TRUE(loaded->first.commands_paths.has_value());
+    EXPECT_EQ(loaded->first.commands_paths->front(), cached->path / "commands" / "run.md");
+
+    fs::remove_all(root);
+}
+
+TEST(PluginLoader, CachePluginExtractsGitSubdirAndRecordsSha) {
+    namespace fs = std::filesystem;
+    if (!command_available_for_test("git")) GTEST_SKIP() << "git is not available";
+
+    auto root = fs::temp_directory_path() / "cc_repl_plugin_loader_git_subdir_test";
+    auto repo = root / "repo";
+    auto plugin_dir = repo / "packages" / "plugin";
+    auto cache_root = root / "plugins";
+    fs::remove_all(root);
+    fs::create_directories(plugin_dir / ".claude-plugin");
+    fs::create_directories(plugin_dir / "commands");
+    ScopedEnvVar plugin_cache("CLAUDE_CODE_PLUGIN_CACHE_DIR");
+    plugin_cache.set(cache_root.string().c_str());
+
+    {
+        std::ofstream manifest(plugin_dir / ".claude-plugin" / "plugin.json");
+        manifest << R"JSON({"name":"subdir-cache-plugin","version":"2.0.0","commands":["commands/sub.md"]})JSON";
+    }
+    {
+        std::ofstream command(plugin_dir / "commands" / "sub.md");
+        command << "Run from subdir\n";
+    }
+
+    run_shell_ok_for_test("git init --initial-branch main " + shell_quote_for_test(repo) + " >/dev/null");
+    run_shell_ok_for_test("git -C " + shell_quote_for_test(repo) + " config user.email test@example.invalid");
+    run_shell_ok_for_test("git -C " + shell_quote_for_test(repo) + " config user.name Test");
+    run_shell_ok_for_test("git -C " + shell_quote_for_test(repo) + " add .");
+    run_shell_ok_for_test("git -C " + shell_quote_for_test(repo) + " commit -m init >/dev/null");
+
+    cc::utils::plugin_loader::PluginSource source =
+        cc::utils::plugin_loader::GitSubdirSource{
+            .url = "file://" + repo.string(),
+            .path = "packages/plugin",
+        };
+    auto cached = cc::utils::plugin_loader::cache_plugin(source);
+
+    ASSERT_TRUE(cached.has_value()) << cached.error();
+    EXPECT_EQ(cached->manifest.name, "subdir-cache-plugin");
+    ASSERT_TRUE(cached->git_commit_sha.has_value());
+    EXPECT_TRUE(fs::exists(cached->path / "commands" / "sub.md"));
+    EXPECT_FALSE(fs::exists(cached->path / ".git"));
+
+    fs::remove_all(root);
+}
+
+TEST(PluginLoader, CachePluginInstallsNpmPackageFromLocalSpec) {
+    namespace fs = std::filesystem;
+    if (!command_available_for_test("npm")) GTEST_SKIP() << "npm is not available";
+
+    auto root = fs::temp_directory_path() / "cc_repl_plugin_loader_npm_cache_test";
+    auto package_dir = root / "npm-plugin";
+    auto cache_root = root / "plugins";
+    fs::remove_all(root);
+    fs::create_directories(package_dir / "commands");
+    ScopedEnvVar plugin_cache("CLAUDE_CODE_PLUGIN_CACHE_DIR");
+    plugin_cache.set(cache_root.string().c_str());
+
+    {
+        std::ofstream package_json(package_dir / "package.json");
+        package_json << R"JSON({
+  "name": "cc-repl-npm-plugin-fixture",
+  "version": "1.0.0",
+  "files": ["plugin.json", "commands"]
+})JSON";
+    }
+    {
+        std::ofstream manifest(package_dir / "plugin.json");
+        manifest << R"JSON({"name":"npm-cache-plugin","version":"1.0.0","commands":["commands/npm.md"]})JSON";
+    }
+    {
+        std::ofstream command(package_dir / "commands" / "npm.md");
+        command << "Run from npm\n";
+    }
+
+    cc::utils::plugin_loader::PluginSource source =
+        cc::utils::plugin_loader::NpmSource{.package_name = package_dir.string()};
+    auto cached = cc::utils::plugin_loader::cache_plugin(source);
+
+    ASSERT_TRUE(cached.has_value()) << cached.error();
+    EXPECT_EQ(cached->manifest.name, "npm-cache-plugin");
+    EXPECT_TRUE(fs::exists(cached->path / "commands" / "npm.md"));
+
+    auto loaded = cc::utils::plugin_loader::load_all_plugins_cache_only();
+    ASSERT_EQ(loaded.plugins.size(), 1u);
+    EXPECT_EQ(loaded.plugins.front().name, "npm-cache-plugin");
+
+    fs::remove_all(root);
+}
+
+TEST(PluginLoader, ProbesSeedCacheExactAndAnyVersion) {
+    namespace fs = std::filesystem;
+    auto root = fs::temp_directory_path() / "cc_repl_plugin_loader_seed_cache_test";
+    auto seed = root / "seed";
+    fs::remove_all(root);
+    ScopedEnvVar seed_env("CLAUDE_CODE_PLUGIN_SEED_DIR");
+    seed_env.set(seed.string().c_str());
+
+    const auto seeded_path = cc::utils::plugin_loader::get_versioned_cache_path_in(
+        seed,
+        "seed-plugin@market",
+        "1.2.3"
+    );
+    fs::create_directories(seeded_path);
+    {
+        std::ofstream marker(seeded_path / "marker.txt");
+        marker << "seeded\n";
+    }
+
+    auto exact = cc::utils::plugin_loader::probe_seed_cache("seed-plugin@market", "1.2.3");
+    ASSERT_TRUE(exact.has_value());
+    EXPECT_EQ(*exact, seeded_path);
+
+    auto any = cc::utils::plugin_loader::probe_seed_cache_any_version("seed-plugin@market");
+    ASSERT_TRUE(any.has_value());
+    EXPECT_EQ(*any, seeded_path);
+
+    auto copied = cc::utils::plugin_loader::copy_plugin_to_versioned_cache(root, "seed-plugin@market", "1.2.3");
+    ASSERT_TRUE(copied.has_value()) << copied.error();
+    EXPECT_EQ(*copied, seeded_path);
+
+    fs::remove_all(root);
 }
 
 TEST(PluginDependencyResolver, ResolvesClosureAndReportsDependencyErrors) {

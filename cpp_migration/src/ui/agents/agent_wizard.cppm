@@ -3,6 +3,7 @@
 /// Migrates agent creation wizard UI.
 module;
 
+#include <algorithm>
 #include <string>
 #include <string_view>
 #include <vector>

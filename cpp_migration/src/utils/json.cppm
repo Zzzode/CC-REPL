@@ -14,7 +14,6 @@ module;
 #include <string_view>
 #include <utility>
 #include <vector>
-#include <filesystem>
 
 #include <yyjson.h>
 
@@ -57,7 +56,7 @@ public:
         return s ? std::string_view(s, yyjson_get_len(val_)) : std::string_view{};
     }
     [[nodiscard]] int64_t as_int() const noexcept { return yyjson_get_sint(val_); }
-    [[nodiscard]] double as_double() const noexcept { return yyjson_get_real(val_); }
+    [[nodiscard]] double as_double() const noexcept { return yyjson_get_num(val_); }
     [[nodiscard]] bool as_bool() const noexcept { return yyjson_get_bool(val_); }
 
 
@@ -352,17 +351,30 @@ private:
 }
 
 
-[[nodiscard]] inline Result<JsonDoc> parse_file(const std::filesystem::path& path) {
+[[nodiscard]] inline Result<JsonDoc> parse_file_string(const std::string& path_string) {
     yyjson_read_err err;
     auto* doc = yyjson_read_file(
-        path.c_str(), 0, nullptr, &err);
+        path_string.c_str(), 0, nullptr, &err);
 
     if (!doc) {
         return std::unexpected(Error(ErrorCode::io_error,
             std::format("Failed to read JSON file '{}': {}",
-                path.string(), err.msg ? err.msg : "unknown")));
+                path_string, err.msg ? err.msg : "unknown")));
     }
     return JsonDoc(doc);
+}
+
+[[nodiscard]] inline Result<JsonDoc> parse_file(std::string_view path) {
+    return parse_file_string(std::string(path));
+}
+
+[[nodiscard]] inline Result<JsonDoc> parse_file(const std::string& path) {
+    return parse_file_string(path);
+}
+
+template <typename Path>
+[[nodiscard]] inline Result<JsonDoc> parse_file(const Path& path) {
+    return parse_file_string(path.string());
 }
 
 

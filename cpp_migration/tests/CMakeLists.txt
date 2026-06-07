@@ -127,7 +127,13 @@ target_link_libraries(test_bridge
     PRIVATE
         cc_core
         cc_utils
+        cc_daemon
         GTest::gtest_main
+)
+add_dependencies(test_bridge cc_repl)
+target_compile_definitions(test_bridge
+    PRIVATE
+        CC_REPL_NATIVE_BINARY_PATH="$<TARGET_FILE:cc_repl>"
 )
 gtest_discover_tests(test_bridge DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
 
