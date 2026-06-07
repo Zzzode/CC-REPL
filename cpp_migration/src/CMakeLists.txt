@@ -33,6 +33,7 @@ target_sources(cc_utils
         utils/circular_buffer.cppm
         utils/claude_code_hints.cppm
         utils/claudemd.cppm
+        utils/chrome_messaging.cppm
         utils/cli_highlight.cppm
         utils/collapse_read_search.cppm
         utils/collapse_notifications.cppm
@@ -1072,6 +1073,11 @@ target_sources(cc_bridge
     PUBLIC FILE_SET CXX_MODULES FILES
         bridge/api.cppm
         bridge/bridge.cppm
+        bridge/bridge_debug.cppm
+        bridge/bridge_enabled.cppm
+        bridge/bridge_main.cppm
+        bridge/bridge_messaging.cppm
+        bridge/bridge_types.cppm
         bridge/capacity_wake.cppm
         bridge/config.cppm
         bridge/core.cppm
@@ -1194,13 +1200,16 @@ target_sources(cc_ui
         ui/design/themed_box.cppm
         ui/design/themed_text.cppm
         ui/dialogs/config_dialog.cppm
+        ui/dialogs/desktop_upsell.cppm
         ui/dialogs/feedback_survey.cppm
         ui/dialogs/help_v2.cppm
         ui/dialogs/ide_dialogs.cppm
+        ui/dialogs/managed_settings_security.cppm
         ui/dialogs/mcp_dialog.cppm
         ui/dialogs/mcp_dialogs.cppm
         ui/dialogs/model_picker.cppm
         ui/dialogs/onboarding.cppm
+        ui/dialogs/output_style_picker.cppm
         ui/dialogs/permission_dialog.cppm
         ui/dialogs/permission_prompts.cppm
         ui/dialogs/plugin_dialog.cppm
@@ -1346,9 +1355,23 @@ target_sources(cc_remote
     PUBLIC FILE_SET CXX_MODULES FILES
         remote/remote_auth.cppm
         remote/remote_connection.cppm
+        remote/remote_permission_bridge.cppm
         remote/remote_session.cppm
+        remote/sdk_message_adapter.cppm
 )
 target_link_libraries(cc_remote PUBLIC cc_utils cc_bridge OpenSSL::SSL OpenSSL::Crypto)
+
+# ─── cc_buddy: Buddy Companion ────────────────────────────────────────────────
+add_library(cc_buddy)
+target_sources(cc_buddy
+    PUBLIC FILE_SET CXX_MODULES FILES
+        buddy/buddy_companion.cppm
+        buddy/buddy_hooks.cppm
+        buddy/buddy_prompt.cppm
+        buddy/buddy_sprites.cppm
+        buddy/buddy_types.cppm
+)
+target_link_libraries(cc_buddy PUBLIC cc_utils)
 
 # ─── cc_migrations: Schema Migrations ─────────────────────────────────────────
 add_library(cc_migrations)
@@ -1444,6 +1467,7 @@ target_link_libraries(cc_core
         cc_vim
         cc_daemon
         cc_remote
+        cc_buddy
         cc_migrations
         cc_server
         cc_screens

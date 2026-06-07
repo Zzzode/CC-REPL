@@ -18,8 +18,51 @@ module;
 export module cc.bridge.pointer;
 
 import cc.types.types;
+import cc.bridge.session_id_compat;
 
 export namespace cc::bridge {
+
+/// Bridge pointer data structure
+struct BridgePointer {
+    std::string session_id;
+    std::string environment_id;
+    std::string source; // "standalone" or "repl"
+};
+
+/// Bridge pointer with age information
+struct BridgePointerWithAge {
+    BridgePointer pointer;
+    int64_t age_ms;
+};
+
+/// Maximum age for a bridge pointer (4 hours in milliseconds)
+constexpr int64_t BRIDGE_POINTER_TTL_MS = 4 * 60 * 60 * 1000;
+
+namespace detail {
+
+/// Global bridge handle pointer — set when a REPL bridge session is active,
+/// cleared on teardown. Mirrors the TS `handle` in replBridgeHandle.ts.
+BridgePointer* g_bridge_handle = nullptr;
+
+/// Convert a session ID to the compat format (cse_* -> session_*).
+[[nodiscard]] auto to_compat_session_id(std::string_view id) -> std::string {
+    if (id.starts_with("cse_")) {
+        return std::format("session_{}", id.substr(4));
+    }
+    return std::string(id);
+}
+
+} // namespace detail
+
+/// Set the global bridge handle pointer (called during bridge init/teardown).
+void set_bridge_handle(BridgePointer* handle) {
+    detail::g_bridge_handle = handle;
+}
+
+/// Get the global bridge handle pointer.
+[[nodiscard]] BridgePointer* get_bridge_handle() {
+    return detail::g_bridge_handle;
+}
 
 namespace detail {
 
@@ -112,22 +155,6 @@ namespace detail {
 }
 
 } // namespace detail
-
-/// Maximum age for a bridge pointer (4 hours in milliseconds)
-constexpr int64_t BRIDGE_POINTER_TTL_MS = 4 * 60 * 60 * 1000;
-
-/// Bridge pointer data structure
-struct BridgePointer {
-    std::string session_id;
-    std::string environment_id;
-    std::string source; // "standalone" or "repl"
-};
-
-/// Bridge pointer with age information
-struct BridgePointerWithAge {
-    BridgePointer pointer;
-    int64_t age_ms;
-};
 
 /// Clear (delete) a bridge pointer
 void clear_bridge_pointer(std::string_view dir);
@@ -241,6 +268,15 @@ void clear_bridge_pointer(std::string_view dir) {
     } catch (...) {
         // Best effort - don't crash
     }
+}
+
+/// Get this bridge's own session ID in the session_* compat format used by
+/// the v1 API (/v1/sessions responses). Returns std::nullopt when no bridge
+/// handle is active. Mirrors the TS getSelfBridgeCompatId() in replBridgeHandle.ts.
+[[nodiscard]] auto get_self_bridge_compat_id() -> std::optional<std::string> {
+    auto* handle = get_bridge_handle();
+    if (!handle) return std::nullopt;
+    return detail::to_compat_session_id(handle->session_id);
 }
 
 } // namespace cc::bridge

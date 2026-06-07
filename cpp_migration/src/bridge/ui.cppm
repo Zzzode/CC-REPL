@@ -111,6 +111,14 @@ public:
         }
     }
 
+    void debug(std::string_view message) {
+        log_verbose(std::string(message));
+    }
+
+    void warn(std::string_view message) {
+        print_log(std::format("[{}] Warning: {}", timestamp(), message));
+    }
+
     /// Log error message
     void log_error(const std::string& message) {
         print_log(std::format("[{}] Error: {}", timestamp(), message));

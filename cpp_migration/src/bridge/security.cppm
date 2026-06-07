@@ -6,10 +6,14 @@ module;
 #include <cstdlib>
 #include <expected>
 #include <functional>
+#include <memory>
+#include <mutex>
+#include <optional>
 #include <random>
 #include <string>
 #include <string_view>
 #include <tuple>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 #include <unistd.h>
@@ -238,6 +242,127 @@ public:
     
 
     void clear_remembered() { remembered_.clear(); }
+};
+
+
+
+// ---------------------------------------------------------------------------
+// Bidirectional RPC-style permission protocol
+// ---------------------------------------------------------------------------
+
+// Response sent back over the bridge after a permission decision is made.
+struct BridgePermissionResponse {
+    std::string permission_request_id;
+    std::string behavior;  // "allow" or "deny"
+    std::optional<std::string> updated_input_json;  // serialized JSON, if any
+};
+
+// Abstract interface for the bidirectional send/receive permission protocol.
+// Concrete implementations bridge the transport layer (WebSocket, IPC, etc.).
+class BridgePermissionCallbacks {
+public:
+    virtual ~BridgePermissionCallbacks() = default;
+
+    // Send a permission request to the remote bridge peer.
+    virtual auto send_request(std::string_view request_json) -> std::expected<void, std::string> = 0;
+
+    // Send a permission response back to the remote bridge peer.
+    virtual auto send_response(const BridgePermissionResponse& response) -> std::expected<void, std::string> = 0;
+};
+
+// Type guard: returns true when the JSON string contains a permission response
+// envelope, i.e.  {"type": "permission_response", ...}.
+[[nodiscard]] inline auto is_bridge_permission_response(std::string_view json) -> bool {
+    // Quick scan for the discriminator field.
+    auto pos = json.find(R"("type")");
+    if (pos == std::string_view::npos) return false;
+
+    // Skip whitespace / colon between "type" and its value.
+    auto scan = json.find_first_not_of(" \t\n\r:", pos + 5);
+    if (scan == std::string_view::npos) return false;
+
+    // Accept both "permission_response" and 'permission_response'.
+    char quote = json[scan];
+    if (quote != '"' && quote != '\'') return false;
+    auto value_start = scan + 1;
+    auto value_end = json.find(quote, value_start);
+    if (value_end == std::string_view::npos) return false;
+    return json.substr(value_start, value_end - value_start) == "permission_response";
+}
+
+// Manages the full bidirectional permission request/response flow.
+// Thread-safe: all state is guarded by an internal mutex.
+class BridgePermissionRpcChannel {
+public:
+    // Register (or replace) the callback handler used for outbound messages.
+    void register_callback(std::shared_ptr<BridgePermissionCallbacks> cb) {
+        auto lock = std::lock_guard{mutex_};
+        callbacks_ = std::move(cb);
+    }
+
+    // Called when a permission request arrives from the bridge peer.
+    // Forwards the request through the registered callback and installs a
+    // one-shot handler keyed by request_id so that the eventual response
+    // can be routed back.
+    auto on_request_received(std::string_view request_json,
+                             std::string_view request_id)
+        -> std::expected<void, std::string>
+    {
+        auto lock = std::lock_guard{mutex_};
+        if (!callbacks_) return std::unexpected("no callback registered");
+        return callbacks_->send_request(request_json);
+    }
+
+    // Called when a permission response arrives from the bridge peer.
+    // Looks up the pending callback by permission_request_id, invokes it,
+    // and removes it from the pending map.
+    auto on_response_received(const BridgePermissionResponse& response)
+        -> std::expected<void, std::string>
+    {
+        std::function<void(BridgePermissionResponse)> handler;
+        {
+            auto lock = std::lock_guard{mutex_};
+            auto it = pending_.find(response.permission_request_id);
+            if (it == pending_.end()) {
+                return std::unexpected("unknown permission_request_id: "
+                                       + response.permission_request_id);
+            }
+            handler = std::move(it->second);
+            pending_.erase(it);
+        }
+        handler(response);
+        return {};
+    }
+
+    // Enqueue a pending response handler for a given request ID.
+    // Typically called before sending the request so the handler is ready.
+    void add_pending_handler(
+        std::string request_id,
+        std::function<void(BridgePermissionResponse)> handler)
+    {
+        auto lock = std::lock_guard{mutex_};
+        pending_.emplace(std::move(request_id), std::move(handler));
+    }
+
+    // Send a response back through the registered callback transport.
+    auto send_response(const BridgePermissionResponse& response)
+        -> std::expected<void, std::string>
+    {
+        auto lock = std::lock_guard{mutex_};
+        if (!callbacks_) return std::unexpected("no callback registered");
+        return callbacks_->send_response(response);
+    }
+
+    // Remove all pending handlers (e.g. on session teardown).
+    void clear_pending() {
+        auto lock = std::lock_guard{mutex_};
+        pending_.clear();
+    }
+
+private:
+    std::mutex mutex_;
+    std::shared_ptr<BridgePermissionCallbacks> callbacks_;
+    std::unordered_map<std::string, std::function<void(BridgePermissionResponse)>> pending_;
 };
 
 

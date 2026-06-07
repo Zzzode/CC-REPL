@@ -98,6 +98,7 @@ namespace detail {
 
 
 enum class TransportType { websocket, stdio, http_polling };
+enum class SpawnMode { single_session, same_dir, worktree };
 
 namespace detail {
 
@@ -122,6 +123,20 @@ struct BridgeConfig {
     uint32_t max_reconnect_attempts{10};
     bool debug_mode{false};
     bool auto_connect{true};
+    std::string dir;
+    std::string machine_name;
+    std::string branch;
+    std::optional<std::string> git_repo_url;
+    int max_sessions{1};
+    SpawnMode spawn_mode{SpawnMode::single_session};
+    std::string bridge_id;
+    std::string worker_type;
+    std::string environment_id;
+    std::optional<std::string> reuse_environment_id;
+    std::string api_base_url;
+    std::string session_ingress_url;
+    std::optional<std::string> debug_file;
+    std::optional<std::chrono::milliseconds> session_timeout_ms;
 };
 
 
@@ -203,5 +218,36 @@ public:
     void set_config(BridgeConfig config) { config_ = std::move(config); }
     void set_poll_config(PollConfig config) { poll_config_ = config; }
 };
+
+
+// ---- Bridge Auth Configuration ----
+
+[[nodiscard]] auto getBridgeTokenOverride() -> std::optional<std::string> {
+    auto* user_type = std::getenv("USER_TYPE");
+    if (user_type == nullptr || std::string_view(user_type) != "ant") return std::nullopt;
+    auto* token = std::getenv("CLAUDE_BRIDGE_OAUTH_TOKEN");
+    if (token == nullptr) return std::nullopt;
+    return std::string(token);
+}
+
+[[nodiscard]] auto getBridgeBaseUrlOverride() -> std::optional<std::string> {
+    auto* user_type = std::getenv("USER_TYPE");
+    if (user_type == nullptr || std::string_view(user_type) != "ant") return std::nullopt;
+    auto* url = std::getenv("CLAUDE_BRIDGE_BASE_URL");
+    if (url == nullptr) return std::nullopt;
+    return std::string(url);
+}
+
+[[nodiscard]] auto getBridgeAccessToken() -> std::optional<std::string> {
+    if (auto override = getBridgeTokenOverride()) return override;
+    // TODO: Wire up OAuth keychain via get_oauth_access_token() from the OAuth service.
+    return std::nullopt;
+}
+
+[[nodiscard]] auto getBridgeBaseUrl() -> std::string {
+    if (auto override = getBridgeBaseUrlOverride()) return *override;
+    // TODO: Pull default from OAuth config (getOauthConfig().BASE_API_URL) once integrated.
+    return "https://api.claude.ai";
+}
 
 } // namespace cc::bridge
