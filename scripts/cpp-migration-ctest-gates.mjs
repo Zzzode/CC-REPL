@@ -34,7 +34,7 @@ const gates = [
   },
   {
     label: 'P1 MCP auth and remote behavior',
-    regex: 'Mcp(Auth|ConnectionManager)|Tools\\.McpAuth|McpClient\\.|McpTool\\.|IdeIntegration\\.',
+    regex: 'Mcp(Auth|Client|ConnectionManager|ConfigParser|ElicitationHandler|HeadersHelper|Types)|Tools\\.(McpAuth|McpTool|NativeMcpRuntime)|IdeIntegration\\.|ConfigManager\\.(PersistsMcpServerSettings|PreservesRemoteMcpServerAuthSettings)',
   },
   {
     label: 'P1 session/compaction/context semantics',
@@ -46,7 +46,7 @@ const gates = [
   },
   {
     label: 'P2 platform and external integrations',
-    regex: 'GitHubUtils\\.|LspConfig\\.|CcrClient\\.|Tools\\.(WebBrowserTool|RuntimeWebBrowser|PowerShellTool|PowerShellEncodingHandler|PowerShellEncodedCommand|RuntimePowerShell|RuntimeComputerUse|NativeComputerUse|ComputerUseManager)|Plugin(Identifier|Loader|DependencyResolver|Marketplace|MarketplaceRules|Versioning)\\.|Tools\\.McpRuntimeLoadsPlugin',
+    regex: 'GitHubUtils\\.|LspConfig\\.|CcrClient\\.|Tools\\.(AgentTool(LoadsPluginAgentsAndPluginSkills|PersistsRemoteSessionMetadataFromTriggerOutput|LoadsAgentSpecificMcpServers|LoadsInlineAgentMcpServersWithoutDroppingReferencedServers|CleansInlineMcpServerConfiguration|AcceptsReadyRequiredMcpServers|RejectsMissingRequiredMcpServers)|RuntimeTask(Update|Stop)|WebBrowserTool|RuntimeWebBrowser|PowerShellTool|PowerShellEncodingHandler|PowerShellEncodedCommand|RuntimePowerShell|RuntimeComputerUse|NativeComputerUse|ComputerUseManager)|Plugin(Identifier|Loader|DependencyResolver|Marketplace|MarketplaceRules|Versioning)\\.|Tools\\.McpRuntimeLoadsPlugin',
   },
 ]
 
