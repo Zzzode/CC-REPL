@@ -18,35 +18,108 @@ const testTargets = [
 const gates = [
   {
     label: 'P0 bridge/headless remote lifecycle',
-    regex: 'Bridge(Api|WorkSecret|Daemon)|SessionIngress\\.|RemoteSession\\.',
+    regex: 'Bridge(Api|WorkSecret|Daemon)|SessionIngress\\.|RemoteSession\\.|Tools\\.RuntimeTaskStopArchivesRemoteSessionOverHttp',
+    expectedTests: [
+      'BridgeApi.ParsesRegistrationPollAndLifecycleResponsesFromServer',
+      'BridgeDaemon.PollsWorkAcknowledgesAndSpawnsSession',
+      'BridgeDaemon.HeartbeatsRunningRemoteWorkSessions',
+      'BridgeDaemon.ForkExecsNativeHeadlessSessionThroughRemoteLifecycle',
+      'BridgeDaemon.PollAuthFailureUpdatesBackoffAndResetsAfterSuccess',
+      'BridgeDaemon.ConsecutivePollFailuresUseExponentialBackoffCappedAtFiveMinutes',
+      'BridgeDaemon.HeartbeatFailureRecordsErrorAndResetsAfterSuccess',
+      'Tools.RuntimeTaskStopArchivesRemoteSessionOverHttp',
+    ],
   },
   {
     label: 'P1 direct-connect permission protocol',
     regex: 'ServerMain\\.DirectConnect',
+    expectedTests: [
+      'ServerMain.DirectConnectPermissionControlCanAllowAndDenyToolUse',
+      'ServerMain.DirectConnectToolLoopPersistsTeamCreateAndSendMessage',
+    ],
   },
   {
     label: 'P1 sub-agent permission context',
     regex: 'Tools\\.AgentToolLivePermissionHook|Tools\\.AgentToolBackgroundAgentPreservesLivePermissionHook',
+    expectedTests: [
+      'Tools.AgentToolLivePermissionHookDeniesChildReadWriteEditAndBash',
+      'Tools.AgentToolBackgroundAgentPreservesLivePermissionHook',
+      'Tools.AgentToolLivePermissionHookCanAllowAndUpdateChildToolInputs',
+    ],
   },
   {
     label: 'P1 SendMessage/team/swarm protocol',
-    regex: 'Tools\\.RuntimeSendMessage|Tools\\.RuntimeTeamCreate|Tools\\.TeamStore|SpawnMultiAgent\\.',
+    regex: 'Tools\\.(AgentToolResumeExistingBackgroundPreservesNativeHistoryAndPendingQueue|RuntimeSendMessage|RuntimeTeamCreate|StandaloneTeamCreateAndDeleteDelegateToRuntimeTeamStore|TeamStore)|SpawnMultiAgent\\.',
+    expectedTests: [
+      'Tools.AgentToolResumeExistingBackgroundPreservesNativeHistoryAndPendingQueue',
+      'Tools.RuntimeSendMessageAcceptsTsSchemaAndBroadcastsToTeamMailbox',
+      'Tools.RuntimeSendMessageWritesStructuredTeamProtocolMessages',
+      'Tools.RuntimeSendMessageDeliversPlainTextToUdsPeer',
+      'Tools.RuntimeSendMessageDeliversPlainTextToBridgePeer',
+      'Tools.RuntimeSendMessageRejectsCrossSessionStructuredMessages',
+      'Tools.RuntimeSendMessageQueuesStoppedNativeAgentForResume',
+      'Tools.RuntimeTeamCreateCanStartNativeAgentsAndResumeThemWithSendMessage',
+      'Tools.RuntimeTeamCreateStartedNativeTeammateResumesAfterRegistryRestart',
+      'Tools.StandaloneTeamCreateAndDeleteDelegateToRuntimeTeamStore',
+      'Tools.TeamStoreUpdatesMemberStatusAndPersists',
+      'SpawnMultiAgent.TeamNameSpawnsTeammateBackend',
+    ],
   },
   {
     label: 'P1 MCP auth and remote behavior',
     regex: 'Mcp(Auth|Client|ConnectionManager|ConfigParser|ElicitationHandler|HeadersHelper|Types)|Tools\\.(McpAuth|McpTool|NativeMcpRuntime)|IdeIntegration\\.|ConfigManager\\.(PersistsMcpServerSettings|PreservesRemoteMcpServerAuthSettings)',
+    expectedTests: [
+      'McpAuth.XaaFlowDoesNotReturnUnimplementedError',
+      'Tools.McpAuthUsesNativeOAuthFlowForConfiguredRemoteServers',
+      'McpConnectionManager.RefreshesExpiredOAuthTokenBeforeRemoteConnection',
+      'McpConnectionManager.MarksRefreshFailureAsNeedsAuthWithoutRemoteConnect',
+      'McpAuth.RevokesOAuthTokensViaMetadataEndpointAndClearsLocalStorage',
+      'McpAuth.CompletesOAuthBrowserCallbackFlowAndStoresTokens',
+      'McpAuth.PerformsXaaIdpLoginAndStoresTokens',
+      'McpAuth.XaaEnabledServerRequiresConfiguredIdpConnection',
+    ],
   },
   {
     label: 'P1 session/compaction/context semantics',
     regex: 'SessionHistory\\.|QueryEngine\\.(Snip|SerializesTaskBudget|Compact|Restore|RepeatedCompact|AutoCompact|ReactiveCompact|TimeBasedMicrocompact)|ApiMicrocompact\\.',
+    expectedTests: [
+      'SessionHistory.LoadAllRestoresCompactBoundaryMetadata',
+      'SessionHistory.LoadAllRestoresSnipMetadata',
+      'QueryEngine.SnipMetadataProjectsRemovedMessagesFromAnthropicRequest',
+      'QueryEngine.SerializesTaskBudgetAndApiContextManagementRequestConfig',
+      'QueryEngine.CompactConversationCarriesTaskBudgetRemainingIntoNextRequest',
+      'QueryEngine.RestoreConversationDerivesTaskBudgetRemainingFromCompactBoundaryMetadata',
+      'QueryEngine.AutoCompactWritesBoundaryMetadataAndKeepsRecentTail',
+      'QueryEngine.ReactiveCompactRetriesPromptTooLongAfterWritingBoundary',
+      'QueryEngine.TimeBasedMicrocompactClearsOldCompactableToolResultsBeforeRequest',
+    ],
   },
   {
     label: 'P1 UI runtime behavior',
     regex: 'Terminal\\.StatusBar|Components\\.RenderPermissionPrompt|AppRuntime\\.',
+    expectedTests: [
+      'Terminal.StatusBarRendersTokensAndCost',
+      'Components.RenderPermissionPromptReturnsElement',
+      'AppRuntime.CtrlCWhileStreamingQueryCancelsWithoutExiting',
+      'AppRuntime.StreamingToolUseRendersRunningPreview',
+      'AppRuntime.StreamingThinkingRendersRunningPreview',
+      'AppRuntime.PermissionCallbackRendersAndResolvesUserChoices',
+      'AppRuntime.RenderMessageShowsThinkingToolUseAndAssistantText',
+    ],
   },
   {
     label: 'P2 platform and external integrations',
     regex: 'GitHubUtils\\.|LspConfig\\.|CcrClient\\.|Tools\\.(AgentTool(LoadsPluginAgentsAndPluginSkills|PersistsRemoteSessionMetadataFromTriggerOutput|LoadsAgentSpecificMcpServers|LoadsInlineAgentMcpServersWithoutDroppingReferencedServers|CleansInlineMcpServerConfiguration|AcceptsReadyRequiredMcpServers|RejectsMissingRequiredMcpServers)|RuntimeTask(Update|Stop)|WebBrowserTool|RuntimeWebBrowser|PowerShellTool|PowerShellEncodingHandler|PowerShellEncodedCommand|RuntimePowerShell|RuntimeComputerUse|NativeComputerUse|ComputerUseManager)|Plugin(Identifier|Loader|DependencyResolver|Marketplace|MarketplaceRules|Versioning)\\.|Tools\\.McpRuntimeLoadsPlugin',
+    expectedTests: [
+      'GitHubUtils.FetchesAuthenticatedUserFromGitHubApi',
+      'PluginLoader.CachePluginClonesGitUrlAndLoadsManifest',
+      'Tools.WebBrowserToolUsesScreenshotBackend',
+      'Tools.RuntimePowerShellToolExecutesRealCommandWithWorkingDirectoryOnWindows',
+      'Tools.RuntimeComputerUseScreenshotReturnsImageContentFromCaptureProvider',
+      'Tools.AgentToolLoadsPluginAgentsAndPluginSkills',
+      'Tools.AgentToolPersistsRemoteSessionMetadataFromTriggerOutput',
+      'CcrClient.StreamsMessagesThroughDefaultHttpTransport',
+    ],
   },
 ]
 
@@ -109,6 +182,13 @@ function countListedTests(ctestOutput) {
   return ctestOutput.match(/^\s*Test\s+#\d+:/gm)?.length ?? 0
 }
 
+function listedTestNames(ctestOutput) {
+  return new Set(
+    [...ctestOutput.matchAll(/^\s*Test\s+#\d+:\s+(.+)$/gm)]
+      .map((match) => match[1].trim()),
+  )
+}
+
 const buildDir = findBuildDir()
 
 run(
@@ -126,6 +206,12 @@ for (const gate of gates) {
   const testCount = countListedTests(listedTests)
   if (testCount === 0) {
     throw new Error(`${gate.label} matched no CTest tests with regex: ${gate.regex}`)
+  }
+  const names = listedTestNames(listedTests)
+  for (const expected of gate.expectedTests ?? []) {
+    if (!names.has(expected)) {
+      throw new Error(`${gate.label} did not discover required CTest: ${expected}`)
+    }
   }
 
   run(
