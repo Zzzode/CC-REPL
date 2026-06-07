@@ -1505,20 +1505,20 @@ TEST(BridgeDaemon, ForkExecsHeadlessSessionWithCcrSdkUrl) {
     ASSERT_TRUE(spawned.has_value()) << spawned.error();
 
     std::vector<std::string> lines;
+    bool saw_sdk_url_flag = false;
+    bool saw_sdk_url = false;
     for (int i = 0; i < 100; ++i) {
         daemon.reap_sessions();
         lines = daemon.session_stdout_lines(*spawned);
-        if (!lines.empty()) break;
+        for (const auto& line : lines) {
+            if (line == "--sdk-url") saw_sdk_url_flag = true;
+            if (line == "http://session-ingress.local/v1/code/sessions/session_1") saw_sdk_url = true;
+        }
+        if (saw_sdk_url_flag && saw_sdk_url) break;
         std::this_thread::sleep_for(std::chrono::milliseconds{10});
     }
 
     ASSERT_FALSE(lines.empty());
-    bool saw_sdk_url_flag = false;
-    bool saw_sdk_url = false;
-    for (const auto& line : lines) {
-        if (line == "--sdk-url") saw_sdk_url_flag = true;
-        if (line == "http://session-ingress.local/v1/code/sessions/session_1") saw_sdk_url = true;
-    }
     EXPECT_TRUE(saw_sdk_url_flag);
     EXPECT_TRUE(saw_sdk_url);
 
@@ -1649,25 +1649,25 @@ TEST(BridgeDaemon, ForkExecsHeadlessSessionWithCcrWorkerEpochEnvironment) {
     ASSERT_TRUE(spawned.has_value()) << spawned.error();
 
     std::vector<std::string> lines;
-    for (int i = 0; i < 100; ++i) {
-        daemon.reap_sessions();
-        lines = daemon.session_stdout_lines(*spawned);
-        if (lines.size() >= 4) break;
-        std::this_thread::sleep_for(std::chrono::milliseconds{10});
-    }
-
-    ASSERT_FALSE(lines.empty());
     const auto expected_sdk_url = "ARG:" + server.base_url() + "/v1/code/sessions/session_1";
     bool saw_sdk_url = false;
     bool saw_worker_epoch = false;
     bool saw_ccr_v2 = false;
     bool saw_api_base = false;
-    for (const auto& line : lines) {
-        if (line == expected_sdk_url) saw_sdk_url = true;
-        if (line == "ENV:CLAUDE_CODE_WORKER_EPOCH=42") saw_worker_epoch = true;
-        if (line == "ENV:CLAUDE_CODE_USE_CCR_V2=1") saw_ccr_v2 = true;
-        if (line == "ENV:CLAUDE_CODE_REMOTE_API_BASE_URL=" + server.base_url()) saw_api_base = true;
+    for (int i = 0; i < 100; ++i) {
+        daemon.reap_sessions();
+        lines = daemon.session_stdout_lines(*spawned);
+        for (const auto& line : lines) {
+            if (line == expected_sdk_url) saw_sdk_url = true;
+            if (line == "ENV:CLAUDE_CODE_WORKER_EPOCH=42") saw_worker_epoch = true;
+            if (line == "ENV:CLAUDE_CODE_USE_CCR_V2=1") saw_ccr_v2 = true;
+            if (line == "ENV:CLAUDE_CODE_REMOTE_API_BASE_URL=" + server.base_url()) saw_api_base = true;
+        }
+        if (saw_sdk_url && saw_worker_epoch && saw_ccr_v2 && saw_api_base) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds{10});
     }
+
+    ASSERT_FALSE(lines.empty());
     EXPECT_TRUE(saw_sdk_url);
     EXPECT_TRUE(saw_worker_epoch);
     EXPECT_TRUE(saw_ccr_v2);

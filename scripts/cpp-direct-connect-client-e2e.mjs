@@ -147,14 +147,18 @@ async function main() {
   const allowedFile = join(root, 'allowed.txt')
   const deniedFile = join(root, 'denied.txt')
   const updatedFile = join(root, 'updated.txt')
+  const replacementFile = join(root, 'replacement.txt')
   const removalFile = join(root, 'remove-permissions.txt')
+  const modeFile = join(root, 'set-mode.txt')
   const allowedDir = join(root, 'allowed-dir')
   const directoryFile = join(allowedDir, 'directory.txt')
   mkdirSync(allowedDir)
   writeFileSync(allowedFile, 'original direct input content\n')
   writeFileSync(deniedFile, 'denied direct input content\n')
   writeFileSync(updatedFile, 'updated direct input content\n')
+  writeFileSync(replacementFile, 'replacement direct rule content\n')
   writeFileSync(removalFile, 'remove direct permissions content\n')
+  writeFileSync(modeFile, 'set mode direct content\n')
   writeFileSync(directoryFile, 'directory direct input content\n')
 
   const anthropic = startAnthropicFixture([
@@ -201,6 +205,48 @@ async function main() {
       content: [{ type: 'text', text: 'ts client cached directory read allowed' }],
     }),
     anthropicMessage({
+      id: 'msg_ts_read_replace_permissions_tool',
+      stopReason: 'tool_use',
+      content: [{
+        type: 'tool_use',
+        id: 'toolu_ts_read_replace_permissions',
+        name: 'Read',
+        input: { file_path: replacementFile },
+      }],
+    }),
+    anthropicMessage({
+      id: 'msg_ts_read_replace_permissions_done',
+      content: [{ type: 'text', text: 'ts client replaced cached rule' }],
+    }),
+    anthropicMessage({
+      id: 'msg_ts_read_replaced_old_rule_tool',
+      stopReason: 'tool_use',
+      content: [{
+        type: 'tool_use',
+        id: 'toolu_ts_read_replaced_old_rule',
+        name: 'Read',
+        input: { file_path: allowedFile },
+      }],
+    }),
+    anthropicMessage({
+      id: 'msg_ts_read_replaced_old_rule_done',
+      content: [{ type: 'text', text: 'ts client replaced old rule denied' }],
+    }),
+    anthropicMessage({
+      id: 'msg_ts_read_replacement_cached_tool',
+      stopReason: 'tool_use',
+      content: [{
+        type: 'tool_use',
+        id: 'toolu_ts_read_replacement_cached',
+        name: 'Read',
+        input: { file_path: replacementFile },
+      }],
+    }),
+    anthropicMessage({
+      id: 'msg_ts_read_replacement_cached_done',
+      content: [{ type: 'text', text: 'ts client replacement cached allowed' }],
+    }),
+    anthropicMessage({
       id: 'msg_ts_read_remove_permissions_tool',
       stopReason: 'tool_use',
       content: [{
@@ -215,18 +261,18 @@ async function main() {
       content: [{ type: 'text', text: 'ts client removed cached permissions' }],
     }),
     anthropicMessage({
-      id: 'msg_ts_read_removed_rule_tool',
+      id: 'msg_ts_read_removed_replacement_rule_tool',
       stopReason: 'tool_use',
       content: [{
         type: 'tool_use',
-        id: 'toolu_ts_read_removed_rule',
+        id: 'toolu_ts_read_removed_replacement_rule',
         name: 'Read',
-        input: { file_path: allowedFile },
+        input: { file_path: replacementFile },
       }],
     }),
     anthropicMessage({
-      id: 'msg_ts_read_removed_rule_done',
-      content: [{ type: 'text', text: 'ts client removed rule denied' }],
+      id: 'msg_ts_read_removed_replacement_rule_done',
+      content: [{ type: 'text', text: 'ts client removed replacement rule denied' }],
     }),
     anthropicMessage({
       id: 'msg_ts_read_removed_directory_tool',
@@ -255,6 +301,34 @@ async function main() {
     anthropicMessage({
       id: 'msg_ts_read_deny_done',
       content: [{ type: 'text', text: 'ts client read denied' }],
+    }),
+    anthropicMessage({
+      id: 'msg_ts_read_set_mode_tool',
+      stopReason: 'tool_use',
+      content: [{
+        type: 'tool_use',
+        id: 'toolu_ts_read_set_mode',
+        name: 'Read',
+        input: { file_path: modeFile },
+      }],
+    }),
+    anthropicMessage({
+      id: 'msg_ts_read_set_mode_done',
+      content: [{ type: 'text', text: 'ts client set bypass permission mode' }],
+    }),
+    anthropicMessage({
+      id: 'msg_ts_read_mode_cached_tool',
+      stopReason: 'tool_use',
+      content: [{
+        type: 'tool_use',
+        id: 'toolu_ts_read_mode_cached',
+        name: 'Read',
+        input: { file_path: deniedFile },
+      }],
+    }),
+    anthropicMessage({
+      id: 'msg_ts_read_mode_cached_done',
+      content: [{ type: 'text', text: 'ts client mode cached read allowed' }],
     }),
   ])
 
@@ -303,13 +377,33 @@ async function main() {
       },
       {
         behavior: 'allow',
+        toolUseId: 'toolu_ts_read_replace_permissions',
+        filePath: replacementFile,
+        response: {
+          behavior: 'allow',
+          updatedPermissions: [{
+            type: 'replaceRules',
+            rules: [{ toolName: 'Read', ruleContent: replacementFile }],
+            behavior: 'allow',
+            destination: 'session',
+          }],
+        },
+      },
+      {
+        behavior: 'deny',
+        toolUseId: 'toolu_ts_read_replaced_old_rule',
+        filePath: allowedFile,
+        response: { behavior: 'deny', message: 'denied after replaced cached rule' },
+      },
+      {
+        behavior: 'allow',
         toolUseId: 'toolu_ts_read_remove_permissions',
         filePath: removalFile,
         response: {
           behavior: 'allow',
           updatedPermissions: [{
             type: 'removeRules',
-            rules: [{ toolName: 'Read', ruleContent: allowedFile }],
+            rules: [{ toolName: 'Read', ruleContent: replacementFile }],
             behavior: 'allow',
             destination: 'session',
           }, {
@@ -321,9 +415,9 @@ async function main() {
       },
       {
         behavior: 'deny',
-        toolUseId: 'toolu_ts_read_removed_rule',
-        filePath: allowedFile,
-        response: { behavior: 'deny', message: 'denied after removed cached rule' },
+        toolUseId: 'toolu_ts_read_removed_replacement_rule',
+        filePath: replacementFile,
+        response: { behavior: 'deny', message: 'denied after removed replacement rule' },
       },
       {
         behavior: 'deny',
@@ -336,6 +430,19 @@ async function main() {
         toolUseId: 'toolu_ts_read_deny',
         filePath: deniedFile,
         response: { behavior: 'deny', message: 'denied by TS direct client e2e' },
+      },
+      {
+        behavior: 'allow',
+        toolUseId: 'toolu_ts_read_set_mode',
+        filePath: modeFile,
+        response: {
+          behavior: 'allow',
+          updatedPermissions: [{
+            type: 'setMode',
+            mode: 'bypassPermissions',
+            destination: 'session',
+          }],
+        },
       },
     ]
 
@@ -399,14 +506,19 @@ async function main() {
     await connectManager()
     await sendAndExpect('read through TS direct client cached allow after reconnect', 'ts client cached read allowed')
     await sendAndExpect('read through TS direct client cached directory after reconnect', 'ts client cached directory read allowed')
+    await sendAndExpect('read through TS direct client replace cached rule', 'ts client replaced cached rule')
+    await sendAndExpect('read through TS direct client old cached rule after replace', 'ts client replaced old rule denied')
+    await sendAndExpect('read through TS direct client replacement cached rule', 'ts client replacement cached allowed')
     await sendAndExpect('read through TS direct client remove cached permissions', 'ts client removed cached permissions')
-    await sendAndExpect('read through TS direct client cached allow after removal', 'ts client removed rule denied')
+    await sendAndExpect('read through TS direct client replacement after removal', 'ts client removed replacement rule denied')
     await sendAndExpect('read through TS direct client cached directory after removal', 'ts client removed directory denied')
     await sendAndExpect('read through TS direct client deny after reconnect', 'ts client read denied')
+    await sendAndExpect('read through TS direct client set bypass mode', 'ts client set bypass permission mode')
+    await sendAndExpect('read through TS direct client cached mode after setMode', 'ts client mode cached read allowed')
 
     assert(callbackErrors.length === 0, callbackErrors.map(error => error.stack || error.message || String(error)).join('\n'))
-    assert(permissionRequests.length === 5, `expected 5 permission requests, saw ${permissionRequests.length}`)
-    const bodies = await anthropic.waitForBodies(14)
+    assert(permissionRequests.length === 8, `expected 8 permission requests, saw ${permissionRequests.length}`)
+    const bodies = await anthropic.waitForBodies(24)
     assert(bodies[0].includes('read through TS direct client allow'), 'first model request did not include the allow prompt')
     assert(bodies[1].includes('updated direct input content'), 'updatedInput Read result did not reach the follow-up model request')
     assert(!bodies[1].includes('original direct input content'), 'original Read input was used despite updatedInput')
@@ -414,19 +526,32 @@ async function main() {
     assert(bodies[3].includes('original direct input content'), 'updatedPermissions allow rule did not let the cached Read result reach the model request')
     assert(bodies[4].includes('read through TS direct client cached directory after reconnect'), 'cached directory model request did not include the prompt')
     assert(bodies[5].includes('directory direct input content'), 'updatedPermissions addDirectories did not let the cached Read result reach the model request')
-    assert(bodies[6].includes('read through TS direct client remove cached permissions'), 'remove permissions model request did not include the prompt')
-    assert(bodies[7].includes('remove direct permissions content'), 'removeRules/removeDirectories trigger Read result did not reach the follow-up model request')
-    assert(bodies[8].includes('read through TS direct client cached allow after removal'), 'removed rule model request did not include the prompt')
-    assert(bodies[9].includes('denied after removed cached rule'), 'removeRules did not cause the cached file permission to be requested again')
-    assert(!bodies[9].includes('original direct input content'), 'removeRules failed and the cached file Read still reached the model request')
-    assert(!bodies[9].includes('Permission denied for tool: Read'), 'default deny message was used after removeRules')
-    assert(bodies[10].includes('read through TS direct client cached directory after removal'), 'removed directory model request did not include the prompt')
-    assert(bodies[11].includes('denied after removed cached directory'), 'removeDirectories did not cause the cached directory permission to be requested again')
-    assert(!bodies[11].includes('directory direct input content'), 'removeDirectories failed and the cached directory Read still reached the model request')
-    assert(!bodies[11].includes('Permission denied for tool: Read'), 'default deny message was used after removeDirectories')
-    assert(bodies[12].includes('read through TS direct client deny after reconnect'), 'deny model request did not include the prompt')
-    assert(bodies[13].includes('denied by TS direct client e2e'), 'denied Read message did not reach the follow-up model request')
-    assert(!bodies[13].includes('Permission denied for tool: Read'), 'default deny message was used despite SDK deny message')
+    assert(bodies[6].includes('read through TS direct client replace cached rule'), 'replaceRules model request did not include the prompt')
+    assert(bodies[7].includes('replacement direct rule content'), 'replaceRules trigger Read result did not reach the follow-up model request')
+    assert(bodies[8].includes('read through TS direct client old cached rule after replace'), 'replaced old rule model request did not include the prompt')
+    assert(bodies[9].includes('denied after replaced cached rule'), 'replaceRules did not remove the old cached file permission')
+    assert(!bodies[9].includes('original direct input content'), 'replaceRules failed and the old cached file Read still reached the model request')
+    assert(!bodies[9].includes('Permission denied for tool: Read'), 'default deny message was used after replaceRules')
+    assert(bodies[10].includes('read through TS direct client replacement cached rule'), 'replacement cached model request did not include the prompt')
+    assert(bodies[11].includes('replacement direct rule content'), 'replaceRules did not cache the replacement file rule')
+    assert(bodies[12].includes('read through TS direct client remove cached permissions'), 'remove permissions model request did not include the prompt')
+    assert(bodies[13].includes('remove direct permissions content'), 'removeRules/removeDirectories trigger Read result did not reach the follow-up model request')
+    assert(bodies[14].includes('read through TS direct client replacement after removal'), 'removed replacement rule model request did not include the prompt')
+    assert(bodies[15].includes('denied after removed replacement rule'), 'removeRules did not cause the replacement file permission to be requested again')
+    assert(!bodies[15].includes('replacement direct rule content'), 'removeRules failed and the replacement file Read still reached the model request')
+    assert(!bodies[15].includes('Permission denied for tool: Read'), 'default deny message was used after removeRules')
+    assert(bodies[16].includes('read through TS direct client cached directory after removal'), 'removed directory model request did not include the prompt')
+    assert(bodies[17].includes('denied after removed cached directory'), 'removeDirectories did not cause the cached directory permission to be requested again')
+    assert(!bodies[17].includes('directory direct input content'), 'removeDirectories failed and the cached directory Read still reached the model request')
+    assert(!bodies[17].includes('Permission denied for tool: Read'), 'default deny message was used after removeDirectories')
+    assert(bodies[18].includes('read through TS direct client deny after reconnect'), 'deny model request did not include the prompt')
+    assert(bodies[19].includes('denied by TS direct client e2e'), 'denied Read message did not reach the follow-up model request')
+    assert(!bodies[19].includes('Permission denied for tool: Read'), 'default deny message was used despite SDK deny message')
+    assert(bodies[20].includes('read through TS direct client set bypass mode'), 'setMode model request did not include the prompt')
+    assert(bodies[21].includes('set mode direct content'), 'setMode trigger Read result did not reach the follow-up model request')
+    assert(bodies[22].includes('read through TS direct client cached mode after setMode'), 'cached setMode model request did not include the prompt')
+    assert(bodies[23].includes('denied direct input content'), 'setMode bypassPermissions did not let the cached Read result reach the model request')
+    assert(!bodies[23].includes('denied by TS direct client e2e'), 'setMode bypassPermissions unexpectedly reused a prior deny response')
 
     console.log('ok - direct-connect TS client permission/reconnect e2e')
   } finally {
