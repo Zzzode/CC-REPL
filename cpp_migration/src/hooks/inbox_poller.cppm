@@ -52,7 +52,8 @@ struct PollerState {
     std::chrono::system_clock::time_point last_poll_time;
     std::optional<std::string> last_error;
     std::uint64_t next_callback_id{1};
-    std::jthread worker;
+    std::thread worker;
+    std::atomic<bool> worker_stop{false};
 };
 
 inline auto get_state() -> PollerState& {
@@ -67,14 +68,16 @@ inline void push_item(InboxItem item);
 /// Start the inbox polling loop with the given configuration.
 inline void start_polling(PollerConfig config = {}) {
     auto& state = detail::get_state();
-    std::jthread previous_worker;
+    std::thread previous_worker;
+    bool previous_stop = false;
     {
         std::lock_guard lock(state.mutex);
         state.polling.store(false);
+        state.worker_stop.store(true);
         previous_worker = std::move(state.worker);
+        previous_stop = true;
     }
     if (previous_worker.joinable()) {
-        previous_worker.request_stop();
         previous_worker.join();
     }
 
@@ -86,8 +89,8 @@ inline void start_polling(PollerConfig config = {}) {
         state.last_error.reset();
     }
 
-    std::jthread worker([](std::stop_token stop) {
-        while (!stop.stop_requested()) {
+    std::thread worker([&state]() {
+        while (!state.worker_stop.load(std::memory_order_acquire)) {
             PollerConfig current_config;
             InboxFetcher fetcher;
             {
@@ -103,12 +106,12 @@ inline void start_polling(PollerConfig config = {}) {
                 interval = std::chrono::seconds{30};
             }
             auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(interval);
-            while (remaining > std::chrono::milliseconds::zero() && !stop.stop_requested()) {
+            while (remaining > std::chrono::milliseconds::zero() && !state.worker_stop.load(std::memory_order_acquire)) {
                 const auto slice = std::min(remaining, std::chrono::milliseconds{100});
                 std::this_thread::sleep_for(slice);
                 remaining -= slice;
             }
-            if (stop.stop_requested()) break;
+            if (state.worker_stop.load(std::memory_order_acquire)) break;
 
             if (!fetcher) {
                 auto& current_state = detail::get_state();
@@ -146,14 +149,14 @@ inline void start_polling(PollerConfig config = {}) {
 /// Stop the active polling loop.
 inline void stop_polling() {
     auto& state = detail::get_state();
-    std::jthread worker;
+    std::thread worker;
     {
         std::lock_guard lock(state.mutex);
         state.polling.store(false);
+        state.worker_stop.store(true);
         worker = std::move(state.worker);
     }
     if (worker.joinable()) {
-        worker.request_stop();
         worker.join();
     }
 }

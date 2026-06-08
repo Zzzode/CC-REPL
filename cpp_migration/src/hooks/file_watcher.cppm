@@ -1,4 +1,4 @@
-// C++23 Module: File watching hooks using polling (std::jthread + last_write_time)
+// C++23 Module: File watching hooks using polling (std::thread + last_write_time)
 module;
 
 #include <algorithm>
@@ -212,7 +212,8 @@ struct WatchEntry {
     bool recursive{false};
     FileChangeCallback callback;
     std::filesystem::file_time_type last_write_time{};
-    std::jthread poll_thread;
+    std::thread poll_thread;
+    std::atomic<bool> stop_flag{false};
 };
 
 // FileWatcher: main file watching manager using polling
@@ -310,17 +311,19 @@ private:
     GitignoreFilter filter_;
     std::set<std::string> edited_files_; // Session tracking
 
-    // Start polling a watch entry via std::jthread
+    // Start polling a watch entry via std::thread
     auto start_watch(WatchEntry& entry) -> void {
         auto path = std::filesystem::path(entry.path);
         auto& callback = entry.callback;
         auto& last_wt = entry.last_write_time;
+        auto& stop = entry.stop_flag;
 
-        entry.poll_thread = std::jthread([path, &callback, &last_wt, this](std::stop_token stoken) {
+        stop.store(false);
+        entry.poll_thread = std::thread([path, &callback, &last_wt, &stop, this]() {
             using namespace std::chrono_literals;
-            while (!stoken.stop_requested()) {
+            while (!stop.load(std::memory_order_acquire)) {
                 std::this_thread::sleep_for(1s);
-                if (stoken.stop_requested()) break;
+                if (stop.load(std::memory_order_acquire)) break;
 
                 try {
                     if (!std::filesystem::exists(path)) continue;
@@ -346,10 +349,10 @@ private:
         });
     }
 
-    // Stop polling — request stop via stop_token and join
+    // Stop polling — set stop flag and join
     auto stop_watch(WatchEntry& entry) -> void {
         if (entry.poll_thread.joinable()) {
-            entry.poll_thread.request_stop();
+            entry.stop_flag.store(true);
             entry.poll_thread.join();
         }
     }

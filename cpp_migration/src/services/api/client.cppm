@@ -601,6 +601,83 @@ public:
 
         return response;
     }
+
+    /// Issue an HTTP GET request.
+    /// Identical setup to post() but without CURLOPT_POSTFIELDS.
+    [[nodiscard]] static Result<HttpResponse> get(
+        const std::string& url,
+        const std::vector<std::string>& headers,
+        std::chrono::milliseconds timeout) {
+
+        CurlHandle curl;
+        HttpResponse response;
+        std::string response_body;
+        std::string response_headers;
+
+        curl.setopt(CURLOPT_URL, url.c_str());
+        apply_loopback_no_proxy(curl, url);
+        curl.setopt(CURLOPT_HTTPGET, 1L);
+        curl.setopt(CURLOPT_TIMEOUT_MS, static_cast<long>(timeout.count()));
+
+        struct curl_slist* header_list = nullptr;
+        for (const auto& h : headers) {
+            header_list = curl_slist_append(header_list, h.c_str());
+        }
+        curl.setopt(CURLOPT_HTTPHEADER, header_list);
+
+        auto write_cb = +[](char* ptr, size_t size, size_t nmemb, void* userdata) -> size_t {
+            auto* resp = static_cast<std::string*>(userdata);
+            resp->append(ptr, size * nmemb);
+            return size * nmemb;
+        };
+        curl.setopt(CURLOPT_WRITEFUNCTION, write_cb);
+        curl.setopt(CURLOPT_WRITEDATA, &response_body);
+
+        auto header_cb = +[](char* ptr, size_t size, size_t nmemb, void* userdata) -> size_t {
+            auto* headers_str = static_cast<std::string*>(userdata);
+            headers_str->append(ptr, size * nmemb);
+            return size * nmemb;
+        };
+        curl.setopt(CURLOPT_HEADERFUNCTION, header_cb);
+        curl.setopt(CURLOPT_HEADERDATA, &response_headers);
+
+        auto res = curl_easy_perform(static_cast<CURL*>(curl.get()));
+        curl_slist_free_all(header_list);
+
+        if (res != CURLE_OK) {
+            if (res == CURLE_OPERATION_TIMEDOUT) {
+                return std::unexpected(cc::utils::Error(
+                    cc::utils::ErrorCode::timeout,
+                    std::format("GET request timed out after {}ms", timeout.count())));
+            }
+            return std::unexpected(cc::utils::Error(
+                cc::utils::ErrorCode::network_error,
+                std::format("CURL error: {}", curl_easy_strerror(res))));
+        }
+
+        long http_code = 0;
+        curl_easy_getinfo(static_cast<CURL*>(curl.get()), CURLINFO_RESPONSE_CODE, &http_code);
+        response.status_code = static_cast<int>(http_code);
+        response.body = std::move(response_body);
+
+        size_t offset = 0;
+        while (offset < response_headers.size()) {
+            auto line_end = response_headers.find('\n', offset);
+            auto line = response_headers.substr(
+                offset,
+                line_end == std::string::npos ? std::string::npos : line_end - offset);
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            offset = line_end == std::string::npos ? response_headers.size() : line_end + 1;
+            auto colon = line.find(':');
+            if (colon == std::string::npos) continue;
+            auto key = line.substr(0, colon);
+            auto value_start = colon + 1;
+            while (value_start < line.size() && line[value_start] == ' ') ++value_start;
+            response.headers.emplace_back(std::move(key), line.substr(value_start));
+        }
+
+        return response;
+    }
 };
 
 // =========================================================================

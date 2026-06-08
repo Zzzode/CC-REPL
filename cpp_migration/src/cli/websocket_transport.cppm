@@ -76,8 +76,9 @@ public:
         connected_.store(true);
 
         // Start message reading thread
-        reader_thread_ = std::jthread([this](std::stop_token stop) {
-            run_read_loop(stop);
+        stop_requested_.store(false, std::memory_order_release);
+        reader_thread_ = std::thread([this] {
+            run_read_loop();
         });
 
         return {};
@@ -130,8 +131,9 @@ public:
         }
         cleanup_tls();
 
+        stop_requested_.store(true, std::memory_order_release);
+
         if (reader_thread_.joinable()) {
-            reader_thread_.request_stop();
             reader_thread_.join();
         }
 
@@ -462,8 +464,8 @@ private:
     }
 
     // Read loop processes incoming WebSocket frames
-    void run_read_loop(std::stop_token stop) {
-        while (!stop.stop_requested() && connected_.load()) {
+    void run_read_loop() {
+        while (!stop_requested_.load(std::memory_order_acquire) && connected_.load()) {
             // Drain send queue first (send pending outgoing messages)
             {
                 std::lock_guard lock(send_mutex_);
@@ -548,7 +550,8 @@ private:
     std::queue<std::string> send_queue_;
     std::mutex send_mutex_;
 
-    std::jthread reader_thread_;
+    std::atomic<bool> stop_requested_{false};
+    std::thread reader_thread_;
 };
 
 } // namespace cc::cli

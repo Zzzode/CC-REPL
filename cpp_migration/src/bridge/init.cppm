@@ -135,7 +135,8 @@ class EnvBasedReplBridgeHandle final : public BridgeCoreHandle {
     std::string environment_id_, environment_secret_, current_session_id_, title_;
 
     std::atomic<bool> running_{false}, teardown_started_{false};
-    std::jthread poll_thread_, timer_thread_;
+    std::thread poll_thread_, timer_thread_;
+    std::atomic<bool> poll_stop_{false}, timer_stop_{false};
 
     std::unique_ptr<BridgeTransport> transport_;
     std::atomic<int> last_transport_seq_{0};
@@ -316,20 +317,20 @@ class EnvBasedReplBridgeHandle final : public BridgeCoreHandle {
 
     // -- poll loop -----------------------------------------------------------
 
-    void poll_loop(std::stop_token stop) {
-        while (!stop.stop_requested() && running_.load()) {
+    void poll_loop() {
+        while (!poll_stop_.load(std::memory_order_acquire) && running_.load()) {
             auto pc = params_.get_poll_config ? params_.get_poll_config() : PollConfig{};
             try {
                 auto work = params_.api_client->poll_for_work(environment_id_, environment_secret_);
-                if (!work) { poll_error(work.error(), stop); continue; }
+                if (!work) { poll_error(work.error()); continue; }
                 if (consecutive_errors_.load() > 0) {
                     consecutive_errors_.store(0); first_err_ = {};
                 }
-                if (!*work) { at_capacity() ? cap_sleep(pc, stop)
-                                            : sleep_wake(pc.interval, stop); continue; }
+                if (!*work) { at_capacity() ? cap_sleep(pc)
+                                            : sleep_wake(pc.interval); continue; }
                 dispatch_work(**work);
             } catch (const BridgeFatalError& e) {
-                if (stop.stop_requested()) break;
+                if (poll_stop_.load(std::memory_order_acquire)) break;
                 if (e.status_code == 404) {
                     set_state(BridgeState::Reconnecting, "environment lost");
                     if (!attempt_reconnect()) { set_state(BridgeState::Failed, e.what()); break; }
@@ -337,8 +338,8 @@ class EnvBasedReplBridgeHandle final : public BridgeCoreHandle {
                 }
                 set_state(BridgeState::Failed, e.what()); break;
             } catch (const std::exception& e) {
-                if (stop.stop_requested()) break;
-                poll_error(Error::make(ErrorCode::ConnectionFailed, e.what()), stop);
+                if (poll_stop_.load(std::memory_order_acquire)) break;
+                poll_error(Error::make(ErrorCode::ConnectionFailed, e.what()));
             }
         }
     }
@@ -357,7 +358,7 @@ class EnvBasedReplBridgeHandle final : public BridgeCoreHandle {
         }
     }
 
-    void poll_error(const Error& err, std::stop_token stop) {
+    void poll_error(const Error& err) {
         auto now = std::chrono::steady_clock::now();
         if (last_err_ != std::chrono::steady_clock::time_point{}) {
             auto gap = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_err_).count();
@@ -375,13 +376,13 @@ class EnvBasedReplBridgeHandle final : public BridgeCoreHandle {
         int backoff = std::min(POLL_ERROR_INITIAL_MS * (1 << (n - 1)), POLL_ERROR_MAX_MS);
         if (!current_work_id_.empty())
             params_.api_client->heartbeat_work(environment_id_, current_work_id_, current_ingress_token_);
-        sleep_wake(std::chrono::milliseconds(backoff), stop);
+        sleep_wake(std::chrono::milliseconds(backoff));
     }
 
-    void cap_sleep(const PollConfig& pc, std::stop_token st) { sleep_wake(pc.interval, st); }
-    void sleep_wake(std::chrono::milliseconds dur, std::stop_token stop) {
+    void cap_sleep(const PollConfig& pc) { sleep_wake(pc.interval); }
+    void sleep_wake(std::chrono::milliseconds dur) {
         auto deadline = std::chrono::steady_clock::now() + dur;
-        while (!stop.stop_requested() && running_.load()) {
+        while (!poll_stop_.load(std::memory_order_acquire) && running_.load()) {
             std::unique_lock lock(wake_mtx_);
             auto rem = deadline - std::chrono::steady_clock::now();
             if (rem <= std::chrono::milliseconds::zero()) break;
@@ -391,10 +392,10 @@ class EnvBasedReplBridgeHandle final : public BridgeCoreHandle {
         }
     }
 
-    void keepalive_loop(std::stop_token stop) {
-        while (!stop.stop_requested() && running_.load()) {
+    void keepalive_loop() {
+        while (!timer_stop_.load(std::memory_order_acquire) && running_.load()) {
             std::this_thread::sleep_for(std::chrono::seconds(120));
-            if (stop.stop_requested() || !running_.load()) break;
+            if (timer_stop_.load(std::memory_order_acquire) || !running_.load()) break;
             if (transport_) {
                 BridgeMessage k; k.id = "ka"; k.type = "keep_alive"; k.method = "keep_alive";
                 transport_->send(std::move(k));
@@ -407,8 +408,8 @@ class EnvBasedReplBridgeHandle final : public BridgeCoreHandle {
     void do_teardown() {
         if (teardown_started_.exchange(true)) return;
         running_.store(false);
-        if (poll_thread_.joinable()) { poll_thread_.request_stop(); wake(); }
-        if (timer_thread_.joinable()) timer_thread_.request_stop();
+        if (poll_thread_.joinable()) { poll_stop_.store(true); wake(); }
+        if (timer_thread_.joinable()) timer_stop_.store(true);
         if (params_.perpetual) { transport_.reset(); drop_flush(); return; }
         auto t = std::move(transport_); transport_.reset(); drop_flush();
         if (t) {
@@ -431,8 +432,8 @@ public:
             if (m.uuid) { initial_msg_uuids_.insert(*m.uuid); posted_uuids_.add(*m.uuid); }
         if (!register_env() || !create_session()) { state_.store(BridgeState::Failed); return; }
         running_.store(true);
-        poll_thread_ = std::jthread([this](std::stop_token s) { poll_loop(s); });
-        timer_thread_ = std::jthread([this](std::stop_token s) { keepalive_loop(s); });
+        poll_thread_ = std::thread([this]() { poll_loop(); });
+        timer_thread_ = std::thread([this]() { keepalive_loop(); });
         set_state(BridgeState::Ready);
     }
     ~EnvBasedReplBridgeHandle() override {

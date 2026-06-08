@@ -1,4 +1,5 @@
 module;
+#include <cstdlib>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -125,9 +126,11 @@ namespace json_detail {
 
         auto num_str = sv.substr(start, pos - start);
         if (is_float) {
-            double val{};
-            auto [p, ec] = std::from_chars(num_str.data(), num_str.data() + num_str.size(), val);
-            if (ec != std::errc{}) throw std::runtime_error("Invalid number");
+            // libc++18 lacks std::from_chars for floating-point; use strtod
+            std::string tmp(num_str);
+            char* end = nullptr;
+            double val = std::strtod(tmp.c_str(), &end);
+            if (end == tmp.c_str()) throw std::runtime_error("Invalid number");
             return JsonValue(val);
         } else {
             int64_t val{};

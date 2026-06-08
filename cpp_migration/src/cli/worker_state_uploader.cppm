@@ -57,8 +57,9 @@ public:
         if (running_.load()) return;
         running_.store(true);
 
-        upload_thread_ = std::jthread([this](std::stop_token stop) {
-            while (!stop.stop_requested() && running_.load()) {
+        stop_requested_.store(false, std::memory_order_release);
+        upload_thread_ = std::thread([this] {
+            while (!stop_requested_.load(std::memory_order_acquire) && running_.load()) {
                 {
                     std::lock_guard lock(mutex_);
                     if (!current_state_.empty()) {
@@ -68,7 +69,7 @@ public:
                 }
                 // Sleep for the configured interval, checking stop periodically
                 auto end_time = std::chrono::steady_clock::now() + upload_interval_;
-                while (!stop.stop_requested() && std::chrono::steady_clock::now() < end_time) {
+                while (!stop_requested_.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < end_time) {
                     std::this_thread::sleep_for(std::chrono::milliseconds(100));
                 }
             }
@@ -80,8 +81,9 @@ public:
         if (!running_.load()) return;
         running_.store(false);
 
+        stop_requested_.store(true, std::memory_order_release);
+
         if (upload_thread_.joinable()) {
-            upload_thread_.request_stop();
             upload_thread_.join();
         }
     }
@@ -163,7 +165,8 @@ private:
     std::chrono::seconds upload_interval_{30};
     std::atomic<bool> running_{false};
     std::string last_status_;
-    std::jthread upload_thread_;
+    std::atomic<bool> stop_requested_{false};
+    std::thread upload_thread_;
     mutable std::mutex mutex_;
 };
 

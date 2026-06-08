@@ -105,8 +105,9 @@ public:
         retry_count_ = 0;
 
         // Start reader thread
-        reader_thread_ = std::jthread([this](std::stop_token stop) {
-            connection_loop(stop);
+        stop_requested_.store(false, std::memory_order_release);
+        reader_thread_ = std::thread([this] {
+            connection_loop();
         });
 
         return {};
@@ -123,8 +124,9 @@ public:
             socket_fd_.store(-1);
         }
 
+        stop_requested_.store(true, std::memory_order_release);
+
         if (reader_thread_.joinable()) {
-            reader_thread_.request_stop();
             reader_thread_.join();
         }
     }
@@ -219,12 +221,12 @@ private:
 
     // ─── Connection Loop (runs in background thread) ─────────
 
-    void connection_loop(std::stop_token stop) {
-        while (!stop.stop_requested() && should_reconnect_.load()) {
+    void connection_loop() {
+        while (!stop_requested_.load(std::memory_order_acquire) && should_reconnect_.load()) {
             auto fd = establish_connection();
             if (fd < 0) {
                 emit_error("Connection failed");
-                if (!wait_for_reconnect(stop)) break;
+                if (!wait_for_reconnect()) break;
                 continue;
             }
 
@@ -238,7 +240,7 @@ private:
                 ::close(fd);
                 socket_fd_.store(-1);
                 emit_error("Failed to send HTTP request");
-                if (!wait_for_reconnect(stop)) break;
+                if (!wait_for_reconnect()) break;
                 continue;
             }
 
@@ -247,21 +249,21 @@ private:
                 ::close(fd);
                 socket_fd_.store(-1);
                 emit_error("Invalid HTTP response");
-                if (!wait_for_reconnect(stop)) break;
+                if (!wait_for_reconnect()) break;
                 continue;
             }
 
             // Stream SSE events
-            read_sse_stream(fd, stop);
+            read_sse_stream(fd);
 
             ::close(fd);
             socket_fd_.store(-1);
 
-            if (stop.stop_requested() || !should_reconnect_.load()) break;
+            if (stop_requested_.load(std::memory_order_acquire) || !should_reconnect_.load()) break;
 
             // Connection was lost — reconnect
             set_state(SSEState::reconnecting);
-            if (!wait_for_reconnect(stop)) break;
+            if (!wait_for_reconnect()) break;
         }
 
         if (state_.load() != SSEState::closed) {
@@ -375,7 +377,7 @@ private:
 
     // ─── SSE Stream Reader ───────────────────────────────────
 
-    void read_sse_stream(int fd, std::stop_token& stop) {
+    void read_sse_stream(int fd) {
         // SSE parsing state per W3C spec
         std::string current_event;
         std::string current_data;
@@ -385,7 +387,7 @@ private:
         std::string line_buf;
         char buf[4096];
 
-        while (!stop.stop_requested() && should_reconnect_.load()) {
+        while (!stop_requested_.load(std::memory_order_acquire) && should_reconnect_.load()) {
             auto n = ::recv(fd, buf, sizeof(buf), 0);
             if (n < 0) {
                 // Timeout (EAGAIN/EWOULDBLOCK) means liveness timeout exceeded
@@ -501,7 +503,7 @@ private:
 
     // ─── Reconnect Backoff ───────────────────────────────────
 
-    bool wait_for_reconnect(std::stop_token& stop) {
+    bool wait_for_reconnect() {
         retry_count_++;
         if (retry_count_ > policy_.max_retries) {
             emit_error("Max reconnect attempts exceeded");
@@ -529,7 +531,7 @@ private:
         // Sleep in small increments so we can respond to stop requests
         auto end_time = std::chrono::steady_clock::now() + jittered;
         while (std::chrono::steady_clock::now() < end_time) {
-            if (stop.stop_requested() || !should_reconnect_.load()) return false;
+            if (stop_requested_.load(std::memory_order_acquire) || !should_reconnect_.load()) return false;
             std::this_thread::sleep_for(50ms);
         }
 
@@ -582,7 +584,8 @@ private:
     std::chrono::milliseconds current_delay_{1000};
 
     // Thread
-    std::jthread reader_thread_;
+    std::atomic<bool> stop_requested_{false};
+    std::thread reader_thread_;
 
     // Event queue + Last-Event-ID
     mutable std::mutex data_mutex_;

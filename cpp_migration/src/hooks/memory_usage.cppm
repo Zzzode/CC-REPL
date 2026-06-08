@@ -13,6 +13,7 @@ module;
 #else
 #include <fstream>
 #include <string>
+#include <unistd.h>
 #endif
 
 export module cc.hooks.memory_usage;

@@ -676,17 +676,19 @@ public:
         listen_fd_ = fd;
         routes_ = get_default_routes();
         running_.store(true);
-        server_thread_ = std::jthread([this](std::stop_token stop) {
-            accept_loop(stop);
+        server_stop_.store(false);
+        server_thread_ = std::thread([this]() {
+            accept_loop();
         });
         return {};
     }
 
     void stop() {
-        std::jthread worker;
+        std::thread worker;
         {
             std::lock_guard lock(mutex_);
             running_.store(false);
+            server_stop_.store(true);
             if (listen_fd_ >= 0) {
                 ::shutdown(listen_fd_, SHUT_RDWR);
                 ::close(listen_fd_);
@@ -695,7 +697,6 @@ public:
             worker = std::move(server_thread_);
         }
         if (worker.joinable()) {
-            worker.request_stop();
             worker.join();
         }
     }
@@ -714,8 +715,8 @@ public:
     }
 
 private:
-    void accept_loop(std::stop_token stop) {
-        while (!stop.stop_requested() && running_.load()) {
+    void accept_loop() {
+        while (!server_stop_.load(std::memory_order_acquire) && running_.load()) {
             sockaddr_in client_addr{};
             socklen_t client_len = sizeof(client_addr);
             int client_fd = ::accept(listen_fd_, reinterpret_cast<sockaddr*>(&client_addr), &client_len);
@@ -1033,7 +1034,8 @@ private:
     ServerConfig config_;
     std::atomic<bool> running_{false};
     int listen_fd_{-1};
-    std::jthread server_thread_;
+    std::thread server_thread_;
+    std::atomic<bool> server_stop_{false};
     std::mutex mutex_;
     std::vector<Route> routes_;
     std::mutex cancel_mutex_;

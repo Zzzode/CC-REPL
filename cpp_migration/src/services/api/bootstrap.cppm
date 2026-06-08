@@ -105,11 +105,59 @@ public:
     explicit BootstrapClient(BootstrapConfig config)
         : config_(std::move(config)) {}
 
-    // Fetch bootstrap data from API
+    // Fetch bootstrap data from the Anthropic API.
+    // Port of TS fetchBootstrapAPI() + fetchBootstrapData().
     [[nodiscard]] Result<BootstrapResponse> fetch() {
         auto client_cfg = build_client_config(config_);
-        (void)client_cfg;
-        return BootstrapResponse{};
+
+        // Determine auth headers
+        std::vector<std::string> headers = {"Content-Type: application/json"};
+        if (!client_cfg.auth_token.empty()) {
+            headers.push_back(std::format("Authorization: Bearer {}", client_cfg.auth_token));
+            // OAuth requests include the beta header
+            if (!client_cfg.beta_headers.empty()) {
+                for (const auto& beta : client_cfg.beta_headers) {
+                    headers.push_back(std::format("anthropic-beta: {}", beta));
+                }
+            }
+        } else if (!client_cfg.api_key.empty()) {
+            headers.push_back(std::format("x-api-key: {}", client_cfg.api_key));
+        } else {
+            // No auth available — return empty gracefully
+            return BootstrapResponse{};
+        }
+
+        if (!client_cfg.user_agent.empty()) {
+            headers.push_back(std::format("User-Agent: {}", client_cfg.user_agent));
+        }
+
+        // Build URL
+        std::string base_url = client_cfg.base_url;
+        if (base_url.empty()) base_url = "https://api.anthropic.com";
+        auto url = std::format("{}/api/claude_cli/bootstrap", base_url);
+
+        auto result = HttpClient::get(url, headers, client_cfg.timeout);
+        if (!result) {
+            // Bootstrap fetch is non-fatal — return empty
+            return BootstrapResponse{};
+        }
+
+        if (result->status_code != 200) {
+            // Non-fatal — proceed without bootstrap data
+            return BootstrapResponse{};
+        }
+
+        auto doc = cc::utils::json::parse(result->body);
+        if (!doc) {
+            return BootstrapResponse{};
+        }
+
+        auto parsed = parse_response(doc->root());
+        if (!parsed) {
+            return BootstrapResponse{};
+        }
+
+        return *parsed;
     }
 
     // Fetch and persist to cache

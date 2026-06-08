@@ -240,8 +240,10 @@ private:
     cc::vim::VimStateMachine vim_sm_;
 
     // Async query state
-    std::jthread query_thread_;
-    std::jthread spinner_thread_;  // Periodic refresh for spinner animation
+    std::thread query_thread_;
+    std::thread spinner_thread_;  // Periodic refresh for spinner animation
+    std::atomic<bool> query_stop_{false};
+    std::atomic<bool> spinner_stop_{false};
     std::atomic<bool> query_running_{false};
     std::mutex result_mutex_;
     std::optional<std::string> pending_error_;
@@ -359,11 +361,11 @@ public:
         }
 
         // Launch async streaming query
-        query_thread_ = std::jthread([this, text](std::stop_token st) {
+        query_thread_ = std::thread([this, text]() {
             core::QueryOptions opts;
-            opts.on_event = [this, &st](const core::StreamEvent& ev) {
+            opts.on_event = [this](const core::StreamEvent& ev) {
                 // Check for cancellation
-                if (st.stop_requested()) return;
+                if (query_stop_.load(std::memory_order_acquire)) return;
 
                 std::visit([this](const auto& e) {
                     using T = std::decay_t<decltype(e)>;
@@ -416,8 +418,9 @@ public:
         });
 
         // Start spinner animation timer (posts Event::Custom every 100ms)
-        spinner_thread_ = std::jthread([this](std::stop_token st) {
-            while (!st.stop_requested() && query_running_.load()) {
+        spinner_stop_.store(false);
+        spinner_thread_ = std::thread([this]() {
+            while (!spinner_stop_.load(std::memory_order_acquire) && query_running_.load()) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
                 if (screen_ && query_running_.load()) {
                     screen_->Post(Event::Custom);
@@ -772,9 +775,10 @@ public:
             if (query_running_.load()) {
                 engine_->abort();
                 state_.status_message = "Cancelling...";
-                // Request the jthread to stop
+                // Request the query thread to stop
                 if (query_thread_.joinable()) {
-                    query_thread_.request_stop();
+                    query_stop_.store(true);
+                    query_thread_.join();
                 }
                 return true;
             } else {

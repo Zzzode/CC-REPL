@@ -190,7 +190,7 @@ class LocalBashTask : public ITask {
     std::mutex mutex_;
     std::optional<TaskResult> result_;
     std::atomic<bool> killed_ = false;
-    std::jthread worker_;
+    std::thread worker_;
 
 public:
     explicit LocalBashTask(LocalBashInput input, std::string output_file)
@@ -222,7 +222,7 @@ public:
             state_.start_time = std::chrono::system_clock::now();
         }
 
-        worker_ = std::jthread([this](std::stop_token stop) {
+        worker_ = std::thread([this] {
             cc::utils::bash::ShellSessionConfig config;
             if (input_.timeout) {
                 const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(*input_.timeout);
@@ -232,7 +232,7 @@ public:
             auto execution = cc::utils::bash::execute_command(input_.command, config);
             TaskResult task_result;
 
-            if (stop.stop_requested() || killed_.load()) {
+            if (killed_.load()) {
                 task_result = TaskResult{
                     .success = false,
                     .output = "",
@@ -299,9 +299,9 @@ public:
     }
 
     void kill() override {
-        killed_.store(true);
+        killed_.store(true, std::memory_order_release);
         if (worker_.joinable()) {
-            worker_.request_stop();
+            worker_.join();
         }
         std::lock_guard lock(mutex_);
         if (status_.load() == TaskStatus::Running) {

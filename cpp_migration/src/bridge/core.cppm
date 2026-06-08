@@ -230,7 +230,8 @@ class TokenRefreshScheduler {
     std::string label_;
 
     std::mutex mutex_;
-    std::jthread timer_thread_;
+    std::thread timer_thread_;
+    std::atomic<bool> timer_stop_{false};
     std::string active_session_id_;
     int64_t active_expires_in_s_{0};
 
@@ -258,23 +259,24 @@ public:
         active_expires_in_s_ = expires_in_s;
 
         if (timer_thread_.joinable()) {
-            timer_thread_.request_stop();
+            timer_stop_.store(true);
             timer_thread_.join();
         }
+        timer_stop_.store(false);
 
         auto delay_s = expires_in_s - refresh_buffer_ms_.count() / 1000;
         if (delay_s <= 0) delay_s = 5; // minimum 5s
         auto delay = std::chrono::seconds(delay_s);
 
-        timer_thread_ = std::jthread([this, sid = session_id, delay](std::stop_token stop) {
+        timer_thread_ = std::thread([this, sid = session_id, delay]() {
             // Wait for delay or stop
             auto deadline = std::chrono::steady_clock::now() + delay;
-            while (!stop.stop_requested()) {
+            while (!timer_stop_.load(std::memory_order_acquire)) {
                 auto remaining = deadline - std::chrono::steady_clock::now();
                 if (remaining <= std::chrono::seconds{0}) break;
                 std::this_thread::sleep_for(std::min(remaining, std::chrono::seconds{1}));
             }
-            if (stop.stop_requested()) return;
+            if (timer_stop_.load(std::memory_order_acquire)) return;
 
             // Refresh the OAuth token before calling on_refresh
             std::string oauth_token;
@@ -294,7 +296,7 @@ public:
     void cancel_all() {
         std::lock_guard lock(mutex_);
         if (timer_thread_.joinable()) {
-            timer_thread_.request_stop();
+            timer_stop_.store(true);
             timer_thread_.join();
         }
         active_session_id_.clear();
@@ -317,7 +319,8 @@ class SseConnection {
     std::string url_;
     std::string token_;
     std::atomic<bool> connected_{false};
-    std::jthread reader_thread_;
+    std::thread reader_thread_;
+    std::atomic<bool> reader_stop_{false};
 
 public:
     /// Callback: SSE event received. Parameters: (event_type, data).
@@ -343,8 +346,9 @@ public:
 
         // In production: open HTTP GET with text/event-stream Accept header,
         // read chunked lines, dispatch on_event callbacks.
-        reader_thread_ = std::jthread([this](std::stop_token stop) {
-            read_loop(stop);
+        reader_stop_.store(false);
+        reader_thread_ = std::thread([this]() {
+            read_loop();
         });
         return {};
     }
@@ -352,8 +356,8 @@ public:
     /// Close the SSE connection.
     void disconnect() {
         connected_.store(false);
+        reader_stop_.store(true);
         if (reader_thread_.joinable()) {
-            reader_thread_.request_stop();
             reader_thread_.join();
         }
         log_bridge_event("sse_disconnect", {});
@@ -363,12 +367,12 @@ public:
     [[nodiscard]] bool is_connected() const { return connected_.load(); }
 
 private:
-    void read_loop(std::stop_token stop) {
+    void read_loop() {
         // Skeleton SSE read loop.
         // Full implementation: HTTP GET url_ with Accept: text/event-stream,
         // Authorization: Bearer token_, read lines, parse event:/data: pairs,
         // invoke on_event(event_type, data).
-        while (!stop.stop_requested() && connected_.load()) {
+        while (!reader_stop_.load(std::memory_order_acquire) && connected_.load()) {
             std::this_thread::sleep_for(std::chrono::milliseconds{100});
         }
     }

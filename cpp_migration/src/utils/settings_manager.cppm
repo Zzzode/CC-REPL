@@ -381,8 +381,9 @@ public:
                 mtimes_[path] = current_mtime(path);
             }
         }
-        watcher_thread_ = std::jthread([this](std::stop_token stop) {
-            poll_loop(stop);
+        stop_flag_.store(false);
+        watcher_thread_ = std::thread([this]() {
+            poll_loop();
         });
         return true;
     }
@@ -407,7 +408,7 @@ public:
     void dispose() {
         disposed_ = true;
         if (watcher_thread_.joinable()) {
-            watcher_thread_.request_stop();
+            stop_flag_.store(true);
             watcher_thread_.join();
         }
         std::lock_guard lock(mutex_);
@@ -437,8 +438,8 @@ private:
         return mtime;
     }
 
-    void poll_loop(std::stop_token stop) {
-        while (!stop.stop_requested() && !disposed_) {
+    void poll_loop() {
+        while (!stop_flag_.load() && !disposed_) {
             std::this_thread::sleep_for(config_.poll_interval);
             std::vector<SettingSource> changed_sources;
             {
@@ -481,7 +482,8 @@ private:
     std::map<SettingSource, fs::path> watched_files_;
     std::map<fs::path, std::optional<fs::file_time_type>> mtimes_;
     InternalWriteTracker* write_tracker_ = nullptr;
-    std::jthread watcher_thread_;
+    std::thread watcher_thread_;
+    std::atomic<bool> stop_flag_{false};
 };
 
 // ============================================================================

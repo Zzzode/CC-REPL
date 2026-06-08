@@ -562,17 +562,23 @@ private:
     }
 
     void stop_stdout_readers() {
-        std::vector<std::jthread> readers;
+        std::vector<std::thread> readers;
         {
             std::lock_guard lock(stdout_readers_mutex_);
-            for (auto& [_, reader] : stdout_reader_threads_) {
-                reader.request_stop();
+            for (auto& [key, reader] : stdout_reader_threads_) {
+                auto it = stdout_reader_stop_flags_.find(key);
+                if (it != stdout_reader_stop_flags_.end()) {
+                    it->second.store(true);
+                }
             }
             readers.reserve(stdout_reader_threads_.size());
             for (auto& [_, reader] : stdout_reader_threads_) {
                 readers.push_back(std::move(reader));
             }
             stdout_reader_threads_.clear();
+        }
+        for (auto& reader : readers) {
+            if (reader.joinable()) reader.join();
         }
     }
 
@@ -584,17 +590,18 @@ private:
         }
         std::lock_guard lock(stdout_readers_mutex_);
         auto key = std::string(session_id);
+        stdout_reader_stop_flags_[key].store(false);
         stdout_reader_threads_.insert_or_assign(
             key,
-            std::jthread([this, key, fd](std::stop_token stop) {
-                read_child_stdout_loop(stop, key, fd);
+            std::thread([this, key, fd]() {
+                read_child_stdout_loop(key, fd);
             }));
     }
 
-    void read_child_stdout_loop(std::stop_token stop, std::string session_id, int fd) {
+    void read_child_stdout_loop(std::string session_id, int fd) {
         std::string buffer;
         char chunk[4096];
-        while (!stop.stop_requested()) {
+        while (!stdout_reader_stop_flags_[session_id].load(std::memory_order_acquire)) {
             auto n = ::read(fd, chunk, sizeof(chunk));
             if (n > 0) {
                 buffer.append(chunk, static_cast<std::size_t>(n));
@@ -1506,7 +1513,8 @@ private:
 
     // Child stdio readers
     std::mutex stdout_readers_mutex_;
-    std::unordered_map<std::string, std::jthread> stdout_reader_threads_;
+    std::unordered_map<std::string, std::thread> stdout_reader_threads_;
+    std::unordered_map<std::string, std::atomic<bool>> stdout_reader_stop_flags_;
 
     // RPC handler
     std::function<RpcResponse(const RpcRequest&)> rpc_handler_;

@@ -11,7 +11,7 @@ module;
 #include <optional>
 #include <sstream>
 #include <stdexcept>
-#include <stop_token>
+#include <atomic>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -529,6 +529,125 @@ inline Result<void> store_token_data(std::string_view server_key, const McpOAuth
     return {};
 }
 
+// =========================================================================
+// RFC 9728 / RFC 8414 OAuth Discovery Helpers
+// =========================================================================
+
+/// Split a URL into (scheme+authority, path).
+/// e.g. "https://example.com/api/endpoint" -> ("https://example.com", "/api/endpoint")
+struct UrlSplit { std::string base; std::string path; };
+
+inline std::optional<UrlSplit> split_url(const std::string& url) {
+    auto scheme_end = url.find("://");
+    if (scheme_end == std::string::npos) return std::nullopt;
+    auto authority_start = scheme_end + 3;
+    auto path_start = url.find('/', authority_start);
+    UrlSplit split;
+    split.base = path_start == std::string::npos ? url : url.substr(0, path_start);
+    split.path = path_start == std::string::npos ? "/" : url.substr(path_start);
+    return split;
+}
+
+/// Perform an HTTP GET and return the parsed JSON root, or nullopt on failure.
+/// Non-fatal — returns nullopt for any network/parse/HTTP error.
+inline std::optional<JsonVal> http_get_json(const std::string& url,
+                                             const std::string& accept = "application/json") {
+    auto split = split_url(url);
+    if (!split) return std::nullopt;
+
+    httplib::Client client(split->base);
+    client.set_follow_location(true);
+    client.set_connection_timeout(5, 0);
+    client.set_read_timeout(10, 0);
+
+    auto response = client.Get(split->path, httplib::Headers{{"Accept", accept}});
+    if (!response) return std::nullopt;
+    if (response->status < 200 || response->status >= 300) return std::nullopt;
+
+    auto parsed = cc::utils::json::parse(response->body);
+    if (!parsed) return std::nullopt;
+
+    auto root = parsed->root();
+    if (!root.is_obj()) return std::nullopt;
+    return root;
+}
+
+/// RFC 9728: Protected Resource Metadata.
+/// GET {server_url}/.well-known/oauth-protected-resource
+/// Returns the "authorization_servers" array's first entry if present.
+struct ProtectedResourceDiscovery {
+    std::optional<std::string> authorization_server_url;
+    std::optional<std::string> resource_metadata_url;
+};
+
+inline std::optional<ProtectedResourceDiscovery> discover_protected_resource_metadata(
+    const std::string& server_url) {
+    // Build well-known URL
+    auto split = split_url(server_url);
+    if (!split) return std::nullopt;
+
+    std::string well_known;
+    // Insert .well-known before the path
+    if (split->path == "/" || split->path.empty()) {
+        well_known = split->base + "/.well-known/oauth-protected-resource";
+    } else {
+        // For paths like /api/endpoint, the RFC says to append at the server root
+        well_known = split->base + "/.well-known/oauth-protected-resource";
+    }
+
+    auto root = http_get_json(well_known);
+    if (!root) return std::nullopt;
+
+    ProtectedResourceDiscovery result;
+
+    // Extract authorization_servers array, take first entry
+    auto as_array = root->get("authorization_servers");
+    if (as_array.is_arr()) {
+        std::string first_url;
+        as_array.iter([&first_url](JsonVal item) {
+            if (first_url.empty() && item.is_str()) {
+                first_url = std::string(item.as_str());
+            }
+        });
+        if (!first_url.empty()) {
+            result.authorization_server_url = std::move(first_url);
+        }
+    }
+
+    // Store resource metadata document URL for reference
+    auto resource_node = root->get("resource");
+    if (resource_node.is_str()) {
+        result.resource_metadata_url = std::string(resource_node.as_str());
+    }
+
+    return result;
+}
+
+/// RFC 8414: Authorization Server Metadata.
+/// GET {as_url}/.well-known/oauth-authorization-server{path}
+/// e.g. for server at https://auth.example.com/sub/path,
+///   GET https://auth.example.com/.well-known/oauth-authorization-server/sub/path
+inline std::optional<OAuthServerMetadata> discover_authorization_server_metadata(
+    const std::string& as_url) {
+    auto split = split_url(as_url);
+    if (!split) return std::nullopt;
+
+    std::string well_known_path;
+    if (split->path.empty() || split->path == "/") {
+        well_known_path = "/.well-known/oauth-authorization-server";
+    } else {
+        well_known_path = "/.well-known/oauth-authorization-server" + split->path;
+    }
+
+    std::string well_known_url = split->base + well_known_path;
+    auto root = http_get_json(well_known_url);
+    if (!root) return std::nullopt;
+
+    auto parsed = parse_oauth_server_metadata(*root);
+    if (!parsed) return std::nullopt;
+    return *parsed;
+}
+
 } // namespace detail
 
 std::string get_server_key(const std::string& server_name,
@@ -772,17 +891,45 @@ private:
 };
 
 // Fetch auth server metadata
+// Implements RFC 9728 protected-resource metadata discovery and
+// RFC 8414 authorization-server metadata discovery, with fallback.
 Result<std::optional<OAuthServerMetadata>> fetch_auth_server_metadata(
     const std::string& server_name,
     const std::string& server_url,
     const std::optional<std::string>& configured_metadata_url) {
-    (void)server_name;
-    (void)server_url;
 
+    // 1. If a configured metadata URL is provided, use it directly
     if (configured_metadata_url && !configured_metadata_url->empty()) {
         auto metadata = detail::fetch_metadata_url(*configured_metadata_url);
         if (!metadata) return std::unexpected(metadata.error());
         return std::optional<OAuthServerMetadata>{std::move(*metadata)};
+    }
+
+    // 2. RFC 9728: Discover protected-resource metadata
+    //    GET {server_url}/.well-known/oauth-protected-resource
+    //    Response contains "authorization_servers" array -> pick first entry
+    auto discovered = detail::discover_protected_resource_metadata(server_url);
+    if (discovered && discovered->authorization_server_url) {
+        // 3. RFC 8414: Discover authorization-server metadata from the AS URL
+        auto as_metadata = detail::discover_authorization_server_metadata(
+            *discovered->authorization_server_url);
+        if (as_metadata) {
+            return std::optional<OAuthServerMetadata>{std::move(*as_metadata)};
+        }
+    }
+
+    // 4. Fallback: RFC 8414 directly against the server URL
+    //    Only when the URL has a non-root path (matching TS behavior)
+    auto path_start = server_url.find("://");
+    if (path_start != std::string::npos) {
+        auto rest = server_url.substr(path_start + 3);
+        auto slash = rest.find('/');
+        if (slash != std::string::npos && rest.substr(slash) != "/") {
+            auto fallback = detail::discover_authorization_server_metadata(server_url);
+            if (fallback) {
+                return std::optional<OAuthServerMetadata>{std::move(*fallback)};
+            }
+        }
     }
 
     return std::nullopt;
@@ -793,9 +940,9 @@ Result<void> perform_mcp_oauth_flow(
     const std::string& server_name,
     const McpServerConfig& server_config,
     std::function<void(const std::string&)> on_authorization_url,
-    std::optional<std::stop_token> abort_token = std::nullopt,
+    std::atomic<bool>* abort_flag = nullptr,
     bool skip_browser_open = false) {
-    if (abort_token && abort_token->stop_requested()) {
+    if (abort_flag && abort_flag->load(std::memory_order_acquire)) {
         return std::unexpected(cc::utils::Error(cc::utils::ErrorCode::cancelled,
             "MCP OAuth flow was cancelled"));
     }
@@ -916,7 +1063,7 @@ Result<void> perform_mcp_oauth_flow(
         }
         on_authorization_url(authorization_url);
 
-        if (abort_token && abort_token->stop_requested()) {
+        if (abort_flag && abort_flag->load(std::memory_order_acquire)) {
             return std::unexpected(cc::utils::Error(cc::utils::ErrorCode::cancelled,
                 "MCP OAuth flow was cancelled"));
         }

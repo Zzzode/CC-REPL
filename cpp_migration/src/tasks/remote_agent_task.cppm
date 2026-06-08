@@ -172,7 +172,7 @@ using PollSessionFn = std::function<std::optional<PollResponse>(
 /// Remote session poller - manages periodic polling for a single task
 class RemoteSessionPoller {
     std::atomic<bool> running_{true};
-    std::jthread thread_;
+    std::thread thread_;
 
 public:
     RemoteSessionPoller() = default;
@@ -185,15 +185,15 @@ public:
         std::function<void(const std::string&, const std::string&)> on_complete,
         std::function<void(const std::string&, const std::string&)> on_fail
     ) {
-        thread_ = std::jthread([this, task_id = std::move(task_id),
+        thread_ = std::thread([this, task_id = std::move(task_id),
                                  poll_fn = std::move(poll_fn),
                                  on_update = std::move(on_update),
                                  on_complete = std::move(on_complete),
-                                 on_fail = std::move(on_fail)](std::stop_token stop) {
+                                 on_fail = std::move(on_fail)] {
             std::optional<std::string> last_event_id;
             int consecutive_idle_polls = 0;
             
-            while (!stop.stop_requested() && running_.load(std::memory_order_relaxed)) {
+            while (running_.load(std::memory_order_acquire)) {
                 std::this_thread::sleep_for(POLL_INTERVAL);
                 if (!running_.load(std::memory_order_relaxed)) break;
                 
@@ -229,9 +229,9 @@ public:
     
     /// Stop polling
     void stop() {
-        running_.store(false, std::memory_order_relaxed);
+        running_.store(false, std::memory_order_release);
         if (thread_.joinable()) {
-            thread_.request_stop();
+            thread_.join();
         }
     }
     

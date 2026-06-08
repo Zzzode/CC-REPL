@@ -87,7 +87,7 @@ inline constexpr std::size_t STALL_TAIL_BYTES = 1024;
 /// Handle for cancelling a stall watchdog
 class StallWatchdog {
     std::atomic<bool> cancelled_{false};
-    std::jthread thread_;
+    std::thread thread_;
 
 public:
     StallWatchdog() = default;
@@ -106,13 +106,13 @@ public:
         // Don't watch monitors - they're expected to run indefinitely
         if (kind == BashTaskKind::Monitor) return;
         
-        thread_ = std::jthread([this, task_id = std::move(task_id), 
+        thread_ = std::thread([this, task_id = std::move(task_id),
                                  description = std::move(description),
-                                 on_stall = std::move(on_stall)](std::stop_token stop) {
+                                 on_stall = std::move(on_stall)] {
             std::size_t last_size = 0;
             auto last_growth = std::chrono::steady_clock::now();
             
-            while (!stop.stop_requested() && !cancelled_.load(std::memory_order_relaxed)) {
+            while (!cancelled_.load(std::memory_order_acquire)) {
                 std::this_thread::sleep_for(STALL_CHECK_INTERVAL);
                 
                 if (cancelled_.load(std::memory_order_relaxed)) break;
@@ -132,9 +132,9 @@ public:
     
     /// Cancel the watchdog
     void cancel() {
-        cancelled_.store(true, std::memory_order_relaxed);
+        cancelled_.store(true, std::memory_order_release);
         if (thread_.joinable()) {
-            thread_.request_stop();
+            thread_.join();
         }
     }
     

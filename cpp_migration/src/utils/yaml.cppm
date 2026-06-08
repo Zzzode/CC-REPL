@@ -1,4 +1,5 @@
 module;
+#include <cstdlib>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -86,10 +87,14 @@ namespace yaml_detail {
         }
 
 
-        double dbl_val{};
-        auto [ptr2, ec2] = std::from_chars(value.data(), value.data() + value.size(), dbl_val);
-        if (ec2 == std::errc{} && ptr2 == value.data() + value.size()) {
-            return YamlValue(dbl_val);
+        // libc++18 lacks std::from_chars for double; use strtod
+        {
+            std::string tmp(value);
+            char* end = nullptr;
+            double dbl_val = std::strtod(tmp.c_str(), &end);
+            if (end != tmp.c_str() && end == tmp.c_str() + tmp.size()) {
+                return YamlValue(dbl_val);
+            }
         }
 
 

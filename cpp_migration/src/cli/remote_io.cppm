@@ -48,8 +48,9 @@ public:
         connected_.store(true);
 
         // Start the output forwarding thread
-        output_thread_ = std::jthread([this](std::stop_token stop) {
-            run_output_loop(stop);
+        stop_requested_.store(false, std::memory_order_release);
+        output_thread_ = std::thread([this] {
+            run_output_loop();
         });
 
         return {};
@@ -75,8 +76,9 @@ public:
 
         connected_.store(false);
 
+        stop_requested_.store(true, std::memory_order_release);
+
         if (output_thread_.joinable()) {
-            output_thread_.request_stop();
             output_thread_.join();
         }
 
@@ -97,8 +99,8 @@ public:
 private:
     // Output loop forwards any pending output to the registered callback
     // Also drains the input queue and forwards to remote endpoint
-    void run_output_loop(std::stop_token stop) {
-        while (!stop.stop_requested() && connected_.load()) {
+    void run_output_loop() {
+        while (!stop_requested_.load(std::memory_order_acquire) && connected_.load()) {
             // Process any queued input to send to the remote endpoint
             {
                 std::lock_guard lock(input_mutex_);
@@ -130,7 +132,8 @@ private:
     std::queue<std::string> input_queue_;
     std::mutex mutex_;
     std::mutex input_mutex_;
-    std::jthread output_thread_;
+    std::atomic<bool> stop_requested_{false};
+    std::thread output_thread_;
     std::unique_ptr<WebSocketTransport> transport_;
 };
 

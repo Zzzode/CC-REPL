@@ -290,7 +290,8 @@ class WebSocketTransport : public BridgeTransport {
     std::atomic<bool> connected_{false};
     std::atomic<int> socket_fd_{-1};
     std::mutex send_mutex_;
-    std::jthread reader_thread_;
+    std::thread reader_thread_;
+    std::atomic<bool> reader_stop_{false};
 
 public:
     ~WebSocketTransport() override { disconnect(); }
@@ -329,8 +330,9 @@ public:
         connected_.store(true);
         set_state(TransportState::connected);
         reconnect_attempts_ = 0;
-        reader_thread_ = std::jthread([this](std::stop_token stop) {
-            read_loop(stop);
+        reader_stop_.store(false);
+        reader_thread_ = std::thread([this]() {
+            read_loop();
         });
         return {};
     }
@@ -350,8 +352,8 @@ public:
                 }
             }
         }
+        reader_stop_.store(true);
         if (reader_thread_.joinable()) {
-            reader_thread_.request_stop();
             if (reader_thread_.get_id() != std::this_thread::get_id()) {
                 reader_thread_.join();
             }
@@ -610,8 +612,8 @@ private:
         return frame;
     }
 
-    void read_loop(std::stop_token stop) {
-        while (!stop.stop_requested() && connected_.load()) {
+    void read_loop() {
+        while (!reader_stop_.load(std::memory_order_acquire) && connected_.load()) {
             int fd = socket_fd_.load();
             if (fd < 0) break;
 
@@ -664,7 +666,8 @@ class HttpPollingTransport : public BridgeTransport {
     std::vector<std::string> posted_messages_;
     std::atomic<bool> connected_{false};
     cc::utils::HttpClient http_{};
-    std::jthread poll_thread_;
+    std::thread poll_thread_;
+    std::atomic<bool> poll_stop_{false};
 
 public:
     ~HttpPollingTransport() override { disconnect(); }
@@ -689,16 +692,17 @@ public:
         token_ = token ? std::string(*token) : std::string{};
         connected_.store(true);
         set_state(TransportState::connected);
-        poll_thread_ = std::jthread([this](std::stop_token stop) {
-            poll_loop(stop);
+        poll_stop_.store(false);
+        poll_thread_ = std::thread([this]() {
+            poll_loop();
         });
         return {};
     }
 
     void disconnect() override {
         connected_.store(false);
+        poll_stop_.store(true);
         if (poll_thread_.joinable()) {
-            poll_thread_.request_stop();
             if (poll_thread_.get_id() != std::this_thread::get_id()) {
                 poll_thread_.join();
             }
@@ -835,10 +839,10 @@ private:
         }
     }
 
-    void poll_loop(std::stop_token stop) {
-        while (!stop.stop_requested() && connected_.load()) {
+    void poll_loop() {
+        while (!poll_stop_.load(std::memory_order_acquire) && connected_.load()) {
             auto response = http_.get(endpoint("/poll"), headers());
-            if (!connected_.load() || stop.stop_requested()) break;
+            if (!connected_.load() || poll_stop_.load(std::memory_order_acquire)) break;
 
             if (!response) {
                 auto error = map_http_error(response.error());
@@ -859,7 +863,7 @@ private:
 
             const auto sleep_step = std::chrono::milliseconds{50};
             auto slept = std::chrono::milliseconds{0};
-            while (!stop.stop_requested() && connected_.load() && slept < poll_interval_) {
+            while (!poll_stop_.load(std::memory_order_acquire) && connected_.load() && slept < poll_interval_) {
                 std::this_thread::sleep_for(sleep_step);
                 slept += sleep_step;
             }

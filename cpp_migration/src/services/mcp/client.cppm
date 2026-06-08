@@ -33,6 +33,7 @@ module;
 export module cc.services.mcp.client;
 
 import cc.services.mcp.types;
+import cc.services.api.client;
 import cc.utils.json;
 import cc.utils.http;
 
@@ -263,8 +264,8 @@ public:
 
         unauthorized_.store(false);
         should_run_.store(true);
-        reader_thread_ = std::jthread([this](std::stop_token stop) {
-            connection_loop(stop);
+        reader_thread_ = std::thread([this] {
+            connection_loop();
         });
 
         // Wait briefly for initial connection
@@ -328,7 +329,6 @@ public:
         }
 
         if (reader_thread_.joinable()) {
-            reader_thread_.request_stop();
             reader_thread_.join();
         }
     }
@@ -417,7 +417,10 @@ private:
     }
 
     [[nodiscard]] McpResult<void> send_post_request(const UrlParts& target, const std::string& body) {
-        if (target.https) return std::unexpected(McpClientError::ConnectionFailed);
+        if (target.https) {
+            // Delegate HTTPS POST to cc::utils::HttpClient (curl-based)
+            return send_post_request_https(target, body);
+        }
 
         int fd = tcp_connect(target);
         if (fd < 0) return std::unexpected(McpClientError::ConnectionFailed);
@@ -482,15 +485,23 @@ private:
         return fd;
     }
 
-    void connection_loop(std::stop_token stop) {
+    void connection_loop() {
         uint32_t retries = 0;
         auto delay = policy_.initial_delay;
 
-        while (!stop.stop_requested() && should_run_.load()) {
+        while (should_run_.load()) {
+            if (parts_.https) {
+                // HTTPS SSE: use curl for the GET connection and stream parsing
+                https_sse_connection_loop(retries, delay);
+                if (!should_run_.load()) break;
+                sleep_with_backoff(delay);
+                continue;
+            }
+
             int fd = tcp_connect();
             if (fd < 0) {
                 if (++retries > policy_.max_retries) break;
-                sleep_with_backoff(stop, delay);
+                sleep_with_backoff(delay);
                 delay = std::min(
                     std::chrono::milliseconds(static_cast<int64_t>(delay.count() * policy_.backoff_multiplier)),
                     policy_.max_delay);
@@ -510,7 +521,7 @@ private:
                 }
                 ::close(fd); socket_fd_.store(-1);
                 if (++retries > policy_.max_retries) break;
-                sleep_with_backoff(stop, delay);
+                sleep_with_backoff(delay);
                 continue;
             }
 
@@ -519,15 +530,15 @@ private:
             delay = policy_.initial_delay;
 
             // Stream SSE events until disconnect
-            stream_events(fd, stop);
+            stream_events(fd);
 
             ::close(fd);
             socket_fd_.store(-1);
             connected_.store(false);
 
-            if (!should_run_.load() || stop.stop_requested()) break;
+            if (!should_run_.load()) break;
             // Reconnect
-            sleep_with_backoff(stop, delay);
+            sleep_with_backoff(delay);
         }
     }
 
@@ -568,12 +579,12 @@ private:
         return {};
     }
 
-    void stream_events(int fd, std::stop_token& stop) {
+    void stream_events(int fd) {
         std::string event_type, data_buf, id_buf;
         std::string line;
         char buf[4096];
 
-        while (!stop.stop_requested() && should_run_.load()) {
+        while (should_run_.load()) {
             auto n = ::recv(fd, buf, sizeof(buf), 0);
             if (n <= 0) break;
 
@@ -623,10 +634,142 @@ private:
         else if (field == "id") id = std::string(val);
     }
 
-    void sleep_with_backoff(std::stop_token& stop, std::chrono::milliseconds delay) {
+    /// HTTPS POST via cc::utils::HttpClient (curl-based), used by SseTransport.
+    [[nodiscard]] McpResult<void> send_post_request_https(const UrlParts& target, const std::string& body) {
+        std::string url = std::format("https://{}{}{}", target.host,
+            (target.port != 443 ? ":" + std::to_string(target.port) : ""),
+            target.path.empty() ? "/" : target.path);
+
+        std::vector<std::string> hdrs;
+        hdrs.push_back("Content-Type: application/json");
+        hdrs.push_back("Accept: application/json");
+        for (const auto& [k, v] : headers_) {
+            hdrs.push_back(k + ": " + v);
+        }
+
+        // Use the Anthropic API HttpClient (which wraps curl)
+        auto result = cc::services::api::HttpClient::post(
+            url, body, hdrs, std::chrono::milliseconds{10000});
+        if (!result) {
+            return std::unexpected(McpClientError::ConnectionFailed);
+        }
+        if (result->status_code == 401) {
+            return std::unexpected(McpClientError::Unauthorized);
+        }
+        if (result->status_code < 200 || result->status_code >= 300) {
+            return std::unexpected(McpClientError::TransportError);
+        }
+        return {};
+    }
+
+    /// HTTPS SSE connection loop: uses curl GET to connect, then parses the
+    /// streaming response body as SSE events.
+    void https_sse_connection_loop(uint32_t& retries,
+                                   std::chrono::milliseconds& delay) {
+        std::string url = std::format("https://{}{}{}", parts_.host,
+            (parts_.port != 443 ? ":" + std::to_string(parts_.port) : ""),
+            parts_.path.empty() ? "/" : parts_.path);
+
+        std::vector<std::string> hdrs;
+        hdrs.push_back("Accept: text/event-stream");
+        hdrs.push_back("Cache-Control: no-cache");
+        if (!last_event_id_.empty()) {
+            hdrs.push_back("Last-Event-ID: " + last_event_id_);
+        }
+        for (const auto& [k, v] : headers_) {
+            hdrs.push_back(k + ": " + v);
+        }
+
+        auto result = cc::services::api::HttpClient::get(
+            url, hdrs, policy_.liveness_timeout);
+        if (!result) {
+            if (++retries > policy_.max_retries) return;
+            delay = std::min(
+                std::chrono::milliseconds(static_cast<int64_t>(delay.count() * policy_.backoff_multiplier)),
+                policy_.max_delay);
+            return;
+        }
+
+        if (result->status_code == 401) {
+            unauthorized_.store(true);
+            return;
+        }
+        if (result->status_code < 200 || result->status_code >= 300) {
+            if (++retries > policy_.max_retries) return;
+            delay = std::min(
+                std::chrono::milliseconds(static_cast<int64_t>(delay.count() * policy_.backoff_multiplier)),
+                policy_.max_delay);
+            return;
+        }
+
+        connected_.store(true);
+        retries = 0;
+        delay = policy_.initial_delay;
+
+        // Parse the response body as SSE events
+        parse_sse_body(result->body);
+
+        connected_.store(false);
+    }
+
+    /// Parse a complete SSE response body into events.
+    void parse_sse_body(const std::string& body) {
+        std::string event_type, data_buf, id_buf;
+        std::string line;
+
+        for (char ch : body) {
+            if (ch == '\r') continue;
+            if (ch == '\n') {
+                if (line.empty()) {
+                    // Dispatch event
+                    if (!data_buf.empty()) {
+                        if (data_buf.back() == '\n') data_buf.pop_back();
+                        if (!id_buf.empty()) last_event_id_ = id_buf;
+
+                        if (event_type == "endpoint") {
+                            {
+                                std::lock_guard lock(post_mutex_);
+                                post_url_ = data_buf;
+                            }
+                            post_cv_.notify_all();
+                        } else {
+                            std::lock_guard lock(recv_mutex_);
+                            receive_queue_.push_back(std::move(data_buf));
+                            recv_cv_.notify_one();
+                        }
+                    }
+                    event_type.clear(); data_buf.clear(); id_buf.clear();
+                } else {
+                    parse_field(line, event_type, data_buf, id_buf);
+                    line.clear();
+                }
+            } else {
+                line += ch;
+            }
+        }
+
+        // Handle last event if body doesn't end with newline
+        if (!line.empty()) {
+            parse_field(line, event_type, data_buf, id_buf);
+        }
+        if (!data_buf.empty()) {
+            if (data_buf.back() == '\n') data_buf.pop_back();
+            if (event_type == "endpoint") {
+                std::lock_guard lock(post_mutex_);
+                post_url_ = data_buf;
+                post_cv_.notify_all();
+            } else {
+                std::lock_guard lock(recv_mutex_);
+                receive_queue_.push_back(std::move(data_buf));
+                recv_cv_.notify_one();
+            }
+        }
+    }
+
+    void sleep_with_backoff(std::chrono::milliseconds delay) {
         auto end = std::chrono::steady_clock::now() + delay;
         while (std::chrono::steady_clock::now() < end) {
-            if (stop.stop_requested() || !should_run_.load()) return;
+            if (!should_run_.load()) return;
             std::this_thread::sleep_for(50ms);
         }
     }
@@ -642,7 +785,7 @@ private:
     std::atomic<bool> should_run_{false};
     std::atomic<bool> unauthorized_{false};
     std::atomic<int> socket_fd_{-1};
-    std::jthread reader_thread_;
+    std::thread reader_thread_;
 
     std::mutex send_mutex_;
     mutable std::mutex post_mutex_;
