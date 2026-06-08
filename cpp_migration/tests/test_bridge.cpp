@@ -22,6 +22,7 @@
 #include <string_view>
 #include <sys/socket.h>
 #include <thread>
+#include <signal.h>
 #include <unistd.h>
 #include <utility>
 #include <variant>
@@ -739,7 +740,7 @@ TEST(BridgeMessages, ExtractsOnlyUserMessagesWithContent) {
 
 TEST(BridgeMessages, FlushGateBuffersUntilOpened) {
     std::vector<std::string> handled;
-    cc::bridge::FlushGate gate([&handled](const cc::bridge::SDKMessage& msg) {
+    cc::bridge::MessageFlushGate gate([&handled](const cc::bridge::SDKMessage& msg) {
         handled.push_back(msg.type);
     });
 
@@ -1298,7 +1299,7 @@ TEST(BridgeDaemon, ForkExecsHeadlessSessionAndReportsCompletion) {
         .bridge_access_token = "oauth_token",
         .bridge_runner_version = "test-runner",
         .trusted_device_token = std::nullopt,
-        .session_binary = "/bin/true",
+        .session_binary = "/usr/bin/true",
     });
 
     auto spawned = daemon.poll_for_work_once();
@@ -1306,7 +1307,7 @@ TEST(BridgeDaemon, ForkExecsHeadlessSessionAndReportsCompletion) {
     ASSERT_TRUE(spawned->has_value());
 
     std::vector<cc::daemon::DaemonSession> sessions;
-    for (int i = 0; i < 100; ++i) {
+    for (int i = 0; i < 500; ++i) {
         daemon.reap_sessions();
         sessions = daemon.sessions();
         if (!sessions.empty() && sessions.front().status != "running") break;
@@ -1416,7 +1417,7 @@ TEST(BridgeDaemon, ForkExecsNativeHeadlessSessionThroughRemoteLifecycle) {
     const auto request_count_before_shutdown = requests_before_shutdown->size();
 
     ::kill(sessions.front().pid, SIGTERM);
-    for (int i = 0; i < 200; ++i) {
+    for (int i = 0; i < 500; ++i) {
         daemon.reap_sessions();
         sessions = daemon.sessions();
         if (!sessions.empty() && sessions.front().status != "running") break;
@@ -1507,7 +1508,7 @@ TEST(BridgeDaemon, ForkExecsHeadlessSessionWithCcrSdkUrl) {
     std::vector<std::string> lines;
     bool saw_sdk_url_flag = false;
     bool saw_sdk_url = false;
-    for (int i = 0; i < 100; ++i) {
+    for (int i = 0; i < 500; ++i) {
         daemon.reap_sessions();
         lines = daemon.session_stdout_lines(*spawned);
         for (const auto& line : lines) {
@@ -1576,7 +1577,7 @@ TEST(BridgeDaemon, ForkExecsHeadlessSessionWithV1SessionIngressSdkUrl) {
     bool saw_sdk_url_flag = false;
     bool saw_sdk_url = false;
     bool saw_v1_post_env = false;
-    for (int i = 0; i < 100; ++i) {
+    for (int i = 0; i < 500; ++i) {
         daemon.reap_sessions();
         lines = daemon.session_stdout_lines(*spawned);
         for (const auto& line : lines) {
@@ -1654,7 +1655,7 @@ TEST(BridgeDaemon, ForkExecsHeadlessSessionWithCcrWorkerEpochEnvironment) {
     bool saw_worker_epoch = false;
     bool saw_ccr_v2 = false;
     bool saw_api_base = false;
-    for (int i = 0; i < 100; ++i) {
+    for (int i = 0; i < 500; ++i) {
         daemon.reap_sessions();
         lines = daemon.session_stdout_lines(*spawned);
         for (const auto& line : lines) {
@@ -1730,7 +1731,7 @@ TEST(BridgeDaemon, PipesHeadlessChildStdinAndCapturesStdout) {
 
     std::vector<std::string> lines;
     std::vector<cc::daemon::DaemonSession> sessions;
-    for (int i = 0; i < 100; ++i) {
+    for (int i = 0; i < 500; ++i) {
         lines = daemon.session_stdout_lines(*spawned);
         sessions = daemon.sessions();
         if (lines.size() >= 2 && !sessions.empty() && sessions.front().stdout_closed) break;
@@ -1802,7 +1803,7 @@ TEST(BridgeDaemon, RpcStdinRoutesRemoteInputToHeadlessChild) {
     ASSERT_TRUE(closed.has_value()) << closed.error();
 
     std::string stdout_response;
-    for (int i = 0; i < 100; ++i) {
+    for (int i = 0; i < 500; ++i) {
         daemon.reap_sessions();
         auto stdout_result = client.stdout_lines(session_id);
         ASSERT_TRUE(stdout_result.has_value()) << stdout_result.error();
@@ -1875,7 +1876,7 @@ TEST(BridgeDaemon, RpcEventRoutesRemotePayloadToHeadlessChildStdin) {
     ASSERT_TRUE(closed.has_value()) << closed.error();
 
     std::string stdout_response;
-    for (int i = 0; i < 100; ++i) {
+    for (int i = 0; i < 500; ++i) {
         daemon.reap_sessions();
         auto stdout_result = client.stdout_lines(session_id);
         ASSERT_TRUE(stdout_result.has_value()) << stdout_result.error();

@@ -73,7 +73,7 @@ namespace detail {
 
 
 
-struct JwtPayload {
+struct BasicJwtPayload {
     std::string sub;      // subject (session ID)
     std::string iss;      // issuer
     int64_t iat{0};       // issued at (unix timestamp)
@@ -84,7 +84,7 @@ struct JwtPayload {
 class JwtUtils {
 public:
 
-    [[nodiscard]] static auto decode_payload(std::string_view token) -> std::expected<JwtPayload, std::string> {
+    [[nodiscard]] static auto decode_payload(std::string_view token) -> std::expected<BasicJwtPayload, std::string> {
 
         auto first_dot = token.find('.');
         if (first_dot == std::string_view::npos) return std::unexpected("无效 JWT 格式");
@@ -94,7 +94,7 @@ public:
         auto payload_b64 = token.substr(first_dot + 1, second_dot - first_dot - 1);
         auto payload_json = detail::base64url_decode(payload_b64);
         if (payload_json.empty()) return std::unexpected("JWT payload 解码失败");
-        return JwtPayload{
+        return BasicJwtPayload{
             .sub = detail::extract_json_string(payload_json, "sub"),
             .iss = detail::extract_json_string(payload_json, "iss"),
             .iat = detail::extract_json_int(payload_json, "iat"),
@@ -104,7 +104,7 @@ public:
     }
     
 
-    [[nodiscard]] static auto is_expired(const JwtPayload& payload) -> bool {
+    [[nodiscard]] static auto is_expired(const BasicJwtPayload& payload) -> bool {
         auto now = std::chrono::system_clock::now().time_since_epoch();
         auto now_secs = std::chrono::duration_cast<std::chrono::seconds>(now).count();
         return payload.exp > 0 && now_secs > payload.exp;

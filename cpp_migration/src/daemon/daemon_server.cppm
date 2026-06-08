@@ -33,6 +33,8 @@ module;
 #include <fcntl.h>
 #include <poll.h>
 
+extern "C" char** environ;
+
 export module cc.daemon.daemon_server;
 
 import cc.bridge.api;
@@ -433,6 +435,39 @@ public:
             return std::unexpected("Failed to create stdout pipe");
         }
 
+        // Build argv and envp BEFORE fork() — all allocation in parent
+        std::vector<std::string> args{
+            config_.session_binary,
+            "--headless",
+            "--input-format",
+            "stream-json",
+            "--output-format",
+            "stream-json",
+            "--replay-user-messages",
+        };
+        if (auto sdk_url_val = sdk_url; sdk_url_val && !sdk_url_val->empty()) {
+            args.push_back("--sdk-url");
+            args.push_back(*sdk_url_val);
+        }
+        args.push_back(std::format("--session-id={}", session_id));
+        args.push_back(std::format("--task-id={}", task_id));
+
+        std::vector<char*> argv;
+        argv.reserve(args.size() + 1);
+        for (auto& arg : args) argv.push_back(arg.data());
+        argv.push_back(nullptr);
+
+        std::vector<std::string> child_env_storage;
+        std::vector<char*> child_envp;
+        if (secret) {
+            child_env_storage = build_child_environment(
+                *secret, remote_session_id, task_id,
+                child_api_base_url, *worker_epoch);
+            child_envp.reserve(child_env_storage.size() + 1);
+            for (auto& s : child_env_storage) child_envp.push_back(s.data());
+            child_envp.push_back(nullptr);
+        }
+
         pid_t pid = fork();
         if (pid < 0) {
             ::close(stdin_pipe[0]);
@@ -443,42 +478,18 @@ public:
         }
 
         if (pid == 0) {
+            // Child — only async-signal-safe calls below
             ::close(stdin_pipe[1]);
             ::close(stdout_pipe[0]);
             ::dup2(stdin_pipe[0], STDIN_FILENO);
             ::dup2(stdout_pipe[1], STDOUT_FILENO);
             ::close(stdin_pipe[0]);
             ::close(stdout_pipe[1]);
-            if (secret) {
-                apply_bridge_work_environment(*secret, remote_session_id, task_id, child_api_base_url, *worker_epoch);
-            }
-            // Child process — exec cc-repl with session args
-            std::string sid_arg = std::format("--session-id={}", session_id);
-            std::string task_arg = std::format("--task-id={}", task_id);
-
-            std::vector<std::string> args{
-                config_.session_binary,
-                "--headless",
-                "--input-format",
-                "stream-json",
-                "--output-format",
-                "stream-json",
-                "--replay-user-messages",
-            };
-            if (sdk_url && !sdk_url->empty()) {
-                args.push_back("--sdk-url");
-                args.push_back(*sdk_url);
-            }
-            args.push_back(sid_arg);
-            args.push_back(task_arg);
-
-            std::vector<char*> argv;
-            argv.reserve(args.size() + 1);
-            for (auto& arg : args) {
-                argv.push_back(arg.data());
-            }
-            argv.push_back(nullptr);
-            execvp(config_.session_binary.c_str(), argv.data());
+            // Close inherited server/client sockets so they don't leak
+            // into the child. Only keep fds 0, 1, 2.
+            for (int fd = 3; fd < 1024; ++fd) ::close(fd);
+            execve(argv[0], argv.data(),
+                   child_envp.empty() ? environ : child_envp.data());
             _exit(1); // exec failed
         }
 
@@ -656,7 +667,11 @@ private:
             pfd.events = POLLIN;
 
             int ret = ::poll(&pfd, 1, 1000); // 1s timeout
-            if (ret <= 0 || !running_.load()) continue;
+            if (ret < 0) {
+                if (errno == EINTR) continue;
+                break;
+            }
+            if (ret == 0 || !running_.load()) continue;
 
             struct sockaddr_in client_addr{};
             socklen_t client_len = sizeof(client_addr);
@@ -664,6 +679,15 @@ private:
                 reinterpret_cast<struct sockaddr*>(&client_addr), &client_len);
             
             if (client_fd < 0) continue;
+
+            // macOS: accept() on non-blocking listener returns non-blocking
+            // client sockets. Clear O_NONBLOCK so recv() blocks properly.
+            {
+                int flags = ::fcntl(client_fd, F_GETFL, 0);
+                if (flags >= 0 && (flags & O_NONBLOCK)) {
+                    ::fcntl(client_fd, F_SETFL, flags & ~O_NONBLOCK);
+                }
+            }
 
             {
                 std::lock_guard lock(clients_mutex_);
@@ -686,7 +710,11 @@ private:
 
         while (running_.load()) {
             ssize_t n = ::recv(fd, buf, sizeof(buf) - 1, 0);
-            if (n <= 0) break;
+            if (n < 0) {
+                if (errno == EINTR) continue;
+                break;
+            }
+            if (n == 0) break;
             buf[n] = '\0';
             buffer.append(buf, static_cast<size_t>(n));
 
@@ -712,7 +740,10 @@ private:
 
                 auto response_json = serialize_rpc_response(response);
                 response_json += '\n';
-                ::send(fd, response_json.data(), response_json.size(), 0);
+                ssize_t w;
+                do {
+                    w = ::send(fd, response_json.data(), response_json.size(), 0);
+                } while (w < 0 && errno == EINTR);
             }
         }
 
@@ -1252,56 +1283,64 @@ private:
         return true;
     }
 
-    static void set_child_env(std::string_view key, std::string_view value) {
-        if (key.empty() || value.empty() || !is_valid_env_name(key)) return;
-        ::setenv(std::string(key).c_str(), std::string(value).c_str(), 1);
-    }
-
-    static void apply_bridge_work_environment(
+    static auto build_child_environment(
         const cc::bridge::DecodedWorkSecret& secret,
         const std::optional<std::string>& remote_session_id,
         std::string_view work_id,
         std::string_view api_base_url,
         const std::optional<int64_t>& worker_epoch
-    ) {
-        set_child_env("CLAUDE_CODE_SESSION_ACCESS_TOKEN", secret.session_ingress_token);
-        set_child_env("CLAUDE_CODE_REMOTE_API_BASE_URL", api_base_url);
-        set_child_env("CC_REPL_REMOTE_API_BASE_URL", api_base_url);
-        set_child_env("CLAUDE_CODE_REMOTE", "1");
-        set_child_env("CLAUDE_CODE_BRIDGE_WORK_ID", work_id);
-        set_child_env("CC_REPL_BRIDGE_WORK_ID", work_id);
+    ) -> std::vector<std::string> {
+        std::vector<std::string> env;
+        if (environ) {
+            for (char** e = environ; *e; ++e) env.emplace_back(*e);
+        }
+        auto set = [&](std::string_view key, std::string_view value) {
+            if (key.empty() || value.empty() || !is_valid_env_name(key)) return;
+            auto prefix = std::string(key) + "=";
+            std::erase_if(env, [&](const std::string& e) {
+                return e.starts_with(prefix);
+            });
+            env.push_back(std::string(key) + "=" + std::string(value));
+        };
+        set("CLAUDE_CODE_SESSION_ACCESS_TOKEN", secret.session_ingress_token);
+        set("CLAUDE_CODE_REMOTE_API_BASE_URL", api_base_url);
+        set("CC_REPL_REMOTE_API_BASE_URL", api_base_url);
+        set("CLAUDE_CODE_REMOTE", "1");
+        set("CLAUDE_CODE_BRIDGE_WORK_ID", work_id);
+        set("CC_REPL_BRIDGE_WORK_ID", work_id);
         if (!secret.use_code_sessions.value_or(false)) {
-            set_child_env("CLAUDE_CODE_POST_FOR_SESSION_INGRESS_V2", "1");
+            set("CLAUDE_CODE_POST_FOR_SESSION_INGRESS_V2", "1");
         }
         if (remote_session_id && !remote_session_id->empty()) {
-            set_child_env("CC_REMOTE_SESSION_ID", *remote_session_id);
-            set_child_env("CLAUDE_CODE_REMOTE_SESSION_ID", *remote_session_id);
+            set("CC_REMOTE_SESSION_ID", *remote_session_id);
+            set("CLAUDE_CODE_REMOTE_SESSION_ID", *remote_session_id);
         }
         if (secret.use_code_sessions) {
-            set_child_env("CLAUDE_CODE_USE_CODE_SESSIONS", *secret.use_code_sessions ? "true" : "false");
-            if (*secret.use_code_sessions) set_child_env("CLAUDE_CODE_USE_CCR_V2", "1");
+            set("CLAUDE_CODE_USE_CODE_SESSIONS", *secret.use_code_sessions ? "true" : "false");
+            if (*secret.use_code_sessions) set("CLAUDE_CODE_USE_CCR_V2", "1");
         }
         if (worker_epoch) {
-            set_child_env("CLAUDE_CODE_WORKER_EPOCH", std::to_string(*worker_epoch));
+            set("CLAUDE_CODE_WORKER_EPOCH", std::to_string(*worker_epoch));
         }
         if (secret.code_session_mode && !secret.code_session_mode->empty()) {
-            set_child_env("CLAUDE_CODE_SESSION_MODE", *secret.code_session_mode);
+            set("CLAUDE_CODE_SESSION_MODE", *secret.code_session_mode);
         }
         if (!secret.raw_json.empty()) {
-            set_child_env("CLAUDE_CODE_BRIDGE_WORK_SECRET_JSON", secret.raw_json);
+            set("CLAUDE_CODE_BRIDGE_WORK_SECRET_JSON", secret.raw_json);
         }
         if (secret.auth_json && !secret.auth_json->empty()) {
-            set_child_env("CLAUDE_CODE_REMOTE_AUTH_JSON", *secret.auth_json);
+            set("CLAUDE_CODE_REMOTE_AUTH_JSON", *secret.auth_json);
         }
         if (secret.mcp_config_json && !secret.mcp_config_json->empty()) {
-            set_child_env("CLAUDE_CODE_REMOTE_MCP_CONFIG_JSON", *secret.mcp_config_json);
+            set("CLAUDE_CODE_REMOTE_MCP_CONFIG_JSON", *secret.mcp_config_json);
         }
         if (secret.environment_json && !secret.environment_json->empty()) {
-            set_child_env("CLAUDE_CODE_REMOTE_ENVIRONMENT_JSON", *secret.environment_json);
+            set("CLAUDE_CODE_REMOTE_ENVIRONMENT_JSON", *secret.environment_json);
         }
         for (const auto& [key, value] : secret.environment_variables) {
-            set_child_env(key, value);
+            set(key, value);
         }
+        return env;
     }
 
     void report_bridge_session_finished(const DaemonSession& session) {

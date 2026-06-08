@@ -157,12 +157,6 @@ struct PollConfig {
 };
 
 
-struct EnvLessBridgeConfig {
-    std::string config_file_path;  // ~/.cc-repl/bridge.json
-    bool use_system_keychain{true};
-};
-
-
 class BridgeConfigLoader {
     BridgeConfig config_;
     PollConfig poll_config_;

@@ -20,6 +20,7 @@ module;
 #include <filesystem>
 #include <signal.h>
 #include <cstdlib>
+#include <cerrno>
 #include <atomic>
 
 export module cc.daemon.daemon_client;
@@ -149,7 +150,10 @@ public:
             id, method, params);
         request += '\n';
 
-        ssize_t sent = ::send(fd_, request.data(), request.size(), 0);
+        ssize_t sent;
+        do {
+            sent = ::send(fd_, request.data(), request.size(), 0);
+        } while (sent < 0 && errno == EINTR);
         if (sent < 0) {
             connected_ = false;
             return std::unexpected("Failed to send request");
@@ -160,7 +164,12 @@ public:
         char buf[4096];
         while (true) {
             ssize_t n = ::recv(fd_, buf, sizeof(buf) - 1, 0);
-            if (n <= 0) {
+            if (n < 0) {
+                if (errno == EINTR) continue;
+                connected_ = false;
+                return std::unexpected("Connection closed by daemon");
+            }
+            if (n == 0) {
                 connected_ = false;
                 return std::unexpected("Connection closed by daemon");
             }

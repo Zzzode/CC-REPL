@@ -143,13 +143,13 @@ std::optional<ExtractedMessage> extract_inbound_message_fields(const SDKMessage&
 }
 
 /// Flush gate for message buffering
-class FlushGate {
+class MessageFlushGate {
     bool is_open_ = false;
     std::vector<SDKMessage> buffer_;
     std::function<void(const SDKMessage&)> handler_;
     
 public:
-    explicit FlushGate(std::function<void(const SDKMessage&)> handler = nullptr)
+    explicit MessageFlushGate(std::function<void(const SDKMessage&)> handler = nullptr)
         : handler_(std::move(handler)) {}
 
     void set_handler(std::function<void(const SDKMessage&)> handler) {

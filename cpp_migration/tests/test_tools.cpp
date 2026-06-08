@@ -1557,6 +1557,8 @@ TEST(Tools, RuntimePowerShellToolExecutesRealCommandWithWorkingDirectoryOnWindow
 
 TEST(Tools, ComputerUseManagerUsesCaptureProviderForScreenshot) {
     using namespace cc::core::computer_use;
+    using Rect = cc::core::computer_use::Rect;
+    using Point = cc::core::computer_use::Point;
 
     bool saw_region = false;
     ComputerUseManager manager(ScreenCapture([&](std::optional<Rect> region)
@@ -1595,6 +1597,8 @@ TEST(Tools, ComputerUseManagerUsesCaptureProviderForScreenshot) {
 
 TEST(Tools, RuntimeComputerUseScreenshotReturnsImageContentFromCaptureProvider) {
     using namespace cc::core::computer_use;
+    using Rect = cc::core::computer_use::Rect;
+    using Point = cc::core::computer_use::Point;
 
     RuntimeComputerUseProviderGuard guard;
     bool saw_region = false;
@@ -1719,6 +1723,7 @@ if (request.action === 'screenshot') {
 
 TEST(Tools, ComputerUseManagerFailsInputActionsWithoutInputProvider) {
     using namespace cc::core::computer_use;
+    using Point = cc::core::computer_use::Point;
 
     ComputerUseManager manager;
     auto result = manager.execute_action(ComputerAction{
@@ -5905,10 +5910,10 @@ TEST(Tools, TeleportUtilsCreatesAndUploadsGitBundle) {
         auto status = std::system(command.c_str());
         ASSERT_EQ(status, 0) << command;
     };
-    run("git -C " + shell_quote_for_test(root.string()) + " init >/dev/null 2>&1");
+    run("git -C " + shell_quote_for_test(root.string()) + " init --template= >/dev/null 2>&1");
     run("git -C " + shell_quote_for_test(root.string()) + " add README.md >/dev/null 2>&1");
     run("git -C " + shell_quote_for_test(root.string()) +
-        " -c user.email=test@example.com -c user.name='Test User' commit -m seed >/dev/null 2>&1");
+        " -c user.email=test@example.com -c user.name='Test User' commit --no-verify -m seed >/dev/null 2>&1");
 
     auto result = cc::utils::teleport::create_and_upload_git_bundle(
         cc::utils::teleport::FilesApiConfig{
@@ -7229,11 +7234,11 @@ TEST(Tools, AgentToolCreatesWorktreeForIsolatedBackgroundAgent) {
         std::ofstream readme(root / "README.md");
         readme << "worktree isolation\n";
     }
-    ASSERT_EQ(std::system(std::format("git -C \"{}\" init -q", root.string()).c_str()), 0);
+    ASSERT_EQ(std::system(std::format("git -C \"{}\" init -q --template=", root.string()).c_str()), 0);
     ASSERT_EQ(std::system(std::format("git -C \"{}\" config user.email test@example.com", root.string()).c_str()), 0);
     ASSERT_EQ(std::system(std::format("git -C \"{}\" config user.name Test", root.string()).c_str()), 0);
     ASSERT_EQ(std::system(std::format("git -C \"{}\" add README.md", root.string()).c_str()), 0);
-    ASSERT_EQ(std::system(std::format("git -C \"{}\" commit -q -m init", root.string()).c_str()), 0);
+    ASSERT_EQ(std::system(std::format("git -C \"{}\" commit -q --no-verify -m init", root.string()).c_str()), 0);
 
     EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
@@ -7260,7 +7265,7 @@ TEST(Tools, AgentToolCreatesWorktreeForIsolatedBackgroundAgent) {
     ASSERT_TRUE(record->cwd.has_value());
     auto worktree_path = fs::path{*record->cwd};
     EXPECT_TRUE(fs::exists(worktree_path / ".git"));
-    EXPECT_EQ(worktree_path, root / ".claude" / "worktrees" / "isolated-agent");
+    EXPECT_EQ(worktree_path, fs::weakly_canonical(root) / ".claude" / "worktrees" / "isolated-agent");
     ASSERT_TRUE(record->isolation.has_value());
     EXPECT_EQ(*record->isolation, "worktree");
     ASSERT_TRUE(record->worktree_path.has_value());
@@ -7269,7 +7274,7 @@ TEST(Tools, AgentToolCreatesWorktreeForIsolatedBackgroundAgent) {
     EXPECT_EQ(*record->worktree_branch, "cc-agent-isolated-agent");
     ASSERT_TRUE(record->worktree_base_commit.has_value());
     ASSERT_TRUE(record->worktree_git_root.has_value());
-    EXPECT_EQ(*record->worktree_git_root, root.string());
+    EXPECT_EQ(*record->worktree_git_root, fs::weakly_canonical(root).string());
 
     auto cleanup = cc::tools::agent::cleanup_agent_worktree("isolated-agent");
     EXPECT_TRUE(cleanup.attempted);
@@ -7301,11 +7306,11 @@ TEST(Tools, AgentToolPreservesChangedWorktreeAndReportsPath) {
         std::ofstream readme(root / "README.md");
         readme << "worktree dirty preservation\n";
     }
-    ASSERT_EQ(std::system(std::format("git -C \"{}\" init -q", root.string()).c_str()), 0);
+    ASSERT_EQ(std::system(std::format("git -C \"{}\" init -q --template=", root.string()).c_str()), 0);
     ASSERT_EQ(std::system(std::format("git -C \"{}\" config user.email test@example.com", root.string()).c_str()), 0);
     ASSERT_EQ(std::system(std::format("git -C \"{}\" config user.name Test", root.string()).c_str()), 0);
     ASSERT_EQ(std::system(std::format("git -C \"{}\" add README.md", root.string()).c_str()), 0);
-    ASSERT_EQ(std::system(std::format("git -C \"{}\" commit -q -m init", root.string()).c_str()), 0);
+    ASSERT_EQ(std::system(std::format("git -C \"{}\" commit -q --no-verify -m init", root.string()).c_str()), 0);
 
     EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
@@ -7494,12 +7499,12 @@ TEST(Tools, StandaloneTaskToolsExposeNativeBackgroundAgents) {
     EXPECT_EQ(*stopped_record->error, "stop requested");
 
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
-    fs::remove_all(root);
+    { std::error_code ec; fs::remove_all(root, ec); }
 }
 
 TEST(Tools, AgentToolUpdatesProgressAfterStartingApiStream) {
     auto root = fs::temp_directory_path() / "cc_repl_native_agent_progress_test";
-    fs::remove_all(root);
+    { std::error_code ec; fs::remove_all(root, ec); }
     fs::create_directories(root);
     LocalSlowAnthropicStreamServer server(std::chrono::milliseconds(750));
     ASSERT_TRUE(server.valid());
@@ -7546,7 +7551,7 @@ TEST(Tools, AgentToolUpdatesProgressAfterStartingApiStream) {
     EXPECT_DOUBLE_EQ(*completed->progress, 1.0);
 
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
-    fs::remove_all(root);
+    { std::error_code ec; fs::remove_all(root, ec); }
 }
 
 TEST(Tools, TaskStopCancelsRunningBackgroundAgentDuringModelStream) {
@@ -9310,7 +9315,7 @@ TEST(Tools, RuntimeTeamCreateCanStartNativeAgentsAndResumeThemWithSendMessage) {
 
 TEST(Tools, RuntimeTeamCreateStartedNativeTeammateResumesAfterRegistryRestart) {
     auto root = fs::temp_directory_path() / "cc_repl_team_create_restart_resume_test";
-    fs::remove_all(root);
+    { std::error_code ec; fs::remove_all(root, ec); }
     fs::create_directories(root);
     LocalSlowAnthropicStreamServer server(std::chrono::milliseconds(1));
     ASSERT_TRUE(server.valid());
@@ -9415,11 +9420,11 @@ TEST(Tools, RuntimeTeamCreateStartsNativeAgentsWithWorktreeIsolation) {
         std::ofstream readme(root / "README.md");
         readme << "team worktree isolation\n";
     }
-    ASSERT_EQ(std::system(std::format("git -C \"{}\" init -q", root.string()).c_str()), 0);
+    ASSERT_EQ(std::system(std::format("git -C \"{}\" init -q --template=", root.string()).c_str()), 0);
     ASSERT_EQ(std::system(std::format("git -C \"{}\" config user.email test@example.com", root.string()).c_str()), 0);
     ASSERT_EQ(std::system(std::format("git -C \"{}\" config user.name Test", root.string()).c_str()), 0);
     ASSERT_EQ(std::system(std::format("git -C \"{}\" add README.md", root.string()).c_str()), 0);
-    ASSERT_EQ(std::system(std::format("git -C \"{}\" commit -q -m init", root.string()).c_str()), 0);
+    ASSERT_EQ(std::system(std::format("git -C \"{}\" commit -q --no-verify -m init", root.string()).c_str()), 0);
 
     LocalPerTurnBashCommandAnthropicServer server(
         "printf team-worktree > team_member_marker.txt; pwd",
@@ -9487,16 +9492,16 @@ TEST(Tools, RuntimeTeamCreateStartsNativeAgentsWithWorktreeIsolation) {
     const auto alpha_path = fs::path{*alpha->worktree_path};
     const auto beta_path = fs::path{*beta->worktree_path};
     EXPECT_NE(alpha_path, beta_path);
-    EXPECT_EQ(alpha_path, root / ".claude" / "worktrees" / "alpha_worktree-team");
-    EXPECT_EQ(beta_path, root / ".claude" / "worktrees" / "beta_worktree-team");
+    EXPECT_EQ(alpha_path, fs::weakly_canonical(root) / ".claude" / "worktrees" / "alpha_worktree-team");
+    EXPECT_EQ(beta_path, fs::weakly_canonical(root) / ".claude" / "worktrees" / "beta_worktree-team");
     EXPECT_EQ(*alpha->cwd, alpha_path.string());
     EXPECT_EQ(*beta->cwd, beta_path.string());
     EXPECT_EQ(*alpha->isolation, "worktree");
     EXPECT_EQ(*beta->isolation, "worktree");
     EXPECT_EQ(*alpha->mode, "acceptEdits");
     EXPECT_EQ(*beta->mode, "acceptEdits");
-    EXPECT_EQ(*alpha->worktree_git_root, root.string());
-    EXPECT_EQ(*beta->worktree_git_root, root.string());
+    EXPECT_EQ(*alpha->worktree_git_root, fs::weakly_canonical(root).string());
+    EXPECT_EQ(*beta->worktree_git_root, fs::weakly_canonical(root).string());
     const auto config_text = read_file(root / "teams" / "worktree-team" / "config.json");
     EXPECT_NE(config_text.find(R"("agentId":"alpha@worktree-team")"), std::string::npos);
     EXPECT_NE(config_text.find(R"("agentId":"beta@worktree-team")"), std::string::npos);
@@ -9544,7 +9549,7 @@ TEST(Tools, RuntimeTeamCreateStartsNativeAgentsWithWorktreeIsolation) {
     remove_worktree(beta_path, *beta->worktree_branch);
     cc::tools::global_team_store().clear_for_testing();
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
-    fs::remove_all(root);
+    { std::error_code ec; fs::remove_all(root, ec); }
 }
 
 TEST(Tools, AgentToolBackgroundAgentCwdIsScopedPerToolWithoutChangingProcessCwd) {

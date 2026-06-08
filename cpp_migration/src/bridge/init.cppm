@@ -33,6 +33,7 @@ import cc.bridge.api;
 import cc.bridge.transport;
 import cc.bridge.ui;
 import cc.bridge.messages;
+import cc.bridge.flush_gate;
 import cc.bridge.work_secret;
 
 export namespace cc::bridge {
@@ -50,7 +51,7 @@ enum class BridgeState { Ready, Connected, Reconnecting, Failed, Closed };
 using InboundMessageCallback  = std::function<void(const SDKMessage&)>;
 using PermissionResponseCallback = std::function<void(const SDKControlResponse&)>;
 using InterruptCallback       = std::function<void()>;
-using SetModelCallback        = std::function<void(const std::string&)>;
+using SetModelCallback        = std::function<void(const std::optional<std::string>&)>;
 using StateChangeCallback     = std::function<void(BridgeState, const std::optional<std::string>&)>;
 
 // ===========================================================================
@@ -523,7 +524,7 @@ auto initBridgeCore(const BridgeCoreParams& params)
     auto h = std::make_unique<EnvBasedReplBridgeHandle>(params, std::move(cfg));
     if (h->state() == BridgeState::Failed)
         return std::unexpected(Error::make(ErrorCode::ConnectionFailed, "Bridge initialization failed"));
-    return h;
+    return std::unique_ptr<BridgeCoreHandle>(std::move(h));
 }
 
 // ===========================================================================

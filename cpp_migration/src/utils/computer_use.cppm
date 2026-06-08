@@ -10,13 +10,11 @@ module;
 
 export module cc.utils.computer_use;
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
+export namespace cc::utils::computer_use {
 
-export inline constexpr std::string_view kComputerUseMcpServerName =
+inline constexpr std::string_view kComputerUseMcpServerName =
     "computer-use";
-export inline constexpr std::string_view kCliHostBundleId =
+inline constexpr std::string_view kCliHostBundleId =
     "com.anthropic.claude-code.cli-no-window";
 
 // ---------------------------------------------------------------------------
@@ -24,55 +22,55 @@ export inline constexpr std::string_view kCliHostBundleId =
 // ---------------------------------------------------------------------------
 
 /// Mouse button identifier.
-export enum class MouseButton {
+enum class MouseButton {
     Left,
     Right,
     Middle,
 };
 
 /// Mouse action type.
-export enum class MouseAction {
+enum class MouseAction {
     Click,
     Press,
     Release,
 };
 
 /// Key action type.
-export enum class KeyAction {
+enum class KeyAction {
     Press,
     Release,
 };
 
 /// Scroll direction.
-export enum class ScrollDirection {
+enum class ScrollDirection {
     Vertical,
     Horizontal,
 };
 
 /// Screenshot filtering capability.
-export enum class ScreenshotFiltering {
+enum class ScreenshotFiltering {
     Native,
 };
 
 /// Platform for computer use (currently macOS only).
-export enum class CuPlatform {
+enum class CuPlatform {
     Darwin,
 };
 
 /// Coordinate mode for computer use.
-export enum class CoordinateMode {
+enum class CoordinateMode {
     Pixels,
     Normalized,
 };
 
 /// Result kind from lock acquisition.
-export enum class AcquireResultKind {
+enum class AcquireResultKind {
     Acquired,
     Blocked,
 };
 
 /// Result kind from lock status check.
-export enum class CheckResultKind {
+enum class CheckResultKind {
     Free,
     HeldBySelf,
     Blocked,
@@ -82,19 +80,19 @@ export enum class CheckResultKind {
 // Geometry / Display types
 // ---------------------------------------------------------------------------
 
-export struct Point {
+struct Point {
     double x{0.0};
     double y{0.0};
 };
 
-export struct Rect {
+struct Rect {
     double x{0.0};
     double y{0.0};
     double w{0.0};
     double h{0.0};
 };
 
-export struct DisplayGeometry {
+struct DisplayGeometry {
     std::uint32_t display_id{0};
     std::uint32_t width{0};
     std::uint32_t height{0};
@@ -105,34 +103,34 @@ export struct DisplayGeometry {
 // App types
 // ---------------------------------------------------------------------------
 
-export struct FrontmostApp {
+struct FrontmostApp {
     std::string bundle_id;
     std::string display_name;
 };
 
-export struct InstalledApp {
+struct InstalledApp {
     std::string bundle_id;
     std::string display_name;
     std::string path;
     std::optional<std::string> icon_data_url;
 };
 
-export struct RunningApp {
+struct RunningApp {
     std::string bundle_id;
     std::string display_name;
 };
 
-export struct AppUnderPointResult {
+struct AppUnderPointResult {
     std::string bundle_id;
     std::string display_name;
 };
 
-export struct HidePreviewEntry {
+struct HidePreviewEntry {
     std::string bundle_id;
     std::string display_name;
 };
 
-export struct WindowDisplayInfo {
+struct WindowDisplayInfo {
     std::string bundle_id;
     std::vector<std::uint32_t> display_ids;
 };
@@ -141,13 +139,13 @@ export struct WindowDisplayInfo {
 // Screenshot types
 // ---------------------------------------------------------------------------
 
-export struct ScreenshotResult {
+struct ScreenshotResult {
     std::string base64;
     std::uint32_t width{0};
     std::uint32_t height{0};
 };
 
-export struct ResolvePrepareCaptureResult {
+struct ResolvePrepareCaptureResult {
     ScreenshotResult screenshot;
     std::vector<std::string> hidden_bundle_ids;
     std::optional<std::string> activated;
@@ -157,7 +155,7 @@ export struct ResolvePrepareCaptureResult {
 // Capabilities
 // ---------------------------------------------------------------------------
 
-export struct ComputerUseCapabilities {
+struct ComputerUseCapabilities {
     ScreenshotFiltering screenshot_filtering{ScreenshotFiltering::Native};
     CuPlatform platform{CuPlatform::Darwin};
     std::string host_bundle_id;
@@ -167,7 +165,7 @@ export struct ComputerUseCapabilities {
 // Sub-gates (feature flags for individual CU features)
 // ---------------------------------------------------------------------------
 
-export struct CuSubGates {
+struct CuSubGates {
     bool pixel_validation{false};
     bool clipboard_paste_multiline{true};
     bool mouse_animation{true};
@@ -181,13 +179,13 @@ export struct CuSubGates {
 // ---------------------------------------------------------------------------
 
 /// Options for the executor factory.
-export struct ExecutorOptions {
+struct ExecutorOptions {
     std::function<bool()> get_mouse_animation_enabled;
     std::function<bool()> get_hide_before_action_enabled;
 };
 
 /// The executor interface for computer control operations.
-export struct ComputerExecutor {
+struct ComputerExecutor {
     ComputerUseCapabilities capabilities;
 
     // Pre-action sequence
@@ -286,11 +284,11 @@ export struct ComputerExecutor {
 };
 
 /// Create the CLI executor (macOS only). Throws on unsupported platforms.
-export auto create_cli_executor(ExecutorOptions const& opts)
+auto create_cli_executor(ExecutorOptions const& opts)
     -> std::expected<ComputerExecutor, std::string>;
 
 /// Unhide previously-hidden apps at turn end.
-export auto unhide_computer_use_apps(
+auto unhide_computer_use_apps(
     std::vector<std::string> const& bundle_ids)
     -> std::expected<void, std::string>;
 
@@ -300,7 +298,7 @@ export auto unhide_computer_use_apps(
 
 /// Eagerly load and cache the computer-use input native module.
 /// Returns an error if the platform is unsupported.
-export auto require_computer_use_input()
+auto require_computer_use_input()
     -> std::expected<void, std::string>;
 
 // ---------------------------------------------------------------------------
@@ -308,43 +306,43 @@ export auto require_computer_use_input()
 // ---------------------------------------------------------------------------
 
 /// Whether computer use (Chicago) is enabled for the current user.
-export auto get_chicago_enabled() -> bool;
+auto get_chicago_enabled() -> bool;
 
 /// Sub-gates controlling individual CU features.
-export auto get_chicago_sub_gates() -> CuSubGates;
+auto get_chicago_sub_gates() -> CuSubGates;
 
 /// Frozen coordinate mode (pixels or normalized).
-export auto get_chicago_coordinate_mode() -> CoordinateMode;
+auto get_chicago_coordinate_mode() -> CoordinateMode;
 
 // ---------------------------------------------------------------------------
 // Lock management
 // ---------------------------------------------------------------------------
 
-export struct AcquireResult {
+struct AcquireResult {
     AcquireResultKind kind;
     bool fresh{false};        // meaningful when kind == Acquired
     std::string blocked_by;   // meaningful when kind == Blocked
 };
 
-export struct CheckResult {
+struct CheckResult {
     CheckResultKind kind;
     std::string blocked_by;   // meaningful when kind == Blocked
 };
 
 /// Check lock state without acquiring.
-export auto check_computer_use_lock()
+auto check_computer_use_lock()
     -> std::expected<CheckResult, std::string>;
 
 /// Zero-syscall check: does THIS process hold the lock?
-export auto is_lock_held_locally() -> bool;
+auto is_lock_held_locally() -> bool;
 
 /// Try to acquire the computer-use lock for the current session.
-export auto try_acquire_computer_use_lock()
+auto try_acquire_computer_use_lock()
     -> std::expected<AcquireResult, std::string>;
 
 /// Release the computer-use lock if the current session owns it.
 /// Returns true if we actually released (callers fire exit notifications).
-export auto release_computer_use_lock()
+auto release_computer_use_lock()
     -> std::expected<bool, std::string>;
 
 // ---------------------------------------------------------------------------
@@ -352,7 +350,7 @@ export auto release_computer_use_lock()
 // ---------------------------------------------------------------------------
 
 /// Turn-end cleanup: unhide apps and release lock.
-export auto cleanup_computer_use_after_turn()
+auto cleanup_computer_use_after_turn()
     -> std::expected<void, std::string>;
 
 // ---------------------------------------------------------------------------
@@ -360,8 +358,10 @@ export auto cleanup_computer_use_after_turn()
 // ---------------------------------------------------------------------------
 
 /// Detect the terminal emulator's bundle ID (macOS).
-export auto get_terminal_bundle_id()
+auto get_terminal_bundle_id()
     -> std::optional<std::string>;
 
 /// Check if a name matches the computer-use MCP server.
-export auto is_computer_use_mcp_server(std::string_view name) -> bool;
+auto is_computer_use_mcp_server(std::string_view name) -> bool;
+
+} // namespace cc::utils::computer_use

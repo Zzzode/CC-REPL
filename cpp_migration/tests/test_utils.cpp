@@ -1354,11 +1354,11 @@ TEST(PluginLoader, CachePluginClonesGitUrlAndLoadsManifest) {
         command << "Run from git\n";
     }
 
-    run_shell_ok_for_test("git init --initial-branch main " + shell_quote_for_test(repo) + " >/dev/null");
+    run_shell_ok_for_test("git init --template= --initial-branch main " + shell_quote_for_test(repo) + " >/dev/null");
     run_shell_ok_for_test("git -C " + shell_quote_for_test(repo) + " config user.email test@example.invalid");
     run_shell_ok_for_test("git -C " + shell_quote_for_test(repo) + " config user.name Test");
     run_shell_ok_for_test("git -C " + shell_quote_for_test(repo) + " add .");
-    run_shell_ok_for_test("git -C " + shell_quote_for_test(repo) + " commit -m init >/dev/null");
+    run_shell_ok_for_test("git -C " + shell_quote_for_test(repo) + " commit --no-verify -m init >/dev/null");
 
     cc::utils::plugin_loader::PluginSource source =
         cc::utils::plugin_loader::GitUrlSource{.url = "file://" + repo.string()};
@@ -1402,11 +1402,11 @@ TEST(PluginLoader, CachePluginExtractsGitSubdirAndRecordsSha) {
         command << "Run from subdir\n";
     }
 
-    run_shell_ok_for_test("git init --initial-branch main " + shell_quote_for_test(repo) + " >/dev/null");
+    run_shell_ok_for_test("git init --template= --initial-branch main " + shell_quote_for_test(repo) + " >/dev/null");
     run_shell_ok_for_test("git -C " + shell_quote_for_test(repo) + " config user.email test@example.invalid");
     run_shell_ok_for_test("git -C " + shell_quote_for_test(repo) + " config user.name Test");
     run_shell_ok_for_test("git -C " + shell_quote_for_test(repo) + " add .");
-    run_shell_ok_for_test("git -C " + shell_quote_for_test(repo) + " commit -m init >/dev/null");
+    run_shell_ok_for_test("git -C " + shell_quote_for_test(repo) + " commit --no-verify -m init >/dev/null");
 
     cc::utils::plugin_loader::PluginSource source =
         cc::utils::plugin_loader::GitSubdirSource{

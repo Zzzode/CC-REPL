@@ -126,7 +126,7 @@ TEST(SpawnMultiAgent, TeamNameSpawnsTeammateBackend) {
     ASSERT_TRUE(record->team_name);
     EXPECT_EQ(*record->team_name, "migration-team");
     ASSERT_TRUE(record->cwd);
-    EXPECT_EQ(*record->cwd, root.string());
+    EXPECT_EQ(*record->cwd, fs::weakly_canonical(root).string());
     ASSERT_GE(record->transcript.size(), 1u);
     EXPECT_EQ(record->transcript[0], "user: Review the team migration");
 
@@ -187,7 +187,7 @@ TEST(SpawnMultiAgent, NonTeamAgentsUseAgentToolBackgroundPath) {
     EXPECT_EQ(record->status, cc::tools::agent_runtime::NativeAgentStatus::Queued);
     EXPECT_EQ(record->agent_type, "general-purpose");
     ASSERT_TRUE(record->cwd);
-    EXPECT_EQ(*record->cwd, root.string());
+    EXPECT_EQ(*record->cwd, fs::weakly_canonical(root).string());
     ASSERT_FALSE(record->transcript.empty());
     EXPECT_NE(record->transcript.front().find("Inspect the non-team migration path"), std::string::npos);
 

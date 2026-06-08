@@ -15,6 +15,7 @@
 /// Migrated from src/bridge/remoteBridgeCore.ts (~1008 lines).
 module;
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -29,6 +30,7 @@ module;
 #include <thread>
 #include <unordered_set>
 #include <utility>
+#include <variant>
 #include <vector>
 
 export module cc.bridge.core;
@@ -45,6 +47,7 @@ import cc.bridge.session_api;
 import cc.bridge.session_id_compat;
 import cc.bridge.debug_utils;
 import cc.bridge.flush_gate;
+import cc.bridge.messages;
 
 export namespace cc::bridge {
 
@@ -82,30 +85,15 @@ using AuthRefreshCallback = std::function<std::expected<void, std::string>(std::
 /// writeMessages / initial flush.
 using ToSDKMessagesCallback = std::function<std::vector<std::string>(const std::vector<SDKMessage>&)>;
 
-/// Callback type: notify caller of inbound messages from bridge.
-using InboundMessageCallback = std::function<void(const SDKMessage&)>;
-
 /// Callback type: fire on each title-worthy user message until the
 /// callback returns true (done). Caller owns the derive policy.
 using UserMessageCallback = std::function<bool(const std::string& text, const std::string& session_id)>;
-
-/// Callback type: permission response from remote client.
-using PermissionResponseCallback = std::function<void(const SDKControlResponse&)>;
-
-/// Callback type: server-initiated interrupt.
-using InterruptCallback = std::function<void()>;
-
-/// Callback type: model change from remote.
-using SetModelCallback = std::function<void(const std::optional<std::string>&)>;
 
 /// Callback type: max thinking tokens change.
 using SetMaxThinkingTokensCallback = std::function<void(std::optional<int64_t>)>;
 
 /// Callback type: permission mode change. Returns {ok, error_message}.
 using SetPermissionModeCallback = std::function<std::pair<bool, std::string>(const std::string&)>;
-
-/// Callback type: state change notification.
-using StateChangeCallback = std::function<void(BridgeState, const std::optional<std::string>&)>;
 
 /// Initialization parameters for the env-less remote bridge core.
 /// Analogous to the TS EnvLessBridgeParams type.
@@ -272,7 +260,7 @@ public:
             while (!stop.stop_requested()) {
                 auto remaining = deadline - std::chrono::steady_clock::now();
                 if (remaining <= std::chrono::seconds{0}) break;
-                std::this_thread::sleep_for(std::min(remaining, std::chrono::seconds{1}));
+                std::this_thread::sleep_for(std::min<std::chrono::steady_clock::duration>(remaining, std::chrono::seconds{1}));
             }
             if (stop.stop_requested()) return;
 
@@ -567,6 +555,30 @@ public:
 };
 
 // =========================================================================
+// ReplBridgeHandle — abstract base for bridge handles
+// =========================================================================
+
+/// Abstract handle returned by the env-less bridge init.
+class ReplBridgeHandle {
+public:
+    virtual ~ReplBridgeHandle() = default;
+    virtual BridgeState state() const = 0;
+    virtual void close() = 0;
+    virtual void flush() = 0;
+    virtual void set_title(std::string_view title) = 0;
+    virtual std::string environment_id() const = 0;
+};
+
+// Forward declaration
+int64_t archive_session(
+    const std::string& session_id,
+    const std::string& base_url,
+    const std::string& access_token,
+    const std::string& org_uuid,
+    std::chrono::milliseconds timeout
+);
+
+// =========================================================================
 // EnvLessReplBridgeHandle — concrete ReplBridgeHandle for the env-less path
 // =========================================================================
 
@@ -578,7 +590,7 @@ class EnvLessReplBridgeHandle final : public ReplBridgeHandle {
     std::unique_ptr<ReplV2Transport> transport_;
     std::unique_ptr<TokenRefreshScheduler> refresh_scheduler_;
 
-    BridgeState state_{BridgeState::Idle};
+    BridgeState state_{BridgeState::Ready};
     std::atomic<bool> torn_down_{false};
     std::atomic<bool> auth_recovery_in_flight_{false};
     std::atomic<bool> initial_flush_done_{false};
@@ -870,10 +882,10 @@ private:
 
         // Cap if configured
         std::vector<SDKMessage> capped;
-        if (cfg_.initial_history_cap > 0 &&
-            static_cast<int64_t>(eligible.size()) > cfg_.initial_history_cap) {
+        if (params_.initial_history_cap > 0 &&
+            static_cast<int64_t>(eligible.size()) > params_.initial_history_cap) {
             auto start = eligible.end() -
-                         static_cast<std::ptrdiff_t>(cfg_.initial_history_cap);
+                         static_cast<std::ptrdiff_t>(params_.initial_history_cap);
             capped.assign(start, eligible.end());
             log_bridge_event("history_capped", {
                 {"original", std::to_string(eligible.size())},
@@ -1060,6 +1072,24 @@ int64_t archive_session(
     (void)org_uuid;
     (void)timeout;
     return 200;
+}
+
+/// Stub overload of create_code_session matching the env-less call convention.
+/// In production this would delegate to the session_api module with a proper
+/// CreateSessionRequest. For the skeleton, returns a synthetic session ID.
+std::optional<std::string> create_code_session(
+    std::string_view base_url,
+    std::string_view access_token,
+    std::string_view title,
+    std::chrono::milliseconds timeout,
+    const std::vector<std::string>& tags = {}
+) {
+    (void)timeout;
+    (void)tags;
+    if (base_url.empty() || access_token.empty()) return std::nullopt;
+    // Synthetic session ID for skeleton
+    return std::format("ses_{:016x}",
+        std::hash<std::string>{}(std::string(title) + std::string(base_url)));
 }
 
 // =========================================================================
