@@ -1201,6 +1201,9 @@ target_sources(cc_ui
         ui/components/spinner_animations.cppm
         ui/components/spinner_shimmer.cppm
         ui/components/spinner_teammate_tree.cppm
+        ui/common/ui_types.cppm
+        ui/common/ui_formatting.cppm
+        ui/common/small_widgets.cppm
         ui/design/dialog.cppm
         ui/design/divider.cppm
         ui/design/list_item.cppm
@@ -1226,6 +1229,8 @@ target_sources(cc_ui
         ui/dialogs/quick_open.cppm
         ui/dialogs/sandbox_dialog.cppm
         ui/dialogs/settings_dialog.cppm
+        ui/dialogs/settings_status_page.cppm
+        ui/dialogs/usage_dialog.cppm
         ui/dialogs/teleport_dialogs.cppm
         ui/dialogs/trust_dialog.cppm
         ui/dialogs/wizard_dialog.cppm
@@ -1336,6 +1341,39 @@ target_link_libraries(cc_ui
         ftxui::screen
         ftxui::dom
         ftxui::component
+)
+
+# ─── cc_ui_design: Design System (tokens / theme / logo / primitives) ────────
+# Phase 4-UI20: mirrors the TS-side design-system package
+# (src/components/design-system/* + src/utils/theme.ts + src/components/LogoV2/*).
+# Uses C++23 named modules; depends on cc_ui for FTXUI link requirements.
+add_library(cc_ui_design)
+target_sources(cc_ui_design
+    PUBLIC FILE_SET CXX_MODULES FILES
+        ui/design_system/design_tokens.cppm
+        ui/design_system/theme_provider.cppm
+        ui/design_system/logo_v2.cppm
+        ui/design_system/component_primitives.cppm
+)
+target_link_libraries(cc_ui_design
+    PUBLIC
+        cc_utils
+        cc_types
+        cc_ui
+        ftxui::screen
+        ftxui::dom
+        ftxui::component
+)
+
+# ─── cc_all: Convenience aggregator (all production targets) ─────────────────
+# INTERFACE library that transitively pulls in every subsystem plus the
+# newly-added cc_ui_design.  Downstream targets can link cc_all instead of
+# enumerating subsystems.
+add_library(cc_all INTERFACE)
+target_link_libraries(cc_all
+    INTERFACE
+        cc_core          # existing subsystem aggregator
+        cc_ui_design     # design system (added Phase 4-UI20)
 )
 
 # ─── cc_vim: Vim Mode ─────────────────────────────────────────────────────────
@@ -1508,6 +1546,7 @@ target_link_libraries(cc_repl
         cc_session
         cc_utils
         cc_ui
+        cc_ui_design
 )
 set_target_properties(cc_repl PROPERTIES
     OUTPUT_NAME "cc-repl"
