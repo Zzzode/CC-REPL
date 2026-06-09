@@ -38,6 +38,15 @@ import cc.tools.agent_runtime;
 import cc.utils.json;
 import cc.utils.shell_providers;
 import cc.tools.sed_validation;
+// migrated (Agent 8): result formatting + exit-code semantics
+import cc.tools.command_semantics;
+import cc.tools.bash_result_formatting;
+// migrated (Agent 3): bash security & validation helper modules
+import cc.tools.destructive_command_warning;
+import cc.tools.mode_validation;
+import cc.tools.path_validation;
+import cc.tools.readonly_validation;
+import cc.tools.should_use_sandbox;
 
 export namespace cc::tools::bash {
 
@@ -167,6 +176,8 @@ struct BashToolOutput {
     bool no_output_expected = false;
     std::optional<std::string> persisted_output_path;
     std::optional<std::string> interrupted_reason;
+    // migrated: wall-clock duration tracked for UI cards (Phase 4 FTXUI)
+    std::chrono::milliseconds duration_ms{0};
 };
 
 [[nodiscard]] bool should_use_sandbox(std::string_view command) noexcept;
@@ -469,6 +480,9 @@ inline void append_background_output(BackgroundTaskState& state, std::string_vie
         .exit_code = -1
     };
 
+    // migrated: record duration for Phase-4 UI cards
+    const auto exec_started_at = std::chrono::steady_clock::now();
+
     bool stdout_open = true;
     bool stderr_open = true;
     bool process_exited = false;
@@ -562,6 +576,10 @@ inline void append_background_output(BackgroundTaskState& state, std::string_vie
     if (output.interrupted) {
         output.exit_code = 128 + SIGKILL;
     }
+
+    // migrated: record wall-clock duration for UI cards (Phase 4 FTXUI)
+    output.duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - exec_started_at);
 
     return output;
 }
@@ -679,46 +697,63 @@ struct BackgroundTaskSnapshot {
 // Command Classification and Validation
 // =========================================================================
 
-/// Classify a command by type
+/// Classify a command by type.
+///
+/// Dangerous-pattern detection is now delegated to
+/// cc.tools.destructive_command_warning which has a richer regex-based
+/// table covering git, file-deletion, database, and infrastructure ops.
 [[nodiscard]] CommandType classify_command(std::string_view command) noexcept {
     std::string_view base_cmd = command;
     auto space = command.find(' ');
-    if (space != std::string::npos) {
+    if (space != std::string_view::npos) {
         base_cmd = command.substr(0, space);
     }
-    
-    // Read-only commands
+
+    // (1) Read-only commands
     static const std::unordered_set<std::string_view> kReadCmds = {
         "cat", "head", "tail", "less", "more", "wc", "stat", "file", "strings",
-        "ls", "tree", "du", "find", "grep", "rg", "ag", "ack", "locate", "which", "whereis"
+        "ls", "tree", "du", "find", "grep", "rg", "ag", "ack", "locate",
+        "which", "whereis"
     };
     if (kReadCmds.contains(base_cmd)) {
         return CommandType::ReadOnly;
     }
-    
-    // Write commands
+
+    // (2) Write commands
     static const std::unordered_set<std::string_view> kWriteCmds = {
         "echo", "tee", "sed", "awk", "touch", "mkdir", "rmdir", "cp", "mv", "ln"
     };
     if (kWriteCmds.contains(base_cmd)) {
-        return CommandType::Write;
-    }
-    
-    // Check for dangerous patterns
-    for (auto pattern : kDangerousPatterns) {
-        if (command.find(pattern) != std::string::npos) {
+        if (destructive_command_warning::is_destructive_command(command)) {
             return CommandType::Dangerous;
         }
+        return CommandType::Write;
     }
-    
+
+    // (3) Check for dangerous patterns (uses regex table from Agent 3 module)
+    if (destructive_command_warning::is_destructive_command(command)) {
+        return CommandType::Dangerous;
+    }
+
+    // (4) Fallback: allowlist-based read-only detection
+    if (readonly_validation::is_command_safe_via_flag_parsing(command)) {
+        return CommandType::ReadOnly;
+    }
+
     return CommandType::Execute;
 }
 
-/// Check if command requires sandbox
+/// Check if command requires sandbox (delegates to Agent 3's
+/// should_use_sandbox module with sensible defaults).
 [[nodiscard]] bool should_use_sandbox(std::string_view command) noexcept {
-    auto type = classify_command(command);
-    return type == CommandType::Dangerous || type == CommandType::Execute;
+    sandbox::SandboxInput input{
+        .command = std::string(command),
+        .dangerously_disable_sandbox = false,
+    };
+    sandbox::SandboxRuntimeConfig runtime;
+    return sandbox::should_use_sandbox(input, runtime);
 }
+
 
 /// Check if command is silent (expected no output)
 [[nodiscard]] bool is_silent_command(std::string_view command) noexcept {
@@ -924,7 +959,7 @@ private:
                     .background_task_id = background_task->id,
                     .no_output_expected = false
                 };
-                return format_result(output, input.command);
+                return format_result(output, input.command, /*semantic_is_error=*/false);
             }
 
             auto executed = detail::execute_shell(input);
@@ -934,7 +969,17 @@ private:
 
             auto output = std::move(*executed);
             output.no_output_expected = is_silent_command(input.command);
-            return format_result(output, input.command);
+
+            // migrated: interpret exit codes via command_semantics rules.
+            // Many tools (grep, find, diff, test, ...) use exit 1 to signal
+            // "no match / different / false" rather than a genuine failure.
+            const auto interpreted = cc::tools::interpret_command_result(
+                input.command, output.exit_code, output.stdout, output.stderr);
+            if (interpreted.message) {
+                output.return_code_interpretation = *std::move(interpreted.message);
+            }
+
+            return format_result(output, input.command, interpreted.is_error);
             
         } catch (const std::exception& e) {
             return ToolResult::error(std::format("Execution error: {}", e.what()));
@@ -946,11 +991,50 @@ private:
         co_return execute_internal(input);
     }
     
-    /// Format the BashToolOutput into a ToolResult
-    [[nodiscard]] ToolResult format_result(const BashToolOutput& output) {
+    /// Format the BashToolOutput into a ToolResult.
+    ///
+    /// Also constructs a `BashResultInfo` struct (via bash_result_formatting)
+    /// containing all the data the Phase 4 FTXUI layer will need to render a
+    /// proper result card.  Today that struct is materialised and then left
+    /// unused (it is intended as a bridge to a future UI render path); all
+    /// textual output still goes through the legacy flat-text layout below.
+    ///
+    /// \param command            original user command (for display)
+    /// \param semantic_is_error  true if command_semantics declared the
+    ///                           execution a *real* error (as opposed to e.g.
+    ///                           grep returning exit 1 for no matches).
+    [[nodiscard]] ToolResult format_result(
+        const BashToolOutput& output,
+        std::string_view command,
+        bool semantic_is_error
+    ) {
+        // ---- Phase 4 bridge: build structured BashResultInfo --------------
+        // (UI rendering is deferred to FTXUI; only the data bridge lives here.)
+        const auto dur_ms = static_cast<std::uint64_t>(
+            std::max<std::int64_t>(0, std::chrono::duration_cast<
+                std::chrono::milliseconds>(output.duration_ms).count()));
+        [[maybe_unused]] const auto info = cc::tools::bash::make_result_info(
+            std::string(command),
+            output.exit_code,
+            dur_ms,
+            output.stdout,
+            output.stderr,
+            output.interrupted,
+            output.is_image,
+            output.no_output_expected,
+            output.background_task_id.has_value(),
+            output.return_code_interpretation,
+            output.interrupted_reason
+        );
+        // TODO(Phase 4): hand `info` to FTXUI renderer instead of flattening.
+        // -------------------------------------------------------------------
+
         std::string result_text;
-        
-        if (is_error(output)) {
+
+        const bool hard_error =
+            output.interrupted || (output.exit_code != 0 && semantic_is_error);
+
+        if (hard_error) {
             result_text = output.interrupted
                 ? output.interrupted_reason.value_or("Command timed out")
                 : "Command failed";
@@ -963,7 +1047,7 @@ private:
             result_text += std::format("\nExit code: {}", output.exit_code);
             return ToolResult::error(result_text);
         }
-        
+
         if (!output.stdout.empty()) {
             result_text = output.stdout;
         } else if (!output.stderr.empty()) {
@@ -973,11 +1057,11 @@ private:
         } else {
             result_text = "(no output)";
         }
-        
+
         if (output.return_code_interpretation) {
             result_text += "\n\n" + *output.return_code_interpretation;
         }
-        
+
         return ToolResult::success(result_text);
     }
     

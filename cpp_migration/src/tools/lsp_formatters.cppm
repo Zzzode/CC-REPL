@@ -133,27 +133,18 @@ inline auto format_signature_help(
 }
 
 
+/// Format a list of LSP diagnostics for terminal display.
+///
+/// Delegates to `format_diagnostics` in `script_diagnostics` (which now
+/// provides aligned, coloured, snippet-rendered output) so there is a
+/// single source of truth for diagnostic formatting.
 inline auto format_diagnostic_list(std::span<const Diagnostic> diagnostics) -> std::string {
-    std::ostringstream oss;
-
-    if (diagnostics.empty()) {
-        return "No diagnostics reported.";
-    }
-
-    for (const auto& diag : diagnostics) {
-
-        switch (diag.level) {
-            case Diagnostic::Level::Error:   oss << "✖ "; break;
-            case Diagnostic::Level::Warning: oss << "⚠ "; break;
-            case Diagnostic::Level::Info:    oss << "ℹ "; break;
-        }
-
-        oss << diag.file.filename().string()
-            << ":" << diag.line << ":" << diag.column
-            << " " << diag.message << "\n";
-    }
-
-    return oss.str();
+    FormatDiagnosticOptions opts;
+    opts.max_display    = 200;
+    opts.show_snippets  = false;   // LSP diagnostics usually lack line_text
+    opts.align_messages = true;
+    opts.use_colors     = true;
+    return format_diagnostics(diagnostics, opts);
 }
 
 } // namespace cc::tools

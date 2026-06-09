@@ -18,6 +18,8 @@ export module cc.tools.script;
 // migrated: integrate collapse decision + script primitives + typecheck
 import cc.tools.script_primitives;
 import cc.tools.script_typecheck;
+import cc.tools.script_diagnostics;
+import cc.tools.tool_display_names;
 
 export namespace cc::tools {
 
@@ -129,7 +131,7 @@ constexpr auto script_extension(ScriptLanguage lang) -> std::string_view {
 
 class ScriptTool {
 public:
-    static constexpr std::string_view name = "script";
+    static constexpr std::string_view name = SCRIPT_TOOL_NAME;
     static constexpr std::string_view description = "Execute scripts in a sandboxed environment with resource limits";
 
     auto validate(const ScriptRequest& request) const -> std::expected<void, ScriptError> {
@@ -194,6 +196,36 @@ public:
 
         if (request.enable_type_check) {
             result.diagnostics = run_type_check(request.language, request.code);
+
+            // Bridge local Diagnostics (script_tool) into
+            // script_diagnostics::Diagnostic, then pretty-print via the
+            // unified format_diagnostics formatter.
+            if (!result.diagnostics.empty()) {
+                std::vector<::cc::tools::Diagnostic> formatted;
+                formatted.reserve(result.diagnostics.size());
+                for (const auto& d : result.diagnostics) {
+                    ::cc::tools::Diagnostic out;
+                    using Lvl = ::cc::tools::DiagnosticLevel;
+                    switch (d.severity) {
+                        case decltype(d)::Severity::Error:   out.level = Lvl::Error;   break;
+                        case decltype(d)::Severity::Warning: out.level = Lvl::Warning; break;
+                        case decltype(d)::Severity::Info:    out.level = Lvl::Info;    break;
+                        case decltype(d)::Severity::Hint:    out.level = Lvl::Hint;    break;
+                    }
+                    out.line    = d.line;
+                    out.column  = d.column;
+                    out.message = d.message;
+                    out.source  = d.source;
+                    formatted.push_back(std::move(out));
+                }
+                ::cc::tools::FormatDiagnosticOptions fopts;
+                fopts.max_display    = 200;
+                fopts.use_colors     = true;
+                fopts.align_messages = true;
+                fopts.show_snippets  = false;
+                if (!result.stderr_output.empty()) result.stderr_output += "\n";
+                result.stderr_output += ::cc::tools::format_diagnostics(formatted, fopts);
+            }
         }
 
         return result;
