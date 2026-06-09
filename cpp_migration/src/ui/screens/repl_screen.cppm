@@ -308,6 +308,80 @@ struct ReplScreenCallbacks {
         rows.push_back(std::move(r));
     }
     return vbox(rows) | vscroll_indicator | yframe | flex;
+    // ─────────────────────────────────────────────────────────────────────
+    // UI21 MIGRATION (messages_list.cppm — import cc.ui.messages.messages_list)
+    //
+    // The current RenderMessages() body above is a 18-line placeholder
+    // (paragraph() over MessageDisplayEntry.role + content_preview).  The
+    // real Messages.tsx / Message.tsx port lives in
+    //   cpp_migration/src/ui/messages/messages_list.cppm
+    // which exposes:
+    //
+    //   (1) MessagesListInput  — parallel vector<MessageRowPayload> +
+    //                            vector<MessageShape> (derived from engine
+    //                            state, NOT from MessageDisplayEntry).
+    //   (2) render_messages_list_view(input, frame_count, render_last_n=80)
+    //                            — STATIC / dialog-ready Element version,
+    //                              runs build_visible_rows internally (filter
+    //                              + search + compact-group collapse +
+    //                              streaming tail spinner+blink cursor).
+    //   (3) MakeMessagesList(input, MessagesListCallbacks)
+    //                            — FULL INTERACTIVE Component:
+    //                                j/k/Ctrl+N/Ctrl+P nav,  g/G/Home/End,
+    //                                '/' focus search Input,  Escape clear,
+    //                                Enter default-copy,  c/r/d hotkeys,
+    //                                Space toggle compact group expand.
+    //
+    // Expected integration (engine emits shape/payload instead of
+    // MessageDisplayEntry):
+    //   ┌──────────────────────────────────────────────────────────────┐
+    //   │  import cc.ui.messages.messages_list;                        │
+    //   │  using cc::ui::messages_list::MakeMessagesList;              │
+    //   │  using cc::ui::messages_list::MessagesListInput;             │
+    //   │  using cc::ui::messages_list::MessagesListCallbacks;         │
+    //   │                                                              │
+    //   │  MessagesListInput in;                                      │
+    //   │  in.rows   = engine.message_payloads();   // variant vec    │
+    //   │  in.shapes = engine.message_shapes();     // enum vec       │
+    //   │  in.selected_row_idx     = sel >= 0 ? std::optional(size_t(sel))│
+    //   │                                      : std::nullopt;        │
+    //   │  in.streaming_tail_row   = engine.is_streaming()            │
+    //   │      ? (in.rows.empty() ? 0 : in.rows.size() - 1)           │
+    //   │      : in.rows.size();    // "off" sentinel                 │
+    //   │  in.compact_boundary_groups = engine.compact_groups();      │
+    //   │  in.filters.show_system   = state.flags.show_system;        │
+    //   │  in.filters.show_tool_in  = state.flags.show_tool_in;       │
+    //   │  in.filters.show_tool_out = state.flags.show_tool_out;      │
+    //   │  in.filters.show_thinking = state.flags.show_thinking;      │
+    //   │  in.filters.show_compact  = state.flags.show_compact;       │
+    //   │  in.search_query         = state.search_query;              │
+    //   │  in.jump_to_row_on_init  = state.jump_row;                 │
+    //   │                                                              │
+    //   │  MessagesListCallbacks cb{                                  │
+    //   │    .on_select = [&](size_t i){ state.selected_message_idx  │
+    //   │                                  = static_cast<int>(i); }, │
+    //   │    .on_action = [&](size_t i, ActionKind k)                │
+    //   │                     { engine.on_row_action(i, k); },        │
+    //   │    .on_toggle_compact_group = [&](size_t g)                │
+    //   │                     { engine.toggle_compact_group(g); },    │
+    //   │    .on_search_changed = [&](const std::string& q)          │
+    //   │                     { state.search_query = q; },            │
+    //   │  };                                                         │
+    //   │  return MakeMessagesList(std::move(in), std::move(cb))      │
+    //   │         ->Render();                                         │
+    //   └──────────────────────────────────────────────────────────────┘
+    //
+    // Blocked-on: (a) engine producing the parallel rows/shapes vectors
+    //                 (MessageRowPayload is variant over 20 structs defined
+    //                  in cc.ui.messages.message_row; each display row maps
+    //                  to exactly one alternative + MessageShape tag).
+    //             (b) per-row callbacks (copy→clipboard, regenerate→engine,
+    //                 delete→session) wired in ReplScreenCallbacks.
+    //             (c) cc.ui.design.tokens / design.primitives materialised
+    //                 — today messages_list.cppm uses themed_text+themed_box
+    //                 as stand-ins via palette::*() inline helpers; swap is
+    //                 a single grep (see messages_list.cppm top comment).
+    // ─────────────────────────────────────────────────────────────────────
 }
 
 // UI2: prompt input shell.  Full feature parity in prompt_input_full.cppm.
