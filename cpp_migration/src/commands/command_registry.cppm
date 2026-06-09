@@ -47,7 +47,8 @@ enum class CommandPermission : std::uint8_t {
 
 /// Maps commands to their required permission levels
 [[nodiscard]] constexpr CommandPermission command_permission(std::string_view name) noexcept {
-    if (name == "help" || name == "doctor" || name == "review" || name == "agents" || name == "btw" ||
+    if (name == "help" || name == "doctor" || name == "review" || name == "review-remote" ||
+        name == "security-review" || name == "ultrareview" || name == "agents" || name == "btw" ||
         name == "advisor" || name == "brief" || name == "color" || name == "ctx-viz" ||
         name == "effort" || name == "env" || name == "fast" || name == "feedback" || name == "files" ||
         name == "heapdump" || name == "hooks" || name == "ide" || name == "issue" || name == "memory" ||
@@ -68,7 +69,8 @@ enum class CommandPermission : std::uint8_t {
         name == "autofix-pr" || name == "backfill-sessions" || name == "break-cache" ||
         name == "bridge" || name == "create-moved-to-plugin-command" || name == "install-github-app" ||
         name == "mock-limits" || name == "oauth-refresh" || name == "reload-plugins" ||
-        name == "remote-setup" || name == "reset-limits")
+        name == "remote-setup" || name == "reset-limits" ||
+        name == "plugin" || name == "plugins" || name == "marketplace")
         return CommandPermission::ReadWrite;
     
     return CommandPermission::None;

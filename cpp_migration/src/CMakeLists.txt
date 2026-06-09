@@ -707,8 +707,12 @@ target_sources(cc_commands
         commands/plan.cppm
         commands/plugin/browse_marketplace.cppm
         commands/plugin/manage_plugins.cppm
+        commands/plugin/plugin_helpers.cppm
         commands/plugin/plugin_install.cppm
+        commands/plugin/plugin_manage.cppm
+        commands/plugin/plugin_parse_args.cppm
         commands/plugin/plugin_trust.cppm
+        commands/plugin/plugin_ui_data.cppm
         commands/plugin_cmd.cppm
         commands/pr_comments.cppm
         commands/privacy_settings.cppm

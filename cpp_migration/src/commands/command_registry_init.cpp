@@ -52,7 +52,12 @@ import cc.commands.tag;
 import cc.commands.teleport;
 import cc.commands.upgrade;
 import cc.commands.ultraplan;
+import cc.commands.review.ultrareview;
+import cc.commands.review.review_remote;
+import cc.commands.security_review;
+import cc.commands.init_verifiers;
 import cc.commands.install;
+import cc.commands.install_github_app;
 import cc.commands.insights;
 import cc.commands.init;
 import cc.commands.session;
@@ -86,6 +91,8 @@ namespace cc::commands {
 void register_default_commands(CommandRegistry& registry) {
     registry.register_command<CommitCommand>();
     registry.register_command<ReviewCommand>();
+    registry.register_command<ReviewRemoteCommand>();
+    registry.register_command<UltraReviewCommand>();
     registry.register_command<ConfigCommand>();
     registry.register_command<McpCommand>();
     registry.register_command<CompactCommand>();

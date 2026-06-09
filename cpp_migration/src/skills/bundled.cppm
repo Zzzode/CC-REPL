@@ -1,7 +1,7 @@
 // ============================================================================
-// Bundled skills registry audit (Phase 2, Agent S2):
+// Bundled skills registry audit (Phase 2, Agent S2 + S4):
 //   Source of truth: src/skills/bundled/index.ts (17 skills + 4 conditional)
-//   Audit baseline  : 2026-06-09, S2 commit
+//   Audit baseline  : 2026-06-09, S2 + S4 commits
 //
 //   Legend: OK migrated & registered   IN imported from root module
 //           RT partial (runtime impl only)  DF DEFER / TODO
@@ -10,20 +10,26 @@
 //   claude_api.cppm               RT bundled/ has impl + IN root SkillDefinition
 //   claude_api_content.cppm       IN S1 migrated (root: make_claude_api_content_skill)
 //   claude_in_chrome.cppm         OK (S2, this commit)  make_claude_in_chrome_skill()
-//   debug.cppm                    OK migrated (Phase 0)  make_debug_skill()
+//   debug.cppm                    OK (S4, THIS commit)  runtime impl in bundled/debug
+//                                 + SkillDefinition here delegates to submodule
 //   index                         -> THIS FILE (aggregator)
 //   keybindings (bundled)         OK (S2, this commit)  make_keybindings_help_skill()
 //                                 NOTE: root keybindings.cppm = simple shortcut sheet
 //                                       bundled keybindings.cppm   = full customization guide
-//   loop.cppm                     OK migrated (Phase 0)  make_loop_skill()
+//   loop.cppm                     OK (S4, THIS commit)  runtime impl in bundled/loop
+//                                 + SkillDefinition here delegates to submodule
 //   lorem_ipsum.cppm              IN root: make_lorem_ipsum_skill()
 //   remember.cppm                 RT bundled/ has impl + IN root SkillDefinition
 //   schedule_remote_agents.cppm   IN root: make_schedule_remote_agents_skill()
 //   simplify.cppm                 RT bundled/ has impl + IN root SkillDefinition
-//   skillify.cppm                 IN root: make_skillify_skill()
+//   skillify.cppm                 OK (S4, THIS commit)  BUNDLED: full 4-phase interview
+//                                 NOTE: root skillify.cppm = simplified stub;
+//                                       bundled skillify.cppm = TS-parity full flow
 //   stuck.cppm                    OK migrated (Phase 0)  runtime impl in bundled/stuck
 //                                 + self-unstuck definition here + /stuck adapter
-//   update_config.cppm            IN root: make_update_config_skill()
+//   update_config.cppm            OK (S4, THIS commit)  BUNDLED: full TS prompt w/ hooks docs
+//                                 Config I/O 100% delegates to cc.config modules
+//                                 NOTE: root update_config.cppm = simplified stub
 //   verify.cppm                   OK migrated (Phase 0)  make_verify_skill()
 //   verify_content.cppm           IN S1 migrated (root: make_verify_content_skill)
 //
@@ -65,6 +71,12 @@ import cc.skills.skill;
 
 // ---------------------------------------------------------------------------
 // Root-level skill modules (imported + re-registered in BundledSkills)
+//
+// S4 audit result: skillify and update_config have significant content
+// differences between root (simplified stubs) and bundled (TS-parity full).
+// We still import the root modules so they remain available separately;
+// the BundledSkills registry below uses the BUNDLED submodule versions
+// (make_bundled_*_skill factories) for TS parity.
 // ---------------------------------------------------------------------------
 import cc.skills.claude_api;
 import cc.skills.claude_api_content;
@@ -72,8 +84,8 @@ import cc.skills.lorem_ipsum;
 import cc.skills.remember;
 import cc.skills.schedule_remote_agents;
 import cc.skills.simplify;
-import cc.skills.skillify;
-import cc.skills.update_config;
+import cc.skills.skillify;        // root: simplified 6-step stub
+import cc.skills.update_config;   // root: simplified read-validate-apply stub
 import cc.skills.verify_content;
 import cc.skills.keybindings; // NOTE: simple shortcut sheet, separate from keybindings-help
 
@@ -84,62 +96,92 @@ import cc.skills.bundled.stuck;      // runtime: detect_stuck_pattern, get_stuck
 import cc.skills.bundled.claude_in_chrome;
 import cc.skills.bundled.skill_keybindings;
 
+// -- S4: 4 tool-type bundled skill submodules (Phase 2, S4 audit) --
+// debug:    5-type failure classifier + regex error extractor + ranked
+//           hypothesis + verify/fix loop (delegates to tools; NO popen)
+import cc.skills.bundled.debug;
+// loop:     structured iteration w/ stop_condition (regex/implicit),
+//           max_iter, sleep, timeout (delegates to query_engine; NO popen)
+import cc.skills.bundled.loop;
+// skillify: full TS-parity 4-phase meta-skill creator
+//           (session analysis → interview → SKILL.md → confirm+write)
+import cc.skills.bundled.skillify;
+// update-config: full TS-parity settings + hooks docs + 7-step
+//                hook verification flow (config I/O → cc.config modules)
+import cc.skills.bundled.update_config;
+
 export namespace cc::skills {
 
 // ============================================================
 // Individual Bundled Skill Factories
+//
+// S4 (debug, loop, skillify, update-config):
+//   The SkillDefinitions below delegate to their respective bundled submodule
+//   factories (cc::skills::bundled::make_bundled_*_skill).  The submodules
+//   also expose EXECUTION APIs:
+//     - debug: run_debug_loop(), FailureType classifier, extract_errors(),
+//              generate() hypotheses, ToolDelegates for Bash/Script/FileEdit
+//     - loop:  run_loop(), LoopConfig, StopConditionType, IterationExecutor
+//              callback for query_engine delegation
+//     - skillify: build_skill_save_path(), rescan_skills() → load_skills_dir
+//     - update-config: resolve_settings_path(), set_feature_flag() →
+//                      cc.config.config::ConfigManager + feature_flags
 // ============================================================
 
-// --- Already migrated (Phase 0) --------------------------------------------
-
+// --- Debug (S4: upgraded from Phase 0 stub) ---------------------------------
 /// Systematic debugging workflow skill
+/// IMPLEMENTATION: cc.skills.bundled.debug — 5-type classifier, regex error
+/// extractor, 3-5 ranked hypotheses, verify/fix loop via ToolDelegates.
+/// NEVER calls popen/subprocess; all execution delegates to BashTool /
+/// ScriptTool / FileEditTool through the ToolDelegates callback bundle.
 [[nodiscard]] inline SkillDefinition make_debug_skill() {
-    return SkillDefinition{
-        .name = "debug",
-        .description = "Systematic debugging workflow: reproduce, minimize, hypothesize, instrument, fix, verify",
-        .trigger_patterns = {
-            R"(debug\s+this)",
-            R"(diagnose\s+this)",
-            R"(bug.*(?:fix|found|report))",
-            R"((?:broken|failing|throwing|crashing))",
-            R"(performance\s+regression)",
-        },
-        .content = R"(## Systematic Debugging Workflow
+    return cc::skills::bundled::make_bundled_debug_skill();
+}
 
-### Step 1: Reproduce
-- Confirm the bug exists with a minimal reproduction case
-- Note exact error messages, stack traces, or unexpected behavior
-- Record environment details (OS, runtime version, config)
+// --- Loop (S4: upgraded from Phase 0 stub) ----------------------------------
+/// Structured iterative refinement loop skill
+/// IMPLEMENTATION: cc.skills.bundled.loop — LoopConfig (loop_body +
+/// stop_condition regex/keywords/implicit + max_iterations + sleep +
+/// timeout).  run_loop() delegates LLM calls to the caller via the
+/// IterationExecutor callback (query_engine integration).  NEVER calls
+/// popen/subprocess directly.
+[[nodiscard]] inline SkillDefinition make_loop_skill() {
+    return cc::skills::bundled::make_bundled_loop_skill();
+}
 
-### Step 2: Minimize
-- Strip away unrelated code until you have the smallest failing case
-- Identify whether the bug is deterministic or intermittent
-- Check if it's environment-specific
+// --- Skillify (S4: bundled version supersedes root stub) -------------------
+/// Skillify meta-skill — capture a session's repeatable workflow as a
+/// reusable SKILL.md file.  Full TS-parity 4-phase flow:
+///   Phase 1: Session analysis (steps, artifacts, user corrections)
+///   Phase 2: 4-round structured user interview via AskUserQuestion
+///   Phase 3: SKILL.md generation with YAML frontmatter + step annotations
+///   Phase 4: Render for review → confirm → write → register
+/// IMPLEMENTATION: cc.skills.bundled.skillify.  Skill file discovery and
+/// registration delegate to cc.skills.load_skills_dir (no duplicate parser).
+///
+/// NOTE: Root-level cc.skills.skillify::make_skillify_skill() is a simplified
+/// 6-step stub kept for backward compatibility; the BUNDLED registry uses the
+/// full TS-parity version below.
+[[nodiscard]] inline SkillDefinition make_skillify_skill() {
+    return cc::skills::bundled::make_bundled_skillify_skill();
+}
 
-### Step 3: Hypothesize
-- Form 2-3 hypotheses about the root cause
-- Rank by likelihood and ease of verification
-- Consider recent changes that may have introduced the issue
-
-### Step 4: Instrument
-- Add targeted logging/tracing to verify hypotheses
-- Use debugger breakpoints at suspect locations
-- Verify assumptions about data flow and state
-
-### Step 5: Fix
-- Implement the minimal change that addresses root cause
-- Ensure fix doesn't introduce new issues
-- Consider edge cases the fix might affect
-
-### Step 6: Verify
-- Confirm the original reproduction case now passes
-- Run the full test suite to catch regressions
-- Remove any temporary debugging instrumentation
-)",
-        .is_builtin = true,
-        .author = std::nullopt,
-        .version = "1.0.0",
-    };
+// --- Update-Config (S4: bundled version supersedes root stub) --------------
+/// Update-Config skill — modify settings.json with full TS-parity guidance:
+///   - Settings schema reference (permissions, env, model, MCP, plugins, ...)
+///   - Hooks documentation: events, matchers, command/prompt/agent hook types
+///   - 7-step Hook Verification Flow (dedup → construct → pipe-test →
+///     write → validate → prove → handoff)
+///   - Array merging rules, common mistakes, troubleshooting
+/// IMPLEMENTATION: cc.skills.bundled.update_config.  All config I/O delegates
+/// 100% to cc.config.config::ConfigManager and cc.config.feature_flags::
+/// FeatureFlagManager — NEVER reads/writes raw JSON files here.
+///
+/// NOTE: Root-level cc.skills::update_config::make_update_config_skill() is a
+/// simplified 6-step stub kept for backward compatibility; the BUNDLED
+/// registry uses the full TS-parity version below.
+[[nodiscard]] inline SkillDefinition make_update_config_skill() {
+    return cc::skills::bundled::make_bundled_update_config_skill();
 }
 
 /// Verification before completion skill
@@ -170,45 +212,6 @@ export namespace cc::skills {
 - Include test run results with pass/fail counts
 - Provide before/after comparison if fixing a bug
 - Never claim "it works" without running verification commands
-)",
-        .is_builtin = true,
-        .author = std::nullopt,
-        .version = "1.0.0",
-    };
-}
-
-/// Iterative refinement loop skill
-[[nodiscard]] inline SkillDefinition make_loop_skill() {
-    return SkillDefinition{
-        .name = "loop",
-        .description = "Iterative refinement loop for incremental improvement",
-        .trigger_patterns = {
-            R"(iterati(?:ve|on))",
-            R"(refine.*(?:loop|again|more))",
-            R"(keep\s+(?:going|trying|improving))",
-            R"(not\s+(?:good|right|done)\s+yet)",
-        },
-        .content = R"(## Iterative Refinement Loop
-
-### Process
-1. **Assess**: Evaluate current state against desired outcome
-2. **Identify gap**: Pinpoint the specific shortcoming
-3. **Plan increment**: Design the smallest change that moves toward goal
-4. **Execute**: Make the change
-5. **Measure**: Verify improvement (quantitatively if possible)
-6. **Decide**: Continue iterating or accept current state
-
-### Exit Conditions
-- All acceptance criteria met
-- Diminishing returns (last N iterations < threshold improvement)
-- User signals satisfaction
-- Resource/time budget exhausted
-
-### Anti-patterns to Avoid
-- Gold-plating beyond requirements
-- Oscillating between two states
-- Refactoring without measurable improvement
-- Ignoring the cost of each iteration
 )",
         .is_builtin = true,
         .author = std::nullopt,
@@ -435,7 +438,10 @@ public:
         // --- Registration order: dependency-first per audit header ---
 
         // 1. Config / infrastructure
-        skills_.push_back(cc::skills::update_config::make_update_config_skill());
+        // S4 audit: bundled update-config (full TS-parity w/ hooks docs) supersedes
+        // the root-level simplified stub.  Config I/O delegates to cc.config.*
+        // modules, no raw JSON readers.
+        skills_.push_back(make_update_config_skill());
 
         // 2. Reference / helpers
         // root keybindings (simple cheat sheet, separate from help)
@@ -450,11 +456,18 @@ public:
         skills_.push_back(cc::skills::verify_content::make_verify_content_skill());
 
         // 4. Workflow skills
+        // S4 debug: 5-type classifier + regex extractor + hypothesis loop,
+        // delegates all execution to ToolDelegates (Bash/Script/FileEdit).
         skills_.push_back(make_debug_skill());
         skills_.push_back(cc::skills::simplify::make_simplify_skill());
-        skills_.push_back(cc::skills::skillify::make_skillify_skill());
+        // S4 skillify: full TS-parity 4-phase meta-skill creator.
+        // Skill file discovery delegates to cc.skills.load_skills_dir.
+        skills_.push_back(make_skillify_skill());
         skills_.push_back(make_self_unstuck_skill());
         skills_.push_back(make_stuck_skill());
+        // S4 loop: structured iteration with stop_condition (regex/keywords/
+        // implicit-stable) + max_iter + sleep + timeout.  Delegates LLM to
+        // query_engine via IterationExecutor callback (no popen).
         skills_.push_back(make_loop_skill());
         skills_.push_back(make_batch_skill());
 
