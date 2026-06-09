@@ -15,6 +15,8 @@ module;
 export module cc.skills.bundled;
 
 import cc.skills.skill;
+import cc.skills.claude_api_content;
+import cc.skills.verify_content;
 
 export namespace cc::skills {
 
@@ -249,6 +251,10 @@ public:
         skills_.push_back(make_loop_skill());
         skills_.push_back(make_batch_skill());
         skills_.push_back(make_stuck_skill());
+        skills_.push_back(cc::skills::claude_api_content::
+                              make_claude_api_content_skill());
+        skills_.push_back(cc::skills::verify_content::
+                              make_verify_content_skill());
     }
 
     /// Get all bundled skill definitions
