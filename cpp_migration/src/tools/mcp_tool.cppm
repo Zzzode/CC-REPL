@@ -28,6 +28,7 @@ import cc.services.mcp.connection_manager;
 import cc.services.mcp.auth;
 import cc.services.mcp.types;
 import cc.utils.json;
+import cc.tools.mcp_classify;  // migrated: integrate collapse decision
 
 
 export namespace cc::tools {
@@ -87,6 +88,8 @@ struct McpToolResult {
     std::string content;
     std::string content_type;  // "text", "image", "resource"
     bool is_error{false};
+    // migrated: integrate collapse decision
+    CollapseDecision collapse_hint{CollapseDecision::AlwaysShow};
 };
 
 
@@ -1028,11 +1031,22 @@ public:
             content += item.text;
         }
         if (content.empty()) content = "MCP tool returned no content.";
-        return McpToolResult{
+        McpToolResult result_out{
             .content = std::move(content),
             .content_type = "text",
             .is_error = result->is_error,
         };
+        // migrated: integrate collapse decision
+        McpToolCallRef call_ref{
+            .server_name = server_name,
+            .tool_name   = tool_name,
+        };
+        McpToolResultRef result_ref{
+            .content  = result_out.content,
+            .is_error = result_out.is_error,
+        };
+        result_out.collapse_hint = classify_for_collapse(call_ref, result_ref);
+        return result_out;
     }
 
     [[nodiscard]] std::expected<std::vector<McpResource>, McpError> list_resources(

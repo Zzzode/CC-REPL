@@ -15,6 +15,9 @@ module;
 
 export module cc.tools.script;
 
+// migrated: integrate collapse decision + script primitives + typecheck
+import cc.tools.script_primitives;
+import cc.tools.script_typecheck;
 
 export namespace cc::tools {
 
@@ -234,6 +237,37 @@ private:
     {
         std::vector<Diagnostic> diags;
 
+        // migrated: integrate script typecheck via cc.tools.script_typecheck
+        if (lang != ScriptLanguage::JavaScript) {
+            // Only JS/TS runs type-checking; Python/Shell keep the empty list.
+            // TypeScript subset is treated as JS for this placeholder mapping.
+            // Add a guard so that non-TS code never reaches the heavy runner.
+            return diags;
+        }
+
+        using namespace cc::tools::script_typecheck;
+        TypecheckOptions opts;
+        opts.code                = std::string(code);
+        opts.preamble_line_count = 0;
+        opts.max_diagnostics     = 100;
+        opts.timeout             = std::chrono::seconds{30};
+
+        TypecheckResult result = run_script_typecheck(opts);
+
+        diags.reserve(result.diagnostics.size());
+        for (const auto& d : result.diagnostics) {
+            Diagnostic local_diag;
+            switch (d.severity) {
+                case Severity::Error:   local_diag.severity = Diagnostic::Severity::Error;   break;
+                case Severity::Warning: local_diag.severity = Diagnostic::Severity::Warning; break;
+                case Severity::Info:    local_diag.severity = Diagnostic::Severity::Info;    break;
+            }
+            local_diag.line    = static_cast<size_t>(std::max(1, d.line));
+            local_diag.column  = static_cast<size_t>(std::max(1, d.column));
+            local_diag.message = std::format("TS{}: {}", d.code, d.message);
+            local_diag.source  = "script_typecheck";
+            diags.push_back(std::move(local_diag));
+        }
 
         return diags;
     }
