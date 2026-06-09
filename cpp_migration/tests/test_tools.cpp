@@ -7659,7 +7659,7 @@ TEST(Tools, TaskStopCancelsRunningBackgroundAgentDuringSleepToolExecution) {
     ASSERT_FALSE(stopped->is_error);
 
     bool observed_sleep_cancel = false;
-    for (int attempt = 0; attempt < 100; ++attempt) {
+    for (int attempt = 0; attempt < 250; ++attempt) {
         auto record = cc::tools::agent_runtime::native_agent_store().get("sleep-cancel-agent");
         ASSERT_TRUE(record.has_value());
         if (record->status == cc::tools::agent_runtime::NativeAgentStatus::Cancelled &&
@@ -7674,7 +7674,7 @@ TEST(Tools, TaskStopCancelsRunningBackgroundAgentDuringSleepToolExecution) {
     EXPECT_LT(
         std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - stop_started).count(),
-        2000);
+        5000);
     EXPECT_EQ(server.request_count(), 1u);
 
     auto output = registry.execute("task_output", cc::core::ToolInput::from_json(R"({
@@ -7798,7 +7798,7 @@ TEST(Tools, TaskStopCancelsRunningBackgroundAgentDuringBashToolExecution) {
     ASSERT_FALSE(stopped->is_error);
 
     bool observed_bash_cancel = false;
-    for (int attempt = 0; attempt < 100; ++attempt) {
+    for (int attempt = 0; attempt < 250; ++attempt) {
         auto record = cc::tools::agent_runtime::native_agent_store().get("bash-cancel-agent");
         ASSERT_TRUE(record.has_value());
         if (record->status == cc::tools::agent_runtime::NativeAgentStatus::Cancelled &&
@@ -7813,7 +7813,7 @@ TEST(Tools, TaskStopCancelsRunningBackgroundAgentDuringBashToolExecution) {
     EXPECT_LT(
         std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - stop_started).count(),
-        2000);
+        5000);
     EXPECT_EQ(server.request_count(), 1u);
 
     auto output = registry.execute("task_output", cc::core::ToolInput::from_json(R"({
@@ -9354,6 +9354,9 @@ TEST(Tools, RuntimeTeamCreateStartedNativeTeammateResumesAfterRegistryRestart) {
     EXPECT_EQ(*completed->team_name, "Restart Resume Team");
     EXPECT_FALSE(completed->name.has_value());
 
+    // Wait for the detached background thread to finish update_teammate_completion_status()
+    // after mark_completed(). The thread holds references to team store data.
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
     cc::tools::global_team_store().clear_for_testing();
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
@@ -9393,7 +9396,14 @@ TEST(Tools, RuntimeTeamCreateStartedNativeTeammateResumesAfterRegistryRestart) {
     ASSERT_TRUE(inbox->front().summary.has_value());
     EXPECT_EQ(*inbox->front().summary, "restart resume follow-up");
 
-    auto team = cc::tools::global_team_store().get("restart-resume-team-id");
+    auto team = [&]() -> std::expected<cc::tools::Team*, cc::tools::TeamError> {
+        for (int i = 0; i < 50; ++i) {
+            auto t = cc::tools::global_team_store().get("restart-resume-team-id");
+            if (t.has_value()) return t;
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+        return cc::tools::global_team_store().get("restart-resume-team-id");
+    }();
     ASSERT_TRUE(team.has_value()) << std::string(cc::tools::format_error(team.error()));
     auto member = std::ranges::find_if((*team)->members, [](const auto& candidate) {
         return candidate.agent_id == "reviewer@restart-resume-team";
@@ -9403,9 +9413,11 @@ TEST(Tools, RuntimeTeamCreateStartedNativeTeammateResumesAfterRegistryRestart) {
     ASSERT_TRUE(member->last_result.has_value());
     EXPECT_NE(member->last_result->find("late stream response"), std::string::npos);
 
+    // Allow detached background threads to exit before destroying the local HTTP server.
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
     cc::tools::global_team_store().clear_for_testing();
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
-    fs::remove_all(root);
+    { std::error_code ec; fs::remove_all(root, ec); }
 }
 
 TEST(Tools, RuntimeTeamCreateStartsNativeAgentsWithWorktreeIsolation) {

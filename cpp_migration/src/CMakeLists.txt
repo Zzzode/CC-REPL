@@ -748,6 +748,9 @@ target_sources(cc_commands
         commands/vim.cppm
         commands/voice.cppm
 )
+target_sources(cc_commands PRIVATE
+    commands/command_registry_init.cpp
+)
 target_link_libraries(cc_commands
     PUBLIC
         cc_utils

@@ -15,7 +15,6 @@
 /// Migrated from src/bridge/remoteBridgeCore.ts (~1008 lines).
 module;
 
-#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -190,8 +189,9 @@ std::optional<T> with_retry(
             std::mt19937 gen(rd());
             double jitter = base * cfg.init_retry_jitter_fraction *
                             (2.0 * std::generate_canonical<double, 32>(gen) - 1.0);
-            auto delay_ms = static_cast<int64_t>(
-                std::min(base + jitter, static_cast<double>(cfg.init_retry_max_delay_ms)));
+            double capped = base + jitter < static_cast<double>(cfg.init_retry_max_delay_ms)
+                ? base + jitter : static_cast<double>(cfg.init_retry_max_delay_ms);
+            auto delay_ms = static_cast<int64_t>(capped);
             log_bridge_event("retry", {
                 {"label", label},
                 {"attempt", std::to_string(attempt)},
@@ -260,7 +260,8 @@ public:
             while (!stop.stop_requested()) {
                 auto remaining = deadline - std::chrono::steady_clock::now();
                 if (remaining <= std::chrono::seconds{0}) break;
-                std::this_thread::sleep_for(std::min<std::chrono::steady_clock::duration>(remaining, std::chrono::seconds{1}));
+                auto chunk = remaining < std::chrono::seconds{1} ? remaining : std::chrono::steady_clock::duration{std::chrono::seconds{1}};
+                std::this_thread::sleep_for(chunk);
             }
             if (stop.stop_requested()) return;
 
@@ -701,8 +702,8 @@ public:
         if (!user_message_callback_done_ && params_.on_user_message) {
             for (const auto& m : filtered) {
                 TitleCandidate candidate{.type = m.type};
-                if (m.message.content && std::holds_alternative<std::string>(*m.message.content)) {
-                    candidate.content = std::get<std::string>(*m.message.content);
+                if (m.message.content && std::get_if<std::string>(&*m.message.content)) {
+                    candidate.content = *std::get_if<std::string>(&*m.message.content);
                 }
                 auto text = extract_title_text(candidate);
                 if (text && params_.on_user_message(*text, session_id_)) {

@@ -21,77 +21,14 @@ export module cc.commands.registry;
 
 import cc.types.types;
 import cc.commands.command;
-import cc.commands.commit;
-import cc.commands.review;
-import cc.commands.config;
-import cc.commands.context;
-import cc.commands.diff;
-import cc.commands.mcp_cmd;
-import cc.commands.compact;
-import cc.commands.help;
-import cc.commands.doctor;
-import cc.commands.clear;
-import cc.commands.add_dir;
-import cc.commands.agents;
-import cc.commands.btw;
-import cc.commands.advisor;
-import cc.commands.bridge_kick;
-import cc.commands.brief;
-import cc.commands.color;
-import cc.commands.ctx_viz;
-import cc.commands.effort;
-import cc.commands.env;
-import cc.commands.fast;
-import cc.commands.feedback;
-import cc.commands.files;
-import cc.commands.heapdump;
-import cc.commands.hooks;
-import cc.commands.ide;
-import cc.commands.issue;
-import cc.commands.memory;
-import cc.commands.passes;
-import cc.commands.rename;
-import cc.commands.rewind;
-import cc.commands.share;
-import cc.commands.stats;
-import cc.commands.status;
-import cc.commands.summary;
-import cc.commands.tag;
-import cc.commands.teleport;
-import cc.commands.upgrade;
-import cc.commands.ultraplan;
-import cc.commands.install;
-import cc.commands.insights;
-import cc.commands.init;
-import cc.commands.session;
-import cc.commands.resume;
-import cc.commands.model;
-import cc.commands.cost;
-import cc.commands.plan;
-import cc.commands.theme;
-import cc.commands.vim;
-import cc.commands.login;
-import cc.commands.logout;
-import cc.commands.permissions_cmd;
-import cc.commands.plugin_cmd;
-import cc.commands.usage;
-import cc.commands.branch;
-import cc.commands.chrome;
-import cc.commands.copy_cmd;
-import cc.commands.desktop;
-import cc.commands.export_cmd;
-import cc.commands.good_claude;
-import cc.commands.install_slack_app;
-import cc.commands.mobile;
-import cc.commands.runtime_surface_commands;
-import cc.commands.stickers;
-import cc.commands.tasks_cmd;
-import cc.commands.skills_cmd;
-import cc.commands.voice;
 
 export namespace cc::commands {
 
 using namespace cc::core;
+
+/// Defined in command_registry_init.cpp (module implementation unit).
+/// Registers all built-in commands into the given registry.
+void register_default_commands(CommandRegistry& registry);
 
 /// Record of a previously executed command
 struct CommandHistoryEntry {
@@ -281,108 +218,9 @@ public:
     }
 
 private:
-    /// Register all built-in commands
+    /// Register all built-in commands (defined in command_registry_init.cpp)
     void register_all_commands() {
-        registry_.register_command<CommitCommand>();
-        registry_.register_command<ReviewCommand>();
-        registry_.register_command<ConfigCommand>();
-        registry_.register_command<McpCommand>();
-        registry_.register_command<CompactCommand>();
-        registry_.register_command<HelpCommand>();
-        registry_.register_command<DoctorCommand>();
-        registry_.register_command<ClearCommand>();
-        registry_.register_command<AddDirCommand>();
-        registry_.register_command<AgentsCommand>();
-        registry_.register_command<BtwCommand>();
-        registry_.register_command<AdvisorCommand>();
-        registry_.register_command<BridgeKickCommand>();
-        registry_.register_command<BriefCommand>();
-        registry_.register_command<ColorCommand>();
-        registry_.register_command<CtxVizCommand>();
-        registry_.register_command<EffortCommand>();
-        registry_.register_command<EnvCommand>();
-        registry_.register_command<FastCommand>();
-        registry_.register_command<FeedbackCommand>();
-        registry_.register_command<FilesCommand>();
-        registry_.register_command<HeapdumpCommand>();
-        registry_.register_command<HooksCommand>();
-        registry_.register_command<IdeCommand>();
-        registry_.register_command<IssueCommand>();
-        registry_.register_command<MemoryCommand>();
-        registry_.register_command<PassesCommand>();
-        registry_.register_command<RenameCommand>();
-        registry_.register_command<RewindCommand>();
-        registry_.register_command<ShareCommand>();
-        registry_.register_command<StatsCommand>();
-        registry_.register_command<StatusCommand>();
-        registry_.register_command<SummaryCommand>();
-        registry_.register_command<TagCommand>();
-        registry_.register_command<TeleportCommand>();
-        registry_.register_command<UpgradeCommand>();
-        registry_.register_command<UltraplanCommand>();
-        registry_.register_command<InstallCommand>();
-        registry_.register_command<InsightsCommand>();
-        registry_.register_command<InitCommand>();
-        registry_.register_command<ContextCommand>();
-        registry_.register_command<DiffCommand>();
-        registry_.register_command<SessionCommand>();
-        registry_.register_command<ResumeCommand>();
-        registry_.register_command<ModelCommand>();
-        registry_.register_command<CostCommand>();
-        registry_.register_command<PlanCommand>();
-        registry_.register_command<ThemeCommand>();
-        registry_.register_command<VimCommand>();
-        registry_.register_command<LoginCommand>();
-        registry_.register_command<LogoutCommand>();
-        registry_.register_command<PermissionsCommand>();
-        registry_.register_command<PluginCommand>();
-        registry_.register_command<UsageCommand>();
-        registry_.register_command<BranchCommand>();
-        registry_.register_command<ChromeCommand>();
-        registry_.register_command<CommitPushPrCommand>();
-        registry_.register_command<CopyCommand>();
-        registry_.register_command<DesktopCommand>();
-        registry_.register_command<ExportCommand>();
-        registry_.register_command<GoodClaudeCommand>();
-        registry_.register_command<InstallSlackAppCommand>();
-        registry_.register_command<KeybindingsCommand>();
-        registry_.register_command<MobileCommand>();
-        registry_.register_command<OutputStyleCommand>();
-        registry_.register_command<PrivacySettingsCommand>();
-        registry_.register_command<ReleaseNotesCommand>();
-        registry_.register_command<SandboxToggleCommand>();
-        registry_.register_command<SecurityReviewCommand>();
-        registry_.register_command<StickersCommand>();
-        registry_.register_command<TasksCommand>();
-        registry_.register_command<SkillsCommand>();
-        registry_.register_command<ThinkbackCommand>();
-        registry_.register_command<VoiceCommand>();
-        registry_.register_command<AntTraceCommand>();
-        registry_.register_command<AutofixPrCommand>();
-        registry_.register_command<BackfillSessionsCommand>();
-        registry_.register_command<BreakCacheCommand>();
-        registry_.register_command<BridgeCommand>();
-        registry_.register_command<BughunterCommand>();
-        registry_.register_command<CreateMovedToPluginCommand>();
-        registry_.register_command<DebugToolCallCommand>();
-        registry_.register_command<ExitCommand>();
-        registry_.register_command<ExtraUsageCommand>();
-        registry_.register_command<InitVerifiersCommand>();
-        registry_.register_command<InstallGithubAppCommand>();
-        registry_.register_command<MockLimitsCommand>();
-        registry_.register_command<OauthRefreshCommand>();
-        registry_.register_command<OnboardingCommand>();
-        registry_.register_command<PerfIssueCommand>();
-        registry_.register_command<PrCommentsCommand>();
-        registry_.register_command<RateLimitOptionsCommand>();
-        registry_.register_command<ReloadPluginsCommand>();
-        registry_.register_command<RemoteEnvCommand>();
-        registry_.register_command<RemoteSetupCommand>();
-        registry_.register_command<ResetLimitsCommand>();
-        registry_.register_command<StatuslineCommand>();
-        registry_.register_command<TerminalSetupCommand>();
-        registry_.register_command<ThinkbackPlayCommand>();
-        registry_.register_command<VersionCommand>();
+        register_default_commands(registry_);
     }
 
     /// Find a command by name or alias

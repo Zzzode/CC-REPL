@@ -5,28 +5,27 @@
  * and launches the full interactive FTXUI-based UI.
  */
 
-#include <iostream>
 #include <algorithm>
 #include <atomic>
-#include <string>
-#include <vector>
-#include <filesystem>
-#include <optional>
-#include <memory>
-#include <expected>
-#include <functional>
-#include <csignal>
-#include <cstdlib>
-#include <thread>
 #include <chrono>
 #include <cstdint>
-#include <limits>
+#include <cstdio>
+#include <cstdlib>
+#include <csignal>
+#include <expected>
+#include <filesystem>
+#include <functional>
+#include <iostream>
+#include <memory>
+#include <optional>
 #include <print>
-#include <variant>
-#include <sstream>
+#include <ranges>
+#include <string>
+#include <thread>
 #include <unordered_map>
 #include <unordered_set>
-#include <cstdio>
+#include <variant>
+#include <vector>
 #ifndef _WIN32
 #include <unistd.h>
 #endif
@@ -35,8 +34,8 @@
 import cc.query.query_engine;
 import cc.types.types;
 import cc.tools.tool;
-import cc.tools.runtime_registry;
 import cc.tools.agent_runtime;
+import cc.tools.runtime_registry;
 import cc.hooks.tool_permissions;
 import cc.hooks.lifecycle_hooks;
 import cc.types.command;
@@ -44,13 +43,13 @@ import cc.commands.command;
 import cc.commands.registry;
 import cc.constants.product;
 import cc.services.api.session_ingress;
-import cc.server.server_main;
 import cc.utils.session_storage;
 import cc.utils.json;
 import cc.utils.http;
-import cc.cli.websocket_transport;
 import cc.session.history;
 import cc.daemon.daemon_server;
+import cc.server.server_main;
+import cc.cli.websocket_transport;
 
 namespace fs = std::filesystem;
 
