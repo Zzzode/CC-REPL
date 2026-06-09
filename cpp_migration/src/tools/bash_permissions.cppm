@@ -8,6 +8,8 @@ module;
 
 export module cc.tools.bash_permissions;
 
+import cc.tools.command_semantics;  // migrated: shared classifiers
+
 export namespace cc::tools {
 
 
@@ -119,37 +121,73 @@ inline auto check_bash_permission(
         return BashPermissionLevel::Allowed;
     }
 
+    // migrated: fast-classify using the shared CommandType enum produced by
+    // command_semantics.  Pure reads are auto-allowed; everything else is
+    // either auto-allowed (Permissive was already handled) or NeedsApproval
+    // under Strict, or NeedsApproval only for "risky" types under Normal.
+    const auto cmd_type = classify_command(command);
 
-    if (is_safe_read_command(command)) {
+    if (cmd_type == CommandType::Read) {
         return BashPermissionLevel::Allowed;
     }
 
+    // migrated: finer-grained git classification — read-only git subcommands
+    // (status, log, diff, branch...) are auto-allowed even if the generic
+    // classify_command happened to miss a prefix.
+    if (is_git_command(command)) {
+        switch (classify_git_operation(command)) {
+            case CommandType::Read:
+                return BashPermissionLevel::Allowed;
+            case CommandType::Write:
+            case CommandType::Network:
+                if (mode == PermissionMode::Strict) {
+                    return BashPermissionLevel::NeedsApproval;
+                }
+                return BashPermissionLevel::Allowed;
+            case CommandType::Destructive:
+                return BashPermissionLevel::NeedsApproval;
+            default:
+                break;
+        }
+    }
+
+    // migrated: package-manager classification
+    if (is_package_manager_command(command)) {
+        switch (classify_package_manager_operation(command)) {
+            case CommandType::Destructive:
+                // uninstall / remove / purge — always approve
+                return BashPermissionLevel::NeedsApproval;
+            case CommandType::Network:
+            case CommandType::Execute:
+            case CommandType::Write:
+                if (mode == PermissionMode::Strict) {
+                    return BashPermissionLevel::NeedsApproval;
+                }
+                return BashPermissionLevel::Allowed;
+            default:
+                break;
+        }
+    }
 
     if (mode == PermissionMode::Strict) {
         return BashPermissionLevel::NeedsApproval;
     }
 
-
-    static const std::vector<std::string_view> needs_approval_keywords = {
-        "rm", "mv", "cp", "chmod", "chown",
-        "sudo", "su", "apt", "brew", "npm install",
-        "pip install", "docker", "kubectl",
-        "git push", "git reset", "git checkout",
-        "curl", "wget", "ssh", "scp"
-    };
-
-    auto trimmed = command;
-    while (!trimmed.empty() && trimmed.front() == ' ') {
-        trimmed.remove_prefix(1);
-    }
-
-    for (const auto& keyword : needs_approval_keywords) {
-        if (trimmed.starts_with(keyword) &&
-            (trimmed.size() == keyword.size() || trimmed[keyword.size()] == ' ')) {
+    // Under Normal mode, anything Destructive/Network/Write/Execute that
+    // wasn't handled above needs explicit approval.
+    switch (cmd_type) {
+        case CommandType::Destructive:
+        case CommandType::Network:
             return BashPermissionLevel::NeedsApproval;
-        }
+        case CommandType::Write:
+        case CommandType::Execute:
+        case CommandType::Unknown:
+            // Allow by default; the security layer (bash_security) will still
+            // catch injections / privilege escalations.
+            return BashPermissionLevel::Allowed;
+        case CommandType::Read:
+            return BashPermissionLevel::Allowed;
     }
-
 
     return BashPermissionLevel::Allowed;
 }
