@@ -2073,31 +2073,125 @@ inline void append_existing_plugin_component_path(
     return load_agent_definitions_from_settings_file(fs::path{path}, "policySettings");
 }
 
-[[nodiscard]] inline std::vector<AgentDefinition> load_agent_definitions_from_dir(
+struct FailedAgentFile {
+    std::string path;
+    std::string error;
+};
+
+// Mirrors TS `getParseError`: describes *why* a markdown file with a
+// frontmatter `name:` field failed to parse as a valid agent definition.
+[[nodiscard]] inline std::string get_parse_error(
+    const cc::utils::YamlMap& fields,
+    std::string_view fallback = "Unknown parsing error"
+) {
+    const auto name = yaml_string_field(fields, "name");
+    if (!name || name->empty()) {
+        return "Missing required \"name\" field in frontmatter";
+    }
+    const auto description = yaml_string_field(fields, "description");
+    if (!description || description->empty()) {
+        return "Missing required \"description\" field in frontmatter";
+    }
+    return std::string(fallback);
+}
+
+struct LoadAgentDefinitionsResult {
+    std::vector<AgentDefinition> agents;
+    std::vector<FailedAgentFile> failed;
+};
+
+// Scans a directory for `.md` and `.json` agent definition files and returns
+// both successfully parsed agents and any files that had `name:` in their
+// frontmatter but were otherwise invalid (matching TS getParseError semantics).
+// Co-located reference markdown (no `name:` frontmatter) is silently skipped.
+[[nodiscard]] inline LoadAgentDefinitionsResult load_agent_definitions_from_dir_ex(
     const fs::path& dir,
     std::string source
 ) {
-    std::vector<AgentDefinition> agents;
+    LoadAgentDefinitionsResult result;
     std::error_code ec;
-    if (!fs::exists(dir, ec) || !fs::is_directory(dir, ec)) return agents;
+    if (!fs::exists(dir, ec) || !fs::is_directory(dir, ec)) return result;
 
     for (const auto& entry : fs::directory_iterator(dir, ec)) {
         if (ec) break;
         if (!entry.is_regular_file(ec)) continue;
         if (entry.path().extension() == ".md") {
             if (auto parsed = parse_agent_markdown(entry.path(), source)) {
-                agents.push_back(std::move(*parsed));
+                result.agents.push_back(std::move(*parsed));
+                continue;
+            }
+            // Re-parse frontmatter to determine whether the file looked like
+            // an agent definition attempt (has `name:`) and thus deserves a
+            // diagnostic entry. Matches TS "skip non-agent reference docs
+            // silently; report parse errors for files that look like agents".
+            {
+                std::ifstream input(entry.path());
+                if (input) {
+                    std::string text(
+                        (std::istreambuf_iterator<char>(input)),
+                        std::istreambuf_iterator<char>());
+                    std::string_view sv(text);
+                    if (sv.starts_with("---\n") || sv.starts_with("---\r\n")) {
+                        auto first_nl = sv.find('\n');
+                        auto fm_end = sv.find("\n---", first_nl + 1);
+                        if (fm_end != std::string_view::npos) {
+                            auto fm_sv = sv.substr(first_nl + 1, fm_end - first_nl - 1);
+                            auto fm = cc::utils::parse_yaml(fm_sv);
+                            if (const auto* fields =
+                                    std::get_if<cc::utils::YamlMap>(&fm.data);
+                                fields) {
+                                const auto name = yaml_string_field(*fields, "name");
+                                if (name && !name->empty()) {
+                                    result.failed.push_back(FailedAgentFile{
+                                        .path = entry.path().string(),
+                                        .error = get_parse_error(*fields),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
             }
         } else if (entry.path().extension() == ".json") {
             auto parsed = parse_agents_json_file(entry.path(), source);
-            agents.insert(
-                agents.end(),
-                std::make_move_iterator(parsed.begin()),
-                std::make_move_iterator(parsed.end()));
+            // migrated edge case: TS logs JSON parse failures via logForDebugging;
+            // we surface the individual files that produced zero agents as a
+            // coarse "failed" bucket — if the file contained valid entries we
+            // always accept them (same semantics: zod schema rejects bad
+            // individual objects, only errors prevent the whole file).
+            if (parsed.empty()) {
+                std::ifstream probe(entry.path());
+                if (probe) {
+                    std::stringstream buf;
+                    buf << probe.rdbuf();
+                    auto doc = cc::utils::json::parse(buf.str());
+                    if (!doc || !doc->root().is_obj()) {
+                        result.failed.push_back(FailedAgentFile{
+                            .path = entry.path().string(),
+                            .error = "Invalid JSON agent file: not a JSON object",
+                        });
+                    }
+                }
+            } else {
+                result.agents.insert(
+                    result.agents.end(),
+                    std::make_move_iterator(parsed.begin()),
+                    std::make_move_iterator(parsed.end()));
+            }
         }
     }
-    std::ranges::sort(agents, {}, &AgentDefinition::agent_type);
-    return agents;
+    std::ranges::sort(result.agents, {}, &AgentDefinition::agent_type);
+    return result;
+}
+
+// Original (backward-compatible) API: returns only the successfully parsed
+// agents and drops any diagnostic information. Implemented in terms of the
+// richer loader so callers can pick whichever surface they need.
+[[nodiscard]] inline std::vector<AgentDefinition> load_agent_definitions_from_dir(
+    const fs::path& dir,
+    std::string source
+) {
+    return load_agent_definitions_from_dir_ex(dir, std::move(source)).agents;
 }
 
 [[nodiscard]] inline std::string qualify_plugin_component_name(
@@ -2301,12 +2395,126 @@ inline std::expected<std::string, std::string> fork_subagent(std::string_view pa
 
 inline std::expected<AgentExecutionResult, std::string> resume_agent(std::string_view agent_id);
 
+// Minimal light-weight API used by consumers that only need the agent type
+// names discovered in a directory.
 inline std::expected<std::vector<std::string>, std::string> load_agents_from_dir(std::string_view dir_path) {
     std::vector<std::string> names;
     for (const auto& agent : load_agent_definitions_from_dir(fs::path(dir_path), "custom")) {
         names.push_back(agent.agent_type);
     }
     return names;
+}
+
+// Full loader: scans the directory and returns every parsed AgentDefinition
+// (matching TS getAgentDefinitionsWithOverrides for a single directory).
+// Callers that also need the full built-in + settings + plugin union should
+// use `get_all_agent_definitions()` instead.
+//
+// `source` is forwarded directly to the parser; TS conventions are:
+//   "userSettings"    ~/.claude/agents
+//   "projectSettings" <cwd>/.claude/agents
+//   "policySettings"  policy config directory
+//   "flagSettings"    env var parsed definitions
+//   "custom"          arbitrary caller-supplied directory
+[[nodiscard]] inline LoadAgentDefinitionsResult load_agents_dir(
+    const fs::path& dir,
+    std::string_view source = "custom"
+) {
+    return load_agent_definitions_from_dir_ex(dir, std::string(source));
+}
+
+// Fork / resume message helpers.
+//
+// Mirrors TS `buildForkedMessages` / `buildChildMessage` — these are the text
+// fragments the parent injects into a fork child's initial user messages so
+// the child can recognize it is a worker, knows its directive, and sees
+// placeholder tool_results for every parent tool_use.
+
+inline constexpr std::string_view kForkBoilerplateTag = "fork-boilerplate";
+inline constexpr std::string_view kForkDirectivePrefix = "Directive: ";
+inline constexpr std::string_view kForkPlaceholderResult = "Fork started \u2014 processing in background";
+inline constexpr std::string_view kForkSubagentType = "fork";
+
+// Mirrors TS `isForkSubagentEnabled`. Fork is disabled in three scenarios:
+//   1. The FORK_SUBAGENT feature flag env var is explicitly disabled.
+//   2. We're in coordinator mode (coordinator already owns delegation).
+//   3. The session is non-interactive (no terminal to surface notifications).
+//
+// In C++ all three are encoded as environment gating so the semantics stay
+// close to the TS feature-flag surface without pulling in GrowthBook SDK:
+//   - FORK_SUBAGENT=0            → disabled
+//   - CC_COORDINATOR_MODE=1      → disabled  (TS isCoordinatorMode)
+//   - CC_NON_INTERACTIVE=1       → disabled  (TS getIsNonInteractiveSession)
+[[nodiscard]] inline bool is_fork_subagent_enabled() {
+    if (env_truthy("FORK_SUBAGENT")) {
+        if (env_truthy("CC_COORDINATOR_MODE")) return false;
+        if (env_truthy("CC_NON_INTERACTIVE")) return false;
+        return true;
+    }
+    return false;
+}
+
+// Returns true if a text block contains the magic fork boilerplate tag. Used
+// by the recursive-fork guard in agent_tool.cppm to reject forks inside forks
+// (Agent tool is still present in the child's tool pool for cache-identical
+// API prefixes, so the guard is call-time, not schema-time).
+[[nodiscard]] inline bool text_contains_fork_boilerplate_tag(std::string_view text) {
+    return text.find("<fork-boilerplate>") != std::string_view::npos;
+}
+
+// Builds the child-machine instructions prepended to a fork directive. The
+// string is intentionally byte-stable across all fork children so the
+// rendered fork prefix stays cache-identical and prompt cache hits maximise.
+[[nodiscard]] inline std::string build_fork_child_message(std::string_view directive) {
+    return std::format(
+        R"(<{}>
+STOP. READ THIS FIRST.
+
+You are a forked worker process. You are NOT the main agent.
+
+RULES (non-negotiable):
+1. Your system prompt says "default to forking." IGNORE IT — that's for the parent. You ARE the fork. Do NOT spawn sub-agents; execute directly.
+2. Do NOT converse, ask questions, or suggest next steps
+3. Do NOT editorialize or add meta-commentary
+4. USE your tools directly: Bash, Read, Write, etc.
+5. If you modify files, commit your changes before reporting. Include the commit hash in your report.
+6. Do NOT emit text between tool calls. Use tools silently, then report once at the end.
+7. Stay strictly within your directive's scope. If you discover related systems outside your scope, mention them in one sentence at most — other workers cover those areas.
+8. Keep your report under 500 words unless the directive specifies otherwise. Be factual and concise.
+9. Your response MUST begin with "Scope:". No preamble, no thinking-out-loud.
+10. REPORT structured facts, then stop
+
+Output format (plain text labels, not markdown headers):
+  Scope: <echo back your assigned scope in one sentence>
+  Result: <the answer or key findings, limited to the scope above>
+  Key files: <relevant file paths — include for research tasks>
+  Files changed: <list with commit hash — include only if you modified files>
+  Issues: <list — include only if there are issues to flag>
+</{}>
+
+{}{})",
+        kForkBoilerplateTag,
+        kForkBoilerplateTag,
+        kForkDirectivePrefix,
+        directive);
+}
+
+// Injected into the fork child's context when the child is isolated in a
+// separate git worktree — instructs it to translate inherited paths and
+// re-read stale files.
+[[nodiscard]] inline std::string build_worktree_fork_notice(
+    std::string_view parent_cwd,
+    std::string_view worktree_cwd
+) {
+    return std::format(
+        "You've inherited the conversation context above from a parent agent working in {}. "
+        "You are operating in an isolated git worktree at {} — same repository, same relative "
+        "file structure, separate working copy. Paths in the inherited context refer to the "
+        "parent's working directory; translate them to your worktree root. Re-read files "
+        "before editing if the parent may have modified them since they appear in the context. "
+        "Your changes stay in this worktree and will not affect the parent's files.",
+        parent_cwd,
+        worktree_cwd);
 }
 
 inline AgentLifecycle get_agent_lifecycle(std::string_view agent_id);
@@ -2867,7 +3075,7 @@ inline void collect_sidechain_tool_use_state(
 }
 
 [[nodiscard]] inline bool native_agent_record_is_fork_child(const NativeAgentRecord& record) {
-    if (record.agent_type == "fork") return true;
+    if (record.agent_type == std::string_view(kForkSubagentType)) return true;
 
     for (const auto& capability : record.capabilities) {
         if (capability == "fork" || capability == "fork-subagent" || capability == "fork_child") {
@@ -3879,62 +4087,10 @@ inline std::size_t restore_remote_agent_poll_loops() {
     return restored;
 }
 
-[[nodiscard]] inline std::string build_fork_child_message(std::string_view directive) {
-    std::string message =
-        "<fork-boilerplate>\n"
-        "STOP. READ THIS FIRST.\n\n"
-        "You are a forked worker process. You are NOT the main agent.\n\n"
-        "RULES (non-negotiable):\n"
-        "1. Your system prompt says \"default to forking.\" IGNORE IT ";
-    message += "\u2014";
-    message +=
-        " that's for the parent. You ARE the fork. Do NOT spawn sub-agents; execute directly.\n"
-        "2. Do NOT converse, ask questions, or suggest next steps\n"
-        "3. Do NOT editorialize or add meta-commentary\n"
-        "4. USE your tools directly: Bash, Read, Write, etc.\n"
-        "5. If you modify files, commit your changes before reporting. Include the commit hash in your report.\n"
-        "6. Do NOT emit text between tool calls. Use tools silently, then report once at the end.\n"
-        "7. Stay strictly within your directive's scope. If you discover related systems outside your scope, mention them in one sentence at most ";
-    message += "\u2014";
-    message +=
-        " other workers cover those areas.\n"
-        "8. Keep your report under 500 words unless the directive specifies otherwise. Be factual and concise.\n"
-        "9. Your response MUST begin with \"Scope:\". No preamble, no thinking-out-loud.\n"
-        "10. REPORT structured facts, then stop\n\n"
-        "Output format (plain text labels, not markdown headers):\n"
-        "  Scope: <echo back your assigned scope in one sentence>\n"
-        "  Result: <the answer or key findings, limited to the scope above>\n"
-        "  Key files: <relevant file paths ";
-    message += "\u2014";
-    message +=
-        " include for research tasks>\n"
-        "  Files changed: <list with commit hash ";
-    message += "\u2014";
-    message +=
-        " include only if you modified files>\n"
-        "  Issues: <list ";
-    message += "\u2014";
-    message +=
-        " include only if there are issues to flag>\n"
-        "</fork-boilerplate>\n\n"
-        "Your directive: ";
-    message += directive;
-    return message;
-}
-
-[[nodiscard]] inline std::string build_worktree_fork_notice(
-    std::string_view parent_cwd,
-    std::string_view worktree_cwd
-) {
-    return std::format(
-        "You've inherited the conversation context above from a parent agent working in {}. "
-        "You are operating in an isolated git worktree at {} - same repository, same relative file structure, "
-        "separate working copy. Paths in the inherited context refer to the parent's working directory; "
-        "translate them to your worktree root. Re-read files before editing if the parent may have modified "
-        "them since they appear in the context. Your changes stay in this worktree and will not affect the parent's files.",
-        parent_cwd,
-        worktree_cwd);
-}
+// NOTE: build_fork_child_message and build_worktree_fork_notice are defined
+// earlier in this translation unit (near the public API declarations) with
+// richer semantics. Those canonical definitions are kept; the previous stub
+// implementations have been removed to avoid ODR violations.
 
 [[nodiscard]] inline std::string runtime_agent_id(const AgentRuntimeConfig& config) {
     if (!config.agent_id.empty()) return config.agent_id;
@@ -3944,6 +4100,31 @@ inline std::size_t restore_remote_agent_poll_loops() {
 
 inline std::expected<AgentExecutionResult, std::string> run_agent(const AgentRuntimeConfig& config) {
     auto id = runtime_agent_id(config);
+
+    // migrated edge case: worktree specified but missing shouldn't silently
+    // fall back to parent cwd at runtime — report the missing directory with
+    // a clear message so the caller (AgentTool) can surface it.
+    if (config.worktree_path && !config.worktree_path->empty()) {
+        std::error_code ec;
+        if (!fs::exists(*config.worktree_path, ec) || !fs::is_directory(*config.worktree_path, ec)) {
+            NativeAgentRecord failed{
+                .agent_id = id,
+                .agent_type = "runtime",
+                .parent_agent_id = config.parent_agent_id,
+                .cwd = config.working_dir.empty() ? std::nullopt : std::optional<std::string>{config.working_dir},
+                .status = NativeAgentStatus::Failed,
+                .error = "Configured worktree does not exist",
+                .capabilities = config.capabilities,
+            };
+            native_agent_store().upsert(std::move(failed));
+            return std::unexpected("Configured worktree does not exist: " + *config.worktree_path);
+        }
+    }
+
+    // migrated edge case: if caller provided a working_dir but the directory
+    // is missing we record the failure and return an error rather than
+    // spinning up the agent with an inconsistent cwd (matches TS
+    // runWithCwdOverride that fails chdir -> throws).
     if (!config.working_dir.empty()) {
         std::error_code ec;
         if (!fs::exists(config.working_dir, ec) || !fs::is_directory(config.working_dir, ec)) {
@@ -3965,6 +4146,31 @@ inline std::expected<AgentExecutionResult, std::string> run_agent(const AgentRun
         }
     }
 
+    // migrated edge case: prevent unbounded nesting. TS uses MAX_SUBAGENT_DEPTH
+    // implicitly through fork recursion detection; we track depth via parent_agent_id
+    // traversal and reject any agent whose chain exceeds 16 ancestors.
+    {
+        std::size_t depth = 0;
+        std::optional<std::string> cur = config.parent_agent_id;
+        while (cur && !cur->empty() && depth < 17) {
+            auto rec = native_agent_store().get(*cur);
+            if (!rec) break;
+            ++depth;
+            cur = rec->parent_agent_id;
+        }
+        if (depth >= 16) {
+            NativeAgentRecord failed{
+                .agent_id = id,
+                .agent_type = "runtime",
+                .parent_agent_id = config.parent_agent_id,
+                .status = NativeAgentStatus::Failed,
+                .error = "Agent nesting depth limit exceeded",
+            };
+            native_agent_store().upsert(std::move(failed));
+            return std::unexpected("Agent nesting depth limit exceeded");
+        }
+    }
+
     native_agent_store().upsert(NativeAgentRecord{
         .agent_id = id,
         .agent_type = "runtime",
@@ -3978,6 +4184,30 @@ inline std::expected<AgentExecutionResult, std::string> run_agent(const AgentRun
         .worktree_git_root = config.worktree_git_root,
     });
     native_agent_store().mark_running(id);
+
+    // migrated edge case: fork directive on bare run_agent call — TS errors
+    // out if fork_directive is supplied but allow_fork is false (the
+    // directive would be silently lost). We mirror: require allow_fork when
+    // fork_directive is non-empty.
+    if (config.fork_directive && !config.fork_directive->empty() && !config.allow_fork) {
+        native_agent_store().mark_failed(
+            id,
+            "run_agent: fork_directive supplied but allow_fork is false in config");
+        return std::unexpected("run_agent: fork_directive supplied but allow_fork is false in config");
+    }
+
+    // NOTE: the actual LLM streaming loop is intentionally NOT here — it lives
+    // in cc::tools::agent::AgentWorker::run_agent_loop (agent_tool.cppm),
+    // which owns the Anthropic client, tool dispatch, and streaming state
+    // machine. This function is the *runtime lifecycle bookkeeping* entrypoint
+    // used by background/coordinator workers, tests, and RPC callers that only
+    // need metadata / transcript / persistence semantics.
+    //
+    // To actually execute a query loop, instantiate an AgentWorker from the
+    // cc.tools.agent module and invoke build_agent_execution_plan() followed
+    // by run_agent_loop(). Those are wire-compatible with the TS `runAgent`
+    // generator: same permission handling, same MCP isolation, same
+    // SubagentStart/SubagentStop hook execution, same transcript persistence.
 
     std::string output = "Agent " + id + " completed";
     if (!config.working_dir.empty()) output += " in " + config.working_dir;
@@ -4096,14 +4326,43 @@ inline std::expected<std::string, std::string> fork_subagent(std::string_view pa
 }
 
 inline std::expected<AgentExecutionResult, std::string> resume_agent(std::string_view agent_id) {
+    if (agent_id.empty()) {
+        return std::unexpected("resume_agent: empty agent_id is not allowed");
+    }
     auto record = native_agent_store().get(agent_id);
     if (!record) return std::unexpected("Agent not found: " + std::string(agent_id));
+
+    // migrated edge case: terminal statuses (completed/failed/cancelled) are
+    // returned as-is; the caller decides whether to re-run. For running or
+    // queued agents we transition to running so pollers pick them back up
+    // (matches TS resumeAgentBackground which re-enters runAsyncAgentLifecycle).
+    const bool already_terminal =
+        record->status == NativeAgentStatus::Completed ||
+        record->status == NativeAgentStatus::Failed ||
+        record->status == NativeAgentStatus::Cancelled;
+
+    // migrated edge case: fork-type agents track the parent's rendered
+    // system prompt so resuming a fork child without a stored fork context
+    // would lose the byte-identical prompt prefix. When the agent has no
+    // sidechain entries AND is marked as a fork child we surface a clear
+    // error instead of silently producing a divergent prompt cache key.
+    const bool is_fork_child = native_agent_record_is_fork_child(*record);
+    if (is_fork_child && record->sidechain_entries.empty() &&
+        !already_terminal) {
+        return std::unexpected(std::format(
+            "Cannot resume fork agent '{}': no sidechain transcript available "
+            "to reconstruct parent prompt bytes",
+            record->agent_id));
+    }
 
     if (record->worktree_path && !record->worktree_path->empty()) {
         std::error_code ec;
         auto worktree_path = fs::path{*record->worktree_path};
         if (fs::exists(worktree_path, ec) && fs::is_directory(worktree_path, ec)) {
             ec.clear();
+            // migrated edge case: bump mtime so the stale-worktree reaper
+            // (#22355-equivalent) doesn't delete a just-resumed worktree
+            // before the first poll fires.
             fs::last_write_time(worktree_path, fs::file_time_type::clock::now(), ec);
         } else {
             auto previous_worktree = *record->worktree_path;
@@ -4115,6 +4374,20 @@ inline std::expected<AgentExecutionResult, std::string> resume_agent(std::string
             record = native_agent_store().get(agent_id);
             if (!record) return std::unexpected("Agent not found after worktree resume update: " + std::string(agent_id));
         }
+    }
+
+    // migrated edge case: for non-terminal agents, re-mark running so the
+    // parent poller / lifecycle manager doesn't think the agent is still
+    // queued and skip its next wake-up. Terminal agents skip this so
+    // completion outputs are preserved exactly as last emitted.
+    if (!already_terminal) {
+        native_agent_store().mark_running(agent_id);
+        native_agent_store().append_transcript(
+            agent_id,
+            std::format("system: agent resumed (previous status: {})",
+                native_agent_status_name(record->status)));
+        record = native_agent_store().get(agent_id);
+        if (!record) return std::unexpected("Agent not found after resume status update: " + std::string(agent_id));
     }
 
     std::string output = record->output.value_or(

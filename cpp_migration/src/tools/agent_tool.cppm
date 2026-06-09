@@ -39,6 +39,11 @@ import cc.utils.git;
 import cc.tools.tool;
 import cc.utils.json;
 import cc.tools.agent_runtime;
+import cc.tools.agent_constants;
+import cc.tools.agent_memory;
+import cc.tools.agent_memory_snapshot;
+import cc.tools.agent_color_manager;
+import cc.tools.agent_display;
 import cc.tools.bash;
 import cc.tools.todo_write;
 import cc.tools.send_message;
@@ -2711,6 +2716,61 @@ inline void append_merged_user_message(std::vector<Message>& messages, Message m
     return filtered;
 }
 
+// Filters out assistant messages that contain `tool_use` blocks for which NO
+// matching `tool_result` block exists in the transcript.
+//
+// Mirrors TS filterIncompleteToolCalls in runAgent.ts. This is stricter than
+// filter_resume_unresolved_tool_use_messages (which only drops an assistant
+// message when ALL of its tool_uses are unresolved): here a single orphaned
+// tool_use is enough to exclude the entire assistant message, because the
+// Anthropic API rejects requests where any tool_use is missing its result.
+//
+// Use this when splicing a parent's conversation history into a sub-agent's
+// context (fork / resume paths) to avoid sending malformed message sequences.
+[[nodiscard]] inline std::vector<Message> filter_incomplete_tool_calls(
+    std::vector<Message> messages
+) {
+    // migrated edge case: build the set of tool_use IDs that have results by
+    // doing a full forward scan. TS does two passes (first pass collect
+    // result IDs, second pass filter messages). We mirror exactly.
+    std::unordered_set<std::string> tool_use_ids_with_results;
+    for (const auto& message : messages) {
+        if (message.role != "user") continue;
+        for (const auto& block : message.content) {
+            if (block.type == ContentBlockType::ToolResult && !block.tool_use_id.empty()) {
+                tool_use_ids_with_results.insert(block.tool_use_id);
+            }
+        }
+    }
+
+    std::vector<Message> filtered;
+    filtered.reserve(messages.size());
+    for (auto& message : messages) {
+        // migrated edge case: non-assistant messages always pass through; the
+        // API only rejects malformed assistant→user tool_use/tool_result pairs.
+        if (message.role != "assistant") {
+            filtered.push_back(std::move(message));
+            continue;
+        }
+        bool has_incomplete_tool_call = false;
+        for (const auto& block : message.content) {
+            if (block.type == ContentBlockType::ToolUse && !block.tool_use_id.empty()) {
+                if (!tool_use_ids_with_results.contains(block.tool_use_id)) {
+                    has_incomplete_tool_call = true;
+                    break;
+                }
+            }
+        }
+        // migrated edge case: exclude the assistant message if ANY tool_use
+        // lacks a matching tool_result. TS keeps assistant messages with
+        // zero tool_uses, even if they're whitespace-only.
+        if (!has_incomplete_tool_call) {
+            filtered.push_back(std::move(message));
+        }
+    }
+    return filtered;
+}
+
 [[nodiscard]] inline std::unordered_map<std::string, std::string> resume_content_replacements_from_entries(
     const std::vector<std::string>& entries
 ) {
@@ -3110,6 +3170,13 @@ inline AgentToolResultBudgetOutcome apply_agent_tool_result_budget(
     const std::vector<std::string>& entries
 ) {
     auto messages = fork_context_messages_from_entries(entries);
+    // migrated edge case: drop assistant messages with any tool_use that
+    // never received a tool_result (mirrors TS filterUnresolvedToolUses in
+    // resumeAgent). filter_resume_unresolved_tool_use_messages handles the
+    // case where an assistant message's tool_uses are *all* unresolved;
+    // filter_incomplete_tool_calls is stricter and drops an assistant
+    // whenever *any* tool_use lacks a result.
+    messages = filter_incomplete_tool_calls(std::move(messages));
     messages = filter_resume_unresolved_tool_use_messages(std::move(messages));
     messages = filter_resume_orphaned_thinking_messages(std::move(messages));
     messages = filter_resume_whitespace_assistant_messages(std::move(messages));
@@ -3361,30 +3428,34 @@ inline void hydrate_resume_plan_from_existing_record(AgentExecutionPlan& plan) {
 
     const auto agents = cc::tools::agent_runtime::get_all_agent_definitions(
         normalized_cwd->has_value() ? std::optional<fs::path>{fs::path{**normalized_cwd}} : std::nullopt);
-    auto resolved_type = cc::tools::agent_runtime::resolve_requested_agent_type(request.subagent_type, agents);
-    if (!resolved_type) {
+
+    // migrated edge case: use resolve_agent_type (std::expected wrapper) so
+    // callers get a richer error category. Legacy alias ambiguity and other
+    // failure modes are translated to descriptive strings; previous code used
+    // the simpler "not found" surface.
+    auto resolved_definition = cc::tools::agent_runtime::resolve_agent_type(request.subagent_type, agents);
+    if (!resolved_definition) {
+        const auto error_kind = cc::tools::agent_runtime::resolution_error_name(resolved_definition.error());
+        if (resolved_definition.error() == cc::tools::agent_runtime::ResolutionError::LegacyAliasAmbiguous) {
+            return std::unexpected(std::format(
+                "Agent type '{}' matched multiple namespaced variants; "
+                "specify the fully-qualified agent type explicitly. Available agents: {}",
+                request.subagent_type,
+                cc::tools::agent_runtime::format_agent_type_list(agents)));
+        }
         return std::unexpected(std::format(
-            "Agent type '{}' not found. Available agents: {}",
+            "Agent type '{}' not found ({}). Available agents: {}",
             request.subagent_type,
+            error_kind,
             cc::tools::agent_runtime::format_agent_type_list(agents)));
     }
+    cc::tools::agent_runtime::AgentDefinition definition = std::move(*resolved_definition);
 
-    std::optional<cc::tools::agent_runtime::AgentDefinition> definition;
-    for (const auto& agent : agents) {
-        if (agent.agent_type == *resolved_type) {
-            definition = agent;
-            break;
-        }
-    }
-    if (!definition) {
-        return std::unexpected(std::format("Agent type '{}' could not be resolved", request.subagent_type));
-    }
-
-    auto inline_mcp_servers = prepare_agent_inline_mcp_servers(definition->inline_mcp_servers);
+    auto inline_mcp_servers = prepare_agent_inline_mcp_servers(definition.inline_mcp_servers);
     if (!inline_mcp_servers) {
         return std::unexpected(std::format(
             "Failed to configure MCP servers for agent '{}': {}",
-            definition->agent_type,
+            definition.agent_type,
             inline_mcp_servers.error()));
     }
     AgentMcpCleanupGuard inline_mcp_plan_cleanup{
@@ -3392,46 +3463,46 @@ inline void hydrate_resume_plan_from_existing_record(AgentExecutionPlan& plan) {
         .inline_servers = std::move(*inline_mcp_servers),
     };
 
-    auto definition_model = resolve_agent_model(definition->model);
+    auto definition_model = resolve_agent_model(definition.model);
     AgentExecutionPlan plan;
     plan.agent_id = request.agent_id_override.value_or(next_agent_id(request.name));
-    plan.prompt = prepend_initial_prompt(definition->initial_prompt, request.prompt);
+    plan.prompt = prepend_initial_prompt(definition.initial_prompt, request.prompt);
     plan.description = request.description;
-    plan.agent_type = definition->agent_type;
-    plan.is_built_in = definition->source == "built-in";
+    plan.agent_type = definition.agent_type;
+    plan.is_built_in = definition.source == "built-in";
     plan.model = request.model.value_or(definition_model.value_or(config.default_model));
-    plan.system_prompt = definition->system_prompt.empty()
-        ? built_in_system_prompt(definition->agent_type)
-        : definition->system_prompt;
+    plan.system_prompt = definition.system_prompt.empty()
+        ? built_in_system_prompt(definition.agent_type)
+        : definition.system_prompt;
     if (request.parent_system_prompt && !request.parent_system_prompt->empty()) {
         plan.system_prompt = *request.parent_system_prompt;
         plan.system_prompt_overridden = true;
     }
     plan.preloaded_skill_messages = load_preloaded_skill_messages(*definition);
-    plan.agent_mcp_servers = definition->mcp_servers;
-    for (const auto& inline_config : definition->inline_mcp_servers) {
+    plan.agent_mcp_servers = definition.mcp_servers;
+    for (const auto& inline_config : definition.inline_mcp_servers) {
         append_unique_agent_mcp_server(plan.agent_mcp_servers, inline_config.name);
     }
     plan.agent_mcp_tools = connect_agent_mcp_servers(plan.agent_mcp_servers);
     if (!plan.agent_mcp_tools.empty()) {
         plan.agent_mcp_context_message = format_agent_mcp_context_message(plan.agent_mcp_tools);
     }
-    if (!definition->required_mcp_servers.empty()) {
+    if (!definition.required_mcp_servers.empty()) {
         const auto available_servers = available_mcp_servers_with_tools();
-        const auto missing = missing_required_mcp_servers(definition->required_mcp_servers, available_servers);
+        const auto missing = missing_required_mcp_servers(definition.required_mcp_servers, available_servers);
         if (!missing.empty()) {
             return std::unexpected(std::format(
                 "Agent '{}' requires MCP servers matching: {}. MCP servers with tools: {}. Use /mcp to configure and authenticate the required MCP servers.",
-                definition->agent_type,
+                definition.agent_type,
                 join_fields(missing),
                 available_servers.empty() ? "none" : join_fields(available_servers)));
         }
     }
     plan.inline_mcp_server_states = std::move(inline_mcp_plan_cleanup.inline_servers);
-    plan.allowed_tools = definition->tools;
-    plan.disallowed_tools = definition->disallowed_tools;
-    plan.max_turns = definition->max_turns.value_or(config.max_turns);
-    plan.background = request.run_in_background || definition->background;
+    plan.allowed_tools = definition.tools;
+    plan.disallowed_tools = definition.disallowed_tools;
+    plan.max_turns = definition.max_turns.value_or(config.max_turns);
+    plan.background = request.run_in_background || definition.background;
     plan.resume_existing = request.resume_existing;
     plan.query_source = request.query_source;
     plan.fork_child_context = request.fork_child_context;
@@ -3449,6 +3520,15 @@ inline void hydrate_resume_plan_from_existing_record(AgentExecutionPlan& plan) {
         plan.fork_context_messages.end(),
         std::make_move_iterator(explicit_fork_context_messages.begin()),
         std::make_move_iterator(explicit_fork_context_messages.end()));
+    // migrated edge case: filter out any assistant messages whose tool_use
+    // blocks lack corresponding tool_results. Without this the Anthropic
+    // API rejects the request outright ("message with tool_use must be
+    // followed by user message with tool_result"). Mirrors TS
+    // filterIncompleteToolCalls applied to fork_context_messages.
+    if (!plan.fork_context_messages.empty()) {
+        plan.fork_context_messages = filter_incomplete_tool_calls(
+            std::move(plan.fork_context_messages));
+    }
     if (!plan.fork_context_includes_prompt &&
         messages_contain_fork_boilerplate(plan.fork_context_messages)) {
         plan.fork_context_includes_prompt = true;
@@ -3463,9 +3543,9 @@ inline void hydrate_resume_plan_from_existing_record(AgentExecutionPlan& plan) {
     plan.team_name = request.team_name;
     plan.mode = effective_agent_permission_mode(
         request.mode,
-        definition->permission_mode,
+        definition.permission_mode,
         config.parent_permission_mode);
-    plan.isolation = request.isolation.or_else([&] { return definition->isolation; });
+    plan.isolation = request.isolation.or_else([&] { return definition.isolation; });
     if (plan.isolation && !cc::tools::agent_runtime::valid_agent_isolation(*plan.isolation)) {
         return std::unexpected(std::format(
             "Unsupported isolation mode '{}'. Valid options for this environment: {}",
@@ -3473,9 +3553,9 @@ inline void hydrate_resume_plan_from_existing_record(AgentExecutionPlan& plan) {
             cc::tools::agent_runtime::valid_agent_isolation_options()));
     }
     plan.working_dir = *normalized_cwd;
-    plan.frontmatter_hooks = definition->hooks;
-    plan.effort = definition->effort;
-    plan.memory = definition->memory;
+    plan.frontmatter_hooks = definition.hooks;
+    plan.effort = definition.effort;
+    plan.memory = definition.memory;
     if (plan.memory && is_auto_memory_enabled()) {
         add_agent_memory_tools(plan.allowed_tools);
         plan.system_prompt = std::format(
@@ -3483,9 +3563,9 @@ inline void hydrate_resume_plan_from_existing_record(AgentExecutionPlan& plan) {
             plan.system_prompt,
             load_agent_memory_prompt(plan.agent_type, *plan.memory, plan.working_dir));
     }
-    plan.color = definition->color;
-    plan.omit_claude_md = definition->omit_claude_md;
-    plan.critical_system_reminder = definition->critical_system_reminder;
+    plan.color = definition.color;
+    plan.omit_claude_md = definition.omit_claude_md;
+    plan.critical_system_reminder = definition.critical_system_reminder;
     plan.parent_agent_id = config.parent_agent_id;
     hydrate_resume_plan_from_existing_record(plan);
     const auto runtime_context = format_agent_runtime_context(plan);
