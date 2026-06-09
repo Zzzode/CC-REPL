@@ -23,6 +23,22 @@ struct PermissionRequest {
     std::string description;
     std::string risk_level;  // "low", "medium", "high"
     std::vector<std::string> affected_paths;
+
+    // TODO(UI8, trust_utils): the string `risk_level` field should instead
+    //   use `cc::ui::trust_utils::RiskLevel` (Low / Medium / High / Critical)
+    //   so this dialog can share the classification logic with TrustDialog.
+    //   Migration path:
+    //
+    //     1. import cc.ui.trust_utils;
+    //     2. change `risk_level` to `cc::ui::trust_utils::RiskLevel level;`
+    //     3. at build site, call:
+    //          level = classify_risk(ActionType::Command, summary)
+    //          or   level = from_danger_level(check_command_safety(cmd).level)
+    //        to avoid duplicating the danger rules in bash_security.cppm.
+    //     4. for path-access permissions, also call
+    //          scan_paths_for_sensitive(affected_paths)
+    //        and surface matches via TrustDialog instead of this headless
+    //        string-render helper.
 };
 
 // User's choice on a permission prompt
