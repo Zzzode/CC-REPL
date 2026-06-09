@@ -40,6 +40,7 @@ module;
 export module cc.tools.runtime_registry;
 
 import cc.tools.tool;
+import cc.tools.built_in_agents;
 import cc.tools.agent;
 import cc.tools.agent_runtime;
 import cc.tools.ask_user;
@@ -3432,6 +3433,27 @@ struct RuntimeToolOptions {
     return detail::runtime_tool_names_impl();
 }
 
+// ---------------------------------------------------------------------------
+// Built-in agent registry access.
+//
+// The canonical source of built-in agent definitions lives in
+// cc.tools.built_in_agents (migrated from TS builtInAgents.ts + built-in/*).
+// agent_runtime::built_in_agent_definitions() mirrors these definitions for
+// use inside the agent_runtime module (avoiding a circular module import).
+//
+// External consumers should use the accessors below, which forward to
+// cc::tools::built_in_agents::get_built_in_agents().
+// ---------------------------------------------------------------------------
+
+[[nodiscard]] std::vector<agent_runtime::AgentDefinition>
+get_built_in_agent_definitions() {
+    return cc::tools::built_in_agents::get_built_in_agents();
+}
+
+[[nodiscard]] bool are_explore_plan_agents_enabled() {
+    return cc::tools::built_in_agents::are_explore_plan_agents_enabled();
+}
+
 void register_runtime_tools(cc::core::ToolRegistry& registry, RuntimeToolOptions options) {
     AgentConfig agent_config;
     agent_config.parent_permission_mode = std::move(options.parent_permission_mode);
@@ -3580,6 +3602,11 @@ void register_runtime_tools(cc::core::ToolRegistry& registry, RuntimeToolOptions
         {SchemaProperty{.name = "file", .type = "string", .description = "Workflow file", .required = true}}, "workflow"));
 
     (void)agent_runtime::restore_remote_agent_poll_loops();
+
+    // Touch built-in agent registry so lazy feature-flag evaluation is
+    // performed once per process startup. Produces no side effects but keeps
+    // the registry "warm" for agent spawning code paths.
+    (void)built_in_agents::are_explore_plan_agents_enabled();
 }
 
 void register_runtime_tools(cc::core::ToolRegistry& registry) {

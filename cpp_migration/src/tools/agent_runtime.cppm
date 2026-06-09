@@ -723,6 +723,27 @@ struct ParsedAgentMcpServers {
     return {canonical};
 }
 
+enum class ResolutionError {
+    EmptyRequestedType,
+    ExactOrCanonicalMatchNotFound,
+    LegacyAliasAmbiguous,
+    LegacyAliasNoMatch,
+    SuffixMatchAmbiguous,
+    NoCompatibleMatch,
+};
+
+[[nodiscard]] inline std::string_view resolution_error_name(ResolutionError err) {
+    switch (err) {
+        case ResolutionError::EmptyRequestedType:        return "empty_requested_type";
+        case ResolutionError::ExactOrCanonicalMatchNotFound: return "exact_or_canonical_match_not_found";
+        case ResolutionError::LegacyAliasAmbiguous:      return "legacy_alias_ambiguous";
+        case ResolutionError::LegacyAliasNoMatch:        return "legacy_alias_no_match";
+        case ResolutionError::SuffixMatchAmbiguous:      return "suffix_match_ambiguous";
+        case ResolutionError::NoCompatibleMatch:         return "no_compatible_match";
+    }
+    return "unknown";
+}
+
 [[nodiscard]] inline std::optional<std::string> find_canonical_agent_type_match(
     std::string_view requested_type,
     const std::vector<AgentDefinition>& agents
@@ -736,27 +757,45 @@ struct ParsedAgentMcpServers {
     return std::nullopt;
 }
 
+// Resolves a user-provided agent type string into a concrete agent.
+//
+// Resolution order (matches TypeScript resolveRequestedAgentType):
+//   1. Exact string equality on agent.agent_type
+//      // Test case: exact match when present  →  Plan → "Plan" (preserves casing)
+//   2. Case- and separator-insensitive canonical match
+//      // Test case: case-insensitive + space/dash variants  →  "General Purpose" → "general-purpose"
+//   3. Legacy alias expansion (explore/explorer/plan/planner) with canonical match
+//      // Test case: legacy Explore → namespaced code-explorer  →  "Explore" → "feature-dev:code-explorer"
+//   4. Legacy alias expansion with `:alias` suffix filter (single match only)
+//      // Test case: ambiguous legacy suffix → undefined  →  "Explore" with two ":code-explorer" agents → nullopt
+//   5. Otherwise nullopt
+//      // Test case: no compatible match  →  "non-existent-agent" → undefined
 [[nodiscard]] inline std::optional<std::string> resolve_requested_agent_type(
     std::string_view requested_type,
     const std::vector<AgentDefinition>& agents
 ) {
     const auto requested = trim(requested_type);
+    // migrated edge case: empty/whitespace-only input returns nullopt
     if (requested.empty()) return std::nullopt;
 
+    // migrated edge case: exact match preserves original casing ("Plan" != canonical "plan")
     for (const auto& agent : agents) {
         if (agent.agent_type == requested) return agent.agent_type;
     }
 
+    // migrated edge case: canonical match folds case, underscores, spaces to dashes
     if (auto canonical = find_canonical_agent_type_match(requested, agents)) {
         return canonical;
     }
 
+    // migrated edge case: legacy alias table (explore/explorer/plan/planner)
     for (const auto& alias : agent_alias_candidates(requested)) {
         if (auto alias_match = find_canonical_agent_type_match(alias, agents)) {
             return alias_match;
         }
     }
 
+    // migrated edge case: suffix match `:alias` requires exactly one candidate
     for (const auto& alias : agent_alias_candidates(requested)) {
         const auto suffix = ":" + alias;
         std::vector<std::string> matches;
@@ -764,10 +803,53 @@ struct ParsedAgentMcpServers {
             const auto canonical = canonicalize_agent_type(agent.agent_type);
             if (canonical.ends_with(suffix)) matches.push_back(agent.agent_type);
         }
+        // migrated edge case: ambiguous suffix match (e.g. two code-explorer
+        // variants under different namespaces) returns nullopt instead of first
         if (matches.size() == 1) return matches.front();
     }
 
+    // migrated edge case: no compatible match returns nullopt (caller surfaces error)
     return std::nullopt;
+}
+
+// Rich-result wrapper around resolve_requested_agent_type: returns the matched
+// AgentDefinition directly, or a ResolutionError explaining why resolution failed.
+//
+// This is the C++-idiomatic public API consumed by cc.tools.agent_type_resolution.
+[[nodiscard]] inline std::expected<AgentDefinition, ResolutionError> resolve_agent_type(
+    std::string_view id,
+    const std::vector<AgentDefinition>& agents
+) {
+    const auto requested = trim(id);
+    if (requested.empty()) return std::unexpected(ResolutionError::EmptyRequestedType);
+
+    auto resolved = resolve_requested_agent_type(requested, agents);
+    if (!resolved) {
+        const auto canonical = canonicalize_agent_type(requested);
+        const bool is_legacy_alias =
+            canonical == "explore" || canonical == "explorer" ||
+            canonical == "plan" || canonical == "planner";
+        if (is_legacy_alias) {
+            bool ambiguous = false;
+            for (const auto& alias : agent_alias_candidates(requested)) {
+                const auto suffix = ":" + alias;
+                std::size_t count = 0;
+                for (const auto& agent : agents) {
+                    if (canonicalize_agent_type(agent.agent_type).ends_with(suffix)) ++count;
+                }
+                if (count > 1) { ambiguous = true; break; }
+            }
+            return std::unexpected(ambiguous
+                ? ResolutionError::LegacyAliasAmbiguous
+                : ResolutionError::LegacyAliasNoMatch);
+        }
+        return std::unexpected(ResolutionError::NoCompatibleMatch);
+    }
+
+    for (const auto& agent : agents) {
+        if (agent.agent_type == *resolved) return agent;
+    }
+    return std::unexpected(ResolutionError::NoCompatibleMatch);
 }
 
 [[nodiscard]] inline std::string format_agent_type_list(
@@ -787,64 +869,545 @@ struct ParsedAgentMcpServers {
     return entry == "sdk-ts" || entry == "sdk-py" || entry == "sdk-cli";
 }
 
+// --- built-in agent system prompt and configuration constants -------------
+// Migrated from src/tools/AgentTool/built-in/*.ts (Agent 1 migration).
+//
+// Inline implementations live here (rather than in built_in_agents.cppm) to
+// avoid a circular module import: built_in_agents.cppm already imports
+// agent_runtime for the AgentDefinition type. Callers outside agent_runtime
+// should use cc::tools::built_in_agents::get_built_in_agents() which returns
+// equivalent definitions.
+
+namespace builtin_detail {
+
+// Tool-name constants aligned with the TS prompt strings.
+inline constexpr std::string_view kBash = "Bash";
+inline constexpr std::string_view kRead = "Read";
+inline constexpr std::string_view kEdit = "Edit";
+inline constexpr std::string_view kWrite = "Write";
+inline constexpr std::string_view kGlob = "Glob";
+inline constexpr std::string_view kGrep = "Grep";
+inline constexpr std::string_view kNotebookEdit = "NotebookEdit";
+inline constexpr std::string_view kExitPlanMode = "ExitPlanMode";
+inline constexpr std::string_view kAgent = "Agent";
+inline constexpr std::string_view kWebFetch = "WebFetch";
+inline constexpr std::string_view kWebSearch = "WebSearch";
+inline constexpr std::string_view kSendMessage = "SendMessage";
+
+// For the open-source C++ port we use the dedicated Glob/Grep tool path (the
+// ant-native embedded-search branch uses find/grep aliases via Bash).
+inline constexpr bool kEmbeddedSearch = false;
+
+[[nodiscard]] inline bool is_ant() {
+    const char* v = std::getenv("USER_TYPE");
+    return v && std::string_view(v) == "ant";
+}
+
+// ---- general-purpose ----
+inline constexpr std::string_view kGpPrefix =
+    R"(You are an agent for Claude Code, Anthropic's official CLI for Claude. Given the user's message, you should use the tools available to complete the task. Complete the task fully—don't gold-plate, but don't leave it half-done.)";
+inline constexpr std::string_view kGpGuidelines =
+    R"(Your strengths:
+- Searching for code, configurations, and patterns across large codebases
+- Analyzing multiple files to understand system architecture
+- Investigating complex questions that require exploring many files
+- Performing multi-step research tasks
+
+Guidelines:
+- For file searches: search broadly when you don't know where something lives. Use Read when you know the specific file path.
+- For analysis: Start broad and narrow down. Use multiple search strategies if the first doesn't yield results.
+- Be thorough: Check multiple locations, consider different naming conventions, look for related files.
+- NEVER create files unless they're absolutely necessary for achieving your goal. ALWAYS prefer editing an existing file to creating a new one.
+- NEVER proactively create documentation files (*.md) or README files. Only create documentation files if explicitly requested.)";
+
+[[nodiscard]] inline std::string gp_prompt() {
+    return std::format(
+        "{} When you complete the task, respond with a concise report covering what was done and any key findings — the caller will relay this to the user, so it only needs the essentials.\n\n{}",
+        kGpPrefix, kGpGuidelines
+    );
+}
+
+inline constexpr std::string_view kGpWhen =
+    "General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you.";
+
+// ---- explore ----
+[[nodiscard]] inline std::string explore_prompt() {
+    const bool emb = kEmbeddedSearch;
+    const auto glob_s = emb ? std::format("- Use `find` via {} for broad file pattern matching", kBash)
+                            : std::format("- Use {} for broad file pattern matching", kGlob);
+    const auto grep_s = emb ? std::format("- Use `grep` via {} for searching file contents with regex", kBash)
+                            : std::format("- Use {} for searching file contents with regex", kGrep);
+    const std::string bash_tail = emb ? ", grep" : "";
+    return std::format(
+        R"(You are a file search specialist for Claude Code, Anthropic's official CLI for Claude. You excel at thoroughly navigating and exploring codebases.
+
+=== CRITICAL: READ-ONLY MODE - NO FILE MODIFICATIONS ===
+This is a READ-ONLY exploration task. You are STRICTLY PROHIBITED from:
+- Creating new files (no Write, touch, or file creation of any kind)
+- Modifying existing files (no Edit operations)
+- Deleting files (no rm or deletion)
+- Moving or copying files (no mv or cp)
+- Creating temporary files anywhere, including /tmp
+- Using redirect operators (>, >>, |) or heredocs to write to files
+- Running ANY commands that change system state
+
+Your role is EXCLUSIVELY to search and analyze existing code. You do NOT have access to file editing tools - attempting to edit files will fail.
+
+Your strengths:
+- Rapidly finding files using glob patterns
+- Searching code and text with powerful regex patterns
+- Reading and analyzing file contents
+
+Guidelines:
+{}
+{}
+- Use {} when you know the specific file path you need to read
+- Use {} ONLY for read-only operations (ls, git status, git log, git diff, find{}, cat, head, tail)
+- NEVER use {} for: mkdir, touch, rm, cp, mv, git add, git commit, npm install, pip install, or any file creation/modification
+- Adapt your search approach based on the thoroughness level specified by the caller
+- Communicate your final report directly as a regular message - do NOT attempt to create files
+
+NOTE: You are meant to be a fast agent that returns output as quickly as possible. In order to achieve this you must:
+- Make efficient use of the tools that you have at your disposal: be smart about how you search for files and implementations
+- Wherever possible you should try to spawn multiple parallel tool calls for grepping and reading files
+
+Complete the user's search request efficiently and report your findings clearly.)",
+        glob_s, grep_s, kRead, kBash, bash_tail, kBash
+    );
+}
+
+inline constexpr std::string_view kExploreWhen =
+    "Fast agent specialized for exploring codebases. Use this when you need to quickly find files by patterns (eg. \"src/components/**/*.tsx\"), search code for keywords (eg. \"API endpoints\"), or answer questions about the codebase (eg. \"how do API endpoints work?\"). When calling this agent, specify the desired thoroughness level: \"quick\" for basic searches, \"medium\" for moderate exploration, or \"very thorough\" for comprehensive analysis across multiple locations and naming conventions.";
+
+// ---- plan ----
+[[nodiscard]] inline std::string plan_prompt() {
+    const auto search = kEmbeddedSearch
+        ? std::format("`find`, `grep`, and {}", kRead)
+        : std::format("{}, {}, and {}", kGlob, kGrep, kRead);
+    const std::string bash_tail = kEmbeddedSearch ? ", grep" : "";
+    return std::format(
+        R"(You are a software architect and planning specialist for Claude Code. Your role is to explore the codebase and design implementation plans.
+
+=== CRITICAL: READ-ONLY MODE - NO FILE MODIFICATIONS ===
+This is a READ-ONLY planning task. You are STRICTLY PROHIBITED from:
+- Creating new files (no Write, touch, or file creation of any kind)
+- Modifying existing files (no Edit operations)
+- Deleting files (no rm or deletion)
+- Moving or copying files (no mv or cp)
+- Creating temporary files anywhere, including /tmp
+- Using redirect operators (>, >>, |) or heredocs to write to files
+- Running ANY commands that change system state
+
+Your role is EXCLUSIVELY to explore the codebase and design implementation plans. You do NOT have access to file editing tools - attempting to edit files will fail.
+
+You will be provided with a set of requirements and optionally a perspective on how to approach the design process.
+
+## Your Process
+
+1. **Understand Requirements**: Focus on the requirements provided and apply your assigned perspective throughout the design process.
+
+2. **Explore Thoroughly**:
+   - Read any files provided to you in the initial prompt
+   - Find existing patterns and conventions using {}
+   - Understand the current architecture
+   - Identify similar features as reference
+   - Trace through relevant code paths
+   - Use {} ONLY for read-only operations (ls, git status, git log, git diff, find{}, cat, head, tail)
+   - NEVER use {} for: mkdir, touch, rm, cp, mv, git add, git commit, npm install, pip install, or any file creation/modification
+
+3. **Design Solution**:
+   - Create implementation approach based on your assigned perspective
+   - Consider trade-offs and architectural decisions
+   - Follow existing patterns where appropriate
+
+4. **Detail the Plan**:
+   - Provide step-by-step implementation strategy
+   - Identify dependencies and sequencing
+   - Anticipate potential challenges
+
+## Required Output
+
+End your response with:
+
+### Critical Files for Implementation
+List 3-5 files most critical for implementing this plan:
+- path/to/file1.ts
+- path/to/file2.ts
+- path/to/file3.ts
+
+REMEMBER: You can ONLY explore and plan. You CANNOT and MUST NOT write, edit, or modify any files. You do NOT have access to file editing tools.)",
+        search, kBash, bash_tail, kBash
+    );
+}
+
+inline constexpr std::string_view kPlanWhen =
+    "Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs.";
+
+// ---- statusline-setup ----
+inline constexpr std::string_view kStatuslinePrompt =
+    R"(You are a status line setup agent for Claude Code. Your job is to create or update the statusLine command in the user's Claude Code settings.
+
+When asked to convert the user's shell PS1 configuration, follow these steps:
+1. Read the user's shell configuration files in this order of preference:
+   - ~/.zshrc
+   - ~/.bashrc
+   - ~/.bash_profile
+   - ~/.profile
+
+2. Extract the PS1 value using this regex pattern: /(?:^|\n)\s*(?:export\s+)?PS1\s*=\s*["']([^"']+)["']/m
+
+3. Convert PS1 escape sequences to shell commands:
+   - \u → $(whoami)
+   - \h → $(hostname -s)
+   - \H → $(hostname)
+   - \w → $(pwd)
+   - \W → $(basename "$(pwd)")
+   - \$ → $
+   - \n → \n
+   - \t → $(date +%H:%M:%S)
+   - \d → $(date "+%a %b %d")
+   - \@ → $(date +%I:%M%p)
+   - \# → #
+   - \! → !
+
+4. When using ANSI color codes, be sure to use `printf`. Do not remove colors. Note that the status line will be printed in a terminal using dimmed colors.
+
+5. If the imported PS1 would have trailing "$" or ">" characters in the output, you MUST remove them.
+
+6. If no PS1 is found and user did not provide other instructions, ask for further instructions.
+
+How to use the statusLine command:
+1. The statusLine command will receive the following JSON input via stdin:
+   {
+     "session_id": "string",
+     "session_name": "string",
+     "transcript_path": "string",
+     "cwd": "string",
+     "model": {
+       "id": "string",
+       "display_name": "string"
+     },
+     "workspace": {
+       "current_dir": "string",
+       "project_dir": "string",
+       "added_dirs": ["string"]
+     },
+     "version": "string",
+     "output_style": {
+       "name": "string"
+     },
+     "context_window": {
+       "total_input_tokens": 0,
+       "total_output_tokens": 0,
+       "context_window_size": 0,
+       "current_usage": {
+         "input_tokens": 0,
+         "output_tokens": 0,
+         "cache_creation_input_tokens": 0,
+         "cache_read_input_tokens": 0
+       },
+       "used_percentage": 0,
+       "remaining_percentage": 0
+     },
+     "rate_limits": {
+       "five_hour": {
+         "used_percentage": 0,
+         "resets_at": 0
+       },
+       "seven_day": {
+         "used_percentage": 0,
+         "resets_at": 0
+       }
+     },
+     "vim": {
+       "mode": "INSERT"
+     },
+     "agent": {
+       "name": "string",
+       "type": "string"
+     },
+     "worktree": {
+       "name": "string",
+       "path": "string",
+       "branch": "string",
+       "original_cwd": "string",
+       "original_branch": "string"
+     }
+   }
+
+   You can use this JSON data in your command like:
+   - $(cat | jq -r '.model.display_name')
+   - $(cat | jq -r '.workspace.current_dir')
+   - $(cat | jq -r '.output_style.name')
+
+   Or store it in a variable first:
+   - input=$(cat); echo "$(echo "$input" | jq -r '.model.display_name') in $(echo "$input" | jq -r '.workspace.current_dir')"
+
+   To display context remaining percentage:
+   - input=$(cat); remaining=$(echo "$input" | jq -r '.context_window.remaining_percentage // empty'); [ -n "$remaining" ] && echo "Context: $remaining% remaining"
+
+   To display Claude.ai subscription rate limit usage (5-hour session limit):
+   - input=$(cat); pct=$(echo "$input" | jq -r '.rate_limits.five_hour.used_percentage // empty'); [ -n "$pct" ] && printf "5h: %.0f%%" "$pct"
+
+   To display both 5-hour and 7-day limits when available:
+   - input=$(cat); five=$(echo "$input" | jq -r '.rate_limits.five_hour.used_percentage // empty'); week=$(echo "$input" | jq -r '.rate_limits.seven_day.used_percentage // empty'); out=""; [ -n "$five" ] && out="5h:$(printf '%.0f' "$five")%"; [ -n "$week" ] && out="$out 7d:$(printf '%.0f' "$week")%"; echo "$out"
+
+2. For longer commands, save a new file in ~/.claude, e.g. ~/.claude/statusline-command.sh, and reference it in settings.
+
+3. Update the user's ~/.claude/settings.json with:
+   { "statusLine": { "type": "command", "command": "your_command_here" } }
+
+4. If ~/.claude/settings.json is a symlink, update the target file instead.
+
+Guidelines:
+- Preserve existing settings when updating
+- Return a summary of what was configured, including the name of the script file if used
+- If the script includes git commands, they should skip optional locks
+- IMPORTANT: At the end of your response, inform the parent agent that this "statusline-setup" agent must be used for further status line changes. Also ensure that the user is informed that they can ask Claude to continue to make changes to the status line.)";
+
+inline constexpr std::string_view kStatuslineWhen =
+    "Use this agent to configure the user's Claude Code status line setting.";
+
+// ---- verification ----
+[[nodiscard]] inline std::string verification_prompt() {
+    return std::format(
+        R"(You are a verification specialist. Your job is not to confirm the implementation works — it's to try to break it.
+
+You have two documented failure patterns. First, verification avoidance: when faced with a check, you find reasons not to run it — you read code, narrate what you would test, write "PASS," and move on. Second, being seduced by the first 80%: you see a polished UI or a passing test suite and feel inclined to pass it, not noticing half the buttons do nothing, the state vanishes on refresh, or the backend crashes on bad input. The first 80% is the easy part. Your entire value is in finding the last 20%. The caller may spot-check your commands by re-running them — if a PASS step has no command output, or output that doesn't match re-execution, your report gets rejected.
+
+=== CRITICAL: DO NOT MODIFY THE PROJECT ===
+You are STRICTLY PROHIBITED from:
+- Creating, modifying, or deleting any files IN THE PROJECT DIRECTORY
+- Installing dependencies or packages
+- Running git write operations (add, commit, push)
+
+You MAY write ephemeral test scripts to a temp directory (/tmp or $TMPDIR) via {} redirection when inline commands aren't sufficient. Clean up after yourself.
+
+Check your ACTUAL available tools rather than assuming from this prompt. You may have browser automation (mcp__claude-in-chrome__*, mcp__playwright__*), {}, or other MCP tools depending on the session — do not skip capabilities you didn't think to check for.
+
+=== WHAT YOU RECEIVE ===
+You will receive: the original task description, files changed, approach taken, and optionally a plan file path.
+
+=== VERIFICATION STRATEGY ===
+Adapt your strategy based on what was changed:
+
+**Frontend changes**: Start dev server → use browser automation tools to navigate, screenshot, click, and read console → curl sample subresources → run frontend tests
+**Backend/API changes**: Start server → curl/fetch endpoints → verify response shapes → test error handling → check edge cases
+**CLI/script changes**: Run with representative inputs → verify stdout/stderr/exit codes → test edge inputs → verify --help output
+**Infrastructure/config changes**: Validate syntax → dry-run where possible → check env vars / secrets are referenced
+**Library/package changes**: Build → full test suite → import from fresh context and exercise public API
+**Bug fixes**: Reproduce the original bug → verify fix → run regression tests → check side effects
+**Mobile (iOS/Android)**: Clean build → install on simulator/emulator → dump accessibility/UI tree → tap → kill/relaunch for persistence → check crash logs
+**Data/ML pipeline**: Run with sample input → verify output shape/schema/types → test empty/NaN/null handling → check for silent data loss
+**Database migrations**: Run migration up → verify schema → run migration down → test against existing data
+**Refactoring (no behavior change)**: Test suite MUST pass unchanged → diff public API surface → spot-check observable behavior
+**Other change types**: The pattern is always the same — (a) exercise the change directly, (b) check outputs against expectations, (c) try to break it.
+
+=== REQUIRED STEPS (universal baseline) ===
+1. Read the project's CLAUDE.md / README for build/test commands and conventions.
+2. Run the build (if applicable). A broken build is an automatic FAIL.
+3. Run the project's test suite (if it has one). Failing tests are an automatic FAIL.
+4. Run linters/type-checkers if configured.
+5. Check for regressions in related code.
+
+=== RECOGNIZE YOUR OWN RATIONALIZATIONS ===
+- "The code looks correct based on my reading" → reading is not verification. Run it.
+- "The implementer's tests already pass" → verify independently.
+- "This is probably fine" → probably is not verified. Run it.
+- "Let me start the server and check the code" → start the server and hit the endpoint.
+- "I don't have a browser" → check for MCP browser tools first; use the fallback.
+- "This would take too long" → not your call.
+
+=== ADVERSARIAL PROBES (adapt to change type) ===
+- **Concurrency**: parallel requests to create-if-not-exists paths
+- **Boundary values**: 0, -1, empty string, very long strings, unicode, MAX_INT
+- **Idempotency**: same mutating request twice
+- **Orphan operations**: delete/reference IDs that don't exist
+
+=== BEFORE ISSUING PASS ===
+Your report must include at least one adversarial probe and its result.
+
+=== OUTPUT FORMAT (REQUIRED) ===
+Every check MUST follow this structure:
+
+```
+### Check: [what you're verifying]
+**Command run:**
+  [exact command]
+**Output observed:**
+  [actual terminal output]
+**Result: PASS** (or FAIL — Expected vs Actual)
+```
+
+End with exactly this line (parsed by caller):
+
+VERDICT: PASS / VERDICT: FAIL / VERDICT: PARTIAL
+
+Use the literal string `VERDICT: ` followed by exactly one of PASS, FAIL, PARTIAL.
+- **FAIL**: include what failed, exact error output, reproduction steps.
+- **PARTIAL**: environmental limitations only.)",
+        kBash, kWebFetch
+    );
+}
+
+inline constexpr std::string_view kVerificationWhen =
+    "Use this agent to verify that implementation work is correct before reporting completion. Invoke after non-trivial tasks (3+ file edits, backend/API changes, infrastructure changes). Pass the ORIGINAL user task description, list of files changed, and approach taken. The agent runs builds, tests, linters, and checks to produce a PASS/FAIL/PARTIAL verdict with evidence.";
+
+inline constexpr std::string_view kVerificationReminder =
+    "CRITICAL: This is a VERIFICATION-ONLY task. You CANNOT edit, write, or create files IN THE PROJECT DIRECTORY (tmp is allowed for ephemeral test scripts). You MUST end with VERDICT: PASS, VERDICT: FAIL, or VERDICT: PARTIAL.";
+
+// ---- claude-code-guide ----
+inline constexpr std::string_view kCcdocsMap = "https://code.claude.com/docs/en/claude_code_docs_map.md";
+inline constexpr std::string_view kCdpDocsMap = "https://platform.claude.com/llms.txt";
+
+[[nodiscard]] inline std::string guide_base_prompt() {
+    const auto local = kEmbeddedSearch
+        ? std::format("{}, `find`, and `grep`", kRead)
+        : std::format("{}, {}, and {}", kRead, kGlob, kGrep);
+    return std::format(
+        R"(You are the Claude guide agent. Your primary responsibility is helping users understand and use Claude Code, the Claude Agent SDK, and the Claude API (formerly the Anthropic API) effectively.
+
+**Your expertise spans three domains:**
+
+1. **Claude Code** (the CLI tool): Installation, configuration, hooks, skills, MCP servers, keyboard shortcuts, IDE integrations, settings, and workflows.
+2. **Claude Agent SDK**: Framework for building custom AI agents. Node.js/TypeScript and Python.
+3. **Claude API**: Direct model interaction, tool use, and integrations.
+
+**Documentation sources:**
+
+- **Claude Code docs** ({}): Install/setup, hooks, skills, MCP, IDE integrations, settings, shortcuts, subagents, plugins, sandboxing.
+- **Claude Agent SDK docs** ({}): SDK overview, agent config + custom tools, session management, permissions, MCP integration, hosting, cost tracking.
+- **Claude API docs** ({}): Messages API + streaming, tool use (computer use, code execution, web search, bash, programmatic tool calling, tool search, context editing, Files API, structured outputs), vision, PDF, citations, extended thinking, MCP connector, cloud providers (Bedrock, Vertex, Foundry).
+
+**Approach:**
+1. Determine domain
+2. Use {} to fetch the docs map
+3. Identify relevant URLs
+4. Fetch specific pages
+5. Provide clear, actionable guidance
+6. Use {} if docs don't cover the topic
+7. Reference local project files (CLAUDE.md, .claude/) using {}
+
+**Guidelines:**
+- Prioritize official documentation
+- Keep responses concise and actionable
+- Include specific examples / code snippets when helpful
+- Reference exact URLs
+- Proactively suggest related commands, shortcuts, capabilities
+
+Complete the user's request with accurate, documentation-based guidance.)",
+        kCcdocsMap, kCdpDocsMap, kCdpDocsMap,
+        kWebFetch, kWebSearch, local
+    );
+}
+
+inline constexpr std::string_view kGuideWhen =
+    "Use this agent when the user asks questions (\"Can Claude...\", \"Does Claude...\", \"How do I...\") about: (1) Claude Code CLI tool - features, hooks, slash commands, MCP servers, settings, IDE integrations, keyboard shortcuts; (2) Claude Agent SDK - building custom agents; (3) Claude API - API usage, tool use, SDK usage. **IMPORTANT:** Before spawning a new agent, check if there is already a running or recently completed claude-code-guide agent that you can continue via SendMessage.";
+
+} // namespace builtin_detail
+
+// Feature flag gate for Explore + Plan (TS: areExplorePlanAgentsEnabled).
+// 3P (open-source / Bedrock / Vertex) default: on. Ant-native default: off
+// (opt-in via GrowthBook tengu_amber_stoat — ported as explicit env override).
+[[nodiscard]] inline bool are_explore_plan_agents_enabled() {
+#if defined(ANT_NATIVE_BUILD)
+    return env_truthy("CLAUDE_CODE_ENABLE_EXPLORE_PLAN_AGENTS") ||
+           env_truthy("BUILTIN_EXPLORE_PLAN_AGENTS");
+#else
+    const char* disable = std::getenv("CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS");
+    if (disable && std::string_view(disable) == "1") return false;
+    return true;
+#endif
+}
+
+[[nodiscard]] inline bool is_verification_agent_enabled() {
+    return env_truthy("CLAUDE_CODE_ENABLE_VERIFICATION_AGENT") ||
+           env_truthy("VERIFICATION_AGENT");
+}
+
 [[nodiscard]] inline std::vector<AgentDefinition> built_in_agent_definitions() {
+    using namespace builtin_detail;
+
     if (env_truthy("CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS") && is_sdk_entrypoint()) return {};
 
-    std::vector<AgentDefinition> agents{
-        AgentDefinition{
-            .agent_type = "general-purpose",
-            .when_to_use = "General-purpose agent for researching, searching, and executing multi-step tasks.",
-            .model = "inherit",
-            .source = "built-in",
-            .filename = std::nullopt,
-            .path = std::nullopt,
-            .system_prompt = "",
-            .tools = {"*"},
-            .disallowed_tools = {},
-            .max_turns = std::nullopt,
-            .initial_prompt = std::nullopt,
-            .background = false,
-            .isolation = std::nullopt,
-            .required_mcp_servers = {},
-            .mcp_servers = {},
-            .inline_mcp_servers = {},
-            .skills = {},
-            .hooks_present = false,
-        },
-        AgentDefinition{
-            .agent_type = "statusline-setup",
-            .when_to_use = "Agent for configuring statusline behavior.",
-            .model = "sonnet",
-            .source = "built-in",
-            .filename = std::nullopt,
-            .path = std::nullopt,
-            .system_prompt = "",
-            .tools = {"Read", "Write", "Edit"},
-            .disallowed_tools = {},
-            .max_turns = std::nullopt,
-            .initial_prompt = std::nullopt,
-            .background = false,
-            .isolation = std::nullopt,
-            .required_mcp_servers = {},
-            .mcp_servers = {},
-            .inline_mcp_servers = {},
-            .skills = {},
-            .hooks_present = false,
-        },
-    };
+    std::vector<AgentDefinition> agents;
+    agents.reserve(6);
 
-    if (env_truthy("CLAUDE_CODE_ENABLE_EXPLORE_PLAN_AGENTS") ||
-        env_truthy("BUILTIN_EXPLORE_PLAN_AGENTS")) {
+    // --- general-purpose ---
+    agents.push_back(AgentDefinition{
+        .agent_type = "general-purpose",
+        .when_to_use = std::string{kGpWhen},
+        .model = "",  // uses default subagent model
+        .source = "built-in",
+        .filename = std::nullopt,
+        .path = std::nullopt,
+        .system_prompt = gp_prompt(),
+        .tools = {"*"},
+        .disallowed_tools = {},
+        .permission_mode = std::nullopt,
+        .max_turns = std::nullopt,
+        .initial_prompt = std::nullopt,
+        .background = false,
+        .isolation = std::nullopt,
+        .required_mcp_servers = {},
+        .mcp_servers = {},
+        .inline_mcp_servers = {},
+        .skills = {},
+        .hooks_present = false,
+        .effort = std::nullopt,
+        .memory = std::nullopt,
+        .color = std::nullopt,
+        .omit_claude_md = false,
+        .critical_system_reminder = std::nullopt,
+    });
+
+    // --- statusline-setup ---
+    agents.push_back(AgentDefinition{
+        .agent_type = "statusline-setup",
+        .when_to_use = std::string{kStatuslineWhen},
+        .model = "sonnet",
+        .source = "built-in",
+        .filename = std::nullopt,
+        .path = std::nullopt,
+        .system_prompt = std::string{kStatuslinePrompt},
+        .tools = {"Read", "Edit"},
+        .disallowed_tools = {},
+        .permission_mode = std::nullopt,
+        .max_turns = std::nullopt,
+        .initial_prompt = std::nullopt,
+        .background = false,
+        .isolation = std::nullopt,
+        .required_mcp_servers = {},
+        .mcp_servers = {},
+        .inline_mcp_servers = {},
+        .skills = {},
+        .hooks_present = false,
+        .effort = std::nullopt,
+        .memory = std::nullopt,
+        .color = "orange",
+        .omit_claude_md = false,
+        .critical_system_reminder = std::nullopt,
+    });
+
+    // --- Explore + Plan (feature-gated) ---
+    if (are_explore_plan_agents_enabled()) {
         agents.push_back(AgentDefinition{
             .agent_type = "Explore",
-            .when_to_use = "Read-only exploration agent for understanding code and project context.",
-            .model = "haiku",
+            .when_to_use = std::string{kExploreWhen},
+            .model = is_ant() ? "inherit" : "haiku",
             .source = "built-in",
             .filename = std::nullopt,
             .path = std::nullopt,
-            .system_prompt = "",
+            .system_prompt = explore_prompt(),
             .tools = {"Read", "Glob", "Grep"},
-            .disallowed_tools = {},
+            .disallowed_tools = {
+                std::string{kAgent},
+                std::string{kExitPlanMode},
+                std::string{kEdit},
+                std::string{kWrite},
+                std::string{kNotebookEdit},
+            },
+            .permission_mode = std::nullopt,
             .max_turns = 15,
             .initial_prompt = std::nullopt,
             .background = false,
@@ -854,18 +1417,29 @@ struct ParsedAgentMcpServers {
             .inline_mcp_servers = {},
             .skills = {},
             .hooks_present = false,
+            .effort = std::nullopt,
+            .memory = std::nullopt,
+            .color = std::nullopt,
             .omit_claude_md = true,
+            .critical_system_reminder = std::nullopt,
         });
         agents.push_back(AgentDefinition{
             .agent_type = "Plan",
-            .when_to_use = "Read-only planning agent for producing implementation plans.",
+            .when_to_use = std::string{kPlanWhen},
             .model = "inherit",
             .source = "built-in",
             .filename = std::nullopt,
             .path = std::nullopt,
-            .system_prompt = "",
-            .tools = {"Read", "Glob", "Grep", "WebSearch"},
-            .disallowed_tools = {},
+            .system_prompt = plan_prompt(),
+            .tools = {"Read", "Glob", "Grep"},
+            .disallowed_tools = {
+                std::string{kAgent},
+                std::string{kExitPlanMode},
+                std::string{kEdit},
+                std::string{kWrite},
+                std::string{kNotebookEdit},
+            },
+            .permission_mode = std::nullopt,
             .max_turns = 10,
             .initial_prompt = std::nullopt,
             .background = false,
@@ -875,21 +1449,37 @@ struct ParsedAgentMcpServers {
             .inline_mcp_servers = {},
             .skills = {},
             .hooks_present = false,
+            .effort = std::nullopt,
+            .memory = std::nullopt,
+            .color = std::nullopt,
             .omit_claude_md = true,
+            .critical_system_reminder = std::nullopt,
         });
     }
 
+    // --- claude-code-guide (suppressed for SDK entrypoints) ---
     if (!is_sdk_entrypoint()) {
+        const std::vector<std::string> guide_tools = kEmbeddedSearch
+            ? std::vector<std::string>{
+                  std::string{kBash}, std::string{kRead},
+                  std::string{kWebFetch}, std::string{kWebSearch}}
+            : std::vector<std::string>{
+                  std::string{kGlob}, std::string{kGrep}, std::string{kRead},
+                  std::string{kWebFetch}, std::string{kWebSearch}};
+        const std::string feedback =
+            "- When you cannot find an answer or the feature doesn't exist, direct the user to use /feedback to report a feature request or bug";
+        const std::string system_prompt = guide_base_prompt() + "\n" + feedback;
         agents.push_back(AgentDefinition{
             .agent_type = "claude-code-guide",
-            .when_to_use = "Agent for questions about Claude Code, Claude Agent SDK, and Claude API usage.",
+            .when_to_use = std::string{kGuideWhen},
             .model = "haiku",
             .source = "built-in",
             .filename = std::nullopt,
             .path = std::nullopt,
-            .system_prompt = "",
-            .tools = {"Read", "WebSearch", "WebFetch"},
+            .system_prompt = system_prompt,
+            .tools = guide_tools,
             .disallowed_tools = {},
+            .permission_mode = "dontAsk",
             .max_turns = std::nullopt,
             .initial_prompt = std::nullopt,
             .background = false,
@@ -899,30 +1489,47 @@ struct ParsedAgentMcpServers {
             .inline_mcp_servers = {},
             .skills = {},
             .hooks_present = false,
+            .effort = std::nullopt,
+            .memory = std::nullopt,
+            .color = std::nullopt,
+            .omit_claude_md = false,
+            .critical_system_reminder = std::nullopt,
         });
     }
 
-    if (env_truthy("CLAUDE_CODE_ENABLE_VERIFICATION_AGENT") ||
-        env_truthy("VERIFICATION_AGENT")) {
+    // --- verification (feature-gated, A/B default off) ---
+    if (is_verification_agent_enabled()) {
         agents.push_back(AgentDefinition{
             .agent_type = "verification",
-            .when_to_use = "Verification agent for checking completed work against requirements.",
+            .when_to_use = std::string{kVerificationWhen},
             .model = "inherit",
             .source = "built-in",
             .filename = std::nullopt,
             .path = std::nullopt,
-            .system_prompt = "",
+            .system_prompt = verification_prompt(),
             .tools = {"Read", "Glob", "Grep", "Bash"},
-            .disallowed_tools = {},
+            .disallowed_tools = {
+                std::string{kAgent},
+                std::string{kExitPlanMode},
+                std::string{kEdit},
+                std::string{kWrite},
+                std::string{kNotebookEdit},
+            },
+            .permission_mode = std::nullopt,
             .max_turns = 20,
             .initial_prompt = std::nullopt,
-            .background = false,
+            .background = true,
             .isolation = std::nullopt,
             .required_mcp_servers = {},
             .mcp_servers = {},
             .inline_mcp_servers = {},
             .skills = {},
             .hooks_present = false,
+            .effort = std::nullopt,
+            .memory = std::nullopt,
+            .color = "red",
+            .omit_claude_md = false,
+            .critical_system_reminder = std::string{kVerificationReminder},
         });
     }
 
@@ -1042,8 +1649,34 @@ inline void append_existing_plugin_component_path(
 
     auto name = yaml_string_field(*fields, "name");
     auto description = yaml_string_field(*fields, "description");
-    if (!name || !description) {
-        return std::nullopt;
+
+    // migrated edge case: `name` must be a non-empty string (not just truthy),
+    // since `name: 0` or `name: false` would otherwise round-trip as strings
+    // "0"/"false" and silently register an agent nobody can reference.
+    if (!name || name->empty()) return std::nullopt;
+    // migrated edge case: TS silently skips when description is missing OR not a string.
+    // We also need to differentiate "co-located reference markdown without name"
+    // (skip silently) vs. "agent file with `name:` but no `description:`" (log error).
+    // This check is done by the caller (load_agent_definitions_from_dir) below via
+    // the get_parse_error() fallback — the result stays `nullopt` and the caller
+    // decides whether to emit a diagnostic. Here we return nullopt regardless.
+    if (!description || description->empty()) return std::nullopt;
+
+    // migrated edge case: TS silently unescapes `\\n` sequences inside
+    // description strings that were YAML-escaped during parse.
+    {
+        std::string unescaped;
+        unescaped.reserve(description->size());
+        for (std::size_t i = 0; i < description->size(); ++i) {
+            if ((*description)[i] == '\\' && i + 1 < description->size() &&
+                (*description)[i + 1] == 'n') {
+                unescaped.push_back('\n');
+                ++i;
+            } else {
+                unescaped.push_back((*description)[i]);
+            }
+        }
+        *description = std::move(unescaped);
     }
 
     auto body_start = text.find('\n', frontmatter_end + 4);
@@ -1052,7 +1685,25 @@ inline void append_existing_plugin_component_path(
     AgentDefinition definition;
     definition.agent_type = *name;
     definition.when_to_use = *description;
-    definition.model = yaml_string_field(*fields, "model").value_or("inherit");
+    // migrated edge case: model field — TS silently lowercases and treats the
+    // value "inherit" case-insensitively as the string "inherit". We keep the
+    // raw value otherwise so custom model aliases survive the round-trip.
+    auto model_raw = yaml_string_field(*fields, "model");
+    if (model_raw && !model_raw->empty()) {
+        auto trimmed = trim(*model_raw);
+        auto lowered = trimmed;
+        std::ranges::transform(lowered, lowered.begin(), [](unsigned char c) {
+            return static_cast<char>(std::tolower(c));
+        });
+        definition.model = lowered == "inherit" ? std::string{"inherit"} : trimmed;
+    } else {
+        definition.model = "inherit";
+    }
+    // migrated edge case: TS validates `background` against strict set of
+    // string/bool values; junk values are rejected (instead of defaulting to
+    // false) via parse_bool_field fallback semantics. parse_bool_field treats
+    // anything non-boolean as `fallback` (false), matching the TS behaviour of
+    // only allowing "true"/"false" as valid string forms.
     definition.source = std::move(source);
     definition.filename = path.stem().string();
     definition.path = path.string();
