@@ -1164,12 +1164,6 @@ target_sources(cc_ui
         ui/agents/agent_editor.cppm
         ui/agents/agent_list.cppm
         ui/agents/agent_wizard.cppm
-        ui/agents/agent_color_picker.cppm
-        ui/agents/agent_creation_wizard.cppm
-        ui/agents/agent_detail.cppm
-        ui/agents/agent_menu.cppm
-        ui/agents/agent_model_selector.cppm
-        ui/agents/agent_tool_selector.cppm
         ui/agents/agent_utils.cppm
         ui/components/all_components.cppm
         ui/components/agent_view.cppm
@@ -1179,6 +1173,7 @@ target_sources(cc_ui
         ui/components/dev_bar.cppm
         ui/components/diff_view.cppm
         ui/components/fast_icon.cppm
+        ui/components/feature_dialogs.cppm
         ui/components/figures.cppm
         ui/components/file_tree.cppm
         ui/components/ink_components.cppm
@@ -1338,6 +1333,79 @@ target_link_libraries(cc_ui
         cc_commands
         cc_vim
         cc_hooks
+        cc_ui_messages       # Phase 4B-UI21/22/25: list + virtual scroll + interactions
+        cc_ui_screens        # Phase 4B-UI23: log selector
+        cc_ui_permissions    # Phase 4B-UI24: rule list (+ advanced prompts)
+        cc_ui_components     # Phase 4B-UI26/27: feature dialogs + PARTIAL completions
+        ftxui::screen
+        ftxui::dom
+        ftxui::component
+)
+
+# ─── cc_ui_messages: Phase 4B Messages (list / virtual scroll / interactions)
+# UI21 (Messages), UI22 (VirtualScroll + Keybindings), UI25 (Interactions)
+add_library(cc_ui_messages OBJECT)
+target_sources(cc_ui_messages
+    PUBLIC FILE_SET CXX_MODULES FILES
+        ui/messages/messages_list.cppm          # UI21 — 834 (Messages.tsx) + 626 (Message.tsx)
+        ui/messages/virtual_message_list.cppm   # UI22 — VirtualScroll (1081 -> 857 loc)
+        ui/messages/scroll_keybindings.cppm     # UI22 — ScrollKeybindingHandler (1011 -> 752 loc)
+        ui/messages/messages_interactions.cppm  # UI25 — MessageSelector + messageActions
+)
+target_link_libraries(cc_ui_messages
+    PUBLIC
+        cc_utils
+        cc_types
+        ftxui::screen
+        ftxui::dom
+        ftxui::component
+)
+
+# ─── cc_ui_screens: Phase 4B Additional Screens (beyond doctor / repl / resume)
+# UI23 (LogSelector)
+add_library(cc_ui_screens OBJECT)
+target_sources(cc_ui_screens
+    PUBLIC FILE_SET CXX_MODULES FILES
+        ui/screens/log_selector.cppm            # UI23 — LogSelector (1574 -> 1730 loc)
+)
+target_link_libraries(cc_ui_screens
+    PUBLIC
+        cc_utils
+        cc_types
+        ftxui::screen
+        ftxui::dom
+        ftxui::component
+)
+
+# ─── cc_ui_permissions: Phase 4B Permissions v2 (rule list / advanced prompts)
+# UI24 (PermissionRuleList + PermissionAdvancedPrompts)
+add_library(cc_ui_permissions OBJECT)
+target_sources(cc_ui_permissions
+    PUBLIC FILE_SET CXX_MODULES FILES
+        ui/permissions/permission_rule_list.cppm  # UI24 — PermissionRuleList (2986 -> 1800 loc)
+        # permission_advanced_prompts.cppm — NOT_YET_GENERATED (UI24b)
+)
+target_link_libraries(cc_ui_permissions
+    PUBLIC
+        cc_utils
+        cc_types
+        ftxui::screen
+        ftxui::dom
+        ftxui::component
+)
+
+# ─── cc_ui_components: Phase 4B Feature-Gated Components
+# UI26 (MemoryFileSelector / Feedback / Grove), UI27 PARTIAL (TreeSelect / ShikiFallback)
+add_library(cc_ui_components OBJECT)
+target_sources(cc_ui_components
+    PUBLIC FILE_SET CXX_MODULES FILES
+        ui/components/feature_dialogs.cppm      # UI26 — MemoryFileSelector + Feedback + Grove
+        ui/components/partial_completions.cppm  # UI27 — TreeSelect + ShikiFallback (PARTIAL->DONE)
+)
+target_link_libraries(cc_ui_components
+    PUBLIC
+        cc_utils
+        cc_types
         ftxui::screen
         ftxui::dom
         ftxui::component
@@ -1354,6 +1422,7 @@ target_sources(cc_ui_design
         ui/design_system/theme_provider.cppm
         ui/design_system/logo_v2.cppm
         ui/design_system/component_primitives.cppm
+        ui/design_system/design_extras.cppm          # UI27 — fuzzy picker + theme picker + design extras
 )
 target_link_libraries(cc_ui_design
     PUBLIC
