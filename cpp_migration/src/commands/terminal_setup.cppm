@@ -268,18 +268,18 @@ namespace detail {
 /// These are placeholders that match the TS completion-cache module's output shape.
 [[nodiscard]] inline std::string completion_snippet(ShellKind kind) {
     switch (kind) {
-        case ShellKind::Bash: return R"(# Completions for cc-repl
+        case ShellKind::Bash: return R"SYS_3(# Completions for cc-repl
 if command -v cc-repl >/dev/null 2>&1; then
   eval "$(cc-repl completions bash)"
 fi
-)";
-        case ShellKind::Zsh: return R"(# Completions for cc-repl
+)SYS_3";
+        case ShellKind::Zsh: return R"SYS_4(# Completions for cc-repl
 if command -v cc-repl >/dev/null 2>&1; then
   eval "$(cc-repl completions zsh)"
 fi
 # Make sure compinit picks up new entries
 autoload -Uz compinit && compinit -C
-)";
+)SYS_4";
         case ShellKind::Fish: return R"(# Completions for cc-repl
 if command -v cc-repl >/dev/null 2>&1
     cc-repl completions fish > $__fish_config_dir/completions/cc-repl.fish
@@ -304,11 +304,11 @@ if (Get-Command cc-repl -ErrorAction SilentlyContinue) {
     switch (kind) {
         case ShellKind::Bash:
         case ShellKind::Zsh:
-            return R"(# Locate the cc-repl binary for easy reuse
+            return R"SYS_5(# Locate the cc-repl binary for easy reuse
 if command -v cc-repl >/dev/null 2>&1; then
   export CLAUDE_CODE_BIN="$(command -v cc-repl)"
 fi
-)";
+)SYS_5";
         case ShellKind::Fish:
             return R"(# Locate the cc-repl binary for easy reuse
 if command -v cc-repl >/dev/null 2>&1
