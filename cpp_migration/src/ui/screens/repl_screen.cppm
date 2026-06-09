@@ -50,6 +50,8 @@ import cc.ui.task_list_ui;
 import cc.ui.team_status;
 import cc.ui.messages.message_row;
 import cc.ui.dialogs.permission_dialog;
+import cc.ui.dialogs.install_github_app_wizard;   // UI15
+import cc.ui.dialogs.install_slack_app_wizard;    // UI15
 
 // Forward imports (implement bodies in owning agent modules):
 //   cc.ui.dialogs.{permission_prompts,mcp_dialogs,trust_dialog,
@@ -97,6 +99,9 @@ enum class ReplMode : std::uint8_t {
     PluginHint,               // 'plugin-hint'
     // Panels (rendered inline — no overlay)
     TasksView, TeamsView, SettingsView, HelpView, QuickOpen,
+    // UI15 (Phase 4) — install-command wizard overlays.
+    InstallGitHubApp,   // 12-step /install-github-app  FTXUI wizard
+    InstallSlackApp,    // 3-step  /install-slack-app   FTXUI wizard
 };
 
 /// Input modes.  TS PromptInputMode (textInputTypes.ts:265) + VimMode (tI:222).
@@ -193,6 +198,12 @@ struct ReplScreenState {
     // Dialog-suppression flag (typing -> suppress interrupt dialogs)
     bool is_prompt_input_active = false;
     std::chrono::steady_clock::time_point last_keystroke;
+
+    // UI15: opaque wizard component handles (lazily created by
+    // dialog_router::get_install_*_wizard(), stored as shared_ptr<void>
+    // so ReplScreenState doesn't need to import their types).
+    std::shared_ptr<void> wizard_install_github_app;
+    std::shared_ptr<void> wizard_install_slack_app;
 };
 
 /// Engine-facing callbacks (TS ReplScreen external prop callbacks).
@@ -203,6 +214,8 @@ struct ReplScreenCallbacks {
     std::function<void(bool, std::optional<bool>)> on_permission_response;
     std::function<void(ReplMode, int)> on_dialog_action;
     std::function<void(ReplMode)> on_mode_change;
+    // UI15 Slack wizard "Launch /slack now" shortcut -> REPL engine.
+    std::function<void(const std::string& command)> enqueue_slash_command;
 };
 
 // =========================================================
@@ -449,6 +462,40 @@ using Builder = std::function<Element(const ReplScreenState&)>;
       case ReplMode::Normal: case ReplMode::TasksView:
       case ReplMode::TeamsView: case ReplMode::HelpView:
       case ReplMode::QuickOpen: return std::nullopt;
+
+      // UI15: install wizard overlays (banners; the live FTXUI Component
+      // is owned by ReplScreen's dialog_router and composited on top).
+      case ReplMode::InstallGitHubApp:
+        return vbox({
+            text("") | size(HEIGHT, EQUAL, 1),
+            hbox({
+                text("  Install GitHub App  ") | bold | color(Color::Cyan),
+                text("12-step wizard") | dim,
+            }),
+            separator() | color(Color::Cyan),
+            vbox({
+                text(""),
+                text(" Enter = Next / Complete")     | color(Color::GrayLight),
+                text(" Esc   = Back / Cancel")       | color(Color::GrayLight),
+                text(" Tab   = Focus next field")    | color(Color::GrayLight),
+            }) | center | flex,
+        }) | border | color(Color::Cyan);
+
+      case ReplMode::InstallSlackApp:
+        return vbox({
+            text("") | size(HEIGHT, EQUAL, 1),
+            hbox({
+                text("  Install Slack App  ") | bold | color(Color::Magenta),
+                text("3-step wizard") | dim,
+            }),
+            separator() | color(Color::Magenta),
+            vbox({
+                text(""),
+                text(" Enter = Next / Complete")     | color(Color::GrayLight),
+                text(" Esc   = Back / Cancel")       | color(Color::GrayLight),
+            }) | center | flex,
+        }) | border | color(Color::Magenta);
+
       default: break; }
     auto b = get_builder(m);
     if (!b) return std::nullopt;
@@ -509,6 +556,67 @@ using Builder = std::function<Element(const ReplScreenState&)>;
 // FTXUI Component factory
 // =========================================================
 
+// UI15 dialog_router: lazy wizard component owners + event dispatch.
+// Lives here so it can import dialogs::install_*_app_wizard factories
+// without polluting the exported header.
+namespace dialog_router {
+
+using GH = ::cc::ui::dialogs::install_github_app_wizard;
+using SL = ::cc::ui::dialogs::install_slack_app_wizard;
+
+inline Component get_gh(const std::shared_ptr<ReplScreenState>& s,
+                        const std::shared_ptr<ReplScreenCallbacks>& cb) {
+    if (!s->wizard_install_github_app) {
+        GH::InstallGitHubAppWizardOptions opts;
+        opts.on_complete = [s, cb](auto) {
+            s->mode = ReplMode::Normal;
+            if (cb->on_mode_change) cb->on_mode_change(ReplMode::Normal);
+        };
+        opts.on_cancel = [s, cb] {
+            s->mode = ReplMode::Normal;
+            if (cb->on_mode_change) cb->on_mode_change(ReplMode::Normal);
+        };
+        auto comp = GH::MakeInstallGitHubAppWizard(std::move(opts));
+        s->wizard_install_github_app =
+            std::make_shared<Component>(std::move(comp));
+    }
+    return *std::static_pointer_cast<Component>(s->wizard_install_github_app);
+}
+
+inline Component get_sl(const std::shared_ptr<ReplScreenState>& s,
+                        const std::shared_ptr<ReplScreenCallbacks>& cb) {
+    if (!s->wizard_install_slack_app) {
+        SL::InstallSlackAppWizardOptions opts;
+        opts.queue_command = [cb](const std::string& c) {
+            if (cb->enqueue_slash_command) cb->enqueue_slash_command(c);
+        };
+        opts.on_complete = [s, cb] {
+            s->mode = ReplMode::Normal;
+            if (cb->on_mode_change) cb->on_mode_change(ReplMode::Normal);
+        };
+        opts.on_cancel = [s, cb] {
+            s->mode = ReplMode::Normal;
+            if (cb->on_mode_change) cb->on_mode_change(ReplMode::Normal);
+        };
+        auto comp = SL::MakeInstallSlackAppWizard(std::move(opts));
+        s->wizard_install_slack_app =
+            std::make_shared<Component>(std::move(comp));
+    }
+    return *std::static_pointer_cast<Component>(s->wizard_install_slack_app);
+}
+
+inline bool forward(const std::shared_ptr<ReplScreenState>& s,
+                    const std::shared_ptr<ReplScreenCallbacks>& cb,
+                    Event ev) {
+    switch (s->mode) {
+        case ReplMode::InstallGitHubApp: return get_gh(s, cb)->OnEvent(ev);
+        case ReplMode::InstallSlackApp:  return get_sl(s, cb)->OnEvent(ev);
+        default: return false;
+    }
+}
+
+} // namespace dialog_router
+
 /// Build the REPL screen as an FTXUI Component.
 /// Engine updates the externally-held state between frames.
 /// Event tiers (TS global+command keybindings):
@@ -529,6 +637,12 @@ using Builder = std::function<Element(const ReplScreenState&)>;
 
     // 1) Dialog-context events
     if (in_dialog) {
+        // UI15 wizard modes: forward every event to the wizard
+        // component (they manage Esc/Enter/buttons internally).
+        if (state->mode == ReplMode::InstallGitHubApp ||
+            state->mode == ReplMode::InstallSlackApp) {
+            return dialog_router::forward(state, cb, ev);
+        }
         if (ev == Event::Escape) {
             // Critical dialogs defer to y/n/a/c/r/q handlers
             switch (state->mode) {
