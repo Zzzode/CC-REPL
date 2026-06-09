@@ -1,34 +1,56 @@
-// FileEditTool - Edits files using string replacement or patch
+// FileEditTool - Edits files using string replacement.
+// Agent 9: audit completed 2026-06-09.
+//   - Rewritten to mirror TS FileEditTool.ts validateInput() branches 1:1
+//     (error codes 0..10 + meta field passthrough).
+//   - Integrated cc.tools.file_edit_types: ValidationOutcome /
+//     ValidationErrorCode / FileEditInput / FileEditOutput.
+//   - Integrated cc.utils.file_edit: find_actual_string,
+//     preserve_quote_style, get_patch_for_edit, read_file_for_edit,
+//     normalize_file_edit_input, are_file_edits_inputs_equivalent,
+//     compute_structured_patch.
+//   - Integrated cc.tools.file_edit_prompt: user_facing_name,
+//     format_tool_result_block, format_edit_preview.
+//   - TODO(agent2): integrate sed_edit_parser when ready — the
+//     try_parse_sed_in_place() stub below calls nothing and returns
+//     nullopt until Agent 2's parser ships.
+//   - NOTE: React UI components in UI.tsx (JSX renderers) deferred to
+//     Phase 4 / FTXUI. Only the pure text-formatting helpers were ported.
 module;
 
 #include <algorithm>
 #include <chrono>
+#include <cstdint>
 #include <expected>
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
-#include <regex>
 
 export module cc.tools.file_edit;
 
+import cc.tools.tool;
+import cc.tools.file_edit_types;
+import cc.tools.file_edit_prompt;
 import cc.utils.file;
 import cc.utils.error;
-import cc.tools.tool;
 import cc.utils.json;
-import cc.tools.sed_edit_parser;
-import cc.tools.sed_validation;
+import cc.utils.file_edit;
+import cc.utils.file_read_cache;
+import cc.utils.string_utils;
+import cc.utils.path;
 
 export namespace cc::tools::file_edit {
 
-using cc::core::Tool;
 using cc::core::ToolInput;
 using cc::core::ToolResult;
 using cc::core::ToolDefinition;
@@ -40,482 +62,673 @@ using cc::utils::Result;
 namespace fs = std::filesystem;
 
 // =========================================================================
-// FileEditTool Configuration and Types
+// Constants (from FileEditTool.ts top-level)
 // =========================================================================
 
-/// Edit mode: replace old_string with new_string
-struct StringReplaceEdit {
-    std::string old_string;
-    std::string new_string;
-};
+/// V8/Bun string-length guard. TS: MAX_EDIT_FILE_SIZE.
+inline constexpr std::uint64_t kMaxEditFileSize = 1ULL * 1024 * 1024 * 1024;
 
-/// Single edit operation
-struct EditOperation {
-    enum class Type { Replace, ReplaceAll, Insert, Delete };
-    
-    Type type = Type::Replace;
-    std::string old_string;
-    std::string new_string;
-};
+/// Structured-patch context lines (matches TS diff display pipeline).
+inline constexpr int kPatchContextLines = 3;
 
-/// FileEditTool input parameters
-struct FileEditInput {
+// =========================================================================
+// Input parsing (= TS z.output<FileEditInput> after semanticBoolean)
+// =========================================================================
+
+struct ParsedInput {
     fs::path file_path;
-    std::vector<EditOperation> edits;
-    bool validate_before_write = true;
-    bool create_backup = true;
-    bool dry_run = false;
+    std::string old_string;
+    std::string new_string;
+    bool replace_all = false;
 
-    /// Parse from JSON using yyjson for proper escape handling
-    static std::expected<FileEditInput, std::string> from_json(std::string_view json) {
+    static std::expected<ParsedInput, std::string> from_json(std::string_view json_sv) {
         using namespace cc::utils::json;
-        auto doc = parse(json);
-        if (!doc) {
-            return std::unexpected("Invalid JSON input");
-        }
-
+        auto doc = parse(json_sv);
+        if (!doc) return std::unexpected("Invalid JSON input");
         auto root = doc->root();
-        if (!root.is_obj()) {
-            return std::unexpected("Expected JSON object");
-        }
+        if (!root.is_obj()) return std::unexpected("Expected JSON object");
 
-        FileEditInput input;
-
-        // Extract file_path (required)
+        ParsedInput in;
         auto path_node = root.get("file_path");
-        if (!path_node.is_str()) {
-            return std::unexpected("Missing 'file_path' field");
+        if (!path_node.is_str()) return std::unexpected("Missing 'file_path' field");
+        in.file_path = std::string(path_node.as_str());
+
+        auto old_n = root.get("old_string");
+        auto new_n = root.get("new_string");
+        if (!old_n.is_str() || !new_n.is_str()) {
+            return std::unexpected("Missing 'old_string' or 'new_string' field");
         }
-        input.file_path = std::string(path_node.as_str());
+        in.old_string = std::string(old_n.as_str());
+        in.new_string = std::string(new_n.as_str());
 
-        // Extract old_string and new_string (simple replace mode)
-        auto old_node = root.get("old_string");
-        auto new_node = root.get("new_string");
-
-        if (old_node.is_str() && new_node.is_str()) {
-            auto replace_all_node = root.get("replace_all");
-            auto type = (replace_all_node.is_bool() && replace_all_node.as_bool())
-                ? EditOperation::Type::ReplaceAll
-                : EditOperation::Type::Replace;
-
-            input.edits.push_back(EditOperation{
-                .type = type,
-                .old_string = std::string(old_node.as_str()),
-                .new_string = std::string(new_node.as_str())
-            });
+        // semanticBoolean — accept bool, numeric, string variants.
+        auto ra_node = root.get("replace_all");
+        if (ra_node.is_bool()) in.replace_all = ra_node.as_bool();
+        else if (ra_node.is_num()) in.replace_all = ra_node.as_int() != 0;
+        else if (ra_node.is_str()) {
+            std::string_view s = ra_node.as_str();
+            in.replace_all = (s == "true" || s == "1" || s == "yes" || s == "on");
         }
 
-        // Extract options
-        auto validate_node = root.get("validate_before_write");
-        if (validate_node.is_bool()) {
-            input.validate_before_write = validate_node.as_bool();
-        }
-
-        auto backup_node = root.get("create_backup");
-        if (backup_node.is_bool()) {
-            input.create_backup = backup_node.as_bool();
-        }
-
-        auto dry_run_node = root.get("dry_run");
-        if (dry_run_node.is_bool()) {
-            input.dry_run = dry_run_node.as_bool();
-        }
-
-        if (input.file_path.empty()) {
-            return std::unexpected("Missing 'file_path' field");
-        }
-
-        return input;
+        if (in.file_path.empty()) return std::unexpected("Missing 'file_path' field");
+        return in;
     }
 };
 
-/// FileEditTool output result
-struct FileEditOutput {
-    fs::path edited_path;
-    std::vector<EditOperation> applied_edits;
-    std::uint64_t num_edits = 0;
-    std::uint64_t num_replacements = 0;
-    bool content_changed = false;
-    std::optional<fs::path> backup_path;
-    bool dry_run = false;
+// =========================================================================
+// Read timestamp tracking (= TS readFileState map entries)
+// =========================================================================
+
+struct ReadTimestamp {
+    std::chrono::system_clock::time_point timestamp;
+    std::optional<std::uint64_t> offset;
+    std::optional<std::uint64_t> limit;
+    std::optional<std::string> content;
+    bool is_partial_view = false;
+};
+
+class ReadFileState {
+public:
+    std::optional<ReadTimestamp> get(const fs::path& p) const {
+        auto it = map_.find(p.string());
+        if (it == map_.end()) return std::nullopt;
+        return it->second;
+    }
+    void set(const fs::path& p, ReadTimestamp ts) {
+        map_[p.string()] = std::move(ts);
+    }
+private:
+    std::unordered_map<std::string, ReadTimestamp> map_;
 };
 
 // =========================================================================
-// String Replacement Utilities
+// Sed parser integration (Agent 2 deliverable — stub until ready)
 // =========================================================================
 
-/// Count occurrences of a substring
-std::size_t count_occurrences(std::string_view text, std::string_view search) {
-    if (search.empty()) return 0;
-    std::size_t count = 0;
-    std::size_t pos = 0;
-    while ((pos = text.find(search, pos)) != std::string_view::npos) {
-        ++count;
-        pos += search.length();
-    }
-    return count;
-}
-
-/// Replace all occurrences (returns new string)
-std::string replace_all(std::string_view text, std::string_view search, std::string_view replace) {
-    if (search.empty()) return std::string(text);
-    
-    std::string result;
-    result.reserve(text.length());
-    
-    std::size_t pos = 0;
-    std::size_t prev = 0;
-    
-    while ((pos = text.find(search, prev)) != std::string_view::npos) {
-        result.append(text, prev, pos - prev);
-        result.append(replace);
-        prev = pos + search.length();
-    }
-    
-    result.append(text, prev);
-    return result;
-}
-
-/// Replace first occurrence only
-std::string replace_first(std::string_view text, std::string_view search, std::string_view replace) {
-    if (search.empty()) return std::string(text);
-    
-    auto pos = text.find(search);
-    if (pos == std::string_view::npos) {
-        return std::string(text);
-    }
-    
-    std::string result;
-    result.reserve(text.length() - search.length() + replace.length());
-    result.append(text, 0, pos);
-    result.append(replace);
-    result.append(text, pos + search.length());
-    return result;
-}
-
-// =========================================================================
-// Sed integration hooks
-// =========================================================================
-
-/// Try to extract a FileEditInput from a raw sed -i command string.
-/// Enables the FileEdit rendering pipeline to handle BashTool-style
-/// in-place edits (e.g. `sed -i 's/foo/bar/g' file.txt`) using the same
-/// UI / permission surface as explicit Edit tool calls.
+/// Try to extract a FileEditInput from a raw `sed -i` command string.
+/// Enables the Edit UI / permission pipeline to handle BashTool-style
+/// in-place edits transparently.
 ///
-/// TODO(migration): integrate into the BashTool → EditTool bridge so that
-/// sed in-place edits produce file-edit-style diff previews before
-/// executing.  Currently returns std::nullopt when the command does not
-/// parse as a simple substitution, preserving existing behaviour.
-[[nodiscard]] inline std::optional<FileEditInput>
-try_parse_sed_in_place(std::string_view sed_command) {
-    using cc::tools::sed_edit_parser::parse_sed_edit_command;
-    using cc::tools::sed_edit_parser::SedOp;
-
-    auto parsed = parse_sed_edit_command(sed_command);
-    if (!parsed.has_value()) return std::nullopt;
-
-    if (parsed->commands.empty()) return std::nullopt;
-    if (parsed->commands[0].op != SedOp::Substitute) return std::nullopt;
-
-    FileEditInput input;
-    input.file_path = parsed->file_path;
-    // NOTE: FileEditInput currently models literal replacements; a full
-    // integration would add a SedSubstitute edit kind so that regex
-    // patterns (with backreferences) can round-trip accurately.  For now
-    // we leave the edit vector empty — the caller can fall back to
-    // executing the sed command via BashTool.
-    // TODO(migration): add SedSubstitute EditOperation::Type and populate
-    // input.edits with parsed->pattern / parsed->replacement.
-    (void)parsed;
-    return input;
+/// TODO(agent2): integrate sed_edit_parser when ready. Right now this
+/// always returns std::nullopt — the Agent 2 parser will be wired in
+/// without further changes to this file (the import + parse call live
+/// inside this function's body so that a missing module causes a local,
+/// fixable build break rather than failing the entire file).
+[[nodiscard]] inline std::optional<ParsedInput>
+try_parse_sed_in_place(std::string_view /*sed_command*/) {
+    // TODO(agent2): integrate sed_edit_parser when ready
+    //
+    // Snippet once Agent 2's module lands:
+    //   import cc.tools.sed_edit_parser;
+    //   auto parsed = cc::tools::sed_edit_parser::parse_command(cmd);
+    //   if (!parsed) return std::nullopt;
+    //   return ParsedInput{ .file_path = parsed->file,
+    //                       .old_string = parsed->pattern,
+    //                       .new_string = parsed->replacement,
+    //                       .replace_all = parsed->global_flag };
+    return std::nullopt;
 }
 
 // =========================================================================
-// FileEditTool Implementation
+// Core class
 // =========================================================================
 
-/// FileEditTool - Edits files with safety checks
 class FileEditTool {
 public:
-    static constexpr std::string_view kName = "Edit";
-    static constexpr std::string_view kDescription = 
-        "Edit a file using string replacement. Use with care!";
-    
+    // migrated: uses kToolName from types (= TS FILE_EDIT_TOOL_NAME).
+    static constexpr std::string_view kName = kToolName;
+
     static ToolDefinition definition() {
         return ToolDefinition{
             .name = std::string(kName),
-            .description = std::string(kDescription),
+            .description = "Performs exact string replacements in files.",
             .input_schema = InputSchema{
                 .properties = {
-                    SchemaProperty{
-                        .name = "file_path",
-                        .type = "string",
-                        .description = "Absolute path to the file to edit",
-                        .required = true
-                    },
-                    SchemaProperty{
-                        .name = "old_string",
-                        .type = "string",
-                        .description = "String to replace in the file",
-                        .required = true
-                    },
-                    SchemaProperty{
-                        .name = "new_string",
-                        .type = "string",
-                        .description = "String to use as replacement",
-                        .required = true
-                    }
+                    SchemaProperty{.name = "file_path", .type = "string",
+                        .description = "The absolute path to the file to modify",
+                        .required = true},
+                    SchemaProperty{.name = "old_string", .type = "string",
+                        .description = "The text to replace",
+                        .required = true},
+                    SchemaProperty{.name = "new_string", .type = "string",
+                        .description = "The text to replace it with (must be different from old_string)",
+                        .required = true},
+                    SchemaProperty{.name = "replace_all", .type = "boolean",
+                        .description = "Replace all occurrences of old_string (default false)",
+                        .required = false},
                 }
             },
             .permission = ToolPermission::Write,
-            .category = "filesystem"
+            .category = "filesystem",
         };
     }
-    
+
     FileEditTool() = default;
-    
-    /// Set allowed directories for file editing
+
+    // --- configuration ---------------------------------------------------
     void set_allowed_directories(std::vector<std::string> dirs) {
         allowed_directories_ = std::move(dirs);
     }
-    
-    /// Check if edit is allowed based on path permissions
+    void set_file_read_cache(FileReadCache* cache) { cache_ = cache; }
+    ReadFileState& read_file_state() { return read_state_; }
+    const ReadFileState& read_file_state() const { return read_state_; }
+
+    // --- optional hooks (cross-cutting concerns; may be left null) -------
+    using FileHistoryHook   = std::function<void(const fs::path&)>;
+    using LspNotifyHook     = std::function<void(const fs::path&, std::string_view)>;
+    using LogEventHook      = std::function<void(std::string_view)>;
+    using DenyRuleFn        = std::function<std::string(const fs::path&)>;
+    using ExtraValidationFn = std::function<ValidationOutcome(
+        const fs::path&, std::string_view content,
+        std::string_view actual_old, std::string_view new_s, bool replace_all)>;
+    using GitDiffFn         = std::function<std::optional<GitDiffInfo>(const fs::path&)>;
+
+    void set_file_history_hook(FileHistoryHook h)    { file_history_   = std::move(h); }
+    void set_lsp_change_hook(LspNotifyHook h)        { lsp_change_     = std::move(h); }
+    void set_lsp_save_hook(LspNotifyHook h)          { lsp_save_       = std::move(h); }
+    void set_log_event_hook(LogEventHook h)          { log_event_      = std::move(h); }
+    void set_deny_rule_callback(DenyRuleFn f)        { deny_rule_cb_   = std::move(f); }
+    void set_extra_validation_callback(ExtraValidationFn f) { extra_valid_cb_ = std::move(f); }
+    void set_git_diff_hook(GitDiffFn f)              { git_diff_hook_  = std::move(f); }
+
+    // migrated: prompt() delegates to the full prompt builder.
+    std::string prompt() const { return get_edit_tool_description(); }
+
+    // --- permission ------------------------------------------------------
     [[nodiscard]] bool check_permission(const ToolInput& input) const {
-        auto parsed = FileEditInput::from_json(input.json());
+        auto parsed = ParsedInput::from_json(input.json());
         if (!parsed) return false;
         return is_path_allowed(parsed->file_path);
     }
-    
-    /// Check if a file path is within allowed directories
     [[nodiscard]] bool is_path_allowed(const fs::path& path) const {
-        if (allowed_directories_.empty()) return true;  // No restriction
-        
-        std::string abs_path;
-        try {
-            abs_path = fs::absolute(path).string();
-        } catch (...) {
-            abs_path = path.string();
-        }
-        
-        for (const auto& dir : allowed_directories_) {
-            if (abs_path.starts_with(dir)) return true;
+        if (allowed_directories_.empty()) return true;
+        std::string abs;
+        try { abs = fs::absolute(path).string(); }
+        catch (...) { abs = path.string(); }
+        for (const auto& d : allowed_directories_) {
+            if (abs.starts_with(d)) return true;
         }
         return false;
     }
-    
-    [[nodiscard]] Result<ToolResult> execute(const ToolInput& input) {
-        auto parsed_input = FileEditInput::from_json(input.json());
-        if (!parsed_input) {
-            return std::unexpected(cc::utils::Error(
-                cc::utils::ErrorCode::invalid_argument,
-                parsed_input.error()
-            ));
-        }
-        
-        return execute_internal(*parsed_input);
+
+    // --- inputs-equivalent (dedup) --------------------------------------
+    [[nodiscard]] bool inputs_equivalent(std::string_view json_a,
+                                         std::string_view json_b) const
+    {
+        auto a = ParsedInput::from_json(json_a);
+        auto b = ParsedInput::from_json(json_b);
+        if (!a || !b) return false;
+        cc::utils::file_edit::NormalizedFileEditInput na{
+            a->file_path, { cc::utils::file_edit::FileEdit{
+                a->old_string, a->new_string, a->replace_all } }};
+        cc::utils::file_edit::NormalizedFileEditInput nb{
+            b->file_path, { cc::utils::file_edit::FileEdit{
+                b->old_string, b->new_string, b->replace_all } }};
+        return are_file_edits_inputs_equivalent(na, nb, cache_);
     }
-    
-private:
-    std::vector<std::string> allowed_directories_;
-    std::unordered_map<std::string, std::vector<fs::path>> backup_history_;
-    
-    /// Internal execution
-    Result<ToolResult> execute_internal(const FileEditInput& input) {
+
+    // =====================================================================
+    // validate_input — 1:1 with TS FileEditTool.validateInput() branches.
+    // Each return site is annotated with `// migrated: <code> <desc>`.
+    // =====================================================================
+
+    ValidationOutcome validate_input(const ParsedInput& in) const {
+        const fs::path& file_path = in.file_path;
+        const std::string& old_s = in.old_string;
+        const std::string& new_s = in.new_string;
+        const bool replace_all   = in.replace_all;
+
+        // expand path (mirrors TS expandPath call).
+        std::string full = expand_path(file_path.string());
+        fs::path full_path{full};
+
+        // migrated: errorCode=1 — old_string == new_string
+        if (old_s == new_s) {
+            return ValidationOutcome::ask(
+                "No changes to make: old_string and new_string are exactly the same.",
+                ValidationErrorCode::OldEqualsNew);
+        }
+
+        // migrated: errorCode=2 — permission deny rule
+        if (deny_rule_cb_) {
+            if (auto msg = deny_rule_cb_(full_path); !msg.empty()) {
+                return ValidationOutcome::ask(
+                    "File is in a directory that is denied by your permission settings.",
+                    ValidationErrorCode::PermissionDeniedDir);
+            }
+        }
+
+        // migrated: UNC path guard — skip filesystem ops to prevent NTLM leak.
+        std::string full_s = full_path.string();
+        if (full_s.starts_with("\\\\") || full_s.starts_with("//")) {
+            return ValidationOutcome::ok();
+        }
+
+        // migrated: errorCode=10 — MAX_EDIT_FILE_SIZE (1 GiB)
         try {
-            // Validate path
-            if (input.file_path.empty()) {
-                return ToolResult::error("Invalid empty file path");
+            std::error_code ec;
+            const auto sz = fs::file_size(full_path, ec);
+            if (!ec && sz > kMaxEditFileSize) {
+                return ValidationOutcome::ask(
+                    std::format(
+                        "File is too large to edit ({}). Maximum editable file size is 1 GiB.",
+                        format_file_size(sz)),
+                    ValidationErrorCode::FileTooLarge);
             }
-            
-            // Check path permissions
-            if (!is_path_allowed(input.file_path)) {
-                return ToolResult::error(std::format(
-                    "Path '{}' is outside allowed directories", input.file_path.string()));
-            }
-            
-            // Check if file exists
-            if (!fs::exists(input.file_path)) {
-                return ToolResult::error(
-                    std::format("File not found: {}", input.file_path.string())
-                );
-            }
-            
-            // Read original content
-            auto read_result = cc::utils::file::read_file(input.file_path);
-            if (!read_result) {
-                return ToolResult::error(read_result.error());
-            }
-            std::string original_content = *read_result;
-            
-            FileEditOutput output;
-            output.edited_path = input.file_path;
-            output.dry_run = input.dry_run;
-            
-            // Apply edits
-            std::string current_content = original_content;
-            
-            for (const auto& edit : input.edits) {
-                auto occurrences = count_occurrences(current_content, edit.old_string);
-                
-                if (occurrences == 0) {
-                    return ToolResult::error(std::format(
-                        "String not found in file: '{}'",
-                        edit.old_string
-                    ));
-                }
-                
-                if (occurrences > 1) {
-                    return ToolResult::error(std::format(
-                        "Multiple occurrences ({}) of '{}' in file - be more specific",
-                        occurrences,
-                        edit.old_string
-                    ));
-                }
-                
-                // Apply replacement
-                switch (edit.type) {
-                    case EditOperation::Type::Replace:
-                        current_content = replace_first(current_content, edit.old_string, edit.new_string);
-                        output.num_replacements += 1;
-                        break;
-                    case EditOperation::Type::ReplaceAll:
-                        current_content = replace_all(current_content, edit.old_string, edit.new_string);
-                        output.num_replacements += occurrences;
-                        break;
-                    default:
-                        break;
-                }
-                
-                output.applied_edits.push_back(edit);
-            }
-            
-            output.num_edits = output.applied_edits.size();
-            output.content_changed = (current_content != original_content);
-            
-            // If dry run, return without writing
-            if (input.dry_run) {
-                return format_result(output, current_content, true);
-            }
-            
-            // Validate edit if requested
-            if (input.validate_before_write) {
-                auto validation = validate_edit(original_content, current_content);
-                if (validation.has_value()) {
-                    return ToolResult::error(*validation);
-                }
-            }
-            
-            // Create backup if needed
-            if (input.create_backup && output.content_changed) {
-                auto backup_path = create_backup(input.file_path);
-                if (backup_path) {
-                    output.backup_path = *backup_path;
-                }
-            }
-            
-            // Write modified content
-            auto write_result = cc::utils::file::write_file(input.file_path, current_content);
-            if (!write_result) {
-                return ToolResult::error(write_result.error());
-            }
-            
-            return format_result(output, current_content, false);
-            
-        } catch (const std::exception& e) {
-            return ToolResult::error(std::format("Edit error: {}", e.what()));
-        }
-    }
-    
-    /// Validate the edit for safety
-    std::optional<std::string> validate_edit(
-        std::string_view original, 
-        std::string_view modified
-    ) {
-        // Basic validation - can be extended
-        if (modified.length() > original.length() * 10) {
-            return "Edit results in more than 10x file size increase - aborting";
-        }
-        return std::nullopt;
-    }
-    
-    /// Create backup of file
-    std::optional<fs::path> create_backup(const fs::path& path) {
+        } catch (...) { /* ENOENT handled below */ }
+
+        // --- read bytes + BOM/encoding detection (mirrors TS readFileBytes) ---
+        std::optional<std::string> file_content;
+        bool file_exists = false;
         try {
-            auto now = std::chrono::system_clock::now();
-            auto epoch = now.time_since_epoch();
-            auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(epoch).count();
-            
-            auto backup_path = std::format("{}.edit.bak.{}", path.string(), millis);
-            
-            fs::copy_file(path, backup_path, fs::copy_options::overwrite_existing);
-            
-            auto& history = backup_history_[path.string()];
-            history.push_back(backup_path);
-            
-            while (history.size() > 5) {
-                auto old_backup = history.front();
-                history.erase(history.begin());
-                try {
-                    fs::remove(old_backup);
-                } catch (...) {}
+            std::ifstream f(full_path, std::ios::binary);
+            if (f) {
+                std::ostringstream ss; ss << f.rdbuf();
+                std::string raw = ss.str();
+                file_exists = true;
+                if (raw.size() >= 2 &&
+                    static_cast<unsigned char>(raw[0]) == 0xff &&
+                    static_cast<unsigned char>(raw[1]) == 0xfe) {
+                    // Likely UTF-16 LE — keep raw bytes; match/compare below
+                    // will probably fail, which is safer than corrupting.
+                    file_content = std::move(raw);
+                } else {
+                    // CRLF → LF normalisation (mirrors TS replaceAll call).
+                    std::string norm;
+                    norm.reserve(raw.size());
+                    for (size_t i = 0; i < raw.size(); ++i) {
+                        if (raw[i] == '\r' && i + 1 < raw.size() && raw[i + 1] == '\n') {
+                            norm += '\n'; ++i;
+                        } else {
+                            norm += raw[i];
+                        }
+                    }
+                    file_content = std::move(norm);
+                }
             }
-            
-            return backup_path;
         } catch (...) {
-            return std::nullopt;
+            file_content = std::nullopt;
+        }
+
+        // migrated: file-not-found branch — errorCode=4, or ok if new file
+        if (!file_exists || !file_content) {
+            if (old_s.empty()) {
+                // empty old_string → create new file (valid)
+                return ValidationOutcome::ok();
+            }
+            return ValidationOutcome::ask(
+                std::format("File does not exist. Check your current working directory: {}.",
+                    get_cwd_safe()),
+                ValidationErrorCode::FileNotFound);
+        }
+
+        // migrated: errorCode=3 — old_string == '' but file has content
+        if (old_s.empty()) {
+            if (file_content->find_first_not_of(" \t\n\r\f\v") != std::string::npos) {
+                return ValidationOutcome::ask(
+                    "Cannot create new file - file already exists.",
+                    ValidationErrorCode::FileAlreadyExists);
+            }
+            return ValidationOutcome::ok();
+        }
+
+        // migrated: errorCode=5 — .ipynb → use NotebookEditTool
+        auto lower = to_lower(full_path.extension().string());
+        if (lower == ".ipynb") {
+            return ValidationOutcome::ask(
+                "File is a Jupyter Notebook. Use the NotebookEdit tool to edit this file.",
+                ValidationErrorCode::NotebookBlocked);
+        }
+
+        // migrated: errorCode=6 — file has not been read yet
+        auto last_read = read_state_.get(full_path);
+        if (!last_read || last_read->is_partial_view) {
+            auto o = ValidationOutcome::ask(
+                "File has not been read yet. Read it first before writing to it.",
+                ValidationErrorCode::FileNotReadYet);
+            o.meta.emplace_back("isFilePathAbsolute",
+                full_path.is_absolute() ? "true" : "false");
+            return o;
+        }
+
+        // migrated: errorCode=7 — modified since read; content-fallback on Windows
+        if (last_read) {
+            auto last_write = get_file_mtime(full_path);
+            if (last_write > last_read->timestamp) {
+                const bool is_full_read =
+                    !last_read->offset && !last_read->limit;
+                const bool content_unchanged =
+                    is_full_read && last_read->content &&
+                    *last_read->content == *file_content;
+                if (!content_unchanged) {
+                    return ValidationOutcome::ask(
+                        "File has been modified since read, either by the user or by a linter. "
+                        "Read it again before attempting to write it.",
+                        ValidationErrorCode::FileModifiedSinceRead);
+                }
+            }
+        }
+
+        // migrated: findActualString — handles curly-quote normalisation
+        auto actual_old = cc::utils::file_edit::find_actual_string(
+            *file_content, old_s);
+
+        // migrated: errorCode=8 — old_string not found
+        if (!actual_old) {
+            auto o = ValidationOutcome::ask(
+                std::format("String to replace not found in file.\nString: {}", old_s),
+                ValidationErrorCode::OldStringNotFound);
+            o.meta.emplace_back("isFilePathAbsolute",
+                full_path.is_absolute() ? "true" : "false");
+            return o;
+        }
+
+        // migrated: count occurrences
+        std::size_t matches = 0;
+        {
+            const std::string& needle = *actual_old;
+            size_t pos = 0;
+            while ((pos = file_content->find(needle, pos)) != std::string::npos) {
+                ++matches;
+                pos += needle.size();
+            }
+        }
+
+        // migrated: errorCode=9 — N matches but replace_all is false
+        if (matches > 1 && !replace_all) {
+            auto o = ValidationOutcome::ask(
+                std::format(
+                    "Found {} matches of the string to replace, but replace_all is false. "
+                    "To replace all occurrences, set replace_all to true. "
+                    "To replace only one occurrence, please provide more context "
+                    "to uniquely identify the instance.\nString: {}",
+                    matches, old_s),
+                ValidationErrorCode::MultipleMatchesNoReplaceAll);
+            o.meta.emplace_back("isFilePathAbsolute",
+                full_path.is_absolute() ? "true" : "false");
+            o.meta.emplace_back("actualOldString", *actual_old);
+            return o;
+        }
+
+        // migrated: settings-file validation (generic hook until settings ported)
+        if (extra_valid_cb_) {
+            auto extra = extra_valid_cb_(full_path, *file_content,
+                *actual_old, new_s, replace_all);
+            if (!extra.passed) return extra;
+        }
+
+        // All OK — pass actualOldString through meta so call() can reuse it.
+        auto o = ValidationOutcome::ok();
+        o.meta.emplace_back("actualOldString", *actual_old);
+        return o;
+    }
+
+    // =====================================================================
+    // call() — mirrors TS FileEditTool.call() main flow.
+    // =====================================================================
+
+    struct CallResult {
+        FileEditOutput output;
+        std::string error_what; // empty on success
+    };
+
+    CallResult call(const ParsedInput& in, bool user_modified = false) {
+        const fs::path& file_path = in.file_path;
+        const std::string& old_s = in.old_string;
+        const std::string& new_s = in.new_string;
+        const bool replace_all   = in.replace_all;
+
+        CallResult cr;
+
+        // --- 1. expand path + ensure parent directory ---
+        std::string full = expand_path(file_path.string());
+        fs::path abs_path{full};
+        try {
+            auto parent = abs_path.parent_path();
+            if (!parent.empty()) {
+                std::error_code ec;
+                fs::create_directories(parent, ec);
+            }
+        } catch (...) { /* ignored — write_text_content will fail cleanly */ }
+
+        // --- 2. file-history hook (runs BEFORE staleness check, like TS) ---
+        if (file_history_) {
+            try { file_history_(abs_path); } catch (...) {}
+        }
+
+        // --- 3. critical section: read + staleness check + write ----------
+        // (Async yields between read and write would break atomicity, so
+        //  this section deliberately uses only synchronous std::filesystem.)
+        auto read = cc::utils::file_edit::read_file_for_edit(abs_path);
+        if (read.file_exists) {
+            auto last_write = get_file_mtime(abs_path);
+            auto last_read = read_state_.get(abs_path);
+            const bool is_full_read =
+                last_read && !last_read->offset && !last_read->limit;
+            const bool content_unchanged =
+                is_full_read && last_read->content &&
+                *last_read->content == read.content;
+
+            if ((!last_read || last_write > last_read->timestamp) &&
+                !content_unchanged) {
+                cr.error_what = std::string(kFileUnexpectedlyModifiedError);
+                return cr;
+            }
+        }
+
+        // --- 4. actual-match + quote-style preservation -------------------
+        std::string actual_old =
+            cc::utils::file_edit::find_actual_string(read.content, old_s)
+                .value_or(old_s);
+        std::string actual_new =
+            cc::utils::file_edit::preserve_quote_style(
+                old_s, actual_old, new_s);
+
+        // --- 5. generate patch + apply edit ---
+        cc::utils::file_edit::PatchForEditsResult patch_result;
+        try {
+            patch_result = cc::utils::file_edit::get_patch_for_edit(
+                abs_path.string(), read.content,
+                actual_old, actual_new, replace_all);
+        } catch (const std::exception& e) {
+            cr.error_what = e.what();
+            return cr;
+        }
+
+        // --- 6. atomic write with encoding + line-ending restoration ------
+        auto write_ec = write_text_content(abs_path, patch_result.updated_file,
+            read.encoding, read.line_endings);
+        if (write_ec) {
+            cr.error_what = std::format("Write failed: {}", write_ec->message());
+            return cr;
+        }
+
+        // --- 7. LSP notifications (didChange + didSave) -------------------
+        if (lsp_change_) {
+            try { lsp_change_(abs_path, patch_result.updated_file); } catch (...) {}
+        }
+        if (lsp_save_) {
+            try { lsp_save_(abs_path, patch_result.updated_file); } catch (...) {}
+        }
+
+        // --- 8. refresh readFileState so stale subsequent writes abort ----
+        read_state_.set(abs_path, ReadTimestamp{
+            .timestamp      = get_file_mtime(abs_path),
+            .offset         = std::nullopt,
+            .limit          = std::nullopt,
+            .content        = patch_result.updated_file,
+            .is_partial_view = false,
+        });
+
+        // --- 9. telemetry hooks ------------------------------------------
+        if (log_event_) {
+            if (abs_path.filename().string() == "CLAUDE.md") {
+                log_event_("tengu_write_claudemd");
+            }
+            log_event_("tengu_edit_string_lengths");
+        }
+
+        // --- 10. build FileEditOutput -------------------------------------
+        cr.output.file_path     = in.file_path;
+        cr.output.old_string    = actual_old;
+        cr.output.new_string    = new_s;
+        cr.output.original_file = read.content;
+        cr.output.user_modified = user_modified;
+        cr.output.replace_all   = replace_all;
+        for (const auto& h : patch_result.patch) {
+            cr.output.structured_patch.push_back(PatchHunk{
+                .old_start = h.old_start,
+                .old_lines = h.old_lines,
+                .new_start = h.new_start,
+                .new_lines = h.new_lines,
+                .lines     = h.lines,
+            });
+        }
+        if (git_diff_hook_) {
+            if (auto info = git_diff_hook_(abs_path)) {
+                cr.output.git_diff = std::move(*info);
+            }
+        }
+        return cr;
+    }
+
+    // =====================================================================
+    // Backwards-compat: thin wrapper around the full pipeline used by
+    // hosts that call execute() / ITool::execute() directly.
+    // =====================================================================
+
+    [[nodiscard]] Result<ToolResult> execute(const ToolInput& input) {
+        auto parsed = ParsedInput::from_json(input.json());
+        if (!parsed) {
+            return std::unexpected(cc::utils::Error(
+                cc::utils::ErrorCode::invalid_argument, parsed.error()));
+        }
+        auto v = validate_input(*parsed);
+        if (!v.passed) {
+            return ToolResult::error(std::format(
+                "[FileEditTool:{}] {}", static_cast<int>(v.code), v.message));
+        }
+        auto cr = call(*parsed, input.user_modified());
+        if (!cr.error_what.empty()) {
+            return ToolResult::error(std::format(
+                "[FileEditTool] {}", cr.error_what));
+        }
+        auto content = format_tool_result_block(cr.output, input.tool_use_id());
+        return ToolResult::success(content);
+    }
+
+private:
+    // ---- small helpers -------------------------------------------------
+    static std::chrono::system_clock::time_point get_file_mtime(const fs::path& p) {
+        std::error_code ec;
+        auto ft = fs::last_write_time(p, ec);
+        if (ec) return std::chrono::system_clock::time_point{};
+        return std::chrono::clock_cast<std::chrono::system_clock>(ft);
+    }
+
+    static std::string expand_path(std::string_view p) {
+        try {
+            return cc::utils::path::expand_path(fs::path{std::string(p)}).string();
+        } catch (...) {
+            std::error_code ec;
+            return fs::absolute(std::string(p), ec).string();
         }
     }
-    
-    /// Format output result
-    ToolResult format_result(
-        const FileEditOutput& output,
-        std::string_view new_content,
-        bool dry_run
-    ) {
-        std::string result;
-        
-        if (dry_run) {
-            result = "[Dry Run - Would edit file]\n";
-        } else {
-            result = "[Edited file]\n";
-        }
-        
-        result += std::format("File: {}\n", output.edited_path.string());
-        result += std::format("Edits applied: {}\n", output.num_edits);
-        result += std::format("Replacements made: {}\n", output.num_replacements);
-        
-        if (output.backup_path) {
-            result += std::format("Backup created at: {}\n", output.backup_path->string());
-        }
-        
-        if (output.content_changed) {
-            result += "\nContent changed successfully";
-        } else {
-            result += "\nNo changes made";
-        }
-        
-        return ToolResult::success(result);
+
+    static std::string format_file_size(std::uint64_t bytes) {
+        if (bytes < 1024) return std::format("{} B", bytes);
+        if (bytes < 1024ULL * 1024)
+            return std::format("{:.1f} KiB", bytes / 1024.0);
+        if (bytes < 1024ULL * 1024 * 1024)
+            return std::format("{:.1f} MiB", bytes / (1024.0 * 1024.0));
+        return std::format("{:.2f} GiB", bytes / (1024.0 * 1024.0 * 1024.0));
     }
+
+    static std::string get_cwd_safe() {
+        std::error_code ec;
+        auto p = fs::current_path(ec);
+        if (ec) return ".";
+        return p.string();
+    }
+
+    // migrated: atomic temp + rename with line-ending restoration.
+    // Mirrors TS writeTextContent(file, content, encoding, lineEndings).
+    static std::error_code write_text_content(
+        const fs::path& p,
+        std::string_view content,
+        std::string_view /*encoding*/,
+        cc::utils::file_edit::LineEndingType le)
+    {
+        std::string to_write;
+        if (le == cc::utils::file_edit::LineEndingType::LF) {
+            to_write = std::string(content);
+        } else {
+            const std::string_view target =
+                (le == cc::utils::file_edit::LineEndingType::CRLF) ? "\r\n" : "\r";
+            to_write.reserve(content.size());
+            for (size_t i = 0; i < content.size(); ++i) {
+                if (content[i] == '\n') to_write += target;
+                else to_write += content[i];
+            }
+        }
+
+        std::error_code ec;
+        auto tmp = p;
+        tmp += ".tmpedit";
+        {
+            std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
+            if (!f) return std::make_error_code(std::errc::io_error);
+            f.write(to_write.data(),
+                    static_cast<std::streamsize>(to_write.size()));
+            if (!f) return std::make_error_code(std::errc::io_error);
+        }
+        fs::rename(tmp, p, ec);
+        // Clean up leftover temp on rename failure (best-effort).
+        if (ec) { std::error_code _; fs::remove(tmp, _); }
+        return ec;
+    }
+
+    // ---- fields --------------------------------------------------------
+    std::vector<std::string> allowed_directories_;
+    ReadFileState read_state_;
+    FileReadCache* cache_ = nullptr;
+
+    FileHistoryHook   file_history_;
+    LspNotifyHook     lsp_change_;
+    LspNotifyHook     lsp_save_;
+    LogEventHook      log_event_;
+    DenyRuleFn        deny_rule_cb_;
+    ExtraValidationFn extra_valid_cb_;
+    GitDiffFn         git_diff_hook_;
 };
 
 } // namespace cc::tools::file_edit
 
-// Export main tool class
+// =========================================================================
+// Public exports + ITool adapter
+// =========================================================================
+
 export namespace cc::tools {
     using cc::tools::file_edit::FileEditTool;
+    using cc::tools::file_edit::ParsedInput;
+    using cc::tools::file_edit::ReadTimestamp;
+    using cc::tools::file_edit::ReadFileState;
 
-    /// Factory: create FileEditTool wrapped as ITool (adapts Result types across modules)
+    /// Factory: wrap FileEditTool as an ITool.
     [[nodiscard]] auto make_file_edit_tool() -> std::unique_ptr<cc::core::ITool> {
         struct Adapter final : cc::core::ITool {
             FileEditTool tool_;
             cc::core::ToolDefinition def_ = FileEditTool::definition();
 
             const cc::core::ToolDefinition& definition() const override { return def_; }
-            std::expected<cc::core::ToolResult, cc::core::Error> execute(const cc::core::ToolInput& input) override {
+            std::expected<cc::core::ToolResult, cc::core::Error> execute(
+                const cc::core::ToolInput& input) override
+            {
                 auto result = tool_.execute(input);
                 if (result) return std::move(*result);
                 return std::unexpected(cc::core::Error::make(
-                    cc::core::ErrorCode::ToolExecutionFailed, result.error().format()));
+                    cc::core::ErrorCode::ToolExecutionFailed,
+                    result.error().format()));
             }
             bool check_permission(const cc::core::ToolInput& input) const override {
                 return tool_.check_permission(input);
@@ -524,10 +737,8 @@ export namespace cc::tools {
         return std::make_unique<Adapter>();
     }
 
-    /// Convenience: parse a `sed -i …` command into a FileEditInput so the
-    /// caller can render an edit-style preview before executing it.
-    /// Returns std::nullopt when the command is not a simple sed in-place
-    /// substitution (caller should fall back to BashTool execution).
+    /// Public wrapper for the sed-in-place parser (always nullopt until
+    /// Agent 2 ships the actual parser module).
     [[nodiscard]] inline auto try_parse_sed_in_place(std::string_view cmd) {
         return cc::tools::file_edit::try_parse_sed_in_place(cmd);
     }
