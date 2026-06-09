@@ -130,7 +130,7 @@ struct SensitivePathRule {
 // NOTE: std::array of C-strings + regex compile at call-site keeps this
 // header-friendly (no static-init order issues) while avoiding recompilation
 // of every string literal on every call.
-inline constexpr std::array<std::pair<std::string_view, SensitivePathRule>, 22> kSensitivePaths = {{
+inline const std::array<std::pair<std::string_view, SensitivePathRule>, 22> kSensitivePaths = {{
     // SSH keys
     {"\\.ssh/(id_rsa|id_ed25519|id_ecdsa|id_dsa)(\\.pub)?$",
      {"", "SSH private key", RiskLevel::Critical,
@@ -401,6 +401,9 @@ scan_paths_for_sensitive(const std::vector<std::string>& paths) {
     }
     return "";
 }
+
+// Forward declaration (defined after build_risk_bullets body)
+[[nodiscard]] inline bool is_known_safe_domain(std::string_view host);
 
 /// Return a short list of 3-5 risk bullet points for the details panel.
 /// Mirrors the warnings shown in TS utils + bash_security explanations.

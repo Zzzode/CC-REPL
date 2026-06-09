@@ -34,6 +34,7 @@ module;
 #include <cstdint>
 #include <format>
 #include <functional>
+#include <istream>
 #include <memory>
 #include <optional>
 #include <sstream>
@@ -41,7 +42,6 @@ module;
 #include <string_view>
 #include <utility>
 #include <vector>
-
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_base.hpp>
@@ -52,7 +52,7 @@ export module cc.ui.agents.agent_details_dialog;
 import cc.ui.agents.shared_widgets;
 import cc.ui.agents.agent_cards;
 import cc.ui.code_highlight;
-import ui.components.tag_tabs;
+import cc.ui.components.tag_tabs;
 
 export namespace cc::ui::agents::details {
 using namespace ftxui;
@@ -75,9 +75,9 @@ using shared::status_color;
 using shared::status_label;
 using cards::AgentCardData;
 using cards::StatusBadge;
-using ui::components::Tab;
 using ui::components::TagTabsComponent;
 using ui::components::TagTabsOptions;
+using ui::components::Tab;  // kept for legacy compat (same as TagTabsOptions::Tab)
 using cc::ui::code_highlight::HighlightedLine;
 using cc::ui::code_highlight::TokenType;
 
@@ -260,7 +260,8 @@ struct AgentDetailsCallbacks {
     std::vector<HighlightedLine> result;
     int line_no = 1;
 
-    std::istringstream iss(std::string(src));
+    std::string src_str(src);
+    std::istringstream iss(src_str);
     std::string line;
     while (std::getline(iss, line)) {
         HighlightedLine hl;
@@ -562,10 +563,16 @@ struct AgentDetailsCallbacks {
     double cells = frac * len;
     int full = static_cast<int>(cells);
     int part = static_cast<int>((cells - full) * 8);
-    static const char* parts = " ▏▎▍▌▋▊▉";
-    std::string out(full, '█');
-    if (part > 0 && full < len) out.push_back(parts[part]);
-    while (static_cast<int>(out.size()) < len) out.push_back(' ');
+    static constexpr std::string_view parts[] = {
+        " ", "▏", "▎", "▍", "▌", "▋", "▊", "▉"
+    };
+    static constexpr std::string_view full_block = "█";
+    std::string out;
+    out.reserve(static_cast<std::size_t>(len) * 3 + 3);
+    for (int i = 0; i < full; ++i) out.append(full_block);
+    if (part > 0 && full < len && part < 8) out.append(parts[part]);
+    while (full + (part > 0 ? 1 : 0) + static_cast<int>(out.size()/3) < len) out += ' ';
+    (void)len;
     return out;
 }
 

@@ -85,7 +85,7 @@ namespace detail {
 // ============================================================
 // validate(step, ctx) -> vector<Error>
 // ============================================================
-[[nodiscard]] export std::vector<Error> validate(Step step,
+[[nodiscard]] std::vector<Error> validate(Step step,
                                                  const InstallSlackAppContext& ctx) {
     std::vector<Error> errs;
     switch (step) {
@@ -121,7 +121,7 @@ namespace detail {
 // ============================================================
 // advance(step, ctx, user_input) -> Step
 // ============================================================
-[[nodiscard]] export Step advance(Step step,
+[[nodiscard]] Step advance(Step step,
                                   const InstallSlackAppContext& ctx,
                                   std::string_view user_input) {
     (void)user_input;
@@ -146,7 +146,7 @@ namespace detail {
 // ============================================================
 // step_description
 // ============================================================
-[[nodiscard]] export std::string_view step_description(Step step) noexcept {
+[[nodiscard]] std::string_view step_description(Step step) noexcept {
     switch (step) {
         case Step::ConfirmEligibility: return "Checking eligibility";
         case Step::ConfirmInstall:     return "Confirm installation";

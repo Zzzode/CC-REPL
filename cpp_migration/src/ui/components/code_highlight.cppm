@@ -390,7 +390,7 @@ constexpr std::array<std::string_view, 33> kYamlKeywords = {
     if (is_lang({"md","markdown"})) {
         for (auto w : kMdKeywords) s.keywords.push_back(w);
         s.line_comment = "";
-        s.has_block_comment_c = true;   <!-- style
+        s.has_block_comment_c = true;   // C-style block comments not used, stub
         s.has_hash_comment = false;     // # is heading, not comment
         return s;
     }

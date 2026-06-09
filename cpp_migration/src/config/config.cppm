@@ -137,6 +137,13 @@ struct McpOAuthConfig {
     std::optional<int> callback_port;
     std::optional<std::string> client_id;
     bool xaa = false;
+    std::optional<std::string> issuer;
+};
+
+struct XaaIdpSettings {
+    std::string issuer;
+    std::string client_id;
+    std::optional<int> callback_port;
 };
 
 struct McpServerConfig {
@@ -149,6 +156,8 @@ struct McpServerConfig {
     std::unordered_map<std::string, std::string> headers; // Static HTTP headers
     std::optional<std::string> headers_helper;      // Command that emits dynamic headers JSON
     std::optional<McpOAuthConfig> oauth;            // Remote OAuth/XAA settings
+    std::optional<bool> disabled;                    // Optional explicit enable/disable
+    std::string config_scope{"project"};               // Where this config is stored: local/user/project
 };
 
 /// Top-level settings aggregating all configuration sections
@@ -161,6 +170,7 @@ struct Settings {
     std::vector<McpServerConfig> mcp_servers;      // Configured MCP servers
     std::optional<std::string> system_prompt;      // Custom system prompt override
     std::vector<std::string> custom_instructions;  // Additional context instructions
+    XaaIdpSettings xaa_idp;                         // XAA IdP configuration
 };
 
 // ============================================================

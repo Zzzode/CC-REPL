@@ -22,6 +22,7 @@ module;
 #include <cmath>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 #include <optional>
 #include <expected>

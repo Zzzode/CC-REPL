@@ -29,7 +29,7 @@ import cc.types.types;
 import cc.commands.command;
 import cc.utils.exec_sync;
 import cc.utils.shell;
-import cc.utils.which;
+import cc.utils.find_executable;
 import cc.utils.detect_repository;
 import cc.services.analytics.growthbook;
 
@@ -83,9 +83,11 @@ struct ReviewComment {
     // 1) Bare number: "123"
     if (std::ranges::all_of(trimmed, [](unsigned char c) { return std::isdigit(c); })) {
         // Try to detect the current repo context
-        if (auto repo = cc::utils::detect_repository()) {
-            result.owner = repo->owner;
-            result.repo = repo->name;
+        if (auto repo_root = cc::utils::detect_repo_root()) {
+            const auto name = repo_root->filename().string();
+            const auto parent = repo_root->parent_path().filename().string();
+            result.owner = parent.empty() ? "local" : parent;
+            result.repo = name;
             try { result.number = std::stoull(trimmed); } catch (...) { return std::nullopt; }
             return result;
         }

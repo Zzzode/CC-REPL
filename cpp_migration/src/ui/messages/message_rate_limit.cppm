@@ -18,20 +18,11 @@ module;
 
 export module cc.ui.messages.message_rate_limit;
 
+import cc.ui.messages.message_components;
+
 export namespace cc::ui::messages {
 
 using namespace ftxui;
-
-/// Rate limit info for display
-struct RateLimitInfo {
-    std::string model;
-    std::optional<std::chrono::seconds> retry_after;
-    std::optional<double> tokens_remaining;
-    std::optional<double> requests_remaining;
-    bool is_hard_limit{false};
-    bool is_overloaded{false};         ///< "server overloaded" vs plain 429
-    std::string raw_text;              ///< Original error string (for verbosity)
-};
 
 /// ─── Stateless element (kept for non-interactive contexts) ────────────
 [[nodiscard]] inline Element render_rate_limit_message(const RateLimitInfo& info) {
@@ -69,7 +60,21 @@ class RateLimitMessageComponent : public ComponentBase {
                                        OnOptionsFn on_options = nullptr)
         : info_(std::move(info)),
           on_retry_(std::move(on_retry)),
-          on_options_(std::move(on_options)) {}
+          on_options_(std::move(on_options))
+    {
+        if (on_retry_) {
+            retry_btn_ = Button(" Retry now ", [this] {
+                if (on_retry_) on_retry_();
+            }) | color(Color::Green) | bold;
+            Add(retry_btn_);
+        }
+        if (on_options_) {
+            options_btn_ = Button(" Options ", [this] {
+                if (on_options_) on_options_();
+            }) | dim;
+            Add(options_btn_);
+        }
+    }
 
     Element Render() override {
         const Color accent = info_.is_hard_limit ? Color::Red : Color::Yellow;
@@ -104,17 +109,11 @@ class RateLimitMessageComponent : public ComponentBase {
         }();
 
         // Action bar
-        auto retry_btn = on_retry_
-            ? button(" 🔁 Retry now ", [this] { if (on_retry_) on_retry_(); })
-                  | color(accent)
-            : text("") | nothing;
-        auto options_btn = on_options_
-            ? button(" ⚙ Options ", [this] { if (on_options_) on_options_(); })
-                  | dim
-            : text("") | nothing;
+        Element retry_el = retry_btn_ ? retry_btn_->Render() : text("");
+        Element options_el = options_btn_ ? options_btn_->Render() : text("");
         auto actions = hbox({
-            retry_btn, text("  "),
-            options_btn,
+            retry_el, text("  "),
+            options_el,
         });
 
         Elements rows;
@@ -146,6 +145,8 @@ class RateLimitMessageComponent : public ComponentBase {
     RateLimitInfo info_;
     OnRetryFn on_retry_;
     OnOptionsFn on_options_;
+    Component retry_btn_;
+    Component options_btn_;
 };
 
 [[nodiscard]] inline Component MakeRateLimitMessage(

@@ -31,6 +31,7 @@ module;
 
 export module cc.ui.messages.assistant_text_message;
 
+import cc.ui.messages.message_components;
 import cc.ui.messages.message_timestamp;
 
 export namespace cc::ui::messages {
@@ -74,13 +75,33 @@ class AssistantTextMessageComponent : public ComponentBase {
         : data_(std::move(data)),
           on_copy_(std::move(on_copy)),
           on_regen_(std::move(on_regen)),
-          on_rate_limit_(std::move(on_rl)) {}
+          on_rate_limit_(std::move(on_rl))
+    {
+        if (on_copy_) {
+            copy_btn_ = Button("Copy", [this] {
+                if (on_copy_) on_copy_(data_.content);
+            }) | size(WIDTH, EQUAL, 10);
+            Add(copy_btn_);
+        }
+        if (on_regen_) {
+            regen_btn_ = Button("Regenerate", [this] {
+                if (on_regen_) on_regen_();
+            }) | size(WIDTH, EQUAL, 14);
+            Add(regen_btn_);
+        }
+        if (on_rl) {
+            rl_btn_ = Button("RateLimit options", [this] {
+                if (on_rate_limit_) on_rate_limit_();
+            }) | color(Color::Yellow);
+            Add(rl_btn_);
+        }
+    }
 
     Element Render() override {
         // Header row: role + optional model + timestamp + streaming cursor
         Elements header;
-        header.push_back(text("🤖 ") | color(Color::Purple400));
-        header.push_back(text("Assistant") | bold | color(Color::Purple400));
+        header.push_back(text("🤖 ") | color(Color::Purple4));
+        header.push_back(text("Assistant") | bold | color(Color::Purple4));
 
         if (data_.model_name) {
             header.push_back(text("  ") | dim);
@@ -121,18 +142,16 @@ class AssistantTextMessageComponent : public ComponentBase {
 
         // Action row (clickable)
         Elements actions;
-        actions.push_back(button("Copy", [this] {
-            if (on_copy_) on_copy_(data_.content);
-        }) | size(WIDTH, EQUAL, 10));
-        actions.push_back(text(" "));
-        actions.push_back(button("Regenerate", [this] {
-            if (on_regen_) on_regen_();
-        }) | size(WIDTH, EQUAL, 14));
-        if (data_.kind == AssistantMessageKind::RateLimit) {
+        if (copy_btn_) {
+            actions.push_back(copy_btn_->Render());
             actions.push_back(text(" "));
-            actions.push_back(button("RateLimit options", [this] {
-                if (on_rate_limit_) on_rate_limit_();
-            }) | color(Color::Yellow));
+        }
+        if (regen_btn_) {
+            actions.push_back(regen_btn_->Render());
+            actions.push_back(text(" "));
+        }
+        if (data_.kind == AssistantMessageKind::RateLimit && rl_btn_) {
+            actions.push_back(rl_btn_->Render());
         }
         auto action_row = hbox(std::move(actions)) | dim;
 
@@ -216,6 +235,9 @@ class AssistantTextMessageComponent : public ComponentBase {
     OnRateLimitFn on_rate_limit_;
     bool verbose_override_ = false;
     bool expanded_ = true;
+    Component copy_btn_;
+    Component regen_btn_;
+    Component rl_btn_;
 };
 
 // ─── Factories ─────────────────────────────────────────────────────────
@@ -234,7 +256,7 @@ class AssistantTextMessageComponent : public ComponentBase {
 [[nodiscard]] inline Element RenderAssistantTextMessageBubble(const AssistantTextMessageData& data) {
     return vbox({
         hbox({
-            text("🤖") | color(Color::Purple400),
+            text("🤖") | color(Color::Purple4),
             text(" Assistant  "),
             text(render_timestamp(data.timestamp)) | dim,
         }),

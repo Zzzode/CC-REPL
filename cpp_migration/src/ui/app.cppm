@@ -295,10 +295,10 @@ public:
         TextInputOptions input_opts;
         input_opts.placeholder = "Type your message here...";
         input_opts.prefix = "▶ ";
-        input_opts.on_submit = [this](std::string text) {
+        input_opts.on_submit = [this](const std::string& text, const ::ui::components::PromptContext&) {
             this->HandleSubmit(text);
         };
-        input_opts.get_suggestions = [](std::string input) -> std::vector<Suggestion> {
+        input_opts.get_suggestions = [](const std::string& input, int, const ::ui::components::PromptContext&) -> std::vector<Suggestion> {
             if (input.starts_with('/')) {
                 std::vector<Suggestion> suggestions = {
                     {"/help", "Show help", "command"},

@@ -83,7 +83,7 @@ struct PrimitiveTool {
 // In-process file helpers (shared by FileRead / FileWrite / FileEdit)
 // ---------------------------------------------------------------------------
 
-namespace {
+namespace detail {
 
 auto read_text_file(const fs::path& p) -> std::expected<std::string, std::string> {
     if (!fs::exists(p)) {
@@ -162,7 +162,7 @@ auto edit_text(std::string_view content,
     return result;
 }
 
-} // anonymous namespace
+} // namespace detail
 
 // ---------------------------------------------------------------------------
 // Step-level helpers — spawn subprocesses via bash_execution
@@ -216,7 +216,7 @@ auto run_file(const fs::path& file,
         out.stdout_text = std::move(exec->stdout_output);
         out.stderr_text = std::move(exec->stderr_output);
         // parse any compiler-like output
-        out.diagnostics = parse_compiler_output(
+parse_compiler_output(
             out.stderr_text.empty() ? out.stdout_text : out.stderr_text);
     }
     out.duration = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -273,7 +273,7 @@ auto run_test(const fs::path& project_root,
         out.exit_code   = exec->exit_code;
         out.stdout_text = std::move(exec->stdout_output);
         out.stderr_text = std::move(exec->stderr_output);
-        out.diagnostics = parse_compiler_output(
+parse_compiler_output(
             out.stderr_text.empty() ? out.stdout_text : out.stderr_text);
     }
     out.duration = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -293,7 +293,7 @@ auto run_typecheck_inline(const TypecheckOptions& opts) -> PrimitiveResult {
     out.exit_code = r.passed ? 0 : 1;
     for (const auto& d : r.diagnostics) {
         Diagnostic diag;
-        diag.file   = kVirtualFile;
+        diag.file   = "/__script_tool__/inline.ts";
         diag.line   = d.line;
         diag.column = d.column;
         diag.message = std::format("TS{}: {}", d.code, d.message);
@@ -407,7 +407,7 @@ auto install_package(const fs::path& project_root,
         out.exit_code   = exec->exit_code;
         out.stdout_text = std::move(exec->stdout_output);
         out.stderr_text = std::move(exec->stderr_output);
-        out.diagnostics = parse_compiler_output(
+parse_compiler_output(
             out.stderr_text.empty() ? out.stdout_text : out.stderr_text);
     }
     out.duration = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -494,7 +494,7 @@ auto format_file(const fs::path& file,
         out.exit_code   = exec->exit_code;
         out.stdout_text = std::move(exec->stdout_output);
         out.stderr_text = std::move(exec->stderr_output);
-        out.diagnostics = parse_compiler_output(
+parse_compiler_output(
             out.stderr_text.empty() ? out.stdout_text : out.stderr_text);
     }
     out.duration = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -521,7 +521,7 @@ auto get_primitive_tools() -> std::vector<PrimitiveTool> {
                 -> std::expected<std::string, std::string>
             {
                 if (args.empty()) return std::unexpected("FileRead: missing file_path");
-                auto content = read_text_file(args[0]);
+                auto content = detail::read_text_file(args[0]);
                 if (!content) return std::unexpected(content.error());
                 return *content;
             },
@@ -536,7 +536,7 @@ auto get_primitive_tools() -> std::vector<PrimitiveTool> {
                 -> std::expected<std::string, std::string>
             {
                 if (args.size() < 2) return std::unexpected("FileWrite: missing args");
-                auto ok = write_text_file(args[0], args.size() > 1 ? args[1] : "");
+                auto ok = detail::write_text_file(args[0], args.size() > 1 ? args[1] : "");
                 if (!ok) return std::unexpected(ok.error());
                 return std::format("{} bytes written to {}",
                     args[1].size(), args[0]);
@@ -553,12 +553,12 @@ auto get_primitive_tools() -> std::vector<PrimitiveTool> {
             {
                 if (args.size() < 3) return std::unexpected("FileEdit: missing args");
                 const fs::path path = args[0];
-                auto content = read_text_file(path);
+                auto content = detail::read_text_file(path);
                 if (!content) return std::unexpected(content.error());
                 bool replace_all = args.size() >= 4 && args[3] == "all";
-                auto edited = edit_text(*content, args[1], args[2], replace_all);
+                auto edited = detail::edit_text(*content, args[1], args[2], replace_all);
                 if (!edited) return std::unexpected(edited.error());
-                auto w = write_text_file(path, *edited);
+                auto w = detail::write_text_file(path, *edited);
                 if (!w) return std::unexpected(w.error());
                 return std::format("File {} edited successfully", path.string());
             },
@@ -582,7 +582,7 @@ auto get_primitive_tools() -> std::vector<PrimitiveTool> {
                 }
                 if (idx < 0) return std::unexpected("NotebookEdit: negative cell_index");
 
-                auto content = read_text_file(path);
+                auto content = detail::read_text_file(path);
                 if (!content) return std::unexpected(content.error());
 
                 // Parse notebook as JSON, find cells[idx], replace source.

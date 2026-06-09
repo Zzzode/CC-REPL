@@ -444,9 +444,9 @@ public:
             // Line prefix (first line) or indent (subsequent lines)
             if (li == 0) {
                 line_parts.push_back(
-                    text(options_.prefix) | color(Color::Green) | bold);
+                    ftxui::text(options_.prefix) | color(Color::Green) | bold);
             } else {
-                line_parts.push_back(text(std::string(options_.prefix.size(), ' ')));
+                line_parts.push_back(ftxui::text(std::string(options_.prefix.size(), ' ')));
             }
 
             // Line numbers
@@ -454,7 +454,7 @@ public:
                 int label_width =
                     std::max(2, (int)std::format("{}", total_lines).size());
                 line_parts.push_back(
-                    text(std::format("{:>{}} ", li + 1, label_width)) |
+                    ftxui::text(std::format("{:>{}} ", li + 1, label_width)) |
                     dim | color(Color::GrayDark));
             }
 
@@ -493,7 +493,7 @@ public:
                         // Cursor is inside or at edge of this non-selected segment
                         std::string before = seg_text.substr(0, cur_rel_start);
                         std::string after = seg_text.substr(cur_rel_start);
-                        if (!before.empty()) line_parts.push_back(text(before));
+                        if (!before.empty()) line_parts.push_back(ftxui::text(before));
                         Element cursor_el;
                         if (!after.empty() && blink_visible_) {
                             std::string cursor_ch{after[0]};
@@ -504,32 +504,32 @@ public:
                                 cursor_ch.push_back(after[cc]);
                                 ++cc;
                             }
-                            line_parts.push_back(text(cursor_ch) | inverted |
+                            line_parts.push_back(ftxui::text(cursor_ch) | inverted |
                                                  color(Color::White));
                             std::string rest = after.substr(cc);
-                            if (!rest.empty()) line_parts.push_back(text(rest));
+                            if (!rest.empty()) line_parts.push_back(ftxui::text(rest));
                         } else {
                             // End of line cursor — render blinking block space
-                            line_parts.push_back(text(blink_visible_ ? "█" : " ") |
+                            line_parts.push_back(ftxui::text(blink_visible_ ? "█" : " ") |
                                                  color(Color::CyanLight));
-                            if (!after.empty()) line_parts.push_back(text(after));
+                            if (!after.empty()) line_parts.push_back(ftxui::text(after));
                         }
                     } else if (seg.selected) {
-                        line_parts.push_back(text(seg_text) | bgcolor(Color::Blue) |
+                        line_parts.push_back(ftxui::text(seg_text) | bgcolor(Color::Blue) |
                                              color(Color::White));
                     } else {
-                        line_parts.push_back(text(seg_text));
+                        line_parts.push_back(ftxui::text(seg_text));
                     }
                 } else if (seg.selected) {
-                    line_parts.push_back(text(seg_text) | bgcolor(Color::Blue) |
+                    line_parts.push_back(ftxui::text(seg_text) | bgcolor(Color::Blue) |
                                          color(Color::White));
                 } else {
-                    line_parts.push_back(text(seg_text));
+                    line_parts.push_back(ftxui::text(seg_text));
                 }
             }
             // Empty line placeholder
             if (line_len == 0 && is_cursor_line && !has_selection()) {
-                line_parts.push_back(text(blink_visible_ ? "█" : " ") |
+                line_parts.push_back(ftxui::text(blink_visible_ ? "█" : " ") |
                                      color(Color::CyanLight));
             }
 
@@ -540,8 +540,8 @@ public:
         // --- Placeholder rendering for empty, unfocused ---
         if (lines_elements.size() == 1 && lines[0].empty()) {
             Elements ph_parts;
-            ph_parts.push_back(text(options_.prefix) | color(Color::Green) | bold);
-            ph_parts.push_back(text(options_.placeholder) | dim);
+            ph_parts.push_back(ftxui::text(options_.prefix) | color(Color::Green) | bold);
+            ph_parts.push_back(ftxui::text(options_.placeholder) | dim);
             return hbox(ph_parts);
         }
 
@@ -620,38 +620,38 @@ public:
         }
 
         // Arrow navigation with optional shift for selection
-        if (event == Event::ArrowLeft) {
-            move_cursor(-1, event.shift()); return true;
+        if (matches_with_shift(event, Event::ArrowLeft)) {
+            move_cursor(-1, has_shift_modifier(event)); return true;
         }
-        if (event == Event::ArrowRight) {
-            move_cursor(+1, event.shift()); return true;
+        if (matches_with_shift(event, Event::ArrowRight)) {
+            move_cursor(+1, has_shift_modifier(event)); return true;
         }
-        if (event == Event::Home) { move_home(event.shift()); return true; }
-        if (event == Event::End)  { move_end(event.shift());  return true; }
-        if (event == Event::ArrowUp) {
+        if (matches_with_shift(event, Event::Home)) { move_home(has_shift_modifier(event)); return true; }
+        if (matches_with_shift(event, Event::End))  { move_end(has_shift_modifier(event));  return true; }
+        if (matches_with_shift(event, Event::ArrowUp)) {
             if (options_.multiline) {
-                move_line_vertical(-1, event.shift());
+                move_line_vertical(-1, has_shift_modifier(event));
             } else {
                 navigate_history_up();
                 changed = true;
             }
             return true;
         }
-        if (event == Event::ArrowDown) {
+        if (matches_with_shift(event, Event::ArrowDown)) {
             if (options_.multiline) {
-                move_line_vertical(+1, event.shift());
+                move_line_vertical(+1, has_shift_modifier(event));
             } else {
                 navigate_history_down();
                 changed = true;
             }
             return true;
         }
-        if (event == Event::PageUp) {
+        if (matches_with_shift(event, Event::PageUp)) {
             // Simple: jump to top
-            move_top(event.shift()); return true;
+            move_top(has_shift_modifier(event)); return true;
         }
-        if (event == Event::PageDown) {
-            move_bottom(event.shift()); return true;
+        if (matches_with_shift(event, Event::PageDown)) {
+            move_bottom(has_shift_modifier(event)); return true;
         }
 
         // Backspace
@@ -891,6 +891,44 @@ private:
         // ctrl+enter detection falls back to on_soft_submit call from host.
         return e.is_character() && e.character().size() >= 2 &&
                e.character()[0] == '\n' && e.character()[1] == '\x0d';
+    }
+    // Shift modifier appears as ";2" in xterm-style escape sequences:
+    //   \x1B[1;2D = Shift+Left,  \x1B[1;2A = Shift+Up, etc.
+    static bool has_shift_modifier(const Event& e) {
+        const std::string& s = e.input();
+        return s.size() >= 5 &&
+               s.substr(0, 5) == "\x1B[1;" &&
+               s.find(";2") != std::string::npos;
+    }
+    // Match Home/End / PageUp/Down shift variants:
+    //   Shift+Home = \x1B[1;2H, Shift+End  = \x1B[1;2F
+    //   Shift+PageUp   = \x1B[5;2~
+    //   Shift+PageDown = \x1B[6;2~
+    static bool matches_with_shift(const Event& e, const Event& base) {
+        if (e == base) return true;
+        const std::string& s = e.input();
+        const std::string& b = base.input();
+        // Arrow variants:  \x1B[D  →  \x1B[1;2D
+        if (b.size() == 3 && b.substr(0, 2) == "\x1B[" &&
+            s.size() == 7 && s.substr(0, 5) == "\x1B[1;" &&
+            s[5] == '2' && s.back() == b.back()) {
+            return true;
+        }
+        // Home / End variants:  \x1B[H  →  \x1B[1;2H
+        if (b.size() == 3 && b.substr(0, 2) == "\x1B[" &&
+            s.size() == 7 && s.substr(0, 5) == "\x1B[1;" &&
+            s[5] == '2' && s.back() == b.back()) {
+            return true;
+        }
+        // PageUp  \x1B[5~  →  \x1B[5;2~
+        // PageDown \x1B[6~ →  \x1B[6;2~
+        if (b.size() == 4 && b[3] == '~' &&
+            s.size() == 6 && s[5] == '~' &&
+            s.substr(0, 3) == b.substr(0, 3) &&
+            s.substr(3, 2) == ";2") {
+            return true;
+        }
+        return false;
     }
     void recompute_derived() {
         PromptContext& ctx = options_.context;

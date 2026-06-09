@@ -30,6 +30,7 @@ module;
 #include <algorithm>
 #include <cctype>
 #include <functional>
+#include <regex>
 #include <ranges>
 
 export module cc.tools.should_use_sandbox;

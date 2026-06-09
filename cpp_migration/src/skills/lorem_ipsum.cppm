@@ -269,7 +269,7 @@ static_assert(kOneTokenWords.size() == 200, "kOneTokenWords must be 200 entries 
 
 /// Placeholder source-code block: N lines of `let <word> = <n>;`.
 [[nodiscard]] inline std::string generate_code_block(std::size_t lines = 15) {
-    std::mt19937 rng(0xCODEu);
+    std::mt19937 rng(0xC0DEu);
     std::uniform_int_distribution<std::size_t> wd(0, kOneTokenWords.size() - 1);
     std::uniform_int_distribution<int> nd(0, 9999);
     std::string out;
@@ -293,7 +293,7 @@ static_assert(kOneTokenWords.size() == 200, "kOneTokenWords must be 200 entries 
 
 /// Placeholder CSV with requested rows + 4 columns.
 [[nodiscard]] inline std::string generate_csv(std::size_t rows = 10) {
-    std::mt19937 rng(0xCSV1u);
+    std::mt19937 rng(0xCC51u);
     std::uniform_int_distribution<std::size_t> wd(0, kOneTokenWords.size() - 1);
     std::uniform_int_distribution<int> nd(0, 999);
     std::string out = "id,name,category,value\n";
@@ -509,9 +509,8 @@ constexpr std::size_t kDefaultTokens = 10'000;
             "Outputs approximately the requested number of tokens.  "
             "ANT-only (USER_TYPE=ant).  Also supports: "
             "'5 paragraphs', '200 words', '500 chars', 'json 3', "
-            "'code 40', 'csv 100'.",
-        .argument_hint = "[token_count | 5 paragraphs | 200 words | json N | code N | csv N]",
-        .user_invocable = true,
+            "'code 40', 'csv 100'. "
+            "[argument: token_count | 5 paragraphs | 200 words | json N | code N | csv N]",
         .trigger_patterns = {
             R"(lorem\s*ipsum)",
             R"(placeholder\s+text)",

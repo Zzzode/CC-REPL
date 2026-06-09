@@ -596,28 +596,32 @@ TEST(Components, TextInputTabAfterEmptyHistorySearchDoesNotCrash) {
 }
 
 TEST(WizardDialog, RendersStepFactoryContent) {
+    using namespace cc::ui::wizard_dialog;
+
     bool factory_called = false;
-    cc::ui::wizard_dialog::WizardStep step;
-    step.id = "custom";
-    step.title = "Custom";
-    step.description = "Fallback description";
-    step.create_content = [&] {
-        factory_called = true;
-        return ftxui::Renderer([] {
-            return ftxui::text("custom factory body");
-        });
+    WizardConfig cfg;
+    cfg.title = "Setup";
+    StepsFn builder = [&](WizardContext& ctx) {
+        WizardStep step;
+        step.id = "custom";
+        step.title = "Custom";
+        step.render = [&](WizardContext&) -> ftxui::Element {
+            factory_called = true;
+            return ftxui::vbox({
+                ftxui::text("Custom"),
+                ftxui::text("custom factory body"),
+            });
+        };
+        ctx.steps.push_back(std::move(step));
     };
 
-    auto component = cc::ui::wizard_dialog::WizardComponent(
-        "Setup",
-        std::vector<cc::ui::wizard_dialog::WizardStep>{std::move(step)},
-        [] {},
-        [] {});
-
-    EXPECT_TRUE(factory_called);
+    auto component = MakeWizard(std::move(cfg), std::move(builder));
     auto rendered = render_to_plain_text(component->Render(), 80, 12);
+    EXPECT_TRUE(factory_called);
     EXPECT_NE(rendered.find("custom factory body"), std::string::npos);
-    EXPECT_EQ(rendered.find("Fallback description"), std::string::npos);
+    // Description field doesn't exist in current WizardStep, so old check for
+    // description-absent is moot; we verify the render() body instead.
+    EXPECT_NE(rendered.find("Setup"), std::string::npos);
 }
 
 TEST(AppRuntime, CommandsNavigationAndStatusRenderWithoutTerminalLoop) {

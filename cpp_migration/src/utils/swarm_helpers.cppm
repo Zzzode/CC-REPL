@@ -7,6 +7,7 @@ module;
 
 #include <atomic>
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <functional>
 #include <map>
@@ -624,5 +625,28 @@ private:
     static inline std::string dynamic_agent_id_;
     static inline std::string dynamic_agent_name_;
 };
+
+// ── Static-member stub implementations ──────────────────────────────────────
+// Defined out-of-line so translation units importing this module can link.
+std::string SpawnUtils::get_teammate_command() {
+    if (const char* v = std::getenv("TEAMMATE_COMMAND")) return std::string(v);
+    return "cc-repl";  // fallback: own executable name
+}
+
+std::string SpawnUtils::build_inherited_cli_flags(const InheritedFlagsOptions& opts) {
+    std::string out;
+    if (opts.plan_mode_required) out += " --plan";
+    if (opts.permission_mode) {
+        out += " --permission-mode ";
+        switch (*opts.permission_mode) {
+            case PermissionMode::Default: out += "default"; break;
+            case PermissionMode::BypassPermissions: out += "bypass"; break;
+            case PermissionMode::AcceptEdits: out += "accept-edits"; break;
+        }
+    }
+    return out;
+}
+
+std::string SpawnUtils::build_inherited_env_vars() { return {}; }
 
 } // namespace cc::utils::swarm_helpers

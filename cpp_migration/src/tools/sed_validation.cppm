@@ -26,13 +26,16 @@ export module cc.tools.sed_validation;
 
 import cc.tools.bash_validation;
 import cc.tools.bash_security;
+import cc.tools.destructive_command_warning;
 import cc.utils.argument_substitution;
+import cc.utils.bash_shell_quoting;
 import cc.tools.sed_edit_parser;
 
 export namespace cc::tools::sed_validation {
 
+using cc::tools::bash_validation::EnvelopeResult;
 using cc::tools::bash_validation::PathValidationContext;
-using cc::tools::bash_validation::ValidationResult;
+using ValidationResult = EnvelopeResult;
 
 // ---------------------------------------------------------------------------
 // Extract sed expressions from the raw command.
@@ -741,8 +744,8 @@ is_sed_safe(std::string_view sed_cmd, const PathValidationContext& ctx) {
     if (!pr.valid) return pr;
 
     // 3. Destructive operation check via bash_security.
-    if (cc::tools::is_destructive_command(sed_cmd)) {
-        auto reason = cc::tools::get_destructive_warning(sed_cmd);
+    if (cc::tools::bash_validation::is_destructive_command(sed_cmd)) {
+        auto reason = cc::tools::bash_validation::get_destructive_command_warning(sed_cmd);
         return {false, reason.value_or("sed command triggers destructive-operation warning")};
     }
 

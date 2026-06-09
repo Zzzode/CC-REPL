@@ -32,6 +32,7 @@
 
 module;
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <format>
@@ -541,16 +542,16 @@ struct DialogState {
         text(" toggle checkbox"),
     }) | dim);
 
-    const auto color = detail::risk_color(level);
+    const auto col = detail::risk_color(level);
     return window(
         hbox({
-            text(" ") | color,
+            text(" ") | ftxui::color(col),
             text(std::string{detail::risk_icon(level)}),
-            text(tu::get_risk_title(level)) | bold | color,
+            text(tu::get_risk_title(level)) | bold | ftxui::color(col),
             text(" "),
         }),
         vbox(std::move(body)) | xflex
-    ) | color | size(WIDTH, LESS_THAN, 86);
+    ) | ftxui::color(col) | size(WIDTH, LESS_THAN, 86);
 }
 
 // =========================================================================

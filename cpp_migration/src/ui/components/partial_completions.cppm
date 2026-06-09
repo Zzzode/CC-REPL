@@ -168,7 +168,7 @@ inline void flatten_filtered(const TreeSelectNode& n,
         else
             row.push_back(text("  "));
         if (node->icon) row.push_back(text(*node->icon + " "));
-        row.push_back(text(check_glyph(node->state)) |
+        row.push_back(text(std::string{check_glyph(node->state)}) |
             color(node->state == CheckState::Checked   ? Color::Green :
                   node->state == CheckState::Partial   ? Color::Yellow :
                                                          Color::GrayDark));
@@ -221,18 +221,22 @@ inline Component MakeTreeSelect(TreeSelectNode root,
             st->cbs.on_state_change(node->id, node->state);
     };
 
-    auto rec_expand = [](TreeSelectNode& n, bool ex) {
+    using RecExpandFn = std::function<void(TreeSelectNode&, bool)>;
+    auto rec_expand = std::make_shared<RecExpandFn>();
+    *rec_expand = [rec_expand](TreeSelectNode& n, bool ex) {
         if (n.kind == TreeSelectNode::Kind::Folder ||
             n.kind == TreeSelectNode::Kind::Root)
             n.expanded = ex;
-        for (auto& c : n.children) rec_expand(c, ex);
+        for (auto& c : n.children) (*rec_expand)(c, ex);
     };
 
-    auto collect = [](const TreeSelectNode& n,
-                      std::vector<std::string>& ids) {
+    using CollectFn = std::function<void(const TreeSelectNode&, std::vector<std::string>&)>;
+    auto collect = std::make_shared<CollectFn>();
+    *collect = [collect](const TreeSelectNode& n,
+                         std::vector<std::string>& ids) {
         if (n.selectable && n.state == CheckState::Checked)
             ids.push_back(n.id);
-        for (auto& c : n.children) collect(c, ids);
+        for (auto& c : n.children) (*collect)(c, ids);
     };
 
     auto list = Renderer([st, flat] {
@@ -280,7 +284,7 @@ inline Component MakeTreeSelect(TreeSelectNode root,
             else
                 row.push_back(text("  "));
             if (node->icon) row.push_back(text(*node->icon + " "));
-            row.push_back(text(check_glyph(node->state)) |
+            row.push_back(text(std::string{check_glyph(node->state)}) |
                 color(node->state == CheckState::Checked ? Color::Green :
                       node->state == CheckState::Partial ? Color::Yellow :
                                                              Color::GrayDark));
@@ -365,13 +369,13 @@ inline Component MakeTreeSelect(TreeSelectNode root,
         if (e == Event::Return) {
             toggle(mcur);
             std::vector<std::string> ids;
-            collect(st->root, ids);
+            (*collect)(st->root, ids);
             if (st->cbs.on_submit) st->cbs.on_submit(std::move(ids));
             return true;
         }
         if (e == Event::Character('*')) {
             if (cur->kind == TreeSelectNode::Kind::Folder)
-                rec_expand(*mcur, true);
+                (*rec_expand)(*mcur, true);
             return true;
         }
         if (e == Event::Character('a')) {

@@ -21,6 +21,8 @@ module;
 
 export module cc.ui.messages.message_advisor;
 
+import cc.ui.messages.message_components;
+
 export namespace cc::ui::messages {
 
 using namespace ftxui;
@@ -91,22 +93,38 @@ class AdvisorMessageComponent : public ComponentBase {
         : msg_(std::move(msg)),
           on_dismiss_(std::move(on_dismiss)),
           on_action_(std::move(on_action)),
-          dismissed_(false) {}
+          dismissed_(false)
+    {
+        if (on_dismiss_) {
+            dismiss_btn_ = Button(" ✕ ", [this] {
+                dismissed_ = true;
+                if (on_dismiss_) on_dismiss_();
+            }) | dim;
+            Add(dismiss_btn_);
+        }
+        if (on_action_ && msg_.action_label) {
+            auto accent = std::get<2>(SeverityPalette(msg_.severity));
+            action_btn_ = Button(" → " + *msg_.action_label + " ", [this] {
+                if (on_action_) on_action_();
+            }) | color(accent);
+            Add(action_btn_);
+        }
+    }
 
     Element Render() override {
         if (dismissed_) return text("") | size(HEIGHT, EQUAL, 0);
 
         auto [icon, title, accent] = SeverityPalette(msg_.severity);
 
+        Element dismiss_el = on_dismiss_ && dismiss_btn_
+                                 ? dismiss_btn_->Render()
+                                 : text("");
         auto header = hbox({
             text(std::string(icon) + " ") | color(accent),
             text(std::string(title) + "  ") | bold | color(accent),
             text(msg_.content) | flex,
             filler(),
-            on_dismiss_ ? button(" ✕ ", [this] {
-                dismissed_ = true;
-                if (on_dismiss_) on_dismiss_();
-            }) | dim : text(""),
+            dismiss_el,
         });
 
         Elements extras;
@@ -115,12 +133,10 @@ class AdvisorMessageComponent : public ComponentBase {
                                  | dim | color(Color::GrayDark));
         }
         if (msg_.action_label) {
-            auto act = on_action_
-                ? button(" → " + *msg_.action_label + " ", [this] {
-                    if (on_action_) on_action_();
-                  }) | color(accent)
+            Element act_el = action_btn_
+                ? action_btn_->Render()
                 : text(" → " + *msg_.action_label) | dim | color(accent);
-            extras.push_back(hbox({ text("  "), act }));
+            extras.push_back(hbox({ text("  "), act_el }));
         }
 
         Elements rows;
@@ -128,9 +144,12 @@ class AdvisorMessageComponent : public ComponentBase {
         for (auto& e : extras) rows.push_back(std::move(e));
 
         // Light-colored background to make the tip "pop"
-        Color bg = (msg_.severity == AdvisorSeverity::Error) ? Color::RedDark
-                 : (msg_.severity == AdvisorSeverity::Warning) ? Color::Yellow
-                 : Color::Blue;  // dark-ish cyan
+        Color bg = Color::Blue;
+        switch (msg_.severity) {
+            case AdvisorSeverity::Error:   bg = Color(Color::DarkRed); break;
+            case AdvisorSeverity::Warning: bg = Color(Color::Yellow);  break;
+            default: break;
+        }
         (void)bg;
         return vbox(std::move(rows))
              | borderStyled(BorderStyle::ROUNDED, accent)
@@ -156,6 +175,8 @@ class AdvisorMessageComponent : public ComponentBase {
     OnDismissFn on_dismiss_;
     OnActionFn  on_action_;
     bool dismissed_;
+    Component dismiss_btn_;
+    Component action_btn_;
 };
 
 [[nodiscard]] inline Component MakeAdvisorMessage(

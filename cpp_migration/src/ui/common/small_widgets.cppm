@@ -144,7 +144,7 @@ struct OrderedListEntry {
     // FTXUI's `link` decorator wraps text with OSC 8 sequences automatically.
     try {
         const auto p = std::filesystem::path(file_path);
-        return text(shown) | link("file://" + p.string()) | color(Color::Cyan);
+        return text(shown) | hyperlink("file://" + p.string()) | color(Color::Cyan);
     } catch (...) {
         return text(shown) | color(Color::Cyan);
     }
@@ -238,7 +238,7 @@ struct MessageModelInfo {
             text("User rejected Claude's plan:") | color(Color::GrayLight),
             vbox({
                 std::move(rendered_plan_body),
-            }) | borderRounded | borderColor(Color::Purple4Bit) |
+            }) | borderRounded | color(Color::Purple4) |
                size(WIDTH, GREATER_THAN, 40),
         }));
 }

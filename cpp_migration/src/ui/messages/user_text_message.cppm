@@ -81,7 +81,7 @@ class UserTextMessageComponent : public ComponentBase {
             hbox({
                 filler(),
                 vbox(std::move(bubble_body))
-                    | bgcolor(hovered_ ? Color::BlueDark : Color::Default)
+                    | (hovered_ ? bgcolor(Color::DarkBlue) : nothing)
                     | flex_shrink,
             }),
         });

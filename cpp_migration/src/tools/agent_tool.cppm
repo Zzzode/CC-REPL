@@ -3478,7 +3478,7 @@ inline void hydrate_resume_plan_from_existing_record(AgentExecutionPlan& plan) {
         plan.system_prompt = *request.parent_system_prompt;
         plan.system_prompt_overridden = true;
     }
-    plan.preloaded_skill_messages = load_preloaded_skill_messages(*definition);
+    plan.preloaded_skill_messages = load_preloaded_skill_messages(definition);
     plan.agent_mcp_servers = definition.mcp_servers;
     for (const auto& inline_config : definition.inline_mcp_servers) {
         append_unique_agent_mcp_server(plan.agent_mcp_servers, inline_config.name);

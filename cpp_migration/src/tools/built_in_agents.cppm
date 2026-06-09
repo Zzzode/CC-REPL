@@ -1,5 +1,6 @@
 module;
 #include <cstdlib>
+#include <format>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -425,11 +426,11 @@ Good:
 ### Check: POST /api/register rejects short password
 **Command run:**
   curl -s -X POST localhost:8000/api/register -H 'Content-Type: application/json' \
-    -d '{"email":"t@t.co","password":"short"}' | python3 -m json.tool
+    -d '{{"email":"t@t.co","password":"short"}}' | python3 -m json.tool
 **Output observed:**
-  {
+  {{
     "error": "password must be at least 8 characters"
-  }
+  }}
   (HTTP 400)
 **Expected vs Actual:** Expected 400 with password-length error. Got exactly that.
 **Result: PASS**

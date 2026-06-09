@@ -29,10 +29,13 @@
 
 module;
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <cstdlib>
+#include <expected>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <functional>
 #include <iterator>
@@ -230,7 +233,8 @@ private:
            << "Installed: " << installed.size() << " plugin"
            << (installed.size() == 1 ? "" : "s") << "\n"
            << "Enabled:   "
-           << std::ranges::count_if(installed, &PluginInfo::enabled) << "\n\n"
+           << std::count_if(installed.begin(), installed.end(),
+                            [](const PluginInfo& p){ return p.enabled; }) << "\n\n"
            << "Run /plugin help for the full list of subcommands.\n\n"
            << "Hint: run without arguments in interactive mode to open the\n"
            << "      tabbed plugin settings (TUI — Phase 4).\n"
@@ -283,7 +287,7 @@ private:
             auto r = cc::utils::plugins::install_plugin(plugin_id, opts);
             if (!r) {
                 return CommandResult::fail(
-                    "Install failed for '" + plugin_id + "': " + r.error().message
+                    "Install failed for '" + plugin_id + "': " + r.error()
                 );
             }
             std::ostringstream os;
@@ -382,7 +386,7 @@ private:
             if (!r) {
                 return CommandResult::fail(
                     std::string{enable ? "Enable" : "Disable"}
-                        + " failed for '" + id + "': " + r.error().message
+                        + " failed for '" + id + "': " + r.error()
                 );
             }
         } catch (const std::exception& e) {
@@ -619,7 +623,8 @@ private:
 
             plugins.push_back(std::move(info));
         }
-        std::ranges::sort(plugins, {}, &PluginInfo::name);
+        std::ranges::sort(plugins,
+            [](const PluginInfo& a, const PluginInfo& b){ return a.name < b.name; });
         return plugins;
     }
 };

@@ -113,7 +113,7 @@ public:
         double hue = std::fmod(static_cast<double>(ms) / sweep_ms_ * 360.0, 360.0);
         auto c = hue_to_rgb(hue);
         // fade to settled grey at the end
-        constexpr auto settled = Color::RGB(153, 153, 153);
+        const auto settled = Color::RGB(153, 153, 153);
         if (t > 0.85) {
             double fade = (t - 0.85) / 0.15;
             c = interpolate(c, settled, fade);

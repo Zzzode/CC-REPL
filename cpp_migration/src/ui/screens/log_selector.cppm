@@ -258,6 +258,27 @@ struct LogSelectorOptions {
 // 3. Small helpers — time / text / search
 // =========================================================================
 
+// CSS-style padding decorator.
+inline ftxui::Decorator padding(int top, int right, int bottom, int left) {
+    using namespace ftxui;
+    return [=](Element e) -> Element {
+        Elements rows;
+        for (int i = 0; i < top; ++i) rows.push_back(text(""));
+        {
+            Elements lp, rp;
+            for (int i = 0; i < left; ++i) lp.push_back(text(" "));
+            for (int i = 0; i < right; ++i) rp.push_back(text(" "));
+            rows.push_back(hbox({hbox(std::move(lp)), std::move(e), hbox(std::move(rp))}));
+        }
+        for (int i = 0; i < bottom; ++i) rows.push_back(text(""));
+        return vbox(std::move(rows));
+    };
+}
+inline ftxui::Decorator padding(int all) { return padding(all, all, all, all); }
+inline ftxui::Decorator padding(int horizontal, int vertical) {
+    return padding(vertical, horizontal, vertical, horizontal);
+}
+
 [[nodiscard]] inline std::string truncate(std::string_view s, std::size_t max) {
     if (s.size() <= max) return std::string{s};
     if (max <= 3) return std::string{s.substr(0, max)};
@@ -350,13 +371,13 @@ struct LogSelectorOptions {
 //    log_selector remains a self-contained P0 module.
 // =========================================================================
 namespace ui19_style {
-    constexpr Color kGreen  = Color::Green;
-    constexpr Color kBlue   = Color::Blue;
-    constexpr Color kCyan   = Color::Cyan;
-    constexpr Color kYellow = Color::Yellow;
-    constexpr Color kRed    = Color::Red;
-    constexpr Color kDim    = Color::GrayLight;
-    constexpr Color kFg     = Color::White;
+    const Color kGreen  = Color::Green;
+    const Color kBlue   = Color::Blue;
+    const Color kCyan   = Color::Cyan;
+    const Color kYellow = Color::Yellow;
+    const Color kRed    = Color::Red;
+    const Color kDim    = Color::GrayLight;
+    const Color kFg     = Color::White;
 
     /// Identical Element layout to resume_screen::RenderSessionCard.
     /// Uses SessionLogEntry instead of SessionMetaRow — fields are 1:1.
@@ -513,6 +534,9 @@ inline Status primary_status_for_tab(Tab t) {
 }
 
 /// Recompute `view` for tab views that render a flat list.
+// Forward declarations for helpers called inside refresh_view.
+inline void refresh_archive_groups(SelectorState& s);
+inline void rebuild_project_cursor(SelectorState& s);
 inline void refresh_view(SelectorState& s) {
     s.view.clear();
     if (s.tab == Tab::Projects) { refresh_archive_groups(s); rebuild_project_cursor(s); return; }
@@ -651,8 +675,9 @@ inline void SelectorState_rebuild_project_cursor(SelectorState& /*s*/) {
     // Tabs
     for (const auto& r : rows) {
         const bool sel = (s.tab == r.t);
+        Color chev_col = sel ? Color(Color::Green) : Color(Color::Default);
         Element line = hbox({
-            text(sel ? "▶ " : "  ") | color(sel ? Color::Green : Color::Default),
+            text(sel ? "▶ " : "  ") | color(chev_col),
             text(std::string{tab_icon(r.t)}) | dim,
             text(" ") | dim,
             text(std::string{to_string(r.t)})
@@ -877,12 +902,13 @@ struct ChipDef {
             s.collapsed_projects.begin(), s.collapsed_projects.end(),
             [&](const auto& n) { return n == p.name; });
         const bool header_focus = (flat_index == s.project_cursor);
+        Color hdr_fg = header_focus ? Color(Color::Green) : Color(Color::Default);
 
         // Group header
         {
             Element hdr = hbox({
                 text(header_focus ? "▶ " : "  ")
-                    | color(header_focus ? Color::Green : Color::Default),
+                    | color(hdr_fg),
                 text(is_collapsed ? "▸ " : "▾ ")
                     | color(Color::Cyan) | bold,
                 text("📁 ") | dim,
@@ -939,9 +965,10 @@ struct ChipDef {
     std::size_t flat = 0;
     for (const auto& [month, rows] : s.archive_groups) {
         const bool hdr_sel = (flat == s.archive_cursor);
+        Color hdr_col = hdr_sel ? Color(Color::Green) : Color(Color::Default);
         cards.push_back(hbox({
             text(hdr_sel ? "▶ " : "  ")
-                | color(hdr_sel ? Color::Green : Color::Default),
+                | color(hdr_col),
             text(" 📅 ") | dim,
             text(month) | bold | color(Color::Yellow),
             text(std::format(" ({} entries)", rows.size())) | dim,
@@ -1300,10 +1327,12 @@ inline void toggle_selected_range(SelectorState& s,
                     (ids.size() > 10 ? RiskLevel::Medium : RiskLevel::Low);
     tu::RiskSummary summary;
     summary.level = p.forced_level;
-    summary.action_summary = std::format(
-        purge ? "You are about to PERMANENTLY purge {} session(s)."
-              : "You are about to soft-delete {} session(s).",
-        ids.size());
+    std::string fmt_template = purge
+        ? "You are about to PERMANENTLY purge {} session(s)."
+        : "You are about to soft-delete {} session(s).";
+    const auto n_ids = static_cast<unsigned long>(ids.size());
+    summary.action_summary = std::vformat(
+        fmt_template, std::make_format_args(n_ids));
     summary.risk_factors.push_back(
         purge ? "Action is irreversible.  5-second countdown enforced."
               : "Sessions move to Trash and will be auto-purged in 30 days.");
@@ -1450,7 +1479,7 @@ inline bool HandleEvents(SelectorState& s, Event event) {
     // ──────────────────────────────────────────────────────────────────
     // Select-all + clear selection + visual mode
     // ──────────────────────────────────────────────────────────────────
-    if (event == Event::CtrlA) {
+    if (event == Event::Special({1})) {
         s.selected_ids.clear();
         for (const auto& e : s.all_sessions) {
             // Only include entries that match the current tab semantics.

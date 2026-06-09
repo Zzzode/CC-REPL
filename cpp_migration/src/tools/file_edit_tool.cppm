@@ -209,7 +209,7 @@ public:
     void set_allowed_directories(std::vector<std::string> dirs) {
         allowed_directories_ = std::move(dirs);
     }
-    void set_file_read_cache(FileReadCache* cache) { cache_ = cache; }
+    void set_file_read_cache(utils::FileReadCache* cache) { cache_ = cache; }
     ReadFileState& read_file_state() { return read_state_; }
     const ReadFileState& read_file_state() const { return read_state_; }
 
@@ -373,7 +373,9 @@ public:
         }
 
         // migrated: errorCode=5 — .ipynb → use NotebookEditTool
-        auto lower = to_lower(full_path.extension().string());
+        std::string lower = full_path.extension().string();
+        std::transform(lower.begin(), lower.end(), lower.begin(),
+            [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
         if (lower == ".ipynb") {
             return ValidationOutcome::ask(
                 "File is a Jupyter Notebook. Use the NotebookEdit tool to edit this file.",
@@ -539,7 +541,7 @@ public:
         auto write_ec = write_text_content(abs_path, patch_result.updated_file,
             read.encoding, read.line_endings);
         if (write_ec) {
-            cr.error_what = std::format("Write failed: {}", write_ec->message());
+            cr.error_what = std::format("Write failed: {}", write_ec.message());
             return cr;
         }
 
@@ -608,12 +610,12 @@ public:
             return ToolResult::error(std::format(
                 "[FileEditTool:{}] {}", static_cast<int>(v.code), v.message));
         }
-        auto cr = call(*parsed, input.user_modified());
+        auto cr = call(*parsed, false /* user_modified: not available in compat execute() */);
         if (!cr.error_what.empty()) {
             return ToolResult::error(std::format(
                 "[FileEditTool] {}", cr.error_what));
         }
-        auto content = format_tool_result_block(cr.output, input.tool_use_id());
+        auto content = format_tool_result_block(cr.output, "" /* tool_use_id: not available in compat execute() */);
         return ToolResult::success(content);
     }
 
@@ -623,7 +625,11 @@ private:
         std::error_code ec;
         auto ft = fs::last_write_time(p, ec);
         if (ec) return std::chrono::system_clock::time_point{};
-        return std::chrono::clock_cast<std::chrono::system_clock>(ft);
+        // libc++ on Apple Clang lacks std::chrono::clock_cast — approximate using time delta.
+        using FileClock = std::filesystem::file_time_type::clock;
+        auto delta = ft - FileClock::now();
+        return std::chrono::system_clock::now() +
+            std::chrono::duration_cast<std::chrono::system_clock::duration>(delta);
     }
 
     static std::string expand_path(std::string_view p) {
@@ -691,7 +697,7 @@ private:
     // ---- fields --------------------------------------------------------
     std::vector<std::string> allowed_directories_;
     ReadFileState read_state_;
-    FileReadCache* cache_ = nullptr;
+    utils::FileReadCache* cache_ = nullptr;
 
     FileHistoryHook   file_history_;
     LspNotifyHook     lsp_change_;

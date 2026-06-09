@@ -142,7 +142,7 @@ struct InstallGitHubAppContext {
 // ============================================================
 // Pure helpers – not exported, used by validate/advance.
 // ============================================================
-namespace {
+namespace detail {
 
 /// Accept "owner/repo" or a full https/ssh GitHub URL.
 [[nodiscard]] bool is_valid_repo_ref(std::string_view s) {
@@ -192,7 +192,7 @@ namespace {
 // can still partially complete") are reported as Warning entries on the
 // context itself – not through this function.
 // ============================================================
-[[nodiscard]] export std::vector<Error> validate(Step step,
+[[nodiscard]] std::vector<Error> validate(Step step,
                                                  const InstallGitHubAppContext& ctx) {
     std::vector<Error> errs;
 
@@ -215,7 +215,7 @@ namespace {
                     errs.push_back(Error::make(
                         ErrorCode::InvalidInput,
                         "Could not detect the current repo from working directory."));
-                } else if (!is_valid_repo_ref(ctx.current_repo)) {
+                } else if (!detail::is_valid_repo_ref(ctx.current_repo)) {
                     errs.push_back(Error::make(
                         ErrorCode::InvalidInput,
                         std::format("Detected repo '{}' is not a valid owner/repo reference.",
@@ -226,7 +226,7 @@ namespace {
                     errs.push_back(Error::make(
                         ErrorCode::InvalidInput,
                         "Repository name is required."));
-                } else if (!is_valid_repo_ref(ctx.selected_repo_name)) {
+                } else if (!detail::is_valid_repo_ref(ctx.selected_repo_name)) {
                     errs.push_back(Error::make(
                         ErrorCode::InvalidInput,
                         std::format("'{}' is not a valid GitHub repo reference "
@@ -248,7 +248,7 @@ namespace {
             break;
 
         case Step::SelectWorkflows:
-            if (!has_any_workflow_selected(ctx)) {
+            if (!detail::has_any_workflow_selected(ctx)) {
                 errs.push_back(Error::make(
                     ErrorCode::InvalidInput,
                     "At least one workflow must be selected."));
@@ -256,7 +256,7 @@ namespace {
             break;
 
         case Step::CheckExistingSecret:
-            if (!ctx.use_existing_secret && !is_valid_secret_name(ctx.secret_name)) {
+            if (!ctx.use_existing_secret && !detail::is_valid_secret_name(ctx.secret_name)) {
                 errs.push_back(Error::make(
                     ErrorCode::InvalidInput,
                     std::format("Secret name '{}' is invalid: must match "
@@ -267,7 +267,7 @@ namespace {
         case Step::ApiKey:
             switch (ctx.selected_api_key_option) {
                 case ApiKeyOption::ExistingLocal:
-                    if (!is_plausible_api_key(ctx.local_api_key)) {
+                    if (!detail::is_plausible_api_key(ctx.local_api_key)) {
                         errs.push_back(Error::make(
                             ErrorCode::InvalidInput,
                             "No valid local API key is available. "
@@ -275,7 +275,7 @@ namespace {
                     }
                     break;
                 case ApiKeyOption::NewManual:
-                    if (!is_plausible_api_key(ctx.manual_api_key)) {
+                    if (!detail::is_plausible_api_key(ctx.manual_api_key)) {
                         errs.push_back(Error::make(
                             ErrorCode::InvalidInput,
                             "The API key does not look valid "
@@ -340,7 +340,7 @@ namespace {
 //   * Creating:   execute each ProgressStep (gh secret set, write workflow
 //                 yml files to disk, commit if requested, push).
 // ============================================================
-[[nodiscard]] export Step advance(Step step,
+[[nodiscard]] Step advance(Step step,
                                   const InstallGitHubAppContext& ctx,
                                   std::string_view user_input) {
     (void)user_input;
@@ -448,7 +448,7 @@ namespace {
 //
 // Short human-readable headline shown in the wizard header / breadcrumbs.
 // ============================================================
-[[nodiscard]] export std::string_view step_description(Step step) noexcept {
+[[nodiscard]] std::string_view step_description(Step step) noexcept {
     switch (step) {
         case Step::CheckGitHub:          return "Checking GitHub CLI";
         case Step::Warnings:             return "Preflight warnings";

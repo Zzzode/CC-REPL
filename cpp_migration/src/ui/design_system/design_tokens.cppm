@@ -127,8 +127,8 @@ struct Palette {
 namespace palette {
 
 // rgb(215,119,87) — Claude's canonical "clawd" orange
-inline constexpr auto CLAWDED      = ftxui::Color::RGB(215, 119,  87);
-inline constexpr auto CLAWDED_SHIM = ftxui::Color::RGB(232, 164, 134);
+inline const auto CLAWDED      = ftxui::Color::RGB(215, 119,  87);
+inline const auto CLAWDED_SHIM = ftxui::Color::RGB(232, 164, 134);
 
 inline const Palette dark = {
     .primary             = CLAWDED,

@@ -120,7 +120,7 @@ struct LangIndicator {
     std::vector<std::string_view> markers; // filename or suffix (".xxx")
 };
 
-constexpr std::array<LangIndicator, 8> LANGUAGE_INDICATORS{{
+const std::array<LangIndicator, 8> LANGUAGE_INDICATORS{{
     {DetectedLanguage::Python,     {".py", "requirements.txt", "pyproject.toml", "setup.py", "Pipfile"}},
     {DetectedLanguage::TypeScript, {".ts", ".tsx", "tsconfig.json", "package.json"}},
     {DetectedLanguage::Java,       {".java", "pom.xml", "build.gradle"}},

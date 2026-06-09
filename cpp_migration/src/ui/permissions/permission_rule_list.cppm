@@ -141,7 +141,7 @@ namespace detail {
         {"g5", "Workspace",  "5", "⚑", Color::Blue},
         {"g6", "Custom A",   "6", "A", Color::Magenta},
         {"g7", "Custom B",   "7", "B", Color::MagentaLight},
-        {"g8", "Custom C",   "8", "C", Color::PurpleLight1},
+        {"g8", "Custom C",   "8", "C", Color::Purple4},
     }};
 }
 
@@ -333,7 +333,6 @@ namespace render {
         text("  Groups ") | bold | color(Color::Cyan),
         filler(), text("(g1..g8) ") | dim,
     }));
-    );
     rows.push_back(pc::ThinDivider());
 
     const auto& groups = st.input.groups;
@@ -364,7 +363,7 @@ namespace render {
         };
         auto row = hbox(std::move(cells))
                  | size(WIDTH, EQUAL, detail::kLeftColWidth - 2);
-        if (focus)  row = row | inverted | focus;
+        if (focus)  row = row | inverted | ftxui::focus;
         if (active) row = row | bgcolor(Color::RGB(28, 34, 46));
         rows.push_back(std::move(row));
     }
@@ -830,7 +829,7 @@ namespace render {
     static constexpr std::array<std::string_view, 4> kLabels = {
         "+ New rule", "⤴ Import", "⤵ Export", "⎺ JSON diff"
     };
-    static constexpr std::array<Color, 4> kColors = {
+    static const std::array<Color, 4> kColors = {
         Color::Green, Color::Blue, Color::Cyan, Color::Magenta
     };
     Elements cells;
@@ -839,8 +838,9 @@ namespace render {
         const bool hovered = (st.focus == FocusZone::Toolbar &&
                               st.toolbar_cursor == i);
         auto chip = text(std::format(" {} ", kLabels[i]))
-                  | color(kColors[i])
-                  | (hovered ? (bold | inverted) : dim);
+                  | color(kColors[i]);
+        if (hovered) chip = chip | bold | inverted;
+        else         chip = chip | dim;
         cells.push_back(std::move(chip));
         if (i < 3) cells.push_back(text("   "));
     }
@@ -1238,6 +1238,13 @@ inline bool HandleSearch(RuleListState& st, Event e) {
 inline bool HandleRules(RuleListState& st, Event e) {
     const std::size_t N = st.filtered.size();
 
+    auto has_shift = [](const Event& ev) {
+        const std::string& s = ev.input();
+        return s.size() >= 5 &&
+               s.substr(0, 5) == "\x1B[1;" &&
+               s.find(";2") != std::string::npos;
+    };
+
     if (st.search_focused) return HandleSearch(st, e);
     if (e == Event::Character('/')) {
         st.search_focused = true; return true;
@@ -1278,9 +1285,20 @@ inline bool HandleRules(RuleListState& st, Event e) {
         if (!st.anchor_index) st.anchor_index = st.rule_cursor;
         return true;
     }
-    if (e.shift() && (e == Event::ArrowDown || e == Event::ArrowUp)) {
+    auto matches_arrow_with_shift = [](const Event& ev, const Event& base) {
+        if (ev == base) return true;
+        const std::string& s = ev.input();
+        const std::string& b = base.input();
+        // Shift+Arrow:  \x1B[A/B/C/D  →  \x1B[1;2X
+        return b.size() == 3 && b.substr(0, 2) == "\x1B[" &&
+               s.size() == 7 && s.substr(0, 5) == "\x1B[1;" &&
+               s[5] == '2' && s.back() == b.back();
+    };
+
+    if (has_shift(e) && (matches_arrow_with_shift(e, Event::ArrowDown) ||
+                         matches_arrow_with_shift(e, Event::ArrowUp))) {
         if (N == 0) return true;
-        if (e == Event::ArrowDown)
+        if (matches_arrow_with_shift(e, Event::ArrowDown))
             st.rule_cursor = std::min(N - 1, st.rule_cursor + 1);
         else
             st.rule_cursor = st.rule_cursor ? st.rule_cursor - 1 : 0;
@@ -1346,7 +1364,7 @@ inline bool HandleEditor(RuleListState& st, Event e) {
 
     if (e.is_character()) {
         auto c = e.character();
-        if (c == "\b"_utf8 || c == "\x7f"_utf8) {
+        if (c == "\b" || c == "\x7f") {
             if (!st.editor.description_buf.empty())
                 st.editor.description_buf.pop_back();
             st.editor.dirty = true;

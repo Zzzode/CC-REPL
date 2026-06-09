@@ -8,7 +8,7 @@ module;
 
 export module cc.tools.utils;
 
-import cc.types.message;
+import cc.types.types;
 
 export namespace cc::tools {
 

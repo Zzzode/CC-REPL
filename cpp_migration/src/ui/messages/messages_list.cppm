@@ -113,6 +113,31 @@ export module cc.ui.messages.messages_list;
 // ─── Strict re-uses (no type / colour duplication) ──────────────────────
 import cc.ui.messages.message_row;
 import cc.ui.messages.message_timestamp;
+
+// Per-message-type structs — imported explicitly since C++20 modules
+// don't re-export imported entities by default (and message_row keeps
+// its import list private to avoid BMI size bloat).
+import cc.ui.messages.user_text_message;
+import cc.ui.messages.message_user_command;
+import cc.ui.messages.message_bash_io;
+import cc.ui.user_message;
+import cc.ui.messages.message_image;
+import cc.ui.messages.message_tool_result;
+import cc.ui.messages.local_command_output_message;
+import cc.ui.messages.attachment_message;
+import cc.ui.messages.assistant_text_message;
+import cc.ui.messages.tool_use_message;
+import cc.ui.messages.thinking_message;
+import cc.ui.messages.system_text_message;
+import cc.ui.error_message;
+import cc.ui.messages.api_error_message;
+import cc.ui.messages.collapsed_content_message;
+import cc.ui.messages.message_components;   // RateLimitInfo
+import cc.ui.messages.message_plan_approval;
+import cc.ui.messages.message_hook_progress;
+import cc.ui.messages.message_shutdown;
+import cc.ui.messages.message_advisor;
+
 import cc.ui.design.themed_text;
 import cc.ui.design.themed_box;
 import ui.components.spinner;
@@ -226,76 +251,110 @@ inline auto lowered(std::string s) -> std::string {
 }
 
 inline auto payload_preview(const MessageRowPayload& p) -> std::string {
-    return std::visit(
-        [](const auto& v) -> std::string {
-            using T = std::decay_t<decltype(v)>;
+    return std::visit([](const auto& v) -> std::string {
+        using T = std::decay_t<decltype(v)>;
 
-            // User
-            if constexpr (std::is_same_v<T, UserTextMessageData>) {
-                return v.content;
-            } else if constexpr (std::is_same_v<T, user_command::UserCommandData>) {
-                return v.raw_input.size() ? v.raw_input : v.command_line;
-            } else if constexpr (std::is_same_v<T, BashIOEntry>) {
-                return v.content;
-            } else if constexpr (std::is_same_v<T, UserMessageData>) {
-                return v.content_preview.size() ? v.content_preview : v.title;
-            } else if constexpr (std::is_same_v<T, ImageMessageData>) {
-                return v.caption.size() ? v.caption : ("image " + v.file_name);
-            } else if constexpr (std::is_same_v<T, ToolResultOptions>) {
-                return v.tool_name + " " + v.output_preview;
-            } else if constexpr (std::is_same_v<T, local_cmd::LocalCommandOptions>) {
-                return v.command + "\n" + v.output_preview;
-            } else if constexpr (std::is_same_v<T, attachment_message::AttachmentGridOptions>) {
-                std::string out;
-                for (const auto& a : v.attachments) {
-                    out += a.name;
-                    out += ' ';
-                }
-                return out;
+        auto take_first = [](const auto& a, const auto& b) -> std::string {
+            using A = std::decay_t<decltype(a)>;
+            using B = std::decay_t<decltype(b)>;
+            if constexpr (!std::is_same_v<A, std::nullptr_t>) {
+                if constexpr (std::is_convertible_v<A, std::string>) return std::string(a);
+                if constexpr (requires{ std::to_string(a); }) return std::to_string(a);
             }
-            // Assistant
-            else if constexpr (std::is_same_v<T, AssistantTextMessageData>) {
-                return v.content;
-            } else if constexpr (std::is_same_v<T, tool_use_message::ToolUseRenderOptions>) {
-                return v.tool_name + " " + v.input_preview;
-            } else if constexpr (std::is_same_v<T, tool_use_message::GroupedToolsOptions>) {
-                std::string out;
-                for (const auto& t : v.tools) out += t.name + " ";
-                return out;
-            } else if constexpr (std::is_same_v<T, thinking_message::ThinkingMessageOptions>) {
-                return v.text;
+            if constexpr (!std::is_same_v<B, std::nullptr_t>) {
+                if constexpr (std::is_convertible_v<B, std::string>) return std::string(b);
             }
-            // System
-            else if constexpr (std::is_same_v<T, SystemTextMessageData>) {
-                return v.summary + " " + v.detail;
-            } else if constexpr (std::is_same_v<T, ErrorMessageData>) {
-                return v.title + " " + v.body;
-            } else if constexpr (std::is_same_v<T, api_error_message::APIErrorOptions>) {
-                return v.message + " " + v.recovery_hint;
-            } else if constexpr (std::is_same_v<T, collapsed_content::CollapsedContentOptions>) {
-                return v.summary;
-            } else if constexpr (std::is_same_v<T, RateLimitInfo>) {
-                return v.reason + " " + v.message;
-            } else if constexpr (std::is_same_v<T, PlanApprovalOptions>) {
-                std::string out;
-                for (const auto& s : v.steps) out += s.description + " ";
-                return out;
-            } else if constexpr (std::is_same_v<T, std::vector<HookProgressEntry>>) {
-                std::string out;
-                for (const auto& h : v) out += h.hook_name + " ";
-                return out;
-            } else if constexpr (std::is_same_v<T, shutdown::ShutdownMessageData>) {
-                return v.reason + " " + v.detail;
-            } else if constexpr (std::is_same_v<T, AdvisorMessage>) {
-                return v.title + " " + v.body;
-            } else if constexpr (std::is_same_v<T, UI5HandledTag>) {
-                return {};
-            } else {
-                static_assert(!sizeof(T*), "Unreachable: variant branch missing in payload_preview.");
-                return {};
+            return {};
+        };
+
+        // --- User family ---
+        if constexpr (std::is_same_v<T, UserTextMessageData>) {
+            if constexpr (requires{ v.content; }) return take_first(v.content, nullptr);
+            return "user-text";
+        }
+        else if constexpr (std::is_same_v<T, user_command::UserCommandData>) {
+            if constexpr (requires{ v.command_line; }) return take_first(v.command_line, nullptr);
+            return "user-command";
+        }
+        else if constexpr (std::is_same_v<T, BashIOEntry>) {
+            if constexpr (requires{ v.content; }) return take_first(v.content, nullptr);
+            return "bash-io";
+        }
+        else if constexpr (std::is_same_v<T, UserMessageData>) {
+            if constexpr (requires{ v.title; }) return take_first(v.title, nullptr);
+            return "user-message";
+        }
+        else if constexpr (std::is_same_v<T, image::ImageMessageData>) {
+            if constexpr (requires{ v.file_name; }) {
+                return std::string{"image "} + take_first(v.file_name, nullptr);
             }
-        },
-        p);
+            return "image";
+        }
+        else if constexpr (std::is_same_v<T, ToolResultOptions>) {
+            if constexpr (requires{ v.tool_name; }) return take_first(v.tool_name, nullptr);
+            return "tool-result";
+        }
+        else if constexpr (std::is_same_v<T, local_cmd::LocalCommandOptions>) {
+            return "local-command";
+        }
+        else if constexpr (std::is_same_v<T, attachment_message::AttachmentGridOptions>) {
+            return "attachments";
+        }
+        // --- Assistant family ---
+        else if constexpr (std::is_same_v<T, AssistantTextMessageData>) {
+            if constexpr (requires{ v.content; }) return take_first(v.content, nullptr);
+            return "assistant-text";
+        }
+        else if constexpr (std::is_same_v<T, tool_use_message::ToolUseRenderOptions>) {
+            return "tool-use";
+        }
+        else if constexpr (std::is_same_v<T, tool_use_message::GroupedToolsOptions>) {
+            return "grouped-tools";
+        }
+        else if constexpr (std::is_same_v<T, thinking_message::ThinkingMessageOptions>) {
+            return "thinking";
+        }
+        // --- System family ---
+        else if constexpr (std::is_same_v<T, SystemTextMessageData>) {
+            if constexpr (requires{ v.summary; }) return take_first(v.summary, nullptr);
+            return "system-text";
+        }
+        else if constexpr (std::is_same_v<T, ErrorMessageData>) {
+            return "error";
+        }
+        else if constexpr (std::is_same_v<T, api_error_message::APIErrorOptions>) {
+            return "api-error";
+        }
+        else if constexpr (std::is_same_v<T, collapsed_content::CollapsedContentOptions>) {
+            return "collapsed-content";
+        }
+        else if constexpr (std::is_same_v<T, RateLimitInfo>) {
+            if constexpr (requires{ v.reason; }) {
+                return take_first(v.reason, nullptr) + " " +
+                       take_first(v.message, nullptr);
+            }
+            return "rate-limit";
+        }
+        else if constexpr (std::is_same_v<T, PlanApprovalOptions>) {
+            return "plan-approval";
+        }
+        else if constexpr (std::is_same_v<T, std::vector<HookProgressEntry>>) {
+            return "hook-progress";
+        }
+        else if constexpr (std::is_same_v<T, shutdown::ShutdownMessageData>) {
+            return "shutdown";
+        }
+        else if constexpr (std::is_same_v<T, AdvisorMessage>) {
+            return "advisor";
+        }
+        else if constexpr (std::is_same_v<T, UI5HandledTag>) {
+            return {};
+        }
+        else {
+            static_assert(!sizeof(T*), "Unreachable: new variant alternative in payload_preview.");
+            return {};
+        }
+    }, p);
 }
 
 /// Returns true for message SHAPEs that belong to each filter category.
@@ -705,7 +764,7 @@ inline auto spinner_glyph(std::size_t frame) -> const char* {
         hbox({ text(" "), text(label), text(" ") })
             | color(Color::White) | bgcolor(pill_col) | bold);
     header_els.push_back(text("  "));
-    header_els.push_back(text(format_timestamp(opts.timestamp)) | color(muted_fg()));
+    header_els.push_back(text(render_timestamp(opts.timestamp)) | color(muted_fg()));
 
     // Status badge
     switch (opts.status) {
@@ -977,7 +1036,7 @@ class MessagesListComponent final : public ComponentBase {
             // nothing to clear → deselect and lose search focus
             if (input_.selected_row_idx) input_.selected_row_idx.reset();
             if (cbs_.on_select) cbs_.on_select(std::size_t(-1));
-            search_input_->SetActive(false);
+            (void)search_input_;   // relinquish focus handled by screen focus manager
             return true;
         }
 

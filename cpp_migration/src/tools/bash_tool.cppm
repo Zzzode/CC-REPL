@@ -724,14 +724,14 @@ struct BackgroundTaskSnapshot {
         "echo", "tee", "sed", "awk", "touch", "mkdir", "rmdir", "cp", "mv", "ln"
     };
     if (kWriteCmds.contains(base_cmd)) {
-        if (destructive_command_warning::is_destructive_command(command)) {
+        if (cc::tools::bash_validation::is_destructive_command(command)) {
             return CommandType::Dangerous;
         }
         return CommandType::Write;
     }
 
     // (3) Check for dangerous patterns (uses regex table from Agent 3 module)
-    if (destructive_command_warning::is_destructive_command(command)) {
+    if (cc::tools::bash_validation::is_destructive_command(command)) {
         return CommandType::Dangerous;
     }
 

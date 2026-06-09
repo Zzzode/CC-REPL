@@ -72,13 +72,13 @@ class ResumeScreenImpl;
 // Design tokens  (aligned with Doctor screen UI18)
 // ===========================================================================
 namespace token {
-    constexpr Color kAccentGreen  = Color::Green;
-    constexpr Color kAccentBlue   = Color::Blue;
-    constexpr Color kAccentCyan   = Color::Cyan;
-    constexpr Color kAccentYellow = Color::Yellow;
-    constexpr Color kAccentRed    = Color::Red;
-    constexpr Color kDim          = Color::GrayLight;
-    constexpr Color kFg           = Color::White;
+    const Color kAccentGreen  = Color::Green;
+    const Color kAccentBlue   = Color::Blue;
+    const Color kAccentCyan   = Color::Cyan;
+    const Color kAccentYellow = Color::Yellow;
+    const Color kAccentRed    = Color::Red;
+    const Color kDim          = Color::GrayLight;
+    const Color kFg           = Color::White;
 
     constexpr std::string_view kIconWelcome    = "👋";
     constexpr std::string_view kIconSession    = "📝";
@@ -170,6 +170,23 @@ struct SessionMetaRow {
 // Helpers: text + time formatting
 // ===========================================================================
 
+// CSS-style padding decorator (same helper used across ui/messages modules).
+inline Decorator padding(int top, int right, int bottom, int left) {
+    return [=](Element e) -> Element {
+        Elements rows;
+        for (int i = 0; i < top; ++i) rows.push_back(text(""));
+        {
+            Elements lp, rp;
+            for (int i = 0; i < left; ++i) lp.push_back(text(" "));
+            for (int i = 0; i < right; ++i) rp.push_back(text(" "));
+            rows.push_back(hbox({hbox(std::move(lp)), std::move(e), hbox(std::move(rp))}));
+        }
+        for (int i = 0; i < bottom; ++i) rows.push_back(text(""));
+        return vbox(std::move(rows));
+    };
+}
+inline Decorator padding(int all) { return padding(all, all, all, all); }
+
 /// Truncate to `max` runes, adding ellipsis if truncation happened.
 [[nodiscard]] inline std::string truncate(const std::string& s, std::size_t max) {
     if (s.size() <= max) return s;
@@ -182,16 +199,16 @@ struct SessionMetaRow {
     std::chrono::system_clock::time_point tp)
 {
     using namespace std::chrono;
-    const auto now = system_clock::now();
+    const auto now = std::chrono::system_clock::now();
     const auto diff = duration_cast<minutes>(now - tp);
 
     if (diff.count() < 1)       return "just now";
     if (diff.count() < 60)      return std::format("{}m ago", diff.count());
 
-    const auto hours = duration_cast<hours>(diff);
-    if (hours.count() < 24)     return std::format("{}h ago", hours.count());
+    const auto h = duration_cast<hours>(diff);
+    if (h.count() < 24)     return std::format("{}h ago", h.count());
 
-    const auto days = hours.count() / 24;
+    const auto days = h.count() / 24;
     if (days < 7)               return std::format("{}d ago", days);
     if (days < 30)              return std::format("{}w ago", days / 7);
     if (days < 365)             return std::format("{}mo ago", days / 30);
@@ -202,7 +219,7 @@ struct SessionMetaRow {
 [[nodiscard]] inline std::string format_absolute_time(
     std::chrono::system_clock::time_point tp)
 {
-    const auto t = system_clock::to_time_t(tp);
+    const auto t = std::chrono::system_clock::to_time_t(tp);
     std::tm tm_buf{};
 #if defined(_WIN32)
     localtime_s(&tm_buf, &t);
@@ -640,7 +657,7 @@ struct RowViewState {
     // Sort dropdown label
     Element sort_el = hbox({
         text(std::string{token::kIconSort} + " ") | dim,
-        text(to_string(sort)) | bold | color(token::kAccentBlue),
+        text(std::string{to_string(sort)}) | bold | color(token::kAccentBlue),
         text(" [T]") | dim,
     }) | borderLight;
 
@@ -893,13 +910,13 @@ struct RoleBadge {
     body.push_back(separator());
 
     auto btn = [&](int idx, std::string_view icon, std::string_view label,
-                   Color col) -> Element
+                   Color c) -> Element
     {
         const bool sel = (idx == primary_selection);
         Elements p = {
-            text(sel ? "▶ " : "  ") | col,
-            text(std::string{icon} + " ") | (sel ? color(col) : dim),
-            text(std::string{label}) | (sel ? (bold | color(col)) : dim),
+            text(sel ? "▶ " : "  ") | color(c),
+            text(std::string{icon} + " ") | (sel ? color(c) : dim),
+            text(std::string{label}) | (sel ? (bold | color(c)) : dim),
             text(" "),
         };
         return hbox(std::move(p)) | (sel ? bgcolor(Color::RGB(20, 28, 38))

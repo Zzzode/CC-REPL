@@ -100,7 +100,37 @@ class PlanApprovalComponent : public ComponentBase {
         : opts_(std::move(opts)),
           on_approve_(std::move(on_approve)),
           on_modify_(std::move(on_modify)),
-          on_reject_(std::move(on_reject)) {}
+          on_reject_(std::move(on_reject))
+    {
+        if (opts_.state == PlanApprovalState::Pending) {
+            approve_btn_ = Button("  ✓ Approve  ", [this] {
+                if (on_approve_) {
+                    opts_.state = PlanApprovalState::Approved;
+                    on_approve_();
+                }
+            }) | color(Color::Green) | bold;
+            Add(approve_btn_);
+
+            modify_btn_ = Button("  ✎ Modify  ", [this] {
+                if (on_modify_) {
+                    opts_.state = PlanApprovalState::Modified;
+                    on_modify_(opts_.steps);
+                }
+            }) | color(Color::Cyan);
+            Add(modify_btn_);
+
+            reject_btn_ = Button("  ✕ Reject  ", [this] {
+                if (on_reject_) {
+                    opts_.state = PlanApprovalState::Rejected;
+                    opts_.rejection_reason = opts_.rejection_reason
+                        ? opts_.rejection_reason
+                        : std::optional<std::string>("User rejected plan");
+                    on_reject_(*opts_.rejection_reason);
+                }
+            }) | color(Color::Red);
+            Add(reject_btn_);
+        }
+    }
 
     Element Render() override {
         // State badge
@@ -168,32 +198,11 @@ class PlanApprovalComponent : public ComponentBase {
 
         // Buttons (only in Pending state)
         Elements actions;
-        if (opts_.state == PlanApprovalState::Pending) {
-            auto approve_btn = button("  ✓ Approve  ", [this] {
-                if (on_approve_) {
-                    opts_.state = PlanApprovalState::Approved;
-                    on_approve_();
-                }
-            }) | color(Color::Green) | bold;
-            auto modify_btn = button("  ✎ Modify  ", [this] {
-                if (on_modify_) {
-                    opts_.state = PlanApprovalState::Modified;
-                    on_modify_(opts_.steps);
-                }
-            }) | color(Color::Cyan);
-            auto reject_btn = button("  ✕ Reject  ", [this] {
-                if (on_reject_) {
-                    opts_.state = PlanApprovalState::Rejected;
-                    opts_.rejection_reason = opts_.rejection_reason
-                        ? opts_.rejection_reason
-                        : std::optional<std::string>("User rejected plan");
-                    on_reject_(*opts_.rejection_reason);
-                }
-            }) | color(Color::Red);
+        if (opts_.state == PlanApprovalState::Pending && approve_btn_) {
             actions.push_back(hbox({
-                std::move(approve_btn), text(" "),
-                std::move(modify_btn), text(" "),
-                std::move(reject_btn),
+                approve_btn_->Render(), text(" "),
+                modify_btn_->Render(), text(" "),
+                reject_btn_->Render(),
             }));
         }
 
@@ -252,6 +261,9 @@ class PlanApprovalComponent : public ComponentBase {
     OnApproveFn on_approve_;
     OnModifyFn  on_modify_;
     OnRejectFn  on_reject_;
+    Component approve_btn_;
+    Component modify_btn_;
+    Component reject_btn_;
 };
 
 [[nodiscard]] inline Component MakePlanApprovalMessage(

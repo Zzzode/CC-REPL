@@ -140,7 +140,9 @@ inline std::vector<std::string> generate_default_thumbnail(
         h ^= static_cast<std::uint32_t>(static_cast<unsigned char>(c));
         h *= 16777619u;
     }
-    static constexpr std::array<char, 6> shades = {' ', '░', '▒', '▓', '█', '▓'};
+    static constexpr std::array<std::string_view, 6> shades = {
+        " ", "░", "▒", "▓", "█", "▓"
+    };
     std::vector<std::string> out(rows);
     for (int y = 0; y < rows; ++y) {
         out[y].reserve(cols);
@@ -159,7 +161,7 @@ inline std::vector<std::string> generate_default_thumbnail(
                 }
                 default: s = s & 3; break;
             }
-            out[y].push_back(shades[s % shades.size()]);
+            out[y] += std::string{shades[s % shades.size()]};
         }
     }
     return out;

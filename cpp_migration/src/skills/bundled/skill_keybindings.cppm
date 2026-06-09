@@ -107,7 +107,9 @@ inline ReservedShortcut NON_REBINDABLE[] = {
     {"Ctrl+S",  "Terminal XOFF flow control (may be unavoidable)"},
     {"Ctrl+Q",  "Terminal XON flow control"},
 };
-inline ReservedShortcut TERMINAL_RESERVED[] = {
+/// Shortcut reserved for terminal conventions (warned about, not blocked).
+struct TerminalReservedShortcut { const char* key; const char* reason; const char* level; };
+inline TerminalReservedShortcut TERMINAL_RESERVED[] = {
     {"Ctrl+B",  "tmux default prefix key",              "warning"},
     {"Ctrl+A",  "GNU screen default prefix key",        "warning"},
     {"Ctrl+R",  "Terminal reverse history search",      "warning"},

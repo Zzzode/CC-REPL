@@ -11,6 +11,7 @@ module;
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <optional>
 #include <set>
 #include <string>

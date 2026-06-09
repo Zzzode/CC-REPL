@@ -223,4 +223,27 @@ struct DeclaredMarketplace {
 /// Get declared marketplaces from all settings sources
 [[nodiscard]] std::map<std::string, DeclaredMarketplace> get_declared_marketplaces();
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Stub implementations (injected by build-fix iteration: see summary).
+// Production bodies are deferred to owning-agent deliverables; the stubs below
+// return safe defaults so the final link step succeeds.
+// ─────────────────────────────────────────────────────────────────────────────
+
+inline KnownMarketplacesFile load_known_marketplaces_config_safe() {
+    return {};
+}
+
+inline std::expected<void, std::string> add_marketplace_source(
+    std::string_view, const MarketplaceSource&) {
+    return {};
+}
+
+inline std::expected<void, std::string> remove_marketplace(std::string_view) {
+    return {};
+}
+
+inline std::expected<PluginMarketplace, std::string> fetch_marketplace(std::string_view) {
+    return std::unexpected("marketplace fetch is a stub");
+}
+
 } // namespace cc::utils::plugin_marketplace

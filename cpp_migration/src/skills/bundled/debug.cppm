@@ -216,7 +216,7 @@ struct ExtractPattern {
 inline constexpr std::array<ExtractPattern, 12> EXTRACT_PATTERNS = {{
     // Python: File "x.py", line N, in func\nTypeError: msg
     {FailureType::RuntimeError,
-     R"(File\s+"([^"]+)",\s+line\s+(\d+)(?:[^]*?)\n\s*(?:\w+Error|\w+Exception):\s*([^\n]+))",
+     R"RX(File\s+"([^"]+)",\s+line\s+(\d+)[\s\S]*?\n\s*(?:\w+Error|\w+Exception):\s*([^\n]+))RX",
      3, 1, 2},
     // JS/TS stack: at func (file.js:123:45) then Error: msg
     {FailureType::RuntimeError,
@@ -224,7 +224,7 @@ inline constexpr std::array<ExtractPattern, 12> EXTRACT_PATTERNS = {{
      1, 2, 3},
     // C++/GCC: file.cpp:123:45: error: message
     {FailureType::BuildFail,
-     R"(([\w/\.\-]+\.(?:cpp|cc|c|cxx|h|hpp)):(\d+):\d*:\s*error:\s*([^\n]+))",
+     R"RX(([\w/\.\-]+\.(?:cpp|cc|c|cxx|h|hpp)):(\d+):\d*:\s*error:\s*([^\n]+))RX",
      3, 1, 2},
     // Rust/Cargo: error[E1234]: message  --> file.rs:123:45
     {FailureType::BuildFail,

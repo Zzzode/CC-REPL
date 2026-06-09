@@ -37,16 +37,17 @@ using namespace cc::ui::design::theme;
 // ─── heading / subheading / caption ──────────────────────────────────────────
 /// Large heading.  On a TTY "size" maps to bold/dim + separator decoration,
 /// since we cannot scale the font itself.  Mirrors TS ThemedText + separator.
-[[nodiscard]] inline ftxui::Element heading(std::string_view text,
+[[nodiscard]] inline ftxui::Element heading(std::string_view label,
                                             TextSize size,
                                             const Theme& theme) {
     using namespace ftxui;
-    Element body = text(std::string(text)) | color(theme.palette->text);
+    Element body = ftxui::text(std::string(label)) | color(theme.palette->text);
     switch (size) {
         case TextSize::Display:
             return vbox({
                 body | bold,
-                separatorStyled(Color::RGB(120, 80, 120))
+                separator()
+                    | color(Color::RGB(120, 80, 120))
                     | color(theme.palette->primary),
             });
         case TextSize::Title:
@@ -64,26 +65,26 @@ using namespace cc::ui::design::theme;
     return body | dim | color(theme.palette->muted);
 }
 
-[[nodiscard]] inline ftxui::Element subheading(std::string_view text,
+[[nodiscard]] inline ftxui::Element subheading(std::string_view label,
                                                const Theme& theme) {
-    return heading(text, TextSize::Subtitle, theme);
+    return heading(label, TextSize::Subtitle, theme);
 }
-[[nodiscard]] inline ftxui::Element caption(std::string_view text,
+[[nodiscard]] inline ftxui::Element caption(std::string_view label,
                                             const Theme& theme) {
-    return heading(text, TextSize::Caption, theme);
+    return heading(label, TextSize::Caption, theme);
 }
 
 // ─── pill ────────────────────────────────────────────────────────────────────
 /// Rounded pill badge with optional count suffix.  Used by agent avatars,
 /// turn-durations, background task footer pills (see pillLabel.ts).
-[[nodiscard]] inline ftxui::Element pill(std::string_view text,
+[[nodiscard]] inline ftxui::Element pill(std::string_view label,
                                          Role role,
                                          const Theme& theme,
                                          bool dim = false) {
     using namespace ftxui;
     auto fg = theme.color_for(role);
     auto bg = tint(theme.palette->background, 0.03);
-    Element body = text(std::string(text)) | color(fg);
+    Element body = ftxui::text(std::string(label)) | color(fg);
     if (dim) body = body | color(theme.palette->muted);
     // "rounded" pill look: borderRounded with 1-cell padding
     return hbox({
@@ -93,12 +94,12 @@ using namespace cc::ui::design::theme;
 
 // ─── kbd ─────────────────────────────────────────────────────────────────────
 /// Render a keyboard-shortcut hint (⌘K style).  Mirrors Ink <Kbd>.
-[[nodiscard]] inline ftxui::Element kbd(std::string_view text) {
+[[nodiscard]] inline ftxui::Element kbd(std::string_view label) {
     using namespace ftxui;
     return hbox({
-        text(" "),
-        text(std::string(text)) | inverted | bold,
-        text(" "),
+        ftxui::text(" "),
+        ftxui::text(std::string(label)) | inverted | bold,
+        ftxui::text(" "),
     });
 }
 
@@ -125,7 +126,7 @@ using namespace cc::ui::design::theme;
 /// optional centered title.  Heavy bar is taken from ui/components/figures.
 [[nodiscard]] inline ftxui::Element divider(bool heavy = false,
                                             std::string_view title = {},
-                                            ftxui::Color color = {}) {
+                                            ftxui::Color line_color = ftxui::Color::Default) {
     using namespace ftxui;
     std::string glyph = heavy ? "━" : "─";
     auto line = [&](int n) {
@@ -134,16 +135,23 @@ using namespace cc::ui::design::theme;
         for (int i = 0; i < n; ++i) s += glyph;
         return s;
     };
+    // Compare line_color against default (unset) to decide whether to
+    // override with a fallback.  We use Print()=="default" as a proxy since
+    // FTXUI Color has no IsNot/operator bool.
+    const bool has_color = (line_color.Print(false) != "default");
+    const Color effective_line = has_color ? line_color : Color(Color::GrayDark);
+    const Color effective_title = has_color ? line_color : Color(Color::White);
     if (title.empty()) {
-        auto e = text(line(40)) | xflex;
-        return color ? e | ftxui::color(color) : e;
+        auto e = ftxui::text(line(40)) | xflex;
+        return has_color ? e | ftxui::color(line_color)
+                         : e | ftxui::color(Color::GrayDark);
     }
     // centered: ══[ Title ]══════════
     auto label = std::string(" ") + std::string(title) + std::string(" ");
     auto e = hbox({
-        text(line(3)) | ftxui::color(color.IsNot(ftxui::Color()) ? color : ftxui::Color::GrayDark),
-        text(label) | bold | (color.IsNot(ftxui::Color()) ? ftxui::color(color) : ftxui::color(ftxui::Color::White)),
-        text(line(40)) | xflex | ftxui::color(color.IsNot(ftxui::Color()) ? color : ftxui::Color::GrayDark),
+        ftxui::text(line(3)) | ftxui::color(effective_line),
+        ftxui::text(label) | bold | ftxui::color(effective_title),
+        ftxui::text(line(40)) | xflex | ftxui::color(effective_line),
     });
     return e;
 }

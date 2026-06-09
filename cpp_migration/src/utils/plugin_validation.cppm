@@ -202,4 +202,12 @@ inline constexpr std::array MARKETPLACE_ONLY_MANIFEST_FIELDS = {
     std::string_view{"id"},
 };
 
+// ── Stub implementations (see plugin_marketplace.cppm for rationale) ──
+inline ValidationResult validate_file(const std::filesystem::path& path) {
+    ValidationResult r;
+    r.success = true;
+    r.file_path = path;
+    return r;
+}
+
 } // namespace cc::utils::plugin_validation

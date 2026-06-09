@@ -249,7 +249,6 @@ inline Component MakeFuzzyPicker(FuzzyPickerOptions opts) {
                       [](auto& a, auto& b) { return a.second > b.second; });
             std::vector<int> out;
             out.reserve(scored.size());
-            for (auto& [i, s] : out) (void)s;
             for (auto& p : scored) out.push_back(p.first);
             return out;
         };
@@ -337,9 +336,12 @@ struct ThemePickerCallbacks {
 [[nodiscard]] inline Element palette_strip(const Palette& p, int width = 30) {
     std::array<Color, 4> cols = {p.primary, p.success, p.warning, p.danger};
     Elements parts;
+    constexpr std::string_view kBLOCK = "█";
     for (auto c : cols) {
-        std::string block(width / 4, '█');
-        parts.push_back(text(block) | color(c));
+        std::string block;
+        block.reserve(width / 4 * 3); // UTF-8 "█" is 3 bytes
+        for (int i = 0; i < width / 4; ++i) block += kBLOCK;
+        parts.push_back(ftxui::text(block) | color(c));
     }
     return hbox(std::move(parts));
 }
@@ -391,7 +393,7 @@ inline Component MakeThemePicker(Theme initial_theme,
                                  ThemePickerCallbacks cbs = {}) {
     struct St {
         Theme current;               // live preview theme (not yet committed)
-        Accessibility a11y = initial_theme.a11y;
+        Accessibility a11y{};
         std::vector<ThemeVariant> variants;
         int selected_var = 0;
         int focus_row = 0;           // 0..variants.size-1, then a11y rows
@@ -400,6 +402,7 @@ inline Component MakeThemePicker(Theme initial_theme,
     };
     auto st = std::make_shared<St>();
     st->current = initial_theme;
+    st->a11y = initial_theme.a11y;
     st->cbs = std::move(cbs);
     st->variants = {
         ThemeVariant::Dark,

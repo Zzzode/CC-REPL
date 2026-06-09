@@ -32,6 +32,16 @@ import cc.ui.custom_select;
 
 export namespace cc::ui::dialogs::settings_dialog {
 using namespace ftxui;
+
+// Check whether `e` is a Ctrl+<letter> combination.
+// Control characters in ASCII are 1..26 = letter - 'a' + 1 (case insensitive).
+inline bool is_ctrl_key(const Event& e, char letter) {
+    char code = (letter >= 'a' && letter <= 'z') ? (letter - 'a' + 1)
+                : (letter >= 'A' && letter <= 'Z') ? (letter - 'A' + 1) : 0;
+    return code != 0 && e.input().size() == 1 &&
+           static_cast<unsigned char>(e.input()[0]) ==
+               static_cast<unsigned char>(code);
+}
 using cc::core::ConfigManager;
 using cc::core::Settings;
 using cc::core::McpServerConfig;
@@ -1013,7 +1023,7 @@ inline void apply_to(const WorkingSettings& w, ConfigManager& cfg) {
 
         // --- Global hotkeys ---
         // Save
-        if (event == Event::Ctrl('s')) {
+        if (is_ctrl_key(event, 's')) {
             apply_to(state->working, *state->cfg);
             auto res = state->cfg->save();
             if (res) {
@@ -1283,7 +1293,7 @@ inline void apply_to(const WorkingSettings& w, ConfigManager& cfg) {
         }
 
         // Reset
-        if (event == Event::Ctrl('r')) {
+        if (is_ctrl_key(event, 'r')) {
             state->working = state->defaults;
             state->dirty = false;
             show_toast("↺ Reverted to last saved values");

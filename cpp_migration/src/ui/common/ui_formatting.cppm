@@ -14,6 +14,7 @@ module;
 #include <cctype>
 #include <cstdint>
 #include <format>
+#include <functional>
 #include <iomanip>
 #include <map>
 #include <optional>

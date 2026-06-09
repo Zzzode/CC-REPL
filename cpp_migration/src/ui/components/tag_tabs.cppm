@@ -6,9 +6,9 @@ module;
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
 
-export module ui.components.tag_tabs;
+export module cc.ui.components.tag_tabs;
 
-export namespace ui::components {
+export namespace cc::ui::components {
 
 struct Tab {
     std::string label;

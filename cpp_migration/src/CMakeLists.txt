@@ -522,8 +522,14 @@ target_link_libraries(cc_skills_core
 add_library(cc_tools)
 target_sources(cc_tools
     PUBLIC FILE_SET CXX_MODULES FILES
+        tools/agent_color_manager.cppm
+        tools/agent_constants.cppm
+        tools/agent_loader.cppm
+        tools/agent_memory.cppm
+        tools/agent_memory_snapshot.cppm
         tools/agent_prompt.cppm
         tools/agent_tool.cppm
+        tools/agent_type_resolution.cppm
         tools/agent_types.cppm
         tools/agent_utils.cppm
         tools/ask_user_tool.cppm
@@ -588,6 +594,8 @@ target_sources(cc_tools
         tools/testing_tool.cppm
         tools/todo_write_tool.cppm
         tools/tool.cppm
+        tools/tool_display_names.cppm
+        tools/tool_name_constants.cppm
         tools/tool_prompts.cppm
         tools/tool_registry.cppm
         tools/tool_search_tool.cppm
@@ -602,6 +610,11 @@ target_sources(cc_tools
         tools/agent_runtime.cppm
         tools/agent_display.cppm
         tools/bash_validation.cppm
+        tools/destructive_command_warning.cppm
+        tools/mode_validation.cppm
+        tools/path_validation.cppm
+        tools/readonly_validation.cppm
+        tools/should_use_sandbox.cppm
         tools/bash_helpers.cppm
         tools/powershell_validation.cppm
         tools/powershell_helpers.cppm
@@ -683,6 +696,8 @@ target_sources(cc_commands
         commands/init_verifiers.cppm
         commands/insights.cppm
         commands/install.cppm
+        commands/install_github_app.cppm
+        commands/install_github_app_steps.cppm
         commands/install_slack_app.cppm
         commands/install_github_app/flow.cppm
         commands/install_github_app/github_actions.cppm
@@ -708,10 +723,14 @@ target_sources(cc_commands
         commands/plugin/browse_marketplace.cppm
         commands/plugin/manage_plugins.cppm
         commands/plugin/plugin_helpers.cppm
+        commands/plugin/plugin_error_formatting.cppm
+        commands/plugin/plugin_details_helpers.cppm
+        commands/plugin/pagination_util.cppm
         commands/plugin/plugin_install.cppm
         commands/plugin/plugin_manage.cppm
         commands/plugin/plugin_parse_args.cppm
         commands/plugin/plugin_trust.cppm
+        commands/plugin/plugin_trust_text.cppm
         commands/plugin/plugin_ui_data.cppm
         commands/plugin_cmd.cppm
         commands/pr_comments.cppm
@@ -926,6 +945,10 @@ target_link_libraries(cc_commands
     PUBLIC
         cc_services
         cc_constants
+        cc_keybindings
+        cc_skills_core
+        cc_skills
+        cc_tasks
 )
 
 # ─── cc_hooks: Hooks System ───────────────────────────────────────────────────
@@ -1128,11 +1151,15 @@ target_sources(cc_skills
         skills/bundled.cppm
         skills/bundled/batch.cppm
         skills/bundled/claude_api.cppm
+        skills/bundled/claude_in_chrome.cppm
         skills/bundled/debug.cppm
         skills/bundled/loop.cppm
         skills/bundled/remember.cppm
         skills/bundled/simplify.cppm
+        skills/bundled/skill_keybindings.cppm
+        skills/bundled/skillify.cppm
         skills/bundled/stuck.cppm
+        skills/bundled/update_config.cppm
         skills/bundled/verify.cppm
         skills/claude_api.cppm
         skills/claude_api_content.cppm
@@ -1161,8 +1188,11 @@ target_sources(cc_ui
     PUBLIC FILE_SET CXX_MODULES FILES
         ui/app.cppm
         ui/components.cppm
+        ui/agents/agent_cards.cppm
+        ui/agents/agent_details_dialog.cppm
         ui/agents/agent_editor.cppm
         ui/agents/agent_list.cppm
+        ui/agents/agent_shared_widgets.cppm
         ui/agents/agent_wizard.cppm
         ui/agents/agent_utils.cppm
         ui/components/all_components.cppm
@@ -1229,6 +1259,7 @@ target_sources(cc_ui
         ui/dialogs/usage_dialog.cppm
         ui/dialogs/teleport_dialogs.cppm
         ui/dialogs/trust_dialog.cppm
+        ui/dialogs/trust_utils.cppm
         ui/dialogs/wizard_dialog.cppm
         ui/dialogs/auto_mode_dialog.cppm
         ui/dialogs/bridge_dialog.cppm
@@ -1277,6 +1308,13 @@ target_sources(cc_ui
         ui/messages/message_compact_boundary.cppm
         ui/messages/message_shutdown.cppm
         ui/messages/message_user_command.cppm
+        ui/messages/user_text_message.cppm
+        ui/messages/assistant_text_message.cppm
+        ui/messages/system_text_message.cppm
+        ui/messages/attachment_message.cppm
+        ui/messages/api_error_message.cppm
+        ui/messages/collapsed_content_message.cppm
+        ui/messages/local_command_output_message.cppm
         ui/messages/messages_list.cppm            # UI21 — Messages.tsx + Message.tsx (834+626 → 1308 loc)
         ui/messages/messages_interactions.cppm    # UI25 — MessageSelector + messageActions
         ui/messages/scroll_keybindings.cppm       # UI22 — ScrollKeybindingHandler (1011 → 752 loc)
@@ -1295,6 +1333,8 @@ target_sources(cc_ui
         ui/permissions/permission_rules_ui.cppm
         ui/permissions/permission_shell_helpers.cppm
         ui/permissions/permission_worker_badge.cppm
+        ui/permissions/permissions_components.cppm
+        ui/permissions/permission_scope_editor.cppm
         ui/permissions/permission_rule_list.cppm        # UI24 — PermissionRuleList
         ui/permissions/permission_advanced_prompts.cppm # UI24b — AskUserQuestion+Skill+Fallback advanced prompts
         ui/prompt/autocomplete.cppm
@@ -1346,6 +1386,8 @@ target_link_libraries(cc_ui
         cc_commands
         cc_vim
         cc_hooks
+        cc_plugins
+        cc_session
         cc_ui_messages       # Phase 4B-UI21/22/25: list + virtual scroll + interactions
         cc_ui_screens        # Phase 4B-UI23: log selector
         cc_ui_permissions    # Phase 4B-UI24: rule list (+ advanced prompts)

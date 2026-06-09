@@ -72,7 +72,7 @@ struct TypecheckResult {
 // Helpers
 // ---------------------------------------------------------------------------
 
-namespace {
+namespace detail {
 
 auto severity_from_ts_category(int category) noexcept -> Severity {
     // ts.DiagnosticCategory: Warning=0, Error=1, Message=2, Suggestion=3
@@ -306,7 +306,7 @@ auto run_via_subprocess(
     return *result;
 }
 
-} // anonymous namespace
+} // namespace detail
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -325,8 +325,8 @@ auto run_script_typecheck(const TypecheckOptions& opts) -> TypecheckResult {
         return out;
     }
 
-    const auto script = generate_runner_script(opts);
-    auto exec = run_via_subprocess(script, opts);
+    const auto script = detail::generate_runner_script(opts);
+    auto exec = detail::run_via_subprocess(script, opts);
 
     out.duration = exec.duration;
 
@@ -406,11 +406,11 @@ auto run_script_typecheck(const TypecheckOptions& opts) -> TypecheckResult {
                 else if (s == "warning") d.severity = Severity::Warning;
                 else                     d.severity = Severity::Info;
             } else {
-                d.severity = severity_from_ts_category(
+                d.severity = detail::severity_from_ts_category(
                     static_cast<int>(item.get("category").as_int()));
             }
             d.code    = static_cast<int>(item.get("code").as_int());
-            d.message = extract_message_text(item.get("message"));
+            d.message = detail::extract_message_text(item.get("message"));
             d.line    = std::max(1, static_cast<int>(item.get("line").as_int()));
             d.column  = std::max(1, static_cast<int>(item.get("column").as_int()));
             out.diagnostics.push_back(std::move(d));
@@ -420,8 +420,8 @@ auto run_script_typecheck(const TypecheckOptions& opts) -> TypecheckResult {
     // --- Canonical sort (errors → warnings → info, then by position) ------
     std::stable_sort(out.diagnostics.begin(), out.diagnostics.end(),
         [](const ScriptTypeDiagnostic& a, const ScriptTypeDiagnostic& b) {
-            const int ra = diagnostic_rank(a.severity);
-            const int rb = diagnostic_rank(b.severity);
+            const int ra = detail::diagnostic_rank(a.severity);
+            const int rb = detail::diagnostic_rank(b.severity);
             if (ra != rb) return ra < rb;
             if (a.line != b.line) return a.line < b.line;
             return a.column < b.column;
@@ -470,7 +470,7 @@ auto typecheck_files(
     for (std::size_t i = 0; i < files.size(); ++i) {
         if (i) file_list_js += ',';
         file_list_js += '"';
-        file_list_js += js_string_escape(files[i].string());
+        file_list_js += detail::js_string_escape(files[i].string());
         file_list_js += '"';
     }
     file_list_js += ']';
@@ -619,7 +619,7 @@ const MAX_DIAGNOSTICS = {};
             else if (s == "warning") d.severity = Severity::Warning;
             else                     d.severity = Severity::Info;
             d.code    = static_cast<int>(item.get("code").as_int());
-            d.message = extract_message_text(item.get("message"));
+            d.message = detail::extract_message_text(item.get("message"));
             d.line    = std::max(1, static_cast<int>(item.get("line").as_int()));
             d.column  = std::max(1, static_cast<int>(item.get("column").as_int()));
             out.diagnostics.push_back(std::move(d));
@@ -628,8 +628,8 @@ const MAX_DIAGNOSTICS = {};
 
     std::stable_sort(out.diagnostics.begin(), out.diagnostics.end(),
         [](const ScriptTypeDiagnostic& a, const ScriptTypeDiagnostic& b) {
-            const int ra = diagnostic_rank(a.severity);
-            const int rb = diagnostic_rank(b.severity);
+            const int ra = detail::diagnostic_rank(a.severity);
+            const int rb = detail::diagnostic_rank(b.severity);
             if (ra != rb) return ra < rb;
             if (a.line != b.line) return a.line < b.line;
             return a.column < b.column;

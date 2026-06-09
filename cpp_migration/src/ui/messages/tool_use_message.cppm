@@ -33,7 +33,7 @@ export namespace cc::ui::messages::tool_use_message {
 using namespace ftxui;
 
 // Bring spinner types into a convenient local alias.
-namespace spinner_ns = ui::components;
+namespace spinner_ns = ::ui::components;
 
 // ============================================================
 // Types
@@ -331,9 +331,9 @@ constexpr std::size_t kLargeContentWarnBytes = 5 * 1024 * 1024;  // 5 MB
 
 [[nodiscard]] inline Element RenderToolFooter(const ToolUseCallData& call, bool has_error = false) {
     Elements buttons;
-    auto pill = [](std::string_view label, Color color, bool enabled = true) -> Element {
+    auto pill = [](std::string_view label, Color col, bool enabled = true) -> Element {
         auto el = text(std::format("[{}]", label))
-                  | color(enabled ? color : Color::GrayDark)
+                  | ftxui::color(enabled ? col : Color::GrayDark)
                   | dim;
         if (!enabled) el = el | dim;
         return el;
@@ -598,7 +598,7 @@ constexpr std::size_t kLargeContentWarnBytes = 5 * 1024 * 1024;  // 5 MB
     auto s = std::make_shared<State>();
     s->opts = std::move(options);
 
-    return Renderer([s] { return RenderGrouped(s->opts); })
+    return Renderer([s] { return RenderGroupedTools(s->opts); })
          | CatchEvent([s](Event e) -> bool {
              if (e == Event::Return || e == Event::Character(' ')) {
                  s->opts.group_collapsed = !s->opts.group_collapsed;

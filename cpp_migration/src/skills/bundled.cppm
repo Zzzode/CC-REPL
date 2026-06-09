@@ -374,11 +374,11 @@ and cc::skills::bundled::suggest_unstuck_action(context).
             R"(cfc\s+(?:not|broken|issue))",
             R"(chrome\s+(?:tab|screenshot|console))",
             // Chinese keywords (utf-8 escapes)
-            u8R"(\u6d4f\u89c8\u5668.*\u64cd\u4f5c)",
-            u8R"(\u7f51\u9875.*\u64cd\u4f5c)",
-            u8R"(chrome.*\u63d2\u4ef6)",
-            u8R"(\u4fa7\u8fb9\u680f)",
-            u8R"(\u6269\u5c55.*\u6ca1\u53cd\u5e94)",
+            R"(浏览器.*操作)",
+            R"(网页.*操作)",
+            R"(chrome.*插件)",
+            R"(侧边栏)",
+            R"(扩展.*没反应)",
         },
         .content = cc::skills::bundled::build_claude_in_chrome_prompt()
             + "\n\n## Troubleshooting\n\n"
@@ -413,10 +413,10 @@ and cc::skills::bundled::suggest_unstuck_action(context).
             R"(change\s+submit\s+key)",
             R"(unbind\s+default)",
             // Chinese triggers (utf-8 escapes)
-            u8R"(\u5feb\u6377\u952e.*\u81ea\u5b9a\u4e49)",
-            u8R"(\u952e\u4f4d)",
-            u8R"(\u4fee\u6539.*\u5feb\u6377\u952e)",
-            u8R"(\u91cd\u65b0\u7ed1\u5b9a)",
+            R"(快捷键.*自定义)",
+            R"(键位)",
+            R"(修改.*快捷键)",
+            R"(重新绑定)",
         },
         .content = cc::skills::bundled::build_keybindings_help_prompt(),
         .is_builtin = true,

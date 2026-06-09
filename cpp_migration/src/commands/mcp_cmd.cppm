@@ -36,6 +36,13 @@ import cc.services.mcp.xaa_idp_login;
 import cc.services.mcp.types;
 import cc.services.mcp.config;
 
+// Alias NativeMcpStatus to the runtime type defined in cc.tools.mcp so the
+// data-prep row builders below can use a short name without pulling in all
+// of the connection-manager snapshot machinery.
+namespace cc::tools {
+using NativeMcpStatus = NativeMcpServerStatus;
+}
+
 export namespace cc::commands {
 
 using namespace cc::core;

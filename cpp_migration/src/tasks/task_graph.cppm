@@ -28,43 +28,15 @@ export module cc.tasks.task_graph;
 import cc.types.types;
 import cc.coordinator.swarm;
 import cc.utils.bash_execution;
+import cc.tasks.task;   // canonical TaskType / TaskStatus / TaskResult / task_type_to_string
 
 export namespace cc::core {
 
 // ============================================================
-// Task types and status
+// Task types and status (canonical definitions live in cc.tasks.task;
+// task_status_to_string is a local companion helper kept here because
+// task_graph owns the high-level scheduler-facing TaskStatus semantics).
 // ============================================================
-
-/// Classification of background tasks
-enum class TaskType : std::uint8_t {
-    Search,          // Code search or file lookup operations
-    GeneralPurpose,  // Generic computation
-    Shell,           // Shell command execution
-    Agent,           // Sub-agent spawned task
-    Dream,           // Speculative/background processing
-};
-
-/// Convert TaskType to display string
-[[nodiscard]] constexpr std::string_view task_type_to_string(TaskType type) noexcept {
-    switch (type) {
-        case TaskType::Search:         return "search";
-        case TaskType::GeneralPurpose: return "general_purpose";
-        case TaskType::Shell:          return "shell";
-        case TaskType::Agent:          return "agent";
-        case TaskType::Dream:          return "dream";
-    }
-    return "unknown";
-}
-
-/// Execution status of a background task
-enum class TaskStatus : std::uint8_t {
-    Pending,     // Queued, waiting for execution slot
-    Running,     // Currently executing
-    Completed,   // Finished successfully
-    Failed,      // Terminated with error
-    Cancelled,   // Cancelled by user or scheduler
-    TimedOut,    // Exceeded time limit
-};
 
 /// Convert TaskStatus to display string
 [[nodiscard]] constexpr std::string_view task_status_to_string(TaskStatus status) noexcept {
@@ -74,28 +46,32 @@ enum class TaskStatus : std::uint8_t {
         case TaskStatus::Completed: return "completed";
         case TaskStatus::Failed:    return "failed";
         case TaskStatus::Cancelled: return "cancelled";
+        case TaskStatus::Killed:    return "killed";
         case TaskStatus::TimedOut:  return "timed_out";
     }
     return "unknown";
 }
 
-/// Strong ID for background tasks
-struct TaskIdTag {};
-using TaskId = StrongId<TaskIdTag>;
+/// Background task ID (alias of canonical cc::core::TaskId from cc.tasks.task).
+using BackgroundTaskId = TaskId;
 
-/// Result produced by a completed task
-struct TaskResult {
-    std::string output;                   // Primary output text
-    std::optional<std::string> metadata;  // Additional metadata (JSON)
-    std::int32_t exit_code = 0;           // Exit code (0 = success)
-
-    /// Check if the result indicates success
-    [[nodiscard]] bool is_success() const noexcept { return exit_code == 0; }
-};
+/// Fetch the task id as a printable short string.
+template <typename T>
+[[nodiscard]] inline std::string task_id_short_string_impl(const T& id) {
+    if constexpr (requires { id.value; }) {
+        return std::string(id.value).substr(0, 8);
+    } else {
+        (void)id;
+        return "--------";
+    }
+}
+[[nodiscard]] inline std::string task_id_short_string(const TaskId& id) {
+    return task_id_short_string_impl(id);
+}
 
 /// A background task with full lifecycle metadata
 struct BackgroundTask {
-    TaskId id;
+    BackgroundTaskId id;
     std::string description;               // Human-readable description
     TaskType type = TaskType::GeneralPurpose;
     TaskStatus status = TaskStatus::Pending;
@@ -135,7 +111,7 @@ struct BackgroundTask {
     /// Format task as a status line for display
     [[nodiscard]] std::string format_status() const {
         return std::format("[{}] {} ({}, {:.0f}%)",
-            id.str().substr(0, 8),
+            task_id_short_string(id),
             description,
             task_status_to_string(status),
             progress * 100.0);
@@ -212,9 +188,11 @@ public:
             auto shell_result = cc::utils::bash::execute_command(task.description);
             if (shell_result) {
                 execution = TaskResult{
+                    .success = shell_result->exit_code == 0,
                     .output = shell_result->stdout_output,
-                    .metadata = std::nullopt,
+                    .error = std::nullopt,
                     .exit_code = shell_result->exit_code,
+                    .duration = std::chrono::milliseconds(0),
                 };
             } else {
                 execution = std::unexpected(Error::make(ErrorCode::ToolExecutionFailed, shell_result.error()));
@@ -436,7 +414,7 @@ private:
                 auto result = runner_.run(task);
                 if (result) {
                     // Fire completion callback if registered
-                    auto cb_it = callbacks_.find(id);
+                    auto cb_it = callbacks_.find(task.id.value);
                     if (cb_it != callbacks_.end()) {
                         cb_it->second(task.id, *result);
                         callbacks_.erase(cb_it);

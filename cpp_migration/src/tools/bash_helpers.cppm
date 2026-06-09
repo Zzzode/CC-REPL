@@ -2,7 +2,9 @@ module;
 
 #include <algorithm>
 #include <cctype>
+#include <format>
 #include <optional>
+#include <regex>
 #include <sstream>
 #include <string>
 #include <string_view>

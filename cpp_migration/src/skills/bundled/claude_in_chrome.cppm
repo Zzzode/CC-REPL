@@ -192,7 +192,7 @@ inline bool should_auto_enable_claude_in_chrome() {
     if (const char* home = std::getenv("HOME")) {
         fs::path manifest_path = fs::path(home) /
             "Library/Application Support/Google/Chrome/NativeMessagingHosts" /
-            std::string(NATIVE_HOST_IDENTIFIER) + ".json";
+            (std::string(NATIVE_HOST_IDENTIFIER) + ".json");
         if (fs::exists(manifest_path)) return true;
     }
 

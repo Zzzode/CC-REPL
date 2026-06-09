@@ -507,4 +507,34 @@ inline auto exec_cmd(const std::string& cmd) -> std::expected<std::string, std::
     return PluginState::NotInstalled;
 }
 
+/// Enable or disable an installed plugin by toggling a `.disabled` marker
+/// file next to its manifest.  Returns an error when the plugin is not
+/// installed or filesystem writes fail.
+[[nodiscard]] inline std::expected<void, std::string> set_plugin_enabled(
+    std::string_view plugin_id, bool enabled
+) {
+    namespace fs = std::filesystem;
+    const auto plugin_dir = detail::get_plugin_dir(plugin_id);
+    std::error_code ec;
+    if (!fs::exists(plugin_dir, ec)) {
+        return std::unexpected(
+            "Plugin '" + std::string(plugin_id) + "' is not installed.");
+    }
+    const auto marker = plugin_dir / ".disabled";
+    if (enabled) {
+        if (fs::exists(marker, ec)) fs::remove(marker, ec);
+    } else {
+        std::ofstream ofs(marker);
+        if (!ofs.good()) {
+            return std::unexpected(
+                "Failed to write disabled marker for plugin '"
+                + std::string(plugin_id) + "'.");
+        }
+    }
+    if (ec) {
+        return std::unexpected("Failed to update plugin state: " + ec.message());
+    }
+    return {};
+}
+
 } // namespace cc::utils::plugins

@@ -24,6 +24,8 @@ module;
 
 export module cc.ui.messages.message_hook_progress;
 
+import cc.ui.messages.message_components;
+
 export namespace cc::ui::messages {
 
 using namespace ftxui;
@@ -112,7 +114,15 @@ class HookProgressComponent : public ComponentBase {
 
     explicit HookProgressComponent(std::vector<HookProgressEntry> hooks,
                                    OnDismissFn on_dismiss = nullptr)
-        : hooks_(std::move(hooks)), on_dismiss_(std::move(on_dismiss)) {}
+        : hooks_(std::move(hooks)), on_dismiss_(std::move(on_dismiss))
+    {
+        if (on_dismiss_) {
+            dismiss_btn_ = Button(" ✕ dismiss ", [this] {
+                if (on_dismiss_) on_dismiss_();
+            }) | dim;
+            Add(dismiss_btn_);
+        }
+    }
 
     Element Render() override {
         auto s = Summarize(hooks_);
@@ -127,22 +137,28 @@ class HookProgressComponent : public ComponentBase {
         const int filled = std::min(
             kBarWidth,
             static_cast<int>(std::round(s.percent / 100.0 * kBarWidth)));
-        std::string bar = "[" + std::string(filled, '█')
-                              + std::string(kBarWidth - filled, '░') + "]";
+        const std::string_view kFill = "█";
+        const std::string_view kEmpty = "░";
+        std::string bar = "[";
+        bar.reserve(kBarWidth * 3 + 2);
+        for (int i = 0; i < filled; ++i) bar.append(kFill);
+        for (int i = 0; i < kBarWidth - filled; ++i) bar.append(kEmpty);
+        bar += "]";
 
         Color accent = s.failed > 0 ? Color::Red
                      : s.running > 0 ? Color::Yellow
                      : Color::Green;
 
+        Element dismiss_el = on_dismiss_ && dismiss_btn_
+                                 ? dismiss_btn_->Render()
+                                 : text("");
         auto header = hbox({
             text(spin_char + " ") | color(accent) | blink,
             text("Running hooks") | bold,
             text(std::format("  {:>3.0f}%", s.percent)) | bold | color(accent),
             text("  " + bar) | color(accent),
             filler(),
-            on_dismiss_ ? button(" ✕ dismiss ", [this] {
-                if (on_dismiss_) on_dismiss_();
-            }) | dim : text(""),
+            dismiss_el,
         });
 
         auto meta = text(std::format("  {} completed / {} failed / {} total",
@@ -217,6 +233,7 @@ class HookProgressComponent : public ComponentBase {
     OnDismissFn on_dismiss_;
     bool collapsed_ = false;
     std::size_t tick_count_ = 0;
+    Component dismiss_btn_;
 };
 
 [[nodiscard]] inline Component MakeHookProgressMessage(

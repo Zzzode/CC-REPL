@@ -28,6 +28,7 @@ module;
 
 export module cc.ui.messages.system_text_message;
 
+import cc.ui.messages.message_components;
 import cc.ui.messages.message_timestamp;
 
 export namespace cc::ui::messages {
@@ -156,7 +157,7 @@ class SystemTextMessageComponent : public ComponentBase {
         return vbox(std::move(rows))
              | bgcolor(Color::GrayDark)
              | color(Color::GrayLight)
-             | borderEmpty()
+             | borderEmpty
              | padding(1);
     }
 

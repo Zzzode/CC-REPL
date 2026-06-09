@@ -24,6 +24,7 @@ export module cc.commands.tasks_cmd;
 
 import cc.types.types;
 import cc.commands.command;
+import cc.tasks.task;        // TaskType / TaskStatus / task_type_to_string
 import cc.tasks.task_graph;
 import cc.tasks.types;
 
@@ -154,9 +155,9 @@ public:
         auto& scheduler = get_scheduler();
         auto all = scheduler.list_tasks();
         for (const auto& t : all) {
-            auto short_id = t.id.str().substr(0, 8);
+            auto short_id = t.id.value.substr(0, 8);
             if (std::string_view(short_id).starts_with(partial))
-                suggestions.push_back(t.id.str());
+                suggestions.push_back(t.id.value);
         }
         return suggestions;
     }
@@ -173,7 +174,7 @@ public:
         rows.reserve(all.size());
         for (const auto& t : all) {
             TaskListRow r;
-            r.full_id = t.id.str();
+            r.full_id = t.id.value;
             r.id = r.full_id.substr(0, 8);
             r.description = t.description;
             r.type = std::string(task_type_to_string(t.type));
@@ -230,12 +231,12 @@ public:
         auto all = scheduler.list_tasks();
         // Exact match first
         auto exact = std::ranges::find_if(all, [&](const BackgroundTask& t) {
-            return t.id.str() == id_or_prefix;
+            return t.id.value == id_or_prefix;
         });
         if (exact != all.end()) return *exact;
         // Prefix match
         auto prefix = std::ranges::find_if(all, [&](const BackgroundTask& t) {
-            return t.id.str().starts_with(id_or_prefix);
+            return t.id.value.starts_with(id_or_prefix);
         });
         if (prefix != all.end()) return *prefix;
         return std::nullopt;
@@ -305,14 +306,14 @@ private:
         if (!id) return std::unexpected(id.error());
         return CommandResult::success(std::format(
             "Task submitted: {} ({})",
-            id->str().substr(0, 8), id->str()));
+            id->value.substr(0, 8), id->value));
     }
 
     [[nodiscard]] static Result<CommandResult> cancel_task(
         TaskScheduler& scheduler, std::string_view id_prefix) {
         auto all = scheduler.list_tasks();
         auto it = std::ranges::find_if(all, [&](const BackgroundTask& t) {
-            return t.id.str() == id_prefix || t.id.str().starts_with(id_prefix);
+            return t.id.value == id_prefix || t.id.value.starts_with(id_prefix);
         });
         if (it == all.end()) {
             return CommandResult::fail(
@@ -321,13 +322,13 @@ private:
         if (it->is_terminal()) {
             return CommandResult::success(std::format(
                 "Task '{}' is not running (state: {}).",
-                it->id.str().substr(0, 8),
+                it->id.value.substr(0, 8),
                 task_status_to_string(it->status)));
         }
         auto r = scheduler.cancel(it->id);
         if (!r) return std::unexpected(r.error());
         return CommandResult::success(std::format(
-            "Task '{}' cancelled.", it->id.str().substr(0, 8)));
+            "Task '{}' cancelled.", it->id.value.substr(0, 8)));
     }
 
     [[nodiscard]] static Result<CommandResult> complete_task(
@@ -339,7 +340,7 @@ private:
         // via re-submitting a no-op and cancelling the original.
         auto all = scheduler.list_tasks();
         auto it = std::ranges::find_if(all, [&](const BackgroundTask& t) {
-            return t.id.str() == id_prefix || t.id.str().starts_with(id_prefix);
+            return t.id.value == id_prefix || t.id.value.starts_with(id_prefix);
         });
         if (it == all.end()) {
             return CommandResult::fail(
@@ -348,7 +349,7 @@ private:
         if (it->is_terminal()) {
             return CommandResult::success(std::format(
                 "Task '{}' is already in terminal state: {}.",
-                it->id.str().substr(0, 8),
+                it->id.value.substr(0, 8),
                 task_status_to_string(it->status)));
         }
         // Cancel the running task and mark as manually completed.
@@ -356,7 +357,7 @@ private:
         if (!r) return std::unexpected(r.error());
         return CommandResult::success(std::format(
             "Task '{}' marked as completed (cancelled underlying execution).",
-            it->id.str().substr(0, 8)));
+            it->id.value.substr(0, 8)));
     }
 
     [[nodiscard]] static Result<CommandResult> watch_task(
@@ -375,7 +376,7 @@ private:
             "  Status:      {}\n"
             "  Progress:    {:.1f}%\n"
             "  Elapsed:     {}\n",
-            task->id.str().substr(0, 8),
+            task->id.value.substr(0, 8),
             task->description,
             task_type_to_string(task->type),
             task_status_to_string(task->status),
@@ -385,8 +386,9 @@ private:
         if (task->is_terminal()) {
             out += "\nTask has terminated.\n";
             if (task->result) {
-                out += std::format("Exit code: {}\n", task->result->exit_code);
-                auto log = collect_task_log_rows(scheduler, task->id.str());
+                if (task->result->exit_code.has_value())
+                    out += std::format("Exit code: {}\n", *task->result->exit_code);
+                auto log = collect_task_log_rows(scheduler, task->id.value);
                 if (!log.empty()) {
                     out += std::format("\nOutput ({} lines, last {} shown):\n",
                         log.size(), std::min(log.size(), std::size_t{20}));
@@ -414,16 +416,16 @@ private:
             return CommandResult::fail(
                 std::format("Task '{}' not found", id_prefix));
         }
-        auto rows = collect_task_log_rows(scheduler, task->id.str());
+        auto rows = collect_task_log_rows(scheduler, task->id.value);
         if (rows.empty()) {
             return CommandResult::success(std::format(
                 "Task {}: no output yet (status: {}).",
-                task->id.str().substr(0, 8),
+                task->id.value.substr(0, 8),
                 task_status_to_string(task->status)));
         }
         std::string out = std::format(
             "Task {} output ({} lines):\n\n",
-            task->id.str().substr(0, 8), rows.size());
+            task->id.value.substr(0, 8), rows.size());
         for (const auto& r : rows) {
             out += std::format("  {:>4} | {}\n",
                 r.line_number, r.content);

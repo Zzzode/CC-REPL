@@ -10,6 +10,7 @@
 /// unit tests can both drive the state machine without duplicating logic.
 module;
 
+#include <expected>
 #include <string>
 #include <vector>
 #include <format>

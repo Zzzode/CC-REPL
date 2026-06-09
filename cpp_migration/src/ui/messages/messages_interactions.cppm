@@ -31,6 +31,7 @@ module;
 #include <cstdint>
 #include <format>
 #include <functional>
+#include <map>
 #include <memory>
 #include <optional>
 #include <set>
@@ -65,7 +66,6 @@ export namespace cc::ui::messages::interactions {
 
 using namespace ftxui;
 using cc::ui::design::tokens::Radius;
-using cc::ui::design::tokens::spacing;
 using cc::ui::trust_utils::RiskLevel;
 
 // =========================================================================
@@ -77,12 +77,6 @@ struct MessageId {
     std::string value;
     bool operator==(const MessageId& o) const noexcept { return value == o.value; }
     bool operator<(const MessageId& o)  const noexcept { return value < o.value; }
-};
-
-template <> struct std::hash<MessageId> {
-    std::size_t operator()(const MessageId& m) const noexcept {
-        return std::hash<std::string>{}(m.value);
-    }
 };
 
 /// Author / shape of the row — used by context-menu to enable/disable items.
@@ -152,8 +146,7 @@ struct SelectionFSM {
 namespace detail {
 inline std::set<std::size_t> sorted_index_set(const std::vector<MessageId>& sel,
                                               const std::vector<MessageId>& order) {
-    std::unordered_map<MessageId, std::size_t> idx_of;
-    idx_of.reserve(order.size());
+    std::map<MessageId, std::size_t> idx_of;
     for (std::size_t i = 0; i < order.size(); ++i) idx_of[order[i]] = i;
 
     std::set<std::size_t> out;
@@ -204,7 +197,7 @@ inline void remove_range(std::vector<MessageId>& sel, const std::vector<MessageI
 ///   `mouse_row` – set when the event came from a click on a known row.
 ///
 /// Returns true if the event was consumed (caller should not propagate).
-export bool HandleSelectionEvent(const Event& ev,
+bool HandleSelectionEvent(Event& ev,
                                  std::vector<MessageId>& sel,
                                  SelectionFSM& fsm,
                                  const std::vector<MessageId>& row_order,
@@ -233,7 +226,7 @@ export bool HandleSelectionEvent(const Event& ev,
         // don't mandate a shortcut for the button; callers set fsm.active=true.
         if (ev.mouse().button == Mouse::Left && mouse_row.has_value()
             && (ev.mouse().motion == Mouse::Pressed
-                ? (ev.mouse().modifiers == Mouse::Control)
+                ? ev.mouse().control
                 : false)) {
             // Ctrl+click => enter multi-select and toggle that row
             fsm.active = true;
@@ -269,7 +262,8 @@ export bool HandleSelectionEvent(const Event& ev,
     if (ev == Event::Character('3')) { fsm.mode = SelectionMode::ToEnd;     return true; }
 
     // ---- Select all / clear ---------------------------------------------
-    if (ev == Event::CtrlA) {
+    // Ctrl+A = ASCII 0x01
+    if (ev == Event::Special({1})) {
         sel.clear();
         sel.reserve(N);
         for (std::size_t i = 0; i < N; ++i) sel.push_back(row_order[i]);
@@ -287,8 +281,8 @@ export bool HandleSelectionEvent(const Event& ev,
         && ev.mouse().motion == Mouse::Pressed
         && mouse_row.has_value()) {
         const auto row = *mouse_row;
-        const bool shift = (ev.mouse().modifiers & Mouse::Shift) != 0;
-        const bool ctrl  = (ev.mouse().modifiers & Mouse::Control) != 0;
+        const bool shift = ev.mouse().shift;
+        const bool ctrl  = ev.mouse().control;
 
         switch (fsm.mode) {
         case SelectionMode::Normal: {
@@ -378,13 +372,12 @@ struct SelectionStats {
 
 /// Compute stats over the selection.  Exported so the caller can feed them
 /// into the LLM-summarize callback too.
-export SelectionStats ComputeSelectionStats(const std::vector<MessageId>& sel,
+SelectionStats ComputeSelectionStats(const std::vector<MessageId>& sel,
                                             const std::vector<MessageMetadata>& meta_in_order) {
     constexpr std::size_t kCopyLimit = 64 * 1024;
     SelectionStats s;
     s.count = sel.size();
-    std::unordered_map<MessageId, const MessageMetadata*> by_id;
-    by_id.reserve(meta_in_order.size());
+    std::map<MessageId, const MessageMetadata*> by_id;
     for (const auto& m : meta_in_order) by_id[m.id] = &m;
     for (const auto& id : sel) {
         auto it = by_id.find(id);
@@ -438,7 +431,7 @@ struct SelectionCallbacks {
 
 /// Compute the trust tier for a bulk delete.  Lives here so both the
 /// toolbar handler and future bulk operations agree on thresholds.
-export RiskLevel DeleteRiskLevel(std::size_t count) {
+RiskLevel DeleteRiskLevel(std::size_t count) {
     if (count == 0)                return RiskLevel::Low;
     if (count <= 3)                return RiskLevel::Low;
     if (count <= 10)               return RiskLevel::Medium;
@@ -456,7 +449,7 @@ export RiskLevel DeleteRiskLevel(std::size_t count) {
     Color col = Color::GrayDark;
     if (active) {
         switch (mode) {
-        case SelectionMode::Normal:    label = "Mode:Normal";    col = Color::SteelBlue1; break;
+        case SelectionMode::Normal:    label = "Mode:Normal";    col = Color::SteelBlue; break;
         case SelectionMode::FromStart: label = "Mode:From-Start";col = Color::MediumPurple1; break;
         case SelectionMode::ToEnd:     label = "Mode:To-End";    col = Color::Orange1; break;
         }
@@ -530,7 +523,7 @@ export RiskLevel DeleteRiskLevel(std::size_t count) {
     if (summary == SummarizeState::Idle) {
         ops.push_back(btn("✨", 's', "Summarize"));
     } else if (summary == SummarizeState::Running) {
-        Elements sp{text("⠋ "), text(" Summarising…") | color(Color::SteelBlue1)};
+        Elements sp{text("⠋ "), text(" Summarising…") | color(Color::SteelBlue)};
         ops.push_back(hbox(std::move(sp)));
     } else if (summary == SummarizeState::Done) {
         ops.push_back(text(" ✅ summarised ") | color(Color::Green) | dim);
@@ -550,10 +543,14 @@ export RiskLevel DeleteRiskLevel(std::size_t count) {
 
     ops.push_back(btn("↩", 'r', "Regen-from"));
     ops.push_back(separator());
-    ops.push_back(text(" [Ctrl+A]") | bold | color(Color::CadetBlue1)
-                 + text(" Select-all ") | (has ? nothing : dim));
-    ops.push_back(text(" [u]") | bold | color(Color::CadetBlue1)
-                 + text(" Clear ") | (has ? nothing : dim));
+    ops.push_back(hbox({
+        text(" [Ctrl+A]") | bold | color(Color::CadetBlue),
+        text(" Select-all ") | (has ? nothing : dim),
+    }));
+    ops.push_back(hbox({
+        text(" [u]") | bold | color(Color::CadetBlue),
+        text(" Clear ") | (has ? nothing : dim),
+    }));
 
     // ---- footer: status + cost pill -------------------------------------
     auto cost = CostPill(s);
@@ -626,7 +623,7 @@ enum class SubmenuOpen : std::uint8_t {
 /// transitioning between rows.
 struct MessageActionsMenuState {
     bool open = false;
-    std::size_t selected_index = 0;   // into `kTopLevelItems`
+    std::size_t selected_index = 0;   // into `detail::kTopLevelItems`
     SubmenuOpen submenu = SubmenuOpen::None;
     std::size_t sub_index = 0;
     std::optional<MessageId> target;  // row the menu was opened for
@@ -638,7 +635,7 @@ struct MessageActionsMenuState {
 };
 
 // ---- static top-level menu ------------------------------------------------
-namespace {
+namespace detail {
 inline const std::array<MenuItem, 10> kTopLevelItems = {{
     { MenuItemKind::Copy,        "📋 Copy message",         '1', "📋" },
     { MenuItemKind::Regenerate,  "🔄 Regenerate",           '2', "🔄" },
@@ -664,7 +661,7 @@ inline const std::array<const char*, 5> kPopularModels = {{
     "claude-3-opus",
     "gpt-5",
 }};
-} // namespace
+} // namespace detail
 
 /// Given a row's metadata, figure out which top-level menu items are enabled.
 /// Mirrors the TS `applies()` guards.
@@ -701,7 +698,7 @@ inline const std::array<const char*, 5> kPopularModels = {{
 /// item after `dispatch_result` reports `Execute`.  We don't invoke them
 /// directly because the caller owns the callback object and the menu state
 /// may live on the stack.
-export enum class MenuDispatch : std::uint8_t {
+enum class MenuDispatch : std::uint8_t {
     Ignored,
     Handled,
     /// Caller should invoke the callback for (item, sub-choice).  `HandleMenuKeys`
@@ -711,7 +708,7 @@ export enum class MenuDispatch : std::uint8_t {
 };
 
 /// Result + submenu choice payload combined.
-export struct MenuDispatchResult {
+struct MenuDispatchResult {
     MenuDispatch outcome = MenuDispatch::Ignored;
     MenuItemKind item = MenuItemKind::Copy;
     // discriminant based on submenu:
@@ -719,7 +716,7 @@ export struct MenuDispatchResult {
 };
 
 /// Populates the enabled mask for a row, then drives the menu FSM.
-export MenuDispatchResult HandleMenuKeys(const Event& ev,
+MenuDispatchResult HandleMenuKeys(Event& ev,
                                          MessageActionsMenuState& state,
                                          const std::array<bool, 10>& enabled_mask) {
     using MD = MenuDispatch;
@@ -782,7 +779,7 @@ export MenuDispatchResult HandleMenuKeys(const Event& ev,
 
     // --- submenu open → only handle its keys ----------------------------
     if (state.submenu == SubmenuOpen::Copy) {
-        const std::size_t N = kCopyItems.size();
+        const std::size_t N = detail::kCopyItems.size();
         if (ev == Event::Character('j') || ev == Event::ArrowDown) {
             state.sub_index = std::min(N - 1, state.sub_index + 1); return { MD::Handled };
         }
@@ -796,7 +793,7 @@ export MenuDispatchResult HandleMenuKeys(const Event& ev,
             MenuDispatchResult r;
             r.outcome = MD::Execute;
             r.item = MenuItemKind::Copy;
-            r.extra = kCopyItems[state.sub_index].second;
+            r.extra = detail::kCopyItems[state.sub_index].second;
             state.open = false;
             state.submenu = SubmenuOpen::None;
             return r;
@@ -805,7 +802,7 @@ export MenuDispatchResult HandleMenuKeys(const Event& ev,
     }
 
     if (state.submenu == SubmenuOpen::RegenModel) {
-        const std::size_t N = kPopularModels.size();
+        const std::size_t N = detail::kPopularModels.size();
         if (ev == Event::Character('j') || ev == Event::ArrowDown) {
             state.sub_index = std::min(N - 1, state.sub_index + 1); return { MD::Handled };
         }
@@ -819,7 +816,7 @@ export MenuDispatchResult HandleMenuKeys(const Event& ev,
             MenuDispatchResult r;
             r.outcome = MD::Execute;
             r.item = MenuItemKind::RegenModel;
-            r.extra.emplace<std::string>(kPopularModels[state.sub_index]);
+            r.extra.emplace<std::string>(detail::kPopularModels[state.sub_index]);
             state.open = false;
             state.submenu = SubmenuOpen::None;
             return r;
@@ -858,8 +855,8 @@ export MenuDispatchResult HandleMenuKeys(const Event& ev,
         std::size_t idx = state.selected_index;
         for (int tries = 0; tries < 20; ++tries) {
             int next = static_cast<int>(idx) + delta;
-            if (next < 0) next = static_cast<int>(kTopLevelItems.size()) - 1;
-            if (next >= static_cast<int>(kTopLevelItems.size())) next = 0;
+            if (next < 0) next = static_cast<int>(detail::kTopLevelItems.size()) - 1;
+            if (next >= static_cast<int>(detail::kTopLevelItems.size())) next = 0;
             idx = static_cast<std::size_t>(next);
             if (enabled_mask[idx]) { state.selected_index = idx; return; }
         }
@@ -872,10 +869,10 @@ export MenuDispatchResult HandleMenuKeys(const Event& ev,
     if (ev.is_character() && !ev.character().empty()) {
         char c = ev.character()[0];
         std::size_t target = c == '0' ? 9 : static_cast<std::size_t>(c - '1');
-        if (c >= '0' && c <= '9' && target < kTopLevelItems.size() && enabled_mask[target]) {
+        if (c >= '0' && c <= '9' && target < detail::kTopLevelItems.size() && enabled_mask[target]) {
             state.selected_index = target;
             // digits directly execute non-submenu items
-            auto kind = kTopLevelItems[target].kind;
+            auto kind = detail::kTopLevelItems[target].kind;
             if (kind == MenuItemKind::Copy)       { state.submenu = SubmenuOpen::Copy;       state.sub_index = 0; return { MD::Handled }; }
             if (kind == MenuItemKind::RegenModel) { state.submenu = SubmenuOpen::RegenModel; state.sub_index = 0; return { MD::Handled }; }
             if (kind == MenuItemKind::Tag)        { state.submenu = SubmenuOpen::Tag;        state.sub_index = 0; return { MD::Handled }; }
@@ -894,7 +891,7 @@ export MenuDispatchResult HandleMenuKeys(const Event& ev,
 
     // open submenus or execute with Enter / l / Right
     if (ev == Event::Return || ev == Event::Character('l') || ev == Event::ArrowRight) {
-        const auto kind = kTopLevelItems[state.selected_index].kind;
+        const auto kind = detail::kTopLevelItems[state.selected_index].kind;
         if (kind == MenuItemKind::Copy)       { state.submenu = SubmenuOpen::Copy;       state.sub_index = 0; return { MD::Handled }; }
         if (kind == MenuItemKind::RegenModel) { state.submenu = SubmenuOpen::RegenModel; state.sub_index = 0; return { MD::Handled }; }
         if (kind == MenuItemKind::Tag)        { state.submenu = SubmenuOpen::Tag;        state.sub_index = 0; return { MD::Handled }; }
@@ -915,7 +912,7 @@ export MenuDispatchResult HandleMenuKeys(const Event& ev,
 
 /// Handle a mouse event for the menu.  Returns true when the event consumed
 /// the click (either selecting a menu row or triggering a submenu item).
-export bool HandleMenuMouse(const Event& ev,
+bool HandleMenuMouse(Event& ev,
                             MessageActionsMenuState& state,
                             const std::array<bool, 10>& enabled_mask,
                             const Box& menu_box) {
@@ -943,7 +940,7 @@ export bool HandleMenuMouse(const Event& ev,
     const int item_row = rel_y - 2;
     if (item_row < 0) return true;
     std::size_t idx = static_cast<std::size_t>(item_row);
-    if (idx >= kTopLevelItems.size()) return true;
+    if (idx >= detail::kTopLevelItems.size()) return true;
     if (!enabled_mask[idx]) return true;
     state.selected_index = idx;
     if (ev.mouse().motion == Mouse::Released) {
@@ -965,8 +962,9 @@ export bool HandleMenuMouse(const Event& ev,
     parts.push_back(text(selected ? "▶ " : "  "));
 
     if (item.shortcut_digit) {
+        Color sc_color = selected ? Color(Color::White) : Color(Color::CadetBlue);
         parts.push_back(text(std::format("[{}] ", item.shortcut_digit))
-                       | color(selected ? Color::White : Color::CadetBlue1) | bold);
+                       | color(sc_color) | bold);
     } else {
         parts.push_back(text("    "));
     }
@@ -988,7 +986,7 @@ export bool HandleMenuMouse(const Event& ev,
     }
 
     auto row = hbox(std::move(parts));
-    if (selected)  row = std::move(row) | bgcolor(Color::Gray27);
+    if (selected)  row = std::move(row) | bgcolor(Color::Grey27);
     if (!enabled)   row = std::move(row) | color(Color::GrayDark);
     return row | size(WIDTH, GREATER_THAN, 34);
 }
@@ -1007,7 +1005,7 @@ export bool HandleMenuMouse(const Event& ev,
         rows.emplace_back("JSON",       false);
         break;
     case SubmenuOpen::RegenModel:
-        for (const char* m : kPopularModels) rows.emplace_back(m, false);
+        for (const char* m : detail::kPopularModels) rows.emplace_back(m, false);
         break;
     case SubmenuOpen::Tag: {
         for (const auto& t : available_tags) rows.emplace_back("#" + t.label, false);
@@ -1021,7 +1019,7 @@ export bool HandleMenuMouse(const Event& ev,
         bool sel = (i == sub_index);
         auto row = hbox({ text(sel ? "● " : "○ "),
                           text(rows[i].first) | (sel ? bold : nothing) })
-                 | (sel ? bgcolor(Color::Gray27) : nothing)
+                 | (sel ? bgcolor(Color::Grey27) : nothing)
                  | size(WIDTH, GREATER_THAN, 22);
         out.push_back(std::move(row));
     }
@@ -1033,15 +1031,15 @@ export bool HandleMenuMouse(const Event& ev,
 ///
 /// NOTE: Pixel-perfect alignment is not enforced; in a TTY we only guarantee
 /// that the submenu visually docks to the right of the parent row.
-export Element RenderMessageActionsMenu(const MessageActionsMenuState& state,
+Element RenderMessageActionsMenu(const MessageActionsMenuState& state,
                                         const std::array<bool, 10>& enabled_mask,
                                         const MessageMetadata* row_meta,
                                         const std::vector<MessageTag>& available_tags,
                                         std::string_view header = "Message actions") {
     Elements body;
-    body.reserve(kTopLevelItems.size());
-    for (std::size_t i = 0; i < kTopLevelItems.size(); ++i) {
-        body.push_back(RenderTopLevelRow(kTopLevelItems[i],
+    body.reserve(detail::kTopLevelItems.size());
+    for (std::size_t i = 0; i < detail::kTopLevelItems.size(); ++i) {
+        body.push_back(RenderTopLevelRow(detail::kTopLevelItems[i],
                                          i == state.selected_index,
                                          enabled_mask[i]));
     }
@@ -1051,13 +1049,14 @@ export Element RenderMessageActionsMenu(const MessageActionsMenuState& state,
     // if submenu open, render a floating dbox to the right of selected row
     if (state.submenu != SubmenuOpen::None) {
         auto sub_rows = RenderSubmenu(state.submenu, state.sub_index, available_tags);
-        Element sub_window = window(text(""), vbox(std::move(sub_rows))
-                           | color(Color::SteelBlue1)
+        Element sub_inner = vbox(std::move(sub_rows))
+                           | color(Color(Color::SteelBlue))
                            | size(WIDTH, GREATER_THAN, 24);
+        Element sub_window = window(text(""), std::move(sub_inner));
 
         Elements stacked;
-        for (std::size_t i = 0; i < kTopLevelItems.size(); ++i) {
-            Element row = RenderTopLevelRow(kTopLevelItems[i],
+        for (std::size_t i = 0; i < detail::kTopLevelItems.size(); ++i) {
+            Element row = RenderTopLevelRow(detail::kTopLevelItems[i],
                                             i == state.selected_index,
                                             enabled_mask[i]);
             if (i == state.selected_index) {
@@ -1065,7 +1064,7 @@ export Element RenderMessageActionsMenu(const MessageActionsMenuState& state,
             }
             stacked.push_back(std::move(row));
         }
-        auto w = window(text(header), vbox(std::move(stacked)));
+        auto w = window(text(std::string{header}), vbox(std::move(stacked)));
         // annotate the row we're acting on (role + id) at the bottom
         if (row_meta) {
             std::string role;
@@ -1088,7 +1087,7 @@ export Element RenderMessageActionsMenu(const MessageActionsMenuState& state,
         return w;
     }
 
-    auto w = window(text(header), main_list);
+    auto w = window(text(std::string{header}), main_list);
     if (row_meta) {
         std::string role = "unknown";
         switch (row_meta->role) {
@@ -1111,7 +1110,7 @@ export Element RenderMessageActionsMenu(const MessageActionsMenuState& state,
 }
 
 /// The small "⋮" always-on badge rendered for long rows (>20 lines).
-export Element RenderLongRowOverflowHint(bool active) {
+Element RenderLongRowOverflowHint(bool active) {
     auto body = text(" ⋮ ") | bold
               | color(active ? Color::Cyan : Color::GrayDark)
               | borderHeavy;
@@ -1130,7 +1129,7 @@ export Element RenderLongRowOverflowHint(bool active) {
 /// metadata.  The caller owns `meta` (row metadata), `available_tags` (for
 /// Tag submenu), `pinned_count` (for the Pin guard), and `cb` (dispatch
 /// table).  Returns true if any callback was invoked.
-export bool DispatchMenuResult(const MenuDispatchResult& r,
+bool DispatchMenuResult(const MenuDispatchResult& r,
                                const MessageMetadata& meta,
                                const MessageActionsCallbacks& cb,
                                const std::vector<MessageTag>& /*available_tags*/,

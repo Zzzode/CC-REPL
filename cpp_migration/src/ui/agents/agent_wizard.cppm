@@ -64,9 +64,15 @@ import cc.utils.swarm_backends;
 export namespace cc::ui::agents::wizard {
 using namespace ftxui;
 
-using cc::ui::wizard_dialog::WizardComponent;
-using cc::ui::wizard_dialog::WizardProviderProps;
-using cc::ui::wizard_dialog::WizardStep;
+// NOTE: cc.ui.wizard_dialog exposes MakeWizard(WizardConfig, StepsFn) with
+// steps that carry Element-render + event callbacks.  Agent wizard uses a
+// different pattern (props object + steps that return full Component
+// objects).  We define local adapter types below.
+using cc::ui::wizard_dialog::WizardConfig;
+using cc::ui::wizard_dialog::WizardContext;
+using cc::ui::wizard_dialog::MakeWizard;
+using cc::ui::wizard_dialog::WizardStep;  // (imported type is *not* used
+                                            //  for the .steps field below)
 using cc::ui::custom_select::MakeMultiSelect;
 using cc::ui::custom_select::MakeSingleSelect;
 using cc::ui::custom_select::MakeCustomSelect;
@@ -74,6 +80,69 @@ using cc::ui::custom_select::SelectOption;
 using cc::ui::custom_select::SelectMode;
 using cc::ui::custom_select::CustomSelectOptions;
 using cc::ui::custom_select::CustomSelectHandle;
+
+// ---------------------------------------------------------------------------
+// Adapter: agent-wizard pattern → MakeWizard framework
+// ---------------------------------------------------------------------------
+struct AgentWizardStepEntry {
+    std::string id;
+    std::string title;
+    std::string description;
+    std::function<Component()> create_content;
+};
+
+struct WizardProviderProps {
+    std::string title;
+    bool show_step_counter = true;
+    std::function<void()> on_cancel;
+    std::function<void()> on_complete;
+    std::vector<AgentWizardStepEntry> steps;
+};
+
+/// Bridges WizardProviderProps (agent-wizard convention) to the underlying
+/// cc.ui.wizard_dialog MakeWizard() factory.  Each step's create_content()
+/// Component is wired into the step's render + on_event callbacks.
+inline Component WizardComponent(WizardProviderProps props) {
+    WizardConfig cfg;
+    cfg.title = std::move(props.title);
+    cfg.show_step_counter = props.show_step_counter;
+
+    auto components = std::make_shared<std::vector<Component>>();
+    components->reserve(props.steps.size());
+
+    auto builder = [props = std::move(props), components](WizardContext& ctx) mutable {
+        ctx.on_cancel = [cb = std::move(props.on_cancel)](WizardContext&) {
+            if (cb) cb();
+        };
+        ctx.on_complete = [cb = std::move(props.on_complete)](WizardContext&) {
+            if (cb) cb();
+        };
+
+        for (auto& s : props.steps) {
+            Component comp = s.create_content ? s.create_content() : Component();
+            components->push_back(comp);
+            const size_t idx = components->size() - 1;
+
+            WizardStep step;
+            step.id = std::move(s.id);
+            step.title = std::move(s.title);
+            step.description = std::move(s.description);
+            step.render = [components, idx](WizardContext&) -> Element {
+                return (*components)[idx]
+                           ? (*components)[idx]->Render()
+                           : text("");
+            };
+            step.on_event = [components, idx](WizardContext&, Event e) -> bool {
+                return (*components)[idx]
+                           ? (*components)[idx]->OnEvent(std::move(e))
+                           : false;
+            };
+            ctx.steps.push_back(std::move(step));
+        }
+    };
+
+    return MakeWizard(std::move(cfg), std::move(builder));
+}
 
 using cards::AgentCardData;
 using shared::AgentAvatar;
@@ -221,7 +290,7 @@ inline std::vector<SelectOption> canonical_role_options() {
             desc_comp,
             roles_comp,
         }),
-        [draft, roles_handle, color_idx] {
+        [draft, roles_handle, color_idx, roles_comp] {
             // Persist multi-select back into draft on every render.
             draft->role_tags = roles_handle->SelectedValues();
 
@@ -397,7 +466,7 @@ inline std::vector<SelectOption> canonical_role_options() {
             allow_input,
             deny_input,
         }),
-        [draft, tools_handle, allow_store, deny_store, split_lines] {
+        [draft, tools_handle, allow_store, deny_store, split_lines, tools_comp, allow_input, deny_input] {
             // Sync selection back to draft.
             draft->selected_tools = tools_handle->SelectedValues();
             draft->path_allowlist = split_lines(*allow_store);
@@ -505,7 +574,7 @@ inline std::vector<SelectOption> canonical_role_options() {
             model_comp,
             prompt_input,
         }),
-        [draft, model_handle, temp, prompt_store] {
+        [draft, model_handle, temp, prompt_store, model_comp, prompt_input] {
             // Sync back.
             auto mv = model_handle->SelectedValues();
             if (!mv.empty()) draft->model = mv[0];
@@ -528,8 +597,12 @@ inline std::vector<SelectOption> canonical_role_options() {
             // Temperature gauge.
             int bar_w = 30;
             int filled = static_cast<int>((draft->temperature / 2.0) * bar_w);
-            std::string bar(filled, '█');
-            bar += std::string(bar_w - filled, '░');
+            const std::string_view kFill = "█";
+            const std::string_view kEmpty = "░";
+            std::string bar;
+            bar.reserve(bar_w * 3);
+            for (int i = 0; i < filled; ++i) bar.append(kFill);
+            for (int i = 0; i < bar_w - filled; ++i) bar.append(kEmpty);
             // Color transition: blue (cold) -> green -> red (hot).
             Color tcolor = Color::Blue;
             if (draft->temperature > 0.5) tcolor = Color::Green;
@@ -678,10 +751,10 @@ inline std::vector<SelectOption> canonical_role_options() {
         } else {
             banner = hbox({
                 text(" ! ") | color(Color::Yellow) | bold,
-                text((draft->name.empty()
+                text(std::string(draft->name.empty()
                           ? "Name is required. "
                           : "") +
-                     (!draft->confirmed
+                     std::string(!draft->confirmed
                           ? "Tick the confirmation box to proceed."
                           : ""))
                     | color(Color::Yellow),

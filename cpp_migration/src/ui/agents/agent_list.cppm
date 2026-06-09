@@ -46,7 +46,7 @@ export module cc.ui.agents.agent_list;
 
 import cc.ui.agents.shared_widgets;
 import cc.ui.agents.agent_cards;
-import ui.components.tag_tabs;
+import cc.ui.components.tag_tabs;
 import cc.ui.custom_select;
 
 export namespace cc::ui::agents::list_view {
@@ -285,7 +285,7 @@ struct ToolbarOptions {
         text(" 🔍 ") | color(search_color),
         text(opts.search_query.empty() ? query_display : opts.search_query)
             | (opts.search_query.empty() ? dim : color(Color::White)),
-        text(" ") | filler(),
+        filler() | nothing,
     }) | border | color(search_color) | flex;
 
     // Big green "+ New Agent" button.

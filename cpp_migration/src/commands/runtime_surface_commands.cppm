@@ -118,7 +118,6 @@ CC_RUNTIME_HELPER_COMMAND(CommitPushPrCommand, "commit-push-pr", "Commit, push, 
 CC_RUNTIME_HELPER_COMMAND(CreateMovedToPluginCommand, "create-moved-to-plugin-command", "Create a moved-to-plugin command shim", "plugins", create_moved_to_plugin_command::run)
 CC_RUNTIME_HELPER_COMMAND(DebugToolCallCommand, "debug-tool-call", "Debug a tool call payload", "diagnostics", debug_tool_call::run)
 CC_RUNTIME_HELPER_COMMAND(ExtraUsageCommand, "extra-usage", "Show extended usage information", "usage", extra_usage::run)
-CC_RUNTIME_HELPER_COMMAND(InitVerifiersCommand, "init-verifiers", "Initialize verifier configuration", "verification", init_verifiers::run)
 CC_RUNTIME_HELPER_COMMAND(MockLimitsCommand, "mock-limits", "Configure mock rate limits", "usage", mock_limits::run)
 CC_RUNTIME_HELPER_COMMAND(OnboardingCommand, "onboarding", "Run onboarding checks", "setup", onboarding::run)
 CC_RUNTIME_HELPER_COMMAND(OutputStyleCommand, "output-style", "Manage output style", "config", output_style::run)
@@ -126,7 +125,6 @@ CC_RUNTIME_HELPER_COMMAND(PerfIssueCommand, "perf-issue", "Collect performance i
 CC_RUNTIME_HELPER_COMMAND(PrCommentsCommand, "pr-comments", "Inspect pull request comments", "git", pr_comments::run)
 CC_RUNTIME_HELPER_COMMAND(ReloadPluginsCommand, "reload-plugins", "Reload installed plugins", "plugins", reload_plugins::run)
 CC_RUNTIME_HELPER_COMMAND(ResetLimitsCommand, "reset-limits", "Reset local mock limits", "usage", reset_limits::run)
-CC_RUNTIME_HELPER_COMMAND(SecurityReviewCommand, "security-review", "Run a security-focused review", "review", security_review::run)
 CC_RUNTIME_HELPER_COMMAND(StatuslineCommand, "statusline", "Configure statusline output", "terminal", statusline::run)
 CC_RUNTIME_HELPER_COMMAND(TerminalSetupCommand, "terminal-setup", "Configure terminal integration", "terminal", terminal_setup::run)
 CC_RUNTIME_HELPER_COMMAND(ThinkbackPlayCommand, "thinkback-play", "Replay thinking history", "thinking", thinkback_play::run)
@@ -150,83 +148,6 @@ public:
         const bool force = !ctx.args.empty() && (ctx.args.front() == "--force" || ctx.args.front() == "-f");
         execute_exit(force);
         return CommandResult::exit();
-    }
-};
-
-class InstallGithubAppCommand final : public detail::BasicCommand {
-public:
-    [[nodiscard]] static CommandDefinition definition() {
-        return CommandDefinition{
-            .name = "install-github-app",
-            .description = "Install the GitHub app integration",
-            .args = {
-                CommandArg{.name = "repo", .description = "Target repository", .type = ArgType::Text, .required = false},
-                CommandArg{.name = "--workflow", .description = "Generate workflow YAML instead of running checks", .type = ArgType::None, .required = false},
-            },
-            .category = "git",
-        };
-    }
-
-    [[nodiscard]] Result<CommandResult> execute(const CommandContext& ctx) {
-        if (!ctx.args.empty() && ctx.args.front() == "--workflow") {
-            return CommandResult::success(generate_workflow_yaml("claude-sonnet-4-20250514", true));
-        }
-
-        std::string message = "GitHub app installation flow\n";
-        InstallState state{.current_step = InstallStep::CheckGitHub, .data = {}, .errors = {}};
-        message += "- " + get_step_description(state.current_step) + "\n";
-        while (auto next = advance_step(state)) {
-            message += "- " + get_step_description(*next) + "\n";
-            if (*next == InstallStep::Success) break;
-        }
-
-        if (auto gh = check_github_cli(); !gh) {
-            message += "\nGitHub CLI check failed: " + gh.error() + "\n";
-            return CommandResult::fail(message);
-        }
-
-        if (!ctx.args.empty()) {
-            auto repo = ctx.args.front();
-            if (auto install = install_github_app_to_repo(repo); !install) {
-                message += "\nRepository installation failed: " + install.error() + "\n";
-                return CommandResult::fail(message);
-            }
-            message += "\nRepository prepared: " + repo + "\n";
-        }
-
-        return CommandResult::success(message);
-    }
-};
-
-class KeybindingsCommand final : public detail::BasicCommand {
-public:
-    [[nodiscard]] static CommandDefinition definition() {
-        return CommandDefinition{
-            .name = "keybindings",
-            .description = "Manage keybindings",
-            .args = {
-                CommandArg{.name = "action", .description = "show, set, reset, or export", .type = ArgType::Choice, .required = false, .choices = {"show", "set", "reset", "export"}},
-                CommandArg{.name = "name", .description = "Action name for set", .type = ArgType::Text, .required = false},
-                CommandArg{.name = "keys", .description = "Key binding for set", .type = ArgType::Text, .required = false},
-            },
-            .category = "input",
-        };
-    }
-
-    [[nodiscard]] Result<CommandResult> execute(const CommandContext& ctx) {
-        if (ctx.args.empty() || ctx.args.front() == "show") return CommandResult::success(show_keybindings());
-        if (ctx.args.front() == "export") return CommandResult::success(export_keybindings());
-        if (ctx.args.front() == "reset") {
-            reset_keybindings();
-            return CommandResult::success("Keybindings reset to defaults");
-        }
-        if (ctx.args.front() == "set") {
-            if (ctx.args.size() < 3) return CommandResult::fail("keybindings set requires action and keys");
-            auto result = set_keybinding(ctx.args[1], ctx.args[2]);
-            if (!result) return CommandResult::fail(result.error());
-            return CommandResult::success("Keybinding updated");
-        }
-        return CommandResult::fail("Unknown keybindings action: " + ctx.args.front());
     }
 };
 

@@ -17,7 +17,7 @@ export import ui.components.pr_badge;
 export import ui.components.spinner;
 export import ui.components.dev_bar;
 export import ui.components.stats;
-export import ui.components.tag_tabs;
+export import cc.ui.components.tag_tabs;
 export import ui.components.status_line;
 export import ui.components.text_input;
 export import cc.ui.components.feature_dialogs;
@@ -49,10 +49,10 @@ using ::ui::components::StatsData;
 using ::ui::components::StatsOptions;
 using ::ui::components::Stats;
 
-using ::ui::components::Tab;
-using ::ui::components::TagTabsOptions;
-using ::ui::components::TagTabs;
-using ::ui::components::TagTabsComponent;
+using cc::ui::components::Tab;
+using cc::ui::components::TagTabsOptions;
+using cc::ui::components::TagTabs;
+using cc::ui::components::TagTabsComponent;
 
 using ::ui::components::ConnectionStatus;
 using ::ui::components::StatusLineOptions;

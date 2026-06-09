@@ -24,7 +24,7 @@ export namespace cc::skills::bundled {
 // Settings Examples Documentation (mirrors TS SETTINGS_EXAMPLES_DOCS)
 // ============================================================
 
-constexpr std::string_view SETTINGS_EXAMPLES_DOCS = R"(## Settings File Locations
+constexpr std::string_view SETTINGS_EXAMPLES_DOCS = R"DOC(## Settings File Locations
 
 Choose the appropriate file based on scope:
 
@@ -114,13 +114,13 @@ Plugin syntax: `plugin-name@source` where source is `claude-code-marketplace`,
 - `spinnerVerbs`: Customize spinner verbs (`{ "mode": "append" | "replace", "verbs": [...] }`)
 - `spinnerTipsOverride`: Override spinner tips (`{ "excludeDefault": true, "tips": [...] }`)
 - `syntaxHighlightingDisabled`: Disable diff highlighting
-)";
+)DOC";
 
 // ============================================================
 // Hooks Documentation (mirrors TS HOOKS_DOCS)
 // ============================================================
 
-constexpr std::string_view HOOKS_DOCS = R"(## Hooks Configuration
+constexpr std::string_view HOOKS_DOCS = R"DOC(## Hooks Configuration
 
 Hooks run commands at specific points in the harness lifecycle.
 
@@ -255,13 +255,13 @@ Hooks return JSON to control behavior:
   }
 }
 ```
-)";
+)DOC";
 
 // ============================================================
 // Hook Verification Flow (mirrors TS HOOK_VERIFICATION_FLOW)
 // ============================================================
 
-constexpr std::string_view HOOK_VERIFICATION_FLOW = R"(## Constructing a Hook (with verification)
+constexpr std::string_view HOOK_VERIFICATION_FLOW = R"DOC(## Constructing a Hook (with verification)
 
 Given an event, matcher, target file, and desired behavior, follow this flow.
 Each step catches a different failure class — a hook that silently does
@@ -318,13 +318,13 @@ nothing is worse than no hook.
 
 7. **Handoff.** Tell user the hook is live (or needs `/hooks`/restart per
    watcher caveat). Point them at `/hooks` to review/edit/disable later.
-)";
+)DOC";
 
 // ============================================================
 // Main Update Config Prompt (mirrors TS UPDATE_CONFIG_PROMPT)
 // ============================================================
 
-constexpr std::string_view UPDATE_CONFIG_PROMPT_TEMPLATE = R"(## Update Config Skill
+constexpr std::string_view UPDATE_CONFIG_PROMPT_TEMPLATE = R"DOC(## Update Config Skill
 
 Modify the harness configuration by updating settings.json files.
 
@@ -397,7 +397,7 @@ When adding to permission or hook arrays, **merge with existing**, don't replace
   }
 }
 ```
-)";
+)DOC";
 
 // ============================================================
 // Bundled Update Config Factory
@@ -425,7 +425,7 @@ When adding to permission or hook arrays, **merge with existing**, don't replace
     full_content += std::string(HOOK_VERIFICATION_FLOW);
 
     // Example workflows + common mistakes + troubleshooting
-    full_content += R"(
+    full_content += R"DOC(
 ## Example Workflows
 
 ### Adding a Hook
@@ -459,7 +459,7 @@ If a hook isn't running:
 4. Check hook type: "command", "prompt", or "agent"?
 5. Pipe-test the command manually with synthesized stdin
 6. Run with debug mode to see hook execution logs
-)";
+)DOC";
 
     return SkillDefinition{
         .name = "update-config",

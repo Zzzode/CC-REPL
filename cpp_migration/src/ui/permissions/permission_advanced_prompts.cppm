@@ -185,8 +185,9 @@ namespace qdetail {
                     Color c, int idx) {
         const bool hovered = (focused_but == idx);
         auto chip = text(std::format(" [{}] {} ", hotkey, label))
-                  | color(c)
-                  | (hovered ? (bold | inverted) : dim);
+                  | color(c);
+        if (hovered) chip = chip | bold | inverted;
+        else         chip = chip | dim;
         return chip;
     };
     buttons.push_back(make("Esc", "Cancel", Color::Red, 0));
@@ -527,7 +528,7 @@ inline bool HandleAskUserQuestion(std::shared_ptr<AskUserQuestionState> st,
                     return true;
                 }
             } else { // CodeInput accepts any printable + newline via ctrl+enter
-                if (c == "\n"_utf8) {
+                if (c == "\n") {
                     st->text_buf += '\n'; return true;
                 }
                 if (c.size() == 1 &&
@@ -778,8 +779,9 @@ struct SkillPermissionState {
     for (const auto& d : defs) {
         const bool hovered = (st->focused_idx == d.idx);
         auto chip = text(std::format(" [{}] {} ", d.hotkey, d.label))
-                  | color(d.c)
-                  | (hovered ? (bold | inverted) : dim);
+                  | color(d.c);
+        if (hovered) chip = chip | bold | inverted;
+        else         chip = chip | dim;
         buttons.push_back(std::move(chip));
         buttons.push_back(text("  "));
     }
@@ -1022,9 +1024,13 @@ struct ReportForm {
     const bool focus_sub = (f.focused_field == 2);
     rows.push_back(hbox({
         filler(),
-        text(" [Ctrl+r] Submit report ")
-            | color(Color::Red)
-            | (focus_sub ? (bold | inverted) : dim),
+        [&]() -> Element {
+            auto el = text(" [Ctrl+r] Submit report ")
+                | color(Color::Red);
+            if (focus_sub) el = el | bold | inverted;
+            else           el = el | dim;
+            return el;
+        }(),
     }));
     return vbox(std::move(rows)) | size(WIDTH, EQUAL, 40);
 }
@@ -1121,14 +1127,15 @@ struct FallbackPermissionState {
     struct BD { const char* hotkey; const char* label; Color c; int idx; };
     std::vector<BD> defs = {
         {"Esc", "Cancel",    Color::Red,     0},
-        {"O",   "Allow once",Color::Orange,  1},
+        {"O",   "Allow once",Color::Orange1,  1},
         {"D",   "Deny",      Color::Red,     2},
     };
     for (const auto& d : defs) {
         bool hovered = (st->focused_button == d.idx);
         auto chip = text(std::format(" [{}] {} ", d.hotkey, d.label))
-                  | color(d.c)
-                  | (hovered ? (bold | inverted) : dim);
+                  | color(d.c);
+        if (hovered) chip = chip | bold | inverted;
+        else         chip = chip | dim;
         buttons.push_back(std::move(chip));
         buttons.push_back(text("  "));
     }
@@ -1197,7 +1204,7 @@ inline bool HandleFallbackDialog(std::shared_ptr<FallbackPermissionState> st,
                     std::isprint(static_cast<unsigned char>(c.front()))) {
                     *field += c.front(); return true;
                 }
-                if (c == "\n"_utf8 && field == &st->report.reason) {
+                if (c == "\n" && field == &st->report.reason) {
                     *field += '\n'; return true;
                 }
             }

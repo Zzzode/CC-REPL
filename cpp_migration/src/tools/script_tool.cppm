@@ -19,25 +19,10 @@ export module cc.tools.script;
 import cc.tools.script_primitives;
 import cc.tools.script_typecheck;
 import cc.tools.script_diagnostics;
+import cc.tools.script_types;
 import cc.tools.tool_display_names;
 
 export namespace cc::tools {
-
-
-enum class ScriptLanguage {
-    Python,
-    JavaScript,
-    Shell,
-};
-
-constexpr auto language_name(ScriptLanguage lang) -> std::string_view {
-    switch (lang) {
-        case ScriptLanguage::Python:     return "python";
-        case ScriptLanguage::JavaScript: return "javascript";
-        case ScriptLanguage::Shell:      return "shell";
-        default:                         return "unknown";
-    }
-}
 
 
 enum class ScriptError {
@@ -78,17 +63,6 @@ struct SandboxLimits {
 };
 
 
-struct Diagnostic {
-    enum class Severity { Error, Warning, Info, Hint };
-
-    Severity severity;
-    size_t line;
-    size_t column;
-    std::string message;
-    std::optional<std::string> source;
-};
-
-
 struct ScriptRequest {
     std::string code;
     ScriptLanguage language;
@@ -98,34 +72,21 @@ struct ScriptRequest {
 };
 
 
-struct ScriptResult {
-    int exit_code{0};
-    std::string stdout_output;
-    std::string stderr_output;
-    std::chrono::milliseconds duration{0};
-    std::vector<Diagnostic> diagnostics;
-    bool timed_out{false};
-    size_t memory_used_bytes{0};
-};
-
-
 auto resolve_interpreter(ScriptLanguage lang) -> std::expected<std::string, ScriptError> {
-    switch (lang) {
-        case ScriptLanguage::Python:     return std::string{"python3"};
-        case ScriptLanguage::JavaScript: return std::string{"node"};
-        case ScriptLanguage::Shell:      return std::string{"/bin/sh"};
-        default: return std::unexpected(ScriptError::UnsupportedLanguage);
-    }
+    auto runner = get_script_runner(lang);
+    if (runner) return runner->string();
+    return std::unexpected(ScriptError::InterpreterNotFound);
 }
-
 
 constexpr auto script_extension(ScriptLanguage lang) -> std::string_view {
     switch (lang) {
-        case ScriptLanguage::Python:     return ".py";
+        case ScriptLanguage::TypeScript: return ".ts";
         case ScriptLanguage::JavaScript: return ".js";
+        case ScriptLanguage::Python:     return ".py";
         case ScriptLanguage::Shell:      return ".sh";
-        default:                         return ".txt";
+        case ScriptLanguage::Unknown:    return ".txt";
     }
+    return ".txt";
 }
 
 
@@ -188,43 +149,23 @@ public:
 
         ScriptResult result{
             .exit_code = status,
-            .stdout_output = std::move(output),
+            .output = std::move(output),
             .duration = elapsed,
-            .timed_out = timed_out,
         };
 
 
         if (request.enable_type_check) {
             result.diagnostics = run_type_check(request.language, request.code);
 
-            // Bridge local Diagnostics (script_tool) into
-            // script_diagnostics::Diagnostic, then pretty-print via the
-            // unified format_diagnostics formatter.
+            // Pretty-print diagnostics via unified format_diagnostics formatter.
             if (!result.diagnostics.empty()) {
-                std::vector<::cc::tools::Diagnostic> formatted;
-                formatted.reserve(result.diagnostics.size());
-                for (const auto& d : result.diagnostics) {
-                    ::cc::tools::Diagnostic out;
-                    using Lvl = ::cc::tools::DiagnosticLevel;
-                    switch (d.severity) {
-                        case decltype(d)::Severity::Error:   out.level = Lvl::Error;   break;
-                        case decltype(d)::Severity::Warning: out.level = Lvl::Warning; break;
-                        case decltype(d)::Severity::Info:    out.level = Lvl::Info;    break;
-                        case decltype(d)::Severity::Hint:    out.level = Lvl::Hint;    break;
-                    }
-                    out.line    = d.line;
-                    out.column  = d.column;
-                    out.message = d.message;
-                    out.source  = d.source;
-                    formatted.push_back(std::move(out));
-                }
                 ::cc::tools::FormatDiagnosticOptions fopts;
                 fopts.max_display    = 200;
                 fopts.use_colors     = true;
                 fopts.align_messages = true;
                 fopts.show_snippets  = false;
-                if (!result.stderr_output.empty()) result.stderr_output += "\n";
-                result.stderr_output += ::cc::tools::format_diagnostics(formatted, fopts);
+                if (!result.errors.empty()) result.errors += "\n";
+                result.errors += ::cc::tools::format_diagnostics(result.diagnostics, fopts);
             }
         }
 
@@ -270,7 +211,7 @@ private:
         std::vector<Diagnostic> diags;
 
         // migrated: integrate script typecheck via cc.tools.script_typecheck
-        if (lang != ScriptLanguage::JavaScript) {
+        if (lang != ScriptLanguage::JavaScript && lang != ScriptLanguage::TypeScript) {
             // Only JS/TS runs type-checking; Python/Shell keep the empty list.
             // TypeScript subset is treated as JS for this placeholder mapping.
             // Add a guard so that non-TS code never reaches the heavy runner.
@@ -290,9 +231,9 @@ private:
         for (const auto& d : result.diagnostics) {
             Diagnostic local_diag;
             switch (d.severity) {
-                case Severity::Error:   local_diag.severity = Diagnostic::Severity::Error;   break;
-                case Severity::Warning: local_diag.severity = Diagnostic::Severity::Warning; break;
-                case Severity::Info:    local_diag.severity = Diagnostic::Severity::Info;    break;
+                case script_typecheck::Severity::Error:   local_diag.level = DiagnosticLevel::Error;   break;
+                case script_typecheck::Severity::Warning: local_diag.level = DiagnosticLevel::Warning; break;
+                case script_typecheck::Severity::Info:    local_diag.level = DiagnosticLevel::Info;    break;
             }
             local_diag.line    = static_cast<size_t>(std::max(1, d.line));
             local_diag.column  = static_cast<size_t>(std::max(1, d.column));

@@ -141,12 +141,13 @@ enum class CardSize {
 
 /// Footer button used by Card and LargeCard.
 [[nodiscard]] inline Element FooterButton(
-    std::string_view label, Color color, bool disabled = false)
+    std::string_view label, Color col, bool disabled = false)
 {
+    using ftxui::color;
     auto txt = text(std::format(" {} ", label)) | bold;
     if (disabled) txt = txt | dim;
-    else          txt = txt | color(color);
-    return txt | borderLight | color(color);
+    else          txt = txt | color(col);
+    return txt | borderLight | color(col);
 }
 
 // ============================================================

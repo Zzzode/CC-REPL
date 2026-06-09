@@ -18,6 +18,7 @@ module;
 #include <string_view>
 #include <vector>
 #include <optional>
+#include <filesystem>
 
 export module cc.tools.bash_validation;
 
@@ -122,26 +123,8 @@ inline EnvelopeResult validate_read_only(std::string_view command) {
     return {false, r.message};
 }
 
-// ── Destructive-command detection (delegates to the new module) ────────────
-//
-// The original bash_security.cppm also contains a simpler is_destructive_command
-// (plain string find() against ~20 substrings).  The TS version and this
-// module use the richer regex-based table with specific warnings.  Callers
-// that just need a boolean can use either; callers that want the warning
-// string MUST use get_destructive_warning / get_destructive_command_warning
-// from this module.
-
-inline bool is_destructive_command(std::string_view command) {
-    return destructive_command_warning::is_destructive_command(command);
-}
-
-inline std::optional<std::string> get_destructive_warning(std::string_view command) {
-    return destructive_command_warning::get_destructive_command_warning(command);
-}
-
-inline std::optional<std::string> get_destructive_command_warning(std::string_view command) {
-    return destructive_command_warning::get_destructive_command_warning(command);
-}
+// ── Destructive-command detection (delegates to destructive_command_warning
+//    module which exports the same functions into cc::tools::bash_validation) ──
 
 // ── sed validation (kept as a passthrough — TS version lives in separate
 //    sedValidation.ts which Agent 3 is NOT migrating per task scope) ─────────

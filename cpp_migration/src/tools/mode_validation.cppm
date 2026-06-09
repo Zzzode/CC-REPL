@@ -11,6 +11,7 @@ module;
 #include <vector>
 #include <array>
 #include <algorithm>
+#include <format>
 #include <utility>
 
 export module cc.tools.mode_validation;

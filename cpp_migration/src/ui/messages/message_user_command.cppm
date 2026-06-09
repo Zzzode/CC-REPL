@@ -93,7 +93,20 @@ class UserCommandMessageComponent : public ComponentBase {
 
     explicit UserCommandMessageComponent(UserCommandData data,
                                          OnCopyFn on_copy = nullptr)
-        : data_(std::move(data)), on_copy_(std::move(on_copy)) {}
+        : data_(std::move(data)), on_copy_(std::move(on_copy))
+    {
+        copy_btn_ = Button(" copy", [this] {
+            if (on_copy_) on_copy_(BuildFullCommand());
+        }) | size(WIDTH, EQUAL, 12) | bold;
+        Add(copy_btn_);
+
+        toggle_btn_ = Button(" show all", [this] {
+            show_all_output_ = !show_all_output_;
+            // Update label text via re-creating button is too heavy; we rely on
+            // the Render() call using ->Render() directly with conditional.
+        }) | dim;
+        Add(toggle_btn_);
+    }
 
     Element Render() override {
         Elements header_parts;
@@ -116,9 +129,7 @@ class UserCommandMessageComponent : public ComponentBase {
         auto header = hbox({
             hbox(std::move(header_parts)) | flex,
             filler(),
-            button("📋 copy", [this, full_cmd] {
-                if (on_copy_) on_copy_(full_cmd);
-            }) | size(WIDTH, EQUAL, 12) | bold,
+            copy_btn_->Render(),
         }) | color(Color::GreenLight);
 
         // Output section
@@ -145,11 +156,11 @@ class UserCommandMessageComponent : public ComponentBase {
             }
             if (pos < out.size()) {
                 truncated = true;
-                output_rows.push_back(button(
-                    show_all_output_ ? " ▲ collapse" : " ▼ show all",
-                    [this] { show_all_output_ = !show_all_output_; }) | dim);
-                (void)truncated;
+                // Toggle element (inline Element form; event handled in OnEvent)
+                std::string label = show_all_output_ ? " ▲ collapse" : " ▼ show all";
+                output_rows.push_back(text(label) | dim);
             }
+            (void)truncated;
         }
 
         Elements all;
@@ -182,6 +193,8 @@ class UserCommandMessageComponent : public ComponentBase {
     UserCommandData data_;
     OnCopyFn on_copy_;
     bool show_all_output_ = false;
+    Component copy_btn_;
+    Component toggle_btn_;
 };
 
 [[nodiscard]] inline Component MakeUserCommandMessage(

@@ -268,4 +268,11 @@ struct RefreshResult {
 /// Refresh a single plugin by ID
 [[nodiscard]] std::expected<void, std::string> refresh_plugin(std::string_view plugin_id);
 
+// ── Stub implementations (see plugin_marketplace.cppm for rationale) ──
+inline bool is_plugin_installed(std::string_view) { return false; }
+
+inline std::optional<InstalledPlugin> remove_installed_plugin(std::string_view) {
+    return std::nullopt;
+}
+
 } // namespace cc::utils::plugin_manager

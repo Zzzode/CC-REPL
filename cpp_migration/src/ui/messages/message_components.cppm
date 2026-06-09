@@ -11,7 +11,7 @@ module;
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
 
-export module cc.ui.message_components;
+export module cc.ui.messages.message_components;
 
 import cc.ui.layout;
 
@@ -79,11 +79,63 @@ inline auto make_assistant_text_message_props(AssistantTextMessagePropsRequired 
     };
 }
 
-// --- Rate limit message ---
+// --- Rate limit message (UNIFIED definition, canonical location) ---
+// Fields represent the union of what rate-limit renderers, audit previews,
+// and row-dispatch code access.  All are optional / default-initialised
+// so callers can fill only the subset they know about.
 struct RateLimitInfo {
-    std::string message;
-    int retry_after_seconds;
-    bool is_overloaded;
+    std::string reason;                 ///< Short reason (shown in preview)
+    std::string message;                ///< Human-readable description
+    std::string model;                  ///< Affected model name
+    std::string raw_text;               ///< Original error string (for verbosity)
+    int retry_after_seconds{0};         ///< Legacy integer seconds fallback
+    std::optional<std::chrono::seconds> retry_after;   ///< Precise backoff
+    std::optional<double> tokens_remaining;
+    std::optional<double> requests_remaining;
+    bool is_hard_limit{false};          ///< 429 hard stop vs warning
+    bool is_overloaded{false};          ///< "server overloaded" vs plain 429
+};
+
+// --- Shared layout helpers (indent / padding Decorators) ---
+/// Return a Decorator that indents content by N spaces on the left.
+[[nodiscard]] inline ftxui::Decorator indent(int n) {
+    using namespace ftxui;
+    return [n](Element e) {
+        return hbox({
+            ftxui::text(std::string(static_cast<std::size_t>(n), ' ')),
+            std::move(e)
+        });
+    };
+}
+
+/// CSS-style padding decorator.
+[[nodiscard]] inline ftxui::Decorator padding(int top, int right, int bottom, int left) {
+    using namespace ftxui;
+    return [=](Element e) -> Element {
+        std::vector<Element> lines;
+        lines.reserve(static_cast<std::size_t>(top) + 1 +
+                      static_cast<std::size_t>(bottom));
+        const std::string h_pad_l(static_cast<std::size_t>(left), ' ');
+        const std::string h_pad_r(static_cast<std::size_t>(right), ' ');
+        for (int i = 0; i < top; ++i)
+            lines.push_back(ftxui::text(h_pad_l + h_pad_r));
+        lines.push_back(ftxui::hbox({
+            ftxui::text(h_pad_l), std::move(e), ftxui::text(h_pad_r)
+        }));
+        for (int i = 0; i < bottom; ++i)
+            lines.push_back(ftxui::text(h_pad_l + h_pad_r));
+        return ftxui::vbox(std::move(lines));
+    };
+}
+
+/// Uniform padding on all four sides.
+[[nodiscard]] inline ftxui::Decorator padding(int all) {
+    return padding(all, all, all, all);
+}
+
+/// Horizontal + vertical padding.
+[[nodiscard]] inline ftxui::Decorator padding(int h, int v) {
+    return padding(v, h, v, h);
 };
 
 // --- Message rendering error types ---

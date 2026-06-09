@@ -221,7 +221,7 @@ struct EditorState {
     };
     Elements els;
     for (int i = 0; i < 3; ++i) {
-        auto t = Tab{i};
+        auto t = static_cast<Tab>(i);
         auto el = text(std::format(" {} ", labels[i]));
         if (t == active) el = el | bold | inverted | color(Color::Cyan);
         else              el = el | dim;
@@ -582,7 +582,7 @@ inline bool HandleAllowlistEvents(EditorState& st, Event event) {
         // Capture printable characters as path-pattern input
         if (event.is_character()) {
             auto c = event.character();
-            if (c == "\b"_utf8 || c == "\x7f"_utf8) {
+            if (c == "\b" || c == "\x7f") {
                 if (!st.new_path_pattern.empty()) st.new_path_pattern.pop_back();
                 return true;
             }
@@ -715,7 +715,7 @@ inline bool HandlePreapprovalEvents(EditorState& st, Event event) {
             }
             if (event.is_character()) {
                 auto c = event.character();
-                if (c == "\b"_utf8 || c == "\x7f"_utf8) {
+                if (c == "\b" || c == "\x7f") {
                     if (!st.wizard.entered_path.empty()) st.wizard.entered_path.pop_back();
                     return true;
                 }

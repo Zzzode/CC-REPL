@@ -54,7 +54,7 @@ struct ExtraUsageCommand {
 };
 
 
-struct InstallGithubAppCommand {
+struct RemoteInstallGithubAppCommand {
     static constexpr auto name() -> std::string_view { return "install-github-app"; }
     static constexpr auto description() -> std::string_view { return "安装 GitHub App 集成"; }
     static constexpr auto aliases() { return std::array<std::string_view, 1>{"iga"}; }

@@ -126,10 +126,13 @@ struct RepoContext {
     }
     if (ctx.default_branch.empty()) ctx.default_branch = "main";
 
-    // repo_full — via git remote
-    if (auto repo = cc::utils::detect_repository()) {
-        ctx.repo_full = std::format("{}/{}", repo->owner, repo->name);
-        if (repo->name.size() > 2) ctx.project_name = repo->name;
+    // repo_full — via git remote (approximation: detect_repo_root + remote parse)
+    if (auto repo_root = cc::utils::detect_repo_root()) {
+        // Fallback: use folder names as owner/name
+        const auto name = repo_root->filename().string();
+        const auto parent = repo_root->parent_path().filename().string();
+        ctx.repo_full = std::format("{}/{}", parent.empty() ? "local" : parent, name);
+        if (name.size() > 2) ctx.project_name = name;
     }
     if (ctx.repo_full.empty()) ctx.repo_full = ctx.project_name;
 

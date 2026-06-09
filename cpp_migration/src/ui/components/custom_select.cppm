@@ -285,7 +285,7 @@ struct GroupMark {
 // ============================================================
 
 /// Concrete implementation. Exposed via Component and CustomSelectHandle.
-class CustomSelectImpl final : public CustomSelectHandle {
+class CustomSelectImpl : public CustomSelectHandle {
 public:
     explicit CustomSelectImpl(CustomSelectOptions opts)
         : opts_(std::move(opts)) {
@@ -343,7 +343,7 @@ public:
     // ------------------------------------------------------------------
 
     [[nodiscard]] Component BuildComponent() {
-        auto self = shared_from_this();
+        auto self = std::static_pointer_cast<CustomSelectImpl>(shared_from_this());
         // Two internal sub-components: search Input (optional), and the list
         // Renderer + CatchEvent. We compose them vertically.
         auto list = Renderer([self] { return self->RenderList(); })
@@ -362,9 +362,10 @@ public:
                   return false;
               });
 
+        auto sep = Renderer([] { return separator(); });
         return Container::Vertical({
             search_on_change,
-            separator(),
+            sep,
             list,
         }) | CatchEvent([self](Event e) -> bool {
             // Top-level shortcuts that work regardless of focus zone.
@@ -1160,7 +1161,7 @@ struct SelectProps {
     // Multi-mode legacy: Enter toggles (like new semantics).
     // Single-mode legacy: Enter calls on_change (not on_submit_single).
     // Wire on_submit_single → on_change to match old `Select` semantics.
-    if (!o.multi_select && o.on_change != nullptr) {
+    if (o.mode == SelectMode::Single && o.on_change != nullptr) {
         auto cb = o.on_change;
         o.on_submit_single = [cb](const std::string& v) { cb(v); };
     }

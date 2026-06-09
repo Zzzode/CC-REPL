@@ -19,7 +19,9 @@ module;
 #include <optional>
 #include <array>
 #include <unordered_map>
+#include <unordered_set>
 #include <span>
+#include <format>
 #include <functional>
 #include <algorithm>
 #include <cctype>
@@ -35,6 +37,7 @@ export namespace cc::tools::path_validation {
 
 using PermissionBehavior = mode_validation::PermissionBehavior;
 using PermissionResult   = mode_validation::PermissionResult;
+using PermissionMode     = mode_validation::PermissionMode;
 using DecisionReason     = mode_validation::DecisionReason;
 using DecisionReasonType = mode_validation::DecisionReasonType;
 
@@ -262,18 +265,6 @@ check_path_constraints(
     const PathPermissionContext& ctx,
     bool compound_command_has_cd = false);
 
-/// Create a callable that validates a single PathCommand's argv against the
-/// permission context.  Wraps validateCommandPaths + dangerous removal-path
-/// check + permission-update suggestion generation (the TS createPathChecker).
-[[nodiscard]] inline std::function<PathPermissionResult(
-    std::span<const std::string>,              // argv
-    const PathPermissionContext&,              // ctx
-    bool                                       // compound_command_has_cd
-)>
-create_path_checker(
-    PathCommand cmd,
-    std::optional<FileOperationType> override_op = std::nullopt);
-
 // ---------------------------------------------------------------------------
 // Danger-path detection (rm -rf / etc.)
 // ---------------------------------------------------------------------------
@@ -482,7 +473,7 @@ inline PathExtractor get_path_extractor(PathCommand cmd) {
             };
         case PathCommand::Rg:
             return [](std::span<const std::string> a) {
-                return parse_pattern_command(a, rg_flags, {"."});
+                return parse_pattern_command(a, rg_flags, std::vector<std::string>{"."});
             };
 
         case PathCommand::Sed:

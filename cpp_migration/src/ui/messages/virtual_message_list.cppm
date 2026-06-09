@@ -375,11 +375,11 @@ inline void maybe_trigger_load(VirtualListState &s) {
 /// Build the loading-spinner pill (for earlier/later messages), rendered
 /// as a single text line with dim colors.
 [[nodiscard]] inline ftxui::Element
-loading_pill(std::string const &text) {
+loading_pill(std::string const &label) {
   using namespace ftxui;
   return hbox({
     text("  ◷ "),
-    text(text) | color(Color::GrayDark) | dim,
+    text(label) | color(Color::GrayDark) | dim,
     filler(),
   }) | size(HEIGHT, EQUAL, 1);
 }

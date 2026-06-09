@@ -10,6 +10,7 @@ module;
 #include <algorithm>
 #include <chrono>
 #include <cctype>
+#include <expected>
 #include <format>
 #include <optional>
 #include <ranges>

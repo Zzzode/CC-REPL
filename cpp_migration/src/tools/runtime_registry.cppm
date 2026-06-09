@@ -62,6 +62,7 @@ import cc.tools.powershell;
 import cc.tools.remote_trigger_tool;
 import cc.tools.repl_tool;
 import cc.tools.script;
+import cc.tools.script_types;
 import cc.tools.send_message;
 import cc.tools.shared_tool;
 import cc.tools.skill_tool;
@@ -655,10 +656,9 @@ struct TeamMemberStartOptions {
         .stdin_data = json_string(json, "stdin"),
     });
     if (!result) return ToolResult::error(std::string(format_error(result.error())));
-    auto output = result->stdout_output;
-    if (!result->stderr_output.empty()) output += "\n" + result->stderr_output;
+    auto output = result->output;
+    if (!result->errors.empty()) output += "\n" + result->errors;
     if (output.empty()) output = std::format("Script exited with code {}", result->exit_code);
-    if (result->timed_out) output += "\n[timed out]";
     return result->exit_code == 0 ? ToolResult::success(output) : ToolResult::error(output);
 }
 

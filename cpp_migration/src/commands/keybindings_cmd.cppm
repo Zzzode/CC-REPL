@@ -23,6 +23,7 @@ module;
 #include <sstream>
 #include <string_view>
 #include <system_error>
+#include <unordered_set>
 
 export module cc.commands.keybindings_cmd;
 
@@ -389,7 +390,7 @@ private:
                            "Score", "ID", "Keys", "Command", "When");
         out += std::string(86, '-') + "\n";
         for (const auto& r : rows) {
-            out += std::format("  {:>4.0%} {:<22} {:<16} {:<20} {} [{:?}]\n",
+            out += std::format("  {:>4.0f}% {:<22} {:<16} {:<20} {} [{:?}]\n",
                 r.match_score, r.id, r.keys_display, r.command,
                 r.when, r.matched_field);
         }

@@ -41,6 +41,14 @@ enum class TaskType : std::uint8_t {
     LocalWorkflow,
     MonitorMcp,
     Dream,
+    // Scheduler-facing aliases used by cc.tasks.task_graph (superset of the
+    // canonical task-runner classification above; kept as distinct enumerators
+    // to preserve switch-coverage on the runner side while letting the graph
+    // layer schedule generic work).
+    Search,
+    GeneralPurpose,
+    Shell,
+    Agent,
 };
 
 /// Convert TaskType to string
@@ -53,6 +61,10 @@ enum class TaskType : std::uint8_t {
         case TaskType::LocalWorkflow: return "local_workflow";
         case TaskType::MonitorMcp: return "monitor_mcp";
         case TaskType::Dream: return "dream";
+        case TaskType::Search: return "search";
+        case TaskType::GeneralPurpose: return "general_purpose";
+        case TaskType::Shell: return "shell";
+        case TaskType::Agent: return "agent";
     }
     return "unknown";
 }
@@ -64,13 +76,17 @@ enum class TaskStatus : std::uint8_t {
     Completed,
     Failed,
     Killed,
+    Cancelled,
+    TimedOut,
 };
 
 /// Check if a task is in a terminal (completed) state
 [[nodiscard]] constexpr bool is_terminal_status(TaskStatus status) noexcept {
-    return status == TaskStatus::Completed || 
-           status == TaskStatus::Failed || 
-           status == TaskStatus::Killed;
+    return status == TaskStatus::Completed ||
+           status == TaskStatus::Failed ||
+           status == TaskStatus::Killed ||
+           status == TaskStatus::Cancelled ||
+           status == TaskStatus::TimedOut;
 }
 
 // ============================================================

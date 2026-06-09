@@ -21,6 +21,7 @@ module;
 #include <fstream>
 #include <iterator>
 #include <unordered_set>
+#include <regex>
 #include <string_view>
 
 export module cc.commands.skills_cmd;
@@ -253,10 +254,19 @@ private:
         if (rows.empty()) return "No skills installed.";
         std::string out = "Installed skills:\n";
         for (const auto& r : rows) {
-            auto status = r.enabled ? "●" : "○";
-            auto source = r.is_bundled ? "[bundled]" : "[user]";
-            out += std::format("  {} {} {:<16} {} — {}\n",
-                status, source, r.name, r.description);
+            const char* status = r.enabled ? "[*]" : "[ ]";
+            const char* source = r.is_bundled ? "[bundled]" : "[user]   ";
+            std::string name_padded = r.name;
+            if (name_padded.size() < 16) name_padded.resize(16, ' ');
+            out += "  ";
+            out += status;
+            out += ' ';
+            out += source;
+            out += ' ';
+            out += name_padded;
+            out += ' ';
+            out += r.description;
+            out += '\n';
             if (r.trigger_count > 0) {
                 out += std::format("                        ({} trigger patterns)\n",
                     r.trigger_count);

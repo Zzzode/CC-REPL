@@ -48,9 +48,31 @@ import cc.commands.plugin_trust_text;
 export namespace cc::ui::dialogs::plugin_dialog {
 using namespace ftxui;
 
+// CSS-style padding decorator: padding(top, right, bottom, left).
+// Wraps content with empty border-like whitespace.
+inline Decorator padding(int top, int right, int bottom, int left) {
+    return [=](Element e) -> Element {
+        Elements rows;
+        for (int i = 0; i < top; ++i) rows.push_back(text(""));
+        {
+            Elements left_pad, right_pad;
+            for (int i = 0; i < left; ++i) left_pad.push_back(text(" "));
+            for (int i = 0; i < right; ++i) right_pad.push_back(text(" "));
+            rows.push_back(hbox({
+                hbox(std::move(left_pad)),
+                std::move(e),
+                hbox(std::move(right_pad)),
+            }));
+        }
+        for (int i = 0; i < bottom; ++i) rows.push_back(text(""));
+        return vbox(std::move(rows));
+    };
+}
+inline Decorator padding(int all) { return padding(all, all, all, all); }
+
 namespace ui = cc::commands::plugin_ui;
 namespace pf = cc::commands::plugin_helpers;
-namespace pe = cc::commands::plugin::error_formatting;
+namespace pe = cc::commands::plugin;
 namespace pd = cc::commands::plugin;
 namespace pp = cc::commands::plugin;
 namespace pt = cc::commands::plugin;
@@ -154,12 +176,12 @@ inline std::vector<MenuCard> k_menu_cards = {
 }
 
 /// Render a chip/tag pill.
-[[nodiscard]] inline Element Chip(std::string_view text, Color c = Color::Cyan) {
+[[nodiscard]] inline Element Chip(std::string_view label, Color c = Color::Cyan) {
     return hbox({
         text(" "),
-        text(std::string{text}) | color(c) | dim,
+        text(std::string{label}) | color(c) | dim,
         text(" "),
-    }) | borderLight | size(WIDTH, EQUAL, (int)text.size() + 2);
+    }) | borderLight | size(WIDTH, EQUAL, (int)label.size() + 2);
 }
 
 /// Render a small status badge (enabled / disabled / error).
@@ -178,7 +200,7 @@ inline std::vector<MenuCard> k_menu_cards = {
 
 /// Pick a deterministic colour for a plugin name (for the letter-icon).
 [[nodiscard]] inline Color name_color(std::string_view name) {
-    static constexpr Color palette[] = {
+    static const Color palette[] = {
         Color::Cyan, Color::Magenta, Color::Yellow, Color::Green,
         Color::Blue, Color::Orange1, Color::RedLight,
     };

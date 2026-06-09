@@ -189,8 +189,8 @@ struct WizardContext {
 
     /// Helper: put a value into data.
     template <typename T>
-    void put(const std::string& key, T&& value) {
-        data[key] = std::forward<T>(value);
+    void put(const std::string& key, T value) {
+        data[key] = std::move(value);
     }
 
     /// Return current step pointer (null if out of range).
@@ -261,10 +261,12 @@ struct WizardContext {
     int filled = static_cast<int>(fraction * static_cast<double>(width));
     filled = std::clamp(filled, 0, width);
     int empty = width - filled;
+    const std::string_view fill = "█";
+    const std::string_view empty_char = "░";
     std::string bar;
-    bar.reserve(width);
-    bar.append(filled, '█');
-    bar.append(empty, '░');
+    bar.reserve((filled + empty) * 3);  // ~3 bytes each for UTF-8 block chars
+    for (int i = 0; i < filled; ++i) bar.append(fill);
+    for (int i = 0; i < empty; ++i) bar.append(empty_char);
 
     int pct = static_cast<int>(fraction * 100.0);
     return hbox({

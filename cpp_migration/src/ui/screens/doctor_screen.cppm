@@ -35,16 +35,16 @@ export module cc.ui.doctor_screen;
 // Palette matches Pane / design-system/Pane.tsx + Doctor severity colors.
 namespace cc::ui::doctor_screen::ds {
 using namespace ftxui;
-constexpr Color BG_DARK       = Color::Grey23;
-constexpr Color SURFACE       = Color::Grey27;
-constexpr Color BORDER_OK     = Color::Green;
-constexpr Color BORDER_WARN   = Color::Yellow;
-constexpr Color BORDER_ERR    = Color::Red;
-constexpr Color ACCENT        = Color::Cyan;
-constexpr Color TEXT_MUTED    = Color::Grey70;
-constexpr Color SPARQL_OK     = Color::Green;
-constexpr Color SPARQL_WARN   = Color::Yellow;
-constexpr Color SPARQL_ERR    = Color::Red;
+const Color BG_DARK       = Color::Grey23;
+const Color SURFACE       = Color::Grey27;
+const Color BORDER_OK     = Color::Green;
+const Color BORDER_WARN   = Color::Yellow;
+const Color BORDER_ERR    = Color::Red;
+const Color ACCENT        = Color::Cyan;
+const Color TEXT_MUTED    = Color::Grey70;
+const Color SPARQL_OK     = Color::Green;
+const Color SPARQL_WARN   = Color::Yellow;
+const Color SPARQL_ERR    = Color::Red;
 } // namespace cc::ui::doctor_screen::ds
 
 export namespace cc::ui::doctor_screen {
@@ -96,7 +96,7 @@ enum class CheckId : std::uint8_t {
     PluginEngine,        // 12: Plugin engine (load / manifest)
     _Count,
 };
-static constexpr std::size_t kCheckCount = static_cast<std::size_t>(CheckId::_Count);
+inline constexpr std::size_t kCheckCount = static_cast<std::size_t>(CheckId::_Count);
 
 // ============================================================
 // Data types
@@ -557,13 +557,13 @@ struct ScoreSummary {
 
         // Inline one-liner
         if (!res.message.empty()) {
+            Color msg_col = (res.severity == DiagnosticSeverity::Ok)      ? Color(Color::Green)  :
+                            (res.severity == DiagnosticSeverity::Error)   ? Color(Color::Red)    :
+                            (res.severity == DiagnosticSeverity::Warning) ? Color(Color::Yellow) :
+                                                                            Color(Color::Grey70);
             lines.push_back(hbox({
                 text("     ") | dim,
-                text(res.message) | color(
-                    res.severity == DiagnosticSeverity::Ok ? Color::Green :
-                    res.severity == DiagnosticSeverity::Error ? Color::Red :
-                    res.severity == DiagnosticSeverity::Warning ? Color::Yellow :
-                    Color::Grey70),
+                text(res.message) | ftxui::color(msg_col),
             }));
         }
 
@@ -698,12 +698,12 @@ struct SummaryUIState {
     lines.push_back(separator());
 
     // Buttons row (focus indicator via < > bracketing)
-    auto btn = [&](int idx, std::string_view label, Color color) -> Element {
+    auto btn = [&](int idx, std::string_view label, Color col) -> Element {
         const bool focus = focused_button == idx;
         return hbox({
-            text(focus ? "< " : "[ ") | color(focus ? color : TEXT_MUTED),
-            text(std::string(label)) | (focus ? bold : color) | color(focus ? color : TEXT_MUTED),
-            text(focus ? " >" : " ]") | color(focus ? color : TEXT_MUTED),
+            text(focus ? "< " : "[ ") | ftxui::color(focus ? col : TEXT_MUTED),
+            text(std::string(label)) | (focus ? bold : ftxui::color(col)) | ftxui::color(focus ? col : TEXT_MUTED),
+            text(focus ? " >" : " ]") | ftxui::color(focus ? col : TEXT_MUTED),
         });
     };
 

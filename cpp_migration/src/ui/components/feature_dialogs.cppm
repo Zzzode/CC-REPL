@@ -71,11 +71,12 @@ namespace config {
 [[nodiscard]] inline bool feature(std::string_view name) noexcept {
     static const FeatureFlagManager& mgr = [] {
         static FeatureFlagManager instance;
+        instance.set_from_env();
         for (const auto& info : FEATURE_REGISTRY) {
             auto env_key = std::string("ANT_FEATURE_") + std::string(info.name);
             if (const char* v = std::getenv(env_key.c_str()); v && *v) {
                 if (*v != '0' && *v != 'f' && *v != 'F')
-                    const_cast<FeatureFlagManager&>(instance).set(info.feature, true);
+                    const_cast<FeatureFlagManager&>(instance).enable(info.feature);
             }
         }
         return instance;

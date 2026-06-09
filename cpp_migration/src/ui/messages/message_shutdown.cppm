@@ -116,7 +116,21 @@ class ShutdownMessageComponent : public ComponentBase {
                                       OnNewSessionFn on_new = nullptr)
         : data_(std::move(data)),
           on_resume_(std::move(on_resume)),
-          on_new_session_(std::move(on_new)) {}
+          on_new_session_(std::move(on_new))
+    {
+        if (on_resume_) {
+            resume_btn_ = Button(" ↻ Resume ", [this] {
+                if (on_resume_) on_resume_();
+            }) | color(Color::Cyan);
+            Add(resume_btn_);
+        }
+        if (on_new_session_) {
+            new_btn_ = Button(" ✨ New session ", [this] {
+                if (on_new_session_) on_new_session_();
+            }) | color(Color::Green);
+            Add(new_btn_);
+        }
+    }
 
     Element Render() override {
         // Grey separator line with centered title
@@ -130,16 +144,12 @@ class ShutdownMessageComponent : public ComponentBase {
 
         // Action row
         Elements actions;
-        if (on_resume_) {
-            actions.push_back(button(" ↻ Resume ", [this] {
-                if (on_resume_) on_resume_();
-            }) | color(Color::Cyan));
+        if (resume_btn_) {
+            actions.push_back(resume_btn_->Render());
             actions.push_back(text("  "));
         }
-        if (on_new_session_) {
-            actions.push_back(button(" ✨ New session ", [this] {
-                if (on_new_session_) on_new_session_();
-            }) | color(Color::Green));
+        if (new_btn_) {
+            actions.push_back(new_btn_->Render());
         }
         auto action_row = actions.empty()
             ? Element{text("")}
@@ -170,6 +180,8 @@ class ShutdownMessageComponent : public ComponentBase {
     ShutdownMessageData data_;
     OnResumeFn on_resume_;
     OnNewSessionFn on_new_session_;
+    Component resume_btn_;
+    Component new_btn_;
 };
 
 [[nodiscard]] inline Component MakeShutdownMessage(
