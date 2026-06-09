@@ -530,6 +530,7 @@ target_sources(cc_tools
         tools/bash_permissions.cppm
         tools/bash_security.cppm
         tools/bash_tool.cppm
+        tools/bash_result_formatting.cppm
         tools/brief_tool.cppm
         tools/built_in_agents.cppm
         tools/command_semantics.cppm
