@@ -604,6 +604,8 @@ target_sources(cc_tools
         tools/bash_helpers.cppm
         tools/powershell_validation.cppm
         tools/powershell_helpers.cppm
+        tools/sed_edit_parser.cppm
+        tools/sed_validation.cppm
         tools/script_typecheck.cppm
         tools/script_primitives.cppm
         tools/brief_attachments.cppm

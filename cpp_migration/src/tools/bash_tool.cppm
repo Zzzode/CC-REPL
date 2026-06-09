@@ -37,6 +37,7 @@ import cc.tools.tool;
 import cc.tools.agent_runtime;
 import cc.utils.json;
 import cc.utils.shell_providers;
+import cc.tools.sed_validation;
 
 export namespace cc::tools::bash {
 
@@ -807,7 +808,30 @@ public:
     [[nodiscard]] bool check_permission(const ToolInput& input) const {
         auto parsed = BashToolInput::from_json(input.json());
         if (!parsed) return false;
-        
+
+        // TODO(migration): integrate — run sed safety allowlist / denylist for
+        // any command whose base token is "sed".  On Ask we force ask-mode
+        // semantics regardless of outer permission, otherwise fall through
+        // to the existing command-type classification.
+        {
+            std::string_view cmd = parsed->command;
+            while (!cmd.empty() && std::isspace(static_cast<unsigned char>(cmd.front()))) {
+                cmd.remove_prefix(1);
+            }
+            if (cmd.starts_with("sed") &&
+                (cmd.size() == 3 || std::isspace(static_cast<unsigned char>(cmd[3])))) {
+                const bool allow_file_writes =
+                    (permission_mode_ == PermissionMode::AutoAllow ||
+                     permission_mode_ == PermissionMode::YoloMode);
+                auto decision = cc::tools::sed_validation::check_sed_constraints(
+                    parsed->command, allow_file_writes);
+                if (decision.decision ==
+                    cc::tools::sed_validation::SedSafetyDecision::Ask) {
+                    return permission_mode_ == PermissionMode::YoloMode;
+                }
+            }
+        }
+
         auto cmd_type = classify_command(parsed->command);
         
         switch (permission_mode_) {
@@ -900,7 +924,7 @@ private:
                     .background_task_id = background_task->id,
                     .no_output_expected = false
                 };
-                return format_result(output);
+                return format_result(output, input.command);
             }
 
             auto executed = detail::execute_shell(input);
@@ -910,7 +934,7 @@ private:
 
             auto output = std::move(*executed);
             output.no_output_expected = is_silent_command(input.command);
-            return format_result(output);
+            return format_result(output, input.command);
             
         } catch (const std::exception& e) {
             return ToolResult::error(std::format("Execution error: {}", e.what()));

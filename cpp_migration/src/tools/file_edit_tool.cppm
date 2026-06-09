@@ -23,6 +23,8 @@ import cc.utils.file;
 import cc.utils.error;
 import cc.tools.tool;
 import cc.utils.json;
+import cc.tools.sed_edit_parser;
+import cc.tools.sed_validation;
 
 export namespace cc::tools::file_edit {
 
@@ -189,6 +191,43 @@ std::string replace_first(std::string_view text, std::string_view search, std::s
     result.append(replace);
     result.append(text, pos + search.length());
     return result;
+}
+
+// =========================================================================
+// Sed integration hooks
+// =========================================================================
+
+/// Try to extract a FileEditInput from a raw sed -i command string.
+/// Enables the FileEdit rendering pipeline to handle BashTool-style
+/// in-place edits (e.g. `sed -i 's/foo/bar/g' file.txt`) using the same
+/// UI / permission surface as explicit Edit tool calls.
+///
+/// TODO(migration): integrate into the BashTool → EditTool bridge so that
+/// sed in-place edits produce file-edit-style diff previews before
+/// executing.  Currently returns std::nullopt when the command does not
+/// parse as a simple substitution, preserving existing behaviour.
+[[nodiscard]] inline std::optional<FileEditInput>
+try_parse_sed_in_place(std::string_view sed_command) {
+    using cc::tools::sed_edit_parser::parse_sed_edit_command;
+    using cc::tools::sed_edit_parser::SedOp;
+
+    auto parsed = parse_sed_edit_command(sed_command);
+    if (!parsed.has_value()) return std::nullopt;
+
+    if (parsed->commands.empty()) return std::nullopt;
+    if (parsed->commands[0].op != SedOp::Substitute) return std::nullopt;
+
+    FileEditInput input;
+    input.file_path = parsed->file_path;
+    // NOTE: FileEditInput currently models literal replacements; a full
+    // integration would add a SedSubstitute edit kind so that regex
+    // patterns (with backreferences) can round-trip accurately.  For now
+    // we leave the edit vector empty — the caller can fall back to
+    // executing the sed command via BashTool.
+    // TODO(migration): add SedSubstitute EditOperation::Type and populate
+    // input.edits with parsed->pattern / parsed->replacement.
+    (void)parsed;
+    return input;
 }
 
 // =========================================================================
@@ -483,5 +522,13 @@ export namespace cc::tools {
             }
         };
         return std::make_unique<Adapter>();
+    }
+
+    /// Convenience: parse a `sed -i …` command into a FileEditInput so the
+    /// caller can render an edit-style preview before executing it.
+    /// Returns std::nullopt when the command is not a simple sed in-place
+    /// substitution (caller should fall back to BashTool execution).
+    [[nodiscard]] inline auto try_parse_sed_in_place(std::string_view cmd) {
+        return cc::tools::file_edit::try_parse_sed_in_place(cmd);
     }
 }
