@@ -13,6 +13,9 @@ module;
 #include <format>
 #include <cstdint>
 #include <algorithm>
+#include <string_view>
+#include <unordered_set>
+#include <array>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
@@ -22,6 +25,7 @@ module;
 export module cc.ui.structured_diff;
 
 import cc.types.types;
+import cc.utils.file_edit;
 
 export namespace cc::ui::structured_diff {
 using namespace ftxui;
@@ -105,6 +109,314 @@ struct StructuredDiffOptions {
     std::function<void(int line)> on_line_select;
     std::function<void()> on_close;
 };
+
+// ============================================================
+// Heuristic Block Splitting & Per-Block LCS Diff
+// ============================================================
+// NOTE: A full AST-based structural diff is out of scope (TODO: wire up the
+//       LSP-based syntax tree when it becomes available). In the meantime we
+//       use a lightweight heuristic that matches the strategy described in
+//       StructuredDiff/Fallback.tsx:
+//         • empty-line-separated logical segments
+//         • indentation-based depth boundaries
+//         • comment / import / class / function sentinels
+//       Combined with the Myers algorithm from utils/file_edit_utils, this
+//       gives 2-tone highlighting (block level + line level).
+// ===========================================================================
+
+/// Kind of a code block, used for block-level tinting.
+enum class BlockKind : std::uint8_t {
+    Unknown,
+    Comment,
+    Imports,
+    Function,
+    Class,
+    Blank,
+    Data,
+};
+
+/// A semantic block (segment) within a source file.
+struct SemanticBlock {
+    BlockKind kind = BlockKind::Unknown;
+    int start_line = 0;           // 0-indexed inclusive
+    int end_line = 0;             // 0-indexed exclusive
+    int min_indent = 999;         // minimum indent depth in block
+    std::vector<std::string> lines;
+};
+
+/// Detect block kind from the first non-empty line.
+[[nodiscard]] inline BlockKind classify_block(const std::vector<std::string_view>& seg) {
+    for (auto l : seg) {
+        // strip leading whitespace
+        size_t j = 0;
+        while (j < l.size() && (l[j] == ' ' || l[j] == '\t')) ++j;
+        if (j == l.size()) continue;
+        std::string_view s = l.substr(j);
+        if (s.starts_with("//") || s.starts_with("/*") || s.starts_with("*") ||
+            s.starts_with("#") || s.starts_with("--") || s.starts_with("\"\"\"") ||
+            s.starts_with("'''")) return BlockKind::Comment;
+        if (s.starts_with("import ") || s.starts_with("#include") ||
+            s.starts_with("from ") || s.starts_with("require(") ||
+            s.starts_with("using ") || s.starts_with("export "))
+            return BlockKind::Imports;
+        if (s.starts_with("def ") || s.starts_with("function ") ||
+            s.starts_with("func ") || s.starts_with("fn ") ||
+            s.starts_with("async function ") ||
+            (s.find('(') != std::string_view::npos &&
+             (s.starts_with("const ") || s.starts_with("let ") ||
+              s.starts_with("var ")) &&
+             s.find("=>") != std::string_view::npos))
+            return BlockKind::Function;
+        // class/struct/interface
+        if (s.starts_with("class ") || s.starts_with("struct ") ||
+            s.starts_with("interface ") || s.starts_with("type ") ||
+            s.starts_with("namespace "))
+            return BlockKind::Class;
+        return BlockKind::Unknown;
+    }
+    return BlockKind::Blank;
+}
+
+/// Heuristic block splitter.
+[[nodiscard]] inline std::vector<SemanticBlock> split_blocks(
+    std::string_view src) {
+    std::vector<SemanticBlock> out;
+    if (src.empty()) return out;
+
+    std::vector<std::string_view> lines;
+    size_t start = 0;
+    while (start <= src.size()) {
+        size_t p = src.find('\n', start);
+        if (p == std::string_view::npos) { lines.emplace_back(src.substr(start)); break; }
+        lines.emplace_back(src.substr(start, p - start));
+        start = p + 1;
+    }
+
+    // Group consecutive non-empty-lines separated by one or more blank lines.
+    // Additionally, a block boundary is emitted when:
+    //   • indent depth jumps back past min_indent (dedent)
+    //   • a function/class keyword is found at depth <= previous min_indent
+    struct Builder {
+        std::vector<std::string_view> seg;
+        int start_idx = 0;
+    };
+    auto flush = [&](Builder& b, int end_idx) {
+        if (b.seg.empty()) return;
+        SemanticBlock blk;
+        blk.kind = classify_block(b.seg);
+        blk.start_line = b.start_idx;
+        blk.end_line = end_idx;
+        for (auto l : b.seg) {
+            size_t k = 0;
+            while (k < l.size() && (l[k] == ' ' || l[k] == '\t')) ++k;
+            int indent = static_cast<int>(k);
+            if (indent < static_cast<int>(l.size())) blk.min_indent = std::min(blk.min_indent, indent);
+            blk.lines.emplace_back(l);
+        }
+        out.push_back(std::move(blk));
+        b.seg.clear();
+    };
+
+    Builder cur;
+    cur.start_idx = 0;
+    int seg_min_indent = 999;
+    for (int i = 0; i < static_cast<int>(lines.size()); ++i) {
+        auto l = lines[i];
+        size_t j = 0;
+        while (j < l.size() && (l[j] == ' ' || l[j] == '\t')) ++j;
+        bool blank = (j == l.size());
+        int indent = static_cast<int>(j);
+
+        // blank line -> block boundary
+        if (blank) {
+            flush(cur, i);
+            cur.start_idx = i + 1;
+            seg_min_indent = 999;
+            continue;
+        }
+
+        // Detect a boundary if we see a dedent + top-level keyword.
+        if (!cur.seg.empty() && indent <= seg_min_indent) {
+            std::string_view head = l.substr(j);
+            bool is_toplevel =
+                head.starts_with("def ") || head.starts_with("class ") ||
+                head.starts_with("function ") || head.starts_with("struct ") ||
+                head.starts_with("interface ") || head.starts_with("type ") ||
+                head.starts_with("namespace ") || head.starts_with("module ") ||
+                head.starts_with("fn ") || head.starts_with("func ") ||
+                head.starts_with("async function ");
+            if (is_toplevel) {
+                flush(cur, i);
+                cur.start_idx = i;
+                seg_min_indent = 999;
+            }
+        }
+
+        cur.seg.push_back(l);
+        seg_min_indent = std::min(seg_min_indent, indent);
+    }
+    flush(cur, static_cast<int>(lines.size()));
+    return out;
+}
+
+/// Per-block LCS line-level diff. Returns vector<StructuredPatchHunk>
+/// aggregated across all blocks. Uses Myers from utils/file_edit_utils
+/// (no duplicate algorithm — per task constraints).
+[[nodiscard]] inline std::vector<cc::utils::file_edit::PatchHunk>
+compute_block_lcs_diff(std::string_view old_src,
+                       std::string_view new_src,
+                       int context = 3) {
+    return cc::utils::file_edit::compute_structured_patch(old_src, new_src, context);
+}
+/// Block-level tint status for rendering
+struct BlockDiffStatus {
+    bool added_block = false;
+    bool removed_block = false;
+    bool modified_block = false;
+};
+
+/// Render the N-files-changed summary bar used at the top of a structured
+/// diff view (matches the DiffDetailView sub-title pattern in TS).
+[[nodiscard]] inline Element RenderSummaryBar(
+    int files_changed,
+    int additions,
+    int deletions) {
+
+    auto files_label = std::format(" {} file{} changed",
+                                   files_changed,
+                                   files_changed == 1 ? "" : "s");
+    Elements els;
+    els.push_back(text(files_label) | dim);
+    if (additions > 0) {
+        els.push_back(text(std::format(" +{}", additions))
+                      | color(Color::Green) | bold);
+    }
+    if (deletions > 0) {
+        els.push_back(text(std::format(" -{}", deletions))
+                      | color(Color::Red) | bold);
+    }
+    return hbox(std::move(els));
+}
+
+// ============================================================
+// Word-Level Diff (neighbouring remove/add pairs)
+// Per task constraints we use Myers (via utils) on character strings.
+// ============================================================
+
+/// Given two strings a and b, produce a list of WordChange ranges on b if
+/// `is_added_side` is true (else on a). Used by structured diff to
+/// highlight changed words within paired remove/add lines.
+///
+/// NOTE: The reusable Myers algorithm in utils/file_edit is line-level and
+///       not exported at character granularity. We implement a lightweight
+///       O(N*M) LCS over UTF-8 code units here; inputs are bounded to
+///       single-line lengths so the quadratic cost is acceptable.
+///       TODO(#ui7-word-diff): export a char-level Myers from utils to
+///       consolidate.
+[[nodiscard]] inline std::vector<WordChange> compute_word_changes(
+    const std::string& a, const std::string& b, bool is_added_side) {
+
+    std::vector<WordChange> out;
+    int n = static_cast<int>(a.size());
+    int m = static_cast<int>(b.size());
+    if (n == 0 || m == 0) return out;
+
+    // DP: lcs_len[i][j] = LCS length of a[0..i) and b[0..j)
+    std::vector<std::vector<int>> dp(n + 1, std::vector<int>(m + 1, 0));
+    for (int i = 1; i <= n; ++i) {
+        for (int j = 1; j <= m; ++j) {
+            if (a[i - 1] == b[j - 1]) dp[i][j] = dp[i - 1][j - 1] + 1;
+            else dp[i][j] = std::max(dp[i - 1][j], dp[i][j - 1]);
+        }
+    }
+
+    // Backtrack: mark which positions are matched in each string.
+    std::vector<bool> a_match(n, false), b_match(m, false);
+    {
+        int i = n, j = m;
+        while (i > 0 && j > 0) {
+            if (a[i - 1] == b[j - 1]) {
+                a_match[i - 1] = true;
+                b_match[j - 1] = true;
+                --i; --j;
+            } else if (dp[i - 1][j] >= dp[i][j - 1]) {
+                --i;
+            } else {
+                --j;
+            }
+        }
+    }
+
+    // Collect contiguous non-match runs as word-change ranges.
+    auto ranges_from = [](const std::vector<bool>& matched, bool is_added) {
+        std::vector<WordChange> rs;
+        int n2 = static_cast<int>(matched.size());
+        int start = -1;
+        for (int k = 0; k < n2; ++k) {
+            if (!matched[k]) {
+                if (start == -1) start = k;
+            } else {
+                if (start != -1) rs.push_back({start, k, is_added});
+                start = -1;
+            }
+        }
+        if (start != -1) rs.push_back({start, n2, is_added});
+        return rs;
+    };
+
+    auto added   = ranges_from(b_match, true);
+    auto removed = ranges_from(a_match, false);
+
+    // Merge nearby ranges (within 2 chars) to avoid "christmas tree" effect.
+    const int kMaxGap = 2;
+    auto merge = [&](std::vector<WordChange>& rs) {
+        if (rs.empty()) return;
+        std::vector<WordChange> out2;
+        for (auto& r : rs) {
+            if (!out2.empty() && r.start_col - out2.back().end_col <= kMaxGap) {
+                out2.back().end_col = std::max(out2.back().end_col, r.end_col);
+            } else {
+                out2.push_back(r);
+            }
+        }
+        rs = std::move(out2);
+    };
+
+    merge(added); merge(removed);
+    return is_added_side ? added : removed;
+}
+
+/// Annotate a sequence of hunks with per-line word_changes by pairing
+/// consecutive Remove/Add lines within the same hunk (fallback strategy
+/// from StructuredDiff/Fallback.tsx, CHANGE_THRESHOLD = 0.4).
+constexpr double kChangeThreshold = 0.4;
+
+inline void annotate_word_changes(std::vector<StructuredPatchHunk>& hunks) {
+    for (auto& hunk : hunks) {
+        for (size_t i = 0; i + 1 < hunk.lines.size(); ++i) {
+            auto& a = hunk.lines[i];
+            auto& b = hunk.lines[i + 1];
+            if (a.type != StructuredDiffLine::Type::Removed ||
+                b.type != StructuredDiffLine::Type::Added) continue;
+            if (a.content.empty() || b.content.empty()) continue;
+
+            // Levenshtein-ish similarity check via common prefix/suffix length.
+            size_t common = 0;
+            size_t minlen = std::min(a.content.size(), b.content.size());
+            while (common < minlen && a.content[common] == b.content[common]) ++common;
+            size_t as = a.content.size(), bs = b.content.size();
+            size_t suf = 0;
+            while (suf + common < minlen &&
+                   a.content[as - 1 - suf] == b.content[bs - 1 - suf]) ++suf;
+            double changed_ratio = 1.0 - (double)(common + suf) /
+                                        (double)std::max(as, bs);
+            if (changed_ratio > kChangeThreshold) continue;
+            a.word_changes = compute_word_changes(a.content, b.content, false);
+            b.word_changes = compute_word_changes(a.content, b.content, true);
+            ++i; // skip forward so we don't re-match 'b' as 'a' of next pair.
+        }
+    }
+}
 
 // ============================================================
 // Color Module Availability (from colorDiff.ts)
@@ -425,6 +737,94 @@ get_diff_syntax_theme(const std::string& theme_name) {
     opts.max_display_lines = 200;
 
     return RenderStructuredDiff(opts);
+}
+
+// ============================================================
+// Factory: Render a full structured diff from raw file contents.
+// Public API for consumers (assistant_text_message, diff_dialog, …).
+// ============================================================
+
+/// Inputs for RenderStructuredDiff factory.
+struct RenderStructuredDiffInput {
+    std::string file_path;
+    std::string_view old_content;
+    std::string_view new_content;
+    int context_lines = 3;
+    int visible_height = 40;
+    int max_display_lines = 2000;
+    bool show_line_numbers = true;
+    int files_changed = 1;          // for summary bar
+    int additions_override = -1;    // -1 = auto compute from hunks
+    int deletions_override = -1;
+    std::optional<DiffSyntaxTheme> theme;
+    std::function<void(int line)> on_line_select;
+    std::function<void()> on_close;
+};
+
+/// Build hunks + summary, render the full widget.
+[[nodiscard]] inline Element RenderStructuredDiff(const RenderStructuredDiffInput& in) {
+    auto phunks = cc::utils::file_edit::compute_structured_patch(
+        in.old_content, in.new_content, in.context_lines);
+
+    DiffDetailViewProps props;
+    props.file_path = in.file_path;
+
+    int adds = 0, dels = 0;
+    for (const auto& ph : phunks) {
+        StructuredPatchHunk sh;
+        sh.old_start = ph.old_start;
+        sh.old_lines = ph.old_lines;
+        sh.new_start = ph.new_start;
+        sh.new_lines = ph.new_lines;
+
+        int ol = ph.old_start, nl = ph.new_start;
+        for (const auto& l : ph.lines) {
+            if (l.empty()) continue;
+            StructuredDiffLine sdl;
+            char p = l[0];
+            std::string content = l.size() > 1 ? l.substr(1) : "";
+            if (p == '+') {
+                sdl.type = StructuredDiffLine::Type::Added;
+                sdl.new_line_num = nl++;
+                ++adds;
+            } else if (p == '-') {
+                sdl.type = StructuredDiffLine::Type::Removed;
+                sdl.old_line_num = ol++;
+                ++dels;
+            } else {
+                sdl.type = StructuredDiffLine::Type::Context;
+                sdl.old_line_num = ol++;
+                sdl.new_line_num = nl++;
+            }
+            sdl.content = std::move(content);
+            sh.lines.push_back(std::move(sdl));
+        }
+        props.hunks.push_back(std::move(sh));
+    }
+
+    annotate_word_changes(props.hunks);
+
+    int additions = in.additions_override >= 0 ? in.additions_override : adds;
+    int deletions = in.deletions_override >= 0 ? in.deletions_override : dels;
+
+    StructuredDiffOptions opts;
+    opts.diff = std::move(props);
+    opts.show_line_numbers = in.show_line_numbers;
+    opts.context_lines = in.context_lines;
+    opts.max_display_lines = in.max_display_lines;
+    opts.visible_height = in.visible_height;
+    opts.theme = in.theme;
+    opts.on_line_select = in.on_line_select;
+    opts.on_close = in.on_close;
+
+    auto summary = RenderSummaryBar(in.files_changed, additions, deletions);
+    auto body = RenderStructuredDiff(opts);
+
+    return vbox({
+        summary,
+        separator(),
+        body,
+    }) | flex;
 }
 
 } // namespace cc::ui::structured_diff

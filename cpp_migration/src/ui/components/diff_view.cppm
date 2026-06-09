@@ -19,6 +19,7 @@ module;
 export module cc.ui.components.diff_view;
 
 import cc.types.types;
+import cc.utils.file_edit;
 
 export namespace cc::ui::components::diff_view {
 using namespace ftxui;
@@ -93,6 +94,289 @@ struct DiffViewOptions {
 };
 
 // ============================================================
+// Parsing
+// ============================================================
+
+/// Limits for automatic folding / truncation
+constexpr int kMaxHunksBeforeTruncate = 100;
+constexpr int kMaxLinesBeforeTruncate = 5000;
+
+/// Split a string_view into lines (no heap copies for line views).
+[[nodiscard]] inline std::vector<std::string_view>
+split_lines_view(std::string_view s) {
+    std::vector<std::string_view> out;
+    size_t start = 0;
+    while (start <= s.size()) {
+        size_t p = s.find('\n', start);
+        if (p == std::string_view::npos) {
+            out.emplace_back(s.substr(start));
+            break;
+        }
+        out.emplace_back(s.substr(start, p - start));
+        start = p + 1;
+    }
+    return out;
+}
+
+/// Parse a hunk header: `@@ -old_start,old_count +new_start,new_count @@ [context]`
+[[nodiscard]] inline bool parse_hunk_header(std::string_view line,
+                                            int& old_start, int& old_count,
+                                            int& new_start, int& new_count,
+                                            std::string& context) {
+    // Minimal parser — validates prefix and format.
+    if (line.size() < 4 || line.substr(0, 2) != "@@") return false;
+    size_t i = 2;
+    auto skip_ws = [&] { while (i < line.size() && line[i] == ' ') ++i; };
+    auto parse_int = [&](int& out) -> bool {
+        if (i >= line.size()) return false;
+        bool neg = false;
+        if (line[i] == '-') { neg = true; ++i; }
+        else if (line[i] == '+') { ++i; }
+        if (i >= line.size() || !isdigit(static_cast<unsigned char>(line[i]))) return false;
+        out = 0;
+        while (i < line.size() && isdigit(static_cast<unsigned char>(line[i]))) {
+            out = out * 10 + (line[i] - '0');
+            ++i;
+        }
+        if (neg) out = -out;
+        return true;
+    };
+
+    skip_ws();
+    int os = 0, oc = 1, ns = 0, nc = 1;
+    if (!parse_int(os)) return false;
+    if (i < line.size() && line[i] == ',') { ++i; if (!parse_int(oc)) return false; }
+    skip_ws();
+    if (!parse_int(ns)) return false;
+    if (i < line.size() && line[i] == ',') { ++i; if (!parse_int(nc)) return false; }
+    skip_ws();
+    if (i + 1 >= line.size() || line[i] != '@' || line[i + 1] != '@') return false;
+    i += 2;
+    skip_ws();
+    old_start = os; old_count = oc;
+    new_start = ns; new_count = nc;
+    context = std::string(line.substr(i));
+    return true;
+}
+
+/// Parse a unified-diff string into a list of FileDiff structs.
+[[nodiscard]] inline std::vector<FileDiff> ParseUnifiedDiff(std::string_view diff) {
+    std::vector<FileDiff> result;
+    auto lines = split_lines_view(diff);
+
+    FileDiff* cur = nullptr;
+    DiffHunk* cur_hunk = nullptr;
+    int old_ln = 0, new_ln = 0;
+    int total_lines = 0;
+    bool truncated = false;
+
+    auto start_new_file = [&] {
+        result.emplace_back();
+        cur = &result.back();
+        cur->status = "modified";
+        cur_hunk = nullptr;
+        old_ln = new_ln = 0;
+        total_lines = 0;
+        truncated = false;
+    };
+
+    for (size_t i = 0; i < lines.size(); ++i) {
+        std::string_view line = lines[i];
+
+        if (line.substr(0, 4) == "diff") {
+            start_new_file();
+            continue;
+        }
+        if (!cur) start_new_file();
+
+        if (line.substr(0, 3) == "---") {
+            cur->old_path = std::string(line.substr(4));
+            if (cur->old_path.starts_with("a/")) cur->old_path = cur->old_path.substr(2);
+            // pure insert
+            if (cur->old_path == "/dev/null") cur->status = "added";
+            continue;
+        }
+        if (line.substr(0, 3) == "+++") {
+            cur->new_path = std::string(line.substr(4));
+            if (cur->new_path.starts_with("b/")) cur->new_path = cur->new_path.substr(2);
+            if (cur->new_path == "/dev/null") cur->status = "deleted";
+            continue;
+        }
+        if (line.substr(0, 7) == "Binary ") {
+            cur->is_binary = true;
+            continue;
+        }
+        if (line.substr(0, 6) == "index " ||
+            line.substr(0, 7) == "old mod" ||
+            line.substr(0, 7) == "new mod" ||
+            line.substr(0, 10) == "rename fro" ||
+            line.substr(0, 8) == "rename t" ||
+            line.substr(0, 7) == "copy fr" ||
+            line.substr(0, 6) == "copy t" ||
+            line.substr(0, 4) == "GIT ") {
+            if (line.substr(0, 10) == "rename fro") cur->status = "renamed";
+            continue;
+        }
+
+        // Hunk header
+        if (line.substr(0, 2) == "@@") {
+            int os, oc, ns, nc;
+            std::string ctx;
+            if (parse_hunk_header(line, os, oc, ns, nc, ctx)) {
+                if (static_cast<int>(cur->hunks.size()) >= kMaxHunksBeforeTruncate) {
+                    truncated = true;
+                    cur->is_truncated = true;
+                    break;
+                }
+                cur->hunks.emplace_back();
+                cur_hunk = &cur->hunks.back();
+                cur_hunk->old_start = os;
+                cur_hunk->old_count = oc;
+                cur_hunk->new_start = ns;
+                cur_hunk->new_count = nc;
+                cur_hunk->header = ctx;
+                old_ln = os; new_ln = ns;
+
+                DiffLine header;
+                header.type = DiffLineType::Header;
+                header.content = std::string(line);
+                cur_hunk->lines.push_back(std::move(header));
+            }
+            continue;
+        }
+
+        if (!cur_hunk) continue;
+        if (total_lines >= kMaxLinesBeforeTruncate) {
+            truncated = true;
+            cur->is_truncated = true;
+            break;
+        }
+
+        DiffLine dl;
+        if (!line.empty() && line[0] == '+') {
+            dl.type = DiffLineType::Added;
+            dl.content = std::string(line.substr(1));
+            dl.new_line_num = new_ln++;
+            cur->additions++;
+        } else if (!line.empty() && line[0] == '-') {
+            dl.type = DiffLineType::Removed;
+            dl.content = std::string(line.substr(1));
+            dl.old_line_num = old_ln++;
+            cur->deletions++;
+        } else if (!line.empty() && line[0] == ' ') {
+            dl.type = DiffLineType::Context;
+            dl.content = std::string(line.substr(1));
+            dl.old_line_num = old_ln++;
+            dl.new_line_num = new_ln++;
+        } else if (line == "\\ No newline at end of file") {
+            dl.type = DiffLineType::Empty;
+            dl.content = std::string(line);
+        } else {
+            dl.type = DiffLineType::Context;
+            dl.content = std::string(line);
+        }
+        // trailing whitespace detection
+        if (!dl.content.empty()) {
+            char b = dl.content.back();
+            if (b == ' ' || b == '\t') dl.has_trailing_whitespace = true;
+        }
+        cur_hunk->lines.push_back(std::move(dl));
+        ++total_lines;
+    }
+
+    if (truncated) {
+        for (auto& f : result) {
+            if (!f.is_truncated && &f == cur) f.is_truncated = true;
+        }
+    }
+
+    // auto-detect additions / renames from path
+    for (auto& f : result) {
+        if (f.status == "modified") {
+            if (!f.old_path.empty() && f.new_path.empty()) f.new_path = f.old_path;
+            if (f.old_path.empty() && !f.new_path.empty()) f.old_path = f.new_path;
+            if (f.deletions == 0 && f.additions > 0 && f.old_path == "/dev/null") f.status = "added";
+        }
+    }
+
+    return result;
+}
+
+/// Build a FileDiff from two file contents via Myers + structured patch.
+[[nodiscard]] inline FileDiff BuildFileDiffFromContents(
+    std::string_view old_path,
+    std::string_view new_path,
+    std::string_view old_content,
+    std::string_view new_content,
+    int context = 3) {
+
+    FileDiff f;
+    f.old_path = std::string(old_path);
+    f.new_path = std::string(new_path);
+
+    auto hunks = cc::utils::file_edit::compute_structured_patch(
+        old_content, new_content, context);
+    int total_lines = 0;
+    for (const auto& ph : hunks) {
+        if (static_cast<int>(f.hunks.size()) >= kMaxHunksBeforeTruncate) {
+            f.is_truncated = true; break;
+        }
+        DiffHunk dh;
+        dh.old_start = ph.old_start;
+        dh.old_count = ph.old_lines;
+        dh.new_start = ph.new_start;
+        dh.new_count = ph.new_lines;
+
+        int old_ln = ph.old_start, new_ln = ph.new_start;
+        DiffLine header;
+        header.type = DiffLineType::Header;
+        header.content = std::format("@@ -{},{} +{},{} @@",
+                                     ph.old_start, ph.old_lines,
+                                     ph.new_start, ph.new_lines);
+        dh.lines.push_back(std::move(header));
+
+        for (const auto& l : ph.lines) {
+            if (total_lines >= kMaxLinesBeforeTruncate) {
+                f.is_truncated = true; break;
+            }
+            if (l.empty()) { ++total_lines; continue; }
+            DiffLine dl;
+            char prefix = l[0];
+            std::string content = l.size() > 1 ? l.substr(1) : "";
+            if (prefix == '+') {
+                dl.type = DiffLineType::Added;
+                dl.new_line_num = new_ln++;
+                f.additions++;
+            } else if (prefix == '-') {
+                dl.type = DiffLineType::Removed;
+                dl.old_line_num = old_ln++;
+                f.deletions++;
+            } else {
+                dl.type = DiffLineType::Context;
+                dl.old_line_num = old_ln++;
+                dl.new_line_num = new_ln++;
+            }
+            dl.content = std::move(content);
+            if (!dl.content.empty()) {
+                char b = dl.content.back();
+                if (b == ' ' || b == '\t') dl.has_trailing_whitespace = true;
+            }
+            dh.lines.push_back(std::move(dl));
+            ++total_lines;
+        }
+        f.hunks.push_back(std::move(dh));
+        if (f.is_truncated) break;
+    }
+
+    if (f.additions == 0 && f.deletions == 0) f.status = "modified";
+    else if (f.old_path.empty() || f.deletions == 0) f.status = "added";
+    else if (f.new_path.empty() || f.additions == 0) f.status = "deleted";
+    else f.status = "modified";
+
+    return f;
+}
+
+// ============================================================
 // Rendering Helpers
 // ============================================================
 
@@ -135,16 +419,19 @@ struct DiffViewOptions {
 
 /// Render a single diff line
 [[nodiscard]] inline Element RenderDiffLine(
-    const DiffLine& line, bool selected, bool show_line_nums) {
+    const DiffLine& line, bool selected, bool show_line_nums,
+    int gutter_width = 4) {
 
     Elements parts;
 
-    // Line numbers
+    // Line numbers — width adapts to the maximum line number.
     if (show_line_nums) {
         std::string old_num = line.old_line_num
-            ? std::format("{:4}", *line.old_line_num) : "    ";
+            ? std::format("{:>{}}", *line.old_line_num, gutter_width)
+            : std::string(gutter_width, ' ');
         std::string new_num = line.new_line_num
-            ? std::format("{:4}", *line.new_line_num) : "    ";
+            ? std::format("{:>{}}", *line.new_line_num, gutter_width)
+            : std::string(gutter_width, ' ');
 
         parts.push_back(text(old_num) | dim | color(Color::GrayDark));
         parts.push_back(text(" ") | dim);
@@ -237,8 +524,18 @@ struct DiffViewOptions {
     }));
     elements.push_back(separator());
 
+    // Work out gutter width from max line number.
+    int max_line = 1;
+    for (const auto& hunk : file.hunks) {
+        max_line = std::max(max_line, hunk.old_start + hunk.old_count - 1);
+        max_line = std::max(max_line, hunk.new_start + hunk.new_count - 1);
+    }
+    int gutter_width = std::max(4, static_cast<int>(
+        std::format("{}", max_line).size()));
+
     // Render hunks
     int line_idx = 0;
+    bool overflow_warned = false;
     for (const auto& hunk : file.hunks) {
         // Hunk header
         auto hunk_header_text = std::format("@@ -{},{} +{},{} @@",
@@ -251,16 +548,25 @@ struct DiffViewOptions {
 
         // Hunk lines
         for (const auto& line : hunk.lines) {
+            if (line_idx >= kMaxLinesBeforeTruncate && !overflow_warned) {
+                elements.push_back(
+                    text(" Diff too large, only first 5000 lines shown")
+                    | color(Color::Yellow) | bold | center);
+                overflow_warned = true;
+                break;
+            }
             if (line_idx >= scroll_offset) {
                 elements.push_back(
-                    RenderDiffLine(line, line_idx == selected_line, show_line_nums));
+                    RenderDiffLine(line, line_idx == selected_line, show_line_nums,
+                                    gutter_width));
             }
             ++line_idx;
         }
     }
 
-    if (file.is_truncated) {
-        elements.push_back(text(" ... diff truncated ...") | dim | center);
+    if (file.is_truncated && !overflow_warned) {
+        elements.push_back(
+            text(" ... diff truncated (hunks exceeded limit ...") | dim | center);
     }
 
     return vbox(elements) | vscroll_indicator | yframe | flex | border;
