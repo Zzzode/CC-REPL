@@ -306,7 +306,7 @@ inline auto format_diagnostics(
     oss.imbue(std::locale::classic());
 
     if (diagnostics.empty()) {
-        oss << (opts.use_colors ? std::string(ansi::green) + "No diagnostics reported." + ansi::reset
+        oss << (opts.use_colors ? std::string(ansi::green) + std::string("No diagnostics reported.") + std::string(ansi::reset)
                                 : "No diagnostics reported.");
         return oss.str();
     }

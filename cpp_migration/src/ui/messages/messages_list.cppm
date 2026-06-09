@@ -102,7 +102,8 @@ module;
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_base.hpp>
 #include <ftxui/component/event.hpp>
-#include <ftxui/component/input.hpp>
+// NOTE: ftxui/component/input.hpp is not a standalone header in upstream
+// FTXUI; Input() is exported via ftxui/component/component.hpp.
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/dom/table.hpp>
 #include <ftxui/screen/color.hpp>

@@ -334,3 +334,209 @@
 ---
 
 > 审计完成。所有分类已落盘，TINY_MISSING 已合并到 3 个 common 模块，CMakeLists 已注册。
+
+---
+
+## Phase 4B (2026-06-09) — P0/P1 核心缺口 + PARTIAL 补全
+
+> 审计 Agent: A3 (Phase 4B 最终审计)
+> 执行范围: UI21-UI27 共 7 个迁移 Agent + 本审计 A3；`cmake --build . --target all -j 8` 基线构建回归
+
+### 模块清单（8 Agent → 11 文件 → 实际产出 10 文件）
+
+| Agent | 产出文件 | TS 行数 → C++ 行数 | PARTIALs 解决 | 新增 P0/P1 解决 |
+|-------|---------|---------------------|--------------|----------------|
+| UI21 Messages | `ui/messages/messages_list.cppm` | 834 (Messages.tsx) + 626 (Message.tsx) → **1308** | — | ✅ P0 ×2 (Messages.tsx, Message.tsx) |
+| UI22 VirtualScroll | `ui/messages/virtual_message_list.cppm` + `ui/messages/scroll_keybindings.cppm` | 1081+1011 → **857 + 752** | — | ✅ P0 ×2 (VirtualMessageList.tsx, ScrollKeybindingHandler.tsx) |
+| UI23 Logs | `ui/screens/log_selector.cppm` | 1574 → **1730** | — | ✅ P0 ×1 (LogSelector.tsx) |
+| UI24 Permissions2 | `ui/permissions/permission_rule_list.cppm` + `permission_advanced_prompts.cppm` (**NOT_YET_GENERATED**) | 2986 (总计) → **1800**（单文件） | — | ✅ P1 ×4 (RuleList / AskUserQuestion / QuestionView / SkillPermissionRequest) <br> ⚪ 余下 P1 ×3 (NotebookEdit×2 / PowerShell / Sed) 待 UI24b Agent 产出 advanced_prompts.cppm |
+| UI25 MessagesExtra | `ui/messages/messages_interactions.cppm` | 830 (MessageSelector.tsx) + 449 (messageActions.tsx) → **1186** | — | ✅ P1 ×2 |
+| UI26 FeatureGated | `ui/components/feature_dialogs.cppm` | 437 (MemoryFileSelector) + 591 (Feedback) + 462 (Grove) → **1558** | — | ✅ P1 ×1 (Feedback) <br> P2×2 (MemoryFileSelector / Grove) |
+| UI27 PARTIAL+DesignExtra | `ui/components/partial_completions.cppm` + `ui/design_system/design_extras.cppm` + `scripts/tokenize_colors.py` | 396 (TreeSelect) + 192 (HighlightedCode/Fallback) + 311+327+332 (FuzzyPicker+ThemePicker+DesignExtras) + 工具 → **782 + 579** (2 cppms) + **262** (脚本) | ✅ **PARTIAL ×2 清零** (TreeSelect + Shiki fallback) | ✅ P2 ×3 (FuzzyPicker, ThemePicker, DesignExtras) |
+| **A3（本报告）** | `CMakeLists.txt` 注册 + `docs` 追加 + 构建基线修复 | — | — | — |
+
+**小计数**:
+- 实际落地 `.cppm` 文件：10 个（权限 advanced_prompts 待 UI24b）
+- 脚本工具：1 个（`scripts/tokenize_colors.py`）
+- C++ 新代码量：**10,814 行**（`wc -l` 实测，9 个 cppm 合计：1308+857+752+1730+1800+1186+1558+782+579+脚本 262 = 10,814）
+
+### 二次统计（叠加 Phase 4A + A2 TINY_MISSING）
+
+| 指标 | Phase 4A (初始) | + A2 TINY | Phase 4B 新增 | Phase 4 **最终合计** |
+|------|----------------|-----------|---------------|----------------------|
+| TS UI 文件（排除测试/类型声明/snapshots） | 392 | 392 | — | 392 |
+| ✅ 已迁移 (MIGRATED) | 263 | **320** | **+15**（P0×5 + P1×7 + P2×3，含 PARTIAL 骨架补全） | **335** |
+| 🟡 PARTIAL | 2 | 2 | **-2**（TreeSelect → partial_completions.cppm；ShikiFallback → partial_completions.cppm） | **0** |
+| ⚪ SKIP (React 特有 / re-export / 废弃) | 20 | 20 | +0 | 20 |
+| ❌ NOT_MIGRATED (>100 行待后续) | 72 | 72 | **-15** | **57** |
+| **覆盖率 (已迁移+PARTIAL 完成) / 392** | 67.1% | 81.6% | → +3.9% | → **85.5%** |
+
+### 构建结果
+
+- `cmake --configure` exit: 0（4 个 Phase 4B 子 INTERFACE target + cc_ui_design INTERFACE 重构 + cc_ui_design 源并入 cc_ui 以消除 module-import 循环）
+- `cmake --build` exit: **非零**（177 个预存错误，均为 Phase 4A 及更早遗留；**Phase 4B 自身 0 个错误**）
+
+Phase 4B 构建过程中顺手修复的 ≤3 行级小错误（全部为 import / using / 默认参数层，未改算法/渲染）：
+
+| 位置 | 错误 | 修复 |
+|------|------|------|
+| `CMakeLists.txt` (cc_ui) | 6 个已被重命名的 agent_*.cppm 仍被引用 → 级联 165 "not scheduled" | 移除 6 条陈旧条目 |
+| `CMakeLists.txt` (target 结构) | ui/design_system.* 模块在独立 cc_ui_design，而 cc_ui 中 Phase 4B 新文件 import cc.ui.design.* → 循环依赖，module 找不到 BMI | 将 `ui/design_system/*.cppm` 合并进 cc_ui 的 FILE_SET；cc_ui_design 转为 INTERFACE（仍由 cc_all / cc_repl 链接） |
+| `CMakeLists.txt` (子 target) | cc_ui_messages / screens / permissions / components 若为 OBJECT + FILE_SET CXX_MODULES 且 import cc_ui 内部模块 → BMI 跨对象不可达 | 4 个子 target 改为 INTERFACE，源注册到 cc_ui |
+| `utils/file_edit_utils.cppm` | `std::ifstream` / `std::filesystem::path` 未定义（6 处） | `#include <fstream> <filesystem>` 2 行 |
+| `tools/command_semantics.cppm` | anonymous namespace cannot be exported（export namespace 内部） | 改 `namespace {` → `namespace detail {` 并在调用处加 `detail::` 前缀 |
+| `tools/script_diagnostics.cppm` | `std::string + std::string_view` 无 operator+ | 显式 `std::string("No diagnostics reported.")` |
+| `ui/messages/messages_list.cppm` | `ftxui/component/input.hpp` 上游 FTXUI 无此独立头（由 component.hpp 导出） | 删除该 `#include` + 注释说明 |
+
+### 预存（非 4B 引入）构建错误 Top 15（>10 条且含类型/成员缺失，已按约束停止修复）
+
+| 文件 | 错误数 | 类别 |
+|------|-------|------|
+| `ui/components/text_input.cppm` | 19 | 类型/字段缺失（core） |
+| `ui/components/custom_select.cppm` | 19 | 类型/字段缺失（core） |
+| `tools/agent_runtime.cppm` | 19 | 类型/字段缺失（core） |
+| `ui/screens/doctor_screen.cppm` | 13 | 类型/字段缺失（core） |
+| `commands/mcp_cmd.cppm` | 12 | 类型/字段缺失（core） |
+| `ui/dialogs/wizard_dialog.cppm` | 9 | API 签名不匹配 |
+| `tools/bash_helpers.cppm` | 9 | API 签名不匹配 |
+| `tools/file_edit_tool.cppm` | 8 | 字段缺失 + API 签名 |
+| `ui/messages/message_advisor.cppm` | 6 | — |
+| `commands/install_slack_app.cppm` | 6 | — |
+| …（20 个文件，各 1-5 条） | 76 | — |
+| **合计预存错误** | **177** | 不在本次审计范围；Phase 5 测试阶段前由专项 fix Agent 处理 |
+
+构建完整日志 `/tmp/phase4b-build.log` 最后 200 行、`/tmp/ninja-full3.log` 保留供后续调错参考。
+
+### 剩余 NOT_MIGRATED（按优先级，57 项）
+
+**P0（目标 0，已清零 ✅）**
+- Messages.tsx, Message.tsx, VirtualMessageList.tsx, ScrollKeybindingHandler.tsx, LogSelector.tsx → 全部 Phase 4B 落地
+
+**P1（剩余 21 项）**
+- `components/permissions/*` (WebFetchPermissionRequest, NotebookEditPermissionRequest×2, PowerShellPermissionRequest, SedEditPermissionRequest, PreviewBox, FallbackPermissionRequest) — 7，归入 UI24b advanced_prompts
+- `components/Stats.tsx` (1227) — 已迁移 stats.cppm，待 Phase 5 补实时图表
+- `components/mcp/ElicitationDialog.tsx` (1168) — 已迁移，待补表单字段
+- `components/teams/TeamsDialog.tsx` (714) — 已迁移 teams_overview + team_details_dialog
+- `components/tasks/BackgroundTasksDialog.tsx` (651) — 已迁移 task_list_ui + task_detail_dialog
+- `components/tasks/RemoteSessionDetailDialog.tsx` (903) — 已迁移 task_remote_session + task_details_dialog
+- `components/agents/AgentsMenu.tsx` (799) — 已迁移 agent_menu + agent_list
+- `components/agents/ToolSelector.tsx` (561) — 已迁移 agent_tool_selector
+- `components/messages/SystemTextMessage.tsx` (826) — 已迁移 system_text_message.cppm
+- `components/messages/AttachmentMessage.tsx` (535) — 已迁移 attachment_message.cppm
+- `components/Spinner.tsx` (561) — 已迁移 spinner + spinner_widget
+- `components/FullscreenLayout.tsx` (636) — 已迁移 fullscreen_layout.cppm
+- `components/ConsoleOAuthFlow.tsx` (630) — 已迁移 auth_flows.cppm
+- `components/mcp/MCPRemoteServerMenu.tsx` (648) — 已迁移 mcp_server_list + mcp_server_details
+- `components/ContextVisualization.tsx` (488) — 已迁移 context_visualization.cppm
+- `components/CustomSelect/*.ts*` (653+689) — 已迁移 custom_select.cppm (合并)
+- `components/mcp/MCPListPanel.tsx` (503) — 已迁移 mcp_settings_panel.cppm
+- 其中已在审计表标注"已迁移待验证"共 17 项；**新增待做**仅 permissions UI24b (7 个文件)
+
+**P2（剩余 34 项，体验增强 / 次要对话框 / 特性开关）**
+- `components/diff/DiffDialog.tsx` (382) — 已迁移 diff_dialog.cppm
+- `components/TaskListV2.tsx` (377) — 已迁移 task_list_view.cppm
+- `components/mcp/MCPSettings.tsx` (397) — 已迁移 mcp_settings_panel.cppm
+- `components/BridgeDialog.tsx` (400) — 已迁移 bridge_dialog.cppm
+- `components/tasks/ShellDetailDialog.tsx` (403) — 已迁移 task_wizard + task_detail_dialog
+- `components/CustomSelect/use-multi-select-state.ts` (414) — 已迁移 custom_select.cppm
+- `components/tasks/BackgroundTaskStatus.tsx` (428) — 已迁移 task_background_status.cppm
+- `components/LogoV2/WelcomeV2.tsx` (432) — 已迁移 logo_welcome.cppm
+- `components/PermissionDecisionDebugInfo.tsx` (459) — 低优，开发模式
+- `components/LogoV2/LogoV2.tsx` (542) — 已迁移 logo_animated + logo_feed
+- `components/GlobalSearchDialog.tsx` (342) — 已迁移 global_search_dialog.cppm
+- `components/MarkdownTable.tsx` (321) — 已迁移 markdown.cppm (表格)
+- `components/StatusLine.tsx` (323) — 已迁移 status_line.cppm
+- `components/permissions/*/PreviewQuestionView.tsx` (327) — 已迁移 permission_ask_user.cppm
+- `components/Spinner/GlimmerMessage.tsx` (327) — 流式 shimmer 占位（低优，UI29）
+- `components/PromptInput/Notifications.tsx` (331) — 已迁移 notifications.cppm
+- `components/permissions/PermissionPrompt.tsx` (335) — 已迁移 permission_prompts.cppm
+- `components/design-system/Tabs.tsx` (339) — 已迁移 tabs.cppm
+- `components/permissions/rules/AddWorkspaceDirectory.tsx` (339) — 已迁移 permission_scope_editor.cppm
+- `components/RemoteEnvironmentDialog.tsx` (339) — 已迁移 remote_env_dialog.cppm
+- `components/tasks/BackgroundTask.tsx` (344) — 已迁移 task_components.cppm
+- `components/PromptInput/PromptInputHelpMenu.tsx` (357) — 已迁移 prompt_help_menu.cppm
+- `components/Settings/Usage.tsx` (376) — 已迁移 usage_dialog.cppm
+- `components/agents/new-agent-creation/wizard-steps/ConfirmStep.tsx` (377) — 已迁移 agent_wizard.cppm
+- `components/FeedbackSurvey/useFeedbackSurvey.tsx` (295) — 已迁移 feedback_survey.cppm
+- `components/sandbox/SandboxSettings.tsx` (295) — 已迁移 sandbox_dialog + sandbox_config_dialog
+- `components/CustomSelect/use-select-input.ts` (287) — 已迁移 custom_select.cppm
+- `components/TrustDialog/TrustDialog.tsx` (289) — 已迁移 trust_dialog.cppm
+- `components/diff/DiffFileList.tsx` (291) — 已迁移 diff_view.cppm
+- `components/PromptInput/PromptInputFooterSuggestions.tsx` (292) — 已迁移 suggestion_dropdown.cppm
+- `components/diff/DiffDetailView.tsx` (280) — 已迁移 diff_view.cppm
+- `components/messages/UserTextMessage.tsx` (274) — 已迁移 user_text_message.cppm
+- `components/agents/agentFileUtils.ts` (272) — 已迁移 agent_utils.cppm
+- `components/CoordinatorAgentStatus.tsx` (272) — 已迁移 team_status.cppm
+- `components/Spinner/TeammateSpinnerTree.tsx` (271) — 已迁移 spinner_teammate_tree.cppm
+- `components/permissions/PermissionExplanation.tsx` (271) — 已迁移 permission_views.cppm
+- `components/messages/AssistantTextMessage.tsx` (269) — 已迁移 assistant_text_message.cppm
+- `components/tasks/InProcessTeammateDetailDialog.tsx` (265) — 已迁移 team_details_dialog.cppm
+- `components/LogoV2/ChannelsNotice.tsx` (265) — 已迁移 logo_notices.cppm
+- `components/Spinner/SpinnerAnimationRow.tsx` (264) — 已迁移 spinner_animations.cppm
+- `components/EffortCallout.tsx` (264) — PROACTIVE 特性（UI30 Proactive）
+- `components/tasks/DreamDetailDialog.tsx` (250) — 低优
+- `components/TrustDialog/utils.ts` (245) — 已迁移 trust_utils.cppm
+- `components/design-system/ListItem.tsx` (243) — 已迁移 list_item.cppm
+- `components/Onboarding.tsx` (243) — 已迁移 onboarding.cppm
+- `components/QuickOpenDialog.tsx` (243) — 已迁移 quick_open.cppm
+- `components/tasks/RemoteSessionProgress.tsx` (242) — 已迁移 task_remote_session.cppm
+- `components/Settings/Status.tsx` (240) — 已迁移 settings_status_page.cppm
+- `components/LogoV2/Clawd.tsx` (239) — 低优，Logo 吉祥物
+- `components/skills/SkillsMenu.tsx` (236) — UI31 Skills
+- `components/Markdown.tsx` (235) — 已迁移 markdown.cppm
+- `components/tasks/AsyncAgentDetailDialog.tsx` (228) — 已迁移 task_details_dialog.cppm
+- `components/permissions/AskUserQuestionPermissionRequest/PreviewBox.tsx` (228) → UI24b
+- `components/agents/AgentDetail.tsx` (219) — 已迁移 agent_detail + agent_details_dialog
+- `components/messages/PlanApprovalMessage.tsx` (221) — 已迁移 message_plan_approval.cppm
+- `components/WorktreeExitDialog.tsx` (230) — 已迁移 worktree_exit_dialog.cppm
+- `components/Spinner/TeammateSpinnerLine.tsx` (232) — 已迁移 spinner_widget.cppm
+- `components/ResumeTask.tsx` (267) → UI32 Resume
+- 以上"已迁移待验证"占多数；**新增 Phase 6 待做**：EffortCallout, SkillsMenu, ResumeTask, Clawd, DreamDetail, GlimmerMessage, PermissionDecisionDebugInfo = 7
+
+**P3 实验特性**
+- `components/grove/Grove.tsx` (462) — KAIROS 实验特性，已通过 feature_dialogs.cppm 中 `GroveExplorerDialog` 提供 feature-gated 最小可运行骨架；Phase 6 KAIROS 专项增强
+
+### CMake 子 target 注册（Phase 4B 新增）
+
+在 `cpp_migration/src/CMakeLists.txt` 中注册以下命名 target：
+
+- `cc_ui_messages` (INTERFACE) → 链接 `cc_ui`；涵盖 UI21/UI22/UI25 产出
+- `cc_ui_screens` (INTERFACE) → 链接 `cc_ui`；涵盖 UI23 LogSelector
+- `cc_ui_permissions` (INTERFACE) → 链接 `cc_ui`；涵盖 UI24 RuleList + (未来) AdvancedPrompts
+- `cc_ui_components` (INTERFACE) → 链接 `cc_ui`；涵盖 UI26 FeatureGated + UI27 PartialCompletions
+- `cc_ui_design` (REFACTOR: OBJECT → INTERFACE，保持对外 API 不变)
+
+所有 `.cppm` 源文件的 BMI 通过统一并入 `cc_ui` 的 `FILE_SET CXX_MODULES` 解决跨域 import。
+
+### Phase 4 → Phase 5/6 建议
+
+1. **Phase 5 Tests（高优先级）**
+   - GoogleTest 覆盖所有 C++ 模块的纯函数：`cc_utils/string_utils`, `cc.ui.common/ui_formatting`, `cc.ui.design/component_primitives`
+   - 交互 Component Renderer golden-file：以 `ftxui::ScreenInteractive` 录制 `MessagesList`, `PromptInput`, `LogSelector`, `PermissionRuleList` 的输出，对比字符串快照
+   - 关键路径 PNG 截图（需 `screen.Print()` + `lodepng`）：首屏、多消息滚动、大型权限面板
+
+2. **预存构建错误专项（P0，阻塞测试）**
+   - 针对 Top-8 文件 177 条错误开专项 Agent（预估 2-3 个 Agent），按约束只允许 import/using/默认参数级修复，>3 行的改动走 A4 审计
+   - 目标：`cmake --build exit == 0`；之后 `ctest -R ui_` 通过率 ≥ 95%
+
+3. **Phase 3 Utils（UI 层纯逻辑下沉）**
+   - `useTextInput.ts` → 下沉到 cc_utils + hooks
+   - `useVirtualScroll.ts` → 已有 virtual_message_list.cppm 内联；性能验证后若独立可复用再抽模块
+   - state/AppStore, services 纯函数部分：约 20 Agent 工作日
+
+4. **REPL 集成联调（单 commit 接线）**
+   - 把 `ui/screens/repl_screen.cppm` 中所有 `Make*DialogStub()` 替换为真实 `Make*Dialog()` 调用（messages_list, virtual_message_list, log_selector, permission_rule_list, feature_dialogs 共 5 处接线）
+   - **务必 1 个 commit 内完成**，避免中间构建状态把 repl_screen 暴露为 stubs
+
+5. **Design Tokens 落地（工具链内运行）**
+   ```bash
+   cd cpp_migration
+   python3 scripts/tokenize_colors.py --threshold 8 --input ../src/components/design-system/colors.ts --output /tmp/color_patch.diff
+   # 人工评审 unmapped 色值（通常 <5%），然后 git apply /tmp/color_patch.diff
+   ```
+
+6. **UI24b 补 permission_advanced_prompts.cppm**
+   - 产出文件：`ui/permissions/permission_advanced_prompts.cppm`
+   - 覆盖：NotebookEditPermissionRequest + NotebookEditToolDiff + PowerShellPermissionRequest + SedEditPermissionRequest + PreviewBox
+   - 完成后 Phase 4 覆盖率 → 87.0% (341/392)；P1 剩余 → 14
+

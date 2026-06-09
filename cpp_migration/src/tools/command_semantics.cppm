@@ -223,7 +223,12 @@ struct InterpretedResult {
 // Signature: (exitCode, stdout, stderr) -> InterpretedResult
 using CommandSemanticFn = auto(*)(int, std::string_view, std::string_view) -> InterpretedResult;
 
-namespace {
+// Module-private helpers. In C++23 named modules, unexported namespace
+// members are module-private by default; we use a named `detail` namespace
+// instead of an anonymous namespace to avoid Clang's strict diagnostic
+// ("anonymous namespaces cannot be exported") when this file lives inside
+// an outer `export namespace cc::tools {}` block.
+namespace detail {
     // migrated: grep family — 0 = match, 1 = no match, 2+ = real error
     inline auto grep_semantic(int code, std::string_view, std::string_view) -> InterpretedResult {
         return {
@@ -260,7 +265,7 @@ namespace {
                       : std::nullopt
         };
     }
-} // namespace
+} // namespace detail
 
 // migrated: extract the base command (first whitespace-delimited word)
 inline auto extract_base_command(std::string_view command) -> std::string {
@@ -303,21 +308,21 @@ inline auto heuristically_extract_base_command(std::string_view command) -> std:
 // migrated: look up the semantic handler by base command name
 inline auto get_command_semantic(std::string_view base_command) -> CommandSemanticFn {
     static const std::unordered_map<std::string_view, CommandSemanticFn> table = {
-        {"grep", &grep_semantic},
-        {"egrep", &grep_semantic},
-        {"fgrep", &grep_semantic},
-        {"rg",   &grep_semantic},
-        {"ag",   &grep_semantic},
-        {"find", &find_semantic},
-        {"fd",   &find_semantic},
-        {"diff", &diff_semantic},
-        {"cmp",  &diff_semantic},
-        {"sdiff",&diff_semantic},
-        {"test", &test_semantic},
-        {"[",    &test_semantic},
+        {"grep", &detail::grep_semantic},
+        {"egrep", &detail::grep_semantic},
+        {"fgrep", &detail::grep_semantic},
+        {"rg",   &detail::grep_semantic},
+        {"ag",   &detail::grep_semantic},
+        {"find", &detail::find_semantic},
+        {"fd",   &detail::find_semantic},
+        {"diff", &detail::diff_semantic},
+        {"cmp",  &detail::diff_semantic},
+        {"sdiff",&detail::diff_semantic},
+        {"test", &detail::test_semantic},
+        {"[",    &detail::test_semantic},
     };
     auto it = table.find(base_command);
-    return it != table.end() ? it->second : &default_semantic;
+    return it != table.end() ? it->second : &detail::default_semantic;
 }
 
 // migrated: top-level entry point — interpret a command's result

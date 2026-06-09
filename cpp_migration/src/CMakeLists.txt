@@ -1178,6 +1178,7 @@ target_sources(cc_ui
         ui/components/file_tree.cppm
         ui/components/ink_components.cppm
         ui/components/notification.cppm
+        ui/components/partial_completions.cppm   # UI27 — TreeSelect + ShikiFallback (PARTIAL -> DONE)
         ui/components/pr_badge.cppm
         ui/components/spinner.cppm
         ui/components/spinner_widget.cppm
@@ -1276,6 +1277,10 @@ target_sources(cc_ui
         ui/messages/message_compact_boundary.cppm
         ui/messages/message_shutdown.cppm
         ui/messages/message_user_command.cppm
+        ui/messages/messages_list.cppm            # UI21 — Messages.tsx + Message.tsx (834+626 → 1308 loc)
+        ui/messages/messages_interactions.cppm    # UI25 — MessageSelector + messageActions
+        ui/messages/scroll_keybindings.cppm       # UI22 — ScrollKeybindingHandler (1011 → 752 loc)
+        ui/messages/virtual_message_list.cppm     # UI22 — VirtualScroll (1081 → 857 loc)
         ui/panels.cppm
         ui/permissions/permission_diff.cppm
         ui/permissions/permission_request.cppm
@@ -1290,6 +1295,8 @@ target_sources(cc_ui
         ui/permissions/permission_rules_ui.cppm
         ui/permissions/permission_shell_helpers.cppm
         ui/permissions/permission_worker_badge.cppm
+        ui/permissions/permission_rule_list.cppm  # UI24 — PermissionRuleList
+        # permission_advanced_prompts.cppm — NOT_YET_GENERATED (UI24b)
         ui/prompt/autocomplete.cppm
         ui/prompt/footer.cppm
         ui/prompt/mode_indicator.cppm
@@ -1323,7 +1330,13 @@ target_sources(cc_ui
         ui/screens/doctor_screen.cppm
         ui/screens/repl_screen.cppm
         ui/screens/resume_screen.cppm
+        ui/screens/log_selector.cppm              # UI23 — LogSelector (1574 → 1730 loc)
         ui/terminal.cppm
+        ui/design_system/design_tokens.cppm       # UI20 (merged from cc_ui_design to resolve module-import cycle)
+        ui/design_system/theme_provider.cppm
+        ui/design_system/logo_v2.cppm
+        ui/design_system/component_primitives.cppm
+        ui/design_system/design_extras.cppm       # UI27 — fuzzy picker + theme picker + design extras
 )
 target_link_libraries(cc_ui
     PUBLIC
@@ -1344,95 +1357,39 @@ target_link_libraries(cc_ui
 
 # ─── cc_ui_messages: Phase 4B Messages (list / virtual scroll / interactions)
 # UI21 (Messages), UI22 (VirtualScroll + Keybindings), UI25 (Interactions)
-add_library(cc_ui_messages OBJECT)
-target_sources(cc_ui_messages
-    PUBLIC FILE_SET CXX_MODULES FILES
-        ui/messages/messages_list.cppm          # UI21 — 834 (Messages.tsx) + 626 (Message.tsx)
-        ui/messages/virtual_message_list.cppm   # UI22 — VirtualScroll (1081 -> 857 loc)
-        ui/messages/scroll_keybindings.cppm     # UI22 — ScrollKeybindingHandler (1011 -> 752 loc)
-        ui/messages/messages_interactions.cppm  # UI25 — MessageSelector + messageActions
-)
-target_link_libraries(cc_ui_messages
-    PUBLIC
-        cc_utils
-        cc_types
-        ftxui::screen
-        ftxui::dom
-        ftxui::component
-)
+#
+# NOTE: Sources are registered directly in the parent `cc_ui` FILE_SET so that
+# C++23 module-import lookup (BMI) can resolve intra-`cc.ui.*` imports without
+# cross-OBJECT cycles.  This INTERFACE target is provided for downstream
+# consumers that want to link "just the messages layer" explicitly.
+add_library(cc_ui_messages INTERFACE)
+target_link_libraries(cc_ui_messages INTERFACE cc_ui)
 
 # ─── cc_ui_screens: Phase 4B Additional Screens (beyond doctor / repl / resume)
 # UI23 (LogSelector)
-add_library(cc_ui_screens OBJECT)
-target_sources(cc_ui_screens
-    PUBLIC FILE_SET CXX_MODULES FILES
-        ui/screens/log_selector.cppm            # UI23 — LogSelector (1574 -> 1730 loc)
-)
-target_link_libraries(cc_ui_screens
-    PUBLIC
-        cc_utils
-        cc_types
-        ftxui::screen
-        ftxui::dom
-        ftxui::component
-)
+add_library(cc_ui_screens INTERFACE)
+target_link_libraries(cc_ui_screens INTERFACE cc_ui)
 
 # ─── cc_ui_permissions: Phase 4B Permissions v2 (rule list / advanced prompts)
 # UI24 (PermissionRuleList + PermissionAdvancedPrompts)
-add_library(cc_ui_permissions OBJECT)
-target_sources(cc_ui_permissions
-    PUBLIC FILE_SET CXX_MODULES FILES
-        ui/permissions/permission_rule_list.cppm  # UI24 — PermissionRuleList (2986 -> 1800 loc)
-        # permission_advanced_prompts.cppm — NOT_YET_GENERATED (UI24b)
-)
-target_link_libraries(cc_ui_permissions
-    PUBLIC
-        cc_utils
-        cc_types
-        ftxui::screen
-        ftxui::dom
-        ftxui::component
-)
+add_library(cc_ui_permissions INTERFACE)
+target_link_libraries(cc_ui_permissions INTERFACE cc_ui)
 
 # ─── cc_ui_components: Phase 4B Feature-Gated Components
 # UI26 (MemoryFileSelector / Feedback / Grove), UI27 PARTIAL (TreeSelect / ShikiFallback)
-add_library(cc_ui_components OBJECT)
-target_sources(cc_ui_components
-    PUBLIC FILE_SET CXX_MODULES FILES
-        ui/components/feature_dialogs.cppm      # UI26 — MemoryFileSelector + Feedback + Grove
-        ui/components/partial_completions.cppm  # UI27 — TreeSelect + ShikiFallback (PARTIAL->DONE)
-)
-target_link_libraries(cc_ui_components
-    PUBLIC
-        cc_utils
-        cc_types
-        ftxui::screen
-        ftxui::dom
-        ftxui::component
-)
+add_library(cc_ui_components INTERFACE)
+target_link_libraries(cc_ui_components INTERFACE cc_ui)
 
 # ─── cc_ui_design: Design System (tokens / theme / logo / primitives) ────────
 # Phase 4-UI20: mirrors the TS-side design-system package
-# (src/components/design-system/* + src/utils/theme.ts + src/components/LogoV2/*).
-# Uses C++23 named modules; depends on cc_ui for FTXUI link requirements.
-add_library(cc_ui_design)
-target_sources(cc_ui_design
-    PUBLIC FILE_SET CXX_MODULES FILES
-        ui/design_system/design_tokens.cppm
-        ui/design_system/theme_provider.cppm
-        ui/design_system/logo_v2.cppm
-        ui/design_system/component_primitives.cppm
-        ui/design_system/design_extras.cppm          # UI27 — fuzzy picker + theme picker + design extras
-)
-target_link_libraries(cc_ui_design
-    PUBLIC
-        cc_utils
-        cc_types
-        cc_ui
-        ftxui::screen
-        ftxui::dom
-        ftxui::component
-)
+#   (src/components/design-system/* + src/utils/theme.ts + src/components/LogoV2/*).
+# Phase 4B REFACTOR: Sources moved into parent `cc_ui`'s FILE_SET so that C++23
+#   named-module BMI lookup can resolve intra-module imports both ways
+#   (cc.ui.design.* ↔ cc.ui.messages.* / cc.ui.components.*).
+#   This INTERFACE target remains for downstream consumers (cc_all / cc_repl)
+#   that link `cc_ui_design` as the canonical design-system surface.
+add_library(cc_ui_design INTERFACE)
+target_link_libraries(cc_ui_design INTERFACE cc_ui)
 
 # ─── cc_all: Convenience aggregator (all production targets) ─────────────────
 # INTERFACE library that transitively pulls in every subsystem plus the

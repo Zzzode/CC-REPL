@@ -19,7 +19,9 @@ module;
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <format>
+#include <fstream>
 #include <limits>
 #include <optional>
 #include <regex>
