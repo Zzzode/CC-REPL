@@ -20,6 +20,7 @@ export import ui.components.stats;
 export import ui.components.tag_tabs;
 export import ui.components.status_line;
 export import ui.components.text_input;
+export import cc.ui.components.feature_dialogs;
 
 export namespace cc::ui::components {
 

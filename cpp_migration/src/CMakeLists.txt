@@ -1295,8 +1295,8 @@ target_sources(cc_ui
         ui/permissions/permission_rules_ui.cppm
         ui/permissions/permission_shell_helpers.cppm
         ui/permissions/permission_worker_badge.cppm
-        ui/permissions/permission_rule_list.cppm  # UI24 — PermissionRuleList
-        # permission_advanced_prompts.cppm — NOT_YET_GENERATED (UI24b)
+        ui/permissions/permission_rule_list.cppm        # UI24 — PermissionRuleList
+        ui/permissions/permission_advanced_prompts.cppm # UI24b — AskUserQuestion+Skill+Fallback advanced prompts
         ui/prompt/autocomplete.cppm
         ui/prompt/footer.cppm
         ui/prompt/mode_indicator.cppm

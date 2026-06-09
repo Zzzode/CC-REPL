@@ -1,6 +1,10 @@
 /// @file file_tree.cppm
 /// @brief File tree view component - displays a hierarchical file/directory tree
 /// with expand/collapse, icons, filtering, and selection support.
+// PARTIAL COMPLETED by UI27: TreeSelect multi-state checkbox cascade — see
+//   also cc.ui.components.partial_completions (partial_completions.cppm) for
+//   the 3-state FSM (Unchecked/Partial/Checked), keyboard (j/k/h/l/Space/*/a),
+//   filter-with-ancestor-expand, and RenderTreeElement() static renderer.
 module;
 
 #include <string>
