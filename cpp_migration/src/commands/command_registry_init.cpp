@@ -83,6 +83,7 @@ import cc.commands.mobile;
 import cc.commands.stickers;
 import cc.commands.tasks_cmd;
 import cc.commands.skills_cmd;
+import cc.commands.keybindings_cmd;
 import cc.commands.voice;
 import cc.commands.runtime_surface_commands;
 
