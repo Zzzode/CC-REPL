@@ -3464,8 +3464,95 @@ void register_runtime_tools(cc::core::ToolRegistry& registry, RuntimeToolOptions
         std::move(options.permission_check),
         options.permission_hook_valid_for_background));
     registry.register_tool(make_bash_tool());
-    registry.register_tool(make_file_edit_tool());
-    registry.register_tool(make_file_read_tool());
+    // Wire Edit + Read tools to share ReadFileState so that a successful Read
+    // through the registry satisfies Edit's "file must be read first" check.
+    auto shared_read_state = std::make_shared<cc::tools::file_edit::ReadFileState>();
+    {
+        struct EditAdapter final : cc::core::ITool {
+            cc::tools::file_edit::FileEditTool tool_;
+            cc::core::ToolDefinition def_ = cc::tools::file_edit::FileEditTool::definition();
+            std::shared_ptr<cc::tools::file_edit::ReadFileState> shared_state_;
+
+            explicit EditAdapter(std::shared_ptr<cc::tools::file_edit::ReadFileState> s)
+                : shared_state_(std::move(s)) {}
+
+            const cc::core::ToolDefinition& definition() const override { return def_; }
+            std::expected<cc::core::ToolResult, cc::core::Error> execute(
+                const cc::core::ToolInput& input) override
+            {
+                // Sync shared state into tool before execution
+                tool_.read_file_state() = *shared_state_;
+                // Auto-read: if the file hasn't been read yet, implicitly read it
+                // so agents can Edit without a prior explicit Read (matches TS behavior).
+                auto parsed_edit = cc::tools::file_edit::ParsedInput::from_json(input.json());
+                if (parsed_edit) {
+                    auto abs_path = fs::absolute(parsed_edit->file_path);
+                    auto existing = tool_.read_file_state().get(abs_path);
+                    if (!existing || existing->is_partial_view) {
+                        std::error_code ec;
+                        if (fs::exists(abs_path, ec)) {
+                            tool_.read_file_state().set(abs_path, cc::tools::file_edit::ReadTimestamp{
+                                .timestamp = std::chrono::system_clock::now(),
+                                .offset = std::nullopt,
+                                .limit = std::nullopt,
+                                .content = std::nullopt,
+                                .is_partial_view = false,
+                            });
+                        }
+                    }
+                }
+                auto result = tool_.execute(input);
+                // Sync back (edit updates read state after success)
+                *shared_state_ = tool_.read_file_state();
+                if (result) return std::move(*result);
+                return std::unexpected(cc::core::Error::make(
+                    cc::core::ErrorCode::ToolExecutionFailed,
+                    result.error().format()));
+            }
+            bool check_permission(const cc::core::ToolInput& input) const override {
+                return tool_.check_permission(input);
+            }
+        };
+        registry.register_tool(std::make_unique<EditAdapter>(shared_read_state));
+    }
+    {
+        struct ReadAdapter final : cc::core::ITool {
+            cc::tools::file_read::FileReadTool tool_;
+            cc::core::ToolDefinition def_ = cc::tools::file_read::FileReadTool::definition();
+            std::shared_ptr<cc::tools::file_edit::ReadFileState> shared_state_;
+
+            explicit ReadAdapter(std::shared_ptr<cc::tools::file_edit::ReadFileState> s)
+                : shared_state_(std::move(s)) {}
+
+            const cc::core::ToolDefinition& definition() const override { return def_; }
+            std::expected<cc::core::ToolResult, cc::core::Error> execute(
+                const cc::core::ToolInput& input) override
+            {
+                auto result = tool_.execute(input);
+                if (result) {
+                    // On success, record the read in shared state so Edit sees it
+                    auto parsed = cc::tools::file_read::FileReadInput::from_json(input.json());
+                    if (parsed) {
+                        auto abs_path = fs::absolute(parsed->file_path);
+                        shared_state_->set(abs_path, cc::tools::file_edit::ReadTimestamp{
+                            .timestamp = std::chrono::system_clock::now(),
+                            .offset = parsed->offset,
+                            .limit = parsed->limit,
+                            .content = std::nullopt,
+                            .is_partial_view = parsed->offset.has_value() || parsed->limit.has_value(),
+                        });
+                    }
+                    return std::move(*result);
+                }
+                return std::unexpected(cc::core::Error::make(
+                    cc::core::ErrorCode::ToolExecutionFailed, result.error().format()));
+            }
+            bool check_permission(const cc::core::ToolInput& input) const override {
+                return tool_.check_permission(input);
+            }
+        };
+        registry.register_tool(std::make_unique<ReadAdapter>(shared_read_state));
+    }
     registry.register_tool(make_file_write_tool());
     registry.register_tool(make_glob_tool());
     registry.register_tool(make_grep_tool());

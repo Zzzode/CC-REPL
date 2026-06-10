@@ -2158,6 +2158,7 @@ TEST(Tools, BashToolTagsBackgroundTasksWithAgentId) {
     ASSERT_EQ(stopped.size(), 1u);
     EXPECT_EQ(stopped.front().id, *task_id);
     EXPECT_TRUE(stopped.front().stopped);
+    cc::tools::bash::drain_all_background_tasks();
 }
 
 TEST(Tools, AgentShellTaskCleanupGuardStopsAgentOwnedBackgroundTasks) {
@@ -2224,6 +2225,7 @@ TEST(Tools, TaskStopStopsBackgroundBashCommands) {
     ASSERT_FALSE(output->content.empty());
     EXPECT_NE(output->content.front().text.find("Status: stopped"), std::string::npos);
     EXPECT_NE(output->content.front().text.find("Output:"), std::string::npos);
+    cc::tools::bash::drain_all_background_tasks();
 }
 
 TEST(Tools, TaskOutputAndStopAcceptBackgroundProcessPid) {
@@ -4547,6 +4549,12 @@ TEST(Tools, RuntimeRegistryEditToolEditsFileAndReturnsOutput) {
 
     cc::core::ToolRegistry registry;
     cc::tools::register_runtime_tools(registry);
+
+    // Read the file first (required by Edit tool)
+    auto read_result = registry.execute("Read", cc::core::ToolInput::from_json(std::format(
+        R"({{"file_path":"{}"}})",
+        cc::tools::agent::json_escape_string(path.string()))));
+    ASSERT_TRUE(read_result.has_value());
     auto result = registry.execute("Edit", cc::core::ToolInput::from_json(std::format(
         R"({{"file_path":"{}","old_string":"before edit","new_string":"after edit"}})",
         cc::tools::agent::json_escape_string(path.string()))));
@@ -4554,7 +4562,7 @@ TEST(Tools, RuntimeRegistryEditToolEditsFileAndReturnsOutput) {
     ASSERT_TRUE(result.has_value()) << result.error().format();
     ASSERT_FALSE(result->content.empty());
     ASSERT_FALSE(result->is_error) << result->content.front().text;
-    EXPECT_NE(result->content.front().text.find("[Edited file]"), std::string::npos);
+    EXPECT_NE(result->content.front().text.find("has been updated"), std::string::npos);
     EXPECT_EQ(read_file(path), "after edit");
 
     fs::remove_all(root);
@@ -8184,7 +8192,7 @@ TEST(Tools, NativeAgentStructuredSidechainPreservesToolUseAndResultBlocks) {
 
     auto resumed = cc::tools::agent_runtime::resume_agent("structured-agent");
     ASSERT_TRUE(resumed.has_value()) << resumed.error();
-    ASSERT_EQ(resumed->transcript.size(), 2u);
+    ASSERT_EQ(resumed->transcript.size(), 3u);
     EXPECT_NE(resumed->transcript[0].find("[tool_use:Read]"), std::string::npos);
     EXPECT_NE(resumed->transcript[1].find("tool_result: README content"), std::string::npos);
 

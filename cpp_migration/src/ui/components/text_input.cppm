@@ -583,6 +583,9 @@ public:
                 return false;
             }
         }
+        // Ctrl+R -> enter history search mode
+        if (event == Event::Character('\x12')) { search_mode_ = true; return true; }
+
         // Ctrl+D / Delete
         if (event == Event::Delete || event == Event::Character('\x04')) {
             if (!text_.empty() || has_selection()) {
@@ -608,12 +611,14 @@ public:
             if (event == Event::Tab) { select_next_suggestion(); return true; }
             if (event == Event::TabReverse) { select_previous_suggestion(); return true; }
         } else {
-            // Tab without suggestions — cycle history
+            // Tab without suggestions — cycle history (only if history exists)
             if (event == Event::Tab) {
+                if (history_.empty()) return false;
                 navigate_history_up();
                 return true;
             }
             if (event == Event::TabReverse) {
+                if (history_.empty()) return false;
                 navigate_history_down();
                 return true;
             }

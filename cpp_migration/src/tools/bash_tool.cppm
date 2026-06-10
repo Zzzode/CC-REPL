@@ -202,10 +202,35 @@ struct BackgroundTaskState {
     std::optional<int> exit_code;
     std::optional<std::string> error;
     std::chrono::steady_clock::time_point created_at;
+    std::thread reader_thread;
 };
 
 inline std::mutex background_tasks_mutex;
 inline std::unordered_map<std::string, std::shared_ptr<BackgroundTaskState>> background_tasks;
+
+struct BackgroundTasksCleanupGuard {
+    ~BackgroundTasksCleanupGuard() {
+        std::vector<std::shared_ptr<BackgroundTaskState>> all;
+        {
+            std::lock_guard lock(background_tasks_mutex);
+            for (auto& [_, state] : background_tasks) {
+                if (state->running) {
+                    state->stopped = true;
+                    if (state->pid > 0) kill(-state->pid, SIGTERM);
+                }
+                all.push_back(state);
+            }
+        }
+        for (auto& state : all) {
+            if (state->reader_thread.joinable()) state->reader_thread.join();
+        }
+        {
+            std::lock_guard lock(background_tasks_mutex);
+            background_tasks.clear();
+        }
+    }
+};
+inline BackgroundTasksCleanupGuard background_tasks_cleanup_guard;
 
 [[nodiscard]] std::optional<pid_t> parse_pid_key(std::string_view key) {
     if (key.empty()) return std::nullopt;
@@ -389,7 +414,7 @@ inline void append_background_output(BackgroundTaskState& state, std::string_vie
         background_tasks[task_id] = state;
     }
 
-    std::thread([state, read_fd = output_pipe[0]]() mutable {
+    state->reader_thread = std::thread([state, read_fd = output_pipe[0]]() mutable {
         std::array<char, 4096> buffer{};
         while (true) {
             const auto nread = read(read_fd, buffer.data(), buffer.size());
@@ -420,7 +445,7 @@ inline void append_background_output(BackgroundTaskState& state, std::string_vie
                 state->error = std::format("terminated by signal {}", WTERMSIG(status));
             }
         }
-    }).detach();
+    });
 
     return BackgroundTaskStart{.id = task_id, .pid = worker};
 }
@@ -691,6 +716,31 @@ struct BackgroundTaskSnapshot {
         }
     }
     return stopped;
+}
+
+inline void drain_all_background_tasks() {
+    std::vector<std::shared_ptr<detail::BackgroundTaskState>> tasks;
+    {
+        std::lock_guard lock(detail::background_tasks_mutex);
+        for (auto& [_, state] : detail::background_tasks) {
+            if (state->running) {
+                state->stopped = true;
+                if (state->pid > 0) {
+                    kill(-state->pid, SIGTERM);
+                }
+            }
+            tasks.push_back(state);
+        }
+    }
+    for (auto& state : tasks) {
+        if (state->reader_thread.joinable()) {
+            state->reader_thread.join();
+        }
+    }
+    {
+        std::lock_guard lock(detail::background_tasks_mutex);
+        detail::background_tasks.clear();
+    }
 }
 
 // =========================================================================

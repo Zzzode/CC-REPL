@@ -1314,9 +1314,8 @@ inline constexpr std::string_view kGuideWhen =
     return env_truthy("CLAUDE_CODE_ENABLE_EXPLORE_PLAN_AGENTS") ||
            env_truthy("BUILTIN_EXPLORE_PLAN_AGENTS");
 #else
-    const char* disable = std::getenv("CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS");
-    if (disable && std::string_view(disable) == "1") return false;
-    return true;
+    return env_truthy("CLAUDE_CODE_ENABLE_EXPLORE_PLAN_AGENTS") ||
+           env_truthy("BUILTIN_EXPLORE_PLAN_AGENTS");
 #endif
 }
 
@@ -2431,7 +2430,7 @@ inline std::expected<std::vector<std::string>, std::string> load_agents_from_dir
 // placeholder tool_results for every parent tool_use.
 
 inline constexpr std::string_view kForkBoilerplateTag = "fork-boilerplate";
-inline constexpr std::string_view kForkDirectivePrefix = "Directive: ";
+inline constexpr std::string_view kForkDirectivePrefix = "Your directive: ";
 inline constexpr std::string_view kForkPlaceholderResult = "Fork started \u2014 processing in background";
 inline constexpr std::string_view kForkSubagentType = "fork";
 
@@ -4381,17 +4380,24 @@ inline std::expected<AgentExecutionResult, std::string> resume_agent(std::string
     // queued and skip its next wake-up. Terminal agents skip this so
     // completion outputs are preserved exactly as last emitted.
     if (!already_terminal) {
+        const auto previous_status = record->status;
         native_agent_store().mark_running(agent_id);
-        native_agent_store().append_transcript(
-            agent_id,
-            std::format("system: agent resumed (previous status: {})",
-                native_agent_status_name(record->status)));
+        if (!(is_fork_child && previous_status == NativeAgentStatus::Queued)) {
+            native_agent_store().append_transcript(
+                agent_id,
+                std::format("system: agent resumed (previous status: {})",
+                    native_agent_status_name(previous_status)));
+        }
         record = native_agent_store().get(agent_id);
         if (!record) return std::unexpected("Agent not found after resume status update: " + std::string(agent_id));
     }
 
     std::string output = record->output.value_or(
-        std::format("Agent {} is {}", record->agent_id, native_agent_status_name(record->status)));
+        std::format("Agent {} is {} (previous: {})", record->agent_id,
+            native_agent_status_name(record->status),
+            native_agent_status_name(
+                already_terminal ? record->status :
+                is_fork_child ? NativeAgentStatus::Queued : record->status)));
     auto error = record->error;
     auto exit_code = record->status == NativeAgentStatus::Failed ? 1 :
         record->status == NativeAgentStatus::Cancelled ? 130 : 0;
