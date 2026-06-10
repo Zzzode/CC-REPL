@@ -51,6 +51,7 @@ import cc.daemon.daemon_server;
 import cc.server.server_main;
 import cc.cli.websocket_transport;
 
+#pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
 namespace fs = std::filesystem;
 
 extern "C" [[nodiscard]] int cc_ui_run_app_bridge(

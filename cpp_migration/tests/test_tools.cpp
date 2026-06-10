@@ -1,6 +1,8 @@
 /// @file test_tools.cpp
 /// @brief Tool registry smoke tests aligned with current C++ modules.
 
+#pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
+
 #include <gtest/gtest.h>
 #include <algorithm>
 #include <array>
@@ -1558,7 +1560,6 @@ TEST(Tools, RuntimePowerShellToolExecutesRealCommandWithWorkingDirectoryOnWindow
 TEST(Tools, ComputerUseManagerUsesCaptureProviderForScreenshot) {
     using namespace cc::core::computer_use;
     using Rect = cc::core::computer_use::Rect;
-    using Point = cc::core::computer_use::Point;
 
     bool saw_region = false;
     ComputerUseManager manager(ScreenCapture([&](std::optional<Rect> region)
@@ -1598,7 +1599,6 @@ TEST(Tools, ComputerUseManagerUsesCaptureProviderForScreenshot) {
 TEST(Tools, RuntimeComputerUseScreenshotReturnsImageContentFromCaptureProvider) {
     using namespace cc::core::computer_use;
     using Rect = cc::core::computer_use::Rect;
-    using Point = cc::core::computer_use::Point;
 
     RuntimeComputerUseProviderGuard guard;
     bool saw_region = false;
@@ -1723,7 +1723,6 @@ if (request.action === 'screenshot') {
 
 TEST(Tools, ComputerUseManagerFailsInputActionsWithoutInputProvider) {
     using namespace cc::core::computer_use;
-    using Point = cc::core::computer_use::Point;
 
     ComputerUseManager manager;
     auto result = manager.execute_action(ComputerAction{
