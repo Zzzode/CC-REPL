@@ -86,11 +86,11 @@ public:
 
     [[nodiscard]] auto get_warning_message() const -> std::optional<std::string> {
         if (state_.current_info.requests_remaining >= 0 && state_.current_info.requests_remaining < 5)
-            return "接近请求限制，剩余 " + std::to_string(state_.current_info.requests_remaining) + " 次请求";
+            return "approaching request limit, " + std::to_string(state_.current_info.requests_remaining) + " requests remaining";
         if (state_.current_info.tokens_remaining >= 0 && state_.current_info.tokens_remaining < 10000)
-            return "接近 token 限制，剩余 " + std::to_string(state_.current_info.tokens_remaining) + " tokens";
+            return "approaching token limit, " + std::to_string(state_.current_info.tokens_remaining) + " tokens remaining";
         if (state_.consecutive_429s > 0)
-            return "已触发限流，正在等待重试 (第 " + std::to_string(state_.consecutive_429s) + " 次)";
+            return "rate limited, waiting to retry (attempt " + std::to_string(state_.consecutive_429s) + ")";
         return std::nullopt;
     }
 

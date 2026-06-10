@@ -67,7 +67,7 @@ public:
         std::filesystem::create_directories(target_dir);
         auto installed = target_dir / "cc-repl";
         std::ofstream marker(installed, std::ios::app);
-        if (!marker) return {false, installed, "无法写入安装路径"};
+        if (!marker) return {false, installed, "failed to write to install path"};
         marker << "";
         std::filesystem::permissions(installed,
             std::filesystem::perms::owner_exec | std::filesystem::perms::owner_read | std::filesystem::perms::owner_write,
@@ -85,7 +85,7 @@ public:
         std::filesystem::create_directories(dir);
         auto path = dir / ("cc-repl." + std::string(shell));
         std::ofstream out(path);
-        if (!out) return std::unexpected("无法写入补全脚本");
+        if (!out) return std::unexpected("failed to write completion script");
         out << "#compdef cc-repl\n# generated completion shim\n";
         return {};
     }
@@ -93,7 +93,7 @@ public:
 
     [[nodiscard]] static auto uninstall() -> std::expected<void, std::string> {
         auto path = get_install_path();
-        if (!path) return std::unexpected("未找到安装");
+        if (!path) return std::unexpected("installation not found");
         std::filesystem::remove(*path);
         return {};
     }
@@ -121,9 +121,9 @@ public:
 
     [[nodiscard]] static auto parse_manifest(const std::filesystem::path& path) 
         -> std::expected<DxtManifest, std::string> {
-        if (!std::filesystem::exists(path)) return std::unexpected("清单文件不存在");
+        if (!std::filesystem::exists(path)) return std::unexpected("manifest file does not exist");
         std::ifstream in(path);
-        if (!in) return std::unexpected("无法读取清单文件");
+        if (!in) return std::unexpected("failed to read manifest file");
         std::ostringstream ss;
         ss << in.rdbuf();
         auto text = ss.str();
@@ -141,9 +141,9 @@ public:
 
     [[nodiscard]] static auto pack(const std::filesystem::path& dir, const std::filesystem::path& output)
         -> std::expected<void, std::string> {
-        if (!std::filesystem::exists(dir)) return std::unexpected("目录不存在");
+        if (!std::filesystem::exists(dir)) return std::unexpected("directory does not exist");
         std::ofstream out(output);
-        if (!out) return std::unexpected("无法创建 DXT 包");
+        if (!out) return std::unexpected("failed to create DXT package");
         for (const auto& entry : std::filesystem::recursive_directory_iterator(dir)) {
             if (entry.is_regular_file()) out << std::filesystem::relative(entry.path(), dir).string() << "\n";
         }
@@ -153,7 +153,7 @@ public:
 
     [[nodiscard]] static auto unpack(const std::filesystem::path& archive, const std::filesystem::path& dir)
         -> std::expected<void, std::string> {
-        if (!std::filesystem::exists(archive)) return std::unexpected("归档文件不存在");
+        if (!std::filesystem::exists(archive)) return std::unexpected("archive file does not exist");
         std::filesystem::create_directories(dir);
         std::filesystem::copy_file(archive, dir / archive.filename(), std::filesystem::copy_options::overwrite_existing);
         return {};

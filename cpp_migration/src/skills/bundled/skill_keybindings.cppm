@@ -471,8 +471,8 @@ cc::skills::SkillManifest get_keybindings_help_skill_manifest() {
             "chord binding",
             "unbind key",
             "change submit key",
-            "快捷键",
-            "键位绑定",
+            "shortcut",
+            "key binding",
         },
         .directory = {}
     };

@@ -14,143 +14,143 @@ struct CmdResult { bool success{true}; std::string output; std::string error; };
 
 struct OnboardingCommand {
     static constexpr auto name() -> std::string_view { return "onboarding"; }
-    static constexpr auto description() -> std::string_view { return "运行首次使用引导流程"; }
-    
+    static constexpr auto description() -> std::string_view { return "Run first-use onboarding flow"; }
+
     auto execute(std::string_view args) -> CmdResult {
-        if (args == "skip") return {true, "引导已跳过"};
-        return {true, 
-            "欢迎使用 CC-REPL! 🎉\n\n"
-            "步骤 1/5: 检查 API Key 配置...\n"
-            "步骤 2/5: 检测开发环境...\n"
-            "步骤 3/5: 配置默认模型...\n"
-            "步骤 4/5: 设置权限偏好...\n"
-            "步骤 5/5: 完成!\n\n"
-            "输入 /help 查看可用命令"};
+        if (args == "skip") return {true, "Onboarding skipped"};
+        return {true,
+            "Welcome to CC-REPL!\n\n"
+            "Step 1/5: Checking API Key configuration...\n"
+            "Step 2/5: Detecting development environment...\n"
+            "Step 3/5: Configuring default model...\n"
+            "Step 4/5: Setting permission preferences...\n"
+            "Step 5/5: Done!\n\n"
+            "Type /help to see available commands"};
     }
 };
 
 
 struct IssueCommand {
     static constexpr auto name() -> std::string_view { return "issue"; }
-    static constexpr auto description() -> std::string_view { return "创建和管理 GitHub Issues"; }
-    
+    static constexpr auto description() -> std::string_view { return "Create and manage GitHub Issues"; }
+
     auto execute(std::string_view args) -> CmdResult {
-        if (args.empty() || args == "list") return {true, "Issue 列表: (使用 gh cli 获取)"};
-        if (args.starts_with("create")) return {true, "创建 Issue...\n请提供标题和描述"};
-        if (args.starts_with("close")) return {true, "Issue 已关闭"};
-        return {true, "Issue 命令已执行"};
+        if (args.empty() || args == "list") return {true, "Issue list: (use gh cli to fetch)"};
+        if (args.starts_with("create")) return {true, "Creating Issue...\nPlease provide title and description"};
+        if (args.starts_with("close")) return {true, "Issue closed"};
+        return {true, "Issue command executed"};
     }
 };
 
 
 struct TeleportCommand {
     static constexpr auto name() -> std::string_view { return "teleport"; }
-    static constexpr auto description() -> std::string_view { return "传送会话到远程环境"; }
-    
+    static constexpr auto description() -> std::string_view { return "Teleport session to remote environment"; }
+
     auto execute(std::string_view args) -> CmdResult {
-        if (args.empty()) return {true, "用法: /teleport <target-env>\n可用环境: dev, staging, production"};
-        return {true, "正在传送会话到 " + std::string(args) + " 环境..."};
+        if (args.empty()) return {true, "Usage: /teleport <target-env>\nAvailable environments: dev, staging, production"};
+        return {true, "Teleporting session to " + std::string(args) + " environment..."};
     }
 };
 
 
 struct ReloadPluginsCommand {
     static constexpr auto name() -> std::string_view { return "reload-plugins"; }
-    static constexpr auto description() -> std::string_view { return "重新加载所有插件"; }
-    
+    static constexpr auto description() -> std::string_view { return "Reload all plugins"; }
+
     auto execute(std::string_view /*args*/) -> CmdResult {
-        return {true, "正在重新加载插件...\n已加载 0 个插件\n完成"};
+        return {true, "Reloading plugins...\nLoaded 0 plugins\nDone"};
     }
 };
 
 
 struct OauthRefreshCommand {
     static constexpr auto name() -> std::string_view { return "oauth-refresh"; }
-    static constexpr auto description() -> std::string_view { return "刷新 OAuth Token"; }
-    
+    static constexpr auto description() -> std::string_view { return "Refresh OAuth Token"; }
+
     auto execute(std::string_view /*args*/) -> CmdResult {
-        return {true, "正在刷新 OAuth Token...\nToken 已更新, 有效期 3600 秒"};
+        return {true, "Refreshing OAuth Token...\nToken updated, valid for 3600 seconds"};
     }
 };
 
 
 struct TerminalSetupCommand {
     static constexpr auto name() -> std::string_view { return "terminalSetup"; }
-    static constexpr auto description() -> std::string_view { return "终端环境初始化配置"; }
-    
+    static constexpr auto description() -> std::string_view { return "Terminal environment initialization"; }
+
     auto execute(std::string_view /*args*/) -> CmdResult {
-        return {true, 
-            "终端环境检测:\n"
-            "  终端: 检测中...\n"
-            "  颜色: TrueColor\n"
-            "  Unicode: 支持\n"
+        return {true,
+            "Terminal environment detection:\n"
+            "  Terminal: detecting...\n"
+            "  Color: TrueColor\n"
+            "  Unicode: supported\n"
             "  Shell: zsh\n"
-            "  尺寸: 检测中...\n"
-            "配置已保存"};
+            "  Size: detecting...\n"
+            "Configuration saved"};
     }
 };
 
 
 struct ThinkbackPlayCommand {
     static constexpr auto name() -> std::string_view { return "thinkback-play"; }
-    static constexpr auto description() -> std::string_view { return "回放 AI 思考过程动画"; }
-    
+    static constexpr auto description() -> std::string_view { return "Replay AI thinking process animation"; }
+
     auto execute(std::string_view args) -> CmdResult {
-        if (args.empty()) return {.success = false, .output = "", .error = "请指定要回放的 turn ID"};
-        return {true, "正在回放 turn " + std::string(args) + " 的思考过程..."};
+        if (args.empty()) return {.success = false, .output = "", .error = "Please specify the turn ID to replay"};
+        return {true, "Replaying thinking process for turn " + std::string(args) + "..."};
     }
 };
 
 
 struct InstallSlackAppCommand {
     static constexpr auto name() -> std::string_view { return "install-slack-app"; }
-    static constexpr auto description() -> std::string_view { return "安装 Slack 集成"; }
-    
+    static constexpr auto description() -> std::string_view { return "Install Slack integration"; }
+
     auto execute(std::string_view /*args*/) -> CmdResult {
-        return {true, 
-            "Slack App 安装向导:\n"
-            "1. 创建 Slack App\n"
-            "2. 配置 OAuth Scopes\n"
-            "3. 安装到 Workspace\n"
-            "4. 保存 Bot Token\n\n"
-            "访问 https://api.slack.com/apps 开始"};
+        return {true,
+            "Slack App installation wizard:\n"
+            "1. Create Slack App\n"
+            "2. Configure OAuth Scopes\n"
+            "3. Install to Workspace\n"
+            "4. Save Bot Token\n\n"
+            "Visit https://api.slack.com/apps to start"};
     }
 };
 
 
 struct PerfIssueCommand {
     static constexpr auto name() -> std::string_view { return "perf-issue"; }
-    static constexpr auto description() -> std::string_view { return "报告性能问题并收集诊断信息"; }
-    
+    static constexpr auto description() -> std::string_view { return "Report performance issues and collect diagnostics"; }
+
     auto execute(std::string_view /*args*/) -> CmdResult {
-        return {true, 
-            "性能诊断报告:\n"
-            "  内存使用: 检测中...\n"
-            "  响应延迟: 检测中...\n"
-            "  活跃连接: 检测中...\n"
-            "  上下文大小: 检测中...\n\n"
-            "报告已生成, 可使用 /feedback 提交"};
+        return {true,
+            "Performance diagnostic report:\n"
+            "  Memory usage: detecting...\n"
+            "  Response latency: detecting...\n"
+            "  Active connections: detecting...\n"
+            "  Context size: detecting...\n\n"
+            "Report generated, use /feedback to submit"};
     }
 };
 
 
 struct BtwCommand {
     static constexpr auto name() -> std::string_view { return "btw"; }
-    static constexpr auto description() -> std::string_view { return "向当前对话附加额外上下文信息"; }
-    
+    static constexpr auto description() -> std::string_view { return "Append extra context to current conversation"; }
+
     auto execute(std::string_view args) -> CmdResult {
-        if (args.empty()) return {.success = false, .output = "用法: /btw <附加信息>"};
-        return {true, "已将以下信息附加到对话上下文:\n\"" + std::string(args) + "\""};
+        if (args.empty()) return {.success = false, .output = "Usage: /btw <additional info>"};
+        return {true, "The following info has been appended to conversation context:\n\"" + std::string(args) + "\""};
     }
 };
 
 
 struct GoodClaudeCommand {
     static constexpr auto name() -> std::string_view { return "good-claude"; }
-    static constexpr auto description() -> std::string_view { return "给 Claude 一个好评"; }
-    
+    static constexpr auto description() -> std::string_view { return "Give Claude a thumbs up"; }
+
     auto execute(std::string_view /*args*/) -> CmdResult {
-        return {true, "谢谢! Claude 表示感谢你的认可 ✨"};
+        return {true, "Thanks! Claude appreciates your recognition"};
     }
 };
 

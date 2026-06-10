@@ -424,14 +424,14 @@ public:
         
 
         auto meta = marketplace_.get_details(plugin_id);
-        if (!meta) return std::unexpected("插件未找到: " + std::string(plugin_id));
+        if (!meta) return std::unexpected("plugin not found: " + std::string(plugin_id));
         
         auto target_version = opts.specific_version.value_or(meta->version);
         
 
         auto archive_result = marketplace_.download_archive(plugin_id, target_version);
         if (!archive_result) {
-            return std::unexpected("下载失败: " + archive_result.error());
+            return std::unexpected("download failed: " + archive_result.error());
         }
         
 
@@ -440,7 +440,7 @@ public:
             auto actual_checksum = detail::sha256_hex(*archive_result);
             if (actual_checksum != *expected_checksum) {
                 if (!opts.trust_unverified) {
-                    return std::unexpected("完整性验证失败: 校验和不匹配");
+                    return std::unexpected("integrity check failed: checksum mismatch");
                 }
             }
         }
@@ -484,7 +484,7 @@ public:
     [[nodiscard]] auto uninstall(std::string_view plugin_id) -> std::expected<void, std::string> {
         auto it = std::find_if(installed_.begin(), installed_.end(),
             [&](const auto& p) { return p.meta.id == plugin_id; });
-        if (it == installed_.end()) return std::unexpected("插件未安装");
+        if (it == installed_.end()) return std::unexpected("plugin not installed");
         std::filesystem::remove_all(it->install_path);
         installed_.erase(it);
         return {};
@@ -494,7 +494,7 @@ public:
     [[nodiscard]] auto update(std::string_view plugin_id) -> std::expected<InstallResult, std::string> {
         auto it = std::find_if(installed_.begin(), installed_.end(),
             [&](const auto& p) { return p.meta.id == plugin_id; });
-        if (it == installed_.end()) return std::unexpected("插件未安装");
+        if (it == installed_.end()) return std::unexpected("plugin not installed");
 
         return install(plugin_id, {.auto_enable = (it->status == PluginStatus::enabled)});
     }

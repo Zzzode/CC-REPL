@@ -101,7 +101,7 @@ public:
         std::array<char, 4096> buffer{};
         std::string output;
         FILE* pipe = popen(cmd.c_str(), "r");
-        if (!pipe) return std::unexpected("无法启动命令");
+        if (!pipe) return std::unexpected("failed to start command");
         while (fgets(buffer.data(), static_cast<int>(buffer.size()), pipe) != nullptr) {
             output += buffer.data();
         }
@@ -113,13 +113,13 @@ public:
         -> std::expected<void, std::string> override {
         std::filesystem::create_directories(path.parent_path());
         std::ofstream out(path, std::ios::binary);
-        if (!out) return std::unexpected("无法写入文件: " + path.string());
+        if (!out) return std::unexpected("failed to write file: " + path.string());
         out << content;
         return {};
     }
     auto read_file(const std::filesystem::path& path) -> std::expected<std::string, std::string> override {
         std::ifstream in(path, std::ios::binary);
-        if (!in) return std::unexpected("无法读取文件: " + path.string());
+        if (!in) return std::unexpected("failed to read file: " + path.string());
         std::ostringstream ss;
         ss << in.rdbuf();
         return ss.str();
@@ -135,7 +135,7 @@ public:
     explicit DockerSandbox(SandboxConfig config) : SandboxAdapter(std::move(config)) {}
     
     auto execute(std::string_view command) -> std::expected<SandboxResult, std::string> override {
-        if (!active_) return std::unexpected("沙箱未启动");
+        if (!active_) return std::unexpected("sandbox not started");
         NoSandbox runner;
         return runner.execute("docker exec " + container_id_ + " sh -lc '" + std::string(command) + "'");
     }
@@ -147,13 +147,13 @@ public:
         if (!wrote) return wrote;
         auto copied = local.execute("docker cp " + host_path.string() + " " + container_id_ + ":" + path.string());
         std::filesystem::remove(host_path);
-        if (!copied || copied->exit_code != 0) return std::unexpected("docker cp 写入失败");
+        if (!copied || copied->exit_code != 0) return std::unexpected("docker cp write failed");
         return {};
     }
     auto read_file(const std::filesystem::path& path) -> std::expected<std::string, std::string> override {
         NoSandbox runner;
         auto result = runner.execute("docker exec " + container_id_ + " cat " + path.string());
-        if (!result || result->exit_code != 0) return std::unexpected("docker 读取失败");
+        if (!result || result->exit_code != 0) return std::unexpected("docker read failed");
         return result->stdout_output;
     }
     auto start() -> std::expected<void, std::string> override {
@@ -163,7 +163,7 @@ public:
             " " + image + " sleep 86400";
         NoSandbox runner;
         auto result = runner.execute(command);
-        if (!result || result->exit_code != 0) return std::unexpected("docker run 失败");
+        if (!result || result->exit_code != 0) return std::unexpected("docker run failed");
         container_id_ = result->stdout_output;
         if (auto pos = container_id_.find('\n'); pos != std::string::npos) container_id_.erase(pos);
         active_ = !container_id_.empty();

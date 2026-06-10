@@ -373,12 +373,12 @@ and cc::skills::bundled::suggest_unstuck_action(context).
             R"(claude\s+in\s+chrome\s+not\s+respond)",
             R"(cfc\s+(?:not|broken|issue))",
             R"(chrome\s+(?:tab|screenshot|console))",
-            // Chinese keywords (utf-8 escapes)
-            R"(浏览器.*操作)",
-            R"(网页.*操作)",
-            R"(chrome.*插件)",
-            R"(侧边栏)",
-            R"(扩展.*没反应)",
+            // English keyword patterns (replacing Chinese triggers)
+            R"(browser.*action)",
+            R"(web.*action)",
+            R"(chrome.*plugin)",
+            R"(sidebar)",
+            R"(extension.*not.responding)",
         },
         .content = cc::skills::bundled::build_claude_in_chrome_prompt()
             + "\n\n## Troubleshooting\n\n"
@@ -412,11 +412,11 @@ and cc::skills::bundled::suggest_unstuck_action(context).
             R"(unbind\s+key)",
             R"(change\s+submit\s+key)",
             R"(unbind\s+default)",
-            // Chinese triggers (utf-8 escapes)
-            R"(快捷键.*自定义)",
-            R"(键位)",
-            R"(修改.*快捷键)",
-            R"(重新绑定)",
+            // English keyword patterns (replacing Chinese triggers)
+            R"(shortcut.*custom)",
+            R"(key.?bind)",
+            R"(change.*shortcut)",
+            R"(rebind)",
         },
         .content = cc::skills::bundled::build_keybindings_help_prompt(),
         .is_builtin = true,

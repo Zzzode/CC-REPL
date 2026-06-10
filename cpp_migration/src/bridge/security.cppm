@@ -87,13 +87,13 @@ public:
     [[nodiscard]] static auto decode_payload(std::string_view token) -> std::expected<BasicJwtPayload, std::string> {
 
         auto first_dot = token.find('.');
-        if (first_dot == std::string_view::npos) return std::unexpected("无效 JWT 格式");
+        if (first_dot == std::string_view::npos) return std::unexpected("invalid JWT format");
         auto second_dot = token.find('.', first_dot + 1);
-        if (second_dot == std::string_view::npos) return std::unexpected("无效 JWT 格式");
+        if (second_dot == std::string_view::npos) return std::unexpected("invalid JWT format");
         
         auto payload_b64 = token.substr(first_dot + 1, second_dot - first_dot - 1);
         auto payload_json = detail::base64url_decode(payload_b64);
-        if (payload_json.empty()) return std::unexpected("JWT payload 解码失败");
+        if (payload_json.empty()) return std::unexpected("JWT payload decode failed");
         return BasicJwtPayload{
             .sub = detail::extract_json_string(payload_json, "sub"),
             .iss = detail::extract_json_string(payload_json, "iss"),

@@ -878,7 +878,7 @@ public:
     void disconnect() override { set_state(TransportState::disconnected); }
     auto send(BridgeMessage msg) -> std::expected<void, TransportError> override {
         if (state_ != TransportState::connected)
-            return std::unexpected(TransportError{TransportError::connection_refused, "未连接"});
+            return std::unexpected(TransportError{TransportError::connection_refused, "not connected"});
         std::println(std::cout, "{}", serialize_message(msg));
         flush_gate_.enqueue(std::move(msg));
         return {};

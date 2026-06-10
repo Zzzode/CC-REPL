@@ -101,7 +101,7 @@ public:
     [[nodiscard]] auto resume_session(std::string_view id) 
         -> std::expected<void, RemoteError> {
         if (!current_session_ || current_session_->id != id)
-            return std::unexpected(RemoteError{RemoteError::session_not_found, "会话未找到"});
+            return std::unexpected(RemoteError{RemoteError::session_not_found, "session not found"});
         state_ = RemoteSessionState::connected;
         send_message(RemoteMessage{.type = RemoteMessageType::command, .payload = "resume", .session_id = std::string{id}});
         return {};
@@ -121,7 +121,7 @@ public:
             current_session_.reset();
             return {};
         }
-        return std::unexpected(RemoteError{RemoteError::session_not_found, "会话未找到"});
+        return std::unexpected(RemoteError{RemoteError::session_not_found, "session not found"});
     }
 
 

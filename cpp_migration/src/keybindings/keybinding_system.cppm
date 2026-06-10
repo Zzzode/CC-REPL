@@ -96,7 +96,7 @@ public:
         }
         
         if (remaining.empty())
-            return std::unexpected("缺少按键名称");
+            return std::unexpected("missing key name");
         
         result.key = remaining;
         return result;
@@ -202,14 +202,14 @@ private:
 
 
         actions_ = {
-            {"submit", "提交输入", {.key = "Enter"}, KeybindingContext::insert},
-            {"newline", "插入换行", {.key = "Enter", .modifiers = {.shift = true}}, KeybindingContext::insert},
-            {"cancel", "取消当前操作", {.key = "c", .modifiers = {.ctrl = true}}, KeybindingContext::global},
-            {"clear", "清屏", {.key = "l", .modifiers = {.ctrl = true}}, KeybindingContext::global},
-            {"search", "搜索", {.key = "r", .modifiers = {.ctrl = true}}, KeybindingContext::insert},
-            {"compact", "压缩对话", {.key = "k", .modifiers = {.ctrl = true, .shift = true}}, KeybindingContext::global},
-            {"copy", "复制选中", {.key = "c", .modifiers = {.meta = true}}, KeybindingContext::global},
-            {"paste", "粘贴", {.key = "v", .modifiers = {.meta = true}}, KeybindingContext::insert},
+            {"submit", "submit input", {.key = "Enter"}, KeybindingContext::insert},
+            {"newline", "insert newline", {.key = "Enter", .modifiers = {.shift = true}}, KeybindingContext::insert},
+            {"cancel", "cancel", {.key = "c", .modifiers = {.ctrl = true}}, KeybindingContext::global},
+            {"clear", "clear screen", {.key = "l", .modifiers = {.ctrl = true}}, KeybindingContext::global},
+            {"search", "search", {.key = "r", .modifiers = {.ctrl = true}}, KeybindingContext::insert},
+            {"compact", "compact conversation", {.key = "k", .modifiers = {.ctrl = true, .shift = true}}, KeybindingContext::global},
+            {"copy", "copy selection", {.key = "c", .modifiers = {.meta = true}}, KeybindingContext::global},
+            {"paste", "paste", {.key = "v", .modifiers = {.meta = true}}, KeybindingContext::insert},
         };
 
         for (const auto& action : actions_) {

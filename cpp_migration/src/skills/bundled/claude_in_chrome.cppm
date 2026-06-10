@@ -302,16 +302,16 @@ cc::skills::SkillManifest get_claude_in_chrome_skill_manifest() {
         .version = "1.0.0",
         .triggers = {
             "chrome extension",
-            "chrome 插件",
-            "chrome 扩展",
-            "侧边栏",
+            "chrome plugin",
+            "chrome extension",
+            "sidebar",
             "Claude in Chrome",
             "CFC",
             "browser automation",
             "browser tool",
             "chrome tab",
-            "网页操作",
-            "浏览器操作",
+            "web actions",
+            "browser actions",
         },
         .directory = {}
     };

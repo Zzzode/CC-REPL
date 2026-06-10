@@ -65,7 +65,7 @@ public:
         auto now = std::chrono::system_clock::now();
         SessionMeta meta{
             .id = generate_id(),
-            .title = "新会话",
+            .title = "New Session",
             .created_at = now,
             .updated_at = now,
             .message_count = 0,
@@ -81,7 +81,7 @@ public:
         -> std::expected<void, SessionError> {
         auto path = sessions_dir_ / (meta.id + ".json");
         std::ofstream out(path);
-        if (!out) return std::unexpected(SessionError{SessionError::io_error, "无法写入会话文件"});
+        if (!out) return std::unexpected(SessionError{SessionError::io_error, "failed to write session file"});
         out << "id=" << meta.id << "\n";
         out << "title=" << meta.title << "\n";
         out << "cwd=" << meta.cwd << "\n";
@@ -98,9 +98,9 @@ public:
         -> std::expected<SessionMeta, SessionError> {
         auto path = sessions_dir_ / (std::string(id) + ".json");
         if (!std::filesystem::exists(path))
-            return std::unexpected(SessionError{SessionError::not_found, "会话不存在"});
+            return std::unexpected(SessionError{SessionError::not_found, "session not found"});
         std::ifstream in(path);
-        if (!in) return std::unexpected(SessionError{SessionError::io_error, "无法读取会话文件"});
+        if (!in) return std::unexpected(SessionError{SessionError::io_error, "failed to read session file"});
         SessionMeta meta{.id = std::string(id)};
         std::string line;
         while (std::getline(in, line)) {
@@ -140,7 +140,7 @@ public:
     [[nodiscard]] auto delete_session(std::string_view id) -> std::expected<void, SessionError> {
         auto path = sessions_dir_ / (std::string(id) + ".json");
         if (!std::filesystem::exists(path))
-            return std::unexpected(SessionError{SessionError::not_found, "会话不存在"});
+            return std::unexpected(SessionError{SessionError::not_found, "session not found"});
         std::filesystem::remove(path);
         return {};
     }

@@ -2,7 +2,7 @@
 /// @file messages_list.cppm
 /// @brief Messages list container + single-message envelope wrapper.
 ///
-/// UI21 RESPONSIBILITY — "列表容器 + 单消息外容器" (REPL 主路径 P0 阻塞项)
+/// UI21 RESPONSIBILITY — "List container + single-message envelope" (REPL main path P0 blocker)
 ///   MIGRATION SOURCES:
 ///     - src/components/Messages.tsx  (834 LOC)
 ///         * build_visible_rows : O(N) filter + search + compact-group collapsing

@@ -523,8 +523,8 @@ class ApiKeyVerificationHook {
     std::string error_message_;
 public:
     void verify(std::string_view key) {
-        if (key.empty()) { status_ = KeyStatus::invalid; error_message_ = "API Key 为空"; return; }
-        if (!key.starts_with("sk-")) { status_ = KeyStatus::invalid; error_message_ = "格式无效"; return; }
+        if (key.empty()) { status_ = KeyStatus::invalid; error_message_ = "API key is empty"; return; }
+        if (!key.starts_with("sk-")) { status_ = KeyStatus::invalid; error_message_ = "invalid format"; return; }
         status_ = KeyStatus::valid;
     }
     [[nodiscard]] auto is_valid() const -> bool { return status_ == KeyStatus::valid; }

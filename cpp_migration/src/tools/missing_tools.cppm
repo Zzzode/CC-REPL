@@ -107,7 +107,7 @@ class REPLTool {
 public:
     static constexpr auto name() -> std::string_view { return "repl"; }
     static constexpr auto description() -> std::string_view {
-        return "在交互式 REPL 环境中执行代码 (Python/Node/Ruby)";
+        return "Execute code in interactive REPL environment (Python/Node/Ruby)";
     }
 
     [[nodiscard]] auto execute(std::string_view code, ReplConfig config = {}) -> ToolResult {
@@ -179,14 +179,14 @@ class RemoteTriggerTool {
 public:
     static constexpr auto name() -> std::string_view { return "remote_trigger"; }
     static constexpr auto description() -> std::string_view {
-        return "触发远程会话执行指定任务";
+        return "Trigger remote session to execute task";
     }
     
     [[nodiscard]] auto execute(std::string_view task_description, RemoteTriggerConfig config) -> ToolResult {
         if (config.target_session_id.empty())
-            return {.success = false, .error = "未指定目标会话 ID"};
+            return {.success = false, .error = "target session ID not specified"};
         if (config.bridge_url.empty())
-            return {.success = false, .error = "未指定 bridge URL"};
+            return {.success = false, .error = "bridge URL not specified"};
 
         const auto payload = R"({"jsonrpc":"2.0","id":"remote-trigger","method":"execute","params":{"session_id":")" +
             detail::json_escape(config.target_session_id) + R"(","task":")" + detail::json_escape(task_description) + R"(","wait":)" +
@@ -195,7 +195,7 @@ public:
             detail::shell_quote(payload) + " " + detail::shell_quote(config.bridge_url) + " 2>&1";
         auto result = detail::run_command(cmd, 100'000);
         if (!result.success) return result;
-        if (result.success && result.output.empty()) result.output = "远程任务已触发";
+        if (result.success && result.output.empty()) result.output = "remote task triggered";
         return {.success = true, .output = result.output,
                 .metadata_json = R"({"triggered_session": ")" + config.target_session_id + R"("})"};
     }
@@ -228,7 +228,7 @@ class SkillTool {
 public:
     static constexpr auto name() -> std::string_view { return "skill"; }
     static constexpr auto description() -> std::string_view {
-        return "调用已安装的技能模块执行复杂工作流";
+        return "Invoke installed skill module to execute workflow";
     }
     
     // Get tool prompt for LLM
@@ -390,19 +390,19 @@ Important:
     
     [[nodiscard]] auto execute(SkillInvocation invocation) -> ToolResult {
         if (invocation.skill_name.empty())
-            return {.success = false, .error = "未指定技能名称"};
-        
+            return {.success = false, .error = "skill name not specified"};
+
 
         auto skill_path = find_skill(invocation.skill_name);
         if (!skill_path)
-            return {.success = false, .error = "技能未找到: " + invocation.skill_name};
+            return {.success = false, .error = "skill not found: " + invocation.skill_name};
 
         std::ifstream file(*skill_path);
-        if (!file) return {.success = false, .error = "无法读取技能定义: " + *skill_path};
+        if (!file) return {.success = false, .error = "cannot read skill definition: " + *skill_path};
         std::stringstream buffer;
         buffer << file.rdbuf();
         auto definition = buffer.str();
-        if (definition.empty()) return {.success = false, .error = "技能定义为空: " + invocation.skill_name};
+        if (definition.empty()) return {.success = false, .error = "skill definition is empty: " + invocation.skill_name};
         const auto max_chars = get_char_budget(std::nullopt);
         if (definition.size() > max_chars) definition.resize(max_chars);
         return {.success = true,
@@ -455,7 +455,7 @@ class SyntheticOutputTool {
 public:
     static constexpr auto name() -> std::string_view { return "synthetic_output"; }
     static constexpr auto description() -> std::string_view {
-        return "生成合成输出（用于测试和流式输出模拟）";
+        return "Generate synthetic output (for testing and streaming simulation)";
     }
     
     [[nodiscard]] auto execute(SyntheticConfig config) -> ToolResult {

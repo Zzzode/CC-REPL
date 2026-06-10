@@ -79,8 +79,8 @@ public:
         return Notification{
             .id = "auto_mode_warn", .type = NotifType::auto_mode_warning,
             .priority = NotifPriority::high,
-            .title = "自动模式警告",
-            .message = "已自动批准 " + std::to_string(auto_approved_count_) + " 个操作，建议检查执行结果",
+            .title = "Auto-mode warning",
+            .message = "Auto-approved " + std::to_string(auto_approved_count_) + " operations, recommend checking execution results",
             .created_at = std::chrono::system_clock::now()
         };
     }
@@ -99,8 +99,8 @@ public:
             if (f.name == feature_used) {
                 return Notification{
                     .id = "deprecation_" + f.name, .type = NotifType::deprecation_warning,
-                    .title = "功能已弃用: " + f.name,
-                    .message = "请使用 " + f.replacement + "（将在 " + f.removal_version + " 中移除）",
+                    .title = "Feature deprecated: " + f.name,
+                    .message = "Please use " + f.replacement + " (will be removed in " + f.removal_version + ")",
                     .created_at = std::chrono::system_clock::now()
                 };
             }
@@ -124,9 +124,9 @@ public:
         return Notification{
             .id = "rate_limit", .type = NotifType::rate_limit,
             .priority = consecutive_limits_ > 3 ? NotifPriority::critical : NotifPriority::high,
-            .title = "API 限流",
-            .message = "已触发 " + std::to_string(consecutive_limits_) + " 次限流，正在等待恢复",
-            .action_label = "查看用量", .action_url = "/usage",
+            .title = "API rate limited",
+            .message = "Triggered " + std::to_string(consecutive_limits_) + " rate limits, waiting for recovery",
+            .action_label = "View usage", .action_url = "/usage",
             .created_at = last_limit_at_
         };
     }
@@ -143,9 +143,9 @@ public:
         if (!latest_version_ || *latest_version_ == current_version_) return std::nullopt;
         return Notification{
             .id = "update_available", .type = NotifType::update_available,
-            .title = "新版本可用: " + *latest_version_,
-            .message = "当前版本 " + current_version_ + "，可用 /upgrade 升级",
-            .action_label = "升级", .action_url = "/upgrade",
+            .title = "New version available: " + *latest_version_,
+            .message = "Current version " + current_version_ + ", use /upgrade to upgrade",
+            .action_label = "Upgrade", .action_url = "/upgrade",
             .created_at = std::chrono::system_clock::now(), .persistent = true
         };
     }
@@ -169,8 +169,8 @@ public:
                 notifs.push_back({
                     .id = "mcp_" + s.name, .type = NotifType::mcp_connection,
                     .priority = NotifPriority::high,
-                    .title = "MCP 服务器断开: " + s.name,
-                    .message = s.error.empty() ? "连接已断开" : s.error,
+                    .title = "MCP server disconnected: " + s.name,
+                    .message = s.error.empty() ? "Connection lost" : s.error,
                     .created_at = std::chrono::system_clock::now()
                 });
             }
@@ -193,8 +193,8 @@ public:
         return Notification{
             .id = "ide_disconnected", .type = NotifType::ide_status,
             .priority = NotifPriority::normal,
-            .title = "IDE 未连接",
-            .message = ide_name_.empty() ? "未检测到 IDE 连接" : ide_name_ + " 连接已断开",
+            .title = "IDE not connected",
+            .message = ide_name_.empty() ? "No IDE connection detected" : ide_name_ + " connection lost",
             .created_at = std::chrono::system_clock::now()
         };
     }
@@ -211,11 +211,11 @@ public:
     void clear() { pending_updates_.clear(); }
     [[nodiscard]] auto get_notification() const -> std::optional<Notification> {
         if (pending_updates_.empty()) return std::nullopt;
-        std::string msg = std::to_string(pending_updates_.size()) + " 个插件有更新可用";
+        std::string msg = std::to_string(pending_updates_.size()) + " plugin(s) have updates available";
         return Notification{
             .id = "plugin_updates", .type = NotifType::plugin_update,
-            .title = "插件更新", .message = msg,
-            .action_label = "更新", .action_url = "/plugin update",
+            .title = "Plugin update", .message = msg,
+            .action_label = "Update", .action_url = "/plugin update",
             .created_at = std::chrono::system_clock::now()
         };
     }
@@ -232,8 +232,8 @@ public:
         return Notification{
             .id = "settings_error", .type = NotifType::settings_error,
             .priority = NotifPriority::high,
-            .title = "设置配置错误",
-            .message = errors_.front() + (errors_.size() > 1 ? " (+" + std::to_string(errors_.size()-1) + " 个其他错误)" : ""),
+            .title = "Settings configuration error",
+            .message = errors_.front() + (errors_.size() > 1 ? " (+" + std::to_string(errors_.size()-1) + " other error(s))" : ""),
             .created_at = std::chrono::system_clock::now()
         };
     }

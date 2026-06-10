@@ -2,7 +2,7 @@
 /// @file message_row.cppm
 /// @brief Message row framework: audit table + dispatch to per-type renderers.
 ///
-/// PHASE 4 UI4 RESPONSIBILITY - "列表框架 + 通用消息类型"
+/// PHASE 4 UI4 RESPONSIBILITY - "List framework + generic message types"
 ///   - Audit TS components/messages (33 tsx) vs C++ ui/messages (26 modules)
 ///   - Provide an enum of known message roles/types
 ///   - RenderMessageRowByType() dispatches by (role, type) → correct module
@@ -73,9 +73,9 @@
 /// └───────────────────────────────────────────────┴───────────────────────┘
 ///
 ///  Legend:
-///    ✅ 已迁移且完整 / migrated + 补全交互完成
-///    🧩 已迁移但需父组件包装 / uses base module + subtype tag
-///    ❌ 完全缺失 / NOT in UI4 scope (handled by UI5)
+///    ✅ Migrated and complete
+///    🧩 Migrated but needs parent component wrapping (uses base module + subtype tag)
+///    ❌ Not present / NOT in UI4 scope (handled by UI5)
 ///    🆕 Created in this commit by UI4
 ///    ⚠️  Partial / images only
 /// =========================================================================
