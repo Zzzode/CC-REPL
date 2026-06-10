@@ -312,6 +312,9 @@ target_sources(cc_state
         state/persistence.cppm
         state/selectors.cppm
         state/store.cppm
+        # Phase 3-F: concrete AppState store + JSON persistence
+        state/store_impl.cppm
+        state/persistence_json.cppm
 )
 target_link_libraries(cc_state
     PUBLIC
@@ -625,6 +628,9 @@ target_sources(cc_tools
         tools/brief_attachments.cppm
         tools/file_read_helpers.cppm
         tools/lsp_schemas.cppm
+        # Phase 3-B/C real tool primitives: bash exec + file I/O + glob/grep
+        tools/bash/impl_bash.cppm
+        tools/files/impl_files.cppm
 )
 target_link_libraries(cc_tools
     PUBLIC
@@ -814,6 +820,8 @@ target_sources(cc_services
         services/api/streaming.cppm
         services/api/usage.cppm
         services/api/with_retry.cppm
+        services/api/sse_client.cppm
+        services/api/with_retry_simple.cppm
         services/auto_dream/auto_dream.cppm
         services/auto_dream/config.cppm
         services/auto_dream/consolidation_lock.cppm
@@ -918,6 +926,7 @@ target_sources(cc_services
         services/mcp/claude_ai.cppm
         services/mcp/oauth_port.cppm
         services/mcp/xaa_idp_login.cppm
+        services/mcp/transport_stdio.cppm
         services/diagnostic/dump_diagnostic.cppm
         services/rate_limit/claude_ai_limits_hook.cppm
         services/compact/api_microcompact.cppm
@@ -926,6 +935,7 @@ target_sources(cc_services
         services/team_memory/secret_guard.cppm
         services/team_memory/secret_scanner.cppm
         services/team_memory/watcher.cppm
+        services/query_engine.cppm
 )
 target_sources(cc_services
     PRIVATE
@@ -1056,6 +1066,8 @@ target_sources(cc_hooks
         hooks/settings_change.cppm
         hooks/swarm_permission_poller.cppm
         hooks/shell_hooks.cppm
+        hooks/permission_resolver.cppm
+        hooks/tool_permission_gate.cppm
 )
 target_link_libraries(cc_hooks
     PUBLIC

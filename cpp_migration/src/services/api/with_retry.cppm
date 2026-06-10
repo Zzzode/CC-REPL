@@ -240,4 +240,118 @@ template <typename T>
     return std::nullopt;
 }
 
+// =========================================================================
+// Task #37 dispatch compatibility layer (lightweight WithRetry: expected<fn(), string>)
+// Independent from RetryExecutor / RetryConfig above; avoids coupling to errors/models.
+// =========================================================================
+
+/// Lightweight retry config required by dispatch (pure value struct, no dependencies).
+struct RetryConfigLite {
+    int              max_attempts    = 3;
+    int              base_delay_ms   = 500;
+    int              max_delay_ms    = 10000;
+    std::vector<int> retry_on_http   = {429, 500, 502, 503, 504};
+};
+
+namespace detail {
+inline std::chrono::milliseconds lite_backoff(int attempt_0based,
+                                              int base_ms,
+                                              int max_ms) {
+    const auto a = std::max(0, attempt_0based);
+    const std::int64_t raw = static_cast<std::int64_t>(base_ms) * (1 << a);
+    auto capped = std::chrono::milliseconds(std::min<std::int64_t>(
+        static_cast<std::int64_t>(max_ms), raw));
+    // +/-20% jitter
+    std::mt19937_64 gen{std::random_device{}()};
+    std::uniform_real_distribution<double> d(0.8, 1.2);
+    return std::chrono::milliseconds(static_cast<std::int64_t>(
+        std::max<double>(0.0,
+                         static_cast<double>(capped.count()) * d(gen))));
+}
+}  // namespace detail
+
+/// Dispatch-required template entry point: executes fn up to cfg.max_attempts times.
+/// - On success returns `expected<T, string>` value
+/// - Retries if fn returns negative, throws std::exception (converted to string error),
+///   or returns an HTTP code in cfg.retry_on_http; otherwise returns unexpected<string>.
+///
+/// fn return value conventions (dispatched via concepts-like overloads):
+///   A) `int`  -> 0/2xx means success; >0 in retry_on_http retries; <0 = transport error retries
+///   B) `expected<T, string>`  -> judged by semantics directly
+///   C) any other return type -> treated as one-shot success (no retry)
+template <typename F>
+[[nodiscard]] auto WithRetry(const RetryConfigLite& cfg, F&& fn)
+    -> std::expected<
+        std::conditional_t<
+            std::is_void_v<std::invoke_result_t<F>>,
+            std::monostate,
+            std::invoke_result_t<F>>,
+        std::string> {
+
+    using Ret = std::invoke_result_t<F>;
+    using ExpRet = typename std::conditional_t<
+        std::is_void_v<Ret>,
+        std::monostate,
+        Ret>;
+
+    const int max_att = std::max(1, cfg.max_attempts);
+    std::string last_err;
+
+    for (int attempt = 0; attempt < max_att; ++attempt) {
+        try {
+            if constexpr (std::is_same_v<Ret, int>) {
+                const int rc = std::invoke(std::forward<F>(fn));
+                if (rc == 0 || (rc >= 200 && rc < 300)) {
+                    return std::expected<ExpRet, std::string>(rc);
+                }
+                const bool retry = rc < 0 ||
+                    std::find(cfg.retry_on_http.begin(),
+                              cfg.retry_on_http.end(), rc) != cfg.retry_on_http.end();
+                last_err = std::string("rc=") + std::to_string(rc);
+                if (!retry || attempt + 1 == max_att) {
+                    return std::unexpected(std::move(last_err));
+                }
+            } else if constexpr (requires { typename Ret::value_type; typename Ret::error_type;
+                                           std::declval<Ret>().has_value(); }) {
+                // expected<T, string> pattern
+                auto result = std::invoke(std::forward<F>(fn));
+                if (result.has_value()) {
+                    if constexpr (std::is_void_v<Ret>) {
+                        return std::expected<ExpRet, std::string>(std::monostate{});
+                    } else {
+                        return std::expected<ExpRet, std::string>(*result);
+                    }
+                }
+                last_err = std::string(result.error());
+                if (attempt + 1 == max_att) {
+                    return std::unexpected(std::move(last_err));
+                }
+            } else {
+                // Any other return type: treat as one-shot success
+                if constexpr (std::is_void_v<Ret>) {
+                    std::invoke(std::forward<F>(fn));
+                    return std::expected<ExpRet, std::string>(std::monostate{});
+                } else {
+                    return std::expected<ExpRet, std::string>(
+                        std::invoke(std::forward<F>(fn)));
+                }
+            }
+        } catch (const std::exception& e) {
+            last_err = std::string("exception: ") + e.what();
+            if (attempt + 1 == max_att) {
+                return std::unexpected(std::move(last_err));
+            }
+        } catch (...) {
+            last_err = "exception: unknown";
+            if (attempt + 1 == max_att) {
+                return std::unexpected(std::move(last_err));
+            }
+        }
+        // Backoff before retry
+        std::this_thread::sleep_for(
+            detail::lite_backoff(attempt, cfg.base_delay_ms, cfg.max_delay_ms));
+    }
+    return std::unexpected(std::move(last_err));
+}
+
 } // namespace cc::services::api
