@@ -3599,6 +3599,10 @@ inline void hydrate_resume_plan_from_existing_record(AgentExecutionPlan& plan) {
     auto reason = json_string(root, "reason").value_or("scheduled wait");
 
     auto signal = std::make_shared<AbortSignal>();
+    // Pre-check: if cancel was already requested before we got here, abort immediately.
+    if (cc::tools::agent_runtime::native_agent_store().is_cancel_requested(std::string(agent_id))) {
+        signal->abort();
+    }
     std::atomic_bool finished{false};
     std::thread watcher([signal, agent_id = std::string(agent_id), &finished] {
         while (!finished.load(std::memory_order_acquire)) {
@@ -3606,7 +3610,7 @@ inline void hydrate_resume_plan_from_existing_record(AgentExecutionPlan& plan) {
                 signal->abort();
                 return;
             }
-            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
         }
     });
 

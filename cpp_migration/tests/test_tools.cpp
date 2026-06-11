@@ -1722,6 +1722,7 @@ if (request.action === 'screenshot') {
 }
 
 TEST(Tools, ComputerUseManagerFailsInputActionsWithoutInputProvider) {
+    using Point = cc::core::computer_use::Point;
     using namespace cc::core::computer_use;
 
     ComputerUseManager manager;
@@ -7657,7 +7658,16 @@ TEST(Tools, TaskStopCancelsRunningBackgroundAgentDuringSleepToolExecution) {
     ASSERT_FALSE(started->is_error);
     ASSERT_TRUE(server.wait_for_request_count(1));
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    // Wait until agent has parsed the SSE response (assistant transcript entry)
+    // and entered tool execution before issuing cancel.
+    for (int i = 0; i < 500; ++i) {
+        auto rec = cc::tools::agent_runtime::native_agent_store().get("sleep-cancel-agent");
+        if (rec && std::ranges::any_of(rec->transcript, [](const auto& e) {
+            return e.find("assistant:") != std::string::npos;
+        })) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(30));
     const auto stop_started = std::chrono::steady_clock::now();
     auto stopped = registry.execute("task_stop", cc::core::ToolInput::from_json(R"({
       "task_id": "sleep-cancel-agent"
