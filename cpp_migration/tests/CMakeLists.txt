@@ -296,4 +296,11 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/e2e/CMakeLists.txt)
   add_subdirectory(e2e)
 endif()
 
+# ---------------------------------------------------------------------------
+# Fuzz targets (only when ENABLE_FUZZING is ON)
+# ---------------------------------------------------------------------------
+if(ENABLE_FUZZING)
+  add_subdirectory(fuzz)
+endif()
+
 

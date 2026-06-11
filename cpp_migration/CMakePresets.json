@@ -62,13 +62,32 @@
     {
       "name": "clang-release",
       "displayName": "Homebrew LLVM Clang Release",
-      "description": "Optimized release build using Homebrew LLVM Clang with module dependency scanning",
+      "description": "Optimized release build using Homebrew LLVM Clang with LTO and module dependency scanning",
       "inherits": "base",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "CMAKE_C_COMPILER": "/opt/homebrew/opt/llvm/bin/clang",
         "CMAKE_CXX_COMPILER": "/opt/homebrew/opt/llvm/bin/clang++",
-        "CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS": "/opt/homebrew/opt/llvm/bin/clang-scan-deps"
+        "CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS": "/opt/homebrew/opt/llvm/bin/clang-scan-deps",
+        "CMAKE_C_FLAGS_RELEASE": "-O2 -DNDEBUG",
+        "CMAKE_CXX_FLAGS_RELEASE": "-O2 -DNDEBUG",
+        "CMAKE_INTERPROCEDURAL_OPTIMIZATION": "ON"
+      }
+    },
+    {
+      "name": "clang-coverage",
+      "displayName": "Homebrew LLVM Clang Coverage",
+      "description": "Debug build with code coverage instrumentation using Homebrew LLVM Clang",
+      "inherits": "base",
+      "binaryDir": "${sourceDir}/build/clang-coverage",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_C_COMPILER": "/opt/homebrew/opt/llvm/bin/clang",
+        "CMAKE_CXX_COMPILER": "/opt/homebrew/opt/llvm/bin/clang++",
+        "CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS": "/opt/homebrew/opt/llvm/bin/clang-scan-deps",
+        "CMAKE_C_FLAGS": "-fprofile-instr-generate -fcoverage-mapping",
+        "CMAKE_CXX_FLAGS": "-fprofile-instr-generate -fcoverage-mapping",
+        "CMAKE_EXE_LINKER_FLAGS": "-fprofile-instr-generate"
       }
     },
     {
@@ -154,6 +173,11 @@
       "jobs": 0
     },
     {
+      "name": "clang-coverage",
+      "configurePreset": "clang-coverage",
+      "jobs": 0
+    },
+    {
       "name": "linux-debug",
       "configurePreset": "linux-debug",
       "jobs": 0
@@ -198,6 +222,13 @@
       "environment": {
         "ASAN_OPTIONS": "detect_leaks=1:halt_on_error=1",
         "UBSAN_OPTIONS": "print_stacktrace=1:halt_on_error=1"
+      }
+    },
+    {
+      "name": "clang-coverage",
+      "configurePreset": "clang-coverage",
+      "output": {
+        "outputOnFailure": true
       }
     }
   ],
