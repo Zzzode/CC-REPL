@@ -227,14 +227,55 @@ inline std::string format_agent_label(
     return std::string(agent_id);
 }
 
-/// Placeholder — real implementation walks the runtime agent store.
+/// Walk the runtime agent store to capture a memory snapshot for a given agent.
 inline AgentMemorySnapshot capture_memory_snapshot(std::string_view agent_id) {
-    return AgentMemorySnapshot{std::string(agent_id), 0, 0, std::chrono::system_clock::now()};
+    auto record = cc::tools::agent_runtime::native_agent_store().get(agent_id);
+    if (!record) {
+        return AgentMemorySnapshot{std::string(agent_id), 0, 0, std::chrono::system_clock::now()};
+    }
+
+    // Estimate heap usage by summing transcript entry sizes plus other string fields.
+    size_t heap_bytes = 0;
+    for (const auto& entry : record->transcript) {
+        heap_bytes += entry.size();
+    }
+    for (const auto& entry : record->sidechain_entries) {
+        heap_bytes += entry.size();
+    }
+    for (const auto& entry : record->pending_messages) {
+        heap_bytes += entry.size();
+    }
+    if (record->output) heap_bytes += record->output->size();
+    if (record->error) heap_bytes += record->error->size();
+
+    size_t message_count = record->transcript.size();
+
+    return AgentMemorySnapshot{
+        std::string(agent_id),
+        heap_bytes,
+        message_count,
+        std::chrono::system_clock::now()
+    };
 }
 
-/// Placeholder — real implementation walks the runtime agent store.
+/// Query the runtime agent store for all agents with Running or Queued status.
 inline std::vector<AgentDisplayInfo> get_active_agents() {
-    return {};
+    std::vector<AgentDisplayInfo> result;
+    auto all_records = cc::tools::agent_runtime::native_agent_store().list();
+    for (const auto& record : all_records) {
+        if (record.status == cc::tools::agent_runtime::NativeAgentStatus::Running ||
+            record.status == cc::tools::agent_runtime::NativeAgentStatus::Queued) {
+            std::string label = record.name.value_or(
+                record.description.value_or(record.agent_id));
+            result.push_back(AgentDisplayInfo{
+                .agent_id = record.agent_id,
+                .label = std::move(label),
+                .color = get_agent_color_rgb(record.agent_id),
+                .is_active = (record.status == cc::tools::agent_runtime::NativeAgentStatus::Running),
+            });
+        }
+    }
+    return result;
 }
 
 } // namespace cc::tools::agent_display

@@ -822,6 +822,85 @@ inline constexpr std::string_view kClaudeCodeGuideWhenToUse =
 using cc::tools::agent_runtime::is_sdk_entrypoint;
 
 // ---------------------------------------------------------------------------
+// Coordinator mode: worker agent definition.
+// Migrated from TS coordinator/workerAgent.ts — getCoordinatorAgents().
+// ---------------------------------------------------------------------------
+
+inline constexpr std::string_view kCoordinatorWorkerSystemPrompt =
+    R"(You are a worker agent spawned by a coordinator to handle a specific task autonomously.
+
+## Your Role
+
+You execute tasks given to you by the coordinator. You have access to standard tools for reading, writing, and searching code.
+
+## Guidelines
+
+- Complete the task fully — don't gold-plate, but don't leave it half-done.
+- Report your findings and results clearly and concisely.
+- If you encounter errors or blockers, report them — don't silently fail.
+- When making code changes, verify them (run tests, typecheck) before reporting done.
+- If the coordinator gives you a precise spec, follow it exactly.
+- If the task is ambiguous, use your judgment and report what you did.
+
+## Communication
+
+Your final response will be delivered back to the coordinator. Keep it focused:
+- For research: report file paths, line numbers, and key findings.
+- For implementation: report what you changed and the commit hash.
+- For verification: report pass/fail with evidence.)";
+
+inline constexpr std::string_view kCoordinatorWorkerWhenToUse =
+    R"(Worker agent for coordinator mode. Executes autonomous tasks including research, implementation, and verification. Spawned by the coordinator to handle specific work items.)";
+
+[[nodiscard]] inline std::vector<AgentDefinition> get_coordinator_agents() {
+    // The coordinator-worker is the agent definition used when the coordinator
+    // spawns workers via the Agent tool with subagent_type "worker".
+    // Tools list mirrors TS ASYNC_AGENT_ALLOWED_TOOLS minus internal tools
+    // (TeamCreate, TeamDelete, SendMessage, SyntheticOutput).
+    return {AgentDefinition{
+        .agent_type = "coordinator-worker",
+        .when_to_use = std::string{kCoordinatorWorkerWhenToUse},
+        .model = "",  // uses default sub-agent model
+        .source = "built-in",
+        .filename = std::nullopt,
+        .path = std::nullopt,
+        .system_prompt = std::string{kCoordinatorWorkerSystemPrompt},
+        .tools = {
+            std::string{kFileReadToolName},
+            std::string{kFileEditToolName},
+            std::string{kFileWriteToolName},
+            std::string{kGlobToolName},
+            std::string{kGrepToolName},
+            std::string{kBashToolName},
+            std::string{kWebSearchToolName},
+            std::string{kWebFetchToolName},
+            std::string{kNotebookEditToolName},
+            "Skill",
+            "TodoWrite",
+            "ToolSearch",
+            "EnterWorktree",
+            "ExitWorktree",
+        },
+        .disallowed_tools = {},
+        .permission_mode = std::nullopt,
+        .max_turns = std::nullopt,
+        .initial_prompt = std::nullopt,
+        .background = false,
+        .isolation = std::nullopt,
+        .required_mcp_servers = {},
+        .mcp_servers = {},
+        .inline_mcp_servers = {},
+        .skills = {},
+        .hooks_present = false,
+        .effort = std::nullopt,
+        .memory = std::nullopt,
+        .color = std::nullopt,
+        .omit_claude_md = false,
+        .critical_system_reminder = std::nullopt,
+    }};
+}
+
+// ---------------------------------------------------------------------------
 // Public API: get_built_in_agents() — equivalent to TS getBuiltInAgents().
 // ---------------------------------------------------------------------------
 
@@ -833,16 +912,11 @@ using cc::tools::agent_runtime::is_sdk_entrypoint;
         return {};
     }
 
-    // COORDINATOR_MODE: lazy require pattern. The coordinator mode agent list
-    // lives in coordinator/workerAgent.js in TS. In C++, if the build opts into
-    // coordinator mode and the env requests it, we delegate to that registry.
-    // Until coordinator is ported, this path returns empty; a future migration
-    // fills it in.
+    // COORDINATOR_MODE: when coordinator mode is active, return the
+    // coordinator-worker agent definition instead of the normal agent set.
 #if defined(COORDINATOR_MODE_BUILD)
     if (cc::tools::agent_runtime::env_truthy("CLAUDE_CODE_COORDINATOR_MODE")) {
-        // TODO: delegate to coordinator::worker::get_coordinator_agents()
-        // once that module is migrated.
-        return {};
+        return get_coordinator_agents();
     }
 #endif
 
