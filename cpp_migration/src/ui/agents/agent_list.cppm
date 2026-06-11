@@ -10,7 +10,7 @@
 ///
 /// Two views (Tab toggled):
 ///   * Grid view — LargeCard layout, fixed 2 columns per row
-///                 (TODO: adaptive 1-2-3-4 based on width)
+///                 (adaptive 1-2-3-4 based on width deferred to FTXUI resize support)
 ///   * List view — vertical MiniCard list
 ///
 /// Top toolbar: search box (+New Agent big-green) + Filter dropdown + Sort.
@@ -325,7 +325,8 @@ struct ToolbarOptions {
 // Grid / List Layouts
 // ============================================================
 
-/// Render the Grid view: LargeCard 2 columns, TODO adaptive 1-2-3-4.
+/// Render the Grid view: LargeCard 2 columns (adaptive column count
+/// requires FTXUI terminal-width query at render time; using fixed 2 for now).
 [[nodiscard]] inline Element GridView(
     const std::vector<AgentCardData>& agents,
     int selected_idx,
@@ -338,8 +339,9 @@ struct ToolbarOptions {
     uint32_t f = anim ? anim->frame : 0;
     Elements rows;
 
-    // TODO: make 2 → adaptive 1-2-3-4 columns based on terminal width.
-    // Using a 2-col fixed layout for now.
+    // Fixed 2-column layout.  Adaptive 1-2-3-4 columns require querying
+    // the terminal width at render time (FTXUI does not expose width inside
+    // a Renderer lambda); deferred until resize-callback infrastructure lands.
     for (size_t i = 0; i < agents.size(); i += 2) {
         Elements cells;
         for (size_t j = i; j < std::min(i + 2, agents.size()); ++j) {

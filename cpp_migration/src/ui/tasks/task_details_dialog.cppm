@@ -136,7 +136,8 @@ struct DialogCallbacks {
     std::function<void(const TaskDetails& updated)> on_save;
     /// Called when user clicks "Delete".  The caller should typically
     /// open a TrustDialog (medium severity) and only proceed if
-    /// confirmed.  TODO(UI12): wire cc::ui::trust_dialog here.
+    /// confirmed.  Wire cc::ui::trust_dialog here once the trust
+    /// modal infrastructure supports inline embedding.
     std::function<void(const std::string& task_id)> on_delete_request;
     /// Called on Esc or "Close" button.
     std::function<void()> on_close;
@@ -368,7 +369,8 @@ struct DialogState {
     auto due_box = vbox({
         SectionHeader("📅 Due Date"),
         due_inner | xflex,
-        // TODO(UI12): natural language parsing ("Tomorrow", "Next Monday")
+        // Natural language date parsing ("Tomorrow", "Next Monday") requires
+        // a date-NLP library; for now only ISO format is accepted.
         text("        Format: YYYY-MM-DD") | dim,
     });
     if (has_focus(FocusSection::DueDate, s.focus)) {
@@ -841,7 +843,8 @@ struct TaskDetailsDialogOptions {
                     // For simplicity, we treat Enter as parse & commit.
                 }
                 if (event == Event::Return) {
-                    // TODO(UI12): use a proper date input modal.
+                    // A proper date input modal would provide calendar-style
+                    // selection; for now ISO string entry via keyboard suffices.
                     return true;
                 }
                 // Fast-path: user can also type `d 2026-06-15` to set; here

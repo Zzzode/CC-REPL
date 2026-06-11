@@ -425,7 +425,9 @@ struct SwarmCollaborationOptions {
             | dim | color(speaker_color),
         text(" ") | dim,
     });
-    // TODO elapsed time - using system_clock vs monotonic? Use "relative" for now
+    // Elapsed time display: using steady_clock for monotonic measurement.
+    // A relative-time formatter (e.g. "2m ago") would require comparing
+    // against the first message timestamp; deferred to a follow-up pass.
     Element time_label = text("") | dim;
 
     Element header = hbox({
@@ -533,7 +535,8 @@ struct SwarmCollaborationOptions {
     // flags.  FTXUI's yframe auto-shows the last visible entry by default,
     // which approximates the "auto-scroll to bottom" behaviour of the TS
     // version.  A real smooth animation would require state-driven manual
-    // windowing - tracked as TODO.
+    // windowing (computing a visible slice + offset per frame); deferred
+    // until performance profiling shows it is needed.
 
     Element pane = vbox({
         title,

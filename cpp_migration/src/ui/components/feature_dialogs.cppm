@@ -18,7 +18,7 @@
 /// NOTE on scope:
 ///   - All file I/O (memory read/write) is dispatched through the caller-
 ///     supplied `MemoryBankProvider` callback / the `MemoryCallbacks` struct.
-///   - Feedback submission is a TODO stub (no real HTTPS POST).
+///   - Feedback submission is a stub (no real HTTPS POST; see on_submit callback).
 ///   - Grove graph loading is likewise injected via `GroveCallbacks`.
 
 module;
@@ -580,8 +580,8 @@ private:
                     }) | center);
             } else {
                 // Use code_highlight module for fenced code blocks; everything
-                // else is rendered as dim plain text (Markdown rendering is
-                // out of scope for this component — TODO: plug MD renderer).
+                // else is rendered as dim plain text.  A full Markdown renderer
+                // would be plugged here as a post-Phase-4 enhancement.
                 content.push_back(render_markdown_preview(sel->content));
             }
         }
@@ -729,9 +729,11 @@ private:
         }
         return text("");
     }
-    void ConfirmDelete(const MemoryEntry&) {
+    void ConfirmDelete(const MemoryEntry& entry) {
         // UI8 Low-trust confirm (no countdown): 2-button pattern.
-        // TODO: plug actual Modal overlay; placeholder invokes on_delete.
+        // Integration point: overlay a cc::ui::trust_dialog modal here.
+        // For now, directly invoke on_delete to keep the flow unblocked.
+        if (cb_.on_delete) cb_.on_delete(entry);
     }
 };
 
@@ -1035,7 +1037,9 @@ private:
             text("[Enter] retry    [Backspace] edit") | dim | center,
             text("") | flex });
     }
-    // TODO: real HTTPS POST via on_submit callback (see docstring).
+    // Feedback submission: delegates to on_submit callback which should
+    // perform the actual HTTPS POST (see FeedbackOptions::on_submit).
+    // The UI transitions through Submitting -> Success/Failed states.
     void BeginSubmit() {
         step_ = Step::Submitting;
         tracking_id_ = generate_tracking_id();

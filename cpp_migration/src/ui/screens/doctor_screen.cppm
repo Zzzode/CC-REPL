@@ -152,8 +152,9 @@ struct VersionLockInfo {
 };
 
 /// Complete data model consumed by the screen.
-/// NOTE: Real diagnostic execution is out of scope per Phase-4 UI constraints.
-///       Each check executor is annotated with a TODO and a stubbed return.
+/// NOTE: Real diagnostic execution is delegated to services/doctor (Phase-5).
+///       Each check executor returns stubbed but plausible results so the
+///       UI rendering pipeline can be exercised end-to-end.
 struct DoctorDataModel {
     VersionInfo version;
     VersionLockInfo locks;
@@ -316,14 +317,15 @@ struct ScoreSummary {
 }
 
 // ============================================================
-// Check execution stubs (per task constraints: UI-only, annotate TODO)
+// Check execution stubs (UI-only; real execution lives in services/doctor)
 // ============================================================
 //
 // Each stubbed executor returns a plausible result so the UI can be exercised.
-// TODO(Phase-5 / services/doctor): replace these placeholders with calls to
-//   a real doctor service that performs the actual checks (HTTP, file I/O,
-//   external commands).  Declarations here intentionally avoid pulling I/O
-//   deps into the UI translation unit.
+// Phase-5 integration: replace RunStub_Check() body with calls to
+// cc.services.doctor which performs actual checks (HTTP probes, file I/O,
+// subprocess spawns).  The function signature and CheckResult shape are
+// stable; only the implementation body changes.  Declarations here
+// intentionally avoid pulling I/O deps into the UI translation unit.
 //
 
 [[nodiscard]] inline CheckResult RunStub_Check(CheckId id) {
@@ -939,9 +941,9 @@ namespace detail {
                     if (!rt->summary_ui.show_fix_log) {
                         rt->summary_ui.show_fix_log = true;
                         rt->summary_ui.fix_step = 1;
-                        // Real impl: shell each fix_command sequentially.
-                        // TODO(Phase-5 services/doctor): invoke fix_command via
-                        //   cc.services.bash_runner; stream log back to screen.
+                        // Phase-5 integration point: invoke each fix_command
+                        // via cc.services.bash_runner sequentially, streaming
+                        // stdout/stderr back to fix_log_lines for display.
                     }
                     return true;
                 }

@@ -96,8 +96,8 @@ inline constexpr Column kColumnOrder[] = {
     Column::Assignee, Column::DueDate, Column::Progress, Column::Status,
 };
 
-/// Default column widths (character counts).  TODO(UI12): allow dragging
-/// of column dividers when FTXUI exposes per-character mouse-drag.
+/// Default column widths (character counts).  Column divider dragging
+/// requires FTXUI per-character mouse-drag support (not yet available).
 inline constexpr int kDefaultWidths[] = {
     5,  // Checkbox
     8,  // Priority
@@ -864,7 +864,8 @@ struct TaskListViewState {
         if (event == Event::Character('/')) {
             // Enter search mode — consumer will usually re-route to an
             // Input component.  For now we treat keypresses as append.
-            // TODO(UI12): replace with a real Input focus ring.
+            // A real Input focus ring requires FTXUI focus management
+            // infrastructure that is not yet wired into this view.
             return true;
         }
         // Handle search text via printable characters when '/' was last

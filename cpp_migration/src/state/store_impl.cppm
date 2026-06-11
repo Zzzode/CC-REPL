@@ -14,8 +14,9 @@
 ///     callers plug in custom handlers or rely on the default no-op + bump
 ///     revision behaviour.
 ///   * Threading note: Phase 3 runs single-threaded on the REPL event loop
-///     so there is no mutex.  The class is marked with a TODO comment so
-///     Phase 4+ can add locking without an API break.
+///     so there is no mutex.  Phase 4+ will add a std::shared_mutex
+///     (reader-writer lock) without an API break — see comments on the
+///     private fields below.
 module;
 
 #include <cstdint>
@@ -377,7 +378,14 @@ public:
     /// Subscribe to post-dispatch state snapshots.  Returns a token usable
     /// with unsubscribe().  The callback is invoked synchronously inside
     /// dispatch() after the reducer has run.
-    /// TODO(Phase 4): wrap in a std::mutex for multithreaded dispatch.
+    ///
+    /// Threading: Phase 3 is single-threaded (REPL event loop).  When Phase 4
+    /// introduces multi-threaded dispatch (SSE reader + TUI input), guard this
+    /// method and dispatch() with a std::shared_mutex.  subscribe/unsubscribe
+    /// take a unique_lock; dispatch takes shared_lock for the reducer then
+    /// unique_lock for notification.  A reader-writer lock is preferred over a
+    /// plain mutex because snapshot() is a hot read path that should not block
+    /// concurrent readers.
     [[nodiscard]] auto subscribe(std::function<void(const AppStateData&)> cb)
         -> std::uint64_t {
         const auto tok = next_token_++;
@@ -428,9 +436,15 @@ private:
                           std::function<void(const AppStateData&)>>> subscribers_;
     std::unordered_map<int, Reducer>                                reducers_;
     std::uint64_t                                                   next_token_ = 1;
-    // TODO(Phase 4): add a std::mutex (or shared_mutex) guarding state_ /
-    // subscribers_ / reducers_ once dispatch() is called from multiple
-    // threads (e.g. SSE reader + TUI input).
+    // Phase 4 threading: add `mutable std::shared_mutex mu_;` here.
+    // - snapshot() acquires shared_lock (allows concurrent readers).
+    // - dispatch() acquires unique_lock (serialises state mutations).
+    // - subscribe/unsubscribe acquire unique_lock (modify subscriber list).
+    // A std::shared_mutex (reader-writer lock) is chosen over a plain mutex
+    // because snapshot() is called on every render frame and must not block
+    // other readers.  The tradeoff is slightly higher overhead for writers,
+    // which is acceptable given dispatch frequency is orders of magnitude
+    // lower than render frequency.
 };
 
 } // namespace cc::state::store_impl

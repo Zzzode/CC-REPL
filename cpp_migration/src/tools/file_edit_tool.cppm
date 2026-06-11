@@ -10,9 +10,8 @@
 //     compute_structured_patch.
 //   - Integrated cc.tools.file_edit_prompt: user_facing_name,
 //     format_tool_result_block, format_edit_preview.
-//   - TODO(agent2): integrate sed_edit_parser when ready — the
-//     try_parse_sed_in_place() stub below calls nothing and returns
-//     nullopt until Agent 2's parser ships.
+//   - Integrated cc.tools.sed_edit_parser: try_parse_sed_in_place() now
+//     delegates to parse_sed_edit_command() for real parsing.
 //   - NOTE: React UI components in UI.tsx (JSX renderers) deferred to
 //     Phase 4 / FTXUI. Only the pure text-formatting helpers were ported.
 module;
@@ -48,6 +47,7 @@ import cc.utils.file_edit;
 import cc.utils.file_read_cache;
 import cc.utils.string_utils;
 import cc.utils.path;
+import cc.tools.sed_edit_parser;
 
 export namespace cc::tools::file_edit {
 
@@ -142,31 +142,32 @@ private:
 };
 
 // =========================================================================
-// Sed parser integration (Agent 2 deliverable — stub until ready)
+// Sed parser integration (delegates to cc.tools.sed_edit_parser)
 // =========================================================================
 
 /// Try to extract a FileEditInput from a raw `sed -i` command string.
 /// Enables the Edit UI / permission pipeline to handle BashTool-style
 /// in-place edits transparently.
 ///
-/// TODO(agent2): integrate sed_edit_parser when ready. Right now this
-/// always returns std::nullopt — the Agent 2 parser will be wired in
-/// without further changes to this file (the import + parse call live
-/// inside this function's body so that a missing module causes a local,
-/// fixable build break rather than failing the entire file).
+/// Parses the command via cc::tools::sed_edit_parser::parse_sed_edit_command
+/// and converts the result into a ParsedInput suitable for FileEditTool.
+/// Returns std::nullopt if the command is not a valid sed in-place edit
+/// (e.g. not a sed command, missing -i flag, multiple files, etc.).
 [[nodiscard]] inline std::optional<ParsedInput>
-try_parse_sed_in_place(std::string_view /*sed_command*/) {
-    // TODO(agent2): integrate sed_edit_parser when ready
-    //
-    // Snippet once Agent 2's module lands:
-    //   import cc.tools.sed_edit_parser;
-    //   auto parsed = cc::tools::sed_edit_parser::parse_command(cmd);
-    //   if (!parsed) return std::nullopt;
-    //   return ParsedInput{ .file_path = parsed->file,
-    //                       .old_string = parsed->pattern,
-    //                       .new_string = parsed->replacement,
-    //                       .replace_all = parsed->global_flag };
-    return std::nullopt;
+try_parse_sed_in_place(std::string_view sed_command) {
+    auto result = cc::tools::sed_edit_parser::parse_sed_edit_command(sed_command);
+    if (!result) return std::nullopt;
+
+    const auto& info = *result;
+    // Only simple substitution commands can be mapped to FileEditTool input.
+    if (info.pattern.empty()) return std::nullopt;
+
+    ParsedInput out;
+    out.file_path = fs::path{info.file_path};
+    out.old_string = info.pattern;
+    out.new_string = info.replacement;
+    out.replace_all = (info.flags.find('g') != std::string::npos);
+    return out;
 }
 
 // =========================================================================
@@ -743,8 +744,9 @@ export namespace cc::tools {
         return std::make_unique<Adapter>();
     }
 
-    /// Public wrapper for the sed-in-place parser (always nullopt until
-    /// Agent 2 ships the actual parser module).
+    /// Public wrapper for the sed-in-place parser. Delegates to
+    /// cc::tools::sed_edit_parser::parse_sed_edit_command and converts
+    /// the result into a ParsedInput for FileEditTool consumption.
     [[nodiscard]] inline auto try_parse_sed_in_place(std::string_view cmd) {
         return cc::tools::file_edit::try_parse_sed_in_place(cmd);
     }
