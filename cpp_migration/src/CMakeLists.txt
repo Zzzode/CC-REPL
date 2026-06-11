@@ -1615,17 +1615,9 @@ target_sources(cc_repl
 )
 target_link_libraries(cc_repl
     PRIVATE
-        cc_query
-        cc_tools
-        cc_hooks
-        cc_commands
-        cc_constants
-        cc_cli
+        cc_core
         cc_daemon
         cc_server
-        cc_session
-        cc_utils
-        cc_ui
         cc_ui_design
 )
 set_target_properties(cc_repl PROPERTIES

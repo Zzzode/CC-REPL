@@ -11,6 +11,11 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# ─── Suppress macOS ld64 duplicate library warnings ──────────────────────────
+if(APPLE)
+    add_link_options("LINKER:-no_warn_duplicate_libraries")
+endif()
+
 # ─── C++20/23 Modules Support ─────────────────────────────────────────────────
 set(CMAKE_CXX_SCAN_FOR_MODULES ON)
 
