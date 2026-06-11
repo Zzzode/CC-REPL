@@ -1,0 +1,49 @@
+name: C++ Migration CI
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "cpp_migration/**"
+  pull_request:
+    branches: [master]
+    paths:
+      - "cpp_migration/**"
+
+jobs:
+  build-and-test:
+    runs-on: macos-14
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          brew install cmake ninja llvm curl openssl
+          echo "$(brew --prefix llvm)/bin" >> $GITHUB_PATH
+
+      - name: Verify tool versions
+        run: |
+          cmake --version
+          ninja --version
+          clang++ --version
+
+      - name: Configure
+        run: |
+          cmake -B cpp_migration/build/clang-debug \
+                -S cpp_migration \
+                --preset clang-debug
+
+      - name: Build
+        timeout-minutes: 15
+        run: |
+          cmake --build cpp_migration/build/clang-debug -j4
+
+      - name: Test
+        timeout-minutes: 5
+        run: |
+          ctest --test-dir cpp_migration/build/clang-debug \
+                -j4 \
+                --output-on-failure
