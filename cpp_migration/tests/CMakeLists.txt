@@ -170,6 +170,11 @@ target_link_libraries(test_skills
 )
 gtest_discover_tests(test_skills DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
 
+# ---------------------------------------------------------------------------
+# Google Benchmark micro-benchmark suite
+# ---------------------------------------------------------------------------
+add_subdirectory(benchmarks)
+
 # Phase 3-B/C: tools_smoke + tools_e2e
 #
 # These two executables exercise the real bash fork/exec and filesystem

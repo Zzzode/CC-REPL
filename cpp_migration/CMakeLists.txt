@@ -93,10 +93,21 @@ set(FTXUI_BUILD_DOCS OFF CACHE INTERNAL "")
 set(FTXUI_BUILD_EXAMPLES OFF CACHE INTERNAL "")
 set(FTXUI_BUILD_TESTS OFF CACHE INTERNAL "")
 
+# Google Benchmark - micro-benchmarking library
+FetchContent_Declare(
+    benchmark
+    GIT_REPOSITORY https://github.com/google/benchmark.git
+    GIT_TAG        v1.9.1
+    GIT_SHALLOW    TRUE
+)
+set(BENCHMARK_ENABLE_TESTING OFF CACHE INTERNAL "")
+set(BENCHMARK_ENABLE_INSTALL OFF CACHE INTERNAL "")
+set(BENCHMARK_ENABLE_WERROR OFF CACHE INTERNAL "")
+
 # Disable module scanning for FetchContent_MakeAvailable
 set(CMAKE_CXX_SCAN_FOR_MODULES_OLD2 ${CMAKE_CXX_SCAN_FOR_MODULES})
 set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
-FetchContent_MakeAvailable(yyjson libuv httplib ftxui)
+FetchContent_MakeAvailable(yyjson libuv httplib ftxui benchmark)
 set(CMAKE_CXX_SCAN_FOR_MODULES ${CMAKE_CXX_SCAN_FOR_MODULES_OLD2})
 
 # ─── Subdirectories ───────────────────────────────────────────────────────────
