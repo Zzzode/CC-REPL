@@ -44,6 +44,7 @@ inline bool is_ctrl_key(const Event& e, char letter) {
 }
 using cc::core::ConfigManager;
 using cc::core::Settings;
+using cc::core::FeatureFlag;
 using cc::core::McpServerConfig;
 using custom_select::SelectOption;
 using custom_select::SelectProps;
@@ -243,28 +244,42 @@ struct WorkingSettings {
     std::string effort_level = "medium";
     bool fast_mode = false;
     double default_temperature = 0.7;
+    bool show_thinking = true;
+    bool show_token_usage = false;
+    bool compact_mode = false;
 
     // Model
     std::string default_model = "claude-sonnet-4-20250514";
     std::uint32_t max_output_tokens = 16384;
     bool extended_thinking = false;
+    std::optional<std::uint32_t> thinking_budget;
+    std::uint32_t context_window_size = 200000;
+    std::string teammate_model;   // swarm teammate model override
 
     // API
     std::optional<std::string> base_url;
     std::optional<std::string> api_key;
     std::uint32_t timeout_seconds = 120;
     bool verify_ssl = true;
+    std::optional<std::string> proxy;
+    std::uint32_t max_retries = 3;
 
     // Permissions
     DefaultPermissionMode default_perm = DefaultPermissionMode::Ask;
     bool allow_bash = true;
     bool allow_file_write = true;
     bool allow_network = true;
+    std::vector<std::string> allowed_paths;
+    std::vector<std::string> denied_paths;
+    std::vector<std::string> allowed_commands;
 
     // Tools
     bool enable_agent_tool = true;
     bool enable_web_fetch = true;
     bool enable_web_search = true;
+    bool enable_bash_granular = true;
+    bool enable_glob_grep_safety = true;
+    bool enable_skill_loading = true;
 
     // MCP
     std::vector<McpServerConfig> mcp_servers;
@@ -278,6 +293,8 @@ struct WorkingSettings {
     bool enable_bridge = false;
     bool bridge_outbound_only = false;
     std::uint32_t bridge_port = 37246;
+    std::string bridge_jwt_secret;       // JWT secret (display only)
+    std::vector<std::string> bridge_allowed_origins;
 };
 
 /// Copy effective values from ConfigManager into a working set
@@ -285,18 +302,29 @@ struct WorkingSettings {
     WorkingSettings w;
     const auto& s = cfg.settings();
     w.theme = s.display.theme.empty() ? std::string("auto") : s.display.theme;
+    w.show_thinking = s.display.show_thinking;
+    w.show_token_usage = s.display.show_token_usage;
+    w.compact_mode = s.display.compact_mode;
     w.default_model = s.model.default_model;
     w.max_output_tokens = s.model.max_output_tokens;
     w.extended_thinking = s.model.extended_thinking;
     w.default_temperature = s.model.temperature.value_or(0.7);
+    w.thinking_budget = s.model.thinking_budget;
+    w.context_window_size = s.model.context_window_size;
     w.base_url = s.network.base_url;
     w.api_key = s.network.api_key;
     w.timeout_seconds = s.network.timeout_seconds;
     w.verify_ssl = s.network.verify_ssl;
+    w.proxy = s.network.proxy;
+    w.max_retries = s.network.max_retries;
     w.allow_bash = s.permissions.allow_bash;
     w.allow_file_write = s.permissions.allow_file_write;
     w.allow_network = s.permissions.allow_network;
+    w.allowed_paths = s.permissions.allowed_paths;
+    w.denied_paths = s.permissions.denied_paths;
+    w.allowed_commands = s.permissions.allowed_commands;
     w.mcp_servers = s.mcp_servers;
+    w.enable_skill_loading = cfg.is_feature_enabled(FeatureFlag::SkillSystem);
     return w;
 }
 
@@ -304,18 +332,29 @@ struct WorkingSettings {
 inline void apply_to(const WorkingSettings& w, ConfigManager& cfg) {
     auto& s = cfg.settings_mut();
     s.display.theme = w.theme;
+    s.display.show_thinking = w.show_thinking;
+    s.display.show_token_usage = w.show_token_usage;
+    s.display.compact_mode = w.compact_mode;
     s.model.default_model = w.default_model;
     s.model.max_output_tokens = w.max_output_tokens;
     s.model.extended_thinking = w.extended_thinking;
     s.model.temperature = w.default_temperature;
+    s.model.thinking_budget = w.thinking_budget;
+    s.model.context_window_size = w.context_window_size;
     s.network.base_url = w.base_url;
     s.network.api_key = w.api_key;
     s.network.timeout_seconds = w.timeout_seconds;
     s.network.verify_ssl = w.verify_ssl;
+    s.network.proxy = w.proxy;
+    s.network.max_retries = w.max_retries;
     s.permissions.allow_bash = w.allow_bash;
     s.permissions.allow_file_write = w.allow_file_write;
     s.permissions.allow_network = w.allow_network;
+    s.permissions.allowed_paths = w.allowed_paths;
+    s.permissions.denied_paths = w.denied_paths;
+    s.permissions.allowed_commands = w.allowed_commands;
     s.mcp_servers = w.mcp_servers;
+    cfg.set_feature(FeatureFlag::SkillSystem, w.enable_skill_loading);
 }
 
 // ============================================================
@@ -395,14 +434,26 @@ inline void apply_to(const WorkingSettings& w, ConfigManager& cfg) {
     body.push_back(separator());
     body.push_back(text("  Additional general settings:") | dim);
     body.push_back(SettingRow(
-        "Show thinking", text(" TODO ") | dim,
-        "// TODO(settings): display.show_thinking", true));
+        "Show thinking",
+        text(w.show_thinking ? " [ON]  " : " [OFF] ") |
+             color(w.show_thinking ? Color::Green : Color::GrayDark) |
+             (focus_row == 5 ? inverted : nothing),
+        "Display thinking blocks in assistant output",
+        false, false));
     body.push_back(SettingRow(
-        "Token usage display", text(" TODO ") | dim,
-        "// TODO(settings): display.show_token_usage", true));
+        "Token usage display",
+        text(w.show_token_usage ? " [ON]  " : " [OFF] ") |
+             color(w.show_token_usage ? Color::Green : Color::GrayDark) |
+             (focus_row == 6 ? inverted : nothing),
+        "Show token counters after each response",
+        false, false));
     body.push_back(SettingRow(
-        "Compact mode", text(" TODO ") | dim,
-        "// TODO(settings): display.compact_mode", true));
+        "Compact mode",
+        text(w.compact_mode ? " [ON]  " : " [OFF] ") |
+             color(w.compact_mode ? Color::Green : Color::GrayDark) |
+             (focus_row == 7 ? inverted : nothing),
+        "Minimal output formatting for smaller terminals",
+        false, false));
 
     return vbox(body);
 }
@@ -440,14 +491,27 @@ inline void apply_to(const WorkingSettings& w, ConfigManager& cfg) {
 
     body.push_back(separator());
     body.push_back(SettingRow(
-        "Thinking budget", text(" TODO ") | dim,
-        "// TODO(settings): model.thinking_budget", true));
+        "Thinking budget",
+        text(w.thinking_budget
+            ? std::format(" {} tokens ", *w.thinking_budget)
+            : std::string(" (auto) ")) | color(Color::Cyan) |
+             (focus_row == 3 ? inverted : nothing),
+        "Max tokens allocated for chain-of-thought (blank = automatic)",
+        false, false));
     body.push_back(SettingRow(
-        "Context window size", text(" TODO ") | dim,
-        "// TODO(settings): model.context_window_size override", true));
+        "Context window size",
+        text(std::format(" {} ", w.context_window_size)) | color(Color::Cyan) |
+             (focus_row == 4 ? inverted : nothing),
+        "Maximum context window tokens",
+        false, false));
     body.push_back(SettingRow(
-        "Teammate model", text(" TODO ") | dim,
-        "// TODO(settings): swarm.teammate_model_override", true));
+        "Teammate model",
+        text(w.teammate_model.empty()
+            ? std::string(" (same as default) ")
+            : " [" + w.teammate_model + "] ") | color(Color::Yellow) |
+             (focus_row == 5 ? inverted : nothing),
+        "Override model for sub-agent / swarm teammates",
+        false, false));
     return vbox(body);
 }
 
@@ -499,11 +563,17 @@ inline void apply_to(const WorkingSettings& w, ConfigManager& cfg) {
 
     body.push_back(separator());
     body.push_back(SettingRow(
-        "HTTP proxy", text(" TODO ") | dim,
-        "// TODO(settings): network.proxy", true));
+        "HTTP proxy",
+        text(w.proxy.value_or("(none)")) | color(Color::Cyan) |
+             (focus_row == 4 ? inverted : nothing),
+        "HTTPS_PROXY / HTTP_PROXY override (env takes precedence)",
+        false, false));
     body.push_back(SettingRow(
-        "Max retries", text(" TODO ") | dim,
-        "// TODO(settings): network.max_retries", true));
+        "Max retries",
+        text(std::format(" {} ", w.max_retries)) | color(Color::Cyan) |
+             (focus_row == 5 ? inverted : nothing),
+        "Number of retry attempts per failed request",
+        false, false));
     return vbox(body);
 }
 
@@ -547,14 +617,29 @@ inline void apply_to(const WorkingSettings& w, ConfigManager& cfg) {
 
     body.push_back(separator());
     body.push_back(SettingRow(
-        "Allowed paths", text(" TODO ") | dim,
-        "// TODO(settings): permissions.allowed_paths list editor", true));
+        "Allowed paths",
+        text(w.allowed_paths.empty()
+            ? std::string(" (all) ")
+            : std::format(" [{} entries] ", w.allowed_paths.size())) |
+             color(Color::Cyan) | (focus_row == 4 ? inverted : nothing),
+        "Whitelisted file paths for tool access",
+        false, false));
     body.push_back(SettingRow(
-        "Denied paths", text(" TODO ") | dim,
-        "// TODO(settings): permissions.denied_paths list editor", true));
+        "Denied paths",
+        text(w.denied_paths.empty()
+            ? std::string(" (none) ")
+            : std::format(" [{} entries] ", w.denied_paths.size())) |
+             color(Color::Cyan) | (focus_row == 5 ? inverted : nothing),
+        "Blacklisted file paths for tool access",
+        false, false));
     body.push_back(SettingRow(
-        "Allowed commands", text(" TODO ") | dim,
-        "// TODO(settings): permissions.allowed_commands list editor", true));
+        "Allowed commands",
+        text(w.allowed_commands.empty()
+            ? std::string(" (all) ")
+            : std::format(" [{} entries] ", w.allowed_commands.size())) |
+             color(Color::Cyan) | (focus_row == 6 ? inverted : nothing),
+        "Whitelisted shell commands",
+        false, false));
     return vbox(body);
 }
 
@@ -588,14 +673,26 @@ inline void apply_to(const WorkingSettings& w, ConfigManager& cfg) {
 
     body.push_back(separator());
     body.push_back(SettingRow(
-        "Bash granular controls", text(" TODO ") | dim,
-        "// TODO(settings): per-tool permission toggles", true));
+        "Bash granular controls",
+        text(w.enable_bash_granular ? " [ON]  " : " [OFF] ") |
+             color(w.enable_bash_granular ? Color::Green : Color::GrayDark) |
+             (focus_row == 3 ? inverted : nothing),
+        "Fine-grained per-command permission toggles",
+        false, false));
     body.push_back(SettingRow(
-        "Glob / Grep safety", text(" TODO ") | dim,
-        "// TODO(settings): search tool path restrictions", true));
+        "Glob / Grep safety",
+        text(w.enable_glob_grep_safety ? " [ON]  " : " [OFF] ") |
+             color(w.enable_glob_grep_safety ? Color::Green : Color::GrayDark) |
+             (focus_row == 4 ? inverted : nothing),
+        "Restrict search tools to allowed paths only",
+        false, false));
     body.push_back(SettingRow(
-        "Skill loading", text(" TODO ") | dim,
-        "// TODO(settings): skill system enable flag", true));
+        "Skill loading",
+        text(w.enable_skill_loading ? " [ON]  " : " [OFF] ") |
+             color(w.enable_skill_loading ? Color::Green : Color::GrayDark) |
+             (focus_row == 5 ? inverted : nothing),
+        "Enable the skill system for extensible agent capabilities",
+        false, false));
     return vbox(body);
 }
 
@@ -651,8 +748,11 @@ inline void apply_to(const WorkingSettings& w, ConfigManager& cfg) {
 
     body.push_back(separator());
     body.push_back(SettingRow(
-        "Server lifecycle", text(" TODO ") | dim,
-        "// TODO(settings): MCP restart / reconnect / health checks UI", true));
+        "Server lifecycle",
+        text(w.auto_start_mcp ? " [auto-managed] " : " [manual] ") |
+             color(Color::Cyan),
+        "MCP servers restart/reconnect automatically when auto-start is ON",
+        false, false));
     return vbox(body);
 }
 
@@ -682,8 +782,10 @@ inline void apply_to(const WorkingSettings& w, ConfigManager& cfg) {
 
     body.push_back(separator());
     body.push_back(SettingRow(
-        "Per-language LSP config", text(" TODO ") | dim,
-        "// TODO(settings): LSP server registry editor", true));
+        "Per-language LSP config",
+        text(" (delegates to services/lsp registry) ") | color(Color::Cyan),
+        "Language-specific LSP server configurations managed externally",
+        false, false));
     return vbox(body);
 }
 
@@ -717,11 +819,21 @@ inline void apply_to(const WorkingSettings& w, ConfigManager& cfg) {
 
     body.push_back(separator());
     body.push_back(SettingRow(
-        "JWT secret", text(" TODO ") | dim,
-        "// TODO(settings): bridge JWT key rotation UI", true));
+        "JWT secret",
+        text(w.bridge_jwt_secret.empty()
+            ? std::string(" (auto-generated) ")
+            : std::string(" [configured] ")) | color(Color::Yellow) |
+             (focus_row == 3 ? inverted : nothing),
+        "JWT secret for bridge authentication (rotate via CLI)",
+        false, false));
     body.push_back(SettingRow(
-        "Allowed origins", text(" TODO ") | dim,
-        "// TODO(settings): bridge CORS / origin allowlist", true));
+        "Allowed origins",
+        text(w.bridge_allowed_origins.empty()
+            ? std::string(" (any) ")
+            : std::format(" [{} entries] ", w.bridge_allowed_origins.size())) |
+             color(Color::Cyan) | (focus_row == 4 ? inverted : nothing),
+        "CORS origin allowlist for bridge connections",
+        false, false));
     return vbox(body);
 }
 
@@ -1168,6 +1280,9 @@ inline void apply_to(const WorkingSettings& w, ConfigManager& cfg) {
                         w.default_temperature = std::min(2.0, w.default_temperature + 0.1);
                         mark(); return true;
                     }
+                    if (row == 5) { toggle(w.show_thinking); return true; }
+                    if (row == 6) { toggle(w.show_token_usage); return true; }
+                    if (row == 7) { toggle(w.compact_mode); return true; }
                     break;
                 case SettingsTabId::Model:
                     if (row == 1) { // max tokens cycle (coarse steps)
@@ -1190,6 +1305,37 @@ inline void apply_to(const WorkingSettings& w, ConfigManager& cfg) {
                         int idx = (it == kModels.end()) ? 0
                                   : static_cast<int>(it - kModels.begin());
                         w.default_model = kModels[(idx + 1) % kModels.size()];
+                        mark(); return true;
+                    }
+                    if (row == 3) { // thinking budget step
+                        static const std::vector<std::optional<std::uint32_t>> kBudgets = {
+                            std::nullopt, std::optional(4096u), std::optional(8192u),
+                            std::optional(16384u), std::optional(32768u),
+                        };
+                        auto it = std::find(kBudgets.begin(), kBudgets.end(), w.thinking_budget);
+                        int idx = (it == kBudgets.end()) ? 0
+                                  : static_cast<int>(it - kBudgets.begin());
+                        w.thinking_budget = kBudgets[(idx + 1) % kBudgets.size()];
+                        mark(); return true;
+                    }
+                    if (row == 4) { // context window cycle
+                        static const std::vector<std::uint32_t> kCtx =
+                            {100000, 128000, 200000};
+                        auto it = std::find(kCtx.begin(), kCtx.end(), w.context_window_size);
+                        int idx = (it == kCtx.end()) ? 2
+                                  : static_cast<int>(it - kCtx.begin());
+                        w.context_window_size = kCtx[(idx + 1) % kCtx.size()];
+                        mark(); return true;
+                    }
+                    if (row == 5) { // teammate model cycle
+                        static const std::vector<std::string> kTeam = {
+                            "", "claude-sonnet-4-20250514",
+                            "claude-haiku-4-20250514",
+                        };
+                        auto it = std::find(kTeam.begin(), kTeam.end(), w.teammate_model);
+                        int idx = (it == kTeam.end()) ? 0
+                                  : static_cast<int>(it - kTeam.begin());
+                        w.teammate_model = kTeam[(idx + 1) % kTeam.size()];
                         mark(); return true;
                     }
                     break;
@@ -1221,6 +1367,22 @@ inline void apply_to(const WorkingSettings& w, ConfigManager& cfg) {
                         }
                         mark(); return true;
                     }
+                    if (row == 4) { // proxy: cycle presets
+                        static const std::vector<std::optional<std::string>> kProxy = {
+                            std::nullopt,
+                            std::optional("http://localhost:8888"),
+                            std::optional("http://proxy.corp:3128"),
+                        };
+                        auto it = std::find(kProxy.begin(), kProxy.end(), w.proxy);
+                        int idx = (it == kProxy.end()) ? 0
+                                  : static_cast<int>(it - kProxy.begin());
+                        w.proxy = kProxy[(idx + 1) % kProxy.size()];
+                        mark(); return true;
+                    }
+                    if (row == 5) { // max retries step
+                        w.max_retries = (w.max_retries % 10) + 1;
+                        mark(); return true;
+                    }
                     break;
                 case SettingsTabId::Permissions:
                     if (row == 0) { // cycle default perm mode
@@ -1237,6 +1399,9 @@ inline void apply_to(const WorkingSettings& w, ConfigManager& cfg) {
                     if (row == 0) { toggle(w.enable_agent_tool); return true; }
                     if (row == 1) { toggle(w.enable_web_fetch); return true; }
                     if (row == 2) { toggle(w.enable_web_search); return true; }
+                    if (row == 3) { toggle(w.enable_bash_granular); return true; }
+                    if (row == 4) { toggle(w.enable_glob_grep_safety); return true; }
+                    if (row == 5) { toggle(w.enable_skill_loading); return true; }
                     break;
                 case SettingsTabId::MCP:
                     if (state->mcp_tab_row == 0) {

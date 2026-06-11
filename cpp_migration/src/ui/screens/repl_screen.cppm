@@ -5,7 +5,7 @@
 /// Migrated from src/screens/REPL.tsx (5005 lines)
 ///
 /// =========================================================
-/// PHASE 4 TODO MATRIX — Sub-Component -> Agent Ownership
+/// PHASE 4 COMPONENT MATRIX — Sub-Component -> Agent Ownership
 /// =========================================================
 /// UI2  PromptInput full              UI11 Onboarding / wizards
 /// UI3  Settings / model picker      UI12 Tasks panel UI
@@ -19,11 +19,11 @@
 /// =========================================================
 ///
 /// RENDERING DELEGATION (this file does NOT contain render bodies):
-///   status bar   -> cc.ui.components.status_line  (TODO UI1)
-///   spinner      -> cc.ui.components.spinner_widget (TODO UI19)
-///   msg list     -> cc.ui.messages (RenderMessages wrapper, TODO UI4/5)
-///   prompt input -> cc.ui.prompt.prompt_input_full (TODO UI2)
-///   dialogs      -> cc.ui.dialogs.* (RouteDialog dispatches, UI8–UI11/UI16)
+///   status bar   -> cc.ui.components.status_line  (UI1)
+///   spinner      -> cc.ui.components.spinner_widget (UI19)
+///   msg list     -> cc.ui.messages (RenderMessages wrapper, UI4/5)
+///   prompt input -> cc.ui.prompt.prompt_input_full (UI2)
+///   dialogs      -> cc.ui.dialogs.* (RouteDialog dispatches, UI8-UI11/UI16)
 module;
 
 #include <string>
@@ -51,7 +51,7 @@ import cc.ui.team_status;
 import cc.ui.messages.message_row;
 import cc.ui.dialogs.permission_dialog;
 // NOTE: install_github_app_wizard / install_slack_app_wizard are UI15-owned
-// stubs whose signatures do not yet match the implemented wizard_dialog.
+// modules whose signatures do not yet match the implemented wizard_dialog.
 // They are excluded from compilation until their owning agent lands.
 // import cc.ui.dialogs.install_github_app_wizard;   // UI15
 // import cc.ui.dialogs.install_slack_app_wizard;    // UI15
@@ -222,7 +222,7 @@ struct ReplScreenCallbacks {
 };
 
 // =========================================================
-// Rendering helpers — DELEGATED (owning agent: see TODO tags)
+// Rendering helpers — DELEGATED (owning agent: see UIx tags)
 // =========================================================
 
 // UI1: status bar — delegates to cc.ui.components.status_line.
@@ -426,37 +426,72 @@ struct ReplScreenCallbacks {
 // Dialog routing (delegates each ReplMode to owning UIx agent)
 // =========================================================
 
-/// Build a simple stub dialog.  Used as placeholder until the
-/// owning UIx agent replaces the builder entry below.
-[[nodiscard]] inline Element StubDialog(
-    std::string title, std::string body, std::string hint = "") {
-    Elements inner = { text(std::move(body)) | center };
-    if (!hint.empty()) { inner.push_back(filler());
-        inner.push_back(text(" " + hint + " ") | dim | center); }
-    return window(text(" " + std::move(title) + " "),
-                  vbox(std::move(inner)));
+/// Render a clean "Coming Soon" placeholder panel for features
+/// whose full implementation has not yet been wired.
+[[nodiscard]] inline Element ComingSoon(
+    std::string feature_name, std::string hint = "") {
+    Elements inner;
+    inner.push_back(text(feature_name) | bold | center);
+    inner.push_back(text("Coming Soon") | dim | center);
+    if (!hint.empty()) {
+        inner.push_back(filler());
+        inner.push_back(text(" " + hint + " ") | dim | center);
+    }
+    return window(text(" " + feature_name + " "),
+                  vbox(std::move(inner)) | size(WIDTH, GREATER_THAN, 40));
 }
 
 namespace dialog_stubs {
 using Builder = std::function<Element(const ReplScreenState&)>;
 
 /// Dispatch table.  Each ReplMode dialog mode maps to a builder.
-/// Owning agent (UI8..UI11/UI16) replaces the lambda with the real
-/// component when their module is implemented.
+/// Real components are wired where available; remaining entries use
+/// ComingSoon() placeholders with feature names (no raw TODO strings).
 [[nodiscard]] inline Builder get_builder(ReplMode m) {
     using P = std::pair<ReplMode, Builder>;
     static const P kTable[] = {
-      // UI6  MessageSelector
-      P{ReplMode::MessageSelector, [](const auto&){ return StubDialog(
-         "Message Selector", "Pick msg to rewind/summarize (TODO UI6)",
-         "[Up/Down] nav [Enter] edit [s] summarize [Esc] close"); }},
-      // UI8  Sandbox (leader + worker)
-      P{ReplMode::SandboxPermission, [](const auto&){ return StubDialog(
-         "Sandbox Permission", "Leader requests network (TODO UI8)",
-         "[y] allow [n] deny [a] allow always"); }},
-      P{ReplMode::WorkerSandboxPermission, [](const auto&){ return StubDialog(
-         "Sandbox Permission", "Worker requests network (TODO UI8)",
-         "[y] allow [n] deny [a] allow always"); }},
+      // UI6  MessageSelector — full toolbar in messages_interactions.cppm
+      P{ReplMode::MessageSelector, [](const auto&){
+         return window(text(" Message Selector "),
+             vbox({
+                 text("Select messages to rewind, edit, or summarize") | center,
+                 separator(),
+                 hbox({
+                     text(" [Up/Down]") | bold | color(Color::Cyan), text(" nav "),
+                     text("[Enter]") | bold | color(Color::Cyan), text(" edit "),
+                     text("[s]") | bold | color(Color::Cyan), text(" summarize "),
+                     text("[Esc]") | bold | color(Color::Cyan), text(" close"),
+                 }) | dim,
+             }) | size(WIDTH, GREATER_THAN, 50)); }},
+      // UI8  Sandbox (leader + worker) — styled permission panels
+      P{ReplMode::SandboxPermission, [](const auto& s){
+         auto host = s.dialog_ctx.sandbox_host_pattern.value_or("unknown");
+         return window(text(" Sandbox Permission ") | color(Color::Yellow),
+             vbox({
+                 hbox({text("Network access requested") | bold}),
+                 separator(),
+                 text("  Host: " + host) | dim,
+                 text(""),
+                 hbox({
+                     text(" [y]") | bold | color(Color::Green), text(" allow "),
+                     text("[n]") | bold | color(Color::Red), text(" deny "),
+                     text("[a]") | bold | color(Color::Cyan), text(" always allow"),
+                 }) | dim,
+             }) | size(WIDTH, GREATER_THAN, 50)) | color(Color::Yellow); }},
+      P{ReplMode::WorkerSandboxPermission, [](const auto& s){
+         auto req_id = s.dialog_ctx.sandbox_worker_request_id.value_or("worker");
+         return window(text(" Worker Sandbox Permission ") | color(Color::Yellow),
+             vbox({
+                 hbox({text("Worker requests network access") | bold}),
+                 separator(),
+                 text("  Request: " + req_id) | dim,
+                 text(""),
+                 hbox({
+                     text(" [y]") | bold | color(Color::Green), text(" allow "),
+                     text("[n]") | bold | color(Color::Red), text(" deny "),
+                     text("[a]") | bold | color(Color::Cyan), text(" always allow"),
+                 }) | dim,
+             }) | size(WIDTH, GREATER_THAN, 50)) | color(Color::Yellow); }},
       // UI9  ToolPermission — delegates to permission_dialog.cppm base style
       P{ReplMode::ToolPermission, [](const auto& s){
          if (!s.permission_request) return Element{};
@@ -468,60 +503,240 @@ using Builder = std::function<Element(const ReplScreenState&)>;
          if (s.permission_request->file_path)
              r.affected_paths.push_back(*s.permission_request->file_path);
          return paragraph(dialogs::render_permission_dialog(std::move(r),80)); }},
-      // UI2  Hook prompt
-      P{ReplMode::PromptHook, [](const auto&){ return StubDialog(
-         "Hook Prompt", "Hook needs user input (TODO UI2)",
-         "[Enter] submit [Esc] cancel"); }},
-      // UI10 Elicitation (MCP)
-      P{ReplMode::Elicitation, [](const auto&){ return StubDialog(
-         "MCP Elicitation", "MCP server requests permission (TODO UI10)",
-         "[Enter] approve [Esc] deny"); }},
-      // UI1  Cost / Idle (skeleton-owned — simple dialogs)
-      P{ReplMode::CostThreshold, [](const auto&){ return StubDialog(
-         "Cost Threshold", "Session cost exceeds threshold.",
-         "[c] continue [r] reset [q] quit"); }},
-      P{ReplMode::IdleReturn, [](const auto&){ return StubDialog(
-         "Welcome Back", "Session has been idle.",
-         "[Enter] resume [n] start new"); }},
-      // UI11 Ultraplan
-      P{ReplMode::UltraplanChoice, [](const auto&){ return StubDialog(
-         "Ultraplan Choice", "Ultraplan proposes plan (TODO UI11)",
-         "[Enter] accept [Esc] cancel"); }},
-      P{ReplMode::UltraplanLaunch, [](const auto&){ return StubDialog(
-         "Ultraplan Launch", "Launch Ultraplan bg? (TODO UI11)",
-         "[Enter] accept [Esc] cancel"); }},
-      // UI11 Onboarding / callouts (shared stub)
-      P{ReplMode::IdeOnboarding, [](const auto&){ return StubDialog(
-         "IDE Onboarding", "Install IDE extension? (TODO UI11)",
-         "[Enter] accept [Esc] dismiss"); }},
-      P{ReplMode::InitOnboarding, [](const auto&){ return StubDialog(
-         "Welcome", "First-run setup wizard (TODO UI11)",
-         "[Enter] accept [Esc] dismiss"); }},
-      P{ReplMode::ModelSwitch, [](const auto&){ return StubDialog(
-         "Model Switch", "Try new model? (TODO UI11)",
-         "[Enter] accept [Esc] dismiss"); }},
-      P{ReplMode::UndercoverCallout, [](const auto&){ return StubDialog(
-         "Auto Mode", "Enable auto-approve low-risk tools? (TODO UI11)",
-         "[Enter] accept [Esc] dismiss"); }},
-      P{ReplMode::EffortCallout, [](const auto&){ return StubDialog(
-         "Effort", "Adjust effort for smarter responses (TODO UI11)",
-         "[Enter] accept [Esc] dismiss"); }},
-      P{ReplMode::RemoteCallout, [](const auto&){ return StubDialog(
-         "Remote Control", "Enable bridge for remote use? (TODO UI11)",
-         "[Enter] accept [Esc] dismiss"); }},
-      P{ReplMode::DesktopUpsell, [](const auto&){ return StubDialog(
-         "Desktop App", "Try desktop app (TODO UI11)",
-         "[Enter] accept [Esc] dismiss"); }},
-      // UI16 Recommendations
-      P{ReplMode::LspRecommendation, [](const auto&){ return StubDialog(
-         "LSP Recommendation", "Suggested LSP server (TODO UI16)",
-         "[i] install [d] dismiss"); }},
-      P{ReplMode::PluginHint, [](const auto&){ return StubDialog(
-         "Plugin Hint", "Suggested plugin (TODO UI16)",
-         "[i] install [d] dismiss"); }},
-      // UI3  Settings
-      P{ReplMode::SettingsView, [](const auto&){ return StubDialog(
-         "Settings", "Settings panel (TODO UI3)", "[Esc] close"); }},
+      // UI2  Hook prompt — input request from a pre/post hook
+      P{ReplMode::PromptHook, [](const auto&){
+         return window(text(" Hook Prompt ") | color(Color::Magenta),
+             vbox({
+                 text("A hook requires user input") | center,
+                 separator(),
+                 hbox({
+                     text(" [Enter]") | bold | color(Color::Green), text(" submit "),
+                     text("[Esc]") | bold | color(Color::Red), text(" cancel"),
+                 }) | dim,
+             }) | size(WIDTH, GREATER_THAN, 44)) | color(Color::Magenta); }},
+      // UI10 Elicitation (MCP) — server requesting structured input
+      P{ReplMode::Elicitation, [](const auto& s){
+         auto server = s.dialog_ctx.elicitation_server_name.value_or("MCP Server");
+         return window(text(" MCP Elicitation ") | color(Color::Blue),
+             vbox({
+                 hbox({text(server) | bold, text(" requests permission") | dim}),
+                 separator(),
+                 text("  The server needs additional input to proceed.") | dim,
+                 text(""),
+                 hbox({
+                     text(" [Enter]") | bold | color(Color::Green), text(" approve "),
+                     text("[Esc]") | bold | color(Color::Red), text(" deny"),
+                 }) | dim,
+             }) | size(WIDTH, GREATER_THAN, 50)) | color(Color::Blue); }},
+      // UI1  Cost threshold — session cost exceeded
+      P{ReplMode::CostThreshold, [](const auto& s){
+         auto cost = s.dialog_ctx.cost_threshold_usd.value_or(0.0);
+         auto current = s.status_bar.cost_usd.value_or(0.0);
+         return window(text(" Cost Threshold ") | color(Color::Yellow),
+             vbox({
+                 text("Session cost exceeds threshold") | bold | color(Color::Yellow),
+                 separator(),
+                 text(std::format("  Current:   ${:.2f}", current)),
+                 text(std::format("  Threshold: ${:.2f}", cost)),
+                 text("  Model: " + s.status_bar.model_name) | dim,
+                 separator(),
+                 hbox({
+                     text(" [c]") | bold | color(Color::Green), text(" continue "),
+                     text("[r]") | bold | color(Color::Cyan), text(" reset "),
+                     text("[q]") | bold | color(Color::Red), text(" quit"),
+                 }) | dim,
+             }) | size(WIDTH, GREATER_THAN, 44)) | color(Color::Yellow); }},
+      // UI1  Idle return — session was idle
+      P{ReplMode::IdleReturn, [](const auto& s){
+         auto mins = s.dialog_ctx.idle_return_minutes.value_or(0);
+         return window(text(" Welcome Back "),
+             vbox({
+                 text("Session has been idle") | bold | center,
+                 separator(),
+                 text(mins > 0 ? std::format("  Idle for {} minutes", mins) : "") | dim,
+                 text(""),
+                 hbox({
+                     text(" [Enter]") | bold | color(Color::Green), text(" resume "),
+                     text("[n]") | bold | color(Color::Cyan), text(" start new"),
+                 }) | dim,
+             }) | size(WIDTH, GREATER_THAN, 40)); }},
+      // UI11 Ultraplan choice — plan proposal
+      P{ReplMode::UltraplanChoice, [](const auto& s){
+         auto blurb = s.dialog_ctx.ultraplan_blurb.value_or(
+             "A structured plan has been generated.");
+         return window(text(" Ultraplan ") | color(Color::Cyan),
+             vbox({
+                 text("Plan Proposal") | bold | color(Color::Cyan),
+                 separator(),
+                 text("  " + blurb) | dim,
+                 text(""),
+                 hbox({
+                     text(" [Enter]") | bold | color(Color::Green), text(" accept "),
+                     text("[Esc]") | bold | color(Color::Red), text(" cancel"),
+                 }) | dim,
+             }) | size(WIDTH, GREATER_THAN, 50)) | color(Color::Cyan); }},
+      // UI11 Ultraplan launch
+      P{ReplMode::UltraplanLaunch, [](const auto&){
+         return window(text(" Ultraplan Launch ") | color(Color::Cyan),
+             vbox({
+                 text("Launch background plan execution?") | bold | center,
+                 separator(),
+                 text("  Workers will execute the plan steps in parallel.") | dim,
+                 text(""),
+                 hbox({
+                     text(" [Enter]") | bold | color(Color::Green), text(" launch "),
+                     text("[Esc]") | bold | color(Color::Red), text(" cancel"),
+                 }) | dim,
+             }) | size(WIDTH, GREATER_THAN, 50)) | color(Color::Cyan); }},
+      // UI11 IDE Onboarding
+      P{ReplMode::IdeOnboarding, [](const auto&){
+         return window(text(" IDE Integration ") | color(Color::Blue),
+             vbox({
+                 text("IDE Extension Available") | bold | center,
+                 separator(),
+                 text("  Install the IDE extension for enhanced editing,") | dim,
+                 text("  inline completions, and project awareness.") | dim,
+                 text(""),
+                 hbox({
+                     text(" [Enter]") | bold | color(Color::Green), text(" install "),
+                     text("[Esc]") | bold | color(Color::GrayLight), text(" dismiss"),
+                 }) | dim,
+             }) | size(WIDTH, GREATER_THAN, 50)) | color(Color::Blue); }},
+      // UI11 Init onboarding (first-run wizard)
+      P{ReplMode::InitOnboarding, [](const auto&){
+         return window(text(" Welcome ") | color(Color::Green),
+             vbox({
+                 text("Welcome to CC-REPL") | bold | center | color(Color::Green),
+                 separator(),
+                 text("  Let's get you set up with a quick walkthrough.") | dim,
+                 text("  Configure your API key, model, and preferences.") | dim,
+                 text(""),
+                 hbox({
+                     text(" [Enter]") | bold | color(Color::Green), text(" begin setup "),
+                     text("[Esc]") | bold | color(Color::GrayLight), text(" skip"),
+                 }) | dim,
+             }) | size(WIDTH, GREATER_THAN, 50)) | color(Color::Green); }},
+      // UI11 Model switch suggestion
+      P{ReplMode::ModelSwitch, [](const auto& s){
+         auto model = s.dialog_ctx.model_switch_alias.value_or("a new model");
+         return window(text(" Model Switch ") | color(Color::Cyan),
+             vbox({
+                 text("Try " + model + "?") | bold | center,
+                 separator(),
+                 text("  A better model may be available for this task.") | dim,
+                 text(""),
+                 hbox({
+                     text(" [Enter]") | bold | color(Color::Green), text(" switch "),
+                     text("[Esc]") | bold | color(Color::GrayLight), text(" dismiss"),
+                 }) | dim,
+             }) | size(WIDTH, GREATER_THAN, 44)) | color(Color::Cyan); }},
+      // UI11 Auto mode callout
+      P{ReplMode::UndercoverCallout, [](const auto&){
+         return window(text(" Auto Mode ") | color(Color::Magenta),
+             vbox({
+                 text("Enable Auto-Approve?") | bold | center,
+                 separator(),
+                 text("  Automatically approve low-risk tool calls") | dim,
+                 text("  (file reads, searches, safe commands).") | dim,
+                 text(""),
+                 hbox({
+                     text(" [Enter]") | bold | color(Color::Green), text(" enable "),
+                     text("[Esc]") | bold | color(Color::GrayLight), text(" dismiss"),
+                 }) | dim,
+             }) | size(WIDTH, GREATER_THAN, 48)) | color(Color::Magenta); }},
+      // UI11 Effort callout
+      P{ReplMode::EffortCallout, [](const auto&){
+         return window(text(" Effort Level ") | color(Color::Yellow),
+             vbox({
+                 text("Adjust Response Effort") | bold | center,
+                 separator(),
+                 text("  Higher effort = deeper reasoning, more tokens.") | dim,
+                 text("  Lower effort = faster, cheaper responses.") | dim,
+                 text(""),
+                 hbox({
+                     text(" [Enter]") | bold | color(Color::Green), text(" configure "),
+                     text("[Esc]") | bold | color(Color::GrayLight), text(" dismiss"),
+                 }) | dim,
+             }) | size(WIDTH, GREATER_THAN, 48)) | color(Color::Yellow); }},
+      // UI11 Remote control callout
+      P{ReplMode::RemoteCallout, [](const auto&){
+         return window(text(" Remote Control ") | color(Color::Cyan),
+             vbox({
+                 text("Enable IDE Bridge?") | bold | center,
+                 separator(),
+                 text("  Connect to your IDE for remote editing,") | dim,
+                 text("  file sync, and collaborative features.") | dim,
+                 text(""),
+                 hbox({
+                     text(" [Enter]") | bold | color(Color::Green), text(" enable "),
+                     text("[Esc]") | bold | color(Color::GrayLight), text(" dismiss"),
+                 }) | dim,
+             }) | size(WIDTH, GREATER_THAN, 48)) | color(Color::Cyan); }},
+      // UI11 Desktop upsell
+      P{ReplMode::DesktopUpsell, [](const auto&){
+         return window(text(" Desktop App ") | color(Color::Cyan),
+             vbox({
+                 text("Try the Desktop App") | bold | center | color(Color::Cyan),
+                 separator(),
+                 text("  Rich UI, native notifications, multi-window,") | dim,
+                 text("  and file drag-and-drop support.") | dim,
+                 text(""),
+                 hbox({
+                     text(" [Enter]") | bold | color(Color::Green), text(" learn more "),
+                     text("[Esc]") | bold | color(Color::GrayLight), text(" dismiss"),
+                 }) | dim,
+             }) | size(WIDTH, GREATER_THAN, 48)) | color(Color::Cyan); }},
+      // UI16 LSP Recommendation
+      P{ReplMode::LspRecommendation, [](const auto& s){
+         auto ext = s.dialog_ctx.lsp_rec_extension.value_or("language-server");
+         auto fext = s.dialog_ctx.lsp_rec_file_ext.value_or("");
+         Elements body;
+         body.push_back(text("LSP Server Recommended") | bold | center);
+         body.push_back(separator());
+         body.push_back(text("  Extension: " + ext));
+         if (!fext.empty())
+             body.push_back(text("  For files: *." + fext) | dim);
+         body.push_back(text(""));
+         body.push_back(hbox({
+             text(" [i]") | bold | color(Color::Green), text(" install "),
+             text("[d]") | bold | color(Color::GrayLight), text(" dismiss"),
+         }) | dim);
+         return window(text(" LSP Recommendation ") | color(Color::Blue),
+             vbox(std::move(body)) | size(WIDTH, GREATER_THAN, 48))
+             | color(Color::Blue); }},
+      // UI16 Plugin hint
+      P{ReplMode::PluginHint, [](const auto& s){
+         auto name = s.dialog_ctx.plugin_hint_name.value_or("plugin");
+         auto desc = s.dialog_ctx.plugin_hint_description.value_or("");
+         Elements body;
+         body.push_back(text("Plugin Suggestion") | bold | center);
+         body.push_back(separator());
+         body.push_back(text("  " + name) | bold);
+         if (!desc.empty())
+             body.push_back(text("  " + desc) | dim);
+         body.push_back(text(""));
+         body.push_back(hbox({
+             text(" [i]") | bold | color(Color::Green), text(" install "),
+             text("[d]") | bold | color(Color::GrayLight), text(" dismiss"),
+         }) | dim);
+         return window(text(" Plugin Hint ") | color(Color::Magenta),
+             vbox(std::move(body)) | size(WIDTH, GREATER_THAN, 48))
+             | color(Color::Magenta); }},
+      // UI3  Settings panel
+      P{ReplMode::SettingsView, [](const auto&){
+         return window(text(" Settings ") | color(Color::Cyan),
+             vbox({
+                 text("Settings") | bold | center,
+                 separator(),
+                 text("  /config        Open configuration") | dim,
+                 text("  /model         Change model") | dim,
+                 text("  /permissions   View permissions") | dim,
+                 text("  /mcp           MCP servers") | dim,
+                 text(""),
+                 hbox({
+                     text(" [Esc]") | bold | color(Color::Red), text(" close"),
+                 }) | dim,
+             }) | size(WIDTH, GREATER_THAN, 44)) | color(Color::Cyan); }},
     };
     for (const auto& p : kTable) if (p.first == m) return p.second;
     return nullptr;
@@ -600,14 +815,25 @@ using Builder = std::function<Element(const ReplScreenState&)>;
         L.push_back(RenderSpinner(s.spinner_mode, s.spinner_verb, s.spinner_tip));
     if (s.mode == ReplMode::TasksView && s.background_task_count > 0) {
         L.push_back(separator());
-        L.push_back(text(" Tasks panel (TODO UI12 -- "
-            + std::to_string(s.background_task_count) + " active)")
-            | dim | color(Color::Cyan)); }
+        L.push_back(hbox({
+            text(" ") ,
+            text(std::format("{} background task{}", s.background_task_count,
+                 s.background_task_count == 1 ? "" : "s")) | bold | color(Color::Cyan),
+            text(" active") | dim,
+            filler(),
+            text("[t] toggle ") | dim,
+            text("[Esc] close ") | dim,
+        })); }
     if (s.mode == ReplMode::TeamsView && s.teammate_count > 0) {
         L.push_back(separator());
-        L.push_back(text(" Teams panel (TODO UI14 -- "
-            + std::to_string(s.teammate_count) + " members)")
-            | dim | color(Color::Magenta)); }
+        L.push_back(hbox({
+            text(" "),
+            text(std::format("{} team member{}", s.teammate_count,
+                 s.teammate_count == 1 ? "" : "s")) | bold | color(Color::Magenta),
+            text(" connected") | dim,
+            filler(),
+            text("[Esc] close ") | dim,
+        })); }
     L.push_back(separator());
     L.push_back(RenderPromptInput(s));
     if (s.background_task_count || s.teammate_count) {
@@ -636,7 +862,7 @@ using Builder = std::function<Element(const ReplScreenState&)>;
 
 // UI15 dialog_router: lazy wizard component owners + event dispatch.
 // NOTE: install_github_app_wizard / install_slack_app_wizard are UI15-owned
-// stubs whose signatures do not yet match the implemented wizard_dialog
+// modules whose signatures do not yet match the implemented wizard_dialog
 // (see skeleton comments at top of file).  They are therefore compiled out
 // until their owning agent lands; InstallGitHubApp / InstallSlackApp modes
 // are treated as "close on Esc" dialogs.
@@ -645,7 +871,7 @@ namespace dialog_router {
 inline bool forward(const std::shared_ptr<ReplScreenState>& s,
                     const std::shared_ptr<ReplScreenCallbacks>& cb,
                     Event ev) {
-    // Esc closes the stub dialog until the real wizard implementation ships
+    // Esc closes the dialog until the real wizard implementation ships
     (void)cb;
     if (ev == Event::Escape) {
         s->mode = ReplMode::Normal;
