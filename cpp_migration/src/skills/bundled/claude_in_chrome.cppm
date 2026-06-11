@@ -203,9 +203,8 @@ inline bool should_auto_enable_claude_in_chrome() {
 // Browser launching helpers
 // ---------------------------------------------------------------------------
 
-/// Open a URL in the user's default Chrome browser (platform-aware).
-/// TODO(ui): On macOS use `open -a "Google Chrome"`, on Linux `xdg-open`,
-/// on Windows `start chrome`. Fallback to system-default handler.
+/// Open a URL in Chrome (platform-aware): macOS `open`, Linux `xdg-open`,
+/// Windows `start chrome`. Falls back to the system-default handler.
 inline void open_in_chrome(std::string_view url) {
     std::string url_str(url);
     std::string cmd;

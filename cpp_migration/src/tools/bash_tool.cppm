@@ -894,10 +894,9 @@ public:
         auto parsed = BashToolInput::from_json(input.json());
         if (!parsed) return false;
 
-        // TODO(migration): integrate — run sed safety allowlist / denylist for
-        // any command whose base token is "sed".  On Ask we force ask-mode
-        // semantics regardless of outer permission, otherwise fall through
-        // to the existing command-type classification.
+        // Sed safety: allowlist / denylist for any command whose base token
+        // is "sed".  On Ask we force ask-mode semantics regardless of outer
+        // permission, otherwise fall through to the command-type classification.
         {
             std::string_view cmd = parsed->command;
             while (!cmd.empty() && std::isspace(static_cast<unsigned char>(cmd.front()))) {

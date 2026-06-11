@@ -319,7 +319,7 @@ struct Step2State {
             : text(s.due_scratch.empty()
                     ? " Not set — type YYYY-MM-DD"
                     : (" typing: " + s.due_scratch)) | dim,
-        text("        TODO(natural): support \"Tomorrow\", \"Next Monday\"") | dim,
+        text("        Hint: natural-language dates planned for a future release") | dim,
     });
     due_box = focus_wrap(due_box, 2);
 
