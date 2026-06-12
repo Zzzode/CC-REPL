@@ -81,6 +81,9 @@ struct WizardStep {
     std::string id;                  ///< Unique step id (for conditional jumps)
     std::string title;               ///< Display title
     std::string description;         ///< Short subtitle / description line
+    /// Compatibility factory for older UI modules that build each step as an
+    /// FTXUI Component. MakeWizard still consumes render/on_event callbacks.
+    std::function<Component()> create_content;
     bool optional = false;           ///< If true, "Skip" button is shown
 
     /// Called BEFORE entering this step.  Return fail() to redirect/prevent.
@@ -743,6 +746,57 @@ namespace internal {
         // common case (pure static render) this is fine.
         return false;
     });
+}
+
+/// Compatibility wrapper for older migrated wizard modules that still expose
+/// a provider-style step list. Each step's `create_content()` component is
+/// adapted into the current MakeWizard render/on_event callbacks.
+struct WizardProviderProps {
+    std::string title = "Wizard";
+    bool show_step_counter = true;
+    std::function<void()> on_cancel;
+    std::function<void()> on_complete;
+    std::vector<WizardStep> steps;
+};
+
+[[nodiscard]] inline Component WizardComponent(WizardProviderProps props) {
+    WizardConfig config;
+    config.title = props.title;
+    config.show_step_counter = props.show_step_counter;
+
+    auto components = std::make_shared<std::vector<Component>>();
+    components->reserve(props.steps.size());
+
+    auto builder = [props = std::move(props), components](WizardContext& ctx) mutable {
+        ctx.on_cancel = [cb = std::move(props.on_cancel)](WizardContext&) {
+            if (cb) cb();
+        };
+        ctx.on_complete = [cb = std::move(props.on_complete)](WizardContext&) {
+            if (cb) cb();
+        };
+
+        for (auto& step : props.steps) {
+            auto component = step.create_content ? step.create_content() : Component();
+            components->push_back(component);
+            const auto idx = components->size() - 1;
+
+            if (!step.render) {
+                step.render = [components, idx](WizardContext&) -> Element {
+                    return (*components)[idx] ? (*components)[idx]->Render() : text("");
+                };
+            }
+            if (!step.on_event) {
+                step.on_event = [components, idx](WizardContext&, Event event) -> bool {
+                    return (*components)[idx]
+                        ? (*components)[idx]->OnEvent(std::move(event))
+                        : false;
+                };
+            }
+            ctx.steps.push_back(std::move(step));
+        }
+    };
+
+    return MakeWizard(std::move(config), std::move(builder));
 }
 
 // ============================================================

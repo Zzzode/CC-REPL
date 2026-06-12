@@ -193,7 +193,7 @@ namespace detail {
         const char* subtitle;
         Color       accent;
     };
-    static constexpr SourceItem k_items[] = {
+    static const SourceItem k_items[] = {
         {"🛍️", "From Marketplace",
             "Browse available marketplaces and pick a plugin", Color::Cyan},
         {"📁", "From local file or directory",
@@ -215,7 +215,7 @@ namespace detail {
                 text("  " + std::string{it.subtitle}) | dim,
             }) | flex,
         });
-        if (sel) row = row | bgcolor(Color::RGB(20, 30, 50)) | padding(0, 1, 0, 0);
+        if (sel) row = row | bgcolor(Color::RGB(20, 30, 50));
         rows.push_back(std::move(row));
         if (i + 1 < 4) rows.push_back(separator() | dim);
     }
@@ -299,7 +299,7 @@ namespace detail {
                     : (r.install_scope == "project" ? Color::Green : Color::Yellow)),
             text(r.size_str.empty() ? "—" : r.size_str) | dim,
         }) | align_right,
-    }) | padding(1));
+    }));
     rows.push_back(separator() | dim);
 
     // Description
@@ -433,8 +433,8 @@ namespace detail {
         const int filled = (pct * bar_width) / 100;
         std::string bar;
         bar.reserve(bar_width);
-        for (int i = 0; i < filled; ++i)     bar += '█';
-        for (int i = filled; i < bar_width; ++i) bar += '░';
+        for (int i = 0; i < filled; ++i)     bar += "█";
+        for (int i = filled; i < bar_width; ++i) bar += "░";
         rows.push_back(hbox({
             text(" "),
             text(bar) | color(pct >= 100 ? Color::Green : Color::Cyan),

@@ -1251,6 +1251,8 @@ target_sources(cc_ui
         ui/dialogs/feedback_survey.cppm
         ui/dialogs/help_v2.cppm
         ui/dialogs/ide_dialogs.cppm
+        ui/dialogs/install_github_app_wizard.cppm
+        ui/dialogs/install_slack_app_wizard.cppm
         ui/dialogs/managed_settings_security.cppm
         ui/dialogs/mcp_dialog.cppm
         ui/dialogs/mcp_dialogs.cppm
@@ -1362,6 +1364,7 @@ target_sources(cc_ui
         ui/prompt/vim_input.cppm
         ui/prompt/voice_indicator.cppm
         ui/prompt_input.cppm
+        ui/plugins/plugin_install_flow.cppm
         ui/plugins/plugin_manage_panel.cppm
         ui/plugins/plugin_marketplace_browse.cppm
         ui/plugins/plugin_settings_dialog.cppm
@@ -1380,6 +1383,7 @@ target_sources(cc_ui
         ui/tasks/task_components.cppm
         ui/tasks/task_details_dialog.cppm
         ui/tasks/task_list_view.cppm
+        ui/tasks/task_wizard.cppm
         ui/tasks/task_list_ui.cppm
         ui/tasks/task_background_status.cppm
         ui/tasks/task_detail_dialog.cppm

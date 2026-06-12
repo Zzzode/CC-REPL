@@ -606,7 +606,7 @@ inline Component build_step_check_github(std::shared_ptr<WizardController> wc) {
         }
 
         return vbox(std::move(body)) | yframe;
-    }) | Button("Retry preflight", [rerun] { *rerun = true; });
+    });
 }
 
 // -- Step 2: Warnings -------------------------------------------------------
@@ -753,11 +753,10 @@ inline Component build_step_install_app(std::shared_ptr<WizardController> wc) {
 // -- Step 5: CheckExistingWorkflow -----------------------------------------
 inline Component build_step_check_existing_workflow(std::shared_ptr<WizardController> wc) {
     auto choice = std::make_shared<int>(wc->existing_workflow_choice);
-    std::vector<std::string> radio_labels = {
+    static const std::vector<std::string> radio_labels = {
         "Update existing workflow(s)",
         "Create new workflow file(s)",
     };
-    auto entries = std::make_shared<Radiobox>(&wc->existing_workflow_choice, radio_labels);
     return Container::Vertical({
         Renderer([wc] {
             Elements body;
@@ -773,7 +772,7 @@ inline Component build_step_check_existing_workflow(std::shared_ptr<WizardContro
             body.push_back(text(" What would you like to do?") | dim);
             return vbox(std::move(body));
         }),
-        Radiobox(&wc->existing_workflow_choice, radio_labels),
+        Radiobox(&radio_labels, &wc->existing_workflow_choice),
         Renderer([wc, choice] {
             wc->ctx->workflow_action =
                 (wc->existing_workflow_choice == 0)
@@ -846,10 +845,10 @@ inline Component build_step_select_workflows(std::shared_ptr<WizardController> w
 // -- Step 7: CheckExistingSecret --------------------------------------------
 inline Component build_step_check_existing_secret(std::shared_ptr<WizardController> wc) {
     auto choice = std::make_shared<int>(wc->secret_choice);
-    std::vector<std::string> labels = {
+    auto labels = std::make_shared<std::vector<std::string>>(std::vector<std::string>{
         "Use existing secret " + wc->ctx->secret_name,
         "Overwrite with new value",
-    };
+    });
     return Container::Vertical({
         Renderer([wc] {
             Elements body;
@@ -861,7 +860,7 @@ inline Component build_step_check_existing_secret(std::shared_ptr<WizardControll
                 " Choose whether to reuse the existing secret or overwrite it.") | dim);
             return vbox(std::move(body));
         }),
-        Radiobox(&wc->secret_choice, labels),
+        Radiobox(labels.get(), &wc->secret_choice),
         Renderer([wc] {
             wc->ctx->use_existing_secret = (wc->secret_choice == 0);
             return text("");
@@ -871,7 +870,7 @@ inline Component build_step_check_existing_secret(std::shared_ptr<WizardControll
 
 // -- Step 8: ApiKey ---------------------------------------------------------
 inline Component build_step_apikey(std::shared_ptr<WizardController> wc) {
-    std::vector<std::string> radios = {
+    static const std::vector<std::string> radios = {
         "Use local ANTHROPIC_API_KEY",
         "Enter key manually",
         "Launch OAuth flow",
@@ -925,10 +924,13 @@ inline Component build_step_apikey(std::shared_ptr<WizardController> wc) {
             body.push_back(text(" Repository secret name:") | dim);
             return vbox(std::move(body));
         }),
-        Radiobox(&wc->api_key_radio, radios),
+        Radiobox(&radios, &wc->api_key_radio),
         Maybe(
-            Input(&wc->manual_key_input, "sk-ant-...",
-                  /*password=*/true),
+            Input(ftxui::InputOption{
+                .content = &wc->manual_key_input,
+                .placeholder = "sk-ant-...",
+                .password = true,
+            }),
             [wc] { return wc->api_key_radio == 1; }),
         Input(secret_name_input.get(), "ANTHROPIC_API_KEY"),
         // Sync back to context.
@@ -1057,7 +1059,7 @@ inline Component build_step_success(std::shared_ptr<WizardController> wc) {
             body.push_back(text(""));
             if (*test_clicked) {
                 // Trigger workflow dispatch (best-effort).
-                bash::execute_command(std::format(
+                (void)bash::execute_command(std::format(
                     "gh workflow run {}.yml --repo {} 2>&1",
                     bash::escape_shell_arg(ctx.selected_workflows.empty()
                         ? "claude"
@@ -1110,12 +1112,12 @@ inline Component build_step_error(std::shared_ptr<WizardController> wc) {
 // Public factory: build the full wizard.
 // ==========================================================================
 
-export struct InstallGitHubAppWizardOptions {
+struct InstallGitHubAppWizardOptions {
     std::function<void(steps::Step final_step)> on_complete;
     std::function<void()> on_cancel;
 };
 
-export [[nodiscard]] inline Component MakeInstallGitHubAppWizard(
+[[nodiscard]] inline Component MakeInstallGitHubAppWizard(
     InstallGitHubAppWizardOptions opts)
 {
     auto controller = std::make_shared<WizardController>();

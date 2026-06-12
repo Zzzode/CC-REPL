@@ -214,7 +214,7 @@ inline Component build_step_3(std::shared_ptr<WizardController> wc) {
 // Public factory.
 // ==========================================================================
 
-export struct InstallSlackAppWizardOptions {
+struct InstallSlackAppWizardOptions {
     /// Pre-populated context (e.g. with real plan info from the auth layer).
     std::optional<steps::InstallSlackAppContext> initial_context;
     /// Called when the user presses "Launch /slack command now" so the
@@ -226,7 +226,7 @@ export struct InstallSlackAppWizardOptions {
     std::function<void()> on_cancel;
 };
 
-export [[nodiscard]] inline Component MakeInstallSlackAppWizard(
+[[nodiscard]] inline Component MakeInstallSlackAppWizard(
     InstallSlackAppWizardOptions opts)
 {
     auto controller = std::make_shared<WizardController>();

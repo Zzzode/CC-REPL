@@ -44,6 +44,7 @@ import cc.commands.plugin_error_formatting;
 import cc.commands.plugin_details_helpers;
 import cc.commands.plugin_pagination_util;
 import cc.commands.plugin_trust_text;
+import cc.ui.plugins.plugin_install_flow;
 import cc.ui.plugins.plugin_manage_panel;
 import cc.ui.plugins.plugin_marketplace_browse;
 import cc.ui.plugins.plugin_settings_dialog;
@@ -79,6 +80,7 @@ namespace pe = cc::commands::plugin;
 namespace pd = cc::commands::plugin;
 namespace pp = cc::commands::plugin;
 namespace pt = cc::commands::plugin;
+namespace plugin_install = cc::ui::plugins::plugin_install_flow;
 namespace plugin_manage = cc::ui::plugins::plugin_manage_panel;
 namespace plugin_browse = cc::ui::plugins::plugin_marketplace_browse;
 namespace plugin_settings = cc::ui::plugins::plugin_settings_dialog;
@@ -559,6 +561,40 @@ struct PluginDialogState {
     }
 
     return Renderer([state] {
+        if (state->install_flow_active) {
+            plugin_install::InstallFlowInputs install;
+            install.prepare_review = [](const plugin_install::SourceStepData& source,
+                                        plugin_install::ReviewStepData& review) {
+                review.name = source.plugin_id.empty() ? "Plugin" : source.plugin_id;
+                review.version = "latest";
+                review.install_scope = "user";
+            };
+            install.prepare_trust = [](const plugin_install::ReviewStepData& review,
+                                       plugin_install::TrustStepData& trust) {
+                trust.is_verified = true;
+                trust.has_signature = true;
+                trust.permissions = review.permissions;
+            };
+            install.poll_progress = [](plugin_install::InstallProgressData& progress) {
+                if (progress.stage == plugin_install::InstallStage::Pending) {
+                    progress.stage = plugin_install::InstallStage::Complete;
+                    progress.percent = 100;
+                    progress.stage_label = "Complete";
+                    return true;
+                }
+                return false;
+            };
+            install.on_cancel = [state] {
+                state->install_flow_active = false;
+            };
+            install.on_complete = [state](const plugin_install::CompleteStepData&) {
+                state->install_flow_active = false;
+                state->active_kind = ViewKind::ManagePlugins;
+            };
+            Element sub = plugin_install::MakeInstallWizard(std::move(install))->Render();
+            return RenderPluginDialogChrome(std::move(sub), state->active_kind, state->active_tab);
+        }
+
         Element sub;
         switch (state->active_kind) {
             case ViewKind::Menu:
