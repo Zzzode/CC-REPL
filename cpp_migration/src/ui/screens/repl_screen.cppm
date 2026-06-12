@@ -720,42 +720,8 @@ using Builder = std::function<Element(const ReplScreenState&)>;
       case ReplMode::TeamsView: case ReplMode::HelpView:
       case ReplMode::QuickOpen: return std::nullopt;
 
-      // UI15: install wizard overlays (banners; the live FTXUI Component
-      // is owned by ReplScreen's dialog_router and composited on top).
       case ReplMode::InstallGitHubApp:
-        return vbox({
-            text("") | size(HEIGHT, EQUAL, 1),
-            hbox({
-                text("  Install GitHub App  ") | bold | color(Color::Cyan),
-                text("12-step wizard") | dim,
-            }),
-            separator() | color(Color::Cyan),
-            vbox({
-                text(""),
-                text(" Enter = Next / Complete")     | color(Color::GrayLight),
-                text(" Esc   = Back / Cancel")       | color(Color::GrayLight),
-                text(" Tab   = Focus next field")    | color(Color::GrayLight),
-            }) | center | flex,
-        }) | border | color(Color::Cyan);
-
       case ReplMode::InstallSlackApp:
-        return vbox({
-            text("") | size(HEIGHT, EQUAL, 1),
-            hbox({
-                text("  Install Slack App  ") | bold | color(Color::Magenta),
-                text("3-step wizard") | dim,
-            }),
-            separator() | color(Color::Magenta),
-            vbox({
-                text(""),
-                text(" Enter = Next / Complete")     | color(Color::GrayLight),
-                text(" Esc   = Back / Cancel")       | color(Color::GrayLight),
-            }) | center | flex,
-        }) | border | color(Color::Magenta);
-
-      // UI13: agent wizard — the full FTXUI Component is owned by
-      // dialog_router and composited by ReplScreen's Renderer.
-      // RouteDialog returns nullopt here to avoid double-overlay.
       case ReplMode::CreateAgent:
       case ReplMode::EditAgent:
         return std::nullopt;
