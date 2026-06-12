@@ -351,7 +351,7 @@ inline std::string heading(SecuritySeverity s) {
         }
     };
 
-    auto remaining_now = [state]() -> std::chrono::seconds {
+    auto remaining_now = [state, maybe_start_countdown]() -> std::chrono::seconds {
         if (state->props.countdown.count() <= 0) return std::chrono::seconds{0};
         maybe_start_countdown();
         auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(

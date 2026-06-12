@@ -1056,6 +1056,17 @@ private:
 // Factories — the intended external API.
 // ============================================================
 
+namespace detail {
+/// Concrete holder used by MakeCustomSelect.  Defined at namespace scope
+/// (rather than inside the function) so its vtable is reliably emitted in
+/// this module's object file.
+struct Holder : CustomSelectImpl {
+    using CustomSelectImpl::CustomSelectImpl;
+    ~Holder() override;
+};
+Holder::~Holder() = default;
+} // namespace detail
+
 /// Build a CustomSelect component. Returns a pair:
 ///   - the FTXUI Component (to insert into your tree)
 ///   - a shared handle to submit / query state externally.
@@ -1063,10 +1074,7 @@ private:
 MakeCustomSelect(CustomSelectOptions opts) {
     // Construct via shared_ptr directly. CustomSelectHandle is not
     // enable_shared_from_this itself, so we build the ptr and pass it in.
-    struct Holder : CustomSelectImpl {
-        using CustomSelectImpl::CustomSelectImpl;
-    };
-    auto impl = std::make_shared<Holder>(std::move(opts));
+    auto impl = std::make_shared<detail::Holder>(std::move(opts));
     auto comp = impl->BuildComponent();
     return {std::move(comp), std::static_pointer_cast<CustomSelectHandle>(impl)};
 }

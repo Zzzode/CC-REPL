@@ -1631,6 +1631,11 @@ int main(int argc, const char* argv[]) {
         return 1;
     }
 
+    if (opts.headless) {
+        std::signal(SIGINT, handle_signal);
+        std::signal(SIGTERM, handle_signal);
+    }
+
     SessionIngressLifecycleGuard ingress_guard;
     if (auto ingress = cc::services::api::create_ingress_from_environment(); ingress && *ingress) {
         ingress_guard.active = true;
@@ -1683,8 +1688,6 @@ int main(int argc, const char* argv[]) {
     }
 
     if (opts.headless) {
-        std::signal(SIGINT, handle_signal);
-        std::signal(SIGTERM, handle_signal);
         if (opts.input_format == "stream-json" || opts.output_format == "stream-json") {
             if (opts.input_format != "stream-json" || opts.output_format != "stream-json") {
                 std::println(stderr, "Error: stream-json headless mode requires both --input-format=stream-json and --output-format=stream-json.");

@@ -590,12 +590,11 @@ struct MessageRowCallbacks {
     }
 
     if (shape == S::UserImage) {
-        return ftxui::Renderer([] {
-            return vbox({
-                text("🖼 image attachment") | color(Color::Blue),
-                text("(rendered by message_image.cppm)") | dim,
-            });
-        });
+        auto data = std::get_if<image::ImageMessageData>(&payload);
+        if (!data) return ftxui::Renderer([=] { return text("⚠ message_row: bad payload for UserImage"); });
+        return image::MakeImageMessage(*data,
+            std::move(callbacks.on_click),
+            std::move(callbacks.on_copy));
     }
 
     // Unknown / future shape

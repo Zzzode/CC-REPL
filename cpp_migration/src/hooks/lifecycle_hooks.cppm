@@ -76,16 +76,30 @@ using QueryStartHook = std::function<void(const QueryStartEvent&)>;
 using QueryEndHook = std::function<void(const QueryEndEvent&)>;
 
 // ============================================================
+// Hook Checker Types (hooks that can block execution)
+// ============================================================
+
+/// Pre-tool-use checker: returns nullopt if allowed, or a denial reason string if blocked.
+using PreToolUseChecker = std::function<std::optional<std::string>(const PreToolUseEvent&)>;
+
+/// Stop hook checker: returns nullopt if allowed to continue, or a stop reason if should stop.
+using StopHookChecker = std::function<std::optional<std::string>()>;
+
+// ============================================================
 // Lifecycle Hook Registry
 // ============================================================
 
 /// Central registry for lifecycle hooks.
 /// Thread-safe: all registration and emission is mutex-protected.
+/// Supports both notification hooks (fire-and-forget) and checker hooks (can block execution).
 class LifecycleHookRegistry {
 public:
     LifecycleHookRegistry() = default;
 
-    // Registration
+    // ========================================================
+    // Notification hook registration
+    // ========================================================
+
     void on_pre_tool_use(PreToolUseHook hook) {
         std::lock_guard lk(mu_);
         pre_tool_hooks_.push_back(std::move(hook));
@@ -111,12 +125,54 @@ public:
         query_end_hooks_.push_back(std::move(hook));
     }
 
+    // ========================================================
+    // Checker hook registration (can block execution)
+    // ========================================================
+
+    /// Register a pre-tool-use checker that can block tool execution.
+    /// If any checker returns a non-nullopt string, the tool is denied with that reason.
+    void add_pre_tool_use_checker(PreToolUseChecker checker) {
+        std::lock_guard lk(mu_);
+        pre_tool_checkers_.push_back(std::move(checker));
+    }
+
+    /// Register a stop hook checker that can stop the query loop.
+    /// If any checker returns a non-nullopt string, the loop stops with that reason.
+    void add_stop_hook(StopHookChecker checker) {
+        std::lock_guard lk(mu_);
+        stop_hooks_.push_back(std::move(checker));
+    }
+
+    // ========================================================
     // Emission (called by the query engine at appropriate points)
+    // ========================================================
+
     void emit_pre_tool_use(const PreToolUseEvent& event) {
         std::lock_guard lk(mu_);
         for (const auto& hook : pre_tool_hooks_) {
             hook(event);
         }
+    }
+
+    /// Check pre-tool-use permissions. Returns nullopt if allowed, or denial reason if blocked.
+    /// Also emits the notification event to all pre-tool-use hooks.
+    [[nodiscard]] std::optional<std::string> check_and_emit_pre_tool_use(const PreToolUseEvent& event) {
+        std::vector<PreToolUseChecker> checkers;
+        {
+            std::lock_guard lk(mu_);
+            checkers = pre_tool_checkers_;
+            // Emit notification hooks while holding lock (they should be fast)
+            for (const auto& hook : pre_tool_hooks_) {
+                hook(event);
+            }
+        }
+        // Run checkers outside the lock to avoid deadlocks
+        for (const auto& checker : checkers) {
+            if (auto reason = checker(event)) {
+                return reason;
+            }
+        }
+        return std::nullopt;
     }
 
     void emit_post_tool_use(const PostToolUseEvent& event) {
@@ -147,12 +203,48 @@ public:
         }
     }
 
+    /// Check all stop hooks. Returns nullopt if ok to continue, or stop reason if should stop.
+    [[nodiscard]] std::optional<std::string> check_stop_hooks() const {
+        std::vector<StopHookChecker> hooks;
+        {
+            std::lock_guard lk(mu_);
+            hooks = stop_hooks_;
+        }
+        for (const auto& hook : hooks) {
+            if (auto reason = hook()) {
+                return reason;
+            }
+        }
+        return std::nullopt;
+    }
+
+    // ========================================================
     // Stats
+    // ========================================================
+
     [[nodiscard]] std::size_t total_hooks() const {
         std::lock_guard lk(mu_);
         return pre_tool_hooks_.size() + post_tool_hooks_.size() +
                session_hooks_.size() + query_start_hooks_.size() +
-               query_end_hooks_.size();
+               query_end_hooks_.size() + pre_tool_checkers_.size() +
+               stop_hooks_.size();
+    }
+
+    [[nodiscard]] std::size_t checker_count() const {
+        std::lock_guard lk(mu_);
+        return pre_tool_checkers_.size() + stop_hooks_.size();
+    }
+
+    /// Clear all hooks (for testing)
+    void clear() {
+        std::lock_guard lk(mu_);
+        pre_tool_hooks_.clear();
+        post_tool_hooks_.clear();
+        session_hooks_.clear();
+        query_start_hooks_.clear();
+        query_end_hooks_.clear();
+        pre_tool_checkers_.clear();
+        stop_hooks_.clear();
     }
 
 private:
@@ -162,6 +254,8 @@ private:
     std::vector<SessionHook> session_hooks_;
     std::vector<QueryStartHook> query_start_hooks_;
     std::vector<QueryEndHook> query_end_hooks_;
+    std::vector<PreToolUseChecker> pre_tool_checkers_;
+    std::vector<StopHookChecker> stop_hooks_;
 };
 
 } // namespace cc::hooks

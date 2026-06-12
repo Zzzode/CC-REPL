@@ -164,7 +164,7 @@ struct Totals {
         reload_btn,
         filler(),
         search_el | size(WIDTH, GREATER_THAN, 20),
-    }) | borderBottom;
+    });
 }
 
 [[nodiscard]] inline Element RenderServerRow(const ListRow& row, bool selected, bool hover_actions) {
@@ -246,7 +246,10 @@ struct Totals {
     if (!row.heading_sub.empty()) {
         parts.push_back(text("  (" + row.heading_sub + ")") | dim);
     }
-    return hbox(std::move(parts)) | paddingTop(1);
+    return vbox({
+        text(""),
+        hbox(std::move(parts)),
+    });
 }
 
 [[nodiscard]] inline Element RenderListPanel(
@@ -360,7 +363,7 @@ struct Totals {
         text(std::format("{}", totals.tools)) | color(Color::Cyan) | bold,
         text(" tools available globally") | dim,
         filler(),
-    }) | dim | borderTop;
+    }) | dim;
 }
 
 [[nodiscard]] inline Element RenderServerList(
@@ -431,8 +434,10 @@ struct Totals {
         // Because scope info is richer in ServerConfig than McpServerSnapshot,
         // a fully wired caller should pre-group; we only do a best-effort render.
         if (!in_scope.empty() && rows.empty()) {
-            rows.push_back(ListRow{.kind = ListRowKind::Heading,
-                                   .heading_label = "Servers"});
+            ListRow heading;
+            heading.kind = ListRowKind::Heading;
+            heading.heading_label = "Servers";
+            rows.push_back(std::move(heading));
         }
         for (const auto& s : in_scope) {
             ListRow r;
@@ -512,7 +517,7 @@ struct Totals {
         state->totals = t;
     };
 
-    auto refresh_rows = [state, recompute_totals] {
+    auto refresh_rows = [state, recompute_totals, find_first_server_index] {
         if (!state->props.on_refresh) return;
         auto snaps = state->props.on_refresh();
         state->rows = BuildRowsFromSnapshots(

@@ -18,8 +18,6 @@ module;
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_base.hpp>
 #include <ftxui/component/event.hpp>
-#include <ftxui/component/input.hpp>
-#include <ftxui/component/button.hpp>
 
 export module cc.ui.tasks.task_details_dialog;
 
@@ -102,7 +100,7 @@ struct ActivityEntry {
         hbox({
             text("   "),
             paragraph(a.body) | size(WIDTH, LESS_THAN, 80),
-        }) | indent(1),
+        }),
     });
 }
 
@@ -259,10 +257,9 @@ struct DialogState {
 /// Editable title + status pill + priority cycle chip.
 [[nodiscard]] inline Element RenderHeader(const DialogState& s) {
     auto title_text = s.data.title.empty() ? "(untitled task)" : s.data.title;
-    auto title = text(" " + title_text + " ")
-        | (s.data.title.empty() ? (dim | strikethrough) : bold)
-        | xflex
-        | size(HEIGHT, EQUAL, 1);
+    auto title = text(" " + title_text + " ");
+    title = s.data.title.empty() ? (title | dim | strikethrough) : (title | bold);
+    title = title | xflex | size(HEIGHT, EQUAL, 1);
     if (has_focus(FocusSection::Title, s.focus)) {
         title = title | borderStyled(BorderStyle::ROUNDED, Color::Cyan);
     }
@@ -570,11 +567,13 @@ struct DialogState {
         int n = static_cast<int>(s.assignee_catalog.size());
         for (int i = 0; i < n; ++i) {
             bool hov = (i + 1 == s.assignee_hover);
-            names.push_back(hbox({
-                text(" ○  ") + comp::AssigneeAvatar(s.assignee_catalog[i])
-                    + text(" " + s.assignee_catalog[i])
-                    | (hov ? (bold | bgcolor(Color::RGB(25,30,45))) : nothing),
-            }));
+            auto row = hbox({
+                text(" ○  "),
+                comp::AssigneeAvatar(s.assignee_catalog[i]),
+                text(" " + s.assignee_catalog[i]),
+            });
+            if (hov) row = row | bold | bgcolor(Color::RGB(25,30,45));
+            names.push_back(row);
         }
         overlay = window(
             text(" Pick assignee ") | bold | color(Color::Magenta),
@@ -944,12 +943,6 @@ struct TaskDetailsDialogOptions {
                 }
             }
 
-            // Global Ctrl+S triggers save.
-            if (event == Event::Character('s') && std::holds_alternative<bool>(true)) {
-                // FTXUI does not expose a modifier bit easily; we fall
-                // back to the Save button being the primary action.
-                // (noop path here so clang doesn't warn.)
-            }
             if (event.is_character() && event.character() == "\x13") {  // Ctrl+S
                 if (s->cb.on_save) s->cb.on_save(s->data);
                 return true;

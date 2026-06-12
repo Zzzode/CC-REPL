@@ -126,6 +126,15 @@ struct TextInputOptions {
     std::vector<Suggestion> builtin_commands;
     PromptContext context;
 
+    /// When true, each character is replaced by mask_char (password mode)
+    bool mask_input = false;
+    /// Character used for masking when mask_input is true
+    char mask_char = '*';
+    /// Inline ghost text (auto-completion preview shown at cursor)
+    std::string inline_ghost_text;
+    /// Optional argument hint shown after a slash command
+    std::string argument_hint;
+
     std::function<void(const std::string&, const PromptContext&)> on_submit;
     /// Called on Enter submit when Ctrl+Enter modifier is used
     std::function<void(const std::string&, const PromptContext&)> on_soft_submit;
@@ -138,6 +147,12 @@ struct TextInputOptions {
         get_suggestions;
     /// Optional: external paste callback. If null falls back to a simple insert.
     std::function<void(const std::string&)> on_paste;
+    /// Optional: character-level input filter. Return true to allow the char.
+    /// Applied before insertion; multi-byte UTF-8 sequences pass the first byte.
+    std::function<bool(char)> input_filter;
+
+    /// Maximum number of visible suggestions in the dropdown.
+    size_t max_visible_suggestions = 8;
 };
 
 // ============================================================
@@ -175,6 +190,47 @@ inline int glyph_back(const std::string& s, int byte_pos) {
 } // namespace detail
 
 // ============================================================
+// Suggestion helper utilities
+// ============================================================
+namespace suggest_util {
+
+/// Get the display icon for a suggestion category.
+inline const char* category_icon(SuggestionCategory cat) {
+    switch (cat) {
+        case SuggestionCategory::Command:      return "⚡";
+        case SuggestionCategory::File:         return "📄";
+        case SuggestionCategory::Directory:    return "📁";
+        case SuggestionCategory::History:      return "🕘";
+        case SuggestionCategory::Agent:        return "🤖";
+        case SuggestionCategory::MCPResource:  return "🔌";
+        case SuggestionCategory::Shell:        return "$ ";
+        case SuggestionCategory::SlackChannel: return "#";
+        case SuggestionCategory::CustomTitle:  return "◆ ";
+        case SuggestionCategory::None:         return "";
+        default:                               return "";
+    }
+}
+
+/// Get the accent color for a suggestion category.
+inline Color category_color(SuggestionCategory cat) {
+    switch (cat) {
+        case SuggestionCategory::Command:      return Color::CyanLight;
+        case SuggestionCategory::File:         return Color::GreenLight;
+        case SuggestionCategory::Directory:    return Color::YellowLight;
+        case SuggestionCategory::History:      return Color::GrayLight;
+        case SuggestionCategory::Agent:        return Color::MagentaLight;
+        case SuggestionCategory::MCPResource:  return Color::BlueLight;
+        case SuggestionCategory::Shell:        return Color::Green;
+        case SuggestionCategory::SlackChannel: return Color::RedLight;
+        case SuggestionCategory::CustomTitle:  return Color::Blue;
+        case SuggestionCategory::None:         return Color::White;
+        default:                               return Color::White;
+    }
+}
+
+} // namespace suggest_util
+
+// ============================================================
 // TextInputImpl — Extended editor core
 // ============================================================
 /// Internal: the non-Component core of the editor. Separated so that
@@ -189,6 +245,7 @@ public:
           blink_at_(std::chrono::steady_clock::now()),
           blink_visible_(true),
           search_mode_(false),
+          search_selected_(0),
           paste_burst_in_progress_(false) {}
 
     // ------------------------------------------------------------
@@ -236,6 +293,11 @@ public:
     // ------------------------------------------------------------
     void insert_at_cursor(const std::string& s) {
         if (s.empty()) return;
+        if (options_.input_filter) {
+            for (char c : s) {
+                if (!options_.input_filter(c)) return;
+            }
+        }
         push_undo();
         if (has_selection()) delete_selection_internal();
         text_.insert(text_.begin() + cursor_, s.begin(), s.end());
@@ -244,6 +306,7 @@ public:
         recompute_derived();
     }
     void insert_char(char c) {
+        if (options_.input_filter && !options_.input_filter(c)) return;
         push_undo();
         if (has_selection()) delete_selection_internal();
         text_.insert(text_.begin() + cursor_, c);
@@ -429,123 +492,23 @@ public:
         using namespace ftxui;
         refresh_blink();
 
-        Elements lines_elements;
-        std::vector<std::string_view> lines = split_lines();
-        int byte_offset = 0;
-        const int total_lines = static_cast<int>(lines.size());
-        const int sel_beg = has_selection() ? std::min(sel_start_, sel_end_) : -1;
-        const int sel_fin = has_selection() ? std::max(sel_start_, sel_end_) : -1;
-        int cursor_line = 0, cursor_col = 0;
-        compute_cursor_position(cursor_line, cursor_col);
-
-        for (int li = 0; li < total_lines; ++li) {
-            Elements line_parts;
-
-            // Line prefix (first line) or indent (subsequent lines)
-            if (li == 0) {
-                line_parts.push_back(
-                    ftxui::text(options_.prefix) | color(Color::Green) | bold);
-            } else {
-                line_parts.push_back(ftxui::text(std::string(options_.prefix.size(), ' ')));
-            }
-
-            // Line numbers
-            if (options_.show_line_numbers && total_lines > 1) {
-                int label_width =
-                    std::max(2, (int)std::format("{}", total_lines).size());
-                line_parts.push_back(
-                    ftxui::text(std::format("{:>{}} ", li + 1, label_width)) |
-                    dim | color(Color::GrayDark));
-            }
-
-            const std::string_view& line = lines[li];
-            const int line_len = static_cast<int>(line.size());
-            const int line_start_byte = byte_offset;
-            const int line_end_byte = byte_offset + line_len;
-
-            // Determine segments for selection highlighting
-            struct Segment { int start; int end; bool selected; };
-            std::vector<Segment> segs;
-            if (!has_selection()) {
-                segs.push_back({0, line_len, false});
-            } else {
-                int abs_sel_beg = std::max(sel_beg, line_start_byte) - line_start_byte;
-                int abs_sel_fin = std::min(sel_fin, line_end_byte) - line_start_byte;
-                abs_sel_beg = std::clamp(abs_sel_beg, 0, line_len);
-                abs_sel_fin = std::clamp(abs_sel_fin, 0, line_len);
-                if (abs_sel_beg > 0) segs.push_back({0, abs_sel_beg, false});
-                if (abs_sel_fin > abs_sel_beg) segs.push_back({abs_sel_beg, abs_sel_fin, true});
-                if (abs_sel_fin < line_len) segs.push_back({abs_sel_fin, line_len, false});
-                if (segs.empty()) segs.push_back({0, line_len, false});
-            }
-
-            bool is_cursor_line = (li == cursor_line);
-
-            for (const auto& seg : segs) {
-                if (seg.start == seg.end) continue;
-                std::string seg_text{line.substr(seg.start, seg.end - seg.start)};
-
-                if (is_cursor_line) {
-                    // Split around cursor within segment if applicable
-                    int cur_rel_start = cursor_col - seg.start;
-                    if (cur_rel_start >= 0 && cur_rel_start <= (int)seg_text.size() &&
-                        !seg.selected) {
-                        // Cursor is inside or at edge of this non-selected segment
-                        std::string before = seg_text.substr(0, cur_rel_start);
-                        std::string after = seg_text.substr(cur_rel_start);
-                        if (!before.empty()) line_parts.push_back(ftxui::text(before));
-                        Element cursor_el;
-                        if (!after.empty() && blink_visible_) {
-                            std::string cursor_ch{after[0]};
-                            // Keep rest UTF-8 valid by appending continuations
-                            size_t cc = 1;
-                            while (cc < after.size() && detail::is_utf8_continuation(
-                                       static_cast<unsigned char>(after[cc]))) {
-                                cursor_ch.push_back(after[cc]);
-                                ++cc;
-                            }
-                            line_parts.push_back(ftxui::text(cursor_ch) | inverted |
-                                                 color(Color::White));
-                            std::string rest = after.substr(cc);
-                            if (!rest.empty()) line_parts.push_back(ftxui::text(rest));
-                        } else {
-                            // End of line cursor — render blinking block space
-                            line_parts.push_back(ftxui::text(blink_visible_ ? "█" : " ") |
-                                                 color(Color::CyanLight));
-                            if (!after.empty()) line_parts.push_back(ftxui::text(after));
-                        }
-                    } else if (seg.selected) {
-                        line_parts.push_back(ftxui::text(seg_text) | bgcolor(Color::Blue) |
-                                             color(Color::White));
-                    } else {
-                        line_parts.push_back(ftxui::text(seg_text));
-                    }
-                } else if (seg.selected) {
-                    line_parts.push_back(ftxui::text(seg_text) | bgcolor(Color::Blue) |
-                                         color(Color::White));
-                } else {
-                    line_parts.push_back(ftxui::text(seg_text));
-                }
-            }
-            // Empty line placeholder
-            if (line_len == 0 && is_cursor_line && !has_selection()) {
-                line_parts.push_back(ftxui::text(blink_visible_ ? "█" : " ") |
-                                     color(Color::CyanLight));
-            }
-
-            lines_elements.push_back(hbox(line_parts));
-            byte_offset += line_len + 1; // +1 for the '\n'
+        // --- Search mode (reverse history search) ---
+        if (search_mode_) {
+            return RenderSearchMode();
         }
 
-        // --- Placeholder rendering for empty, unfocused ---
-        if (lines_elements.size() == 1 && lines[0].empty()) {
-            Elements ph_parts;
-            ph_parts.push_back(ftxui::text(options_.prefix) | color(Color::Green) | bold);
-            ph_parts.push_back(ftxui::text(options_.placeholder) | dim);
-            return hbox(ph_parts);
+        Element input_el = RenderInputArea();
+
+        // --- Suggestions dropdown overlay ---
+        if (showing_suggestions_ && !suggestions_.empty()) {
+            Element dropdown = RenderSuggestionsDropdown();
+            return vbox({
+                input_el,
+                dropdown,
+            });
         }
 
-        return vbox(lines_elements);
+        return input_el;
     }
 
     // ------------------------------------------------------------
@@ -557,6 +520,11 @@ public:
         blink_visible_ = true;     // reset on user activity
         blink_at_ = last_keystroke_ms_;
         bool changed = false;
+
+        // --- Search mode (Ctrl+R reverse history search) ---
+        if (search_mode_) {
+            return HandleSearchEvent(event);
+        }
 
         // --- Modifier-aware short cuts ---
         // Ctrl+A -> select all
@@ -935,6 +903,378 @@ private:
         }
         return false;
     }
+
+    // ------------------------------------------------------------
+    // Rendering helpers
+    // ------------------------------------------------------------
+    /// Apply mask character to text (for password mode).
+    /// Each byte position is replaced by mask_char (simplification — for
+    /// UTF-8 we mask each codepoint visually with a single mask_char,
+    /// but since we store by byte index we use a simpler per-byte mask
+    /// for rendering consistency with cursor position).
+    std::string mask_text(const std::string& s) const {
+        if (!options_.mask_input) return s;
+        // Count glyphs (codepoints) and produce mask chars.
+        // Simplified: one mask char per UTF-8 codepoint start byte.
+        std::string result;
+        result.reserve(s.size());
+        for (size_t i = 0; i < s.size(); ++i) {
+            unsigned char c = static_cast<unsigned char>(s[i]);
+            if (!detail::is_utf8_continuation(c)) {
+                result.push_back(options_.mask_char);
+            }
+        }
+        return result;
+    }
+
+    Element RenderInputArea() {
+        using namespace ftxui;
+        Elements lines_elements;
+        std::vector<std::string_view> lines = split_lines();
+        int byte_offset = 0;
+        const int total_lines = static_cast<int>(lines.size());
+        const int sel_beg = has_selection() ? std::min(sel_start_, sel_end_) : -1;
+        const int sel_fin = has_selection() ? std::max(sel_start_, sel_end_) : -1;
+        int cursor_line = 0, cursor_col = 0;
+        compute_cursor_position(cursor_line, cursor_col);
+
+        for (int li = 0; li < total_lines; ++li) {
+            Elements line_parts;
+
+            // Line prefix (first line) or indent (subsequent lines)
+            if (li == 0) {
+                line_parts.push_back(
+                    ftxui::text(options_.prefix) | color(Color::Green) | bold);
+            } else {
+                line_parts.push_back(ftxui::text(std::string(options_.prefix.size(), ' ')));
+            }
+
+            // Line numbers
+            if (options_.show_line_numbers && total_lines > 1) {
+                int label_width =
+                    std::max(2, (int)std::format("{}", total_lines).size());
+                line_parts.push_back(
+                    ftxui::text(std::format("{:>{}} ", li + 1, label_width)) |
+                    dim | color(Color::GrayDark));
+            }
+
+            const std::string_view& line = lines[li];
+            const int line_len = static_cast<int>(line.size());
+            const int line_start_byte = byte_offset;
+            const int line_end_byte = byte_offset + line_len;
+
+            // Apply masking for display
+            std::string display_line_str;
+            std::string_view display_line;
+            if (options_.mask_input) {
+                display_line_str = mask_text(std::string(line));
+                display_line = display_line_str;
+            } else {
+                display_line = line;
+            }
+
+            // Determine segments for selection highlighting
+            struct Segment { int start; int end; bool selected; };
+            std::vector<Segment> segs;
+            if (!has_selection()) {
+                segs.push_back({0, line_len, false});
+            } else {
+                int abs_sel_beg = std::max(sel_beg, line_start_byte) - line_start_byte;
+                int abs_sel_fin = std::min(sel_fin, line_end_byte) - line_start_byte;
+                abs_sel_beg = std::clamp(abs_sel_beg, 0, line_len);
+                abs_sel_fin = std::clamp(abs_sel_fin, 0, line_len);
+                if (abs_sel_beg > 0) segs.push_back({0, abs_sel_beg, false});
+                if (abs_sel_fin > abs_sel_beg) segs.push_back({abs_sel_beg, abs_sel_fin, true});
+                if (abs_sel_fin < line_len) segs.push_back({abs_sel_fin, line_len, false});
+                if (segs.empty()) segs.push_back({0, line_len, false});
+            }
+
+            bool is_cursor_line = (li == cursor_line);
+
+            for (const auto& seg : segs) {
+                if (seg.start == seg.end) continue;
+                std::string seg_text{display_line.substr(seg.start, seg.end - seg.start)};
+
+                if (is_cursor_line) {
+                    // Split around cursor within segment if applicable
+                    int cur_rel_start = cursor_col - seg.start;
+                    if (cur_rel_start >= 0 && cur_rel_start <= (int)seg_text.size() &&
+                        !seg.selected) {
+                        // Cursor is inside or at edge of this non-selected segment
+                        std::string before = seg_text.substr(0, cur_rel_start);
+                        std::string after = seg_text.substr(cur_rel_start);
+                        if (!before.empty()) line_parts.push_back(ftxui::text(before));
+                        if (!after.empty() && blink_visible_) {
+                            std::string cursor_ch{after[0]};
+                            // Keep rest UTF-8 valid by appending continuations
+                            size_t cc = 1;
+                            while (cc < after.size() && detail::is_utf8_continuation(
+                                       static_cast<unsigned char>(after[cc]))) {
+                                cursor_ch.push_back(after[cc]);
+                                ++cc;
+                            }
+                            line_parts.push_back(ftxui::text(cursor_ch) | inverted |
+                                                 color(Color::White));
+                            std::string rest = after.substr(cc);
+                            if (!rest.empty()) line_parts.push_back(ftxui::text(rest));
+                        } else {
+                            // End of line cursor — render blinking block space
+                            line_parts.push_back(ftxui::text(blink_visible_ ? "█" : " ") |
+                                                 color(Color::CyanLight));
+                            if (!after.empty()) line_parts.push_back(ftxui::text(after));
+                        }
+                    } else if (seg.selected) {
+                        line_parts.push_back(ftxui::text(seg_text) | bgcolor(Color::Blue) |
+                                             color(Color::White));
+                    } else {
+                        line_parts.push_back(ftxui::text(seg_text));
+                    }
+                } else if (seg.selected) {
+                    line_parts.push_back(ftxui::text(seg_text) | bgcolor(Color::Blue) |
+                                         color(Color::White));
+                } else {
+                    line_parts.push_back(ftxui::text(seg_text));
+                }
+            }
+
+            // Inline ghost text (auto-completion preview) — only on last line
+            // when we're at end of line and no selection and no mask
+            if (is_cursor_line && !has_selection() && !options_.mask_input &&
+                !options_.inline_ghost_text.empty() &&
+                cursor_col >= line_len) {
+                line_parts.push_back(
+                    ftxui::text(options_.inline_ghost_text) | dim | color(Color::GrayLight));
+            }
+
+            // Argument hint (shown on first line for slash commands)
+            if (li == 0 && !options_.argument_hint.empty() && cursor_col > 0) {
+                // Only show if the first char indicates a command
+                if (!text_.empty() && text_[0] == '/') {
+                    line_parts.push_back(
+                        ftxui::text("  " + options_.argument_hint) | dim | color(Color::Cyan));
+                }
+            }
+
+            // Empty line placeholder
+            if (line_len == 0 && is_cursor_line && !has_selection()) {
+                line_parts.push_back(ftxui::text(blink_visible_ ? "█" : " ") |
+                                     color(Color::CyanLight));
+            }
+
+            lines_elements.push_back(hbox(line_parts));
+            byte_offset += line_len + 1; // +1 for the '\n'
+        }
+
+        // --- Placeholder rendering for empty, unfocused ---
+        if (lines_elements.size() == 1 && lines[0].empty()) {
+            Elements ph_parts;
+            ph_parts.push_back(ftxui::text(options_.prefix) | color(Color::Green) | bold);
+            ph_parts.push_back(ftxui::text(options_.placeholder) | dim);
+            return hbox(ph_parts);
+        }
+
+        return vbox(lines_elements);
+    }
+
+    Element RenderSuggestionsDropdown() const {
+        using namespace ftxui;
+        const size_t visible = std::min(
+            options_.max_visible_suggestions,
+            suggestions_.size());
+
+        int start_idx = 0;
+        if ((size_t)selected_suggestion_ >= visible) {
+            start_idx = selected_suggestion_ - (int)visible + 1;
+        }
+        int end_idx = std::min(start_idx + (int)visible, (int)suggestions_.size());
+
+        Elements rows;
+        rows.reserve(visible + 2);
+
+        // Header
+        rows.push_back(hbox({
+            ftxui::text(" 💡 "),
+            ftxui::text("Suggestions") | bold | color(Color::CyanLight),
+            ftxui::text(std::format(" ({} total)", (int)suggestions_.size())) | dim,
+        }));
+        rows.push_back(separator() | color(Color::Blue));
+
+        for (int i = start_idx; i < end_idx; ++i) {
+            const auto& s = suggestions_[i];
+            bool selected = (i == selected_suggestion_);
+
+            Elements row_parts;
+            row_parts.push_back(ftxui::text(selected ? " > " : "   "));
+
+            // Icon
+            if (s.icon.has_value() && !s.icon->empty()) {
+                row_parts.push_back(ftxui::text(*s.icon + " "));
+            } else {
+                const char* cat_icon = suggest_util::category_icon(s.category);
+                if (*cat_icon != '\0') {
+                    row_parts.push_back(ftxui::text(std::string(cat_icon) + " "));
+                }
+            }
+
+            // Display text (or text if display_text empty)
+            std::string label = s.display_text.empty() ? s.text : s.display_text;
+            Element label_el = ftxui::text(label);
+            Color accent = s.color_hint.value_or(
+                suggest_util::category_color(s.category));
+            if (selected) {
+                label_el = label_el | bgcolor(Color::Blue) | color(Color::White) | bold;
+            } else {
+                label_el = label_el | color(accent);
+            }
+            row_parts.push_back(label_el);
+
+            // Tag
+            if (s.tag.has_value() && !s.tag->empty()) {
+                row_parts.push_back(ftxui::text(" "));
+                row_parts.push_back(ftxui::text(*s.tag) | dim | color(Color::Yellow));
+            }
+
+            // Description
+            if (!s.description.empty()) {
+                row_parts.push_back(ftxui::text("  "));
+                row_parts.push_back(ftxui::text(s.description) | dim | color(Color::GrayLight));
+            }
+
+            rows.push_back(hbox(std::move(row_parts)));
+        }
+
+        // Footer hint
+        rows.push_back(separator() | dim);
+        rows.push_back(
+            ftxui::text("  [↑/↓] navigate    [Tab] cycle    [Enter] accept    [Esc] close")
+                | dim | color(Color::GrayDark));
+
+        return vbox(std::move(rows))
+             | border
+             | color(Color::Blue);
+    }
+
+    bool HandleSearchEvent(Event event) {
+        using namespace ftxui;
+
+        // Enter — accept current search result
+        if (event == Event::Return) {
+            if (!search_matches_.empty() && search_selected_ < search_matches_.size()) {
+                push_undo();
+                text_ = search_matches_[search_selected_];
+                cursor_ = static_cast<int>(text_.size());
+                sel_start_ = sel_end_ = -1;
+                recompute_derived();
+            }
+            search_mode_ = false;
+            search_query_.clear();
+            search_matches_.clear();
+            return true;
+        }
+
+        // Escape — cancel search
+        if (event == Event::Escape) {
+            search_mode_ = false;
+            search_query_.clear();
+            search_matches_.clear();
+            return true;
+        }
+
+        // Ctrl+R — cycle to next match (reverse direction)
+        if (event == Event::Character('\x12')) {
+            if (!search_matches_.empty()) {
+                search_selected_ = (search_selected_ + 1) % search_matches_.size();
+            }
+            return true;
+        }
+
+        // Backspace — remove last char from query
+        if (event == Event::Backspace) {
+            if (!search_query_.empty()) {
+                search_query_.pop_back();
+                refresh_search_matches();
+            }
+            return true;
+        }
+
+        // Arrow up/down — navigate matches
+        if (event == Event::ArrowUp || event == Event::ArrowDown) {
+            if (search_matches_.empty()) return true;
+            if (event == Event::ArrowUp) {
+                search_selected_ = (search_selected_ + 1) % search_matches_.size();
+            } else {
+                search_selected_ = search_selected_ == 0
+                    ? search_matches_.size() - 1
+                    : search_selected_ - 1;
+            }
+            return true;
+        }
+
+        // Character input — add to search query
+        if (event.is_character()) {
+            char c = event.character()[0];
+            unsigned char uc = static_cast<unsigned char>(c);
+            if (uc >= 32 || (uc & 0x80)) {
+                search_query_ += event.character();
+                refresh_search_matches();
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    void refresh_search_matches() {
+        search_matches_.clear();
+        search_selected_ = 0;
+        if (search_query_.empty() || history_.empty()) return;
+        // Search in reverse (newest first)
+        for (auto it = history_.rbegin(); it != history_.rend(); ++it) {
+            if (it->find(search_query_) != std::string::npos) {
+                search_matches_.push_back(*it);
+                if (search_matches_.size() >= 50) break; // cap at 50 results
+            }
+        }
+    }
+
+    Element RenderSearchMode() const {
+        using namespace ftxui;
+        Elements rows;
+
+        // Search prompt line
+        {
+            Elements parts;
+            parts.push_back(ftxui::text("reverse-i-search: ") | color(Color::Yellow) | bold);
+            parts.push_back(ftxui::text("`" + search_query_ + "`") | color(Color::Cyan));
+            parts.push_back(ftxui::text("  "));
+            if (search_matches_.empty()) {
+                parts.push_back(ftxui::text("(no matches)") | dim | color(Color::Red));
+            } else {
+                parts.push_back(ftxui::text(
+                    std::format("{} of {}", (int)search_selected_ + 1, (int)search_matches_.size()))
+                    | dim);
+            }
+            rows.push_back(hbox(std::move(parts)));
+        }
+
+        // Show current match (if any)
+        if (!search_matches_.empty()) {
+            const std::string& match = search_matches_[search_selected_];
+            rows.push_back(separator() | dim);
+            rows.push_back(
+                ftxui::text(match) | color(Color::Green)
+            );
+        }
+
+        // Hint
+        rows.push_back(separator() | dim);
+        rows.push_back(
+            ftxui::text("[Enter] accept  [Esc] cancel  [Ctrl+R] next  [↑/↓] navigate")
+                | dim | color(Color::GrayDark));
+
+        return vbox(std::move(rows)) | border | color(Color::Yellow);
+    }
+
     void recompute_derived() {
         PromptContext& ctx = options_.context;
         ctx.char_count = text_.size();
@@ -976,6 +1316,9 @@ private:
     std::chrono::steady_clock::time_point blink_at_;
     bool blink_visible_;
     bool search_mode_;
+    std::string search_query_;
+    std::vector<std::string> search_matches_;
+    size_t search_selected_;
     bool paste_burst_in_progress_;
 };
 

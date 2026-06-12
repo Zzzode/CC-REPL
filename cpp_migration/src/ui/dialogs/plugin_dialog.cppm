@@ -44,6 +44,9 @@ import cc.commands.plugin_error_formatting;
 import cc.commands.plugin_details_helpers;
 import cc.commands.plugin_pagination_util;
 import cc.commands.plugin_trust_text;
+import cc.ui.plugins.plugin_manage_panel;
+import cc.ui.plugins.plugin_marketplace_browse;
+import cc.ui.plugins.plugin_settings_dialog;
 
 export namespace cc::ui::dialogs::plugin_dialog {
 using namespace ftxui;
@@ -76,6 +79,9 @@ namespace pe = cc::commands::plugin;
 namespace pd = cc::commands::plugin;
 namespace pp = cc::commands::plugin;
 namespace pt = cc::commands::plugin;
+namespace plugin_manage = cc::ui::plugins::plugin_manage_panel;
+namespace plugin_browse = cc::ui::plugins::plugin_marketplace_browse;
+namespace plugin_settings = cc::ui::plugins::plugin_settings_dialog;
 
 using ui::ViewKind;
 using ui::ViewState;
@@ -95,6 +101,34 @@ using pf::InstallablePlugin;
 using pf::Pagination;
 using pf::DisplayPluginError;
 using pf::ErrorKind;
+
+[[nodiscard]] inline plugin_browse::PluginCardData ToPluginCardData(
+    const InstallablePlugin& plugin)
+{
+    plugin_browse::PluginCardData card;
+    card.base = plugin;
+    card.name = plugin.entry.name.empty() ? plugin.plugin_id : plugin.entry.name;
+    card.author = plugin.marketplace_name;
+    card.description = plugin.entry.description.value_or("");
+    card.version = "latest";
+    card.size_kb_str = "";
+    card.rating = 0.0f;
+    card.rating_count = 0;
+    card.install_count = 0;
+    card.has_homepage = plugin.entry.homepage.has_value();
+    card.has_github = plugin.entry.github_repo.has_value();
+    return card;
+}
+
+[[nodiscard]] inline plugin_settings::PerPluginSettings ToPluginSettings(
+    const InstalledCellData& plugin)
+{
+    plugin_settings::PerPluginSettings settings;
+    settings.plugin_id = plugin.name + "@" + plugin.marketplace;
+    settings.enabled = plugin.enabled;
+    settings.auto_update = plugin.has_pending_update;
+    return settings;
+}
 
 // =========================================================================
 // 1.  Type bridge — Phase 2 data → display-ready aliases
@@ -537,17 +571,68 @@ struct PluginDialogState {
                 break;
 
             case ViewKind::DiscoverPlugins:
-            case ViewKind::BrowseMarketplace:
+            case ViewKind::BrowseMarketplace: {
+                plugin_browse::BrowsePanelInputs browse;
+                browse.initial_subtab = state->active_kind == ViewKind::DiscoverPlugins
+                    ? plugin_browse::SubTab::Discover
+                    : plugin_browse::SubTab::Browse;
+                browse.marketplaces = state->inputs.marketplaces;
+                browse.discover_empty = state->inputs.discover_empty;
+                browse.discover_empty_reason = state->inputs.discover_empty_reason;
+                browse.target_marketplace = state->inputs.initial_view.target_marketplace;
+                browse.target_plugin = state->inputs.initial_view.target_plugin;
+                for (const auto& plugin : state->inputs.discover_plugins) {
+                    browse.discover_cards.push_back(ToPluginCardData(plugin));
+                }
+                browse.marketplace_cards.resize(browse.marketplaces.size());
+                for (std::size_t i = 0; i < browse.marketplaces.size(); ++i) {
+                    for (const auto& plugin : state->inputs.discover_plugins) {
+                        if (plugin.marketplace_name == browse.marketplaces[i].name) {
+                            browse.marketplace_cards[i].push_back(ToPluginCardData(plugin));
+                        }
+                    }
+                }
+                browse.on_install = [state](std::string_view plugin_id) {
+                    if (state->inputs.on_navigate) {
+                        ViewState next;
+                        next.kind = ViewKind::ManagePlugins;
+                        next.target_plugin = std::string(plugin_id);
+                        next.action = TargetAction::None;
+                        state->inputs.on_navigate(next);
+                    }
+                };
+                browse.on_close = [state] {
+                    state->active_kind = ViewKind::Menu;
+                };
+                sub = plugin_browse::MakeBrowsePanel(std::move(browse))->Render();
+                break;
+            }
             case ViewKind::ManagePlugins:
+                {
+                    plugin_manage::ManagePanelInputs manage;
+                    manage.installed = state->inputs.installed_plugins;
+                    manage.target_plugin = state->inputs.initial_view.target_plugin;
+                    manage.preselect_action = state->inputs.initial_view.action;
+                    manage.on_navigate = state->inputs.on_navigate;
+                    manage.on_install_new = [state] {
+                        state->install_flow_active = true;
+                    };
+                    sub = plugin_manage::MakeManagePanel(std::move(manage))->Render();
+                }
+                break;
+
             case ViewKind::ManageMarketplaces:
-                // Rendered by delegated panels.  We keep a fallback here so
-                // the router never draws a blank screen.
-                sub = vbox({
-                    text(std::format(" ⏳  {} view — pending panel mount",
-                                     ui::view_kind_name(state->active_kind)))
-                         | color(Color::Yellow) | dim | center,
-                    text(" (cc::ui::plugins panel not yet composed)") | dim | center,
-                }) | border;
+                {
+                    plugin_settings::SettingsDialogInputs settings;
+                    for (const auto& plugin : state->inputs.installed_plugins) {
+                        settings.per_plugin.push_back(ToPluginSettings(plugin));
+                    }
+                    settings.focus_plugin_id = state->inputs.initial_view.target_plugin;
+                    settings.on_close = [state] {
+                        state->active_kind = ViewKind::Menu;
+                    };
+                    sub = plugin_settings::MakePluginSettingsDialog(std::move(settings))->Render();
+                }
                 break;
 
             case ViewKind::Validate:
@@ -568,15 +653,15 @@ struct PluginDialogState {
             }
 
             case ViewKind::MarketplaceList:
-                sub = vbox({
-                    hbox({
-                        text(" 📋  Marketplace List ") | bold | color(Color::Blue),
-                        filler(),
-                        text("Esc back") | dim,
-                    }),
-                    separator(),
-                    text(" (delegated to marketplace-browse panel)") | dim | center,
-                }) | border;
+                {
+                    plugin_browse::BrowsePanelInputs browse;
+                    browse.initial_subtab = plugin_browse::SubTab::Browse;
+                    browse.marketplaces = state->inputs.marketplaces;
+                    browse.on_close = [state] {
+                        state->active_kind = ViewKind::Menu;
+                    };
+                    sub = plugin_browse::MakeBrowsePanel(std::move(browse))->Render();
+                }
                 break;
         }
 

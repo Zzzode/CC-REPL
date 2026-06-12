@@ -49,7 +49,15 @@ export module cc.ui.repl_screen;
 import cc.ui.task_list_ui;
 import cc.ui.team_status;
 import cc.ui.messages.message_row;
+import cc.ui.messages.messages_list;
+import cc.ui.messages.user_text_message;
+import cc.ui.messages.assistant_text_message;
+import cc.ui.messages.system_text_message;
+import cc.ui.messages.thinking_message;
+import cc.ui.messages.tool_use_message;
+import cc.ui.messages.message_tool_result;
 import cc.ui.dialogs.permission_dialog;
+import cc.ui.agents.agent_wizard;
 // NOTE: install_github_app_wizard / install_slack_app_wizard are UI15-owned
 // modules whose signatures do not yet match the implemented wizard_dialog.
 // They are excluded from compilation until their owning agent lands.
@@ -105,6 +113,9 @@ enum class ReplMode : std::uint8_t {
     // UI15 (Phase 4) — install-command wizard overlays.
     InstallGitHubApp,   // 12-step /install-github-app  FTXUI wizard
     InstallSlackApp,    // 3-step  /install-slack-app   FTXUI wizard
+    // UI13 — agent wizard (create/edit).
+    CreateAgent,        // 4-step new-agent wizard
+    EditAgent,          // 4-step edit-agent wizard
 };
 
 /// Input modes.  TS PromptInputMode (textInputTypes.ts:265) + VimMode (tI:222).
@@ -170,6 +181,8 @@ struct DialogContext {
     std::optional<std::string> plugin_hint_name, plugin_hint_description;
     std::optional<std::string> lsp_rec_extension, lsp_rec_file_ext;
     std::optional<std::string> ultraplan_blurb;
+    // UI13: agent wizard — name of agent being edited (empty = create new).
+    std::optional<std::string> agent_wizard_agent_id;
 };
 
 /// Lean orchestration state.  Full app state lives in services/; the
@@ -207,6 +220,9 @@ struct ReplScreenState {
     // so ReplScreenState doesn't need to import their types).
     std::shared_ptr<void> wizard_install_github_app;
     std::shared_ptr<void> wizard_install_slack_app;
+    // UI13: agent wizard component handle (lazily created by
+    // dialog_router::get_agent_wizard()).
+    std::shared_ptr<void> wizard_agent;
 };
 
 /// Engine-facing callbacks (TS ReplScreen external prop callbacks).
@@ -282,8 +298,7 @@ struct ReplScreenCallbacks {
     return hbox(p);
 }
 
-// UI4/UI5: message list.  Delegates per-row to message_row.cppm.
-// Simple last-N window virtualization; UI4 replaces with per-row height.
+// UI4/UI5: message list.  Delegates to messages_list.cppm (UI21).
 [[nodiscard]] inline Element RenderMessages(
     const std::vector<MessageDisplayEntry>& entries,
     int sel = -1, int vlines = 40,
@@ -295,96 +310,65 @@ struct ReplScreenCallbacks {
                    text("  /model   -- change model") | dim | center,
                    text("  /config  -- open settings") | dim | center }) | center,
             filler() }) | flex;
-    const int maxv = std::max(20, vlines / 5);
-    const int N = static_cast<int>(entries.size());
-    int s = pinned && N > maxv ? N - maxv : 0;
-    Elements rows; rows.reserve(N - s);
-    for (int i = s; i < N; ++i) {
-        const auto& m = entries[i];
-        messages::MessageRowConfig cfg{};
-        cfg.role = m.role; cfg.content = m.content_preview;
-        cfg.timestamp = m.timestamp; cfg.is_streaming = m.is_streaming;
-        Element r = paragraph(messages::render_message_row(std::move(cfg), 120));
-        if (i == sel) r = std::move(r) | inverted | bold;
-        if (i == N - 1 && m.is_streaming)
-            r = hbox({ std::move(r), text("|") | blink | color(Color::CyanLight) });
-        rows.push_back(std::move(r));
+
+    namespace ml = cc::ui::messages_list;
+    ml::MessagesListInput input;
+    input.rows.reserve(entries.size());
+    input.shapes.reserve(entries.size());
+
+    for (const auto& m : entries) {
+        if (m.role == "user") {
+            input.shapes.push_back(messages::MessageShape::UserText);
+            input.rows.push_back(messages::UserTextMessageData{
+                .content = m.content_preview,
+                .timestamp = m.timestamp});
+        } else if (m.role == "assistant") {
+            if (m.is_thinking) {
+                input.shapes.push_back(messages::MessageShape::AssistantThinking);
+                messages::thinking_message::ThinkingMessageOptions opts;
+                opts.data.raw_text = m.content_preview;
+                input.rows.push_back(std::move(opts));
+            } else if (m.is_tool_use) {
+                input.shapes.push_back(messages::MessageShape::AssistantToolUse);
+                messages::tool_use_message::ToolUseRenderOptions opts;
+                opts.call.tool_name = m.tool_name.value_or("tool");
+                opts.call.raw_parameters = m.content_preview;
+                input.rows.push_back(std::move(opts));
+            } else {
+                input.shapes.push_back(messages::MessageShape::AssistantText);
+                input.rows.push_back(messages::AssistantTextMessageData{
+                    .content = m.content_preview,
+                    .timestamp = m.timestamp,
+                    .is_streaming = m.is_streaming});
+            }
+        } else if (m.role == "tool") {
+            input.shapes.push_back(messages::MessageShape::UserToolResult);
+            input.rows.push_back(messages::ToolResultOptions{
+                .tool_name = m.tool_name.value_or("tool"),
+                .status = m.is_error
+                    ? messages::ToolResultStatus::Error
+                    : messages::ToolResultStatus::Success,
+                .output = m.content_preview});
+        } else {
+            input.shapes.push_back(messages::MessageShape::SystemText);
+            input.rows.push_back(messages::SystemTextMessageData{
+                .summary = m.content_preview,
+                .timestamp = m.timestamp});
+        }
     }
-    return vbox(rows) | vscroll_indicator | yframe | flex;
-    // ─────────────────────────────────────────────────────────────────────
-    // UI21 MIGRATION (messages_list.cppm — import cc.ui.messages.messages_list)
-    //
-    // The current RenderMessages() body above is a 18-line placeholder
-    // (paragraph() over MessageDisplayEntry.role + content_preview).  The
-    // real Messages.tsx / Message.tsx port lives in
-    //   cpp_migration/src/ui/messages/messages_list.cppm
-    // which exposes:
-    //
-    //   (1) MessagesListInput  — parallel vector<MessageRowPayload> +
-    //                            vector<MessageShape> (derived from engine
-    //                            state, NOT from MessageDisplayEntry).
-    //   (2) render_messages_list_view(input, frame_count, render_last_n=80)
-    //                            — STATIC / dialog-ready Element version,
-    //                              runs build_visible_rows internally (filter
-    //                              + search + compact-group collapse +
-    //                              streaming tail spinner+blink cursor).
-    //   (3) MakeMessagesList(input, MessagesListCallbacks)
-    //                            — FULL INTERACTIVE Component:
-    //                                j/k/Ctrl+N/Ctrl+P nav,  g/G/Home/End,
-    //                                '/' focus search Input,  Escape clear,
-    //                                Enter default-copy,  c/r/d hotkeys,
-    //                                Space toggle compact group expand.
-    //
-    // Expected integration (engine emits shape/payload instead of
-    // MessageDisplayEntry):
-    //   ┌──────────────────────────────────────────────────────────────┐
-    //   │  import cc.ui.messages.messages_list;                        │
-    //   │  using cc::ui::messages_list::MakeMessagesList;              │
-    //   │  using cc::ui::messages_list::MessagesListInput;             │
-    //   │  using cc::ui::messages_list::MessagesListCallbacks;         │
-    //   │                                                              │
-    //   │  MessagesListInput in;                                      │
-    //   │  in.rows   = engine.message_payloads();   // variant vec    │
-    //   │  in.shapes = engine.message_shapes();     // enum vec       │
-    //   │  in.selected_row_idx     = sel >= 0 ? std::optional(size_t(sel))│
-    //   │                                      : std::nullopt;        │
-    //   │  in.streaming_tail_row   = engine.is_streaming()            │
-    //   │      ? (in.rows.empty() ? 0 : in.rows.size() - 1)           │
-    //   │      : in.rows.size();    // "off" sentinel                 │
-    //   │  in.compact_boundary_groups = engine.compact_groups();      │
-    //   │  in.filters.show_system   = state.flags.show_system;        │
-    //   │  in.filters.show_tool_in  = state.flags.show_tool_in;       │
-    //   │  in.filters.show_tool_out = state.flags.show_tool_out;      │
-    //   │  in.filters.show_thinking = state.flags.show_thinking;      │
-    //   │  in.filters.show_compact  = state.flags.show_compact;       │
-    //   │  in.search_query         = state.search_query;              │
-    //   │  in.jump_to_row_on_init  = state.jump_row;                 │
-    //   │                                                              │
-    //   │  MessagesListCallbacks cb{                                  │
-    //   │    .on_select = [&](size_t i){ state.selected_message_idx  │
-    //   │                                  = static_cast<int>(i); }, │
-    //   │    .on_action = [&](size_t i, ActionKind k)                │
-    //   │                     { engine.on_row_action(i, k); },        │
-    //   │    .on_toggle_compact_group = [&](size_t g)                │
-    //   │                     { engine.toggle_compact_group(g); },    │
-    //   │    .on_search_changed = [&](const std::string& q)          │
-    //   │                     { state.search_query = q; },            │
-    //   │  };                                                         │
-    //   │  return MakeMessagesList(std::move(in), std::move(cb))      │
-    //   │         ->Render();                                         │
-    //   └──────────────────────────────────────────────────────────────┘
-    //
-    // Blocked-on: (a) engine producing the parallel rows/shapes vectors
-    //                 (MessageRowPayload is variant over 20 structs defined
-    //                  in cc.ui.messages.message_row; each display row maps
-    //                  to exactly one alternative + MessageShape tag).
-    //             (b) per-row callbacks (copy→clipboard, regenerate→engine,
-    //                 delete→session) wired in ReplScreenCallbacks.
-    //             (c) cc.ui.design.tokens / design.primitives materialised
-    //                 — today messages_list.cppm uses themed_text+themed_box
-    //                 as stand-ins via palette::*() inline helpers; swap is
-    //                 a single grep (see messages_list.cppm top comment).
-    // ─────────────────────────────────────────────────────────────────────
+
+    if (sel >= 0)
+        input.selected_row_idx = static_cast<std::size_t>(sel);
+
+    const auto N = entries.size();
+    bool has_streaming = !entries.empty() && entries.back().is_streaming;
+    input.streaming_tail_row = has_streaming ? N - 1 : N;
+
+    static int frame_count = 0;
+    ++frame_count;
+
+    (void)vlines; (void)pinned;
+    return ml::render_messages_list_view(std::move(input), frame_count) | flex;
 }
 
 // UI2: prompt input shell.  Full feature parity in prompt_input_full.cppm.
@@ -426,27 +410,10 @@ struct ReplScreenCallbacks {
 // Dialog routing (delegates each ReplMode to owning UIx agent)
 // =========================================================
 
-/// Render a clean "Coming Soon" placeholder panel for features
-/// whose full implementation has not yet been wired.
-[[nodiscard]] inline Element ComingSoon(
-    std::string feature_name, std::string hint = "") {
-    Elements inner;
-    inner.push_back(text(feature_name) | bold | center);
-    inner.push_back(text("Coming Soon") | dim | center);
-    if (!hint.empty()) {
-        inner.push_back(filler());
-        inner.push_back(text(" " + hint + " ") | dim | center);
-    }
-    return window(text(" " + feature_name + " "),
-                  vbox(std::move(inner)) | size(WIDTH, GREATER_THAN, 40));
-}
-
 namespace dialog_stubs {
 using Builder = std::function<Element(const ReplScreenState&)>;
 
 /// Dispatch table.  Each ReplMode dialog mode maps to a builder.
-/// Real components are wired where available; remaining entries use
-/// ComingSoon() placeholders with feature names (no raw TODO strings).
 [[nodiscard]] inline Builder get_builder(ReplMode m) {
     using P = std::pair<ReplMode, Builder>;
     static const P kTable[] = {
@@ -789,6 +756,13 @@ using Builder = std::function<Element(const ReplScreenState&)>;
             }) | center | flex,
         }) | border | color(Color::Magenta);
 
+      // UI13: agent wizard — the full FTXUI Component is owned by
+      // dialog_router and composited by ReplScreen's Renderer.
+      // RouteDialog returns nullopt here to avoid double-overlay.
+      case ReplMode::CreateAgent:
+      case ReplMode::EditAgent:
+        return std::nullopt;
+
       default: break; }
     auto b = get_builder(m);
     if (!b) return std::nullopt;
@@ -866,7 +840,72 @@ using Builder = std::function<Element(const ReplScreenState&)>;
 // (see skeleton comments at top of file).  They are therefore compiled out
 // until their owning agent lands; InstallGitHubApp / InstallSlackApp modes
 // are treated as "close on Esc" dialogs.
+//
+// UI13 agent_wizard is fully implemented and wired here: the wizard Component
+// is lazily created on first entry to CreateAgent / EditAgent mode, and
+// events are forwarded to it via forward_agent().
 namespace dialog_router {
+
+// -------------------------------------------------------------------
+// Agent wizard helpers
+// -------------------------------------------------------------------
+
+namespace wizard_ns = cc::ui::agents::wizard;
+
+using wizard_ns::AgentWizardOptions;
+using wizard_ns::WizardDraft;
+
+/// Lazily create (or re-create) the agent wizard component.
+/// The mode (create vs edit) and agent_id are read from state.
+[[nodiscard]] inline std::shared_ptr<Component> get_agent_wizard(
+    const std::shared_ptr<ReplScreenState>& s,
+    const std::shared_ptr<ReplScreenCallbacks>& cb) {
+    if (!s->wizard_agent) {
+        AgentWizardOptions opts;
+        // TODO: when editing, load the AgentCardData from agent runtime.
+        // For now, create mode is always used (edit_agent = nullopt).
+        opts.on_save = [s, cb](const WizardDraft& draft) {
+            // Wizard completed — save the agent and close.
+            // TODO: persist via agent_runtime API.
+            (void)draft;
+            s->mode = ReplMode::Normal;
+            if (cb->on_mode_change) cb->on_mode_change(ReplMode::Normal);
+        };
+        opts.on_cancel = [s, cb] {
+            s->mode = ReplMode::Normal;
+            if (cb->on_mode_change) cb->on_mode_change(ReplMode::Normal);
+        };
+        s->wizard_agent = std::make_shared<Component>(
+            wizard_ns::AgentWizard(std::move(opts)));
+    }
+    return std::static_pointer_cast<Component>(s->wizard_agent);
+}
+
+/// Forward an event to the agent wizard component.
+inline bool forward_agent(
+    const std::shared_ptr<ReplScreenState>& s,
+    const std::shared_ptr<ReplScreenCallbacks>& cb,
+    Event ev) {
+    auto wiz = get_agent_wizard(s, cb);
+    return wiz && (*wiz)->OnEvent(std::move(ev));
+}
+
+/// Render the agent wizard content as an Element.
+[[nodiscard]] inline Element render_agent_wizard(
+    const std::shared_ptr<ReplScreenState>& s,
+    const std::shared_ptr<ReplScreenCallbacks>& cb) {
+    auto wiz = get_agent_wizard(s, cb);
+    return wiz ? (*wiz)->Render() : text("");
+}
+
+/// Reset (destroy) the agent wizard so the next entry starts fresh.
+inline void reset_agent_wizard(const std::shared_ptr<ReplScreenState>& s) {
+    s->wizard_agent.reset();
+}
+
+// -------------------------------------------------------------------
+// Generic forward dispatcher (used for UI15 install wizards too)
+// -------------------------------------------------------------------
 
 inline bool forward(const std::shared_ptr<ReplScreenState>& s,
                     const std::shared_ptr<ReplScreenCallbacks>& cb,
@@ -893,7 +932,23 @@ inline bool forward(const std::shared_ptr<ReplScreenState>& s,
     std::shared_ptr<ReplScreenState> state,
     ReplScreenCallbacks cbs) {
     auto cb = std::make_shared<ReplScreenCallbacks>(std::move(cbs));
-    return Renderer([state]{ return RenderReplScreen(*state); })
+    return Renderer([state, cb]() -> Element {
+        // For agent wizard modes, ensure the wizard component exists
+        // and render the real wizard content (not the placeholder banner).
+        if (state->mode == ReplMode::CreateAgent ||
+            state->mode == ReplMode::EditAgent) {
+            Element base = RenderReplScreen(*state);
+            Element wizard_content = dialog_router::render_agent_wizard(state, cb);
+            // Replace the placeholder dialog with the real wizard content.
+            return dbox({
+                base | dim,
+                vbox({ filler(),
+                       hbox({ filler(), wizard_content | flex_shrink, filler() })
+                           | flex_shrink,
+                       filler() }) | flex });
+        }
+        return RenderReplScreen(*state);
+    })
          | CatchEvent([state, cb](Event ev) -> bool {
     // --- Panel-mode predicate ---
     auto is_panel = [](ReplMode m){ return
@@ -904,6 +959,12 @@ inline bool forward(const std::shared_ptr<ReplScreenState>& s,
 
     // 1) Dialog-context events
     if (in_dialog) {
+        // UI13 agent wizard: forward every event to the wizard component
+        // (it manages Esc/Enter/buttons internally).
+        if (state->mode == ReplMode::CreateAgent ||
+            state->mode == ReplMode::EditAgent) {
+            return dialog_router::forward_agent(state, cb, ev);
+        }
         // UI15 wizard modes: forward every event to the wizard
         // component (they manage Esc/Enter/buttons internally).
         if (state->mode == ReplMode::InstallGitHubApp ||

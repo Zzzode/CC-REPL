@@ -186,7 +186,7 @@ namespace detail {
                  | color(selected_row == 1 ? Color::White : Color::GrayLight),
             filler(),
             text(" [" + g.default_install_scope + "] ") | bold | color(Color::Yellow),
-        }) | (selected_row == 1 ? bgcolor(Color::RGB(40, 35, 10)) : identity()),
+        }) | (selected_row == 1 ? bgcolor(Color::RGB(40, 35, 10)) : nothing),
         paragraph("   New plugin installations use this scope unless overridden.") | dim,
         separator() | dim,
         BoolToggleRow("Allow unverified plugins",

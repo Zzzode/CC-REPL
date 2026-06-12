@@ -562,7 +562,7 @@ inline void CompleteDialog(DialogState& st, SandboxConfigResult result) {
 [[nodiscard]] inline bool HandleEvents(DialogState& st, Event event) {
     // ---- Section-level navigation ----
     if (event == Event::Tab)          { AdvanceFocus(st, +1); return true; }
-    if (event == Event::BackTab)      { AdvanceFocus(st, -1); return true; }
+    if (event == Event::TabReverse)   { AdvanceFocus(st, -1); return true; }
     if (event == Event::ArrowDown || event == Event::Character('j')) {
         AdvanceFocus(st, +1); return true;
     }
@@ -599,7 +599,7 @@ inline void CompleteDialog(DialogState& st, SandboxConfigResult result) {
         }
         if (event.is_character()) {
             auto c = event.character();
-            if (c == "\b"_utf8 || c == "\x7f"_utf8) {
+            if (event == Event::Backspace || event == Event::Delete) {
                 if (!st.new_path_buffer.empty()) st.new_path_buffer.pop_back();
                 return true;
             }
@@ -632,7 +632,7 @@ inline void CompleteDialog(DialogState& st, SandboxConfigResult result) {
         }
         if (event.is_character()) {
             auto c = event.character();
-            if (c == "\b"_utf8 || c == "\x7f"_utf8) {
+            if (event == Event::Backspace || event == Event::Delete) {
                 if (!st.new_domain_buffer.empty()) st.new_domain_buffer.pop_back();
                 return true;
             }

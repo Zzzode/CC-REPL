@@ -397,6 +397,18 @@ public:
         const std::uint32_t max_rounds = options.max_tool_rounds.value_or(20);
 
         while (round < max_rounds && !should_abort() && !budget_tracker_.budget_exceeded) {
+            // Check stop hooks before each iteration
+            if (lifecycle_hooks_) {
+                if (auto stop_reason = lifecycle_hooks_->check_stop_hooks()) {
+                    if (options.on_event) {
+                        StreamError err{"hook_stop",
+                            std::format("Query stopped by hook: {}", *stop_reason)};
+                        (*options.on_event)(err);
+                    }
+                    break;
+                }
+            }
+
             append_pending_native_agent_notifications();
             // Stream a single API call
             auto [assistant_msg, round_usage, has_tool_use] = stream_single_api_call(options);
@@ -1282,6 +1294,15 @@ private:
         const std::uint32_t max_rounds = options.max_tool_rounds.value_or(20);
 
         while (round < max_rounds && !should_abort() && !budget_tracker_.budget_exceeded) {
+            // Check stop hooks before each iteration
+            if (lifecycle_hooks_) {
+                if (auto stop_reason = lifecycle_hooks_->check_stop_hooks()) {
+                    return std::unexpected(Error::make(
+                        ErrorCode::InternalError,
+                        std::format("Query stopped by hook: {}", *stop_reason)));
+                }
+            }
+
             append_pending_native_agent_notifications();
             auto api_result = call_api(options);
             if (!api_result) return std::unexpected(api_result.error());
@@ -2346,15 +2367,28 @@ private:
                 permission.message.value_or(std::format("Permission denied for tool: {}", tool_use.name)));
         }
 
-        // Emit pre-tool-use hook
+        // Emit pre-tool-use hook and check for blocking hooks
         auto exec_start = std::chrono::steady_clock::now();
         if (lifecycle_hooks_) {
-            lifecycle_hooks_->emit_pre_tool_use(cc::hooks::PreToolUseEvent{
+            auto block_reason = lifecycle_hooks_->check_and_emit_pre_tool_use(cc::hooks::PreToolUseEvent{
                 .tool_name = tool_use.name,
                 .tool_input_json = effective_input_json,
                 .tool_use_id = tool_use.id.value,
                 .timestamp = std::chrono::system_clock::now()
             });
+            if (block_reason) {
+                // Hook denied the tool execution
+                {
+                    std::lock_guard lock(state_mutex_);
+                    permission_denials_.push_back(PermissionDenial{
+                        tool_use.name,
+                        tool_use.id.value,
+                        effective_input_json});
+                }
+                return make_tool_error_result(
+                    tool_use,
+                    std::format("Hook denied tool execution: {}", *block_reason));
+            }
         }
 
         // Execute via registry

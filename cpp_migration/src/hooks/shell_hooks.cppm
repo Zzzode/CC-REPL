@@ -31,6 +31,7 @@ module;
 export module cc.hooks.shell_hooks;
 
 import cc.utils.hooks_registry;
+import cc.hooks.lifecycle_hooks;
 
 export namespace cc::hooks::shell {
 
@@ -768,7 +769,12 @@ public:
         }
         auto summary = executor_.execute_pre_tool_use(
             tool_name, tool_input_json, tool_use_id, session_id);
-        return !summary.any_denied;
+        if (summary.any_denied) {
+            last_deny_reason_ = summary.deny_reason;
+            return false;
+        }
+        last_deny_reason_.reset();
+        return true;
     }
 
     /// Convenience: run post-tool-use hooks (informational, no deny).
@@ -798,10 +804,63 @@ public:
         return executor_.execute_event(event, match_value, context);
     }
 
+    /// Set the session ID used for hook execution context
+    void set_session_id(std::string session_id) {
+        session_id_ = std::move(session_id);
+    }
+
+    /// Get the current session ID
+    [[nodiscard]] const std::string& session_id() const noexcept { return session_id_; }
+
+    /// Wire this manager into a LifecycleHookRegistry so shell hooks run automatically.
+    /// Registers pre-tool-use as a blocking checker, post-tool-use as a notification.
+    void wire_to_lifecycle(cc::hooks::LifecycleHookRegistry& registry) {
+        // Pre-tool-use checker (can block execution)
+        registry.add_pre_tool_use_checker([this](const cc::hooks::PreToolUseEvent& event)
+            -> std::optional<std::string>
+        {
+            if (!check_pre_tool_use(
+                    event.tool_name,
+                    event.tool_input_json,
+                    event.tool_use_id,
+                    session_id_)) {
+                return last_deny_reason_;
+            }
+            return std::nullopt;
+        });
+
+        // Post-tool-use notification
+        registry.on_post_tool_use([this](const cc::hooks::PostToolUseEvent& event) {
+            notify_post_tool_use(
+                event.tool_name,
+                event.tool_use_id,
+                event.output_preview,
+                session_id_);
+        });
+
+        // Stop hook checker
+        registry.add_stop_hook([this]() -> std::optional<std::string> {
+            if (!loader_.has_hooks_for_event(HookEventType::Stop)) {
+                return std::nullopt;
+            }
+            HookContext ctx{
+                .event_name = "Stop",
+                .session_id = session_id_,
+                .working_directory = std::filesystem::current_path().string(),
+            };
+            auto summary = executor_.execute_event(HookEventType::Stop, "", ctx);
+            if (summary.any_denied) {
+                return summary.deny_reason;
+            }
+            return std::nullopt;
+        });
+    }
+
 private:
     ShellHookLoader loader_;
     ShellHookExecutor executor_;
     std::optional<std::string> last_deny_reason_;
+    std::string session_id_;
 };
 
 } // namespace cc::hooks::shell

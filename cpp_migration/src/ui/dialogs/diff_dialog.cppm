@@ -96,7 +96,6 @@ get_hunks(const DiffFileEntry& f) {
         auto phunks = cc::utils::file_edit::compute_structured_patch(
             f.old_content, f.new_content, 3);
         std::vector<sd::StructuredPatchHunk> shunks;
-        int adds = 0, dels = 0;
         for (const auto& ph : phunks) {
             sd::StructuredPatchHunk sh;
             sh.old_start = ph.old_start;
@@ -111,10 +110,10 @@ get_hunks(const DiffFileEntry& f) {
                 std::string content = l.size() > 1 ? l.substr(1) : "";
                 if (p == '+') {
                     sdl.type = sd::StructuredDiffLine::Type::Added;
-                    sdl.new_line_num = nl++; ++adds;
+                    sdl.new_line_num = nl++;
                 } else if (p == '-') {
                     sdl.type = sd::StructuredDiffLine::Type::Removed;
-                    sdl.old_line_num = ol++; ++dels;
+                    sdl.old_line_num = ol++;
                 } else {
                     sdl.type = sd::StructuredDiffLine::Type::Context;
                     sdl.old_line_num = ol++; sdl.new_line_num = nl++;
@@ -124,7 +123,6 @@ get_hunks(const DiffFileEntry& f) {
             }
             shunks.push_back(std::move(sh));
         }
-        // (void) adds/dels: stats are carried on DiffFileEntry already.
         sd::annotate_word_changes(shunks);
         f.cached_hunks = std::move(shunks);
     }
@@ -186,11 +184,11 @@ get_hunks(const DiffFileEntry& f) {
     // Stats on the right
     Element stats;
     if (f.is_untracked) {
-        stats = text("untracked") | color(Color::GrayDark) | dim | italic;
+        stats = text("untracked") | color(Color::GrayDark) | dim;
     } else if (f.is_binary) {
-        stats = text("binary") | color(Color::GrayDark) | dim | italic;
+        stats = text("binary") | color(Color::GrayDark) | dim;
     } else if (f.is_large_file) {
-        stats = text("large file modified") | color(Color::GrayDark) | dim | italic;
+        stats = text("large file modified") | color(Color::GrayDark) | dim;
     } else {
         Elements sp;
         if (f.lines_added > 0) {
@@ -402,16 +400,16 @@ get_hunks(const DiffFileEntry& f) {
     }) | flex;
 
     // Wrap as full-screen modal window.
-    auto windowed = Window({
-        .title = header,
-        .inner = vbox({
+    auto windowed = window(
+        header,
+        vbox({
             toolbar,
             separator(),
             content,
             separator(),
             status,
-        }),
-    }) | size(WIDTH, EQUAL, 95) | size(HEIGHT, EQUAL, 90);
+        })
+    ) | size(WIDTH, EQUAL, 95) | size(HEIGHT, EQUAL, 90);
 
     return windowed;
 }

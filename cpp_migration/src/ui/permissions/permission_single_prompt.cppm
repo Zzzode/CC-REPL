@@ -263,7 +263,7 @@ namespace detail {
 /// Render affected paths section.
 [[nodiscard]] inline Element RenderAffectedPaths(
     const std::vector<std::string>& paths,
-    std::optional<std::string_view> workspace_root)
+    std::optional<std::string_view>)
 {
     if (paths.empty()) return text("");
     Elements header = {
@@ -451,7 +451,7 @@ struct PromptState {
             state->focused_button = (state->focused_button + 1) % kButtonCount;
             return true;
         }
-        if (event == Event::BackTab) {
+        if (event == Event::TabReverse) {
             state->focused_button = (state->focused_button - 1 + kButtonCount) % kButtonCount;
             return true;
         }

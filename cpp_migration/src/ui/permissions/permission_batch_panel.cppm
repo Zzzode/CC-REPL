@@ -506,7 +506,6 @@ inline void ApplyDecisionAdvance(BatchState& st, RequestDecision decision) {
 
 /// Apply a batch operation from the toolbar.
 inline void ApplyToolbarAction(BatchState& st, int action_idx) {
-    const auto& all = st.queue;
     switch (action_idx) {
         case 0: { // Approve all Low
             for (auto& r : st.queue) {
@@ -602,7 +601,7 @@ inline void ApplyToolbarAction(BatchState& st, int action_idx) {
             else st->toolbar_cursor = -1;
             return true;
         }
-        if (event == Event::BackTab) {
+        if (event == Event::TabReverse) {
             if (st->toolbar_cursor > 0) --st->toolbar_cursor;
             else if (st->toolbar_cursor == 0) st->toolbar_cursor = -1;
             else st->toolbar_cursor = 3;

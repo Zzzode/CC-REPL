@@ -37,7 +37,6 @@ export module cc.ui.teams.teams_overview;
 
 import cc.types.types;
 import cc.ui.team_status;
-import cc.ui.permissions.components; // StatusDot (reused enum semantics)
 import cc.ui.components.agent_view;  // Avatar/RoleTags helpers inspiration
 
 export namespace cc::ui::teams::overview {
@@ -49,7 +48,6 @@ using namespace ftxui;
 // convertible via the helpers below.
 using CoordinationStatus = cc::ui::team_status::TeammateStatus;
 using TeamRole = cc::ui::team_status::TeammateRole;
-using PermStatusDot = cc::ui::permissions::components::StatusDot;
 
 // ============================================================
 // Shared Display Helpers (UI13 Avatar / StatusDot / RoleTags)

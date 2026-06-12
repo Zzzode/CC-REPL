@@ -251,23 +251,6 @@ set_tests_properties(tools_e2e PROPERTIES
 )
 
 # ---------------------------------------------------------------------------
-# Phase 3-A QueryEngine <-> SSE mock runner (standalone, not GoogleTest).
-# Verifies DryRunFeedFakeSse produces exactly the expected text + counts.
-# ---------------------------------------------------------------------------
-add_executable(phase3_qe_sse_mock
-    smoke/phase3_qe_sse_mock.cpp
-)
-target_link_libraries(phase3_qe_sse_mock
-    PRIVATE
-        cc_core
-        cc_services
-        cc_utils
-)
-set_target_properties(phase3_qe_sse_mock PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
-)
-
-# ---------------------------------------------------------------------------
 # Phase 3-G PermissionResolver + PermissionGate standalone smoke runner.
 # Exercises all 5 acceptance cases + glob + ABI + gate wiring.
 # ---------------------------------------------------------------------------
@@ -283,9 +266,6 @@ target_link_libraries(phase3_permission_smoke
 set_target_properties(phase3_permission_smoke PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
 )
-
-add_test(NAME Phase3_QE_SSE_Mock COMMAND phase3_qe_sse_mock)
-set_tests_properties(Phase3_QE_SSE_Mock PROPERTIES TIMEOUT 10 LABELS "phase3;qe;sse")
 
 add_test(NAME Phase3_Permission_Smoke COMMAND phase3_permission_smoke)
 set_tests_properties(Phase3_Permission_Smoke PROPERTIES TIMEOUT 10 LABELS "phase3;permission;hooks")

@@ -312,9 +312,6 @@ target_sources(cc_state
         state/persistence.cppm
         state/selectors.cppm
         state/store.cppm
-        # Phase 3-F: concrete AppState store + JSON persistence
-        state/store_impl.cppm
-        state/persistence_json.cppm
 )
 target_link_libraries(cc_state
     PUBLIC
@@ -448,7 +445,6 @@ target_sources(cc_query
     PUBLIC FILE_SET CXX_MODULES FILES
         query/config.cppm
         query/query_engine.cppm
-        query/query_server_tasks.cppm
         query/stop_hooks.cppm
         query/token_budget.cppm
 )
@@ -935,7 +931,6 @@ target_sources(cc_services
         services/team_memory/secret_guard.cppm
         services/team_memory/secret_scanner.cppm
         services/team_memory/watcher.cppm
-        services/query_engine.cppm
 )
 target_sources(cc_services
     PRIVATE
@@ -1252,6 +1247,7 @@ target_sources(cc_ui
         ui/design/themed_text.cppm
         ui/dialogs/config_dialog.cppm
         ui/dialogs/desktop_upsell.cppm
+        ui/dialogs/diff_dialog.cppm
         ui/dialogs/feedback_survey.cppm
         ui/dialogs/help_v2.cppm
         ui/dialogs/ide_dialogs.cppm
@@ -1349,6 +1345,9 @@ target_sources(cc_ui
         ui/permissions/permission_scope_editor.cppm
         ui/permissions/permission_rule_list.cppm        # UI24 — PermissionRuleList
         ui/permissions/permission_advanced_prompts.cppm # UI24b — AskUserQuestion+Skill+Fallback advanced prompts
+        ui/permissions/permission_single_prompt.cppm
+        ui/permissions/permission_batch_panel.cppm
+        ui/permissions/sandbox_config_dialog.cppm
         ui/prompt/autocomplete.cppm
         ui/prompt/footer.cppm
         ui/prompt/mode_indicator.cppm
@@ -1363,7 +1362,14 @@ target_sources(cc_ui
         ui/prompt/vim_input.cppm
         ui/prompt/voice_indicator.cppm
         ui/prompt_input.cppm
+        ui/plugins/plugin_manage_panel.cppm
+        ui/plugins/plugin_marketplace_browse.cppm
+        ui/plugins/plugin_settings_dialog.cppm
         ui/mcp/mcp_capabilities.cppm
+        ui/mcp/mcp_add_server_wizard.cppm
+        ui/mcp/mcp_security_dialog.cppm
+        ui/mcp/mcp_server_details.cppm
+        ui/mcp/mcp_server_list.cppm
         ui/mcp/mcp_elicitation.cppm
         ui/mcp/mcp_reconnect.cppm
         ui/mcp/mcp_settings_panel.cppm
@@ -1371,11 +1377,17 @@ target_sources(cc_ui
         ui/renderer/ink_utils.cppm
         ui/renderer/renderer.cppm
         ui/renderer/text_measure.cppm
+        ui/tasks/task_components.cppm
+        ui/tasks/task_details_dialog.cppm
+        ui/tasks/task_list_view.cppm
         ui/tasks/task_list_ui.cppm
         ui/tasks/task_background_status.cppm
         ui/tasks/task_detail_dialog.cppm
         ui/tasks/task_remote_session.cppm
         ui/tasks/task_shell_progress.cppm
+        ui/teams/teams_overview.cppm
+        ui/teams/team_details_dialog.cppm
+        ui/teams/swarm_collaboration_view.cppm
         ui/teams/team_status.cppm
         ui/termio/terminal_io.cppm
         ui/hooks/hooks_ui.cppm

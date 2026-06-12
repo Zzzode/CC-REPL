@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { spawn } from 'node:child_process'
@@ -9,7 +9,9 @@ import { DirectConnectSessionManager } from '../src/server/directConnectManager.
 import { createDirectConnectSession } from '../src/server/createDirectConnectSession.ts'
 
 const repoRoot = resolve(new URL('..', import.meta.url).pathname)
-const nativeBinary = resolve(repoRoot, 'dist', process.platform === 'win32' ? 'cc-repl.exe' : 'cc-repl')
+const nativeBinary = process.env.CC_REPL_NATIVE_BINARY
+  ? resolve(repoRoot, process.env.CC_REPL_NATIVE_BINARY)
+  : resolve(repoRoot, 'dist', process.platform === 'win32' ? 'cc-repl.exe' : 'cc-repl')
 
 function assert(condition, message) {
   if (!condition) throw new Error(message)
@@ -350,7 +352,7 @@ async function main() {
     })
     assert(config.sessionId.length > 0, 'createDirectConnectSession did not return a session id')
     assert(config.wsUrl.startsWith('ws://127.0.0.1:'), `unexpected ws_url: ${config.wsUrl}`)
-    assert(workDir === root, `unexpected workDir: ${workDir}`)
+    assert(workDir === realpathSync(root), `unexpected workDir: ${workDir}`)
 
     const messages = []
     const permissionRequests = []

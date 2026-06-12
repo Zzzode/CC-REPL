@@ -27,6 +27,11 @@ struct AgentsOptions {
     std::optional<std::string> agent_name;
 };
 
+/// Metadata tags returned by agent commands.
+/// The UI layer reads these and switches modes accordingly.
+inline constexpr std::string_view kMetaCreateAgent = "CREATE_AGENT";
+inline constexpr std::string_view kMetaEditAgent   = "EDIT_AGENT";
+
 class AgentsCommand {
 public:
     [[nodiscard]] static CommandDefinition definition() {
@@ -37,6 +42,8 @@ public:
                 CommandArg{.name = "list", .description = "List available agents", .type = ArgType::None, .required = false},
                 CommandArg{.name = "use", .description = "Select an agent to use", .type = ArgType::Text, .required = false},
                 CommandArg{.name = "configure", .description = "Configure an agent", .type = ArgType::Text, .required = false},
+                CommandArg{.name = "create", .description = "Create a new agent (wizard)", .type = ArgType::None, .required = false},
+                CommandArg{.name = "edit", .description = "Edit an agent (wizard)", .type = ArgType::Text, .required = false},
             },
             .category = "agents",
         };
@@ -49,17 +56,17 @@ public:
 
     [[nodiscard]] Result<CommandResult> execute(const CommandContext& ctx) {
         auto opts = parse_options(ctx.args);
-        
+
         if (!opts.subcommand) {
-            return CommandResult::success("Available commands:\n  /agents list - List available agents\n  /agents use <agent> - Select an agent\n  /agents configure <agent> - Configure an agent");
+            return CommandResult::success("Available commands:\n  /agents list - List available agents\n  /agents use <agent> - Select an agent\n  /agents configure <agent> - Configure an agent\n  /agents create - Create a new agent (wizard)\n  /agents edit <agent> - Edit an agent (wizard)");
         }
 
         auto agents = cc::tools::agent_runtime::get_all_agent_definitions();
-        
+
         if (*opts.subcommand == "list") {
             return CommandResult::success(format_agent_list(agents));
         }
-        
+
         if (*opts.subcommand == "use" && opts.agent_name) {
             auto* agent = find_agent(agents, *opts.agent_name);
             if (!agent) {
@@ -71,7 +78,7 @@ public:
                 agent->source,
                 agent->agent_type));
         }
-        
+
         if (*opts.subcommand == "configure" && opts.agent_name) {
             auto* agent = find_agent(agents, *opts.agent_name);
             if (!agent) {
@@ -79,13 +86,42 @@ public:
             }
             return CommandResult::success(format_agent_details(*agent));
         }
-        
+
+        // --- Wizard commands (UI-integrated) ---
+        // These return with metadata tags that the UI layer detects to
+        // launch the interactive FTXUI wizard dialog.
+
+        if (*opts.subcommand == "create") {
+            CommandResult r;
+            r.ok = true;
+            r.message = "Launching agent creation wizard...";
+            r.metadata = std::string(kMetaCreateAgent);
+            r.status = CommandStatus::Succeeded;
+            return r;
+        }
+
+        if (*opts.subcommand == "edit") {
+            if (!opts.agent_name) {
+                return CommandResult::fail("Usage: /agents edit <agent-name>");
+            }
+            auto* agent = find_agent(agents, *opts.agent_name);
+            if (!agent) {
+                return CommandResult::fail(std::format("Unknown agent: {}", *opts.agent_name));
+            }
+            CommandResult r;
+            r.ok = true;
+            r.message = std::format("Launching editor for agent '{}'...", *opts.agent_name);
+            r.metadata = std::string(kMetaEditAgent) + "|" + *opts.agent_name;
+            r.status = CommandStatus::Succeeded;
+            return r;
+        }
+
         return CommandResult::fail("Invalid command");
     }
 
     [[nodiscard]] std::vector<std::string> complete(std::string_view partial) {
         std::vector<std::string> suggestions;
-        static constexpr std::array subcommands = {"list", "use", "configure"};
+        static constexpr std::array subcommands = {"list", "use", "configure", "create", "edit"};
         for (auto cmd : subcommands) {
             if (std::string_view(cmd).starts_with(partial)) {
                 suggestions.emplace_back(cmd);

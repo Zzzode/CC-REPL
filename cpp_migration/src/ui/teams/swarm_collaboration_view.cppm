@@ -52,7 +52,7 @@ import cc.types.types;
 import cc.ui.team_status;
 import cc.ui.components.agent_view;
 import cc.ui.teams.teams_overview;
-import cc.ui.messages.tool_use_message is not imported here to avoid a
+// cc.ui.messages.tool_use_message is not imported here to avoid a
 // circular-module dependency.  The caller may pre-render any tool-use blocks
 // via the TranscriptMessage::tool_use_rendered Element field.  Refer to that
 // module for rendering tool-use messages properly.
@@ -64,11 +64,11 @@ using TeammateStatus = cc::ui::team_status::TeammateStatus;
 using TeammateRole   = cc::ui::team_status::TeammateRole;
 using TeammateEntry  = cc::ui::team_status::TeammateEntry;
 
-using AgentAvatar   = cc::ui::teams::overview::AgentAvatar;
-using RelativeTime  = cc::ui::teams::overview::RelativeTime;
-using StatusDot   = cc::ui::teams::overview::StatusDot;
-using RoleTag     = cc::ui::teams::overview::RoleTag;
 using MembershipRole = cc::ui::teams::overview::MembershipRole;
+using cc::ui::teams::overview::AgentAvatar;
+using cc::ui::teams::overview::RelativeTime;
+using cc::ui::teams::overview::StatusDot;
+using cc::ui::teams::overview::RoleTag;
 
 // ============================================================
 // Domain types
@@ -331,7 +331,6 @@ struct SwarmCollaborationOptions {
     rows.push_back(title);
     rows.push_back(separator());
 
-    int index = 0;
     for (auto group : groups) {
         // Collect members of the group
         std::vector<int> indices;
@@ -395,7 +394,7 @@ struct SwarmCollaborationOptions {
 
     Element pane = vbox({ body, separator(), footer });
     if (opts.focused_pane == SwarmCollaborationOptions::Pane::Participants) {
-        pane = pane | borderStyled(Focused);
+        pane = pane | borderStyled(Color::Cyan);
     } else {
         pane = pane | borderLight;
     }
@@ -545,7 +544,7 @@ struct SwarmCollaborationOptions {
     });
 
     if (opts.focused_pane == SwarmCollaborationOptions::Pane::Transcript) {
-        pane = pane | borderStyled(Focused);
+        pane = pane | borderStyled(Color::Cyan);
     } else {
         pane = pane | borderLight;
     }
@@ -640,7 +639,7 @@ struct SwarmCollaborationOptions {
     });
 
     if (opts.focused_pane == SwarmCollaborationOptions::Pane::Files) {
-        pane = pane | borderStyled(Focused);
+        pane = pane | borderStyled(Color::Cyan);
     } else {
         pane = pane | borderLight;
     }

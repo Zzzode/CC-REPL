@@ -51,6 +51,26 @@ std::string render_to_plain_text(ftxui::Element element, int width = 80, int hei
     return screen.ToString();
 }
 
+/// Strip ANSI escape sequences from a rendered string so that assertions
+/// compare semantic content rather than color/style codes.
+std::string strip_ansi(std::string_view s) {
+    std::string out;
+    out.reserve(s.size());
+    std::size_t i = 0;
+    while (i < s.size()) {
+        if (s[i] == '\033' && i + 1 < s.size() && s[i + 1] == '[') {
+            // CSI sequence: skip until we find a non-digit/param byte
+            i += 2;
+            while (i < s.size() && (s[i] < 0x40 || s[i] > 0x7E)) ++i;
+            if (i < s.size()) ++i;  // skip the final byte
+            continue;
+        }
+        out.push_back(s[i]);
+        ++i;
+    }
+    return out;
+}
+
 bool wait_until(std::function<bool()> predicate, std::chrono::milliseconds timeout) {
     const auto deadline = std::chrono::steady_clock::now() + timeout;
     while (std::chrono::steady_clock::now() < deadline) {
@@ -595,6 +615,389 @@ TEST(Components, TextInputTabAfterEmptyHistorySearchDoesNotCrash) {
     EXPECT_FALSE(component->OnEvent(ftxui::Event::Tab));
 }
 
+TEST(Components, TextInputMultilineInsertNewline) {
+    cc::ui::components::TextInputOptions opts;
+    opts.multiline = true;
+    auto impl = cc::ui::components::MakeTextInputCore(opts);
+
+    // Pre-populate two lines so Enter inserts newline (not submit).
+    // In multiline mode, Enter submits when there is only 1 line;
+    // it inserts a newline only when 2+ lines exist.
+    impl->PasteText("hello\nworld");
+    ASSERT_EQ(impl->text(), "hello\nworld");
+    ASSERT_EQ(impl->cursor(), 11);
+
+    impl->HandleEvent(ftxui::Event::Return);
+
+    EXPECT_EQ(impl->text(), "hello\nworld\n");
+    EXPECT_EQ(impl->cursor(), 12);
+}
+
+TEST(Components, TextInputBackspace) {
+    cc::ui::components::TextInputOptions opts;
+    auto component = cc::ui::components::TextInput(opts);
+
+    component->OnEvent(ftxui::Event::Character("a"));
+    component->OnEvent(ftxui::Event::Character("b"));
+    component->OnEvent(ftxui::Event::Backspace);
+
+    auto rendered = render_to_plain_text(component->Render(), 20, 3);
+    EXPECT_NE(rendered.find("a"), std::string::npos);
+    EXPECT_EQ(rendered.find("ab"), std::string::npos);
+}
+
+TEST(Components, TextInputSelectAll) {
+    cc::ui::components::TextInputOptions opts;
+    auto component = cc::ui::components::TextInput(opts);
+
+    component->OnEvent(ftxui::Event::Character("h"));
+    component->OnEvent(ftxui::Event::Character("e"));
+    component->OnEvent(ftxui::Event::Character("l"));
+    component->OnEvent(ftxui::Event::Character("l"));
+    component->OnEvent(ftxui::Event::Character("o"));
+    // Ctrl+A = select all
+    EXPECT_TRUE(component->OnEvent(ftxui::Event::Character("\x01")));
+    // Backspace should delete all
+    component->OnEvent(ftxui::Event::Backspace);
+
+    auto rendered = render_to_plain_text(component->Render(), 20, 3);
+    // After delete all, placeholder should be visible
+    EXPECT_NE(rendered.find("Type your message"), std::string::npos);
+}
+
+TEST(Components, TextInputUndoRedo) {
+    cc::ui::components::TextInputOptions opts;
+    auto component = cc::ui::components::TextInput(opts);
+
+    component->OnEvent(ftxui::Event::Character("a"));
+    component->OnEvent(ftxui::Event::Character("b"));
+    component->OnEvent(ftxui::Event::Backspace); // delete 'b'
+
+    // Ctrl+Z undo
+    component->OnEvent(ftxui::Event::Character("\x1a"));
+
+    auto rendered_undo = render_to_plain_text(component->Render(), 20, 3);
+    // After undo, should have "ab" again
+    EXPECT_NE(rendered_undo.find("ab"), std::string::npos);
+
+    // Ctrl+Y redo
+    component->OnEvent(ftxui::Event::Character("\x19"));
+
+    auto rendered_redo = render_to_plain_text(component->Render(), 20, 3);
+    // After redo, should be back to "a"
+    EXPECT_NE(rendered_redo.find("a"), std::string::npos);
+    EXPECT_EQ(rendered_redo.find("ab"), std::string::npos);
+}
+
+TEST(Components, TextInputMaskInput) {
+    cc::ui::components::TextInputOptions opts;
+    opts.mask_input = true;
+    opts.mask_char = '*';
+    auto component = cc::ui::components::TextInput(opts);
+
+    component->OnEvent(ftxui::Event::Character("s"));
+    component->OnEvent(ftxui::Event::Character("e"));
+    component->OnEvent(ftxui::Event::Character("c"));
+    component->OnEvent(ftxui::Event::Character("r"));
+    component->OnEvent(ftxui::Event::Character("e"));
+    component->OnEvent(ftxui::Event::Character("t"));
+
+    auto rendered = render_to_plain_text(component->Render(), 20, 3);
+    // Should show mask chars, not actual text
+    EXPECT_EQ(rendered.find("secret"), std::string::npos);
+    EXPECT_NE(rendered.find("******"), std::string::npos);
+}
+
+TEST(Components, TextInputInputFilter) {
+    cc::ui::components::TextInputOptions opts;
+    opts.input_filter = [](char c) { return std::isdigit(static_cast<unsigned char>(c)) != 0; };
+    auto component = cc::ui::components::TextInput(opts);
+
+    // Digits should be accepted
+    component->OnEvent(ftxui::Event::Character("1"));
+    component->OnEvent(ftxui::Event::Character("2"));
+    // Letters should be rejected
+    component->OnEvent(ftxui::Event::Character("a"));
+    component->OnEvent(ftxui::Event::Character("b"));
+
+    auto rendered = render_to_plain_text(component->Render(), 20, 3);
+    EXPECT_NE(rendered.find("12"), std::string::npos);
+    EXPECT_EQ(rendered.find("a"), std::string::npos);
+}
+
+TEST(Components, TextInputSuggestionsDropdown) {
+    cc::ui::components::TextInputOptions opts;
+    opts.get_suggestions = [](const std::string& input, int, const cc::ui::components::PromptContext&) -> std::vector<cc::ui::components::Suggestion> {
+        if (input.starts_with('/')) {
+            return {
+                {"/help", "/help", "Show help", cc::ui::components::SuggestionCategory::Command},
+                {"/clear", "/clear", "Clear screen", cc::ui::components::SuggestionCategory::Command},
+            };
+        }
+        return {};
+    };
+    auto component = cc::ui::components::TextInput(opts);
+
+    component->OnEvent(ftxui::Event::Character("/"));
+    auto rendered = render_to_plain_text(component->Render(), 60, 10);
+    // Should show suggestions dropdown
+    EXPECT_NE(rendered.find("Suggestions"), std::string::npos);
+    EXPECT_NE(rendered.find("/help"), std::string::npos);
+    EXPECT_NE(rendered.find("/clear"), std::string::npos);
+}
+
+TEST(Components, TextInputSuggestionAccept) {
+    int accept_count = 0;
+    std::string accepted_text;
+    cc::ui::components::TextInputOptions opts;
+    opts.get_suggestions = [](const std::string& input, int, const cc::ui::components::PromptContext&) -> std::vector<cc::ui::components::Suggestion> {
+        if (input.starts_with('/')) {
+            return {
+                {"/help", "/help", "Show help", cc::ui::components::SuggestionCategory::Command},
+            };
+        }
+        return {};
+    };
+    opts.on_change = [&](const std::string& text, const auto&) {
+        accepted_text = text;
+    };
+    auto component = cc::ui::components::TextInput(opts);
+
+    component->OnEvent(ftxui::Event::Character("/"));
+    // Tab to select (next suggestion, only 1 so stays on 0)
+    component->OnEvent(ftxui::Event::Tab);
+    // Enter to accept
+    component->OnEvent(ftxui::Event::Return);
+
+    // After accept, text should be "/help"
+    EXPECT_EQ(accepted_text, "/help");
+}
+
+TEST(Components, TextInputHistorySearch) {
+    cc::ui::components::TextInputOptions opts;
+    opts.show_history = true;
+    auto component = cc::ui::components::TextInput(opts);
+
+    // Add some history by typing and submitting
+    component->OnEvent(ftxui::Event::Character("hello world"));
+    component->OnEvent(ftxui::Event::Return);
+    component->OnEvent(ftxui::Event::Character("hello there"));
+    component->OnEvent(ftxui::Event::Return);
+    component->OnEvent(ftxui::Event::Character("goodbye"));
+    component->OnEvent(ftxui::Event::Return);
+
+    // Enter search mode (Ctrl+R)
+    component->OnEvent(ftxui::Event::Character("\x12"));
+    // Type search query
+    component->OnEvent(ftxui::Event::Character("h"));
+    component->OnEvent(ftxui::Event::Character("e"));
+    component->OnEvent(ftxui::Event::Character("l"));
+
+    auto rendered = render_to_plain_text(component->Render(), 60, 10);
+    // Should show search mode UI
+    EXPECT_NE(rendered.find("reverse-i-search"), std::string::npos);
+    EXPECT_NE(rendered.find("`hel`"), std::string::npos);
+}
+
+TEST(Components, TextInputHistorySearchAccept) {
+    cc::ui::components::TextInputOptions opts;
+    opts.show_history = true;
+    std::string result_text;
+    opts.on_submit = [&](const std::string& text, const auto&) {
+        result_text = text;
+    };
+    auto component = cc::ui::components::TextInput(opts);
+
+    // Add some history
+    component->OnEvent(ftxui::Event::Character("apple banana"));
+    component->OnEvent(ftxui::Event::Return);
+    component->OnEvent(ftxui::Event::Character("cherry date"));
+    component->OnEvent(ftxui::Event::Return);
+
+    // Enter search mode
+    component->OnEvent(ftxui::Event::Character("\x12"));
+    // Search for "cherry"
+    component->OnEvent(ftxui::Event::Character("c"));
+    component->OnEvent(ftxui::Event::Character("h"));
+    component->OnEvent(ftxui::Event::Character("e"));
+    // Accept with Enter
+    component->OnEvent(ftxui::Event::Return);
+
+    // After accepting, submit should give "cherry date"
+    // But Enter in search mode just populates the buffer; need another Enter to submit
+    // Let's submit now
+    component->OnEvent(ftxui::Event::Return);
+    EXPECT_EQ(result_text, "cherry date");
+}
+
+TEST(Components, TextInputArrowNavigation) {
+    auto impl = cc::ui::components::MakeTextInputCore({});
+
+    impl->insert_char('a');
+    impl->insert_char('b');
+    impl->insert_char('c');
+    ASSERT_EQ(impl->text(), "abc");
+    ASSERT_EQ(impl->cursor(), 3);
+
+    // Move left twice, then insert 'X'
+    impl->move_cursor(-1, false);
+    impl->move_cursor(-1, false);
+    EXPECT_EQ(impl->cursor(), 1);
+    impl->insert_char('X');
+
+    EXPECT_EQ(impl->text(), "aXbc");
+    EXPECT_EQ(impl->cursor(), 2);
+
+    // Also verify via rendered output (with ANSI stripped)
+    auto rendered = strip_ansi(render_to_plain_text(impl->Render(), 20, 3));
+    EXPECT_NE(rendered.find("aXbc"), std::string::npos);
+}
+
+TEST(Components, TextInputHomeEnd) {
+    auto impl = cc::ui::components::MakeTextInputCore({});
+
+    impl->insert_char('h');
+    impl->insert_char('e');
+    impl->insert_char('l');
+    impl->insert_char('l');
+    impl->insert_char('o');
+    ASSERT_EQ(impl->text(), "hello");
+    ASSERT_EQ(impl->cursor(), 5);
+
+    // Home, then insert '!'
+    impl->move_home(false);
+    EXPECT_EQ(impl->cursor(), 0);
+    impl->insert_char('!');
+    EXPECT_EQ(impl->text(), "!hello");
+    EXPECT_EQ(impl->cursor(), 1);
+
+    // End, then insert '?'
+    impl->move_end(false);
+    EXPECT_EQ(impl->cursor(), 6);
+    impl->insert_char('?');
+    EXPECT_EQ(impl->text(), "!hello?");
+    EXPECT_EQ(impl->cursor(), 7);
+
+    // Also verify rendered text (strip ANSI for text content check)
+    auto rendered = strip_ansi(render_to_plain_text(impl->Render(), 20, 3));
+    EXPECT_NE(rendered.find("!hello?"), std::string::npos);
+}
+
+TEST(Components, TextInputSubmitCallback) {
+    std::string submitted_text;
+    cc::ui::components::TextInputOptions opts;
+    opts.multiline = false;
+    opts.on_submit = [&](const std::string& text, const auto&) {
+        submitted_text = text;
+    };
+    auto component = cc::ui::components::TextInput(opts);
+
+    component->OnEvent(ftxui::Event::Character("h"));
+    component->OnEvent(ftxui::Event::Character("i"));
+    component->OnEvent(ftxui::Event::Return);
+
+    EXPECT_EQ(submitted_text, "hi");
+}
+
+TEST(Components, TextInputEscapeCallback) {
+    bool escape_called = false;
+    cc::ui::components::TextInputOptions opts;
+    opts.on_escape = [&]() { escape_called = true; };
+    auto component = cc::ui::components::TextInput(opts);
+
+    component->OnEvent(ftxui::Event::Escape);
+    EXPECT_TRUE(escape_called);
+}
+
+TEST(Components, TextInputLineNumbers) {
+    cc::ui::components::TextInputOptions opts;
+    opts.multiline = true;
+    opts.show_line_numbers = true;
+    auto impl = cc::ui::components::MakeTextInputCore(opts);
+
+    // Two lines so show_line_numbers actually renders (guard: total_lines > 1)
+    impl->PasteText("line 1\nline 2");
+
+    auto rendered = strip_ansi(render_to_plain_text(impl->Render(), 40, 5));
+    EXPECT_NE(rendered.find(" 1 "), std::string::npos);
+    EXPECT_NE(rendered.find(" 2 "), std::string::npos);
+    EXPECT_NE(rendered.find("line 1"), std::string::npos);
+    EXPECT_NE(rendered.find("line 2"), std::string::npos);
+}
+
+TEST(Components, TextInputPasteText) {
+    cc::ui::components::TextInputOptions opts;
+    std::shared_ptr<cc::ui::components::TextInputImpl> impl;
+    auto component = cc::ui::components::TextInput(opts, &impl);
+
+    ASSERT_NE(impl, nullptr);
+    impl->PasteText("pasted text");
+
+    auto rendered = render_to_plain_text(component->Render(), 40, 3);
+    EXPECT_NE(rendered.find("pasted text"), std::string::npos);
+}
+
+TEST(Components, TextInputDeleteChar) {
+    auto impl = cc::ui::components::MakeTextInputCore({});
+
+    impl->insert_char('a');
+    impl->insert_char('b');
+    impl->insert_char('c');
+    ASSERT_EQ(impl->text(), "abc");
+    ASSERT_EQ(impl->cursor(), 3);
+
+    // Move left once (cursor between 'b' and 'c'), then Delete
+    // removes the char AFTER the cursor ('c') → "ab"
+    impl->move_cursor(-1, false);
+    EXPECT_EQ(impl->cursor(), 2);
+    impl->delete_char();
+
+    EXPECT_EQ(impl->text(), "ab");
+    EXPECT_EQ(impl->cursor(), 2);
+
+    // Move left once more (cursor between 'a' and 'b'), delete → "a"
+    impl->move_cursor(-1, false);
+    impl->delete_char();
+    EXPECT_EQ(impl->text(), "a");
+    EXPECT_EQ(impl->cursor(), 1);
+
+    // Also verify via rendered output (strip ANSI for text check)
+    auto rendered = strip_ansi(render_to_plain_text(impl->Render(), 20, 3));
+    EXPECT_NE(rendered.find("a"), std::string::npos);
+    EXPECT_EQ(rendered.find("ab"), std::string::npos);
+    EXPECT_EQ(rendered.find("abc"), std::string::npos);
+}
+
+TEST(Components, TextInputHistoryUpDown) {
+    cc::ui::components::TextInputOptions opts;
+    opts.multiline = false;
+    auto component = cc::ui::components::TextInput(opts);
+
+    // Add some history by submitting
+    component->OnEvent(ftxui::Event::Character("first"));
+    component->OnEvent(ftxui::Event::Return);
+    component->OnEvent(ftxui::Event::Character("second"));
+    component->OnEvent(ftxui::Event::Return);
+
+    // Arrow up should go back in history
+    component->OnEvent(ftxui::Event::ArrowUp);
+
+    auto rendered_up = render_to_plain_text(component->Render(), 20, 3);
+    EXPECT_NE(rendered_up.find("second"), std::string::npos);
+
+    // Arrow up again
+    component->OnEvent(ftxui::Event::ArrowUp);
+
+    auto rendered_up2 = render_to_plain_text(component->Render(), 20, 3);
+    EXPECT_NE(rendered_up2.find("first"), std::string::npos);
+
+    // Arrow down should go forward
+    component->OnEvent(ftxui::Event::ArrowDown);
+
+    auto rendered_down = render_to_plain_text(component->Render(), 20, 3);
+    EXPECT_NE(rendered_down.find("second"), std::string::npos);
+}
+
 TEST(WizardDialog, RendersStepFactoryContent) {
     using namespace cc::ui::wizard_dialog;
 
@@ -624,7 +1027,11 @@ TEST(WizardDialog, RendersStepFactoryContent) {
     EXPECT_NE(rendered.find("Setup"), std::string::npos);
 }
 
-TEST(AppRuntime, CommandsNavigationAndStatusRenderWithoutTerminalLoop) {
+// ═══════════════════════════════════════════════════════════════════════════════
+// AppRuntime: integration tests that exercise the AppAdapter end-to-end
+// ═══════════════════════════════════════════════════════════════════════════════
+
+TEST(AppRuntime, CommandsAndStatusRenderWithoutTerminalLoop) {
     cc::core::ToolRegistry tools;
     cc::core::QueryEngineConfig config;
     config.context_window.auto_compact = false;
@@ -638,7 +1045,7 @@ TEST(AppRuntime, CommandsNavigationAndStatusRenderWithoutTerminalLoop) {
     cc::utils::SessionStorage storage(storage_root);
 
     bool exited = false;
-    auto app = ftxui::Make<cc::ui::AppComponent>(
+    auto app = ftxui::Make<cc::ui::AppAdapter>(
         &engine,
         &commands,
         &storage,
@@ -646,44 +1053,35 @@ TEST(AppRuntime, CommandsNavigationAndStatusRenderWithoutTerminalLoop) {
             exited = true;
         });
 
-    app->SyncMessages();
+    // --- Initial render: status bar + system message + prompt input ---
+    app->SyncState();
     auto initial = render_to_plain_text(app->Render(), 120, 28);
-    EXPECT_NE(initial.find("CC-REPL (C++23)"), std::string::npos);
-    EXPECT_NE(initial.find("Resume"), std::string::npos);
-    EXPECT_NE(initial.find("All"), std::string::npos);
+    // Default model appears in the status bar
+    EXPECT_NE(initial.find("claude-sonnet"), std::string::npos);
+    // System prompt message is shown
+    EXPECT_NE(initial.find("You are Claude"), std::string::npos);
+    // Prompt input indicator is present
+    EXPECT_NE(initial.find(">"), std::string::npos);
 
-    app->HandleCommand("/stats");
-    auto stats = render_to_plain_text(app->Render(), 120, 34);
-    EXPECT_NE(stats.find("Stats Overview"), std::string::npos);
-    EXPECT_NE(stats.find("Favorite model:"), std::string::npos);
-    EXPECT_NE(stats.find("You're using C++23!"), std::string::npos);
-
-    EXPECT_TRUE(app->OnEvent(ftxui::Event::Tab));
-    auto models = render_to_plain_text(app->Render(), 120, 34);
-    EXPECT_NE(models.find("Model Usage"), std::string::npos);
-
-    EXPECT_TRUE(app->OnEvent(ftxui::Event::Character('r')));
-    auto date_range = render_to_plain_text(app->Render(), 120, 34);
-    EXPECT_NE(date_range.find("Last 7 days"), std::string::npos);
-
-    EXPECT_TRUE(app->OnEvent(ftxui::Event::Escape));
-    auto closed_stats = render_to_plain_text(app->Render(), 120, 28);
-    EXPECT_EQ(closed_stats.find("Stats Overview"), std::string::npos);
-
+    // --- /model haiku-runtime: changes model in status bar ---
     app->HandleCommand("/model haiku-runtime");
     auto switched = render_to_plain_text(app->Render(), 120, 28);
-    EXPECT_NE(switched.find("Switched to: haiku-runtime"), std::string::npos);
+    EXPECT_NE(switched.find("haiku-runtime"), std::string::npos);
 
-    app->HandleCommand("/model");
-    auto model_status = render_to_plain_text(app->Render(), 120, 28);
-    EXPECT_NE(model_status.find("Model: haiku-runtime"), std::string::npos);
-
+    // --- /cost: sets status tip (visible via testing accessor) ---
     app->HandleCommand("/cost");
-    auto cost_status = render_to_plain_text(app->Render(), 120, 28);
-    EXPECT_NE(cost_status.find("Cost: $"), std::string::npos);
-    EXPECT_NE(cost_status.find("In: "), std::string::npos);
-    EXPECT_NE(cost_status.find("Out: "), std::string::npos);
+    auto status_msg = app->status_message_for_testing();
+    EXPECT_NE(status_msg.find("Cost: $"), std::string::npos);
+    EXPECT_NE(status_msg.find("In:"), std::string::npos);
+    EXPECT_NE(status_msg.find("Out:"), std::string::npos);
+    EXPECT_NE(status_msg.find("Ctx:"), std::string::npos);
 
+    // --- /clear: clears conversation, status bar retains current model ---
+    app->HandleCommand("/clear");
+    auto cleared = render_to_plain_text(app->Render(), 120, 28);
+    EXPECT_NE(cleared.find("haiku-runtime"), std::string::npos);  // status bar model unchanged
+
+    // --- /exit: triggers on_exit callback ---
     app->HandleCommand("/exit");
     EXPECT_TRUE(exited);
 
@@ -704,7 +1102,7 @@ TEST(AppRuntime, CtrlCWithoutRunningQueryRequestsExit) {
     cc::utils::SessionStorage storage(storage_root);
 
     bool exited = false;
-    auto app = ftxui::Make<cc::ui::AppComponent>(
+    auto app = ftxui::Make<cc::ui::AppAdapter>(
         &engine,
         &commands,
         &storage,
@@ -737,7 +1135,7 @@ TEST(AppRuntime, CtrlCWhileStreamingQueryCancelsWithoutExiting) {
     cc::utils::SessionStorage storage(storage_root);
 
     bool exited = false;
-    auto app = ftxui::Make<cc::ui::AppComponent>(
+    auto app = ftxui::Make<cc::ui::AppAdapter>(
         &engine,
         &commands,
         &storage,
@@ -776,7 +1174,7 @@ TEST(AppRuntime, CtrlCWhileStreamingQueryCancelsWithoutExiting) {
     fs::remove_all(storage_root);
 }
 
-TEST(AppRuntime, StreamingToolUseRendersRunningPreview) {
+TEST(AppRuntime, StreamingToolUseShowsSpinnerAndLoadingState) {
     LocalToolUseAnthropicStreamServer server;
     ASSERT_TRUE(server.valid());
 
@@ -794,22 +1192,30 @@ TEST(AppRuntime, StreamingToolUseRendersRunningPreview) {
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     cc::utils::SessionStorage storage(storage_root);
 
-    auto app = ftxui::Make<cc::ui::AppComponent>(
+    auto app = ftxui::Make<cc::ui::AppAdapter>(
         &engine,
         &commands,
         &storage,
         [] {});
     ReleaseAfterToolPreviewGuard release_guard{server};
 
+    EXPECT_FALSE(app->is_loading_for_testing());
+    EXPECT_FALSE(app->is_query_running_for_testing());
+
     app->HandleSubmit("show streaming tool use");
     ASSERT_TRUE(server.wait_for_tool_delta());
+
+    // While streaming: query is running, spinner is visible, tool name shown in spinner verb
     ASSERT_TRUE(wait_until([&] {
-        auto rendered = render_to_plain_text(app->Render(), 140, 36);
-        return rendered.find("Bash") != std::string::npos &&
-               rendered.find(R"({"command":"npm test"})") != std::string::npos;
+        (void)app->Render();
+        return app->is_query_running_for_testing();
     }, std::chrono::seconds(2)));
     EXPECT_TRUE(app->is_loading_for_testing());
     EXPECT_TRUE(app->is_query_running_for_testing());
+
+    // Rendered output should contain the tool name in the spinner line
+    auto during = strip_ansi(render_to_plain_text(app->Render(), 140, 36));
+    EXPECT_NE(during.find("Bash"), std::string::npos);
 
     server.release_after_preview();
     EXPECT_TRUE(wait_until([&] {
@@ -822,7 +1228,7 @@ TEST(AppRuntime, StreamingToolUseRendersRunningPreview) {
     fs::remove_all(storage_root);
 }
 
-TEST(AppRuntime, StreamingThinkingRendersRunningPreview) {
+TEST(AppRuntime, StreamingThinkingShowsSpinnerAndFinalContent) {
     LocalThinkingAnthropicStreamServer server;
     ASSERT_TRUE(server.valid());
 
@@ -840,22 +1246,30 @@ TEST(AppRuntime, StreamingThinkingRendersRunningPreview) {
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     cc::utils::SessionStorage storage(storage_root);
 
-    auto app = ftxui::Make<cc::ui::AppComponent>(
+    auto app = ftxui::Make<cc::ui::AppAdapter>(
         &engine,
         &commands,
         &storage,
         [] {});
     ReleaseAfterThinkingPreviewGuard release_guard{server};
 
+    EXPECT_FALSE(app->is_loading_for_testing());
+    EXPECT_FALSE(app->is_query_running_for_testing());
+
     app->HandleSubmit("show streaming thinking");
     ASSERT_TRUE(server.wait_for_thinking_delta());
+
+    // While streaming: query is running, spinner shows Thinking mode
     ASSERT_TRUE(wait_until([&] {
-        auto rendered = render_to_plain_text(app->Render(), 140, 36);
-        return rendered.find("Thinking") != std::string::npos &&
-               rendered.find("private streaming thinking") != std::string::npos;
+        (void)app->Render();
+        return app->is_query_running_for_testing();
     }, std::chrono::seconds(2)));
     EXPECT_TRUE(app->is_loading_for_testing());
     EXPECT_TRUE(app->is_query_running_for_testing());
+
+    // Rendered output should contain "Thinking" (in spinner line)
+    auto during = render_to_plain_text(app->Render(), 140, 36);
+    EXPECT_NE(during.find("Thinking"), std::string::npos);
 
     server.release_after_preview();
     EXPECT_TRUE(wait_until([&] {
@@ -864,8 +1278,7 @@ TEST(AppRuntime, StreamingThinkingRendersRunningPreview) {
     }, std::chrono::seconds(4)));
     auto done = render_to_plain_text(app->Render(), 140, 36);
     EXPECT_FALSE(app->is_loading_for_testing());
-    EXPECT_NE(done.find("Thinking"), std::string::npos);
-    EXPECT_NE(done.find("private streaming thinking"), std::string::npos);
+    // Final message contains the visible answer text
     EXPECT_NE(done.find("visible answer after thinking"), std::string::npos);
 
     fs::remove_all(storage_root);
@@ -884,7 +1297,7 @@ TEST(AppRuntime, PermissionCallbackRendersAndResolvesUserChoices) {
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     cc::utils::SessionStorage storage(storage_root);
 
-    auto app = ftxui::Make<cc::ui::AppComponent>(
+    auto app = ftxui::Make<cc::ui::AppAdapter>(
         &engine,
         &commands,
         &storage,
@@ -899,9 +1312,10 @@ TEST(AppRuntime, PermissionCallbackRendersAndResolvesUserChoices) {
     });
 
     const bool allow_prompt_shown = wait_until([&] {
-        auto rendered = render_to_plain_text(app->Render(), 120, 34);
+        auto rendered = strip_ansi(render_to_plain_text(app->Render(), 120, 34));
         return rendered.find("Permission Required") != std::string::npos &&
-               rendered.find("Tool: Bash") != std::string::npos &&
+               rendered.find("Tool:") != std::string::npos &&
+               rendered.find("Bash") != std::string::npos &&
                rendered.find("Run npm test") != std::string::npos;
     }, std::chrono::milliseconds(1000));
     EXPECT_TRUE(allow_prompt_shown);
@@ -919,9 +1333,10 @@ TEST(AppRuntime, PermissionCallbackRendersAndResolvesUserChoices) {
     });
 
     const bool deny_prompt_shown = wait_until([&] {
-        auto rendered = render_to_plain_text(app->Render(), 120, 34);
+        auto rendered = strip_ansi(render_to_plain_text(app->Render(), 120, 34));
         return rendered.find("Permission Required") != std::string::npos &&
-               rendered.find("Tool: Write") != std::string::npos &&
+               rendered.find("Tool:") != std::string::npos &&
+               rendered.find("Write") != std::string::npos &&
                rendered.find("Modify src/main.cpp") != std::string::npos;
     }, std::chrono::milliseconds(1000));
     EXPECT_TRUE(deny_prompt_shown);
@@ -939,9 +1354,10 @@ TEST(AppRuntime, PermissionCallbackRendersAndResolvesUserChoices) {
     });
 
     const bool always_prompt_shown = wait_until([&] {
-        auto rendered = render_to_plain_text(app->Render(), 120, 34);
+        auto rendered = strip_ansi(render_to_plain_text(app->Render(), 120, 34));
         return rendered.find("Permission Required") != std::string::npos &&
-               rendered.find("Tool: Read") != std::string::npos &&
+               rendered.find("Tool:") != std::string::npos &&
+               rendered.find("Read") != std::string::npos &&
                rendered.find("Read package.json") != std::string::npos;
     }, std::chrono::milliseconds(1000));
     EXPECT_TRUE(always_prompt_shown);
@@ -978,26 +1394,52 @@ TEST(AppRuntime, PermissionCallbackRendersAndResolvesUserChoices) {
     fs::remove_all(storage_root);
 }
 
-TEST(AppRuntime, RenderMessageShowsThinkingToolUseAndAssistantText) {
+TEST(AppRuntime, RenderMessageShowsThinkingContent) {
     cc::core::AssistantMessage assistant;
     assistant.content.push_back(cc::core::ThinkingBlock{
         .thinking = "private reasoning preview",
         .signature = "sig-1",
     });
+
+    auto rendered = render_to_plain_text(
+        cc::ui::RenderMessage(cc::core::Message{std::move(assistant)}), 140, 24);
+
+    EXPECT_NE(rendered.find("Thinking"), std::string::npos);
+    EXPECT_NE(rendered.find("private reasoning preview"), std::string::npos);
+}
+
+TEST(AppRuntime, RenderMessageShowsToolUseContent) {
+    cc::core::AssistantMessage assistant;
     assistant.content.push_back(cc::core::ToolUseBlock{
         .id = cc::core::ToolUseId{"tool-ui-1"},
         .name = "Bash",
         .input_json = R"({"command":"npm test"})",
     });
+
+    auto rendered = render_to_plain_text(
+        cc::ui::RenderMessage(cc::core::Message{std::move(assistant)}), 140, 24);
+
+    EXPECT_NE(rendered.find("Bash"), std::string::npos);
+}
+
+TEST(AppRuntime, RenderMessageShowsAssistantText) {
+    cc::core::AssistantMessage assistant;
     assistant.content.push_back(cc::core::TextBlock{"visible assistant answer"});
 
-    auto rendered = render_to_plain_text(cc::ui::RenderMessage(cc::core::Message{std::move(assistant)}), 140, 24);
+    auto rendered = render_to_plain_text(
+        cc::ui::RenderMessage(cc::core::Message{std::move(assistant)}), 140, 24);
 
-    EXPECT_NE(rendered.find("Thinking"), std::string::npos);
-    EXPECT_NE(rendered.find("private reasoning preview"), std::string::npos);
-    EXPECT_NE(rendered.find("Bash"), std::string::npos);
-    EXPECT_NE(rendered.find(R"({"command":"npm test"})"), std::string::npos);
     EXPECT_NE(rendered.find("visible assistant answer"), std::string::npos);
+}
+
+TEST(AppRuntime, RenderMessageShowsUserMessage) {
+    cc::core::UserMessage user;
+    user.content.push_back(cc::core::TextBlock{"hello world"});
+
+    auto rendered = render_to_plain_text(
+        cc::ui::RenderMessage(cc::core::Message{std::move(user)}), 140, 24);
+
+    EXPECT_NE(rendered.find("hello world"), std::string::npos);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

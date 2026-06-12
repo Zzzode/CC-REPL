@@ -22,10 +22,6 @@ module;
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_base.hpp>
 #include <ftxui/component/event.hpp>
-#include <ftxui/component/input.hpp>
-#include <ftxui/component/menu.hpp>
-#include <ftxui/component/toggle.hpp>
-#include <ftxui/component/screen_interactive.hpp>
 
 export module cc.ui.tasks.task_list_view;
 
@@ -336,19 +332,21 @@ inline const std::vector<std::string> kStatusOptions = {
     Elements tag_els;
     tag_els.push_back(text("Tags: ") | dim);
     // "All" tab
-    tag_els.push_back(
-        text(" All ") | (active_tag_tab == 0
-            ? (bold | color(Color::White) | bgcolor(Color::Cyan) | inverted)
-            : (dim | borderEmpty)));
+    auto all_tab = text(" All ");
+    all_tab = active_tag_tab == 0
+        ? (all_tab | bold | color(Color::White) | bgcolor(Color::Cyan) | inverted)
+        : (all_tab | dim | borderEmpty);
+    tag_els.push_back(all_tab);
     int shown = std::min(static_cast<int>(tag_values.size()), 8);
     for (int i = 0; i < shown; ++i) {
         int tab_idx = i + 1;
         auto& tv = tag_values[i];
         tag_els.push_back(text(" "));
-        tag_els.push_back(
-            text("#" + tv + " ") | (tab_idx == active_tag_tab
-                ? (bold | color(Color::White) | bgcolor(Color::Cyan) | inverted)
-                : (dim | borderEmpty)));
+        auto tag_tab = text("#" + tv + " ");
+        tag_tab = tab_idx == active_tag_tab
+            ? (tag_tab | bold | color(Color::White) | bgcolor(Color::Cyan) | inverted)
+            : (tag_tab | dim | borderEmpty);
+        tag_els.push_back(tag_tab);
     }
     if (static_cast<int>(tag_values.size()) > shown) {
         tag_els.push_back(text(std::format(" +{}", tag_values.size() - shown)) | dim);
@@ -459,8 +457,8 @@ inline const std::vector<std::string> kStatusOptions = {
         int filled = static_cast<int>(row.progress * w);
         int empty  = w - filled;
         std::string bar;
-        for (int i = 0; i < filled; ++i) bar += '█';
-        for (int i = 0; i < empty;  ++i) bar += '░';
+        for (int i = 0; i < filled; ++i) bar += "█";
+        for (int i = 0; i < empty;  ++i) bar += "░";
         Color pc = Color::Green;
         if      (row.progress < 0.3) pc = Color::GrayLight;
         else if (row.progress < 0.7) pc = Color::Yellow;

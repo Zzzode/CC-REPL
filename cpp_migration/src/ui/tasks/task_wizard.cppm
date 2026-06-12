@@ -22,7 +22,6 @@ module;
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_base.hpp>
 #include <ftxui/component/event.hpp>
-#include <ftxui/component/input.hpp>
 
 export module cc.ui.tasks.task_wizard;
 

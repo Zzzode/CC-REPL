@@ -105,7 +105,7 @@ namespace detail {
 
 // Pick a colour for the coloured-letter icon.
 [[nodiscard]] inline Color card_name_color(std::string_view name) {
-    static constexpr Color palette[] = {
+    static const Color palette[] = {
         Color::Cyan, Color::Magenta, Color::Yellow, Color::GreenLight,
         Color::BlueLight, Color::Orange1, Color::RedLight, Color::CyanLight,
     };
@@ -140,14 +140,13 @@ namespace detail {
 [[nodiscard]] inline Element RenderPluginCard(
     const PluginCardData& card,
     bool selected,
-    int card_index_within_row)   // 0 or 1 for 2-col grid
+    int)   // 0 or 1 for 2-col grid
 {
     Color accent = card_name_color(card.name);
     auto name_el = text(card.name) | bold | color(accent);
 
     // Rating line
     std::string stars;
-    const int rounded = (int)std::round(card.rating * 2.0f) / 2;
     int full = (int)card.rating;
     bool half = (std::round(card.rating * 10.0f) / 10.0f) - (float)full >= 0.5f;
     for (int i = 0; i < full; ++i) stars += "★";
@@ -229,7 +228,7 @@ namespace detail {
         }),
         separator() | dim,
         std::move(footer),
-    }) | padding(1);
+    });
 
     if (selected) {
         body = body | border | color(Color::Green) | bgcolor(Color::RGB(12, 22, 35));

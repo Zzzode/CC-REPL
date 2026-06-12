@@ -16,6 +16,7 @@ module;
 #include <cctype>
 #include <chrono>
 #include <cstdint>
+#include <expected>
 #include <functional>
 #include <map>
 #include <memory>
@@ -186,7 +187,7 @@ struct WizardProps {
                 paragraph(std::string{desc}) | dim | color(active ? Color::GrayLight : Color::GrayDark),
             }),
         });
-        if (active) row = row | bgcolor(Color::RGB(25, 35, 50)) | padding(0, 0, 0, 1);
+        if (active) row = row | bgcolor(Color::RGB(25, 35, 50));
         return row;
     };
 
@@ -306,13 +307,13 @@ struct WizardProps {
     if (f.auth == AuthMethod::BearerToken) {
         e.push_back(text(""));
         e.push_back(FieldRow("Token",
-            f.bearer_token.empty() ? std::string{} : std::string(f.bearer_token.size(), '•'),
+            f.bearer_token.empty() ? std::string{} : std::string(f.bearer_token.size(), '*'),
             "paste token", focus == 4));
     } else if (f.auth == AuthMethod::ApiKey) {
         e.push_back(text(""));
         e.push_back(FieldRow("Header name", f.api_key_header, "x-api-key", focus == 4));
         e.push_back(FieldRow("Header value",
-            f.api_key_value.empty() ? std::string{} : std::string(f.api_key_value.size(), '•'),
+            f.api_key_value.empty() ? std::string{} : std::string(f.api_key_value.size(), '*'),
             "paste key", focus == 5));
     } else if (f.auth == AuthMethod::OAuth) {
         e.push_back(text(""));
@@ -697,7 +698,7 @@ struct WizardProps {
                 state->step2_focus = std::min(n - 1, state->step2_focus + 1);
                 return true;
             }
-            if (event == Event::ArrowUp || event == Event::Backtab) {
+            if (event == Event::ArrowUp || event == Event::TabReverse) {
                 state->step2_focus = std::max(0, state->step2_focus - 1);
                 return true;
             }

@@ -77,15 +77,15 @@ enum class Priority : std::uint8_t {
 /// PriorityBadge(p) - left color bar + emoji + text label.
 /// Layout:  [bar] [emoji] [label]
 [[nodiscard]] inline Element PriorityBadge(Priority p, bool compact = false) {
-    auto color = priority_color(p);
+    auto accent = priority_color(p);
     auto emoji = priority_emoji(p);
     auto label = priority_label(p);
 
     Elements parts;
-    parts.push_back(separatorCharacter("│") | color(color));
+    parts.push_back(separatorCharacter("│") | color(accent));
     parts.push_back(text(" " + emoji));
     if (!compact) {
-        parts.push_back(text(" " + label) | color(color));
+        parts.push_back(text(" " + label) | color(accent));
     }
     return hbox(std::move(parts));
 }
@@ -224,7 +224,7 @@ struct Tag {
     for (char c : name) {
         h = (h * 131) + static_cast<unsigned char>(c);
     }
-    static constexpr Color palette[] = {
+    static const Color palette[] = {
         Color::BlueLight, Color::CyanLight, Color::GreenLight,
         Color::MagentaLight, Color::RedLight, Color::YellowLight,
         Color::Purple, Color::Orange1, Color::Aquamarine1,
@@ -308,8 +308,8 @@ struct Tag {
 
     std::string bar;
     bar.push_back('[');
-    for (int i = 0; i < filled; ++i) bar += '█';
-    for (int i = 0; i < empty;  ++i) bar += '░';
+    for (int i = 0; i < filled; ++i) bar += "█";
+    for (int i = 0; i < empty;  ++i) bar += "░";
     bar.push_back(']');
 
     Elements parts;

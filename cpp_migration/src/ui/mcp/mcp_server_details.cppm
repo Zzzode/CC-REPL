@@ -17,6 +17,7 @@ module;
 #include <cctype>
 #include <chrono>
 #include <cstdint>
+#include <expected>
 #include <functional>
 #include <map>
 #include <memory>
@@ -38,6 +39,7 @@ export module cc.ui.mcp.mcp_server_details;
 import cc.services.mcp.types;
 import cc.services.mcp.connection_manager;
 import cc.services.mcp.config;
+import cc.ui.mcp.mcp_server_list;
 
 export namespace cc::ui::mcp {
 using namespace ftxui;
@@ -294,7 +296,7 @@ inline Element status_badge_decor(ConnectionStatus s) {
 
 [[nodiscard]] inline Element RenderResourceList(
     const std::vector<McpResource>& resources,
-    int selected,
+    int,
     int focus) {
 
     Elements e;
@@ -359,7 +361,7 @@ inline Element status_badge_decor(ConnectionStatus s) {
 
 [[nodiscard]] inline Element RenderPromptList(
     const std::vector<McpPrompt>& prompts,
-    int selected,
+    int,
     int focus) {
 
     Elements e;
@@ -461,7 +463,7 @@ inline Element status_badge_decor(ConnectionStatus s) {
 
 [[nodiscard]] inline Element RenderSettingsTab(
     const ServerConfig* cfg,
-    ConnectionStatus status,
+    ConnectionStatus,
     int focus_idx) {
 
     Elements e;
@@ -589,7 +591,6 @@ inline Element status_badge_decor(ConnectionStatus s) {
     // --- Tool call form helpers ---
     auto open_tool_form = [state](int idx) {
         if (!state->snap || idx < 0 || idx >= (int)state->snap->tools.size()) return;
-        const auto& t = state->snap->tools[idx];
         state->call_state.open = true;
         state->call_state.tool_index = idx;
         state->call_state.stage = ToolCallFormState::Stage::Build;
@@ -775,7 +776,7 @@ inline Element status_badge_decor(ConnectionStatus s) {
                 (static_cast<int>(state->tab) + 1) % kTabCount);
             return true;
         }
-        if (event == Event::ArrowLeft || event == Event::Backtab) {
+        if (event == Event::ArrowLeft || event == Event::TabReverse) {
             state->tab = static_cast<DetailTab>(
                 (static_cast<int>(state->tab) + kTabCount - 1) % kTabCount);
             return true;
@@ -799,7 +800,7 @@ inline Element status_badge_decor(ConnectionStatus s) {
                     std::max(0, nf - 1);
                 return true;
             }
-            if (event == Event::Backtab) {
+            if (event == Event::TabReverse) {
                 state->call_state.focus_field = 0;
                 return true;
             }

@@ -59,7 +59,13 @@ using ::ui::components::StatusLineOptions;
 using ::ui::components::StatusLine;
 
 using ::ui::components::Suggestion;
+using ::ui::components::SuggestionCategory;
+using ::ui::components::PromptContext;
+using ::ui::components::PromptMode;
+using ::ui::components::PermissionMode;
 using ::ui::components::TextInputOptions;
 using ::ui::components::TextInput;
+using ::ui::components::TextInputImpl;
+using ::ui::components::MakeTextInputCore;
 
 } // namespace cc::ui::components

@@ -13,10 +13,9 @@ module;
 
 export module cc.ui.layout;
 
-export namespace cc::ui {
+import cc.ui.panels;
 
-// Forward reference to panel types
-enum class PanelType;
+export namespace cc::ui {
 
 // Layout arrangement modes
 enum class LayoutMode {

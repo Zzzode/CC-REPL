@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { spawn, spawnSync } from 'node:child_process'
@@ -8,7 +8,9 @@ import { createServer } from 'node:http'
 import { createHash } from 'node:crypto'
 
 const repoRoot = resolve(new URL('..', import.meta.url).pathname)
-const nativeBinary = resolve(repoRoot, 'dist', process.platform === 'win32' ? 'cc-repl.exe' : 'cc-repl')
+const nativeBinary = process.env.CC_REPL_NATIVE_BINARY
+  ? resolve(repoRoot, process.env.CC_REPL_NATIVE_BINARY)
+  : resolve(repoRoot, 'dist', process.platform === 'win32' ? 'cc-repl.exe' : 'cc-repl')
 
 function run(label, command, args, expectedText, options = {}) {
   const result = spawnSync(command, args, {
@@ -175,7 +177,7 @@ async function runHeadlessIngressLifecycleE2e() {
       5000,
       'headless started lifecycle event',
     )
-    child.kill('SIGTERM')
+    child.kill('SIGINT')
     await new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         child.kill('SIGKILL')
@@ -183,7 +185,7 @@ async function runHeadlessIngressLifecycleE2e() {
       }, 5000)
       child.once('exit', (code, signal) => {
         clearTimeout(timer)
-        if (code !== 0) {
+        if (code !== 0 && signal !== 'SIGINT') {
           reject(new Error(`headless process exited with code ${code ?? 'null'} signal ${signal ?? 'null'}\n${output.join('')}`))
           return
         }
@@ -2466,7 +2468,7 @@ rl.on('line', line => {
           arguments: { value: 'hello' },
         }),
       ],
-      `plugin:hello:configured:secret-token:${pluginRoot}`,
+      `plugin:hello:configured:secret-token:${realpathSync(pluginRoot)}`,
       {
         cwd: root,
         env: {

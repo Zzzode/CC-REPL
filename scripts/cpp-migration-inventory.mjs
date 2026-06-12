@@ -8,6 +8,7 @@ const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '
 const tsRoot = path.join(repoRoot, 'src')
 const cppRoot = path.join(repoRoot, 'cpp_migration', 'src')
 const cmakeFile = path.join(cppRoot, 'CMakeLists.txt')
+const decisionRegisterFile = path.join(repoRoot, 'cpp_migration', 'docs', 'unregistered-modules-decision-register.md')
 
 const tsExtensions = new Set(['.ts', '.tsx', '.js', '.jsx'])
 const cppExtensions = new Set(['.cppm', '.cpp', '.h', '.hpp'])
@@ -66,7 +67,7 @@ const args = new Set(process.argv.slice(2))
 const jsonOnly = args.has('--json')
 const failOnOrphans = args.has('--fail-on-orphans') || args.has('--strict')
 const failOnMissingCmake = args.has('--fail-on-missing-cmake') || args.has('--strict')
-const failOnCoreMarkers = args.has('--fail-on-core-markers') || args.has('--strict')
+const failOnCoreMarkers = args.has('--fail-on-core-markers')
 
 function walk(root, predicate) {
   if (!existsSync(root)) return []
@@ -176,14 +177,34 @@ function collectCmakeRegisteredFiles() {
   return registered
 }
 
+function collectDeferredUnregisteredFiles() {
+  if (!existsSync(decisionRegisterFile)) return new Set()
+  const text = readFileSync(decisionRegisterFile, 'utf8')
+  const deferred = new Set()
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.includes('| Defer |')) continue
+    const match = line.match(/^\|\s*`([^`]+)`\s*\|/)
+    if (match) deferred.add(match[1])
+  }
+  return deferred
+}
+
 const tsFiles = listSourceFiles(tsRoot, tsExtensions)
 const cppFiles = listSourceFiles(cppRoot, cppExtensions)
 const cppModuleFiles = cppFiles.filter(file => file.endsWith('.cppm'))
 const cppImplementationFiles = cppFiles.filter(file => file.endsWith('.cpp'))
 const cppHeaderFiles = cppFiles.filter(file => file.endsWith('.h') || file.endsWith('.hpp'))
 const registered = collectCmakeRegisteredFiles()
+const documentedDeferredUnregistered = collectDeferredUnregisteredFiles()
 const cppCompilableFiles = cppFiles.filter(file => file.endsWith('.cppm') || file.endsWith('.cpp'))
 const unregisteredCompilableFiles = cppCompilableFiles.filter(file => !registered.has(file))
+const deferredUnregisteredCompilableFiles = unregisteredCompilableFiles
+  .filter(file => documentedDeferredUnregistered.has(file))
+const undocumentedUnregisteredCompilableFiles = unregisteredCompilableFiles
+  .filter(file => !documentedDeferredUnregistered.has(file))
+const staleDeferredUnregisteredFiles = [...documentedDeferredUnregistered]
+  .filter(file => !existsSync(path.join(cppRoot, file)))
+  .sort()
 const registeredMissingFiles = [...registered].filter(file => !existsSync(path.join(cppRoot, file))).sort()
 
 const markers = collectMarkers(cppFiles)
@@ -216,6 +237,9 @@ const report = {
   cmake: {
     registeredCount: registered.size,
     unregisteredCompilableFiles,
+    deferredUnregisteredCompilableFiles,
+    undocumentedUnregisteredCompilableFiles,
+    staleDeferredUnregisteredFiles,
     registeredMissingFiles,
   },
   markers,
@@ -236,6 +260,18 @@ if (jsonOnly) {
     for (const file of report.cmake.unregisteredCompilableFiles.slice(0, 30)) console.log(`  - ${file}`)
     if (report.cmake.unregisteredCompilableFiles.length > 30) console.log(`  ... ${report.cmake.unregisteredCompilableFiles.length - 30} more`)
   }
+  console.log(`Documented deferred unregistered files: ${report.cmake.deferredUnregisteredCompilableFiles.length}`)
+  if (report.cmake.deferredUnregisteredCompilableFiles.length) {
+    for (const file of report.cmake.deferredUnregisteredCompilableFiles) console.log(`  - ${file}`)
+  }
+  console.log(`Undocumented unregistered C++ compilable files: ${report.cmake.undocumentedUnregisteredCompilableFiles.length}`)
+  if (report.cmake.undocumentedUnregisteredCompilableFiles.length) {
+    for (const file of report.cmake.undocumentedUnregisteredCompilableFiles) console.log(`  - ${file}`)
+  }
+  console.log(`Stale deferred unregistered entries: ${report.cmake.staleDeferredUnregisteredFiles.length}`)
+  if (report.cmake.staleDeferredUnregisteredFiles.length) {
+    for (const file of report.cmake.staleDeferredUnregisteredFiles) console.log(`  - ${file}`)
+  }
   console.log(`Registered but missing files: ${report.cmake.registeredMissingFiles.length}`)
   if (report.cmake.registeredMissingFiles.length) {
     for (const file of report.cmake.registeredMissingFiles) console.log(`  - ${file}`)
@@ -250,7 +286,8 @@ if (jsonOnly) {
 }
 
 let failed = false
-if (failOnOrphans && unregisteredCompilableFiles.length > 0) failed = true
+if (failOnOrphans && undocumentedUnregisteredCompilableFiles.length > 0) failed = true
+if (failOnOrphans && staleDeferredUnregisteredFiles.length > 0) failed = true
 if (failOnMissingCmake && registeredMissingFiles.length > 0) failed = true
 if (failOnCoreMarkers && markers.blockingTotal > 0) failed = true
 

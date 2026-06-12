@@ -54,18 +54,17 @@ using MembershipRole = cc::ui::teams::overview::MembershipRole;
 using ActivityKind   = cc::ui::teams::overview::ActivityKind;
 using ActivityEntry  = cc::ui::teams::overview::ActivityEntry;
 using MemberCard     = cc::ui::teams::overview::MemberCard;
-
-using PresenceColor = cc::ui::teams::overview::PresenceColor;
-using StatusDot     = cc::ui::teams::overview::StatusDot;
-using RoleColor     = cc::ui::teams::overview::RoleColor;
-using RoleLabel     = cc::ui::teams::overview::RoleLabel;
-using RoleTag       = cc::ui::teams::overview::RoleTag;
-using AgentAvatar   = cc::ui::teams::overview::AgentAvatar;
-using RelativeTime  = cc::ui::teams::overview::RelativeTime;
-using ActivityColor = cc::ui::teams::overview::ActivityColor;
-using ActivityGlyph = cc::ui::teams::overview::ActivityGlyph;
 using ViewerRole    = cc::ui::teams::overview::ViewerRole;
-using ViewerRoleBadge = cc::ui::teams::overview::ViewerRoleBadge;
+using cc::ui::teams::overview::PresenceColor;
+using cc::ui::teams::overview::StatusDot;
+using cc::ui::teams::overview::RoleColor;
+using cc::ui::teams::overview::RoleLabel;
+using cc::ui::teams::overview::RoleTag;
+using cc::ui::teams::overview::AgentAvatar;
+using cc::ui::teams::overview::RelativeTime;
+using cc::ui::teams::overview::ActivityColor;
+using cc::ui::teams::overview::ActivityGlyph;
+using cc::ui::teams::overview::ViewerRoleBadge;
 
 // ============================================================
 // Tab selection
@@ -166,11 +165,10 @@ enum class Capability : std::uint8_t {
 }
 
 // The roles that form the matrix columns
-constexpr std::array<MembershipRole, 5> kRoles = {
+constexpr std::array<MembershipRole, 4> kRoles = {
     MembershipRole::Owner,
     MembershipRole::Maintainer,
     MembershipRole::Member,
-    MembershipRole::Viewer,
     MembershipRole::Guest,
 };
 
@@ -181,10 +179,6 @@ constexpr std::array<MembershipRole, 5> kRoles = {
     if (r == MembershipRole::Owner) return true;
     // Guest: view only
     if (r == MembershipRole::Guest) return (c == Capability::ViewTeam);
-    // Viewer: view + audit log
-    if (r == MembershipRole::Viewer) {
-        return (c == Capability::ViewTeam || c == Capability::ViewAuditLog);
-    }
     // Member: create agents, run bash, manage secrets, view audit, view team
     switch (c) {
         case Capability::ViewTeam:
@@ -650,13 +644,13 @@ struct TeamDetailsDialogOptions {
     });
 
     Element usage_body = opts.usage_stats_element
-        ? *opts.usage_stats_element
-        : vbox({
+        ? opts.usage_stats_element
+        : (vbox({
             text(" ┌ Total cost .............. $0.00 ") | dim,
             text(" ├ Tokens (in / out) ...... 0 / 0 ") | dim,
             text(" ├ Daily budget ............ 0% ")    | dim,
             text(" └ Rate limit .............. 0% ")    | dim,
-        }) | borderLight;
+        }) | borderLight);
 
     // --- Integrations section ---
     Element int_header = hbox({
@@ -830,14 +824,14 @@ struct TeamDetailsDialogOptions {
                     const auto& cur = state->members[state->selected_member];
                     constexpr MembershipRole kCycle[] = {
                         MembershipRole::Guest,
-                        MembershipRole::Viewer,
                         MembershipRole::Member,
                         MembershipRole::Maintainer,
                         MembershipRole::Owner,
                     };
                     int idx = 0;
-                    for (int i = 0; i < 5; ++i)
-                        if (kCycle[i] == cur.role) { idx = (i + 1) % 5; break; }
+                    constexpr int kCycleCount = static_cast<int>(std::size(kCycle));
+                    for (int i = 0; i < kCycleCount; ++i)
+                        if (kCycle[i] == cur.role) { idx = (i + 1) % kCycleCount; break; }
                     MembershipRole next = kCycle[idx];
                     state->members[state->selected_member].role = next;
                     state->on_change_member_role(cur, next);

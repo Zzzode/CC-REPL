@@ -29,10 +29,30 @@ import cc.types.types;
 import cc.commands.plugin_ui_data;
 import cc.commands.plugin_pagination_util;
 import cc.ui.custom_select;
-import cc.ui.dialogs.plugin_dialog;
 
 export namespace cc::ui::plugins::plugin_manage_panel {
 using namespace ftxui;
+
+// CSS-style padding decorator: padding(top, right, bottom, left).
+inline Decorator padding(int top, int right, int bottom, int left) {
+    return [=](Element e) -> Element {
+        Elements rows;
+        for (int i = 0; i < top; ++i) rows.push_back(text(""));
+        {
+            Elements left_pad, right_pad;
+            for (int i = 0; i < left; ++i) left_pad.push_back(text(" "));
+            for (int i = 0; i < right; ++i) right_pad.push_back(text(" "));
+            rows.push_back(hbox({
+                hbox(std::move(left_pad)),
+                std::move(e),
+                hbox(std::move(right_pad)),
+            }));
+        }
+        for (int i = 0; i < bottom; ++i) rows.push_back(text(""));
+        return vbox(std::move(rows));
+    };
+}
+inline Decorator padding(int all) { return padding(all, all, all, all); }
 
 namespace ui = cc::commands::plugin_ui;
 namespace pp = cc::commands::plugin;
@@ -153,7 +173,7 @@ namespace detail {
     }
 
     Elements right;
-    right.push_back(text(" ") | filler());
+    right.push_back(filler());
     // Tool/command counts
     if (p.tool_count || p.command_count) {
         right.push_back(text(std::format("🔧{} ⌘{}", p.tool_count, p.command_count)) | dim);
@@ -164,7 +184,7 @@ namespace detail {
 
     auto line = hbox({
         hbox(std::move(left)),
-        text(" ") | filler(),
+        filler(),
         hbox(std::move(right)),
     });
 
@@ -377,7 +397,7 @@ inline void RecomputeFiltered(ManageState& s) {
         return false;
     });
 
-    return Renderer([state] {
+    return Renderer([state, search_with_filter] {
         const auto snap = state->paginator.snapshot();
         auto toolbar = detail::RenderToolbar(
             state->search_text, state->filter, state->sort,
@@ -449,7 +469,7 @@ inline void RecomputeFiltered(ManageState& s) {
             text(" "),
             std::move(detail) | flex,
         });
-    }) | CatchEvent([state](Event event) -> bool {
+    }) | CatchEvent([state, search_input](Event event) -> bool {
         // Search mode
         if (state->searching) {
             if (event == Event::Escape) {
@@ -525,7 +545,7 @@ inline void RecomputeFiltered(ManageState& s) {
         const auto actual_i = state->paginator.start_index() + page_idx;
         if (actual_i >= state->filtered_indices.size()) return false;
         const auto& p = state->inputs.installed[state->filtered_indices[actual_i]];
-        std::string_view id = p.name + "@" + p.marketplace;
+        std::string id = p.name + "@" + p.marketplace;
 
         // Space: toggle enable
         if (event == Event::Character(' ')) {
