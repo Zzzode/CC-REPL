@@ -61,13 +61,17 @@ public:
                         .name = "team_id",
                         .type = "string",
                         .description = "Team id to delete",
-                        .required = false
+                        .required = false,
+                        .default_value = std::nullopt,
+                        .enum_values = std::nullopt,
                     },
                     SchemaProperty{
                         .name = "team_name",
                         .type = "string",
                         .description = "Team name to delete",
-                        .required = false
+                        .required = false,
+                        .default_value = std::nullopt,
+                        .enum_values = std::nullopt,
                     },
                 }
             },

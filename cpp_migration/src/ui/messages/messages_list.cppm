@@ -20,7 +20,7 @@
 ///       +  RenderMessageRowByType(shape, payload, callbacks)
 ///   import cc.ui.messages.message_timestamp;
 ///   import cc.ui.design.themed_text;        // UI20 tokens placeholder
-///   import cc.ui.design.themed_box;         // UI20 primitives placeholder
+///   import cc.ui.design.themed_box;         // UI20 primitive stand-in
 ///   import cc.ui.components.spinner;        // for streaming tail glyph
 ///
 ///   NOTE: UI20 design.tokens / design.primitives modules are not yet
@@ -486,11 +486,10 @@ inline auto build_visible_rows(MessagesListInput& input) -> std::vector<VisibleR
                     }
                     // Add / delete counts come from diff payloads.  We don't
                     // want to pull the structured_diff module here, so the
-                    // engine can write precomputed stats into
-                    // compact_boundary_groups[].{additions,deletions} via
-                    // the optional parallel vector (see TODO below).  For
-                    // now we approximate from UserToolResult preview_text
-                    // occurrences of "+++" / "---" markers — cheap.
+                    // engine can write precomputed stats alongside compact
+                    // boundary groups. Until that richer input shape lands,
+                    // approximate from UserToolResult preview_text
+                    // occurrences of "+++" / "---" markers.
                     if (sh == MessageShape::UserToolResult && r < input.rows.size()) {
                         const std::string t = detail::payload_preview(input.rows[r]);
                         // rough counts
@@ -1330,10 +1329,9 @@ class MessagesListComponent final : public ComponentBase {
 } // namespace cc::ui::messages_list
 
 // =========================================================================
-// TODO (UI21 → REPL integration):
+// REPL integration note:
 //   In repl_screen.cppm's `RenderMessages` / `MakeReplScreen` the call site
-//   will look roughly like this — real wiring follows once the engine owns
-//   the shape/payload parallel vectors:
+//   uses this shape/payload API once the engine owns the parallel vectors:
 //
 //     import cc.ui.messages.messages_list;
 //     using cc::ui::messages_list::MakeMessagesList;

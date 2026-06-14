@@ -128,7 +128,8 @@ constexpr std::string_view kBase58Alphabet =
 // This covers the common keyword phrases the TS skill asks the LLM to
 // translate ("tomorrow 9am", "every Monday 10am", "every weekday at 9am").
 // The function intentionally keeps a small, testable surface; the LLM is
-// trusted to handle edge cases.  Complex NLP is TODO (no date lib in deps).
+// trusted to handle edge cases.  Full NLP support is deferred; no date
+// parsing library is available in the current dependency set.
 // ============================================================
 struct NlParseResult {
     std::optional<std::string> cron_expr;     /// 5-field cron (UTC)

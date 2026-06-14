@@ -13,6 +13,8 @@
 #include <fstream>
 #include <numeric>
 #include <memory>
+#include <optional>
+#include <utility>
 
 #include <gtest/gtest.h>
 
@@ -42,6 +44,16 @@ namespace {
     return std::make_shared<cc::state::AppStore>(
         cc::state::get_default_app_state(),
         &cc::state::app_reducer);
+}
+
+[[nodiscard]] cc::core::Message make_user_message(std::string id, std::string text) {
+    return cc::core::UserMessage{
+        cc::core::MessageBase{
+            cc::core::MessageId{std::move(id)},
+            std::chrono::system_clock::now(),
+            {cc::core::TextBlock{std::move(text)}}
+        }
+    };
 }
 
 } // namespace
@@ -133,6 +145,372 @@ TEST(StateStore, UnknownActionNoOp) {
 
     EXPECT_EQ(before.verbose, after.verbose);
     EXPECT_EQ(before.is_loading, after.is_loading);
+}
+
+TEST(StateStore, DispatchPermissionParityActions) {
+    auto store = make_test_store();
+
+    store->dispatch(cc::state::Action{cc::state::ActionType::GrantPermission, std::string{"Bash"}});
+    store->dispatch(cc::state::Action{cc::state::ActionType::RevokePermission, std::string{"Bash"}});
+    store->dispatch(cc::state::Action{cc::state::ActionType::GrantPermission, std::string{"Read"}});
+
+    auto state = store->get_state();
+    EXPECT_FALSE(state.tool_permission_context.allowed_tools.contains("Bash"));
+    EXPECT_TRUE(state.tool_permission_context.denied_tools.contains("Bash"));
+    EXPECT_TRUE(state.tool_permission_context.allowed_tools.contains("Read"));
+    EXPECT_FALSE(state.tool_permission_context.denied_tools.contains("Read"));
+}
+
+TEST(StateStore, DispatchMessageAndSettingsParityActions) {
+    auto store = make_test_store();
+
+    store->dispatch(cc::state::Action{
+        cc::state::ActionType::AddMessage,
+        make_user_message("msg-1", "first")});
+    store->dispatch(cc::state::Action{
+        cc::state::ActionType::UpdateLastMessage,
+        make_user_message("msg-2", "replacement")});
+
+    cc::state::Settings settings;
+    settings.model = "claude-sonnet-4-6";
+    settings.theme = "dark";
+    settings.verbose = true;
+    store->dispatch(cc::state::Action{cc::state::ActionType::UpdateSettings, settings});
+    store->dispatch(cc::state::Action{cc::state::ActionType::SetThinkingEnabled, false});
+    store->dispatch(cc::state::Action{cc::state::ActionType::SetPromptSuggestionEnabled, false});
+
+    auto state = store->get_state();
+    ASSERT_EQ(state.messages.size(), 1u);
+    ASSERT_TRUE(std::holds_alternative<cc::core::UserMessage>(state.messages.front()));
+    const auto& updated = std::get<cc::core::UserMessage>(state.messages.front());
+    EXPECT_EQ(updated.id.value, "msg-2");
+    ASSERT_EQ(updated.content.size(), 1u);
+    EXPECT_EQ(std::get<cc::core::TextBlock>(updated.content.front()).text, "replacement");
+    EXPECT_EQ(state.settings.model, "claude-sonnet-4-6");
+    EXPECT_EQ(state.settings.theme, "dark");
+    EXPECT_TRUE(state.settings.verbose);
+    EXPECT_FALSE(state.thinking_enabled);
+    EXPECT_FALSE(state.prompt_suggestion_enabled);
+}
+
+TEST(StateStore, DispatchUiParityActions) {
+    auto store = make_test_store();
+
+    store->dispatch(cc::state::Action{
+        cc::state::ActionType::SetSlashCommand,
+        std::optional<std::string>{"/help"}});
+    store->dispatch(cc::state::Action{cc::state::ActionType::AddNotification, std::string{"n1"}});
+    store->dispatch(cc::state::Action{cc::state::ActionType::AddNotification, std::string{"n2"}});
+    store->dispatch(cc::state::Action{cc::state::ActionType::DismissNotification, std::string{"n1"}});
+    store->dispatch(cc::state::Action{
+        cc::state::ActionType::SetStatusLineText,
+        std::optional<std::string>{"ready"}});
+    store->dispatch(cc::state::Action{
+        cc::state::ActionType::SetFooterSelection,
+        std::optional<cc::state::FooterItem>{cc::state::FooterItem::Tasks}});
+    store->dispatch(cc::state::Action{
+        cc::state::ActionType::SetSpinnerTip,
+        std::optional<std::string>{"working"}});
+    store->dispatch(cc::state::Action{cc::state::ActionType::SetBriefOnly, true});
+    store->dispatch(cc::state::Action{cc::state::ActionType::SetShowTeammatePreview, true});
+    store->dispatch(cc::state::Action{cc::state::ActionType::SetSelectedAgentIndex, 2});
+    store->dispatch(cc::state::Action{cc::state::ActionType::SetCoordinatorTaskIndex, 3});
+    store->dispatch(cc::state::Action{cc::state::ActionType::SetViewSelectionMode, std::string{"viewing-agent"}});
+
+    auto state = store->get_state();
+    ASSERT_TRUE(state.active_slash_command.has_value());
+    EXPECT_EQ(*state.active_slash_command, "/help");
+    ASSERT_EQ(state.notifications.size(), 1u);
+    EXPECT_EQ(state.notifications.front(), "n2");
+    ASSERT_TRUE(state.status_line_text.has_value());
+    EXPECT_EQ(*state.status_line_text, "ready");
+    ASSERT_TRUE(state.footer_selection.has_value());
+    EXPECT_EQ(*state.footer_selection, cc::state::FooterItem::Tasks);
+    ASSERT_TRUE(state.spinner_tip.has_value());
+    EXPECT_EQ(*state.spinner_tip, "working");
+    EXPECT_TRUE(state.is_brief_only);
+    EXPECT_TRUE(state.show_teammate_message_preview);
+    EXPECT_EQ(state.selected_ip_agent_index, 2);
+    EXPECT_EQ(state.coordinator_task_index, 3);
+    EXPECT_EQ(state.view_selection_mode, "viewing-agent");
+}
+
+TEST(StateStore, DispatchBridgeAndRemoteParityActions) {
+    auto store = make_test_store();
+
+    store->dispatch(cc::state::Action{cc::state::ActionType::SetBridgeEnabled, true});
+    store->dispatch(cc::state::Action{cc::state::ActionType::SetBridgeExplicit, true});
+    store->dispatch(cc::state::Action{cc::state::ActionType::SetBridgeOutboundOnly, true});
+    store->dispatch(cc::state::Action{cc::state::ActionType::SetBridgeConnected, true});
+    store->dispatch(cc::state::Action{cc::state::ActionType::SetBridgeSessionActive, true});
+    store->dispatch(cc::state::Action{cc::state::ActionType::SetBridgeReconnecting, true});
+    store->dispatch(cc::state::Action{
+        cc::state::ActionType::SetBridgeConnectUrl,
+        std::optional<std::string>{"http://bridge/connect"}});
+    store->dispatch(cc::state::Action{
+        cc::state::ActionType::SetBridgeSessionUrl,
+        std::optional<std::string>{"http://bridge/session"}});
+    store->dispatch(cc::state::Action{
+        cc::state::ActionType::SetBridgeEnvironmentId,
+        std::optional<std::string>{"env-1"}});
+    store->dispatch(cc::state::Action{
+        cc::state::ActionType::SetBridgeSessionId,
+        std::optional<std::string>{"session-1"}});
+    store->dispatch(cc::state::Action{
+        cc::state::ActionType::SetBridgeError,
+        std::optional<std::string>{"bridge error"}});
+    store->dispatch(cc::state::Action{
+        cc::state::ActionType::SetBridgeInitialName,
+        std::optional<std::string>{"local"}});
+    store->dispatch(cc::state::Action{cc::state::ActionType::SetShowRemoteCallout, true});
+    store->dispatch(cc::state::Action{
+        cc::state::ActionType::SetRemoteSessionUrl,
+        std::optional<std::string>{"http://remote/session"}});
+    store->dispatch(cc::state::Action{
+        cc::state::ActionType::SetRemoteConnectionStatus,
+        cc::state::RemoteConnectionStatus::Connected});
+    store->dispatch(cc::state::Action{cc::state::ActionType::SetRemoteBackgroundTaskCount, 7u});
+
+    auto state = store->get_state();
+    EXPECT_TRUE(state.repl_bridge_enabled);
+    EXPECT_TRUE(state.repl_bridge_explicit);
+    EXPECT_TRUE(state.repl_bridge_outbound_only);
+    EXPECT_TRUE(state.repl_bridge_connected);
+    EXPECT_TRUE(state.repl_bridge_session_active);
+    EXPECT_TRUE(state.repl_bridge_reconnecting);
+    EXPECT_EQ(state.repl_bridge_connect_url, std::optional<std::string>{"http://bridge/connect"});
+    EXPECT_EQ(state.repl_bridge_session_url, std::optional<std::string>{"http://bridge/session"});
+    EXPECT_EQ(state.repl_bridge_environment_id, std::optional<std::string>{"env-1"});
+    EXPECT_EQ(state.repl_bridge_session_id, std::optional<std::string>{"session-1"});
+    EXPECT_EQ(state.repl_bridge_error, std::optional<std::string>{"bridge error"});
+    EXPECT_EQ(state.repl_bridge_initial_name, std::optional<std::string>{"local"});
+    EXPECT_TRUE(state.show_remote_callout);
+    EXPECT_EQ(state.remote_session_url, std::optional<std::string>{"http://remote/session"});
+    EXPECT_EQ(state.remote_connection_status, cc::state::RemoteConnectionStatus::Connected);
+    EXPECT_EQ(state.remote_background_task_count, 7u);
+}
+
+TEST(StateStore, DispatchTasksAgentsAndOverlayParityActions) {
+    auto store = make_test_store();
+
+    cc::state::TaskState task{
+        .id = "task-1",
+        .title = "Investigate",
+        .status = "running",
+        .messages = {},
+        .created_at = std::chrono::system_clock::now(),
+    };
+    store->dispatch(cc::state::Action{cc::state::ActionType::AddTask, task});
+    task.status = "done";
+    store->dispatch(cc::state::Action{cc::state::ActionType::UpdateTask, task});
+    store->dispatch(cc::state::Action{
+        cc::state::ActionType::SetForegroundedTaskId,
+        std::optional<std::string>{"task-1"}});
+    store->dispatch(cc::state::Action{
+        cc::state::ActionType::SetViewingAgentTaskId,
+        std::optional<std::string>{"task-1"}});
+    store->dispatch(cc::state::Action{
+        cc::state::ActionType::RegisterAgentName,
+        std::pair<std::string, std::string>{"agent-a", "task-1"}});
+    store->dispatch(cc::state::Action{
+        cc::state::ActionType::SetAgent,
+        std::optional<std::string>{"agent-a"}});
+    store->dispatch(cc::state::Action{cc::state::ActionType::SetKairosEnabled, true});
+    store->dispatch(cc::state::Action{cc::state::ActionType::SetCompanionReaction, std::optional<std::string>{"ok"}});
+    const auto pet_time = std::chrono::system_clock::now();
+    store->dispatch(cc::state::Action{cc::state::ActionType::SetCompanionPetTime, std::optional{pet_time}});
+    store->dispatch(cc::state::Action{cc::state::ActionType::AddActiveOverlay, std::string{"help"}});
+    store->dispatch(cc::state::Action{cc::state::ActionType::RemoveActiveOverlay, std::string{"help"}});
+    store->dispatch(cc::state::Action{cc::state::ActionType::AddActiveOverlay, std::string{"tasks"}});
+
+    auto state = store->get_state();
+    ASSERT_TRUE(state.tasks.contains("task-1"));
+    EXPECT_EQ(state.tasks.at("task-1").status, "done");
+    EXPECT_EQ(state.foregrounded_task_id, std::optional<std::string>{"task-1"});
+    EXPECT_EQ(state.viewing_agent_task_id, std::optional<std::string>{"task-1"});
+    ASSERT_TRUE(state.agent_name_registry.contains("agent-a"));
+    EXPECT_EQ(state.agent_name_registry.at("agent-a"), "task-1");
+    EXPECT_EQ(state.agent, std::optional<std::string>{"agent-a"});
+    EXPECT_TRUE(state.kairos_enabled);
+    EXPECT_EQ(state.companion_reaction, std::optional<std::string>{"ok"});
+    EXPECT_EQ(state.companion_pet_at, std::optional{pet_time});
+    EXPECT_FALSE(state.active_overlays.contains("help"));
+    EXPECT_TRUE(state.active_overlays.contains("tasks"));
+
+    store->dispatch(cc::state::Action{cc::state::ActionType::RemoveTask, std::string{"task-1"}});
+    store->dispatch(cc::state::Action{cc::state::ActionType::ClearActiveOverlays});
+    state = store->get_state();
+    EXPECT_FALSE(state.tasks.contains("task-1"));
+    EXPECT_TRUE(state.active_overlays.empty());
+}
+
+TEST(StateStore, DispatchFeatureBucketParityActions) {
+    auto store = make_test_store();
+
+    cc::state::MCPState mcp;
+    mcp.clients.push_back(cc::state::MCPServerConnection{
+        .id = "mcp-1",
+        .name = "MCP",
+        .url = "stdio://mcp",
+        .connected = true,
+    });
+    store->dispatch(cc::state::Action{cc::state::ActionType::UpdateMcpState, mcp});
+    store->dispatch(cc::state::Action{cc::state::ActionType::IncrementMcpReconnectKey});
+
+    cc::state::AppState::PluginsState plugins;
+    plugins.enabled.push_back(cc::state::LoadedPlugin{
+        .id = "plugin-1",
+        .name = "Plugin",
+        .version = "1.0.0",
+        .enabled = true,
+        .commands = {},
+        .tools = {},
+    });
+    store->dispatch(cc::state::Action{cc::state::ActionType::UpdatePluginsState, plugins});
+    store->dispatch(cc::state::Action{cc::state::ActionType::SetPluginsNeedRefresh, true});
+
+    cc::state::SpeculationState speculation;
+    speculation.status = cc::state::SpeculationStatus::Active;
+    speculation.id = "spec-1";
+    store->dispatch(cc::state::Action{cc::state::ActionType::SetSpeculationState, speculation});
+    store->dispatch(cc::state::Action{cc::state::ActionType::SetSpeculationTimeSaved, 1234LL});
+
+    cc::state::AppState::SkillImprovementState::Suggestion suggestion;
+    suggestion.skill_name = "state";
+    store->dispatch(cc::state::Action{cc::state::ActionType::SetSkillSuggestion, std::optional{suggestion}});
+    store->dispatch(cc::state::Action{cc::state::ActionType::IncrementAuthVersion});
+    store->dispatch(cc::state::Action{cc::state::ActionType::SetEffortValue, std::optional<std::string>{"high"}});
+    store->dispatch(cc::state::Action{cc::state::ActionType::SetAdvisorModel, std::optional<std::string>{"advisor"}});
+    store->dispatch(cc::state::Action{cc::state::ActionType::SetUltraplanLaunching, true});
+    store->dispatch(cc::state::Action{
+        cc::state::ActionType::SetUltraplanSessionUrl,
+        std::optional<std::string>{"http://ultraplan/session"}});
+    store->dispatch(cc::state::Action{cc::state::ActionType::SetUltraplanMode, true});
+
+    auto state = store->get_state();
+    ASSERT_EQ(state.mcp.clients.size(), 1u);
+    EXPECT_EQ(state.mcp.clients.front().id, "mcp-1");
+    EXPECT_EQ(state.mcp.plugin_reconnect_key, 1u);
+    ASSERT_EQ(state.plugins.enabled.size(), 1u);
+    EXPECT_EQ(state.plugins.enabled.front().id, "plugin-1");
+    EXPECT_TRUE(state.plugins.needs_refresh);
+    EXPECT_EQ(state.speculation.status, cc::state::SpeculationStatus::Active);
+    EXPECT_EQ(state.speculation.id, "spec-1");
+    EXPECT_EQ(state.speculation_session_time_saved_ms, 1234LL);
+    ASSERT_TRUE(state.skill_improvement.suggestion.has_value());
+    EXPECT_EQ(state.skill_improvement.suggestion->skill_name, "state");
+    EXPECT_EQ(state.auth_version, 1u);
+    EXPECT_EQ(state.effort_value, std::optional<std::string>{"high"});
+    EXPECT_EQ(state.advisor_model, std::optional<std::string>{"advisor"});
+    EXPECT_TRUE(state.ultraplan_launching);
+    EXPECT_EQ(state.ultraplan_session_url, std::optional<std::string>{"http://ultraplan/session"});
+    EXPECT_TRUE(state.is_ultraplan_mode);
+}
+
+TEST(StateStore, DispatchPendingRequestPromptAndInboxParityActions) {
+    auto store = make_test_store();
+
+    cc::state::AppState::InitialMessage initial{
+        .message = std::get<cc::core::UserMessage>(make_user_message("initial", "start")),
+        .clear_context = true,
+        .mode = cc::state::PermissionMode::Plan,
+        .allowed_prompts = {"plan"},
+    };
+    store->dispatch(cc::state::Action{cc::state::ActionType::SetInitialMessage, initial});
+
+    cc::state::AppState::WorkerSandboxPermissions::PermissionRequest permission{
+        .request_id = "perm-1",
+        .worker_id = "worker-1",
+        .worker_name = "Worker",
+        .worker_color = "blue",
+        .host = "localhost",
+        .created_at = std::chrono::system_clock::now(),
+    };
+    store->dispatch(cc::state::Action{cc::state::ActionType::AddSandboxPermissionRequest, permission});
+    store->dispatch(cc::state::Action{
+        cc::state::ActionType::SetSelectedSandboxPermissionIndex,
+        std::size_t{4}});
+    store->dispatch(cc::state::Action{
+        cc::state::ActionType::SetPendingWorkerRequest,
+        std::optional{cc::state::AppState::PendingWorkerRequest{
+            .tool_name = "Bash",
+            .tool_use_id = "tool-1",
+            .description = "run command",
+        }}});
+    store->dispatch(cc::state::Action{
+        cc::state::ActionType::SetPendingSandboxRequest,
+        std::optional{cc::state::AppState::PendingSandboxRequest{
+            .request_id = "sandbox-1",
+            .host = "localhost",
+        }}});
+
+    cc::state::AppState::PromptSuggestionState prompt;
+    prompt.text = "try this";
+    prompt.prompt_id = "prompt-1";
+    prompt.shown_at = std::chrono::system_clock::now();
+    store->dispatch(cc::state::Action{cc::state::ActionType::SetPromptSuggestion, prompt});
+
+    cc::state::AppState::InboxState::InboxMessage inbox_message{
+        .id = "inbox-1",
+        .from = "agent",
+        .text = "done",
+        .timestamp = "now",
+        .status = "unread",
+        .color = "green",
+        .summary = "summary",
+    };
+    store->dispatch(cc::state::Action{cc::state::ActionType::AddInboxMessage, inbox_message});
+
+    auto state = store->get_state();
+    ASSERT_TRUE(state.initial_message.has_value());
+    EXPECT_TRUE(state.initial_message->clear_context);
+    ASSERT_EQ(state.worker_sandbox_permissions.queue.size(), 1u);
+    EXPECT_EQ(state.worker_sandbox_permissions.queue.front().request_id, "perm-1");
+    EXPECT_EQ(state.worker_sandbox_permissions.selected_index, 4u);
+    ASSERT_TRUE(state.pending_worker_request.has_value());
+    EXPECT_EQ(state.pending_worker_request->tool_name, "Bash");
+    ASSERT_TRUE(state.pending_sandbox_request.has_value());
+    EXPECT_EQ(state.pending_sandbox_request->request_id, "sandbox-1");
+    EXPECT_EQ(state.prompt_suggestion.text, std::optional<std::string>{"try this"});
+    ASSERT_EQ(state.inbox.messages.size(), 1u);
+    EXPECT_EQ(state.inbox.messages.front().id, "inbox-1");
+
+    store->dispatch(cc::state::Action{cc::state::ActionType::ClearInitialMessage});
+    store->dispatch(cc::state::Action{cc::state::ActionType::RemoveSandboxPermissionRequest, std::string{"perm-1"}});
+    store->dispatch(cc::state::Action{cc::state::ActionType::ClearPromptSuggestion});
+    store->dispatch(cc::state::Action{cc::state::ActionType::RemoveInboxMessage, std::string{"inbox-1"}});
+    store->dispatch(cc::state::Action{cc::state::ActionType::AddInboxMessage, inbox_message});
+    store->dispatch(cc::state::Action{cc::state::ActionType::ClearInboxMessages});
+
+    state = store->get_state();
+    EXPECT_FALSE(state.initial_message.has_value());
+    EXPECT_TRUE(state.worker_sandbox_permissions.queue.empty());
+    EXPECT_FALSE(state.prompt_suggestion.text.has_value());
+    EXPECT_FALSE(state.prompt_suggestion.prompt_id.has_value());
+    EXPECT_TRUE(state.inbox.messages.empty());
+}
+
+TEST(StateStore, UnsupportedSideEffectActionsRemainNoOps) {
+    auto store = make_test_store();
+    auto before = store->get_state();
+
+    store->dispatch(cc::state::Action{cc::state::ActionType::EnableTool, std::string{"Bash"}});
+    store->dispatch(cc::state::Action{cc::state::ActionType::DisableTool, std::string{"Bash"}});
+    store->dispatch(cc::state::Action{cc::state::ActionType::SaveState});
+    store->dispatch(cc::state::Action{cc::state::ActionType::LoadState});
+    store->dispatch(cc::state::Action{cc::state::ActionType::ClearSavedState});
+
+    auto after = store->get_state();
+    EXPECT_EQ(before.tool_permission_context.allowed_tools.size(), after.tool_permission_context.allowed_tools.size());
+    for (const auto& tool : before.tool_permission_context.allowed_tools) {
+        EXPECT_TRUE(after.tool_permission_context.allowed_tools.contains(tool));
+    }
+    EXPECT_EQ(before.tool_permission_context.denied_tools.size(), after.tool_permission_context.denied_tools.size());
+    for (const auto& tool : before.tool_permission_context.denied_tools) {
+        EXPECT_TRUE(after.tool_permission_context.denied_tools.contains(tool));
+    }
+    EXPECT_EQ(before.settings.model, after.settings.model);
+    EXPECT_EQ(before.messages.size(), after.messages.size());
 }
 
 TEST(StateStore, MiddlewareSupport) {

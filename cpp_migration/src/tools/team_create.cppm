@@ -85,19 +85,25 @@ public:
                         .name = "team_name",
                         .type = "string",
                         .description = "Name for the new team to create",
-                        .required = true
+                        .required = true,
+                        .default_value = std::nullopt,
+                        .enum_values = std::nullopt,
                     },
                     SchemaProperty{
                         .name = "description",
                         .type = "string",
                         .description = "Team description/purpose",
-                        .required = false
+                        .required = false,
+                        .default_value = std::nullopt,
+                        .enum_values = std::nullopt,
                     },
                     SchemaProperty{
                         .name = "agent_type",
                         .type = "string",
                         .description = "Type/role of the team lead (e.g., researcher, test-runner)",
-                        .required = false
+                        .required = false,
+                        .default_value = std::nullopt,
+                        .enum_values = std::nullopt,
                     },
                 }
             },

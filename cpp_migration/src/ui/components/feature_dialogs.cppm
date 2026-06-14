@@ -2,13 +2,14 @@
 /// @brief Feature-gated dialog components (MemoryFileSelector, Feedback NPS,
 ///        KAIROS Grove knowledge-graph view).
 ///
-/// All three components are guarded by DUAL gates:
-///   1. Compile-time  : `#if defined(ANT_NATIVE_BUILD) && defined(FEATURE_*)`
-///   2. Runtime      : `config::feature("proactive_memory" | "user_feedback"
+/// All three migrated components are always compiled in the native build.
+/// Runtime feature flags still decide whether call sites receive the real
+/// component or a disabled-state fallback:
+///      `config::feature("proactive_memory" | "user_feedback"
 ///                      | "kairos_grove")` via FeatureFlagManager name lookup.
 ///
-/// When any gate is closed the factory function returns a placeholder
-/// Element ("Feature disabled") so call sites never need to #ifdef.
+/// When a runtime gate is closed the factory function returns a disabled-state
+/// Element so call sites never need to #ifdef.
 ///
 /// TS sources audited during migration:
 ///   - MemoryFileSelector  : src/components/memory/MemoryFileSelector.tsx (437 L)
@@ -114,7 +115,7 @@ namespace config {
     });
 }
 
-#if defined(ANT_NATIVE_BUILD) && defined(FEATURE_PROACTIVE_MEMORY)
+#if 1  // Always compile migrated proactive-memory UI; runtime flag gates use.
 
 namespace memory_selector {
 enum class Bank : std::uint8_t { User=0, Project, Team, Agent, Scratch, _Count };
@@ -151,8 +152,8 @@ inline std::string format_updated(const std::chrono::system_clock::time_point& t
     const auto diff = duration_cast<hours>(now - tp);
     if (diff < 1h)   return "just now";
     if (diff < 24h)  return std::format("{}h ago", diff.count());
-    const auto days = duration_cast<days>(diff);
-    if (days.count() < 30) return std::format("{}d ago", days.count());
+    const auto age_days = duration_cast<days>(diff);
+    if (age_days.count() < 30) return std::format("{}d ago", age_days.count());
     std::time_t t = system_clock::to_time_t(tp);
     std::string s(32, '\0');
     std::strftime(s.data(), s.size(), "%Y-%m-%d", std::localtime(&t));
@@ -167,14 +168,14 @@ inline std::string format_updated(const std::chrono::system_clock::time_point& t
 }
 
 /// Highlight substring matches in `text` with a yellow background.
-[[nodiscard]] inline Element highlight_contains(std::string text,
+[[nodiscard]] inline Element highlight_contains(std::string value,
                                                  std::string_view needle)
 {
-    if (needle.empty()) return text(std::move(text));
+    if (needle.empty()) return ftxui::text(std::move(value));
     // Simple case-insensitive find + highlight.
     std::string lower_src;
-    lower_src.reserve(text.size());
-    for (char c : text) lower_src.push_back(std::tolower(static_cast<unsigned char>(c)));
+    lower_src.reserve(value.size());
+    for (char c : value) lower_src.push_back(std::tolower(static_cast<unsigned char>(c)));
     std::string lower_needle;
     lower_needle.reserve(needle.size());
     for (char c : needle)
@@ -182,14 +183,14 @@ inline std::string format_updated(const std::chrono::system_clock::time_point& t
 
     Elements parts;
     std::size_t pos = 0;
-    while (pos < text.size()) {
+    while (pos < value.size()) {
         auto hit = lower_src.find(lower_needle, pos);
         if (hit == std::string::npos) {
-            parts.push_back(text(text.substr(pos)));
+            parts.push_back(ftxui::text(value.substr(pos)));
             break;
         }
-        if (hit > pos) parts.push_back(text(text.substr(pos, hit - pos)));
-        parts.push_back(text(text.substr(hit, needle.size()))
+        if (hit > pos) parts.push_back(ftxui::text(value.substr(pos, hit - pos)));
+        parts.push_back(ftxui::text(value.substr(hit, needle.size()))
                        | bgcolor(Color::Yellow) | color(Color::Black));
         pos = hit + needle.size();
     }
@@ -495,9 +496,9 @@ private:
                 tags_line += "#" + t;
             }
             Element row = hbox({
-                highlight_contains(e.title, search_query_)
+                memory_selector::highlight_contains(e.title, search_query_)
                     | size(WIDTH, EQUAL, 30),
-                highlight_contains(tags_line.empty() ? "—" : tags_line, search_query_)
+                memory_selector::highlight_contains(tags_line.empty() ? "—" : tags_line, search_query_)
                     | color(Color::Magenta) | size(WIDTH, EQUAL, 18),
                 text(memory_selector::format_updated(e.updated_at))
                     | dim | size(WIDTH, EQUAL, 14),
@@ -663,17 +664,15 @@ private:
 
     [[nodiscard]] Element render_code_block(const std::string& source,
                                              const std::string& lang) const {
-        SyntaxTheme theme; // default
-        auto tokenized = tokenize(source, lang);
-        auto lines = highlight_lines(tokenized, theme);
-        Elements out;
-        for (const auto& ln : lines) {
-            out.push_back(render_highlighted_line(ln, theme, false, false, 0));
-        }
-        if (out.empty()) out.push_back(text(""));
-        return vbox(std::move(out))
-             | bgcolor(Color::RGB(18, 18, 24))
-             | border | color(Color::GrayDark);
+        return RenderCodeBlock(RenderCodeBlockOptions{
+            .code = source,
+            .language = lang,
+            .file_path = std::nullopt,
+            .visible_lines = 20,
+            .show_line_numbers = false,
+            .show_copy_tag = false,
+            .theme = std::nullopt,
+        });
     }
 
     void OpenNewWizard() {
@@ -776,7 +775,7 @@ struct MemoryCallbacksStub {
 
 #endif  // FEATURE_PROACTIVE_MEMORY
 
-#if defined(ANT_NATIVE_BUILD) && defined(FEATURE_USER_FEEDBACK)
+#if 1  // Always compile migrated feedback UI; runtime flag gates use.
 
 namespace feedback_dialog {
 
@@ -963,8 +962,9 @@ private:
             text(" [ "),
             text(std::format("▾ {} ", sev_str[severity_idx_]))
                 | color(sev_color[severity_idx_]) | inverted,
-            text(" ]") | color(focus_ == Focus::Severity ? Color::Cyan
-                                                         : Color::Default),
+            text(" ]") | color(focus_ == Focus::Severity
+                ? Color{Color::Cyan}
+                : Color{Color::Default}),
         });
 
         // Free-text area
@@ -993,13 +993,14 @@ private:
             text(" "),
             text(email_.empty() ? std::string("(for follow-up only)")
                                 : email_)
-                | color(focus_ == Focus::Email ? Color::Yellow
-                                               : Color::Default),
+                | color(focus_ == Focus::Email
+                    ? Color{Color::Yellow}
+                    : Color{Color::Default}),
         });
 
         return vbox({
             text(std::format("Step 2 / 3   (NPS: {})", nps_score_))
-                | dim | right_aligned,
+                | dim | align_right,
             vbox(std::move(cat_rows)),
             text(""),
             sev_row,
@@ -1043,10 +1044,10 @@ private:
     void BeginSubmit() {
         step_ = Step::Submitting;
         tracking_id_ = generate_tracking_id();
-        // Simulated async submit (instant "success" for placeholder).
-        // A real implementation would use a std::future + post-task to the UI.
-        bool ok = true;
-        if (opts_.on_submit) opts_.on_submit(tracking_id_, ok);
+        bool ok = false;
+        if (opts_.on_submit) {
+            opts_.on_submit(tracking_id_, ok);
+        }
         step_ = ok ? Step::Success : Step::Failed;
     }
 
@@ -1101,7 +1102,7 @@ struct FeedbackOptionsStub {
 
 #endif  // FEATURE_USER_FEEDBACK
 
-#if defined(ANT_NATIVE_BUILD) && defined(FEATURE_KAIROS_GROVE)
+#if 1  // Always compile migrated Grove UI; runtime flag gates use.
 
 namespace grove_view {
 
@@ -1160,10 +1161,12 @@ public:
         if (event == Event::Character('j')) { move(+1); return true; }
         if (event == Event::Character('k')) { move(-1); return true; }
         if (event == Event::Character('+') || event == Event::Character('=')) {
-            if (depth_ < 6) ++depth_; return true;
+            if (depth_ < 6) ++depth_;
+            return true;
         }
         if (event == Event::Character('-') || event == Event::Character('_')) {
-            if (depth_ > 1) --depth_; return true;
+            if (depth_ > 1) --depth_;
+            return true;
         }
         if (event == Event::Character('f') || event == Event::Character('F')) {
             search_active_ = true; return true;
@@ -1452,7 +1455,7 @@ struct GroveCallbacksStub {
 
 #endif  // FEATURE_KAIROS_GROVE
 
-#if defined(ANT_NATIVE_BUILD) && defined(FEATURE_PROACTIVE_MEMORY)
+#if 1
 using MemorySelectorCallbacks =
     typename MemoryFileSelectorBase::MemoryCallbacks;
 using MemorySelectorProvider =
@@ -1461,11 +1464,11 @@ using MemoryEntryT = typename MemoryFileSelectorBase::MemoryEntry;
 using MemoryBankT = typename MemoryFileSelectorBase::Bank;
 #endif
 
-#if defined(ANT_NATIVE_BUILD) && defined(FEATURE_USER_FEEDBACK)
+#if 1
 using FeedbackOptionsT = feedback_dialog::FeedbackOptions;
 #endif
 
-#if defined(ANT_NATIVE_BUILD) && defined(FEATURE_KAIROS_GROVE)
+#if 1
 using GroveNodeT = grove_view::GNode;
 using GroveEdgeT = grove_view::GEdge;
 using GroveDataT = grove_view::GroveData;

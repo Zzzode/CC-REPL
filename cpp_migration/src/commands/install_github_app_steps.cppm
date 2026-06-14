@@ -363,8 +363,7 @@ namespace detail {
             // Even on the "chosen repo" path we re-check preflight because
             // gh scope warnings may have been emitted during ChooseRepo
             // secret-list probing too.
-            if (!ctx.preflight_warnings.empty()
-                && !ctx.gh_authenticated == false /* placeholder for eager checks */) {
+            if (!ctx.preflight_warnings.empty() && ctx.gh_authenticated) {
                 return Step::Warnings;
             }
             return Step::InstallApp;

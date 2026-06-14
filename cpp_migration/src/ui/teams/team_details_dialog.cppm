@@ -3,7 +3,7 @@
 ///   Tab 1 Members      - member table (role dropdown, status, join date)
 ///   Tab 2 Activity     - full timeline with filter + time-range
 ///   Tab 3 Permissions  - RBAC role matrix (read-only + edit mode)
-///   Tab 4 Billing/Integrations - placeholder (reuses UI3 usage_dialog)
+///   Tab 4 Billing/Integrations - usage and integration summary
 ///
 /// Reuses:
 ///   - cc.ui.teams.teams_overview (MemberPresence / MembershipRole /

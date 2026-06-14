@@ -781,6 +781,7 @@ namespace detail {
 
         cc::core::ToolRegistry registry;
         cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{
+            .parent_permission_mode = std::nullopt,
             .permission_check = permission_handler
                 ? cc::tools::AgentLivePermissionCheckFn{[&permission_hook](
                     std::string_view tool_name,

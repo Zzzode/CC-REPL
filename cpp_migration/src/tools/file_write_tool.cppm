@@ -143,19 +143,25 @@ public:
                         .name = "file_path",
                         .type = "string",
                         .description = "Absolute path to the file to write",
-                        .required = true
+                        .required = true,
+                        .default_value = std::nullopt,
+                        .enum_values = std::nullopt,
                     },
                     SchemaProperty{
                         .name = "content",
                         .type = "string",
                         .description = "Content to write to the file",
-                        .required = true
+                        .required = true,
+                        .default_value = std::nullopt,
+                        .enum_values = std::nullopt,
                     },
                     SchemaProperty{
                         .name = "mode",
                         .type = "string",
                         .description = "Write mode: create, overwrite, or append",
-                        .required = false
+                        .required = false,
+                        .default_value = std::nullopt,
+                        .enum_values = std::nullopt,
                     }
                 }
             },
@@ -165,10 +171,15 @@ public:
     }
     
     FileWriteTool() = default;
+
+    void set_allowed_directories(std::vector<std::string> dirs) {
+        allowed_directories_ = std::move(dirs);
+    }
     
     [[nodiscard]] bool check_permission(const ToolInput& input) const {
-        // Always allow - permission checks would be implemented in production
-        return true;
+        auto parsed = FileWriteInput::from_json(input.json());
+        if (!parsed) return false;
+        return is_path_allowed(parsed->file_path);
     }
     
     [[nodiscard]] Result<ToolResult> execute(const ToolInput& input) {
@@ -185,6 +196,27 @@ public:
     
 private:
     std::unordered_map<std::string, std::vector<fs::path>> backup_history_;
+    std::vector<std::string> allowed_directories_;
+
+    [[nodiscard]] bool is_path_allowed(const fs::path& path) const {
+        if (allowed_directories_.empty()) return true;
+        std::error_code ec;
+        const auto target = fs::weakly_canonical(path, ec);
+        const auto normalized_target = ec ? fs::absolute(path) : target;
+        for (const auto& dir : allowed_directories_) {
+            ec.clear();
+            const auto base = fs::weakly_canonical(dir, ec);
+            const auto normalized_base = ec ? fs::absolute(dir) : base;
+            ec.clear();
+            const auto rel = fs::relative(normalized_target, normalized_base, ec);
+            const auto first = rel.begin();
+            if (!ec && (rel.empty() || rel == "." ||
+                        (!rel.is_absolute() && (first == rel.end() || *first != "..")))) {
+                return true;
+            }
+        }
+        return false;
+    }
     
     /// Internal execution
     Result<ToolResult> execute_internal(const FileWriteInput& input) {

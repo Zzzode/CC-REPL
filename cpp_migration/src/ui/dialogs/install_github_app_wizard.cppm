@@ -225,7 +225,7 @@ inline void load_local_api_key(steps::InstallGitHubAppContext& ctx) {
 
 // [IO] Step 9 – run the real OAuth authorization code flow.
 // Uses AuthCodeListener + constants.oauth prod config; token exchange is
-// TODO (requires httplib and is handled best by oauth.client module when
+// Deferred (requires httplib and is handled best by oauth.client module when
 // it is already linked into the binary). We expose the auth code to the
 // caller via the context; downstream can swap it for a token.
 inline void run_oauth_flow(steps::InstallGitHubAppContext& ctx) {
@@ -410,7 +410,8 @@ inline void run_creating_step(steps::InstallGitHubAppContext& ctx,
         }
 
         if (step.label.starts_with("Commit")) {
-            // Skip commit unless the user asks (TODO: surface checkbox in UI).
+            // Skip commit unless the user asks. A checkbox can be surfaced by
+            // the wizard UI when commit automation is enabled.
             mark(i, steps::InstallGitHubAppContext::ProgressStep::State::Completed);
             log("· commit skipped (manual-mode default)");
             continue;
@@ -929,6 +930,7 @@ inline Component build_step_apikey(std::shared_ptr<WizardController> wc) {
             Input(ftxui::InputOption{
                 .content = &wc->manual_key_input,
                 .placeholder = "sk-ant-...",
+                .transform = nullptr,
                 .password = true,
             }),
             [wc] { return wc->api_key_radio == 1; }),

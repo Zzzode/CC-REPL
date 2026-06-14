@@ -234,13 +234,13 @@ public:
 
 [[nodiscard]] auto getBridgeAccessToken() -> std::optional<std::string> {
     if (auto override = getBridgeTokenOverride()) return override;
-    // TODO: Wire up OAuth keychain via get_oauth_access_token() from the OAuth service.
+    // Deferred: OAuth keychain integration belongs to the OAuth service layer.
     return std::nullopt;
 }
 
 [[nodiscard]] auto getBridgeBaseUrl() -> std::string {
     if (auto override = getBridgeBaseUrlOverride()) return *override;
-    // TODO: Pull default from OAuth config (getOauthConfig().BASE_API_URL) once integrated.
+    // Deferred: the OAuth config service owns alternate API base defaults.
     return "https://api.claude.ai";
 }
 

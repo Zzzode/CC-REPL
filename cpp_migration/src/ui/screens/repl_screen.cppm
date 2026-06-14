@@ -57,6 +57,7 @@ import cc.ui.messages.thinking_message;
 import cc.ui.messages.tool_use_message;
 import cc.ui.messages.message_tool_result;
 import cc.ui.dialogs.permission_dialog;
+import cc.ui.agents.agent_cards;
 import cc.ui.agents.agent_wizard;
 import cc.ui.dialogs.install_github_app_wizard;
 import cc.ui.dialogs.install_slack_app_wizard;
@@ -232,6 +233,9 @@ struct ReplScreenCallbacks {
     std::function<void(ReplMode)> on_mode_change;
     // UI15 Slack wizard "Launch /slack now" shortcut -> REPL engine.
     std::function<void(const std::string& command)> enqueue_slash_command;
+    std::function<std::optional<cc::ui::agents::cards::AgentCardData>(
+        std::string_view agent_id)> load_agent_for_wizard;
+    std::function<void(const cc::ui::agents::wizard::WizardDraft& draft)> save_agent_from_wizard;
 };
 
 // =========================================================
@@ -318,7 +322,9 @@ struct ReplScreenCallbacks {
             input.shapes.push_back(messages::MessageShape::UserText);
             input.rows.push_back(messages::UserTextMessageData{
                 .content = m.content_preview,
-                .timestamp = m.timestamp});
+                .timestamp = m.timestamp,
+                .quoted_reply = std::nullopt,
+                .command_name = std::nullopt});
         } else if (m.role == "assistant") {
             if (m.is_thinking) {
                 input.shapes.push_back(messages::MessageShape::AssistantThinking);
@@ -336,6 +342,7 @@ struct ReplScreenCallbacks {
                 input.rows.push_back(messages::AssistantTextMessageData{
                     .content = m.content_preview,
                     .timestamp = m.timestamp,
+                    .model_name = std::nullopt,
                     .is_streaming = m.is_streaming});
             }
         } else if (m.role == "tool") {
@@ -345,11 +352,14 @@ struct ReplScreenCallbacks {
                 .status = m.is_error
                     ? messages::ToolResultStatus::Error
                     : messages::ToolResultStatus::Success,
-                .output = m.content_preview});
+                .output = m.content_preview,
+                .error_message = std::nullopt,
+                .duration_ms = std::nullopt});
         } else {
             input.shapes.push_back(messages::MessageShape::SystemText);
             input.rows.push_back(messages::SystemTextMessageData{
                 .summary = m.content_preview,
+                .detail = {},
                 .timestamp = m.timestamp});
         }
     }
@@ -882,12 +892,11 @@ using wizard_ns::WizardDraft;
     const std::shared_ptr<ReplScreenCallbacks>& cb) {
     if (!s->wizard_agent) {
         AgentWizardOptions opts;
-        // TODO: when editing, load the AgentCardData from agent runtime.
-        // For now, create mode is always used (edit_agent = nullopt).
+        if (s->dialog_ctx.agent_wizard_agent_id && cb->load_agent_for_wizard) {
+            opts.edit_agent = cb->load_agent_for_wizard(*s->dialog_ctx.agent_wizard_agent_id);
+        }
         opts.on_save = [s, cb](const WizardDraft& draft) {
-            // Wizard completed — save the agent and close.
-            // TODO: persist via agent_runtime API.
-            (void)draft;
+            if (cb->save_agent_from_wizard) cb->save_agent_from_wizard(draft);
             s->mode = ReplMode::Normal;
             if (cb->on_mode_change) cb->on_mode_change(ReplMode::Normal);
         };
@@ -1004,19 +1013,41 @@ inline void reset_agent_wizard(const std::shared_ptr<ReplScreenState>& s) {
                 state->mode==ReplMode::Elicitation ||
                 state->mode==ReplMode::PromptHook;
             if (is_perm) {
-                if (c=='y'||c=='Y'){ if(cb->on_permission_response)
-                    cb->on_permission_response(true,false); return true; }
-                if (c=='n'||c=='N'){ if(cb->on_permission_response)
-                    cb->on_permission_response(false,std::nullopt); return true; }
-                if (c=='a'||c=='A'){ if(cb->on_permission_response)
-                    cb->on_permission_response(true,true); return true; } }
+                if (c=='y'||c=='Y'){
+                    if (cb->on_permission_response)
+                        cb->on_permission_response(true,false);
+                    return true;
+                }
+                if (c=='n'||c=='N'){
+                    if (cb->on_permission_response)
+                        cb->on_permission_response(false,std::nullopt);
+                    return true;
+                }
+                if (c=='a'||c=='A'){
+                    if (cb->on_permission_response)
+                        cb->on_permission_response(true,true);
+                    return true;
+                }
+            }
             if (state->mode == ReplMode::CostThreshold) {
-                if (c=='c'||c=='C'){ if(cb->on_dialog_action)
-                    cb->on_dialog_action(ReplMode::CostThreshold,0); return true; }
-                if (c=='r'||c=='R'){ if(cb->on_dialog_action)
-                    cb->on_dialog_action(ReplMode::CostThreshold,1); return true; }
-                if (c=='q'||c=='Q'){ if(cb->on_dialog_action)
-                    cb->on_dialog_action(ReplMode::CostThreshold,2); return true; } } } }
+                if (c=='c'||c=='C'){
+                    if (cb->on_dialog_action)
+                        cb->on_dialog_action(ReplMode::CostThreshold,0);
+                    return true;
+                }
+                if (c=='r'||c=='R'){
+                    if (cb->on_dialog_action)
+                        cb->on_dialog_action(ReplMode::CostThreshold,1);
+                    return true;
+                }
+                if (c=='q'||c=='Q'){
+                    if (cb->on_dialog_action)
+                        cb->on_dialog_action(ReplMode::CostThreshold,2);
+                    return true;
+                }
+            }
+        }
+    }
 
     // 2) Global shortcuts
     if (ev == Event::Character('\x03'))

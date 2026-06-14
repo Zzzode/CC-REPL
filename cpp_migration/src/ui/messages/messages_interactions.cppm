@@ -715,6 +715,14 @@ struct MenuDispatchResult {
     std::variant<std::monostate, CopyFormat, std::string, MessageTag> extra;
 };
 
+[[nodiscard]] inline MenuDispatchResult menu_dispatch(MenuDispatch outcome) {
+    return MenuDispatchResult{
+        .outcome = outcome,
+        .item = MenuItemKind::Copy,
+        .extra = std::monostate{},
+    };
+}
+
 /// Populates the enabled mask for a row, then drives the menu FSM.
 MenuDispatchResult HandleMenuKeys(Event& ev,
                                          MessageActionsMenuState& state,
@@ -728,9 +736,9 @@ MenuDispatchResult HandleMenuKeys(Event& ev,
             state.selected_index = 0;
             state.submenu = SubmenuOpen::None;
             state.editing = false;
-            return { MD::Handled };
+            return menu_dispatch(MD::Handled);
         }
-        return { MD::Ignored };
+        return menu_dispatch(MD::Ignored);
     }
 
     // ---- inline edit mode ----------------------------------------------
@@ -738,7 +746,7 @@ MenuDispatchResult HandleMenuKeys(Event& ev,
         if (ev == Event::Escape) {
             state.editing = false;
             state.edit_buffer.clear();
-            return { MD::Handled };
+            return menu_dispatch(MD::Handled);
         }
         if (ev == Event::Return) {
             state.editing = false;
@@ -757,13 +765,13 @@ MenuDispatchResult HandleMenuKeys(Event& ev,
             } else if (static_cast<unsigned char>(ch) >= 0x20) {
                 state.edit_buffer.push_back(ch);
             }
-            return { MD::Handled };
+            return menu_dispatch(MD::Handled);
         }
         if (ev == Event::Backspace) {
             if (!state.edit_buffer.empty()) state.edit_buffer.pop_back();
-            return { MD::Handled };
+            return menu_dispatch(MD::Handled);
         }
-        return { MD::Ignored };
+        return menu_dispatch(MD::Ignored);
     }
 
     // ---- close ---------------------------------------------------------
@@ -771,23 +779,23 @@ MenuDispatchResult HandleMenuKeys(Event& ev,
         if (state.submenu != SubmenuOpen::None) {
             state.submenu = SubmenuOpen::None;
             state.sub_index = 0;
-            return { MD::Handled };
+            return menu_dispatch(MD::Handled);
         }
         state.open = false;
-        return { MD::Close };
+        return menu_dispatch(MD::Close);
     }
 
     // --- submenu open → only handle its keys ----------------------------
     if (state.submenu == SubmenuOpen::Copy) {
         const std::size_t N = detail::kCopyItems.size();
         if (ev == Event::Character('j') || ev == Event::ArrowDown) {
-            state.sub_index = std::min(N - 1, state.sub_index + 1); return { MD::Handled };
+            state.sub_index = std::min(N - 1, state.sub_index + 1); return menu_dispatch(MD::Handled);
         }
         if (ev == Event::Character('k') || ev == Event::ArrowUp) {
-            state.sub_index = (state.sub_index == 0) ? 0 : state.sub_index - 1; return { MD::Handled };
+            state.sub_index = (state.sub_index == 0) ? 0 : state.sub_index - 1; return menu_dispatch(MD::Handled);
         }
         if (ev == Event::Character('h') || ev == Event::ArrowLeft) {
-            state.submenu = SubmenuOpen::None; state.sub_index = 0; return { MD::Handled };
+            state.submenu = SubmenuOpen::None; state.sub_index = 0; return menu_dispatch(MD::Handled);
         }
         if (ev == Event::Return || ev == Event::Character('l') || ev == Event::ArrowRight) {
             MenuDispatchResult r;
@@ -798,19 +806,19 @@ MenuDispatchResult HandleMenuKeys(Event& ev,
             state.submenu = SubmenuOpen::None;
             return r;
         }
-        return { MD::Ignored };
+        return menu_dispatch(MD::Ignored);
     }
 
     if (state.submenu == SubmenuOpen::RegenModel) {
         const std::size_t N = detail::kPopularModels.size();
         if (ev == Event::Character('j') || ev == Event::ArrowDown) {
-            state.sub_index = std::min(N - 1, state.sub_index + 1); return { MD::Handled };
+            state.sub_index = std::min(N - 1, state.sub_index + 1); return menu_dispatch(MD::Handled);
         }
         if (ev == Event::Character('k') || ev == Event::ArrowUp) {
-            state.sub_index = (state.sub_index == 0) ? 0 : state.sub_index - 1; return { MD::Handled };
+            state.sub_index = (state.sub_index == 0) ? 0 : state.sub_index - 1; return menu_dispatch(MD::Handled);
         }
         if (ev == Event::Character('h') || ev == Event::ArrowLeft) {
-            state.submenu = SubmenuOpen::None; state.sub_index = 0; return { MD::Handled };
+            state.submenu = SubmenuOpen::None; state.sub_index = 0; return menu_dispatch(MD::Handled);
         }
         if (ev == Event::Return || ev == Event::Character('l') || ev == Event::ArrowRight) {
             MenuDispatchResult r;
@@ -821,7 +829,7 @@ MenuDispatchResult HandleMenuKeys(Event& ev,
             state.submenu = SubmenuOpen::None;
             return r;
         }
-        return { MD::Ignored };
+        return menu_dispatch(MD::Ignored);
     }
 
     if (state.submenu == SubmenuOpen::Tag) {
@@ -837,17 +845,17 @@ MenuDispatchResult HandleMenuKeys(Event& ev,
             return r;
         }
         if (ev == Event::Character('h') || ev == Event::ArrowLeft) {
-            state.submenu = SubmenuOpen::None; return { MD::Handled };
+            state.submenu = SubmenuOpen::None; return menu_dispatch(MD::Handled);
         }
         if (ev == Event::Character('j') || ev == Event::ArrowDown) {
-            state.sub_index += 1; return { MD::Handled };
+            state.sub_index += 1; return menu_dispatch(MD::Handled);
         }
         if (ev == Event::Character('k') || ev == Event::ArrowUp) {
             state.sub_index = (state.sub_index == 0) ? 0 : state.sub_index - 1;
-            return { MD::Handled };
+            return menu_dispatch(MD::Handled);
         }
         // digit toggles handled by caller (they own the tag list)
-        return { MD::Ignored };
+        return menu_dispatch(MD::Ignored);
     }
 
     // ---- top-level navigation ------------------------------------------
@@ -862,8 +870,8 @@ MenuDispatchResult HandleMenuKeys(Event& ev,
         }
     };
 
-    if (ev == Event::Character('j') || ev == Event::ArrowDown) { advance(+1); return { MD::Handled }; }
-    if (ev == Event::Character('k') || ev == Event::ArrowUp)   { advance(-1); return { MD::Handled }; }
+    if (ev == Event::Character('j') || ev == Event::ArrowDown) { advance(+1); return menu_dispatch(MD::Handled); }
+    if (ev == Event::Character('k') || ev == Event::ArrowUp)   { advance(-1); return menu_dispatch(MD::Handled); }
 
     // digit shortcuts
     if (ev.is_character() && !ev.character().empty()) {
@@ -873,13 +881,13 @@ MenuDispatchResult HandleMenuKeys(Event& ev,
             state.selected_index = target;
             // digits directly execute non-submenu items
             auto kind = detail::kTopLevelItems[target].kind;
-            if (kind == MenuItemKind::Copy)       { state.submenu = SubmenuOpen::Copy;       state.sub_index = 0; return { MD::Handled }; }
-            if (kind == MenuItemKind::RegenModel) { state.submenu = SubmenuOpen::RegenModel; state.sub_index = 0; return { MD::Handled }; }
-            if (kind == MenuItemKind::Tag)        { state.submenu = SubmenuOpen::Tag;        state.sub_index = 0; return { MD::Handled }; }
+            if (kind == MenuItemKind::Copy)       { state.submenu = SubmenuOpen::Copy;       state.sub_index = 0; return menu_dispatch(MD::Handled); }
+            if (kind == MenuItemKind::RegenModel) { state.submenu = SubmenuOpen::RegenModel; state.sub_index = 0; return menu_dispatch(MD::Handled); }
+            if (kind == MenuItemKind::Tag)        { state.submenu = SubmenuOpen::Tag;        state.sub_index = 0; return menu_dispatch(MD::Handled); }
             if (kind == MenuItemKind::Edit) {
                 state.editing = true;
                 state.edit_buffer.clear();
-                return { MD::Handled };
+                return menu_dispatch(MD::Handled);
             }
             MenuDispatchResult r;
             r.outcome = MD::Execute;
@@ -892,13 +900,13 @@ MenuDispatchResult HandleMenuKeys(Event& ev,
     // open submenus or execute with Enter / l / Right
     if (ev == Event::Return || ev == Event::Character('l') || ev == Event::ArrowRight) {
         const auto kind = detail::kTopLevelItems[state.selected_index].kind;
-        if (kind == MenuItemKind::Copy)       { state.submenu = SubmenuOpen::Copy;       state.sub_index = 0; return { MD::Handled }; }
-        if (kind == MenuItemKind::RegenModel) { state.submenu = SubmenuOpen::RegenModel; state.sub_index = 0; return { MD::Handled }; }
-        if (kind == MenuItemKind::Tag)        { state.submenu = SubmenuOpen::Tag;        state.sub_index = 0; return { MD::Handled }; }
+        if (kind == MenuItemKind::Copy)       { state.submenu = SubmenuOpen::Copy;       state.sub_index = 0; return menu_dispatch(MD::Handled); }
+        if (kind == MenuItemKind::RegenModel) { state.submenu = SubmenuOpen::RegenModel; state.sub_index = 0; return menu_dispatch(MD::Handled); }
+        if (kind == MenuItemKind::Tag)        { state.submenu = SubmenuOpen::Tag;        state.sub_index = 0; return menu_dispatch(MD::Handled); }
         if (kind == MenuItemKind::Edit) {
             state.editing = true;
             state.edit_buffer.clear();
-            return { MD::Handled };
+            return menu_dispatch(MD::Handled);
         }
         MenuDispatchResult r;
         r.outcome = MD::Execute;
@@ -907,7 +915,7 @@ MenuDispatchResult HandleMenuKeys(Event& ev,
         return r;
     }
 
-    return { MD::Ignored };
+    return menu_dispatch(MD::Ignored);
 }
 
 /// Handle a mouse event for the menu.  Returns true when the event consumed

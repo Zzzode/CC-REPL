@@ -321,25 +321,33 @@ public:
                         .name = "file_path",
                         .type = "string",
                         .description = "Absolute path to the file to read",
-                        .required = true
+                        .required = true,
+                        .default_value = std::nullopt,
+                        .enum_values = std::nullopt,
                     },
                     SchemaProperty{
                         .name = "offset",
                         .type = "number",
                         .description = "Line number to start reading from (1-based)",
-                        .required = false
+                        .required = false,
+                        .default_value = std::nullopt,
+                        .enum_values = std::nullopt,
                     },
                     SchemaProperty{
                         .name = "limit",
                         .type = "number",
                         .description = "Maximum number of lines to read",
-                        .required = false
+                        .required = false,
+                        .default_value = std::nullopt,
+                        .enum_values = std::nullopt,
                     },
                     SchemaProperty{
                         .name = "pages",
                         .type = "string",
                         .description = "Page range for PDF files (e.g., \"1-5\")",
-                        .required = false
+                        .required = false,
+                        .default_value = std::nullopt,
+                        .enum_values = std::nullopt,
                     }
                 }
             },
@@ -351,10 +359,15 @@ public:
     }
     
     FileReadTool() = default;
+
+    void set_allowed_directories(std::vector<std::string> dirs) {
+        allowed_directories_ = std::move(dirs);
+    }
     
-    [[nodiscard]] bool check_permission(const ToolInput&) const {
-        // Always allow - permission checks would be implemented in production
-        return true;
+    [[nodiscard]] bool check_permission(const ToolInput& input) const {
+        auto parsed = FileReadInput::from_json(input.json());
+        if (!parsed) return false;
+        return is_path_allowed(parsed->file_path);
     }
     
     [[nodiscard]] Result<ToolResult> execute(const ToolInput& input) {
@@ -371,6 +384,27 @@ public:
     
 private:
     std::unordered_map<std::string, std::pair<std::string, std::chrono::system_clock::time_point>> read_cache_;
+    std::vector<std::string> allowed_directories_;
+
+    [[nodiscard]] bool is_path_allowed(const fs::path& path) const {
+        if (allowed_directories_.empty()) return true;
+        std::error_code ec;
+        const auto target = fs::weakly_canonical(path, ec);
+        const auto normalized_target = ec ? fs::absolute(path) : target;
+        for (const auto& dir : allowed_directories_) {
+            ec.clear();
+            const auto base = fs::weakly_canonical(dir, ec);
+            const auto normalized_base = ec ? fs::absolute(dir) : base;
+            ec.clear();
+            const auto rel = fs::relative(normalized_target, normalized_base, ec);
+            const auto first = rel.begin();
+            if (!ec && (rel.empty() || rel == "." ||
+                        (!rel.is_absolute() && (first == rel.end() || *first != "..")))) {
+                return true;
+            }
+        }
+        return false;
+    }
     
     /// Internal execution
     Result<ToolResult> execute_internal(const FileReadInput& input) {

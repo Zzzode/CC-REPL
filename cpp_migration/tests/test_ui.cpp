@@ -30,8 +30,10 @@ import cc.ui.messages;
 import cc.ui.prompt_input;
 import cc.ui.markdown;
 import cc.ui.components_extended;
+import cc.ui.dialogs.settings_dialog;
 import cc.ui.wizard_dialog;
 import cc.ui.app;
+import cc.config.config;
 import cc.commands.registry;
 import cc.query.query_engine;
 import cc.tools.tool;
@@ -730,8 +732,8 @@ TEST(Components, TextInputSuggestionsDropdown) {
     opts.get_suggestions = [](const std::string& input, int, const cc::ui::components::PromptContext&) -> std::vector<cc::ui::components::Suggestion> {
         if (input.starts_with('/')) {
             return {
-                {"/help", "/help", "Show help", cc::ui::components::SuggestionCategory::Command},
-                {"/clear", "/clear", "Clear screen", cc::ui::components::SuggestionCategory::Command},
+                {"/help", "/help", "Show help", cc::ui::components::SuggestionCategory::Command, std::nullopt, std::nullopt, std::nullopt},
+                {"/clear", "/clear", "Clear screen", cc::ui::components::SuggestionCategory::Command, std::nullopt, std::nullopt, std::nullopt},
             };
         }
         return {};
@@ -747,13 +749,12 @@ TEST(Components, TextInputSuggestionsDropdown) {
 }
 
 TEST(Components, TextInputSuggestionAccept) {
-    int accept_count = 0;
     std::string accepted_text;
     cc::ui::components::TextInputOptions opts;
     opts.get_suggestions = [](const std::string& input, int, const cc::ui::components::PromptContext&) -> std::vector<cc::ui::components::Suggestion> {
         if (input.starts_with('/')) {
             return {
-                {"/help", "/help", "Show help", cc::ui::components::SuggestionCategory::Command},
+                {"/help", "/help", "Show help", cc::ui::components::SuggestionCategory::Command, std::nullopt, std::nullopt, std::nullopt},
             };
         }
         return {};
@@ -1479,6 +1480,39 @@ TEST(Panels, McpPanelComputesStatusSummary) {
 
     EXPECT_EQ(panel.status_summary(), "1/2 connected");
     EXPECT_EQ(cc::ui::McpPanel::status_icon(cc::ui::McpStatus::Error), "✗");
+}
+
+TEST(SettingsDialog, ApiKeyRowDoesNotWritePlaceholderSecret) {
+    namespace settings_dialog = cc::ui::dialogs::settings_dialog;
+
+    cc::core::ConfigManager cfg;
+    settings_dialog::SettingsDialogOptions opts;
+    opts.initial_tab = settings_dialog::SettingsTabId::API;
+    auto dialog = settings_dialog::MakeSettingsDialog(
+        cfg,
+        std::move(opts));
+
+    ASSERT_TRUE(dialog->OnEvent(ftxui::Event::Tab));
+    ASSERT_TRUE(dialog->OnEvent(ftxui::Event::Return));
+    ASSERT_TRUE(dialog->OnEvent(ftxui::Event::Character('\x13')));
+
+    EXPECT_FALSE(cfg.settings().network.api_key.has_value());
+}
+
+TEST(SettingsDialog, McpAddKeyDoesNotCreatePlaceholderServer) {
+    namespace settings_dialog = cc::ui::dialogs::settings_dialog;
+
+    cc::core::ConfigManager cfg;
+    settings_dialog::SettingsDialogOptions opts;
+    opts.initial_tab = settings_dialog::SettingsTabId::MCP;
+    auto dialog = settings_dialog::MakeSettingsDialog(
+        cfg,
+        std::move(opts));
+
+    ASSERT_TRUE(dialog->OnEvent(ftxui::Event::Character('a')));
+    ASSERT_TRUE(dialog->OnEvent(ftxui::Event::Character('\x13')));
+
+    EXPECT_TRUE(cfg.settings().mcp_servers.empty());
 }
 
 TEST(Panels, TasksPanelTracksTaskLifecycle) {

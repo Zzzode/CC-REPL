@@ -495,6 +495,8 @@ public:
                 screen_state_->permission_request = repl::PermissionRequestInfo{
                     .tool_name = std::string(tool_name),
                     .description = std::string(description),
+                    .file_path = std::nullopt,
+                    .risk_labels = {},
                 };
                 screen_state_->mode = repl::ReplMode::ToolPermission;
                 permission_response_.reset();

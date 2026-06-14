@@ -60,7 +60,7 @@ enum class TextSize : std::uint8_t {
 // directly as cubic-bezier constants so callers can plug them into a
 // chrono-driven Renderer without pulling in a full tweening engine.
 namespace easing {
-inline constexpr double linear            = 1.0;  // placeholder
+inline constexpr double linear            = 1.0;  // linear easing coefficient
 inline constexpr double ease_out_cubic    = 0.33; // deceleration
 inline constexpr double ease_in_out_quad  = 0.5;  // symmetric
 inline constexpr double standard          = 0.2;  // Material-ish

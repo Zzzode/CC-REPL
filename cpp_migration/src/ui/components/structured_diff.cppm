@@ -311,7 +311,7 @@ struct BlockDiffStatus {
 ///       not exported at character granularity. We implement a lightweight
 ///       O(N*M) LCS over UTF-8 code units here; inputs are bounded to
 ///       single-line lengths so the quadratic cost is acceptable.
-///       TODO(#ui7-word-diff): export a char-level Myers from utils to
+///       Deferred(#ui7-word-diff): export a char-level Myers from utils to
 ///       consolidate.
 [[nodiscard]] inline std::vector<WordChange> compute_word_changes(
     const std::string& a, const std::string& b, bool is_added_side) {

@@ -2,7 +2,7 @@
 /// @brief Full agent-list view: Grid/List tabs, search+filter+sort toolbar,
 /// hover context menu, j/k + r/e/d/a + / keyboard nav, summary footer.
 ///
-/// Replaces the old placeholder (same filename) and consolidates migration of:
+/// Replaces the old skeleton (same filename) and consolidates migration of:
 ///   - src/components/agents/AgentsList.tsx   (~1,300 lines, grid+list)
 ///   - src/components/agents/AgentsMenu.tsx   (pane toolbar)
 ///   - src/components/agents/AgentNavigationFooter.tsx

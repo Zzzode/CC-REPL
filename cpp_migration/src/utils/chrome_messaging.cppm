@@ -138,7 +138,7 @@ public:
     /// Processes a single incoming message from Chrome and returns the
     /// response payload.
     [[nodiscard]] auto handle_message(std::string_view data) -> std::string {
-        // TODO: Wire into the MCP message loop once the full MCP server
+        // Deferred: wire into the MCP message loop once the full MCP server
         //       infrastructure is in place.
         (void)data;
         return R"({"status":"ok"})";

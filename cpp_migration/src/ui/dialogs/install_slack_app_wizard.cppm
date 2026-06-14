@@ -62,7 +62,7 @@ struct WizardController {
     void run_eligibility_probe() {
         if (auth_checked) return;
         auth_checked = true;
-        // TODO(ui15 + auth-team): integrate real cc::services::auth::whoami().
+        // Deferred(ui15 + auth-team): integrate real cc::services::auth::whoami().
         ctx->has_claude_auth = true;
         ctx->plan_supports_slack_app = true;
         ctx->eligibility_warning.clear();
@@ -137,7 +137,7 @@ inline Component build_step_2(std::shared_ptr<WizardController> wc) {
             body.push_back(text(""));
             body.push_back(text(std::format(" URL : {}", url)) | color(Color::Cyan) | dim);
             if (*open_clicked) {
-                steps::detail::open_url(url);
+                (void)steps::detail::open_url(url);
                 *open_clicked = false;
             }
             return vbox(std::move(body));

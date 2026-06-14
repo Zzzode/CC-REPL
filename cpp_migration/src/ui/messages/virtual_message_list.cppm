@@ -336,6 +336,7 @@ inline void clamp_scroll(VirtualListState &s) noexcept {
 /// (user-initiated jump, page, or row mutation).
 inline void update_sticky_after_scroll(VirtualListState &s,
                                         int old_scroll_top) noexcept {
+  (void)old_scroll_top;
   int const max = std::max(0, s.jh.total() - s.viewport_rows);
   int dist      = max - s.scroll_top;
 
@@ -354,8 +355,6 @@ inline void update_sticky_after_scroll(VirtualListState &s,
 inline void maybe_trigger_load(VirtualListState &s) {
   if (!s.callbacks.on_load_more) return;
   int const max = std::max(0, s.jh.total() - s.viewport_rows);
-  int const bot = s.scroll_top + s.viewport_rows;
-
   // Top boundary: we're near the very start.
   if (s.scroll_top < kLoadMoreBufferZone && !s.loading_earlier &&
       s.load_trigger_top != s.scroll_top) {
@@ -454,7 +453,7 @@ render_list_as_elements(VirtualListState &s) {
     if (rr) {
       children.push_back(rr(idx, s.rows[idx]));
     } else {
-      // Fallback: render a placeholder text showing row number.
+      // Diagnostic fallback when callers do not provide a row renderer.
       children.push_back(
           text("  row " + std::to_string(idx) +
                "  [" + s.rows[idx].search_key + "]") |
@@ -494,7 +493,7 @@ render_list_as_elements(VirtualListState &s) {
         (s.loading_earlier && start_idx == 0
              ? loading_pill("Loading earlier messages…")
              : text("")),
-        [] { return filler() | size(HEIGHT, EQUAL, 0); }(),  // placeholder
+        [] { return filler() | size(HEIGHT, EQUAL, 0); }(),
       });
       // Build fresh body to keep logic correct.
       Elements es;
@@ -700,7 +699,33 @@ struct [[nodiscard]] VirtualListComponentBase : ftxui::ComponentBase {
           s->scroll_top = tgt; ss.scroll_top = tgt; return false;
         },
         .scroll_bottom = [&] { handle.SetSticky(true); },
-        .center_selected = [&](CenterKind) { /* TODO */ },
+        .center_selected = [&](CenterKind kind) {
+          if (s->rows.empty()) return;
+          size_t selected_row = s->jh.find_row_at_visual_line(s->scroll_top);
+          if (ss.selected_idx) {
+            selected_row = static_cast<size_t>(
+                std::clamp(*ss.selected_idx, 0,
+                           std::max(0, static_cast<int>(s->rows.size()) - 1)));
+          }
+
+          int const row_top = s->jh.find_visual_top_for_row(selected_row);
+          int const row_height = s->jh.height_of(selected_row);
+          int target = row_top;
+          switch (kind) {
+            case CenterKind::Top:
+              target = row_top;
+              break;
+            case CenterKind::Middle:
+              target = row_top - std::max(0, (s->viewport_rows - row_height) / 2);
+              break;
+            case CenterKind::Bottom:
+              target = row_top - std::max(0, s->viewport_rows - row_height);
+              break;
+          }
+          int const mx = std::max(0, s->jh.total() - s->viewport_rows);
+          s->scroll_top = std::clamp(target, 0, mx);
+          ss.scroll_top = s->scroll_top;
+        },
         .row_to_visual = [&](int idx) -> int {
           if (idx < 0) return 0;
           return s->jh.find_visual_top_for_row(static_cast<size_t>(idx));

@@ -42,31 +42,31 @@ enum class ActionType : std::uint16_t {
     AddMessage,
     ClearMessages,
     UpdateLastMessage,
-    
+
     // Loading/streaming
     SetLoading,
     SetStreaming,
-    
+
     // Error handling
     SetError,
     ClearError,
-    
+
     // Token usage
     UpdateUsage,
-    
+
     // Model management
     SwitchModel,
     SetMainLoopModel,
-    
+
     // Permission actions
     GrantPermission,
     RevokePermission,
     SetPermissionMode,
-    
+
     // Tool management
     EnableTool,
     DisableTool,
-    
+
     // UI state
     ToggleCompactMode,
     ToggleThinking,
@@ -82,19 +82,19 @@ enum class ActionType : std::uint16_t {
     SetSelectedAgentIndex,
     SetCoordinatorTaskIndex,
     SetViewSelectionMode,
-    
+
     // Session lifecycle
     ResetSession,
     UpdateActivity,
     SetWorkingDirectory,
-    
+
     // Settings
     UpdateSettings,
     SetVerbose,
     SetFastMode,
     SetThinkingEnabled,
     SetPromptSuggestionEnabled,
-    
+
     // Bridge
     SetBridgeEnabled,
     SetBridgeExplicit,
@@ -109,89 +109,89 @@ enum class ActionType : std::uint16_t {
     SetBridgeError,
     SetBridgeInitialName,
     SetShowRemoteCallout,
-    
+
     // Remote
     SetRemoteSessionUrl,
     SetRemoteConnectionStatus,
     SetRemoteBackgroundTaskCount,
-    
+
     // Tasks
     AddTask,
     RemoveTask,
     UpdateTask,
     SetForegroundedTaskId,
     SetViewingAgentTaskId,
-    
+
     // Agent
     RegisterAgentName,
     SetAgent,
     SetKairosEnabled,
-    
+
     // Companion
     SetCompanionReaction,
     SetCompanionPetTime,
-    
+
     // MCP
     UpdateMcpState,
     IncrementMcpReconnectKey,
-    
+
     // Plugins
     UpdatePluginsState,
     SetPluginsNeedRefresh,
-    
+
     // Speculation
     SetSpeculationState,
     SetSpeculationTimeSaved,
-    
+
     // Skill improvement
     SetSkillSuggestion,
-    
+
     // Auth
     IncrementAuthVersion,
-    
+
     // Initial message
     SetInitialMessage,
     ClearInitialMessage,
-    
+
     // Effort
     SetEffortValue,
-    
+
     // Overlays
     AddActiveOverlay,
     RemoveActiveOverlay,
     ClearActiveOverlays,
-    
+
     // Advisor
     SetAdvisorModel,
-    
+
     // Ultraplan
     SetUltraplanLaunching,
     SetUltraplanSessionUrl,
     SetUltraplanPendingChoice,
     SetUltraplanLaunchPending,
     SetUltraplanMode,
-    
+
     // Worker sandbox
     AddSandboxPermissionRequest,
     RemoveSandboxPermissionRequest,
     SetSelectedSandboxPermissionIndex,
     SetPendingWorkerRequest,
     SetPendingSandboxRequest,
-    
+
     // Prompt suggestion
     SetPromptSuggestion,
     ClearPromptSuggestion,
-    
+
     // Inbox
     AddInboxMessage,
     RemoveInboxMessage,
     ClearInboxMessages,
-    
+
     // Persistence
     SaveState,
     LoadState,
     ClearSavedState,
-    
+
     // Batch actions
     Batch,
 };
@@ -200,14 +200,14 @@ enum class ActionType : std::uint16_t {
 struct Action {
     ActionType type;
     std::any payload;
-    
+
     /// Construct action with no payload
     explicit Action(ActionType t) : type(t) {}
-    
+
     /// Construct action with typed payload
     template <typename T>
     Action(ActionType t, T&& data) : type(t), payload(std::forward<T>(data)) {}
-    
+
     /// Extract payload as a specific type (returns nullopt if wrong type)
     template <typename T>
     [[nodiscard]] std::optional<T> get_payload() const {
@@ -216,7 +216,7 @@ struct Action {
         }
         return std::nullopt;
     }
-    
+
     /// Check if payload holds a specific type
     template <typename T>
     [[nodiscard]] bool has_payload() const {
@@ -236,7 +236,7 @@ concept Reducer = std::invocable<F, const State&, const Action&> &&
 /// Extended reducer for AppState
 [[nodiscard]] inline AppState app_reducer(const AppState& state, const Action& action) {
     AppState next = state;
-    
+
     switch (action.type) {
         // ========================================
         // Message actions
@@ -251,7 +251,14 @@ concept Reducer = std::invocable<F, const State&, const Action&> &&
             next.messages.clear();
             break;
         }
-        
+        case ActionType::UpdateLastMessage: {
+            if (auto msg = action.get_payload<cc::core::Message>(); msg && !next.messages.empty()) {
+                next.messages.back() = std::move(*msg);
+                next.last_activity = std::chrono::system_clock::now();
+            }
+            break;
+        }
+
         // ========================================
         // Loading/streaming
         // ========================================
@@ -267,7 +274,7 @@ concept Reducer = std::invocable<F, const State&, const Action&> &&
             }
             break;
         }
-        
+
         // ========================================
         // Error handling
         // ========================================
@@ -280,7 +287,7 @@ concept Reducer = std::invocable<F, const State&, const Action&> &&
         case ActionType::ClearError: {
             return clear_error(state);
         }
-        
+
         // ========================================
         // Token usage
         // ========================================
@@ -290,7 +297,7 @@ concept Reducer = std::invocable<F, const State&, const Action&> &&
             }
             break;
         }
-        
+
         // ========================================
         // Model management
         // ========================================
@@ -306,17 +313,31 @@ concept Reducer = std::invocable<F, const State&, const Action&> &&
             }
             break;
         }
-        
+
         // ========================================
         // Permission actions
         // ========================================
+        case ActionType::GrantPermission: {
+            if (auto tool = action.get_payload<std::string>()) {
+                next.tool_permission_context.allowed_tools.insert(*tool);
+                next.tool_permission_context.denied_tools.erase(*tool);
+            }
+            break;
+        }
+        case ActionType::RevokePermission: {
+            if (auto tool = action.get_payload<std::string>()) {
+                next.tool_permission_context.denied_tools.insert(*tool);
+                next.tool_permission_context.allowed_tools.erase(*tool);
+            }
+            break;
+        }
         case ActionType::SetPermissionMode: {
             if (auto mode = action.get_payload<PermissionMode>()) {
                 return with_permission_mode(state, *mode);
             }
             break;
         }
-        
+
         // ========================================
         // UI state
         // ========================================
@@ -326,6 +347,30 @@ concept Reducer = std::invocable<F, const State&, const Action&> &&
         }
         case ActionType::ToggleThinking: {
             next.show_thinking = !next.show_thinking;
+            break;
+        }
+        case ActionType::SetSlashCommand: {
+            if (auto command = action.get_payload<std::optional<std::string>>()) {
+                next.active_slash_command = std::move(*command);
+            }
+            break;
+        }
+        case ActionType::AddNotification: {
+            if (auto notification = action.get_payload<std::string>()) {
+                next.notifications.push_back(std::move(*notification));
+            }
+            break;
+        }
+        case ActionType::DismissNotification: {
+            if (auto notification = action.get_payload<std::string>()) {
+                std::erase(next.notifications, *notification);
+            }
+            break;
+        }
+        case ActionType::SetStatusLineText: {
+            if (auto text = action.get_payload<std::optional<std::string>>()) {
+                next.status_line_text = std::move(*text);
+            }
             break;
         }
         case ActionType::SetVerbose: {
@@ -346,7 +391,49 @@ concept Reducer = std::invocable<F, const State&, const Action&> &&
             }
             break;
         }
-        
+        case ActionType::SetFooterSelection: {
+            if (auto selection = action.get_payload<std::optional<FooterItem>>()) {
+                next.footer_selection = *selection;
+            }
+            break;
+        }
+        case ActionType::SetSpinnerTip: {
+            if (auto tip = action.get_payload<std::optional<std::string>>()) {
+                next.spinner_tip = std::move(*tip);
+            }
+            break;
+        }
+        case ActionType::SetBriefOnly: {
+            if (auto val = action.get_payload<bool>()) {
+                next.is_brief_only = *val;
+            }
+            break;
+        }
+        case ActionType::SetShowTeammatePreview: {
+            if (auto val = action.get_payload<bool>()) {
+                next.show_teammate_message_preview = *val;
+            }
+            break;
+        }
+        case ActionType::SetSelectedAgentIndex: {
+            if (auto index = action.get_payload<std::int32_t>()) {
+                next.selected_ip_agent_index = *index;
+            }
+            break;
+        }
+        case ActionType::SetCoordinatorTaskIndex: {
+            if (auto index = action.get_payload<std::int32_t>()) {
+                next.coordinator_task_index = *index;
+            }
+            break;
+        }
+        case ActionType::SetViewSelectionMode: {
+            if (auto mode = action.get_payload<std::string>()) {
+                next.view_selection_mode = std::move(*mode);
+            }
+            break;
+        }
+
         // ========================================
         // Session lifecycle
         // ========================================
@@ -370,7 +457,368 @@ concept Reducer = std::invocable<F, const State&, const Action&> &&
             }
             break;
         }
-        
+
+        // ========================================
+        // Settings
+        // ========================================
+        case ActionType::UpdateSettings: {
+            if (auto settings = action.get_payload<Settings>()) {
+                next.settings = std::move(*settings);
+            }
+            break;
+        }
+        case ActionType::SetThinkingEnabled: {
+            if (auto val = action.get_payload<bool>()) {
+                next.thinking_enabled = *val;
+            }
+            break;
+        }
+        case ActionType::SetPromptSuggestionEnabled: {
+            if (auto val = action.get_payload<bool>()) {
+                next.prompt_suggestion_enabled = *val;
+            }
+            break;
+        }
+
+        // ========================================
+        // Bridge
+        // ========================================
+        case ActionType::SetBridgeEnabled: {
+            if (auto val = action.get_payload<bool>()) next.repl_bridge_enabled = *val;
+            break;
+        }
+        case ActionType::SetBridgeExplicit: {
+            if (auto val = action.get_payload<bool>()) next.repl_bridge_explicit = *val;
+            break;
+        }
+        case ActionType::SetBridgeOutboundOnly: {
+            if (auto val = action.get_payload<bool>()) next.repl_bridge_outbound_only = *val;
+            break;
+        }
+        case ActionType::SetBridgeConnected: {
+            if (auto val = action.get_payload<bool>()) next.repl_bridge_connected = *val;
+            break;
+        }
+        case ActionType::SetBridgeSessionActive: {
+            if (auto val = action.get_payload<bool>()) next.repl_bridge_session_active = *val;
+            break;
+        }
+        case ActionType::SetBridgeReconnecting: {
+            if (auto val = action.get_payload<bool>()) next.repl_bridge_reconnecting = *val;
+            break;
+        }
+        case ActionType::SetBridgeConnectUrl: {
+            if (auto url = action.get_payload<std::optional<std::string>>()) {
+                next.repl_bridge_connect_url = std::move(*url);
+            }
+            break;
+        }
+        case ActionType::SetBridgeSessionUrl: {
+            if (auto url = action.get_payload<std::optional<std::string>>()) {
+                next.repl_bridge_session_url = std::move(*url);
+            }
+            break;
+        }
+        case ActionType::SetBridgeEnvironmentId: {
+            if (auto id = action.get_payload<std::optional<std::string>>()) {
+                next.repl_bridge_environment_id = std::move(*id);
+            }
+            break;
+        }
+        case ActionType::SetBridgeSessionId: {
+            if (auto id = action.get_payload<std::optional<std::string>>()) {
+                next.repl_bridge_session_id = std::move(*id);
+            }
+            break;
+        }
+        case ActionType::SetBridgeError: {
+            if (auto error = action.get_payload<std::optional<std::string>>()) {
+                next.repl_bridge_error = std::move(*error);
+            }
+            break;
+        }
+        case ActionType::SetBridgeInitialName: {
+            if (auto name = action.get_payload<std::optional<std::string>>()) {
+                next.repl_bridge_initial_name = std::move(*name);
+            }
+            break;
+        }
+        case ActionType::SetShowRemoteCallout: {
+            if (auto val = action.get_payload<bool>()) next.show_remote_callout = *val;
+            break;
+        }
+
+        // ========================================
+        // Remote
+        // ========================================
+        case ActionType::SetRemoteSessionUrl: {
+            if (auto url = action.get_payload<std::optional<std::string>>()) {
+                next.remote_session_url = std::move(*url);
+            }
+            break;
+        }
+        case ActionType::SetRemoteConnectionStatus: {
+            if (auto status = action.get_payload<RemoteConnectionStatus>()) {
+                next.remote_connection_status = *status;
+            }
+            break;
+        }
+        case ActionType::SetRemoteBackgroundTaskCount: {
+            if (auto count = action.get_payload<std::uint32_t>()) {
+                next.remote_background_task_count = *count;
+            }
+            break;
+        }
+
+        // ========================================
+        // Tasks and agents
+        // ========================================
+        case ActionType::AddTask:
+        case ActionType::UpdateTask: {
+            if (auto task = action.get_payload<TaskState>()) {
+                next.tasks[task->id] = std::move(*task);
+            }
+            break;
+        }
+        case ActionType::RemoveTask: {
+            if (auto id = action.get_payload<std::string>()) {
+                next.tasks.erase(*id);
+                if (next.foregrounded_task_id == *id) next.foregrounded_task_id = std::nullopt;
+                if (next.viewing_agent_task_id == *id) next.viewing_agent_task_id = std::nullopt;
+            }
+            break;
+        }
+        case ActionType::SetForegroundedTaskId: {
+            if (auto id = action.get_payload<std::optional<std::string>>()) {
+                next.foregrounded_task_id = std::move(*id);
+            }
+            break;
+        }
+        case ActionType::SetViewingAgentTaskId: {
+            if (auto id = action.get_payload<std::optional<std::string>>()) {
+                next.viewing_agent_task_id = std::move(*id);
+            }
+            break;
+        }
+        case ActionType::RegisterAgentName: {
+            if (auto entry = action.get_payload<std::pair<std::string, std::string>>()) {
+                next.agent_name_registry[std::move(entry->first)] = std::move(entry->second);
+            }
+            break;
+        }
+        case ActionType::SetAgent: {
+            if (auto agent = action.get_payload<std::optional<std::string>>()) {
+                next.agent = std::move(*agent);
+            }
+            break;
+        }
+        case ActionType::SetKairosEnabled: {
+            if (auto val = action.get_payload<bool>()) {
+                next.kairos_enabled = *val;
+            }
+            break;
+        }
+
+        // ========================================
+        // Companion
+        // ========================================
+        case ActionType::SetCompanionReaction: {
+            if (auto reaction = action.get_payload<std::optional<std::string>>()) {
+                next.companion_reaction = std::move(*reaction);
+            }
+            break;
+        }
+        case ActionType::SetCompanionPetTime: {
+            if (auto time = action.get_payload<std::optional<std::chrono::system_clock::time_point>>()) {
+                next.companion_pet_at = *time;
+            }
+            break;
+        }
+
+        // ========================================
+        // MCP and plugins
+        // ========================================
+        case ActionType::UpdateMcpState: {
+            if (auto mcp = action.get_payload<MCPState>()) {
+                next.mcp = std::move(*mcp);
+            }
+            break;
+        }
+        case ActionType::IncrementMcpReconnectKey: {
+            ++next.mcp.plugin_reconnect_key;
+            break;
+        }
+        case ActionType::UpdatePluginsState: {
+            if (auto plugins = action.get_payload<AppState::PluginsState>()) {
+                next.plugins = std::move(*plugins);
+            }
+            break;
+        }
+        case ActionType::SetPluginsNeedRefresh: {
+            if (auto val = action.get_payload<bool>()) {
+                next.plugins.needs_refresh = *val;
+            }
+            break;
+        }
+
+        // ========================================
+        // Speculation and skill improvement
+        // ========================================
+        case ActionType::SetSpeculationState: {
+            if (auto speculation = action.get_payload<SpeculationState>()) {
+                next.speculation = std::move(*speculation);
+            }
+            break;
+        }
+        case ActionType::SetSpeculationTimeSaved: {
+            if (auto time_saved = action.get_payload<std::int64_t>()) {
+                next.speculation_session_time_saved_ms = *time_saved;
+            }
+            break;
+        }
+        case ActionType::SetSkillSuggestion: {
+            if (auto suggestion = action.get_payload<std::optional<AppState::SkillImprovementState::Suggestion>>()) {
+                next.skill_improvement.suggestion = std::move(*suggestion);
+            }
+            break;
+        }
+
+        // ========================================
+        // Auth, initial message, overlays, advisor, Ultraplan
+        // ========================================
+        case ActionType::IncrementAuthVersion: {
+            ++next.auth_version;
+            break;
+        }
+        case ActionType::SetInitialMessage: {
+            if (auto message = action.get_payload<AppState::InitialMessage>()) {
+                next.initial_message = std::move(*message);
+            }
+            break;
+        }
+        case ActionType::ClearInitialMessage: {
+            next.initial_message = std::nullopt;
+            break;
+        }
+        case ActionType::SetEffortValue: {
+            if (auto value = action.get_payload<std::optional<std::string>>()) {
+                next.effort_value = std::move(*value);
+            }
+            break;
+        }
+        case ActionType::AddActiveOverlay: {
+            if (auto overlay = action.get_payload<std::string>()) {
+                next.active_overlays.insert(std::move(*overlay));
+            }
+            break;
+        }
+        case ActionType::RemoveActiveOverlay: {
+            if (auto overlay = action.get_payload<std::string>()) {
+                next.active_overlays.erase(*overlay);
+            }
+            break;
+        }
+        case ActionType::ClearActiveOverlays: {
+            next.active_overlays.clear();
+            break;
+        }
+        case ActionType::SetAdvisorModel: {
+            if (auto model = action.get_payload<std::optional<std::string>>()) {
+                next.advisor_model = std::move(*model);
+            }
+            break;
+        }
+        case ActionType::SetUltraplanLaunching: {
+            if (auto val = action.get_payload<bool>()) next.ultraplan_launching = *val;
+            break;
+        }
+        case ActionType::SetUltraplanSessionUrl: {
+            if (auto url = action.get_payload<std::optional<std::string>>()) {
+                next.ultraplan_session_url = std::move(*url);
+            }
+            break;
+        }
+        case ActionType::SetUltraplanPendingChoice: {
+            if (auto choice = action.get_payload<std::optional<AppState::UltraplanPendingChoice>>()) {
+                next.ultraplan_pending_choice = std::move(*choice);
+            }
+            break;
+        }
+        case ActionType::SetUltraplanLaunchPending: {
+            if (auto pending = action.get_payload<std::optional<AppState::UltraplanLaunchPending>>()) {
+                next.ultraplan_launch_pending = std::move(*pending);
+            }
+            break;
+        }
+        case ActionType::SetUltraplanMode: {
+            if (auto val = action.get_payload<bool>()) next.is_ultraplan_mode = *val;
+            break;
+        }
+
+        // ========================================
+        // Worker sandbox, prompt suggestion, inbox
+        // ========================================
+        case ActionType::AddSandboxPermissionRequest: {
+            if (auto request = action.get_payload<AppState::WorkerSandboxPermissions::PermissionRequest>()) {
+                next.worker_sandbox_permissions.queue.push_back(std::move(*request));
+            }
+            break;
+        }
+        case ActionType::RemoveSandboxPermissionRequest: {
+            if (auto id = action.get_payload<std::string>()) {
+                std::erase_if(next.worker_sandbox_permissions.queue, [&](const auto& request) {
+                    return request.request_id == *id;
+                });
+            }
+            break;
+        }
+        case ActionType::SetSelectedSandboxPermissionIndex: {
+            if (auto index = action.get_payload<std::size_t>()) {
+                next.worker_sandbox_permissions.selected_index = *index;
+            }
+            break;
+        }
+        case ActionType::SetPendingWorkerRequest: {
+            if (auto request = action.get_payload<std::optional<AppState::PendingWorkerRequest>>()) {
+                next.pending_worker_request = std::move(*request);
+            }
+            break;
+        }
+        case ActionType::SetPendingSandboxRequest: {
+            if (auto request = action.get_payload<std::optional<AppState::PendingSandboxRequest>>()) {
+                next.pending_sandbox_request = std::move(*request);
+            }
+            break;
+        }
+        case ActionType::SetPromptSuggestion: {
+            if (auto suggestion = action.get_payload<AppState::PromptSuggestionState>()) {
+                next.prompt_suggestion = std::move(*suggestion);
+            }
+            break;
+        }
+        case ActionType::ClearPromptSuggestion: {
+            next.prompt_suggestion = AppState::PromptSuggestionState{};
+            break;
+        }
+        case ActionType::AddInboxMessage: {
+            if (auto message = action.get_payload<AppState::InboxState::InboxMessage>()) {
+                next.inbox.messages.push_back(std::move(*message));
+            }
+            break;
+        }
+        case ActionType::RemoveInboxMessage: {
+            if (auto id = action.get_payload<std::string>()) {
+                std::erase_if(next.inbox.messages, [&](const auto& message) {
+                    return message.id == *id;
+                });
+            }
+            break;
+        }
+        case ActionType::ClearInboxMessages: {
+            next.inbox.messages.clear();
+            break;
+        }
+
         // ========================================
         // Batch actions
         // ========================================
@@ -384,11 +832,21 @@ concept Reducer = std::invocable<F, const State&, const Action&> &&
             }
             break;
         }
-        
+
+        // Tool and persistence actions require behavior outside pure AppState,
+        // so the reducer deliberately leaves them as no-ops until those effects
+        // have explicit payload and service semantics.
+        case ActionType::EnableTool:
+        case ActionType::DisableTool:
+        case ActionType::SaveState:
+        case ActionType::LoadState:
+        case ActionType::ClearSavedState:
+            break;
+
         default:
             break;
     }
-    
+
     return next;
 }
 
@@ -445,18 +903,18 @@ class Store {
     State state_;
     ReducerFn reducer_;
     mutable std::shared_mutex mutex_;
-    
+
     // Subscription management
     std::unordered_map<SubscriptionId, StateObserver> subscribers_;
     SubscriptionId next_sub_id_{1};
-    
+
     // Middleware chain
     std::vector<Middleware> middlewares_;
     DispatchFn dispatch_chain_;
-    
+
     // State change callback integration
     std::shared_ptr<on_change::StateChangeRegistry> change_registry_;
-    
+
     // Persistence integration
     std::shared_ptr<persistence::StatePersistence> persistence_;
     std::chrono::steady_clock::time_point last_persist_time_;
@@ -602,12 +1060,12 @@ private:
         for (const auto& ob : observers) {
             ob(prev, next);
         }
-        
+
         // Notify change registry
         if (change_registry_) {
             change_registry_->run_callbacks(prev, next);
         }
-        
+
         // Auto-persist if needed
         if (persistence_ && persistence_->is_auto_save_enabled()) {
             auto now = std::chrono::steady_clock::now();
@@ -635,12 +1093,12 @@ using AppStore = Store<AppState, decltype(&app_reducer)>;
     // Create change registry and set up default handlers
     auto registry = std::make_shared<on_change::StateChangeRegistry>();
     on_change::setup_default_handlers(*registry);
-    
+
     // Create persistence manager
     auto persistence = std::make_shared<persistence::StatePersistence>(
         persistence::get_default_state_file_path()
     );
-    
+
     // Create store with all integrations
     auto store = std::make_unique<AppStore>(
         std::move(initial),
@@ -648,10 +1106,10 @@ using AppStore = Store<AppState, decltype(&app_reducer)>;
         registry,
         persistence
     );
-    
+
     // Add logging middleware (optional, can be conditional)
     store->add_middleware(logging_middleware());
-    
+
     return store;
 }
 

@@ -236,7 +236,7 @@ struct WizardContext {
 
 /// Spinner frames for async steps.  Not actually animated (FTXUI Renderer is
 /// stateless in this framework), but provides a visual "busy" placeholder.
-/// TODO(animation): FTXUI has no built-in fade/transition; hook into a ticker
+/// Deferred(animation): FTXUI has no built-in fade/transition; hook into a ticker
 /// once the main screen_loop is wired for per-frame redraws.
 [[nodiscard]] inline Element RenderSpinner(std::string label = " Loading…") {
     // Use a deterministic spinner glyph; consumers relying on animation can
@@ -896,6 +896,7 @@ struct ConfirmationSummary {
         exec.title = "Confirm";
         exec.description = "This action cannot be undone.";
         exec.can_leave = [on_execute](WizardContext& c) -> StepCheckResult {
+            (void)c;
             // The "Finish" action triggers can_leave which is where we run
             // the real execute callback.  If it returns an error string the
             // Finish is blocked and the error shown.
@@ -1082,7 +1083,7 @@ inline std::vector<std::string> split_lines(std::string_view s) {
             cur.push_back(ch);
         }
     }
-    if (!cur.empty() || !s.empty() && s.back() == '\n') {
+    if (!cur.empty() || (!s.empty() && s.back() == '\n')) {
         lines.push_back(std::move(cur));
     }
     return lines;

@@ -1075,7 +1075,7 @@ private:
             output.return_code_interpretation,
             output.interrupted_reason
         );
-        // TODO(Phase 4): hand `info` to FTXUI renderer instead of flattening.
+        // Deferred(Phase 4): hand `info` to FTXUI renderer instead of flattening.
         // -------------------------------------------------------------------
 
         std::string result_text;

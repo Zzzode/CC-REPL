@@ -273,6 +273,7 @@ constexpr std::size_t kLargeContentWarnBytes = 5 * 1024 * 1024;  // 5 MB
 
 [[nodiscard]] inline Element RenderToolHeader(const ToolUseCallData& call,
                                                int spinner_frame = 0) {
+    (void)spinner_frame;
     auto [status_text, status_color] = status_display(call.status);
     Elements left;
 

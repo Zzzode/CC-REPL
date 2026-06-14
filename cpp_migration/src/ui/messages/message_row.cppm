@@ -131,11 +131,9 @@ import cc.ui.error_message;
 // bucket.  Dispatch below in RenderMessageRowByType routes each MessageShape
 // through the dedicated stand-alone free function Render*().
 //
-// TODO(UI4): merge branch dispatch for tool_use/thinking/etc — the
-// UI4-owned user/assistant/system wrappers may want to call these modules
-// for their *content* payload, while UI4 keeps outer chrome (avatar,
-// role-badge, metadata row).  The current branches forward to UI5 directly
-// so integration can proceed without blocking either team.
+// UI4-owned user/assistant/system wrappers keep outer chrome (avatar,
+// role-badge, metadata row) while these branches forward complex content
+// payloads directly to the UI5 renderers.
 import cc.ui.messages.tool_use_message;
 import cc.ui.messages.thinking_message;
 import cc.ui.messages.attachment_message;
@@ -304,12 +302,12 @@ inline auto MessageShapeToString(MessageShape s) -> std::string_view {
 // 3) Generic variant payload — pure struct inputs, NO AppState globals.
 // =========================================================================
 
-/// Empty placeholder for sub-types whose payloads are UI5-owned.
+/// Empty tag for sub-types whose payloads are UI5-owned.
 struct UI5HandledTag {};
 
 /// MessageRowPayload = std::variant over per-message-type structs.
 /// Modules not owned by UI4 use `UI5HandledTag` so dispatch still compiles
-/// and can return a graceful "not implemented here" placeholder.
+/// and can return a graceful diagnostic for a mismatched payload.
 using MessageRowPayload = std::variant<
     // User
     UserTextMessageData,

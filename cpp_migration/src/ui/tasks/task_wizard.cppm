@@ -774,6 +774,12 @@ struct TaskWizardOptions {
             .create_content = [draft]() -> Component {
                 return Step1Component(draft.get());
             },
+            .optional = false,
+            .can_enter = nullptr,
+            .can_leave = nullptr,
+            .render = nullptr,
+            .on_event = nullptr,
+            .override_next_id = {},
         },
         wz::WizardStep{
             .id = "meta",
@@ -801,6 +807,12 @@ struct TaskWizardOptions {
                 };
                 return Make<KeepAliveBase>(std::move(inner), kept);
             },
+            .optional = false,
+            .can_enter = nullptr,
+            .can_leave = nullptr,
+            .render = nullptr,
+            .on_event = nullptr,
+            .override_next_id = {},
         },
         wz::WizardStep{
             .id = "confirm",
@@ -809,6 +821,12 @@ struct TaskWizardOptions {
             .create_content = [draft]() -> Component {
                 return Step3Component(draft.get());
             },
+            .optional = false,
+            .can_enter = nullptr,
+            .can_leave = nullptr,
+            .render = nullptr,
+            .on_event = nullptr,
+            .override_next_id = {},
         },
     };
 

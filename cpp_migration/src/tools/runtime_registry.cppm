@@ -109,8 +109,13 @@ using RuntimeExecutor = std::function<Result<ToolResult>(const ToolInput&)>;
 
 class RuntimeFunctionTool final : public ITool {
 public:
-    RuntimeFunctionTool(ToolDefinition definition, RuntimeExecutor executor)
-        : definition_(std::move(definition)), executor_(std::move(executor)) {}
+    RuntimeFunctionTool(
+        ToolDefinition definition,
+        RuntimeExecutor executor,
+        cc::tools::agent::AgentLivePermissionCheckFn permission_check = {})
+        : definition_(std::move(definition)),
+          executor_(std::move(executor)),
+          permission_check_(std::move(permission_check)) {}
 
     [[nodiscard]] const ToolDefinition& definition() const override {
         return definition_;
@@ -120,13 +125,15 @@ public:
         return executor_(input);
     }
 
-    [[nodiscard]] bool check_permission(const ToolInput& /*input*/) const override {
-        return true;
+    [[nodiscard]] bool check_permission(const ToolInput& input) const override {
+        if (!permission_check_) return true;
+        return permission_check_(definition_.name, input.json(), "").allowed;
     }
 
 private:
     ToolDefinition definition_;
     RuntimeExecutor executor_;
+    cc::tools::agent::AgentLivePermissionCheckFn permission_check_;
 };
 
 [[nodiscard]] ToolDefinition define_tool(
@@ -152,11 +159,13 @@ private:
     ToolPermission permission,
     std::vector<SchemaProperty> properties,
     RuntimeExecutor executor,
-    std::string category = "runtime"
+    std::string category = "runtime",
+    cc::tools::agent::AgentLivePermissionCheckFn permission_check = {}
 ) {
     return std::make_unique<RuntimeFunctionTool>(
         define_tool(std::move(name), std::move(description), permission, std::move(properties), std::move(category)),
-        std::move(executor)
+        std::move(executor),
+        std::move(permission_check)
     );
 }
 
@@ -3209,13 +3218,13 @@ build_structured_send_message_payload(
         std::unordered_map<std::string, std::string> member_start_prompts;
         for (const auto& member : (*result)->members) {
             MessageRouter::instance().register_agent(member.agent_id);
-            cc::tools::agent_runtime::native_agent_store().upsert(cc::tools::agent_runtime::NativeAgentRecord{
-                .agent_id = member.agent_id,
-                .agent_type = std::string(member_role_name(member.role)),
-                .team_name = (*result)->name,
-                .background = true,
-                .status = cc::tools::agent_runtime::NativeAgentStatus::Queued,
-            });
+            cc::tools::agent_runtime::NativeAgentRecord record;
+            record.agent_id = member.agent_id;
+            record.agent_type = std::string(member_role_name(member.role));
+            record.team_name = (*result)->name;
+            record.background = true;
+            record.status = cc::tools::agent_runtime::NativeAgentStatus::Queued;
+            cc::tools::agent_runtime::native_agent_store().upsert(std::move(record));
         }
         std::size_t task_assignments_enqueued = 0;
         for (auto& task : tasks) {
@@ -3455,13 +3464,14 @@ get_built_in_agent_definitions() {
 }
 
 void register_runtime_tools(cc::core::ToolRegistry& registry, RuntimeToolOptions options) {
+    auto permission_check = std::move(options.permission_check);
     AgentConfig agent_config;
     agent_config.parent_permission_mode = std::move(options.parent_permission_mode);
     registry.register_tool(make_agent_tool(
         std::move(agent_config),
         0,
         &registry,
-        std::move(options.permission_check),
+        permission_check,
         options.permission_hook_valid_for_background));
     registry.register_tool(make_bash_tool());
     // Wire Edit + Read tools to share ReadFileState so that a successful Read
@@ -3560,60 +3570,71 @@ void register_runtime_tools(cc::core::ToolRegistry& registry, RuntimeToolOptions
     registry.register_tool(make_web_fetch_tool());
     registry.register_tool(make_web_search_tool());
 
-    const auto simple = [&registry](std::string name, std::string description, ToolPermission permission,
-                                    std::vector<SchemaProperty> properties = {}, std::string category = "runtime") {
+    const auto simple = [&registry, permission_check](std::string name, std::string description, ToolPermission permission,
+                                                      std::vector<SchemaProperty> properties = {}, std::string category = "runtime") {
         auto name_copy = name;
         return detail::make_runtime_tool(std::move(name), std::move(description), permission, std::move(properties),
             [name_copy, &registry](const cc::core::ToolInput& input) {
                 return detail::execute_simple_runtime_tool(name_copy, input, &registry);
             },
-            std::move(category));
+            std::move(category),
+            permission_check);
+    };
+    const auto prop = [](std::string name, std::string type, std::string description, bool required) {
+        return SchemaProperty{
+            .name = std::move(name),
+            .type = std::move(type),
+            .description = std::move(description),
+            .required = required,
+            .default_value = std::nullopt,
+            .enum_values = std::nullopt,
+        };
     };
 
     registry.register_tool(simple("ask_user_question", "Ask the interactive user a question and return the answer",
-        ToolPermission::ReadOnly, {SchemaProperty{.name = "question", .type = "string", .description = "Question to ask", .required = true}}, "interaction"));
+        ToolPermission::ReadOnly, {prop("question", "string", "Question to ask", true)}, "interaction"));
     registry.register_tool(simple("computer_use", "Control the local computer through screenshots, mouse, keyboard, and scroll actions",
         ToolPermission::Execute, {
-            SchemaProperty{.name = "action", .type = "string", .description = "screenshot, move, click, double_click, right_click, drag, type, press, hotkey, or scroll", .required = true},
-            SchemaProperty{.name = "x", .type = "number", .description = "X coordinate, region origin, or scroll delta x", .required = false},
-            SchemaProperty{.name = "y", .type = "number", .description = "Y coordinate, region origin, or scroll delta y", .required = false},
-            SchemaProperty{.name = "to_x", .type = "number", .description = "Drag target X coordinate", .required = false},
-            SchemaProperty{.name = "to_y", .type = "number", .description = "Drag target Y coordinate", .required = false},
-            SchemaProperty{.name = "width", .type = "number", .description = "Screenshot region width", .required = false},
-            SchemaProperty{.name = "height", .type = "number", .description = "Screenshot region height", .required = false},
-            SchemaProperty{.name = "text", .type = "string", .description = "Text to type or key to press", .required = false},
-            SchemaProperty{.name = "key", .type = "string", .description = "Key name for press actions", .required = false},
+            prop("action", "string", "screenshot, move, click, double_click, right_click, drag, type, press, hotkey, or scroll", true),
+            prop("x", "number", "X coordinate, region origin, or scroll delta x", false),
+            prop("y", "number", "Y coordinate, region origin, or scroll delta y", false),
+            prop("to_x", "number", "Drag target X coordinate", false),
+            prop("to_y", "number", "Drag target Y coordinate", false),
+            prop("width", "number", "Screenshot region width", false),
+            prop("height", "number", "Screenshot region height", false),
+            prop("text", "string", "Text to type or key to press", false),
+            prop("key", "string", "Key name for press actions", false),
         }, "computer_use"));
     registry.register_tool(simple("brief", "Read or write the workspace brief",
-        ToolPermission::Write, {SchemaProperty{.name = "content", .type = "string", .description = "Brief content to save", .required = false}}, "context"));
+        ToolPermission::Write, {prop("content", "string", "Brief content to save", false)}, "context"));
     registry.register_tool(simple("config", "Read or update CC-REPL configuration",
-        ToolPermission::Write, {SchemaProperty{.name = "action", .type = "string", .description = "get or set", .required = false}}, "config"));
+        ToolPermission::Write, {prop("action", "string", "get or set", false)}, "config"));
     registry.register_tool(simple("enter_plan_mode", "Enter plan mode",
         ToolPermission::Write, {}, "planning"));
     registry.register_tool(simple("exit_plan_mode", "Exit plan mode",
         ToolPermission::Write, {}, "planning"));
     registry.register_tool(simple("enter_worktree", "Create and enter a git worktree",
-        ToolPermission::Execute, {SchemaProperty{.name = "branch", .type = "string", .description = "Branch name", .required = true}}, "git"));
+        ToolPermission::Execute, {prop("branch", "string", "Branch name", true)}, "git"));
     registry.register_tool(simple("exit_worktree", "Remove a git worktree",
-        ToolPermission::Execute, {SchemaProperty{.name = "path", .type = "string", .description = "Worktree path", .required = false}}, "git"));
+        ToolPermission::Execute, {prop("path", "string", "Worktree path", false)}, "git"));
     registry.register_tool(simple("lsp", "Fallback language intelligence for definitions, references, symbols, hover, and diagnostics",
-        ToolPermission::ReadOnly, {SchemaProperty{.name = "file_path", .type = "string", .description = "File path", .required = true}}, "code"));
+        ToolPermission::ReadOnly, {prop("file_path", "string", "File path", true)}, "code"));
     registry.register_tool(simple("mcp", "Invoke a tool exposed by an MCP server",
-        ToolPermission::Network, {SchemaProperty{.name = "server_name", .type = "string", .description = "MCP server name", .required = true}}, "mcp"));
+        ToolPermission::Network, {prop("server_name", "string", "MCP server name", true)}, "mcp"));
     registry.register_tool(simple("list_mcp_resources", "List local MCP-style resources",
         ToolPermission::ReadOnly, {}, "mcp"));
     registry.register_tool(simple("read_mcp_resource", "Read a local MCP-style resource",
-        ToolPermission::ReadOnly, {SchemaProperty{.name = "uri", .type = "string", .description = "Resource URI", .required = true}}, "mcp"));
+        ToolPermission::ReadOnly, {prop("uri", "string", "Resource URI", true)}, "mcp"));
     registry.register_tool(simple("mcp_auth", "Check MCP authentication token availability",
-        ToolPermission::ReadOnly, {SchemaProperty{.name = "server_name", .type = "string", .description = "MCP server name", .required = true}}, "mcp"));
+        ToolPermission::ReadOnly, {prop("server_name", "string", "MCP server name", true)}, "mcp"));
     registry.register_tool(simple("notebook_edit", "Edit Jupyter notebook cells by id or index",
         ToolPermission::Write, {
-            SchemaProperty{.name = "notebook_path", .type = "string", .description = "Notebook path", .required = true},
-            SchemaProperty{.name = "cell_id", .type = "string", .description = "Notebook cell id or cell-N index", .required = false},
-            SchemaProperty{.name = "cell_index", .type = "integer", .description = "Notebook cell index", .required = false},
-            SchemaProperty{.name = "new_source", .type = "string", .description = "Replacement or inserted source", .required = false},
-            SchemaProperty{.name = "cell_type", .type = "string", .description = "code, markdown, or raw", .required = false},
-            SchemaProperty{.name = "edit_mode", .type = "string", .description = "replace, insert, or delete", .required = false},
+            prop("notebook_path", "string", "Notebook path", true),
+            prop("cell_id", "string", "Notebook cell id or cell-N index", false),
+            prop("cell_index", "integer", "Notebook cell index", false),
+            prop("new_source", "string", "Replacement or inserted source", false),
+            prop("cell_type", "string", "code, markdown, or raw", false),
+            prop("edit_mode", "string", "replace, insert, or delete", false),
         }, "filesystem"));
     registry.register_tool(simple("powershell", "Execute a PowerShell command on Windows",
         ToolPermission::Execute, {
@@ -3643,50 +3664,50 @@ void register_runtime_tools(cc::core::ToolRegistry& registry, RuntimeToolOptions
             },
         }, "shell"));
     registry.register_tool(simple("remote_trigger", "Invoke a configured remote trigger command",
-        ToolPermission::Execute, {SchemaProperty{.name = "payload", .type = "string", .description = "Trigger payload", .required = false}}, "remote"));
+        ToolPermission::Execute, {prop("payload", "string", "Trigger payload", false)}, "remote"));
     registry.register_tool(simple("repl", "Run a one-shot REPL snippet",
-        ToolPermission::Execute, {SchemaProperty{.name = "code", .type = "string", .description = "Code to execute", .required = true}}, "execution"));
+        ToolPermission::Execute, {prop("code", "string", "Code to execute", true)}, "execution"));
     registry.register_tool(simple("schedule_cron", "Schedule a cron-style reminder for this process",
-        ToolPermission::Write, {SchemaProperty{.name = "message", .type = "string", .description = "Scheduled message", .required = true}}, "tasks"));
+        ToolPermission::Write, {prop("message", "string", "Scheduled message", true)}, "tasks"));
     registry.register_tool(simple("script", "Execute a bounded script",
-        ToolPermission::Execute, {SchemaProperty{.name = "code", .type = "string", .description = "Script code", .required = true}}, "execution"));
+        ToolPermission::Execute, {prop("code", "string", "Script code", true)}, "execution"));
     registry.register_tool(simple("send_message", "Queue a message for an agent or team",
         ToolPermission::Write, {
-            SchemaProperty{.name = "to", .type = "string", .description = "Recipient teammate, '*' broadcast, or compatible target", .required = false},
-            SchemaProperty{.name = "message", .type = "object", .description = "Plain text or structured SendMessage payload", .required = false},
-            SchemaProperty{.name = "summary", .type = "string", .description = "Preview summary for plain text messages", .required = false},
-            SchemaProperty{.name = "target_agent", .type = "string", .description = "Compatibility recipient field", .required = false},
-            SchemaProperty{.name = "content", .type = "string", .description = "Compatibility message body field", .required = false},
+            prop("to", "string", "Recipient teammate, '*' broadcast, or compatible target", false),
+            prop("message", "object", "Plain text or structured SendMessage payload", false),
+            prop("summary", "string", "Preview summary for plain text messages", false),
+            prop("target_agent", "string", "Compatibility recipient field", false),
+            prop("content", "string", "Compatibility message body field", false),
         }, "agents"));
     registry.register_tool(simple("shared", "Read or write shared runtime key-value state",
-        ToolPermission::Write, {SchemaProperty{.name = "key", .type = "string", .description = "Shared key", .required = false}}, "agents"));
+        ToolPermission::Write, {prop("key", "string", "Shared key", false)}, "agents"));
     registry.register_tool(simple("skill", "Load a local skill by name",
-        ToolPermission::ReadOnly, {SchemaProperty{.name = "name", .type = "string", .description = "Skill name", .required = true}}, "skills"));
+        ToolPermission::ReadOnly, {prop("name", "string", "Skill name", true)}, "skills"));
     registry.register_tool(simple("sleep", "Sleep for a bounded number of seconds",
-        ToolPermission::Execute, {SchemaProperty{.name = "duration", .type = "number", .description = "Duration in seconds", .required = true}}, "execution"));
+        ToolPermission::Execute, {prop("duration", "number", "Duration in seconds", true)}, "execution"));
     registry.register_tool(simple("synthetic_output", "Return provided synthetic output content",
-        ToolPermission::ReadOnly, {SchemaProperty{.name = "content", .type = "string", .description = "Content", .required = true}}, "testing"));
+        ToolPermission::ReadOnly, {prop("content", "string", "Content", true)}, "testing"));
 
     for (const auto& name : {"task_create", "task_get", "task_list", "task_output", "task_stop", "task_update"}) {
         registry.register_tool(simple(name, std::format("Runtime task operation {}", name), ToolPermission::Write,
             {
-                SchemaProperty{.name = "task_id", .type = "string", .description = "Task ID", .required = false},
-                SchemaProperty{.name = "pid", .type = "number", .description = "Background process PID", .required = false},
+                prop("task_id", "string", "Task ID", false),
+                prop("pid", "number", "Background process PID", false),
             }, "tasks"));
     }
     registry.register_tool(simple("team_create", "Create a runtime team record", ToolPermission::Write,
-        {SchemaProperty{.name = "team_name", .type = "string", .description = "Team name", .required = false}}, "agents"));
+        {prop("team_name", "string", "Team name", false)}, "agents"));
     registry.register_tool(simple("team_delete", "Delete a runtime team record", ToolPermission::Write,
-        {SchemaProperty{.name = "team_name", .type = "string", .description = "Team name", .required = true}}, "agents"));
+        {prop("team_name", "string", "Team name", true)}, "agents"));
     registry.register_tool(simple("testing", "Run a test command", ToolPermission::Execute,
-        {SchemaProperty{.name = "command", .type = "string", .description = "Test command", .required = false}}, "testing"));
+        {prop("command", "string", "Test command", false)}, "testing"));
     registry.register_tool(simple("tool_search", "Search registered runtime tools", ToolPermission::ReadOnly,
-        {SchemaProperty{.name = "query", .type = "string", .description = "Search query", .required = false}}, "tools"));
+        {prop("query", "string", "Search query", false)}, "tools"));
     registry.register_tool(simple("tungsten", "Use the Tungsten integration when configured", ToolPermission::Network, {}, "integrations"));
     registry.register_tool(simple("web_browser", "Automate browser navigation, extraction, form fill, and screenshots",
-        ToolPermission::Network, {SchemaProperty{.name = "action", .type = "string", .description = "Browser action", .required = true}}, "browser"));
+        ToolPermission::Network, {prop("action", "string", "Browser action", true)}, "browser"));
     registry.register_tool(simple("workflow", "Read and execute workflow definitions", ToolPermission::ReadOnly,
-        {SchemaProperty{.name = "file", .type = "string", .description = "Workflow file", .required = true}}, "workflow"));
+        {prop("file", "string", "Workflow file", true)}, "workflow"));
 
     (void)agent_runtime::restore_remote_agent_poll_loops();
 

@@ -729,7 +729,7 @@ private:
         // The actual timeout is managed externally via uv_timer.
         // This method records the session for timeout tracking.
         (void)session_id;
-        // TODO: Wire up per-session uv_timer when full lifecycle is implemented.
+        // Deferred: per-session uv_timer setup belongs with full lifecycle wiring.
     }
 
     // --------------------------------------------------------

@@ -238,14 +238,14 @@ inline std::vector<SelectOption> canonical_model_options() {
 
 inline std::vector<SelectOption> canonical_role_options() {
     return {
-        {.label = "Coder",      .value = "coder",      .description = "Write, edit, refactor code"},
-        {.label = "Reviewer",   .value = "reviewer",   .description = "Review PRs and diffs"},
-        {.label = "Researcher", .value = "researcher", .description = "Web research / fact-finding"},
-        {.label = "Planner",    .value = "planner",    .description = "Break tasks into plans"},
-        {.label = "Tester",     .value = "tester",     .description = "Write and run tests"},
-        {.label = "DevOps",     .value = "devops",     .description = "CI/CD, deployments, infra"},
-        {.label = "Writer",     .value = "writer",     .description = "Docs, changelogs, text"},
-        {.label = "Analyst",    .value = "analyst",    .description = "Data analysis, metrics"},
+        {.label = "Coder",      .value = "coder",      .description = "Write, edit, refactor code", .group = "Role", .icon = ""},
+        {.label = "Reviewer",   .value = "reviewer",   .description = "Review PRs and diffs", .group = "Role", .icon = ""},
+        {.label = "Researcher", .value = "researcher", .description = "Web research / fact-finding", .group = "Role", .icon = ""},
+        {.label = "Planner",    .value = "planner",    .description = "Break tasks into plans", .group = "Role", .icon = ""},
+        {.label = "Tester",     .value = "tester",     .description = "Write and run tests", .group = "Role", .icon = ""},
+        {.label = "DevOps",     .value = "devops",     .description = "CI/CD, deployments, infra", .group = "Role", .icon = ""},
+        {.label = "Writer",     .value = "writer",     .description = "Docs, changelogs, text", .group = "Role", .icon = ""},
+        {.label = "Analyst",    .value = "analyst",    .description = "Data analysis, metrics", .group = "Role", .icon = ""},
     };
 }
 

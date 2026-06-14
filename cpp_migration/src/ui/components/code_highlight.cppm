@@ -223,7 +223,7 @@ get_syntax_theme(const std::string& name) {
 // Per-Language Keyword Sets
 //
 // NOTE: A full LSP-backed syntax highlighter is out of scope here
-//       (TODO: integrate with cc/utils/cli_highlight / the HL module
+//       (Deferred: integrate with cc/utils/cli_highlight / the HL module
 //       once it is exposed). The heuristic keyword + string + number
 //       + comment tokenizer below mirrors HighlightedCode/Fallback.tsx:
 //       it gives users reasonable, deterministic coloring across 8
@@ -480,6 +480,7 @@ enum class MultilineState : std::uint8_t {
     auto try_consume_until = [&](MultilineState state,
                                   const char* end_seq,
                                   TokenType tok) -> bool {
+        (void)state;
         size_t es = std::char_traits<char>::length(end_seq);
         size_t p = 0;
         while (p + es <= N) {
@@ -673,7 +674,6 @@ enum class MultilineState : std::uint8_t {
 
             // Check keywords with case-insensitive for SQL, case-sensitive rest
             bool kw = false;
-            bool sql_case_insensitive = false;
             for (auto k : spec.keywords) {
                 if (k == word) { kw = true; break; }
                 // SQL: upper-case in keyword list, match lower

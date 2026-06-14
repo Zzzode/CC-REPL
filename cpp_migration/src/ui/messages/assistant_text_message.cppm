@@ -5,7 +5,7 @@
 ///   [🤖 assistant  │ model X │ ⏱ HH:MM]
 ///   ┌──────────────────────────────────┐
 ///   │   (content, auto-wrapped)         │
-///   │   TODO: Markdown → Phase 4 follow │
+///   │   Markdown-rendered body          │
 ///   └──────────────────────────────────┘
 ///   [▸ Copy  │  ▸ Regenerate]
 ///
@@ -33,6 +33,7 @@ export module cc.ui.messages.assistant_text_message;
 
 import cc.ui.messages.message_components;
 import cc.ui.messages.message_timestamp;
+import cc.ui.markdown;
 
 export namespace cc::ui::messages {
 
@@ -44,7 +45,7 @@ enum class AssistantMessageKind {
     Normal,
     RateLimit,       // handled by sibling component, but flag preserved
     ApiError,        // routed to error_message by dispatcher
-    Empty,           // render only a dot placeholder
+    Empty,           // render only a dot indicator
 };
 
 struct AssistantTextMessageData {
@@ -187,11 +188,33 @@ class AssistantTextMessageComponent : public ComponentBase {
     auto BuildBody() const -> Elements {
         Elements out;
         const bool raw = verbose_override_ || data_.verbose;
-
-        // TODO: Markdown rendering → Phase 4 follow-up
-        //       For now split lines and print raw text with no syntax highlighting.
-        auto lines = SplitLines(data_.content);
         constexpr std::size_t kPreviewLines = 20;
+
+        if (!raw) {
+            std::string content = data_.content;
+            bool truncated = false;
+            if (!expanded_) {
+                auto lines = SplitLines(data_.content);
+                if (lines.size() > kPreviewLines) {
+                    content.clear();
+                    for (std::size_t i = 0; i < kPreviewLines; ++i) {
+                        if (i > 0) content.push_back('\n');
+                        content += lines[i];
+                    }
+                    truncated = true;
+                }
+            }
+
+            out.push_back(::cc::ui::render_markdown(content));
+            if (truncated) {
+                out.push_back(text("... (press E to expand)")
+                                  | dim | color(Color::GrayDark));
+            }
+            if (out.empty()) out.push_back(text(""));
+            return out;
+        }
+
+        auto lines = SplitLines(data_.content);
 
         std::size_t rendered = 0;
         for (auto& line : lines) {
@@ -260,7 +283,7 @@ class AssistantTextMessageComponent : public ComponentBase {
             text(" Assistant  "),
             text(render_timestamp(data.timestamp)) | dim,
         }),
-        text(data.content),
+        ::cc::ui::render_markdown(data.content),
     });
 }
 

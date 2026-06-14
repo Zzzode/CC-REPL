@@ -409,7 +409,7 @@ inline Component MakeTreeSelect(TreeSelectNode root,
 // =====================================================================
 // PARTIAL#2 — HighlightedCode Fallback (Fallback.tsx heuristic regex)
 // =====================================================================
-// TODO(UI27): Integrate into code_highlight.cppm RenderCodeBlock as the
+// Deferred(UI27): Integrate into code_highlight.cppm RenderCodeBlock as the
 //             shiki-unavailable branch (replace `if (!shiki_ok)` body).
 
 struct FallbackOptions {

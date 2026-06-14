@@ -4,7 +4,7 @@
 //   Audit baseline  : 2026-06-09, S2 + S4 commits
 //
 //   Legend: OK migrated & registered   IN imported from root module
-//           RT partial (runtime impl only)  DF DEFER / TODO
+//           RT partial (runtime impl only)  DF deferred
 //
 //   batch.cppm                    OK migrated (Phase 0)  make_batch_skill()
 //   claude_api.cppm               RT bundled/ has impl + IN root SkillDefinition
@@ -479,7 +479,7 @@ public:
         skills_.push_back(cc::skills::claude_api_content::make_claude_api_content_skill());
         skills_.push_back(make_claude_in_chrome_skill());
 
-        // TODO(feature-flag): Register the following only when feature flags become
+        // Deferred(feature-flag): Register the following only when feature flags become
         // available in C++ runtime (mirrors TS index.ts feature() gating):
         //   - dream          (KAIROS || KAIROS_DREAM)
         //   - hunter         (REVIEW_ARTIFACT)

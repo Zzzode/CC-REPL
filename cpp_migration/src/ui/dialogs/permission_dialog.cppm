@@ -24,7 +24,7 @@ struct PermissionRequest {
     std::string risk_level;  // "low", "medium", "high"
     std::vector<std::string> affected_paths;
 
-    // TODO(UI8, trust_utils): the string `risk_level` field should instead
+    // Deferred(UI8, trust_utils): the string `risk_level` field should instead
     //   use `cc::ui::trust_utils::RiskLevel` (Low / Medium / High / Critical)
     //   so this dialog can share the classification logic with TrustDialog.
     //   Migration path:

@@ -64,7 +64,9 @@ enum class SettingsTabId : std::uint8_t {
     MCP,
     LSP,
     Bridge,
-    // TODO(settings): Hooks, Privacy, About tabs
+    Hooks,
+    Privacy,
+    About,
     Status,
     Usage,
     _COUNT,
@@ -81,6 +83,9 @@ enum class SettingsTabId : std::uint8_t {
         case SettingsTabId::MCP:         return "MCP";
         case SettingsTabId::LSP:         return "LSP";
         case SettingsTabId::Bridge:      return "Bridge";
+        case SettingsTabId::Hooks:       return "Hooks";
+        case SettingsTabId::Privacy:     return "Privacy";
+        case SettingsTabId::About:       return "About";
         case SettingsTabId::Status:      return "Status";
         case SettingsTabId::Usage:       return "Usage";
         case SettingsTabId::_COUNT:      return "?";
@@ -430,9 +435,8 @@ inline void apply_to(const WorkingSettings& w, ConfigManager& cfg) {
         "Sampling temperature (0 = deterministic, 2 = maximum randomness)",
         false, focus_row == -2));
 
-    // Placeholders for additional general settings
     body.push_back(separator());
-    body.push_back(text("  Additional general settings:") | dim);
+    body.push_back(text("  Display options:") | dim);
     body.push_back(SettingRow(
         "Show thinking",
         text(w.show_thinking ? " [ON]  " : " [OFF] ") |
@@ -717,7 +721,7 @@ inline void apply_to(const WorkingSettings& w, ConfigManager& cfg) {
     body.push_back(text(" Configured servers:") | bold);
     body.push_back(separator());
     if (w.mcp_servers.empty()) {
-        body.push_back(text("   (none — press [a] to add)") | dim);
+        body.push_back(text("   (none — use /mcp add to configure)") | dim);
     } else {
         for (std::size_t i = 0; i < w.mcp_servers.size(); ++i) {
             const auto& s = w.mcp_servers[i];
@@ -835,6 +839,60 @@ inline void apply_to(const WorkingSettings& w, ConfigManager& cfg) {
         "CORS origin allowlist for bridge connections",
         false, false));
     return vbox(body);
+}
+
+[[nodiscard]] inline Element RenderHooksTab() {
+    return vbox({
+        RenderTabHeader("Hooks", "Lifecycle hook configuration"),
+        SettingRow(
+            "Configuration",
+            text(" Managed in settings JSON ") | color(Color::Cyan),
+            "Hook matchers and commands are loaded by the native hook registry",
+            false,
+            false),
+        SettingRow(
+            "Runtime",
+            text(" PreToolUse / PostToolUse / Stop ") | color(Color::Green),
+            "Hook execution is reported through the lifecycle hook service",
+            false,
+            false),
+    });
+}
+
+[[nodiscard]] inline Element RenderPrivacyTab() {
+    return vbox({
+        RenderTabHeader("Privacy", "Telemetry and data handling"),
+        SettingRow(
+            "Telemetry",
+            text(" Uses configured analytics sink ") | color(Color::Cyan),
+            "Respect environment and managed settings opt-out controls",
+            false,
+            false),
+        SettingRow(
+            "Secrets",
+            text(" Redacted in UI and logs ") | color(Color::Green),
+            "API keys and sensitive tokens are never shown as editable sample values",
+            false,
+            false),
+    });
+}
+
+[[nodiscard]] inline Element RenderAboutTab() {
+    return vbox({
+        RenderTabHeader("About", "CC-REPL native migration"),
+        SettingRow(
+            "Runtime",
+            text(" C++23 modules ") | color(Color::Cyan),
+            "Native CLI implementation with CMake/CTest migration gates",
+            false,
+            false),
+        SettingRow(
+            "Version",
+            text(" 1.0.0 ") | color(Color::Yellow),
+            "Project version from cpp_migration/CMakeLists.txt",
+            false,
+            false),
+    });
 }
 
 // --- Status tab (health lights) ---
@@ -964,7 +1022,7 @@ inline void apply_to(const WorkingSettings& w, ConfigManager& cfg) {
     items.push_back(separator());
 
     // Iterate all tabs in the sidebar order
-    constexpr std::array<SettingsTabId, 10> kOrder = {{
+    constexpr std::array<SettingsTabId, 13> kOrder = {{
         SettingsTabId::General,
         SettingsTabId::Model,
         SettingsTabId::API,
@@ -973,6 +1031,9 @@ inline void apply_to(const WorkingSettings& w, ConfigManager& cfg) {
         SettingsTabId::MCP,
         SettingsTabId::LSP,
         SettingsTabId::Bridge,
+        SettingsTabId::Hooks,
+        SettingsTabId::Privacy,
+        SettingsTabId::About,
         SettingsTabId::Status,
         SettingsTabId::Usage,
     }};
@@ -1105,6 +1166,15 @@ inline void apply_to(const WorkingSettings& w, ConfigManager& cfg) {
             case SettingsTabId::Bridge:
                 content = RenderBridgeTab(state->working, state->focus_row);
                 break;
+            case SettingsTabId::Hooks:
+                content = RenderHooksTab();
+                break;
+            case SettingsTabId::Privacy:
+                content = RenderPrivacyTab();
+                break;
+            case SettingsTabId::About:
+                content = RenderAboutTab();
+                break;
             case SettingsTabId::Status:
                 content = RenderStatusTab(state->opts.status_rows);
                 break;
@@ -1160,7 +1230,7 @@ inline void apply_to(const WorkingSettings& w, ConfigManager& cfg) {
             return true;
         }
 
-        // --- Tab cycling (1..9 hotkeys + Ctrl+Tab) ---
+        // --- Tab cycling (1..9/0 hotkeys + Ctrl+Tab) ---
         if (event.is_character()) {
             char ch = event.character()[0];
             if (ch >= '1' && ch <= '9') {
@@ -1170,7 +1240,7 @@ inline void apply_to(const WorkingSettings& w, ConfigManager& cfg) {
                     SettingsTabId::API, SettingsTabId::Permissions,
                     SettingsTabId::Tools, SettingsTabId::MCP,
                     SettingsTabId::LSP, SettingsTabId::Bridge,
-                    SettingsTabId::Status,
+                    SettingsTabId::Hooks,
                 }};
                 if (idx < (int)kOrder.size()) {
                     state->selected_tab = kOrder[idx];
@@ -1179,7 +1249,12 @@ inline void apply_to(const WorkingSettings& w, ConfigManager& cfg) {
                 }
             }
             if (ch == '0') {
-                state->selected_tab = SettingsTabId::Usage;
+                state->selected_tab = SettingsTabId::Privacy;
+                state->focus_row = 0;
+                return true;
+            }
+            if (ch == 'a' || ch == 'A') {
+                state->selected_tab = SettingsTabId::About;
                 state->focus_row = 0;
                 return true;
             }
@@ -1359,13 +1434,16 @@ inline void apply_to(const WorkingSettings& w, ConfigManager& cfg) {
                         mark(); return true;
                     }
                     if (row == 1) {
-                        // toggle between "set (masked)" and "clear"
                         if (w.api_key) {
                             w.api_key = std::nullopt;
+                            mark();
+                            show_toast("API key cleared");
                         } else {
-                            w.api_key = "sk-ant-placeholder-change-me";
+                            show_toast(
+                                "Set ANTHROPIC_API_KEY or run the auth flow",
+                                Color::Yellow);
                         }
-                        mark(); return true;
+                        return true;
                     }
                     if (row == 4) { // proxy: cycle presets
                         static const std::vector<std::optional<std::string>> kProxy = {
@@ -1432,14 +1510,7 @@ inline void apply_to(const WorkingSettings& w, ConfigManager& cfg) {
         // MCP-specific keys
         if (state->selected_tab == SettingsTabId::MCP) {
             if (event == Event::Character('a')) {
-                McpServerConfig s;
-                s.name = std::format("server_{}", state->working.mcp_servers.size() + 1);
-                s.command = "npx";
-                s.args = {"-y", "@modelcontextprotocol/server-filesystem", "/tmp"};
-                s.transport = "stdio";
-                state->working.mcp_servers.push_back(std::move(s));
-                mark();
-                show_toast("+ Added MCP server placeholder (edit via JSON)");
+                show_toast("Use /mcp add to configure a server", Color::Yellow);
                 return true;
             }
             if (event == Event::Character('r')) {

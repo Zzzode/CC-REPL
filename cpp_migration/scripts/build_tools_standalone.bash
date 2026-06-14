@@ -9,29 +9,31 @@
 #   build_standalone.bash e2e
 set -euo pipefail
 
-ROOT="/Users/bytedance/Develop/CC-REPL/cpp_migration"
-BUILD="${ROOT}/build/clang-debug"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BUILD="${CC_TOOLS_STANDALONE_BUILD_DIR:-${ROOT}/build/clang-debug}"
 SRC="${ROOT}/src"
 TESTS="${ROOT}/tests"
 PCM_DIR="${BUILD}/tools_smoke_pcms"
-CXX="/opt/homebrew/opt/llvm/bin/clang++"
-SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
+CXX="${CXX:-/opt/homebrew/opt/llvm/bin/clang++}"
 
 mkdir -p "${PCM_DIR}"
 
 COMMON=(
   -std=c++23
-  -arch arm64
-  -isysroot "${SDKROOT}"
   -fmodules
   -fcxx-modules
   -fimplicit-module-maps
   -fprebuilt-module-path="${PCM_DIR}"
-  -I"${ROOT}/build/clang-debug/_deps/yyjson-src/src"
-  -I"${ROOT}/build/clang-debug/_deps/libuv-src/include"
+  -I"${BUILD}/_deps/yyjson-src/src"
+  -I"${BUILD}/_deps/libuv-src/include"
   -O0 -g
   -Wall
 )
+
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  SDKROOT="${SDKROOT:-$(xcrun --sdk macosx --show-sdk-path)}"
+  COMMON+=(-arch arm64 -isysroot "${SDKROOT}")
+fi
 
 precompile_modules() {
   echo "--- Precompiling impl_bash.cppm ---"

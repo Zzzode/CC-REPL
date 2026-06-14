@@ -42,6 +42,8 @@ import cc.tools.web_browser;
 import cc.tools.mcp;
 import cc.tools.agent;
 import cc.tools.agent_runtime;
+import cc.tools.file_read;
+import cc.tools.file_write;
 import cc.tools.todo_write;
 import cc.tools.notebook;
 import cc.tools.registry;
@@ -1291,6 +1293,87 @@ TEST(ToolRegistry, RegistersRuntimeTools) {
     EXPECT_TRUE(registry.contains("lsp"));
     EXPECT_TRUE(registry.contains("skill"));
     EXPECT_TRUE(registry.contains("task_create"));
+}
+
+TEST(ToolRegistry, RuntimeSimpleToolsHonorPermissionCheckOption) {
+    std::vector<std::string> checked_tools;
+    cc::core::ToolRegistry registry;
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{
+        .permission_check = [&checked_tools](
+            std::string_view tool_name,
+            std::string_view input_json,
+            std::string_view tool_use_id
+        ) {
+            checked_tools.emplace_back(tool_name);
+            EXPECT_FALSE(input_json.empty());
+            EXPECT_TRUE(tool_use_id.empty());
+            return cc::tools::AgentLivePermissionCheck{
+                .allowed = tool_name != "testing",
+                .message = std::string("blocked by test permission context"),
+            };
+        },
+    });
+
+    auto result = registry.execute("testing", cc::core::ToolInput::from_json(R"({"command":"unit"})"));
+
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().code, cc::core::ErrorCode::ToolPermissionDenied);
+    EXPECT_NE(result.error().message.find("testing"), std::string::npos);
+    ASSERT_EQ(checked_tools.size(), 1u);
+    EXPECT_EQ(checked_tools.front(), "testing");
+}
+
+TEST(Tools, FileReadAndWriteHonorAllowedDirectories) {
+    auto root = fs::temp_directory_path() / "cc_repl_file_permission_test";
+    auto allowed = root / "allowed";
+    auto sibling_with_prefix = root / "allowed2";
+    auto blocked = root / "blocked";
+    fs::remove_all(root);
+    fs::create_directories(allowed);
+    fs::create_directories(sibling_with_prefix);
+    fs::create_directories(blocked);
+
+    const auto allowed_file = allowed / "ok.txt";
+    const auto sibling_file = sibling_with_prefix / "prefix.txt";
+    const auto blocked_file = blocked / "no.txt";
+    {
+        std::ofstream out(allowed_file);
+        out << "allowed";
+    }
+    {
+        std::ofstream out(sibling_file);
+        out << "prefix";
+    }
+    {
+        std::ofstream out(blocked_file);
+        out << "blocked";
+    }
+
+    cc::tools::FileReadTool read_tool;
+    read_tool.set_allowed_directories({allowed.string()});
+    EXPECT_TRUE(read_tool.check_permission(cc::core::ToolInput::from_json(std::format(
+        R"({{"file_path":"{}"}})",
+        cc::tools::agent::json_escape_string(allowed_file.string())))));
+    EXPECT_FALSE(read_tool.check_permission(cc::core::ToolInput::from_json(std::format(
+        R"({{"file_path":"{}"}})",
+        cc::tools::agent::json_escape_string(blocked_file.string())))));
+    EXPECT_FALSE(read_tool.check_permission(cc::core::ToolInput::from_json(std::format(
+        R"({{"file_path":"{}"}})",
+        cc::tools::agent::json_escape_string(sibling_file.string())))));
+
+    cc::tools::FileWriteTool write_tool;
+    write_tool.set_allowed_directories({allowed.string()});
+    EXPECT_TRUE(write_tool.check_permission(cc::core::ToolInput::from_json(std::format(
+        R"({{"file_path":"{}","content":"ok"}})",
+        cc::tools::agent::json_escape_string((allowed / "write.txt").string())))));
+    EXPECT_FALSE(write_tool.check_permission(cc::core::ToolInput::from_json(std::format(
+        R"({{"file_path":"{}","content":"no"}})",
+        cc::tools::agent::json_escape_string((blocked / "write.txt").string())))));
+    EXPECT_FALSE(write_tool.check_permission(cc::core::ToolInput::from_json(std::format(
+        R"({{"file_path":"{}","content":"no"}})",
+        cc::tools::agent::json_escape_string((sibling_with_prefix / "write.txt").string())))));
+
+    fs::remove_all(root);
 }
 
 TEST(Tools, WebBrowserToolUsesScreenshotBackend) {

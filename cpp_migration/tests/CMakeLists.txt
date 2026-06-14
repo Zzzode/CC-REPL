@@ -84,6 +84,9 @@ target_link_libraries(test_services
         cc_utils
         GTest::gtest_main
 )
+target_compile_options(test_services PRIVATE
+    $<$<CXX_COMPILER_ID:Clang,AppleClang>:-Wno-missing-designated-field-initializers>
+)
 gtest_discover_tests(test_services DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
 
 # ---------------------------------------------------------------------------
@@ -154,6 +157,9 @@ target_link_libraries(test_bridge
         cc_daemon
         GTest::gtest_main
 )
+target_compile_options(test_bridge PRIVATE
+    $<$<CXX_COMPILER_ID:Clang,AppleClang>:-Wno-missing-designated-field-initializers>
+)
 add_dependencies(test_bridge cc_repl)
 target_compile_definitions(test_bridge
     PRIVATE
@@ -198,7 +204,11 @@ add_custom_command(
     OUTPUT
         "${CMAKE_BINARY_DIR}/tools_smoke"
         "${CMAKE_BINARY_DIR}/tools_e2e"
-    COMMAND bash "${CC_TOOLS_STANDALONE_BUILDER}" all
+    COMMAND
+        ${CMAKE_COMMAND} -E env
+            "CC_TOOLS_STANDALONE_BUILD_DIR=${CMAKE_BINARY_DIR}"
+            "CXX=${CMAKE_CXX_COMPILER}"
+            bash "${CC_TOOLS_STANDALONE_BUILDER}" all
     DEPENDS
         "${CC_TOOLS_STANDALONE_BUILDER}"
         "${CMAKE_CURRENT_SOURCE_DIR}/tools_smoke.cpp"
@@ -282,5 +292,3 @@ endif()
 if(ENABLE_FUZZING)
   add_subdirectory(fuzz)
 endif()
-
-
