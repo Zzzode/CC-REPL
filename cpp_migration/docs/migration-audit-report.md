@@ -302,21 +302,16 @@ reducers).
 
 ## 11. Conclusion
 
-Migration is **~75–80% complete**. The core engine (QueryEngine + Tool system +
-State) and the service layer (API + MCP + Bridge) are workable. The UI is now a
-single integrated architecture at ~88%. The remaining gaps cluster in three
-areas:
+Migration is **~80% complete** and the project is feature-workable: the core
+engine (QueryEngine + Tool system + State), the service layer (API + MCP +
+Bridge), and the UI (single integrated FTXUI architecture at ~88%) all run, and
+**all originally-flagged P0–P3 closeout items are done** (3 security blockers,
+602/602 tests, QueryEngine feature surface, `popen`→`posix_spawn`).
 
-1. **Security** — 3 production-blocker bypasses that must be fixed before any
-   production use.
-2. **QueryEngine feature gaps** — persistence, structured output, in-loop
-   skill/plugin dispatch, DI.
-3. **Test hygiene** — 9 failing tests, an empty ctest run, and low coverage on
-   security-critical paths.
-
-Recommended sequence: close the security and test blockers first (P0), then
-complete the QueryEngine feature surface (P1), then complete state/UI edges and
-reduce the `popen` attack surface (P2–P3).
+What remains is **completeness and quality, not blockers** — see §13 Remaining
+Work for the verified open list. The highest-value items are: splitting the
+3722-line `runtime_registry.cppm`, extending State persistence coverage, and
+finishing the half-wired Hooks (mention resolution, doctor diagnostics).
 
 ## 12. Change Log
 
@@ -324,3 +319,55 @@ reduce the `popen` attack surface (P2–P3).
 |---|---|
 | 2026-06-11 | Initial audit. Baseline completeness estimated at 70–75%. |
 | 2026-06-14 | Re-verification after 6 follow-up commits (06-11 → 06-13). Marked resolved: UI dual-architecture, second QueryEngine, 34 unregistered modules, FileReadTool permission bypass, fallback-model logic. Corrected QueryEngine to ~85% (was "100%"). Corrected UI to ~88% (was 52%). Updated test state to 9 known failures. Document rewritten in English per project `CLAUDE.md` language policy. |
+
+## 13. Remaining Work
+
+All P0–P3 closeout items from the original audit are complete. The following
+are the genuinely open items, each verified against the code on 2026-06-15
+(file:line evidence included).
+
+### Refactor / structure
+1. **Split `runtime_registry.cppm`** (3722 lines) — mixes runtime-tool
+   registration, agent/team/shared/message logic, and static shared maps.
+   Highest-priority tech debt.
+2. **Separate `Store<State>` from `AppStateStore`** (`store.cppm`) — the
+   generic Store carries middleware/persistence/change-registry while the same
+   module is entangled with AppState reducer/actions; abstraction boundary
+   unclean.
+3. **Standardize JSON parsing** — multiple ad-hoc paths; consolidate on one.
+
+### State layer
+4. **Persist more AppState fields** — `serialize_state`/`deserialize_state`
+   (`persistence.cppm:37/65`) cover only a handful (verbose, compact_mode,
+   working_directory...); ~90% of AppState is not persisted.
+5. **Schema-version migration / undo-redo / invariant checks / devtools** —
+   `schema_version=1` is hardcoded (`persistence.cppm:54`) with no migration
+   path.
+
+### Service / feature completeness
+6. **LSP client ~70%** (`services/lsp/client.cppm`) — JSON-RPC transport +
+   completion/hover/diagnostics basics work; capability coverage and
+   robustness below a full LSP (stdio via `popen_spawn_duplex`).
+7. **OAuth ~50%** (`services/oauth/client.cppm`) — PKCE / callback server /
+   token exchange+refresh present; `KeychainStore` is a file-based fallback
+   (`client.cppm:119`), not the macOS Security framework.
+8. **UI partial** — code highlighting is keyword-only (`code_highlight.cppm:225`
+   defers LSP-backed highlighting); responsive layout is a fixed 30-col sidebar
+   toggle, not terminal-width adaptive (`fullscreen_layout.cppm:12`).
+9. **Hooks ~60%** — several half-finished: `resolve_at_mention()` returns
+   "not yet connected to filesystem" (`ide_at_mentioned.cppm:53`); doctor
+   diagnostics are stubbed pending Phase-5 (`doctor_screen.cppm:154`).
+
+### Quality
+10. **Error-handling consistency** — `std::expected` vs `ToolResult::error()`
+    vs exceptions are mixed across modules; standardize on one pattern.
+11. **Test coverage** — 602/602 green, but the structural gap (many source
+    files untested) likely still holds; the 67%/39% figures are from the
+    06-11 baseline and need a fresh coverage run to confirm.
+
+### Verified as NOT defects (do not action)
+- `native_agent_store()` IS thread-safe (every method holds `std::scoped_lock`
+  over a `mutable std::mutex`; function-local static init is thread-safe) —
+  corrected from the 06-14 report.
+- Slash-command processing lives in the command/CLI layer by design, not in
+  QueryEngine — intentional architecture, not a gap.
