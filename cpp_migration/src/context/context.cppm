@@ -19,6 +19,7 @@ module;
 #include <sstream>
 
 export module cc.context.context;
+import cc.utils.bash_execution;
 
 export namespace cc::core {
 
@@ -78,14 +79,9 @@ namespace detail {
 
 inline std::string exec_git(const std::string& cmd, const std::filesystem::path& cwd) {
     std::string full_cmd = "cd " + cwd.string() + " && git " + cmd + " 2>/dev/null";
-    FILE* pipe = popen(full_cmd.c_str(), "r");
-    if (!pipe) return {};
-    std::string output;
-    std::array<char, 4096> buffer{};
-    while (fgets(buffer.data(), static_cast<int>(buffer.size()), pipe) != nullptr) {
-        output += buffer.data();
-    }
-    pclose(pipe);
+    auto pipe_cap = cc::utils::bash::exec_capture(full_cmd.c_str());
+    if (!pipe_cap) return {};
+    std::string output = std::move(pipe_cap->output);
     // Trim trailing newline
     while (!output.empty() && (output.back() == '\n' || output.back() == '\r')) {
         output.pop_back();

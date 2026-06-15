@@ -28,6 +28,7 @@ export module cc.utils.teleport_utils;
 
 import cc.utils.http;
 import cc.utils.json;
+import cc.utils.bash_execution;
 
 export namespace cc::utils::teleport {
 
@@ -432,12 +433,12 @@ namespace detail {
 	    command += " 2>&1";
 	    std::array<char, 4096> buffer{};
 	    std::string output;
-	    FILE* pipe = ::popen(command.c_str(), "r");
+	    FILE* pipe = cc::utils::bash::popen_spawn(command.c_str());
 	    if (!pipe) return ShellResult{.status = -1, .output = "popen failed"};
 	    while (fgets(buffer.data(), static_cast<int>(buffer.size()), pipe) != nullptr) {
 	        output += buffer.data();
 	    }
-	    return ShellResult{.status = ::pclose(pipe), .output = trim_copy(output)};
+	    return ShellResult{.status = cc::utils::bash::pclose_spawn(pipe), .output = trim_copy(output)};
 	}
 
 	[[nodiscard]] inline ShellResult run_git(const fs::path& cwd, std::string_view args) {

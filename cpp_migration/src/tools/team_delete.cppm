@@ -13,6 +13,7 @@ export module cc.tools.team_delete;
 
 import cc.tools.tool;
 import cc.tools.runtime_registry;
+import cc.tools.agent;
 import cc.tools.team;
 import cc.utils.json;
 import cc.utils.error;
@@ -158,7 +159,17 @@ cc::utils::Result<ToolResult> TeamDeleteTool::execute(const ToolInput& input) {
     if (!parsed) return ToolResult::error(parsed.error());
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    // Internal delegation reuses the runtime team_delete implementation. This
+    // local registry is an implementation detail of the standalone tool — the
+    // outer TeamDeleteTool is already permission-gated by its caller — so the
+    // inner delegation uses an allow-all checker rather than fail-closed
+    // denial for the Write-level "team_delete" runtime tool.
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{
+        .permission_check = cc::tools::agent::AgentLivePermissionCheckFn{[](
+            std::string_view, std::string_view, std::string_view) {
+            return cc::tools::agent::AgentLivePermissionCheck{.allowed = true};
+        }},
+    });
     auto delegated = registry.execute("team_delete", ToolInput::from_json(detail::delete_input_json_for_target(*parsed)));
     if (!delegated) return ToolResult::error(delegated.error().format());
     return std::move(*delegated);

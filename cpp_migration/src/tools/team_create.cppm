@@ -15,6 +15,7 @@ export module cc.tools.team_create;
 
 import cc.tools.tool;
 import cc.tools.runtime_registry;
+import cc.tools.agent;
 import cc.tools.team;
 import cc.utils.json;
 import cc.utils.error;
@@ -167,7 +168,17 @@ cc::utils::Result<ToolResult> TeamCreateTool::execute(const ToolInput& input) {
     if (auto error = validate_input(*parsed)) return ToolResult::error(*error);
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    // Internal delegation reuses the runtime team_create implementation. This
+    // local registry is an implementation detail of the standalone tool — the
+    // outer TeamCreateTool is already permission-gated by its caller — so the
+    // inner delegation uses an allow-all checker rather than fail-closed
+    // denial for the Write-level "team_create" runtime tool.
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{
+        .permission_check = cc::tools::agent::AgentLivePermissionCheckFn{[](
+            std::string_view, std::string_view, std::string_view) {
+            return cc::tools::agent::AgentLivePermissionCheck{.allowed = true};
+        }},
+    });
     auto delegated = registry.execute("team_create", input);
     if (!delegated) return ToolResult::error(delegated.error().format());
     return std::move(*delegated);

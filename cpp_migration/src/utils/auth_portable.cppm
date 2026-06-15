@@ -11,6 +11,7 @@ module;
 #include <array>
 
 export module cc.utils.auth_portable;
+import cc.utils.bash_execution;
 
 export namespace cc::utils {
 
@@ -29,7 +30,7 @@ inline fs::path get_api_key_file() {
 inline std::optional<std::string> read_from_keychain() {
 #ifdef __APPLE__
     std::string cmd = "security find-generic-password -s 'claude-code' -a 'api_key' -w 2>/dev/null";
-    FILE* pipe = popen(cmd.c_str(), "r");
+    FILE* pipe = cc::utils::bash::popen_spawn(cmd.c_str());
     if (!pipe) return std::nullopt;
 
     std::array<char, 256> buffer{};
@@ -37,7 +38,7 @@ inline std::optional<std::string> read_from_keychain() {
     if (fgets(buffer.data(), buffer.size(), pipe) != nullptr) {
         result = buffer.data();
     }
-    int status = pclose(pipe);
+    int status = cc::utils::bash::pclose_spawn(pipe);
     if (status != 0 || result.empty()) return std::nullopt;
 
     // Trim trailing newline

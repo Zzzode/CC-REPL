@@ -3100,6 +3100,122 @@ TEST(QueryEngine, InjectsPendingNativeAgentTaskNotificationsIntoRequest) {
     fs::remove_all(root);
 }
 
+TEST(QueryEngine, PersistsTranscriptToSessionStorage) {
+    auto dir = fs::temp_directory_path() / "cc_repl_qe_session_persist_test";
+    fs::remove_all(dir);
+    fs::create_directories(dir);
+
+    cc::core::ToolRegistry registry;
+    cc::core::QueryEngineConfig config;
+    config.context_window.auto_compact = false;
+    config.cwd = fs::temp_directory_path().string();
+    config.model_params.model = "test-model";
+    cc::core::QueryEngine engine(std::move(config), registry);
+    engine.set_session_storage(dir);
+
+    auto make_user = [](std::string text) {
+        cc::core::UserMessage msg{};
+        msg.content.push_back(cc::core::TextBlock{std::move(text)});
+        return cc::core::Message{std::move(msg)};
+    };
+    auto make_assistant = [](std::string text) {
+        cc::core::AssistantMessage msg{};
+        msg.content.push_back(cc::core::TextBlock{std::move(text)});
+        return cc::core::Message{std::move(msg)};
+    };
+
+    engine.append_message_for_testing(make_user("hello world"));
+    engine.append_message_for_testing(make_assistant("hi there"));
+
+    const auto msgs_path = dir / engine.session_id().str() / "messages.jsonl";
+    ASSERT_TRUE(fs::exists(msgs_path)) << msgs_path;
+
+    std::vector<std::string> lines;
+    {
+        std::ifstream ifs(msgs_path);
+        std::string line;
+        while (std::getline(ifs, line)) if (!line.empty()) lines.push_back(line);
+    }
+    // Two non-system messages -> two transcript lines.
+    ASSERT_EQ(lines.size(), 2u);
+    EXPECT_NE(lines[0].find("hello world"), std::string::npos);
+    EXPECT_NE(lines[0].find("user"), std::string::npos);
+    EXPECT_NE(lines[1].find("hi there"), std::string::npos);
+    EXPECT_NE(lines[1].find("assistant"), std::string::npos);
+
+    // Metadata discoverable via list_recent_sessions.
+    auto sessions = cc::session::list_recent_sessions(dir);
+    EXPECT_EQ(sessions.size(), 1u);
+    EXPECT_EQ(sessions.front().session_id, engine.session_id().str());
+    EXPECT_EQ(sessions.front().model, "test-model");
+
+    // flush_session refreshes metadata message_count.
+    engine.flush_session();
+    auto sessions2 = cc::session::list_recent_sessions(dir);
+    ASSERT_EQ(sessions2.size(), 1u);
+    EXPECT_EQ(sessions2.front().message_count, 2);
+
+    fs::remove_all(dir);
+}
+
+TEST(QueryEngine, StructuredOutputInjectsResponseSchema) {
+    cc::core::ToolRegistry registry;
+    cc::core::QueryEngineConfig config;
+    config.context_window.auto_compact = false;
+    config.response_schema = cc::core::QueryEngineConfig::ResponseSchema{
+        .name = "result",
+        .schema_json = R"({"type":"object","properties":{"answer":{"type":"string"}},"required":["answer"]})",
+    };
+    cc::core::QueryEngine engine(std::move(config), registry);
+
+    const auto out = engine.build_output_config_json_for_testing();
+    EXPECT_NE(out.find("output_config"), std::string::npos);
+    EXPECT_NE(out.find("json_schema"), std::string::npos);
+    EXPECT_NE(out.find("\"result\""), std::string::npos);
+    EXPECT_NE(out.find("answer"), std::string::npos);
+
+    // Without a schema and without a budget, output_config is omitted.
+    cc::core::QueryEngineConfig bare;
+    bare.context_window.auto_compact = false;
+    cc::core::QueryEngine bare_engine(std::move(bare), registry);
+    EXPECT_EQ(bare_engine.build_output_config_json_for_testing(), "{}");
+}
+
+TEST(QueryEngine, TracksInvokedSkillsInLoop) {
+    // In-loop skill dispatch: when the skill tool is invoked, the engine
+    // records the skill name in discovered_skills_ (previously a dead field).
+    struct StubSkillTool final : cc::core::ITool {
+        cc::core::ToolDefinition definition_{};
+        StubSkillTool() {
+            definition_.name = "skill";
+            definition_.permission = cc::core::ToolPermission::ReadOnly;
+        }
+        [[nodiscard]] const cc::core::ToolDefinition& definition() const override { return definition_; }
+        [[nodiscard]] cc::core::Result<cc::core::ToolResult> execute(const cc::core::ToolInput&) override {
+            return cc::core::ToolResult::success("ok");
+        }
+        [[nodiscard]] bool check_permission(const cc::core::ToolInput&) const override { return true; }
+    };
+
+    cc::core::ToolRegistry registry;
+    registry.register_tool(std::make_unique<StubSkillTool>());
+    cc::core::QueryEngineConfig config;
+    config.context_window.auto_compact = false;
+    config.cwd = fs::temp_directory_path().string();
+    cc::core::QueryEngine engine(std::move(config), registry);
+
+    cc::core::ToolUseBlock tu{
+        .id = cc::core::ToolUseId{.value = "tu-1"},
+        .name = "skill",
+        .input_json = R"({"name":"my-test-skill"})",
+    };
+    (void)engine.execute_single_tool_for_testing(tu);
+
+    const auto skills = engine.discovered_skills();
+    EXPECT_NE(std::find(skills.begin(), skills.end(), "my-test-skill"), skills.end())
+        << "skill invocation should be tracked in discovered_skills_";
+}
+
 TEST(QueryEngine, CompactConversationPreservesSummarizedHistoryDetails) {
     cc::core::ToolRegistry registry;
     cc::core::QueryEngineConfig config;

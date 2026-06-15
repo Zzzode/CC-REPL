@@ -9,6 +9,8 @@ module;
 
 export module cc.utils.detect_repository;
 
+import cc.utils.bash_execution;
+
 export namespace cc::utils {
 
 namespace fs = std::filesystem;
@@ -61,30 +63,22 @@ inline std::optional<RepoInfo> get_repo_info(fs::path start = fs::current_path()
 
             // Get current branch
             auto cmd_branch = "git -C " + current.string() + " branch --show-current 2>/dev/null";
-            FILE* pipe = popen(cmd_branch.c_str(), "r");
-            if (pipe) {
-                std::array<char, 256> buffer{};
-                if (fgets(buffer.data(), buffer.size(), pipe) != nullptr) {
-                    std::string branch(buffer.data());
-                    while (!branch.empty() && (branch.back() == '\n' || branch.back() == '\r'))
-                        branch.pop_back();
-                    if (!branch.empty()) info.branch = branch;
-                }
-                pclose(pipe);
+            auto branch_cap = cc::utils::bash::exec_capture(cmd_branch);
+            if (branch_cap && !branch_cap->output.empty()) {
+                std::string branch(std::move(branch_cap->output));
+                while (!branch.empty() && (branch.back() == '\n' || branch.back() == '\r'))
+                    branch.pop_back();
+                if (!branch.empty()) info.branch = branch;
             }
 
             // Get remote URL
             auto cmd_remote = "git -C " + current.string() + " remote get-url origin 2>/dev/null";
-            pipe = popen(cmd_remote.c_str(), "r");
-            if (pipe) {
-                std::array<char, 512> buffer{};
-                if (fgets(buffer.data(), buffer.size(), pipe) != nullptr) {
-                    std::string url(buffer.data());
-                    while (!url.empty() && (url.back() == '\n' || url.back() == '\r'))
-                        url.pop_back();
-                    if (!url.empty()) info.remote_url = url;
-                }
-                pclose(pipe);
+            auto remote_cap = cc::utils::bash::exec_capture(cmd_remote);
+            if (remote_cap && !remote_cap->output.empty()) {
+                std::string url(std::move(remote_cap->output));
+                while (!url.empty() && (url.back() == '\n' || url.back() == '\r'))
+                    url.pop_back();
+                if (!url.empty()) info.remote_url = url;
             }
 
             return info;

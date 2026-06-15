@@ -31,6 +31,7 @@ export module cc.services.lsp.client;
 
 import cc.utils.json;
 import cc.types.types;
+import cc.utils.bash_execution;
 
 export namespace cc::services::lsp {
 
@@ -496,7 +497,7 @@ public:
         }
         
         // Open bidirectional pipe
-        pipe_handle_ = popen(full_cmd.c_str(), "r+");
+        pipe_handle_ = cc::utils::bash::popen_spawn_duplex(full_cmd);
         if (!pipe_handle_) {
             return std::unexpected(LspClientError::ConnectionFailed);
         }
@@ -567,7 +568,7 @@ public:
     
     void close() override {
         if (pipe_handle_) {
-            pclose(pipe_handle_);
+            cc::utils::bash::pclose_spawn(pipe_handle_);
             pipe_handle_ = nullptr;
         }
         connected_ = false;

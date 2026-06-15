@@ -9,6 +9,7 @@ module;
 #include <array>
 
 export module cc.utils.git_filesystem;
+import cc.utils.bash_execution;
 
 export namespace cc::utils {
 
@@ -84,7 +85,7 @@ inline std::optional<std::string> get_current_branch() {
 // Get the commit hash for a given ref (default HEAD)
 inline std::optional<std::string> get_commit_hash(std::string_view ref = "HEAD") {
     std::string cmd = "git rev-parse " + std::string(ref) + " 2>/dev/null";
-    FILE* pipe = popen(cmd.c_str(), "r");
+    FILE* pipe = cc::utils::bash::popen_spawn(cmd.c_str());
     if (!pipe) return std::nullopt;
 
     std::array<char, 64> buffer{};
@@ -92,7 +93,7 @@ inline std::optional<std::string> get_commit_hash(std::string_view ref = "HEAD")
     if (fgets(buffer.data(), buffer.size(), pipe) != nullptr) {
         hash = buffer.data();
     }
-    int status = pclose(pipe);
+    int status = cc::utils::bash::pclose_spawn(pipe);
     if (status != 0 || hash.empty()) return std::nullopt;
 
     // Trim newline
@@ -105,30 +106,18 @@ inline std::optional<std::string> get_commit_hash(std::string_view ref = "HEAD")
 // Check if the current directory is inside a git work tree
 inline bool is_inside_work_tree() {
     std::string cmd = "git rev-parse --is-inside-work-tree 2>/dev/null";
-    FILE* pipe = popen(cmd.c_str(), "r");
-    if (!pipe) return false;
-
-    std::array<char, 16> buffer{};
-    std::string result;
-    if (fgets(buffer.data(), buffer.size(), pipe) != nullptr) {
-        result = buffer.data();
-    }
-    pclose(pipe);
+    auto pipe_cap = cc::utils::bash::exec_capture(cmd.c_str());
+    if (!pipe_cap) return false;
+    std::string result = std::move(pipe_cap->output);
     return result.starts_with("true");
 }
 
 // Check if the repository is a bare repository
 inline bool is_bare_repo() {
     std::string cmd = "git rev-parse --is-bare-repository 2>/dev/null";
-    FILE* pipe = popen(cmd.c_str(), "r");
-    if (!pipe) return false;
-
-    std::array<char, 16> buffer{};
-    std::string result;
-    if (fgets(buffer.data(), buffer.size(), pipe) != nullptr) {
-        result = buffer.data();
-    }
-    pclose(pipe);
+    auto pipe_cap = cc::utils::bash::exec_capture(cmd.c_str());
+    if (!pipe_cap) return false;
+    std::string result = std::move(pipe_cap->output);
     return result.starts_with("true");
 }
 

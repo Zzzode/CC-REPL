@@ -16,6 +16,7 @@ module;
 #include <unistd.h>
 
 export module cc.tools.terminal_capture;
+import cc.utils.bash_execution;
 
 
 export namespace cc::tools {
@@ -235,7 +236,7 @@ private:
             cmd = std::format("tput cols; tput lines; echo '---terminal-content---'");
         }
 
-        FILE* pipe = ::popen(cmd.c_str(), "r");
+        FILE* pipe = cc::utils::bash::popen_spawn(cmd.c_str());
         if (!pipe) return "";
 
         std::string output;
@@ -243,7 +244,7 @@ private:
         while (auto bytes = ::fread(buffer.data(), 1, buffer.size(), pipe)) {
             output.append(buffer.data(), bytes);
         }
-        ::pclose(pipe);
+        cc::utils::bash::pclose_spawn(pipe);
         return output;
     }
 };

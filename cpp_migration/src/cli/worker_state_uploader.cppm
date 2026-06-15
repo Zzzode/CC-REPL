@@ -12,6 +12,7 @@ module;
 #include <array>
 
 export module cc.cli.worker_state_uploader;
+import cc.utils.bash_execution;
 
 export namespace cc::cli {
 
@@ -129,7 +130,7 @@ private:
             "-d '" + payload + "' "
             "-o /dev/null -w '%{http_code}' 2>&1";
 
-        FILE* pipe = ::popen(cmd.c_str(), "r");
+        FILE* pipe = cc::utils::bash::popen_spawn(cmd.c_str());
         if (!pipe) {
             return std::unexpected("Failed to execute upload request");
         }
@@ -140,7 +141,7 @@ private:
             output.append(buffer.data(), bytes);
         }
 
-        int status = ::pclose(pipe);
+        int status = cc::utils::bash::pclose_spawn(pipe);
         if (status != 0) {
             return std::unexpected("Upload request failed: " + output);
         }

@@ -48,6 +48,9 @@ import cc.tools.todo_write;
 import cc.tools.notebook;
 import cc.tools.registry;
 import cc.tools.runtime_registry;
+import cc.tools.path_validation;
+import cc.tools.bash_security;
+import cc.tools.bash_permissions;
 import cc.tools.task;
 import cc.tools.team;
 import cc.tools.team_create;
@@ -64,6 +67,19 @@ import cc.services.mcp.types;
 namespace fs = std::filesystem;
 
 namespace {
+
+// Tests exercise runtime-tool *executor* logic, not permission gating. Supply
+// an allow-all live checker so the fail-closed default in RuntimeFunctionTool
+// does not block them. Production paths must supply a real checker (or accept
+// fail-closed denial for write/execute/network tools).
+cc::tools::agent::AgentLivePermissionCheckFn test_allow_all_check() {
+    auto allow = []([[maybe_unused]] std::string_view,
+                    [[maybe_unused]] std::string_view,
+                    [[maybe_unused]] std::string_view) {
+        return cc::tools::agent::AgentLivePermissionCheck{.allowed = true};
+    };
+    return cc::tools::agent::AgentLivePermissionCheckFn{std::move(allow)};
+}
 
 struct CurrentPathGuard {
     fs::path previous;
@@ -1282,7 +1298,7 @@ TEST(ToolRegistry, CoreRegistryCanBeConstructed) {
 
 TEST(ToolRegistry, RegistersRuntimeTools) {
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
 
     EXPECT_GT(registry.size(), 0u);
     EXPECT_TRUE(registry.contains("Bash"));
@@ -1321,6 +1337,32 @@ TEST(ToolRegistry, RuntimeSimpleToolsHonorPermissionCheckOption) {
     EXPECT_NE(result.error().message.find("testing"), std::string::npos);
     ASSERT_EQ(checked_tools.size(), 1u);
     EXPECT_EQ(checked_tools.front(), "testing");
+}
+
+TEST(Tools, RuntimeSimpleToolsFailClosedWithoutPermissionCheck) {
+    // Regression test: when no live permission checker is supplied, runtime
+    // tools must fail CLOSED for Write/Execute/Network operations. Previously
+    // RuntimeFunctionTool::check_permission returned true unconditionally,
+    // letting e.g. "script"/"repl"/"config"/"mcp" execute without any
+    // permission gate. Read-only runtime tools remain allowed.
+    cc::core::ToolRegistry registry;
+    cc::tools::register_runtime_tools(registry);  // fail-closed path under test
+
+    const auto input = cc::core::ToolInput::from_json(R"({})");
+
+    for (auto name : {"config", "script", "repl", "mcp", "notebook_edit", "powershell"}) {
+        auto* tool = registry.get(name);
+        ASSERT_NE(tool, nullptr) << name;
+        EXPECT_FALSE(tool->check_permission(input))
+            << "runtime tool '" << name << "' must fail-closed without a permission checker";
+    }
+
+    for (auto name : {"skill", "list_mcp_resources", "synthetic_output"}) {
+        auto* tool = registry.get(name);
+        ASSERT_NE(tool, nullptr) << name;
+        EXPECT_TRUE(tool->check_permission(input))
+            << "read-only runtime tool '" << name << "' should be allowed without a checker";
+    }
 }
 
 TEST(Tools, FileReadAndWriteHonorAllowedDirectories) {
@@ -1374,6 +1416,94 @@ TEST(Tools, FileReadAndWriteHonorAllowedDirectories) {
         cc::tools::agent::json_escape_string((sibling_with_prefix / "write.txt").string())))));
 
     fs::remove_all(root);
+}
+
+TEST(Tools, PathValidationRejectsSymlinkEscapingAllowedDir) {
+    // Regression test: a symlink inside an allowed directory that points
+    // outside it must be rejected. Previously path_validation used
+    // lexically_normal() only, so the symlink was not followed and the path
+    // appeared to stay within bounds — a directory-traversal bypass.
+    auto root = fs::temp_directory_path() / "cc_repl_symlink_escape_test";
+    auto allowed = root / "allowed";
+    auto outside = root / "outside";
+    fs::remove_all(root);
+    fs::create_directories(allowed);
+    fs::create_directories(outside);
+
+    const auto escape_link = allowed / "escape";
+    std::error_code link_ec;
+    fs::create_directory_symlink(outside, escape_link, link_ec);
+    if (link_ec) {
+        fs::remove_all(root);
+        GTEST_SKIP() << "symlinks not supported on this filesystem";
+    }
+
+    cc::tools::path_validation::PathPermissionContext ctx{
+        .cwd = root,
+        .allowed_dirs = {allowed},
+    };
+
+    // Writing through the symlink resolves OUTSIDE allowed_dirs -> deny.
+    const auto target_via_symlink = escape_link / "exfil.txt";
+    auto r = cc::tools::path_validation::validate_path(
+        target_via_symlink.string(), root, ctx,
+        cc::tools::path_validation::FileOperationType::kCreate);
+    EXPECT_FALSE(r.allowed)
+        << "symlink escaping allowed_dirs must be rejected";
+
+    // Sanity: a direct path inside allowed is still allowed.
+    auto r_ok = cc::tools::path_validation::validate_path(
+        (allowed / "inside.txt").string(), root, ctx,
+        cc::tools::path_validation::FileOperationType::kCreate);
+    EXPECT_TRUE(r_ok.allowed);
+
+    fs::remove_all(root);
+}
+
+TEST(Tools, BashSecurityDetectsObfuscatedCommands) {
+    // Regression test: detection must survive case changes, whitespace
+    // padding, empty-quote fragmentation, and backslash escapes. Previously
+    // pure command.find(pattern) let all of these through.
+    using cc::tools::is_destructive_command;
+    using cc::tools::detect_privilege_escalation;
+    using cc::tools::check_command_security;
+
+    // Case variants of destructive commands.
+    EXPECT_TRUE(is_destructive_command("RM -RF /tmp"));
+    EXPECT_TRUE(is_destructive_command("Rm -r /tmp"));
+    EXPECT_TRUE(is_destructive_command("MKFS /dev/sda"));
+
+    // Whitespace padding.
+    EXPECT_TRUE(is_destructive_command("rm  -rf /tmp"));
+    EXPECT_TRUE(is_destructive_command("rm\t-rf /tmp"));
+
+    // Empty-quote fragmentation (r""m, su""do) and case.
+    EXPECT_TRUE(is_destructive_command("r\"\"m -rf /tmp"));
+    EXPECT_TRUE(detect_privilege_escalation("su\"\"do ls"));
+    EXPECT_TRUE(detect_privilege_escalation("SuDo ls"));
+
+    // Backslash escape obfuscation.
+    EXPECT_TRUE(is_destructive_command("r\\m -rf /tmp"));
+
+    // Sanity: benign commands still pass the full security check.
+    EXPECT_TRUE(check_command_security("ls -la /tmp").passed);
+    EXPECT_TRUE(check_command_security("echo hello world").passed);
+    EXPECT_TRUE(check_command_security("grep -r foo .").passed);
+}
+
+TEST(Tools, PermissionBridgeMapsToolPermissionToBashLevel) {
+    // The two permission models (ToolPermission capability vs BashPermissionLevel
+    // per-call decision) must have an explicit bridge. Read-only capabilities
+    // default to Allowed; write/execute/network default to NeedsApproval.
+    using cc::core::ToolPermission;
+    EXPECT_EQ(cc::tools::default_bash_level_for(ToolPermission::ReadOnly),
+              cc::tools::BashPermissionLevel::Allowed);
+    EXPECT_EQ(cc::tools::default_bash_level_for(ToolPermission::Write),
+              cc::tools::BashPermissionLevel::NeedsApproval);
+    EXPECT_EQ(cc::tools::default_bash_level_for(ToolPermission::Execute),
+              cc::tools::BashPermissionLevel::NeedsApproval);
+    EXPECT_EQ(cc::tools::default_bash_level_for(ToolPermission::Network),
+              cc::tools::BashPermissionLevel::NeedsApproval);
 }
 
 TEST(Tools, WebBrowserToolUsesScreenshotBackend) {
@@ -1465,7 +1595,7 @@ TEST(Tools, RuntimeWebBrowserUsesAutomationCommandBackend) {
     );
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
     auto result = registry.execute("web_browser", cc::core::ToolInput::from_json(R"({
       "action": "click",
       "selector": "#submit"
@@ -1480,7 +1610,7 @@ TEST(Tools, RuntimeWebBrowserUsesAutomationCommandBackend) {
 TEST(Tools, RuntimeWebBrowserKeepsPageStateAcrossCalls) {
     EnvironmentUnsetGuard clear_automation_guard("CC_REPL_BROWSER_AUTOMATION_CMD");
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
 
     {
         EnvironmentGuard automation_guard(
@@ -1571,7 +1701,7 @@ TEST(Tools, PowerShellEncodedCommandUsesUtf16LeForUtf8Input) {
 
 TEST(Tools, RuntimePowerShellToolReportsUnavailableOnNonWindows) {
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
     auto result = registry.execute("powershell", cc::core::ToolInput::from_json(R"({
       "command": "Get-ChildItem"
     })"));
@@ -1588,7 +1718,7 @@ TEST(Tools, RuntimePowerShellToolReportsUnavailableOnNonWindows) {
 
 TEST(Tools, RuntimePowerShellToolValidatesDangerousCommandBeforePlatformExecution) {
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
     auto result = registry.execute("powershell", cc::core::ToolInput::from_json(R"({
       "command": "Remove-Item -Recurse C:\\Temp"
     })"));
@@ -1604,7 +1734,7 @@ TEST(Tools, RuntimePowerShellToolValidatesWorkingDirectoryBeforePlatformExecutio
     fs::remove_all(root);
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
     auto result = registry.execute("powershell", cc::core::ToolInput::from_json(std::format(R"({{
       "command": "Get-ChildItem",
       "cwd": "{}"
@@ -1625,7 +1755,7 @@ TEST(Tools, RuntimePowerShellToolExecutesRealCommandWithWorkingDirectoryOnWindow
     fs::create_directories(root);
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
     auto result = registry.execute("powershell", cc::core::ToolInput::from_json(std::format(R"({{
       "command": "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Write-Output (Get-Location).Path",
       "cwd": "{}"
@@ -1702,7 +1832,7 @@ TEST(Tools, RuntimeComputerUseScreenshotReturnsImageContentFromCaptureProvider) 
         });
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
     auto result = registry.execute("computer_use", cc::core::ToolInput::from_json(R"({
       "action": "screenshot",
       "x": 5,
@@ -1757,7 +1887,7 @@ if (request.action === 'screenshot') {
         "node " + shell_quote_for_test(script_path.string()) + " {request}");
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
 
     auto screenshot = registry.execute("computer_use", cc::core::ToolInput::from_json(R"({
       "action": "screenshot",
@@ -1853,7 +1983,7 @@ TEST(Tools, RuntimeComputerUseDispatchesInputActionsToProvider) {
         });
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
 
     auto click = registry.execute("computer_use", cc::core::ToolInput::from_json(R"({
       "action": "click",
@@ -1907,7 +2037,7 @@ TEST(Tools, RuntimeComputerUseRejectsInputActionsWithoutProvider) {
     EnvironmentGuard disable_native_input("CC_REPL_DISABLE_NATIVE_COMPUTER_INPUT", "1");
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
     auto result = registry.execute("computer_use", cc::core::ToolInput::from_json(R"({
       "action": "click",
       "x": 1,
@@ -2052,7 +2182,7 @@ process.stdin.resume();
     CurrentPathGuard cwd(root);
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
 
     auto execute_lsp = [&](std::string_view action) {
         cc::utils::json::JsonMutDoc doc;
@@ -2187,7 +2317,7 @@ TEST(Tools, BashToolStartsBackgroundCommands) {
     EXPECT_TRUE(fs::exists(output_path));
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
     std::string task_output;
     for (int attempt = 0; attempt < 20; ++attempt) {
         auto output = registry.execute("task_output", cc::core::ToolInput::from_json(
@@ -2282,7 +2412,7 @@ TEST(Tools, TaskStopStopsBackgroundBashCommands) {
     ASSERT_TRUE(task_id.has_value()) << result->content.front().text;
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
     for (int attempt = 0; attempt < 20; ++attempt) {
         auto output = registry.execute("task_output", cc::core::ToolInput::from_json(
             std::format(R"({{"task_id":"{}"}})", *task_id)));
@@ -2325,7 +2455,7 @@ TEST(Tools, TaskOutputAndStopAcceptBackgroundProcessPid) {
     ASSERT_TRUE(pid.has_value()) << result->content.front().text;
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
     std::string output_text;
     for (int attempt = 0; attempt < 20; ++attempt) {
         auto output = registry.execute("task_output", cc::core::ToolInput::from_json(
@@ -2490,7 +2620,7 @@ TEST(Tools, NotebookRuntimeAdapterAcceptsTypeScriptInputShape) {
     }
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
 
     auto input = std::format(R"JSONFMT({{
       "notebook_path": "{}",
@@ -2552,7 +2682,7 @@ TEST(Tools, FileReadFormatsNotebookCellsForToolResult) {
     }
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
 
     auto input = std::format(R"({{"file_path":"{}"}})", notebook_path.string());
     auto result = registry.execute("Read", cc::core::ToolInput::from_json(input));
@@ -2587,7 +2717,7 @@ TEST(Tools, FileReadReturnsImageContentBlock) {
     }
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
 
     auto input = std::format(R"({{"file_path":"{}"}})", image_path.string());
     auto result = registry.execute("Read", cc::core::ToolInput::from_json(input));
@@ -2615,7 +2745,7 @@ TEST(Tools, FileReadReturnsPdfDocumentBlock) {
     }
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
 
     auto input = std::format(R"({{"file_path":"{}"}})", pdf_path.string());
     auto result = registry.execute("Read", cc::core::ToolInput::from_json(input));
@@ -4097,7 +4227,7 @@ Use the plugin review checklist.
         EXPECT_TRUE(plan->frontmatter_hooks.contains("SubagentStart"));
 
         cc::core::ToolRegistry registry;
-        cc::tools::register_runtime_tools(registry);
+        cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
         auto skill = registry.execute("skill", cc::core::ToolInput::from_json(R"({
           "name": "plugin-fixture:review-skill"
         })"));
@@ -4231,7 +4361,7 @@ Review with stop hooks.
     {
         CurrentPathGuard cwd(root);
         cc::core::ToolRegistry registry;
-        cc::tools::register_runtime_tools(registry);
+        cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
         cc::tools::AgentTool tool({}, 0, &registry);
 
         auto started = tool.execute(cc::core::ToolInput::from_json(R"({
@@ -4317,7 +4447,7 @@ Review with tool hooks.
     {
         CurrentPathGuard cwd(root);
         cc::core::ToolRegistry registry;
-        cc::tools::register_runtime_tools(registry);
+        cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
         cc::tools::AgentTool tool({}, 0, &registry);
 
         auto result = tool.execute(cc::core::ToolInput::from_json(R"({
@@ -4384,7 +4514,7 @@ Review with deny hooks.
     {
         CurrentPathGuard cwd(root);
         cc::core::ToolRegistry registry;
-        cc::tools::register_runtime_tools(registry);
+        cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
         cc::tools::AgentTool tool({}, 0, &registry);
 
         auto result = tool.execute(cc::core::ToolInput::from_json(R"({
@@ -4453,7 +4583,7 @@ Review with update hooks.
     {
         CurrentPathGuard cwd(root);
         cc::core::ToolRegistry registry;
-        cc::tools::register_runtime_tools(registry);
+        cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
         cc::tools::AgentTool tool({}, 0, &registry);
 
         auto result = tool.execute(cc::core::ToolInput::from_json(R"({
@@ -4631,7 +4761,7 @@ TEST(Tools, RuntimeRegistryEditToolEditsFileAndReturnsOutput) {
     }
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
 
     // Read the file first (required by Edit tool)
     auto read_result = registry.execute("Read", cc::core::ToolInput::from_json(std::format(
@@ -4947,7 +5077,7 @@ Review with pre stop hooks.
     {
         CurrentPathGuard cwd(root);
         cc::core::ToolRegistry registry;
-        cc::tools::register_runtime_tools(registry);
+        cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
         cc::tools::AgentTool tool({}, 0, &registry);
 
         auto result = tool.execute(cc::core::ToolInput::from_json(R"({
@@ -5013,7 +5143,7 @@ Review with failure hooks.
     {
         CurrentPathGuard cwd(root);
         cc::core::ToolRegistry registry;
-        cc::tools::register_runtime_tools(registry);
+        cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
         cc::tools::AgentTool tool({}, 0, &registry);
 
         auto result = tool.execute(cc::core::ToolInput::from_json(R"({
@@ -5074,7 +5204,7 @@ Review with stop hooks.
     {
         CurrentPathGuard cwd(root);
         cc::core::ToolRegistry registry;
-        cc::tools::register_runtime_tools(registry);
+        cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
         cc::tools::AgentTool tool({}, 0, &registry);
 
         auto result = tool.execute(cc::core::ToolInput::from_json(R"({
@@ -5208,7 +5338,7 @@ Review with MCP output hooks.
     {
         CurrentPathGuard cwd(root);
         cc::core::ToolRegistry registry;
-        cc::tools::register_runtime_tools(registry);
+        cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
         cc::tools::AgentTool tool({}, 0, &registry);
 
         auto result = tool.execute(cc::core::ToolInput::from_json(R"({
@@ -5840,7 +5970,7 @@ TEST(Tools, AgentToolRejectsRemoteIsolationForNonAntUser) {
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
 
     {
         CurrentPathGuard cwd(root);
@@ -5875,7 +6005,7 @@ TEST(Tools, AgentToolLaunchesRemoteIsolationThroughRemoteTrigger) {
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
 
     {
         CurrentPathGuard cwd(root);
@@ -6046,7 +6176,7 @@ TEST(Tools, AgentToolPersistsRemoteSessionMetadataFromTriggerOutput) {
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
 
     {
         CurrentPathGuard cwd(root);
@@ -6135,7 +6265,7 @@ TEST(Tools, AgentToolStartsRemoteAutoPollerAndCompletionNotification) {
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
 
     {
         CurrentPathGuard cwd(root);
@@ -6208,7 +6338,7 @@ TEST(Tools, AgentRuntimeRestoresRemoteAutoPollerFromPersistedRecord) {
 
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
 
     ASSERT_TRUE(wait_for_native_agent_status(
         "remote-restore-agent",
@@ -6241,7 +6371,7 @@ TEST(Tools, RuntimeTaskUpdateAppliesRemotePollEventsAndStableIdleCompletion) {
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
     cc::tools::agent_runtime::native_agent_store().upsert(cc::tools::agent_runtime::NativeAgentRecord{
         .agent_id = "remote-poll-agent",
         .agent_type = "general-purpose",
@@ -6320,7 +6450,7 @@ TEST(Tools, RuntimeTaskUpdateMarksRemotePollResultFailure) {
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
     cc::tools::agent_runtime::native_agent_store().upsert(cc::tools::agent_runtime::NativeAgentRecord{
         .agent_id = "remote-failed-agent",
         .agent_type = "general-purpose",
@@ -6376,7 +6506,7 @@ TEST(Tools, RuntimeTaskUpdatePollsRemoteSessionEventsOverHttp) {
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
     cc::tools::agent_runtime::native_agent_store().upsert(cc::tools::agent_runtime::NativeAgentRecord{
         .agent_id = "remote-http-agent",
         .agent_type = "general-purpose",
@@ -6429,7 +6559,7 @@ TEST(Tools, RuntimeTaskStopArchivesRemoteSessionOverHttp) {
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
     cc::tools::agent_runtime::native_agent_store().upsert(cc::tools::agent_runtime::NativeAgentRecord{
         .agent_id = "remote-archive-agent",
         .agent_type = "general-purpose",
@@ -6522,7 +6652,7 @@ TEST(Tools, AgentToolSpawnsTeammateWithDeterministicAgentId) {
     EXPECT_EQ(member->status, cc::tools::MemberStatus::Working);
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
     auto listed = registry.execute("task_list", cc::core::ToolInput::from_json("{}"));
     ASSERT_TRUE(listed.has_value());
     ASSERT_FALSE(listed->is_error);
@@ -6892,7 +7022,7 @@ TEST(Tools, RuntimeSendMessageWritesNativeTeammateMailbox) {
     ASSERT_FALSE(spawned->is_error);
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
     auto delivered = registry.execute("send_message", cc::core::ToolInput::from_json(R"({
       "target_agent": "reviewer-one",
       "team_name": "migration-team",
@@ -6940,7 +7070,7 @@ TEST(Tools, RuntimeSendMessageAcceptsTsSchemaAndBroadcastsToTeamMailbox) {
     ASSERT_TRUE(team.has_value()) << std::string(cc::tools::format_error(team.error()));
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
     auto delivered = registry.execute("send_message", cc::core::ToolInput::from_json(R"({
       "to": "*",
       "team_name": "Broadcast Team",
@@ -6994,7 +7124,7 @@ TEST(Tools, RuntimeSendMessageWritesStructuredTeamProtocolMessages) {
     ASSERT_TRUE(team.has_value()) << std::string(cc::tools::format_error(team.error()));
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
 
     auto shutdown_request = registry.execute("send_message", cc::core::ToolInput::from_json(R"({
       "to": "reviewer",
@@ -7152,7 +7282,7 @@ TEST(Tools, RuntimeSendMessageDeliversPlainTextToUdsPeer) {
     ASSERT_TRUE(server.valid());
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
     auto delivered = registry.execute("send_message", cc::core::ToolInput::from_json(std::format(R"({{
       "to": "uds:{}",
       "from_agent": "reviewer",
@@ -7190,7 +7320,7 @@ TEST(Tools, RuntimeSendMessageDeliversPlainTextToBridgePeer) {
     EnvironmentGuard token_guard("CLAUDE_CODE_SESSION_ACCESS_TOKEN", "session-bridge-token");
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
 
     auto delivered = registry.execute("send_message", cc::core::ToolInput::from_json(R"({
       "to": "bridge:session_target",
@@ -7220,7 +7350,7 @@ TEST(Tools, RuntimeSendMessageDeliversPlainTextToBridgePeer) {
 
 TEST(Tools, RuntimeSendMessageRejectsCrossSessionStructuredMessages) {
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
 
     auto structured_uds = registry.execute("send_message", cc::core::ToolInput::from_json(R"({
       "to": "uds:/tmp/cc-repl-peer.sock",
@@ -7278,7 +7408,7 @@ TEST(Tools, RuntimeSendMessageRestoresPersistedTeammateMailboxAfterStoreReload) 
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
     auto delivered = registry.execute("send_message", cc::core::ToolInput::from_json(R"({
       "target_agent": "reviewer-one",
       "team_name": "Restart Team",
@@ -7486,7 +7616,7 @@ TEST(Tools, RuntimeTaskToolsExposeNativeBackgroundAgents) {
     EXPECT_EQ(fs::read_symlink(*record->output_file_path), fs::path{*record->transcript_path});
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
 
     auto listed = registry.execute("task_list", cc::core::ToolInput::from_json("{}"));
     ASSERT_TRUE(listed.has_value());
@@ -7606,7 +7736,7 @@ TEST(Tools, AgentToolUpdatesProgressAfterStartingApiStream) {
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
     cc::tools::AgentTool tool({}, 0, &registry);
     auto started = tool.execute(cc::core::ToolInput::from_json(R"({
       "description": "Track async progress while streaming",
@@ -7658,7 +7788,7 @@ TEST(Tools, TaskStopCancelsRunningBackgroundAgentDuringModelStream) {
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
     cc::tools::AgentTool tool({}, 0, &registry);
     auto started = tool.execute(cc::core::ToolInput::from_json(R"({
       "description": "Run async and cancel while streaming",
@@ -7729,7 +7859,7 @@ TEST(Tools, TaskStopCancelsRunningBackgroundAgentDuringSleepToolExecution) {
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
     cc::tools::AgentTool tool({}, 0, &registry);
     auto started = tool.execute(cc::core::ToolInput::from_json(R"({
       "description": "Run async and cancel during sleep",
@@ -7812,7 +7942,7 @@ TEST(Tools, TaskStopCancelsRunningBackgroundAgentDuringWebFetchToolExecution) {
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
     cc::tools::AgentTool tool({}, 0, &registry);
     auto started = tool.execute(cc::core::ToolInput::from_json(R"({
       "description": "Run async and cancel during WebFetch",
@@ -7877,7 +8007,7 @@ TEST(Tools, TaskStopCancelsRunningBackgroundAgentDuringBashToolExecution) {
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
     cc::tools::AgentTool tool({}, 0, &registry);
     auto started = tool.execute(cc::core::ToolInput::from_json(R"({
       "description": "Run async and cancel during bash",
@@ -7957,7 +8087,7 @@ TEST(Tools, RuntimeTaskOutputIncludesNativeAgentCompletionNotification) {
     cc::tools::agent_runtime::native_agent_store().mark_completed("completed-agent", "done");
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
     auto output = registry.execute("task_output", cc::core::ToolInput::from_json(R"({
       "task_id": "completed-agent"
     })"));
@@ -7996,7 +8126,7 @@ TEST(Tools, RuntimeTaskUpdateMarksNativeAgentFailedWithOutputArtifactAndNotifica
     });
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
 
     auto update = registry.execute("task_update", cc::core::ToolInput::from_json(R"({
       "task_id": "failed-agent",
@@ -8426,7 +8556,7 @@ TEST(Tools, AgentToolSkipsLiveContentReplacementForUnboundedToolResults) {
     });
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
     auto* read_tool = registry.get("Read");
     ASSERT_NE(read_tool, nullptr);
     EXPECT_TRUE(read_tool->definition().max_result_size_unbounded);
@@ -8505,7 +8635,7 @@ TEST(Tools, AgentToolUsesFiniteToolResultThresholdsBeforeAggregateBudget) {
     });
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
     auto thresholds = cc::tools::agent::tool_result_budget_thresholds(registry.get_visible_definitions());
     ASSERT_TRUE(thresholds.contains("bash"));
     EXPECT_EQ(thresholds["bash"], 30'000u);
@@ -8573,7 +8703,7 @@ TEST(Tools, AgentToolUsesGrowthBookToolResultThresholdOverrides) {
     });
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
     auto thresholds = cc::tools::agent::tool_result_budget_thresholds(registry.get_visible_definitions());
     ASSERT_TRUE(thresholds.contains("bash"));
     EXPECT_EQ(thresholds["bash"], 50'000u);
@@ -8635,7 +8765,7 @@ TEST(Tools, AgentToolUsesGrowthBookAggregateBudgetOverride) {
 
     EXPECT_EQ(cc::tools::agent::agent_per_message_budget_limit(), 10'000u);
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
     auto thresholds = cc::tools::agent::tool_result_budget_thresholds(registry.get_visible_definitions());
     ASSERT_TRUE(thresholds.contains("grep"));
     EXPECT_EQ(thresholds["grep"], 20'000u);
@@ -9042,7 +9172,7 @@ TEST(Tools, RuntimeSendMessageDeliversToBackgroundAgentQueue) {
     ASSERT_FALSE(started->is_error);
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
     auto delivered = registry.execute("send_message", cc::core::ToolInput::from_json(R"({
       "target_agent": "message-target",
       "content": "Review the migration diff",
@@ -9108,7 +9238,7 @@ TEST(Tools, RuntimeSendMessageQueuesStoppedNativeAgentForResume) {
     });
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
     auto delivered = registry.execute("send_message", cc::core::ToolInput::from_json(R"({
       "target_agent": "stopped-agent",
       "content": "Resume with this follow-up",
@@ -9155,7 +9285,7 @@ TEST(Tools, RuntimeSendMessageQueuesStoppedNativeAgentForResume) {
 
 TEST(Tools, RuntimeRemoteTriggerUsesTypedValidationAndFallbackCommand) {
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
 
     auto blocked = registry.execute("remote_trigger", cc::core::ToolInput::from_json(R"({
       "target": "http://127.0.0.1:65535/hook",
@@ -9189,7 +9319,7 @@ TEST(Tools, RuntimeTeamCreateRegistersMembersAndSharedTasks) {
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
 
     auto created = registry.execute("team_create", cc::core::ToolInput::from_json(R"({
       "team_id": "runtime-team-members",
@@ -9306,7 +9436,7 @@ TEST(Tools, RuntimeTeamCreateCanStartNativeAgentsAndResumeThemWithSendMessage) {
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
 
     auto created = registry.execute("team_create", cc::core::ToolInput::from_json(R"({
       "team_id": "native-start-team-id",
@@ -9437,7 +9567,7 @@ TEST(Tools, RuntimeTeamCreateStartedNativeTeammateResumesAfterRegistryRestart) {
 
     {
         cc::core::ToolRegistry initial_registry;
-        cc::tools::register_runtime_tools(initial_registry);
+        cc::tools::register_runtime_tools(initial_registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
         auto created = initial_registry.execute("team_create", cc::core::ToolInput::from_json(R"({
           "team_id": "restart-resume-team-id",
           "team_name": "Restart Resume Team",
@@ -9469,7 +9599,7 @@ TEST(Tools, RuntimeTeamCreateStartedNativeTeammateResumesAfterRegistryRestart) {
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     cc::core::ToolRegistry restarted_registry;
-    cc::tools::register_runtime_tools(restarted_registry);
+    cc::tools::register_runtime_tools(restarted_registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
     auto delivered = restarted_registry.execute("send_message", cc::core::ToolInput::from_json(R"({
       "target_agent": "reviewer",
       "team_name": "Restart Resume Team",
@@ -9559,7 +9689,7 @@ TEST(Tools, RuntimeTeamCreateStartsNativeAgentsWithWorktreeIsolation) {
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
 
     auto created = registry.execute("team_create", cc::core::ToolInput::from_json(std::format(R"({{
       "team_id": "worktree-team-id",
@@ -9687,7 +9817,7 @@ TEST(Tools, AgentToolBackgroundAgentCwdIsScopedPerToolWithoutChangingProcessCwd)
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
     cc::tools::AgentTool tool({}, 0, &registry);
 
     auto first = tool.execute(cc::core::ToolInput::from_json(std::format(R"({{
@@ -9815,7 +9945,7 @@ TEST(Tools, RuntimeTeamDeleteCancelsNativeTeammatesAndCleansArtifacts) {
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
 
     auto created = registry.execute("team_create", cc::core::ToolInput::from_json(R"({
       "team_id": "cleanup-team-id",
@@ -10020,7 +10150,7 @@ TEST(Tools, RuntimeWorkflowExecutesJsonDefinition) {
     }
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
     cc::utils::json::JsonMutDoc doc;
     auto input = doc.object();
     input.add("file", doc.string(workflow_path.string()));
@@ -10044,7 +10174,7 @@ TEST(Tools, RuntimeWorkflowExecutesJsonDefinition) {
 TEST(Tools, TodoWriteParsesTypeScriptInputShape) {
     cc::tools::clear_all_todos_for_testing();
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
 
     auto result = registry.execute("todo_write", cc::core::ToolInput::from_json(R"({
       "todos": [
@@ -10062,7 +10192,7 @@ TEST(Tools, TodoWriteParsesTypeScriptInputShape) {
 TEST(Tools, TodoWriteClearsAllDoneReplacementLists) {
     cc::tools::clear_all_todos_for_testing();
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
 
     auto initial = registry.execute("todo_write", cc::core::ToolInput::from_json(R"({
       "todos": [
@@ -10089,7 +10219,7 @@ TEST(Tools, TodoWriteClearsAllDoneReplacementLists) {
 TEST(Tools, TodoWriteScopesItemsByAgentId) {
     cc::tools::clear_all_todos_for_testing();
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
 
     auto agent_a = registry.execute("todo_write", cc::core::ToolInput::from_json(R"({
       "agent_id": "agent-a",
@@ -10128,7 +10258,7 @@ TEST(Tools, TodoWriteScopesItemsByAgentId) {
 TEST(Tools, TodoWriteCleanupRemovesAgentScopedTodos) {
     cc::tools::clear_all_todos_for_testing();
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
 
     auto result = registry.execute("todo_write", cc::core::ToolInput::from_json(R"({
       "agent_id": "cleanup-agent",
@@ -10155,7 +10285,7 @@ TEST(Tools, GlobFiltersByPattern) {
     }
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
     auto result = registry.execute("Glob", cc::core::ToolInput::from_json(
         std::format(R"({{"pattern":"**/*.cpp","path":"{}"}})", root.string())));
 
@@ -10176,7 +10306,7 @@ TEST(Tools, GrepUsesPathAndRegex) {
     }
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
     auto result = registry.execute("Grep", cc::core::ToolInput::from_json(
         std::format(R"({{"pattern":"alpha_[0-9]+","path":"{}"}})", (root / "src").string())));
 
@@ -10274,7 +10404,7 @@ rl.on('line', line => {
     EXPECT_EQ(restarted->tools.front().name, "echo");
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
     auto result = registry.execute("mcp", cc::core::ToolInput::from_json(
         R"({"server_name":"echo_fixture","tool_name":"echo","arguments":{"value":"hello"}})"));
 
@@ -10347,7 +10477,7 @@ TEST(Tools, McpAuthUsesNativeOAuthFlowForConfiguredRemoteServers) {
     ASSERT_TRUE(cc::tools::sync_native_mcp_servers({server}).has_value());
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
     auto result = registry.execute("mcp_auth", cc::core::ToolInput::from_json(
         R"({"server_name":"auth_fixture"})"));
 
@@ -10364,7 +10494,7 @@ TEST(Tools, McpToolReturnsErrorWhenNativeServerIsMissing) {
     ASSERT_TRUE(cc::tools::sync_native_mcp_servers({}).has_value());
 
     cc::core::ToolRegistry registry;
-    cc::tools::register_runtime_tools(registry);
+    cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
     auto result = registry.execute("mcp", cc::core::ToolInput::from_json(
         R"({"server_name":"missing_fixture","tool_name":"echo","arguments":{"value":"hello"}})"));
 
@@ -10524,7 +10654,7 @@ rl.on('line', line => {
         EXPECT_EQ(restarted->tools.front().name, "plugin_echo");
 
         cc::core::ToolRegistry registry;
-        cc::tools::register_runtime_tools(registry);
+        cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
         auto result = registry.execute("mcp", cc::core::ToolInput::from_json(R"({
           "server_name": "plugin:mcp-fixture:echo",
           "tool_name": "plugin_echo",
@@ -10667,7 +10797,7 @@ rl.on('line', line => {
         EXPECT_EQ(restarted->tools.front().name, "bundle_echo");
 
         cc::core::ToolRegistry registry;
-        cc::tools::register_runtime_tools(registry);
+        cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
         auto result = registry.execute("mcp", cc::core::ToolInput::from_json(R"({
           "server_name": "plugin:mcpb-fixture:bundle",
           "tool_name": "bundle_echo",

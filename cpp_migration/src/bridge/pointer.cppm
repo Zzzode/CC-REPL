@@ -19,6 +19,7 @@ export module cc.bridge.pointer;
 
 import cc.types.types;
 import cc.bridge.session_id_compat;
+import cc.utils.bash_execution;
 
 export namespace cc::bridge {
 
@@ -132,7 +133,7 @@ namespace detail {
 
 [[nodiscard]] auto run_command(std::string_view command) -> std::vector<std::string> {
     std::vector<std::string> lines;
-    FILE* pipe = popen(std::string(command).c_str(), "r");
+    FILE* pipe = cc::utils::bash::popen_spawn(std::string(command).c_str());
     if (!pipe) return lines;
     char buffer[4096];
     while (fgets(buffer, sizeof(buffer), pipe)) {
@@ -140,7 +141,7 @@ namespace detail {
         while (!line.empty() && (line.back() == '\n' || line.back() == '\r')) line.pop_back();
         if (!line.empty()) lines.push_back(std::move(line));
     }
-    pclose(pipe);
+    cc::utils::bash::pclose_spawn(pipe);
     return lines;
 }
 

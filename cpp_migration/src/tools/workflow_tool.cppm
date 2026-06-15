@@ -18,6 +18,7 @@ module;
 export module cc.tools.workflow;
 
 import cc.utils.json;
+import cc.utils.bash_execution;
 
 export namespace cc::tools {
 
@@ -332,13 +333,13 @@ private:
         switch (step.type) {
             case StepType::Command: {
 
-                FILE* pipe = ::popen(action->c_str(), "r");
+                FILE* pipe = cc::utils::bash::popen_spawn(action->c_str());
                 if (!pipe) return std::unexpected(WorkflowError::StepFailed);
                 std::array<char, 2048> buffer{};
                 while (auto n = ::fread(buffer.data(), 1, buffer.size(), pipe)) {
                     output.append(buffer.data(), n);
                 }
-                int status = ::pclose(pipe);
+                int status = cc::utils::bash::pclose_spawn(pipe);
                 if (status != 0) {
                     ctx.set(step.id + ".exit_code", std::to_string(status));
                     ctx.set(step.id + ".output", output);
@@ -359,13 +360,13 @@ private:
                     ctx.set(step.id + ".index", std::to_string(i));
                     auto loop_action = ctx.interpolate(step.action);
                     if (!loop_action) return std::unexpected(loop_action.error());
-                    FILE* pipe = ::popen(loop_action->c_str(), "r");
+                    FILE* pipe = cc::utils::bash::popen_spawn(loop_action->c_str());
                     if (!pipe) return std::unexpected(WorkflowError::StepFailed);
                     std::array<char, 2048> buffer{};
                     while (auto n = ::fread(buffer.data(), 1, buffer.size(), pipe)) {
                         combined.write(buffer.data(), static_cast<std::streamsize>(n));
                     }
-                    int status = ::pclose(pipe);
+                    int status = cc::utils::bash::pclose_spawn(pipe);
                     if (status != 0) {
                         output = combined.str();
                         ctx.set(step.id + ".exit_code", std::to_string(status));

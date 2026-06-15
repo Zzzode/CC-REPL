@@ -26,6 +26,7 @@ export module cc.commands.copy_cmd;
 
 import cc.types.types;
 import cc.commands.command;
+import cc.utils.bash_execution;
 
 export namespace cc::commands {
 
@@ -438,18 +439,13 @@ private:
         return std::unexpected(Error::make(
             ErrorCode::InternalError, "Clipboard not supported on this platform"));
 #endif
-        FILE* pipe = popen(cmd, "w");
-        if (!pipe) {
+        auto wr = cc::utils::bash::exec_write(cmd, content);
+        if (!wr) {
             return std::unexpected(Error::make(
                 ErrorCode::InternalError,
                 std::format("Failed to open clipboard command: {}", cmd)));
         }
-        std::size_t written = std::fwrite(content.data(), 1, content.size(), pipe);
-        int status = pclose(pipe);
-        if (written != content.size()) {
-            return std::unexpected(Error::make(
-                ErrorCode::InternalError, "Failed to write all content to clipboard"));
-        }
+        int status = *wr;
         if (status != 0) {
             return std::unexpected(Error::make(
                 ErrorCode::InternalError,

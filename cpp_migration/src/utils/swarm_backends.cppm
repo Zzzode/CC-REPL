@@ -24,6 +24,7 @@ module;
 export module cc.utils.swarm_backends;
 
 import cc.utils.team_helpers;
+import cc.utils.bash_execution;
 
 export namespace cc::utils::swarm_backends {
 
@@ -958,14 +959,14 @@ namespace detail {
 }
 
 [[nodiscard]] inline std::string read_shell_output(std::string_view command) {
-    FILE* pipe = ::popen(std::string(command).c_str(), "r");
+    FILE* pipe = cc::utils::bash::popen_spawn(std::string(command).c_str());
     if (!pipe) return {};
     std::array<char, 4096> buffer{};
     std::string output;
     while (std::fgets(buffer.data(), static_cast<int>(buffer.size()), pipe)) {
         output += buffer.data();
     }
-    (void)::pclose(pipe);
+    (void)cc::utils::bash::pclose_spawn(pipe);
     while (!output.empty() && (output.back() == '\n' || output.back() == '\r')) output.pop_back();
     return output;
 }

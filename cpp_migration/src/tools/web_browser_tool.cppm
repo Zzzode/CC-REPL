@@ -17,6 +17,8 @@ module;
 
 export module cc.tools.web_browser;
 
+import cc.utils.bash_execution;
+
 import cc.utils.json;
 
 
@@ -387,14 +389,10 @@ private:
             command += quoted_payload;
         }
 
-        FILE* pipe = ::popen(command.c_str(), "r");
-        if (!pipe) return std::unexpected(BrowserError::BrowserNotAvailable);
-        std::string output;
-        std::array<char, 8192> buffer{};
-        while (auto bytes = ::fread(buffer.data(), 1, buffer.size(), pipe)) {
-            output.append(buffer.data(), bytes);
-        }
-        auto status = ::pclose(pipe);
+        auto cap = cc::utils::bash::exec_capture(command);
+        if (!cap) return std::unexpected(BrowserError::BrowserNotAvailable);
+        std::string output = std::move(cap->output);
+        auto status = cap->status;
         while (!output.empty() && (output.back() == '\n' || output.back() == '\r')) {
             output.pop_back();
         }
@@ -453,14 +451,10 @@ private:
             command += quoted_url;
         }
 
-        FILE* pipe = ::popen(command.c_str(), "r");
-        if (!pipe) return std::unexpected(BrowserError::BrowserNotAvailable);
-        std::string output;
-        std::array<char, 8192> buffer{};
-        while (auto bytes = ::fread(buffer.data(), 1, buffer.size(), pipe)) {
-            output.append(buffer.data(), bytes);
-        }
-        auto status = ::pclose(pipe);
+        auto cap = cc::utils::bash::exec_capture(command);
+        if (!cap) return std::unexpected(BrowserError::BrowserNotAvailable);
+        std::string output = std::move(cap->output);
+        auto status = cap->status;
         while (!output.empty() && (output.back() == '\n' || output.back() == '\r')) {
             output.pop_back();
         }
@@ -475,15 +469,10 @@ private:
     {
         auto cmd = std::format("curl -sL --max-time {} {}", timeout.count(), shell_quote(url));
 
-        FILE* pipe = ::popen(cmd.c_str(), "r");
-        if (!pipe) return std::unexpected(BrowserError::NavigationFailed);
-
-        std::string output;
-        std::array<char, 8192> buffer{};
-        while (auto bytes = ::fread(buffer.data(), 1, buffer.size(), pipe)) {
-            output.append(buffer.data(), bytes);
-        }
-        int status = ::pclose(pipe);
+        auto cap = cc::utils::bash::exec_capture(cmd);
+        if (!cap) return std::unexpected(BrowserError::NavigationFailed);
+        std::string output = std::move(cap->output);
+        int status = cap->status;
 
         if (status != 0 || output.empty()) {
             return std::unexpected(BrowserError::PageLoadFailed);

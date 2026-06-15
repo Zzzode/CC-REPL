@@ -17,6 +17,7 @@ module;
 #include <vector>
 
 export module cc.tools.missing_tools;
+import cc.utils.bash_execution;
 
 
 export namespace cc::tools {
@@ -67,7 +68,7 @@ namespace detail {
 [[nodiscard]] inline auto run_command(std::string_view command, size_t max_output_bytes) -> ToolResult {
     std::array<char, 4096> buffer{};
     std::string output;
-    FILE* pipe = popen(std::string(command).c_str(), "r");
+    FILE* pipe = cc::utils::bash::popen_spawn(std::string(command).c_str());
     if (!pipe) return {.success = false, .error = "failed to spawn command"};
     while (fgets(buffer.data(), static_cast<int>(buffer.size()), pipe) != nullptr) {
         output += buffer.data();
@@ -77,7 +78,7 @@ namespace detail {
             break;
         }
     }
-    const int status = pclose(pipe);
+    const int status = cc::utils::bash::pclose_spawn(pipe);
     return {.success = status == 0, .output = output, .error = status == 0 ? std::nullopt : std::optional<std::string>("command exited with non-zero status")};
 }
 }

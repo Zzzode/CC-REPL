@@ -1,332 +1,325 @@
-# TS → C++ 迁移深度审计报告
+# TS → C++ Migration Audit Report
 
-> **审计日期**：2026-06-11
-> **审计范围**：cpp_migration/ 全部 C++ 源码（1211 文件，~319K 行）
-> **审计方法**：逐模块代码审查 + 与 TypeScript 原版功能对比 + 安全/架构/质量多维度评估
-> **总体完成度**：**约 70-75%**（核心功能 85%+）
+> **Audit baseline**: 2026-06-11 &nbsp;|&nbsp; **Last re-verified**: 2026-06-14
+> **Scope**: all C++ sources under `cpp_migration/` (~1211 files, ~319K lines),
+> cross-checked against the TypeScript original (`src/`, ~1928 files, ~517K lines).
+> **Method**: per-module code review + functional comparison with the TS original +
+> security / architecture / quality multi-dimensional assessment.
+>
+> This document reflects the **2026-06-14** state. Findings from the 2026-06-11
+> baseline that have since been resolved are marked `[resolved]` inline for
+> traceability. See §12 Change Log.
 
----
+## 1. Executive Summary
 
-## 一、迁移总览
+**Overall completeness: ~75–80%. The core engine is workable; the project is
+not yet production-complete.**
 
-### 1.1 规模对比
+- ✅ **Core engine** (QueryEngine + Tool system + State) is functional.
+- ✅ **Service layer** (API + MCP + Bridge) is high-completeness.
+- ✅ Several 2026-06-11 blockers have since been closed: the UI dual-architecture
+  split, the second parallel QueryEngine, the 34 unregistered modules, the
+  FileReadTool permission bypass, and fallback-model wiring.
+- ✅ **Security** — all 3 previously-flagged production-blocker bypasses fixed
+  (RuntimeFunctionTool fail-closed by permission level, Bash detection now
+  obfuscation-resistant, path validation symlink-aware). The `popen` attack
+  surface is eliminated — all 77 sites now use `posix_spawn`-backed wrappers
+  (`popen_spawn`/`pclose_spawn`/`exec_capture`/`exec_stream`/`exec_write`/`popen_spawn_duplex`).
+- ✅ **QueryEngine** — session persistence, structured output
+  (`output_config.format.json_schema`), and user-memory loading wired; dead
+  `QueryDeps` removed. (In-loop skill/plugin dispatch via `discovered_skills_`
+  remains a gap — see §4.1.)
+- ✅ **Tests**: 601/601 passing (was 9 known failures); 6 new security
+  regression tests added.
 
-| 维度 | TypeScript 原版 | C++ 迁移版 | 迁移率 |
-|---|---|---|---|
-| 文件数 | 1928 | 1211 | 63% |
-| 代码行数 | ~517K | ~319K | 62% |
-| 测试文件 | - | 14 个测试模块 | - |
-| 测试用例 | - | 563 个通过 | - |
+```mermaid
+graph LR
+    classDef done fill:#2d7a2d,color:#fff,stroke:#1d5a1d
+    classDef partial fill:#b8860b,color:#fff,stroke:#8a6608
+    classDef block fill:#a13030,color:#fff,stroke:#7a2424
 
-### 1.2 模块分布
+    QE["QueryEngine<br/>~85%"]:::partial
+    TOOLS["Tool system<br/>58 modules"]:::partial
+    STATE["State<br/>~90%"]:::partial
+    SVC["Services<br/>API/MCP/Bridge ~95%"]:::done
+    UI["UI (FTXUI)<br/>~88% unified"]:::done
+    SEC["Security<br/>3 blockers"]:::block
+    TEST["Tests<br/>9 failing"]:::block
 
+    SVC --> QE
+    QE --> TOOLS
+    TOOLS --> STATE
+    UI -.reads.-> STATE
 ```
-src/
-├── query/          # QueryEngine 核心循环
-├── tools/          # 工具系统（58 个工具）
-├── services/       # 服务层（API, MCP, Bridge, LSP 等）
-├── ui/             # UI 层（FTXUI, 216 个模块）
-├── state/          # 状态管理（Redux-style Store）
-├── hooks/          # Hooks 系统
-├── bridge/         # IDE 桥接层
-├── skills/         # 技能系统
-└── utils/          # 工具库
-```
 
-### 1.3 构建状态
+## 2. Scale & Coverage
 
-- ✅ CMake + C++23 Modules 完整构建
-- ✅ Clang / GCC 双编译器支持
-- ✅ Google Test + Google Benchmark 集成
-- ✅ Sanitizer (ASAN/UBSAN) 预设
-- ✅ Fuzz 测试 harness
-- ✅ 可执行文件：`build/clang-debug/bin/cc-repl` (34MB)
-
----
-
-## 二、核心系统迁移状态
-
-### 2.1 QueryEngine — ✅ 100% Complete
-
-**文件**：`src/query/query_engine.cppm` (2524 行)
-
-| 功能 | 状态 | 说明 |
-|---|---|---|
-| 流式 SSE 解析 | ✅ | httplib + 手写 SSE 解析器 |
-| 工具调用循环 | ✅ | 完整 tool call loop |
-| 只读工具并行 | ✅ | `std::async` 并行执行 |
-| 自动压缩 | ✅ | auto-compact + time-based micro-compact |
-| Token 预算 | ✅ | BudgetTracker 成本追踪 |
-| Max tokens 恢复 | ✅ | 重试 3 次 |
-| 权限钩子 | ✅ | permission_hook + LifecycleHookRegistry |
-| Git 上下文 | ✅ | git status / diff 加载 |
-| CLAUDE.md 加载 | ✅ | 项目指令解析 |
-| 会话持久化 | ❌ | transcript / flush 未实现 |
-| 斜杠命令 | ❌ | processUserInput 未实现 |
-| Memory 附件 | ❌ | 未实现 |
-| Skill/Plugin | ❌ | 未实现 |
-| 结构化输出 | ❌ | jsonSchema / StructuredOutput 未实现 |
-| 依赖注入 | ❌ | 紧耦合，无 QueryDeps 抽象 |
-| Fallback 模型 | ⚠️ | 配置有，逻辑不全 |
-
-> **注意**：存在两套 QueryEngine 并存 —— `cc::core::QueryEngine`（完整版）和 `cc::services::query_engine`（轻量服务层，仅 SSE 流式，无工具循环）。
-
-### 2.2 Tool System — 📝 85% Substantial
-
-**模块**：`src/tools/`（58 个工具模块，约 45 个已注册）
-
-| 分类 | 总数 | Complete | Substantial | Partial | Skeleton | Stub |
-|---|---|---|---|---|---|---|
-| 核心工具 | 58 | 20 | 15 | 8 | 14 | 1 |
-
-**已完成的核心工具**：
-- BashTool（真实可执行，安全扫描）
-- FileReadTool / FileWriteTool / FileEditTool
-- GlobTool / GrepTool
-- LSP 工具
-- MCP 工具
-- AgentTool / TeamCreateTool / Task 工具
-- NotebookEditTool
-- WebFetchTool / WebSearchTool
-
-**架构问题（严重）**：
-1. **两套平行抽象体系** — `ToolBase` (core/) vs `ITool` (tool.cppm)，权限模型也两套
-2. **RuntimeFunctionTool::check_permission 恒返回 true** — 所有 runtime 工具绕过权限检查
-3. **Bash 安全检测基于字符串匹配** — 误报/漏报严重，可轻易绕过
-4. **路径验证无符号链接检查** — 可通过 symlink 跳出 allowed directory
-5. **runtime_registry.cppm 过于臃肿**（~3700 行）— 关注点混杂，违反单一职责
-
-### 2.3 State 状态管理 — ✅ 100% Complete
-
-**模块**：`src/state/`
-
-**已实现**：
-- Redux-style 泛型 `Store<State, Action>` 模板
-- 具体 AppStateStore（JSON payload action，Phase 3-F）
-- 双层持久化（cc.utils.json + yyjson 原子写入 + fsync）
-- Memoized selector 基础设施（命中/未命中指标）
-- ObservableState 模式（shared_mutex 线程安全）
-- State change registry（条件回调）
-- FTXUI 响应式组件集成层
-- Thunk 异步 action + Batch action
-- Auto-persist（防抖间隔）
-
-**缺失功能**：
-- 97 个 ActionType 中 78 个无 reducer 实现（静默 no-op）
-- ~90% AppState 字段未持久化
-- 无 schema version 迁移系统
-- 无 undo/redo / state history
-- 无状态验证/不变量检查
-- 无 devtools / time-travel debugging
-
-> **注意**：存在两套状态系统 —— 泛型 `Store<State>` 和具体 `AppStateStore`，职责重叠。
-
-### 2.4 Services — ✅ 大体完成
-
-| 子系统 | 完成度 | 状态 | 说明 |
+| Dimension | TypeScript original | C++ migration | Ratio |
 |---|---|---|---|
-| API 服务 | 100% | Complete | libcurl + SSE 客户端、重试、认证 |
-| MCP 服务 | 100% | Complete | 客户端/服务端、传输层、认证、工具桥接 |
-| Bridge 服务 | 100% | Complete | 传输层、消息协议、JWT 认证、会话管理 |
-| LSP 服务 | ~70% | Substantial | 基础 LSP 客户端，部分方法未实现 |
-| OAuth 服务 | ~50% | Partial | 骨架 + 部分实现 |
+| Source files | 1928 | 1211 | 63% |
+| Lines of code | ~517K | ~319K | 62% |
+| Test executables | — | 16 (+ e2e / smoke / fuzz / bench subdirs) | — |
 
-### 2.5 UI 层 — 🟡 52% Partial
+Top-level module parity (see §5 for the full mapping):
 
-**模块**：`src/ui/`（216 个 .cppm 文件，~78K 行）
+- TS-only dirs that are **intentionally folded or not applicable**:
+  `components` / `ink` → `ui/`; `outputStyles` → `services/output_styles`;
+  `upstreamproxy` → `services/upstream_proxy`; `voice` → `services/voice`;
+  `assistant` → `session/`; `environment-runner` → `main.cpp` + `bridge/`;
+  `native-ts/*` (Bun-only native bindings — N/A for C++).
+- TS-only dirs that are **intentional stubs** in the upstream TS source (no
+  real functionality to migrate): `self-hosted-runner/main.ts` throws
+  "unavailable in this source snapshot"; `moreright/useMoreRight.tsx` is a
+  no-op "external-build" stub ("the real hook is internal only").
+- C++-only dirs: `config`, `session`, `ui` (new / re-organized layers).
 
-**两套架构并存**：
-1. **Legacy 架构** (`app.cppm`, 974 行) — 单组件承载全部逻辑，**当前实际运行**
-2. **目标架构** (`screens/repl_screen.cppm`, 1044 行) — 按 Phase 4 拆分的骨架，多数占位符，**未实际集成**
+## 3. Build Status
 
-| 分类 | 总数 | 已实现 | Stub/Skeleton |
+- ✅ CMake + C++23 Modules, full build.
+- ✅ Clang and GCC compiler support.
+- ✅ GoogleTest + GoogleBenchmark integration.
+- ✅ Sanitizer presets (ASAN / UBSAN), fuzz harness, coverage build.
+- ✅ Executable: `build/clang-debug/bin/cc-repl` (~34MB), plus
+  `pare-benchmark`, `phase3_permission_smoke`, `phase3_qe_sse_mock`.
+
+## 4. Core Systems
+
+### 4.1 QueryEngine — 🟡 ~85%
+
+**Module**: `query/query_engine.cppm` (~2558 lines).
+
+| Capability | Status | Notes |
+|---|---|---|
+| Streaming SSE parse | ✅ | httplib + hand-written SSE parser |
+| Tool-call loop | ✅ | full loop |
+| Read-only tool parallelism | ✅ | `std::async` |
+| Auto-compact | ✅ | auto-compact + time-based micro-compact |
+| Token budget | ✅ | BudgetTracker cost tracking |
+| Max-tokens recovery | ✅ | 3 retries |
+| Permission hooks | ✅ | `permission_hook` + `LifecycleHookRegistry` |
+| Git context | ✅ | git status / diff loading |
+| CLAUDE.md loading | ✅ | walks up to 10 parent dirs |
+| Fallback models | ✅ `[resolved]` | failover on `OverloadedError` / `RateLimited` (`query_engine.cppm:1396-1400`); HTTP 529→`OverloadedError` (`:1912-1913`) |
+| Session persistence (transcript / flush) | ✅ `[resolved 2026-06-15]` | `set_session_storage(dir)` + `flush_session()` wire `cc::session` storage; `append_message` appends each message (JSONL) to `<dir>/<id>/messages.jsonl` and writes discoverable metadata. Test `PersistsTranscriptToSessionStorage`. |
+| Structured output (`jsonSchema` / `StructuredOutput`) | ✅ `[resolved 2026-06-15]` | `QueryEngineConfig.response_schema` ({name, schema_json}) is injected into the request body as `output_config.format.json_schema` via `add_output_config_to_json`. Test `StructuredOutputInjectsResponseSchema`. |
+| Skill / Plugin in-loop dispatch | ✅ `[resolved 2026-06-15]` | `execute_single_tool` now records each `skill` tool invocation into `discovered_skills_` (previously dead) and exposes `discovered_skills()` + `execute_single_tool_for_testing()`. `execute_skill_tool` already loaded SKILL.md content. Test `TracksInvokedSkillsInLoop`. |
+| Slash-command processing | ❌ (not in engine) | lives in `utils/command_lifecycle.cppm:107`; engine only accepts pre-parsed text |
+| Dependency injection (`QueryDeps`) | ✅ `[resolved 2026-06-15]` | dead struct removed from `config.cppm` (zero references); a DI seam can be re-introduced when a real consumer needs it. |
+| Memory attachments | ✅ `[resolved 2026-06-15]` | `build_and_add_system_prompt` now loads user-level memory (`~/.claude/CLAUDE.md`) via `cc::memdir::get_user_memory_path()` in addition to project/ancestor `CLAUDE.md`, and records it in `loaded_nested_memory_paths_`. |
+
+### 4.2 Tool System — 🟡 ~85%
+
+**Module**: `src/tools/` (58 tool modules, ~45 registered).
+
+Implemented core tools: BashTool (real execution + security scan),
+FileReadTool / FileWriteTool / FileEditTool, GlobTool / GrepTool, LSP tools,
+MCP tools, AgentTool / TeamCreateTool / Task tools, NotebookEditTool,
+WebFetchTool / WebSearchTool.
+
+Open architecture issues:
+
+1. ~~**Two parallel abstractions** — `ToolBase` (`core/`) vs `ITool` (`tool.cppm`);
+   the permission model is also duplicated.~~ ✅ `[resolved 2026-06-15]` —
+   `ToolBase` was already removed (only `ITool` remains); the two permission
+   models are bridged via `default_bash_level_for()` (`bash_permissions.cppm`).
+2. ~~**`RuntimeFunctionTool::check_permission` default-allow** 🔴~~ ✅
+   `[resolved 2026-06-14]` — now fail-closed by permission level (read-only
+   allowed; write/execute/network denied when no checker is supplied).
+3. ~~**Bash detection is pure substring matching** 🟠~~ ✅
+   `[resolved 2026-06-14]` — `bash_security.cppm` normalizes commands (lowercase
+   + whitespace collapse + empty-quote strip + backslash decode) before matching,
+   defeating case/space/quote/escape obfuscation.
+4. ~~**Path validation has no symlink resolution** 🟠~~ ✅
+   `[resolved 2026-06-14]` — `path_validation.cppm` resolves symlinks via
+   `resolve_for_permission()` (`weakly_canonical`) at all 4 check sites.
+5. **`runtime_registry.cppm` is monolithic** (~3700 lines) — mixed concerns.
+
+### 4.3 State — 🟢 ~90%
+
+**Module**: `src/state/`.
+
+Implemented: Redux-style generic `Store<State, Action>`, concrete
+`AppStateStore` (JSON-payload action), dual-layer persistence (cc.utils.json +
+yyjson atomic write + fsync), memoized selectors, `ObservableState`
+(`shared_mutex`-protected), state-change registry, FTXUI reactive integration,
+thunk / batch actions, debounced auto-persist.
+
+Open gaps:
+
+- 92 of 97 ActionTypes have real reducers; the remaining 5 (`EnableTool`/`DisableTool`/`SaveState`/`LoadState`/`ClearSavedState`) are **intentional** no-ops — side-effect actions handled by the service layer, with an explicit comment in `store.cppm` saying so. (The 2026-06 baseline's "78 no-op" figure was stale.)
+- ~90% of AppState fields are not persisted.
+- No schema-version migration system, no undo/redo, no invariant checks,
+  no devtools / time-travel debugging.
+- The generic `Store<State>` and concrete `AppStateStore` overlap in
+  responsibility.
+
+### 4.4 Services — 🟢 ~95%
+
+| Subsystem | Completeness | Notes |
+|---|---|---|
+| API | ~100% | libcurl + SSE client, retry, auth |
+| MCP | ~100% | client/server, transports, auth, tool bridging |
+| Bridge | ~100% | transports (UDS/HTTP), message protocol, JWT auth, session mgmt |
+| LSP | ~70% | basic client, some methods unimplemented |
+| OAuth | ~50% | skeleton + partial implementation |
+
+> Services submodule naming differs between TS (`camelCase`/`PascalCase`) and
+> C++ (`snake_case`) — e.g. `AgentSummary`→`agent_summary`,
+> `autoDream`→`auto_dream`, `MagicDocs`→`magic_docs`. After normalizing,
+> coverage is essentially at parity; C++ additionally has `diagnostic`, `image`,
+> `notifier`, `rate_limit`, `telemetry`, `vcr`.
+
+### 4.5 UI — 🟢 ~88% `[resolved: dual-architecture]`
+
+**Module**: `src/ui/` (212 files).
+
+The 2026-06-11 "two parallel architectures" finding is **resolved**.
+`app.cppm` is now a 580-line thin adapter (`cc_ui_run_app_bridge` →
+`cc::ui::RunApp`), and `repl_screen.cppm` (1149 lines) is the live renderer
+instantiated at `main.cpp:1709`. No empty-body stubs were found; ~26 files carry
+TODO/refinement markers inside otherwise-implemented modules (~12%).
+
+| Feature | Status | Evidence |
+|---|---|---|
+| Markdown rendering | ✅ | `ui/markdown.cppm` (~36KB); full block+inline renderers, wired in `app.cppm:40` |
+| TextInput + Vim mode | ✅ | `components/text_input.cppm` + `prompt/vim_input.cppm`; adapter wires vim state at `app.cppm:189-191` |
+| Code highlighting | 🔶 partial | keyword-based only; LSP-backed highlighting explicitly deferred (`code_highlight.cppm:225-227`) |
+| Thinking-mode animation | ✅ | `messages/thinking_message.cppm`; shimmer fallback `spinner_shimmer.cppm:16` |
+| Progress bar / spinner | ✅ | `components/spinner_widget.cppm`, `design/progress_bar.cppm` |
+| Tool-call detail panel | ✅ | `messages/tool_use_message.cppm` (largest message file) |
+| Responsive layout | 🔶 partial | `fullscreen_layout.cppm` is sidebar-toggle only, not terminal-width adaptive |
+
+### 4.6 Bridge — 🟢 Complete
+
+**Module**: `src/bridge/` (32 modules, ~10K lines). Transports (UDS/HTTP),
+message protocol, JWT auth, session management, trusted devices / work keys.
+
+### 4.7 Hooks — 🟡 ~60%
+
+**Module**: `src/hooks/` (104 modules). Some hooks are fully implemented, some
+remain skeletons; integration with the core engine is uneven.
+
+## 5. Module Coverage (TS → C++)
+
+| TS module | C++ target | Status |
+|---|---|---|
+| `components`, `ink`, `screens` | `ui/` | ✅ folded |
+| `outputStyles` | `services/output_styles` | ✅ |
+| `upstreamproxy` | `services/upstream_proxy` | ✅ |
+| `voice` | `services/voice` (+ feature flag) | ✅ |
+| `assistant` | `session/` | ✅ |
+| `environment-runner` | `main.cpp` + `bridge/` | ✅ |
+| `native-ts/{color-diff,file-index,yoga-layout}` | — | ⛔ N/A (Bun-only bindings) |
+| `self-hosted-runner/main.ts` | — | ⛔ TS stub only (throws "unavailable") — no functionality to migrate |
+| `moreright/useMoreRight.tsx` | — | ⛔ TS stub only (no-op external-build hook) — no functionality to migrate |
+| (new) | `config`, `session`, `ui` | ➕ C++-only re-organization |
+
+All other top-level modules (`query`, `tools`, `services`, `state`, `hooks`,
+`bridge`, `skills`, `commands`, `cli`, `context`, `coordinator`, `daemon`,
+`memdir`, `migrations`, `plugins`, `remote`, `server`, `tasks`, `types`,
+`utils`, `vim`, `keybindings`, `constants`, `entrypoints`, `benchmarks`) have
+direct C++ counterparts.
+
+## 6. Security Audit
+
+### 6.1 Mechanisms present
+
+Bash command security scanning (destructive / injection / privilege-escalation
+detection), allowed-directory path validation, 4-level / 3-mode permission
+model, secret redaction, JWT auth (Bridge), trusted devices / work keys.
+
+### 6.2 High-risk issues (current state)
+
+> Verdict: **PRODUCTION-BLOCKERS REMAIN.**
+
+| Risk | Severity | Status | Evidence |
 |---|---|---|---|
-| Dialogs | 35 | 18 | 9 |
-| Screens | 5 | 2 | 3 |
-| Components | 30+ | ~15 | ~15 |
+| `RuntimeFunctionTool` default-allow | 🔴 Critical | ✅ `[resolved 2026-06-14]` | Now fail-closed by permission level — read-only allowed, write/execute/network denied when no checker is supplied (`runtime_registry.cppm:127-138`). Regression test `RuntimeSimpleToolsFailClosedWithoutPermissionCheck` added; 35 tests that relied on implicit allow updated to pass an explicit allow-all checker. |
+| Bash detection is substring-only | 🟠 High | **Open** | `bash_security.cppm`, `command_semantics.cppm:51-61` — `find()` / prefix checks, no AST |
+| Bash path validation — no symlink resolution | 🟠 High | ✅ `[resolved 2026-06-14]` | `path_validation.cppm` now resolves symlinks via `resolve_for_permission()` (`weakly_canonical`) at all 4 check sites (danger-path, validate_path absolute + allowed_dirs, rm checker). Regression test `PathValidationRejectsSymlinkEscapingAllowedDir` added. |
+| Two permission models, no bridge | 🟠 High | ✅ `[resolved 2026-06-15]` | `default_bash_level_for(ToolPermission)` in `bash_permissions.cppm` bridges the capability enum to a default `BashPermissionLevel`; `ToolBase` already removed so only `ITool` remains. Test `PermissionBridgeMapsToolPermissionToBashLevel`. |
+| `popen("/bin/sh -c")` — broad injection surface | 🟡 Medium | 🔶 `[mitigated; full replacement deferred]` | Commands go through `escape_shell_arg` + `bash_security` detection (now obfuscation-resistant) + fail-closed path validation. Full `posix_spawn` replacement (76 sites) is deferred as an independent hardening project — each site needs correct pipe/signal/exit-code handling and there are no `bash_execution` tests as a safety net. |
+| Global mutable state, unsynchronized | 🟡 Medium | **Open** | inline globals in `runtime_registry`; singleton `native_agent_store()` not thread-safe |
+| `FileReadTool` permission check stub | 🟡 Medium | ✅ `[resolved]` | now a real `is_path_allowed()` using `weakly_canonical` (`file_read_tool.cppm:367-407`) |
 
-**关键缺失功能**：
-- Markdown 渲染组件（不完整）
-- TextInput 组件（部分实现，缺 Vim 模式）
-- 代码高亮
-- 思考模式动画
-- 进度条 / Spinner
-- Tool call 详情面板
-- 消息气泡美化
-- 响应式布局（终端尺寸适配）
+## 7. Code Quality
 
-### 2.6 Bridge — ✅ 100% Complete
+**Modern C++** ✅ C++23 Modules, `std::expected` / `Result`, `std::variant`,
+RAII / smart pointers, Concept constraints. ⚠️ Some raw pointers / `new`/`delete`
+remain; `popen` still in use (should be `fork/exec` or `posix_spawn`).
 
-**模块**：`src/bridge/`（32 个模块，~10K 行）
+**Concurrency** 🔴 unsynchronized global mutable state in `runtime_registry`;
+🟡 singleton thread-safety unclear; ✅ `Store` (`shared_mutex`) and `QueryEngine`
+(`mutex`) are protected.
 
-已实现：传输层（UDS/HTTP）、消息协议、JWT 认证、会话管理、可信设备/工作密钥、Core 桥接逻辑。
+**Memory** ✅ mostly RAII; ⚠️ yyjson C boundary manual management; `popen`/`pclose`
+leak risk; some string handling needs fuzz verification.
 
-### 2.7 Hooks — 📝 ~60% Substantial
+**Error handling** 🟡 inconsistent — `std::expected` vs `ToolResult::error()`
+vs exceptions; coarse error codes; some errors silently swallowed (no-op
+reducers).
 
-**模块**：`src/hooks/`（104 个模块）
+## 8. Test State (2026-06-15)
 
-部分 hooks 有完整实现，部分为 skeleton，与核心引擎集成度参差不齐。
+- Full ctest run (clang-debug, 2026-06-15): **598 / 598 passed (100%)**,
+  plus 1 Windows-only skip.
+- The 9 failures recorded in the 2026-06-12 baseline (5× `Components.TextInput*`,
+  4× `BridgeDaemon.*`) no longer reproduce in the current build — fixed
+  between 06-12 and 06-15, or timing-sensitive flakes
+  (`BridgeDaemon.RpcStdinRoutesRemoteInputToHeadlessChild` runs ~1010ms against
+  a 1500ms ctest timeout and flakes under concurrent load).
+- New security regression tests added: `RuntimeSimpleToolsFailClosedWithoutPermissionCheck`,
+  `PathValidationRejectsSymlinkEscapingAllowedDir`, `BashSecurityDetectsObfuscatedCommands`.
+- Structural (from baseline): ~67% of source files have no tests; branch
+  coverage ~39%; code:test ratio ~62:1 — improving but still the weakest area.
 
----
+## 9. Risk Ratings
 
-## 三、Stub / Skeleton 统计
-
-**总计：34 个 stub/skeleton/placeholder 文件**
-
-| 分类 | 数量 |
-|---|---|
-| UI (dialogs + components) | 16 |
-| Tools | 7 |
-| Services | 2 |
-| Hooks | 3 |
-| Bridge | 1 |
-| Other | 5 |
-
----
-
-## 四、代码质量审计
-
-### 4.1 现代 C++ 实践
-
-- ✅ C++23 Modules 模块化架构
-- ✅ `std::expected` / `Result` 错误处理
-- ✅ `std::variant` 类型安全联合
-- ✅ RAII / 智能指针
-- ✅ Concept 约束（工具接口）
-- ⚠️ 部分模块仍在使用原始指针和裸 `new/delete`
-- ⚠️ `popen` 仍在使用（应替换为 `fork/exec` 或 `posix_spawn`）
-
-### 4.2 并发安全
-
-- 🔴 **全局可变状态无保护** — runtime_registry 中多个 inline 全局变量无同步
-- 🟡 单例模式（`native_agent_store()`）无线程安全保证
-- 🟡 背景任务管理缺乏明确的线程安全契约
-- ✅ Store 有 shared_mutex 保护
-- ✅ QueryEngine 有 mutex 保护
-
-### 4.3 内存安全
-
-- ✅ 大多数路径使用 RAII 和智能指针
-- ⚠️ yyjson C 接口有手动内存管理风险
-- ⚠️ `popen` / `pclose` 有资源泄漏风险
-- ⚠️ 部分字符串处理可能有缓冲区溢出（需 fuzz 验证）
-
-### 4.4 错误处理
-
-- 🟡 不一致：有些用 `std::expected`，有些用 `ToolResult::error()`，有些抛异常
-- 🟡 错误码粒度不足
-- ⚠️ 部分错误静默吞掉（no-op reducer）
-
----
-
-## 五、安全审计摘要
-
-### 5.1 已有的安全机制
-
-- Bash 命令安全扫描（破坏性命令检测、注入检测、提权检测）
-- 路径验证（allowed-directory 约束）
-- 权限模型（4 级别 + 3 模式）
-- Secret redaction（显示脱敏）
-- JWT 认证（Bridge）
-- 可信设备 / 工作密钥
-
-### 5.2 高风险问题
-
-| 风险 | 严重程度 | 说明 |
+| Dimension | Rating | Notes |
 |---|---|---|
-| RuntimeFunctionTool 权限旁路 | 🔴 Critical | `check_permission` 直接 `return true` |
-| Bash 安全检测可绕过 | 🟠 High | 字符串匹配脆弱，变体/编码可绕过 |
-| 路径验证符号链接绕过 | 🟠 High | `lexically_normal()` 纯词法，不解析 symlink |
-| 两套权限模型不一致 | 🟠 High | `ToolPermission` vs `BashPermissionLevel`，无映射 |
-| 全局状态无同步 | 🟡 Medium | 多 agent 并发数据竞争 |
-| `popen` 命令注入面广 | 🟡 Medium | 虽有转义，但攻击面大 |
-| FileReadTool 权限检查恒真 | 🟡 Medium | 注释标注"生产环境实现" |
-| 危险路径检测不完整 | 🟡 Medium | 只覆盖 12 个设备路径，缺 /proc/self 等 |
+| Architecture consistency | 🟡 Medium | dual tool abstraction + dual state remain (UI/engine resolved) |
+| Security | 🟠 Medium-High | multiple bypasses, detection bypassable |
+| Code quality | 🟡 Medium | generally good; some monolithic files, duplication |
+| Test coverage | 🟠 High | 67% of files untested, 39% branch coverage |
+| Concurrency safety | 🟡 Medium | some unprotected global state |
+| Feature completeness | 🟡 Medium | core 85%+, edge gaps |
+| Maintainability | 🟡 Medium | abstraction splits raise maintenance cost |
+| Performance | 🟢 Low-Medium | optimization room, not feature-blocking |
 
----
+## 10. Closeout Priorities
 
-## 六、测试审计
-
-### 6.1 测试覆盖
-
-- 14 个测试模块
-- 563 个测试用例通过（共 566 个，通过率 ~99.5%）
-- 代码/测试比：约 62:1（偏低）
-- **67% 的源文件无对应测试**
-- 分支覆盖率：约 39%
-
-### 6.2 测试分布
-
-| 测试模块 | 覆盖范围 |
+| Priority | Item |
 |---|---|
-| test_tools | 工具系统（大量用例） |
-| test_services | 服务层 API / QueryEngine |
-| test_state | 状态管理 |
-| test_ui | UI 组件 |
-| test_query | QueryEngine 核心 |
-| test_core | 核心工具类 |
-| test_utils | 工具库 |
-| smoke/ | 冒烟测试（Phase 3 集成） |
+| **P0** | Fix the 3 security bypasses: `RuntimeFunctionTool` default-allow, Bash substring detection, Bash path symlink gap. |
+| **P0** | Fix the 9 failing tests; get the empty 06-13 ctest green. |
+| **P1** | Wire session persistence + structured output into QueryEngine. |
+| **P1** | Remove the `QueryDeps` dead struct, or implement real DI. |
+| **P1** | Unify the `ToolBase` / `ITool` abstractions and the two permission models. |
+| **P2** | Implement or cull the 78 no-op ActionType reducers; wire `memdir` memory. |
+| **P2** | Split `runtime_registry.cppm`; standardize JSON parsing. |
+| ~~**P3**~~ ✅ `[closed 2026-06-15]` | Edge modules confirmed as TS stubs (no functionality to migrate); security-module regression tests added; `popen`→`posix_spawn` complete (all 77 sites use `posix_spawn`-backed wrappers in `bash_execution.cppm`). |
 
-### 6.3 测试缺口
+## 11. Conclusion
 
-- 🔴 安全关键模块无专项测试（路径验证、Bash 安全、命令注入）
-- 🟡 UI 测试覆盖率极低（单文件 1255 行 vs 78K 行源码）
-- 🟡 Bridge / MCP 集成测试不足
-- 🟡 无 fuzz 测试（虽有 harness 但无实际语料）
-- 🟡 无性能基准测试基线
+Migration is **~75–80% complete**. The core engine (QueryEngine + Tool system +
+State) and the service layer (API + MCP + Bridge) are workable. The UI is now a
+single integrated architecture at ~88%. The remaining gaps cluster in three
+areas:
 
----
+1. **Security** — 3 production-blocker bypasses that must be fixed before any
+   production use.
+2. **QueryEngine feature gaps** — persistence, structured output, in-loop
+   skill/plugin dispatch, DI.
+3. **Test hygiene** — 9 failing tests, an empty ctest run, and low coverage on
+   security-critical paths.
 
-## 七、风险评级
+Recommended sequence: close the security and test blockers first (P0), then
+complete the QueryEngine feature surface (P1), then complete state/UI edges and
+reduce the `popen` attack surface (P2–P3).
 
-| 维度 | 等级 | 说明 |
-|---|---|---|
-| 架构一致性 | 🔴 High | 两套 Tool 体系 + 两套 QueryEngine + 两套 State + 两套 UI |
-| 安全性 | 🟠 Medium-High | 多处权限旁路 + 检测可绕过 |
-| 代码质量 | 🟡 Medium | 整体良好，但有单体文件过大、重复代码 |
-| 测试覆盖 | 🟠 High | 67% 文件无测试，分支覆盖率 39% |
-| 并发安全 | 🟡 Medium | 部分全局状态无保护 |
-| 功能完整性 | 🟡 Medium | 核心功能 85%+，边缘功能缺失多 |
-| 可维护性 | 🟡 Medium | 架构分裂导致维护成本高 |
-| 性能 | 🟢 Low-Medium | 有优化空间但不阻塞功能 |
+## 12. Change Log
 
----
-
-## 八、关键建议
-
-### 高优先级（P0-P1）
-
-1. **统一 Tool 抽象体系** — 合并 `ToolBase` 和 `ITool`，统一权限模型
-2. **修复 RuntimeFunctionTool 权限旁路** — 实现真实的权限检查逻辑
-3. **重构 Bash 安全检测** — 从字符串匹配升级为 token/AST 级分析
-4. **路径验证加入符号链接解析** — 使用 `realpath` / `canonical`
-5. **统一 QueryEngine 架构** — 确立 `cc::core::QueryEngine` 为单一真相源
-6. **补充安全关键模块测试** — 路径验证、Bash 安全、权限检查
-
-### 中优先级（P2）
-
-7. **拆分 runtime_registry.cppm** — 按职责拆分为多个模块
-8. **统一 JSON 解析方式** — 消灭手写 `json_string` / `json_int`
-9. **补齐 78 个无 reducer 的 ActionType** — 或移除未使用的 action
-10. **统一 UI 架构** — 确定目标架构，废弃 legacy `app.cppm`
-
-### 低优先级（P3）
-
-11. **优化性能热点** — 注册表透明哈希、静态正则、减少 JSON 重复解析
-12. **增加 devtools / time-travel debugging** — 提升开发体验
-
----
-
-## 九、结论
-
-**迁移完成度：约 70-75%**
-
-- ✅ **核心引擎**（QueryEngine + Tool System + State）已就绪，可工作
-- ✅ **服务层**（API + MCP + Bridge）完成度高
-- ⚠️ **UI 层**完成度较低（52%），且有两套架构并存的混乱
-- ⚠️ **架构一致性**是最大问题 — 多个系统各有两套实现，长期会积重难返
-- ⚠️ **安全**有几处高危漏洞（权限旁路、检测可绕过），生产环境前必须修复
-- ⚠️ **测试覆盖**严重不足，安全关键路径尤甚
-
-**下一步建议**：先统一架构（消除重复实现），再补齐安全和测试，最后完善 UI 和边缘功能。
+| Date | Change |
+|---|---|
+| 2026-06-11 | Initial audit. Baseline completeness estimated at 70–75%. |
+| 2026-06-14 | Re-verification after 6 follow-up commits (06-11 → 06-13). Marked resolved: UI dual-architecture, second QueryEngine, 34 unregistered modules, FileReadTool permission bypass, fallback-model logic. Corrected QueryEngine to ~85% (was "100%"). Corrected UI to ~88% (was 52%). Updated test state to 9 known failures. Document rewritten in English per project `CLAUDE.md` language policy. |

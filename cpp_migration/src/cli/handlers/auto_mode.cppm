@@ -9,6 +9,7 @@ module;
 #include <format>
 
 export module cc.cli.handlers.auto_mode;
+import cc.utils.bash_execution;
 
 export namespace cc::cli::handlers {
 
@@ -59,7 +60,7 @@ inline std::expected<std::string, std::string> execute_turn(
         "-d '{}' 2>&1",
         base_url, api_key, body);
 
-    FILE* pipe = ::popen(cmd.c_str(), "r");
+    FILE* pipe = cc::utils::bash::popen_spawn(cmd.c_str());
     if (!pipe) {
         return std::unexpected("Failed to execute API request");
     }
@@ -69,7 +70,7 @@ inline std::expected<std::string, std::string> execute_turn(
     while (auto bytes = std::fread(buffer.data(), 1, buffer.size(), pipe)) {
         output.append(buffer.data(), bytes);
     }
-    ::pclose(pipe);
+    cc::utils::bash::pclose_spawn(pipe);
 
     if (output.empty()) {
         return std::unexpected("Empty response from API");

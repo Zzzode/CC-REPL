@@ -14,6 +14,7 @@ module;
 #include <chrono>
 
 export module cc.cli.handlers.plugins_handler;
+import cc.utils.bash_execution;
 
 export namespace cc::cli::handlers {
 
@@ -92,14 +93,9 @@ inline PluginSource detect_source(std::string_view spec) {
 }
 
 inline std::string exec_command(const std::string& cmd) {
-    FILE* pipe = popen(cmd.c_str(), "r");
-    if (!pipe) return {};
-    std::string output;
-    std::array<char, 4096> buffer{};
-    while (fgets(buffer.data(), static_cast<int>(buffer.size()), pipe) != nullptr) {
-        output += buffer.data();
-    }
-    pclose(pipe);
+    auto pipe_cap = cc::utils::bash::exec_capture(cmd.c_str());
+    if (!pipe_cap) return {};
+    std::string output = std::move(pipe_cap->output);
     while (!output.empty() && (output.back() == '\n' || output.back() == '\r')) {
         output.pop_back();
     }

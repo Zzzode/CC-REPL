@@ -10,6 +10,7 @@ module;
 #include <cstdio>
 
 export module cc.tools.git_operation_tracking;
+import cc.utils.bash_execution;
 
 export namespace cc::tools {
 
@@ -28,10 +29,10 @@ namespace detail {
 
     [[nodiscard]] inline auto command_has_output(const char* command) -> bool {
         std::array<char, 128> buffer{};
-        FILE* pipe = popen(command, "r");
+        FILE* pipe = cc::utils::bash::popen_spawn(command);
         if (!pipe) return false;
         const bool has_output = fgets(buffer.data(), static_cast<int>(buffer.size()), pipe) != nullptr;
-        pclose(pipe);
+        cc::utils::bash::pclose_spawn(pipe);
         return has_output;
     }
 }

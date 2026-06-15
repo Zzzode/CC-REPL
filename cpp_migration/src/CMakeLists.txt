@@ -642,7 +642,7 @@ if(APPLE)
     target_link_libraries(cc_tools PUBLIC "-framework ApplicationServices")
 endif()
 
-target_link_libraries(cc_query PUBLIC cc_tools cc_hooks)
+target_link_libraries(cc_query PUBLIC cc_tools cc_hooks cc_session cc_memdir)
 
 # ─── cc_commands: Command System ──────────────────────────────────────────────
 add_library(cc_commands)

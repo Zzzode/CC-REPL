@@ -18,6 +18,7 @@ export module cc.tools.web_search;
 import cc.utils.error;
 import cc.tools.tool;
 import cc.utils.json;
+import cc.utils.bash_execution;
 
 export namespace cc::tools::web_search {
 
@@ -255,10 +256,10 @@ struct SearchResult {
     const auto cmd = "curl -fsSL --max-time 30 '" + std::string(url) + "' 2>&1";
     std::array<char, 4096> buf{};
     std::string out;
-    FILE* pipe = popen(cmd.c_str(), "r");
+    FILE* pipe = cc::utils::bash::popen_spawn(cmd.c_str());
     if (!pipe) return std::nullopt;
     while (fgets(buf.data(), static_cast<int>(buf.size()), pipe) != nullptr) out += buf.data();
-    const int status = pclose(pipe);
+    const int status = cc::utils::bash::pclose_spawn(pipe);
     if (status != 0) return std::nullopt;
     return out;
 }

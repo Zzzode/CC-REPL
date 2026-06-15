@@ -37,6 +37,7 @@ export module cc.utils.plugin_loader;
 import cc.utils.plugin_identifier;
 import cc.utils.plugin_versioning;
 import cc.utils.json;
+import cc.utils.bash_execution;
 
 export namespace cc::utils::plugin_loader {
 
@@ -406,12 +407,12 @@ struct CommandResult {
 
     std::array<char, 4096> buffer{};
     std::string output;
-    FILE* pipe = popen(command.c_str(), "r");
+    FILE* pipe = cc::utils::bash::popen_spawn(command.c_str());
     if (!pipe) return CommandResult{.exit_code = 127, .output = "Failed to spawn command"};
     while (auto bytes = std::fread(buffer.data(), 1, buffer.size(), pipe)) {
         output.append(buffer.data(), bytes);
     }
-    const int status = pclose(pipe);
+    const int status = cc::utils::bash::pclose_spawn(pipe);
     return CommandResult{.exit_code = decode_exit_status(status), .output = std::move(output)};
 }
 

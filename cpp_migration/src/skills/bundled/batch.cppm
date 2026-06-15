@@ -11,6 +11,7 @@ module;
 export module cc.skills.bundled.batch;
 
 import cc.skills.load_skills_dir;
+import cc.utils.bash_execution;
 
 export namespace cc::skills::bundled {
 
@@ -25,7 +26,7 @@ namespace detail {
 
 /// Execute a shell command and capture its output
 inline std::expected<std::string, std::string> exec_command(const std::string& cmd) {
-    FILE* pipe = ::popen(cmd.c_str(), "r");
+    FILE* pipe = cc::utils::bash::popen_spawn(cmd.c_str());
     if (!pipe) {
         return std::unexpected("Failed to execute: " + cmd);
     }
@@ -36,7 +37,7 @@ inline std::expected<std::string, std::string> exec_command(const std::string& c
         output.append(buffer.data(), bytes);
     }
 
-    int status = ::pclose(pipe);
+    int status = cc::utils::bash::pclose_spawn(pipe);
     if (status != 0) {
         if (output.empty()) {
             return std::unexpected("Command failed with exit code " +

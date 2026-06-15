@@ -22,6 +22,7 @@ module;
 #include <vector>
 
 export module cc.utils.plugin_lifecycle;
+import cc.utils.bash_execution;
 
 export namespace cc::utils::plugins {
 
@@ -122,12 +123,12 @@ inline auto get_plugin_dir(std::string_view plugin_id) -> std::filesystem::path 
 inline auto exec_cmd(const std::string& cmd) -> std::expected<std::string, std::string> {
     std::array<char, 4096> buffer{};
     std::string result;
-    FILE* pipe = popen(cmd.c_str(), "r");
+    FILE* pipe = cc::utils::bash::popen_spawn(cmd.c_str());
     if (!pipe) return std::unexpected("Failed to execute: " + cmd);
     while (std::fgets(buffer.data(), static_cast<int>(buffer.size()), pipe) != nullptr) {
         result += buffer.data();
     }
-    int status = pclose(pipe);
+    int status = cc::utils::bash::pclose_spawn(pipe);
     if (status != 0) return std::unexpected("Command failed with status " + std::to_string(status));
     return result;
 }

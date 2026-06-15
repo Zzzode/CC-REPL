@@ -18,6 +18,7 @@ module;
 export module cc.utils.shell_providers;
 
 import cc.utils.shell;
+import cc.utils.bash_execution;
 
 export namespace cc::utils::shell_providers {
 
@@ -393,14 +394,14 @@ private:
         #else
         std::string cmd = "which " + std::string(name) + " 2>/dev/null";
         #endif
-        FILE* pipe = popen(cmd.c_str(), "r");
+        FILE* pipe = cc::utils::bash::popen_spawn(cmd.c_str());
         if (!pipe) return std::nullopt;
         char buffer[512]{};
         std::string result;
         while (std::fgets(buffer, sizeof(buffer), pipe) != nullptr) {
             result += buffer;
         }
-        pclose(pipe);
+        cc::utils::bash::pclose_spawn(pipe);
         // Trim trailing whitespace/newlines
         while (!result.empty() && (result.back() == '\n' || result.back() == '\r' || result.back() == ' ')) {
             result.pop_back();

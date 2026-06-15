@@ -30,6 +30,15 @@ module;
 #include <sys/wait.h>
 #include <sys/types.h>
 #include <dirent.h>
+#include <spawn.h>
+#include <sys/socket.h>
+#ifdef __APPLE__
+#include <crt_externs.h>
+#define CC_ENVIRON (*_NSGetEnviron())
+#else
+extern char** environ;
+#define CC_ENVIRON environ
+#endif
 #endif
 
 export module cc.utils.bash_execution;
@@ -152,6 +161,294 @@ inline std::string read_stream(FILE* stream) {
 
 [[nodiscard]] inline auto escape_shell_arg(std::string_view arg) -> std::string;
 
+/// Result of exec_capture / exec_stream: captured output + raw wait(2) status.
+struct ExecCaptureResult {
+    std::string output;
+    int status = -1;  // raw wait status; use WIFEXITED/WEXITSTATUS as with pclose
+};
+
+/// Run `cmd` via `/bin/sh -c`, capturing combined stdout+stderr. On POSIX this
+/// uses posix_spawn (removing the popen shell-injection surface); on Windows it
+/// falls back to popen. Shell-redirection tokens in `cmd` ("2>/dev/null",
+/// "2>&1") still work because the command still runs under /bin/sh -c. This is
+/// the drop-in replacement for the `popen(...,"r") ... pclose(...)` idiom.
+[[nodiscard]] std::expected<ExecCaptureResult, std::string>
+exec_capture(const std::string& cmd) {
+    ExecCaptureResult result;
+#ifdef _WIN32
+    FILE* pipe = ::_popen(cmd.c_str(), "r");
+    if (!pipe) return std::unexpected(std::string{"popen failed"});
+    std::array<char, 4096> buf{};
+    std::size_t n;
+    while ((n = ::fread(buf.data(), 1, buf.size(), pipe)) > 0) {
+        result.output.append(buf.data(), n);
+    }
+    result.status = ::_pclose(pipe);
+    return result;
+#else
+    int pipefd[2];
+    if (::pipe(pipefd) != 0) return std::unexpected(std::string{"pipe failed"});
+
+    posix_spawn_file_actions_t actions;
+    if (::posix_spawn_file_actions_init(&actions) != 0) {
+        ::close(pipefd[0]); ::close(pipefd[1]);
+        return std::unexpected(std::string{"posix_spawn_file_actions_init failed"});
+    }
+    ::posix_spawn_file_actions_adddup2(&actions, pipefd[1], STDOUT_FILENO);
+    ::posix_spawn_file_actions_adddup2(&actions, pipefd[1], STDERR_FILENO);
+    ::posix_spawn_file_actions_addclose(&actions, pipefd[0]);
+    ::posix_spawn_file_actions_addclose(&actions, pipefd[1]);
+
+    static const std::string sh = "/bin/sh";
+    static const std::string dash_c = "-c";
+    std::vector<char*> argv = {
+        const_cast<char*>(sh.data()),
+        const_cast<char*>(dash_c.data()),
+        const_cast<char*>(cmd.c_str()),
+        nullptr,
+    };
+    pid_t pid = 0;
+    int rc = ::posix_spawnp(&pid, "/bin/sh", &actions, nullptr, argv.data(), CC_ENVIRON);
+    ::posix_spawn_file_actions_destroy(&actions);
+    ::close(pipefd[1]);
+    if (rc != 0) {
+        ::close(pipefd[0]);
+        return std::unexpected(std::string{"posix_spawn failed"});
+    }
+
+    std::array<char, 4096> buf{};
+    ssize_t r;
+    while ((r = ::read(pipefd[0], buf.data(), buf.size())) > 0) {
+        result.output.append(buf.data(), static_cast<std::size_t>(r));
+    }
+    ::close(pipefd[0]);
+
+    int status = 0;
+    if (::waitpid(pid, &status, 0) == -1) status = -1;
+    result.status = status;
+    return result;
+#endif
+}
+
+/// Streaming variant: invoke `on_output` for each chunk as it arrives (replaces
+/// the popen + fread streaming idiom). Returns the raw wait status.
+[[nodiscard]] std::expected<int, std::string>
+exec_stream(const std::string& cmd, const std::function<void(std::string_view)>& on_output) {
+#ifdef _WIN32
+    FILE* pipe = ::_popen(cmd.c_str(), "r");
+    if (!pipe) return std::unexpected(std::string{"popen failed"});
+    std::array<char, 4096> buf{};
+    std::size_t n;
+    while ((n = ::fread(buf.data(), 1, buf.size(), pipe)) > 0) {
+        if (on_output) on_output(std::string_view{buf.data(), n});
+    }
+    return ::_pclose(pipe);
+#else
+    int pipefd[2];
+    if (::pipe(pipefd) != 0) return std::unexpected(std::string{"pipe failed"});
+    posix_spawn_file_actions_t actions;
+    ::posix_spawn_file_actions_init(&actions);
+    ::posix_spawn_file_actions_adddup2(&actions, pipefd[1], STDOUT_FILENO);
+    ::posix_spawn_file_actions_adddup2(&actions, pipefd[1], STDERR_FILENO);
+    ::posix_spawn_file_actions_addclose(&actions, pipefd[0]);
+    ::posix_spawn_file_actions_addclose(&actions, pipefd[1]);
+    static const std::string sh = "/bin/sh";
+    static const std::string dash_c = "-c";
+    std::vector<char*> argv = {
+        const_cast<char*>(sh.data()),
+        const_cast<char*>(dash_c.data()),
+        const_cast<char*>(cmd.c_str()),
+        nullptr,
+    };
+    pid_t pid = 0;
+    int rc = ::posix_spawnp(&pid, "/bin/sh", &actions, nullptr, argv.data(), CC_ENVIRON);
+    ::posix_spawn_file_actions_destroy(&actions);
+    ::close(pipefd[1]);
+    if (rc != 0) { ::close(pipefd[0]); return std::unexpected(std::string{"posix_spawn failed"}); }
+    std::array<char, 4096> buf{};
+    ssize_t r;
+    while ((r = ::read(pipefd[0], buf.data(), buf.size())) > 0) {
+        if (on_output) on_output(std::string_view{buf.data(), static_cast<std::size_t>(r)});
+    }
+    ::close(pipefd[0]);
+    int status = 0;
+    ::waitpid(pid, &status, 0);
+    return status;
+#endif
+}
+
+/// Write `input` to a command's stdin via `/bin/sh -c cmd`, returning the raw
+/// wait status. Replaces the `popen(...,"w") ... fwrite ... pclose` idiom
+/// (e.g. piping text into pbcopy/clip/xclip).
+[[nodiscard]] std::expected<int, std::string>
+exec_write(const std::string& cmd, std::string_view input) {
+#ifdef _WIN32
+    FILE* pipe = ::_popen(cmd.c_str(), "w");
+    if (!pipe) return std::unexpected(std::string{"popen failed"});
+    if (!input.empty()) ::fwrite(input.data(), 1, input.size(), pipe);
+    return ::_pclose(pipe);
+#else
+    int pipefd[2];
+    if (::pipe(pipefd) != 0) return std::unexpected(std::string{"pipe failed"});
+    posix_spawn_file_actions_t actions;
+    if (::posix_spawn_file_actions_init(&actions) != 0) {
+        ::close(pipefd[0]); ::close(pipefd[1]);
+        return std::unexpected(std::string{"posix_spawn_file_actions_init failed"});
+    }
+    ::posix_spawn_file_actions_adddup2(&actions, pipefd[0], STDIN_FILENO);
+    ::posix_spawn_file_actions_addclose(&actions, pipefd[0]);
+    ::posix_spawn_file_actions_addclose(&actions, pipefd[1]);
+
+    static const std::string sh = "/bin/sh";
+    static const std::string dash_c = "-c";
+    std::vector<char*> argv = {
+        const_cast<char*>(sh.data()),
+        const_cast<char*>(dash_c.data()),
+        const_cast<char*>(cmd.c_str()),
+        nullptr,
+    };
+    pid_t pid = 0;
+    int rc = ::posix_spawnp(&pid, "/bin/sh", &actions, nullptr, argv.data(), CC_ENVIRON);
+    ::posix_spawn_file_actions_destroy(&actions);
+    ::close(pipefd[0]);  // child owns the read end
+    if (rc != 0) {
+        ::close(pipefd[1]);
+        return std::unexpected(std::string{"posix_spawn failed"});
+    }
+    if (!input.empty()) {
+        std::size_t written = 0;
+        while (written < input.size()) {
+            ssize_t n = ::write(pipefd[1], input.data() + written, input.size() - written);
+            if (n <= 0) break;
+            written += static_cast<std::size_t>(n);
+        }
+    }
+    ::close(pipefd[1]);  // signal EOF on child stdin
+    int status = 0;
+    ::waitpid(pid, &status, 0);
+    return status;
+#endif
+}
+
+// popen_spawn / pclose_spawn: posix_spawn-backed drop-in replacement for the
+// popen(...,"r")/pclose() idiom. Returns a FILE* (via fdopen on the read end
+// of a pipe) so existing fgets/fread call sites are unchanged; only the
+// popen()/pclose() calls are renamed. A process-id map (guarded by a mutex)
+// lets pclose_spawn reap the child. This removes the popen fork/exec surface
+// across the codebase without rewriting every capture loop.
+inline std::mutex& popen_spawn_mtx() {
+    static std::mutex m;
+    return m;
+}
+inline std::unordered_map<FILE*, pid_t>& popen_spawn_pids() {
+    static std::unordered_map<FILE*, pid_t> m;
+    return m;
+}
+
+/// posix_spawn-backed popen("r") equivalent. Returns a FILE* reading the
+/// command's combined stdout+stderr, or nullptr on failure.
+[[nodiscard]] inline FILE* popen_spawn(const std::string& cmd) {
+#ifdef _WIN32
+    return ::_popen(cmd.c_str(), "r");
+#else
+    int pipefd[2];
+    if (::pipe(pipefd) != 0) return nullptr;
+    posix_spawn_file_actions_t fa;
+    if (::posix_spawn_file_actions_init(&fa) != 0) {
+        ::close(pipefd[0]); ::close(pipefd[1]);
+        return nullptr;
+    }
+    ::posix_spawn_file_actions_adddup2(&fa, pipefd[1], STDOUT_FILENO);
+    ::posix_spawn_file_actions_adddup2(&fa, pipefd[1], STDERR_FILENO);
+    ::posix_spawn_file_actions_addclose(&fa, pipefd[0]);
+    ::posix_spawn_file_actions_addclose(&fa, pipefd[1]);
+    static const std::string sh = "/bin/sh";
+    static const std::string dash_c = "-c";
+    std::vector<char*> argv = {
+        const_cast<char*>(sh.data()),
+        const_cast<char*>(dash_c.data()),
+        const_cast<char*>(cmd.c_str()),
+        nullptr,
+    };
+    pid_t pid = 0;
+    int rc = ::posix_spawnp(&pid, "/bin/sh", &fa, nullptr, argv.data(), CC_ENVIRON);
+    ::posix_spawn_file_actions_destroy(&fa);
+    ::close(pipefd[1]);
+    if (rc != 0) {
+        ::close(pipefd[0]);
+        return nullptr;
+    }
+    FILE* f = ::fdopen(pipefd[0], "r");
+    if (!f) {
+        ::close(pipefd[0]);
+        ::kill(pid, SIGTERM);
+        ::waitpid(pid, nullptr, 0);
+        return nullptr;
+    }
+    {
+        std::lock_guard lock(popen_spawn_mtx());
+        popen_spawn_pids()[f] = pid;
+    }
+    return f;
+#endif
+}
+
+/// Reap the child started by popen_spawn and close the stream. Returns the
+/// raw wait status (like pclose). For streams not opened by popen_spawn (e.g.
+/// Windows _popen), falls back to fclose.
+inline int pclose_spawn(FILE* f) {
+    if (!f) return -1;
+#ifdef _WIN32
+    return ::_pclose(f);
+#else
+    pid_t pid = 0;
+    bool tracked = false;
+    {
+        std::lock_guard lock(popen_spawn_mtx());
+        auto it = popen_spawn_pids().find(f);
+        if (it != popen_spawn_pids().end()) {
+            pid = it->second;
+            popen_spawn_pids().erase(it);
+            tracked = true;
+        }
+    }
+    ::fclose(f);
+    if (!tracked) return 0;
+    int status = 0;
+    ::waitpid(pid, &status, 0);
+    return status;
+#endif
+}
+
+/// posix_spawn-backed bidirectional popen("r+") equivalent for long-lived
+/// duplex streams (e.g. an LSP server). Uses a socketpair so a single FILE*
+/// can both write to and read from the child. Reaped by pclose_spawn.
+[[nodiscard]] inline FILE* popen_spawn_duplex(const std::string& cmd) {
+#ifdef _WIN32
+    return ::_popen(cmd.c_str(), "r");
+#else
+    int sv[2];
+    if (::socketpair(AF_UNIX, SOCK_STREAM, 0, sv) != 0) return nullptr;
+    posix_spawn_file_actions_t fa;
+    if (::posix_spawn_file_actions_init(&fa) != 0) { ::close(sv[0]); ::close(sv[1]); return nullptr; }
+    ::posix_spawn_file_actions_adddup2(&fa, sv[1], STDIN_FILENO);
+    ::posix_spawn_file_actions_adddup2(&fa, sv[1], STDOUT_FILENO);
+    ::posix_spawn_file_actions_addclose(&fa, sv[1]);
+    static const std::string sh = "/bin/sh";
+    static const std::string dash_c = "-c";
+    std::vector<char*> argv = { const_cast<char*>(sh.data()), const_cast<char*>(dash_c.data()), const_cast<char*>(cmd.c_str()), nullptr };
+    pid_t pid = 0;
+    int rc = ::posix_spawnp(&pid, "/bin/sh", &fa, nullptr, argv.data(), CC_ENVIRON);
+    ::posix_spawn_file_actions_destroy(&fa);
+    ::close(sv[1]);
+    if (rc != 0) { ::close(sv[0]); return nullptr; }
+    FILE* f = ::fdopen(sv[0], "r+");
+    if (!f) { ::close(sv[0]); ::kill(pid, SIGTERM); ::waitpid(pid, nullptr, 0); return nullptr; }
+    { std::lock_guard lock(popen_spawn_mtx()); popen_spawn_pids()[f] = pid; }
+    return f;
+#endif
+}
+
 /// Execute a command synchronously and return the result
 [[nodiscard]] inline auto execute_command(
     std::string_view command,
@@ -182,13 +479,12 @@ inline std::string read_stream(FILE* stream) {
     // For combined stderr, redirect stderr to stdout
     std::string shell_cmd = config.shell_path + " -c " + escape_shell_arg(full_cmd) + " 2>&1";
 
-    FILE* pipe = popen(shell_cmd.c_str(), "r");
-    if (!pipe) {
-        return std::unexpected(std::string{"failed to execute command: popen failed"});
+    auto cap = exec_capture(shell_cmd);
+    if (!cap) {
+        return std::unexpected(std::string{"failed to execute command: "} + cap.error());
     }
-
-    std::string output = detail::read_stream(pipe);
-    int status = pclose(pipe);
+    std::string output = std::move(cap->output);
+    int status = cap->status;
 
     auto end_time = std::chrono::steady_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
@@ -236,19 +532,11 @@ inline std::string read_stream(FILE* stream) {
 
     std::string shell_cmd = config.shell_path + " -c " + escape_shell_arg(full_cmd) + " 2>&1";
 
-    FILE* pipe = popen(shell_cmd.c_str(), "r");
-    if (!pipe) {
-        return std::unexpected(std::string{"failed to execute command: popen failed"});
+    auto stream_result = exec_stream(shell_cmd, on_output);
+    if (!stream_result) {
+        return std::unexpected(std::string{"failed to execute command: "} + stream_result.error());
     }
-
-    std::array<char, 4096> buffer;
-    while (auto bytes = std::fread(buffer.data(), 1, buffer.size(), pipe)) {
-        if (on_output) {
-            on_output(std::string_view{buffer.data(), bytes});
-        }
-    }
-
-    int status = pclose(pipe);
+    int status = *stream_result;
 
     #ifndef _WIN32
     if (WIFEXITED(status)) {

@@ -18,6 +18,7 @@ module;
 export module cc.utils.git;
 
 import cc.utils.error;
+import cc.utils.bash_execution;
 
 export namespace cc::utils::git {
 
@@ -72,7 +73,7 @@ inline Result<std::string> exec_git(
     }
     cmd += " " + args + " 2>/dev/null";
 
-    FILE* pipe = popen(cmd.c_str(), "r");
+    FILE* pipe = cc::utils::bash::popen_spawn(cmd.c_str());
     if (!pipe) {
         return std::unexpected(Error(ErrorCode::io_error,
             std::format("Failed to execute: {}", cmd)));
@@ -84,7 +85,7 @@ inline Result<std::string> exec_git(
         output.append(buffer.data(), bytes);
     }
 
-    int status = pclose(pipe);
+    int status = cc::utils::bash::pclose_spawn(pipe);
     if (status != 0) {
         return std::unexpected(Error(ErrorCode::internal_error,
             std::format("Git command failed (exit {}): {}", status, cmd)));

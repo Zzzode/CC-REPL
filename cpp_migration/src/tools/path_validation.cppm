@@ -300,11 +300,25 @@ strip_wrappers_from_argv(std::span<const std::string> argv);
 //   2. Each extractor is small — out-of-lining them would bloat symbol count.
 // ===========================================================================
 
+// --- symlink-aware path resolution for permission checks ------------------
+// Resolve a path following symlinks where the target exists. weakly_canonical
+// resolves the existing prefix and lexically normalizes the (possibly
+// non-existent) remainder, so it is safe for both read targets and write /
+// create targets. Falls back to pure lexical normalization only if
+// canonicalization reports an error. Pure lexically_normal() here would let a
+// symlink inside an allowed dir point outside it and bypass the check.
+inline std::filesystem::path resolve_for_permission(const std::filesystem::path& p) {
+    std::error_code ec;
+    auto resolved = std::filesystem::weakly_canonical(p, ec);
+    if (ec) return p.lexically_normal();
+    return resolved;
+}
+
 // --- danger path detection -------------------------------------------------
 inline bool is_dangerous_removal_path(const std::filesystem::path& p) {
     // We canonicalise to a generic string and match prefixes.  This is the
     // same precision the TS isDangerousRemovalPath uses.
-    const auto s = p.lexically_normal().string();
+    const auto s = resolve_for_permission(p).string();
     static const std::vector<std::string_view> dangerous = {
         "/", "/bin", "/boot", "/dev", "/etc", "/lib", "/lib32", "/lib64",
         "/proc", "/root", "/sbin", "/sys", "/usr", "/var", "/System",
@@ -739,14 +753,14 @@ inline ValidatePathResult validate_path(
     }
     std::filesystem::path absolute = expand_tilde(cleaned);
     if (!absolute.is_absolute()) absolute = cwd / absolute;
-    absolute = absolute.lexically_normal();
+    absolute = resolve_for_permission(absolute);
 
     ValidatePathResult r{.resolved_path = absolute};
 
     // (1) Path must be under one of ctx.allowed_dirs.
     const bool any_allowed = ctx.allowed_dirs.empty() ||
         std::ranges::any_of(ctx.allowed_dirs, [&](const std::filesystem::path& base) {
-            const auto b = base.lexically_normal();
+            const auto b = resolve_for_permission(base);
             // "within" = either equals b, or starts with b/
             auto [_m1, _m2] = std::ranges::mismatch(
                 absolute.begin(), absolute.end(),
@@ -922,7 +936,7 @@ inline auto create_path_checker(
                 }
                 std::filesystem::path absolute = expand_tilde(cleaned);
                 if (!absolute.is_absolute()) absolute = ctx.cwd / absolute;
-                absolute = absolute.lexically_normal();
+                absolute = resolve_for_permission(absolute);
                 if (is_dangerous_removal_path(absolute)) {
                     result.behavior = PermissionBehavior::kAsk;
                     result.blocked_path = absolute;

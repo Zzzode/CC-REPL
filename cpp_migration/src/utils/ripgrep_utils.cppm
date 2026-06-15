@@ -8,6 +8,7 @@ module;
 #include <vector>
 
 export module cc.utils.ripgrep_utils;
+import cc.utils.bash_execution;
 
 export namespace cc::utils {
 
@@ -140,13 +141,9 @@ std::vector<RgMatch> rg_search(std::string_view pattern, fs::path dir, RgOptions
     std::array<char, 4096> buffer;
     std::string output;
 
-    FILE* pipe = popen(cmd.c_str(), "r");
-    if (!pipe) return {};
-
-    while (fgets(buffer.data(), buffer.size(), pipe) != nullptr) {
-        output += buffer.data();
-    }
-    pclose(pipe);
+    auto pipe_cap = cc::utils::bash::exec_capture(cmd.c_str());
+    if (!pipe_cap) return {};
+    output = std::move(pipe_cap->output);
 
     return detail::parse_rg_output(output);
 }
@@ -160,14 +157,9 @@ std::vector<fs::path> rg_files(fs::path dir, std::optional<std::string> glob) {
     std::vector<fs::path> files;
     std::array<char, 4096> buffer;
 
-    FILE* pipe = popen(cmd.c_str(), "r");
-    if (!pipe) return files;
-
-    std::string output;
-    while (fgets(buffer.data(), buffer.size(), pipe) != nullptr) {
-        output += buffer.data();
-    }
-    pclose(pipe);
+    auto pipe_cap = cc::utils::bash::exec_capture(cmd.c_str());
+    if (!pipe_cap) return files;
+    std::string output = std::move(pipe_cap->output);
 
     // Parse newline-separated paths
     std::size_t pos = 0;

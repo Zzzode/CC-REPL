@@ -11,6 +11,7 @@ module;
 #include <expected>
 
 export module cc.tools.script_sandbox;
+import cc.utils.bash_execution;
 
 export namespace cc::tools {
 
@@ -133,7 +134,7 @@ inline auto execute_in_sandbox(
         " && /bin/sh " + detail::shell_quote(script_path.string()) + " 2>&1";
     std::array<char, 4096> buffer{};
     std::string output;
-    FILE* pipe = popen(command.c_str(), "r");
+    FILE* pipe = cc::utils::bash::popen_spawn(command.c_str());
     if (!pipe) {
         fs::remove(script_path);
         return std::unexpected("Failed to spawn sandboxed shell");
@@ -141,7 +142,7 @@ inline auto execute_in_sandbox(
     while (fgets(buffer.data(), static_cast<int>(buffer.size()), pipe) != nullptr) {
         output += buffer.data();
     }
-    const int status = pclose(pipe);
+    const int status = cc::utils::bash::pclose_spawn(pipe);
     fs::remove(script_path);
     if (status != 0) {
         return std::unexpected("Sandboxed script exited with non-zero status:\n" + output);

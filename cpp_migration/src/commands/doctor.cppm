@@ -22,6 +22,7 @@ export module cc.commands.doctor;
 import cc.types.types;
 import cc.commands.command;
 import cc.config.config;
+import cc.utils.bash_execution;
 
 export namespace cc::commands {
 
@@ -362,12 +363,9 @@ private:
         if (cmd.empty()) return {};
         std::array<char, 4096> buffer{};
         std::string result;
-        FILE* pipe = popen(std::string(cmd).c_str(), "r");
-        if (!pipe) return {};
-        while (std::fgets(buffer.data(), static_cast<int>(buffer.size()), pipe) != nullptr) {
-            result += buffer.data();
-        }
-        pclose(pipe);
+        auto pipe_cap = cc::utils::bash::exec_capture(std::string(cmd).c_str());
+    if (!pipe_cap) return {};
+    result = std::move(pipe_cap->output);
         // Trim trailing newline
         while (!result.empty() && (result.back() == '\n' || result.back() == '\r')) {
             result.pop_back();

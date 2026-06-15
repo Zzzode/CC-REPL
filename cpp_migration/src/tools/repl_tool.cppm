@@ -16,6 +16,7 @@ module;
 #include <unistd.h>
 
 export module cc.tools.repl_tool;
+import cc.utils.bash_execution;
 
 export namespace cc::tools::repl {
 
@@ -85,7 +86,7 @@ struct ReplResponse {
     command += " 2>&1";
 
     // Execute via popen
-    FILE* pipe = popen(command.c_str(), "r");
+    FILE* pipe = cc::utils::bash::popen_spawn(command.c_str());
     if (!pipe) {
         return {
             .ok = false,
@@ -110,7 +111,7 @@ struct ReplResponse {
         }
     }
 
-    int status = pclose(pipe);
+    int status = cc::utils::bash::pclose_spawn(pipe);
     int exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
 
     // Trim trailing newline

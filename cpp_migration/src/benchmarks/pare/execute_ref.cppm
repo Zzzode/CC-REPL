@@ -18,6 +18,7 @@ import cc.benchmarks.pare.schema;
 import cc.benchmarks.pare.evaluator;
 import cc.benchmarks.pare.metrics;
 import cc.utils.json;
+import cc.utils.bash_execution;
 
 export namespace cc::benchmarks::pare {
 
@@ -59,7 +60,7 @@ inline LocalExecResult execute_sync(
 
     LocalExecResult result;
     std::array<char, 4096> buffer{};
-    FILE* pipe = popen(shell_command.c_str(), "r");
+    FILE* pipe = cc::utils::bash::popen_spawn(shell_command.c_str());
     if (!pipe) {
         result.exit_code = 127;
         result.stderr_output = "failed to launch command";
@@ -68,7 +69,7 @@ inline LocalExecResult execute_sync(
     while (fgets(buffer.data(), static_cast<int>(buffer.size()), pipe) != nullptr) {
         result.stdout_output += buffer.data();
     }
-    int status = pclose(pipe);
+    int status = cc::utils::bash::pclose_spawn(pipe);
     if (WIFEXITED(status)) {
         result.exit_code = WEXITSTATUS(status);
     } else {

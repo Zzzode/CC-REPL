@@ -83,6 +83,7 @@ import cc.utils.http;
 import cc.utils.uuid_utils;
 import cc.utils.swarm_backends;
 import cc.utils.team_helpers;
+import cc.utils.bash_execution;
 import cc.services.image;
 import cc.skills.skill;
 
@@ -126,8 +127,16 @@ public:
     }
 
     [[nodiscard]] bool check_permission(const ToolInput& input) const override {
-        if (!permission_check_) return true;
-        return permission_check_(definition_.name, input.json(), "").allowed;
+        // If a live permission checker is wired in, defer to it.
+        if (permission_check_) {
+            return permission_check_(definition_.name, input.json(), "").allowed;
+        }
+        // No live checker available: fail CLOSED for anything that mutates
+        // state or touches the network. Read-only runtime tools remain safe
+        // to allow. (Previously this branch unconditionally returned true,
+        // letting write/execute/network runtime tools bypass permission when
+        // no handler was supplied — a security bypass.)
+        return definition_.permission == ToolPermission::ReadOnly;
     }
 
 private:
@@ -521,21 +530,15 @@ struct TeamMemberStartOptions {
 }
 
 [[nodiscard]] Result<ToolResult> run_command(std::string command, std::size_t max_bytes = 1024 * 512) {
-    FILE* pipe = ::popen(command.c_str(), "r");
-    if (!pipe) {
+    auto cap = cc::utils::bash::exec_capture(command);
+    if (!cap) {
         return ToolResult::error("Failed to start command");
     }
-
-    std::string output;
-    std::array<char, 4096> buffer{};
-    while (auto bytes = ::fread(buffer.data(), 1, buffer.size(), pipe)) {
-        output.append(buffer.data(), bytes);
-        if (output.size() > max_bytes) {
-            output += "\n[output truncated]\n";
-            break;
-        }
+    std::string output = std::move(cap->output);
+    if (output.size() > max_bytes) {
+        output = output.substr(0, max_bytes) + "\n[output truncated]\n";
     }
-    auto status = ::pclose(pipe);
+    auto status = cap->status;
     if (output.empty()) output = std::format("Command exited with status {}", status);
     if (status != 0) {
         return ToolResult::error(std::format("Command failed with status {}:\n{}", status, output));
@@ -1874,18 +1877,13 @@ inline void computer_replace_all(std::string& text, std::string_view needle, std
         command += quoted_payload;
     }
 
-    FILE* pipe = ::popen(command.c_str(), "r");
-    if (!pipe) return std::unexpected("Failed to start computer-use command backend");
-
-    std::string output;
-    std::array<char, 8192> buffer{};
-    while (auto bytes = ::fread(buffer.data(), 1, buffer.size(), pipe)) {
-        output.append(buffer.data(), bytes);
-        if (output.size() > 1024 * 512) {
-            return std::unexpected("Computer-use command backend output exceeded 512 KiB");
-        }
+    auto cap = cc::utils::bash::exec_capture(command);
+    if (!cap) return std::unexpected("Failed to start computer-use command backend");
+    std::string output = std::move(cap->output);
+    if (output.size() > 1024 * 512) {
+        return std::unexpected("Computer-use command backend output exceeded 512 KiB");
     }
-    auto status = ::pclose(pipe);
+    auto status = cap->status;
     while (!output.empty() && (output.back() == '\n' || output.back() == '\r')) output.pop_back();
     if (status != 0) {
         return std::unexpected(std::format("Computer-use command backend failed with status {}", status));

@@ -18,6 +18,7 @@ module;
 #include <vector>
 
 export module cc.utils.sandbox;
+import cc.utils.bash_execution;
 
 
 export namespace cc::utils {
@@ -100,12 +101,12 @@ public:
         cmd += " 2>&1";
         std::array<char, 4096> buffer{};
         std::string output;
-        FILE* pipe = popen(cmd.c_str(), "r");
+        FILE* pipe = cc::utils::bash::popen_spawn(cmd.c_str());
         if (!pipe) return std::unexpected("failed to start command");
         while (fgets(buffer.data(), static_cast<int>(buffer.size()), pipe) != nullptr) {
             output += buffer.data();
         }
-        int status = pclose(pipe);
+        int status = cc::utils::bash::pclose_spawn(pipe);
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start);
         return SandboxResult{.exit_code = status, .stdout_output = output, .execution_time = elapsed};
     }

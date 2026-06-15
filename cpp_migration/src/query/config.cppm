@@ -35,17 +35,10 @@ struct QueryConfig {
     bool stream = true;
 };
 
-/// Dependencies injected into the query engine
-struct QueryDeps {
-    /// Callback to get current system prompt
-    std::function<std::string()> get_system_prompt;
-    /// Callback to get tool definitions
-    std::function<std::string()> get_tool_definitions;
-    /// Callback for token counting
-    std::function<int(std::string_view)> count_tokens;
-    /// Callback for analytics events
-    std::function<void(std::string_view event_name, std::string_view payload)> track_event;
-};
+// NOTE: a `QueryDeps` DI-seam struct previously lived here but was declared
+// (2026-06 baseline) with zero references anywhere in the codebase — dead
+// code. Removed 2026-06-15. Re-introduce a dependency-injection abstraction
+// only when an actual consumer needs it; do not revive the unused prototype.
 
 /// Default query config
 [[nodiscard]] inline QueryConfig default_query_config(std::string_view model = "claude-sonnet-4-20250514") {

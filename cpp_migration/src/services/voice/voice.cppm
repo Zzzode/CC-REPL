@@ -27,6 +27,7 @@ module;
 export module cc.services.voice.voice;
 
 import cc.utils.error;
+import cc.utils.bash_execution;
 
 export namespace cc::services::voice {
 
@@ -154,7 +155,7 @@ public:
     void stop() {
         recording_.store(false);
         if (proc_) {
-            pclose(proc_);
+            cc::utils::bash::pclose_spawn(proc_);
             proc_ = nullptr;
         }
         if (capture_thread_.joinable()) {
@@ -167,7 +168,7 @@ public:
 
 private:
     void run_capture(const std::string& cmd) {
-        proc_ = popen(cmd.c_str(), "r");
+        proc_ = cc::utils::bash::popen_spawn(cmd.c_str());
         if (!proc_) {
             recording_.store(false);
             return;
@@ -196,7 +197,7 @@ private:
         }
 
         if (proc_) {
-            pclose(proc_);
+            cc::utils::bash::pclose_spawn(proc_);
             proc_ = nullptr;
         }
         recording_.store(false);
@@ -348,7 +349,7 @@ private:
     }
 
     [[nodiscard]] static std::string read_command_stdout(const std::string& command) {
-        std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(command.c_str(), "r"), pclose);
+        std::unique_ptr<FILE, decltype(&pclose)> pipe(cc::utils::bash::popen_spawn(command.c_str()), pclose);
         if (!pipe) return {};
         std::string output;
         char buffer[4096];

@@ -11,6 +11,7 @@ module;
 #include <sstream>
 
 export module cc.utils.worktree_utils;
+import cc.utils.bash_execution;
 
 export namespace cc::utils {
 
@@ -46,18 +47,13 @@ create_worktree(const fs::path& repo_root, std::string_view branch,
     std::string cmd = "git -C " + repo_root.string() + " worktree add "
                     + target_dir.string() + " " + std::string(branch) + " 2>&1";
 
-    FILE* pipe = popen(cmd.c_str(), "r");
-    if (!pipe) {
+    auto pipe_cap = cc::utils::bash::exec_capture(cmd.c_str());
+    if (!pipe_cap) {
         return std::unexpected("Failed to execute git worktree add");
     }
-
-    std::string output;
     std::array<char, 512> buffer{};
-    while (fgets(buffer.data(), buffer.size(), pipe) != nullptr) {
-        output += buffer.data();
-    }
-
-    int status = pclose(pipe);
+    std::string output = std::move(pipe_cap->output);
+    int status = pipe_cap->status;
     if (status != 0) {
         // Trim output for error message
         while (!output.empty() && output.back() == '\n') output.pop_back();
@@ -66,14 +62,11 @@ create_worktree(const fs::path& repo_root, std::string_view branch,
 
     // Get the commit hash for the branch
     std::string hash_cmd = "git -C " + target_dir.string() + " rev-parse HEAD 2>/dev/null";
-    FILE* hash_pipe = popen(hash_cmd.c_str(), "r");
+    auto hash_cap = cc::utils::bash::exec_capture(hash_cmd);
     std::string commit;
-    if (hash_pipe) {
-        if (fgets(buffer.data(), buffer.size(), hash_pipe) != nullptr) {
-            commit = buffer.data();
-            while (!commit.empty() && commit.back() == '\n') commit.pop_back();
-        }
-        pclose(hash_pipe);
+    if (hash_cap && !hash_cap->output.empty()) {
+        commit = std::move(hash_cap->output);
+        while (!commit.empty() && commit.back() == '\n') commit.pop_back();
     }
 
     return WorktreeInfo{
@@ -93,33 +86,25 @@ inline std::expected<void, std::string> remove_worktree(const fs::path& worktree
     // Find the repo root from the worktree
     std::string root_cmd = "git -C " + worktree_dir.string() +
                            " rev-parse --git-common-dir 2>/dev/null";
-    FILE* pipe = popen(root_cmd.c_str(), "r");
-    if (!pipe) {
+    auto root_cap = cc::utils::bash::exec_capture(root_cmd);
+    if (!root_cap) {
         return std::unexpected("Failed to determine repository root");
     }
 
     std::array<char, 1024> buffer{};
-    std::string git_common_dir;
-    if (fgets(buffer.data(), buffer.size(), pipe) != nullptr) {
-        git_common_dir = buffer.data();
-    }
-    pclose(pipe);
+    std::string git_common_dir = std::move(root_cap->output);
     while (!git_common_dir.empty() && git_common_dir.back() == '\n')
         git_common_dir.pop_back();
 
     // Use git worktree remove
     std::string cmd = "git worktree remove " + worktree_dir.string() + " --force 2>&1";
-    pipe = popen(cmd.c_str(), "r");
-    if (!pipe) {
+    auto remove_cap = cc::utils::bash::exec_capture(cmd);
+    if (!remove_cap) {
         return std::unexpected("Failed to execute git worktree remove");
     }
 
-    std::string output;
-    while (fgets(buffer.data(), buffer.size(), pipe) != nullptr) {
-        output += buffer.data();
-    }
-
-    int status = pclose(pipe);
+    std::string output = std::move(remove_cap->output);
+    int status = remove_cap->status;
     if (status != 0) {
         while (!output.empty() && output.back() == '\n') output.pop_back();
         return std::unexpected("git worktree remove failed: " + output);
@@ -132,15 +117,14 @@ inline std::expected<void, std::string> remove_worktree(const fs::path& worktree
 inline size_t prune_worktrees(const fs::path& repo_root) {
     // Get list of worktrees before pruning
     std::string list_cmd = "git -C " + repo_root.string() + " worktree list --porcelain 2>/dev/null";
-    FILE* pipe = popen(list_cmd.c_str(), "r");
+    auto before_cap = cc::utils::bash::exec_capture(list_cmd);
     size_t before_count = 0;
-    if (pipe) {
-        std::array<char, 1024> buffer{};
-        while (fgets(buffer.data(), buffer.size(), pipe) != nullptr) {
-            std::string line(buffer.data());
+    if (before_cap) {
+        std::istringstream iss(before_cap->output);
+        std::string line;
+        while (std::getline(iss, line)) {
             if (line.starts_with("worktree ")) before_count++;
         }
-        pclose(pipe);
     }
 
     // Run prune
@@ -148,15 +132,14 @@ inline size_t prune_worktrees(const fs::path& repo_root) {
     system(prune_cmd.c_str());
 
     // Get count after pruning
-    pipe = popen(list_cmd.c_str(), "r");
+    auto after_cap = cc::utils::bash::exec_capture(list_cmd);
     size_t after_count = 0;
-    if (pipe) {
-        std::array<char, 1024> buffer{};
-        while (fgets(buffer.data(), buffer.size(), pipe) != nullptr) {
-            std::string line(buffer.data());
+    if (after_cap) {
+        std::istringstream iss(after_cap->output);
+        std::string line;
+        while (std::getline(iss, line)) {
             if (line.starts_with("worktree ")) after_count++;
         }
-        pclose(pipe);
     }
 
     return (before_count > after_count) ? (before_count - after_count) : 0;

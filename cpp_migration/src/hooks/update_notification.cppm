@@ -16,6 +16,7 @@ module;
 #include <format>
 
 export module cc.hooks.update_notification;
+import cc.utils.bash_execution;
 
 export namespace cc::hooks::update_notification {
 
@@ -137,10 +138,9 @@ inline auto check_for_updates() -> std::expected<UpdateInfo, std::string> {
     std::array<char, 4096> buffer{};
     std::string response;
 
-    FILE* pipe = popen(
-        "curl -sf --max-time 5 "
+    FILE* pipe = cc::utils::bash::popen_spawn("curl -sf --max-time 5 "
         "https://api.github.com/repos/anthropics/claude-code/releases/latest "
-        "2>/dev/null", "r");
+        "2>/dev/null");
     if (!pipe) {
         return std::unexpected(std::string{"Unable to check for updates (curl failed)"});
     }
@@ -148,7 +148,7 @@ inline auto check_for_updates() -> std::expected<UpdateInfo, std::string> {
     while (std::fgets(buffer.data(), static_cast<int>(buffer.size()), pipe) != nullptr) {
         response += buffer.data();
     }
-    int status = pclose(pipe);
+    int status = cc::utils::bash::pclose_spawn(pipe);
 
     if (status != 0 || response.empty()) {
         state.last_check = std::chrono::system_clock::now();

@@ -8,6 +8,7 @@ module;
 #include <array>
 
 export module cc.utils.git_settings;
+import cc.utils.bash_execution;
 
 export namespace cc::utils {
 
@@ -16,7 +17,7 @@ namespace detail {
 // Helper: run a git config command and return trimmed output
 inline std::optional<std::string> git_config_get(std::string_view key) {
     std::string cmd = "git config --get " + std::string(key) + " 2>/dev/null";
-    FILE* pipe = popen(cmd.c_str(), "r");
+    FILE* pipe = cc::utils::bash::popen_spawn(cmd.c_str());
     if (!pipe) return std::nullopt;
 
     std::string output;
@@ -25,7 +26,7 @@ inline std::optional<std::string> git_config_get(std::string_view key) {
         output += buffer.data();
     }
 
-    int status = pclose(pipe);
+    int status = cc::utils::bash::pclose_spawn(pipe);
     if (status != 0 || output.empty()) return std::nullopt;
 
     // Trim trailing whitespace/newline

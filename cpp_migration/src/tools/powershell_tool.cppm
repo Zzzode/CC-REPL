@@ -15,6 +15,7 @@ module;
 #include <utility>
 
 export module cc.tools.powershell;
+import cc.utils.bash_execution;
 
 
 export namespace cc::tools {
@@ -323,15 +324,10 @@ public:
         const auto ps_cmd = build_powershell_process_command(config, default_cwd_);
 
 
-        FILE* pipe = ::popen(ps_cmd.c_str(), "r");
-        if (!pipe) return std::unexpected(PowerShellError::ExecutionFailed);
-
-        std::string output;
-        std::array<char, 4096> buffer{};
-        while (auto bytes = ::fread(buffer.data(), 1, buffer.size(), pipe)) {
-            output.append(buffer.data(), bytes);
-        }
-        int status = ::pclose(pipe);
+        auto pipe_cap = cc::utils::bash::exec_capture(ps_cmd.c_str());
+    if (!pipe_cap) return std::unexpected(PowerShellError::ExecutionFailed);
+    std::string output = std::move(pipe_cap->output);
+    auto status = pipe_cap->status;
 
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - start_time);

@@ -17,6 +17,7 @@ module;
 export module cc.utils.github_utils;
 
 import cc.utils.json;
+import cc.utils.bash_execution;
 
 
 export namespace cc::utils {
@@ -25,10 +26,10 @@ namespace github_detail {
 [[nodiscard]] inline std::string run_command(std::string_view command) {
     std::array<char, 1024> buffer{};
     std::string output;
-    FILE* pipe = popen(std::string(command).c_str(), "r");
+    FILE* pipe = cc::utils::bash::popen_spawn(std::string(command).c_str());
     if (!pipe) return {};
     while (fgets(buffer.data(), static_cast<int>(buffer.size()), pipe) != nullptr) output += buffer.data();
-    (void)pclose(pipe);
+    (void)cc::utils::bash::pclose_spawn(pipe);
     while (!output.empty() && (output.back() == '\n' || output.back() == '\r')) output.pop_back();
     return output;
 }

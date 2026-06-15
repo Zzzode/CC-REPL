@@ -25,6 +25,7 @@ module;
 export module cc.coordinator.swarm;
 
 import cc.types.types;
+import cc.utils.bash_execution;
 
 export namespace cc::core {
 
@@ -385,13 +386,13 @@ private:
     /// Execute a shell command and capture stdout
     [[nodiscard]] static std::string exec_shell_capture(const std::string& cmd) {
         std::string output;
-        FILE* pipe = popen(cmd.c_str(), "r");
+        FILE* pipe = cc::utils::bash::popen_spawn(cmd.c_str());
         if (!pipe) return output;
         char buffer[256];
         while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
             output += buffer;
         }
-        pclose(pipe);
+        cc::utils::bash::pclose_spawn(pipe);
         return output;
     }
 

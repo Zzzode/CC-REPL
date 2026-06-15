@@ -8,6 +8,7 @@ module;
 #include <sstream>
 
 export module cc.tools.remote_trigger_tool;
+import cc.utils.bash_execution;
 
 export namespace cc::tools {
 
@@ -78,10 +79,10 @@ inline auto execute_remote_trigger(
         detail::shell_quote(payload.str()) + " " + detail::shell_quote(input.target) + " 2>&1";
     std::array<char, 4096> buffer{};
     std::string output;
-    FILE* pipe = popen(cmd.c_str(), "r");
+    FILE* pipe = cc::utils::bash::popen_spawn(cmd.c_str());
     if (!pipe) return std::unexpected(std::string("Failed to spawn remote trigger request"));
     while (fgets(buffer.data(), static_cast<int>(buffer.size()), pipe) != nullptr) output += buffer.data();
-    const int status = pclose(pipe);
+    const int status = cc::utils::bash::pclose_spawn(pipe);
     if (status != 0) return std::unexpected("Remote trigger failed: " + output);
     return output.empty() ? std::string("Remote trigger delivered") : output;
 }

@@ -20,6 +20,7 @@ module;
 #endif
 
 export module cc.utils.fingerprint;
+import cc.utils.bash_execution;
 
 export namespace cc::utils {
 
@@ -46,15 +47,15 @@ inline std::string hash_string(std::string_view input) {
 inline std::string get_machine_id() {
 #ifdef __APPLE__
     // macOS: use IOPlatformUUID via ioreg
-    FILE* pipe = popen("ioreg -rd1 -c IOPlatformExpertDevice 2>/dev/null | "
-                       "awk '/IOPlatformUUID/{print $3}' | tr -d '\"'", "r");
+    FILE* pipe = cc::utils::bash::popen_spawn("ioreg -rd1 -c IOPlatformExpertDevice 2>/dev/null | "
+                       "awk '/IOPlatformUUID/{print $3}' | tr -d '\"'");
     if (pipe) {
         std::array<char, 128> buffer{};
         std::string result;
         if (fgets(buffer.data(), buffer.size(), pipe) != nullptr) {
             result = buffer.data();
         }
-        pclose(pipe);
+        cc::utils::bash::pclose_spawn(pipe);
 
         // Trim whitespace
         while (!result.empty() && (result.back() == '\n' || result.back() == '\r' || result.back() == ' '))

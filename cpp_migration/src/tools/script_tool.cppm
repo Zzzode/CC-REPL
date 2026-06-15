@@ -21,6 +21,7 @@ import cc.tools.script_typecheck;
 import cc.tools.script_diagnostics;
 import cc.tools.script_types;
 import cc.tools.tool_display_names;
+import cc.utils.bash_execution;
 
 export namespace cc::tools {
 
@@ -125,7 +126,7 @@ public:
         auto cmd = build_sandboxed_command(*interpreter, tmp_path, request.limits);
 
 
-        FILE* pipe = ::popen(cmd.c_str(), "r");
+        FILE* pipe = cc::utils::bash::popen_spawn(cmd.c_str());
         if (!pipe) {
             std::filesystem::remove(tmp_path);
             return std::unexpected(ScriptError::InterpreterNotFound);
@@ -137,7 +138,7 @@ public:
             output.append(buffer.data(), bytes);
             if (output.size() > request.limits.max_output_bytes) break;
         }
-        int status = ::pclose(pipe);
+        int status = cc::utils::bash::pclose_spawn(pipe);
 
 
         std::filesystem::remove(tmp_path);

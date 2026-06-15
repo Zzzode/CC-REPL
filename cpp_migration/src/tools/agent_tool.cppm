@@ -60,6 +60,7 @@ import cc.services.mcp.types;
 import cc.utils.swarm_backends;
 import cc.utils.env_utils;
 import cc.utils.tool_helpers;
+import cc.utils.bash_execution;
 
 export namespace cc::tools::agent {
 
@@ -1811,7 +1812,7 @@ struct AgentToolHookContext {
     command += shell_quote(shell) + " -c " + shell_quote(hook.command) + " 2>&1";
 
     AgentHookRunResult result;
-    FILE* pipe = ::popen(command.c_str(), "r");
+    FILE* pipe = cc::utils::bash::popen_spawn(command.c_str());
     if (!pipe) {
         result.exit_code = 127;
         result.output = "failed to start hook command";
@@ -1826,7 +1827,7 @@ struct AgentToolHookContext {
             break;
         }
     }
-    const auto status = ::pclose(pipe);
+    const auto status = cc::utils::bash::pclose_spawn(pipe);
     if (status == -1) {
         result.exit_code = 127;
     } else if (WIFEXITED(status)) {

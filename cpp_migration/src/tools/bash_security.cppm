@@ -5,6 +5,7 @@ module;
 #include <vector>
 #include <algorithm>
 #include <regex>
+#include <cctype>
 
 export module cc.tools.bash_security;
 
@@ -18,32 +19,61 @@ struct SecurityCheck {
 };
 
 
+// Normalize a command before security pattern matching so trivial
+// obfuscations cannot bypass detection. Collapses whitespace runs, decodes
+// backslash escapes (\X -> X), drops empty quote pairs that fragment a token
+// (r""m, su''do), and lowercases the result so case variants (RM, Sudo, Mkfs)
+// are caught. This is NOT full shell parsing — it only removes the simple
+// evasions that pure substring matching misses. String contents inside quotes
+// may be altered; that is acceptable because security checks care about
+// command structure, not data payloads.
+inline auto normalize_for_security(std::string_view command) -> std::string {
+    std::string out;
+    out.reserve(command.size());
+    bool last_was_space = true;  // collapse leading whitespace
+    for (size_t i = 0; i < command.size(); ++i) {
+        char c = command[i];
+        // Backslash escape: keep the next char (drop the backslash).
+        if (c == '\\' && i + 1 < command.size()) {
+            out.push_back(static_cast<char>(std::tolower(
+                static_cast<unsigned char>(command[i + 1]))));
+            ++i;
+            last_was_space = false;
+            continue;
+        }
+        // Whitespace run -> single space.
+        if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
+            if (!last_was_space) {
+                out.push_back(' ');
+                last_was_space = true;
+            }
+            continue;
+        }
+        // Empty quote pair ("", '') fragments a token; drop both chars.
+        if ((c == '"' || c == '\'') && i + 1 < command.size() && command[i + 1] == c) {
+            ++i;
+            continue;
+        }
+        out.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+        last_was_space = false;
+    }
+    if (!out.empty() && out.back() == ' ') out.pop_back();
+    return out;
+}
+
+
 inline auto is_destructive_command(std::string_view command) -> bool {
     static const std::vector<std::string_view> destructive_patterns = {
-        "rm -rf",
-        "rm -r",
-        "rmdir",
-        "mkfs",
-        "format",
-        "fdisk",
-        "dd if=",
-        "shred",
-        "wipefs",
-        "> /dev/",
-        "truncate",
-        "git clean -fd",
-        "git reset --hard",
-        "git push --force",
-        "git push -f",
-        "drop database",
-        "drop table",
-        "DELETE FROM",
-        "TRUNCATE TABLE"
+        "rm -rf", "rm -r", "rmdir", "mkfs", "format", "fdisk",
+        "dd if=", "shred", "wipefs", "> /dev/", "truncate",
+        "git clean -fd", "git reset --hard", "git push --force", "git push -f",
+        "drop database", "drop table", "delete from", "truncate table"
     };
 
+    const auto normalized = normalize_for_security(command);
     return std::any_of(destructive_patterns.begin(), destructive_patterns.end(),
         [&](std::string_view pattern) {
-            return command.find(pattern) != std::string_view::npos;
+            return normalized.find(pattern) != std::string::npos;
         });
 }
 
@@ -69,9 +99,10 @@ inline auto detect_injection(std::string_view command) -> bool {
         "${IFS}",
     };
 
+    const auto normalized = normalize_for_security(command);
     return std::any_of(critical_injections.begin(), critical_injections.end(),
         [&](std::string_view pattern) {
-            return command.find(pattern) != std::string_view::npos;
+            return normalized.find(pattern) != std::string::npos;
         });
 }
 
@@ -95,9 +126,10 @@ inline auto detect_privilege_escalation(std::string_view command) -> bool {
         "passwd "
     };
 
+    const auto normalized = normalize_for_security(command);
     return std::any_of(escalation_patterns.begin(), escalation_patterns.end(),
         [&](std::string_view pattern) {
-            return command.find(pattern) != std::string_view::npos;
+            return normalized.find(pattern) != std::string::npos;
         });
 }
 

@@ -12,6 +12,7 @@ module;
 export module cc.skills.bundled.claude_api;
 
 import cc.skills.load_skills_dir;
+import cc.utils.bash_execution;
 
 export namespace cc::skills::bundled {
 
@@ -31,7 +32,7 @@ inline std::string get_base_url() {
 
 /// Execute a curl command and capture stdout
 inline std::expected<std::string, std::string> exec_curl(const std::string& cmd) {
-    FILE* pipe = ::popen(cmd.c_str(), "r");
+    FILE* pipe = cc::utils::bash::popen_spawn(cmd.c_str());
     if (!pipe) {
         return std::unexpected("Failed to execute curl");
     }
@@ -42,7 +43,7 @@ inline std::expected<std::string, std::string> exec_curl(const std::string& cmd)
         output.append(buffer.data(), bytes);
     }
 
-    int status = ::pclose(pipe);
+    int status = cc::utils::bash::pclose_spawn(pipe);
     if (status != 0 && output.empty()) {
         return std::unexpected("curl exited with non-zero status");
     }
@@ -188,7 +189,7 @@ std::expected<void, std::string> stream_api_call(std::string_view prompt, std::f
         "-H 'anthropic-version: 2023-06-01' "
         "-d '" + body + "' 2>&1";
 
-    FILE* pipe = ::popen(cmd.c_str(), "r");
+    FILE* pipe = cc::utils::bash::popen_spawn(cmd.c_str());
     if (!pipe) {
         return std::unexpected("Failed to start streaming request");
     }
@@ -239,7 +240,7 @@ std::expected<void, std::string> stream_api_call(std::string_view prompt, std::f
         }
     }
 
-    ::pclose(pipe);
+    cc::utils::bash::pclose_spawn(pipe);
     return {};
 }
 

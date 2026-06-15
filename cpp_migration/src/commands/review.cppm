@@ -20,6 +20,7 @@ export module cc.commands.review;
 
 import cc.types.types;
 import cc.commands.command;
+import cc.utils.bash_execution;
 
 export namespace cc::commands {
 
@@ -269,14 +270,14 @@ private:
     /// Execute a git command and return stdout via popen.
     [[nodiscard]] static auto run_git_command(const std::string& cmd) -> std::string {
         std::string full_cmd = "git " + cmd + " 2>&1";
-        FILE* pipe = popen(full_cmd.c_str(), "r");
+        FILE* pipe = cc::utils::bash::popen_spawn(full_cmd.c_str());
         if (!pipe) return {};
         std::string result;
         char buf[4096];
         while (fgets(buf, sizeof(buf), pipe)) {
             result += buf;
         }
-        pclose(pipe);
+        cc::utils::bash::pclose_spawn(pipe);
         // Trim trailing newline
         while (!result.empty() && result.back() == '\n') {
             result.pop_back();

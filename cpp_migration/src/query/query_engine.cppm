@@ -40,12 +40,15 @@ import cc.tools.tool;
 import cc.config.config;
 import cc.utils.error;
 import cc.utils.json;
+import cc.session.storage;
+import cc.memdir.paths;
 import cc.utils.tool_helpers;
 import cc.utils.env_utils;
 import cc.hooks.tool_permissions;
 import cc.hooks.lifecycle_hooks;
 import cc.tools.agent_runtime;
 import cc.services.compact.api_microcompact;
+import cc.utils.bash_execution;
 
 export namespace cc::core {
 
@@ -165,6 +168,11 @@ struct QueryEngineConfig {
         std::optional<std::uint32_t> remaining;
     };
     std::optional<TaskBudget> task_budget;           // API-side output_config.task_budget
+    struct ResponseSchema {
+        std::string name;                            // schema name (json_schema.name)
+        std::string schema_json;                     // JSON schema payload (string)
+    };
+    std::optional<ResponseSchema> response_schema;   // API-side output_config.format.json_schema
     std::vector<ToolDefinition> tools;              // Available tools for the model
     std::vector<std::string> agent_definitions;     // Agent definitions
     std::vector<std::string> fallback_models;       // Fallback models for capacity errors
@@ -606,6 +614,21 @@ public:
     /// Get session ID
     [[nodiscard]] const SessionId& session_id() const noexcept { return session_id_; }
 
+    /// Skills invoked via the skill tool during this session (in-loop dispatch
+    /// tracking). Populated by execute_single_tool on each successful skill call.
+    [[nodiscard]] std::vector<std::string> discovered_skills() const {
+        std::lock_guard lock(state_mutex_);
+        return {discovered_skills_.begin(), discovered_skills_.end()};
+    }
+
+    /// Testing seam: invoke a single tool-use block through the same path as
+    /// the live tool loop (so in-loop tracking like discovered_skills_ fires).
+    [[nodiscard]] ToolResultMessage execute_single_tool_for_testing(
+        const ToolUseBlock& tool_use) {
+        QueryOptions options;
+        return execute_single_tool(tool_use, options);
+    }
+
     /// Get permission denials
     [[nodiscard]] std::vector<PermissionDenial> get_permission_denials() const {
         std::lock_guard lock(state_mutex_);
@@ -651,6 +674,22 @@ private:
                 std::format("<context name=\"CLAUDE.md\">\n{}\n</context>", claude_md));
         }
 
+        // P1-13b: Load user-level memory (~/.claude/CLAUDE.md) via the memdir
+        // module so global user preferences are injected alongside project
+        // memory. Tree/ancestor CLAUDE.md is already covered by load_claude_md.
+        auto user_mem = cc::memdir::get_user_memory_path();
+        if (std::filesystem::exists(user_mem)) {
+            std::ifstream um_ifs(user_mem);
+            if (um_ifs) {
+                std::string um_content((std::istreambuf_iterator<char>(um_ifs)), {});
+                if (!um_content.empty()) {
+                    loaded_nested_memory_paths_.insert(user_mem.string());
+                    user_ctx.additional_contexts.push_back(
+                        std::format("<context name=\"UserMemory\">\n{}\n</context>", um_content));
+                }
+            }
+        }
+
         // P1-1: Add tool descriptions to system context
         SystemContext system_ctx{
             {},
@@ -678,7 +717,7 @@ private:
     static void populate_git_context(UserContext& ctx, const std::string& cwd) {
         auto run_git_cmd = [&](const char* cmd) -> std::string {
             auto full_cmd = std::format("cd \"{}\" && ( {} ) 2>/dev/null", cwd, cmd);
-            std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(full_cmd.c_str(), "r"), pclose);
+            std::unique_ptr<FILE, decltype(&pclose)> pipe(cc::utils::bash::popen_spawn(full_cmd.c_str()), pclose);
             if (!pipe) return {};
             std::string result;
             char buf[256];
@@ -740,10 +779,82 @@ private:
     }
 
     /// Thread-safe append to conversation history
-    void append_message(Message msg) {
-        bool should_compact = false;
+public:
+    /// Enable transcript persistence. After this call, every appended message
+    /// is also appended (JSONL) to <sessions_dir>/<session_id>/messages.jsonl,
+    /// and session metadata is written so the session is discoverable by
+    /// cc::session::list_recent_sessions. Call once at startup.
+    void set_session_storage(std::filesystem::path sessions_dir) {
+        sessions_dir_ = std::move(sessions_dir);
+        cc::session::SessionMetadata meta{
+            .session_id = session_id_.str(),
+            .model = config_.model_params.model,
+            .cwd = std::filesystem::current_path(),
+            .created_at = session_start_,
+            .last_active = std::chrono::system_clock::now(),
+            .message_count = 0,
+            .title = std::nullopt,
+            .is_archived = false,
+        };
+        (void)cc::session::save_session_metadata(*sessions_dir_, meta);
+    }
+
+    /// Refresh session metadata on disk. Message bodies are appended
+    /// incrementally in append_message(), so this only rewrites metadata.json
+    /// with the current message count and last-active timestamp.
+    void flush_session() {
+        if (!sessions_dir_) return;
+        std::size_t count = 0;
         {
             std::lock_guard lock(conversation_mutex_);
+            for (const auto& m : conversation_) {
+                // SystemMessage is not persisted to the transcript (it is
+                // rebuilt dynamically each query), so exclude it from the
+                // on-disk message_count to match messages.jsonl line count.
+                if (!std::holds_alternative<SystemMessage>(m)) ++count;
+            }
+        }
+        cc::session::SessionMetadata meta{
+            .session_id = session_id_.str(),
+            .model = config_.model_params.model,
+            .cwd = std::filesystem::current_path(),
+            .created_at = session_start_,
+            .last_active = std::chrono::system_clock::now(),
+            .message_count = static_cast<int>(count),
+            .title = std::nullopt,
+            .is_archived = false,
+        };
+        (void)cc::session::save_session_metadata(*sessions_dir_, meta);
+    }
+
+private:
+    /// Serialize a single Message to a one-line JSON string for the transcript.
+    /// Reuses the API-request serializer; SystemMessage has no on-wire form and
+    /// serializes to empty (skipped by append_message).
+    [[nodiscard]] std::string message_to_jsonl_(const Message& msg) const {
+        cc::utils::json::JsonMutDoc doc;
+        auto arr = doc.array();
+        append_message_to_json(msg, arr, doc);
+        doc.set_root(arr);
+        auto s = doc.to_string();
+        // arr is a single-element array "[{...}]" -> strip outer brackets.
+        if (s.size() >= 2 && s.front() == '[' && s.back() == ']') {
+            return s.substr(1, s.size() - 2);
+        }
+        return s;
+    }
+
+    void append_message(Message msg) {
+        bool should_compact = false;
+        std::string persist_json;
+        bool do_persist = false;
+        {
+            std::lock_guard lock(conversation_mutex_);
+            // Serialize for disk persistence BEFORE moving (if enabled).
+            if (sessions_dir_) {
+                persist_json = message_to_jsonl_(msg);
+                do_persist = !persist_json.empty();
+            }
             conversation_.push_back(std::move(msg));
 
             // Check if auto-compact needed (but don't call it while holding lock)
@@ -751,6 +862,13 @@ private:
                 context_utilization() > config_.context_window.compaction_threshold) {
                 should_compact = true;
             }
+        }
+        // Persist transcript line (outside the conversation lock; ofstream is
+        // not part of the engine critical section). SystemMessage serializes
+        // empty and is skipped.
+        if (do_persist) {
+            (void)cc::session::append_message(
+                *sessions_dir_, session_id_.str(), persist_json);
         }
         // Lock released — safe to call compact which re-acquires
         if (should_compact) {
@@ -1528,20 +1646,51 @@ private:
         cc::utils::json::JsonMutVal& root,
         cc::utils::json::JsonMutDoc& doc
     ) const {
-        if (!config_.task_budget) return;
+        const bool has_budget = config_.task_budget.has_value();
+        const bool has_schema = config_.response_schema.has_value();
+        if (!has_budget && !has_schema) return;
 
         auto output_config = doc.object();
-        auto task_budget = doc.object();
-        task_budget.add("type", doc.string("tokens"));
-        task_budget.add("total", doc.number(static_cast<int64_t>(config_.task_budget->total)));
-        if (config_.task_budget->remaining) {
-            task_budget.add(
-                "remaining",
-                doc.number(static_cast<int64_t>(*config_.task_budget->remaining)));
+        if (has_budget) {
+            auto task_budget = doc.object();
+            task_budget.add("type", doc.string("tokens"));
+            task_budget.add("total", doc.number(static_cast<int64_t>(config_.task_budget->total)));
+            if (config_.task_budget->remaining) {
+                task_budget.add(
+                    "remaining",
+                    doc.number(static_cast<int64_t>(*config_.task_budget->remaining)));
+            }
+            output_config.add("task_budget", task_budget);
         }
-        output_config.add("task_budget", task_budget);
+        if (has_schema) {
+            // Structured output: force the model to return JSON conforming to
+            // the supplied JSON schema (Anthropic output_config.format.json_schema).
+            auto format = doc.object();
+            format.add("type", doc.string("json_schema"));
+            auto schema_obj = doc.object();
+            schema_obj.add("name", doc.string(config_.response_schema->name));
+            auto schema_val = doc.raw_json(config_.response_schema->schema_json);
+            if (schema_val.raw()) {
+                schema_obj.add("schema", schema_val);
+            }
+            format.add("json_schema", schema_obj);
+            output_config.add("format", format);
+        }
         root.add("output_config", output_config);
     }
+
+public:
+    /// Build the output_config JSON fragment (for testing / introspection).
+    /// Returns "{}" when neither task_budget nor response_schema is configured.
+    [[nodiscard]] std::string build_output_config_json_for_testing() const {
+        cc::utils::json::JsonMutDoc doc;
+        auto root = doc.object();
+        add_output_config_to_json(root, doc);
+        doc.set_root(root);
+        return doc.to_string();
+    }
+
+private:
 
     void update_task_budget_remaining_after_compact(std::uint32_t pre_compact_tokens) {
         if (!config_.task_budget) return;
@@ -2401,6 +2550,20 @@ private:
         result_msg.tool_use_id = tool_use.id;
 
         if (exec_result) {
+            // In-loop skill dispatch tracking: record each invoked skill so the
+            // session knows which skills have been loaded (de-dup / telemetry).
+            // The actual skill content load happens in execute_skill_tool; this
+            // populates the previously-dead discovered_skills_ set.
+            if (tool_use.name == "skill") {
+                if (auto parsed = cc::utils::json::parse(effective_input_json)) {
+                    auto name_val = parsed->root().get("name");
+                    if (!name_val.is_str()) name_val = parsed->root().get("skill");
+                    if (name_val.is_str()) {
+                        std::lock_guard lock(state_mutex_);
+                        discovered_skills_.insert(std::string(name_val.as_str()));
+                    }
+                }
+            }
             auto& tr = *exec_result;
             result_msg.is_error = tr.is_error;
             for (auto& content : tr.content) {
@@ -2543,6 +2706,7 @@ private:
 
     // Additional state tracking
     SessionId session_id_;                     // Unique session identifier
+    std::optional<std::filesystem::path> sessions_dir_;  // transcript dir (nullopt = no persistence)
     std::vector<PermissionDenial> permission_denials_;  // Record of permission denials
     std::unordered_set<std::string> discovered_skills_;  // Skills discovered this session
     std::unordered_set<std::string> loaded_nested_memory_paths_;

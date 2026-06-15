@@ -28,6 +28,7 @@ export module cc.commands.export_cmd;
 
 import cc.types.types;
 import cc.commands.command;
+import cc.utils.bash_execution;
 
 export namespace cc::commands {
 
@@ -365,11 +366,8 @@ struct ExportOptions {
     return false;
 #endif
     if (!cmd) return false;
-    FILE* pipe = popen(cmd, "w");
-    if (!pipe) return false;
-    [[maybe_unused]] auto w = std::fwrite(content.data(), 1, content.size(), pipe);
-    int status = pclose(pipe);
-    return status == 0;
+    auto wr = cc::utils::bash::exec_write(cmd, content);
+    return wr && *wr == 0;
 }
 
 // ============================================================

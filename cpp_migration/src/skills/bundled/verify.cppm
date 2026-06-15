@@ -12,6 +12,7 @@ module;
 export module cc.skills.bundled.verify;
 
 import cc.skills.load_skills_dir;
+import cc.utils.bash_execution;
 
 export namespace cc::skills::bundled {
 
@@ -53,7 +54,7 @@ namespace detail {
 // Execute a shell command and capture output
 inline std::pair<int, std::string> exec_command(const std::string& cmd) {
     std::string output;
-    FILE* pipe = popen(cmd.c_str(), "r");
+    FILE* pipe = cc::utils::bash::popen_spawn(cmd.c_str());
     if (!pipe) {
         return {-1, "Failed to execute command: " + cmd};
     }
@@ -61,7 +62,7 @@ inline std::pair<int, std::string> exec_command(const std::string& cmd) {
     while (fgets(buffer.data(), static_cast<int>(buffer.size()), pipe) != nullptr) {
         output += buffer.data();
     }
-    int status = pclose(pipe);
+    int status = cc::utils::bash::pclose_spawn(pipe);
     #ifndef _WIN32
     int exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
     #else

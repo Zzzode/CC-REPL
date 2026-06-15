@@ -9,6 +9,7 @@ module;
 export module cc.tools.bash_permissions;
 
 import cc.tools.command_semantics;  // migrated: shared classifiers
+import cc.tools.tool;  // ToolPermission for default_bash_level_for bridge
 
 export namespace cc::tools {
 
@@ -18,6 +19,26 @@ enum class BashPermissionLevel {
     NeedsApproval,
     Allowed
 };
+
+// Bridge between the two permission models. ToolPermission classifies a tool's
+// static capability (read/write/execute/network); BashPermissionLevel is a
+// per-call decision. This mapping derives a sensible *default* per-call level
+// from the capability so a tool's ToolPermission can seed its initial
+// BashPermissionLevel before the live permission hook (or fail-closed rule)
+// weighs in. Read-only -> Allowed; anything that mutates state or reaches the
+// network -> NeedsApproval.
+[[nodiscard]] constexpr BashPermissionLevel default_bash_level_for(
+    cc::core::ToolPermission perm) noexcept {
+    switch (perm) {
+        case cc::core::ToolPermission::ReadOnly:
+            return BashPermissionLevel::Allowed;
+        case cc::core::ToolPermission::Network:
+        case cc::core::ToolPermission::Write:
+        case cc::core::ToolPermission::Execute:
+            return BashPermissionLevel::NeedsApproval;
+    }
+    return BashPermissionLevel::NeedsApproval;
+}
 
 
 enum class PermissionMode {

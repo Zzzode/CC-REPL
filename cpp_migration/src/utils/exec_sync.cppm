@@ -9,6 +9,7 @@ module;
 #include <sstream>
 
 export module cc.utils.exec_sync;
+import cc.utils.bash_execution;
 
 export namespace cc::utils {
 
@@ -19,18 +20,13 @@ exec_sync(std::string_view command) {
     // Redirect stderr to /dev/null for clean stdout capture
     cmd += " 2>/dev/null";
 
-    FILE* pipe = popen(cmd.c_str(), "r");
-    if (!pipe) {
+    auto pipe_cap = cc::utils::bash::exec_capture(cmd.c_str());
+    if (!pipe_cap) {
         return std::unexpected("Failed to execute command: " + std::string(command));
     }
-
-    std::string output;
     std::array<char, 4096> buffer{};
-    while (fgets(buffer.data(), buffer.size(), pipe) != nullptr) {
-        output += buffer.data();
-    }
-
-    int status = pclose(pipe);
+    std::string output = std::move(pipe_cap->output);
+    int status = pipe_cap->status;
     if (status != 0) {
         return std::unexpected("Command failed with exit code " +
             std::to_string(WEXITSTATUS(status)));

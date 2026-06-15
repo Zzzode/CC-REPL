@@ -10,6 +10,7 @@ module;
 #include <sstream>
 
 export module cc.utils.get_worktree_paths;
+import cc.utils.bash_execution;
 
 export namespace cc::utils {
 
@@ -28,7 +29,7 @@ inline std::vector<Worktree> list_worktrees(const fs::path& repo_root) {
     std::vector<Worktree> worktrees;
 
     std::string cmd = "git -C " + repo_root.string() + " worktree list --porcelain 2>/dev/null";
-    FILE* pipe = popen(cmd.c_str(), "r");
+    FILE* pipe = cc::utils::bash::popen_spawn(cmd.c_str());
     if (!pipe) return worktrees;
 
     std::array<char, 1024> buffer{};
@@ -36,7 +37,7 @@ inline std::vector<Worktree> list_worktrees(const fs::path& repo_root) {
     while (fgets(buffer.data(), buffer.size(), pipe) != nullptr) {
         output += buffer.data();
     }
-    pclose(pipe);
+    cc::utils::bash::pclose_spawn(pipe);
 
     // Parse porcelain format:
     // worktree /path/to/dir
@@ -86,15 +87,9 @@ inline std::vector<Worktree> list_worktrees(const fs::path& repo_root) {
 // Get the worktree for the current working directory
 inline std::optional<Worktree> get_current_worktree() {
     std::string cmd = "git rev-parse --show-toplevel 2>/dev/null";
-    FILE* pipe = popen(cmd.c_str(), "r");
-    if (!pipe) return std::nullopt;
-
-    std::array<char, 1024> buffer{};
-    std::string toplevel;
-    if (fgets(buffer.data(), buffer.size(), pipe) != nullptr) {
-        toplevel = buffer.data();
-    }
-    pclose(pipe);
+    auto pipe_cap = cc::utils::bash::exec_capture(cmd.c_str());
+    if (!pipe_cap) return std::nullopt;
+    std::string toplevel = std::move(pipe_cap->output);
 
     while (!toplevel.empty() && (toplevel.back() == '\n' || toplevel.back() == '\r'))
         toplevel.pop_back();

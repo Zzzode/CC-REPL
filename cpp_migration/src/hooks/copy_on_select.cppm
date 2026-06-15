@@ -5,6 +5,8 @@ module;
 
 export module cc.hooks.copy_on_select;
 
+import cc.utils.bash_execution;
+
 export namespace cc::hooks {
 
 inline bool copy_to_clipboard(std::string_view text);
@@ -38,18 +40,14 @@ inline void handle_selection_change(std::string_view selected_text) {
 inline bool copy_to_clipboard(std::string_view text) {
     if (text.empty()) return false;
     #if defined(__APPLE__)
-    FILE* pipe = popen("pbcopy", "w");
+    auto clip = cc::utils::bash::exec_write("pbcopy", text);
     #elif defined(_WIN32)
-    FILE* pipe = popen("clip", "w");
+    auto clip = cc::utils::bash::exec_write("clip", text);
     #else
-    // Try xclip first, fall back to xsel
-    FILE* pipe = popen("xclip -selection clipboard", "w");
-    if (!pipe) pipe = popen("xsel --clipboard --input", "w");
+    auto clip = cc::utils::bash::exec_write("xclip -selection clipboard", text);
+    if (!clip) clip = cc::utils::bash::exec_write("xsel --clipboard --input", text);
     #endif
-    if (!pipe) return false;
-    std::fwrite(text.data(), 1, text.size(), pipe);
-    int status = pclose(pipe);
-    return status == 0;
+    return clip && *clip == 0;
 }
 
 } // namespace cc::hooks
