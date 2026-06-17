@@ -4,6 +4,8 @@
 /// go-to-definition, hover, diagnostics, and more.
 module;
 
+#include <array>
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -490,12 +492,24 @@ public:
         for (const auto& arg : args_) {
             full_cmd += " " + arg;
         }
-        
+
+        // Separate the language server's stderr from the duplex stream. The
+        // duplex pipe is a single socketpair-backed FILE*, so without an
+        // explicit redirect the server's stderr (diagnostics/logs) is merged
+        // into the stream and corrupts JSON-RPC framing. Redirect to a log
+        // file when CC_LSP_LOG is set, otherwise discard.
+        if (const char* lsp_log = std::getenv("CC_LSP_LOG")) {
+            full_cmd += " 2>>";
+            full_cmd += lsp_log;
+        } else {
+            full_cmd += " 2>/dev/null";
+        }
+
         // Set environment variables
         for (const auto& [key, value] : env_) {
             setenv(key.c_str(), value.c_str(), 1);
         }
-        
+
         // Open bidirectional pipe
         pipe_handle_ = cc::utils::bash::popen_spawn_duplex(full_cmd);
         if (!pipe_handle_) {
@@ -528,19 +542,43 @@ public:
             return std::unexpected(LspClientError::NotConnected);
         }
         
-        // Read Content-Length header
-        char line[256];
+        // Read Content-Length header. LSP allows any header casing/whitespace
+        // and other headers (e.g. Content-Type) may appear; parse defensively.
+        char line[512];
         int64_t content_length = 0;
+        bool saw_header = false;
         while (fgets(line, sizeof(line), pipe_handle_) != nullptr) {
-            std::string line_str(line);
-            if (line_str == "\r\n" || line_str == "\n") {
-                break; // End of headers
+            std::string_view line_str(line);
+            // Strip trailing CR/LF.
+            while (!line_str.empty() && (line_str.back() == '\r' || line_str.back() == '\n')) {
+                line_str.remove_suffix(1);
             }
-            if (line_str.starts_with("Content-Length:")) {
-                content_length = std::stoll(line_str.substr(15));
+            if (line_str.empty()) {
+                if (saw_header) break;      // blank line ends the header block
+                continue;                   // tolerate leading blank lines
+            }
+            saw_header = true;
+            // Case-insensitive "Content-Length:" prefix.
+            constexpr std::string_view kKey = "content-length:";
+            if (line_str.size() >= kKey.size()) {
+                bool match = true;
+                for (std::size_t i = 0; i < kKey.size(); ++i) {
+                    if (std::tolower(static_cast<unsigned char>(line_str[i])) != kKey[i]) { match = false; break; }
+                }
+                if (match) {
+                    auto rest = line_str.substr(kKey.size());
+                    while (!rest.empty() && (rest.front() == ' ' || rest.front() == '\t')) rest.remove_prefix(1);
+                    int64_t parsed = 0;
+                    bool ok = !rest.empty();
+                    for (char c : rest) {
+                        if (c < '0' || c > '9') { ok = false; break; }
+                        parsed = parsed * 10 + (c - '0');
+                    }
+                    if (ok) content_length = parsed;
+                }
             }
         }
-        
+
         if (content_length <= 0) {
             if (feof(pipe_handle_)) {
                 connected_ = false;
@@ -548,17 +586,27 @@ public:
             }
             return std::unexpected(LspClientError::ParseError);
         }
-        
-        // Read content
-        std::string content(content_length, '\0');
-        if (fread(content.data(), 1, content_length, pipe_handle_) != static_cast<size_t>(content_length)) {
-            if (feof(pipe_handle_)) {
-                connected_ = false;
-                return std::unexpected(LspClientError::ServerClosed);
+
+        // Read content, tolerating short reads by looping until the full
+        // Content-Length has been consumed (stdio may return fewer bytes).
+        std::string content;
+        content.reserve(static_cast<std::size_t>(content_length));
+        std::size_t remaining = static_cast<std::size_t>(content_length);
+        std::array<char, 4096> chunk{};
+        while (remaining > 0) {
+            std::size_t want = std::min(remaining, chunk.size());
+            std::size_t got = fread(chunk.data(), 1, want, pipe_handle_);
+            if (got == 0) {
+                if (feof(pipe_handle_)) {
+                    connected_ = false;
+                    return std::unexpected(LspClientError::ServerClosed);
+                }
+                return std::unexpected(LspClientError::TransportError);
             }
-            return std::unexpected(LspClientError::TransportError);
+            content.append(chunk.data(), got);
+            remaining -= got;
         }
-        
+
         return content;
     }
     
@@ -630,7 +678,7 @@ public:
         , running_(false) {}
     
     ~LspClient() {
-        shutdown();
+        (void)shutdown();
     }
     
     // Connect to server using stdio transport
@@ -769,29 +817,35 @@ public:
         root.add("workspaceFolders", doc.null());
         
         doc.set_root(root);
-        
+
+        // Start the receive thread BEFORE issuing the initialize request: the
+        // synchronous request waits on a promise that is only fulfilled by the
+        // receive loop, so it would otherwise always time out.
+        running_ = true;
+        receive_thread_ = std::thread(&LspClient::receive_loop, this);
+
         auto response = send_request_sync("initialize", doc.to_string());
         if (!response) {
+            running_ = false;
+            if (receive_thread_.joinable()) receive_thread_.join();
             state_ = LspClientState::Error;
             return std::unexpected(response.error());
         }
-        
+
         // Parse initialize result
         auto init_result = parse_initialize_result(*response);
         if (!init_result) {
+            running_ = false;
+            if (receive_thread_.joinable()) receive_thread_.join();
             state_ = LspClientState::Error;
             return std::unexpected(LspClientError::InvalidResponse);
         }
-        
+
         server_capabilities_ = init_result->capabilities;
-        
+
         // Send initialized notification
         send_notification("initialized", "{}");
-        
-        // Start receive thread
-        running_ = true;
-        receive_thread_ = std::thread(&LspClient::receive_loop, this);
-        
+
         state_ = LspClientState::Ready;
         return *init_result;
     }
@@ -1257,7 +1311,7 @@ private:
             serialized = std::format(
                 R"({{"jsonrpc":"2.0","method":"{}","params":{}}})", method, params_json);
         }
-        transport_send(serialized); // Fire and forget
+        (void)transport_send(serialized); // Fire and forget
     }
     
     // Transport layer abstraction
@@ -1326,7 +1380,24 @@ private:
             auto error_node = root.get("error");
             std::optional<LspClientError> error = std::nullopt;
             if (error_node.valid() && !error_node.is_null()) {
-                error = LspClientError::RequestFailed;
+                // Map the server's JSON-RPC error code to a meaningful
+                // LspClientError instead of collapsing every failure to
+                // RequestFailed.
+                auto code_node = error_node.get("code");
+                auto code = code_node.is_num()
+                    ? static_cast<LspErrorCode>(code_node.as_int())
+                    : LspErrorCode::UnknownErrorCode;
+                switch (code) {
+                    case LspErrorCode::ParseError:           error = LspClientError::ParseError; break;
+                    case LspErrorCode::InvalidRequest:
+                    case LspErrorCode::InvalidParams:        error = LspClientError::InvalidResponse; break;
+                    case LspErrorCode::MethodNotFound:       error = LspClientError::RequestFailed; break;
+                    case LspErrorCode::ServerNotInitialized: error = LspClientError::NotConnected; break;
+                    case LspErrorCode::RequestCancelled:
+                    case LspErrorCode::ServerCancelled:      error = LspClientError::Timeout; break;
+                    case LspErrorCode::ContentModified:      error = LspClientError::RequestFailed; break;
+                    default:                                 error = LspClientError::RequestFailed; break;
+                }
             }
             
             std::lock_guard<std::mutex> lock(pending_mutex_);
@@ -1458,123 +1529,299 @@ private:
         }
     }
     
+public:
     // =====================================================================
-    // Response Parsers
+    // Response Parsers (pure functions; public for unit testing with fixtures)
     // =====================================================================
-    
+
+    // --- Low-level JSON helpers (operate on a cc::utils::json::JsonVal) ---
+
+    [[nodiscard]] static Position parse_position(JsonVal node) {
+        Position p;
+        if (!node.is_obj()) return p;
+        if (auto v = node.get("line"); v && v.is_num()) p.line = v.as_int();
+        if (auto v = node.get("character"); v && v.is_num()) p.character = v.as_int();
+        return p;
+    }
+
+    [[nodiscard]] static Range parse_range(JsonVal node) {
+        Range r;
+        if (!node.is_obj()) return r;
+        r.start = parse_position(node.get("start"));
+        r.end = parse_position(node.get("end"));
+        return r;
+    }
+
+    // Extract a human-readable string from a MarkupContent / string / array
+    // "contents" value (per Hover).
+    [[nodiscard]] static std::string extract_markup_string(JsonVal node) {
+        if (node.is_str()) return std::string(node.as_str());
+        if (node.is_obj()) {
+            if (auto v = node.get("value"); v && v.is_str()) return std::string(v.as_str());
+        }
+        if (node.is_arr()) {
+            std::string joined;
+            node.iter([&](JsonVal part) {
+                if (part.is_str()) {
+                    if (!joined.empty()) joined.push_back('\n');
+                    joined += std::string(part.as_str());
+                } else if (part.is_obj()) {
+                    if (auto v = part.get("value"); v && v.is_str()) {
+                        if (!joined.empty()) joined.push_back('\n');
+                        joined += std::string(v.as_str());
+                    }
+                }
+            });
+            return joined;
+        }
+        return {};
+    }
+
     [[nodiscard]] LspResult<InitializeResult> parse_initialize_result(const std::string& json_str) {
         auto doc = parse(json_str);
         if (!doc) {
             return std::unexpected(LspClientError::ParseError);
         }
-        
+
         InitializeResult result;
-        
+
         // Parse capabilities
         auto caps_node = doc->root().get("capabilities");
         if (caps_node.is_obj()) {
-            // Simplified - in production you'd parse all capabilities
+            auto& c = result.capabilities;
+            // Each provider may be a bool or an options object; treat presence +
+            // truthiness as "supported".
+            auto flag = [](JsonVal v) -> std::optional<bool> {
+                if (!v.valid()) return std::nullopt;
+                if (v.is_bool()) return v.as_bool();
+                if (v.is_obj()) return true; // options object => enabled
+                return std::nullopt;
+            };
+            if (auto tds = caps_node.get("textDocumentSync"); tds.valid()) {
+                if (tds.is_num()) c.text_document_sync = tds.as_int();
+                else if (tds.is_obj()) {
+                    if (auto ch = tds.get("change"); ch && ch.is_num()) c.text_document_sync = ch.as_int();
+                }
+            }
+            if (flag(caps_node.get("completionProvider"))) c.completion_provider = "enabled";
+            c.hover_provider = flag(caps_node.get("hoverProvider"));
+            c.declaration_provider = flag(caps_node.get("declarationProvider"));
+            c.definition_provider = flag(caps_node.get("definitionProvider"));
+            c.type_definition_provider = flag(caps_node.get("typeDefinitionProvider"));
+            c.implementation_provider = flag(caps_node.get("implementationProvider"));
+            c.references_provider = flag(caps_node.get("referencesProvider"));
+            c.document_highlight_provider = flag(caps_node.get("documentHighlightProvider"));
+            c.document_symbol_provider = flag(caps_node.get("documentSymbolProvider"));
+            if (flag(caps_node.get("codeActionProvider"))) c.code_action_provider = "enabled";
+            if (flag(caps_node.get("codeLensProvider"))) c.code_lens_provider = "enabled";
+            if (flag(caps_node.get("documentLinkProvider"))) c.document_link_provider = "enabled";
+            c.color_provider = flag(caps_node.get("colorProvider"));
+            c.document_formatting_provider = flag(caps_node.get("documentFormattingProvider"));
+            c.document_range_formatting_provider = flag(caps_node.get("documentRangeFormattingProvider"));
+            if (flag(caps_node.get("renameProvider"))) c.rename_provider = "enabled";
+            if (flag(caps_node.get("foldingRangeProvider"))) c.folding_range_provider = "enabled";
+            c.execute_command_provider = flag(caps_node.get("executeCommandProvider"));
+            c.selection_range_provider = flag(caps_node.get("selectionRangeProvider"));
+            if (flag(caps_node.get("semanticTokensProvider"))) c.semantic_tokens_provider = "enabled";
+            if (flag(caps_node.get("signatureHelpProvider"))) c.signature_help_provider = "enabled";
+            if (flag(caps_node.get("callHierarchyProvider"))) c.call_hierarchy_provider = true;
+            if (flag(caps_node.get("typeHierarchyProvider"))) c.type_hierarchy_provider = true;
+            if (flag(caps_node.get("inlayHintProvider"))) c.inlay_hint_provider = "enabled";
         }
-        
+
+        // Parse serverInfo (name/version)
+        auto info = doc->root().get("serverInfo");
+        if (info.is_obj()) {
+            std::string name;
+            if (auto n = info.get("name"); n && n.is_str()) name = std::string(n.as_str());
+            if (auto v = info.get("version"); v && v.is_str()) name += " " + std::string(v.as_str());
+            if (!name.empty()) result.server_info = name;
+        }
+
         return result;
     }
-    
+
     [[nodiscard]] LspResult<CompletionList> parse_completion_list(const std::string& json_str) {
         auto doc = parse(json_str);
         if (!doc) {
             return std::unexpected(LspClientError::ParseError);
         }
-        
+
         CompletionList result;
-        
+
+        // The response may be a CompletionList object or a bare array of items.
         auto root = doc->root();
-        if (root.is_obj()) {
-            auto is_incomplete_node = root.get("isIncomplete");
-            if (is_incomplete_node.is_bool()) {
-                result.is_incomplete = is_incomplete_node.as_bool();
-            }
-            
-            auto items_node = root.get("items");
-            if (items_node.is_arr()) {
-                items_node.iter([&result](JsonVal item_node) {
-                    CompletionItem item;
-                    auto label_node = item_node.get("label");
-                    if (label_node.is_str()) {
-                        item.label = std::string(label_node.as_str());
-                    }
-                    auto kind_node = item_node.get("kind");
-                    if (kind_node.is_num()) {
-                        item.kind = static_cast<int32_t>(kind_node.as_int());
-                    }
-                    result.items.push_back(std::move(item));
-                });
-            }
+        JsonVal items_node = root.get("items");
+        if (!items_node.is_arr()) {
+            // Bare array form.
+            if (root.is_arr()) items_node = root;
+        } else if (root.is_obj()) {
+            if (auto v = root.get("isIncomplete"); v && v.is_bool()) result.is_incomplete = v.as_bool();
         }
-        
+
+        if (items_node.is_arr()) {
+            items_node.iter([&result](JsonVal item_node) {
+                CompletionItem item;
+                if (auto v = item_node.get("label"); v && v.is_str()) item.label = std::string(v.as_str());
+                if (auto v = item_node.get("kind"); v && v.is_num()) item.kind = static_cast<int32_t>(v.as_int());
+                if (auto v = item_node.get("detail"); v && v.is_str()) item.detail = std::string(v.as_str());
+                if (auto v = item_node.get("documentation"); v.valid()) item.documentation = extract_markup_string(v);
+                if (auto v = item_node.get("sortText"); v && v.is_str()) item.sort_text = std::string(v.as_str());
+                if (auto v = item_node.get("filterText"); v && v.is_str()) item.filter_text = std::string(v.as_str());
+                if (auto v = item_node.get("insertText"); v && v.is_str()) item.insert_text = std::string(v.as_str());
+                if (auto v = item_node.get("insertTextFormat"); v && v.is_num()) item.insert_text_format = static_cast<int32_t>(v.as_int());
+                if (auto v = item_node.get("deprecated"); v && v.is_bool()) item.deprecated = v.as_bool();
+                if (auto v = item_node.get("preselect"); v && v.is_bool()) item.preselect = v.as_bool();
+                if (auto te = item_node.get("textEdit"); te.is_obj()) {
+                    TextEdit edit;
+                    edit.range = parse_range(te.get("range"));
+                    if (auto nt = te.get("newText"); nt && nt.is_str()) edit.new_text = std::string(nt.as_str());
+                    item.text_edit = std::move(edit);
+                }
+                result.items.push_back(std::move(item));
+            });
+        }
+
         return result;
     }
-    
+
     [[nodiscard]] LspResult<Hover> parse_hover(const std::string& json_str) {
         auto doc = parse(json_str);
         if (!doc) {
             return std::unexpected(LspClientError::ParseError);
         }
-        
+
         Hover result;
-        result.contents = "";
+        auto root = doc->root();
+        if (root.is_obj()) {
+            result.contents = extract_markup_string(root.get("contents"));
+            if (auto r = root.get("range"); r.is_obj()) result.range = parse_range(r);
+        } else {
+            result.contents = std::string{};
+        }
         return result;
     }
-    
+
     [[nodiscard]] LspResult<std::vector<Location>> parse_locations(const std::string& json_str) {
         auto doc = parse(json_str);
         if (!doc) {
             return std::unexpected(LspClientError::ParseError);
         }
-        
+
         std::vector<Location> result;
-        
         auto root = doc->root();
-        if (root.is_arr()) {
+        // A single Location (object) or an array of Locations are both valid.
+        if (root.is_obj()) {
+            Location loc;
+            if (auto v = root.get("uri"); v && v.is_str()) loc.uri = std::string(v.as_str());
+            loc.range = parse_range(root.get("range"));
+            result.push_back(std::move(loc));
+        } else if (root.is_arr()) {
             root.iter([&result](JsonVal loc_node) {
                 Location loc;
-                auto uri_node = loc_node.get("uri");
-                if (uri_node.is_str()) {
-                    loc.uri = std::string(uri_node.as_str());
-                }
+                if (auto v = loc_node.get("uri"); v && v.is_str()) loc.uri = std::string(v.as_str());
+                loc.range = parse_range(loc_node.get("range"));
                 result.push_back(std::move(loc));
             });
         }
-        
+
         return result;
     }
-    
+
+    // Parse one DocumentSymbol (or SymbolInformation) and its children recursively.
+    [[nodiscard]] static DocumentSymbol parse_one_symbol(JsonVal node) {
+        DocumentSymbol sym;
+        if (!node.is_obj()) return sym;
+        if (auto v = node.get("name"); v && v.is_str()) sym.name = std::string(v.as_str());
+        if (auto v = node.get("detail"); v && v.is_str()) sym.detail = std::string(v.as_str());
+        if (auto v = node.get("kind"); v && v.is_num()) sym.kind = static_cast<int32_t>(v.as_int());
+        sym.range = parse_range(node.get("range"));
+        sym.selection_range = parse_range(node.get("selectionRange"));
+        // SymbolInformation (flat form) has no selectionRange; fall back to range.
+        if (auto sr = node.get("selectionRange"); !sr.is_obj()) sym.selection_range = sym.range;
+        if (auto children = node.get("children"); children.is_arr()) {
+            std::vector<DocumentSymbol> kids;
+            children.iter([&kids](JsonVal c) { kids.push_back(parse_one_symbol(c)); });
+            sym.children = std::move(kids);
+        }
+        return sym;
+    }
+
     [[nodiscard]] LspResult<std::vector<DocumentSymbol>> parse_document_symbols(const std::string& json_str) {
         auto doc = parse(json_str);
         if (!doc) {
             return std::unexpected(LspClientError::ParseError);
         }
-        
-        return std::vector<DocumentSymbol>{};
+        std::vector<DocumentSymbol> result;
+        auto root = doc->root();
+        if (root.is_arr()) {
+            root.iter([&result](JsonVal n) { result.push_back(parse_one_symbol(n)); });
+        }
+        return result;
     }
-    
+
     [[nodiscard]] LspResult<std::vector<CodeAction>> parse_code_actions(const std::string& json_str) {
         auto doc = parse(json_str);
         if (!doc) {
             return std::unexpected(LspClientError::ParseError);
         }
-        
-        return std::vector<CodeAction>{};
+        std::vector<CodeAction> result;
+        auto root = doc->root();
+        if (root.is_arr()) {
+            root.iter([&result](JsonVal n) {
+                if (!n.is_obj()) return;
+                CodeAction a;
+                if (auto v = n.get("title"); v && v.is_str()) a.title = std::string(v.as_str());
+                if (auto v = n.get("kind"); v && v.is_str()) a.kind = std::string(v.as_str());
+                if (auto v = n.get("isPreferred"); v && v.is_bool()) a.is_preferred = v.as_bool();
+                if (auto v = n.get("disabled"); v.is_obj()) {
+                    if (auto r = v.get("reason"); r && r.is_str()) a.disabled = true;
+                }
+                result.push_back(std::move(a));
+            });
+        }
+        return result;
     }
-    
+
     [[nodiscard]] LspResult<std::vector<TextEdit>> parse_text_edits(const std::string& json_str) {
         auto doc = parse(json_str);
         if (!doc) {
             return std::unexpected(LspClientError::ParseError);
         }
-        
-        return std::vector<TextEdit>{};
+        std::vector<TextEdit> result;
+        auto root = doc->root();
+        // May be a bare array, or a WorkspaceEdit with "changes"/"documentChanges".
+        JsonVal edits_node = root;
+        if (root.is_obj()) {
+            JsonVal changes = root.get("changes");
+            if (changes.is_obj()) {
+                // { uri: [TextEdit, ...], ... } — flatten across URIs.
+                changes.iter_obj([&result](auto /*uri*/, JsonVal arr) {
+                    if (arr.is_arr()) {
+                        arr.iter([&result](JsonVal e) {
+                            TextEdit te;
+                            te.range = parse_range(e.get("range"));
+                            if (auto nt = e.get("newText"); nt && nt.is_str()) te.new_text = std::string(nt.as_str());
+                            result.push_back(std::move(te));
+                        });
+                    }
+                });
+                return result;
+            }
+        }
+        if (edits_node.is_arr()) {
+            edits_node.iter([&result](JsonVal e) {
+                if (!e.is_obj()) return;
+                TextEdit te;
+                te.range = parse_range(e.get("range"));
+                if (auto nt = e.get("newText"); nt && nt.is_str()) te.new_text = std::string(nt.as_str());
+                result.push_back(std::move(te));
+            });
+        }
+        return result;
     }
-    
+
+private:
     // =====================================================================
     // Member Variables
     // =====================================================================
