@@ -528,15 +528,14 @@ public:
                 old_s, actual_old, new_s);
 
         // --- 5. generate patch + apply edit ---
-        cc::utils::file_edit::PatchForEditsResult patch_result;
-        try {
-            patch_result = cc::utils::file_edit::get_patch_for_edit(
-                abs_path.string(), read.content,
-                actual_old, actual_new, replace_all);
-        } catch (const std::exception& e) {
-            cr.error_what = e.what();
+        auto patch = cc::utils::file_edit::get_patch_for_edit(
+            abs_path.string(), read.content,
+            actual_old, actual_new, replace_all);
+        if (!patch) {
+            cr.error_what = patch.error();
             return cr;
         }
+        cc::utils::file_edit::PatchForEditsResult patch_result = std::move(*patch);
 
         // --- 6. atomic write with encoding + line-ending restoration ------
         auto write_ec = write_text_content(abs_path, patch_result.updated_file,

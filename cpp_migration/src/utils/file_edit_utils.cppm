@@ -19,6 +19,7 @@ module;
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <expected>
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -624,7 +625,7 @@ struct PatchForEditsResult {
     std::string updated_file;
 };
 
-inline PatchForEditsResult get_patch_for_edits(
+inline std::expected<PatchForEditsResult, std::string> get_patch_for_edits(
     std::string_view file_path,
     std::string_view file_contents,
     const std::vector<FileEdit>& edits)
@@ -635,7 +636,7 @@ inline PatchForEditsResult get_patch_for_edits(
     if (file_contents.empty() && edits.size() == 1 &&
         edits.front().old_string.empty() && edits.front().new_string.empty()) {
         auto patch = compute_structured_patch(file_contents, "");
-        return {std::move(patch), ""};
+        return PatchForEditsResult{std::move(patch), ""};
     }
 
     std::string updated = std::string(file_contents);
@@ -650,9 +651,9 @@ inline PatchForEditsResult get_patch_for_edits(
         if (!old_to_check.empty()) {
             for (const auto& prev_new : applied_new_strings) {
                 if (prev_new.find(old_to_check) != std::string::npos) {
-                    throw std::runtime_error(
+                    return std::unexpected(std::string(
                         "Cannot edit file: old_string is a substring of a "
-                        "new_string from a previous edit.");
+                        "new_string from a previous edit."));
                 }
             }
         }
@@ -664,22 +665,22 @@ inline PatchForEditsResult get_patch_for_edits(
                          edit.new_string, edit.replace_all);
 
         if (updated == previous) {
-            throw std::runtime_error(
-                "String not found in file. Failed to apply edit.");
+            return std::unexpected(std::string(
+                "String not found in file. Failed to apply edit."));
         }
         applied_new_strings.push_back(edit.new_string);
     }
 
     if (updated == file_contents) {
-        throw std::runtime_error(
-            "Original and edited file match exactly. Failed to apply edit.");
+        return std::unexpected(std::string(
+            "Original and edited file match exactly. Failed to apply edit."));
     }
 
     auto patch = compute_structured_patch(file_contents, updated);
-    return {std::move(patch), std::move(updated)};
+    return PatchForEditsResult{std::move(patch), std::move(updated)};
 }
 
-inline PatchForEditsResult get_patch_for_edit(
+inline std::expected<PatchForEditsResult, std::string> get_patch_for_edit(
     std::string_view file_path,
     std::string_view file_contents,
     std::string_view old_string,
@@ -1054,18 +1055,12 @@ inline bool are_file_edits_equivalent(
         if (all_eq) return true;
     }
 
-    std::optional<std::string> r1, r2;
-    std::string e1_msg, e2_msg;
-    try {
-        r1 = get_patch_for_edits("temp", original_content, edits1).updated_file;
-    } catch (const std::exception& ex) { e1_msg = ex.what(); }
-    try {
-        r2 = get_patch_for_edits("temp", original_content, edits2).updated_file;
-    } catch (const std::exception& ex) { e2_msg = ex.what(); }
+    auto r1 = get_patch_for_edits("temp", original_content, edits1);
+    auto r2 = get_patch_for_edits("temp", original_content, edits2);
 
-    if (!r1 && !r2) return e1_msg == e2_msg;   // both failed → compare messages
-    if (!r1 || !r2) return false;               // one succeeded → not equal
-    return *r1 == *r2;
+    if (!r1 && !r2) return r1.error() == r2.error();  // both failed → compare messages
+    if (!r1 || !r2) return false;                     // one succeeded → not equal
+    return r1->updated_file == r2->updated_file;
 }
 
 /// Full inputs-equivalent wrapper (different files ⇒ never equivalent).
