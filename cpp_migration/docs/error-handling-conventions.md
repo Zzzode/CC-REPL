@@ -60,7 +60,9 @@ pattern. `file_edit_utils` was migrated 2026-06-17 — `get_patch_for_edits` /
 `get_patch_for_edit` now return `std::expected<PatchForEditsResult, std::string>`
 instead of throwing, eliminating the throw-then-catch boundary in
 `file_edit_tool` and `are_file_edits_equivalent` (no test asserted the throw,
-so the change was safe).
+so the change was safe). The same day `log_error(const std::string&)` was fixed
+— it had thrown a `runtime_error` purely to re-enter the exception overload via
+catch, a control-flow misuse of exceptions.
 
 A 2026-06-17 audit of the remaining ~33 `throw` sites classified them:
 

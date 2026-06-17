@@ -122,11 +122,10 @@ inline void log_error(const std::exception& e) {
 
 
 inline void log_error(const std::string& message) {
-    try {
-        throw std::runtime_error(message);
-    } catch (const std::exception& e) {
-        log_error(e);
-    }
+    // Forward to the exception overload directly. Constructing the error
+    // object instead of throw-then-catch avoids a control-flow misuse of
+    // exceptions (the previous form threw purely to re-enter this overload).
+    log_error(std::runtime_error(message));
 }
 
 
