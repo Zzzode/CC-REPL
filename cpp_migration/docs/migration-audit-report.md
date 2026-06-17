@@ -288,6 +288,7 @@ reducers).
   the tree-sitter AST path (`ast.cppm` 0%, since the coverage build uses the
   regex fallback — `CC_ENABLE_TREE_SITTER` is OFF there). Test files
   themselves run 83–93% covered. Coverage is still the weakest dimension.
+  `json_read` (0% at the measurement) gained 7 parser tests on 2026-06-17.
 
 ## 9. Risk Ratings
 
