@@ -22,6 +22,7 @@ import cc.utils.string;
 import cc.utils.string_utils;
 import cc.utils.array_utils;
 import cc.utils.json;
+import cc.utils.json_read;
 import cc.utils.error;
 import cc.utils.circular_buffer;
 import cc.utils.token_budget;
@@ -37,6 +38,7 @@ import cc.utils.plugin_loader;
 import cc.utils.argument_substitution;
 import cc.utils.semantic_boolean;
 import cc.utils.semantic_number;
+import cc.ui.terminal_io;
 import cc.utils.query_guard;
 import cc.utils.collapse_notifications;
 import cc.utils.agent_id;
@@ -2288,4 +2290,242 @@ TEST(SlashCommandParsing, ParsesRegularAndMcpSlashCommands) {
     auto spaced = parse_slash_command("/cmd  two-spaces");
     ASSERT_TRUE(spaced.has_value());
     EXPECT_EQ(spaced->args, " two-spaces");
+}
+
+// ===========================================================================
+// cc.ui.terminal_io — pure ANSI/CSI/SGR parsing helpers.
+// These parser entry points (parse_sgr, strip_ansi, parse_csi, tokenize_ansi)
+// had no direct test coverage; the suite below pins their contract.
+// ===========================================================================
+namespace tio = cc::ui::termio;
+
+TEST(TerminalIO, StripAnsiLeavesPlainText) {
+    EXPECT_EQ(tio::strip_ansi("hello world"), "hello world");
+}
+
+TEST(TerminalIO, StripAnsiRemovesCsiSGR) {
+    // \033[1;31m bold red, \033[0m reset
+    std::string in = std::string("\033[1;31m") + "ERR" + "\033[0m";
+    EXPECT_EQ(tio::strip_ansi(in), "ERR");
+}
+
+TEST(TerminalIO, StripAnsiRemovesCursorMoves) {
+    // \033[2A cursor up 2, \033[10G column 10
+    std::string in = std::string("a\033[2Ab\033[10Gc");
+    EXPECT_EQ(tio::strip_ansi(in), "abc");
+}
+
+TEST(TerminalIO, StripAnsiRemovesOscTerminatedByBell) {
+    // OSC sequence terminated by BEL (\a)
+    std::string in = std::string("\033]0;title\a") + "body";
+    EXPECT_EQ(tio::strip_ansi(in), "body");
+}
+
+TEST(TerminalIO, StripAnsiRemovesOscTerminatedByST) {
+    // OSC sequence terminated by ST (ESC \)
+    std::string in = std::string("\033]0;title\033\\") + "body";
+    EXPECT_EQ(tio::strip_ansi(in), "body");
+}
+
+TEST(TerminalIO, ParseSGREmptyIsReset) {
+    auto r = tio::parse_sgr("");
+    ASSERT_TRUE(r.has_value());
+    EXPECT_FALSE(r->bold);
+    EXPECT_FALSE(r->underline);
+    // fg/bg are default (monostate)
+    EXPECT_TRUE(std::holds_alternative<std::monostate>(r->fg));
+    EXPECT_TRUE(std::holds_alternative<std::monostate>(r->bg));
+}
+
+TEST(TerminalIO, ParseSGRBasicAttributes) {
+    // 1=bold 3=italic 4=underline 7=inverse 9=strikethrough
+    auto r = tio::parse_sgr("1;3;4;7;9");
+    ASSERT_TRUE(r.has_value());
+    EXPECT_TRUE(r->bold);
+    EXPECT_TRUE(r->italic);
+    EXPECT_TRUE(r->underline);
+    EXPECT_TRUE(r->inverse);
+    EXPECT_TRUE(r->strikethrough);
+}
+
+TEST(TerminalIO, ParseSGR16ColorForeground) {
+    // 31 = red foreground (Color16 index 1)
+    auto r = tio::parse_sgr("31");
+    ASSERT_TRUE(r.has_value());
+    ASSERT_TRUE(std::holds_alternative<tio::Color16>(r->fg));
+    EXPECT_EQ(static_cast<int>(std::get<tio::Color16>(r->fg)), 1);
+}
+
+TEST(TerminalIO, ParseSGR256Color) {
+    // 38;5;202 = 256-color foreground index 202
+    auto r = tio::parse_sgr("38;5;202");
+    ASSERT_TRUE(r.has_value());
+    ASSERT_TRUE(std::holds_alternative<tio::Color256>(r->fg));
+    EXPECT_EQ(std::get<tio::Color256>(r->fg).index, 202);
+}
+
+TEST(TerminalIO, ParseSGRTrueColor) {
+    // 38;2;10;20;30 = truecolor foreground
+    auto r = tio::parse_sgr("38;2;10;20;30");
+    ASSERT_TRUE(r.has_value());
+    ASSERT_TRUE(std::holds_alternative<tio::TrueColor>(r->fg));
+    auto tc = std::get<tio::TrueColor>(r->fg);
+    EXPECT_EQ(tc.r, 10);
+    EXPECT_EQ(tc.g, 20);
+    EXPECT_EQ(tc.b, 30);
+}
+
+TEST(TerminalIO, ParseSGRBrightForeground) {
+    // 91 = bright red fg (Color16 index 9)
+    auto r = tio::parse_sgr("91");
+    ASSERT_TRUE(r.has_value());
+    ASSERT_TRUE(std::holds_alternative<tio::Color16>(r->fg));
+    EXPECT_EQ(static_cast<int>(std::get<tio::Color16>(r->fg)), 9);
+}
+
+TEST(TerminalIO, ParseSGRResetWithinSequence) {
+    // 1;31;0 — the trailing 0 resets everything to defaults.
+    auto r = tio::parse_sgr("1;31;0");
+    ASSERT_TRUE(r.has_value());
+    EXPECT_FALSE(r->bold);
+    EXPECT_TRUE(std::holds_alternative<std::monostate>(r->fg));
+}
+
+TEST(TerminalIO, ParseCSIBasicCursorMove) {
+    // "2A" → params [2], final 'A' (cursor up)
+    auto r = tio::parse_csi("2A");
+    ASSERT_TRUE(r.has_value());
+    ASSERT_EQ(r->params.size(), 1u);
+    EXPECT_EQ(r->params[0], 2);
+    EXPECT_EQ(r->final_byte, 'A');
+    EXPECT_TRUE(r->intermediate.empty());
+}
+
+TEST(TerminalIO, ParseCSIDefaultParam) {
+    // "H" with no parameter bytes → empty params list (the caller applies the
+    // documented default for the final byte, e.g. cursor home).
+    auto r = tio::parse_csi("H");
+    ASSERT_TRUE(r.has_value());
+    EXPECT_TRUE(r->params.empty());
+    EXPECT_EQ(r->final_byte, 'H');
+}
+
+TEST(TerminalIO, ParseCSIMultipleParams) {
+    // "5;10H" → row 5, col 10
+    auto r = tio::parse_csi("5;10H");
+    ASSERT_TRUE(r.has_value());
+    ASSERT_EQ(r->params.size(), 2u);
+    EXPECT_EQ(r->params[0], 5);
+    EXPECT_EQ(r->params[1], 10);
+}
+
+TEST(TerminalIO, ParseCSIMissingFinalByteFails) {
+    auto r = tio::parse_csi("12;3");
+    EXPECT_FALSE(r.has_value());
+}
+
+TEST(TerminalIO, ParseCSIEmptyFails) {
+    auto r = tio::parse_csi("");
+    EXPECT_FALSE(r.has_value());
+}
+
+TEST(TerminalIO, TokenizeAnsiPureText) {
+    auto toks = tio::tokenize_ansi("plain text");
+    ASSERT_EQ(toks.size(), 1u);
+    ASSERT_TRUE(std::holds_alternative<tio::TextToken>(toks[0]));
+    EXPECT_EQ(std::get<tio::TextToken>(toks[0]).content, "plain text");
+}
+
+TEST(TerminalIO, TokenizeAnsiTextThenSGRThenText) {
+    // "hi" + ESC[1m + "!"  → TextToken, SgrToken, TextToken
+    std::string in = std::string("hi") + "\033[1m" + "!";
+    auto toks = tio::tokenize_ansi(in);
+    ASSERT_EQ(toks.size(), 3u);
+    EXPECT_TRUE(std::holds_alternative<tio::TextToken>(toks[0]));
+    EXPECT_TRUE(std::holds_alternative<tio::SgrToken>(toks[1]));
+    EXPECT_TRUE(std::holds_alternative<tio::TextToken>(toks[2]));
+}
+
+TEST(TerminalIO, GenerateCSIBuildsSequence) {
+    // generate_csi(params, intermediate, final_byte) → ESC [ params intermediate final
+    const int params[] = {2};
+    auto seq = tio::generate_csi(params, {}, 'A');
+    EXPECT_EQ(seq, std::string("\033[2A"));
+}
+
+TEST(TerminalIO, GenerateCSIMultipleParams) {
+    const int params[] = {5, 10};
+    auto seq = tio::generate_csi(params, {}, 'H');
+    EXPECT_EQ(seq, std::string("\033[5;10H"));
+}
+
+// ─── json_read parser coverage (was 0%; guards the parse_json/parse_json_file/
+// json_to_string/json_get surface used by config_orchestrator) ────────────────
+TEST(JsonRead, ParsesPrimitivesAndCollections) {
+    EXPECT_TRUE(cc::utils::parse_json("null").is_null());
+    auto b = cc::utils::parse_json("true");
+    EXPECT_TRUE(b.is_bool());
+    EXPECT_EQ(b.as_bool(), true);
+    EXPECT_EQ(cc::utils::parse_json("42").as_int(), 42);
+    EXPECT_EQ(cc::utils::parse_json("\"hello\"").as_string(), "hello");
+
+    auto arr = cc::utils::parse_json("[1, 2, 3]");
+    EXPECT_TRUE(arr.is_array());
+    EXPECT_EQ(arr.as_array().size(), 3u);
+
+    auto obj = cc::utils::parse_json(R"({"a": 1, "b": "x"})");
+    EXPECT_TRUE(obj.is_object());
+    EXPECT_EQ(obj.as_object().at("a").as_int(), 1);
+    EXPECT_EQ(obj.as_object().at("b").as_string(), "x");
+}
+
+TEST(JsonRead, ParsesNestedStructures) {
+    auto v = cc::utils::parse_json(R"({"list": [1, {"k": true}], "n": null})");
+    EXPECT_TRUE(v.is_object());
+    EXPECT_TRUE(v.as_object().at("list").is_array());
+    EXPECT_EQ(v.as_object().at("list").as_array()[0].as_int(), 1);
+    EXPECT_TRUE(v.as_object().at("list").as_array()[1].as_object().at("k").as_bool());
+    EXPECT_TRUE(v.as_object().at("n").is_null());
+}
+
+TEST(JsonRead, ParseFileReturnsErrorOnMissingFile) {
+    auto r = cc::utils::parse_json_file("/nonexistent/cc-json-read-test.json");
+    EXPECT_FALSE(r.has_value());
+}
+
+TEST(JsonRead, ParseFileReturnsErrorOnInvalidJson) {
+    auto tmp = std::filesystem::temp_directory_path() / "cc-json-read-test.json";
+    { std::ofstream f(tmp); f << "{invalid}"; }
+    auto r = cc::utils::parse_json_file(tmp);
+    EXPECT_FALSE(r.has_value());
+    std::error_code ec;
+    std::filesystem::remove(tmp, ec);
+}
+
+TEST(JsonRead, ParseFileRoundTripsValidJson) {
+    auto tmp = std::filesystem::temp_directory_path() / "cc-json-read-rt.json";
+    { std::ofstream f(tmp); f << R"({"key": "value", "n": 5})"; }
+    auto r = cc::utils::parse_json_file(tmp);
+    ASSERT_TRUE(r.has_value());
+    EXPECT_EQ(r->as_object().at("key").as_string(), "value");
+    EXPECT_EQ(r->as_object().at("n").as_int(), 5);
+    std::error_code ec;
+    std::filesystem::remove(tmp, ec);
+}
+
+TEST(JsonRead, RoundTripsThroughJsonToString) {
+    auto v = cc::utils::parse_json(R"({"key": "value", "n": 5})");
+    std::string s = cc::utils::json_to_string(v);
+    auto v2 = cc::utils::parse_json(s);
+    EXPECT_EQ(v2.as_object().at("key").as_string(), "value");
+    EXPECT_EQ(v2.as_object().at("n").as_int(), 5);
+}
+
+TEST(JsonRead, JsonGetPathAccess) {
+    auto v = cc::utils::parse_json(R"({"a": {"b": "deep"}})");
+    auto got = cc::utils::json_get<std::string>(v, "a.b");
+    ASSERT_TRUE(got.has_value());
+    EXPECT_EQ(*got, "deep");
+    EXPECT_FALSE(cc::utils::json_get<std::string>(v, "a.missing").has_value());
+    EXPECT_FALSE(cc::utils::json_get<std::string>(v, "nonexistent").has_value());
 }
