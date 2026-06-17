@@ -22,7 +22,6 @@ import cc.utils.string;
 import cc.utils.string_utils;
 import cc.utils.array_utils;
 import cc.utils.json;
-import cc.utils.json_read;
 import cc.utils.error;
 import cc.utils.circular_buffer;
 import cc.utils.token_budget;
@@ -2459,73 +2458,91 @@ TEST(TerminalIO, GenerateCSIMultipleParams) {
     EXPECT_EQ(seq, std::string("\033[5;10H"));
 }
 
-// ─── json_read parser coverage (was 0%; guards the parse_json/parse_json_file/
-// json_to_string/json_get surface used by config_orchestrator) ────────────────
-TEST(JsonRead, ParsesPrimitivesAndCollections) {
-    EXPECT_TRUE(cc::utils::parse_json("null").is_null());
-    auto b = cc::utils::parse_json("true");
-    EXPECT_TRUE(b.is_bool());
-    EXPECT_EQ(b.as_bool(), true);
-    EXPECT_EQ(cc::utils::parse_json("42").as_int(), 42);
-    EXPECT_EQ(cc::utils::parse_json("\"hello\"").as_string(), "hello");
+// ─── cc.utils.json parser coverage (guards the parse/parse_file/to_string/
+// chained-get surface used across services) ──────────────────────────────────
+TEST(JsonCCUtils, ParsesPrimitivesAndCollections) {
+    auto doc_null = cc::utils::json::parse("null");
+    ASSERT_TRUE(doc_null.has_value());
+    EXPECT_TRUE(doc_null->root().is_null());
 
-    auto arr = cc::utils::parse_json("[1, 2, 3]");
-    EXPECT_TRUE(arr.is_array());
-    EXPECT_EQ(arr.as_array().size(), 3u);
+    auto doc_b = cc::utils::json::parse("true");
+    ASSERT_TRUE(doc_b.has_value());
+    EXPECT_TRUE(doc_b->root().is_bool());
+    EXPECT_EQ(doc_b->root().as_bool(), true);
 
-    auto obj = cc::utils::parse_json(R"({"a": 1, "b": "x"})");
-    EXPECT_TRUE(obj.is_object());
-    EXPECT_EQ(obj.as_object().at("a").as_int(), 1);
-    EXPECT_EQ(obj.as_object().at("b").as_string(), "x");
+    auto doc_i = cc::utils::json::parse("42");
+    ASSERT_TRUE(doc_i.has_value());
+    EXPECT_EQ(doc_i->root().as_int(), 42);
+
+    auto doc_s = cc::utils::json::parse("\"hello\"");
+    ASSERT_TRUE(doc_s.has_value());
+    EXPECT_EQ(doc_s->root().as_str(), "hello");
+
+    auto doc_arr = cc::utils::json::parse("[1, 2, 3]");
+    ASSERT_TRUE(doc_arr.has_value());
+    EXPECT_TRUE(doc_arr->root().is_arr());
+    EXPECT_EQ(doc_arr->root().size(), 3u);
+
+    auto doc_obj = cc::utils::json::parse(R"({"a": 1, "b": "x"})");
+    ASSERT_TRUE(doc_obj.has_value());
+    auto root = doc_obj->root();
+    EXPECT_TRUE(root.is_obj());
+    EXPECT_EQ(root.get("a").as_int(), 1);
+    EXPECT_EQ(root.get("b").as_str(), "x");
 }
 
-TEST(JsonRead, ParsesNestedStructures) {
-    auto v = cc::utils::parse_json(R"({"list": [1, {"k": true}], "n": null})");
-    EXPECT_TRUE(v.is_object());
-    EXPECT_TRUE(v.as_object().at("list").is_array());
-    EXPECT_EQ(v.as_object().at("list").as_array()[0].as_int(), 1);
-    EXPECT_TRUE(v.as_object().at("list").as_array()[1].as_object().at("k").as_bool());
-    EXPECT_TRUE(v.as_object().at("n").is_null());
+TEST(JsonCCUtils, ParsesNestedStructures) {
+    auto r = cc::utils::json::parse(R"({"list": [1, {"k": true}], "n": null})");
+    ASSERT_TRUE(r.has_value());
+    auto root = r->root();
+    EXPECT_TRUE(root.is_obj());
+    auto list = root.get("list");
+    EXPECT_TRUE(list.is_arr());
+    EXPECT_EQ(list.at(0).as_int(), 1);
+    EXPECT_TRUE(list.at(1).get("k").is_bool());
+    EXPECT_TRUE(root.get("n").is_null());
 }
 
-TEST(JsonRead, ParseFileReturnsErrorOnMissingFile) {
-    auto r = cc::utils::parse_json_file("/nonexistent/cc-json-read-test.json");
+TEST(JsonCCUtils, ParseFileReturnsErrorOnMissingFile) {
+    auto r = cc::utils::json::parse_file("/nonexistent/cc-json-read-test.json");
     EXPECT_FALSE(r.has_value());
 }
 
-TEST(JsonRead, ParseFileReturnsErrorOnInvalidJson) {
+TEST(JsonCCUtils, ParseFileReturnsErrorOnInvalidJson) {
     auto tmp = std::filesystem::temp_directory_path() / "cc-json-read-test.json";
     { std::ofstream f(tmp); f << "{invalid}"; }
-    auto r = cc::utils::parse_json_file(tmp);
+    auto r = cc::utils::json::parse_file(tmp);
     EXPECT_FALSE(r.has_value());
     std::error_code ec;
     std::filesystem::remove(tmp, ec);
 }
 
-TEST(JsonRead, ParseFileRoundTripsValidJson) {
+TEST(JsonCCUtils, ParseFileRoundTripsValidJson) {
     auto tmp = std::filesystem::temp_directory_path() / "cc-json-read-rt.json";
     { std::ofstream f(tmp); f << R"({"key": "value", "n": 5})"; }
-    auto r = cc::utils::parse_json_file(tmp);
+    auto r = cc::utils::json::parse_file(tmp);
     ASSERT_TRUE(r.has_value());
-    EXPECT_EQ(r->as_object().at("key").as_string(), "value");
-    EXPECT_EQ(r->as_object().at("n").as_int(), 5);
+    EXPECT_EQ(r->root().get("key").as_str(), "value");
+    EXPECT_EQ(r->root().get("n").as_int(), 5);
     std::error_code ec;
     std::filesystem::remove(tmp, ec);
 }
 
-TEST(JsonRead, RoundTripsThroughJsonToString) {
-    auto v = cc::utils::parse_json(R"({"key": "value", "n": 5})");
-    std::string s = cc::utils::json_to_string(v);
-    auto v2 = cc::utils::parse_json(s);
-    EXPECT_EQ(v2.as_object().at("key").as_string(), "value");
-    EXPECT_EQ(v2.as_object().at("n").as_int(), 5);
+TEST(JsonCCUtils, RoundTripsThroughJsonToString) {
+    auto r = cc::utils::json::parse(R"({"key": "value", "n": 5})");
+    ASSERT_TRUE(r.has_value());
+    std::string s = cc::utils::json::to_string(*r);
+    auto r2 = cc::utils::json::parse(s);
+    ASSERT_TRUE(r2.has_value());
+    EXPECT_EQ(r2->root().get("key").as_str(), "value");
+    EXPECT_EQ(r2->root().get("n").as_int(), 5);
 }
 
-TEST(JsonRead, JsonGetPathAccess) {
-    auto v = cc::utils::parse_json(R"({"a": {"b": "deep"}})");
-    auto got = cc::utils::json_get<std::string>(v, "a.b");
-    ASSERT_TRUE(got.has_value());
-    EXPECT_EQ(*got, "deep");
-    EXPECT_FALSE(cc::utils::json_get<std::string>(v, "a.missing").has_value());
-    EXPECT_FALSE(cc::utils::json_get<std::string>(v, "nonexistent").has_value());
+TEST(JsonCCUtils, JsonGetPathAccess) {
+    auto r = cc::utils::json::parse(R"({"a": {"b": "deep"}})");
+    ASSERT_TRUE(r.has_value());
+    auto root = r->root();
+    EXPECT_EQ(root.get("a").get("b").as_str(), "deep");
+    EXPECT_FALSE(root.get("a").get("missing").valid());
+    EXPECT_FALSE(root.get("nonexistent").valid());
 }

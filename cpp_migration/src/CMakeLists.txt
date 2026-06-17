@@ -185,7 +185,6 @@ target_sources(cc_utils
         utils/input_router.cppm
         utils/intl.cppm
         utils/json.cppm
-        utils/json_read.cppm
         utils/list_sessions.cppm
         utils/lockfile.cppm
         utils/log.cppm

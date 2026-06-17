@@ -10,7 +10,7 @@ module;
 
 export module cc.utils.zod_to_json_schema;
 
-import cc.utils.json_read;
+import cc.utils.json;
 
 export namespace cc::utils {
 
@@ -20,7 +20,7 @@ struct SchemaField {
     std::string type;       // "string", "number", "integer", "boolean", "array", "object"
     bool required = true;
     std::optional<std::string> description;
-    std::optional<JsonValue> default_value;
+    std::optional<cc::utils::json::JsonMutDoc> default_value;
 };
 
 
@@ -67,7 +67,7 @@ namespace schema_detail {
             oss << ",\n      \"description\": \"" << field.description.value() << "\"";
         }
         if (field.default_value.has_value()) {
-            oss << ",\n      \"default\": " << json_to_string(field.default_value.value());
+            oss << ",\n      \"default\": " << field.default_value.value().to_string();
         }
         oss << "\n    }";
         if (i + 1 < schema.fields.size()) oss << ',';
@@ -92,39 +92,33 @@ namespace schema_detail {
 
 
 [[nodiscard]] inline std::vector<std::string> validate_against_schema(
-    const JsonValue& value, const JsonSchema& schema) {
+    const cc::utils::json::JsonVal& value, const JsonSchema& schema) {
     std::vector<std::string> errors;
 
-    if (!value.is_object()) {
+    if (!value.is_obj()) {
         errors.push_back("Root value must be an object");
         return errors;
     }
 
-    const auto& obj = value.as_object();
-
     for (const auto& field : schema.fields) {
-        auto it = obj.find(field.name);
-
-
-        if (it == obj.end()) {
+        cc::utils::json::JsonVal fv = value.get(field.name);
+        if (!fv.valid()) {
             if (field.required) {
                 errors.push_back("Missing required field: " + field.name);
             }
             continue;
         }
 
-
-        const auto& val = it->second;
         bool type_ok = false;
-        if (field.type == "string") type_ok = val.is_string();
+        if (field.type == "string") type_ok = fv.is_str();
         else if (field.type == "number" || field.type == "double" || field.type == "float")
-            type_ok = val.is_double() || val.is_int();
+            type_ok = fv.is_num();
         else if (field.type == "integer" || field.type == "int" || field.type == "int64_t")
-            type_ok = val.is_int();
+            type_ok = fv.is_int();
         else if (field.type == "boolean" || field.type == "bool")
-            type_ok = val.is_bool();
-        else if (field.type == "array") type_ok = val.is_array();
-        else if (field.type == "object") type_ok = val.is_object();
+            type_ok = fv.is_bool();
+        else if (field.type == "array") type_ok = fv.is_arr();
+        else if (field.type == "object") type_ok = fv.is_obj();
         else type_ok = true;
 
         if (!type_ok) {
