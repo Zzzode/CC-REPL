@@ -599,7 +599,6 @@ target_sources(cc_tasks
         tasks/local_shell_task.cppm
         tasks/pill_label.cppm
         tasks/remote_agent_task.cppm
-        tasks/stop_task.cppm
         tasks/task.cppm
         tasks/task_graph.cppm
         tasks/types.cppm
