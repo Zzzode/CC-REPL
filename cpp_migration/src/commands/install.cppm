@@ -1,6 +1,8 @@
 /// @file install.cppm
 /// @brief InstallCommand implementing the /install slash command.
-/// Installs Claude Code system-wide.
+/// Reports the current native build and installation guidance. The native
+/// binary is its own self-contained distribution, so (unlike the TS CLI) there
+/// is no npm installer to invoke.
 module;
 
 #include <string>
@@ -15,19 +17,21 @@ export module cc.commands.install;
 
 import cc.types.types;
 import cc.commands.command;
+import cc.constants.product;
 
 export namespace cc::commands {
 
 using namespace cc::core;
 
 /// InstallCommand implements the /install slash command.
-/// Installs Claude Code system-wide.
+/// The C++ build ships as a self-contained native binary; there is no npm
+/// installer to run, so this reports the current build and how to update it.
 class InstallCommand {
 public:
     [[nodiscard]] static CommandDefinition definition() {
         return CommandDefinition{
             .name = "install",
-            .description = "Install Claude Code system-wide",
+            .description = "Show native build info and installation guidance",
             .args = {},
             .category = "maintenance",
             .aliases = {},
@@ -35,15 +39,23 @@ public:
         };
     }
 
-    [[nodiscard]] VoidResult validate(const CommandContext&) {
+    [[nodiscard]] static VoidResult validate(const CommandContext&) {
         return {};
     }
 
-    [[nodiscard]] Result<CommandResult> execute(const CommandContext&) {
-        return CommandResult::success("Install command selected. Use the packaged installer or build output under cpp_migration/build/bin.");
+    [[nodiscard]] static Result<CommandResult> execute(const CommandContext&) {
+        std::string out = "Claude Code (native C++ build):\n";
+        out += std::format("  Version: {}\n", cc::constants::product::CC_REPL_VERSION);
+
+        out += "\nThe native build has no npm installer. To update:\n";
+        out += "  1. Pull the latest source.\n";
+        out += "  2. Reconfigure with CMake (cmake --preset clang-debug).\n";
+        out += "  3. Build (cmake --build build-clang).\n";
+        out += "  4. Copy the resulting binary (build-clang/bin/cc-repl) onto your PATH.";
+        return CommandResult::success(std::move(out));
     }
 
-    [[nodiscard]] std::vector<std::string> complete(std::string_view) {
+    [[nodiscard]] static std::vector<std::string> complete(std::string_view) {
         return {};
     }
 };

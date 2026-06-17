@@ -41,8 +41,9 @@ public:
 
     [[nodiscard]] Result<CommandResult> execute(const CommandContext&) {
         return CommandResult::success(
-            "Guest passes panel opened. Share a free week of Claude Code with friends and track remaining passes."
-        );
+            "Guest passes require the referral backend API, which is not reachable from this native build. "
+            "Manage your passes at https://claude.ai/settings/billing, or share a free week of Claude Code "
+            "from your account page.");
     }
 
     [[nodiscard]] std::vector<std::string> complete(std::string_view) {

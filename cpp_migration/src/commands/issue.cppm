@@ -40,7 +40,9 @@ public:
     }
 
     [[nodiscard]] Result<CommandResult> execute(const CommandContext&) {
-        return CommandResult::success("Issue workflow selected. Provide an issue id, title, or action such as create/list/update.");
+        return CommandResult::success(
+            "The /issue command is not available in this native build. "
+            "Use the GitHub CLI (`gh issue list|create|view <n>`) or the github-issues skill for issue tracking.");
     }
 
     [[nodiscard]] std::vector<std::string> complete(std::string_view) {

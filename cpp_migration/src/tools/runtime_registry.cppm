@@ -49,6 +49,10 @@ import cc.tools.brief;
 import cc.tools.config;
 import cc.tools.cron;
 import cc.tools.computer_use;
+import cc.tools.runtime_computer_use;
+import cc.tools.runtime_message_delivery;
+import cc.tools.runtime_team_shared;
+import cc.tools.runtime_shared_utils;
 import cc.tools.file_edit;
 import cc.tools.file_read;
 import cc.tools.file_write;
@@ -59,13 +63,13 @@ import cc.tools.mcp;
 import cc.tools.notebook;
 import cc.tools.plan_mode;
 import cc.tools.powershell;
-import cc.tools.remote_trigger_tool;
-import cc.tools.repl_tool;
+import cc.tools.remote_trigger;
+import cc.tools.repl;
 import cc.tools.script;
 import cc.tools.script_types;
 import cc.tools.send_message;
 import cc.tools.shared_tool;
-import cc.tools.skill_tool;
+import cc.tools.skill;
 import cc.tools.sleep;
 import cc.tools.synthetic_output_tool;
 import cc.tools.task;
@@ -105,6 +109,8 @@ using cc::core::ToolOutputContent;
 using cc::core::ToolPermission;
 using cc::core::ToolRegistry;
 using cc::core::ToolResult;
+
+namespace json = cc::utils::json;
 
 using RuntimeExecutor = std::function<Result<ToolResult>(const ToolInput&)>;
 
@@ -178,88 +184,35 @@ private:
     );
 }
 
-[[nodiscard]] std::string unescape_json_string(std::string_view value) {
-    std::string out;
-    out.reserve(value.size());
-    bool escaping = false;
-    for (char c : value) {
-        if (escaping) {
-            switch (c) {
-                case 'n': out.push_back('\n'); break;
-                case 'r': out.push_back('\r'); break;
-                case 't': out.push_back('\t'); break;
-                case '\\': out.push_back('\\'); break;
-                case '"': out.push_back('"'); break;
-                default: out.push_back(c); break;
-            }
-            escaping = false;
-        } else if (c == '\\') {
-            escaping = true;
-        } else {
-            out.push_back(c);
-        }
-    }
-    if (escaping) out.push_back('\\');
-    return out;
-}
+// Ad-hoc JSON field accessors over a raw JSON string. These now delegate to
+// cc.utils.json (parse once, then typed access) instead of hand-written byte
+// scanning — the scanner was obfuscation-prone (it matched the first "\"key\""
+// substring anywhere, including inside string values) and is eliminated as
+// part of the JSON-consolidation work (audit §13 #3). Signatures/semantics are
+// preserved so the ~40 call sites are unchanged.
 
 [[nodiscard]] std::optional<std::string> json_string(std::string_view json, std::string_view key) {
-    auto key_text = std::format("\"{}\"", key);
-    auto key_pos = json.find(key_text);
-    if (key_pos == std::string_view::npos) return std::nullopt;
-    auto colon = json.find(':', key_pos + key_text.size());
-    if (colon == std::string_view::npos) return std::nullopt;
-    auto pos = colon + 1;
-    while (pos < json.size() && std::isspace(static_cast<unsigned char>(json[pos]))) ++pos;
-    if (pos >= json.size() || json[pos] != '"') return std::nullopt;
-    ++pos;
-    std::size_t end = pos;
-    bool escaping = false;
-    while (end < json.size()) {
-        auto c = json[end];
-        if (escaping) {
-            escaping = false;
-        } else if (c == '\\') {
-            escaping = true;
-        } else if (c == '"') {
-            break;
-        }
-        ++end;
-    }
-    if (end >= json.size()) return std::nullopt;
-    return unescape_json_string(json.substr(pos, end - pos));
+    auto parsed = cc::utils::json::parse(json);
+    if (!parsed) return std::nullopt;
+    auto val = parsed->root().get(key);
+    if (!val.is_str()) return std::nullopt;
+    return std::string(val.as_str());
 }
 
 [[nodiscard]] std::optional<int> json_int(std::string_view json, std::string_view key) {
-    auto key_text = std::format("\"{}\"", key);
-    auto key_pos = json.find(key_text);
-    if (key_pos == std::string_view::npos) return std::nullopt;
-    auto colon = json.find(':', key_pos + key_text.size());
-    if (colon == std::string_view::npos) return std::nullopt;
-    auto pos = colon + 1;
-    while (pos < json.size() && std::isspace(static_cast<unsigned char>(json[pos]))) ++pos;
-    auto start = pos;
-    if (pos < json.size() && json[pos] == '-') ++pos;
-    while (pos < json.size() && std::isdigit(static_cast<unsigned char>(json[pos]))) ++pos;
-    if (pos == start) return std::nullopt;
-    try {
-        return std::stoi(std::string(json.substr(start, pos - start)));
-    } catch (...) {
-        return std::nullopt;
-    }
+    auto parsed = cc::utils::json::parse(json);
+    if (!parsed) return std::nullopt;
+    auto val = parsed->root().get(key);
+    if (!val.is_num()) return std::nullopt;
+    return static_cast<int>(val.as_int());
 }
 
 [[nodiscard]] bool json_bool(std::string_view json, std::string_view key, bool fallback = false) {
-    auto key_text = std::format("\"{}\"", key);
-    auto key_pos = json.find(key_text);
-    if (key_pos == std::string_view::npos) return fallback;
-    auto colon = json.find(':', key_pos + key_text.size());
-    if (colon == std::string_view::npos) return fallback;
-    auto pos = colon + 1;
-    while (pos < json.size() && std::isspace(static_cast<unsigned char>(json[pos]))) ++pos;
-    if (json.substr(pos, 4) == "true") return true;
-    if (json.substr(pos, 5) == "false") return false;
-    return fallback;
+    auto parsed = cc::utils::json::parse(json);
+    if (!parsed) return fallback;
+    auto val = parsed->root().get(key);
+    if (!val.is_bool()) return fallback;
+    return val.as_bool();
 }
 
 [[nodiscard]] std::optional<std::string> runtime_json_string(cc::utils::json::JsonVal obj, std::string_view key) {
@@ -341,93 +294,6 @@ private:
         if (!current.empty()) values.push_back(std::move(current));
     }
     return values;
-}
-
-[[nodiscard]] MemberRole parse_team_member_role(std::string_view role) {
-    if (role == "leader") return MemberRole::Leader;
-    if (role == "reviewer") return MemberRole::Reviewer;
-    return MemberRole::Worker;
-}
-
-[[nodiscard]] std::vector<TeamMember> parse_team_members(cc::utils::json::JsonVal root) {
-    std::vector<TeamMember> members;
-    auto value = root.get("members");
-    if (!value.valid() || !value.is_arr()) return members;
-
-    value.iter([&](cc::utils::json::JsonVal item) {
-        TeamMember member;
-        if (item.is_str()) {
-            member.agent_id = std::string(item.as_str());
-        } else if (item.is_obj()) {
-            member.agent_id = runtime_json_string(item, "agent_id")
-                .or_else([&] { return runtime_json_string(item, "id"); })
-                .or_else([&] { return runtime_json_string(item, "name"); })
-                .value_or("");
-            member.role = parse_team_member_role(runtime_json_string(item, "role").value_or("worker"));
-            member.current_task = runtime_json_string(item, "current_task");
-        }
-        if (!member.agent_id.empty()) members.push_back(std::move(member));
-    });
-    return members;
-}
-
-struct TeamMemberStartOptions {
-    std::optional<std::string> prompt;
-    std::optional<std::string> agent_type;
-    std::optional<std::string> mode;
-    std::optional<std::string> cwd;
-    std::optional<std::string> isolation;
-};
-
-[[nodiscard]] std::unordered_map<std::string, TeamMemberStartOptions> parse_team_member_start_options(
-    cc::utils::json::JsonVal root
-) {
-    std::unordered_map<std::string, TeamMemberStartOptions> options;
-    auto value = root.get("members");
-    if (!value.valid() || !value.is_arr()) return options;
-
-    value.iter([&](cc::utils::json::JsonVal item) {
-        if (!item.is_obj()) return;
-        auto agent_id = runtime_json_string(item, "agent_id")
-            .or_else([&] { return runtime_json_string(item, "id"); })
-            .or_else([&] { return runtime_json_string(item, "name"); });
-        if (!agent_id || agent_id->empty()) return;
-        options.emplace(*agent_id, TeamMemberStartOptions{
-            .prompt = runtime_json_string(item, "prompt"),
-            .agent_type = runtime_json_string(item, "subagent_type")
-                .or_else([&] { return runtime_json_string(item, "agent_type"); }),
-            .mode = runtime_json_string(item, "mode")
-                .or_else([&] { return runtime_json_string(item, "permission_mode"); }),
-            .cwd = runtime_json_string(item, "cwd"),
-            .isolation = runtime_json_string(item, "isolation"),
-        });
-    });
-    return options;
-}
-
-[[nodiscard]] std::vector<SharedTaskItem> parse_team_tasks(cc::utils::json::JsonVal root) {
-    std::vector<SharedTaskItem> tasks;
-    auto value = root.get("task_list");
-    if (!value.valid() || !value.is_arr()) {
-        value = root.get("tasks");
-    }
-    if (!value.valid() || !value.is_arr()) return tasks;
-
-    value.iter([&](cc::utils::json::JsonVal item) {
-        if (!item.is_obj()) return;
-        auto id = runtime_json_string(item, "id");
-        auto description = runtime_json_string(item, "description")
-            .or_else([&] { return runtime_json_string(item, "task"); });
-        if (!id || !description) return;
-        tasks.push_back(SharedTaskItem{
-            .id = *id,
-            .description = *description,
-            .assigned_to = runtime_json_string(item, "assigned_to"),
-            .completed = false,
-            .result = std::nullopt,
-        });
-    });
-    return tasks;
 }
 
 [[nodiscard]] std::optional<std::string> json_raw_value(std::string_view json, std::string_view key) {
@@ -519,15 +385,7 @@ struct TeamMemberStartOptions {
     return std::nullopt;
 }
 
-[[nodiscard]] std::string runtime_shell_quote(std::string_view value) {
-    std::string out = "'";
-    for (char c : value) {
-        if (c == '\'') out += "'\\''";
-        else out.push_back(c);
-    }
-    out.push_back('\'');
-    return out;
-}
+constexpr auto runtime_shell_quote = &runtime_shared_utils::shell_quote;
 
 [[nodiscard]] Result<ToolResult> run_command(std::string command, std::size_t max_bytes = 1024 * 512) {
     auto cap = cc::utils::bash::exec_capture(command);
@@ -689,21 +547,7 @@ struct TeamMemberStartOptions {
     return out;
 }
 
-[[nodiscard]] std::string escape_xml_text(std::string_view text) {
-    std::string result;
-    result.reserve(text.size());
-    for (char ch : text) {
-        switch (ch) {
-            case '&': result += "&amp;"; break;
-            case '<': result += "&lt;"; break;
-            case '>': result += "&gt;"; break;
-            case '"': result += "&quot;"; break;
-            case '\'': result += "&apos;"; break;
-            default: result.push_back(ch); break;
-        }
-    }
-    return result;
-}
+constexpr auto escape_xml_text = &runtime_shared_utils::escape_xml;
 
 [[nodiscard]] bool is_native_agent_task(const agent_runtime::NativeAgentRecord& record) {
     return record.background;
@@ -720,34 +564,11 @@ struct TeamMemberStartOptions {
     return agent_runtime::agent_output_file_path(record.agent_id).string();
 }
 
-[[nodiscard]] std::string runtime_delivery_message_id() {
-    const auto now = std::chrono::steady_clock::now().time_since_epoch();
-    return std::format("msg-{}", std::chrono::duration_cast<std::chrono::nanoseconds>(now).count());
-}
+constexpr auto runtime_delivery_message_id = &runtime_shared_utils::runtime_delivery_message_id;
 
-[[nodiscard]] std::string format_agent_pending_user_message(
-    std::string_view from_agent,
-    MessagePriority priority,
-    std::string_view message
-) {
-    return std::format(
-        "[Message from {} priority={}]\n{}",
-        from_agent,
-        message_priority_name(priority),
-        message);
-}
+constexpr auto format_agent_pending_user_message = &runtime_shared_utils::format_agent_pending_user_message;
 
-[[nodiscard]] std::string format_team_task_assignment_message(
-    std::string_view team_name,
-    std::string_view task_id,
-    std::string_view description
-) {
-    return std::format(
-        "[Team task {} assigned by {}]\n{}",
-        task_id,
-        team_name,
-        description);
-}
+constexpr auto format_team_task_assignment_message = &runtime_team_shared::format_team_task_assignment_message;
 
 [[nodiscard]] bool native_agent_status_is_terminal(agent_runtime::NativeAgentStatus status) {
     return status == agent_runtime::NativeAgentStatus::Completed ||
@@ -755,47 +576,13 @@ struct TeamMemberStartOptions {
         status == agent_runtime::NativeAgentStatus::Cancelled;
 }
 
-[[nodiscard]] std::string safe_runtime_dir_component(std::string_view value, std::string_view fallback) {
-    std::string out;
-    out.reserve(value.size());
-    for (char ch : value) {
-        if (std::isalnum(static_cast<unsigned char>(ch)) || ch == '-' || ch == '_' || ch == '.') {
-            out.push_back(ch);
-        } else {
-            out.push_back('_');
-        }
-    }
-    return out.empty() ? std::string(fallback) : out;
-}
+constexpr auto safe_runtime_dir_component = &runtime_shared_utils::safe_runtime_dir_component;
 
-[[nodiscard]] std::string ts_sanitized_team_dir_name(std::string_view value, std::string_view fallback) {
-    std::string out;
-    out.reserve(value.size());
-    for (unsigned char ch : value) {
-        if (std::isalnum(ch)) {
-            out.push_back(static_cast<char>(std::tolower(ch)));
-        } else {
-            out.push_back('-');
-        }
-    }
-    return out.empty() ? std::string(fallback) : out;
-}
+constexpr auto ts_sanitized_team_dir_name = &runtime_team_shared::ts_sanitized_team_dir_name;
 
-[[nodiscard]] bool path_has_prefix(const fs::path& path, const fs::path& prefix) {
-    auto path_it = path.begin();
-    auto prefix_it = prefix.begin();
-    for (; prefix_it != prefix.end(); ++prefix_it, ++path_it) {
-        if (path_it == path.end() || *path_it != *prefix_it) return false;
-    }
-    return true;
-}
+constexpr auto path_has_prefix = &runtime_shared_utils::path_has_prefix;
 
-[[nodiscard]] fs::path normalized_absolute_path(const fs::path& path) {
-    std::error_code ec;
-    auto absolute = fs::absolute(path, ec);
-    if (ec) absolute = path;
-    return absolute.lexically_normal();
-}
+constexpr auto normalized_absolute_path = &runtime_shared_utils::normalized_absolute_path;
 
 [[nodiscard]] bool path_is_agent_runtime_artifact(const fs::path& path) {
     if (path.empty()) return false;
@@ -835,338 +622,50 @@ inline void add_unique_artifact_path(std::vector<fs::path>& paths, fs::path path
     return removed_count;
 }
 
-struct TeamDeletionCleanupSummary {
-    std::size_t native_agents_seen = 0;
-    std::size_t cancelled_agents = 0;
-    std::size_t teammate_terminations = 0;
-    std::size_t teammate_kills = 0;
-    std::size_t background_shell_tasks_stopped = 0;
-    std::size_t transcript_artifacts_removed = 0;
-    std::size_t worktree_cleanup_attempts = 0;
-    std::size_t worktrees_removed = 0;
-    std::size_t worktrees_retained = 0;
-    std::size_t team_dirs_removed = 0;
-};
+using TeamDeletionCleanupSummary = runtime_team_shared::TeamDeletionCleanupSummary;
+using TeamCreationArtifactsSummary = runtime_team_shared::TeamCreationArtifactsSummary;
 
-struct TeamCreationArtifactsSummary {
-    fs::path team_dir;
-    fs::path team_file_path;
-    std::size_t inboxes_initialized = 0;
-    bool team_config_written = false;
-    bool task_list_written = false;
-};
+constexpr auto team_member_inbox_name = &runtime_team_shared::team_member_inbox_name;
+constexpr auto write_empty_inbox_if_missing = &runtime_team_shared::write_empty_inbox_if_missing;
+constexpr auto write_team_task_snapshot = &runtime_team_shared::write_team_task_snapshot;
+constexpr auto team_agent_name_from_id = &runtime_team_shared::team_agent_name_from_id;
+constexpr auto team_lead_agent_id = &runtime_team_shared::team_lead_agent_id;
 
-[[nodiscard]] std::string team_member_inbox_name(std::string_view agent_id) {
-    auto name = std::string(agent_id);
-    if (auto at = name.find('@'); at != std::string::npos) {
-        name = name.substr(0, at);
-    }
-    return safe_runtime_dir_component(name, "agent");
-}
+using TeamConfigMemberRuntimeState = runtime_team_shared::TeamConfigMemberRuntimeState;
 
-inline bool write_empty_inbox_if_missing(const fs::path& inbox_path) {
-    std::error_code ec;
-    fs::create_directories(inbox_path.parent_path(), ec);
-    if (ec) return false;
-    if (fs::exists(inbox_path, ec)) return true;
-    std::ofstream out(inbox_path, std::ios::trunc);
-    if (!out) return false;
-    out << "[]";
-    return out.good();
-}
+constexpr auto write_team_config_optional_string = &runtime_team_shared::write_team_config_optional_string;
+constexpr auto write_team_config_optional_bool = &runtime_team_shared::write_team_config_optional_bool;
+constexpr auto write_team_config_member = &runtime_team_shared::write_team_config_member;
+constexpr auto write_team_config_file = &runtime_team_shared::write_team_config_file;
 
-inline bool write_team_task_snapshot(
-    const fs::path& task_path,
-    std::span<const SharedTaskItem> tasks
-) {
-    std::error_code ec;
-    fs::create_directories(task_path.parent_path(), ec);
-    if (ec) return false;
-
-    std::ofstream out(task_path, std::ios::trunc);
-    if (!out) return false;
-    out << '[';
-    for (std::size_t i = 0; i < tasks.size(); ++i) {
-        const auto& task = tasks[i];
-        if (i != 0) out << ',';
-        out << R"({"id":")" << team_json_escape(task.id)
-            << R"(","description":")" << team_json_escape(task.description)
-            << R"(","completed":)" << (task.completed ? "true" : "false");
-        if (task.assigned_to) {
-            out << R"(,"assigned_to":")" << team_json_escape(*task.assigned_to) << '"';
-        }
-        if (task.result) {
-            out << R"(,"result":")" << team_json_escape(*task.result) << '"';
-        }
-        out << '}';
-    }
-    out << ']';
-    return out.good();
-}
-
-[[nodiscard]] std::string team_agent_name_from_id(std::string_view agent_id) {
-    if (auto at = agent_id.find('@'); at != std::string_view::npos) {
-        return std::string(agent_id.substr(0, at));
-    }
-    return std::string(agent_id);
-}
-
-[[nodiscard]] std::string team_lead_agent_id(std::string_view team_name) {
-    return std::format("team-lead@{}", team_name);
-}
-
-struct TeamConfigMemberRuntimeState {
-    std::optional<std::string> agent_type;
-    std::optional<std::string> cwd;
-    std::optional<std::string> worktree_path;
-    std::optional<std::string> backend_type;
-    std::optional<std::string> pane_id;
-    std::optional<std::string> color;
-    std::optional<std::string> mode;
-    std::optional<bool> is_active;
-};
-
-inline void write_team_config_optional_string(
-    std::ostream& out,
-    std::string_view key,
-    const std::optional<std::string>& value
-) {
-    if (!value || value->empty()) return;
-    out << R"(,")" << team_json_escape(key) << R"(":")" << team_json_escape(*value) << '"';
-}
-
-inline void write_team_config_optional_bool(
-    std::ostream& out,
-    std::string_view key,
-    std::optional<bool> value
-) {
-    if (!value) return;
-    out << R"(,")" << team_json_escape(key) << R"(":)" << (*value ? "true" : "false");
-}
-
-inline void write_team_config_member(
-    std::ostream& out,
-    std::string_view agent_id,
-    std::string_view role,
-    std::string_view cwd,
-    std::int64_t timestamp_ms,
-    const TeamConfigMemberRuntimeState* state = nullptr
-) {
-    const auto agent_type = state && state->agent_type && !state->agent_type->empty()
-        ? std::string_view{*state->agent_type}
-        : role;
-    const auto member_cwd = state && state->cwd && !state->cwd->empty()
-        ? std::string_view{*state->cwd}
-        : cwd;
-    const auto pane_id = state && state->pane_id && !state->pane_id->empty()
-        ? std::string_view{*state->pane_id}
-        : std::string_view{""};
-    out << R"({"agentId":")" << team_json_escape(agent_id)
-        << R"(","name":")" << team_json_escape(team_agent_name_from_id(agent_id))
-        << R"(","agentType":")" << team_json_escape(agent_type)
-        << R"(","model":"")"
-        << R"(,"joinedAt":)" << timestamp_ms
-        << R"(,"tmuxPaneId":")" << team_json_escape(pane_id)
-        << R"(","cwd":")" << team_json_escape(member_cwd)
-        << R"(","subscriptions":[])";
-    if (state) {
-        write_team_config_optional_string(out, "color", state->color);
-        write_team_config_optional_string(out, "worktreePath", state->worktree_path);
-        write_team_config_optional_string(out, "backendType", state->backend_type);
-        write_team_config_optional_string(out, "mode", state->mode);
-        write_team_config_optional_bool(out, "isActive", state->is_active);
-    }
-    out << '}';
-}
-
-inline bool write_team_config_file(
-    const fs::path& config_path,
-    const Team& team,
-    const std::unordered_map<std::string, TeamConfigMemberRuntimeState>& member_states = {}
-) {
-    std::error_code ec;
-    fs::create_directories(config_path.parent_path(), ec);
-    if (ec) return false;
-    std::ofstream out(config_path, std::ios::trunc);
-    if (!out) return false;
-
-    const auto timestamp_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::system_clock::now().time_since_epoch()).count();
-    auto cwd = fs::current_path(ec);
-    if (ec) cwd = fs::path{};
-    const auto cwd_text = cwd.string();
-    const auto lead_id = team_lead_agent_id(team.name);
-
-    out << R"({"name":")" << team_json_escape(team.name)
-        << R"(","description":"")"
-        << R"(,"createdAt":)" << timestamp_ms
-        << R"(,"leadAgentId":")" << team_json_escape(lead_id)
-        << R"(","leadSessionId":"")"
-        << R"(,"members":[)";
-    bool first = true;
-    auto write_member = [&](std::string_view agent_id, std::string_view role) {
-        if (!first) out << ',';
-        first = false;
-        const auto state_it = member_states.find(std::string(agent_id));
-        const auto* state = state_it == member_states.end() ? nullptr : &state_it->second;
-        write_team_config_member(out, agent_id, role, cwd_text, timestamp_ms, state);
-    };
-
-    const bool has_explicit_lead = std::ranges::any_of(team.members, [&](const auto& member) {
-        return member.agent_id == lead_id;
-    });
-    if (!has_explicit_lead) write_member(lead_id, "team-lead");
-    for (const auto& member : team.members) {
-        write_member(member.agent_id, member_role_name(member.role));
-    }
-    out << "]}";
-    return out.good();
-}
-
-[[nodiscard]] std::unordered_map<std::string, TeamConfigMemberRuntimeState>
+/// Wrap the extracted function (which takes an explicit terminal-status
+/// predicate) so call sites keep their zero-argument signature.
+[[nodiscard]] inline std::unordered_map<std::string, TeamConfigMemberRuntimeState>
 team_config_runtime_states_from_native_records(
     std::span<const agent_runtime::NativeAgentRecord> records
 ) {
-    std::unordered_map<std::string, TeamConfigMemberRuntimeState> states;
-    for (const auto& record : records) {
-        TeamConfigMemberRuntimeState state{
-            .agent_type = record.agent_type,
-            .cwd = record.cwd,
-            .worktree_path = record.worktree_path,
-            .backend_type = record.teammate_backend,
-            .pane_id = record.teammate_pane_id,
-            .color = record.teammate_color,
-            .mode = record.mode,
-            .is_active = !native_agent_status_is_terminal(record.status),
-        };
-        if (!state.backend_type && record.team_name) {
-            state.backend_type = "in-process";
-        }
-        if (!state.pane_id && state.backend_type && *state.backend_type == "in-process") {
-            state.pane_id = "in-process";
-        }
-        states[record.agent_id] = std::move(state);
-    }
-    return states;
+    return runtime_team_shared::team_config_runtime_states_from_native_records(
+        records,
+        &native_agent_status_is_terminal);
 }
 
-[[nodiscard]] std::expected<TeamCreationArtifactsSummary, std::string> ensure_team_runtime_artifacts(
-    std::string_view team_name,
-    std::span<const TeamMember> members,
-    std::span<const SharedTaskItem> tasks,
-    const Team& team
-) {
-    TeamCreationArtifactsSummary summary{
-        .team_dir = team_runtime_dir() / ts_sanitized_team_dir_name(team_name, "team"),
-        .team_file_path = {},
-    };
-    summary.team_file_path = summary.team_dir / "config.json";
+constexpr auto ensure_team_runtime_artifacts = &runtime_team_shared::ensure_team_runtime_artifacts;
+constexpr auto contains_agent_id = &runtime_team_shared::contains_agent_id;
+constexpr auto collect_team_native_agents = &runtime_team_shared::collect_team_native_agents;
 
-    std::error_code ec;
-    fs::create_directories(summary.team_dir / "inboxes", ec);
-    if (ec) return std::unexpected(std::format("failed to create team directory: {}", ec.message()));
-
-    for (const auto& member : members) {
-        if (member.agent_id.empty()) continue;
-        const auto inbox_name = team_member_inbox_name(member.agent_id);
-        if (write_empty_inbox_if_missing(summary.team_dir / "inboxes" / (inbox_name + ".json"))) {
-            ++summary.inboxes_initialized;
-        }
-    }
-
-    summary.task_list_written = write_team_task_snapshot(summary.team_dir / "tasks.json", tasks);
-    if (!summary.task_list_written) {
-        return std::unexpected("failed to write team task snapshot");
-    }
-    summary.team_config_written = write_team_config_file(summary.team_file_path, team);
-    if (!summary.team_config_written) {
-        return std::unexpected("failed to write team config");
-    }
-    return summary;
-}
-
-[[nodiscard]] bool contains_agent_id(
-    const std::vector<agent_runtime::NativeAgentRecord>& records,
-    std::string_view agent_id
-) {
-    return std::ranges::any_of(records, [&](const auto& record) {
-        return record.agent_id == agent_id;
-    });
-}
-
-[[nodiscard]] std::vector<agent_runtime::NativeAgentRecord> collect_team_native_agents(
-    std::string_view team_id,
-    std::string_view team_name,
-    std::span<const TeamMember> members
-) {
-    std::vector<agent_runtime::NativeAgentRecord> records;
-    for (const auto& member : members) {
-        if (auto record = agent_runtime::native_agent_store().get(member.agent_id)) {
-            if (!contains_agent_id(records, record->agent_id)) records.push_back(std::move(*record));
-        }
-    }
-    for (auto record : agent_runtime::native_agent_store().list()) {
-        const bool belongs_to_team =
-            record.team_name && (*record.team_name == team_name || *record.team_name == team_id);
-        if (belongs_to_team && !contains_agent_id(records, record.agent_id)) {
-            records.push_back(std::move(record));
-        }
-    }
-    return records;
-}
-
-[[nodiscard]] TeamDeletionCleanupSummary cleanup_team_runtime_artifacts(
+/// Wrap the extracted function (which takes two explicit predicate/cleanup
+/// function pointers) so call sites keep their three-argument signature.
+[[nodiscard]] inline TeamDeletionCleanupSummary cleanup_team_runtime_artifacts(
     std::string_view team_id,
     std::string_view team_name,
     std::span<const agent_runtime::NativeAgentRecord> records
 ) {
-    TeamDeletionCleanupSummary summary{.native_agents_seen = records.size()};
-    for (const auto& record : records) {
-        if (record.teammate_backend && !record.teammate_backend->empty()) {
-            const bool prefer_in_process = *record.teammate_backend == "in-process";
-            auto executor = cc::utils::swarm_backends::BackendRegistry::get_teammate_executor(prefer_in_process);
-            if (executor->terminate(record.agent_id, "team deleted")) {
-                ++summary.teammate_terminations;
-            }
-            if (executor->kill(record.agent_id)) {
-                ++summary.teammate_kills;
-            }
-        }
-
-        auto stopped_shell_tasks = bash::stop_background_tasks_for_agent(record.agent_id);
-        summary.background_shell_tasks_stopped += stopped_shell_tasks.size();
-
-        auto cleanup = cc::tools::agent::cleanup_agent_worktree(record.agent_id);
-        if (cleanup.attempted) {
-            ++summary.worktree_cleanup_attempts;
-            if (cleanup.removed) ++summary.worktrees_removed;
-            if (cleanup.changed) ++summary.worktrees_retained;
-        }
-
-        if (!native_agent_status_is_terminal(record.status)) {
-            agent_runtime::native_agent_store().mark_cancelled(
-                record.agent_id,
-                std::format("team deleted: {}", team_name));
-            ++summary.cancelled_agents;
-        }
-
-        const auto persisted_record = agent_runtime::native_agent_store().get(record.agent_id).value_or(record);
-        summary.transcript_artifacts_removed += cleanup_native_agent_transcript_artifacts(persisted_record);
-    }
-
-    std::error_code ec;
-    const auto root = team_runtime_dir();
-    for (auto component : {
-        ts_sanitized_team_dir_name(team_name, "team"),
-        ts_sanitized_team_dir_name(team_id, "team"),
-        safe_runtime_dir_component(team_name, "team"),
-        safe_runtime_dir_component(team_id, "team"),
-    }) {
-        auto removed = fs::remove_all(root / component, ec);
-        if (!ec && removed > 0) ++summary.team_dirs_removed;
-        ec.clear();
-    }
-    return summary;
+    return runtime_team_shared::cleanup_team_runtime_artifacts(
+        team_id,
+        team_name,
+        records,
+        &native_agent_status_is_terminal,
+        &cleanup_native_agent_transcript_artifacts);
 }
 
 [[nodiscard]] std::string format_native_agent_task_summary(const agent_runtime::NativeAgentRecord& record) {
@@ -1752,113 +1251,6 @@ team_config_runtime_states_from_native_records(
     return std::nullopt;
 }
 
-[[nodiscard]] std::string_view computer_use_action_name(cc::core::computer_use::ActionType action) {
-    using cc::core::computer_use::ActionType;
-    switch (action) {
-        case ActionType::Screenshot: return "screenshot";
-        case ActionType::MouseMove: return "move";
-        case ActionType::MouseClick: return "click";
-        case ActionType::MouseDoubleClick: return "double_click";
-        case ActionType::MouseRightClick: return "right_click";
-        case ActionType::MouseDrag: return "drag";
-        case ActionType::KeyType: return "type";
-        case ActionType::KeyPress: return "press";
-        case ActionType::KeyHotkey: return "hotkey";
-        case ActionType::Scroll: return "scroll";
-    }
-    return "unknown";
-}
-
-[[nodiscard]] std::string computer_json_escape(std::string_view value) {
-    std::string escaped;
-    escaped.reserve(value.size());
-    for (unsigned char ch : value) {
-        switch (ch) {
-            case '\\': escaped += R"(\\)"; break;
-            case '"': escaped += R"(\")"; break;
-            case '\b': escaped += R"(\b)"; break;
-            case '\f': escaped += R"(\f)"; break;
-            case '\n': escaped += R"(\n)"; break;
-            case '\r': escaped += R"(\r)"; break;
-            case '\t': escaped += R"(\t)"; break;
-            default:
-                if (ch < 0x20) escaped += std::format(R"(\u{:04x})", static_cast<unsigned>(ch));
-                else escaped.push_back(static_cast<char>(ch));
-                break;
-        }
-    }
-    return escaped;
-}
-
-inline void computer_append_separator(std::string& out, bool& first) {
-    if (!first) out += ',';
-    first = false;
-}
-
-inline void computer_append_string(std::string& out, std::string_view key, std::string_view value, bool& first) {
-    computer_append_separator(out, first);
-    out += std::format(R"("{}":"{}")", computer_json_escape(key), computer_json_escape(value));
-}
-
-inline void computer_append_int(std::string& out, std::string_view key, std::int64_t value, bool& first) {
-    computer_append_separator(out, first);
-    out += std::format(R"("{}":{})", computer_json_escape(key), value);
-}
-
-[[nodiscard]] std::string computer_use_command_request_json(
-    const cc::core::computer_use::ComputerAction& action
-) {
-    std::string out = "{";
-    bool first = true;
-    computer_append_string(out, "action", computer_use_action_name(action.type), first);
-    if (action.position && !action.region) {
-        computer_append_int(out, "x", action.position->x, first);
-        computer_append_int(out, "y", action.position->y, first);
-    }
-    if (action.drag_end) {
-        computer_append_int(out, "to_x", action.drag_end->x, first);
-        computer_append_int(out, "to_y", action.drag_end->y, first);
-    }
-    if (action.text) {
-        computer_append_string(out, "text", *action.text, first);
-    }
-    if (!action.keys.empty()) {
-        computer_append_separator(out, first);
-        out += R"("keys":[)";
-        for (std::size_t i = 0; i < action.keys.size(); ++i) {
-            if (i != 0) out += ',';
-            out += '"';
-            out += computer_json_escape(action.keys[i]);
-            out += '"';
-        }
-        out += ']';
-    }
-    if (action.region) {
-        computer_append_int(out, "x", action.region->x, first);
-        computer_append_int(out, "y", action.region->y, first);
-        computer_append_int(out, "width", action.region->width, first);
-        computer_append_int(out, "height", action.region->height, first);
-        computer_append_separator(out, first);
-        out += std::format(
-            R"("region":{{"x":{},"y":{},"width":{},"height":{}}})",
-            action.region->x,
-            action.region->y,
-            action.region->width,
-            action.region->height);
-    }
-    out += '}';
-    return out;
-}
-
-inline void computer_replace_all(std::string& text, std::string_view needle, std::string_view replacement) {
-    if (needle.empty()) return;
-    std::size_t pos = 0;
-    while ((pos = text.find(needle, pos)) != std::string::npos) {
-        text.replace(pos, needle.size(), replacement);
-        pos += replacement.size();
-    }
-}
-
 [[nodiscard]] std::expected<std::string, std::string> run_computer_use_command_backend(
     const cc::core::computer_use::ComputerAction& action
 ) {
@@ -1867,11 +1259,11 @@ inline void computer_replace_all(std::string& text, std::string_view needle, std
         return std::unexpected("Computer-use command backend is not configured");
     }
 
-    auto payload = computer_use_command_request_json(action);
+    auto payload = runtime_computer_use::command_request_json(action);
     auto quoted_payload = runtime_shell_quote(payload);
     std::string command = command_env;
     if (command.find("{request}") != std::string::npos) {
-        computer_replace_all(command, "{request}", quoted_payload);
+        runtime_computer_use::replace_all(command, "{request}", quoted_payload);
     } else {
         command += ' ';
         command += quoted_payload;
@@ -2005,6 +1397,8 @@ inline void clear_runtime_computer_use_input_provider_for_testing() {
 }
 
 namespace detail {
+
+namespace json = cc::utils::json;
 
 [[nodiscard]] Result<ToolResult> execute_computer_use(const ToolInput& input) {
     auto json = input.json();
@@ -2201,529 +1595,72 @@ namespace detail {
     return ToolResult::success(result->message);
 }
 
-[[nodiscard]] std::string runtime_json_escape_string(std::string_view value) {
-    std::string escaped;
-    escaped.reserve(value.size());
-    for (unsigned char ch : value) {
-        switch (ch) {
-            case '\\': escaped += R"(\\)"; break;
-            case '"': escaped += R"(\")"; break;
-            case '\b': escaped += R"(\b)"; break;
-            case '\f': escaped += R"(\f)"; break;
-            case '\n': escaped += R"(\n)"; break;
-            case '\r': escaped += R"(\r)"; break;
-            case '\t': escaped += R"(\t)"; break;
-            default:
-                if (ch < 0x20) {
-                    escaped += std::format(R"(\u{:04x})", static_cast<unsigned int>(ch));
-                } else {
-                    escaped.push_back(static_cast<char>(ch));
-                }
-                break;
-        }
-    }
-    return escaped;
-}
+constexpr auto runtime_timestamp_string = &runtime_shared_utils::runtime_timestamp_string;
 
-inline void append_runtime_json_string(
-    std::string& out,
-    std::string_view key,
-    std::string_view value,
-    bool& first
-) {
-    if (!first) out += ',';
-    first = false;
-    out += '"';
-    out += runtime_json_escape_string(key);
-    out += R"(":")";
-    out += runtime_json_escape_string(value);
-    out += '"';
-}
+using StructuredSendMessagePayload = runtime_message_delivery::StructuredSendMessagePayload;
+using RuntimePeerAddressScheme = runtime_message_delivery::RuntimePeerAddressScheme;
+using RuntimePeerAddress = runtime_message_delivery::RuntimePeerAddress;
 
-inline void append_runtime_json_optional_string(
-    std::string& out,
-    std::string_view key,
-    const std::optional<std::string>& value,
-    bool& first
-) {
-    if (value && !value->empty()) append_runtime_json_string(out, key, *value, first);
-}
+constexpr auto parse_runtime_peer_address = &runtime_message_delivery::parse_runtime_peer_address;
+constexpr auto build_runtime_json_object = &runtime_message_delivery::build_runtime_json_object;
+constexpr auto build_cross_session_prompt = &runtime_message_delivery::build_cross_session_prompt;
+constexpr auto build_uds_cross_session_payload = &runtime_message_delivery::build_uds_cross_session_payload;
+constexpr auto runtime_env_value = &runtime_message_delivery::runtime_env_value;
+constexpr auto first_runtime_env = &runtime_message_delivery::first_runtime_env;
+constexpr auto strip_runtime_trailing_slashes = &runtime_message_delivery::strip_runtime_trailing_slashes;
+constexpr auto is_safe_runtime_session_id = &runtime_message_delivery::is_safe_runtime_session_id;
+constexpr auto build_bridge_cross_session_event = &runtime_message_delivery::build_bridge_cross_session_event;
+constexpr auto send_bridge_cross_session_message = &runtime_message_delivery::send_bridge_cross_session_message;
+constexpr auto send_uds_cross_session_message = &runtime_message_delivery::send_uds_cross_session_message;
+constexpr auto build_structured_send_message_payload = &runtime_message_delivery::build_structured_send_message_payload;
+constexpr auto runtime_has_agent_api_credentials = &runtime_message_delivery::runtime_has_agent_api_credentials;
+constexpr auto native_agent_can_resume_locally = &runtime_message_delivery::native_agent_can_resume_locally;
+constexpr auto native_agent_resume_cwd = &runtime_message_delivery::native_agent_resume_cwd;
+constexpr auto build_native_agent_resume_input_json = &runtime_message_delivery::build_native_agent_resume_input_json;
 
-inline void append_runtime_json_bool(
-    std::string& out,
-    std::string_view key,
-    bool value,
-    bool& first
-) {
-    if (!first) out += ',';
-    first = false;
-    out += '"';
-    out += runtime_json_escape_string(key);
-    out += R"(":)";
-    out += value ? "true" : "false";
-}
-
-inline void append_runtime_json_size(
-    std::string& out,
-    std::string_view key,
-    std::size_t value,
-    bool& first
-) {
-    if (!first) out += ',';
-    first = false;
-    out += '"';
-    out += runtime_json_escape_string(key);
-    out += R"(":)";
-    out += std::to_string(value);
-}
-
-[[nodiscard]] std::string runtime_timestamp_string() {
-    const auto now = std::chrono::system_clock::now().time_since_epoch();
-    return std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(now).count());
-}
-
-struct StructuredSendMessagePayload {
-    std::string text;
-    std::optional<std::string> request_id;
-    std::string type;
-};
-
-enum class RuntimePeerAddressScheme {
-    Other,
-    Uds,
-    Bridge,
-};
-
-struct RuntimePeerAddress {
-    RuntimePeerAddressScheme scheme{RuntimePeerAddressScheme::Other};
-    std::string target;
-};
-
-[[nodiscard]] RuntimePeerAddress parse_runtime_peer_address(std::string_view to) {
-    if (to.starts_with("uds:")) {
-        return RuntimePeerAddress{.scheme = RuntimePeerAddressScheme::Uds, .target = std::string(to.substr(4))};
-    }
-    if (to.starts_with("bridge:")) {
-        return RuntimePeerAddress{.scheme = RuntimePeerAddressScheme::Bridge, .target = std::string(to.substr(7))};
-    }
-    if (to.starts_with("/")) {
-        return RuntimePeerAddress{.scheme = RuntimePeerAddressScheme::Uds, .target = std::string(to)};
-    }
-    return RuntimePeerAddress{.scheme = RuntimePeerAddressScheme::Other, .target = std::string(to)};
-}
-
-[[nodiscard]] std::string build_runtime_json_object(
-    std::initializer_list<std::pair<std::string_view, std::string_view>> strings,
-    std::initializer_list<std::pair<std::string_view, bool>> bools = {}
-) {
-    std::string out = "{";
-    bool first = true;
-    for (const auto& [key, value] : strings) {
-        append_runtime_json_string(out, key, value, first);
-    }
-    for (const auto& [key, value] : bools) {
-        append_runtime_json_bool(out, key, value, first);
-    }
-	out += '}';
-	return out;
-}
-
-[[nodiscard]] std::string build_cross_session_prompt(
-    std::string_view from_agent,
-    std::string_view message
-) {
-    return std::format(
-        "<cross-session-message from=\"{}\">\n{}\n</cross-session-message>",
-        escape_xml_text(from_agent),
-        escape_xml_text(message));
-}
-
-[[nodiscard]] std::string build_uds_cross_session_payload(
-    std::string_view from_agent,
-    std::string_view message
-) {
-    const auto prompt = build_cross_session_prompt(from_agent, message);
-    std::string out = "{";
-    bool first = true;
-    append_runtime_json_string(out, "type", "cross_session_message", first);
-    append_runtime_json_string(out, "mode", "prompt", first);
-    append_runtime_json_string(out, "from", from_agent, first);
-    append_runtime_json_string(out, "message", message, first);
-    append_runtime_json_string(out, "value", prompt, first);
-    out += "}\n";
-    return out;
-}
-
-[[nodiscard]] std::optional<std::string> runtime_env_value(const char* name) {
-    if (const char* value = std::getenv(name); value && *value) return std::string(value);
-    return std::nullopt;
-}
-
-[[nodiscard]] std::optional<std::string> first_runtime_env(std::initializer_list<const char*> names) {
-    for (const auto* name : names) {
-        if (auto value = runtime_env_value(name)) return value;
-    }
-    return std::nullopt;
-}
-
-[[nodiscard]] std::string strip_runtime_trailing_slashes(std::string value) {
-    while (!value.empty() && value.back() == '/') value.pop_back();
-    return value;
-}
-
-[[nodiscard]] bool is_safe_runtime_session_id(std::string_view id) {
-    if (id.empty()) return false;
-    for (const auto ch : id) {
-        if (!std::isalnum(static_cast<unsigned char>(ch)) && ch != '_' && ch != '-') return false;
-    }
-    return true;
-}
-
-[[nodiscard]] std::string build_bridge_cross_session_event(
-    std::string_view source_session_id,
-    std::string_view target_session_id,
-    std::string_view message
-) {
-    const auto prompt = build_cross_session_prompt(source_session_id, message);
-    return std::format(
-        R"({{"type":"user","message":{{"role":"user","content":"{}"}},"parent_tool_use_id":null,"session_id":"{}","uuid":"{}"}})",
-        runtime_json_escape_string(prompt),
-        runtime_json_escape_string(target_session_id),
-        cc::utils::generate_uuid_v4());
-}
-
-[[nodiscard]] std::expected<void, std::string> send_bridge_cross_session_message(
-    std::string_view target_session_id,
-    std::string_view message
-) {
-    if (!is_safe_runtime_session_id(target_session_id)) {
-        return std::unexpected("Invalid bridge session ID");
-    }
-
-    auto endpoint = first_runtime_env({
-        "CLAUDE_CODE_REMOTE_API_BASE_URL",
-        "CC_REPL_REMOTE_API_BASE_URL",
-        "CLAUDE_CODE_SESSION_INGRESS_URL",
-        "CC_REPL_SESSION_INGRESS_URL",
-    });
-    auto source_session_id = first_runtime_env({
-        "CC_REMOTE_SESSION_ID",
-        "CLAUDE_CODE_REMOTE_SESSION_ID",
-    });
-    auto auth_token = runtime_env_value("CLAUDE_CODE_SESSION_ACCESS_TOKEN");
-    if (!endpoint || !source_session_id || !auth_token) {
-        return std::unexpected(
-            "Remote Control is not connected - cannot send to a bridge: target. Reconnect with /remote-control first.");
-    }
-    if (!is_safe_runtime_session_id(*source_session_id)) {
-        return std::unexpected("Invalid active bridge session ID");
-    }
-
-    std::unordered_map<std::string, std::string> headers{
-        {"Content-Type", "application/json"},
-        {"Accept", "application/json"},
-    };
-    if (auth_token->starts_with("sk-ant-sid")) {
-        headers["Cookie"] = "sessionKey=" + *auth_token;
-        if (auto org = runtime_env_value("CLAUDE_CODE_ORGANIZATION_UUID")) {
-            headers["X-Organization-Uuid"] = *org;
-        }
-    } else {
-        headers["Authorization"] = "Bearer " + *auth_token;
-    }
-
-    const auto event = build_bridge_cross_session_event(*source_session_id, target_session_id, message);
-    const auto body = std::format(R"({{"events":[{}]}})", event);
-    const auto url = std::format(
-        "{}/v1/sessions/{}/events",
-        strip_runtime_trailing_slashes(*endpoint),
-        target_session_id);
-
-    cc::utils::HttpClient http;
-    auto response = http.post(url, body, headers);
-    if (!response) return std::unexpected(response.error().message);
-    if (!response->is_ok()) {
-        return std::unexpected(std::format("Session ingress returned HTTP {}", response->status));
-    }
-    return {};
-}
-
-[[nodiscard]] std::expected<void, std::string> send_uds_cross_session_message(
-    std::string_view socket_path,
-    std::string_view from_agent,
-    std::string_view message
-) {
-    if (socket_path.empty()) return std::unexpected("address target must not be empty");
-#ifdef _WIN32
-    (void)from_agent;
-    (void)message;
-    return std::unexpected("Unix domain socket messaging is not available on Windows");
-#else
-    if (socket_path.size() >= sizeof(sockaddr_un{}.sun_path)) {
-        return std::unexpected("Unix domain socket path is too long");
-    }
-
-    const int fd = ::socket(AF_UNIX, SOCK_STREAM, 0);
-    if (fd < 0) return std::unexpected("Failed to create Unix domain socket");
-
-    sockaddr_un addr{};
-    addr.sun_family = AF_UNIX;
-    std::memcpy(addr.sun_path, socket_path.data(), socket_path.size());
-    addr.sun_path[socket_path.size()] = '\0';
-
-    if (::connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0) {
-        const auto error = std::string(std::strerror(errno));
-        ::close(fd);
-        return std::unexpected("Failed to connect Unix domain socket: " + error);
-    }
-
-    auto payload = build_uds_cross_session_payload(from_agent, message);
-    std::string_view remaining(payload);
-    while (!remaining.empty()) {
-        const auto sent = ::send(fd, remaining.data(), remaining.size(), 0);
-        if (sent <= 0) {
-            const auto error = std::string(std::strerror(errno));
-            ::close(fd);
-            return std::unexpected("Failed to send Unix domain socket message: " + error);
-        }
-        remaining.remove_prefix(static_cast<std::size_t>(sent));
-    }
-    ::shutdown(fd, SHUT_WR);
-    ::close(fd);
-    return {};
-#endif
-}
-
-[[nodiscard]] std::expected<StructuredSendMessagePayload, std::string>
-build_structured_send_message_payload(
-    cc::utils::json::JsonVal message,
-    std::string_view from_agent
-) {
-    auto type = runtime_json_string(message, "type");
-    if (!type || type->empty()) return std::unexpected("structured message requires type");
-
-    if (*type == "shutdown_request") {
-        auto request_id = "shutdown-" + runtime_delivery_message_id().substr(std::string_view("msg-").size());
-        auto reason = runtime_json_string(message, "reason").value_or("");
-        auto text = build_runtime_json_object({
-            {"type", "shutdown_request"},
-            {"requestId", request_id},
-            {"from", from_agent},
-            {"reason", reason},
-            {"timestamp", runtime_timestamp_string()},
-        });
-        return StructuredSendMessagePayload{
-            .text = std::move(text),
-            .request_id = std::move(request_id),
-            .type = *type,
-        };
-    }
-
-    if (*type == "shutdown_response") {
-        auto request_id = runtime_json_string(message, "request_id")
-            .or_else([&] { return runtime_json_string(message, "requestId"); });
-        if (!request_id || request_id->empty()) {
-            return std::unexpected("shutdown_response requires request_id");
-        }
-        auto approve = runtime_json_semantic_bool(message, "approve")
-            .or_else([&] { return runtime_json_semantic_bool(message, "approved"); });
-        if (!approve) return std::unexpected("shutdown_response requires approve");
-
-        if (*approve) {
-            auto text = build_runtime_json_object({
-                {"type", "shutdown_approved"},
-                {"requestId", *request_id},
-                {"from", from_agent},
-                {"timestamp", runtime_timestamp_string()},
-            });
-            return StructuredSendMessagePayload{
-                .text = std::move(text),
-                .request_id = *request_id,
-                .type = *type,
-            };
-        }
-
-        auto reason = runtime_json_string(message, "reason");
-        if (!reason || reason->empty()) {
-            return std::unexpected("reason is required when rejecting a shutdown request");
-        }
-        auto text = build_runtime_json_object({
-            {"type", "shutdown_rejected"},
-            {"requestId", *request_id},
-            {"from", from_agent},
-            {"reason", *reason},
-            {"timestamp", runtime_timestamp_string()},
-        });
-        return StructuredSendMessagePayload{
-            .text = std::move(text),
-            .request_id = *request_id,
-            .type = *type,
-        };
-    }
-
-    if (*type == "plan_approval_response") {
-        auto request_id = runtime_json_string(message, "request_id")
-            .or_else([&] { return runtime_json_string(message, "requestId"); });
-        if (!request_id || request_id->empty()) {
-            return std::unexpected("plan_approval_response requires request_id");
-        }
-        auto approve = runtime_json_semantic_bool(message, "approve")
-            .or_else([&] { return runtime_json_semantic_bool(message, "approved"); });
-        if (!approve) return std::unexpected("plan_approval_response requires approve");
-
-        std::string text = "{";
-        bool first = true;
-        append_runtime_json_string(text, "type", "plan_approval_response", first);
-        append_runtime_json_string(text, "requestId", *request_id, first);
-        append_runtime_json_bool(text, "approved", *approve, first);
-        append_runtime_json_optional_string(text, "feedback", runtime_json_string(message, "feedback"), first);
-        append_runtime_json_optional_string(
-            text,
-            "permissionMode",
-            runtime_json_string(message, "permission_mode")
-                .or_else([&] { return runtime_json_string(message, "permissionMode"); }),
-            first);
-        append_runtime_json_string(text, "timestamp", runtime_timestamp_string(), first);
-        text += '}';
-        return StructuredSendMessagePayload{
-            .text = std::move(text),
-            .request_id = *request_id,
-            .type = *type,
-        };
-    }
-
-    return std::unexpected("unsupported structured message type: " + *type);
-}
-
-[[nodiscard]] bool runtime_has_agent_api_credentials() {
-    if (auto* key = std::getenv("ANTHROPIC_API_KEY"); key && key[0] != '\0') return true;
-    if (auto* token = std::getenv("CLAUDE_AUTH_TOKEN"); token && token[0] != '\0') return true;
-    return false;
-}
-
-[[nodiscard]] bool native_agent_can_resume_locally(const agent_runtime::NativeAgentRecord& record) {
-    if (record.remote_session_id && !record.remote_session_id->empty()) return false;
-    if (record.teammate_backend && !record.teammate_backend->empty() &&
-        *record.teammate_backend != "in-process") {
-        return false;
-    }
-    return true;
-}
-
-[[nodiscard]] std::optional<std::string> native_agent_resume_cwd(
-    const agent_runtime::NativeAgentRecord& record
-) {
-    if (record.worktree_path && !record.worktree_path->empty()) {
-        std::error_code ec;
-        if (fs::exists(fs::path{*record.worktree_path}, ec) &&
-            fs::is_directory(fs::path{*record.worktree_path}, ec)) {
-            return record.worktree_path;
-        }
-    }
-    if (record.cwd && !record.cwd->empty()) return record.cwd;
-    return std::nullopt;
-}
-
-[[nodiscard]] std::string build_native_agent_resume_input_json(
-    const agent_runtime::NativeAgentRecord& record
-) {
-    std::string out = "{";
-    bool first = true;
-    append_runtime_json_string(out, "agent_id", record.agent_id, first);
-    append_runtime_json_string(out, "subagent_type", record.agent_type, first);
-    append_runtime_json_string(out, "prompt",
-        "Resume this existing background agent. Process queued follow-up messages and continue from the persisted agent context.",
-        first);
-    append_runtime_json_bool(out, "run_in_background", true, first);
-    append_runtime_json_bool(out, "resume_existing", true, first);
-    append_runtime_json_optional_string(out, "description", record.description, first);
-    append_runtime_json_optional_string(out, "mode", record.mode, first);
-    if (auto cwd = native_agent_resume_cwd(record)) {
-        append_runtime_json_string(out, "cwd", *cwd, first);
-    }
-    out += '}';
-    return out;
-}
+// build_team_member_agent_start_input_json stays here: it depends on
+// runtime_registry's ToolInput/ToolRegistry semantics and participates in the
+// team_create dispatcher branch (S9), so it is not part of the S7 extraction.
 
 [[nodiscard]] std::string build_team_member_agent_start_input_json(
     const TeamMember& member,
     std::string_view team_name,
     std::string_view prompt,
-    const TeamMemberStartOptions* options,
+    const runtime_team_shared::TeamMemberStartOptions* options,
     const std::optional<std::string>& default_cwd,
     const std::optional<std::string>& default_mode,
     const std::optional<std::string>& default_isolation
 ) {
-    std::string out = "{";
-    bool first = true;
-    append_runtime_json_string(out, "agent_id", member.agent_id, first);
-    append_runtime_json_string(out, "subagent_type",
-        options && options->agent_type && !options->agent_type->empty()
-            ? *options->agent_type
-            : std::string{"general-purpose"},
-        first);
-    append_runtime_json_string(out, "prompt", prompt, first);
-    append_runtime_json_bool(out, "run_in_background", true, first);
-    append_runtime_json_string(out, "team_name", team_name, first);
-    append_runtime_json_string(out, "description",
-        std::format("Team member {} for {}", member.agent_id, team_name),
-        first);
+    json::JsonBuilder b;
+    b.str("agent_id", member.agent_id);
+    b.str("subagent_type",
+         options && options->agent_type && !options->agent_type->empty()
+             ? std::string_view{*options->agent_type}
+             : std::string_view{"general-purpose"});
+    b.str("prompt", prompt);
+    b.boolean("run_in_background", true);
+    b.str("team_name", team_name);
+    b.str("description", std::format("Team member {} for {}", member.agent_id, team_name));
     if (options && options->mode && !options->mode->empty()) {
-        append_runtime_json_string(out, "mode", *options->mode, first);
+        b.str("mode", *options->mode);
     } else {
-        append_runtime_json_optional_string(out, "mode", default_mode, first);
+        b.opt_str("mode", default_mode);
     }
     if (options && options->cwd && !options->cwd->empty()) {
-        append_runtime_json_string(out, "cwd", *options->cwd, first);
+        b.str("cwd", *options->cwd);
     } else {
-        append_runtime_json_optional_string(out, "cwd", default_cwd, first);
+        b.opt_str("cwd", default_cwd);
     }
     if (options && options->isolation && !options->isolation->empty()) {
-        append_runtime_json_string(out, "isolation", *options->isolation, first);
+        b.str("isolation", *options->isolation);
     } else {
-        append_runtime_json_optional_string(out, "isolation", default_isolation, first);
+        b.opt_str("isolation", default_isolation);
     }
-    out += '}';
-    return out;
+    return b.serialize();
 }
 
-[[nodiscard]] std::string runtime_tool_result_text(const ToolResult& result) {
-    std::string out;
-    for (const auto& content : result.content) {
-        if (!out.empty()) out += '\n';
-        out += content.text;
-    }
-    return out;
-}
-
-[[nodiscard]] std::optional<std::string> try_start_native_agent_resume(
-    const agent_runtime::NativeAgentRecord& record,
-    ToolRegistry* registry
-) {
-    if (!registry) return "background resume deferred: runtime registry is not attached";
-    if (!native_agent_can_resume_locally(record)) {
-        return "background resume deferred: agent is managed by a remote or external teammate backend";
-    }
-    if (!runtime_has_agent_api_credentials()) {
-        return "background resume deferred: no Anthropic API credentials are configured";
-    }
-
-    auto started = registry->execute(
-        "Agent",
-        ToolInput::from_json(build_native_agent_resume_input_json(record)));
-    if (!started) {
-        auto error = "background resume failed: " + started.error().message;
-        agent_runtime::native_agent_store().mark_failed(record.agent_id, error);
-        return error;
-    }
-    auto text = runtime_tool_result_text(*started);
-    if (started->is_error) {
-        auto error = "background resume failed: " + text;
-        agent_runtime::native_agent_store().mark_failed(record.agent_id, error);
-        return error;
-    }
-    return "background resume started";
-}
+constexpr auto runtime_tool_result_text = &runtime_message_delivery::runtime_tool_result_text;
+constexpr auto try_start_native_agent_resume = &runtime_message_delivery::try_start_native_agent_resume;
 
 [[nodiscard]] Result<ToolResult> execute_simple_runtime_tool(
     std::string_view name,
@@ -2905,255 +1842,8 @@ build_structured_send_message_payload(
     }
     if (name == "script") return execute_script(input);
     if (name == "send_message") {
-        auto parsed = cc::utils::json::parse(json);
-        if (!parsed || !parsed->root().is_obj()) return ToolResult::error("send_message requires a JSON object input");
-        auto root = parsed->root();
-
-	        auto recipient = detail::runtime_json_string(root, "to")
-	            .or_else([&] { return detail::runtime_json_string(root, "target_agent"); })
-	            .or_else([&] { return detail::runtime_json_string(root, "target"); })
-	            .or_else([&] { return detail::runtime_json_string(root, "recipient"); });
-	        if (!recipient || recipient->empty()) return ToolResult::error("send_message requires to or target_agent");
-	        const auto peer_address = detail::parse_runtime_peer_address(*recipient);
-	        if (peer_address.scheme != detail::RuntimePeerAddressScheme::Other && peer_address.target.empty()) {
-	            return ToolResult::error("address target must not be empty");
-	        }
-
-        MessagePriority priority = MessagePriority::Normal;
-        auto priority_text = detail::runtime_json_string(root, "priority").value_or("normal");
-        if (priority_text == "low") priority = MessagePriority::Low;
-        else if (priority_text == "high") priority = MessagePriority::High;
-        else if (priority_text == "urgent") priority = MessagePriority::Urgent;
-
-        auto from_agent = detail::runtime_json_string(root, "from_agent")
-            .or_else([&] { return detail::runtime_json_string(root, "from"); })
-            .or_else([&] { return cc::utils::get_agent_name(); })
-            .value_or("team-lead");
-        auto team_name = detail::runtime_json_string(root, "team_name")
-            .or_else([&] { return cc::utils::get_team_name(); });
-        auto summary = detail::runtime_json_string(root, "summary");
-
-        auto message_node = root.get("message");
-        auto message = detail::runtime_json_string(root, "content");
-        std::optional<detail::StructuredSendMessagePayload> structured_payload;
-        if (!message && message_node.is_str()) {
-            message = std::string(message_node.as_str());
-	        } else if (!message && message_node.is_obj()) {
-	            if (peer_address.scheme != detail::RuntimePeerAddressScheme::Other) {
-	                return ToolResult::error("structured messages cannot be sent cross-session - only plain text");
-	            }
-	            if (*recipient == "*") {
-	                return ToolResult::error("structured messages cannot be broadcast (to: \"*\")");
-	            }
-	            auto structured_type = detail::runtime_json_string(message_node, "type");
-	            if (structured_type && *structured_type == "shutdown_response" && *recipient != "team-lead") {
-	                return ToolResult::error("shutdown_response must be sent to \"team-lead\"");
-	            }
-	            auto built = detail::build_structured_send_message_payload(message_node, from_agent);
-	            if (!built) return ToolResult::error(built.error());
-            message = built->text;
-            structured_payload = std::move(*built);
-        }
-        if (!message || message->empty()) return ToolResult::error("send_message requires content or message");
-
-	        if (peer_address.scheme == detail::RuntimePeerAddressScheme::Bridge) {
-	            auto sent = detail::send_bridge_cross_session_message(peer_address.target, *message);
-	            if (!sent) return ToolResult::error("Failed to send to " + *recipient + ": " + sent.error());
-	            const auto preview = summary.value_or(*message);
-	            return ToolResult::success(std::format(
-	                "\"{}\" -> {}",
-	                detail::escape_xml_text(preview.size() > 50 ? preview.substr(0, 50) : preview),
-	                *recipient));
-	        }
-	        if (peer_address.scheme == detail::RuntimePeerAddressScheme::Uds) {
-	            auto sent = detail::send_uds_cross_session_message(peer_address.target, from_agent, *message);
-	            if (!sent) return ToolResult::error("Failed to send to " + *recipient + ": " + sent.error());
-	            const auto preview = summary.value_or(*message);
-	            return ToolResult::success(std::format(
-	                "\"{}\" -> {}",
-	                detail::escape_xml_text(preview.size() > 50 ? preview.substr(0, 50) : preview),
-	                *recipient));
-	        }
-
-        struct MailboxTarget {
-            std::string agent_id;
-            std::string recipient_name;
-            std::string team_name;
-        };
-        struct DeliveryOutcome {
-            std::string target_agent;
-            std::string message_id;
-            DeliveryStatus delivery_status = DeliveryStatus::Delivered;
-            bool resumed_terminal_agent = false;
-            std::optional<std::string> resume_status_note;
-        };
-
-        auto lower_ascii = [](std::string_view value) {
-            std::string out(value);
-            std::ranges::transform(out, out.begin(), [](unsigned char ch) {
-                return static_cast<char>(std::tolower(ch));
-            });
-            return out;
-        };
-
-        auto find_team_member = [&](std::string_view target) -> std::optional<MailboxTarget> {
-            if (!team_name || team_name->empty()) return std::nullopt;
-            auto team = cc::tools::global_team_store().get_by_id_or_name(*team_name);
-            if (!team) return std::nullopt;
-            const auto target_lower = lower_ascii(target);
-            for (const auto& member : (*team)->members) {
-                const auto member_name = detail::team_agent_name_from_id(member.agent_id);
-                if (lower_ascii(member.agent_id) != target_lower && lower_ascii(member_name) != target_lower) {
-                    continue;
-                }
-                return MailboxTarget{
-                    .agent_id = member.agent_id,
-                    .recipient_name = member_name,
-                    .team_name = (*team)->name,
-                };
-            }
-            return std::nullopt;
-        };
-
-        auto deliver_to_target = [&](std::string target_agent) -> std::expected<DeliveryOutcome, std::string> {
-            auto mailbox_target = find_team_member(target_agent);
-            if (mailbox_target) target_agent = mailbox_target->agent_id;
-
-            auto recipient_record = cc::tools::agent_runtime::native_agent_store().get(target_agent);
-            if (!recipient_record) {
-                for (const auto& candidate : cc::tools::agent_runtime::native_agent_store().list()) {
-                    const auto candidate_name = candidate.name.value_or(detail::team_agent_name_from_id(candidate.agent_id));
-                    if (candidate_name != target_agent && candidate.agent_id != target_agent) continue;
-                    if (team_name && (!candidate.team_name || *candidate.team_name != *team_name)) continue;
-                    recipient_record = candidate;
-                    target_agent = candidate.agent_id;
-                    if (!mailbox_target && candidate.team_name && !candidate.team_name->empty()) {
-                        mailbox_target = MailboxTarget{
-                            .agent_id = candidate.agent_id,
-                            .recipient_name = candidate.name.value_or(detail::team_agent_name_from_id(candidate.agent_id)),
-                            .team_name = *candidate.team_name,
-                        };
-                    }
-                    break;
-                }
-            }
-
-            DeliveryOutcome outcome{
-                .target_agent = target_agent,
-                .message_id = detail::runtime_delivery_message_id(),
-                .delivery_status = DeliveryStatus::Delivered,
-                .resumed_terminal_agent = false,
-                .resume_status_note = std::nullopt,
-            };
-
-            if (recipient_record) {
-                SendMessageTool validator(from_agent);
-                if (auto valid = validator.validate(target_agent, *message); !valid) {
-                    return std::unexpected(std::string(format_error(valid.error())));
-                }
-                outcome.resumed_terminal_agent = detail::native_agent_status_is_terminal(recipient_record->status);
-                cc::tools::agent_runtime::native_agent_store().enqueue_resume_message(
-                    target_agent,
-                    detail::format_agent_pending_user_message(from_agent, priority, *message));
-                if (outcome.resumed_terminal_agent) {
-                    auto queued_record = cc::tools::agent_runtime::native_agent_store().get(target_agent)
-                        .value_or(*recipient_record);
-                    outcome.resume_status_note = detail::try_start_native_agent_resume(queued_record, registry);
-                }
-                cc::tools::agent_runtime::native_agent_store().append_transcript(
-                    target_agent,
-                    std::format(
-                        "message {} from {} [{}]: {}",
-                        outcome.message_id,
-                        from_agent,
-                        message_priority_name(priority),
-                        *message));
-                if (!mailbox_target && recipient_record->team_name && !recipient_record->team_name->empty()) {
-                    mailbox_target = MailboxTarget{
-                        .agent_id = target_agent,
-                        .recipient_name = recipient_record->name.value_or(detail::team_agent_name_from_id(target_agent)),
-                        .team_name = *recipient_record->team_name,
-                    };
-                }
-            } else if (!mailbox_target) {
-                SendMessageTool tool(from_agent);
-                auto sent = tool.execute(target_agent, *message, priority, detail::runtime_json_string(root, "reply_to"));
-                if (!sent) return std::unexpected(std::string(format_error(sent.error())));
-                outcome.message_id = sent->message_id;
-                outcome.delivery_status = sent->status;
-            }
-
-            if (mailbox_target) {
-                auto mailbox = cc::utils::write_to_mailbox(
-                    mailbox_target->recipient_name,
-                    cc::utils::TeammateMessage{
-                        .from = from_agent,
-                        .text = *message,
-                        .timestamp = {},
-                        .read = false,
-                        .color = cc::utils::get_teammate_color(),
-                        .summary = summary,
-                    },
-                    std::optional<std::string_view>{std::string_view(mailbox_target->team_name)});
-                if (!mailbox) {
-                    return std::unexpected("Delivered to runtime queue but failed to write teammate mailbox: " + mailbox.error());
-                }
-            }
-
-            return outcome;
-        };
-
-        if (*recipient == "*") {
-            if (!team_name || team_name->empty()) {
-                return ToolResult::error("send_message broadcast requires team_name or active team context");
-            }
-            auto team = cc::tools::global_team_store().get_by_id_or_name(*team_name);
-            if (!team) return ToolResult::error("Team not found: " + *team_name);
-
-            std::vector<std::string> recipients;
-            const auto sender_lower = lower_ascii(from_agent);
-            for (const auto& member : (*team)->members) {
-                const auto member_name = detail::team_agent_name_from_id(member.agent_id);
-                if (lower_ascii(member.agent_id) == sender_lower || lower_ascii(member_name) == sender_lower) {
-                    continue;
-                }
-                auto delivered = deliver_to_target(member.agent_id);
-                if (!delivered) return ToolResult::error(delivered.error());
-                recipients.push_back(member_name);
-            }
-
-            if (recipients.empty()) {
-                return ToolResult::success("No teammates to broadcast to (you are the only team member)");
-            }
-
-            std::string joined;
-            for (std::size_t i = 0; i < recipients.size(); ++i) {
-                if (i != 0) joined += ", ";
-                joined += recipients[i];
-            }
-            return ToolResult::success(std::format(
-                "Message broadcast to {} teammate(s): {}",
-                recipients.size(),
-                joined));
-        }
-
-        auto delivered = deliver_to_target(*recipient);
-        if (!delivered) return ToolResult::error(delivered.error());
-        auto status_note = delivered->resumed_terminal_agent
-            ? std::string{"\nAgent was stopped and has been queued for background resume."}
-            : std::string{};
-        if (delivered->resume_status_note && !delivered->resume_status_note->empty()) {
-            status_note += "\n" + *delivered->resume_status_note;
-        }
-        if (structured_payload && structured_payload->request_id) {
-            status_note += "\nrequest_id: " + *structured_payload->request_id;
-        }
-        return ToolResult::success(std::format(
-            "Delivered message {} to {} [{}]{}",
-            delivered->message_id,
-            delivered->target_agent,
-            delivery_status_name(delivered->delivery_status),
-            status_note));
+        return runtime_message_delivery::execute_send_message(
+            json, registry, &native_agent_status_is_terminal);
     }
     if (name == "shared") {
         auto key = json_string(json, "key");
@@ -3168,7 +1858,15 @@ build_structured_send_message_payload(
         return it == shared.end() ? ToolResult::error(std::format("Shared key not found: {}", *key))
                                   : ToolResult::success(it->second);
     }
-    if (name == "skill") return execute_skill_tool(input);
+    if (name == "skill") {
+        // New path: use execute_skill_tool_simple which validates the skill,
+        // expands templates, cascades context modifiers, and returns a
+        // structured JSON response. Falls back to the original loader on
+        // error (so tools that pass "name" only still work).
+        auto simple = cc::tools::skill::execute_skill_tool_simple(input.json());
+        if (simple) return ToolResult::success(*simple);
+        return execute_skill_tool(input);
+    }
     if (name == "sleep") {
         SleepTool tool;
         auto seconds = std::clamp(json_int(json, "duration").or_else([&] { return json_int(json, "seconds"); }).value_or(1), 1, 300);
@@ -3194,9 +1892,9 @@ build_structured_send_message_payload(
         auto team = runtime_json_string(root, "team_name").or_else([&] { return runtime_json_string(root, "name"); })
             .value_or(std::format("team-{}", std::chrono::steady_clock::now().time_since_epoch().count()));
         auto id = runtime_json_string(root, "team_id").or_else([&] { return runtime_json_string(root, "id"); }).value_or(team);
-        auto members = parse_team_members(root);
-        auto member_start_options = parse_team_member_start_options(root);
-        auto tasks = parse_team_tasks(root);
+        auto members = runtime_team_shared::parse_team_members(root);
+        auto member_start_options = runtime_team_shared::parse_team_member_start_options(root);
+        auto tasks = runtime_team_shared::parse_team_tasks(root);
         const bool start_native_agents = runtime_json_bool(root, "start_native_agents")
             .or_else([&] { return runtime_json_bool(root, "start_agents"); })
             .or_else([&] { return runtime_json_bool(root, "run_agents"); })
@@ -3315,22 +2013,20 @@ build_structured_send_message_payload(
                 }
             }
         }
-        std::string output = "{";
-        bool first = true;
-        append_runtime_json_string(output, "team_name", (*result)->name, first);
-        append_runtime_json_string(output, "team_file_path", artifacts->team_file_path.string(), first);
-        append_runtime_json_string(output, "lead_agent_id", detail::team_lead_agent_id((*result)->name), first);
-        append_runtime_json_string(output, "team_id", (*result)->id, first);
-        append_runtime_json_string(output, "team_dir", artifacts->team_dir.string(), first);
-        append_runtime_json_size(output, "members", (*result)->members.size(), first);
-        append_runtime_json_size(output, "tasks", tasks.size(), first);
-        append_runtime_json_size(output, "member_inboxes_initialized", artifacts->inboxes_initialized, first);
-        append_runtime_json_size(output, "task_assignments_enqueued", task_assignments_enqueued, first);
-        append_runtime_json_bool(output, "team_config_written", artifacts->team_config_written, first);
-        append_runtime_json_bool(output, "task_list_written", artifacts->task_list_written, first);
-        append_runtime_json_size(output, "native_agents_started", native_agents_started, first);
-        output += '}';
-        return ToolResult::success(output);
+        json::JsonBuilder b;
+        b.str("team_name", (*result)->name);
+        b.str("team_file_path", artifacts->team_file_path.string());
+        b.str("lead_agent_id", detail::team_lead_agent_id((*result)->name));
+        b.str("team_id", (*result)->id);
+        b.str("team_dir", artifacts->team_dir.string());
+        b.size("members", (*result)->members.size());
+        b.size("tasks", tasks.size());
+        b.size("member_inboxes_initialized", artifacts->inboxes_initialized);
+        b.size("task_assignments_enqueued", task_assignments_enqueued);
+        b.boolean("team_config_written", artifacts->team_config_written);
+        b.boolean("task_list_written", artifacts->task_list_written);
+        b.size("native_agents_started", native_agents_started);
+        return ToolResult::success(b.serialize());
     }
     if (name == "team_delete") {
         auto team = json_string(json, "team_id").or_else([&] { return json_string(json, "id"); })
@@ -3679,8 +2375,33 @@ void register_runtime_tools(cc::core::ToolRegistry& registry, RuntimeToolOptions
         }, "agents"));
     registry.register_tool(simple("shared", "Read or write shared runtime key-value state",
         ToolPermission::Write, {prop("key", "string", "Shared key", false)}, "agents"));
-    registry.register_tool(simple("skill", "Load a local skill by name",
-        ToolPermission::ReadOnly, {prop("name", "string", "Skill name", true)}, "skills"));
+    registry.register_tool(simple("skill",
+        "Execute a skill with validation, template expansion, and context modifier cascading",
+        ToolPermission::ReadOnly, {
+            prop("action", "string",
+                 "Skill action: install, update, list, search, or execute (default)", false),
+            prop("skill_path", "string",
+                 "Path or qualified name of the installed skill", false),
+            prop("arguments", "object", "Named arguments passed to the skill", false),
+            prop("context_modifiers", "object",
+                 "Invocation overrides for model, effort, max_tokens, temperature, etc.", false),
+            prop("model", "string", "Override the LLM model used by the skill", false),
+            prop("effort", "integer",
+                 "Effort level 1 (fast) .. 5 (deep); overrides frontmatter", false),
+            prop("allowed_tools", "array",
+                 "List of tool names the skill is permitted to call", false),
+            prop("budget_token_limit", "integer",
+                 "Maximum tokens allowed for skill execution", false),
+            prop("structured_output", "object",
+                 "JSON schema constraining the final LLM response", false),
+            prop("should_use_sandbox", "boolean",
+                 "True if the skill must run inside the sandboxed runtime", false),
+            prop("use_fork_model", "boolean",
+                 "True if the skill runs in a forked isolated session", false),
+            prop("fork_model", "boolean", "Alias for use_fork_model", false),
+            prop("session_id", "string", "Session identifier for ${CLAUDE_SESSION_ID}", false),
+            prop("name", "string", "Alias for skill_path", false),
+        }, "skills"));
     registry.register_tool(simple("sleep", "Sleep for a bounded number of seconds",
         ToolPermission::Execute, {prop("duration", "number", "Duration in seconds", true)}, "execution"));
     registry.register_tool(simple("synthetic_output", "Return provided synthetic output content",

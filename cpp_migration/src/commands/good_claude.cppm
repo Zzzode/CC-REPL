@@ -32,7 +32,9 @@ public:
     }
 
     [[nodiscard]] Result<CommandResult> execute(const CommandContext&) {
-        return CommandResult::success("Thanks for the feedback.");
+        return CommandResult::success(
+            "The /good-claude feedback command is not available in this native build. "
+            "Feedback submission requires the analytics backend, which is not reachable here.");
     }
 
     [[nodiscard]] std::vector<std::string> complete(std::string_view) {

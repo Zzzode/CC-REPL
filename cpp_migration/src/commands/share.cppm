@@ -40,7 +40,10 @@ public:
     }
 
     [[nodiscard]] Result<CommandResult> execute(const CommandContext&) {
-        return CommandResult::success("Preparing current session for sharing. Export the session transcript before publishing externally.");
+        return CommandResult::success(
+            "The /share command is not available in this native build. "
+            "To share a session, export the transcript from session storage "
+            "(<data-dir>/projects/<project>/<session-id>/messages.jsonl) and publish externally.");
     }
 
     [[nodiscard]] std::vector<std::string> complete(std::string_view) {

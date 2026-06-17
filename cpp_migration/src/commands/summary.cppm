@@ -40,7 +40,9 @@ public:
     }
 
     [[nodiscard]] Result<CommandResult> execute(const CommandContext&) {
-        return CommandResult::success("Conversation summary requested. The current transcript can be summarized or exported from session state.");
+        return CommandResult::success(
+            "The /summary command is not available as a built-in in this native build. "
+            "Use /compact to compress the transcript, or export the session and ask Claude to summarize it.");
     }
 
     [[nodiscard]] std::vector<std::string> complete(std::string_view) {

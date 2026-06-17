@@ -40,7 +40,10 @@ public:
     }
 
     [[nodiscard]] Result<CommandResult> execute(const CommandContext&) {
-        return CommandResult::success("Ultraplan mode selected. Provide a goal to generate a staged implementation plan.");
+        return CommandResult::success(
+            "The /ultraplan command is not enabled in this build. "
+            "It spawns a remote Claude-on-the-Web plan session, which is gated behind an external flag. "
+            "For local planning, use /plan to enter plan mode instead.");
     }
 
     [[nodiscard]] std::vector<std::string> complete(std::string_view) {

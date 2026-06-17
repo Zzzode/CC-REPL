@@ -40,7 +40,9 @@ public:
     }
 
     [[nodiscard]] Result<CommandResult> execute(const CommandContext&) {
-        return CommandResult::success("Teleport requested. Select or provide a target session to continue work elsewhere.");
+        return CommandResult::success(
+            "The /teleport command is not available in this native build. "
+            "Remote session handoff requires the teleport service and a connected Claude-on-the-Web account.");
     }
 
     [[nodiscard]] std::vector<std::string> complete(std::string_view) {
