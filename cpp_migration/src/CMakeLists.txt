@@ -2,6 +2,80 @@
 # Each target corresponds to a C++23 module partition of the system.
 # All .cppm files in each directory are registered as CXX_MODULES sources.
 
+# ─── Optional tree-sitter dependency for bash AST danger classifier ───────────
+option(CC_ENABLE_TREE_SITTER "Enable tree-sitter bash parsing for AST danger classifier" OFF)
+if(CC_ENABLE_TREE_SITTER)
+    include(FetchContent)
+    FetchContent_Declare(
+        tree_sitter
+        GIT_REPOSITORY https://github.com/tree-sitter/tree-sitter.git
+        GIT_TAG        v0.22.6
+    )
+    FetchContent_Declare(
+        tree_sitter_bash
+        GIT_REPOSITORY https://github.com/tree-sitter/tree-sitter-bash.git
+        GIT_TAG        v0.23.1
+    )
+    FetchContent_GetProperties(tree_sitter)
+    if(NOT tree_sitter_POPULATED)
+        FetchContent_Populate(tree_sitter)
+    endif()
+    FetchContent_GetProperties(tree_sitter_bash)
+    if(NOT tree_sitter_bash_POPULATED)
+        FetchContent_Populate(tree_sitter_bash)
+    endif()
+
+    # Build tree-sitter core as a static library from source.
+    add_library(tree-sitter STATIC
+        ${tree_sitter_SOURCE_DIR}/lib/src/alloc.c
+        ${tree_sitter_SOURCE_DIR}/lib/src/get_changed_ranges.c
+        ${tree_sitter_SOURCE_DIR}/lib/src/language.c
+        ${tree_sitter_SOURCE_DIR}/lib/src/lexer.c
+        ${tree_sitter_SOURCE_DIR}/lib/src/lib.c
+        ${tree_sitter_SOURCE_DIR}/lib/src/node.c
+        ${tree_sitter_SOURCE_DIR}/lib/src/parser.c
+        ${tree_sitter_SOURCE_DIR}/lib/src/query.c
+        ${tree_sitter_SOURCE_DIR}/lib/src/stack.c
+        ${tree_sitter_SOURCE_DIR}/lib/src/subtree.c
+        ${tree_sitter_SOURCE_DIR}/lib/src/tree.c
+        ${tree_sitter_SOURCE_DIR}/lib/src/tree_cursor.c
+        ${tree_sitter_SOURCE_DIR}/lib/src/wasm_store.c
+    )
+    target_include_directories(tree-sitter PUBLIC
+        ${tree_sitter_SOURCE_DIR}/lib/include
+    )
+    set_target_properties(tree-sitter PROPERTIES
+        C_STANDARD 11
+        C_STANDARD_REQUIRED ON
+        POSITION_INDEPENDENT_CODE ON
+    )
+    if(MSVC)
+        target_compile_options(tree-sitter PRIVATE /wd4101 /wd4244 /wd4267 /wd4457)
+    else()
+        target_compile_options(tree-sitter PRIVATE -w)
+    endif()
+
+    # Build tree-sitter-bash language parser as a static library.
+    add_library(tree-sitter-bash STATIC
+        ${tree_sitter_bash_SOURCE_DIR}/src/parser.c
+        ${tree_sitter_bash_SOURCE_DIR}/src/scanner.c
+    )
+    target_include_directories(tree-sitter-bash PUBLIC
+        ${tree_sitter_bash_SOURCE_DIR}/src
+    )
+    target_link_libraries(tree-sitter-bash PUBLIC tree-sitter)
+    set_target_properties(tree-sitter-bash PROPERTIES
+        C_STANDARD 11
+        C_STANDARD_REQUIRED ON
+        POSITION_INDEPENDENT_CODE ON
+    )
+    if(MSVC)
+        target_compile_options(tree-sitter-bash PRIVATE /wd4101 /wd4244 /wd4267)
+    else()
+        target_compile_options(tree-sitter-bash PRIVATE -w)
+    endif()
+endif()
+
 # ─── cc_utils: Utilities (no internal deps) ───────────────────────────────────
 add_library(cc_utils)
 target_sources(cc_utils
@@ -112,7 +186,6 @@ target_sources(cc_utils
         utils/intl.cppm
         utils/json.cppm
         utils/json_read.cppm
-        utils/lazy_schema.cppm
         utils/list_sessions.cppm
         utils/lockfile.cppm
         utils/log.cppm
@@ -288,6 +361,8 @@ target_sources(cc_utils
         utils/platform_paths.cppm
         utils/cron_helpers.cppm
         utils/file_index.cppm
+        utils/tree_sitter/tree_sitter.cppm
+        utils/tree_sitter/bash/ast.cppm
 )
 set_source_files_properties(utils/swarm_backends.cppm PROPERTIES
     COMPILE_OPTIONS "$<$<CXX_COMPILER_ID:Clang>:-O0>"
@@ -298,6 +373,12 @@ target_link_libraries(cc_utils
         uv_a
         httplib::httplib
 )
+if(CC_ENABLE_TREE_SITTER)
+    target_link_libraries(cc_utils PUBLIC tree-sitter tree-sitter-bash)
+    target_compile_definitions(cc_utils PUBLIC CC_HAS_TREE_SITTER=1)
+else()
+    target_compile_definitions(cc_utils PUBLIC CC_HAS_TREE_SITTER=0)
+endif()
 if(APPLE)
     target_link_libraries(cc_utils PUBLIC "-framework CoreFoundation")
 endif()
@@ -312,13 +393,31 @@ target_sources(cc_state
         state/persistence.cppm
         state/selectors.cppm
         state/store.cppm
+        state/teammate_view_helpers.cppm
 )
 target_link_libraries(cc_state
     PUBLIC
         cc_utils
         cc_types
+        cc_task_types
         yyjson
 )
+
+# ─── cc_task_types: Canonical Task Data Model ─────────────────────────────────
+add_library(cc_task_types)
+target_sources(cc_task_types
+    PUBLIC FILE_SET CXX_MODULES FILES
+        task_types.cppm
+)
+target_link_libraries(cc_task_types PUBLIC cc_utils)
+
+# ─── cc_history: Canonical Conversation History ────────────────────────────────
+add_library(cc_history)
+target_sources(cc_history
+    PUBLIC FILE_SET CXX_MODULES FILES
+        history.cppm
+)
+target_link_libraries(cc_history PUBLIC cc_utils)
 
 # ─── cc_constants: Constants ──────────────────────────────────────────────────
 add_library(cc_constants)
@@ -485,8 +584,9 @@ target_sources(cc_bootstrap
     PUBLIC FILE_SET CXX_MODULES FILES
         bootstrap/setup.cppm
         bootstrap/state.cppm
+        bootstrap/interactive_helpers.cppm
 )
-target_link_libraries(cc_bootstrap PUBLIC cc_utils cc_state cc_config cc_services)
+target_link_libraries(cc_bootstrap PUBLIC cc_utils cc_state cc_config cc_services cc_hooks)
 
 # ─── cc_tasks: Task System ────────────────────────────────────────────────────
 add_library(cc_tasks)
@@ -528,6 +628,10 @@ target_sources(cc_tools
         tools/agent_memory_snapshot.cppm
         tools/agent_prompt.cppm
         tools/agent_tool.cppm
+        tools/agent_sub_utils.cppm
+        tools/agent_run.cppm
+        tools/agent_resume.cppm
+        tools/agent_fork.cppm
         tools/agent_type_resolution.cppm
         tools/agent_types.cppm
         tools/agent_utils.cppm
@@ -557,7 +661,6 @@ target_sources(cc_tools
         tools/mcp_auth_tool.cppm
         tools/mcp_classify.cppm
         tools/mcp_tool.cppm
-        tools/missing_tools.cppm
         tools/monitor_tool.cppm
         tools/notebook_tool.cppm
         tools/plan_mode_tool.cppm
@@ -567,7 +670,11 @@ target_sources(cc_tools
         tools/read_mcp_resource_tool.cppm
         tools/repl_tool.cppm
         tools/remote_trigger_tool.cppm
+        tools/runtime_computer_use.cppm
+        tools/runtime_message_delivery.cppm
         tools/runtime_registry.cppm
+        tools/runtime_shared_utils.cppm
+        tools/runtime_team_shared.cppm
         tools/script_diagnostics.cppm
         tools/script_sandbox.cppm
         tools/script_tool.cppm
@@ -946,6 +1053,10 @@ target_link_libraries(cc_services
         uv_a
         httplib::httplib
 )
+# Native macOS Keychain backend (services/oauth) uses the Security framework.
+if(APPLE)
+    target_link_libraries(cc_services PUBLIC "-framework Security" "-framework CoreFoundation")
+endif()
 target_link_libraries(cc_commands
     PUBLIC
         cc_services
@@ -1006,7 +1117,6 @@ target_sources(cc_hooks
         hooks/memory_usage.cppm
         hooks/merged_providers.cppm
         hooks/min_display_time.cppm
-        hooks/missing_hooks.cppm
         hooks/notifications.cppm
         hooks/notify_after_timeout.cppm
         hooks/notifs/auto_mode_unavailable.cppm
@@ -1213,9 +1323,13 @@ target_sources(cc_ui
         ui/components/feature_dialogs.cppm
         ui/components/figures.cppm
         ui/components/file_tree.cppm
+        ui/components/grove.cppm
         ui/components/ink_components.cppm
+        ui/components/lsp_recommendation_menu.cppm
         ui/components/notification.cppm
         ui/components/partial_completions.cppm   # UI27 — TreeSelect + ShikiFallback (PARTIAL -> DONE)
+        ui/components/passes.cppm
+        ui/components/plugin_hint_menu.cppm
         ui/components/pr_badge.cppm
         ui/components/spinner.cppm
         ui/components/spinner_widget.cppm
@@ -1229,7 +1343,6 @@ target_sources(cc_ui
         ui/components/auto_updater.cppm
         ui/components/auth_flows.cppm
         ui/components/context_visualization.cppm
-        ui/components/fullscreen_layout.cppm
         ui/components/session_preview.cppm
         ui/components/spinner_animations.cppm
         ui/components/spinner_shimmer.cppm
@@ -1490,6 +1603,7 @@ target_sources(cc_daemon
     PUBLIC FILE_SET CXX_MODULES FILES
         daemon/daemon_client.cppm
         daemon/daemon_server.cppm
+        daemon/worker_registry.cppm
 )
 target_link_libraries(cc_daemon PUBLIC cc_utils cc_bridge)
 
@@ -1522,6 +1636,7 @@ add_library(cc_migrations)
 target_sources(cc_migrations
     PUBLIC FILE_SET CXX_MODULES FILES
         migrations/concrete_migrations.cppm
+        migrations/config_orchestrator.cppm
         migrations/migration_registry.cppm
         migrations/migration_runner.cppm
         migrations/schema_versions.cppm
@@ -1534,6 +1649,7 @@ target_sources(cc_server
     PUBLIC FILE_SET CXX_MODULES FILES
         server/server_main.cppm
         server/server_routes.cppm
+        server/types.cppm
 )
 target_link_libraries(cc_server PUBLIC cc_utils cc_session cc_query cc_tools OpenSSL::Crypto)
 
@@ -1618,6 +1734,8 @@ target_link_libraries(cc_core
         cc_schemas
         cc_benchmarks
         cc_plugins
+        cc_task_types
+        cc_history
         CURL::libcurl
         yyjson
         uv_a
