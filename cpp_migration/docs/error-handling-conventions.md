@@ -71,9 +71,10 @@ A 2026-06-17 audit of the remaining ~33 `throw` sites classified them:
   domain errors are caught by their own poll loops; the `CurlHandle` constructor
   throws on init failure (RAII); `SanitizedValue::at` mirrors `std::map::at`;
   `words::random_index` throws on a violated precondition.
-- **Dead code (no external callers):** `lazy_schema` was removed 2026-06-17
+- **Dead code (no external callers — removed 2026-06-17):** `lazy_schema`
   (fully unused module — dropped `get` / `validate_or_throw`, 2 throw sites);
-  `keybindings::resolver` is kept (member-function removal is higher-risk).
+  `keybindings::resolver()` overloads (`m_resolver` is accessed directly in
+  `handle_event`, so the accessors were unused).
 
 Migrate when touching a module; do not mass-rewrite without per-module test
 coverage.
