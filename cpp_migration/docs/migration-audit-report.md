@@ -281,8 +281,13 @@ reducers).
   a 1500ms ctest timeout and flakes under concurrent load).
 - New security regression tests added: `RuntimeSimpleToolsFailClosedWithoutPermissionCheck`,
   `PathValidationRejectsSymlinkEscapingAllowedDir`, `BashSecurityDetectsObfuscatedCommands`.
-- Structural (from baseline): ~67% of source files have no tests; branch
-  coverage ~39%; code:test ratio ~62:1 — improving but still the weakest area.
+- Coverage refresh (clang-coverage preset, 2026-06-17): **74.70% line / 58.10%
+  branch (region)** measured (213,638 lines, 9,984 regions) — replacing the
+  stale 06-11 "~39% branch" estimate (a real measurement, not a guess).
+  Untested hot spots: `vim_mode.cppm` (0.7%), `swarm_helpers.cppm` (0%), and
+  the tree-sitter AST path (`ast.cppm` 0%, since the coverage build uses the
+  regex fallback — `CC_ENABLE_TREE_SITTER` is OFF there). Test files
+  themselves run 83–93% covered. Coverage is still the weakest dimension.
 
 ## 9. Risk Ratings
 
