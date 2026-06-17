@@ -174,9 +174,20 @@ struct CreateMessageResponse {
 
 class CurlHandle {
 public:
-    CurlHandle() : handle_(curl_easy_init()) {
-        if (!handle_) throw std::runtime_error("Failed to initialize CURL");
-        curl_easy_setopt(handle_, CURLOPT_NOPROGRESS, 1L);
+    // Factory: CURL init failure is reported via Result instead of throwing,
+    // so callers that already return Result<T> (post/stream) stay consistent
+    // and a failure inside the streaming worker thread cannot terminate.
+    [[nodiscard]] static Result<CurlHandle> create() {
+        void* h = curl_easy_init();
+        if (!h) {
+            return std::unexpected(cc::utils::Error(
+                cc::utils::ErrorCode::internal_error,
+                "Failed to initialize CURL"));
+        }
+        CurlHandle handle;
+        handle.handle_ = h;
+        curl_easy_setopt(h, CURLOPT_NOPROGRESS, 1L);
+        return handle;
     }
 
     ~CurlHandle() {
@@ -203,7 +214,8 @@ public:
     }
 
 private:
-    void* handle_;
+    CurlHandle() = default;
+    void* handle_ = nullptr;
 };
 
 [[nodiscard]] bool is_loopback_url(std::string_view url) {
@@ -519,7 +531,9 @@ public:
         const std::vector<std::string>& headers,
         std::chrono::milliseconds timeout) {
 
-        CurlHandle curl;
+        auto curl_result = CurlHandle::create();
+        if (!curl_result) return std::unexpected(curl_result.error());
+        CurlHandle curl = std::move(*curl_result);
         HttpResponse response;
         std::string response_body;
         std::string response_headers;
@@ -821,7 +835,16 @@ public:
                      headers = std::move(headers),
                      timeout = config_.timeout,
                      parser]() {
-            CurlHandle curl;
+            auto curl_result = CurlHandle::create();
+            if (!curl_result) {
+                parser->set_error(ApiErrorDetails{
+                    .category = errors::ApiErrorCategory::NetworkError,
+                    .error_type = "curl_error",
+                    .error_message = "Failed to initialize CURL"
+                });
+                return;
+            }
+            CurlHandle curl = std::move(*curl_result);
             curl.setopt(CURLOPT_URL, url.c_str());
             apply_loopback_no_proxy(curl, url);
             curl.setopt(CURLOPT_POSTFIELDS, json_body.c_str());
