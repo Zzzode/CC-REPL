@@ -67,10 +67,17 @@ catch, a control-flow misuse of exceptions.
 A 2026-06-17 audit of the remaining ~33 `throw` sites classified them:
 
 - **Legitimate (kept):** the `json_read` parser throws and is wrapped to
-  `std::expected` at the `cc.utils.json` boundary; `stop_task` / `bridge_main`
-  domain errors are caught by their own poll loops; the `CurlHandle` constructor
-  throws on init failure (RAII); `SanitizedValue::at` mirrors `std::map::at`;
+  `std::expected` at the `cc.utils.json` boundary (callers use `parse_json_file`
+  which returns `Result`); `stop_task` / `bridge` domain errors are caught by
+  their own poll loops; `SanitizedValue::at` mirrors `std::map::at`;
   `words::random_index` throws on a violated precondition.
+- **Factory-migrated 2026-06-17:** `CurlHandle` (was a throwing RAII ctor — now
+  `create()` returns `Result`, so `post()` / `stream()` keep their `Result`
+  chain consistent and the streaming worker thread cannot terminate on init
+  failure).
+- **Needs investigation:** `bridge_main::run_headless` returns `VoidResult` but
+  throws `BridgeHeadlessPermanentError` (no caller catches it; the call chain is
+  unclear). Migrate when the bridge module is next touched.
 - **Dead code (no external callers — removed 2026-06-17):** `lazy_schema`
   (fully unused module — dropped `get` / `validate_or_throw`, 2 throw sites);
   `keybindings::resolver()` overloads (`m_resolver` is accessed directly in
