@@ -401,20 +401,6 @@ public:
         return true;
     }
     
-    KeybindingResolver& resolver() {
-        if (!m_resolver) {
-            throw std::runtime_error("No resolver set in keybinding context");
-        }
-        return *m_resolver;
-    }
-    
-    const KeybindingResolver& resolver() const {
-        if (!m_resolver) {
-            throw std::runtime_error("No resolver set in keybinding context");
-        }
-        return *m_resolver;
-    }
-    
 private:
     std::shared_ptr<KeybindingResolver> m_resolver;
     ActionHandler m_handler;
