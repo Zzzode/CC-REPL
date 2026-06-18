@@ -221,7 +221,15 @@ on the shared working tree - isolate in a worktree or forbid `git stash`/`checko
 
 ### Still outstanding (separate milestone)
 
-- `/insights` LLM facet/goal/outcome extraction + HTML report (~3200 LOC TS).
+- `/insights` LLM facet pipeline (~3200 LOC TS) — **PARTIALLY DONE 2026-06-18
+  (evening)**: `commands/insights.cppm` rewritten 112 -> 761 LOC. Ported the
+  deterministic core (facet data model + `goal_categories` aggregation, HTML
+  report, file-based facet cache) and an injectable LLM extraction seam
+  (`extract_facets_with_seam(LlmExtractFn)`), with 18 `TEST(Insights,*)` cases.
+  **Deferred**: live `AnthropicClient` wiring (needs api-key/bootstrap context),
+  remote homespace collection, parallel narrative generation, S3 upload,
+  multi-clauding overlap detection, and the full interactive HTML/CSS/JS page
+  (a structurally-faithful summary report is rendered instead).
 - `PromptSuggestion` `speculation.ts` prediction engine (~991 LOC) — **DONE
   2026-06-18 (evening)**: the deterministic heuristic ranker
   (`rank_candidate_suggestions`) is ported into `prompt_suggestion.cppm`
@@ -229,8 +237,9 @@ on the shared working tree - isolate in a worktree or forbid `git stash`/`checko
   quality gate + the pure speculation-boundary classifier are also ported. The
   LLM-backed `runForkedAgent` path is honestly deferred (documented in-module as
   a placeholder heuristic). 6 `SpeculationSuggestion.*` tests added.
-  Caveat: the module still has no production consumer (wiring into the prompt
-  UI is a follow-up).
+  **Production consumer wired (same evening)**: `ui/prompt/suggestion_provider.cppm`
+  bridges the service into `TextInput`'s suggestion dropdown (5 tests, incl. one
+  driving the real component). CMakeLists: `cc_services` -> `cc_ui` link added.
 - The 6 notification slots whose producers do not exist (ModelMigration,
   NpmDeprecation, PluginAutoupdate, PluginInstallation, SettingsError,
   SubscriptionSwitch).
