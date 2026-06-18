@@ -222,7 +222,15 @@ on the shared working tree - isolate in a worktree or forbid `git stash`/`checko
 ### Still outstanding (separate milestone)
 
 - `/insights` LLM facet/goal/outcome extraction + HTML report (~3200 LOC TS).
-- `PromptSuggestion` `speculation.ts` prediction engine (~991 LOC).
+- `PromptSuggestion` `speculation.ts` prediction engine (~991 LOC) — **DONE
+  2026-06-18 (evening)**: the deterministic heuristic ranker
+  (`rank_candidate_suggestions`) is ported into `prompt_suggestion.cppm`
+  (+802 LOC), replacing the single hardcoded suggestion; `should_filter_suggestion`
+  quality gate + the pure speculation-boundary classifier are also ported. The
+  LLM-backed `runForkedAgent` path is honestly deferred (documented in-module as
+  a placeholder heuristic). 6 `SpeculationSuggestion.*` tests added.
+  Caveat: the module still has no production consumer (wiring into the prompt
+  UI is a follow-up).
 - The 6 notification slots whose producers do not exist (ModelMigration,
   NpmDeprecation, PluginAutoupdate, PluginInstallation, SettingsError,
   SubscriptionSwitch).
