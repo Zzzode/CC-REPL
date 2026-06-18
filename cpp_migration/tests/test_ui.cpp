@@ -46,6 +46,8 @@ import cc.query.query_engine;
 import cc.tools.tool;
 import cc.utils.session_storage;
 import cc.utils.permissions_engine;
+import cc.services.prompt_suggestion;
+import cc.ui.prompt.suggestion_provider;
 
 namespace {
 
@@ -2291,5 +2293,132 @@ TEST(Components, PluginHintMenuUpdateState) {
 
     auto rendered_before = render_to_plain_text(menu->Render(), 80, 10);
     EXPECT_FALSE(rendered_before.empty());
+}
+
+// ── U1 wiring: PromptSuggestionService -> prompt UI suggestion surface ──────
+namespace {
+std::string u1_render_plain(ftxui::Element el, int w = 80, int h = 20) {
+    auto screen = ftxui::Screen::Create(ftxui::Dimension::Fixed(w),
+                                        ftxui::Dimension::Fixed(h));
+    ftxui::Render(screen, el);
+    return screen.ToString();
+}
+} // namespace
+
+// Exercises the adapter end-to-end: a real PromptSuggestionService is fed live
+// conversation context, and the provider callback (matching
+// TextInputOptions::get_suggestions) must surface ranked suggestions as UI
+// Suggestion items only when the input buffer is empty (mirroring the TS engine,
+// which surfaces next-action prompts at the empty prompt and lets typed-input
+// autocomplete own the rest).
+TEST(PromptSuggestionProvider, EmptyBufferSurfacesRankedSuggestions) {
+    namespace sp = cc::services::prompt_suggestion;
+    auto service = std::make_shared<sp::PromptSuggestionService>();
+    auto [provider, ctx] =
+        cc::ui::prompt::make_prompt_suggestion_provider_with_context(service);
+
+    // Seed live context: a user turn + an assistant turn (the ranker's early
+    // gate requires at least one assistant turn).
+    ctx->recent_turns.push_back(
+        {.role = "user", .content = "implement the login flow", .timestamp = {}});
+    ctx->recent_turns.push_back({.role = "assistant",
+                                 .content = "I implemented the login flow with tests.",
+                                 .timestamp = {}});
+
+    cc::ui::components::PromptContext pc;
+    auto suggestions = provider(/*input=*/"", /*cursor=*/0, pc);
+    ASSERT_FALSE(suggestions.empty());
+    for (const auto& s : suggestions) {
+        EXPECT_FALSE(s.text.empty());
+        EXPECT_FALSE(s.display_text.empty());
+        // Next-action prompts must map onto a valid UI category (History is the
+        // bucket for ConversationContext + Speculative sources).
+        EXPECT_NE(s.category, cc::ui::components::SuggestionCategory::None);
+    }
+}
+
+TEST(PromptSuggestionProvider, TypedInputReturnsNothing) {
+    namespace sp = cc::services::prompt_suggestion;
+    auto service = std::make_shared<sp::PromptSuggestionService>();
+    auto [provider, ctx] =
+        cc::ui::prompt::make_prompt_suggestion_provider_with_context(service);
+
+    ctx->recent_turns.push_back(
+        {.role = "user", .content = "ship it", .timestamp = {}});
+    ctx->recent_turns.push_back(
+        {.role = "assistant", .content = "Shipped.", .timestamp = {}});
+
+    cc::ui::components::PromptContext pc;
+    // Any non-empty buffer must defer to the slash-command/file/history providers.
+    auto suggestions = provider(/*input=*/"help", /*cursor=*/4, pc);
+    EXPECT_TRUE(suggestions.empty());
+}
+
+TEST(PromptSuggestionProvider, EmptyTurnsReturnsNothing) {
+    namespace sp = cc::services::prompt_suggestion;
+    auto service = std::make_shared<sp::PromptSuggestionService>();
+    auto [provider, ctx] =
+        cc::ui::prompt::make_prompt_suggestion_provider_with_context(service);
+    // No conversation yet: the engine must not suggest.
+    cc::ui::components::PromptContext pc;
+    auto suggestions = provider(/*input=*/"", /*cursor=*/0, pc);
+    EXPECT_TRUE(suggestions.empty());
+}
+
+TEST(PromptSuggestionProvider, ShellHistoryFailureSurfacesFixSuggestion) {
+    namespace sp = cc::services::prompt_suggestion;
+    auto service = std::make_shared<sp::PromptSuggestionService>();
+    // Record a failed shell command in the service's history.
+    service->add_shell_history({.command = "npm test",
+                                .working_dir = "/tmp",
+                                .exit_code = 1,
+                                .executed_at = {}});
+
+    auto [provider, ctx] =
+        cc::ui::prompt::make_prompt_suggestion_provider_with_context(service);
+    ctx->recent_turns.push_back(
+        {.role = "user", .content = "run the tests", .timestamp = {}});
+    ctx->recent_turns.push_back(
+        {.role = "assistant", .content = "Running tests.", .timestamp = {}});
+
+    cc::ui::components::PromptContext pc;
+    auto suggestions = provider(/*input=*/"", /*cursor=*/0, pc);
+    bool has_fix = false;
+    for (const auto& s : suggestions) {
+        if (s.text.find("Fix the failing command") != std::string::npos) {
+            has_fix = true;
+            // Shell-history suggestions map onto the Shell category.
+            EXPECT_EQ(s.category, cc::ui::components::SuggestionCategory::Shell);
+        }
+    }
+    EXPECT_TRUE(has_fix);
+}
+
+// Drives the provider through the real TextInput component to prove the wiring
+// lights up the existing suggestion dropdown. With an empty buffer + seeded
+// context the dropdown must render the "Suggestions" header and at least one
+// ranked next-action prompt.
+TEST(PromptSuggestionProvider, TextInputDropsDownRealSuggestions) {
+    namespace sp = cc::services::prompt_suggestion;
+    auto service = std::make_shared<sp::PromptSuggestionService>();
+    auto [provider, ctx] =
+        cc::ui::prompt::make_prompt_suggestion_provider_with_context(service);
+    ctx->recent_turns.push_back(
+        {.role = "user", .content = "implement feature X", .timestamp = {}});
+    ctx->recent_turns.push_back(
+        {.role = "assistant", .content = "I implemented feature X.", .timestamp = {}});
+
+    cc::ui::components::TextInputOptions opts;
+    opts.get_suggestions = provider;
+    auto component = cc::ui::components::TextInput(opts);
+
+    // Trigger a refresh of suggestions. TextInputImpl::update_suggestions_from_provider
+    // is invoked on change; with an empty buffer we synthesize a no-op change by
+    // typing then deleting a character.
+    component->OnEvent(ftxui::Event::Character("x"));
+    component->OnEvent(ftxui::Event::Backspace);
+
+    auto rendered = u1_render_plain(component->Render(), 80, 20);
+    EXPECT_NE(rendered.find("Suggestions"), std::string::npos);
 }
 

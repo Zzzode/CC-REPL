@@ -1448,6 +1448,7 @@ target_sources(cc_ui
         ui/prompt/prompt_queued_commands.cppm
         ui/prompt/prompt_stash_notice.cppm
         ui/prompt/shimmer.cppm
+        ui/prompt/suggestion_provider.cppm  # U1 — surfaces real PromptSuggestionService in the prompt UI
         ui/prompt/vim_input.cppm
         ui/prompt/voice_indicator.cppm
         ui/prompt_input.cppm
@@ -1503,6 +1504,11 @@ target_link_libraries(cc_ui
         cc_hooks
         cc_plugins
         cc_session
+        # U1: cc.ui.prompt.suggestion_provider imports cc.services.prompt_suggestion
+        # directly. cc_ui already consumed cc.services.* transitively via cc_hooks;
+        # making the dependency explicit is correct (no cycle: cc_services never
+        # imports cc.ui.*).
+        cc_services
         cc_ui_messages       # Phase 4B-UI21/22/25: list + virtual scroll + interactions
         cc_ui_screens        # Phase 4B-UI23: log selector
         cc_ui_permissions    # Phase 4B-UI24: rule list (+ advanced prompts)
