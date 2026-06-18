@@ -19,6 +19,8 @@ module;
 #include <string_view>
 #include <utility>
 #include <vector>
+#include <type_traits>
+#include <unordered_map>
 #include <cctype>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -110,87 +112,299 @@ struct CallbackResult {
     std::string state;
 };
 
-// Keychain storage interface (macOS Security framework)
-class KeychainStore {
-public:
-    explicit KeychainStore(std::string service_name)
-        : service_name_(std::move(service_name)) {}
+// ============================================================
+// Keychain backend interface + implementations
+// ============================================================
+//
+// KeychainStore is a thin facade over a swappable KeychainBackend. On Apple
+// platforms the default backend is the native Security framework
+// (SecItemAdd/SecItemCopyMatching/SecItemDelete via generic-password items);
+// everywhere else it falls back to an owner-only file under
+// $HOME/.claude/tokens. Tests inject an in-memory backend. The facade's public
+// method surface (store/retrieve/remove) is unchanged, so existing OAuthClient
+// call sites need no edits.
 
-    // Store a token pair in the system keychain
-    std::expected<void, OAuthError> store(const std::string& account, const TokenPair& token) {
-        auto data = serialize_token(token);
-        // macOS: SecItemAdd / SecItemUpdate via Security framework
-        // Simplified: store to file-based fallback
-        auto path = token_path(account);
-        std::filesystem::create_directories(path.parent_path());
+/// Abstract credential store, keyed by (service, account).
+class KeychainBackend {
+public:
+    virtual ~KeychainBackend() = default;
+    virtual std::expected<void, OAuthError> store(std::string_view account,
+                                                  std::string_view data) = 0;
+    virtual std::expected<std::string, OAuthError> retrieve(std::string_view account) = 0;
+    virtual std::expected<void, OAuthError> remove(std::string_view account) = 0;
+};
+
+/// Serialize/deserialize a TokenPair to/from an opaque blob. Stored payload is
+/// JSON to avoid the pipe-delimited format's ambiguity when a field contains '|'.
+[[nodiscard]] inline std::string serialize_token_payload(const TokenPair& token) {
+    auto issued_epoch = std::chrono::duration_cast<std::chrono::seconds>(
+        token.issued_at.time_since_epoch()).count();
+    return std::format(
+        R"({{"access_token":"{}","refresh_token":"{}","token_type":"{}","expires_in":{},"issued_at":{},"scope":"{}"}})",
+        token.access_token, token.refresh_token, token.token_type,
+        token.expires_in, issued_epoch, token.scope);
+}
+
+[[nodiscard]] inline std::expected<TokenPair, OAuthError>
+deserialize_token_payload(const std::string& data) {
+    TokenPair token;
+    auto find = [&](std::string_view key) -> std::optional<std::string> {
+        auto needle = std::format("\"{}\":\"", key);
+        auto pos = data.find(needle);
+        if (pos == std::string::npos) return std::nullopt;
+        pos += needle.size();
+        auto end = data.find('"', pos);
+        if (end == std::string::npos) return std::nullopt;
+        return std::string(data.substr(pos, end - pos));
+    };
+    auto find_num = [&](std::string_view key) -> std::optional<long long> {
+        auto needle = std::format("\"{}\":", key);
+        auto pos = data.find(needle);
+        if (pos == std::string::npos) return std::nullopt;
+        pos += needle.size();
+        while (pos < data.size() && (data[pos] == ' ' || data[pos] == '\t')) ++pos;
+        std::size_t len = 0;
+        if (pos < data.size() && (data[pos] == '-' || (data[pos] >= '0' && data[pos] <= '9'))) {
+            std::size_t start = pos;
+            if (data[pos] == '-') ++pos;
+            while (pos < data.size() && data[pos] >= '0' && data[pos] <= '9') { ++pos; }
+            try { return std::stoll(data.substr(start, pos - start)); }
+            catch (...) { return std::nullopt; }
+            (void)len;
+        }
+        return std::nullopt;
+    };
+
+    auto at = find("access_token");
+    auto rt = find("refresh_token");
+    auto tt = find("token_type");
+    auto exp = find_num("expires_in");
+    auto issued = find_num("issued_at");
+    auto sc = find("scope");
+    if (!at || !rt || !exp || !issued) return std::unexpected(OAuthError::TokenInvalid);
+    token.access_token = *at;
+    token.refresh_token = *rt;
+    token.token_type = tt.value_or("Bearer");
+    token.expires_in = static_cast<int>(*exp);
+    token.issued_at = std::chrono::system_clock::time_point(std::chrono::seconds(*issued));
+    token.scope = sc.value_or("");
+    return token;
+}
+
+/// Owner-only file backend (non-Apple default, and the test-injectable shape).
+class FileKeychainBackend : public KeychainBackend {
+public:
+    FileKeychainBackend(std::string service_name, std::filesystem::path root)
+        : service_name_(std::move(service_name)), root_(std::move(root)) {}
+
+    std::expected<void, OAuthError> store(std::string_view account, std::string_view data) override {
+        auto path = path_for(account);
+        std::error_code ec;
+        std::filesystem::create_directories(path.parent_path(), ec);
         std::ofstream file(path, std::ios::binary | std::ios::trunc);
         if (!file.is_open()) return std::unexpected(OAuthError::KeychainError);
-        file.write(data.c_str(), static_cast<std::streamsize>(data.size()));
-        // Set restrictive permissions (owner read/write only)
-        std::filesystem::permissions(path, std::filesystem::perms::owner_read | 
-                                           std::filesystem::perms::owner_write);
+        file.write(data.data(), static_cast<std::streamsize>(data.size()));
+        std::filesystem::permissions(path,
+            std::filesystem::perms::owner_read | std::filesystem::perms::owner_write,
+            std::filesystem::perm_options::replace, ec);
         return {};
     }
 
-    // Retrieve a stored token pair
-    std::expected<TokenPair, OAuthError> retrieve(const std::string& account) {
-        auto path = token_path(account);
-        if (!std::filesystem::exists(path)) {
-            return std::unexpected(OAuthError::TokenInvalid);
-        }
+    std::expected<std::string, OAuthError> retrieve(std::string_view account) override {
+        auto path = path_for(account);
+        if (!std::filesystem::exists(path)) return std::unexpected(OAuthError::TokenInvalid);
         std::ifstream file(path, std::ios::binary);
         if (!file.is_open()) return std::unexpected(OAuthError::KeychainError);
-
-        std::string data((std::istreambuf_iterator<char>(file)),
-                         std::istreambuf_iterator<char>());
-        return deserialize_token(data);
+        return std::string((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
     }
 
-    // Delete stored token
-    std::expected<void, OAuthError> remove(const std::string& account) {
-        auto path = token_path(account);
-        if (std::filesystem::exists(path)) {
-            std::filesystem::remove(path);
+    std::expected<void, OAuthError> remove(std::string_view account) override {
+        auto path = path_for(account);
+        std::error_code ec;
+        if (std::filesystem::exists(path, ec)) std::filesystem::remove(path, ec);
+        return {};
+    }
+
+    [[nodiscard]] static std::filesystem::path default_root() {
+        const char* home = std::getenv("HOME");
+        return std::filesystem::path(home ? home : "/tmp") / ".claude" / "tokens";
+    }
+
+private:
+    [[nodiscard]] std::filesystem::path path_for(std::string_view account) const {
+        return root_ / std::string(account);
+    }
+    std::string service_name_;
+    std::filesystem::path root_;
+};
+
+#ifdef __APPLE__
+namespace detail {
+// RAII owner for a CoreFoundation reference; releases on destruction.
+template <typename T> class cf_ptr {
+    static_assert(std::is_pointer_v<T>, "cf_ptr wraps a CF reference type (pointer)");
+public:
+    cf_ptr() = default;
+    explicit cf_ptr(T p) : p_(p) {}
+    cf_ptr(const cf_ptr&) = delete;
+    cf_ptr& operator=(const cf_ptr&) = delete;
+    cf_ptr(cf_ptr&& o) noexcept : p_(o.p_) { o.p_ = nullptr; }
+    cf_ptr& operator=(cf_ptr&& o) noexcept {
+        if (this != &o) { if (p_) CFRelease(p_); p_ = o.p_; o.p_ = nullptr; }
+        return *this;
+    }
+    ~cf_ptr() { if (p_) CFRelease(p_); }
+    T get() const noexcept { return p_; }
+    // Mutable access (CFDictionarySetValue needs a non-const CFMutableDictionaryRef).
+    T mut() noexcept { return p_; }
+private:
+    T p_{nullptr};
+};
+} // namespace detail
+using detail::cf_ptr;
+
+/// Native macOS keychain backend using the Security framework C API.
+/// Stores each token as a generic-password item keyed by (service, account).
+class MacosKeychainBackend : public KeychainBackend {
+public:
+    explicit MacosKeychainBackend(std::string service_name)
+        : service_name_(std::move(service_name)) {}
+
+    std::expected<void, OAuthError> store(std::string_view account, std::string_view data) override {
+        auto q = base_query(account);
+        // Try an update first (item may already exist); fall back to add.
+        auto update = dictionary_upsert(data);
+        OSStatus s = SecItemUpdate(q.get(), update.get());
+        if (s == errSecItemNotFound) {
+            auto add = dictionary_upsert(data);
+            CFDictionarySetValue(add.get(), kSecClass, kSecClassGenericPassword);
+            add_cf_string(add.get(), kSecAttrService, service_name_);
+            add_cf_string(add.get(), kSecAttrAccount, account);
+            s = SecItemAdd(add.get(), nullptr);
+        }
+        if (s != errSecSuccess) return std::unexpected(OAuthError::KeychainError);
+        return {};
+    }
+
+    std::expected<std::string, OAuthError> retrieve(std::string_view account) override {
+        auto q = base_query(account);
+        CFDictionarySetValue(q.get(), kSecReturnData, kCFBooleanTrue);
+        CFDictionarySetValue(q.get(), kSecMatchLimit, kSecMatchLimitOne);
+        CFTypeRef out = nullptr;
+        OSStatus s = SecItemCopyMatching(q.get(), &out);
+        if (s == errSecItemNotFound) return std::unexpected(OAuthError::TokenInvalid);
+        if (s != errSecSuccess || out == nullptr) return std::unexpected(OAuthError::KeychainError);
+        auto data_ref = static_cast<CFDataRef>(out);
+        std::string result(reinterpret_cast<const char*>(CFDataGetBytePtr(data_ref)),
+                           CFDataGetLength(data_ref));
+        CFRelease(out);
+        return result;
+    }
+
+    std::expected<void, OAuthError> remove(std::string_view account) override {
+        auto q = base_query(account);
+        OSStatus s = SecItemDelete(q.get());
+        if (s != errSecSuccess && s != errSecItemNotFound) {
+            return std::unexpected(OAuthError::KeychainError);
         }
         return {};
     }
 
 private:
-    [[nodiscard]] std::filesystem::path token_path(const std::string& account) const {
-        auto home = std::getenv("HOME");
-        return std::filesystem::path(home ? home : "/tmp") / ".claude" / "tokens" / account;
+    [[nodiscard]] cf_ptr<CFMutableDictionaryRef> base_query(std::string_view account) const {
+        auto dict = cf_ptr<CFMutableDictionaryRef>(
+            CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks,
+                                      &kCFTypeDictionaryValueCallBacks));
+        CFDictionarySetValue(dict.get(), kSecClass, kSecClassGenericPassword);
+        add_cf_string(dict.get(), kSecAttrService, service_name_);
+        add_cf_string(dict.get(), kSecAttrAccount, account);
+        return dict;
     }
 
-    [[nodiscard]] static std::string serialize_token(const TokenPair& token) {
-        auto issued_epoch = std::chrono::duration_cast<std::chrono::seconds>(
-            token.issued_at.time_since_epoch()).count();
-        return std::format("{}|{}|{}|{}|{}|{}",
-            token.access_token, token.refresh_token, token.token_type,
-            token.expires_in, issued_epoch, token.scope);
+    [[nodiscard]] static cf_ptr<CFMutableDictionaryRef>
+    dictionary_upsert(std::string_view data) {
+        auto dict = cf_ptr<CFMutableDictionaryRef>(
+            CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks,
+                                      &kCFTypeDictionaryValueCallBacks));
+        auto cfdata = cf_ptr<CFDataRef>(CFDataCreateWithBytesNoCopy(
+            kCFAllocatorDefault, reinterpret_cast<const UInt8*>(data.data()),
+            static_cast<CFIndex>(data.size()), kCFAllocatorNull));
+        CFDictionarySetValue(dict.get(), kSecValueData, cfdata.get());
+        return dict;
     }
 
-    [[nodiscard]] static std::expected<TokenPair, OAuthError> deserialize_token(const std::string& data) {
-        TokenPair token;
-        // Parse pipe-delimited fields
-        std::vector<std::string> fields;
-        std::istringstream stream(data);
-        std::string field;
-        while (std::getline(stream, field, '|')) {
-            fields.push_back(field);
-        }
-        if (fields.size() < 6) return std::unexpected(OAuthError::TokenInvalid);
-
-        token.access_token = fields[0];
-        token.refresh_token = fields[1];
-        token.token_type = fields[2];
-        token.expires_in = std::stoi(fields[3]);
-        auto epoch = std::stoll(fields[4]);
-        token.issued_at = std::chrono::system_clock::time_point(std::chrono::seconds(epoch));
-        token.scope = fields[5];
-        return token;
+    static void add_cf_string(CFMutableDictionaryRef dict, const void* key, std::string_view sv) {
+        auto s = cf_ptr<CFStringRef>(CFStringCreateWithBytes(
+            kCFAllocatorDefault, reinterpret_cast<const UInt8*>(sv.data()),
+            static_cast<CFIndex>(sv.size()), kCFStringEncodingUTF8, false));
+        CFDictionarySetValue(dict, key, s.get());
     }
 
     std::string service_name_;
+};
+#endif // __APPLE__
+
+/// In-memory backend for tests (never touches the disk or the real keychain).
+class MemoryKeychainBackend : public KeychainBackend {
+public:
+    std::expected<void, OAuthError> store(std::string_view account, std::string_view data) override {
+        store_[std::string(account)] = std::string(data);
+        return {};
+    }
+    std::expected<std::string, OAuthError> retrieve(std::string_view account) override {
+        auto it = store_.find(std::string(account));
+        if (it == store_.end()) return std::unexpected(OAuthError::TokenInvalid);
+        return it->second;
+    }
+    std::expected<void, OAuthError> remove(std::string_view account) override {
+        store_.erase(std::string(account));
+        return {};
+    }
+private:
+    std::unordered_map<std::string, std::string> store_;
+};
+
+/// Factory: the platform-native backend on Apple, the file backend elsewhere.
+[[nodiscard]] inline std::unique_ptr<KeychainBackend>
+make_default_keychain_backend(std::string service_name, std::filesystem::path file_root) {
+#ifdef __APPLE__
+    (void)file_root;
+    return std::make_unique<MacosKeychainBackend>(std::move(service_name));
+#else
+    return std::make_unique<FileKeychainBackend>(std::move(service_name), std::move(file_root));
+#endif
+}
+
+/// KeychainStore facade: keeps the original store/retrieve/remove(account,
+/// TokenPair) surface so OAuthClient is unchanged, delegating to a backend.
+class KeychainStore {
+public:
+    explicit KeychainStore(std::string service_name)
+        : service_name_(std::move(service_name)),
+          backend_(make_default_keychain_backend(service_name_, FileKeychainBackend::default_root())) {}
+
+    KeychainStore(std::string service_name, std::unique_ptr<KeychainBackend> backend)
+        : service_name_(std::move(service_name)), backend_(std::move(backend)) {}
+
+    std::expected<void, OAuthError> store(const std::string& account, const TokenPair& token) {
+        return backend_->store(account, serialize_token_payload(token));
+    }
+
+    std::expected<TokenPair, OAuthError> retrieve(const std::string& account) {
+        auto data = backend_->retrieve(account);
+        if (!data) return std::unexpected(data.error());
+        return deserialize_token_payload(*data);
+    }
+
+    std::expected<void, OAuthError> remove(const std::string& account) {
+        return backend_->remove(account);
+    }
+
+    [[nodiscard]] const std::string& service_name() const noexcept { return service_name_; }
+
+private:
+    std::string service_name_;
+    std::unique_ptr<KeychainBackend> backend_;
 };
 
 // PKCE generator utility

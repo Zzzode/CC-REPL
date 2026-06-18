@@ -17,6 +17,7 @@ module;
 #include <format>
 #include <concepts>
 #include <variant>
+#include <type_traits>
 #include <any>
 #include <queue>
 #include <future>
@@ -904,8 +905,12 @@ class Store {
     ReducerFn reducer_;
     mutable std::shared_mutex mutex_;
 
+    // State-typed observer for this Store instance (decouples the subscriber
+    // type from the AppState-specific StateObserver alias in app_state.cppm).
+    using Observer = std::function<void(const State&, const State&)>;
+
     // Subscription management
-    std::unordered_map<SubscriptionId, StateObserver> subscribers_;
+    std::unordered_map<SubscriptionId, Observer> subscribers_;
     SubscriptionId next_sub_id_{1};
 
     // Middleware chain
@@ -919,6 +924,14 @@ class Store {
     std::shared_ptr<persistence::StatePersistence> persistence_;
     std::chrono::steady_clock::time_point last_persist_time_;
     static constexpr auto AUTO_PERSIST_INTERVAL = std::chrono::seconds(5);
+
+    // Undo/redo (opt-in state-snapshot history). Disabled by default so the
+    // default construction path is unchanged; enable via enable_undo().
+    bool undo_enabled_ = false;
+    std::size_t undo_capacity_ = 0;
+    std::vector<State> undo_stack_;
+    std::vector<State> redo_stack_;
+    static constexpr std::size_t kDefaultUndoCapacity = 100;
 
 public:
     /// Construct store with initial state and reducer
@@ -960,7 +973,7 @@ public:
     }
 
     /// Subscribe to state changes
-    [[nodiscard]] SubscriptionId subscribe(StateObserver observer) {
+    [[nodiscard]] SubscriptionId subscribe(Observer observer) {
         std::unique_lock lock(mutex_);
         auto id = next_sub_id_++;
         subscribers_.emplace(id, std::move(observer));
@@ -983,6 +996,83 @@ public:
     void set_persistence(std::shared_ptr<persistence::StatePersistence> persistence) {
         std::unique_lock lock(mutex_);
         persistence_ = std::move(persistence);
+    }
+
+    // ── Undo / redo (state-snapshot based) ────────────────────────────────
+    // Each dispatched action pushes the pre-action state onto the undo stack
+    // and clears the redo stack (standard model). Snapshots are bounded by the
+    // configured capacity; the oldest is dropped first.
+
+    /// Enable undo/redo history with the given snapshot capacity (min 1).
+    void enable_undo(std::size_t capacity = kDefaultUndoCapacity) {
+        std::unique_lock lock(mutex_);
+        undo_enabled_ = true;
+        undo_capacity_ = capacity < 1 ? 1 : capacity;
+        undo_stack_.clear();
+        redo_stack_.clear();
+    }
+
+    /// Disable undo/redo history and discard all snapshots.
+    void disable_undo() {
+        std::unique_lock lock(mutex_);
+        undo_enabled_ = false;
+        undo_stack_.clear();
+        redo_stack_.clear();
+    }
+
+    [[nodiscard]] bool undo_enabled() const {
+        std::shared_lock lock(mutex_);
+        return undo_enabled_;
+    }
+
+    [[nodiscard]] bool can_undo() const {
+        std::shared_lock lock(mutex_);
+        return undo_enabled_ && !undo_stack_.empty();
+    }
+
+    [[nodiscard]] bool can_redo() const {
+        std::shared_lock lock(mutex_);
+        return undo_enabled_ && !redo_stack_.empty();
+    }
+
+    /// Revert to the previous state snapshot. No-op if history is disabled/empty.
+    void undo() {
+        State prev;
+        State next;
+        {
+            std::unique_lock lock(mutex_);
+            if (!undo_enabled_ || undo_stack_.empty()) return;
+            redo_stack_.push_back(state_);
+            if (redo_stack_.size() > undo_capacity_) redo_stack_.erase(redo_stack_.begin());
+            state_ = std::move(undo_stack_.back());
+            undo_stack_.pop_back();
+            prev = redo_stack_.back();
+            next = state_;
+        }
+        notify(prev, next);
+    }
+
+    /// Re-apply a state that was undone. No-op if there is nothing to redo.
+    void redo() {
+        State prev;
+        State next;
+        {
+            std::unique_lock lock(mutex_);
+            if (!undo_enabled_ || redo_stack_.empty()) return;
+            undo_stack_.push_back(state_);
+            state_ = std::move(redo_stack_.back());
+            redo_stack_.pop_back();
+            prev = undo_stack_.back();
+            next = state_;
+        }
+        notify(prev, next);
+    }
+
+    /// Discard all undo/redo history (the feature stays enabled).
+    void clear_history() {
+        std::unique_lock lock(mutex_);
+        undo_stack_.clear();
+        redo_stack_.clear();
     }
 
     /// Manually save the current state
@@ -1031,8 +1121,21 @@ private:
             prev = state_;
             state_ = reducer_(state_, action);
             next = state_;
+            if (undo_enabled_) {
+                push_undo_locked(prev);
+                redo_stack_.clear();
+            }
         }
         notify(prev, next);
+    }
+
+    /// Push a pre-action snapshot onto the undo stack, dropping the oldest
+    /// entry when the capacity is exceeded. Caller holds mutex_.
+    void push_undo_locked(const State& snapshot) {
+        undo_stack_.push_back(snapshot);
+        if (undo_stack_.size() > undo_capacity_) {
+            undo_stack_.erase(undo_stack_.begin());
+        }
     }
 
     /// Rebuild middleware pipeline after adding new middleware
@@ -1049,7 +1152,7 @@ private:
     /// Notify all subscribers and change registry
     void notify(const State& prev, const State& next) {
         // Notify subscribers
-        std::vector<StateObserver> observers;
+        std::vector<Observer> observers;
         {
             std::shared_lock lock(mutex_);
             observers.reserve(subscribers_.size());
@@ -1061,18 +1164,24 @@ private:
             ob(prev, next);
         }
 
-        // Notify change registry
-        if (change_registry_) {
-            change_registry_->run_callbacks(prev, next);
-        }
+        // The change-registry and auto-persist hooks are AppState-specific
+        // (they consume `const AppState&`). Guard them so the Store template
+        // remains instantiable with any State — generic consumers still get
+        // subscriber notifications, undo/redo, and middleware.
+        if constexpr (std::is_same_v<State, AppState>) {
+            // Notify change registry
+            if (change_registry_) {
+                change_registry_->run_callbacks(prev, next);
+            }
 
-        // Auto-persist if needed
-        if (persistence_ && persistence_->is_auto_save_enabled()) {
-            auto now = std::chrono::steady_clock::now();
-            if (now - last_persist_time_ >= AUTO_PERSIST_INTERVAL) {
-                auto result = persistence_->save_state(next);
-                if (result) {
-                    last_persist_time_ = now;
+            // Auto-persist if needed
+            if (persistence_ && persistence_->is_auto_save_enabled()) {
+                auto now = std::chrono::steady_clock::now();
+                if (now - last_persist_time_ >= AUTO_PERSIST_INTERVAL) {
+                    auto result = persistence_->save_state(next);
+                    if (result) {
+                        last_persist_time_ = now;
+                    }
                 }
             }
         }

@@ -3,6 +3,12 @@
 // and returns a human-readable warning string for the permission dialog.
 // This is purely informational — it does not affect permission logic or
 // auto-approval behaviour. Ported from src/tools/BashTool/destructiveCommandWarning.ts
+//
+// Two-tier detection:
+//   1. AST-based (preferred): uses tree-sitter bash parser when CC_HAS_TREE_SITTER=1
+//      for precise structural detection with fewer false positives.
+//   2. Regex fallback (always available): pattern-matching on the raw command
+//      string. Used when tree-sitter is disabled or parsing fails.
 
 module;
 
@@ -11,10 +17,23 @@ module;
 #include <optional>
 #include <vector>
 #include <regex>
+#include <filesystem>
 
 export module cc.tools.destructive_command_warning;
 
+import cc.utils.tree_sitter.bash;
+
 export namespace cc::tools::bash_validation {
+
+/// Severity of a detected dangerous pattern.
+/// Mirrors cc::utils::tree_sitter::bash::Severity for call-site convenience.
+enum class DangerSeverity {
+    None = 0,
+    Low,
+    Medium,
+    High,
+    Critical,
+};
 
 /// A single matchable destructive pattern paired with its warning message.
 struct DestructivePattern {
@@ -163,26 +182,96 @@ inline const std::vector<DestructivePattern>& get_destructive_patterns() {
     return patterns;
 }
 
+/// Detailed result of a dangerous-command classification.
+struct DangerClassification {
+    bool is_dangerous = false;
+    DangerSeverity severity = DangerSeverity::None;
+    std::vector<std::string> matched_patterns;
+    std::string summary;
+    bool used_ast = false;     // true if tree-sitter AST detection was used
+    bool parse_error = false;  // true if AST parsing failed (regex fallback used)
+};
+
+/// Classify a bash command's dangerousness with full detail.
+///
+/// When CC_HAS_TREE_SITTER=1 and the command parses cleanly, AST-based
+/// detection is used first for higher precision.  If parsing fails or
+/// tree-sitter is disabled, regex-based detection is used as a fallback.
+[[nodiscard]] inline auto classify_dangerous_command(std::string_view command)
+    -> DangerClassification {
+    DangerClassification out;
+
+#if CC_HAS_TREE_SITTER
+    // Attempt AST-based classification for higher precision.
+    auto ast_result = cc::utils::tree_sitter::bash::classify_dangerous(
+        std::filesystem::path{}, command);
+    if (!ast_result.parse_error) {
+        out.used_ast = true;
+        out.parse_error = false;
+        if (ast_result.is_dangerous) {
+            out.is_dangerous = true;
+            switch (ast_result.severity) {
+                case cc::utils::tree_sitter::bash::Severity::Critical:
+                    out.severity = DangerSeverity::Critical; break;
+                case cc::utils::tree_sitter::bash::Severity::High:
+                    out.severity = DangerSeverity::High; break;
+                case cc::utils::tree_sitter::bash::Severity::Medium:
+                    out.severity = DangerSeverity::Medium; break;
+                case cc::utils::tree_sitter::bash::Severity::Low:
+                    out.severity = DangerSeverity::Low; break;
+                default:
+                    out.severity = DangerSeverity::None; break;
+            }
+            out.matched_patterns = ast_result.matched_patterns;
+            out.summary = ast_result.summary;
+            return out;
+        }
+        // AST found nothing dangerous — still run regex as a safety net
+        // for patterns not yet covered by the query catalogue.
+    } else {
+        out.parse_error = true;
+    }
+#else
+    out.parse_error = true;  // tree-sitter disabled → treat as "parse error"
+#endif
+
+    // Regex fallback: iterate patterns in priority order.
+    const auto& patterns = get_destructive_patterns();
+    const std::string cmd(command);
+    for (const auto& entry : patterns) {
+        if (std::regex_search(cmd, entry.pattern)) {
+            out.is_dangerous = true;
+            // Map regex warnings to a default severity.
+            if (out.severity < DangerSeverity::Medium) {
+                out.severity = DangerSeverity::Medium;
+            }
+            out.matched_patterns.push_back(entry.warning);
+            if (out.summary.empty()) {
+                out.summary = entry.warning;
+            }
+            // Keep going to collect all matching patterns, but cap the list.
+            if (out.matched_patterns.size() >= 5) break;
+        }
+    }
+
+    return out;
+}
+
 /// Checks if a bash command matches known destructive patterns.
 /// Returns a human-readable warning string, or std::nullopt if no destructive
 /// pattern is detected.
 ///
-/// The first matching pattern wins. Patterns are evaluated in priority order
-/// (see get_destructive_patterns()).
+/// When CC_HAS_TREE_SITTER=1, AST-based detection is attempted first for
+/// higher precision; regex patterns are used as a fallback.
 ///
 /// @param command The raw command string (may be a compound command with
 ///                &&, |, ;, etc.).
 /// @returns Warning string or std::nullopt.
 [[nodiscard]] inline std::optional<std::string>
 get_destructive_command_warning(std::string_view command) {
-    const auto& patterns = get_destructive_patterns();
-    const std::string cmd(command);
-    for (const auto& entry : patterns) {
-        if (std::regex_search(cmd, entry.pattern)) {
-            return entry.warning;
-        }
-    }
-    return std::nullopt;
+    auto cls = classify_dangerous_command(command);
+    if (!cls.is_dangerous) return std::nullopt;
+    return cls.summary;
 }
 
 /// Convenience alias: mirrors the TS getDestructiveCommandWarning() name for

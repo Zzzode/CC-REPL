@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.28)
 project(CC-REPL
     VERSION 1.0.0
     DESCRIPTION "CC-REPL: A C++23 Modules-based CLI REPL"
-    LANGUAGES CXX
+    LANGUAGES CXX C
 )
 
 # ─── C++23 Standard ───────────────────────────────────────────────────────────

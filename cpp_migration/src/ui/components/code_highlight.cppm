@@ -9,6 +9,7 @@
 ///   function) heuristic matches TS Fallback.tsx line-for-line.
 module;
 
+#include <algorithm>
 #include <string>
 #include <vector>
 #include <memory>
@@ -56,6 +57,58 @@ enum class TokenType : std::uint8_t {
     Attribute,
     Error,
 };
+
+// ============================================================
+// Semantic (LSP-backed) token overlay
+// ============================================================
+//
+// The keyword tokenizer below is a heuristic. When an LSP server provides
+// semantic tokens (textDocument/semanticTokens), a SemanticTokenLayer can be
+// overlaid: spans the server classifies override the heuristic token type,
+// while gaps keep the heuristic classification. This lets the highlighter show
+// authoritative function/variable/parameter/type colours when an LSP is
+// available, and fall back gracefully otherwise.
+
+/// One semantic span, in 1-based line / 0-based column coordinates.
+struct SemanticSpan {
+    int line = 0;            // 1-based line number
+    int start_col = 0;       // 0-based start column (bytes)
+    int end_col = 0;         // 0-based end column (exclusive)
+    std::string lsp_type;    // e.g. "function", "variable", "class", "macro"
+};
+
+/// A collection of semantic spans keyed by line, applied as an overlay.
+struct SemanticTokenLayer {
+    std::vector<SemanticSpan> spans;
+
+    /// Spans belonging to `line` (1-based), sorted by start column.
+    [[nodiscard]] std::vector<const SemanticSpan*> spans_for(int line) const {
+        std::vector<const SemanticSpan*> out;
+        for (const auto& s : spans) {
+            if (s.line == line) out.push_back(&s);
+        }
+        std::sort(out.begin(), out.end(),
+                  [](const SemanticSpan* a, const SemanticSpan* b) { return a->start_col < b->start_col; });
+        return out;
+    }
+};
+
+/// Map an LSP SemanticTokenType name to the highlighter's TokenType. Unknown
+/// types fall back to Plain (leaving the heuristic classification intact).
+[[nodiscard]] inline TokenType lsp_type_to_token_type(std::string_view lsp_type) noexcept {
+    if (lsp_type == "function" || lsp_type == "method") return TokenType::Function;
+    if (lsp_type == "class" || lsp_type == "struct" || lsp_type == "enum" ||
+        lsp_type == "type" || lsp_type == "typeParameter" || lsp_type == "interface") return TokenType::Type;
+    if (lsp_type == "variable" || lsp_type == "parameter" || lsp_type == "property") return TokenType::Variable;
+    if (lsp_type == "namespace" || lsp_type == "module") return TokenType::Type;
+    if (lsp_type == "macro") return TokenType::Preprocessor;
+    if (lsp_type == "keyword") return TokenType::Keyword;
+    if (lsp_type == "string") return TokenType::String;
+    if (lsp_type == "number") return TokenType::Number;
+    if (lsp_type == "comment") return TokenType::Comment;
+    if (lsp_type == "constant" || lsp_type == "enumMember") return TokenType::Constant;
+    return TokenType::Plain;
+}
 
 /// A highlighted token within a line
 struct HighlightToken {
@@ -781,6 +834,41 @@ enum class MultilineState : std::uint8_t {
         hl.line_number = i + 1;
         hl.tokens = tokenize_line_ex(lines[i], spec, ml_state, 0);
         result.lines.push_back(std::move(hl));
+    }
+    return result;
+}
+
+/// Apply a semantic-token overlay on top of an existing heuristic HighlightResult.
+/// For each line, any heuristic token whose [start_col, end_col) is fully covered
+/// by a semantic span is reclassified to the LSP type (semantic-wins); tokens not
+/// covered keep their heuristic type. Lines with no semantic data are untouched.
+inline void apply_semantic_overlay(HighlightResult& result, const SemanticTokenLayer& layer) {
+    for (auto& hl : result.lines) {
+        auto spans = layer.spans_for(hl.line_number);
+        if (spans.empty()) continue;
+        for (auto& token : hl.tokens) {
+            for (const SemanticSpan* s : spans) {
+                if (token.start_col >= s->start_col && token.end_col <= s->end_col &&
+                    token.end_col > s->start_col && token.start_col < s->end_col) {
+                    auto mapped = lsp_type_to_token_type(s->lsp_type);
+                    if (mapped != TokenType::Plain) {
+                        token.type = mapped;
+                    }
+                    break;
+                }
+            }
+        }
+    }
+}
+
+/// Highlight source with an optional semantic overlay. When `layer` is null or
+/// empty, the result is identical to the keyword-only highlight_source().
+[[nodiscard]] inline HighlightResult highlight_source(
+    const std::string& source, const std::string& language,
+    const SemanticTokenLayer* layer) {
+    auto result = highlight_source(source, language);
+    if (layer && !layer->spans.empty()) {
+        apply_semantic_overlay(result, *layer);
     }
     return result;
 }

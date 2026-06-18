@@ -15,61 +15,13 @@ module;
 #include <utility>
 #include <vector>
 
-#include <yyjson.h>
-
 export module cc.tools.notebook;
+
+import cc.utils.json;
 
 namespace cc::tools::notebook_detail {
 
-class JsonDocHandle {
-public:
-    explicit JsonDocHandle(yyjson_doc* doc = nullptr) : doc_(doc) {}
-    ~JsonDocHandle() {
-        if (doc_) yyjson_doc_free(doc_);
-    }
-
-    JsonDocHandle(const JsonDocHandle&) = delete;
-    JsonDocHandle& operator=(const JsonDocHandle&) = delete;
-
-    JsonDocHandle(JsonDocHandle&& other) noexcept : doc_(std::exchange(other.doc_, nullptr)) {}
-    auto operator=(JsonDocHandle&& other) noexcept -> JsonDocHandle& {
-        if (this != &other) {
-            if (doc_) yyjson_doc_free(doc_);
-            doc_ = std::exchange(other.doc_, nullptr);
-        }
-        return *this;
-    }
-
-    [[nodiscard]] auto get() const noexcept -> yyjson_doc* { return doc_; }
-
-private:
-    yyjson_doc* doc_;
-};
-
-class JsonMutDocHandle {
-public:
-    explicit JsonMutDocHandle(yyjson_mut_doc* doc = nullptr) : doc_(doc) {}
-    ~JsonMutDocHandle() {
-        if (doc_) yyjson_mut_doc_free(doc_);
-    }
-
-    JsonMutDocHandle(const JsonMutDocHandle&) = delete;
-    JsonMutDocHandle& operator=(const JsonMutDocHandle&) = delete;
-
-    JsonMutDocHandle(JsonMutDocHandle&& other) noexcept : doc_(std::exchange(other.doc_, nullptr)) {}
-    auto operator=(JsonMutDocHandle&& other) noexcept -> JsonMutDocHandle& {
-        if (this != &other) {
-            if (doc_) yyjson_mut_doc_free(doc_);
-            doc_ = std::exchange(other.doc_, nullptr);
-        }
-        return *this;
-    }
-
-    [[nodiscard]] auto get() const noexcept -> yyjson_mut_doc* { return doc_; }
-
-private:
-    yyjson_mut_doc* doc_;
-};
+namespace json = cc::utils::json;
 
 [[nodiscard]] auto read_file(const std::filesystem::path& path) -> std::expected<std::string, std::string> {
     std::ifstream file(path);
@@ -77,30 +29,25 @@ private:
     return std::string((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
 }
 
-[[nodiscard]] auto source_to_string(yyjson_val* source) -> std::string {
-    if (yyjson_is_str(source)) {
-        const char* text = yyjson_get_str(source);
-        return text ? std::string(text, yyjson_get_len(source)) : std::string{};
+// Flatten a notebook "source" field (either a string or an array of string
+// lines) into a single string.
+[[nodiscard]] auto source_to_string(json::JsonVal source) -> std::string {
+    if (source.is_str()) {
+        return std::string(source.as_str());
     }
-
-    if (!yyjson_is_arr(source)) return {};
+    if (!source.is_arr()) return {};
 
     std::string joined;
-    yyjson_arr_iter iter;
-    yyjson_arr_iter_init(source, &iter);
-    yyjson_val* item = nullptr;
-    while ((item = yyjson_arr_iter_next(&iter)) != nullptr) {
-        if (!yyjson_is_str(item)) continue;
-        const char* text = yyjson_get_str(item);
-        if (text) joined.append(text, yyjson_get_len(item));
-    }
+    source.iter([&](json::JsonVal item) {
+        if (item.is_str()) joined.append(std::string(item.as_str()));
+    });
     return joined;
 }
 
-void replace_obj_value(yyjson_mut_doc* doc, yyjson_mut_val* obj, std::string_view key, yyjson_mut_val* value) {
-    yyjson_mut_obj_remove_keyn(obj, key.data(), key.size());
-    auto* key_val = yyjson_mut_strncpy(doc, key.data(), key.size());
-    yyjson_mut_obj_add(obj, key_val, value);
+// Replace (or insert) `key`→`value` on a mutable object via the canonical API.
+void replace_obj_value(json::JsonMutVal obj, std::string_view key, json::JsonMutVal value) {
+    obj.remove(key);
+    obj.add(key, value);
 }
 
 } // namespace cc::tools::notebook_detail
@@ -295,112 +242,96 @@ public:
         auto content = notebook_detail::read_file(path);
         if (!content) return std::unexpected(NotebookError::IoError);
 
-        yyjson_read_err err{};
-        notebook_detail::JsonDocHandle doc(yyjson_read_opts(
-            const_cast<char*>(content->data()), content->size(), 0, nullptr, &err));
-        if (!doc.get()) {
+        auto parsed = notebook_detail::json::parse(*content);
+        if (!parsed) {
             return std::unexpected(NotebookError::ParseError);
         }
 
-        auto* root = yyjson_doc_get_root(doc.get());
-        if (!yyjson_is_obj(root)) {
+        auto root = parsed->root();
+        if (!root.is_obj()) {
             return std::unexpected(NotebookError::InvalidNotebook);
         }
 
-        auto* nbformat = yyjson_obj_get(root, "nbformat");
-        auto* nbformat_minor = yyjson_obj_get(root, "nbformat_minor");
-        auto* cells = yyjson_obj_get(root, "cells");
-        if (!yyjson_is_num(nbformat) || !yyjson_is_arr(cells)) {
+        auto nbformat = root.get("nbformat");
+        auto nbformat_minor = root.get("nbformat_minor");
+        auto cells = root.get("cells");
+        if (!nbformat.is_num() || !cells.is_arr()) {
             return std::unexpected(NotebookError::InvalidNotebook);
         }
 
         Notebook nb;
         nb.raw_json = std::move(*content);
-        nb.nbformat = static_cast<int>(yyjson_get_sint(nbformat));
-        if (yyjson_is_num(nbformat_minor)) {
-            nb.nbformat_minor = static_cast<int>(yyjson_get_sint(nbformat_minor));
+        nb.nbformat = static_cast<int>(nbformat.as_int());
+        if (nbformat_minor.is_num()) {
+            nb.nbformat_minor = static_cast<int>(nbformat_minor.as_int());
         }
 
-        auto* metadata = yyjson_obj_get(root, "metadata");
-        if (yyjson_is_obj(metadata)) {
-            auto* kernelspec = yyjson_obj_get(metadata, "kernelspec");
-            if (yyjson_is_obj(kernelspec)) {
-                auto* name = yyjson_obj_get(kernelspec, "name");
-                if (yyjson_is_str(name)) {
-                    nb.kernel_name.assign(yyjson_get_str(name), yyjson_get_len(name));
+        auto metadata = root.get("metadata");
+        if (metadata.is_obj()) {
+            auto kernelspec = metadata.get("kernelspec");
+            if (kernelspec.is_obj()) {
+                auto name = kernelspec.get("name");
+                if (name.is_str()) {
+                    nb.kernel_name = std::string(name.as_str());
                 }
             }
-            auto* language_info = yyjson_obj_get(metadata, "language_info");
-            if (yyjson_is_obj(language_info)) {
-                auto* name = yyjson_obj_get(language_info, "name");
-                if (yyjson_is_str(name)) {
-                    nb.language.assign(yyjson_get_str(name), yyjson_get_len(name));
+            auto language_info = metadata.get("language_info");
+            if (language_info.is_obj()) {
+                auto name = language_info.get("name");
+                if (name.is_str()) {
+                    nb.language = std::string(name.as_str());
                 }
             }
         }
 
-        yyjson_arr_iter iter;
-        yyjson_arr_iter_init(cells, &iter);
-        yyjson_val* cell_val = nullptr;
-        while ((cell_val = yyjson_arr_iter_next(&iter)) != nullptr) {
-            if (!yyjson_is_obj(cell_val)) {
-                return std::unexpected(NotebookError::InvalidNotebook);
-            }
+        bool ok = true;
+        cells.iter([&](notebook_detail::json::JsonVal cell_val) {
+            if (!cell_val.is_obj()) { ok = false; return; }
 
-            auto* type_val = yyjson_obj_get(cell_val, "cell_type");
-            if (!yyjson_is_str(type_val)) {
-                return std::unexpected(NotebookError::InvalidNotebook);
-            }
-            auto cell_type = parse_cell_type(std::string_view(yyjson_get_str(type_val), yyjson_get_len(type_val)));
-            if (!cell_type) {
-                return std::unexpected(NotebookError::InvalidCellType);
-            }
+            auto type_val = cell_val.get("cell_type");
+            if (!type_val.is_str()) { ok = false; return; }
+            auto cell_type = parse_cell_type(type_val.as_str());
+            if (!cell_type) { ok = false; return; }
 
             NotebookCell cell;
             cell.cell_type = *cell_type;
 
-            auto* id_val = yyjson_obj_get(cell_val, "id");
-            if (yyjson_is_str(id_val)) {
-                cell.id = std::string(yyjson_get_str(id_val), yyjson_get_len(id_val));
+            auto id_val = cell_val.get("id");
+            if (id_val.is_str()) {
+                cell.id = std::string(id_val.as_str());
             }
 
-            cell.source = notebook_detail::source_to_string(yyjson_obj_get(cell_val, "source"));
+            cell.source = notebook_detail::source_to_string(cell_val.get("source"));
 
-            auto* execution_count = yyjson_obj_get(cell_val, "execution_count");
-            if (yyjson_is_num(execution_count)) {
-                cell.execution_count = static_cast<int>(yyjson_get_sint(execution_count));
+            auto execution_count = cell_val.get("execution_count");
+            if (execution_count.is_num()) {
+                cell.execution_count = static_cast<int>(execution_count.as_int());
             }
 
-            auto* outputs = yyjson_obj_get(cell_val, "outputs");
-            if (yyjson_is_arr(outputs)) {
-                yyjson_arr_iter outputs_iter;
-                yyjson_arr_iter_init(outputs, &outputs_iter);
-                yyjson_val* output_val = nullptr;
-                while ((output_val = yyjson_arr_iter_next(&outputs_iter)) != nullptr) {
-                    if (!yyjson_is_obj(output_val)) continue;
+            auto outputs = cell_val.get("outputs");
+            if (outputs.is_arr()) {
+                outputs.iter([&cell](notebook_detail::json::JsonVal output_val) {
+                    if (!output_val.is_obj()) return;
                     CellOutput output;
-                    auto* output_type = yyjson_obj_get(output_val, "output_type");
-                    if (yyjson_is_str(output_type)) {
-                        output.output_type.assign(yyjson_get_str(output_type), yyjson_get_len(output_type));
+                    auto output_type = output_val.get("output_type");
+                    if (output_type.is_str()) {
+                        output.output_type = std::string(output_type.as_str());
                     }
-                    auto* name = yyjson_obj_get(output_val, "name");
-                    if (yyjson_is_str(name)) {
-                        output.name = std::string(yyjson_get_str(name), yyjson_get_len(name));
+                    auto name = output_val.get("name");
+                    if (name.is_str()) {
+                        output.name = std::string(name.as_str());
                     }
-                    output.text = notebook_detail::source_to_string(yyjson_obj_get(output_val, "text"));
+                    output.text = notebook_detail::source_to_string(output_val.get("text"));
                     cell.outputs.push_back(std::move(output));
-                }
+                });
             }
 
-            std::size_t raw_len = 0;
-            char* raw_cell = yyjson_val_write(cell_val, 0, &raw_len);
-            if (raw_cell) {
-                cell.raw_json.assign(raw_cell, raw_len);
-                std::free(raw_cell);
-            }
+            // Preserve the cell's original JSON for round-tripping untouched fields.
+            cell.raw_json = notebook_detail::json::to_string(cell_val);
 
             nb.cells.push_back(std::move(cell));
-        }
+        });
+        if (!ok) return std::unexpected(NotebookError::InvalidNotebook);
 
         return nb;
     }
@@ -409,79 +340,66 @@ public:
     auto save_notebook(const std::filesystem::path& path, const Notebook& notebook) const
         -> std::expected<void, NotebookError>
     {
-        yyjson_read_err err{};
-        notebook_detail::JsonDocHandle doc(yyjson_read_opts(
-            const_cast<char*>(notebook.raw_json.data()), notebook.raw_json.size(), 0, nullptr, &err));
-        if (!doc.get()) {
+        namespace json = notebook_detail::json;
+
+        // Parse the round-tripped raw JSON, then copy it into a mutable document
+        // so individual cells/fields can be edited in place.
+        auto parsed = json::parse(notebook.raw_json);
+        if (!parsed) {
             return std::unexpected(NotebookError::ParseError);
         }
 
-        notebook_detail::JsonMutDocHandle mut_doc(yyjson_doc_mut_copy(doc.get(), nullptr));
-        if (!mut_doc.get()) {
-            return std::unexpected(NotebookError::ParseError);
-        }
-
-        auto* root = yyjson_mut_doc_get_root(mut_doc.get());
-        if (!yyjson_mut_is_obj(root)) {
+        json::JsonMutDoc mut_doc;
+        auto root = mut_doc.copy_val(parsed->root());
+        mut_doc.set_root(root);
+        if (!root.is_obj()) {
             return std::unexpected(NotebookError::InvalidNotebook);
         }
 
-        auto* cells = yyjson_mut_arr(mut_doc.get());
+        auto cells = mut_doc.array();
         for (const auto& cell : notebook.cells) {
-            yyjson_mut_val* cell_obj = nullptr;
+            json::JsonMutVal cell_obj{nullptr, mut_doc.raw()};
             if (!cell.raw_json.empty()) {
-                yyjson_read_err cell_err{};
-                notebook_detail::JsonDocHandle cell_doc(yyjson_read_opts(
-                    const_cast<char*>(cell.raw_json.data()), cell.raw_json.size(), 0, nullptr, &cell_err));
-                if (cell_doc.get()) {
-                    cell_obj = yyjson_val_mut_copy(mut_doc.get(), yyjson_doc_get_root(cell_doc.get()));
-                }
+                cell_obj = mut_doc.raw_json(cell.raw_json);
             }
-            if (!cell_obj) {
-                cell_obj = yyjson_mut_obj(mut_doc.get());
+            if (!cell_obj.valid()) {
+                cell_obj = mut_doc.object();
             }
 
             if (cell.dirty || cell.raw_json.empty()) {
-                notebook_detail::replace_obj_value(mut_doc.get(), cell_obj, "cell_type",
-                    yyjson_mut_strncpy(mut_doc.get(), cell_type_name(cell.cell_type).data(), cell_type_name(cell.cell_type).size()));
-                notebook_detail::replace_obj_value(mut_doc.get(), cell_obj, "source",
-                    yyjson_mut_strncpy(mut_doc.get(), cell.source.data(), cell.source.size()));
+                notebook_detail::replace_obj_value(cell_obj, "cell_type",
+                    mut_doc.string(cell_type_name(cell.cell_type)));
+                notebook_detail::replace_obj_value(cell_obj, "source",
+                    mut_doc.string(cell.source));
 
-                if (!yyjson_mut_obj_get(cell_obj, "metadata")) {
-                    notebook_detail::replace_obj_value(mut_doc.get(), cell_obj, "metadata",
-                        yyjson_mut_obj(mut_doc.get()));
+                if (!cell_obj.get("metadata").valid()) {
+                    notebook_detail::replace_obj_value(cell_obj, "metadata", mut_doc.object());
                 }
-                if (cell.id && !yyjson_mut_obj_get(cell_obj, "id")) {
-                    notebook_detail::replace_obj_value(mut_doc.get(), cell_obj, "id",
-                        yyjson_mut_strncpy(mut_doc.get(), cell.id->data(), cell.id->size()));
+                if (cell.id && !cell_obj.get("id").valid()) {
+                    notebook_detail::replace_obj_value(cell_obj, "id", mut_doc.string(*cell.id));
                 }
                 if (cell.cell_type == CellType::Code && (cell.clear_code_outputs || cell.raw_json.empty())) {
-                    notebook_detail::replace_obj_value(mut_doc.get(), cell_obj, "execution_count",
-                        yyjson_mut_null(mut_doc.get()));
-                    notebook_detail::replace_obj_value(mut_doc.get(), cell_obj, "outputs",
-                        yyjson_mut_arr(mut_doc.get()));
+                    notebook_detail::replace_obj_value(cell_obj, "execution_count", mut_doc.null());
+                    notebook_detail::replace_obj_value(cell_obj, "outputs", mut_doc.array());
                 }
             }
 
-            yyjson_mut_arr_append(cells, cell_obj);
+            cells.append(cell_obj);
         }
 
-        notebook_detail::replace_obj_value(mut_doc.get(), root, "cells", cells);
+        notebook_detail::replace_obj_value(root, "cells", cells);
 
-        std::size_t len = 0;
-        char* json = yyjson_mut_write(mut_doc.get(), YYJSON_WRITE_PRETTY, &len);
-        if (!json) {
+        auto json_str = mut_doc.to_pretty_string();
+        if (json_str.empty()) {
             return std::unexpected(NotebookError::IoError);
         }
 
         std::ofstream file(path);
         if (!file) {
-            std::free(json);
             return std::unexpected(NotebookError::IoError);
         }
-        file.write(json, static_cast<std::streamsize>(len));
+        file.write(json_str.data(), static_cast<std::streamsize>(json_str.size()));
         file << '\n';
-        std::free(json);
 
         if (!file.good()) return std::unexpected(NotebookError::IoError);
         return {};

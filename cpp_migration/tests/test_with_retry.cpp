@@ -13,6 +13,7 @@
 #include <chrono>
 #include <cmath>
 #include <expected>
+#include <filesystem>
 #include <gtest/gtest.h>
 #include <string>
 #include <thread>
@@ -20,6 +21,7 @@
 
 import cc.services.api.with_retry;
 import cc.services.api.with_retry_simple;
+import cc.services.oauth.client;
 
 // Do not use "using namespace cc::services::api" — it contains another RetryConfig
 // (Phase 2 full version) which conflicts with with_retry_simple::RetryConfig.
@@ -312,4 +314,94 @@ TEST(WithRetryConfigLite, BackoffMatchesExpectation) {
     // max_attempts = 1 -> only 1 fn invocation, no backoff in between
     EXPECT_EQ(calls, 1);
     EXPECT_LT(elapsed.count(), 100);
+}
+
+// ---------------------------------------------------------------------------
+// Keychain backend contract (in-memory + facade + payload serialization).
+// The real macOS backend uses SecItem* (requires a GUI session and would
+// pollute the host keychain), so it is exercised only on dev machines; these
+// tests cover the backend contract via the injectable memory backend and the
+// payload (de)serialization shared by every backend.
+// ---------------------------------------------------------------------------
+
+namespace oauth = cc::services::oauth;
+
+TEST(KeychainBackend, MemoryBackendRoundTripsAndReportsMissing) {
+    oauth::MemoryKeychainBackend backend;
+    EXPECT_FALSE(backend.retrieve("alice").has_value()); // missing -> TokenInvalid
+
+    ASSERT_TRUE(backend.store("alice", "blob-1").has_value());
+    auto got = backend.retrieve("alice");
+    ASSERT_TRUE(got.has_value());
+    EXPECT_EQ(*got, "blob-1");
+
+    // store overwrites.
+    ASSERT_TRUE(backend.store("alice", "blob-2").has_value());
+    EXPECT_EQ(*backend.retrieve("alice"), "blob-2");
+
+    // remove is idempotent.
+    ASSERT_TRUE(backend.remove("alice").has_value());
+    EXPECT_FALSE(backend.retrieve("alice").has_value());
+    ASSERT_TRUE(backend.remove("alice").has_value()); // gone, still ok
+}
+
+TEST(KeychainBackend, FacadeDelegatesToInjectedBackend) {
+    auto mem = std::make_unique<oauth::MemoryKeychainBackend>();
+    oauth::KeychainStore store("test-service", std::move(mem));
+
+    oauth::TokenPair t;
+    t.access_token = "acc";
+    t.refresh_token = "ref";
+    t.token_type = "Bearer";
+    t.expires_in = 3600;
+    t.scope = "openid profile";
+
+    ASSERT_TRUE(store.store("user@host", t).has_value());
+    auto loaded = store.retrieve("user@host");
+    ASSERT_TRUE(loaded.has_value()) << static_cast<int>(loaded.error());
+    EXPECT_EQ(loaded->access_token, "acc");
+    EXPECT_EQ(loaded->refresh_token, "ref");
+    EXPECT_EQ(loaded->expires_in, 3600);
+    EXPECT_EQ(loaded->token_type, "Bearer");
+    EXPECT_EQ(loaded->scope, "openid profile");
+
+    EXPECT_EQ(store.service_name(), "test-service");
+    ASSERT_TRUE(store.remove("user@host").has_value());
+    EXPECT_FALSE(store.retrieve("user@host").has_value());
+}
+
+TEST(KeychainBackend, PayloadSerializationRoundTrips) {
+    oauth::TokenPair t;
+    t.access_token = "access|with|pipes"; // would have broken the old pipe format
+    t.refresh_token = "refresh";
+    t.token_type = "Bearer";
+    t.expires_in = 7200;
+    t.issued_at = std::chrono::system_clock::time_point(std::chrono::seconds(1700000000));
+    t.scope = "a b c";
+
+    std::string blob = oauth::serialize_token_payload(t);
+    auto back = oauth::deserialize_token_payload(blob);
+    ASSERT_TRUE(back.has_value()) << static_cast<int>(back.error());
+    EXPECT_EQ(back->access_token, "access|with|pipes");
+    EXPECT_EQ(back->refresh_token, "refresh");
+    EXPECT_EQ(back->expires_in, 7200);
+    EXPECT_EQ(back->scope, "a b c");
+}
+
+TEST(KeychainBackend, FileBackendRoundTripsToTempDir) {
+    auto root = std::filesystem::temp_directory_path() / "cc_keychain_test";
+    std::filesystem::remove_all(root);
+    oauth::FileKeychainBackend backend("svc", root);
+    ASSERT_TRUE(backend.store("acct", "payload").has_value());
+    auto got = backend.retrieve("acct");
+    ASSERT_TRUE(got.has_value());
+    EXPECT_EQ(*got, "payload");
+    // owner-only permissions
+    std::error_code ec;
+    auto perms = std::filesystem::status(root / "acct", ec).permissions();
+    EXPECT_TRUE((perms & std::filesystem::perms::owner_read) != std::filesystem::perms::none);
+    EXPECT_TRUE((perms & std::filesystem::perms::group_all) == std::filesystem::perms::none);
+    ASSERT_TRUE(backend.remove("acct").has_value());
+    EXPECT_FALSE(backend.retrieve("acct").has_value());
+    std::filesystem::remove_all(root);
 }

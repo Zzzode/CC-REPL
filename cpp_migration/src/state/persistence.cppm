@@ -30,14 +30,81 @@ using cc::utils::ErrorCode;
 using cc::utils::VoidResult;
 
 // ============================================================
+// Schema versioning, migration & validation
+// ============================================================
+
+/// Current on-disk schema version. Bump when the serialized shape changes and
+/// add a corresponding step in apply_state_migrations().
+inline constexpr int kCurrentStateSchemaVersion = 2;
+
+/// Read the schema_version field from a parsed root, defaulting to 1 for
+/// legacy blobs that predate versioning.
+[[nodiscard]] inline int detected_schema_version(cc::utils::json::JsonVal root) noexcept {
+    auto v = root.get("schema_version");
+    if (v && v.is_num()) return static_cast<int>(v.as_int());
+    return 1;
+}
+
+/// Apply the migration chain to a deserialised AppState, bringing it from
+/// `from_version` up to kCurrentStateSchemaVersion. Returns the version
+/// reached. Each step is a focused, idempotent transform; new steps are added
+/// here whenever the on-disk shape evolves (open/closed: extend, never edit an
+/// existing step).
+inline int apply_state_migrations(AppState& state, int from_version) {
+    int version = from_version;
+    // v1 -> v2: normalise the legacy view_selection_mode sentinel. Early
+    // builds could persist an empty string here; v2 canonicalises to "none".
+    if (version < 2) {
+        if (state.view_selection_mode.empty()) {
+            state.view_selection_mode = "none";
+        }
+        version = 2;
+    }
+    (void)state;
+    return version;
+}
+
+/// Validate structural invariants on a deserialised AppState. Returns the
+/// state on success or an error describing the first violation.
+[[nodiscard]] inline std::expected<AppState, Error>
+validate_state(const AppState& state) {
+    if (state.selected_ip_agent_index < -1) {
+        return std::unexpected(cc::utils::make_error(
+            ErrorCode::invalid_argument,
+            std::format("selected_ip_agent_index {} is below -1", state.selected_ip_agent_index)));
+    }
+    if (state.coordinator_task_index < -1) {
+        return std::unexpected(cc::utils::make_error(
+            ErrorCode::invalid_argument,
+            std::format("coordinator_task_index {} is below -1", state.coordinator_task_index)));
+    }
+    if (state.total_cost_usd < 0.0) {
+        return std::unexpected(cc::utils::make_error(
+            ErrorCode::invalid_argument,
+            std::format("total_cost_usd {} is negative", state.total_cost_usd)));
+    }
+    return state;
+}
+
+// ============================================================
 // Serialization Functions
 // ============================================================
 
-/// Serialize AppState to JSON string
+/// Serialize AppState to JSON string.
+/// Writes a flat, forward/backward-compatible object (missing keys on read
+/// fall back to defaults; extra keys are ignored). The persisted set covers
+/// the user-preferences class of AppState fields; runtime/transient flags
+/// (is_loading, is_streaming, error_message, pending_*) and conversation
+/// history (covered by cc::session::history) are deliberately not persisted.
 [[nodiscard]] inline std::expected<std::string, Error> serialize_state(const AppState& state) {
     try {
         cc::utils::json::JsonMutDoc doc;
         auto root = doc.object();
+
+        auto add_opt_str = [&doc, &root](const char* key, const std::optional<std::string>& val) {
+            if (val.has_value()) root.add(key, doc.string(*val));
+        };
+
         root.add("verbose", doc.boolean(state.verbose));
         root.add("compact_mode", doc.boolean(state.compact_mode));
         root.add("show_thinking", doc.boolean(state.show_thinking));
@@ -47,11 +114,19 @@ using cc::utils::VoidResult;
         root.add("kairos_enabled", doc.boolean(state.kairos_enabled));
         root.add("is_ultraplan_mode", doc.boolean(state.is_ultraplan_mode));
         root.add("ultraplan_launching", doc.boolean(state.ultraplan_launching));
+        root.add("is_brief_only", doc.boolean(state.is_brief_only));
+        root.add("show_teammate_message_preview", doc.boolean(state.show_teammate_message_preview));
         root.add("working_directory", doc.string(state.working_directory));
+        root.add("view_selection_mode", doc.string(state.view_selection_mode));
         root.add("selected_ip_agent_index", doc.number(static_cast<int64_t>(state.selected_ip_agent_index)));
         root.add("coordinator_task_index", doc.number(static_cast<int64_t>(state.coordinator_task_index)));
         root.add("auth_version", doc.number(static_cast<int64_t>(state.auth_version)));
-        root.add("schema_version", doc.number(static_cast<int64_t>(1)));
+        root.add("remote_background_task_count", doc.number(static_cast<int64_t>(state.remote_background_task_count)));
+        add_opt_str("main_loop_model", state.main_loop_model);
+        add_opt_str("advisor_model", state.advisor_model);
+        add_opt_str("effort_value", state.effort_value);
+        add_opt_str("status_line_text", state.status_line_text);
+        root.add("schema_version", doc.number(static_cast<int64_t>(kCurrentStateSchemaVersion)));
         doc.set_root(root);
         return doc.to_string();
     } catch (const std::exception& e) {
@@ -62,23 +137,47 @@ using cc::utils::VoidResult;
     }
 }
 
-/// Deserialize JSON string to AppState
+/// Deserialize JSON string to AppState.
+/// Reads every field written by serialize_state (no write-only fields); any
+/// absent key falls back to the default from get_default_app_state().
 [[nodiscard]] inline std::expected<AppState, Error> deserialize_state(const std::string& json_str) {
     try {
         auto json_result = cc::utils::json::parse(json_str);
         if (!json_result) {
             return std::unexpected(json_result.error());
         }
-        
+
         AppState state = get_default_app_state();
         auto root = json_result->root();
-        if (auto value = root.get("verbose"); value && value.is_bool()) state.verbose = value.as_bool();
-        if (auto value = root.get("compact_mode"); value && value.is_bool()) state.compact_mode = value.as_bool();
-        if (auto value = root.get("show_thinking"); value && value.is_bool()) state.show_thinking = value.as_bool();
-        if (auto value = root.get("fast_mode"); value && value.is_bool()) state.fast_mode = value.as_bool();
-        if (auto value = root.get("working_directory"); value && value.is_str()) state.working_directory = std::string(value.as_str());
-        
-        return state;
+
+        if (auto v = root.get("verbose"); v && v.is_bool()) state.verbose = v.as_bool();
+        if (auto v = root.get("compact_mode"); v && v.is_bool()) state.compact_mode = v.as_bool();
+        if (auto v = root.get("show_thinking"); v && v.is_bool()) state.show_thinking = v.as_bool();
+        if (auto v = root.get("fast_mode"); v && v.is_bool()) state.fast_mode = v.as_bool();
+        if (auto v = root.get("thinking_enabled"); v && v.is_bool()) state.thinking_enabled = v.as_bool();
+        if (auto v = root.get("prompt_suggestion_enabled"); v && v.is_bool()) state.prompt_suggestion_enabled = v.as_bool();
+        if (auto v = root.get("kairos_enabled"); v && v.is_bool()) state.kairos_enabled = v.as_bool();
+        if (auto v = root.get("is_ultraplan_mode"); v && v.is_bool()) state.is_ultraplan_mode = v.as_bool();
+        if (auto v = root.get("ultraplan_launching"); v && v.is_bool()) state.ultraplan_launching = v.as_bool();
+        if (auto v = root.get("is_brief_only"); v && v.is_bool()) state.is_brief_only = v.as_bool();
+        if (auto v = root.get("show_teammate_message_preview"); v && v.is_bool()) state.show_teammate_message_preview = v.as_bool();
+        if (auto v = root.get("working_directory"); v && v.is_str()) state.working_directory = std::string(v.as_str());
+        if (auto v = root.get("view_selection_mode"); v && v.is_str()) state.view_selection_mode = std::string(v.as_str());
+        if (auto v = root.get("selected_ip_agent_index"); v && v.is_num()) state.selected_ip_agent_index = static_cast<std::int32_t>(v.as_int());
+        if (auto v = root.get("coordinator_task_index"); v && v.is_num()) state.coordinator_task_index = static_cast<std::int32_t>(v.as_int());
+        if (auto v = root.get("auth_version"); v && v.is_num()) state.auth_version = static_cast<std::uint32_t>(v.as_int());
+        if (auto v = root.get("remote_background_task_count"); v && v.is_num()) state.remote_background_task_count = static_cast<std::uint32_t>(v.as_int());
+        if (auto v = root.get("main_loop_model"); v && v.is_str()) state.main_loop_model = std::string(v.as_str());
+        if (auto v = root.get("advisor_model"); v && v.is_str()) state.advisor_model = std::string(v.as_str());
+        if (auto v = root.get("effort_value"); v && v.is_str()) state.effort_value = std::string(v.as_str());
+        if (auto v = root.get("status_line_text"); v && v.is_str()) state.status_line_text = std::string(v.as_str());
+
+        // Bring the loaded state up to the current schema, then enforce
+        // structural invariants before handing it back to the caller.
+        apply_state_migrations(state, detected_schema_version(root));
+        auto validated = validate_state(state);
+        if (!validated) return std::unexpected(validated.error());
+        return *validated;
     } catch (const std::exception& e) {
         return std::unexpected(cc::utils::make_error(
             ErrorCode::internal_error,

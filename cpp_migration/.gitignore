@@ -1,0 +1,11 @@
+# Build outputs
+build/
+build-clang/
+build-clang2/
+build-treesitter/
+build-clang-debug/
+build-clang-debug-asan/
+build-clang-release/
+build-clang-coverage/
+Testing/
+.cache/

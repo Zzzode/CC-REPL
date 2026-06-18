@@ -29,7 +29,26 @@ module;
 #include <ftxui/component/event.hpp>
 #include <ftxui/component/mouse.hpp>
 
+#include <filesystem>
+#include <fstream>
+#include <cstdlib>
+#include <cstring>
+#include <cerrno>
+
+// POSIX TCP probe (used by the Network check). Guarded so non-POSIX builds
+// report "unsupported" instead of failing to compile.
+#if !defined(_WIN32)
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <netdb.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <poll.h>
+#endif
+
 export module cc.ui.doctor_screen;
+
+import cc.utils.json;
 
 // Design-system tokens (shared with other screens)
 // Palette matches Pane / design-system/Pane.tsx + Doctor severity colors.
@@ -152,9 +171,8 @@ struct VersionLockInfo {
 };
 
 /// Complete data model consumed by the screen.
-/// NOTE: Real diagnostic execution is delegated to services/doctor (Phase-5).
-///       Each check executor returns stubbed but plausible results so the
-///       UI rendering pipeline can be exercised end-to-end.
+/// NOTE: Check results are produced by RunCheck() (real filesystem/env/config/
+///       network probes against a DoctorContext). See RunAllChecks().
 struct DoctorDataModel {
     VersionInfo version;
     VersionLockInfo locks;
@@ -317,105 +335,462 @@ struct ScoreSummary {
 }
 
 // ============================================================
-// Check execution stubs (UI-only; real execution lives in services/doctor)
+// Real diagnostics (filesystem / env / config / network probes)
 // ============================================================
 //
-// Each stubbed executor returns a plausible result so the UI can be exercised.
-// Phase-5 integration: replace RunStub_Check() body with calls to
-// cc.services.doctor which performs actual checks (HTTP probes, file I/O,
-// subprocess spawns).  The function signature and CheckResult shape are
-// stable; only the implementation body changes.  Declarations here
-// intentionally avoid pulling I/O deps into the UI translation unit.
-//
+// RunCheck() performs an actual probe for each CheckId against the supplied
+// DoctorContext (paths, env, version). default_doctor_context() derives a
+// context from the live environment (config/state dirs, env vars, cwd).
+// Results are produced from real state, not hardcoded values. RunStub_Check()
+// remains as a thin delegate so existing call sites keep working.
 
-[[nodiscard]] inline CheckResult RunStub_Check(CheckId id) {
+namespace detail {
+
+[[nodiscard]] inline std::optional<std::string>
+read_text_file(const std::filesystem::path& path) {
+    std::ifstream in(path, std::ios::binary);
+    if (!in) return std::nullopt;
+    return std::string{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+}
+
+[[nodiscard]] inline std::string env_or(std::string_view key, std::string_view fallback = {}) {
+    std::string term(key);
+    const char* v = std::getenv(term.c_str());
+    return (v && *v) ? std::string(v) : std::string(fallback);
+}
+
+#if !defined(_WIN32)
+// Open a non-blocking TCP connection to host:port within timeout_ms.
+// Returns the measured round-trip in milliseconds, or an error string.
+[[nodiscard]] inline std::expected<int, std::string>
+tcp_connect_rtt_ms(std::string_view host, int port, int timeout_ms) {
+    struct addrinfo hints {};
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    std::string host_str(host);
+    std::string port_str = std::to_string(port);
+    struct addrinfo* res = nullptr;
+    int gai = getaddrinfo(host_str.c_str(), port_str.c_str(), &hints, &res);
+    if (gai != 0 || res == nullptr) {
+        return std::unexpected(std::string("DNS resolution failed: ") +
+                               (gai == 0 ? "no addresses" : gai_strerror(gai)));
+    }
+    int fd = -1;
+    struct addrinfo* chosen = nullptr;
+    for (struct addrinfo* p = res; p != nullptr; p = p->ai_next) {
+        fd = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
+        if (fd >= 0) { chosen = p; break; }
+    }
+    if (fd < 0 || chosen == nullptr) {
+        freeaddrinfo(res);
+        return std::unexpected(std::string("socket() failed: ") + std::strerror(errno));
+    }
+    int flags = fcntl(fd, F_GETFL, 0);
+    if (flags >= 0) fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+
+    auto t0 = std::chrono::steady_clock::now();
+    int rc = ::connect(fd, chosen->ai_addr, chosen->ai_addrlen);
+    bool connected = false;
+    std::string err;
+    if (rc == 0) {
+        connected = true;
+    } else if (errno == EINPROGRESS) {
+        struct pollfd pfd {};
+        pfd.fd = fd;
+        pfd.events = POLLOUT;
+        int pr = ::poll(&pfd, 1, timeout_ms);
+        if (pr > 0) {
+            int soerr = 0;
+            socklen_t sl = sizeof(soerr);
+            if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &soerr, &sl) == 0 && soerr == 0) {
+                connected = true;
+            } else {
+                err = std::string("connect failed: ") + std::strerror(soerr);
+            }
+        } else if (pr == 0) {
+            err = "connect timed out after " + std::to_string(timeout_ms) + " ms";
+        } else {
+            err = std::string("poll failed: ") + std::strerror(errno);
+        }
+    } else {
+        err = std::string("connect failed: ") + std::strerror(errno);
+    }
+    auto rtt = static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                    std::chrono::steady_clock::now() - t0).count());
+    ::close(fd);
+    freeaddrinfo(res);
+    if (!connected) return std::unexpected(err);
+    return rtt;
+}
+#else
+[[nodiscard]] inline std::expected<int, std::string>
+tcp_connect_rtt_ms(std::string_view, int, int) {
+    return std::unexpected("TCP probe not supported on this platform");
+}
+#endif
+
+// Count how many times `needle` occurs in `hay` (substring search).
+[[nodiscard]] inline std::size_t count_substring(std::string_view hay, std::string_view needle) {
+    std::size_t n = 0, pos = 0;
+    while ((pos = hay.find(needle, pos)) != std::string_view::npos) { ++n; pos += needle.size(); }
+    return n;
+}
+
+} // namespace detail
+
+
+/// Injectable environment for diagnostics. Tests construct one pointing at a
+/// temp directory; the live UI uses default_doctor_context().
+struct DoctorContext {
+    std::filesystem::path home;
+    std::filesystem::path config_home;          // persisted-preferences root (e.g. ~/.claude)
+    std::filesystem::path state_home;           // runtime state root (locks, bridge jwk)
+    std::filesystem::path project_dir;          // current working directory
+    std::filesystem::path settings_file;        // settings.json
+    std::filesystem::path mcp_config;           // MCP servers config
+    std::filesystem::path plugin_dir;           // plugins root
+    std::filesystem::path token_store;          // OAuth token directory
+    std::string anthropic_api_key;
+    std::string shell;
+    std::string current_version = "1.0.0-cpp";
+    std::optional<std::string> latest_version;  // if known, compared against current_version
+    std::string network_endpoint = "api.anthropic.com";
+};
+
+[[nodiscard]] inline DoctorContext default_doctor_context() {
+    namespace fs = std::filesystem;
+    DoctorContext ctx;
+    ctx.home = fs::path(detail::env_or("HOME", "/"));
+    ctx.config_home = ctx.home / ".claude";
+    if (auto xdg = detail::env_or("XDG_STATE_HOME"); !xdg.empty()) {
+        ctx.state_home = fs::path(xdg) / "claude";
+    } else {
+        ctx.state_home = ctx.home / ".local" / "state" / "claude";
+    }
+    std::error_code ec;
+    ctx.project_dir = fs::current_path(ec);
+    if (ec) ctx.project_dir = ctx.home;
+    ctx.settings_file = ctx.config_home / "settings.json";
+    ctx.mcp_config = ctx.config_home / "mcp_servers.json";
+    ctx.plugin_dir = ctx.config_home / "plugins";
+    ctx.token_store = ctx.config_home / "tokens";
+    ctx.anthropic_api_key = detail::env_or("ANTHROPIC_API_KEY");
+    ctx.shell = detail::env_or("SHELL");
+    return ctx;
+}
+
+/// Format a byte count as a human-readable binary (GiB/MiB) string.
+[[nodiscard]] inline std::string format_bytes(std::uintmax_t bytes) {
+    constexpr std::uintmax_t kGiB = 1024ull * 1024 * 1024;
+    constexpr std::uintmax_t kMiB = 1024ull * 1024;
+    if (bytes >= kGiB) return std::format("{:.1f} GiB", static_cast<double>(bytes) / kGiB);
+    if (bytes >= kMiB) return std::format("{:.1f} MiB", static_cast<double>(bytes) / kMiB);
+    return std::format("{} B", bytes);
+}
+
+/// Run a single real diagnostic check against the given context.
+[[nodiscard]] inline CheckResult RunCheck(CheckId id, const DoctorContext& ctx) {
+    namespace fs = std::filesystem;
     CheckResult r;
     r.run_state = CheckRunState::Done;
-    r.elapsed   = std::chrono::milliseconds{12 + (static_cast<unsigned>(id) % 7) * 19u};
+    auto t0 = std::chrono::steady_clock::now();
+    auto done = [&]() {
+        r.elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::steady_clock::now() - t0);
+    };
 
     switch (id) {
-    case CheckId::ApiKey:
-        // API key: demo Ok.  Real impl would call Anthropic SDK /api/validate.
-        r.severity = DiagnosticSeverity::Ok;
-        r.message  = "API key authenticated; quota headers present.";
-        r.detail   = "Endpoint: https://api.anthropic.com/v1/messages (200 OK)\nRate-limit headers: X-RateLimit-Requests = 1000/min.";
-        break;
-    case CheckId::Network:
-        r.severity = DiagnosticSeverity::Ok;
-        r.message  = "DNS + TLS to all required endpoints healthy.";
-        r.detail   = "api.anthropic.com: 34ms RTT, TLS 1.3\nassets.anthropic.com: 41ms RTT\nnpm.registry: 28ms RTT";
-        break;
-    case CheckId::ConfigReadWrite:
-        r.severity = DiagnosticSeverity::Ok;
-        r.message  = "Config directories readable and writable.";
-        r.detail   = "$XDG_CONFIG_HOME/claude: 0700 u+rw\n$PWD/.claude: 0755";
-        break;
-    case CheckId::DiskSpace:
-        // Demo: warning level (soft threshold)
-        r.severity = DiagnosticSeverity::Warning;
-        r.message  = "Disk: 1.8 GiB free on /home (under 5% warning threshold).";
-        r.detail   = "Volume /home: total 50 GiB, used 48.2 GiB (96.4%)\nRecommended: >= 2 GiB for caches, >= 10 GiB for comfortable operation.";
-        r.fix_hint = "Clean up caches (bun/ccache/tmp) or expand the volume.";
-        r.fix_command = "rm -rf ~/.cache/bun ~/.cache/ccache && sync";
-        break;
-    case CheckId::FsPermissions:
-        r.severity = DiagnosticSeverity::Error;
-        r.message  = "Sandbox auto-approve glob pattern '**' is dangerously broad.";
-        r.detail   = "tool.bash.autoApprove[0].pattern = **\nThis matches every command, including destructive ones (rm, dd, chmod).";
-        r.fix_hint = "Tighten the auto-approve glob to a whitelist of safe commands.";
-        r.fix_command = "sed -i '' 's/\"pattern\": \"\\*\\*\"/\"pattern\": \"echo *\"/' ~/.config/claude/settings.json";
-        break;
-    case CheckId::VersionLatest:
-        r.severity = DiagnosticSeverity::Ok;
-        r.message  = "Running latest dist-tag (latest).";
-        r.detail   = "Current:  0.12.0\nLatest:   0.12.0\nStable:   0.11.7";
-        break;
-    case CheckId::McpServers:
-        r.severity = DiagnosticSeverity::Error;
-        r.message  = "2 of 5 MCP servers failed to parse manifests.";
-        r.detail   = "OK:  filesystem, weather, search\nERR: slack-mcp (missing command field)\nERR: github-mcp (ENOENT: mcp-github binary)";
-        r.fix_hint = "Re-install faulty servers via `npx @anthropic-io/mcp-cli install ...`";
-        break;
-    case CheckId::OAuthToken:
-        r.severity = DiagnosticSeverity::Ok;
-        r.message  = "OAuth access token valid; refresh token cached and non-expired.";
-        r.detail   = "Expires in: 2h 14m\nRefresh token TTL: 29 days";
-        break;
-    case CheckId::PermissionIntegrity:
-        r.severity = DiagnosticSeverity::Warning;
-        r.message  = "3 unreachable permission rules detected (shadowed earlier).";
-        r.detail   = "Rules #4, #7, #12 will never fire because an earlier rule matches first.\nUse /doctor --permissions for full trace.";
-        r.fix_hint = "Reorder rules or merge shadowed patterns.";
-        break;
-    case CheckId::Bridge:
-        r.severity = DiagnosticSeverity::Error;
-        r.message  = "Bridge JWT secret file missing — IDE integrations disabled.";
-        r.detail   = "Expected: $XDG_STATE_HOME/claude/bridge/jwk.json\nopen(2) -> ENOENT";
-        r.fix_hint = "Run `claude bridge init` to provision the JWT signing key.";
-        r.fix_command = "claude bridge init";
-        break;
-    case CheckId::DefaultPermissions:
-        r.severity = DiagnosticSeverity::Ok;
-        r.message  = "Default tool permissions are configured to interactive (Confirm).";
-        r.detail   = "tool.*: confirm\ntool.read: allow\nNo wildcard autoApprove defaults detected.";
-        break;
-    case CheckId::ShellConfig:
-        r.severity = DiagnosticSeverity::Ok;
-        r.message  = "Shell /bin/zsh healthy; startup rc files parsed without error.";
-        r.detail   = "$SHELL=/bin/zsh\n~/.zshrc stat ok, ~/.zshenv stat ok\nzsh -i -c true -> exit 0";
-        break;
-    case CheckId::PluginEngine:
-        r.severity = DiagnosticSeverity::Warning;
-        r.message  = "1 plugin failed its manifest schema check.";
-        r.detail   = "plugins/calendly-v1: missing required field 'apiBase'\nAll other plugins (3) loaded successfully.";
-        r.fix_hint = "Add the missing 'apiBase' field to the plugin manifest.";
-        break;
-    default:
-        r.severity = DiagnosticSeverity::Info;
-        r.message  = "Unknown check (placeholder).";
+    case CheckId::ApiKey: {
+        if (!ctx.anthropic_api_key.empty()) {
+            r.severity = DiagnosticSeverity::Ok;
+            r.message = "ANTHROPIC_API_KEY is set (length " +
+                        std::to_string(ctx.anthropic_api_key.size()) + ").";
+            r.detail = "Presence check passed. An authenticated HTTP probe is not run here to keep diagnostics deterministic.";
+        } else {
+            r.severity = DiagnosticSeverity::Warning;
+            r.message = "ANTHROPIC_API_KEY is not set in the environment.";
+            r.detail = "The client may still authenticate via OAuth credentials; if neither is configured, requests will fail.";
+            r.fix_hint = "Export ANTHROPIC_API_KEY or complete OAuth login.";
+        }
         break;
     }
+    case CheckId::Network: {
+        auto probe = detail::tcp_connect_rtt_ms(ctx.network_endpoint, 443, 2500);
+        if (probe.has_value()) {
+            r.severity = DiagnosticSeverity::Ok;
+            r.message = "Reached " + ctx.network_endpoint + ":443 in " + std::to_string(*probe) + " ms.";
+            r.detail = "DNS resolved and a TCP connection to port 443 completed within the 2500 ms budget.";
+        } else {
+            r.severity = DiagnosticSeverity::Error;
+            r.message = "Cannot reach " + ctx.network_endpoint + ":443.";
+            r.detail = probe.error();
+            r.fix_hint = "Check DNS resolution, proxy configuration, and firewall rules.";
+        }
+        break;
+    }
+    case CheckId::ConfigReadWrite: {
+        std::error_code ec;
+        auto st = fs::status(ctx.config_home, ec);
+        if (ec || !fs::is_directory(st)) {
+            r.severity = DiagnosticSeverity::Warning;
+            r.message = "Config directory is not accessible: " + ctx.config_home.string();
+            r.detail = ec ? ec.message() : "path is not a directory";
+            r.fix_hint = "Create the directory with `mkdir -p " + ctx.config_home.string() + "`";
+        } else {
+            using fs::perms;
+            auto p = st.permissions();
+            bool wr = (p & perms::owner_write) != perms::none;
+            bool rd = (p & perms::owner_read) != perms::none;
+            if (!rd || !wr) {
+                r.severity = DiagnosticSeverity::Error;
+                r.message = "Config directory lacks owner read/write: " + ctx.config_home.string();
+                r.detail = "Permissions prevent persisting preferences.";
+                r.fix_hint = "Restore ownership/permissions on the config directory.";
+            } else {
+                r.severity = DiagnosticSeverity::Ok;
+                r.message = "Config directory is readable and writable.";
+                r.detail = ctx.config_home.string();
+            }
+        }
+        break;
+    }
+    case CheckId::DiskSpace: {
+        std::error_code ec;
+        auto info = fs::space(ctx.config_home, ec);
+        if (ec) {
+            r.severity = DiagnosticSeverity::Warning;
+            r.message = "Could not query free space for " + ctx.config_home.string();
+            r.detail = ec.message();
+        } else {
+            constexpr std::uintmax_t kWarn = 2ull * 1024 * 1024 * 1024; // 2 GiB
+            r.detail = "Available: " + format_bytes(info.available) +
+                       " / capacity: " + format_bytes(info.capacity);
+            if (info.available < kWarn) {
+                r.severity = DiagnosticSeverity::Warning;
+                r.message = "Low free space: " + format_bytes(info.available) + " available.";
+                r.fix_hint = "Free at least 2 GiB for caches and context artifacts.";
+            } else {
+                r.severity = DiagnosticSeverity::Ok;
+                r.message = "Adequate free space: " + format_bytes(info.available) + " available.";
+            }
+        }
+        break;
+    }
+    case CheckId::FsPermissions:
+    case CheckId::DefaultPermissions: {
+        auto text = detail::read_text_file(ctx.settings_file);
+        if (!text.has_value()) {
+            r.severity = DiagnosticSeverity::Ok;
+            r.message = (id == CheckId::FsPermissions ? "No settings overrides file; using safe defaults."
+                                                       : "No custom default permissions; using built-in defaults.");
+            r.detail = "Looked for: " + ctx.settings_file.string();
+        } else {
+            // A bare "**" as an auto-approve glob grants every command — flag it.
+            std::size_t stars = detail::count_substring(*text, "\"**\"");
+            if (stars > 0) {
+                r.severity = DiagnosticSeverity::Error;
+                r.message = "Wildcard auto-approve glob \"**\" found " + std::to_string(stars) + "x in settings.";
+                r.detail = "A \"**\" pattern matches every command, including destructive ones (rm, dd, chmod).";
+                r.fix_hint = "Tighten auto-approve globs to an explicit whitelist of safe commands.";
+            } else {
+                r.severity = DiagnosticSeverity::Ok;
+                r.message = (id == CheckId::FsPermissions ? "No broad wildcard permission grants in settings."
+                                                           : "Default permissions contain no wildcard auto-approve.");
+                r.detail = "Scanned " + ctx.settings_file.string() + " (" + std::to_string(text->size()) + " bytes).";
+            }
+        }
+        break;
+    }
+    case CheckId::VersionLatest: {
+        r.detail = "Current: " + ctx.current_version;
+        if (ctx.latest_version.has_value()) {
+            r.detail += "\nLatest:  " + *ctx.latest_version;
+            if (*ctx.latest_version == ctx.current_version) {
+                r.severity = DiagnosticSeverity::Ok;
+                r.message = "Running the latest version.";
+            } else {
+                r.severity = DiagnosticSeverity::Warning;
+                r.message = "An update is available (" + *ctx.latest_version + ").";
+                r.fix_hint = "Update to the latest release.";
+            }
+        } else {
+            r.severity = DiagnosticSeverity::Info;
+            r.message = "Running version " + ctx.current_version + " (online latest-check skipped).";
+            r.detail += "\nSet DoctorContext.latest_version to compare against a known release.";
+        }
+        break;
+    }
+    case CheckId::McpServers: {
+        // Prefer the dedicated config; fall back to ~/.claude.json if needed.
+        fs::path cfg = ctx.mcp_config;
+        std::error_code ec;
+        if (!fs::exists(cfg, ec)) {
+            fs::path alt = ctx.home / ".claude.json";
+            if (fs::exists(alt, ec)) cfg = alt;
+        }
+        auto parsed = cc::utils::json::parse_file(cfg.string());
+        if (!parsed.has_value()) {
+            r.severity = DiagnosticSeverity::Info;
+            r.message = "No MCP server configuration found.";
+            r.detail = "Looked for: " + cfg.string();
+        } else {
+            auto root = parsed.value().root();
+            // MCP config may be a top-level object of servers, or nested under "mcpServers".
+            auto servers = root.get("mcpServers");
+            if (!servers.valid()) servers = root;
+            std::size_t total = 0, missing_cmd = 0;
+            if (servers.is_obj()) {
+                servers.iter_obj([&](auto /*key*/, auto value) {
+                    if (!value.is_obj()) return;
+                    ++total;
+                    if (!value.get("command").is_str()) ++missing_cmd;
+                });
+            }
+            if (total == 0) {
+                r.severity = DiagnosticSeverity::Info;
+                r.message = "MCP config present but defines no servers.";
+            } else if (missing_cmd > 0) {
+                r.severity = DiagnosticSeverity::Error;
+                r.message = std::to_string(missing_cmd) + " of " + std::to_string(total) +
+                            " MCP servers are missing a 'command' field.";
+                r.fix_hint = "Add the executable 'command' for each configured server.";
+            } else {
+                r.severity = DiagnosticSeverity::Ok;
+                r.message = std::to_string(total) + " MCP server(s) configured, all with a 'command' field.";
+            }
+            r.detail = "Config: " + cfg.string();
+        }
+        break;
+    }
+    case CheckId::OAuthToken: {
+        std::error_code ec;
+        std::size_t count = 0;
+        if (fs::is_directory(ctx.token_store, ec)) {
+            for (auto& e : fs::directory_iterator(ctx.token_store, ec)) {
+                if (e.is_regular_file()) ++count;
+            }
+        }
+        if (count == 0) {
+            r.severity = DiagnosticSeverity::Info;
+            r.message = "No cached OAuth token (using API key or not logged in).";
+            r.detail = "Looked in: " + ctx.token_store.string();
+        } else {
+            r.severity = DiagnosticSeverity::Ok;
+            r.message = std::to_string(count) + " cached OAuth token file(s) present.";
+            r.detail = "Token directory: " + ctx.token_store.string();
+        }
+        break;
+    }
+    case CheckId::PermissionIntegrity: {
+        auto text = detail::read_text_file(ctx.settings_file);
+        if (!text.has_value()) {
+            r.severity = DiagnosticSeverity::Ok;
+            r.message = "No custom permission rules to audit.";
+            r.detail = "Looked for: " + ctx.settings_file.string();
+        } else {
+            // A "deny" rule that appears after a "**" allow can never fire.
+            bool has_star_allow = text->find("\"**\"") != std::string::npos &&
+                                  text->find("allow") != std::string::npos;
+            bool has_deny = text->find("deny") != std::string::npos;
+            if (has_star_allow && has_deny) {
+                r.severity = DiagnosticSeverity::Warning;
+                r.message = "A wildcard allow (\"**\") may shadow later deny rules.";
+                r.detail = "Reorder rules so deny entries take precedence over broad allows.";
+                r.fix_hint = "Move deny rules above the wildcard allow, or remove the wildcard.";
+            } else {
+                r.severity = DiagnosticSeverity::Ok;
+                r.message = "No obvious permission-rule shadowing detected.";
+                r.detail = "Scanned " + ctx.settings_file.string();
+            }
+        }
+        break;
+    }
+    case CheckId::Bridge: {
+        fs::path jwk = ctx.state_home / "bridge" / "jwk.json";
+        std::error_code ec;
+        if (fs::exists(jwk, ec)) {
+            r.severity = DiagnosticSeverity::Ok;
+            r.message = "Bridge JWT signing key present.";
+            r.detail = jwk.string();
+        } else {
+            r.severity = DiagnosticSeverity::Error;
+            r.message = "Bridge JWT signing key is missing — IDE integrations disabled.";
+            r.detail = "Expected: " + jwk.string();
+            r.fix_hint = "Run `claude bridge init` to provision the JWT signing key.";
+            r.fix_command = "claude bridge init";
+        }
+        break;
+    }
+    case CheckId::ShellConfig: {
+        if (ctx.shell.empty()) {
+            r.severity = DiagnosticSeverity::Warning;
+            r.message = "$SHELL is not set.";
+            r.detail = "Some subshell features will be unavailable.";
+        } else {
+            std::error_code ec;
+            bool ok = fs::exists(fs::path(ctx.shell), ec);
+            if (ok) {
+                r.severity = DiagnosticSeverity::Ok;
+                r.message = "Configured shell exists: " + ctx.shell;
+                r.detail = "$SHELL=" + ctx.shell;
+            } else {
+                r.severity = DiagnosticSeverity::Error;
+                r.message = "Configured shell does not exist: " + ctx.shell;
+                r.detail = ec ? ec.message() : "path not found";
+                r.fix_hint = "Set $SHELL to an installed shell (e.g. /bin/zsh).";
+            }
+        }
+        break;
+    }
+    case CheckId::PluginEngine: {
+        std::error_code ec;
+        std::size_t total = 0, missing_manifest = 0;
+        if (fs::is_directory(ctx.plugin_dir, ec)) {
+            for (auto& e : fs::directory_iterator(ctx.plugin_dir, ec)) {
+                if (!e.is_directory()) continue;
+                ++total;
+                if (!fs::exists(e.path() / "manifest.json", ec)) ++missing_manifest;
+            }
+        }
+        if (total == 0) {
+            r.severity = DiagnosticSeverity::Info;
+            r.message = "No plugins installed.";
+            r.detail = "Looked in: " + ctx.plugin_dir.string();
+        } else if (missing_manifest > 0) {
+            r.severity = DiagnosticSeverity::Warning;
+            r.message = std::to_string(missing_manifest) + " of " + std::to_string(total) +
+                        " plugin(s) are missing a manifest.json.";
+            r.fix_hint = "Add the missing manifest or remove the broken plugin directory.";
+        } else {
+            r.severity = DiagnosticSeverity::Ok;
+            r.message = std::to_string(total) + " plugin(s) installed, all with manifests.";
+        }
+        break;
+    }
+    default:
+        r.severity = DiagnosticSeverity::Info;
+        r.message = "Unknown check id.";
+        break;
+    }
+
+    done();
     return r;
+}
+
+/// Convenience: run all checks against a context.
+[[nodiscard]] inline std::array<CheckResult, kCheckCount>
+RunAllChecks(const DoctorContext& ctx) {
+    std::array<CheckResult, kCheckCount> out;
+    for (std::size_t i = 0; i < kCheckCount; ++i) {
+        out[i] = RunCheck(static_cast<CheckId>(i), ctx);
+    }
+    return out;
+}
+
+/// Legacy entry point kept for existing call sites; now backed by real probes
+/// against the live environment.
+[[nodiscard]] inline CheckResult RunStub_Check(CheckId id) {
+    return RunCheck(id, default_doctor_context());
 }
 
 // ============================================================

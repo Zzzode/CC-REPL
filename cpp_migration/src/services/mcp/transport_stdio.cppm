@@ -44,11 +44,14 @@ module;
 #include <mutex>
 #include <map>
 
-#include <yyjson.h>
-
 export module cc.services.mcp.stdio;
 
+import cc.utils.json;
+
 export namespace cc::services::mcp::stdio {
+
+// Alias to keep the call sites concise and the diff small.
+namespace json = cc::utils::json;
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -410,89 +413,82 @@ inline void StdioTransport::ReaderLoop(const StdioServerSpec& /*spec*/) {
         if (line.front() == ':') return;   // SSE-style comment lines
 
         JsonRpcMessage msg;
-        // Parse with yyjson.
-        yyjson_read_err err{};
-        auto* doc = yyjson_read_opts(const_cast<char*>(line.data()), line.size(),
-                                     0, nullptr, &err);
-        if (!doc) {
+        // Parse via the canonical cc.utils.json wrapper (RAII; no manual free).
+        auto parsed = json::parse(line);
+        if (!parsed) {
             msg.is_valid = false;
-            msg.error_message = std::string("yyjson parse failed: ") + (err.msg ? err.msg : "unknown");
+            msg.error_message = std::string("yyjson parse failed: ") + parsed.error().message();
             if (on_incoming_message) on_incoming_message(std::move(msg));
             return;
         }
-        yyjson_val* root = yyjson_doc_get_root(doc);
-        if (!yyjson_is_obj(root)) {
+        json::JsonVal root = parsed->root();
+        if (!root.is_obj()) {
             msg.is_valid = false;
             msg.error_message = "JSON root is not an object";
-            yyjson_doc_free(doc);
             if (on_incoming_message) on_incoming_message(std::move(msg));
             return;
         }
         msg.is_valid = true;
 
         // id
-        if (yyjson_val* v = yyjson_obj_get(root, "id")) {
-            if (yyjson_is_int(v)) msg.id = yyjson_get_int(v);
-            else if (yyjson_is_sint(v)) msg.id = yyjson_get_sint(v);
-            else if (yyjson_is_uint(v)) msg.id = static_cast<std::int64_t>(yyjson_get_uint(v));
+        if (json::JsonVal v = root.get("id"); v.valid()) {
+            if (v.is_num()) msg.id = v.as_int();
             // string ids are ignored for simplicity (the dispatcher uses ints).
         }
 
         // method
-        if (yyjson_val* m = yyjson_obj_get(root, "method")) {
-            if (yyjson_is_str(m)) {
-                msg.method.assign(yyjson_get_str(m), static_cast<std::size_t>(yyjson_get_len(m)));
+        if (json::JsonVal m = root.get("method"); m.valid()) {
+            if (m.is_str()) {
+                msg.method.assign(m.as_str());
             }
         }
 
         // params (serialized back to JSON string)
-        if (yyjson_val* p = yyjson_obj_get(root, "params")) {
-            size_t sz = 0;
-            char*  s = yyjson_val_write(p, 0, &sz);
-            if (s) {
-                msg.params_json.assign(s, sz);
-                free(s);
+        if (json::JsonVal p = root.get("params"); p.valid()) {
+            std::string s = p.to_string();
+            if (!s.empty()) {
+                msg.params_json.assign(s);
             }
         }
 
         // error
-        if (yyjson_val* e = yyjson_obj_get(root, "error"); yyjson_is_obj(e)) {
-            if (yyjson_val* code = yyjson_obj_get(e, "code"); yyjson_is_int(code) || yyjson_is_sint(code)) {
-                msg.error_code = static_cast<int>(yyjson_get_sint(code));
-            } else if (yyjson_is_uint(code)) {
-                msg.error_code = static_cast<int>(yyjson_get_uint(code));
+        if (json::JsonVal e = root.get("error"); e.is_obj()) {
+            if (json::JsonVal code = e.get("code"); code.valid()) {
+                if (code.is_num()) msg.error_code = static_cast<int>(code.as_int());
             }
-            if (yyjson_val* mes = yyjson_obj_get(e, "message"); yyjson_is_str(mes)) {
-                msg.error_message.emplace(yyjson_get_str(mes), static_cast<std::size_t>(yyjson_get_len(mes)));
+            if (json::JsonVal mes = e.get("message"); mes.is_str()) {
+                msg.error_message.emplace(mes.as_str());
             }
         }
 
         // result
-        if (yyjson_val* r = yyjson_obj_get(root, "result")) {
+        if (json::JsonVal r = root.get("result"); r.valid()) {
             // Always write the raw JSON representation.
-            size_t sz = 0;
-            char*  s = yyjson_val_write(r, 0, &sz);
-            if (s) {
-                msg.result_json.assign(s, sz);
-                free(s);
+            std::string s = r.to_string();
+            if (!s.empty()) {
+                msg.result_json.assign(s);
             }
             // Attempt scalar storage.
-            if (yyjson_is_str(r)) {
-                msg.result = std::string(yyjson_get_str(r),
-                                         static_cast<std::size_t>(yyjson_get_len(r)));
-            } else if (yyjson_is_int(r) || yyjson_is_sint(r)) {
-                msg.result = static_cast<std::int64_t>(yyjson_get_sint(r));
-            } else if (yyjson_is_uint(r)) {
-                msg.result = static_cast<std::int64_t>(yyjson_get_uint(r));
-            } else if (yyjson_is_real(r)) {
-                msg.result = yyjson_get_real(r);
-            } else if (yyjson_is_bool(r)) {
-                msg.result = yyjson_get_bool(r);
+            if (r.is_str()) {
+                msg.result = std::string(r.as_str());
+            } else if (r.is_bool()) {
+                msg.result = r.as_bool();
+            } else if (r.is_num()) {
+                // Preserve int-vs-double distinction: an exact-integer JSON
+                // number is stored as int64, a real (fractional/exponential)
+                // value as double.  This mirrors the original yyjson branches
+                // (is_int/is_sint/is_uint -> int64, is_real -> double).
+                const double d = r.as_double();
+                const std::int64_t as_i = r.as_int();
+                if (static_cast<double>(as_i) == d) {
+                    msg.result = as_i;
+                } else {
+                    msg.result = d;
+                }
             }
             // else: monostate — complex result, caller inspects result_json
         }
 
-        yyjson_doc_free(doc);
         if (on_incoming_message) on_incoming_message(std::move(msg));
     };
 
@@ -612,79 +608,45 @@ inline void StdioTransport::WatchdogLoop(int timeout_ms) {
 inline std::string BuildInitializeRequest(std::int64_t id,
                                           std::string_view client_name,
                                           std::string_view client_version) {
-    yyjson_mut_doc* doc = yyjson_mut_doc_new(nullptr);
-    yyjson_mut_val* root = yyjson_mut_obj(doc);
-    yyjson_mut_doc_set_root(doc, root);
+    json::JsonMutDoc doc;
+    json::JsonMutVal root = doc.object();
+    doc.set_root(root);
 
-    auto add_str = [&](const char* key, std::string_view val) {
-        yyjson_mut_obj_add(root,
-            yyjson_mut_strncpy(doc, key, std::strlen(key)),
-            yyjson_mut_strncpy(doc, val.data(), val.size()));
+    auto add_str = [&](std::string_view key, std::string_view val) {
+        root.add(key, doc.string(val));
     };
 
     add_str("jsonrpc", "2.0");
-    char idbuf[32];
-    std::snprintf(idbuf, sizeof(idbuf), "%lld", static_cast<long long>(id));
-    yyjson_mut_obj_add(root,
-        yyjson_mut_strncpy(doc, "id", 2),
-        yyjson_mut_sint(doc, id));
+    root.add("id", doc.number(id));
 
-    yyjson_mut_obj_add(root,
-        yyjson_mut_strncpy(doc, "method", 6),
-        yyjson_mut_strncpy(doc, "initialize", 10));
+    root.add("method", doc.string("initialize"));
 
     // params
-    yyjson_mut_val* params = yyjson_mut_obj(doc);
-    yyjson_mut_obj_add(params,
-        yyjson_mut_strncpy(doc, "protocolVersion", 15),
-        yyjson_mut_strncpy(doc, "2024-11-05", 10));
-    yyjson_mut_val* ci = yyjson_mut_obj(doc);
-    yyjson_mut_obj_add(ci,
-        yyjson_mut_strncpy(doc, "name", 4),
-        yyjson_mut_strncpy(doc, client_name.data(), client_name.size()));
-    yyjson_mut_obj_add(ci,
-        yyjson_mut_strncpy(doc, "version", 7),
-        yyjson_mut_strncpy(doc, client_version.data(), client_version.size()));
-    yyjson_mut_obj_add(params,
-        yyjson_mut_strncpy(doc, "clientInfo", 10), ci);
-    yyjson_mut_val* caps = yyjson_mut_obj(doc);
-    yyjson_mut_obj_add(caps,
-        yyjson_mut_strncpy(doc, "roots", 5), yyjson_mut_bool(doc, true));
-    yyjson_mut_obj_add(params,
-        yyjson_mut_strncpy(doc, "capabilities", 12), caps);
+    json::JsonMutVal params = doc.object();
+    params.add("protocolVersion", doc.string("2024-11-05"));
+    json::JsonMutVal ci = doc.object();
+    ci.add("name", doc.string(client_name));
+    ci.add("version", doc.string(client_version));
+    params.add("clientInfo", ci);
+    json::JsonMutVal caps = doc.object();
+    caps.add("roots", doc.boolean(true));
+    params.add("capabilities", caps);
 
-    yyjson_mut_obj_add(root,
-        yyjson_mut_strncpy(doc, "params", 6), params);
+    root.add("params", params);
 
-    size_t out_len = 0;
-    char* out = yyjson_mut_write(doc, 0, &out_len);
-    std::string result(out ? out : "", out ? out_len : 0);
-    if (out) ::free(out);
-    yyjson_mut_doc_free(doc);
-    return result;
+    return doc.to_string();
 }
 
 /// Build a tools/list request JSON string.
 inline std::string BuildToolsListRequest(std::int64_t id) {
-    yyjson_mut_doc* doc = yyjson_mut_doc_new(nullptr);
-    yyjson_mut_val* root = yyjson_mut_obj(doc);
-    yyjson_mut_doc_set_root(doc, root);
-    yyjson_mut_obj_add(root,
-        yyjson_mut_strncpy(doc, "jsonrpc", 7),
-        yyjson_mut_strncpy(doc, "2.0", 3));
-    yyjson_mut_obj_add(root,
-        yyjson_mut_strncpy(doc, "id", 2),
-        yyjson_mut_sint(doc, id));
-    yyjson_mut_obj_add(root,
-        yyjson_mut_strncpy(doc, "method", 6),
-        yyjson_mut_strncpy(doc, "tools/list", 10));
+    json::JsonMutDoc doc;
+    json::JsonMutVal root = doc.object();
+    doc.set_root(root);
+    root.add("jsonrpc", doc.string("2.0"));
+    root.add("id", doc.number(id));
+    root.add("method", doc.string("tools/list"));
 
-    size_t out_len = 0;
-    char* out = yyjson_mut_write(doc, 0, &out_len);
-    std::string result(out ? out : "", out ? out_len : 0);
-    if (out) ::free(out);
-    yyjson_mut_doc_free(doc);
-    return result;
+    return doc.to_string();
 }
 
 /// Convenience: make a StdioServerSpec that runs a tiny /bin/sh script which

@@ -37,19 +37,28 @@ enum class FocusTarget {
 // Layout configuration for customizing sizes
 struct LayoutConfig {
     LayoutMode mode{LayoutMode::SingleColumn};
-    std::size_t sidebar_width{40};        // Characters wide for side panel
+    std::size_t sidebar_width{40};        // Hint for absolute sidebar width
     std::size_t panel_height{15};         // Lines tall for bottom panel
     std::size_t min_main_width{60};       // Minimum main content width
     std::size_t min_main_height{10};      // Minimum main content height
-    double sidebar_ratio{0.3};            // Ratio of sidebar to total width
+    double sidebar_ratio{0.3};            // Sidebar as a fraction of terminal width
     double panel_ratio{0.3};              // Ratio of bottom panel to total height
+    std::size_t min_sidebar_width{20};    // Floor for the adaptive sidebar
+    std::size_t max_sidebar_width{80};    // Ceiling for the adaptive sidebar
     bool show_status_bar{true};
     bool show_breadcrumb{true};
 
-    // Clamp sidebar width to reasonable bounds given terminal width
+    // Compute a terminal-width-adaptive sidebar: target = ratio * width, then
+    // clamped to [min_sidebar_width, min(max_sidebar_width, width - min_main_width)].
+    // On terminals too narrow to honour min_main_width, the sidebar collapses to 0.
     [[nodiscard]] auto effective_sidebar_width(std::size_t term_width) const -> std::size_t {
-        auto max_sidebar = term_width > min_main_width ? term_width - min_main_width : 0;
-        return std::min(sidebar_width, max_sidebar);
+        std::size_t target = static_cast<std::size_t>(static_cast<double>(term_width) * sidebar_ratio);
+        std::size_t floor_by_main = term_width > min_main_width ? term_width - min_main_width : 0;
+        std::size_t upper = std::min(max_sidebar_width, floor_by_main);
+        std::size_t lower = min_sidebar_width > upper ? upper : min_sidebar_width;
+        if (target < lower) target = lower;
+        if (target > upper) target = upper;
+        return target;
     }
 
     // Clamp panel height to reasonable bounds given terminal height

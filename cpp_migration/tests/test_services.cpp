@@ -46,6 +46,7 @@ import cc.services.api.session_ingress;
 import cc.services.api.streaming;
 import cc.services.compact.api_microcompact;
 import cc.services.lsp.LSPServerManager;
+import cc.services.lsp.client;
 import cc.services.mcp.client;
 import cc.services.mcp.auth;
 import cc.services.mcp.config;
@@ -6749,3 +6750,241 @@ TEST(TelemetryManager, SpanGuardRecordsCompletedSpanOnDestruction) {
     EXPECT_EQ(telemetry.get_spans().front().trace_id, "trace-1");
     EXPECT_TRUE(telemetry.get_spans().front().end_time.has_value());
 }
+
+// ---------------------------------------------------------------------------
+// LSP response parsers — exercised against canned JSON fixtures (no server).
+// These cover the previously-stubbed parsers that dropped most response data.
+// ---------------------------------------------------------------------------
+
+namespace {
+cc::services::lsp::LspClient make_lsp_for_parsing() {
+    return cc::services::lsp::LspClient(cc::services::lsp::LspClient::Config{});
+}
+} // namespace
+
+TEST(LspClientParser, ParseHoverExtractsMarkupStringAndRange) {
+    auto client = make_lsp_for_parsing();
+    auto hover = client.parse_hover(
+        R"({"contents":{"kind":"markdown","value":"fn doc"},"range":{"start":{"line":1,"character":2},"end":{"line":1,"character":4}}})");
+    ASSERT_TRUE(hover.has_value()) << static_cast<int>(hover.error());
+    EXPECT_EQ(std::get<std::string>(hover->contents), "fn doc");
+    ASSERT_TRUE(hover->range.has_value());
+    EXPECT_EQ(hover->range->start.line, 1);
+    EXPECT_EQ(hover->range->end.character, 4);
+}
+
+TEST(LspClientParser, ParseLocationsReadsUriAndRange) {
+    auto client = make_lsp_for_parsing();
+    auto locs = client.parse_locations(
+        R"json([{"uri":"file:///a.cpp","range":{"start":{"line":0,"character":3},"end":{"line":0,"character":7}}}])json");
+    ASSERT_TRUE(locs.has_value()) << static_cast<int>(locs.error());
+    ASSERT_EQ(locs->size(), 1u);
+    EXPECT_EQ((*locs)[0].uri, "file:///a.cpp");
+    EXPECT_EQ((*locs)[0].range.start.character, 3);
+    EXPECT_EQ((*locs)[0].range.end.character, 7);
+}
+
+TEST(LspClientParser, ParseDocumentSymbolsHandlesHierarchy) {
+    auto client = make_lsp_for_parsing();
+    auto syms = client.parse_document_symbols(
+        R"([{"name":"main","kind":12,"range":{"start":{"line":0,"character":0},"end":{"line":2,"character":0}},"selectionRange":{"start":{"line":0,"character":0},"end":{"line":0,"character":4}},"children":[{"name":"x","kind":13,"range":{"start":{"line":1,"character":0},"end":{"line":1,"character":1}},"selectionRange":{"start":{"line":1,"character":0},"end":{"line":1,"character":1}}}]}])");
+    ASSERT_TRUE(syms.has_value());
+    ASSERT_EQ(syms->size(), 1u);
+    EXPECT_EQ((*syms)[0].name, "main");
+    ASSERT_TRUE((*syms)[0].children.has_value());
+    EXPECT_EQ((*syms)[0].children->size(), 1u);
+    EXPECT_EQ((*syms)[0].children->front().name, "x");
+}
+
+TEST(LspClientParser, ParseCodeActionsReadsTitleKindPreferred) {
+    auto client = make_lsp_for_parsing();
+    auto actions = client.parse_code_actions(
+        R"([{"title":"Fix me","kind":"quickfix","isPreferred":true}])");
+    ASSERT_TRUE(actions.has_value());
+    ASSERT_EQ(actions->size(), 1u);
+    EXPECT_EQ((*actions)[0].title, "Fix me");
+    ASSERT_TRUE((*actions)[0].kind.has_value());
+    EXPECT_EQ((*actions)[0].kind.value(), "quickfix");
+    EXPECT_TRUE((*actions)[0].is_preferred.value_or(false));
+}
+
+TEST(LspClientParser, ParseTextEditsReadsRangeAndNewText) {
+    auto client = make_lsp_for_parsing();
+    auto edits = client.parse_text_edits(
+        R"([{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"newText":"hello"}])");
+    ASSERT_TRUE(edits.has_value());
+    ASSERT_EQ(edits->size(), 1u);
+    EXPECT_EQ((*edits)[0].new_text, "hello");
+    EXPECT_EQ((*edits)[0].range.end.character, 5);
+}
+
+TEST(LspClientParser, ParseCompletionListEnrichesItems) {
+    auto client = make_lsp_for_parsing();
+    auto list = client.parse_completion_list(
+        R"json({"isIncomplete":true,"items":[{"label":"foo","kind":3,"detail":"(int)","documentation":"doc","insertText":"foo()","sortText":"a"}]})json");
+    ASSERT_TRUE(list.has_value());
+    EXPECT_TRUE(list->is_incomplete);
+    ASSERT_EQ(list->items.size(), 1u);
+    const auto& item = list->items.front();
+    EXPECT_EQ(item.label, "foo");
+    ASSERT_TRUE(item.detail.has_value());  EXPECT_EQ(*item.detail, "(int)");
+    ASSERT_TRUE(item.documentation.has_value()); EXPECT_EQ(*item.documentation, "doc");
+    ASSERT_TRUE(item.insert_text.has_value());  EXPECT_EQ(*item.insert_text, "foo()");
+}
+
+TEST(LspClientParser, ParseInitializeResultPopulatesCapabilities) {
+    auto client = make_lsp_for_parsing();
+    auto init = client.parse_initialize_result(
+        R"({"capabilities":{"hoverProvider":true,"definitionProvider":true,"completionProvider":{"triggerCharacters":["."]}},"serverInfo":{"name":"clangd","version":"17.0"}})");
+    ASSERT_TRUE(init.has_value());
+    EXPECT_TRUE(init->capabilities.hover_provider.value_or(false));
+    EXPECT_TRUE(init->capabilities.definition_provider.value_or(false));
+    ASSERT_TRUE(init->capabilities.completion_provider.has_value());
+    ASSERT_TRUE(init->server_info.has_value());
+    EXPECT_NE(init->server_info->find("clangd"), std::string::npos);
+}
+
+// ─── P2-07: WorkerRegistry + Server types smoke tests ───────────────────────
+
+import cc.daemon.worker_registry;
+import cc.server.types;
+
+namespace {
+
+TEST(WorkerRegistry, ExpiresStale) {
+    auto& r = cc::daemon::WorkerRegistry::instance();
+    r.clear();
+
+    cc::daemon::WorkerInfo w;
+    w.kind = cc::daemon::WorkerKind::InProcess;
+    w.hostname = "localhost";
+    w.capabilities = {"query"};
+    w.max_concurrent_tasks = 1;
+    auto id_r = r.register_worker(std::move(w));
+    ASSERT_TRUE(id_r.has_value());
+    const std::string id = *id_r;
+
+    // Advance heartbeat to a known timestamp then manually expire it.
+    (void)r.heartbeat(id, 0.0, 0, 0, cc::daemon::WorkerHealth::Healthy);
+    // Use a very short TTL (1ms) + a 20ms sleep so the worker is older than TTL.
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    const size_t expired = r.expire_stale(std::chrono::milliseconds(1));
+    EXPECT_EQ(expired, 1u);
+    EXPECT_FALSE(r.lookup(id).has_value());
+}
+
+TEST(WorkerRegistry, PickBest) {
+    auto& r = cc::daemon::WorkerRegistry::instance();
+    r.clear();
+
+    auto mk = [&](int cur, int max, uint64_t mem_used, uint64_t mem_limit,
+                  std::string suffix) -> std::string {
+        cc::daemon::WorkerInfo w;
+        w.kind = cc::daemon::WorkerKind::Subprocess;
+        w.hostname = "host" + suffix;
+        w.capabilities = {"query"};
+        w.current_tasks = cur;
+        w.max_concurrent_tasks = max;
+        w.memory_used_bytes = mem_used;
+        w.memory_limit_bytes = mem_limit;
+        return *r.register_worker(std::move(w));
+    };
+
+    const std::string id_a = mk(0, 1, 100, 1000, "A");   // ratio 0/1, free mem 900
+    const std::string id_b = mk(1, 4, 200, 1000, "B");   // ratio 0.25
+    const std::string id_c = mk(7, 8, 50,  1000, "C");   // ratio 0.875
+    (void)id_c;
+
+    cc::daemon::WorkerQueryFilters f;
+    f.capability_required = "query";
+    f.min_free_tasks = 0;          // do not filter on free slots here
+    f.require_heartbeat_within_ms = 0;
+    auto best = r.pick_best(f);
+    ASSERT_TRUE(best.has_value());
+    // Lowest load ratio = id_a (0/1).  If tie, most free memory (A still wins here).
+    EXPECT_EQ(best->id, id_a);
+}
+
+TEST(WorkerRegistry, Cordon) {
+    auto& r = cc::daemon::WorkerRegistry::instance();
+    r.clear();
+
+    cc::daemon::WorkerInfo w;
+    w.kind = cc::daemon::WorkerKind::InProcess;
+    w.hostname = "cordon";
+    w.capabilities = {"query"};
+    w.max_concurrent_tasks = 2;
+    const std::string id = *r.register_worker(std::move(w));
+
+    cc::daemon::WorkerQueryFilters f;
+    f.capability_required = "query";
+    f.min_free_tasks = 0;
+    f.require_heartbeat_within_ms = 0;
+
+    f.include_cordoned = false;
+    EXPECT_EQ(r.find_matching(f).size(), 1u);
+
+    EXPECT_TRUE(r.set_cordon(id, true));
+    EXPECT_EQ(r.find_matching(f).size(), 0u);
+
+    f.include_cordoned = true;
+    EXPECT_EQ(r.find_matching(f).size(), 1u);
+    EXPECT_TRUE(r.find_matching(f).front().cordoned);
+}
+
+TEST(ServerTypes, RoundtripSerde) {
+    cc::server::ServerSession s;
+    s.id = "session-1";
+    s.token = "tok-abcdef";
+    s.role = cc::server::Role::Admin;
+    s.user_id = "u-42";
+    s.user_agent = "test-agent/1.0";
+    s.client_ip = "127.0.0.1";
+    s.scopes = {"read", "write", "query"};
+    s.created_ms = 1'000'000;
+    s.expires_ms = 2'000'000;
+    s.last_active_ms = 1'500'000;
+    s.request_count = 17;
+    s.revoked = false;
+
+    const std::string json = cc::server::to_json(s);
+    auto parsed = cc::server::ServerSession_from_json(json);
+    ASSERT_TRUE(parsed.has_value()) << "parse error: " << (parsed.has_value() ? std::string{} : parsed.error());
+    const auto& p = *parsed;
+    EXPECT_EQ(p.id, s.id);
+    EXPECT_EQ(p.token, s.token);
+    EXPECT_EQ(p.role, s.role);
+    EXPECT_EQ(p.user_id, s.user_id);
+    EXPECT_EQ(p.user_agent, s.user_agent);
+    EXPECT_EQ(p.client_ip, s.client_ip);
+    EXPECT_EQ(p.scopes, s.scopes);
+    EXPECT_EQ(p.created_ms, s.created_ms);
+    EXPECT_EQ(p.expires_ms, s.expires_ms);
+    EXPECT_EQ(p.last_active_ms, s.last_active_ms);
+    EXPECT_EQ(p.request_count, s.request_count);
+    EXPECT_EQ(p.revoked, s.revoked);
+}
+
+TEST(ServerTypes, RolesScopes) {
+    cc::server::ServerSession s;
+    s.role = cc::server::Role::Admin;
+    s.scopes = {"read", "write"};
+    s.expires_ms = 0;   // never expires
+    s.revoked = false;
+
+    EXPECT_TRUE(s.has_scope("read"));
+    EXPECT_FALSE(s.has_scope("delete"));
+    // Trivially satisfied empty scope query.
+    EXPECT_TRUE(s.has_scope(""));
+    // Not revoked and no expiry wall clock → not expired.
+    EXPECT_FALSE(s.is_expired());
+    // Manually inject a "now" that is in the future after a hypothetical expire_ms.
+    s.expires_ms = 1000;
+    EXPECT_TRUE(s.is_expired(2000));
+    EXPECT_FALSE(s.is_expired(500));
+    // Revoked always-expired semantics.
+    s.revoked = true;
+    EXPECT_TRUE(s.is_expired());
+}
+
+}  // namespace

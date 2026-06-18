@@ -666,6 +666,170 @@ TEST(Persistence, StatePersistenceAPI) {
     (void)persistence.delete_state();
 }
 
+TEST(Persistence, RoundTripsAllPersistedFields) {
+    auto src = cc::state::get_default_app_state();
+    // Flip every persisted field away from its default.
+    src.verbose = true;
+    src.compact_mode = true;
+    src.show_thinking = true;
+    src.fast_mode = true;
+    src.thinking_enabled = false;             // default is true
+    src.prompt_suggestion_enabled = false;     // default is true
+    src.kairos_enabled = true;
+    src.is_ultraplan_mode = true;
+    src.ultraplan_launching = true;
+    src.is_brief_only = true;
+    src.show_teammate_message_preview = true;
+    src.working_directory = "/tmp/cc-roundtrip";
+    src.view_selection_mode = "viewing-agent";
+    src.selected_ip_agent_index = 7;
+    src.coordinator_task_index = 3;
+    src.auth_version = 42;
+    src.remote_background_task_count = 9;
+    src.main_loop_model = "claude-opus-4-8";
+    src.advisor_model = "claude-haiku-4-5";
+    src.effort_value = "high";
+    src.status_line_text = "custom status";
+
+    auto serialized = cc::state::persistence::serialize_state(src);
+    ASSERT_TRUE(serialized.has_value()) << serialized.error().format();
+
+    auto parsed = cc::state::persistence::deserialize_state(*serialized);
+    ASSERT_TRUE(parsed.has_value()) << parsed.error().format();
+    const auto& dst = *parsed;
+
+    EXPECT_EQ(dst.verbose, src.verbose);
+    EXPECT_EQ(dst.compact_mode, src.compact_mode);
+    EXPECT_EQ(dst.show_thinking, src.show_thinking);
+    EXPECT_EQ(dst.fast_mode, src.fast_mode);
+    EXPECT_EQ(dst.thinking_enabled, src.thinking_enabled);
+    EXPECT_EQ(dst.prompt_suggestion_enabled, src.prompt_suggestion_enabled);
+    EXPECT_EQ(dst.kairos_enabled, src.kairos_enabled);
+    EXPECT_EQ(dst.is_ultraplan_mode, src.is_ultraplan_mode);
+    EXPECT_EQ(dst.ultraplan_launching, src.ultraplan_launching);
+    EXPECT_EQ(dst.is_brief_only, src.is_brief_only);
+    EXPECT_EQ(dst.show_teammate_message_preview, src.show_teammate_message_preview);
+    EXPECT_EQ(dst.working_directory, src.working_directory);
+    EXPECT_EQ(dst.view_selection_mode, src.view_selection_mode);
+    EXPECT_EQ(dst.selected_ip_agent_index, src.selected_ip_agent_index);
+    EXPECT_EQ(dst.coordinator_task_index, src.coordinator_task_index);
+    EXPECT_EQ(dst.auth_version, src.auth_version);
+    EXPECT_EQ(dst.remote_background_task_count, src.remote_background_task_count);
+    ASSERT_TRUE(dst.main_loop_model.has_value());  EXPECT_EQ(*dst.main_loop_model, *src.main_loop_model);
+    ASSERT_TRUE(dst.advisor_model.has_value());    EXPECT_EQ(*dst.advisor_model, *src.advisor_model);
+    ASSERT_TRUE(dst.effort_value.has_value());     EXPECT_EQ(*dst.effort_value, *src.effort_value);
+    ASSERT_TRUE(dst.status_line_text.has_value()); EXPECT_EQ(*dst.status_line_text, *src.status_line_text);
+}
+
+TEST(Persistence, AbsentOptionalStringsStayDefault) {
+    auto src = cc::state::get_default_app_state();
+    auto serialized = cc::state::persistence::serialize_state(src);
+    ASSERT_TRUE(serialized.has_value());
+    auto parsed = cc::state::persistence::deserialize_state(*serialized);
+    ASSERT_TRUE(parsed.has_value());
+    EXPECT_FALSE(parsed->main_loop_model.has_value());
+    EXPECT_FALSE(parsed->advisor_model.has_value());
+    EXPECT_FALSE(parsed->effort_value.has_value());
+    EXPECT_FALSE(parsed->status_line_text.has_value());
+}
+
+TEST(Persistence, LoadsLegacyV1ShapeWithMissingFields) {
+    // Minimal legacy v1 object. thinking_enabled and auth_version were
+    // previously written-but-dropped; this proves they now round-trip, while
+    // fields absent from the legacy blob keep their defaults.
+    std::string legacy = R"({"verbose":true,"thinking_enabled":false,"auth_version":5,"schema_version":1})";
+    auto parsed = cc::state::persistence::deserialize_state(legacy);
+    ASSERT_TRUE(parsed.has_value()) << parsed.error().format();
+    EXPECT_TRUE(parsed->verbose);
+    EXPECT_FALSE(parsed->thinking_enabled);
+    EXPECT_EQ(parsed->auth_version, 5u);
+    EXPECT_EQ(parsed->view_selection_mode, "none");
+    EXPECT_FALSE(parsed->main_loop_model.has_value());
+}
+
+TEST(Persistence, WritesCurrentSchemaVersion) {
+    auto s = cc::state::get_default_app_state();
+    auto serialized = cc::state::persistence::serialize_state(s);
+    ASSERT_TRUE(serialized.has_value());
+    EXPECT_NE(serialized->find("\"schema_version\":2"), std::string::npos);
+    EXPECT_EQ(cc::state::persistence::kCurrentStateSchemaVersion, 2);
+}
+
+TEST(Persistence, MigratesV1EmptyViewModeToNone) {
+    std::string v1 = R"({"schema_version":1,"view_selection_mode":""})";
+    auto parsed = cc::state::persistence::deserialize_state(v1);
+    ASSERT_TRUE(parsed.has_value());
+    EXPECT_EQ(parsed->view_selection_mode, "none"); // v1->v2 migration normalised the empty sentinel
+    // An explicit v1 value is preserved through migration.
+    std::string v1_named = R"({"schema_version":1,"view_selection_mode":"viewing-agent"})";
+    auto named = cc::state::persistence::deserialize_state(v1_named);
+    ASSERT_TRUE(named.has_value());
+    EXPECT_EQ(named->view_selection_mode, "viewing-agent");
+}
+
+TEST(Persistence, ValidateStateAcceptsDefaultsRejectsBadValues) {
+    auto good = cc::state::get_default_app_state();
+    EXPECT_TRUE(cc::state::persistence::validate_state(good).has_value());
+
+    auto bad_index = cc::state::get_default_app_state();
+    bad_index.selected_ip_agent_index = -5;
+    EXPECT_FALSE(cc::state::persistence::validate_state(bad_index).has_value());
+
+    auto bad_cost = cc::state::get_default_app_state();
+    bad_cost.total_cost_usd = -1.0;
+    EXPECT_FALSE(cc::state::persistence::validate_state(bad_cost).has_value());
+}
+
+TEST(Persistence, DeserializeRejectsInvalidIndices) {
+    std::string malformed = R"({"selected_ip_agent_index":-5,"schema_version":2})";
+    auto parsed = cc::state::persistence::deserialize_state(malformed);
+    ASSERT_FALSE(parsed.has_value());
+}
+
+TEST(StoreUndoRedo, RoundTripsDispatchedActions) {
+    auto store = make_test_store();
+    store->enable_undo();
+    EXPECT_FALSE(store->can_undo());
+
+    store->dispatch(cc::state::Action{cc::state::ActionType::SetVerbose, true});   // false -> true
+    store->dispatch(cc::state::Action{cc::state::ActionType::SetVerbose, false});  // true -> false
+    EXPECT_FALSE(store->get_state().verbose);
+
+    ASSERT_TRUE(store->can_undo());
+    store->undo();
+    EXPECT_TRUE(store->get_state().verbose);
+    store->undo();
+    EXPECT_FALSE(store->get_state().verbose);
+    EXPECT_FALSE(store->can_undo());
+
+    ASSERT_TRUE(store->can_redo());
+    store->redo();
+    EXPECT_TRUE(store->get_state().verbose);
+    store->redo();
+    EXPECT_FALSE(store->get_state().verbose);
+    EXPECT_FALSE(store->can_redo());
+}
+
+TEST(StoreUndoRedo, CapacityBoundsHistoryToOneLevel) {
+    auto store = make_test_store();
+    store->enable_undo(1);
+    store->dispatch(cc::state::Action{cc::state::ActionType::SetVerbose, true});
+    store->dispatch(cc::state::Action{cc::state::ActionType::SetVerbose, false});
+    store->undo();
+    EXPECT_TRUE(store->get_state().verbose); // only the most recent snapshot survives
+    EXPECT_FALSE(store->can_undo());
+}
+
+TEST(StoreUndoRedo, NewActionClearsRedoStack) {
+    auto store = make_test_store();
+    store->enable_undo();
+    store->dispatch(cc::state::Action{cc::state::ActionType::SetVerbose, true});
+    store->undo(); // verbose=false, redo has the true snapshot
+    ASSERT_TRUE(store->can_redo());
+    store->dispatch(cc::state::Action{cc::state::ActionType::SetVerbose, true});
+    EXPECT_FALSE(store->can_redo()); // a new dispatch clears redo
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1009,4 +1173,55 @@ TEST(SystemPrompts, GetSystemPromptAssemblesStaticAndDynamicSections) {
     EXPECT_NE(joined.find("# Environment"), std::string::npos);
     EXPECT_NE(joined.find("Read"), std::string::npos);
     EXPECT_NE(joined.find("Write"), std::string::npos);
+}
+
+// ---------------------------------------------------------------------------
+// Store genericity — the Store template must be instantiable with a State
+// other than AppState (dispatch/undo/redo/subscribers work generically; the
+// AppState-specific persistence/change-registry hooks are compile-time-gated).
+// ---------------------------------------------------------------------------
+
+namespace {
+
+struct CounterState {
+    int value = 0;
+};
+
+[[nodiscard]] inline CounterState counter_reducer(const CounterState& s, const cc::state::Action& a) {
+    CounterState next = s;
+    if (a.type == cc::state::ActionType::SetLoading) {
+        if (auto v = a.get_payload<bool>(); v && *v) next.value += 1;
+    }
+    return next;
+}
+
+} // namespace
+
+TEST(StoreGenericity, IsGenericOverStateAndSupportsUndoRedo) {
+    using CounterStore = cc::state::Store<CounterState, decltype(&counter_reducer)>;
+    CounterStore store{CounterState{0}, &counter_reducer};
+    EXPECT_EQ(store.get_state().value, 0);
+
+    store.enable_undo();
+    store.dispatch(cc::state::Action{cc::state::ActionType::SetLoading, true});  // value -> 1
+    store.dispatch(cc::state::Action{cc::state::ActionType::SetLoading, true});  // value -> 2
+    EXPECT_EQ(store.get_state().value, 2);
+
+    // Generic undo/redo works on a non-AppState State.
+    ASSERT_TRUE(store.can_undo());
+    store.undo();
+    EXPECT_EQ(store.get_state().value, 1);
+    store.undo();
+    EXPECT_EQ(store.get_state().value, 0);
+    EXPECT_FALSE(store.can_undo());
+
+    store.redo();
+    EXPECT_EQ(store.get_state().value, 1);
+
+    // Generic subscriber fan-out works.
+    int notifications = 0;
+    auto sub = store.subscribe([&](const CounterState&, const CounterState&) { ++notifications; });
+    store.dispatch(cc::state::Action{cc::state::ActionType::SetLoading, true});
+    EXPECT_EQ(notifications, 1);
+    store.unsubscribe(sub);
 }

@@ -150,6 +150,33 @@ target_link_libraries(test_commands
 gtest_discover_tests(test_commands DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
 
 
+# ---------------------------------------------------------------------------
+# P1-05 / P1-06: history, task_types, teammate_view_helpers, interactive_helpers
+# ---------------------------------------------------------------------------
+add_executable(test_bootstrap test_bootstrap.cpp)
+target_link_libraries(test_bootstrap
+    PRIVATE
+        cc_core
+        GTest::gtest_main
+)
+gtest_discover_tests(test_bootstrap DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+
+
+# ---------------------------------------------------------------------------
+# P0-01 / P2-02: Migrations orchestration + atomicity fixture suite
+# ---------------------------------------------------------------------------
+add_executable(test_migrations test_migrations.cpp)
+target_link_libraries(test_migrations
+    PRIVATE
+        cc_core
+        GTest::gtest_main
+)
+target_compile_options(test_migrations PRIVATE
+    $<$<CXX_COMPILER_ID:Clang,AppleClang>:-Wno-missing-designated-field-initializers>
+)
+gtest_discover_tests(test_migrations DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+
+
 add_executable(test_bridge test_bridge.cpp)
 target_link_libraries(test_bridge
     PRIVATE

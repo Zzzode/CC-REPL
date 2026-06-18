@@ -17,11 +17,10 @@ module;
 #include <ranges>
 #include <span>
 
-#include <yyjson.h>
-
 export module cc.tools.tool;
 
 export import cc.types.types;
+import cc.utils.json;
 
 export namespace cc::core {
 
@@ -59,17 +58,9 @@ struct ToolInput {
     /// Check if a top-level key exists in the JSON input object
     [[nodiscard]] bool has_field(std::string_view key) const noexcept {
         if (key.empty()) return false;
-
-        yyjson_read_err err{};
-        yyjson_doc* doc = yyjson_read_opts(
-            const_cast<char*>(raw_json.data()), raw_json.size(), 0, nullptr, &err);
-        if (!doc) return false;
-
-        yyjson_val* root = yyjson_doc_get_root(doc);
-        const bool found = yyjson_is_obj(root)
-            && yyjson_obj_getn(root, key.data(), key.size()) != nullptr;
-        yyjson_doc_free(doc);
-        return found;
+        auto parsed = cc::utils::json::parse(raw_json);
+        if (!parsed) return false;
+        return parsed->root().has(key);
     }
 
     /// Get the raw JSON as string view

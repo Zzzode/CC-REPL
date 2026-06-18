@@ -1,5 +1,5 @@
 // Anthropic SSE Streaming Client (Phase 3-E)
-// Lightweight, dependency-minimal SSE client built on libcurl + yyjson.
+// Lightweight, dependency-minimal SSE client built on libcurl + cc.utils.json.
 // - text-only messages (Phase 3)
 // - dry-run gate when api_key is empty (no network)
 // - abort propagation via should_abort callback
@@ -18,15 +18,18 @@ module;
 #include <utility>
 #include <vector>
 #include <curl/curl.h>
-#include <yyjson.h>
 
 export module cc.services.api.sse;
+
+import cc.utils.json;
 
 // Note: this module intentionally avoids importing cc.services.api.* so it can
 // be used as an independent SSE primitive.  The full-featured AnthropicClient
 // in cc.services.api.client builds on top of this module.
 
 export namespace cc::services::api::sse {
+
+namespace json = cc::utils::json;
 
 // =========================================================================
 // Text-only message model
@@ -332,58 +335,49 @@ public:
 
 private:
     // -----------------------------------------------------------------
-    // Body builder using yyjson_mut (low-level) for zero-allocation headers
+    // Body builder using cc.utils.json (RAII mutable doc) for zero-copy headers
     // -----------------------------------------------------------------
     [[nodiscard]] std::string BuildMessagesBody(
         std::string_view system_prompt,
         std::span<const TextMessage> messages) const {
 
-        yyjson_mut_doc* doc = yyjson_mut_doc_new(nullptr);
-        yyjson_mut_val* root = yyjson_mut_obj(doc);
-        yyjson_mut_doc_set_root(doc, root);
+        json::JsonMutDoc doc;
+        json::JsonMutVal root = doc.object();
+        doc.set_root(root);
 
-        auto add_sv = [&](const char* key, std::string_view value) {
-            auto* key_v = yyjson_mut_strncpy(doc, key, strlen(key));
-            auto* val_v = yyjson_mut_strncpy(doc, value.data(), value.size());
-            yyjson_mut_obj_add(root, key_v, val_v);
+        auto add_sv = [&](std::string_view key, std::string_view value) {
+            root.add(key, doc.string(value));
         };
         add_sv("model", cfg_.model_id);
-        yyjson_mut_obj_add_int(doc, root, "max_tokens", cfg_.max_tokens);
-        yyjson_mut_obj_add_real(doc, root, "temperature", cfg_.temperature);
-        yyjson_mut_obj_add_bool(doc, root, "stream", true);
+        root.add("max_tokens", doc.number(static_cast<int64_t>(cfg_.max_tokens)));
+        root.add("temperature", doc.number(cfg_.temperature));
+        root.add("stream", doc.boolean(true));
 
         if (!system_prompt.empty()) {
             add_sv("system", system_prompt);
         }
 
-        yyjson_mut_val* msgs = yyjson_mut_arr(doc);
+        json::JsonMutVal msgs = doc.array();
         for (const auto& m : messages) {
-            yyjson_mut_val* obj = yyjson_mut_obj(doc);
+            json::JsonMutVal obj = doc.object();
             const char* role_str =
                 m.role == Role::System ? "system" :
                 m.role == Role::Assistant ? "assistant" : "user";
-            yyjson_mut_obj_add_str(doc, obj, "role", role_str);
+            obj.add("role", doc.string(role_str));
 
             // content = [{type:"text", text:m.content}]
-            yyjson_mut_val* content_arr = yyjson_mut_arr(doc);
-            yyjson_mut_val* text_blk = yyjson_mut_obj(doc);
-            yyjson_mut_obj_add_str(doc, text_blk, "type", "text");
-            auto* tkey = yyjson_mut_strncpy(doc, "text", strlen("text"));
-            auto* tval = yyjson_mut_strncpy(doc, m.content.data(), m.content.size());
-            yyjson_mut_obj_add(text_blk, tkey, tval);
-            yyjson_mut_arr_append(content_arr, text_blk);
-            yyjson_mut_obj_add_val(doc, obj, "content", content_arr);
+            json::JsonMutVal content_arr = doc.array();
+            json::JsonMutVal text_blk = doc.object();
+            text_blk.add("type", doc.string("text"));
+            text_blk.add("text", doc.string(m.content));
+            content_arr.append(text_blk);
+            obj.add("content", content_arr);
 
-            yyjson_mut_arr_append(msgs, obj);
+            msgs.append(obj);
         }
-        yyjson_mut_obj_add_val(doc, root, "messages", msgs);
+        root.add("messages", msgs);
 
-        std::size_t len = 0;
-        char* json = yyjson_mut_write(doc, 0, &len);
-        std::string result(json ? json : "", json ? len : 0);
-        if (json) ::free(json);
-        yyjson_mut_doc_free(doc);
-        return result;
+        return doc.to_string();
     }
 
     // -----------------------------------------------------------------
@@ -459,59 +453,53 @@ private:
             // ---- Extract typed payloads ----------------------------------
             switch (type_hint) {
                 case SseEventType::ContentBlockDelta: {
-                    yyjson_doc* d = yyjson_read(data_str.data(), data_str.size(), 0);
-                    if (!d) break;
-                    yyjson_val* root = yyjson_doc_get_root(d);
-                    if (auto* delta = yyjson_obj_get(root, "delta")) {
-                        if (auto* text = yyjson_obj_get(delta, "text")) {
-                            std::string_view sv{yyjson_get_str(text),
-                                                yyjson_get_len(text)};
+                    auto parsed = json::parse(data_str);
+                    if (!parsed) break;
+                    json::JsonVal root = parsed->root();
+                    if (auto delta = root.get("delta")) {
+                        if (auto text = delta.get("text")) {
+                            std::string_view sv = text.as_str();
                             accumulated_text.append(sv.data(), sv.size());
                             if (cbs.on_text_delta) cbs.on_text_delta(sv);
                         }
                     }
-                    yyjson_doc_free(d);
                     break;
                 }
                 case SseEventType::MessageDelta: {
-                    yyjson_doc* d = yyjson_read(data_str.data(), data_str.size(), 0);
-                    if (!d) break;
-                    yyjson_val* root = yyjson_doc_get_root(d);
-                    if (auto* delta = yyjson_obj_get(root, "delta")) {
-                        if (auto* sr = yyjson_obj_get(delta, "stop_reason")) {
-                            out_stop_reason.assign(yyjson_get_str(sr),
-                                                   yyjson_get_len(sr));
+                    auto parsed = json::parse(data_str);
+                    if (!parsed) break;
+                    json::JsonVal root = parsed->root();
+                    if (auto delta = root.get("delta")) {
+                        if (auto sr = delta.get("stop_reason")) {
+                            std::string_view sv = sr.as_str();
+                            out_stop_reason.assign(sv.data(), sv.size());
                         }
                     }
-                    yyjson_doc_free(d);
                     break;
                 }
                 case SseEventType::Error: {
-                    yyjson_doc* d = yyjson_read(data_str.data(), data_str.size(), 0);
-                    if (!d) {
+                    auto parsed = json::parse(data_str);
+                    if (!parsed) {
                         out_error_reason = data_str;
                         break;
                     }
-                    yyjson_val* root = yyjson_doc_get_root(d);
-                    if (auto* err = yyjson_obj_get(root, "error")) {
-                        if (auto* msg = yyjson_obj_get(err, "message")) {
-                            out_error_reason.assign(yyjson_get_str(msg),
-                                                    yyjson_get_len(msg));
-                        } else if (auto* type_v = yyjson_obj_get(err, "type")) {
-                            // Fallback: concatenate type + any raw JSON message.
-                            size_t slen = 0;
-                            char* sstr = yyjson_val_write(err, 0, &slen);
-                            if (sstr) {
-                                out_error_reason.assign(sstr, slen);
-                                free(sstr);
+                    json::JsonVal root = parsed->root();
+                    if (auto err = root.get("error")) {
+                        if (auto msg = err.get("message")) {
+                            std::string_view sv = msg.as_str();
+                            out_error_reason.assign(sv.data(), sv.size());
+                        } else if (auto type_v = err.get("type")) {
+                            // Fallback: serialize the whole error object; if that
+                            // fails, fall back to the bare type string.
+                            std::string serialized = json::to_string(err);
+                            if (!serialized.empty()) {
+                                out_error_reason = std::move(serialized);
                             } else {
-                                out_error_reason.assign(
-                                    yyjson_get_str(type_v),
-                                    yyjson_get_len(type_v));
+                                std::string_view sv = type_v.as_str();
+                                out_error_reason.assign(sv.data(), sv.size());
                             }
                         }
                     }
-                    yyjson_doc_free(d);
                     break;
                 }
                 case SseEventType::MessageStop:
