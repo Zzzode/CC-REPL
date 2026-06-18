@@ -15,6 +15,13 @@ module;
 #include <filesystem>
 #include <mutex>
 #include <shared_mutex>
+#include <cerrno>
+#include <fstream>
+// POSIX headers for crash-safe atomic writes (fsync the temp file and its
+// parent directory before rename, mirroring the TS reference's pattern in
+// utils/statsCache.ts which calls handle.sync() + fs.rename()).
+#include <unistd.h>
+#include <fcntl.h>
 
 export module cc.state.persistence;
 
@@ -226,25 +233,64 @@ public:
             // Write to file atomically using temp file
             auto temp_path = state_file_path_;
             temp_path += ".tmp";
-            
-            {
-                std::ofstream file(temp_path, std::ios::binary | std::ios::trunc);
-                if (!file) {
-                    return std::unexpected(cc::utils::make_error(
-                        ErrorCode::internal_error,
-                        std::format("Failed to open state file for writing: {}", temp_path.string())
-                    ));
+
+            // Open the temp file with a raw POSIX fd so we can fsync it. The
+            // TS reference (utils/statsCache.ts) opens the file with mode
+            // 0o600, calls handle.writeFile, then handle.sync() (= fsync),
+            // then fs.rename for crash-safety. We mirror that here: an ofstream
+            // alone only flushes userspace buffers and is not durable across a
+            // crash that happens between flush and rename.
+            const int fd = ::open(temp_path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
+            if (fd < 0) {
+                return std::unexpected(cc::utils::make_error(
+                    ErrorCode::internal_error,
+                    std::format("Failed to open state file for writing: {}", temp_path.string())
+                ));
+            }
+
+            const std::string& payload = *serialized;
+            const char* data = payload.data();
+            std::size_t remaining = payload.size();
+            bool write_failed = false;
+            while (remaining > 0) {
+                const ssize_t n = ::write(fd, data, remaining);
+                if (n < 0) {
+                    if (errno == EINTR) continue;
+                    write_failed = true;
+                    break;
                 }
-                file << *serialized;
-                file.flush();
-                if (file.fail()) {
-                    return std::unexpected(cc::utils::make_error(
-                        ErrorCode::internal_error,
-                        "Failed to write state file"
-                    ));
+                data += n;
+                remaining -= static_cast<std::size_t>(n);
+            }
+
+            // fsync the file contents to durable storage before we rename it
+            // into place; without this a crash after rename can leave a torn
+            // or empty state file.
+            if (!write_failed && ::fsync(fd) != 0) {
+                write_failed = true;
+            }
+            ::close(fd);
+
+            if (write_failed) {
+                std::error_code ignore_ec;
+                fs::remove(temp_path, ignore_ec);
+                return std::unexpected(cc::utils::make_error(
+                    ErrorCode::internal_error,
+                    "Failed to write/fsync state file"
+                ));
+            }
+
+            // fsync the parent directory so the rename is durable too. This is
+            // best-effort: some filesystems/OSes reject fsync on directories,
+            // and a failure here does not corrupt the data already written.
+            if (auto parent = state_file_path_.parent_path(); !parent.empty()) {
+                const int dir_fd = ::open(parent.c_str(), O_RDONLY);
+                if (dir_fd >= 0) {
+                    (void)::fsync(dir_fd);
+                    ::close(dir_fd);
                 }
             }
-            
+
             // Atomic rename
             fs::rename(temp_path, state_file_path_);
             

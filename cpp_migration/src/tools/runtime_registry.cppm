@@ -447,11 +447,20 @@ constexpr auto runtime_shell_quote = &runtime_shared_utils::shell_quote;
 }
 
 [[nodiscard]] LspAction parse_lsp_action(std::string_view action) {
+    // Canonical action strings mirror lsp_action_name() in lsp_tool.cppm.
+    // Without these mappings the runtime registry's execute_lsp_tool would
+    // silently fall through to LspAction::Symbols for the newer actions.
     if (action == "diagnostics") return LspAction::Diagnostics;
     if (action == "definition") return LspAction::Definition;
     if (action == "references") return LspAction::References;
     if (action == "completion") return LspAction::Completion;
     if (action == "hover") return LspAction::Hover;
+    if (action == "symbols") return LspAction::Symbols;
+    if (action == "implementation") return LspAction::Implementation;
+    if (action == "workspaceSymbol") return LspAction::WorkspaceSymbol;
+    if (action == "prepareCallHierarchy") return LspAction::PrepareCallHierarchy;
+    if (action == "incomingCalls") return LspAction::IncomingCalls;
+    if (action == "outgoingCalls") return LspAction::OutgoingCalls;
     return LspAction::Symbols;
 }
 

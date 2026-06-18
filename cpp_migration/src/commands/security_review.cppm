@@ -178,9 +178,9 @@ inline constexpr std::array<std::string_view, 8> SENSITIVE_OP_PATTERNS = {
         findings.push_back(SecurityFinding{
             .file = "(detected in diff — see LLM refinement below)",
             .line = 0,
-            .type = std::string("hardcoded_secret:") + m.type,
+            .type = std::string("hardcoded_secret:") + m.ruleId,
             .severity = SecuritySeverity::High,
-            .evidence = std::format("Secret pattern '{}' matched in branch diff.", m.type),
+            .evidence = std::format("Secret pattern '{}' ({}) matched in branch diff.", m.ruleId, m.label),
             .recommendation = "Move this secret to a secrets manager (1Password, AWS Secrets Manager, "
                               "Vault, or environment variables) and revoke the leaked value."
         });

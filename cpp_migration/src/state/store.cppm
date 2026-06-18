@@ -869,19 +869,26 @@ using Middleware = std::function<DispatchFn(DispatchFn next)>;
     };
 }
 
-/// Persistence middleware: saves state on specific actions
+/// Persistence middleware.
+///
+/// NOTE: this is an intentional no-op. The TS reference (src/state/store.ts)
+/// does not implement a middleware pipeline at all — its Store is a trivial
+/// getState/setState/subscribe object, and persistence of the few AppState
+/// fields the TS app actually persists happens through targeted global-config
+/// writes in src/state/onChangeAppState.ts, not through a store middleware.
+///
+/// In this C++ port persistence is handled directly by the Store in
+/// notify() (the AppState-typed auto-persist branch below) via the
+/// StatePersistence manager, which is the equivalent of the TS onChange
+/// callback path. This middleware therefore exists only for API parity and
+/// deliberately performs no work; if per-action persistence hooks are ever
+/// needed, dispatch them here.
 [[nodiscard]] inline Middleware persistence_middleware(
-    std::shared_ptr<persistence::StatePersistence> persistence
+    std::shared_ptr<persistence::StatePersistence> /*persistence*/
 ) {
-    return [persistence = std::move(persistence)](DispatchFn next) -> DispatchFn {
-        return [next = std::move(next), persistence](const Action& action) {
+    return [](DispatchFn next) -> DispatchFn {
+        return [next = std::move(next)](const Action& action) {
             next(action);
-            // Save state on certain actions if auto-save is enabled
-            if (action.type == ActionType::AddMessage ||
-                action.type == ActionType::SetVerbose ||
-                action.type == ActionType::ToggleCompactMode) {
-                // Actual save happens in the store after state is updated
-            }
         };
     };
 }

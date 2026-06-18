@@ -319,3 +319,99 @@ endif()
 if(ENABLE_FUZZING)
   add_subdirectory(fuzz)
 endif()
+
+# ===========================================================================
+# Migration fix-batch regression suites (test_fix_*)
+# ===========================================================================
+
+# B2: cc.utils.hooks_execution wired into QueryEngine tool-call dispatch
+add_executable(test_fix_hooks_integration test_fix_hooks_integration.cpp)
+target_link_libraries(test_fix_hooks_integration
+    PRIVATE
+        cc_core
+        GTest::gtest_main
+)
+gtest_discover_tests(test_fix_hooks_integration DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+
+# B1-qe-tests: QueryEngine coverage (output_config, fallback models, memory, skills)
+add_executable(test_fix_query_engine test_fix_query_engine.cpp)
+target_link_libraries(test_fix_query_engine
+    PRIVATE
+        cc_core
+        GTest::gtest_main
+)
+gtest_discover_tests(test_fix_query_engine DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+
+# state-layer: M2 fsync atomic write + M1 undo/redo regression
+add_executable(test_fix_state test_fix_state.cpp)
+target_link_libraries(test_fix_state
+    PRIVATE
+        cc_state
+        cc_utils
+        GTest::gtest_main
+)
+gtest_discover_tests(test_fix_state DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+
+# plugin-H1-H2: marketplace fetch/add/remove + manifest validation
+add_executable(test_fix_plugin test_fix_plugin.cpp)
+target_link_libraries(test_fix_plugin
+    PRIVATE
+        cc_utils
+        GTest::gtest_main
+)
+gtest_discover_tests(test_fix_plugin DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+
+# H5: yoga layout engine subset regression (documentation-only fix, 18 tests)
+add_executable(test_fix_yoga test_fix_yoga.cpp)
+target_link_libraries(test_fix_yoga
+    PRIVATE
+        cc_core
+        GTest::gtest_main
+)
+gtest_discover_tests(test_fix_yoga DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+
+# M4 + M11: LSP action parity + send_request<T> static_assert
+add_executable(test_fix_lsp_tool test_fix_lsp_tool.cpp)
+target_link_libraries(test_fix_lsp_tool
+    PRIVATE
+        cc_core
+        GTest::gtest_main
+)
+target_compile_options(test_fix_lsp_tool PRIVATE
+    $<$<CXX_COMPILER_ID:Clang,AppleClang>:-Wno-missing-designated-field-initializers>
+)
+gtest_discover_tests(test_fix_lsp_tool DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+
+# M6: API stubs -> real HTTP (first_token_date, ultrareview_quota, overage_credit)
+add_executable(test_fix_api test_fix_api.cpp)
+target_link_libraries(test_fix_api
+    PRIVATE
+        cc_core
+        cc_services
+        cc_constants
+        cc_utils
+        GTest::gtest_main
+)
+gtest_discover_tests(test_fix_api DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+
+# M7: notification backend wiring (mcp connectivity + teammate shutdowns)
+add_executable(test_fix_notifs test_fix_notifs.cpp)
+target_link_libraries(test_fix_notifs
+    PRIVATE
+        cc_hooks
+        cc_services
+        GTest::gtest_main
+)
+target_compile_options(test_fix_notifs PRIVATE
+    $<$<CXX_COMPILER_ID:Clang,AppleClang>:-Wno-missing-designated-field-initializers>
+)
+gtest_discover_tests(test_fix_notifs DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+
+# misc-low: oauth_port bind-probe, secret_scanner gitleaks, in_process_transport, PKCE CSPRNG
+add_executable(test_fix_misc_low test_fix_misc_low.cpp)
+target_link_libraries(test_fix_misc_low
+    PRIVATE
+        cc_services
+        GTest::gtest_main
+)
+gtest_discover_tests(test_fix_misc_low DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})

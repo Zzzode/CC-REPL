@@ -268,7 +268,26 @@ struct RefreshResult {
 /// Refresh a single plugin by ID
 [[nodiscard]] std::expected<void, std::string> refresh_plugin(std::string_view plugin_id);
 
-// ── Stub implementations (see plugin_marketplace.cppm for rationale) ──
+// ── Stub implementations ─────────────────────────────────────────────────────
+//
+// These mirror src/utils/plugins/installedPluginsManager.ts isPluginInstalled /
+// removeInstalledPlugin signatures, but the bodies are intentionally stubs
+// because the TS implementations depend on subsystems that are NOT yet migrated
+// to C++:
+//
+//   - loadInstalledPluginsV2() / load_installed_plugins_v2(): declared in this
+//     header but never DEFINED — the V2 disk-format reader is missing.
+//   - isInstallationRelevantToCurrentProject(): needs getOriginalCwd (cwd
+//     bootstrap is not migrated).
+//   - getSettings_DEPRECATED().enabledPlugins: the enabledPlugins settings
+//     field is not migrated.
+//   - plugin_marketplace.cppm also has no definition for its marketplace
+//     queries.
+//
+// Porting these would mean porting the entire installed-plugins disk layer,
+// the settings field, and the cwd bootstrap — not a quick stub fix. Until then
+// these return conservative values (not installed / nothing removed) so callers
+// fail safe.
 inline bool is_plugin_installed(std::string_view) { return false; }
 
 inline std::optional<InstalledPlugin> remove_installed_plugin(std::string_view) {

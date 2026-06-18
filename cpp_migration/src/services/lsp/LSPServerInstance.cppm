@@ -197,7 +197,7 @@ Result<T> LSPServerInstance::send_request(const std::string& method, const std::
     if (!is_running) {
         return std::unexpected(cc::utils::Error(cc::utils::ErrorCode::unavailable, "LSP server not connected"));
     }
-    
+
     const auto id = next_request_id++;
     auto params_json = params_to_json(params);
     auto message = std::format(
@@ -243,6 +243,16 @@ Result<T> LSPServerInstance::send_request(const std::string& method, const std::
             cc::utils::ErrorCode::timeout,
             "Timed out waiting for matching LSP response"));
     }
+    // Guard against silent default-construct no-ops for unsupported T. The TS
+    // sendRequest<T> (LSPServerInstance.ts:355-410) returns the typed result
+    // from client.sendRequest; today the C++ port only materialises T=std::string
+    // (lsp_tool.cppm send_request + LSPServerInstance::start initialise). Any
+    // future T must grow a branch above; failing to compile is preferable to
+    // silently returning T{}.
+    static_assert(std::is_same_v<T, std::string>,
+        "LSPServerInstance::send_request currently only supports T=std::string; "
+        "add a matching `if constexpr` branch for new types instead of relying "
+        "on a default-constructed no-op.");
     return T{};
 }
 

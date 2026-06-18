@@ -84,8 +84,6 @@ import cc.skills.lorem_ipsum;
 import cc.skills.remember;
 import cc.skills.schedule_remote_agents;
 import cc.skills.simplify;
-import cc.skills.skillify;        // root: simplified 6-step stub
-import cc.skills.update_config;   // root: simplified read-validate-apply stub
 import cc.skills.verify_content;
 import cc.skills.keybindings; // NOTE: simple shortcut sheet, separate from keybindings-help
 
@@ -159,9 +157,9 @@ export namespace cc::skills {
 /// IMPLEMENTATION: cc.skills.bundled.skillify.  Skill file discovery and
 /// registration delegate to cc.skills.load_skills_dir (no duplicate parser).
 ///
-/// NOTE: Root-level cc.skills.skillify::make_skillify_skill() is a simplified
-/// 6-step stub kept for backward compatibility; the BUNDLED registry uses the
-/// full TS-parity version below.
+/// TS parity: src/skills/bundled/skillify.ts is the only skillify impl in TS
+/// (no root-level stub exists upstream). The C++ root-level stub was removed
+/// as dead code; the BUNDLED registry uses the full TS-parity version below.
 [[nodiscard]] inline SkillDefinition make_skillify_skill() {
     return cc::skills::bundled::make_bundled_skillify_skill();
 }
@@ -177,9 +175,10 @@ export namespace cc::skills {
 /// 100% to cc.config.config::ConfigManager and cc.config.feature_flags::
 /// FeatureFlagManager — NEVER reads/writes raw JSON files here.
 ///
-/// NOTE: Root-level cc.skills::update_config::make_update_config_skill() is a
-/// simplified 6-step stub kept for backward compatibility; the BUNDLED
-/// registry uses the full TS-parity version below.
+/// TS parity: src/skills/bundled/updateConfig.ts is the only update-config
+/// impl in TS (no root-level stub exists upstream). The C++ root-level stub
+/// was removed as dead code; the BUNDLED registry uses the full TS-parity
+/// version below.
 [[nodiscard]] inline SkillDefinition make_update_config_skill() {
     return cc::skills::bundled::make_bundled_update_config_skill();
 }

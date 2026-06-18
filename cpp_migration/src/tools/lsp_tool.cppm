@@ -21,7 +21,13 @@ import cc.utils.json;
 
 export namespace cc::tools {
 
-// LSP action types
+// LSP action types. The action set mirrors the TS LSP tool operation union
+// (src/tools/LSPTool/schemas.ts:180-190): goToDefinition, findReferences,
+// hover, documentSymbol, workspaceSymbol, goToImplementation,
+// prepareCallHierarchy, incomingCalls, outgoingCalls. The C++ port keeps two
+// additional helpers (Diagnostics, Completion) that are not part of the TS
+// operation union but are exercised by runtime_registry.cppm; they are left in
+// place so existing call sites keep working.
 enum class LspAction {
     Diagnostics,
     Definition,
@@ -29,17 +35,27 @@ enum class LspAction {
     Completion,
     Hover,
     Symbols,
+    Implementation,        // TS: goToImplementation  -> textDocument/implementation
+    WorkspaceSymbol,       // TS: workspaceSymbol     -> workspace/symbol
+    PrepareCallHierarchy,  // TS: prepareCallHierarchy -> textDocument/prepareCallHierarchy
+    IncomingCalls,         // TS: incomingCalls        -> callHierarchy/incomingCalls (two-step)
+    OutgoingCalls,         // TS: outgoingCalls        -> callHierarchy/outgoingCalls (two-step)
 };
 
 constexpr auto lsp_action_name(LspAction a) -> std::string_view {
     switch (a) {
-        case LspAction::Diagnostics: return "diagnostics";
-        case LspAction::Definition:  return "definition";
-        case LspAction::References:  return "references";
-        case LspAction::Completion:  return "completion";
-        case LspAction::Hover:       return "hover";
-        case LspAction::Symbols:     return "symbols";
-        default:                     return "unknown";
+        case LspAction::Diagnostics:            return "diagnostics";
+        case LspAction::Definition:             return "definition";
+        case LspAction::References:             return "references";
+        case LspAction::Completion:             return "completion";
+        case LspAction::Hover:                  return "hover";
+        case LspAction::Symbols:                return "symbols";
+        case LspAction::Implementation:         return "implementation";
+        case LspAction::WorkspaceSymbol:        return "workspaceSymbol";
+        case LspAction::PrepareCallHierarchy:   return "prepareCallHierarchy";
+        case LspAction::IncomingCalls:          return "incomingCalls";
+        case LspAction::OutgoingCalls:          return "outgoingCalls";
+        default:                                return "unknown";
     }
 }
 
@@ -110,6 +126,27 @@ struct LspSymbol {
     std::optional<std::string> container_name;
 };
 
+// CallHierarchyItem (LSP 3.16). Used by prepareCallHierarchy and as the
+// from/to peer of incoming/outgoing call edges.
+struct LspCallItem {
+    std::string name;
+    std::string kind;        // human-readable SymbolKind name
+    std::string uri;
+    std::string detail;
+    std::optional<std::string> tags;       // raw tag array string when present
+    LspRange range;
+    LspRange selection_range;
+    std::optional<std::string> data_json;  // opaque server payload
+};
+
+// CallHierarchyIncomingCall / OutgoingCall edge. For incoming, `peer` is the
+// `from` item and `ranges` are `fromRanges`; for outgoing, `peer` is the `to`
+// item and `ranges` are `toRanges` (see vscode-languageserver-types).
+struct LspCallEdge {
+    LspCallItem peer;
+    std::vector<LspRange> ranges;
+};
+
 // Hover result
 struct LspHoverResult {
     std::string contents;
@@ -131,10 +168,13 @@ struct LspResult {
     std::vector<LspCompletionItem> completions;
     std::vector<LspSymbol> symbols;
     std::optional<LspHoverResult> hover;
+    std::vector<LspCallItem> call_items;   // prepareCallHierarchy result
+    std::vector<LspCallEdge> call_edges;   // incomingCalls / outgoingCalls result
 
     [[nodiscard]] bool empty() const {
         return diagnostics.empty() && locations.empty()
-            && completions.empty() && symbols.empty() && !hover;
+            && completions.empty() && symbols.empty() && !hover
+            && call_items.empty() && call_edges.empty();
     }
 };
 
@@ -375,6 +415,80 @@ inline void append_symbol(
     return result;
 }
 
+// Parse a single CallHierarchyItem (LSP 3.16 shape).
+[[nodiscard]] inline auto parse_call_item(cc::utils::json::JsonVal value) -> std::optional<LspCallItem> {
+    if (!value.is_obj()) return std::nullopt;
+    auto uri = value.get("uri");
+    if (!uri.is_str()) return std::nullopt;
+    LspCallItem item;
+    item.name = string_field(value, "name");
+    item.kind = symbol_kind_name(number_field(value, "kind"));
+    item.uri = std::string(uri.as_str());
+    item.detail = string_field(value, "detail");
+    item.range = parse_range(value.get("range"));
+    item.selection_range = parse_range(value.get("selectionRange"));
+    auto tags = value.get("tags");
+    if (tags.is_arr()) item.tags = tags.to_string();
+    auto data = value.get("data");
+    if (data.valid()) item.data_json = data.to_string();
+    return item;
+}
+
+// Parse the CallHierarchyItem[] result of textDocument/prepareCallHierarchy.
+[[nodiscard]] inline auto parse_call_items_result(std::string_view json) -> std::expected<LspResult, LspToolError> {
+    auto parsed = cc::utils::json::parse(json);
+    if (!parsed) return std::unexpected(LspToolError::ParseError);
+    LspResult result;
+    auto root = parsed->root();
+    if (!root.is_arr()) {
+        // A single object or null/missing -> degrade gracefully.
+        if (auto single = parse_call_item(root)) result.call_items.push_back(std::move(*single));
+        return result;
+    }
+    root.iter([&](cc::utils::json::JsonVal item) {
+        if (auto parsed_item = parse_call_item(item)) result.call_items.push_back(std::move(*parsed_item));
+    });
+    return result;
+}
+
+// Parse callHierarchy/incomingCalls (CallHierarchyIncomingCall[]) and
+// callHierarchy/outgoingCalls (CallHierarchyOutgoingCall[]). The two shapes
+// differ only in the peer key (`from` vs `to`) and the ranges key
+// (`fromRanges` vs `toRanges`); both are handled here.
+[[nodiscard]] inline auto parse_call_edges_result(std::string_view json, bool incoming)
+    -> std::expected<LspResult, LspToolError>
+{
+    auto parsed = cc::utils::json::parse(json);
+    if (!parsed) return std::unexpected(LspToolError::ParseError);
+    LspResult result;
+    auto root = parsed->root();
+    auto peer_key = incoming ? "from" : "to";
+    auto ranges_key = incoming ? "fromRanges" : "toRanges";
+    if (!root.is_arr()) {
+        if (root.is_obj()) {
+            LspCallEdge edge;
+            if (auto peer = parse_call_item(root.get(peer_key))) edge.peer = std::move(*peer);
+            auto ranges = root.get(ranges_key);
+            ranges.iter([&](cc::utils::json::JsonVal r) {
+                edge.ranges.push_back(parse_range(r));
+            });
+            result.call_edges.push_back(std::move(edge));
+        }
+        return result;
+    }
+    root.iter([&](cc::utils::json::JsonVal item) {
+        if (!item.is_obj()) return;
+        LspCallEdge edge;
+        if (auto peer = parse_call_item(item.get(peer_key))) edge.peer = std::move(*peer);
+        auto ranges = item.get(ranges_key);
+        ranges.iter([&](cc::utils::json::JsonVal r) {
+            edge.ranges.push_back(parse_range(r));
+        });
+        result.call_edges.push_back(std::move(edge));
+    });
+    return result;
+}
+
 [[nodiscard]] inline auto build_text_document_params(std::string_view uri) -> std::string {
     cc::utils::json::JsonMutDoc doc;
     auto root = doc.object();
@@ -416,6 +530,29 @@ inline void append_symbol(
     return doc.to_string();
 }
 
+// workspace/symbol uses an empty query to return all symbols (mirrors TS
+// LSPTool.ts:471-477: `params: { query: '' }`).
+[[nodiscard]] inline auto build_workspace_symbol_params() -> std::string {
+    cc::utils::json::JsonMutDoc doc;
+    auto root = doc.object();
+    root.add("query", doc.string(""));
+    doc.set_root(root);
+    return doc.to_string();
+}
+
+// callHierarchy/incomingCalls and callHierarchy/outgoingCalls take a single
+// CallHierarchyItem under the `item` key (TS LSPTool.ts:324-326). We re-emit
+// the previously-returned item JSON verbatim so server-supplied fields like
+// `data` survive the round-trip.
+[[nodiscard]] inline auto build_call_hierarchy_request_params(const std::string& item_json) -> std::string {
+    cc::utils::json::JsonMutDoc doc;
+    auto root = doc.object();
+    auto item = doc.raw_json(item_json.empty() ? "null" : item_json);
+    root.add("item", item.valid() ? item : doc.null());
+    doc.set_root(root);
+    return doc.to_string();
+}
+
 } // namespace detail
 
 // LspTool - unified interface for LSP operations
@@ -435,11 +572,17 @@ public:
             return std::unexpected(LspToolError::FilePathEmpty);
         }
 
-        // Position is required for certain actions
+        // Position is required for position-based actions. Mirrors TS schemas.ts
+        // where every operation except workspaceSymbol requires line/character
+        // (workspaceSymbol still carries them in the schema but ignores them).
         bool needs_position = (request.action == LspAction::Definition
                             || request.action == LspAction::References
                             || request.action == LspAction::Completion
-                            || request.action == LspAction::Hover);
+                            || request.action == LspAction::Hover
+                            || request.action == LspAction::Implementation
+                            || request.action == LspAction::PrepareCallHierarchy
+                            || request.action == LspAction::IncomingCalls
+                            || request.action == LspAction::OutgoingCalls);
 
         if (needs_position && !request.position) {
             return std::unexpected(LspToolError::InvalidAction);
@@ -484,6 +627,16 @@ public:
                 return handle_hover(request.file_path, uri, *request.position);
             case LspAction::Symbols:
                 return handle_symbols(request.file_path, uri, request.query);
+            case LspAction::Implementation:
+                return handle_implementation(request.file_path, uri, *request.position);
+            case LspAction::WorkspaceSymbol:
+                return handle_workspace_symbol(request.file_path, request.query);
+            case LspAction::PrepareCallHierarchy:
+                return handle_prepare_call_hierarchy(request.file_path, uri, *request.position);
+            case LspAction::IncomingCalls:
+                return handle_call_direction(request.file_path, uri, *request.position, /*incoming=*/true);
+            case LspAction::OutgoingCalls:
+                return handle_call_direction(request.file_path, uri, *request.position, /*incoming=*/false);
         }
         return std::unexpected(LspToolError::InvalidAction);
     }
@@ -500,7 +653,7 @@ public:
   "parameters": {{
     "type": "object",
     "properties": {{
-      "action": {{ "type": "string", "enum": ["diagnostics", "definition", "references", "completion", "hover", "symbols"] }},
+      "action": {{ "type": "string", "enum": ["diagnostics", "definition", "references", "completion", "hover", "symbols", "implementation", "workspaceSymbol", "prepareCallHierarchy", "incomingCalls", "outgoingCalls"] }},
       "file_path": {{ "type": "string", "description": "Absolute path to the file" }},
       "line": {{ "type": "integer", "description": "Line number (0-based)" }},
       "character": {{ "type": "integer", "description": "Character offset (0-based)" }},
@@ -582,6 +735,113 @@ private:
         auto response = send_request(file_path, "textDocument/documentSymbol", detail::build_text_document_params(uri));
         if (!response) return std::unexpected(response.error());
         return detail::parse_symbols_result(*response, query);
+    }
+
+    // goToImplementation reuses the Location/LocationLink parser, mirroring TS
+    // LSPTool.ts:755-792 (which reuses the goToDefinition formatter).
+    auto handle_implementation(const std::filesystem::path& file_path, const std::string& uri, LspPosition pos)
+        -> std::expected<LspResult, LspToolError>
+    {
+        auto response = send_request(file_path, "textDocument/implementation", detail::build_position_params(uri, pos));
+        if (!response) return std::unexpected(response.error());
+        return detail::parse_locations_result(*response);
+    }
+
+    // workspace/symbol with an empty query returns all symbols. TS LSPTool.ts
+    // does not require a file path for the request itself, but the schema
+    // keeps filePath mandatory, so we honour it here for parity.
+    auto handle_workspace_symbol(const std::filesystem::path& file_path, std::optional<std::string> query)
+        -> std::expected<LspResult, LspToolError>
+    {
+        // Manager picks the server by file extension; file_path is still used
+        // to route the request even though the params omit it.
+        auto response = send_request(file_path, "workspace/symbol", detail::build_workspace_symbol_params());
+        if (!response) return std::unexpected(response.error());
+        return detail::parse_symbols_result(*response, query);
+    }
+
+    auto handle_prepare_call_hierarchy(const std::filesystem::path& file_path, const std::string& uri, LspPosition pos)
+        -> std::expected<LspResult, LspToolError>
+    {
+        auto response = send_request(file_path, "textDocument/prepareCallHierarchy", detail::build_position_params(uri, pos));
+        if (!response) return std::unexpected(response.error());
+        return detail::parse_call_items_result(*response);
+    }
+
+    // incoming/outgoing calls are a two-step flow (TS LSPTool.ts:299-334):
+    // prepareCallHierarchy first, then callHierarchy/incomingCalls or
+    // /outgoingCalls with `{ item: callItems[0] }`.
+    auto handle_call_direction(
+        const std::filesystem::path& file_path,
+        const std::string& uri,
+        LspPosition pos,
+        bool incoming) -> std::expected<LspResult, LspToolError>
+    {
+        auto prepared = send_request(file_path, "textDocument/prepareCallHierarchy", detail::build_position_params(uri, pos));
+        if (!prepared) return std::unexpected(prepared.error());
+        auto items_result = detail::parse_call_items_result(*prepared);
+        if (!items_result) return std::unexpected(items_result.error());
+        if (items_result->call_items.empty()) {
+            return LspResult{};  // TS: "No call hierarchy item found at this position"
+        }
+
+        // Reuse the server-supplied item JSON so opaque `data` survives. We
+        // rebuild a minimal item JSON from the first parsed item.
+        const auto& first = items_result->call_items.front();
+        std::string item_json = build_call_item_json(first);
+
+        auto method = incoming ? "callHierarchy/incomingCalls" : "callHierarchy/outgoingCalls";
+        auto response = send_request(file_path, method, detail::build_call_hierarchy_request_params(item_json));
+        if (!response) return std::unexpected(response.error());
+        return detail::parse_call_edges_result(*response, incoming);
+    }
+
+    // Render a LspCallItem back to JSON for the { item: ... } request payload.
+    [[nodiscard]] static auto build_call_item_json(const LspCallItem& item) -> std::string {
+        cc::utils::json::JsonMutDoc doc;
+        auto root = doc.object();
+        root.add("name", doc.string(item.name));
+        root.add("kind", doc.number(static_cast<int64_t>(parse_symbol_kind_value(item.kind))));
+        root.add("uri", doc.string(item.uri));
+        if (!item.detail.empty()) root.add("detail", doc.string(item.detail));
+        root.add("range", build_range_json(doc, item.range));
+        root.add("selectionRange", build_range_json(doc, item.selection_range));
+        if (item.data_json) {
+            auto raw = doc.raw_json(*item.data_json);
+            if (raw.valid()) root.add("data", raw);
+        }
+        doc.set_root(root);
+        return doc.to_string();
+    }
+
+    [[nodiscard]] static auto build_range_json(cc::utils::json::JsonMutDoc& doc, const LspRange& range)
+        -> cc::utils::json::JsonMutVal
+    {
+        auto obj = doc.object();
+        auto start = doc.object();
+        start.add("line", doc.number(static_cast<int64_t>(range.start.line)));
+        start.add("character", doc.number(static_cast<int64_t>(range.start.character)));
+        obj.add("start", start);
+        auto end = doc.object();
+        end.add("line", doc.number(static_cast<int64_t>(range.end.line)));
+        end.add("character", doc.number(static_cast<int64_t>(range.end.character)));
+        obj.add("end", end);
+        return obj;
+    }
+
+    // Inverse of detail::symbol_kind_name for round-tripping CallHierarchyItem.kind.
+    [[nodiscard]] static auto parse_symbol_kind_value(std::string_view name) -> int {
+        static constexpr std::array<std::string_view, 27> names{
+            "unknown", "file", "module", "namespace", "package", "class", "method",
+            "property", "field", "constructor", "enum", "interface", "function",
+            "variable", "constant", "string", "number", "boolean", "array",
+            "object", "key", "null", "enum_member", "struct", "event", "operator",
+            "type_parameter",
+        };
+        for (std::size_t i = 0; i < names.size(); ++i) {
+            if (names[i] == name) return static_cast<int>(i);
+        }
+        return 0;  // unknown
     }
 };
 

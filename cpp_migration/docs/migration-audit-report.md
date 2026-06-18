@@ -29,9 +29,12 @@ services all run end-to-end; every audit-flagged item has been resolved.**
 - ✅ **QueryEngine** — session persistence, structured output
   (`output_config.format.json_schema`), user-memory loading, and in-loop skill
   dispatch (`discovered_skills_`) all wired; dead `QueryDeps` removed.
-- ✅ **Tests**: 660/660 passing serially (+58 over the 602 baseline, +9 over
-  the prior 651 round); covers the runtime_shared_utils, runtime_team_shared,
-  and runtime_message_delivery extraction modules added in the final
+- ✅ **Tests**: **925/925 passing** as of 2026-06-18 (`build-clang`, ctest
+  100% + 1 Windows-only skip). The figure below reflects the 2026-06-15
+  snapshot (660/660) and is retained for the historical trajectory — see the
+  §8 reconciliation note and §12 Change Log for the superseding counts.
+  Coverage spans the runtime_shared_utils, runtime_team_shared, and
+  runtime_message_delivery extraction modules added in the final
   `runtime_registry.cppm` split, alongside all prior additions
   (state-persistence, schema-migration/undo-redo, store-genericity,
   doctor-diagnostics, at-mention, LSP-parser, keychain-backend,
@@ -88,7 +91,8 @@ Top-level module parity (see §5 for the full mapping):
 - ✅ Clang and GCC compiler support.
 - ✅ GoogleTest + GoogleBenchmark integration.
 - ✅ Sanitizer presets (ASAN / UBSAN), fuzz harness, coverage build.
-- ✅ Executable: `build/clang-debug/bin/cc-repl` (~34MB), plus
+- ✅ Executable: `build-clang/bin/cc-repl` (~14 MB / 14,726,760 bytes, as of
+  2026-06-17), plus
   `pare-benchmark`, `phase3_permission_smoke`, `phase3_qe_sse_mock`.
 
 ## 4. Core Systems
@@ -237,6 +241,14 @@ Bash command security scanning (destructive / injection / privilege-escalation
 detection), allowed-directory path validation, 4-level / 3-mode permission
 model, secret redaction, JWT auth (Bridge), trusted devices / work keys.
 
+> **Note (TS-parity, 2026-06-18)**: `bridge/jwt_utils.cppm::decode_jwt` only
+> *decodes* the JWT payload and does **not** verify the signature. This matches
+> the TS original (`src/bridge/jwtUtils.ts::decodeJwtPayload`, explicitly
+> documented "without verifying the signature") and is an intentional design
+> choice, not a gap — it is recorded here so it does not appear as an
+> unexplained omission. Signature verification, if needed, is a separate
+> hardening item on both sides.
+
 ### 6.2 High-risk issues (current state)
 
 > Verdict: **All previously-flagged production blockers are resolved.**
@@ -272,6 +284,15 @@ reducers).
 
 ## 8. Test State (2026-06-15)
 
+> **2026-06-18 reconciliation**: the live ctest count for
+> `build-clang` is **925/925 passing (100%)** plus 1 Windows-only skip
+> (`Tools.RuntimePowerShellTool...OnWindows`). Several historical counts appear
+> in this document and its Change Log (602, 649, 660, 727, 798, 823, 824, 835)
+> and are **superseded** by 925/925 — they are retained only as the audit's
+> historical trajectory. The 835→925 jump (+90) is the 2026-06-18 fix batch
+> (9 new `test_fix_*` suites). Where an inline figure is now stale it is
+> annotated below; the authoritative current figure is 925/925.
+
 - Full ctest run (clang-debug, 2026-06-15): **598 / 598 passed (100%)**,
   plus 1 Windows-only skip.
 - The 9 failures recorded in the 2026-06-12 baseline (5× `Components.TextInput*`,
@@ -281,9 +302,12 @@ reducers).
   a 1500ms ctest timeout and flakes under concurrent load).
 - New security regression tests added: `RuntimeSimpleToolsFailClosedWithoutPermissionCheck`,
   `PathValidationRejectsSymlinkEscapingAllowedDir`, `BashSecurityDetectsObfuscatedCommands`.
-- Coverage refresh (clang-coverage preset, 2026-06-17): **74.70% line / 58.10%
-  branch (region)** measured (213,638 lines, 9,984 regions) — replacing the
-  stale 06-11 "~39% branch" estimate (a real measurement, not a guess).
+- Coverage refresh (clang-coverage preset, 2026-06-17): **56.26% line / 42.93%
+  branch** measured (the corresponding llvm-cov Totals are Function 58.10% /
+  Line 56.26% / Region 74.70% / Branch 42.93%) — replacing the stale 06-11
+  "~39% branch" estimate (a real measurement, not a guess). The prior draft of
+  this line mis-mapped Region→Line and Function→Branch; the correct
+  Line/Branch figures are 56.26%/42.93%.
   Untested hot spots: `vim_mode.cppm` (0.7%), `swarm_helpers.cppm` (0%), and
   the tree-sitter AST path (`ast.cppm` 0%, since the coverage build uses the
   regex fallback — `CC_ENABLE_TREE_SITTER` is OFF there). Test files
@@ -297,7 +321,7 @@ reducers).
 | Architecture consistency | 🟡 Medium | tool abstraction unified (`ToolBase` removed, only `ITool`); `Store<State>` vs `AppStateStore` overlap remains |
 | Security | 🟠 Medium-High | multiple bypasses, detection bypassable |
 | Code quality | 🟡 Medium | generally good; some monolithic files, duplication |
-| Test coverage | 🟠 High | 67% of files untested, 39% branch coverage |
+| Test coverage | 🟠 High | 67% of files untested, 42.93% branch coverage |
 | Concurrency safety | 🟡 Medium | some unprotected global state |
 | Feature completeness | 🟡 Medium | core 85%+, edge gaps |
 | Maintainability | 🟡 Medium | abstraction splits raise maintenance cost |
@@ -354,6 +378,8 @@ purely mechanical follow-on.
 | 2026-06-17 (pass 3) | LSP/OAuth verification pass. **LSP client**: separate the language server's stderr from the duplex JSON-RPC stream (redirect to `$CC_LSP_LOG`, else `/dev/null`) so server diagnostics no longer corrupt message framing (the §13 #6 hardening item); cast two intentional fire-and-forget / destructor `[[nodiscard]]` calls to `(void)` for a clean build. **OAuth**: corrected the stale "~50% skeleton" verdict (§4.4) — `oauth/client.cppm` (947 LOC) implements the full authorization-code + PKCE flow (verifier/S256 challenge, local callback server, `exchange_code`/`refresh_token` via httplib POST, keychain storage) and is exercised by `McpAuth.CompletesOAuthBrowserCallbackFlowAndStoresTokens`. 16 LSP tests pass. |
 | 2026-06-17 (pass 4) | Error-handling sweep. Migrated `file_edit_utils` (`get_patch_for_edits`/`get_patch_for_edit` → `std::expected<PatchForEditsResult, std::string>`, 3 `throw` → `std::unexpected`), eliminating the throw-then-catch anti-pattern in `file_edit_tool` and `are_file_edits_equivalent` (4 Edit tests pass). Audited the remaining ~33 `throw` sites: all legitimate (json_read boundary-wrap, stop_task/bridge domain errors, `CurlHandle` RAII, `SanitizedValue::at`, preconditions) or dead code with no callers (`lazy_schema::get`, `keybindings::resolver`) — recorded in `error-handling-conventions.md`. §13 #10 → ✅. |
 | 2026-06-17 (pass 5) | Error-handling sweep continued. Eliminated every remaining clear violation / dead-code throw: `log_error(string)` throw-control-flow misuse; deleted dead `lazy_schema` module + `keybindings::resolver()` overloads + dead `cc::tasks::stop_task` module (3 modules, ~220 LOC, 6 throw sites); factory-ized `CurlHandle` (`create()` returns `Result`) — fixing a `Result`/throw contract conflict in `post()` and a potential `std::terminate` if CURL init failed inside the detached streaming worker thread. **throw sites: ~33 → 21** (-12); all 21 remaining are legitimate (json_read boundary-wrap, bridge domain errors, `std::map::at`-style accessors, preconditions, defensive invariants) or flagged needs-investigation (`bridge::run_headless` — functional method, kept). `error-handling-conventions.md` records the full classification. |
+| 2026-06-18 | Doc-accuracy pass (M5/M12/M13). **M12** — corrected the §8 / §9 coverage figures that mis-mapped llvm-cov Totals: the prior "74.70% line / 58.10% branch" conflated Region→Line and Function→Branch; the real Totals are Function 58.10% / Line 56.26% / Region 74.70% / Branch 42.93%, so the correct headline is **56.26% line / 42.93% branch** (§8 refreshed, §9 "39% branch" → 42.93%). **M13** — reconciled the test-count drift: the document carried 7 different counts (602/649/660/727/798/823/824) and "824/824 green" in the changelog vs the 660/660 in the Executive Summary; the live `build-clang` ctest is **835/835 passing (100%)** + 1 Windows-only skip, added as a dated reconciliation note at the top of §8 and in the Executive Summary, with the historical counts flagged as superseded. Corrected the binary size from the stale "~34MB" to the measured **14,726,760 bytes (~14 MB)** for `build-clang/bin/cc-repl`. **M5** — documented that `bridge/jwt_utils.cppm::decode_jwt` intentionally does **not** verify the JWT signature, matching the TS original (`src/bridge/jwtUtils.ts::decodeJwtPayload`, "without verifying the signature") — TS-parity, recorded in §6.1 so it is not an unexplained gap. No code changed in this pass. |
+| 2026-06-18 (fix batch) | Adversarial re-audit + parity-fix pass against the TS original. **Fixed**: B2 — wired `cc.utils.hooks_execution` (pre/post-tool dispatch) into the QueryEngine tool-call loop (was compiled but never invoked); H1/H2 — ported plugin marketplace fetch/add/remove + manifest validation from TS; H8/H3/P3 — deleted 6 dead modules (`snip_tool`/`monitor_tool`/`terminal_capture_tool`/`claude_ai`/root `skillify`/`update_config`) and removed their CMakeLists entries; M4 — added 5 LSP actions (`implementation`/`workspaceSymbol`/`prepareCallHierarchy`/`incomingCalls`/`outgoingCalls`) to `lsp_tool.cppm` + mapped them in `runtime_registry.cppm::parse_lsp_action` (was silently falling through to `Symbols`); M11 — constrained `LSPServerInstance::send_request<T>` with a `static_assert`; M6 — ported `first_token_date`/`ultrareview_quota`/`overage_credit` to real HTTP; M7 — wired notification hooks to real MCP/team backends; M2 — added `fsync` atomic write to state persistence; misc-low — `oauth_port` bind scan, 35-rule `secret_scanner`, PKCE/state CSPRNG. **Verified false-positives (no code change)**: M1 undo/redo (3 regression tests pin the invariants), M3 persistence breadth (already TS-parity), H4 LSP semantic overlay (TS has no such integration), M9 UI-deferred (C++ exceeds TS parity), H9 script-primitives (pure registry, no dispatcher), H5 yoga (the C++ UI never invokes `yoga.cppm`, so no port needed — documented + 18 regression tests). **Tests 835 → 925 (+90)** across 9 new `test_fix_*` suites; `build-clang` build green, ctest 925/925 (100%) + 1 Windows-only skip. Residual: B1's SSE chunk-parser path remains untested (private lambda, no exported seam — needs a refactor to test). |
 
 ## 13. Remaining Work
 

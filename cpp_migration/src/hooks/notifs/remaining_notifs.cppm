@@ -11,11 +11,39 @@
 ///   * an acknowledge / dismiss entry that records the notice id
 ///   * filtering logic (deadline, current model, dismissal, recency, severity)
 ///
-/// Where real source modules (services/analytics/growthbook, utils/model/deprecation,
-/// utils/plugin_lifecycle, services/plugins/installation_manager,
-/// services/mcp/connection_manager, utils/settings_validation, coordinator/swarm,
-/// services/rate_limit/claude_ai_limits_hook) exist we attempt to import them;
-/// for missing ones we fall back to observable thread-safe global state slots.
+/// Backend wiring status (mirrors TS src/hooks/notifs/*):
+///   * McpConnectivity      -> REAL: cc.services.mcp.connection_manager
+///                             (inject_mcp_connectivity_from_manager()).
+///                             TS: useMcpConnectivityStatus filters mcpClients
+///                             by failed/needs-auth.
+///   * TeammateShutdown     -> REAL: cc.tasks.in_process_teammate_task
+///                             (inject_teammate_shutdowns_from_tasks()).
+///                             TS: useTeammateLifecycleNotification reads
+///                             task.status transitions.
+///   * ModelMigration       -> SLOT fallback (intentional). The migration
+///                             writer exists (cc.migrations.concrete_migrations
+///                             writes *MigrationTimestamp keys) but no
+///                             ConfigManager reader exposes arbitrary
+///                             timestamp keys yet, so the slot is the only
+///                             honest source until that reader lands.
+///   * NpmDeprecation       -> SLOT fallback. TS reads installation type via
+///                             getCurrentInstallationType(); C++ only has the
+///                             doctor-screen display string, no typed accessor.
+///   * PluginAutoupdate     -> SLOT fallback. TS subscribes via
+///                             onPluginsAutoUpdated(); no equivalent event
+///                             bus exists in cc.utils.plugin_lifecycle yet.
+///   * PluginInstallation   -> SLOT fallback. TS reads
+///                             s.plugins.installationStatus{marketplaces,
+///                             plugins} from AppState; the C++ installation
+///                             manager has no failed-install snapshot model.
+///   * SettingsErrors       -> SLOT fallback. TS calls
+///                             getSettingsWithAllErrors(); C++ has plugin
+///                             validation errors only (cc.utils.plugin
+///                             _validation), no settings-schema validator.
+///   * SubscriptionSwitch   -> SLOT fallback. TS queries
+///                             isClaudeAISubscriber() + OAuth profile
+///                             has_claude_max/pro; isClaudeAISubscriber()
+///                             exists but the profile tier query does not.
 module;
 
 #include <algorithm>
@@ -40,6 +68,8 @@ module;
 export module cc.hooks.remaining_notifs;
 
 import cc.utils.json;
+import cc.services.mcp.types;
+import cc.services.mcp.connection_manager;
 
 export namespace cc::hooks::notifs {
 
@@ -154,6 +184,14 @@ inline void reset_dismissals_for_tests() {
 
 // ==========================================================================
 // 1. NpmDeprecation (useNpmDeprecationNotification)
+//
+// SLOT FALLBACK (intentional). The TS hook gates on
+// getCurrentInstallationType() === 'development' and isInBundledMode() (src/
+// hooks/notifs/useNpmDeprecationNotification.tsx). In C++ the doctor screen
+// carries a display-only `installation_type` string (ui/screens/
+// doctor_screen.cppm) but no typed getCurrentInstallationType() accessor, and
+// there is no bundled-mode flag. Until those producers exist this slot is the
+// honest injection point.
 // ==========================================================================
 
 struct NpmDeprecationInfo {
@@ -195,6 +233,15 @@ inline void dismiss_npm_deprecation(std::string_view id = {}) {
 
 // ==========================================================================
 // 2. ModelMigration (useModelMigrationNotifications)
+//
+// SLOT FALLBACK (intentional). The TS hook reads recent(<3s) migration
+// timestamps from getGlobalConfig() (sonnet45To46MigrationTimestamp,
+// legacyOpusMigrationTimestamp, opusProMigrationTimestamp) in src/hooks/notifs/
+// useModelMigrationNotifications.tsx. The C++ migration runner writes those
+// keys (src/migrations/concrete_migrations.cppm) but ConfigManager
+// (src/config/config.cppm) parses into a typed Settings struct with no
+// arbitrary-key reader, so the slot remains the honest injection point until
+// a config timestamp reader lands.
 // ==========================================================================
 
 struct ModelMigrationNotif {
@@ -251,6 +298,13 @@ inline void acknowledge_migration(std::string_view from_model) {
 
 // ==========================================================================
 // 3. PluginAutoupdate (usePluginAutoupdateNotification)
+//
+// SLOT FALLBACK (intentional). The TS hook subscribes via
+// onPluginsAutoUpdated() (src/utils/plugins/pluginAutoupdate.js) in src/hooks/
+// notifs/usePluginAutoupdateNotification.tsx. The C++ plugin lifecycle
+// (src/utils/plugin_lifecycle.cppm) tracks per-plugin state but has no
+// autoupdate event bus / subscriber API. Until that producer exists this slot
+// is the honest injection point.
 // ==========================================================================
 
 struct PluginUpdateInfo {
@@ -291,6 +345,15 @@ inline void acknowledge_plugin_update(std::string_view plugin_id) {
 
 // ==========================================================================
 // 4. PluginInstallationStatus (usePluginInstallationStatus)
+//
+// SLOT FALLBACK (intentional). The TS hook reads
+// s.plugins.installationStatus { marketplaces[], plugins[] } with per-entry
+// status === 'failed' from AppState (src/hooks/notifs/
+// usePluginInstallationStatus.tsx). The C++ PluginInstallationManager
+// (src/services/plugins/installation_manager.cppm) only tracks installed IDs
+// with install()/uninstall()/update() result types, exposing no failed-
+// install snapshot model. Until that producer exists this slot is the honest
+// injection point.
 // ==========================================================================
 
 enum class PluginInstallStatus {
@@ -400,8 +463,69 @@ inline auto has_mcp_connectivity_issues() -> bool {
     });
 }
 
+// --------------------------------------------------------------------------
+// Real-backend bridge: cc.services.mcp.connection_manager
+//
+// Mirrors TS useMcpConnectivityStatus (src/hooks/notifs/useMcpConnectivity
+// Status.tsx), which derives notifications from the live mcpClients list by
+// classifying each connection as failed / needs-auth / healthy. Here we read
+// McpServerSnapshot.status (ConnectionStatus) off the injected manager and
+// project it onto McpConnectivityInfo, then publish it into the slot so the
+// existing get_mcp_connectivity_status() / has_mcp_connectivity_issues()
+// readers and dismissal machinery see real data.
+//
+// Mapping (TS client.type -> C++ ConnectionStatus):
+//   failed        -> Error / Disconnected
+//   needs-auth    -> NeedsAuth
+//   connected     -> Connected
+//   (connecting)  -> Connecting
+// --------------------------------------------------------------------------
+
+inline auto to_mcp_server_status(::cc::services::mcp::ConnectionStatus s)
+    -> McpServerStatus {
+    using CS = ::cc::services::mcp::ConnectionStatus;
+    switch (s) {
+        case CS::Connected:    return McpServerStatus::Connected;
+        case CS::Connecting:   return McpServerStatus::Connecting;
+        case CS::NeedsAuth:    return McpServerStatus::Error;   // surfaced for auth nudge
+        case CS::Error:        return McpServerStatus::Error;
+        case CS::Disconnected:
+        default:               return McpServerStatus::Disconnected;
+    }
+}
+
+/// Pull live connectivity from a real McpConnectionManager and refresh the
+/// slot. Callers (the REPL wiring layer) own the manager instance; this keeps
+/// the hook unit-testable without a global singleton, mirroring how TS injects
+/// mcpClients via React props.
+inline void inject_mcp_connectivity_from_manager(
+    ::cc::services::mcp::McpConnectionManager& manager
+) {
+    auto snapshots = manager.snapshot_all_servers();
+    std::vector<McpConnectivityInfo> infos;
+    infos.reserve(snapshots.size());
+    const int64_t now = detail::now_ms();
+    for (const auto& snap : snapshots) {
+        McpConnectivityInfo info;
+        info.server_id    = snap.name;
+        info.display_name = snap.name;
+        info.state        = to_mcp_server_status(snap.status);
+        info.last_error   = snap.last_error;
+        info.last_seen_ms = now;
+        infos.push_back(std::move(info));
+    }
+    set_raw_mcp_connectivity(infos);
+}
+
 // ==========================================================================
 // 6. SettingsErrors (useSettingsErrors)
+//
+// SLOT FALLBACK (intentional). The TS hook calls getSettingsWithAllErrors()
+// (src/utils/settings/allErrors.js) in src/hooks/notifs/useSettingsErrors.tsx.
+// C++ has plugin-manifest validation errors only (src/utils/plugin_validation
+// .cppm's ValidationError); there is no settings-schema validator producing
+// config-path errors. Until that producer exists this slot is the honest
+// injection point.
 // ==========================================================================
 
 enum class SettingsSeverity {
@@ -482,8 +606,67 @@ inline void acknowledge_teammate_shutdown(std::string_view agent_id) {
     acknowledge_notification("teammate_shutdown", agent_id);
 }
 
+// --------------------------------------------------------------------------
+// Real-backend bridge: cc.tasks.in_process_teammate_task
+//
+// Mirrors TS useTeammateLifecycleNotification (src/hooks/notifs/
+// useTeammateShutdownNotification.ts), which inspects the AppState task map
+// and fires a shutdown notification whenever an in-process teammate task
+// transitions to status === 'completed'. Here we accept the live task list
+// (the caller already holds the AppState tasks), derive shutdown entries for
+// every teammate in a terminal state, merge them into the slot, and let the
+// existing get_teammate_shutdowns() recency/dismissal filter take over.
+//
+// This is a template so the hook module does not need to import the tasks
+// module (avoids a cc_hooks -> cc_tasks CMake edge); the caller's task type
+// must expose `.identity.agent_id` / `.identity.agent_name` (std::string).
+// The terminal-state test and cause mapping are passed in as callables so
+// this module stays decoupled from the exact TaskStatus enum definition.
+//
+// The went_down_ms timestamp is approximated to "now" because the C++ task
+// state does not yet carry a finished_at field; the 5-minute recency window
+// in get_teammate_shutdowns() still behaves correctly.
+// --------------------------------------------------------------------------
+
+/// Derive teammate shutdown notices from the live in-process task list and
+/// merge them into the slot (existing entries preserved, new terminal tasks
+/// appended at the current time). Idempotent across calls for a given agent.
+template <typename TaskRange, typename IsTerminal, typename ToCause>
+inline void inject_teammate_shutdowns_from_tasks(
+    const TaskRange& tasks,
+    IsTerminal&& is_terminal,        // bool(const task_t&)
+    ToCause&& to_cause               // TeammateShutdownCause(const task_t&)
+) {
+    auto existing = get_all_teammate_shutdowns();
+    std::unordered_set<std::string> seen;
+    seen.reserve(existing.size());
+    for (const auto& t : existing) seen.insert(t.agent_id);
+
+    const int64_t now = detail::now_ms();
+    for (const auto& task : tasks) {
+        if (!is_terminal(task)) continue;
+        const auto& agent_id = task.identity.agent_id;
+        if (agent_id.empty() || seen.contains(agent_id)) continue;
+        seen.insert(agent_id);
+        existing.push_back(TeammateShutdownInfo{
+            .agent_id      = agent_id,
+            .display_name  = task.identity.agent_name,
+            .went_down_ms  = now,
+            .cause         = to_cause(task),
+        });
+    }
+    set_all_teammate_shutdowns(existing);
+}
+
 // ==========================================================================
 // 8. SubscriptionSwitch (useCanSwitchToExistingSubscription)
+//
+// SLOT FALLBACK (intentional). The TS hook queries isClaudeAISubscriber() and
+// the OAuth profile's account.has_claude_max / has_claude_pro (src/hooks/
+// notifs/useCanSwitchToExistingSubscription.tsx). The C++ side has
+// is_claude_ai_subscriber() (src/bridge/bridge_enabled.cppm) but no
+// has_claude_max/has_claude_pro profile-tier query. Until that producer
+// exists this slot is the honest injection point.
 // ==========================================================================
 
 struct SubscriptionSwitch {

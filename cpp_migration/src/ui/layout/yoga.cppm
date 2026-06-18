@@ -7,9 +7,43 @@ module;
 
 export module cc.ui.layout.yoga;
 
+// ---------------------------------------------------------------------------
+// Supported subset (parity audit, finding H5)
+// ---------------------------------------------------------------------------
+// The TS original at src/native-ts/yoga-layout/index.ts (2578 lines) is a
+// *pure-TypeScript* port of Meta's yoga-layout flexbox engine (confirmed by its
+// header: "Pure-TypeScript port of yoga-layout"). Ink drives it via
+// src/ink/layout/yoga.ts which exposes the full Yoga API surface
+// (setFlexWrap / setFlexBasis / setMeasureFunc / setGap / percent sizing /
+// absolute positioning / align-content / baseline, etc.).
+//
+// This C++ module is intentionally a SMALL single-pass flexbox that covers only
+// what is implemented and currently consumed by the C++ migration:
+//   - flex-direction: row / column (no reverse)
+//   - flex-grow distribution of remaining main-axis space (no shrink, no basis)
+//   - justify-content: Start / Center / End / SpaceBetween / SpaceAround
+//   - align-items: Start / Center / End / Stretch (cross axis only)
+//   - width / height as fixed integer points (no percent, no auto, no min/max)
+//   - uniform margin / padding on all edges (no per-edge, no border)
+//
+// Deliberately NOT ported (none are reachable from the C++ UI as of this audit —
+// no caller in cpp_migration/src builds a LayoutNode tree or calls
+// compute_layout; the UI renders via FTXUI elements and renderer/ink_utils):
+//   - flex-wrap / align-content (multi-line)
+//   - flex-shrink / flex-basis
+//   - min/max constraints and multi-pass clamping
+//   - measure functions (text nodes are measured via layout/measure.cppm)
+//   - position: absolute / relative
+//   - gap (per-axis row/column gutter)
+//   - percent / auto sizing, aspect-ratio, RTL, baseline alignment, display:none
+//
+// If a future caller needs any of the above, port ONLY that feature from the TS
+// source rather than speculatively porting the full 2578-line engine.
+// ---------------------------------------------------------------------------
+
 export namespace cc::ui::layout {
 
-// Flex layout direction
+// Flex layout direction (no reverse — see module header)
 enum class FlexDirection { Row, Column };
 
 // Main axis alignment
@@ -148,8 +182,10 @@ inline auto compute_layout(LayoutNode& root,
         int child_main = child_main_sizes[i] - child->margin * 2;
         int child_cross = detail::get_cross_size(*child, root.direction);
 
-        // Cross axis sizing
-        if (child_cross == 0 || root.align == Align::Stretch) {
+        // Cross axis sizing: align-items:Stretch only stretches children that
+        // have no explicit cross-axis size (CSS flexbox parity — a fixed
+        // width/height is never overridden by Stretch).
+        if (child_cross == 0 && root.align == Align::Stretch) {
             child_cross = cross_space - child->margin * 2;
         }
 

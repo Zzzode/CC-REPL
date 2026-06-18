@@ -659,7 +659,6 @@ target_sources(cc_tools
         tools/mcp_auth_tool.cppm
         tools/mcp_classify.cppm
         tools/mcp_tool.cppm
-        tools/monitor_tool.cppm
         tools/notebook_tool.cppm
         tools/plan_mode_tool.cppm
         tools/powershell_permissions.cppm
@@ -681,7 +680,6 @@ target_sources(cc_tools
         tools/shared_tool.cppm
         tools/skill_tool.cppm
         tools/sleep_tool.cppm
-        tools/snip_tool.cppm
         tools/spawn_multi_agent.cppm
         tools/synthetic_output_tool.cppm
         tools/task_create.cppm
@@ -694,7 +692,6 @@ target_sources(cc_tools
         tools/team_create.cppm
         tools/team_delete.cppm
         tools/team_tool.cppm
-        tools/terminal_capture_tool.cppm
         tools/testing_tool.cppm
         tools/todo_write_tool.cppm
         tools/tool.cppm
@@ -1024,7 +1021,6 @@ target_sources(cc_services
         utils/ide_integration.cppm
         services/mcp/vscode_sdk_mcp.cppm
         services/mcp/in_process_transport.cppm
-        services/mcp/claude_ai.cppm
         services/mcp/oauth_port.cppm
         services/mcp/xaa_idp_login.cppm
         services/mcp/transport_stdio.cppm
@@ -1046,6 +1042,7 @@ target_link_libraries(cc_services
     PUBLIC
         cc_utils
         cc_types
+        cc_constants
         CURL::libcurl
         yyjson
         uv_a
@@ -1285,8 +1282,6 @@ target_sources(cc_skills
         skills/remember.cppm
         skills/schedule_remote_agents.cppm
         skills/simplify.cppm
-        skills/skillify.cppm
-        skills/update_config.cppm
         skills/verify_content.cppm
 )
 target_link_libraries(cc_skills

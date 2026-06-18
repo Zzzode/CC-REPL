@@ -29,6 +29,7 @@ module;
 
 #ifdef __APPLE__
 #include <CommonCrypto/CommonDigest.h>
+#include <stdlib.h>  // arc4random_buf (CSPRNG on Apple platforms)
 #else
 #include <openssl/sha.h>
 #endif
@@ -407,6 +408,38 @@ private:
     std::unique_ptr<KeychainBackend> backend_;
 };
 
+namespace detail {
+
+// Fill `n` bytes from a cryptographically secure source.
+//
+// Parity with Node's crypto.randomBytes, which both generateCodeVerifier and
+// generateState use in TS (services/oauth/crypto.ts). The C++ port must not
+// fall back to std::mt19937 — that is a non-cryptographic PRNG and would make
+// PKCE verifiers / OAuth state guessable.
+inline void fill_csrng(unsigned char* out, std::size_t n) {
+#ifdef __APPLE__
+    // arc4random_buf is a documented CSPRNG on Apple platforms.
+    arc4random_buf(out, n);
+#else
+    // std::random_device is the standard CSPRNG-backed source on other
+    // platforms (Linux /dev/urandom, Windows RtlGenRandom). Seed 4 bytes at a
+    // time; the trailing partial chunk is seeded byte-by-byte via masking to
+    // avoid byte-order pitfalls.
+    std::random_device rd;
+    std::size_t i = 0;
+    for (; i + sizeof(unsigned int) <= n; i += sizeof(unsigned int)) {
+        unsigned int v = rd();
+        std::memcpy(out + i, &v, sizeof(unsigned int));
+    }
+    while (i < n) {
+        unsigned int v = rd();
+        out[i++] = static_cast<unsigned char>(v & 0xFFu);
+    }
+#endif
+}
+
+} // namespace detail
+
 // PKCE generator utility
 class PkceGenerator {
 public:
@@ -420,21 +453,17 @@ public:
     }
 
 private:
-    // Generate a cryptographically random verifier (43-128 chars, base64url)
+    // Generate a cryptographically random verifier. Parity with TS
+    // services/oauth/crypto.ts generateCodeVerifier, which is
+    // base64URL(crypto.randomBytes(32)). randomBytes() is the Node CSPRNG; the
+    // C++ port must not use mt19937 (a non-cryptographic PRNG). We pull 32
+    // random bytes from the platform CSPRNG (arc4random_buf on Apple,
+    // std::random_device elsewhere) and base64URL-encode them, yielding the
+    // canonical 43-char verifier shape.
     [[nodiscard]] static std::string generate_verifier() {
-        static constexpr std::string_view charset =
-            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
-        
-        std::random_device rd;
-        std::mt19937 gen(rd());
-        std::uniform_int_distribution<size_t> dist(0, charset.size() - 1);
-
-        std::string verifier;
-        verifier.reserve(64);
-        for (int i = 0; i < 64; ++i) {
-            verifier += charset[dist(gen)];
-        }
-        return verifier;
+        std::array<unsigned char, 32> buf{};
+        detail::fill_csrng(buf.data(), buf.size());
+        return base64url_encode(buf.data(), buf.size());
     }
 
     // Compute S256 challenge: BASE64URL(SHA256(verifier))
@@ -795,19 +824,32 @@ private:
         return parse_token_response(res->body);
     }
 
-    // Generate random state parameter
+    // Generate the OAuth state parameter for CSRF protection. Parity with TS
+    // services/oauth/crypto.ts generateState, which is base64URL(randomBytes(32)).
+    // Must use the platform CSPRNG (not mt19937) so the nonce is unguessable.
     [[nodiscard]] static std::string generate_state() {
-        std::random_device rd;
-        std::mt19937 gen(rd());
-        std::uniform_int_distribution<int> dist(0, 15);
-        static constexpr std::string_view hex_chars = "0123456789abcdef";
+        std::array<unsigned char, 32> buf{};
+        detail::fill_csrng(buf.data(), buf.size());
+        return base64url_encode(buf.data(), buf.size());
+    }
 
-        std::string state;
-        state.reserve(32);
-        for (int i = 0; i < 32; ++i) {
-            state += hex_chars[static_cast<size_t>(dist(gen))];
+    // Base64url (RFC 4648 §5, no padding). Shared private helper so OAuthClient
+    // and PkceGenerator produce the same encoding as the TS crypto.ts helper.
+    [[nodiscard]] static std::string base64url_encode(const unsigned char* data, size_t len) {
+        static constexpr std::string_view table =
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+        std::string result;
+        result.reserve((len * 4 + 2) / 3);
+        for (size_t i = 0; i < len; i += 3) {
+            uint32_t n = static_cast<uint32_t>(data[i]) << 16;
+            if (i + 1 < len) n |= static_cast<uint32_t>(data[i + 1]) << 8;
+            if (i + 2 < len) n |= static_cast<uint32_t>(data[i + 2]);
+            result += table[(n >> 18) & 0x3F];
+            result += table[(n >> 12) & 0x3F];
+            if (i + 1 < len) result += table[(n >> 6) & 0x3F];
+            if (i + 2 < len) result += table[n & 0x3F];
         }
-        return state;
+        return result;
     }
 
     [[nodiscard]] static std::string shell_quote(std::string_view value) {

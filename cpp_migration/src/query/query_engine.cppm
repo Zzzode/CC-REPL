@@ -46,6 +46,8 @@ import cc.utils.tool_helpers;
 import cc.utils.env_utils;
 import cc.hooks.tool_permissions;
 import cc.hooks.lifecycle_hooks;
+import cc.utils.hooks_registry;
+import cc.utils.hooks_execution;
 import cc.tools.agent_runtime;
 import cc.services.compact.api_microcompact;
 import cc.utils.bash_execution;
@@ -505,6 +507,20 @@ public:
     /// Set the lifecycle hook registry for event notifications
     void set_lifecycle_hooks(cc::hooks::LifecycleHookRegistry* hooks) noexcept {
         lifecycle_hooks_ = hooks;
+    }
+
+    /// Configure the user-configured hook path. Mirrors the TS wiring where
+    /// src/services/tools/toolExecution.ts runs PreToolUse/PostToolUse hooks
+    /// from src/utils/hooks.ts (the execution engine) alongside the in-process
+    /// lifecycle event bus. `ctx_template` supplies stable context vars
+    /// (session/conversation ids); per-call context (tool name, payload) is
+    /// merged at dispatch time in execute_single_tool.
+    void set_user_hooks(
+        std::vector<cc::utils::hooks_registry::IndividualHookConfig> registry,
+        cc::utils::hooks_execution::HookExecutionContext ctx_template) {
+        user_hooks_ = std::move(registry);
+        user_hooks_ctx_template_ = std::move(ctx_template);
+        user_hooks_configured_ = true;
     }
 
     // ============================================================
@@ -2540,6 +2556,57 @@ private:
             }
         }
 
+        // User-configured PreToolUse hooks (cc.utils.hooks_execution engine).
+        // Mirrors src/services/tools/toolExecution.ts:884-946 where the TS
+        // engine runs executePreToolHooks before tool execution and honors
+        // BlockToolCall/AbortQuery by denying permission. Guarded so behavior
+        // is unchanged when no user hooks are configured.
+        if (user_hooks_configured_ && !user_hooks_.empty()) {
+            namespace he = cc::utils::hooks_execution;
+            he::HookExecutionContext ctx = user_hooks_ctx_template_;
+            // Matcher needs ctx["tool"]["name"]; materialise an owned doc.
+            std::string tool_doc = std::string("{\"name\": \"") +
+                he::json_escape(tool_use.name) + "\"}";
+            if (auto td = cc::utils::json::parse(tool_doc)) {
+                ctx.set_context_doc("tool", std::move(*td));
+            }
+            // Payload mirrors TS `toolInput`/processedInput passthrough.
+            if (auto pd = cc::utils::json::parse(effective_input_json)) {
+                ctx.set_payload_doc(std::move(*pd));
+            }
+
+            auto [modified_payload, action] = he::run_api_query_hooks(
+                user_hooks_,
+                cc::utils::hooks_registry::HookEventType::PreToolUse,
+                ctx,
+                effective_input_json);
+
+            using HEAction = he::HookResponseAction;
+            if (action.action == HEAction::BlockToolCall ||
+                action.action == HEAction::AbortQuery) {
+                {
+                    std::lock_guard lock(state_mutex_);
+                    permission_denials_.push_back(PermissionDenial{
+                        tool_use.name,
+                        tool_use.id.value,
+                        effective_input_json});
+                }
+                std::string reason = action.reason.empty()
+                    ? std::string("user PreToolUse hook blocked the tool call")
+                    : action.reason;
+                return make_tool_error_result(tool_use, std::move(reason));
+            }
+            // hookUpdatedInput passthrough (toolHooks.ts:556-563): if the hook
+            // produced a modified payload distinct from the input, use it.
+            // `modified_payload` (the pair's first element) carries any
+            // prompt-passthrough merged with the hook's modified_payload.
+            if (action.action == HEAction::RetryWithModifiedPayload &&
+                !modified_payload.empty() &&
+                modified_payload != effective_input_json) {
+                effective_input_json = modified_payload;
+            }
+        }
+
         // Execute via registry
         auto input = ToolInput::from_json(effective_input_json);
         auto exec_result = tool_registry_->execute(tool_use.name, input);
@@ -2595,24 +2662,59 @@ private:
             result_msg.content.push_back(TextBlock{exec_result.error().format()});
         }
 
-        // Emit post-tool-use hook
+        // Build the output preview once and reuse it for both the in-process
+        // lifecycle event bus and the user-configured hook engine.
+        std::string output_preview;
+        if (!result_msg.content.empty()) {
+            if (const auto* tb = std::get_if<TextBlock>(&result_msg.content[0])) {
+                output_preview = tb->text.substr(0, 500);
+            }
+        }
+
+        // Emit post-tool-use lifecycle event
         if (lifecycle_hooks_) {
             auto exec_end = std::chrono::steady_clock::now();
             auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(exec_end - exec_start);
-            std::string output_preview;
-            if (!result_msg.content.empty()) {
-                if (const auto* tb = std::get_if<TextBlock>(&result_msg.content[0])) {
-                    output_preview = tb->text.substr(0, 500);
-                }
-            }
             lifecycle_hooks_->emit_post_tool_use(cc::hooks::PostToolUseEvent{
                 .tool_name = tool_use.name,
                 .tool_use_id = tool_use.id.value,
                 .is_error = result_msg.is_error,
-                .output_preview = std::move(output_preview),
+                .output_preview = output_preview,
                 .duration = duration,
                 .timestamp = std::chrono::system_clock::now()
             });
+        }
+
+        // User-configured PostToolUse hooks (cc.utils.hooks_execution engine).
+        // Mirrors src/services/tools/toolExecution.ts:1567-1577 where the TS
+        // engine runs executePostToolHooks after the tool executes. On
+        // BlockToolCall/AbortQuery the action reason is surfaced as an error
+        // on the result (TS runPostToolUseHooks blockingError,
+        // toolHooks.ts:105-115).
+        if (user_hooks_configured_ && !user_hooks_.empty()) {
+            namespace he = cc::utils::hooks_execution;
+            he::HookExecutionContext ctx = user_hooks_ctx_template_;
+            std::string tool_doc = std::string("{\"name\": \"") +
+                he::json_escape(tool_use.name) + "\"}";
+            if (auto td = cc::utils::json::parse(tool_doc)) {
+                ctx.set_context_doc("tool", std::move(*td));
+            }
+            auto act = he::execute_post_tool_hooks(
+                user_hooks_,
+                ctx,
+                tool_use.name,
+                effective_input_json,
+                output_preview);
+            using HEAction = he::HookResponseAction;
+            if (act.action == HEAction::BlockToolCall ||
+                act.action == HEAction::AbortQuery) {
+                result_msg.is_error = true;
+                std::string reason = act.reason.empty()
+                    ? std::string("user PostToolUse hook blocked the result")
+                    : act.reason;
+                result_msg.content.clear();
+                result_msg.content.push_back(TextBlock{std::move(reason)});
+            }
         }
 
         return result_msg;
@@ -2696,6 +2798,13 @@ private:
     ToolRegistry* tool_registry_;              // Non-owning reference to tools
     cc::hooks::ToolPermissionHook* permission_hook_ = nullptr;  // Optional permission policy
     cc::hooks::LifecycleHookRegistry* lifecycle_hooks_ = nullptr; // Optional lifecycle hooks
+    // User-configured hook path (PreToolUse/PostToolUse via the
+    // cc.utils.hooks_execution engine). Mirrors src/utils/hooks.ts in TS.
+    // When empty/disabled the tool loop is unchanged (parity with TS, which
+    // only runs the pipeline when matching hooks exist).
+    std::vector<cc::utils::hooks_registry::IndividualHookConfig> user_hooks_;
+    cc::utils::hooks_execution::HookExecutionContext user_hooks_ctx_template_;
+    bool user_hooks_configured_ = false;
     std::vector<Message> conversation_;        // Full conversation history
     TokenUsage cumulative_usage_;              // Session-wide token tracking
     std::atomic<bool> aborted_{false};         // Abort signal for in-flight requests
