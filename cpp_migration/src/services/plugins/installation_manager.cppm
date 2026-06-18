@@ -1,3 +1,20 @@
+// ============================================================================
+// DEPRECATED / SUPERSEDED — do not add new importers.
+//
+// This class tracks installed plugin IDs in a LOCAL in-memory std::vector with
+// no persistence and no marketplace transport. It does not model install
+// failure status, versioning, or sources. The real plugin lifecycle backend
+// lives in:
+//   - cc.utils.plugin_manager              (install/uninstall/update lifecycle)
+//   - cc.utils.plugin_marketplace_lifecycle (marketplace install pipeline)
+//   - cc.utils.plugin_marketplace           (sources, lookups, manifests)
+//   - commands/plugin/plugin_manage         (CLI surface)
+//
+// Zero live importers (grep `cc.services.plugins` confirms). There is no
+// trivial single-call delegation (the real manager holds richer state), so the
+// body is kept compiling but is intentionally not wired to a transport. Prefer
+// the real backend above.
+// ============================================================================
 module;
 #include <expected>
 #include <mutex>
@@ -8,7 +25,8 @@ export module cc.services.plugins.installation_manager;
 
 export namespace cc::services::plugins {
 
-// Plugin installation and lifecycle manager
+// DEPRECATED: local-only, transport-less install tracker. See header above.
+// The real lifecycle manager is cc.utils.plugin_manager.
 class PluginInstallationManager {
 public:
     // Install a plugin by ID

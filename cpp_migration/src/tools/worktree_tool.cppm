@@ -16,6 +16,20 @@ export module cc.tools.worktree;
 
 export namespace cc::tools {
 
+// Single-quote a string for safe interpolation into a POSIX shell command
+// (escapes embedded single quotes via the '"'"' idiom). Local copy matching
+// runtime_shared_utils::shell_quote — kept inline so this low-level tool
+// module need not import the runtime helper layer.
+[[nodiscard]] inline std::string worktree_shell_quote(std::string_view value) {
+    std::string out = "'";
+    for (char c : value) {
+        if (c == '\'') out += "'\\''";
+        else out.push_back(c);
+    }
+    out.push_back('\'');
+    return out;
+}
+
 // Error types for worktree operations
 enum class WorktreeError {
     BranchNameEmpty,
@@ -141,14 +155,17 @@ public:
         auto worktree_path = request.target_path.value_or(
             default_worktree_path(original_path, request.branch_name));
 
-        // Build git worktree command
+        // Build git worktree command — shell-quote BOTH arguments to prevent
+        // command injection via branch_name or path (e.g. "x; rm -rf $HOME").
         std::string cmd;
+        const auto quoted_branch = worktree_shell_quote(request.branch_name);
+        const auto quoted_path = worktree_shell_quote(worktree_path.string());
         if (request.create_branch) {
             cmd = std::format("git worktree add -b {} {} 2>&1",
-                              request.branch_name, worktree_path.string());
+                              quoted_branch, quoted_path);
         } else {
             cmd = std::format("git worktree add {} {} 2>&1",
-                              worktree_path.string(), request.branch_name);
+                              quoted_path, quoted_branch);
         }
 
         int result = std::system(cmd.c_str());
@@ -216,14 +233,16 @@ public:
             return std::unexpected(WorktreeError::DirectorySwitchFailed);
         }
 
-        // Optionally remove the worktree
+        // Optionally remove the worktree — shell-quote the path to prevent
+        // command injection.
         if (remove_worktree) {
-            auto cmd = std::format("git worktree remove {} 2>&1", info.worktree_path.string());
+            auto cmd = std::format("git worktree remove {} 2>&1",
+                                   worktree_shell_quote(info.worktree_path.string()));
             int result = std::system(cmd.c_str());
             if (result != 0) {
                 // Force removal
                 auto force_cmd = std::format("git worktree remove --force {} 2>&1",
-                                             info.worktree_path.string());
+                                             worktree_shell_quote(info.worktree_path.string()));
                 std::system(force_cmd.c_str());
             }
         }

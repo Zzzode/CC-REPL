@@ -91,10 +91,7 @@ target_sources(cc_utils
         utils/auth_portable.cppm
         utils/auth_utils.cppm
         utils/abort_controller.cppm
-        utils/api_client.cppm
         utils/auto_mode_denials.cppm
-        utils/auto_updater.cppm
-        utils/background_remote.cppm
         utils/bash_execution.cppm
         utils/bash_parser.cppm
         utils/bash_security.cppm
@@ -111,15 +108,11 @@ target_sources(cc_utils
         utils/cli_highlight.cppm
         utils/collapse_read_search.cppm
         utils/collapse_notifications.cppm
-        utils/command_lifecycle.cppm
         utils/commit_attribution.cppm
-        utils/computer_use.cppm
         utils/code_indexing.cppm
         utils/concurrent_sessions.cppm
         utils/content_array.cppm
-        utils/context_analysis.cppm
         utils/control_message_compat.cppm
-        utils/conversation_recovery.cppm
         utils/config_constants.cppm
         utils/config_utils.cppm
         utils/cron_scheduler.cppm
@@ -150,7 +143,6 @@ target_sources(cc_utils
         utils/file.cppm
         utils/file_edit_utils.cppm
         utils/file_history.cppm
-        utils/file_operations.cppm
         utils/file_persistence.cppm
         utils/file_read.cppm
         utils/file_read_cache.cppm
@@ -198,7 +190,6 @@ target_sources(cc_utils
         utils/memory.cppm
         utils/memory_file_detection.cppm
         utils/message_mappers.cppm
-        utils/message_processing.cppm
         utils/model/agent.cppm
         utils/model/aliases.cppm
         utils/model/ant_models.cppm
@@ -237,7 +228,6 @@ target_sources(cc_utils
         utils/platform.cppm
         utils/powershell_parser.cppm
         utils/process.cppm
-        utils/profiler.cppm
         utils/privacy_level.cppm
         utils/prompt_category.cppm
         utils/proxy_utils.cppm
@@ -247,7 +237,6 @@ target_sources(cc_utils
         utils/render_options.cppm
         utils/ripgrep_utils.cppm
         utils/sandbox.cppm
-        utils/secure_storage.cppm
         utils/semantic_boolean.cppm
         utils/semantic_number.cppm
         utils/sanitization.cppm
@@ -275,7 +264,6 @@ target_sources(cc_utils
         utils/shell_parser.cppm
         utils/shell_rule_matching.cppm
         utils/signal_utils.cppm
-        utils/skill_change_detector.cppm
         utils/slash_command_parsing.cppm
         utils/sleep_utils.cppm
         utils/slice_ansi.cppm
@@ -321,9 +309,6 @@ target_sources(cc_utils
         utils/hooks_config.cppm
         utils/hooks_execution.cppm
         utils/hooks_registry.cppm
-        utils/plugin_cache.cppm
-        utils/plugin_installation.cppm
-        utils/plugin_integrations.cppm
         utils/plugin_lifecycle.cppm
         utils/plugin_loader.cppm
         utils/plugin_manager.cppm
@@ -341,9 +326,7 @@ target_sources(cc_utils
         utils/telemetry_exporters.cppm
         utils/ultraplan.cppm
         utils/ansi_rendering.cppm
-        utils/aws_auth.cppm
         utils/cleanup_registry.cppm
-        utils/doctor_diagnostics.cppm
         utils/prompt_helpers.cppm
         utils/tool_management.cppm
         utils/team_coordination.cppm
@@ -602,7 +585,7 @@ target_sources(cc_tasks
         tasks/task_graph.cppm
         tasks/types.cppm
 )
-target_link_libraries(cc_tasks PUBLIC cc_utils cc_types cc_state cc_coordinator)
+target_link_libraries(cc_tasks PUBLIC cc_utils cc_types cc_state cc_coordinator cc_hooks)
 
 # ─── cc_skills_core: Skill primitives without tool dependencies ──────────────
 add_library(cc_skills_core)
@@ -737,6 +720,7 @@ target_link_libraries(cc_tools
         cc_config
         cc_services
         cc_skills_core
+        cc_hooks
         yyjson
         uv_a
 )
@@ -785,8 +769,6 @@ target_sources(cc_commands
         commands/env.cppm
         commands/exit.cppm
         commands/export_cmd.cppm
-        commands/extra_commands.cppm
-        commands/extra_commands2.cppm
         commands/extra_usage.cppm
         commands/fast.cppm
         commands/feedback.cppm
@@ -908,7 +890,6 @@ target_sources(cc_services
         services/api/client.cppm
         services/api/error_utils.cppm
         services/api/errors.cppm
-        services/api/files_api.cppm
         services/api/grove.cppm
         services/api/logging.cppm
         services/api/metrics_opt_out.cppm
@@ -1206,7 +1187,6 @@ target_sources(cc_cli
 target_link_libraries(cc_cli
     PUBLIC
         cc_utils
-        cc_bridge
         yyjson
         uv_a
         httplib::httplib
@@ -1251,6 +1231,7 @@ target_link_libraries(cc_bridge
     PUBLIC
         cc_utils
         cc_types
+        cc_cli
         OpenSSL::Crypto
         yyjson
         uv_a

@@ -64,12 +64,16 @@ namespace wizard = cc::ui::wizard_dialog;
 // Helper: Cross-platform URL launcher.
 // --------------------------------------------------------------------------
 inline bool open_url(std::string_view url) {
+    // Shell-quote the URL before splicing into the command string so a value
+    // containing double-quotes, backticks, $, or backslashes cannot break out
+    // of the argument. POSIX single-quote escaping.
+    const std::string quoted = bash::escape_shell_arg(url);
 #if defined(_WIN32)
-    std::string cmd = "start \"\" \"" + std::string(url) + "\"";
+    std::string cmd = "start \"\" " + quoted;
 #elif defined(__APPLE__)
-    std::string cmd = "open \"" + std::string(url) + "\"";
+    std::string cmd = "open " + quoted;
 #else
-    std::string cmd = "xdg-open \"" + std::string(url) + "\"";
+    std::string cmd = "xdg-open " + quoted;
 #endif
     return std::system(cmd.c_str()) == 0;
 }

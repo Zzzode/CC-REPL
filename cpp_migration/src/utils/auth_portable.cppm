@@ -54,8 +54,11 @@ inline std::optional<std::string> read_from_keychain() {
 // Store API key in system keychain (macOS)
 inline bool write_to_keychain(std::string_view key) {
 #ifdef __APPLE__
-    std::string cmd = "security add-generic-password -U -s 'claude-code' -a 'api_key' -w '"
-                    + std::string(key) + "' 2>/dev/null";
+    // Shell-quote the key before splicing into the command string so a value
+    // containing a single quote (or any other shell metacharacter) cannot
+    // break out of the -w argument. Standard POSIX single-quote escaping.
+    std::string cmd = "security add-generic-password -U -s 'claude-code' -a 'api_key' -w "
+                    + cc::utils::bash::escape_shell_arg(key) + " 2>/dev/null";
     return system(cmd.c_str()) == 0;
 #else
     (void)key;
