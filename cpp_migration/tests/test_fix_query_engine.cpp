@@ -584,3 +584,157 @@ TEST(QueryEngineFix, DoesNotFallBackWhenNoFallbackModelsConfigured) {
 
     fs::remove_all(root);
 }
+
+// ===========================================================================
+// SseEventDecoder — the pure SSE framing parser extracted from
+// QueryEngine::stream_single_api_call. These tests exercise the previously
+// unreachable parser directly: partial chunks, all event types' framing,
+// event-type persistence, multi-line data, and edge cases. No HTTP server.
+// ===========================================================================
+
+TEST(SseEventDecoder, DecodesSingleCompleteEvent) {
+    cc::core::SseEventDecoder dec;
+    auto events = dec.feed("event: message_start\n"
+                           "data: {\"type\":\"message_start\"}\n\n");
+    ASSERT_EQ(events.size(), 1u);
+    EXPECT_EQ(events[0].type, "message_start");
+    EXPECT_EQ(events[0].data, "{\"type\":\"message_start\"}");
+}
+
+TEST(SseEventDecoder, DecodesAllEventTypesInOneStream) {
+    cc::core::SseEventDecoder dec;
+    std::string stream =
+        "event: message_start\ndata: {\"a\":1}\n\n"
+        "event: content_block_start\ndata: {\"b\":2}\n\n"
+        "event: content_block_delta\ndata: {\"c\":3}\n\n"
+        "event: content_block_stop\ndata: {\"d\":4}\n\n"
+        "event: message_delta\ndata: {\"e\":5}\n\n"
+        "event: message_stop\ndata: {\"f\":6}\n\n"
+        "event: error\ndata: {\"g\":7}\n\n";
+    auto events = dec.feed(stream);
+    ASSERT_EQ(events.size(), 7u);
+    EXPECT_EQ(events[0].type, "message_start");
+    EXPECT_EQ(events[1].type, "content_block_start");
+    EXPECT_EQ(events[2].type, "content_block_delta");
+    EXPECT_EQ(events[3].type, "content_block_stop");
+    EXPECT_EQ(events[4].type, "message_delta");
+    EXPECT_EQ(events[5].type, "message_stop");
+    EXPECT_EQ(events[6].type, "error");
+    EXPECT_EQ(events[6].data, "{\"g\":7}");
+}
+
+TEST(SseEventDecoder, EventCompletesOnlyOnBlankLine) {
+    cc::core::SseEventDecoder dec;
+    // A single trailing newline is not a terminator.
+    EXPECT_TRUE(dec.feed("event: x\ndata: y\n").empty());
+    // The second newline completes the \n\n terminator.
+    auto events = dec.feed("\n");
+    ASSERT_EQ(events.size(), 1u);
+    EXPECT_EQ(events[0].type, "x");
+    EXPECT_EQ(events[0].data, "y");
+}
+
+TEST(SseEventDecoder, ByteByByteFeedYieldsEventOnlyAtTerminator) {
+    cc::core::SseEventDecoder dec;
+    const std::string full = "event: content_block_delta\ndata: {\"delta\":1}\n\n";
+    std::vector<cc::core::SseEvent> all;
+    for (std::size_t i = 0; i < full.size(); ++i) {
+        auto ev = dec.feed(full.substr(i, 1));
+        if (i + 1 < full.size()) {
+            ASSERT_TRUE(ev.empty()) << "decoder emitted before terminator at byte " << i;
+        }
+        for (auto& e : ev) all.push_back(std::move(e));
+    }
+    ASSERT_EQ(all.size(), 1u);
+    EXPECT_EQ(all[0].type, "content_block_delta");
+    EXPECT_EQ(all[0].data, "{\"delta\":1}");
+}
+
+TEST(SseEventDecoder, EventTypePersistsAcrossBlocksWithoutEventLine) {
+    cc::core::SseEventDecoder dec;
+    // Block 1 sets the type; block 2 carries no `event:` line -> inherits.
+    auto events = dec.feed(
+        "event: content_block_delta\ndata: {\"i\":1}\n\n"
+        "data: {\"i\":2}\n\n");
+    ASSERT_EQ(events.size(), 2u);
+    EXPECT_EQ(events[0].type, "content_block_delta");
+    EXPECT_EQ(events[1].type, "content_block_delta");
+    EXPECT_EQ(events[1].data, "{\"i\":2}");
+}
+
+TEST(SseEventDecoder, MultiLineDataIsJoinedWithNewline) {
+    cc::core::SseEventDecoder dec;
+    auto events = dec.feed("event: x\ndata: line1\ndata: line2\ndata: line3\n\n");
+    ASSERT_EQ(events.size(), 1u);
+    EXPECT_EQ(events[0].data, "line1\nline2\nline3");
+}
+
+TEST(SseEventDecoder, EmptyDataLinePreservedAsGap) {
+    // "data:" with no value still contributes a (joined) empty segment,
+    // matching the original inline parser exactly.
+    cc::core::SseEventDecoder dec;
+    auto events = dec.feed("event: x\ndata: a\ndata:\ndata: b\n\n");
+    ASSERT_EQ(events.size(), 1u);
+    EXPECT_EQ(events[0].data, "a\n\nb");
+}
+
+TEST(SseEventDecoder, BlockWithNoDataLineYieldsNoEvent) {
+    cc::core::SseEventDecoder dec;
+    auto events = dec.feed("event: ping\n\n");
+    EXPECT_TRUE(events.empty());
+}
+
+TEST(SseEventDecoder, EmitsDoneMarkerForDispatcherToFilter) {
+    // The decoder intentionally does NOT filter [DONE]; parse_sse_event does.
+    // The decoder must surface it so the dispatcher can ignore it.
+    cc::core::SseEventDecoder dec;
+    auto events = dec.feed("event: message_stop\ndata: [DONE]\n\n");
+    ASSERT_EQ(events.size(), 1u);
+    EXPECT_EQ(events[0].data, "[DONE]");
+}
+
+TEST(SseEventDecoder, TrailingPartialBufferHeldAcrossFeeds) {
+    cc::core::SseEventDecoder dec;
+    EXPECT_TRUE(dec.feed("event: x\ndata: partial").empty());  // no terminator yet
+    auto events = dec.feed("_continued\n\n");                   // completes the event
+    ASSERT_EQ(events.size(), 1u);
+    EXPECT_EQ(events[0].data, "partial_continued");
+}
+
+TEST(SseEventDecoder, MultipleEventsAcrossFeedsWithPartialTail) {
+    cc::core::SseEventDecoder dec;
+    auto e1 = dec.feed("event: a\ndata: 1\n\nevent: b\ndata: 2\n\nevent: c\ndata: 3");
+    ASSERT_EQ(e1.size(), 2u);  // a and b complete; c's payload is partial
+    EXPECT_EQ(e1[0].type, "a");
+    EXPECT_EQ(e1[1].type, "b");
+    auto e2 = dec.feed("\n\n");  // completes c
+    ASSERT_EQ(e2.size(), 1u);
+    EXPECT_EQ(e2[0].type, "c");
+    EXPECT_EQ(e2[0].data, "3");
+}
+
+TEST(SseEventDecoder, RealisticAnthropicStreamFramesCorrectly) {
+    cc::core::SseEventDecoder dec;
+    std::string stream =
+        "event: message_start\n"
+        "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"model\":\"claude-x\"}}\n\n"
+        "event: content_block_start\n"
+        "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\"}}\n\n"
+        "event: content_block_delta\n"
+        "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hello\"}}\n\n"
+        "event: content_block_delta\n"
+        "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\" world\"}}\n\n"
+        "event: content_block_stop\n"
+        "data: {\"type\":\"content_block_stop\",\"index\":0}\n\n"
+        "event: message_delta\n"
+        "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":5}}\n\n"
+        "event: message_stop\n"
+        "data: {\"type\":\"message_stop\"}\n\n";
+    auto events = dec.feed(stream);
+    ASSERT_EQ(events.size(), 7u);
+    EXPECT_EQ(events[0].type, "message_start");
+    EXPECT_NE(events[2].data.find("Hello"), std::string::npos);
+    EXPECT_NE(events[3].data.find(" world"), std::string::npos);
+    EXPECT_EQ(events[5].type, "message_delta");
+    EXPECT_NE(events[5].data.find("end_turn"), std::string::npos);
+}

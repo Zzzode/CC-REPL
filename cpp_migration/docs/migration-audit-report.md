@@ -29,7 +29,7 @@ services all run end-to-end; every audit-flagged item has been resolved.**
 - ✅ **QueryEngine** — session persistence, structured output
   (`output_config.format.json_schema`), user-memory loading, and in-loop skill
   dispatch (`discovered_skills_`) all wired; dead `QueryDeps` removed.
-- ✅ **Tests**: **925/925 passing** as of 2026-06-18 (`build-clang`, ctest
+- ✅ **Tests**: **937/937 passing** as of 2026-06-18 (`build-clang`, ctest
   100% + 1 Windows-only skip). The figure below reflects the 2026-06-15
   snapshot (660/660) and is retained for the historical trajectory — see the
   §8 reconciliation note and §12 Change Log for the superseding counts.
@@ -285,13 +285,14 @@ reducers).
 ## 8. Test State (2026-06-15)
 
 > **2026-06-18 reconciliation**: the live ctest count for
-> `build-clang` is **925/925 passing (100%)** plus 1 Windows-only skip
+> `build-clang` is **937/937 passing (100%)** plus 1 Windows-only skip
 > (`Tools.RuntimePowerShellTool...OnWindows`). Several historical counts appear
-> in this document and its Change Log (602, 649, 660, 727, 798, 823, 824, 835)
-> and are **superseded** by 925/925 — they are retained only as the audit's
+> in this document and its Change Log (602, 649, 660, 727, 798, 823, 824, 835,
+> 925) and are **superseded** by 937/937 — they are retained only as the audit's
 > historical trajectory. The 835→925 jump (+90) is the 2026-06-18 fix batch
-> (9 new `test_fix_*` suites). Where an inline figure is now stale it is
-> annotated below; the authoritative current figure is 925/925.
+> (9 new `test_fix_*` suites); the 925→937 jump (+12) is the SSE-decoder
+> extraction below. Where an inline figure is now stale it is annotated below;
+> the authoritative current figure is 937/937.
 
 - Full ctest run (clang-debug, 2026-06-15): **598 / 598 passed (100%)**,
   plus 1 Windows-only skip.
@@ -380,6 +381,7 @@ purely mechanical follow-on.
 | 2026-06-17 (pass 5) | Error-handling sweep continued. Eliminated every remaining clear violation / dead-code throw: `log_error(string)` throw-control-flow misuse; deleted dead `lazy_schema` module + `keybindings::resolver()` overloads + dead `cc::tasks::stop_task` module (3 modules, ~220 LOC, 6 throw sites); factory-ized `CurlHandle` (`create()` returns `Result`) — fixing a `Result`/throw contract conflict in `post()` and a potential `std::terminate` if CURL init failed inside the detached streaming worker thread. **throw sites: ~33 → 21** (-12); all 21 remaining are legitimate (json_read boundary-wrap, bridge domain errors, `std::map::at`-style accessors, preconditions, defensive invariants) or flagged needs-investigation (`bridge::run_headless` — functional method, kept). `error-handling-conventions.md` records the full classification. |
 | 2026-06-18 | Doc-accuracy pass (M5/M12/M13). **M12** — corrected the §8 / §9 coverage figures that mis-mapped llvm-cov Totals: the prior "74.70% line / 58.10% branch" conflated Region→Line and Function→Branch; the real Totals are Function 58.10% / Line 56.26% / Region 74.70% / Branch 42.93%, so the correct headline is **56.26% line / 42.93% branch** (§8 refreshed, §9 "39% branch" → 42.93%). **M13** — reconciled the test-count drift: the document carried 7 different counts (602/649/660/727/798/823/824) and "824/824 green" in the changelog vs the 660/660 in the Executive Summary; the live `build-clang` ctest is **835/835 passing (100%)** + 1 Windows-only skip, added as a dated reconciliation note at the top of §8 and in the Executive Summary, with the historical counts flagged as superseded. Corrected the binary size from the stale "~34MB" to the measured **14,726,760 bytes (~14 MB)** for `build-clang/bin/cc-repl`. **M5** — documented that `bridge/jwt_utils.cppm::decode_jwt` intentionally does **not** verify the JWT signature, matching the TS original (`src/bridge/jwtUtils.ts::decodeJwtPayload`, "without verifying the signature") — TS-parity, recorded in §6.1 so it is not an unexplained gap. No code changed in this pass. |
 | 2026-06-18 (fix batch) | Adversarial re-audit + parity-fix pass against the TS original. **Fixed**: B2 — wired `cc.utils.hooks_execution` (pre/post-tool dispatch) into the QueryEngine tool-call loop (was compiled but never invoked); H1/H2 — ported plugin marketplace fetch/add/remove + manifest validation from TS; H8/H3/P3 — deleted 6 dead modules (`snip_tool`/`monitor_tool`/`terminal_capture_tool`/`claude_ai`/root `skillify`/`update_config`) and removed their CMakeLists entries; M4 — added 5 LSP actions (`implementation`/`workspaceSymbol`/`prepareCallHierarchy`/`incomingCalls`/`outgoingCalls`) to `lsp_tool.cppm` + mapped them in `runtime_registry.cppm::parse_lsp_action` (was silently falling through to `Symbols`); M11 — constrained `LSPServerInstance::send_request<T>` with a `static_assert`; M6 — ported `first_token_date`/`ultrareview_quota`/`overage_credit` to real HTTP; M7 — wired notification hooks to real MCP/team backends; M2 — added `fsync` atomic write to state persistence; misc-low — `oauth_port` bind scan, 35-rule `secret_scanner`, PKCE/state CSPRNG. **Verified false-positives (no code change)**: M1 undo/redo (3 regression tests pin the invariants), M3 persistence breadth (already TS-parity), H4 LSP semantic overlay (TS has no such integration), M9 UI-deferred (C++ exceeds TS parity), H9 script-primitives (pure registry, no dispatcher), H5 yoga (the C++ UI never invokes `yoga.cppm`, so no port needed — documented + 18 regression tests). **Tests 835 → 925 (+90)** across 9 new `test_fix_*` suites; `build-clang` build green, ctest 925/925 (100%) + 1 Windows-only skip. Residual: B1's SSE chunk-parser path remains untested (private lambda, no exported seam — needs a refactor to test). |
+| 2026-06-18 (SSE extraction) | Closed the last B1 residual. Extracted the SSE framing parser out of `QueryEngine::stream_single_api_call`'s inline `content_receiver` lambda (which captured private `sse_buffer`/`current_event_type` state) into a pure, exported `cc::core::SseEventDecoder` class (`feed(chunk)` returns completed `SseEvent`s; buffers partial chunks, handles `event:`/`data:` lines, multi-line data, and event-type persistence — byte-for-byte equivalent to the prior inline logic). The call site now loops `for (auto& ev : sse_decoder_.feed(...)) parse_sse_event(ev.type, ev.data);`. Added 12 unit tests (`SseEventDecoder.*`) covering all 6 event types' framing, byte-by-byte partial-chunk feeds, terminator-only-on-blank-line, event-type persistence, multi-line data join, empty-data gap, `[DONE]` surfacing, and a realistic Anthropic stream. **Tests 925 → 937 (+12)**; `build-clang` ctest 937/937 (100%) + 1 Windows-only skip. The QueryEngine SSE parser is no longer uncovered. |
 
 ## 13. Remaining Work
 

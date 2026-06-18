@@ -55,6 +55,72 @@ import cc.utils.bash_execution;
 export namespace cc::core {
 
 // ============================================================
+// SSE (Server-Sent Events) stream decoding
+// ============================================================
+
+/// A single decoded SSE event: the event type (from the last `event:` line
+/// seen) and the concatenated `data:` payload. Emitted by SseEventDecoder.
+struct SseEvent {
+    std::string type;
+    std::string data;
+};
+
+/// Pure, stateful decoder for an SSE event stream. Feed it raw byte chunks
+/// (which may split events at arbitrary boundaries) and it yields the events
+/// that became complete (a blank line terminates an event).
+///
+/// Extracted from QueryEngine::stream_single_api_call's inline parser so the
+/// framing logic (partial chunks, `event:`/`data:` line handling, multi-line
+/// data, event-type persistence) is unit-testable without a live HTTP server.
+class SseEventDecoder {
+public:
+    /// Append a raw chunk from the stream and return any events that became
+    /// complete. A block with no `data:` line yields no event. The event type
+    /// persists across blocks until a new `event:` line is seen (SSE semantics).
+    [[nodiscard]] std::vector<SseEvent> feed(std::string_view chunk) {
+        std::vector<SseEvent> out;
+        buffer_.append(chunk.data(), chunk.size());
+        while (true) {
+            const auto double_nl = buffer_.find("\n\n");
+            if (double_nl == std::string::npos) break;
+
+            std::string event_block = buffer_.substr(0, double_nl);
+            buffer_.erase(0, double_nl + 2);
+
+            std::string event_data;
+            std::size_t pos = 0;
+            while (pos < event_block.size()) {
+                const auto nl = event_block.find('\n', pos);
+                std::string line;
+                if (nl == std::string::npos) {
+                    line = event_block.substr(pos);
+                    pos = event_block.size();
+                } else {
+                    line = event_block.substr(pos, nl - pos);
+                    pos = nl + 1;
+                }
+                if (line.starts_with("event: ")) {
+                    current_event_type_ = line.substr(7);
+                } else if (line.starts_with("data: ")) {
+                    if (!event_data.empty()) event_data += '\n';
+                    event_data += line.substr(6);
+                } else if (line == "data:") {
+                    if (!event_data.empty()) event_data += '\n';
+                }
+            }
+            if (!event_data.empty()) {
+                out.push_back({current_event_type_, std::move(event_data)});
+            }
+        }
+        return out;
+    }
+
+private:
+    std::string buffer_;
+    std::string current_event_type_;
+};
+
+// ============================================================
 // Cost and budget tracking types
 // ============================================================
 
@@ -2185,7 +2251,7 @@ private:
         cli.set_write_timeout(api_config_.timeout);
 
         // SSE parsing state
-        std::string sse_buffer;
+        SseEventDecoder sse_decoder_;
         std::uint32_t block_index = 0;
 
         // Content accumulation
@@ -2332,7 +2398,7 @@ private:
         };
 
         // Track current SSE event type
-        std::string current_event_type;
+        // (now held inside sse_decoder_)
 
         // Streaming POST using httplib's send() with content_receiver on Request
         httplib::Request req;
@@ -2345,45 +2411,10 @@ private:
                                    uint64_t /*offset*/, uint64_t /*total*/) -> bool {
             if (should_abort()) return false;
 
-            sse_buffer.append(data, len);
-
-            // Parse SSE protocol: lines ending with \n\n
-            while (true) {
-                auto double_nl = sse_buffer.find("\n\n");
-                if (double_nl == std::string::npos) break;
-
-                std::string event_block = sse_buffer.substr(0, double_nl);
-                sse_buffer.erase(0, double_nl + 2);
-
-                // Parse event block lines
-                std::string event_data;
-                std::string event_type_local;
-                size_t pos = 0;
-                while (pos < event_block.size()) {
-                    auto nl = event_block.find('\n', pos);
-                    std::string line;
-                    if (nl == std::string::npos) {
-                        line = event_block.substr(pos);
-                        pos = event_block.size();
-                    } else {
-                        line = event_block.substr(pos, nl - pos);
-                        pos = nl + 1;
-                    }
-
-                    if (line.starts_with("event: ")) {
-                        event_type_local = line.substr(7);
-                        current_event_type = event_type_local;
-                    } else if (line.starts_with("data: ")) {
-                        if (!event_data.empty()) event_data += "\n";
-                        event_data += line.substr(6);
-                    } else if (line == "data:") {
-                        if (!event_data.empty()) event_data += "\n";
-                    }
-                }
-
-                if (!event_data.empty()) {
-                    parse_sse_event(current_event_type, event_data);
-                }
+            // The decoder buffers partial chunks and yields complete events;
+            // dispatch each to the domain handler (parse_sse_event).
+            for (const auto& ev : sse_decoder_.feed(std::string_view(data, len))) {
+                parse_sse_event(ev.type, ev.data);
             }
 
             return true;
