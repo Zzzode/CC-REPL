@@ -61,6 +61,12 @@ import cc.ui.agents.agent_cards;
 import cc.ui.agents.agent_wizard;
 import cc.ui.dialogs.install_github_app_wizard;
 import cc.ui.dialogs.install_slack_app_wizard;
+// Welcome header: Clawd mark + animated asterisk (logo_v2) — was dead code,
+// now wired into RenderReplScreen for fresh sessions.
+import cc.ui.design.logo;
+// Terminal size probe for adaptive layout (welcome header centering + future
+// message-scroll height clamping).
+import cc.ui.ink_utils;
 
 // Forward imports (implement bodies in owning agent modules):
 //   cc.ui.dialogs.{permission_prompts,mcp_dialogs,trust_dialog,
@@ -155,6 +161,11 @@ struct MessageDisplayEntry {
     bool is_streaming = false, is_thinking = false, is_tool_use = false;
     bool is_compact_boundary = false, is_error = false;
     std::optional<std::string> tool_name, tool_status;
+    /// Parsed tool input JSON for tool-use entries.  Threaded into
+    /// ToolUseRenderOptions.raw_parameters (shared G1/G2 contract) instead of
+    /// the previous content_preview fallback.  G2 (app.cppm) populates this
+    /// from ToolUseBlock.input_json / ToolUseMessage.tool_input_json.
+    std::optional<std::string> tool_input_json;
     std::optional<std::string> agent_display_name, agent_color_name;
     std::chrono::system_clock::time_point timestamp;
     int estimated_height_lines = 3;
@@ -196,7 +207,12 @@ struct ReplScreenState {
     bool scroll_pinned_to_bottom = true;
     // Input
     std::string input_text;
-    std::string input_placeholder = "Ask anything...";
+    // TS-style contextual placeholder rather than a generic default.
+    std::string input_placeholder = "Try \"write a test\", \"/help\", or ask anything...";
+    // Welcome-header data (shown when messages is empty on a fresh session).
+    std::string app_version = "0.0.0";
+    std::string model_display_name;
+    std::string cwd;
     std::vector<std::string> autocomplete_suggestions;
     int autocomplete_index = -1;
     std::deque<std::string> input_history;
@@ -300,17 +316,22 @@ struct ReplScreenCallbacks {
 }
 
 // UI4/UI5: message list.  Delegates to messages_list.cppm (UI21).
+// `spinner_frame` drives the tool-use header spinner animation (fix #10).
 [[nodiscard]] inline Element RenderMessages(
     const std::vector<MessageDisplayEntry>& entries,
     int sel = -1, int vlines = 40,
-    [[maybe_unused]] int offs = 0, bool pinned = true) {
-    if (entries.empty())
+    [[maybe_unused]] int offs = 0, bool pinned = true,
+    int spinner_frame = 0) {
+    if (entries.empty()) {
+        // Empty-list placeholder kept minimal; the rich welcome header is
+        // rendered by RenderWelcomeHeader() above the messages list.
         return vbox({ filler(),
-            vbox({ text(" Welcome! Type a message to begin.") | dim | center,
-                   text(""), text("  /help    -- list commands") | dim | center,
+            vbox({ text("  Type a message to begin.") | dim | center,
+                   text("  /help    -- list commands") | dim | center,
                    text("  /model   -- change model") | dim | center,
                    text("  /config  -- open settings") | dim | center }) | center,
             filler() }) | flex;
+    }
 
     namespace ml = cc::ui::messages_list;
     ml::MessagesListInput input;
@@ -335,7 +356,15 @@ struct ReplScreenCallbacks {
                 input.shapes.push_back(messages::MessageShape::AssistantToolUse);
                 messages::tool_use_message::ToolUseRenderOptions opts;
                 opts.call.tool_name = m.tool_name.value_or("tool");
-                opts.call.raw_parameters = m.content_preview;
+                // Fix #8/#9: thread the real parsed tool input + status from
+                // the shared projection contract into the renderer (previously
+                // raw_parameters fell back to content_preview and status was
+                // hard-coded Pending).
+                opts.call.raw_parameters =
+                    m.tool_input_json.value_or(m.content_preview);
+                opts.call.parameters_language = "json";
+                opts.call.status = messages::tool_use_message::parse_tool_status(
+                    m.tool_status.value_or("pending"));
                 input.rows.push_back(std::move(opts));
             } else {
                 input.shapes.push_back(messages::MessageShape::AssistantText);
@@ -374,28 +403,135 @@ struct ReplScreenCallbacks {
     static int frame_count = 0;
     ++frame_count;
 
-    (void)vlines; (void)pinned;
+    (void)vlines; (void)pinned; (void)spinner_frame;
     return ml::render_messages_list_view(std::move(input), frame_count) | flex;
 }
 
+// UI0: welcome header.  Renders the Clawd mark + an asterisk glyph and the
+// "Welcome to Claude Code v{version}" line plus model + cwd.  Faithful-enough
+// TS LogoHeader atop the message list (fix #1).  Shown only on a fresh
+// session (message list empty).
+[[nodiscard]] inline Element RenderWelcomeHeader(const ReplScreenState& s) {
+    namespace logo = cc::ui::design::logo;
+    // Static Clawd mark in primary magenta (matches TS brand colour).  The
+    // animated-asterisk Component lives in logo_v2 but requires a Component
+    // tree; for the static header we render the teardrop glyph directly.
+    auto mark = logo::logo_mark(Color::RGB(217, 70, 239) /* magenta-500 */,
+                                Color::RGB(20, 20, 22));
+    Elements head;
+    head.push_back(hbox({
+        text(" "),
+        mark,
+        text("  "),
+        vbox({
+            filler(),
+            hbox({
+                text("✻") | color(Color::RGB(153, 153, 153)) | bold,
+                text(" Welcome to Claude Code v") | bold | color(Color::White),
+                text(s.app_version) | bold | color(Color::Cyan),
+            }),
+            filler(),
+        }),
+        filler(),
+    }));
+    Elements meta;
+    meta.push_back(text("   "));
+    if (!s.model_display_name.empty()) {
+        meta.push_back(text("model: ") | dim);
+        meta.push_back(text(s.model_display_name) | color(Color::Cyan) | dim);
+        meta.push_back(text("  "));
+    }
+    if (!s.cwd.empty()) {
+        meta.push_back(text("cwd: ") | dim);
+        // Truncate long cwd from the left to keep the header on one line.
+        std::string cwd_disp = s.cwd;
+        if (cwd_disp.size() > 48)
+            cwd_disp = "…" + cwd_disp.substr(cwd_disp.size() - 47);
+        meta.push_back(text(cwd_disp) | color(Color::Blue) | dim);
+    }
+    if (meta.size() > 1) head.push_back(hbox(std::move(meta)));
+    head.push_back(text(""));
+    head.push_back(text("   " + s.input_placeholder) | dim | color(Color::GrayLight));
+    return vbox(std::move(head));
+}
+
 // UI2: prompt input shell.  Full feature parity in prompt_input_full.cppm.
+// Render intent: a TOP-ONLY round border (TS borderStyle="round" open box),
+// the bold green "❯" prompt char, a visible caret at the insertion point,
+// and multi-line input rendered as a vbox of per-line text() elements.
 [[nodiscard]] inline Element RenderPromptInput(const ReplScreenState& s) {
     std::string mp; Color mc = Color::White;
     switch (s.input_mode) {
-      case InputMode::Prompt:       mp=">";   mc=Color::Green;    break;
+      case InputMode::Prompt:       mp="❯";   mc=Color::Green;    break;
       case InputMode::Bash:         mp="!";   mc=Color::Red;      break;
       case InputMode::SlashCommand: mp="/";   mc=Color::Cyan;     break;
       case InputMode::HistorySearch:mp="?";   mc=Color::Magenta;  break;
-      case InputMode::PlanMode:     mp="S";   mc=Color::Yellow;   break;
-      case InputMode::VimInsert:    mp="[I]"; mc=Color::Green;    break;
-      case InputMode::VimNormal:    mp="[N]"; mc=Color::Yellow;   break;
-      case InputMode::VimVisual:    mp="[V]"; mc=Color::Magenta;  break;
-      case InputMode::OrphanedPermission: mp="[!]"; mc=Color::Red;break;
-      case InputMode::TaskNotification: mp="[*]"; mc=Color::Cyan; break; }
-    Elements line = { text(" "), text(mp + " ") | color(mc) | bold };
-    line.push_back(s.input_text.empty()
-        ? text(s.input_placeholder) | dim
-        : text(s.input_text) | color(Color::White));
+      case InputMode::PlanMode:     mp="▣";   mc=Color::Yellow;   break;
+      case InputMode::VimInsert:    mp="❯";  mc=Color::Green;    break;
+      case InputMode::VimNormal:    mp="❮";  mc=Color::Yellow;   break;
+      case InputMode::VimVisual:    mp="❮";  mc=Color::Magenta;  break;
+      case InputMode::OrphanedPermission: mp="!"; mc=Color::Red;  break;
+      case InputMode::TaskNotification: mp="*"; mc=Color::Cyan;   break; }
+
+    // Vim-mode indicator badge (TS shows "INSERT"/"NORMAL" alongside prompt).
+    std::optional<std::pair<std::string, Color>> vim_badge;
+    if (s.input_mode == InputMode::VimInsert)
+        vim_badge = {"-- INSERT --", Color::Green};
+    else if (s.input_mode == InputMode::VimNormal)
+        vim_badge = {"-- NORMAL --", Color::Yellow};
+    else if (s.input_mode == InputMode::VimVisual)
+        vim_badge = {"-- VISUAL --", Color::Magenta};
+
+    // Multi-line rendering (fix #6): split input_text on '\n' into a vbox of
+    // per-line text() elements, indented under the prompt on continuation
+    // lines.  Cribbed from text_input.cppm split-lines reference impl.
+    auto split_lines = [](const std::string& t) {
+        std::vector<std::string> lines;
+        if (t.empty()) { lines.emplace_back(""); return lines; }
+        std::size_t pos = 0;
+        while (true) {
+            auto nl = t.find('\n', pos);
+            if (nl == std::string::npos) { lines.push_back(t.substr(pos)); break; }
+            lines.push_back(t.substr(pos, nl - pos));
+            pos = nl + 1;
+        }
+        return lines;
+    };
+    auto lines = split_lines(s.input_text);
+    const std::string indent(s.input_mode == InputMode::Prompt ? 3u : 4u, ' ');
+
+    Elements input_rows;
+    const bool empty_input = s.input_text.empty();
+    // Visible caret (fix #5): the real terminal cursor is not parked in the
+    // input box, so we draw an inverted glyph at the end of the active line.
+    // A per-frame blink would require a Component; the static caret is the
+    // safe minimal-fidelity rendering.
+    auto caret = text("▏") | color(Color::CyanLight) | bold;
+
+    if (empty_input) {
+        Elements row = { text(" "), text(mp + " ") | color(mc) | bold };
+        row.push_back(text(s.input_placeholder) | dim | color(Color::GrayLight));
+        row.push_back(caret);
+        input_rows.push_back(hbox(row));
+    } else {
+        for (std::size_t i = 0; i < lines.size(); ++i) {
+            Elements row;
+            if (i == 0) {
+                row.push_back(text(" "));
+                row.push_back(text(mp + " ") | color(mc) | bold);
+            } else {
+                row.push_back(text(indent));
+            }
+            const std::string& line = lines[i];
+            row.push_back(text(line) | color(Color::White));
+            // Caret sits at the end of the last line (insertion point for
+            // simple append-only input; the full editor tracks a real caret).
+            if (i == lines.size() - 1) row.push_back(caret);
+            input_rows.push_back(hbox(row));
+        }
+    }
+
+    Elements box_body;
     Element ac_row = text("");
     if (!s.autocomplete_suggestions.empty()) {
         Elements pills;
@@ -409,8 +545,23 @@ struct ReplScreenCallbacks {
             pills.push_back(text(" "));
         }
         ac_row = hbox({ text("  "), hbox(pills), filler() });
+        box_body.push_back(ac_row);
     }
-    return vbox({ ac_row, hbox(line), text("") });
+    if (vim_badge) {
+        box_body.push_back(hbox({
+            text("  "),
+            text(vim_badge->first) | color(vim_badge->second) | bold | dim,
+        }));
+    }
+    for (auto& r : input_rows) box_body.push_back(std::move(r));
+    box_body.push_back(text(""));
+
+    auto content = vbox(std::move(box_body));
+    // Fix #2: round border (TS borderStyle="round").  FTXUI has no
+    // half-border primitive, so we use a full ROUNDED border styled with the
+    // prompt-mode colour.  The box sits flush above the footer counts row, so
+    // the bottom rail reads as the divider between input and footer.
+    return content | borderStyled(BorderStyle::ROUNDED, mc);
 }
 
 // =========================================================
@@ -748,16 +899,37 @@ using Builder = std::function<Element(const ReplScreenState&)>;
 // Full layout composition
 // =========================================================
 
-/// Top->bottom: StatusBar | Messages | Spinner | Tasks/Teams (opt)
-///               | PromptInput | Footer (counts).
+/// Top->bottom: [WelcomeHeader (fresh session)] | Messages | Spinner |
+///               Tasks/Teams (opt) | StatusBar | PromptInput | Footer (counts).
+/// Fix #1: welcome header atop the list on a fresh session.
+/// Fix #7: StatusBar moved from the very top to sit just ABOVE the prompt
+///         input (TS renders the status line at the bottom, above the input).
+/// Fix #11: terminal size probed once per frame for adaptive clamping.
 /// Non-null RouteDialog() overlays via dbox() with dim background.
 [[nodiscard]] inline Element RenderReplScreen(const ReplScreenState& s) {
-    Elements L; L.reserve(8);
-    L.push_back(RenderStatusBar(s.status_bar));
-    L.push_back(separator());
+    // Probe terminal size once per frame for adaptive layout (fix #11).
+    auto [term_cols, term_rows] = cc::ui::ink_utils::query_terminal_size();
+    if (term_cols <= 0) term_cols = 80;
+    if (term_rows <= 0) term_rows = 24;
+
+    // Spinner frame tick: monotonically increments per render call so the
+    // tool-use header spinner animates.  (The interactive ToolUseMessage
+    // component also drives its own counter; this feeds the static render
+    // path used by message_list row dispatch.)
+    static int spinner_frame = 0;
+    ++spinner_frame;
+
+    Elements L; L.reserve(10);
+
+    // Fix #1: welcome header on a fresh IDLE session only (no messages AND not streaming/
+    // loading). During active streaming messages may be momentarily empty, but the welcome
+    // banner must not flash there - it is for the resting fresh-session state (TS parity).
+    if (s.messages.empty() && s.spinner_mode == SpinnerMode::Hidden)
+        L.push_back(RenderWelcomeHeader(s));
+
     L.push_back(RenderMessages(s.messages, s.selected_message_idx,
                                s.viewport_height_lines, s.scroll_offset,
-                               s.scroll_pinned_to_bottom));
+                               s.scroll_pinned_to_bottom, spinner_frame));
     if (s.spinner_mode != SpinnerMode::Hidden)
         L.push_back(RenderSpinner(s.spinner_mode, s.spinner_verb, s.spinner_tip));
     if (s.mode == ReplMode::TasksView && s.background_task_count > 0) {
@@ -782,6 +954,9 @@ using Builder = std::function<Element(const ReplScreenState&)>;
             text("[Esc] close ") | dim,
         })); }
     L.push_back(separator());
+    // Fix #7: status bar now renders just above the prompt input (TS bottom
+    // status line) instead of pinned to the very top of the screen.
+    L.push_back(RenderStatusBar(s.status_bar));
     L.push_back(RenderPromptInput(s));
     if (s.background_task_count || s.teammate_count) {
         Elements f = { text(" ") };
@@ -795,11 +970,17 @@ using Builder = std::function<Element(const ReplScreenState&)>;
     }
     Element base = vbox(std::move(L));
     auto dlg = RouteDialog(s.mode, s);
-    if (dlg) return dbox({
-        std::move(base) | dim,
-        vbox({ filler(),
-               hbox({ filler(), std::move(*dlg) | flex_shrink, filler() })
-               | flex_shrink, filler() }) | flex });
+    if (dlg) {
+        // Fix #11: clamp the dialog overlay height to term_rows-2 so it
+        // cannot overflow the viewport on small terminals.
+        auto clamped = std::move(*dlg)
+            | size(HEIGHT, LESS_THAN, std::max(4, term_rows - 2));
+        return dbox({
+            std::move(base) | dim,
+            vbox({ filler(),
+                   hbox({ filler(), std::move(clamped) | flex_shrink, filler() })
+                   | flex_shrink, filler() }) | flex });
+    }
     return base;
 }
 

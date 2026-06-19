@@ -162,6 +162,20 @@ constexpr std::size_t kLargeContentWarnBytes = 5 * 1024 * 1024;  // 5 MB
     return {"?", Color::White};
 }
 
+/// Parse a status string from the shared projection contract
+/// ("pending"|"running"|"success"|"error", with "cancelled" tolerated) into
+/// the renderer's ToolStatus enum.  Unknown / empty => Pending (default).
+/// G1 reads entry.tool_status (populated by G2 / app.cppm) via this helper.
+[[nodiscard]] inline ToolStatus parse_tool_status(std::string_view s) {
+    if (s == "running")          return ToolStatus::Running;
+    if (s == "success")          return ToolStatus::Success;
+    if (s == "error" || s == "failed")
+                                return ToolStatus::Error;
+    if (s == "cancelled" || s == "canceled")
+                                return ToolStatus::Cancelled;
+    return ToolStatus::Pending;  // "pending" / "" / unknown
+}
+
 [[nodiscard]] inline std::string tool_icon(std::string_view tool_name) {
     using namespace std::string_view_literals;
     auto has = [&](std::string_view s) {
@@ -273,7 +287,6 @@ constexpr std::size_t kLargeContentWarnBytes = 5 * 1024 * 1024;  // 5 MB
 
 [[nodiscard]] inline Element RenderToolHeader(const ToolUseCallData& call,
                                                int spinner_frame = 0) {
-    (void)spinner_frame;
     auto [status_text, status_color] = status_display(call.status);
     Elements left;
 
@@ -282,7 +295,10 @@ constexpr std::size_t kLargeContentWarnBytes = 5 * 1024 * 1024;  // 5 MB
         spinner_ns::SpinnerOptions sopts;
         sopts.mode = spinner_ns::SpinnerMode::Processing;
         sopts.reduced_motion = false;
-        // Static element - caller drives animation via Renderer.
+        // Caller drives animation by passing a monotonically increasing
+        // spinner_frame each repaint; SpinnerElement honours it to index the
+        // glyph array so the tool spinner actually animates.
+        sopts.frame = spinner_frame;
         left.push_back(spinner_ns::SpinnerElement(sopts));
         left.push_back(text(" "));
     } else {
@@ -366,11 +382,12 @@ constexpr std::size_t kLargeContentWarnBytes = 5 * 1024 * 1024;  // 5 MB
 // ============================================================
 
 /// Render a single tool use message.  Returns the Element.
-[[nodiscard]] inline Element RenderToolUseMessage(const ToolUseRenderOptions& opts) {
+[[nodiscard]] inline Element RenderToolUseMessage(const ToolUseRenderOptions& opts,
+                                                  int spinner_frame = 0) {
     const auto& call = opts.call;
     auto [_, status_color] = status_display(call.status);
 
-    auto header = RenderToolHeader(call);
+    auto header = RenderToolHeader(call, spinner_frame);
     Elements body_parts = {header};
 
     // File path indicator
@@ -558,7 +575,7 @@ constexpr std::size_t kLargeContentWarnBytes = 5 * 1024 * 1024;  // 5 MB
     return Renderer([s] {
         if (s->opts.call.status == ToolStatus::Running) ++s->frame;
         s->opts.show_result = s->expanded || s->opts.call.status == ToolStatus::Error;
-        return RenderToolUseMessage(s->opts);
+        return RenderToolUseMessage(s->opts, s->frame);
     }) | CatchEvent([s](Event e) -> bool {
         if (e == Event::Return || e == Event::Character(' ')) {
             s->expanded = !s->expanded;

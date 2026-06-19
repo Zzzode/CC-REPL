@@ -35,6 +35,92 @@ import cc.ui.messages.message_components;
 import cc.ui.messages.message_timestamp;
 import cc.ui.markdown;
 
+// ─── Prompt XML tag stripping (module-internal) ────────────────────────
+// Models sometimes emit prompt scaffolding XML blocks (<commit_analysis>,
+// <context>, <function_analysis>, <pr_analysis>) inside assistant text.
+// These are not user-facing content — strip them before rendering, mirroring
+// the TS stripPromptXMLTags helper (utils/messages.ts), which uses the regex
+//   /<(commit_analysis|context|function_analysis|pr_analysis)>.*?<\/\1>\n?/gs
+// Implemented here as a manual scan (no <regex> needed, and faster).
+namespace cc::ui::messages::detail {
+
+constexpr std::string_view kStrippedPromptTags[] = {
+    "commit_analysis",
+    "context",
+    "function_analysis",
+    "pr_analysis",
+};
+
+/// Remove <tag>...</tag> blocks for the known prompt-scaffolding tags.
+/// Matches the TS regex semantics: non-greedy, dot matches newlines, trailing
+/// newline consumed. Returns the cleaned text.
+[[nodiscard]] inline std::string strip_prompt_xml_tags(std::string_view content) {
+    std::string result;
+    result.reserve(content.size());
+
+    std::size_t pos = 0;
+    while (pos < content.size()) {
+        std::size_t open = content.find('<', pos);
+        if (open == std::string_view::npos) {
+            result.append(content.substr(pos));
+            break;
+        }
+
+        // Append everything up to the candidate '<'.
+        result.append(content.substr(pos, open - pos));
+
+        // Does an opening tag for any stripped tag start at `open`?
+        std::string_view from_open = content.substr(open);
+        std::string_view matched_tag;
+        for (auto tag : kStrippedPromptTags) {
+            // Require "<tag>"
+            std::string open_pat = "<";
+            open_pat += tag;
+            open_pat += '>';
+            if (from_open.size() >= open_pat.size() &&
+                from_open.substr(0, open_pat.size()) == open_pat) {
+                matched_tag = tag;
+                break;
+            }
+        }
+
+        if (matched_tag.empty()) {
+            // Not a stripped tag — keep the '<' and move on by one so nested
+            // tags (e.g. "a < b") are handled correctly.
+            result.push_back('<');
+            pos = open + 1;
+            continue;
+        }
+
+        // Find the matching closing tag "</tag>" (first occurrence = non-greedy).
+        std::string close_pat = "</";
+        close_pat += matched_tag;
+        close_pat += '>';
+        std::size_t close = content.find(close_pat, open + matched_tag.size() + 2);
+        if (close == std::string_view::npos) {
+            // No closing tag — leave the opening tag as literal text and continue.
+            result.push_back('<');
+            pos = open + 1;
+            continue;
+        }
+
+        // Skip the entire block (open tag through close tag). Consume one
+        // trailing newline if present (mirrors the \n? in the TS regex).
+        pos = close + close_pat.size();
+        if (pos < content.size() && content[pos] == '\n') {
+            ++pos;
+        }
+    }
+
+    // Mirror the TS .trim()
+    auto b = result.find_first_not_of(" \t\n\r");
+    if (b == std::string::npos) return "";
+    auto e = result.find_last_not_of(" \t\n\r");
+    return result.substr(b, e - b + 1);
+}
+
+} // namespace cc::ui::messages::detail
+
 export namespace cc::ui::messages {
 
 using namespace ftxui;
@@ -191,10 +277,12 @@ class AssistantTextMessageComponent : public ComponentBase {
         constexpr std::size_t kPreviewLines = 20;
 
         if (!raw) {
-            std::string content = data_.content;
+            // Strip prompt-scaffolding XML before rendering, mirroring TS
+            // (marked.lexer(stripPromptXMLTags(content))).
+            std::string content = detail::strip_prompt_xml_tags(data_.content);
             bool truncated = false;
             if (!expanded_) {
-                auto lines = SplitLines(data_.content);
+                auto lines = SplitLines(content);
                 if (lines.size() > kPreviewLines) {
                     content.clear();
                     for (std::size_t i = 0; i < kPreviewLines; ++i) {
@@ -283,7 +371,7 @@ class AssistantTextMessageComponent : public ComponentBase {
             text(" Assistant  "),
             text(render_timestamp(data.timestamp)) | dim,
         }),
-        ::cc::ui::render_markdown(data.content),
+        ::cc::ui::render_markdown(detail::strip_prompt_xml_tags(data.content)),
     });
 }
 

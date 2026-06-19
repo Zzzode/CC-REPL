@@ -1064,15 +1064,17 @@ TEST(AppRuntime, CommandsAndStatusRenderWithoutTerminalLoop) {
             exited = true;
         });
 
-    // --- Initial render: status bar + system message + prompt input ---
+    // --- Initial render: status bar + prompt input (system prompt is HIDDEN) ---
     app->SyncState();
     auto initial = render_to_plain_text(app->Render(), 120, 28);
     // Default model appears in the status bar
     EXPECT_NE(initial.find("claude-sonnet"), std::string::npos);
-    // System prompt message is shown
-    EXPECT_NE(initial.find("You are Claude"), std::string::npos);
-    // Prompt input indicator is present
-    EXPECT_NE(initial.find(">"), std::string::npos);
+    // The LLM system prompt is an API argument, never a visible message (UI-fidelity fix:
+    // it must NOT leak into the rendered conversation, matching TS REPL.tsx).
+    EXPECT_EQ(initial.find("You are Claude"), std::string::npos);
+    // Prompt input indicator is present (UI-fidelity fix: TS uses "❯" U+276F,
+    // bold green, instead of the legacy ">").
+    EXPECT_NE(initial.find("\xE2\x9D\xAF" /* ❯ */), std::string::npos);
 
     // --- /model haiku-runtime: changes model in status bar ---
     app->HandleCommand("/model haiku-runtime");
@@ -1224,8 +1226,14 @@ TEST(AppRuntime, StreamingToolUseShowsSpinnerAndLoadingState) {
     EXPECT_TRUE(app->is_loading_for_testing());
     EXPECT_TRUE(app->is_query_running_for_testing());
 
-    // Rendered output should contain the tool name in the spinner line
-    auto during = strip_ansi(render_to_plain_text(app->Render(), 140, 36));
+    // The tool-use content block is processed asynchronously by the streaming thread;
+    // is_query_running becomes true BEFORE the block arrives, so poll the render until the
+    // tool name actually surfaces (spinner verb) rather than snapshotting too early.
+    std::string during;
+    ASSERT_TRUE(wait_until([&] {
+        during = strip_ansi(render_to_plain_text(app->Render(), 140, 36));
+        return during.find("Bash") != std::string::npos;
+    }, std::chrono::seconds(3)));
     EXPECT_NE(during.find("Bash"), std::string::npos);
 
     server.release_after_preview();

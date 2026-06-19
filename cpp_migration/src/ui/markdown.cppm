@@ -4,8 +4,8 @@
 /// Features:
 /// - Full block-level parsing: headings, paragraphs, code fences, lists,
 ///   blockquotes, tables (GFM), horizontal rules
-/// - Inline formatting: bold, italic, inline code, links, strikethrough,
-///   escaped characters
+/// - Inline formatting: bold, italic, inline code, links,
+///   escaped characters (strikethrough intentionally disabled, mirroring TS)
 /// - Syntax-highlighted code blocks via cc.ui.code_highlight
 /// - LRU token cache for fast re-renders (virtual scrolling)
 /// - Fast-path: skip lexing for plain text with no markdown markers
@@ -69,7 +69,6 @@ enum class InlineTokenKind : std::uint8_t {
     Italic,
     Code,
     Link,
-    Strikethrough,
     Escape,
 };
 
@@ -152,7 +151,8 @@ namespace detail {
 
 /// Tokenize inline markdown formatting.
 /// Handles: bold (**), italic (*), code (`), links [text](url),
-/// strikethrough (~~), and escaped characters (\*).
+/// and escaped characters (\*). Strikethrough (~~) is intentionally NOT
+/// handled — see note above matching the TS marked configuration.
 [[nodiscard]] std::vector<InlineToken> tokenize_inline(std::string_view text) {
     std::vector<InlineToken> tokens;
     std::string buffer;
@@ -182,18 +182,10 @@ namespace detail {
             }
         }
 
-        // Strikethrough: ~~text~~
-        if (c == '~' && i + 1 < text.size() && text[i + 1] == '~') {
-            flush_buffer();
-            auto end = text.find("~~", i + 2);
-            if (end != std::string_view::npos) {
-                auto content = text.substr(i + 2, end - i - 2);
-                tokens.push_back({InlineTokenKind::Strikethrough,
-                                  std::string(content), {}});
-                i = end + 1;
-                continue;
-            }
-        }
+        // Note: strikethrough (~~text~~) is intentionally NOT parsed.
+        // The model often uses ~ for "approximate" (e.g., ~100) and rarely
+        // intends actual strikethrough formatting. Mirrors the TS marked
+        // configuration: marked.use({ tokenizer: { del() { return undefined } } }).
 
         // Inline code: `code`
         if (c == '`') {
@@ -688,13 +680,13 @@ namespace detail {
                 el = el | dim;
                 break;
             case InlineTokenKind::Code:
-                el = el | color(Color::Yellow) | inverted;
+                // TS renders inline code via the theme "permission" color
+                // (rgb(87,105,247) on dark) WITHOUT inversion. Mirrors that
+                // intent — no background swap.
+                el = el | color(Color::RGB(87, 105, 247));
                 break;
             case InlineTokenKind::Link:
                 el = el | color(Color::Blue) | underlined;
-                break;
-            case InlineTokenKind::Strikethrough:
-                el = el | strikethrough | dim;
                 break;
             case InlineTokenKind::Escape:
                 break;
@@ -755,8 +747,9 @@ namespace detail {
 
         auto highlighted = code_highlight::highlight_source(
             c.source, c.language);
-        return code_highlight::RenderCodeHighlight(c, highlighted)
-               | borderStyled(Color::GrayDark);
+        // TS does not add an outer border to code blocks; code_highlight
+        // owns all styling. Matches that intent.
+        return code_highlight::RenderCodeHighlight(c, highlighted);
     }
 
     // Plain code block
@@ -771,7 +764,7 @@ namespace detail {
         lines.push_back(text(std::string(line)));
         start = (end == std::string_view::npos) ? code.size() : end + 1;
     }
-    return vbox(std::move(lines)) | borderStyled(Color::GrayDark);
+    return vbox(std::move(lines));
 }
 
 /// Render an unordered list

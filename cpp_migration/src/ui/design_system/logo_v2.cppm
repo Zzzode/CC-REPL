@@ -103,7 +103,9 @@ public:
     ftxui::Element Render() override {
         using namespace ftxui;
         if (reduced_motion_ || settled()) {
-            return text("*") | color(Color::RGB(153, 153, 153));
+            // TS always renders the teardrop "✻" (AnimatedAsterisk.tsx uses
+            // the same glyph settled as during animation); keep it consistent.
+            return text("✻") | color(Color::RGB(153, 153, 153));
         }
         auto elapsed = std::chrono::steady_clock::now() - start_;
         auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();

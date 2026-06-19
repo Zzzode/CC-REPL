@@ -111,6 +111,7 @@ namespace repl = cc::ui::repl_screen;
                 } else if (const auto* tool = std::get_if<ToolUseBlock>(&block)) {
                     e.is_tool_use = true;
                     e.tool_name = tool->name;
+                    e.tool_input_json = tool->input_json;
                 }
             }
         } else if constexpr (std::is_same_v<T, SystemMessage>) {
@@ -399,16 +400,22 @@ public:
         auto messages = engine_->get_conversation();
         screen_state_->messages.clear();
         screen_state_->messages.reserve(messages.size());
-        for (const auto& msg : messages)
+        for (const auto& msg : messages) {
+            // The LLM system prompt is an API argument, never a visible message (TS parity:
+            // REPL.tsx passes systemPrompt separately, not in the messages array). Skip it.
+            if (std::holds_alternative<SystemMessage>(msg)) continue;
             screen_state_->messages.push_back(project_message(msg));
+        }
 
         auto usage = engine_->get_usage();
         screen_state_->status_bar.model_name = engine_->model_params().model;
         screen_state_->status_bar.input_tokens = static_cast<int>(usage.input_tokens);
         screen_state_->status_bar.output_tokens = static_cast<int>(usage.output_tokens);
         screen_state_->status_bar.cost_usd = engine_->budget_tracker().current_spend_usd;
+        // Real tokens consumed so far (input grows with the context window). The previous
+        // formula context_utilization()*max_tokens was meaningless - max_tokens is the OUTPUT cap.
         screen_state_->status_bar.context_token_count =
-            static_cast<int>(engine_->context_utilization() * engine_->model_params().max_tokens);
+            static_cast<int>(usage.input_tokens + usage.output_tokens);
     }
 
     void ConsumePendingResult() {
@@ -466,8 +473,10 @@ public:
                 auto messages = engine_->get_conversation();
                 screen_state_->messages.clear();
                 screen_state_->messages.reserve(messages.size() + 1);
-                for (const auto& msg : messages)
+                for (const auto& msg : messages) {
+                    if (std::holds_alternative<SystemMessage>(msg)) continue;
                     screen_state_->messages.push_back(project_message(msg));
+                }
                 screen_state_->messages.push_back(std::move(streaming_entry));
                 screen_state_->scroll_pinned_to_bottom = true;
             }
@@ -534,7 +543,8 @@ public:
     utils::SessionStorage& storage,
     cc::hooks::ToolPermissionHook* permission_hook = nullptr
 ) {
-    auto screen = ScreenInteractive::TerminalOutput();
+    // Use the alternate-screen fullscreen like TS (AlternateScreen) - the REPL owns the terminal.
+    auto screen = ScreenInteractive::Fullscreen();
 
     bool should_exit = false;
 
