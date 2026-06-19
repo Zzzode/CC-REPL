@@ -6,6 +6,9 @@
 #include <chrono>
 #include <condition_variable>
 #include <filesystem>
+#include <fstream>
+#include <cstdlib>
+#include <iterator>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -85,6 +88,43 @@ std::string strip_ansi(std::string_view s) {
         ++i;
     }
     return out;
+}
+
+/// Render an Element to a fixed-size terminal buffer INCLUDING ANSI color/style
+/// codes (ftxui Screen::ToString emits them). Used for golden snapshot tests.
+std::string render_to_ansi(ftxui::Element element, int width, int height) {
+    auto screen = ftxui::Screen::Create(ftxui::Dimension::Fixed(width), ftxui::Dimension::Fixed(height));
+    ftxui::Render(screen, element);
+    return screen.ToString();
+}
+
+/// Directory holding golden snapshot files (derived from __FILE__, so it works
+/// regardless of the ctest working directory).
+std::string golden_dir() {
+    std::string f = __FILE__;
+    auto pos = f.find_last_of('/');
+    return f.substr(0, pos + 1) + "golden/";
+}
+
+/// Golden-snapshot check: compare `actual` (typically an ANSI render) against
+/// tests/golden/<name>.txt. Set UPDATE_GOLDENS env to (re)write the golden
+/// instead of comparing: `UPDATE_GOLDENS=1 ctest -R VisualSnapshot` to refresh.
+void check_golden(const std::string& name, const std::string& actual) {
+    const std::string path = golden_dir() + name + ".txt";
+    if (std::getenv("UPDATE_GOLDENS") != nullptr) {
+        std::ofstream out(path, std::ios::binary);
+        ASSERT_TRUE(out.good()) << "cannot write golden: " << path;
+        out << actual;
+        SUCCEED() << "golden updated: " << path;
+        return;
+    }
+    std::ifstream in(path, std::ios::binary);
+    ASSERT_TRUE(in.good()) << "golden missing: " << path
+                           << " (run UPDATE_GOLDENS=1 to create)";
+    std::string expected((std::istreambuf_iterator<char>(in)),
+                         std::istreambuf_iterator<char>());
+    EXPECT_EQ(actual, expected) << "golden mismatch for '" << name
+                                << "' (run UPDATE_GOLDENS=1 to refresh)";
 }
 
 bool wait_until(std::function<bool()> predicate, std::chrono::milliseconds timeout) {
@@ -2700,6 +2740,24 @@ TEST(RenderWelcomeHeader, UnknownUserShowsGenericWelcomeBack) {
     auto el = rs::RenderWelcomeHeader(s, 0);
     auto plain = strip_ansi(render_to_plain_text(std::move(el), 70, 30));
     EXPECT_NE(plain.find("Welcome back!"), std::string::npos);
+}
+
+// ── Golden snapshot tests ───────────────────────────────────────────────────
+// Render key UI states to a terminal buffer (WITH ANSI color) and diff against a
+// committed golden under tests/golden/. This is the AUTOMATED visual-fidelity
+// check - no manual screenshots needed. Refresh: UPDATE_GOLDENS=1 ctest -R VisualSnapshot
+
+TEST(VisualSnapshot, WelcomeHeaderMatchesGolden) {
+    namespace rs = cc::ui::repl_screen;
+    rs::ReplScreenState s;
+    s.app_version = "0.0.0";
+    s.model_display_name = "claude-sonnet-4";
+    s.cwd = "/tmp/demo";
+    s.user_display_name.clear();
+    s.welcome_tip_index = 0;  // stable -> deterministic snapshot
+    // spinner_frame=0 -> animated asterisk at a fixed hue (deterministic).
+    auto el = rs::RenderWelcomeHeader(s, /*spinner_frame=*/0);
+    check_golden("welcome_header", render_to_ansi(std::move(el), 80, 26));
 }
 
 

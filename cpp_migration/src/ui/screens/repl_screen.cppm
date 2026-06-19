@@ -238,6 +238,10 @@ struct ReplScreenState {
     // M2: oauthAccount.displayName analogue — drives formatWelcomeMessage
     // ("Welcome back {user}!" vs "Welcome back!").  Empty for new users.
     std::string user_display_name;
+    // Stable per-session welcome-tip index (seeded once from the session id in
+    // app.cppm). The renderer mods this by kWelcomeTips.size(). Previously the
+    // tip used spinner_frame, which cycled the tip on every mouse-move re-render.
+    std::size_t welcome_tip_index{0};
     std::vector<std::string> autocomplete_suggestions;
     int autocomplete_index = -1;
     std::deque<std::string> input_history;
@@ -489,8 +493,10 @@ struct ReplScreenCallbacks {
     // is growthbook-driven and effectively empty in this port, so we surface
     // the in-repo kWelcomeTips list instead (frame-stable pick).
     if (!lgo::kWelcomeTips.empty()) {
-        const auto idx = static_cast<std::size_t>(spinner_frame)
-                         % lgo::kWelcomeTips.size();
+        // Stable per-session pick: s.welcome_tip_index is seeded once from the
+        // session id (app.cppm) - NOT spinner_frame, which would flicker the tip
+        // on every mouse-move-triggered re-render.
+        const auto idx = s.welcome_tip_index % lgo::kWelcomeTips.size();
         head.push_back(text(""));
         head.push_back(hbox({
             text("  "),

@@ -204,6 +204,13 @@ public:
 
         current_session_id_ = utils::SessionStorage::generate_session_id();
 
+        // Seed a stable per-session welcome-tip index (deterministic hash of the
+        // session id) so the tip varies per session but never flickers per frame.
+        std::size_t tip_hash = 0;
+        for (unsigned char c : current_session_id_)
+            tip_hash = tip_hash * 131u + static_cast<std::size_t>(c);
+        screen_state_->welcome_tip_index = tip_hash;
+
         repl::ReplScreenCallbacks cbs;
         cbs.on_submit = [this](const std::string& text, repl::InputMode) {
             HandleSubmit(text);
