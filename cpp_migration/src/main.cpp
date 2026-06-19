@@ -628,6 +628,11 @@ auto load_config() -> cc::core::QueryEngineConfig {
     if (const char* key = std::getenv("ANTHROPIC_API_KEY")) {
         config.api_key = key;
     }
+    // OAuth/Pro/gateway bearer token (e.g. ANTHROPIC_AUTH_TOKEN supplied via --settings env).
+    // When present it is sent as "Authorization: Bearer" and takes precedence over api_key.
+    if (const char* token = std::getenv("ANTHROPIC_AUTH_TOKEN")) {
+        config.auth_token = token;
+    }
 
     // Base URL override (e.g. for proxies or custom endpoints)
     if (const char* url = std::getenv("ANTHROPIC_BASE_URL")) {
@@ -1738,13 +1743,13 @@ int main(int argc, const char* argv[]) {
 
     // Validate API key is present for model queries. Local slash commands in
     // simple UI mode do not need API access.
-    if (config.api_key.empty() && opts.use_simple_ui) {
+    if (config.api_key.empty() && config.auth_token.empty() && opts.use_simple_ui) {
         auto cmd_registry = cc::commands::AppCommandRegistry{};
         return run_simple_ui(nullptr, cmd_registry);
     }
-    if (config.api_key.empty()) {
-        std::println(stderr, "Error: ANTHROPIC_API_KEY environment variable is not set.");
-        std::println(stderr, "Set it with: export ANTHROPIC_API_KEY=\"your-key-here\"");
+    if (config.api_key.empty() && config.auth_token.empty()) {
+        std::println(stderr, "Error: no API credentials found (set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN,");
+        std::println(stderr, "or provide them via --settings <file>).");
         return 1;
     }
 
