@@ -67,6 +67,10 @@ import cc.ui.design.logo;
 // Terminal size probe for adaptive layout (welcome header centering + future
 // message-scroll height clamping).
 import cc.ui.ink_utils;
+// M1: FullscreenLayout slot-system — faithful port of TS FullscreenLayout's
+// region model (scrollable / bottom / overlay / modal / bottomFloat).  The
+// shell is now composed via this slot composer instead of a flat vbox.
+import cc.ui.layout.fullscreen;
 
 // Forward imports (implement bodies in owning agent modules):
 //   cc.ui.dialogs.{permission_prompts,mcp_dialogs,trust_dialog,
@@ -205,6 +209,20 @@ struct ReplScreenState {
     int scroll_offset = 0, selected_message_idx = -1;
     int viewport_height_lines = 40;
     bool scroll_pinned_to_bottom = true;
+    // M1 (FullscreenLayout slot-system chrome): scroll-derived chrome state.
+    //   sticky_prompt_text — text of the sticky header shown while scrolled up
+    //     into history (TS `stickyPrompt.text` via ScrollChromeContext).
+    //     Empty => no header.
+    //   unseen_message_count — count of assistant turns added below the fold
+    //     while unpinned; drives the "N new messages" pill label (TS
+    //     `newMessageCount` + `useUnseenDivider`).  The pill itself only
+    //     renders when pill_visible is true (engine snapshots the divider).
+    //   pill_visible — TS `pillVisible` (useSyncExternalStore against the
+    //     scroll handle).  Defaults false so chrome stays dormant until the
+    //     engine wires real scroll-observe state.
+    std::string sticky_prompt_text;
+    int unseen_message_count = 0;
+    bool pill_visible = false;
     // Input
     std::string input_text;
     // TS-style contextual placeholder rather than a generic default.
@@ -899,13 +917,28 @@ using Builder = std::function<Element(const ReplScreenState&)>;
 // Full layout composition
 // =========================================================
 
-/// Top->bottom: [WelcomeHeader (fresh session)] | Messages | Spinner |
-///               Tasks/Teams (opt) | StatusBar | PromptInput | Footer (counts).
+/// M1: Composed via the FullscreenLayout slot-system (faithful port of TS
+/// FullscreenLayout.tsx).  The previously-flat top-to-bottom vbox is now
+/// slotted:
+///   scrollable slot (flexGrow region) =
+///     [WelcomeHeader (fresh session)] | Messages | Spinner | Tasks/Teams
+///   bottom slot (pinned, flexShrink=0) =
+///     StatusBar | PromptInput | Footer (counts)
+///   modal slot (dbox overlay, bottom-anchored) =
+///     RouteDialog() when non-null (with MODAL_TRANSCRIPT_PEEK peek)
+///   overlay slot =
+///     (reserved — engine wires PermissionRequest here in a future milestone;
+///      currently permission flows through RouteDialog as the modal slot,
+///      matching how it rendered before.)
+///
+/// All existing render functions are PRESERVED (RenderWelcomeHeader,
+/// RenderMessages, RenderSpinner, RenderStatusBar, RenderPromptInput,
+/// RouteDialog) — only HOW they are composed changed.  Visual order is
+/// preserved: messages scroll above, status/prompt pinned below.
+///
 /// Fix #1: welcome header atop the list on a fresh session.
-/// Fix #7: StatusBar moved from the very top to sit just ABOVE the prompt
-///         input (TS renders the status line at the bottom, above the input).
+/// Fix #7: StatusBar just above prompt input (TS bottom status line).
 /// Fix #11: terminal size probed once per frame for adaptive clamping.
-/// Non-null RouteDialog() overlays via dbox() with dim background.
 [[nodiscard]] inline Element RenderReplScreen(const ReplScreenState& s) {
     // Probe terminal size once per frame for adaptive layout (fix #11).
     auto [term_cols, term_rows] = cc::ui::ink_utils::query_terminal_size();
@@ -919,22 +952,26 @@ using Builder = std::function<Element(const ReplScreenState&)>;
     static int spinner_frame = 0;
     ++spinner_frame;
 
-    Elements L; L.reserve(10);
+    namespace fl = cc::ui::layout::fullscreen;
+    fl::FullscreenLayoutSlots slots;
+    slots.term_cols = term_cols;
+    slots.term_rows = term_rows;
 
-    // Fix #1: welcome header on a fresh IDLE session only (no messages AND not streaming/
-    // loading). During active streaming messages may be momentarily empty, but the welcome
-    // banner must not flash there - it is for the resting fresh-session state (TS parity).
+    // ── scrollable slot (flexGrow region) ───────────────────────────────
+    // Builds the same top→bottom order the old flat vbox had for the
+    // message transcript area: welcome header (fresh session), messages,
+    // spinner, tasks/teams panel.
+    Elements scroll_rows; scroll_rows.reserve(6);
     if (s.messages.empty() && s.spinner_mode == SpinnerMode::Hidden)
-        L.push_back(RenderWelcomeHeader(s));
-
-    L.push_back(RenderMessages(s.messages, s.selected_message_idx,
-                               s.viewport_height_lines, s.scroll_offset,
-                               s.scroll_pinned_to_bottom, spinner_frame));
+        scroll_rows.push_back(RenderWelcomeHeader(s));
+    scroll_rows.push_back(RenderMessages(s.messages, s.selected_message_idx,
+                                         s.viewport_height_lines, s.scroll_offset,
+                                         s.scroll_pinned_to_bottom, spinner_frame));
     if (s.spinner_mode != SpinnerMode::Hidden)
-        L.push_back(RenderSpinner(s.spinner_mode, s.spinner_verb, s.spinner_tip));
+        scroll_rows.push_back(RenderSpinner(s.spinner_mode, s.spinner_verb, s.spinner_tip));
     if (s.mode == ReplMode::TasksView && s.background_task_count > 0) {
-        L.push_back(separator());
-        L.push_back(hbox({
+        scroll_rows.push_back(separator());
+        scroll_rows.push_back(hbox({
             text(" ") ,
             text(std::format("{} background task{}", s.background_task_count,
                  s.background_task_count == 1 ? "" : "s")) | bold | color(Color::Cyan),
@@ -942,22 +979,27 @@ using Builder = std::function<Element(const ReplScreenState&)>;
             filler(),
             text("[t] toggle ") | dim,
             text("[Esc] close ") | dim,
-        })); }
+        }));
+    }
     if (s.mode == ReplMode::TeamsView && s.teammate_count > 0) {
-        L.push_back(separator());
-        L.push_back(hbox({
+        scroll_rows.push_back(separator());
+        scroll_rows.push_back(hbox({
             text(" "),
             text(std::format("{} team member{}", s.teammate_count,
                  s.teammate_count == 1 ? "" : "s")) | bold | color(Color::Magenta),
             text(" connected") | dim,
             filler(),
             text("[Esc] close ") | dim,
-        })); }
-    L.push_back(separator());
-    // Fix #7: status bar now renders just above the prompt input (TS bottom
-    // status line) instead of pinned to the very top of the screen.
-    L.push_back(RenderStatusBar(s.status_bar));
-    L.push_back(RenderPromptInput(s));
+        }));
+    }
+    slots.scrollable = vbox(std::move(scroll_rows));
+
+    // ── bottom slot (pinned, flexShrink=0) ──────────────────────────────
+    // Fix #7: status bar just above prompt input (TS bottom status line).
+    Elements bottom_rows; bottom_rows.reserve(4);
+    bottom_rows.push_back(separator());
+    bottom_rows.push_back(RenderStatusBar(s.status_bar));
+    bottom_rows.push_back(RenderPromptInput(s));
     if (s.background_task_count || s.teammate_count) {
         Elements f = { text(" ") };
         if (s.background_task_count) f.push_back(
@@ -966,22 +1008,30 @@ using Builder = std::function<Element(const ReplScreenState&)>;
         if (s.teammate_count) f.push_back(
             text(std::format("{} team ", s.teammate_count))
                 | dim | color(Color::Magenta));
-        L.push_back(hbox(std::move(f)));
+        bottom_rows.push_back(hbox(std::move(f)));
     }
-    Element base = vbox(std::move(L));
+    slots.bottom = vbox(std::move(bottom_rows));
+
+    // ── modal slot (dbox overlay) ───────────────────────────────────────
+    // RouteDialog() drives the modal pane.  When present, FullscreenLayout
+    // anchors it bottom with a ▔ top divider and MODAL_TRANSCRIPT_PEEK rows
+    // of transcript visible above it (faithful to TS).
     auto dlg = RouteDialog(s.mode, s);
     if (dlg) {
-        // Fix #11: clamp the dialog overlay height to term_rows-2 so it
-        // cannot overflow the viewport on small terminals.
-        auto clamped = std::move(*dlg)
+        // Fix #11: clamp the dialog overlay height so it cannot overflow.
+        slots.modal = std::move(*dlg)
             | size(HEIGHT, LESS_THAN, std::max(4, term_rows - 2));
-        return dbox({
-            std::move(base) | dim,
-            vbox({ filler(),
-                   hbox({ filler(), std::move(clamped) | flex_shrink, filler() })
-                   | flex_shrink, filler() }) | flex });
     }
-    return base;
+
+    // ── chrome-driver inputs (scroll-derived) ──────────────────────────
+    // Wired to state fields added in M1; dormant by default (pill_visible
+    // false, sticky_prompt_text empty) until the engine drives them.
+    slots.sticky_prompt_text = s.sticky_prompt_text;
+    slots.pill_visible       = s.pill_visible && !s.scroll_pinned_to_bottom;
+    slots.new_message_count  = s.unseen_message_count;
+    slots.pill_actionable    = slots.pill_visible;
+
+    return fl::ComposeFullscreen(std::move(slots));
 }
 
 // =========================================================

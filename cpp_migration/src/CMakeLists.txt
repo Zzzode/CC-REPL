@@ -1369,6 +1369,7 @@ target_sources(cc_ui
         ui/dialogs/worktree_exit_dialog.cppm
         ui/events/event_system.cppm
         ui/layout.cppm
+        ui/layout/fullscreen_layout.cppm
         ui/layout/logo.cppm
         ui/layout/measure.cppm
         ui/layout/wrap_text.cppm

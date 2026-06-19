@@ -48,6 +48,7 @@ import cc.utils.session_storage;
 import cc.utils.permissions_engine;
 import cc.services.prompt_suggestion;
 import cc.ui.prompt.suggestion_provider;
+import cc.ui.layout.fullscreen;
 
 namespace {
 
@@ -2429,4 +2430,167 @@ TEST(PromptSuggestionProvider, TextInputDropsDownRealSuggestions) {
     auto rendered = u1_render_plain(component->Render(), 80, 20);
     EXPECT_NE(rendered.find("Suggestions"), std::string::npos);
 }
+
+// =============================================================================
+// M1: FullscreenLayout slot-system — faithful TS region-model composition.
+// Proves the slot composer assigns content to the correct regions
+// (scrollable fills / bottom pins / modal overlays via dbox) and that all
+// existing chrome (sticky header, pill, modal divider) render at the right
+// position.  These are pure-DOM tests (no Component event loop).
+// =============================================================================
+
+namespace {
+std::string fl_render(ftxui::Element e, int w = 60, int h = 20) {
+    auto screen = ftxui::Screen::Create(
+        ftxui::Dimension::Fixed(w), ftxui::Dimension::Fixed(h));
+    ftxui::Render(screen, e);
+    return screen.ToString();
+}
+std::string fl_plain(ftxui::Element e, int w = 60, int h = 20) {
+    return strip_ansi(fl_render(std::move(e), w, h));
+}
+}  // namespace
+
+TEST(FullscreenLayout, ScrollableAndBottomBothRender) {
+    namespace fl = cc::ui::layout::fullscreen;
+    fl::FullscreenLayoutSlots s;
+    s.term_cols = 60; s.term_rows = 20;
+    s.scrollable = ftxui::text("TRANSCRIPT-HERE");
+    s.bottom     = ftxui::text("PROMPT-HERE");
+    auto out = fl_plain(fl::ComposeFullscreen(std::move(s)));
+    EXPECT_NE(out.find("TRANSCRIPT-HERE"), std::string::npos);
+    EXPECT_NE(out.find("PROMPT-HERE"), std::string::npos);
+}
+
+TEST(FullscreenLayout, BottomPinsBelowScrollable) {
+    // The scrollable region grows (flex); the bottom slot is pinned beneath
+    // it.  In a 20-row render the bottom slot text should occupy a LOWER
+    // row than the scrollable text when the scroll content is short.
+    namespace fl = cc::ui::layout::fullscreen;
+    fl::FullscreenLayoutSlots s;
+    s.term_cols = 60; s.term_rows = 20;
+    s.scrollable = ftxui::text("TOP");
+    s.bottom     = ftxui::text("BOTTOM");
+    auto out = fl_plain(fl::ComposeFullscreen(std::move(s)), 60, 20);
+    auto top = out.find("TOP");
+    auto bot = out.find("BOTTOM");
+    ASSERT_NE(top, std::string::npos);
+    ASSERT_NE(bot, std::string::npos);
+    EXPECT_LT(top, bot) << "scrollable must render above the pinned bottom slot";
+}
+
+TEST(FullscreenLayout, ModalOverlaysViaDbox) {
+    // A non-null modal pane must overlay the base content.  The modal text
+    // AND the scrollable text should both be present (modal paints over, not
+    // replaces — TS position:absolute over the scrollwrap+bottom).
+    namespace fl = cc::ui::layout::fullscreen;
+    fl::FullscreenLayoutSlots s;
+    s.term_cols = 60; s.term_rows = 20;
+    s.scrollable = ftxui::text("SCROLL");
+    s.bottom     = ftxui::text("BOTTOM");
+    s.modal      = ftxui::text("MODAL-BODY");
+    auto out = fl_plain(fl::ComposeFullscreen(std::move(s)));
+    EXPECT_NE(out.find("MODAL-BODY"), std::string::npos);
+    EXPECT_NE(out.find("SCROLL"), std::string::npos);
+}
+
+TEST(FullscreenLayout, StickyPromptHeaderRendersAtTopOfScrollRegion) {
+    namespace fl = cc::ui::layout::fullscreen;
+    fl::FullscreenLayoutSlots s;
+    s.term_cols = 60; s.term_rows = 20;
+    s.sticky_prompt_text = "STICKY-PROMPT";
+    s.scrollable = ftxui::text("BODY");
+    s.bottom     = ftxui::text("BOTTOM");
+    auto out = fl_plain(fl::ComposeFullscreen(std::move(s)));
+    auto sticky = out.find("STICKY-PROMPT");
+    auto body = out.find("BODY");
+    ASSERT_NE(sticky, std::string::npos);
+    ASSERT_NE(body, std::string::npos);
+    EXPECT_LT(sticky, body) << "sticky header renders before scrollable body";
+}
+
+TEST(FullscreenLayout, HideStickySuppressesHeader) {
+    namespace fl = cc::ui::layout::fullscreen;
+    fl::FullscreenLayoutSlots s;
+    s.hide_sticky = true;
+    s.sticky_prompt_text = "STICKY-PROMPT";
+    s.scrollable = ftxui::text("BODY");
+    s.bottom     = ftxui::text("BOTTOM");
+    auto out = fl_plain(fl::ComposeFullscreen(std::move(s)));
+    EXPECT_EQ(out.find("STICKY-PROMPT"), std::string::npos);
+}
+
+TEST(FullscreenLayout, NewMessagesPillOnlyVisibleWhenFlagged) {
+    namespace fl = cc::ui::layout::fullscreen;
+    // Dormant by default (mirrors engine default pill_visible=false).
+    fl::FullscreenLayoutSlots s0;
+    s0.term_cols = 60; s0.term_rows = 20;
+    s0.scrollable = ftxui::text("BODY");
+    s0.bottom     = ftxui::text("BOTTOM");
+    EXPECT_EQ(fl_plain(fl::ComposeFullscreen(std::move(s0)))
+                  .find("new message"), std::string::npos);
+
+    // When pill_visible with a count, the label appears.
+    fl::FullscreenLayoutSlots s1;
+    s1.term_cols = 60; s1.term_rows = 20;
+    s1.scrollable = ftxui::text("BODY");
+    s1.bottom     = ftxui::text("BOTTOM");
+    s1.pill_visible = true;
+    s1.new_message_count = 3;
+    auto out1 = fl_plain(fl::ComposeFullscreen(std::move(s1)));
+    EXPECT_NE(out1.find("3 new messages"), std::string::npos);
+
+    // count == 0 → "Jump to bottom" (TS dead-zone label).
+    fl::FullscreenLayoutSlots s2;
+    s2.term_cols = 60; s2.term_rows = 20;
+    s2.scrollable = ftxui::text("BODY");
+    s2.bottom     = ftxui::text("BOTTOM");
+    s2.pill_visible = true;
+    s2.new_message_count = 0;
+    auto out2 = fl_plain(fl::ComposeFullscreen(std::move(s2)));
+    EXPECT_NE(out2.find("Jump to bottom"), std::string::npos);
+
+    // hide_pill suppresses even when pill_visible.
+    fl::FullscreenLayoutSlots s3;
+    s3.term_cols = 60; s3.term_rows = 20;
+    s3.scrollable = ftxui::text("BODY");
+    s3.bottom     = ftxui::text("BOTTOM");
+    s3.pill_visible = true;
+    s3.hide_pill = true;
+    s3.new_message_count = 5;
+    EXPECT_EQ(fl_plain(fl::ComposeFullscreen(std::move(s3)))
+                  .find("new message"), std::string::npos);
+}
+
+TEST(FullscreenLayout, ModalPaneDividerAndPeekRespected) {
+    // The modal pane renders a ▔ top divider.  With a modal present the
+    // pane height is capped at term_rows - MODAL_TRANSCRIPT_PEEK (2),
+    // so transcript content remains visible above it.
+    namespace fl = cc::ui::layout::fullscreen;
+    fl::FullscreenLayoutSlots s;
+    s.term_cols = 40; s.term_rows = 20;
+    s.scrollable = ftxui::text("TRANSCRIPT");
+    s.bottom     = ftxui::text("BOTTOM");
+    s.modal      = ftxui::text("MODAL");
+    auto out = fl_render(fl::ComposeFullscreen(std::move(s)), 40, 20);
+    // ▔ (U+2594) UTF-8 = E2 96 94.
+    EXPECT_NE(out.find("\xE2\x96\x94"), std::string::npos)
+        << "modal pane must render the ▔ top divider";
+    auto plain = strip_ansi(out);
+    EXPECT_NE(plain.find("TRANSCRIPT"), std::string::npos);
+    EXPECT_NE(plain.find("MODAL"), std::string::npos);
+}
+
+TEST(FullscreenLayout, EmptySlotsStillCompose) {
+    // Defensive: with no scrollable/bottom/modal the composer must not crash
+    // and must produce a renderable element (fills with flex filler).
+    namespace fl = cc::ui::layout::fullscreen;
+    fl::FullscreenLayoutSlots s;
+    s.term_cols = 60; s.term_rows = 20;
+    auto el = fl::ComposeFullscreen(std::move(s));
+    ASSERT_NE(el, nullptr);
+    auto out = fl_plain(std::move(el));
+    EXPECT_FALSE(out.empty());
+}
+
 
