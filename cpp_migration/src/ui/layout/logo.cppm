@@ -87,6 +87,20 @@ inline auto make_condensed_logo_props() -> CondensedLogoProps {
     return CondensedLogoProps{.verbose = false};
 }
 
+// --- formatWelcomeMessage (faithful port of logoV2Utils.ts) ---
+// TS rule: empty/null username OR username longer than MAX_USERNAME_LENGTH(20)
+// → "Welcome back!".  Otherwise → "Welcome back {user}!".
+// The WelcomeV2 banner caption ("Welcome to Claude Code") is handled
+// separately by the banner renderer and only applies on a first-run session.
+inline constexpr std::size_t k_max_username_length = 20;
+[[nodiscard]] inline auto format_welcome_message(std::string_view username)
+    -> std::string {
+    if (username.empty() || username.size() > k_max_username_length) {
+        return "Welcome back!";
+    }
+    return "Welcome back " + std::string(username) + "!";
+}
+
 // --- Logo display data ---
 struct LogoDisplayData {
     std::string version;

@@ -16,7 +16,9 @@ module;
 
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -205,11 +207,183 @@ private:
     return ftxui::Make<LogoV2Base>(style, std::move(theme));
 }
 
+// ─── WelcomeV2 banner (M2 faithful port) ────────────────────────────────────
+// Reproduces src/components/LogoV2/WelcomeV2.tsx's dark-theme branch line for
+// line.  The TS banner is a 58-col fixed-width ASCII block: a row-0 welcome
+// caption, a 60-char dotted underline, then a hand-drawn "Clawd" mascot made
+// of ░ ▒ ▓ █ quadrants with scattered * / bold-* / dim-* asterisks scattered
+// around it, and a single embedded Clawd ASCII mark (█████████ / ██▄█████▄██
+// / █████████) in the clawd_body colour.  Every glyph below is transcribed
+// verbatim from the compiled JS so the silhouette matches the real product;
+// only the trailing block-row colouring is parameterised on `clawd_body`.
+//
+// Width reference (TTY display columns; all glyphs are width-1 BMP): the
+// mascot rows are 58 cols, the dotted underline is 60 cols (overhangs by 2,
+// matching TS).  The whole banner is wrapped in a fixed 58-col Box so the
+// right edge lines up exactly like the TS <Box width={WELCOME_V2_WIDTH}>.
+
+namespace welcome_v2_detail {
+// Mascot body rows (no colour applied; the clawd mark span is coloured
+// separately by the caller).  These are the exact literals from the
+// dark-theme branch of WelcomeV2.tsx.
+constexpr std::string_view k_row_caption = "Welcome to Claude Code ";
+constexpr std::string_view k_row_dotted  =
+    "……………………………………………………………………………………………………………………"; // 60 × …
+constexpr std::string_view k_row_blank   =
+    "                                                          "; // 58 sp
+constexpr std::string_view k_row_3 =
+    "     *                                       ████▓▓░     ";
+constexpr std::string_view k_row_4 =
+    "                                 *         ████▓░     ░░   ";
+constexpr std::string_view k_row_5 =
+    "            ░░░░░░                        ████▓░           ";
+constexpr std::string_view k_row_6 =
+    "    ░░░   ░░░░░░░░░░                      ████▓░           ";
+// row 7 has a bold '*' at a fixed column; split into pre / star / post.
+constexpr std::string_view k_row_7_pre  =
+    "   ░░░░░░░░░░░░░░░░░░    ";
+constexpr std::string_view k_row_7_post =
+    "                ███▓░      ▓   ";
+constexpr std::string_view k_row_8 =
+    "                                             ░░▓███▓▓░    ";
+// rows 9–11 are dim-coloured in TS.
+constexpr std::string_view k_row_9  =
+    " *                                 ░░░░                   ";
+constexpr std::string_view k_row_10 =
+    "                                 ░░░░░░░░                 ";
+constexpr std::string_view k_row_11 =
+    "                               ░░░░░░░░░░░░░░░░           ";
+// Clawd-mark rows: 6-space indent + mark + trailing scatter.  The mark span
+// itself is clawd_body-coloured; the trailing asterisk line varies.
+constexpr std::string_view k_row_13_pre   = "      ";
+constexpr std::string_view k_row_13_mark  = " █████████ ";
+constexpr std::string_view k_row_13_mid   =
+    "                                       "; // 39 sp
+constexpr std::string_view k_row_13_post  = " "; // dim '*' appended after
+constexpr std::string_view k_row_14_pre   = "      ";
+constexpr std::string_view k_row_14_mark  = "██▄█████▄██";
+constexpr std::string_view k_row_14_mid   = "                        "; // 24 sp
+constexpr std::string_view k_row_14_post  = "                "; // 16 sp (bold '*')
+constexpr std::string_view k_row_15_pre   = "      ";
+constexpr std::string_view k_row_15_mark  = " █████████ ";
+constexpr std::string_view k_row_15_post  =
+    "     *                                   ";
+// Trailing concatenation row: dots + clawd_body "█ █   █ █" + dots.
+constexpr std::string_view k_row_tail_pre  = "………"; // 7 dots
+constexpr std::string_view k_row_tail_mark = "█ █   █ █";
+constexpr std::string_view k_row_tail_post =
+    "……………………………………………………………………"; // 40 dots (total row ≈ 58)
+} // namespace welcome_v2_detail
+
+/// Render the WelcomeV2 banner as a static Element.  `clawd_body` is the
+/// foreground colour for the embedded Clawd mark spans; everything else is
+/// plain text, with the per-row bold/dim styling baked in to match TS.
+/// `version` is substituted into the caption ("v{version}").
+[[nodiscard]] inline ftxui::Element welcome_v2_banner(
+    std::string_view version, ftxui::Color clawd_body,
+    std::optional<ftxui::Color> clawd_bg = std::nullopt) {
+    using namespace ftxui;
+    namespace d = welcome_v2_detail;
+    auto bg = [&](Element e) -> Element {
+        return clawd_bg ? (e | bgcolor(*clawd_bg)) : e;
+    };
+    Elements rows;
+    // Row 0: "Welcome to Claude Code " (claude-coloured) + dim "v{version} "
+    rows.push_back(hbox({
+        text(std::string(d::k_row_caption)) | color(clawd_body) | bold,
+        text("v" + std::string(version) + " ") | dim,
+    }));
+    rows.push_back(text(std::string(d::k_row_dotted)));
+    rows.push_back(text(std::string(d::k_row_blank)));
+    rows.push_back(text(std::string(d::k_row_3)));
+    rows.push_back(text(std::string(d::k_row_4)));
+    rows.push_back(text(std::string(d::k_row_5)));
+    rows.push_back(text(std::string(d::k_row_6)));
+    // Row 7: pre + bold '*' + post.
+    rows.push_back(hbox({
+        text(std::string(d::k_row_7_pre)),
+        text("*") | bold,
+        text(std::string(d::k_row_7_post)),
+    }));
+    rows.push_back(text(std::string(d::k_row_8)));
+    rows.push_back(text(std::string(d::k_row_9))  | dim);
+    rows.push_back(text(std::string(d::k_row_10)) | dim);
+    rows.push_back(text(std::string(d::k_row_11)) | dim);
+    // Row 13: indent + clawd_body mark + spaces + dim '*'.
+    rows.push_back(hbox({
+        text(std::string(d::k_row_13_pre)),
+        bg(text(std::string(d::k_row_13_mark)) | color(clawd_body)),
+        text(std::string(d::k_row_13_mid)),
+        text("*") | dim,
+        text(std::string(d::k_row_13_post)),
+    }));
+    // Row 14: indent + clawd_body mark + spaces + bold '*'.
+    rows.push_back(hbox({
+        text(std::string(d::k_row_14_pre)),
+        bg(text(std::string(d::k_row_14_mark)) | color(clawd_body)),
+        text(std::string(d::k_row_14_mid)),
+        text("*") | bold,
+        text(std::string(d::k_row_14_post)),
+    }));
+    // Row 15: indent + clawd_body mark + trailing scatter (has a plain '*').
+    rows.push_back(hbox({
+        text(std::string(d::k_row_15_pre)),
+        bg(text(std::string(d::k_row_15_mark)) | color(clawd_body)),
+        text(std::string(d::k_row_15_post)),
+    }));
+    // Trailing row: dots + clawd_body "█ █   █ █" + dots.
+    rows.push_back(hbox({
+        text(std::string(d::k_row_tail_pre)),
+        text(std::string(d::k_row_tail_mark)) | color(clawd_body),
+        text(std::string(d::k_row_tail_post)),
+    }));
+    return vbox(std::move(rows)) | size(WIDTH, EQUAL, 58);
+}
+
+// ─── Frame-driven animated teardrop asterisk ────────────────────────────────
+// Mirrors AnimatedAsterisk.tsx's hue sweep but driven by an externally-ticked
+// frame counter (the M1 per-frame `spinner_frame`) instead of a Component
+// timer, so it works inside the pure-Element render path the REPL uses.
+//
+// Sweep math matches TS exactly: hue = (elapsed_ms / SWEEP_MS) * 360 mod 360,
+// where SWEEP_MS=1500 and the sweep runs SWEEP_COUNT=2 times before settling
+// to grey (153,153,153).  We map `frame` → elapsed_ms via the screen refresh
+// cadence: M1 ticks roughly once per ~50ms (the AnimatedAsterisk useAnimation
+// cadence), so elapsed_ms ≈ frame * 50.
+//
+// `reduced_motion` short-circuits to the settled grey glyph immediately.
+[[nodiscard]] inline ftxui::Element welcome_animated_asterisk(
+    int frame, bool reduced_motion = false,
+    std::uint32_t sweep_ms = 0, std::uint32_t sweep_count = 0) {
+    using namespace ftxui;
+    constexpr std::string_view k_glyph = "✻"; // TEARDROP_ASTERISK
+    const auto sw_ms    = sweep_ms    ? sweep_ms    : easing::asterisk_sweep_ms;
+    const auto sw_count = sweep_count ? sweep_count : easing::asterisk_sweep_count;
+    const auto total_ms = static_cast<double>(sw_ms) * sw_count;
+    const double frame_ms = 50.0; // TS useAnimationFrame cadence
+    if (reduced_motion) {
+        return text(std::string(k_glyph)) | color(Color::RGB(153, 153, 153));
+    }
+    double elapsed = static_cast<double>(frame) * frame_ms;
+    if (elapsed >= total_ms) {
+        return text(std::string(k_glyph)) | color(Color::RGB(153, 153, 153));
+    }
+    double hue = std::fmod((elapsed / sw_ms) * 360.0, 360.0);
+    auto c = hue_to_rgb(hue);
+    // Fade to settled grey over the final 15% (mirrors AnimatedAsteriskBase).
+    const auto settled = Color::RGB(153, 153, 153);
+    double t = std::min(1.0, elapsed / total_ms);
+    if (t > 0.85) {
+        double fade = (t - 0.85) / 0.15;
+        c = interpolate(c, settled, fade);
+    }
+    return text(std::string(k_glyph)) | color(c) | bold;
+}
+
 // PHASE_5 items (explicitly out of scope for Phase 4):
-//  * WelcomeV2 58-char centered layout with scattered * asterisks and
-//    per-letter typewriter reveal (requires measurement + async char stream).
 //  * CondensedLogo SVG → TTY scaling variants.
 //  * OSC-11 driven auto-theme for the logo's background tint.
+//  * Per-letter typewriter reveal of the banner (requires async char stream).
 
 } // namespace cc::ui::design::logo
 

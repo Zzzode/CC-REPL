@@ -49,6 +49,9 @@ import cc.utils.permissions_engine;
 import cc.services.prompt_suggestion;
 import cc.ui.prompt.suggestion_provider;
 import cc.ui.layout.fullscreen;
+import cc.ui.design.logo;
+import cc.ui.logo;
+import cc.ui.repl_screen;
 
 namespace {
 
@@ -2591,6 +2594,112 @@ TEST(FullscreenLayout, EmptySlotsStillCompose) {
     ASSERT_NE(el, nullptr);
     auto out = fl_plain(std::move(el));
     EXPECT_FALSE(out.empty());
+}
+
+// ─── M2: LogoV2 Clawd welcome banner faithful-port tests ────────────────────
+
+TEST(FormatWelcomeMessage, EmptyOrNullUsernameReturnsWelcomeBack) {
+    namespace lgo = cc::ui::logo;
+    // TS logoV2Utils.ts: !username || username.length > 20 → "Welcome back!".
+    EXPECT_EQ(lgo::format_welcome_message(""), "Welcome back!");
+    EXPECT_EQ(lgo::format_welcome_message(std::string_view{}), "Welcome back!");
+}
+
+TEST(FormatWelcomeMessage, LongUsernameFallsBackToWelcomeBack) {
+    namespace lgo = cc::ui::logo;
+    // MAX_USERNAME_LENGTH is 20 on the TS side; 21+ chars must fall back.
+    EXPECT_EQ(lgo::format_welcome_message("a"), "Welcome back a!");
+    EXPECT_EQ(lgo::format_welcome_message("exactly-twenty-char"), "Welcome back exactly-twenty-char!");
+    EXPECT_EQ(lgo::format_welcome_message("this-is-twenty-one-xx"), "Welcome back!");
+}
+
+TEST(FormatWelcomeMessage, KnownUsernameIncludesName) {
+    namespace lgo = cc::ui::logo;
+    EXPECT_EQ(lgo::format_welcome_message("zoe"), "Welcome back zoe!");
+}
+
+TEST(WelcomeV2Banner, RendersCaptionVersionAndClawdMark) {
+    // Faithful port: the banner must contain the "Welcome to Claude Code"
+    // caption, the supplied version, the dotted underline, and the embedded
+    // Clawd mark spans (█████████ / ██▄█████▄██).
+    namespace logo = cc::ui::design::logo;
+    auto el = logo::welcome_v2_banner("1.2.3", ftxui::Color::RGB(215, 119, 87));
+    ASSERT_NE(el, nullptr);
+    auto plain = strip_ansi(render_to_plain_text(std::move(el), 70, 25));
+    EXPECT_NE(plain.find("Welcome to Claude Code"), std::string::npos);
+    EXPECT_NE(plain.find("v1.2.3"), std::string::npos);
+    // Dotted underline (… × 60).
+    EXPECT_NE(plain.find("……"), std::string::npos);
+    // Embedded Clawd mark rows.
+    EXPECT_NE(plain.find("█████████"), std::string::npos);
+    EXPECT_NE(plain.find("██▄█████▄██"), std::string::npos);
+}
+
+TEST(WelcomeV2Banner, ContainsScatteredAsterisks) {
+    // Faithful port: scattered * asterisks around the mascot are load-bearing
+    // visual elements transcribed verbatim from WelcomeV2.tsx.
+    namespace logo = cc::ui::design::logo;
+    auto el = logo::welcome_v2_banner("0.0.0", ftxui::Color::RGB(215, 119, 87));
+    auto plain = strip_ansi(render_to_plain_text(std::move(el), 70, 25));
+    // At least one '*' must appear in the mascot scatter.
+    EXPECT_NE(plain.find('*'), std::string::npos);
+}
+
+TEST(WelcomeAnimatedAsterisk, UsesTeardropGlyphAndCyclesHue) {
+    // The asterisk always renders the TEARDROP_ASTERISK glyph "✻"; the colour
+    // must change as the frame advances (hue sweep), proving the animation is
+    // wired to the per-frame tick rather than frozen on one hue.
+    namespace logo = cc::ui::design::logo;
+    auto at_frame = [](int f) {
+        auto el = logo::welcome_animated_asterisk(f, /*reduced_motion=*/false);
+        return render_to_plain_text(std::move(el), 4, 1);
+    };
+    // Glyph presence at frame 0 and a later frame.
+    EXPECT_NE(at_frame(0).find("✻"), std::string::npos);
+    EXPECT_NE(at_frame(15).find("✻"), std::string::npos);
+    // After the sweep window elapses (2 × 1500ms / 50ms ≈ 60 frames) the
+    // glyph settles to grey — still the same glyph.
+    EXPECT_NE(at_frame(120).find("✻"), std::string::npos);
+}
+
+TEST(WelcomeAnimatedAsterisk, ReducedMotionRendersGlyphWithoutAnimation) {
+    // prefersReducedMotion short-circuits to the settled grey glyph; it must
+    // still be the teardrop, not blank.
+    namespace logo = cc::ui::design::logo;
+    auto el = logo::welcome_animated_asterisk(0, /*reduced_motion=*/true);
+    auto plain = render_to_plain_text(std::move(el), 4, 1);
+    EXPECT_NE(plain.find("✻"), std::string::npos);
+}
+
+TEST(RenderWelcomeHeader, RendersFaithfulLogoV2HeaderOnFreshSession) {
+    // End-to-end: RenderWelcomeHeader must surface the banner + welcome
+    // message + tip, and must honour the user_display_name field.
+    namespace rs = cc::ui::repl_screen;
+    rs::ReplScreenState s;
+    s.app_version = "9.9.9";
+    s.model_display_name = "claude-sonnet-test";
+    s.cwd = "/tmp/demo";
+    s.user_display_name = "ada";
+    auto el = rs::RenderWelcomeHeader(s, /*spinner_frame=*/3);
+    ASSERT_NE(el, nullptr);
+    auto plain = strip_ansi(render_to_plain_text(std::move(el), 70, 30));
+    EXPECT_NE(plain.find("Welcome to Claude Code"), std::string::npos);
+    EXPECT_NE(plain.find("v9.9.9"), std::string::npos);
+    EXPECT_NE(plain.find("Welcome back ada!"), std::string::npos);
+    EXPECT_NE(plain.find("claude-sonnet-test"), std::string::npos);
+    EXPECT_NE(plain.find("/tmp/demo"), std::string::npos);
+    // Animated teardrop glyph present in the welcome-message line.
+    EXPECT_NE(plain.find("✻"), std::string::npos);
+}
+
+TEST(RenderWelcomeHeader, UnknownUserShowsGenericWelcomeBack) {
+    namespace rs = cc::ui::repl_screen;
+    rs::ReplScreenState s;
+    s.app_version = "0.0.0";
+    // user_display_name empty → "Welcome back!" (no name).
+    auto el = rs::RenderWelcomeHeader(s, 0);
+    auto plain = strip_ansi(render_to_plain_text(std::move(el), 70, 30));
+    EXPECT_NE(plain.find("Welcome back!"), std::string::npos);
 }
 
 

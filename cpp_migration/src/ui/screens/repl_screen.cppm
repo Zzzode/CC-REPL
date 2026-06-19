@@ -64,6 +64,10 @@ import cc.ui.dialogs.install_slack_app_wizard;
 // Welcome header: Clawd mark + animated asterisk (logo_v2) — was dead code,
 // now wired into RenderReplScreen for fresh sessions.
 import cc.ui.design.logo;
+// M2: theme::current_theme() for the clawd_body colour used by the banner.
+import cc.ui.design.theme;
+// M2: format_welcome_message + kWelcomeTips feed for the welcome header.
+import cc.ui.logo;
 // Terminal size probe for adaptive layout (welcome header centering + future
 // message-scroll height clamping).
 import cc.ui.ink_utils;
@@ -231,6 +235,9 @@ struct ReplScreenState {
     std::string app_version = "0.0.0";
     std::string model_display_name;
     std::string cwd;
+    // M2: oauthAccount.displayName analogue — drives formatWelcomeMessage
+    // ("Welcome back {user}!" vs "Welcome back!").  Empty for new users.
+    std::string user_display_name;
     std::vector<std::string> autocomplete_suggestions;
     int autocomplete_index = -1;
     std::deque<std::string> input_history;
@@ -425,51 +432,72 @@ struct ReplScreenCallbacks {
     return ml::render_messages_list_view(std::move(input), frame_count) | flex;
 }
 
-// UI0: welcome header.  Renders the Clawd mark + an asterisk glyph and the
-// "Welcome to Claude Code v{version}" line plus model + cwd.  Faithful-enough
-// TS LogoHeader atop the message list (fix #1).  Shown only on a fresh
-// session (message list empty).
-[[nodiscard]] inline Element RenderWelcomeHeader(const ReplScreenState& s) {
-    namespace logo = cc::ui::design::logo;
-    // Static Clawd mark in primary magenta (matches TS brand colour).  The
-    // animated-asterisk Component lives in logo_v2 but requires a Component
-    // tree; for the static header we render the teardrop glyph directly.
-    auto mark = logo::logo_mark(Color::RGB(217, 70, 239) /* magenta-500 */,
-                                Color::RGB(20, 20, 22));
+// UI0: welcome header.  M2 faithful port of the TS LogoV2/WelcomeV2 welcome.
+// Renders:
+//   * the 58-col WelcomeV2 ASCII banner (Clawd mascot + scattered asterisks
+//     + embedded clawd mark) — verbatim from WelcomeV2.tsx dark-theme branch;
+//   * the animated hue-sweeping teardrop asterisk "✻" driven by the M1
+//     per-frame `spinner_frame` tick (no Component tree required);
+//   * formatWelcomeMessage parity ("Welcome back!" / "Welcome back {user}!");
+//   * model display name + cwd metadata lines (dim, like TS);
+//   * a single deterministic welcome tip below the banner.
+// Shown only on a fresh idle session (messages empty + spinner hidden) — the
+// gate lives in RenderReplScreen.
+[[nodiscard]] inline Element RenderWelcomeHeader(const ReplScreenState& s,
+                                                 int spinner_frame = 0) {
+    namespace logo  = cc::ui::design::logo;
+    namespace lgo   = cc::ui::logo;
+    namespace thm   = cc::ui::design::theme;
+    // clawd_body colour from the active theme (TS "clawd_body" role).
+    const auto clawd = thm::current_theme().palette->primary;
+
     Elements head;
-    head.push_back(hbox({
-        text(" "),
-        mark,
-        text("  "),
-        vbox({
-            filler(),
-            hbox({
-                text("✻") | color(Color::RGB(153, 153, 153)) | bold,
-                text(" Welcome to Claude Code v") | bold | color(Color::White),
-                text(s.app_version) | bold | color(Color::Cyan),
-            }),
-            filler(),
-        }),
-        filler(),
-    }));
-    Elements meta;
-    meta.push_back(text("   "));
+    // 2-space left indent so the banner sits roughly where the TS layout
+    // centers it (the surrounding FullscreenLayout slot adds more chrome).
+    head.push_back(text("  "));
+    head.push_back(logo::welcome_v2_banner(s.app_version, clawd));
+
+    // Welcome-message line: animated ✻ + formatWelcomeMessage.
+    // New users (no display name known) fall back to the WelcomeV2 banner
+    // caption that's already drawn; the message line mirrors the TS
+    // LogoV2.tsx compact/horizontal welcome block.
+    Elements wm;
+    wm.push_back(text("  "));
+    wm.push_back(logo::welcome_animated_asterisk(spinner_frame));
+    wm.push_back(text(" "));
+    wm.push_back(text(lgo::format_welcome_message(s.user_display_name)) | bold);
+    head.push_back(hbox(std::move(wm)));
+
+    // Metadata lines (dim, TS-style): model display name, cwd.
     if (!s.model_display_name.empty()) {
-        meta.push_back(text("model: ") | dim);
-        meta.push_back(text(s.model_display_name) | color(Color::Cyan) | dim);
-        meta.push_back(text("  "));
+        head.push_back(hbox({
+            text("  "),
+            text(s.model_display_name) | dim,
+        }));
     }
     if (!s.cwd.empty()) {
-        meta.push_back(text("cwd: ") | dim);
-        // Truncate long cwd from the left to keep the header on one line.
         std::string cwd_disp = s.cwd;
-        if (cwd_disp.size() > 48)
-            cwd_disp = "…" + cwd_disp.substr(cwd_disp.size() - 47);
-        meta.push_back(text(cwd_disp) | color(Color::Blue) | dim);
+        if (cwd_disp.size() > 56)
+            cwd_disp = "…" + cwd_disp.substr(cwd_disp.size() - 55);
+        head.push_back(hbox({
+            text("  "),
+            text(cwd_disp) | dim,
+        }));
     }
-    if (meta.size() > 1) head.push_back(hbox(std::move(meta)));
-    head.push_back(text(""));
-    head.push_back(text("   " + s.input_placeholder) | dim | color(Color::GrayLight));
+
+    // One deterministic tip from the kWelcomeTips feed.  The TS EmergencyTip
+    // is growthbook-driven and effectively empty in this port, so we surface
+    // the in-repo kWelcomeTips list instead (frame-stable pick).
+    if (!lgo::kWelcomeTips.empty()) {
+        const auto idx = static_cast<std::size_t>(spinner_frame)
+                         % lgo::kWelcomeTips.size();
+        head.push_back(text(""));
+        head.push_back(hbox({
+            text("  "),
+            text(std::string(lgo::kWelcomeTips[idx])) | dim,
+        }));
+    }
+
     return vbox(std::move(head));
 }
 
@@ -963,7 +991,7 @@ using Builder = std::function<Element(const ReplScreenState&)>;
     // spinner, tasks/teams panel.
     Elements scroll_rows; scroll_rows.reserve(6);
     if (s.messages.empty() && s.spinner_mode == SpinnerMode::Hidden)
-        scroll_rows.push_back(RenderWelcomeHeader(s));
+        scroll_rows.push_back(RenderWelcomeHeader(s, spinner_frame));
     scroll_rows.push_back(RenderMessages(s.messages, s.selected_message_idx,
                                          s.viewport_height_lines, s.scroll_offset,
                                          s.scroll_pinned_to_bottom, spinner_frame));
