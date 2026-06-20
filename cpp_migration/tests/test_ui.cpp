@@ -2760,4 +2760,80 @@ TEST(VisualSnapshot, WelcomeHeaderMatchesGolden) {
     check_golden("welcome_header", render_to_ansi(std::move(el), 80, 26));
 }
 
+// M3: Golden snapshot of the WIRED prompt input.  Renders RenderPromptInput at
+// a fixed stable state (mode=Prompt, text="hello", caret at end, no blink) via
+// the REAL TextInputImpl render primitive, so the snapshot locks in the
+// declared-caret / multi-line / TS-glyph fidelity.  Determinism: cursor blink
+// is disabled (cursor_blink_ms=0), no spinner frame feeds in, fixed text.
+TEST(VisualSnapshot, PromptInputMatchesGolden) {
+    namespace rs = cc::ui::repl_screen;
+    rs::ReplScreenState s;
+    s.input_mode = rs::InputMode::Prompt;
+    s.input_text = "hello";
+    s.input_placeholder = "Try \"write a test\", \"/help\", or ask anything...";
+    s.autocomplete_suggestions.clear();
+    s.autocomplete_index = -1;
+    auto el = rs::RenderPromptInput(s);
+    ASSERT_NE(el, nullptr);
+    check_golden("prompt_input", render_to_ansi(std::move(el), 80, 10));
+}
+
+// M3: The wired prompt must surface the TS prompt glyph (figures.pointer
+// "❯" U+276F) in green for normal mode, a declared caret at the insertion
+// point (end of buffer), the contextual placeholder when empty, and a vim
+// mode badge when in a vim mode.
+TEST(RenderPromptInput, WiredRendersTSGlyphAndDeclaredCaret) {
+    namespace rs = cc::ui::repl_screen;
+    rs::ReplScreenState s;
+    s.input_mode = rs::InputMode::Prompt;
+    s.input_text = "hello";
+    auto el = rs::RenderPromptInput(s);
+    auto plain = strip_ansi(render_to_plain_text(std::move(el), 60, 8));
+    EXPECT_NE(plain.find("❯"), std::string::npos) << "TS prompt glyph ❯ missing";
+    EXPECT_NE(plain.find("hello"), std::string::npos);
+    // The real TextInputImpl paints a caret block glyph (█) at the cursor —
+    // declared-cursor parity with TS useDeclaredCursor.
+    EXPECT_NE(plain.find("█"), std::string::npos) << "declared caret missing";
+}
+
+TEST(RenderPromptInput, WiredShowsContextualPlaceholderWhenEmpty) {
+    namespace rs = cc::ui::repl_screen;
+    rs::ReplScreenState s;
+    s.input_mode = rs::InputMode::Prompt;
+    s.input_text.clear();
+    s.input_placeholder = "ask anything...";
+    auto el = rs::RenderPromptInput(s);
+    auto plain = strip_ansi(render_to_plain_text(std::move(el), 60, 8));
+    EXPECT_NE(plain.find("ask anything..."), std::string::npos);
+    EXPECT_NE(plain.find("❯"), std::string::npos);
+}
+
+TEST(RenderPromptInput, WiredRendersVimModeBadgeAndMultiline) {
+    namespace rs = cc::ui::repl_screen;
+    rs::ReplScreenState s;
+    s.input_mode = rs::InputMode::VimInsert;
+    s.input_text = "line one\nline two";
+    auto el = rs::RenderPromptInput(s);
+    auto plain = strip_ansi(render_to_plain_text(std::move(el), 60, 10));
+    EXPECT_NE(plain.find("-- INSERT --"), std::string::npos) << "vim badge missing";
+    EXPECT_NE(plain.find("line one"), std::string::npos);
+    EXPECT_NE(plain.find("line two"), std::string::npos)
+        << "multiline content not laid out as separate lines";
+}
+
+TEST(RenderPromptInput, WiredSurfacesAutocompleteDropdown) {
+    namespace rs = cc::ui::repl_screen;
+    rs::ReplScreenState s;
+    s.input_mode = rs::InputMode::SlashCommand;
+    s.input_text = "/he";
+    s.autocomplete_suggestions = {"/help", "/history"};
+    s.autocomplete_index = 0;  // first item selected
+    auto el = rs::RenderPromptInput(s);
+    auto plain = strip_ansi(render_to_plain_text(std::move(el), 60, 14));
+    EXPECT_NE(plain.find("/help"), std::string::npos);
+    EXPECT_NE(plain.find("/history"), std::string::npos);
+    // The real dropdown's header row labels the surface.
+    EXPECT_NE(plain.find("Suggestions"), std::string::npos);
+}
+
 

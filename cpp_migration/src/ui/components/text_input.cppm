@@ -691,6 +691,47 @@ public:
     /// Caller-side: force a blink refresh (useful on frame tick).
     void TickBlink() { refresh_blink(); }
 
+    // ------------------------------------------------------------
+    // Public render-primitive accessors (M3)
+    // ------------------------------------------------------------
+    // The full Render() returns input area + suggestions dropdown combined.
+    // Live prompt screens (repl_screen.cppm) need to drive the CARET /
+    // MULTI-LINE / SELECTION painter as a standalone primitive so they can
+    // prepend a TS-style prompt glyph (figures.pointer "❯") and re-colour
+    // it per input mode — without re-implementing the cursor/selection
+    // layout (which is exactly the shelfware gap M3 closes).  These thin
+    // wrappers expose the existing private renderers without leaking any
+    // other internals.
+    /// Render just the input/caret/multiline/selection area (no dropdown).
+    /// Faithful to TS BaseTextInput's declared-cursor body.
+    Element RenderInputAreaPub() { return RenderInputArea(); }
+    /// Render a suggestions dropdown from an externally-supplied list.
+    /// `selected` is clamped to [0, suggestions.size()-1]; -1 disables.
+    /// Used by repl_screen to surface autocomplete_suggestions inline.
+    Element RenderSuggestionsFromListPub(const std::vector<Suggestion>& sugs,
+                                         int selected) {
+        // Temporarily install the supplied list + selection and reuse the
+        // private dropdown renderer.  We do not mutate suggestions_ long
+        // term because this is a pure render primitive called per-frame.
+        const bool was_showing = showing_suggestions_;
+        const auto old_sel = selected_suggestion_;
+        const auto old_sugs = suggestions_;
+        suggestions_ = sugs;
+        showing_suggestions_ = !sugs.empty();
+        selected_suggestion_ = sugs.empty() ? 0
+            : ((selected < 0) ? 0
+               : std::min(selected, static_cast<int>(sugs.size()) - 1));
+        Element out = (showing_suggestions_ && !suggestions_.empty())
+            ? RenderSuggestionsDropdown()
+            : ftxui::text("");
+        // Restore prior state so this call is side-effect-free for callers
+        // that also use the interactive path.
+        suggestions_ = old_sugs;
+        selected_suggestion_ = old_sel;
+        showing_suggestions_ = was_showing;
+        return out;
+    }
+
 private:
     // ------------------------------------------------------------
     // Helpers
