@@ -1,0 +1,8 @@
+[1m| Name  | Role  | Notes           |                         [22m
+|-------|-------|-----------------|                         
+| Alice | Admin | Primary contact |                         
+| Bob   | User  | Read-only       |                         
+                                                            
+                                                            
+                                                            
+                                                            

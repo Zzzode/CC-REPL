@@ -416,7 +416,9 @@ class AssistantTextMessageComponent : public ComponentBase {
 }
 
 /// Convenience overload: body defaults to the markdown-rendered (XML-stripped)
-/// content.  M5 will replace render_markdown with the faithful Markdown port.
+/// content.  M5 made cc::ui::render_markdown itself TS-faithful (GFM parity
+/// with src/utils/markdown.ts), so this path now renders faithful markdown
+/// in the running app (no separate renderer swap needed).
 [[nodiscard]] inline Element RenderAssistantTextMessageFaithful(
     const AssistantTextMessageData& data, bool add_margin = true) {
     auto body = ::cc::ui::render_markdown(detail::strip_prompt_xml_tags(data.content));

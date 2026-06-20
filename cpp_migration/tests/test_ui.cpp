@@ -1809,13 +1809,29 @@ TEST(Markdown, CodeBlockDoesNotInjectLineNumbers) {
 }
 
 TEST(Markdown, ParsesGfmTablesWithoutRenderingSeparatorAsParagraph) {
-    auto rendered = render_to_plain_text(cc::ui::render_markdown("| A | B |\n|---|---|\n| 1 | 2 |"));
+    // Mirrors TS formatToken 'table': the separator row IS rendered as a row
+    // of dashes (per the TS comment "Always use dashes, don't show alignment
+    // colons"), but it is part of the TABLE, not a stray paragraph block.
+    // The prior divergent renderer wrapped the table in a box border, so the
+    // `---` separator was never emitted as text — the old assertion
+    // `EXPECT_EQ(find("---"), npos)` encoded that divergence. Re-pointed: we
+    // assert the table structure (header, separator-as-dashes row, data row)
+    // renders as a single coherent ASCII pipe table with no orphan paragraph.
+    // Cells are padded to the column width (min 3), so the exact spacing
+    // differs from the source; we assert pipe-delimited structure instead.
+    auto rendered = strip_ansi(render_to_plain_text(
+        cc::ui::render_markdown("| A | B |\n|---|---|\n| 1 | 2 |")));
 
     EXPECT_NE(rendered.find("A"), std::string::npos);
     EXPECT_NE(rendered.find("B"), std::string::npos);
     EXPECT_NE(rendered.find("1"), std::string::npos);
     EXPECT_NE(rendered.find("2"), std::string::npos);
-    EXPECT_EQ(rendered.find("---"), std::string::npos);
+    // The separator row is pipe-flanked dashes (TS parity), e.g. "|-----|-----|".
+    // It contains no spaces and no letters — a dashes-only pipe row.
+    EXPECT_NE(rendered.find("|-----|-----|"), std::string::npos);
+    // The data row "1" / "2" appears pipe-delimited (padded to width 3).
+    EXPECT_NE(rendered.find("| 1  "), std::string::npos);
+    EXPECT_NE(rendered.find("| 2  "), std::string::npos);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -2892,6 +2908,61 @@ TEST(VisualSnapshot, MessageListLiveMatchesGolden) {
                                  /*offs=*/0, /*pinned=*/true, /*spinner_frame=*/0);
     ASSERT_NE(el, nullptr);
     check_golden("message_list_live", render_to_ansi(std::move(el), 80, 16));
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// M5 GOLDENS — markdown rendered THROUGH the live cc::ui::render_markdown path
+// that RenderAssistantTextMessageFaithful (and thus the running app) calls.
+// These lock in TS-faithful GFM rendering (src/utils/markdown.ts formatToken):
+//   - markdown_table:    ASCII pipe table, dashes separator, no box border
+//   - markdown_list:     `- ` bullets + `1. ` ordered, plain (no cyan •)
+//   - markdown_codeblock: highlighted lines ONLY, no [Copy]/status/gutter chrome
+//   - markdown_inline:   bold/italic/code/links styled per TS attributes
+// Determinism: fixed source, fixed width/height, no streaming.
+// Refresh: UPDATE_GOLDENS=1 ctest -R VisualSnapshot.Markdown
+// ────────────────────────────────────────────────────────────────────────────
+TEST(VisualSnapshot, MarkdownTableMatchesGolden) {
+    auto el = cc::ui::render_markdown(
+        "| Name | Role | Notes |\n"
+        "|------|------|--------|\n"
+        "| Alice | Admin | Primary contact |\n"
+        "| Bob | User | Read-only |");
+    ASSERT_NE(el, nullptr);
+    check_golden("markdown_table", render_to_ansi(std::move(el), 60, 8));
+}
+
+TEST(VisualSnapshot, MarkdownListMatchesGolden) {
+    auto el = cc::ui::render_markdown(
+        "- First item\n"
+        "- Second item with **bold** text\n"
+        "- Third item\n\n"
+        "1. Step one\n"
+        "2. Step two\n"
+        "3. Step three");
+    ASSERT_NE(el, nullptr);
+    check_golden("markdown_list", render_to_ansi(std::move(el), 60, 12));
+}
+
+TEST(VisualSnapshot, MarkdownCodeblockMatchesGolden) {
+    // TS parity: the fenced code block renders as syntax-highlighted lines
+    // with NO line-number gutter, NO [Copy] corner tag, NO status bar, NO
+    // outer border. The cpp language uses the keyword tokenizer (int/return
+    // keywords, string literal). Determinism: fixed source, no LSP overlay.
+    auto el = cc::ui::render_markdown(
+        "```cpp\n"
+        "int main() {\n"
+        "    return 42;\n"
+        "}\n"
+        "```");
+    ASSERT_NE(el, nullptr);
+    check_golden("markdown_codeblock", render_to_ansi(std::move(el), 60, 8));
+}
+
+TEST(VisualSnapshot, MarkdownInlineMatchesGolden) {
+    auto el = cc::ui::render_markdown(
+        "This has **bold**, *italic*, `inline code`, and a [link](https://example.com).");
+    ASSERT_NE(el, nullptr);
+    check_golden("markdown_inline", render_to_ansi(std::move(el), 80, 4));
 }
 
 // M3: The wired prompt must surface the TS prompt glyph (figures.pointer

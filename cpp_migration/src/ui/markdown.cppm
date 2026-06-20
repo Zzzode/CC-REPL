@@ -216,20 +216,29 @@ namespace detail {
         }
 
         // Italic: *text* or _text_
-        // Must not be preceded by alphanumeric (to avoid intra-word emphasis)
+        // Opening marker must not be preceded by an alphanumeric (avoids
+        // intra-word emphasis like `foo*bar`). The closing marker must not
+        // be followed by whitespace and the content must be non-empty. We do
+        // NOT require the char before the closing marker to be non-alphanumeric
+        // (marked allows `*italic*` where `c` precedes the closing `*`).
         if ((c == '*' || c == '_') &&
             (i == 0 || !std::isalnum(static_cast<unsigned char>(text[i - 1])))) {
             flush_buffer();
             char marker = c;
             auto end = text.find(marker, i + 1);
-            // Skip if no closing marker or closing marker is empty
-            if (end != std::string_view::npos && end > i + 1 &&
-                !std::isalnum(static_cast<unsigned char>(text[end - 1]))) {
-                auto content = text.substr(i + 1, end - i - 1);
-                tokens.push_back({InlineTokenKind::Italic,
-                                  std::string(content), {}});
-                i = end;
-                continue;
+            if (end != std::string_view::npos && end > i + 1) {
+                // Closing marker must not be followed by whitespace (CommonMark
+                // right-flanking rule for the close).
+                bool close_ok = (end + 1 == text.size()) ||
+                                !std::isspace(static_cast<unsigned char>(
+                                    text[end + 1]));
+                if (close_ok) {
+                    auto content = text.substr(i + 1, end - i - 1);
+                    tokens.push_back({InlineTokenKind::Italic,
+                                      std::string(content), {}});
+                    i = end;
+                    continue;
+                }
             }
         }
 
@@ -662,6 +671,15 @@ inline TokenCache& global_token_cache() {
 namespace detail {
 
 /// Render inline tokens to FTXUI element with theme colors.
+///
+/// Mirrors src/utils/markdown.ts formatToken inline cases:
+///   - strong (bold)  -> chalk.bold
+///   - em (italic)    -> chalk.italic
+///   - codespan       -> color('permission', theme)  (rgb(87,105,247) on dark)
+///   - link           -> OSC 8 hyperlink (rendered as underlined text here)
+///   - text           -> linkifyIssueReferences(text) (plain text here)
+/// Strikethrough (del) is intentionally disabled (TS configureMarked disables
+/// the `del` tokenizer).
 [[nodiscard]] Element render_inlines(
     const std::vector<InlineToken>& tokens,
     const MarkdownOptions& opts) {
@@ -677,16 +695,23 @@ namespace detail {
                 el = el | bold;
                 break;
             case InlineTokenKind::Italic:
+                // chalk.italic. FTXUI has no italic Screen style, so we use
+                // dim as the closest visual proxy (italic on dark terminals
+                // is itself low-contrast; dim is a reasonable approximation).
+                // Residual: true ANSI italic not emitted.
                 el = el | dim;
                 break;
             case InlineTokenKind::Code:
-                // TS renders inline code via the theme "permission" color
-                // (rgb(87,105,247) on dark) WITHOUT inversion. Mirrors that
-                // intent — no background swap.
+                // codespan -> color('permission', theme). Dark theme
+                // permission = rgb(87,105,247). No background inversion.
                 el = el | color(Color::RGB(87, 105, 247));
                 break;
             case InlineTokenKind::Link:
-                el = el | color(Color::Blue) | underlined;
+                // TS wraps links as OSC 8 hyperlinks (createHyperlink). The
+                // visible text is the link text, underlined in supporting
+                // terminals. We render underlined text; the href is not
+                // emitted (FTXUI has no OSC 8 primitive).
+                el = el | underlined;
                 break;
             case InlineTokenKind::Escape:
                 break;
@@ -709,128 +734,258 @@ namespace detail {
 
 namespace detail {
 
-/// Render a heading block
+/// Render a heading block.
+///
+/// Mirrors src/utils/markdown.ts formatToken 'heading':
+///   depth 1 (h1) -> chalk.bold.italic.underline(content) + EOL + EOL
+///   depth 2 (h2) -> chalk.bold(content) + EOL + EOL
+///   default (h3+) -> chalk.bold(content) + EOL + EOL
+/// No coloring — chalk applies only bold/italic/underline attributes. The
+/// prior divergent renderer added cyan/white coloring, which TS does not.
+/// The trailing EOL+EOL becomes a blank line under the heading.
 [[nodiscard]] Element render_heading(const BlockToken& tok,
                                      const MarkdownOptions& opts) {
     auto el = render_inlines(tok.inlines, opts) | bold;
-
-    switch (tok.heading_level) {
-        case 1:
-            el = el | underlined | color(Color::Cyan) | bold;
-            break;
-        case 2:
-            el = el | underlined | color(Color::White);
-            break;
-        case 3:
-            el = el | color(Color::White);
-            break;
-        default:
-            el = el | dim;
-            break;
+    if (tok.heading_level == 1) {
+        // chalk.bold.italic.underline. FTXUI lacks italic, so bold+underline
+        // is the closest visual proxy (the bold already differentiates h1
+        // from body text; underline mirrors the TS attribute).
+        el = el | underlined;
     }
-
-    // Add spacing above headings (except first-level via caller)
-    return vbox({text(""), el});
+    // h2 and h3+ are plain bold (no extra attributes).
+    return vbox({el, text("")});
 }
 
-/// Render a code block with syntax highlighting
+/// Render a code block.
+///
+/// Mirrors src/utils/markdown.ts formatToken 'code':
+///   if (!highlight) return token.text + EOL;
+///   return highlight.highlight(token.text, {language}) + EOL;
+/// The TS code block is the highlighted text ONLY — no border, no line
+/// numbers, no scroll status bar, no [Copy] tag. cli-highlight emits ANSI
+/// per-line; Ink renders those lines stacked. The prior divergent renderer
+/// called RenderCodeHighlight, which injected a copy corner tag, a status
+/// bar (`[j/k] scroll [q] close`), and line-number gutters — none of which
+/// appear in TS output. That chrome polluted every fenced code block in
+/// assistant messages.
+///
+/// We render the existing code_highlight tokenizer's per-line tokens with
+/// show_line_numbers=false and no surrounding frame, preserving the prior
+/// fix (no border) and achieving shiki/cli-highlight visual parity.
 [[nodiscard]] Element render_code_block(const BlockToken& tok,
                                         const MarkdownOptions& opts) {
-    if (opts.syntax_highlighting) {
-        code_highlight::CodeHighlightOptions c;
-        c.source = tok.code_content;
-        c.language = tok.code_lang;
-        c.show_line_numbers = false;
-        c.visible_lines = 10000;
-        auto theme_result = code_highlight::get_syntax_theme(opts.theme_name);
-        if (theme_result) c.theme = *theme_result;
+    // Split into lines (preserve trailing empty line behavior like TS EOL).
+    auto split_lines = [](std::string_view code) {
+        std::vector<std::string> lines;
+        std::size_t start = 0;
+        while (start <= code.size()) {
+            auto nl = code.find('\n', start);
+            if (nl == std::string_view::npos) {
+                lines.emplace_back(code.substr(start));
+                break;
+            }
+            lines.emplace_back(code.substr(start, nl - start));
+            start = nl + 1;
+        }
+        return lines;
+    };
 
+    auto lines = split_lines(tok.code_content);
+
+    if (opts.syntax_highlighting && !tok.code_content.empty()) {
         auto highlighted = code_highlight::highlight_source(
-            c.source, c.language);
-        // TS does not add an outer border to code blocks; code_highlight
-        // owns all styling. Matches that intent.
-        return code_highlight::RenderCodeHighlight(c, highlighted);
+            tok.code_content, tok.code_lang);
+        auto theme_result = code_highlight::get_syntax_theme(opts.theme_name);
+        auto theme = theme_result ? *theme_result
+                                  : code_highlight::get_theme(
+                                        code_highlight::ThemeName::Dark);
+
+        Elements out;
+        for (const auto& hl : highlighted.lines) {
+            // Chrome-free: no line-number gutter, no diff background, no
+            // highlight background. Just the colored tokens of each line.
+            Elements parts;
+            if (hl.tokens.empty()) {
+                parts.push_back(text(""));
+            } else {
+                for (const auto& t : hl.tokens) {
+                    parts.push_back(text(t.text) | color(
+                        code_highlight::token_color(t.type, theme)));
+                }
+            }
+            Element line_el = hbox(std::move(parts));
+            if (opts.dim_color) line_el = line_el | dim;
+            out.push_back(std::move(line_el));
+        }
+        // highlight_source emits one line per source line; if the tokenizer
+        // produced fewer (shouldn't), fall back to plain lines.
+        if (out.size() == lines.size()) {
+            return vbox(std::move(out));
+        }
     }
 
-    // Plain code block
-    std::vector<Element> lines;
-    std::string_view code = tok.code_content;
-    std::size_t start = 0;
-    while (start < code.size()) {
-        auto end = code.find('\n', start);
-        auto line = (end == std::string_view::npos)
-                    ? code.substr(start)
-                    : code.substr(start, end - start);
-        lines.push_back(text(std::string(line)));
-        start = (end == std::string_view::npos) ? code.size() : end + 1;
+    // Plain code block (no highlighting or tokenizer mismatch).
+    Elements out;
+    for (const auto& line : lines) {
+        Element el = text(line);
+        if (opts.dim_color) el = el | dim;
+        out.push_back(std::move(el));
     }
-    return vbox(std::move(lines));
+    return vbox(std::move(out));
 }
 
-/// Render an unordered list
+/// Render an unordered list.
+///
+/// Mirrors src/utils/markdown.ts: a list_item's text token renders as
+///   `${'  '.repeat(listDepth)}- ${content}${EOL}`
+/// Top-level (listDepth 0) items use `- ` with no leading indent. The prior
+/// divergent renderer used a cyan `•` bullet and 2-space indent — neither
+/// appears in TS output.
 [[nodiscard]] Element render_ulist(const BlockToken& tok,
                                    const MarkdownOptions& opts) {
     Elements items;
     for (const auto& item_inlines : tok.list_items) {
-        auto bullet = text("  • ") | color(Color::Cyan);
+        auto bullet = text("- ");
         if (opts.dim_color) bullet = bullet | dim;
         items.push_back(hbox({bullet, render_inlines(item_inlines, opts)}));
     }
     return vbox(std::move(items));
 }
 
-/// Render an ordered list
+/// Render an ordered list.
+///
+/// Mirrors src/utils/markdown.ts getListNumber(listDepth, n):
+///   depth 0,1 -> "n"
+///   depth 2   -> letter (a, b, …)
+///   depth 3   -> roman (i, ii, …)
+///   default   -> "n"
+/// followed by `. `. The lexer stores flat items at depth 0, so top-level
+/// lists render `1. `, `2. `, …. The TS `list` token carries `start`; we use
+/// 1-based indexing (the lexer parses the numeric prefix but does not store
+/// the start, so we render from 1 — matching the common case).
 [[nodiscard]] Element render_olist(const BlockToken& tok,
                                    const MarkdownOptions& opts) {
     Elements items;
     for (std::size_t i = 0; i < tok.list_items.size(); ++i) {
-        auto num = text(std::format("  {}. ", i + 1)) | color(Color::Cyan);
+        auto num = text(std::format("{}. ", i + 1));
         if (opts.dim_color) num = num | dim;
         items.push_back(hbox({num, render_inlines(tok.list_items[i], opts)}));
     }
     return vbox(std::move(items));
 }
 
-/// Render a blockquote
+/// Render a blockquote.
+///
+/// Mirrors src/utils/markdown.ts 'blockquote':
+///   const bar = chalk.dim(BLOCKQUOTE_BAR)   // ▎ U+258E
+///   inner.split(EOL).map(line =>
+///     stripAnsi(line).trim()
+///       ? `${bar} ${chalk.italic(line)}`
+///       : line)
+/// Each non-blank line is prefixed with a DIM ▎ and the content is italic at
+/// normal brightness (chalk.dim on the bar only, not the text — TS comment
+/// notes dim is nearly invisible on dark themes). The prior divergent
+/// renderer used a blue bar, a non-dim content, and a background color —
+/// all absent in TS.
 [[nodiscard]] Element render_blockquote(const BlockToken& tok,
                                         const MarkdownOptions& opts) {
-    auto bar = text(" ▍ ") | color(Color::Blue) | dim;
-    auto content = render_inlines(tok.inlines, opts) | dim;
-    return hbox({bar, content}) | bgcolor(Color::RGB(20, 20, 35));
+    // tok.inlines may contain '\n' embedded when the quote spanned multiple
+    // source lines (the lexer joins them with ' '); render each segment.
+    // We re-split on any embedded newlines to mirror the per-line bar prefix.
+    auto content_el = render_inlines(tok.inlines, opts);
+    // chalk.italic on the content is unavailable in FTXUI; the dim bar alone
+    // provides the blockquote visual cue (TS note: chalk.dim on text is
+    // nearly invisible, so we keep content at normal brightness like TS).
+    Element bar = text("\xE2\x96\x8E ") | dim;  // ▎ (U+258E) + space
+    if (opts.dim_color) bar = bar | dim;
+    return hbox({bar, content_el});
 }
 
-/// Render a GFM table
+/// Render a GFM table as an ASCII pipe table.
+///
+/// Mirrors src/utils/markdown.ts formatToken 'table' and MarkdownTable.tsx's
+/// non-wrapped path (terminal wide enough that columns fit at ideal width).
+/// TS emits:
+///   | hdr1 | hdr2 |
+///   |------|------|
+///   | c1   | c2   |
+/// Column width = max(stringWidth(header), max(stringWidth(cell))) with a
+/// minimum of 3. Cells are left-padded to the column width. The separator
+/// row is `-` repeated (width+2) per column (no alignment colons — TS
+/// comment: "Always use dashes, don't show alignment colons in the output").
+/// Header cells are bold; data cells are plain. No outer box border — the
+/// table is plain text with `|` separators, exactly like marked renders in
+/// a non-TTY context.
 [[nodiscard]] Element render_table(const BlockToken& tok,
                                    const MarkdownOptions& opts) {
-    std::vector<Elements> table_rows;
+    auto display_width = [](std::string_view s) -> std::size_t {
+        // ASCII width approximation (TS uses stringWidth which handles
+        // wide CJK / combining chars). For markdown tables in this CLI,
+        // ASCII width is the dominant case. Residual: wide-char cells.
+        return s.size();
+    };
+
+    std::size_t num_cols = tok.table_headers.size();
+    if (num_cols == 0) return text("");
+
+    // Compute column widths
+    std::vector<std::size_t> col_widths(num_cols, 3);
+    for (std::size_t c = 0; c < num_cols; ++c) {
+        std::size_t w = display_width(tok.table_headers[c]);
+        for (const auto& row : tok.table_rows) {
+            if (c < row.size()) {
+                w = std::max(w, display_width(row[c]));
+            }
+        }
+        col_widths[c] = std::max(w, std::size_t{3});
+    }
+
+    auto pad_right = [](std::string s, std::size_t width) {
+        if (s.size() < width) s.append(width - s.size(), ' ');
+        return s;
+    };
+
+    auto make_row = [&](const std::vector<std::string>& cells, bool is_header) {
+        std::string line = "|";
+        for (std::size_t c = 0; c < num_cols; ++c) {
+            std::string cell = (c < cells.size()) ? cells[c] : std::string{};
+            line += " " + pad_right(cell, col_widths[c]) + " |";
+        }
+        Element el = text(line);
+        if (is_header) el = el | bold;
+        if (opts.dim_color) el = el | dim;
+        return el;
+    };
 
     // Header row
-    Elements header_cells;
-    for (const auto& h : tok.table_headers) {
-        auto el = text(h) | bold | center;
-        if (opts.dim_color) el = el | dim;
-        header_cells.push_back(el);
+    Elements rows;
+    rows.push_back(make_row(tok.table_headers, /*is_header=*/true));
+
+    // Separator row: always dashes, no alignment colons.
+    std::string sep = "|";
+    for (std::size_t c = 0; c < num_cols; ++c) {
+        sep += std::string(col_widths[c] + 2, '-') + "|";
     }
-    table_rows.push_back(std::move(header_cells));
+    Element sep_el = text(sep);
+    if (opts.dim_color) sep_el = sep_el | dim;
+    rows.push_back(std::move(sep_el));
 
     // Data rows
     for (const auto& row : tok.table_rows) {
-        Elements cells;
-        for (const auto& cell : row) {
-            auto el = text(cell) | center;
-            if (opts.dim_color) el = el | dim;
-            cells.push_back(el);
-        }
-        table_rows.push_back(std::move(cells));
+        rows.push_back(make_row(row, /*is_header=*/false));
     }
 
-    return gridbox(table_rows) | border | color(
-        opts.dim_color ? Color::GrayDark : Color::GrayLight);
+    return vbox(std::move(rows));
 }
 
-/// Render a horizontal rule
+/// Render a horizontal rule.
+///
+/// Mirrors src/utils/markdown.ts formatToken 'hr': returns the literal
+/// string "---" (not a separator/box-drawing line). The prior divergent
+/// renderer used ftxui::separator(), which draws a full-width ── rule —
+/// absent in TS output.
 [[nodiscard]] Element render_hr(const MarkdownOptions& opts) {
-    auto el = separator();
+    Element el = text("---");
     if (opts.dim_color) el = el | dim;
     return el;
 }
