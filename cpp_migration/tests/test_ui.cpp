@@ -30,6 +30,10 @@ import cc.ui.terminal;
 import cc.ui.components;
 import cc.ui.panels;
 import cc.ui.messages;
+import cc.ui.messages.user_text_message;
+import cc.ui.messages.assistant_text_message;
+import cc.ui.messages.thinking_message;
+import cc.ui.messages.system_text_message;
 import cc.ui.prompt_input;
 import cc.ui.markdown;
 import cc.ui.components_extended;
@@ -1464,11 +1468,33 @@ TEST(AppRuntime, RenderMessageShowsThinkingContent) {
         .signature = "sig-1",
     });
 
+    // ── LIVE-PATH (default collapsed): faithful TS thinking renders the
+    //    "∴ Thinking (ctrl+o to expand)" label and HIDES the raw reasoning
+    //    until the user expands it.  Asserting the raw text was visible in
+    //    the collapsed state was the OLD divergent behaviour; the faithful
+    //    renderer keeps it hidden (TS AssistantThinkingMessage collapsed
+    //    branch).  We keep the label assertion.
     auto rendered = render_to_plain_text(
-        cc::ui::RenderMessage(cc::core::Message{std::move(assistant)}), 140, 24);
-
+        cc::ui::RenderMessage(cc::core::Message{assistant}), 140, 24);
     EXPECT_NE(rendered.find("Thinking"), std::string::npos);
-    EXPECT_NE(rendered.find("private reasoning preview"), std::string::npos);
+    // Collapsed → raw reasoning must NOT leak (faithful TS behaviour).
+    EXPECT_EQ(rendered.find("private reasoning preview"), std::string::npos)
+        << "collapsed thinking must hide raw reasoning (TS AssistantThinkingMessage)";
+
+    // ── EXPANDED (transcript / verbose): the SAME thinking content IS
+    //    surfaced once expanded.  Drive the faithful renderer in transcript
+    //    mode (the gesture the live path uses when the row is selected) and
+    //    assert the reasoning is now visible — keeps the test strong by
+    //    pinning BOTH states instead of just the old collapsed-leak.
+    namespace tm = cc::ui::messages::thinking_message;
+    tm::ThinkingMessageData td;
+    td.raw_text = "private reasoning preview";
+    auto expanded = render_to_plain_text(
+        tm::RenderThinkingMessageFaithful(
+            td, /*is_transcript_mode=*/true, /*verbose=*/false,
+            /*add_margin=*/true),
+        140, 24);
+    EXPECT_NE(expanded.find("private reasoning preview"), std::string::npos);
 }
 
 TEST(AppRuntime, RenderMessageShowsToolUseContent) {
@@ -2776,6 +2802,96 @@ TEST(VisualSnapshot, PromptInputMatchesGolden) {
     auto el = rs::RenderPromptInput(s);
     ASSERT_NE(el, nullptr);
     check_golden("prompt_input", render_to_ansi(std::move(el), 80, 10));
+}
+
+// ============================================================================
+// M4: Golden snapshots of the FAITHFUL message-type renderers.  Each renders
+// a single message at a stable state via the new Render*Faithful /
+// RenderUserPromptMessage / RenderThinkingMessageFaithful /
+// RenderSystemTextMessageFaithful element functions (which mirror the TS
+// components/messages/* visuals).  Determinism: fixed data, no streaming,
+// no spinner frame, fixed width/height.  Refresh: UPDATE_GOLDENS=1 ctest -R
+// VisualSnapshot.Message
+// ============================================================================
+
+TEST(VisualSnapshot, MessageUserMatchesGolden) {
+    namespace m = cc::ui::messages;
+    m::UserTextMessageData d;
+    d.content = "What files are in this repo?";
+    d.is_transcript_mode = false;
+    auto el = m::RenderUserPromptMessage(d);
+    ASSERT_NE(el, nullptr);
+    check_golden("message_user", render_to_ansi(std::move(el), 80, 6));
+}
+
+TEST(VisualSnapshot, MessageAssistantMatchesGolden) {
+    namespace m = cc::ui::messages;
+    m::AssistantTextMessageData d;
+    d.content = "Here is the layout of the repository.";
+    d.show_dot = true;
+    auto el = m::RenderAssistantTextMessageFaithful(d, /*add_margin=*/true);
+    ASSERT_NE(el, nullptr);
+    check_golden("message_assistant", render_to_ansi(std::move(el), 80, 6));
+}
+
+TEST(VisualSnapshot, MessageThinkingMatchesGolden) {
+    namespace tm = cc::ui::messages::thinking_message;
+    tm::ThinkingMessageData d;
+    d.raw_text = "The user wants to understand the repo structure.\nI should list the top-level dirs.";
+    // Collapsed state (not transcript, not verbose) -> "∴ Thinking (ctrl+o to expand)"
+    auto el = tm::RenderThinkingMessageFaithful(
+        d, /*is_transcript_mode=*/false, /*verbose=*/false, /*add_margin=*/true);
+    ASSERT_NE(el, nullptr);
+    check_golden("message_thinking", render_to_ansi(std::move(el), 80, 4));
+}
+
+TEST(VisualSnapshot, MessageSystemMatchesGolden) {
+    namespace m = cc::ui::messages;
+    m::SystemTextMessageData d;
+    d.subtype = m::SystemMessageSubtype::AwaySummary;
+    d.summary = "Welcome back — you were away for 2 hours.";
+    auto el = m::RenderSystemTextMessageFaithful(d, /*add_margin=*/true);
+    ASSERT_NE(el, nullptr);
+    check_golden("message_system", render_to_ansi(std::move(el), 80, 4));
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// M4 LIVE-PATH GOLDEN — renders a small message list (user + assistant +
+// thinking + system) THROUGH the live RenderMessages dispatch path the
+// RUNNING APP uses (repl_screen::RenderMessages → messages_list::
+// render_messages_list_view → detail::render_payload_row → the FAITHFUL
+// Element renderers).  This locks in what users actually see — not what
+// each faithful fn emits in isolation (those are the per-type goldens above).
+// Determinism: fixed data, no streaming tail (streaming_tail_row = N),
+// no selection, fixed width/height.  Refresh:
+//   UPDATE_GOLDENS=1 ctest -R VisualSnapshot.MessageListLiveMatchesGolden
+// ────────────────────────────────────────────────────────────────────────────
+TEST(VisualSnapshot, MessageListLiveMatchesGolden) {
+    namespace rs = cc::ui::repl_screen;
+    const auto epoch = std::chrono::system_clock::time_point{};  // deterministic
+    std::vector<rs::MessageDisplayEntry> entries;
+
+    auto mk = [&](std::string role, std::string content) {
+        rs::MessageDisplayEntry e;
+        e.role = std::move(role);
+        e.content_preview = std::move(content);
+        e.timestamp = epoch;
+        return e;
+    };
+
+    entries.push_back(mk("user", "What files are in this repo?"));
+    // Assistant thinking row (assistant + is_thinking flag).
+    auto think = mk("assistant", "The user wants to understand the repo structure.");
+    think.is_thinking = true;
+    entries.push_back(std::move(think));
+    entries.push_back(mk("assistant", "Here is the layout of the repository."));
+    entries.push_back(mk("system", "Welcome back — you were away for 2 hours."));
+
+    // sel = -1, streaming_tail past the end (no streaming cursor), 80x16.
+    auto el = rs::RenderMessages(entries, /*sel=*/-1, /*vlines=*/16,
+                                 /*offs=*/0, /*pinned=*/true, /*spinner_frame=*/0);
+    ASSERT_NE(el, nullptr);
+    check_golden("message_list_live", render_to_ansi(std::move(el), 80, 16));
 }
 
 // M3: The wired prompt must surface the TS prompt glyph (figures.pointer

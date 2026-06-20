@@ -852,8 +852,90 @@ inline auto render_payload_row(const MessagesListInput& input,
         return text("⚠ bad row_idx") | color(Color::Yellow);
     }
     MessageShape shape   = input.shapes[row_idx];
+    const auto& payload  = input.rows[row_idx];
+
+    // ── LIVE-PATH FAITHFUL RENDER (M4) ───────────────────────────────────
+    // The four core message types (user/assistant/thinking/system) are routed
+    // THROUGH THE FAITHFUL TS-MIRRORING Element renderers added in M4
+    // (RenderUserPromptMessage, RenderAssistantTextMessageFaithful,
+    // RenderThinkingMessageFaithful, RenderSystemTextMessageFaithful).  These
+    // emit the exact TS Bubble/Message.tsx shapes the running user sees:
+    //   * user     → `❯ <text>` full-width, userMessageBackground tint
+    //   * assistant→ `[dot?] <markdown body>` flex-start, no header chrome
+    //   * thinking → `∴ Thinking (ctrl+o to expand)` collapsed / indented body
+    //   * system   → `※ / ✻ / ⏺ <content>` flat one-line event row
+    // The divergent RenderMessageRowByType / render_message_envelope path
+    // (avatar column + role pill + top accent border) is NOT faithful to TS —
+    // it added invented chrome.  We therefore BYPASS it for these core types
+    // and emit the faithful Element directly.  Sub-types not ported in this
+    // pass still flow through the divergent envelope+dispatch path below.
+    using S = MessageShape;
+    const bool is_streaming_tail =
+        (input.streaming_tail_row != std::size_t(-1) &&
+         row_idx == input.streaming_tail_row);
+
+    if (shape == S::UserText || shape == S::UserPrompt) {
+        auto* d = std::get_if<UserTextMessageData>(&payload);
+        if (d) {
+            // Bridge the row-data variant to the faithful fn's args.  The
+            // streaming/selection state isn't part of the TS bubble (the
+            // spinner is rendered separately as the streaming-tail cursor
+            // below the row), so we render the canonical TS shape.  When a
+            // command_name chip is set, route through the slash-command shape.
+            const UserTextMessageData fd = *d;
+            Element el = (shape == S::UserCommand || fd.command_name)
+                ? RenderUserCommandMessage(fd)
+                : RenderUserPromptMessage(fd);
+            (void)frame_count; (void)is_streaming_tail;
+            return el;
+        }
+    }
+    else if (shape == S::AssistantText) {
+        auto* d = std::get_if<AssistantTextMessageData>(&payload);
+        if (d) {
+            AssistantTextMessageData fd = *d;
+            // The streaming tail shows a leading dot (TS BLACK_CIRCLE) — for a
+            // streaming row we surface it; for non-streaming we keep whatever
+            // the payload requested.
+            if (is_streaming_tail) fd.show_dot = true;
+            Element el = RenderAssistantTextMessageFaithful(fd, /*add_margin=*/true);
+            (void)frame_count;
+            return el;
+        }
+    }
+    else if (shape == S::AssistantThinking || shape == S::AssistantRedactedThinking) {
+        auto* o = std::get_if<thinking_message::ThinkingMessageOptions>(&payload);
+        if (o) {
+            // Bridge: faithful fn takes the inner ThinkingMessageData plus the
+            // transcript/verbose flags.  We expose a row as "transcript" when
+            // selected (so selecting a thinking row expands it — same gesture
+            // as the divergent panel's toggle), and otherwise collapsed like
+            // the TS default.  Redacted thinking isn't in the faithful TS
+            // renderer's contract (TS hides it); we fall through to the
+            // divergent path for Redacted so the lock-badge panel still shows.
+            if (shape == S::AssistantThinking) {
+                Element el = thinking_message::RenderThinkingMessageFaithful(
+                    o->data,
+                    /*is_transcript_mode=*/is_selected,
+                    /*verbose=*/false,
+                    /*add_margin=*/true);
+                (void)frame_count;
+                return el;
+            }
+        }
+    }
+    else if (shape == S::SystemText) {
+        auto* d = std::get_if<SystemTextMessageData>(&payload);
+        if (d) {
+            Element el = RenderSystemTextMessageFaithful(*d, /*add_margin=*/true);
+            (void)frame_count; (void)is_streaming_tail;
+            return el;
+        }
+    }
+
+    // ── DIVERGENT PATH (sub-types not yet ported to faithful) ───────────
     MessageRowCallbacks cb{};   // envelope callbacks come via the outer component
-    Component inner = RenderMessageRowByType(shape, input.rows[row_idx], std::move(cb));
+    Component inner = RenderMessageRowByType(shape, payload, std::move(cb));
 
     RenderEnvelopeOptions env_opts{
         .shape          = shape,

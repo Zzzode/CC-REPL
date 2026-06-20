@@ -185,4 +185,74 @@ class UserTextMessageComponent : public ComponentBase {
     });
 }
 
+// ─── M4: Faithful TS renderers ─────────────────────────────────────────
+// Mirrors UserPromptMessage.tsx + HighlightedThinkingText.tsx (the non-brief
+// layout path).  TS renders:
+//   <Box flexDirection="column" marginTop={addMargin?1:0}
+//        backgroundColor={isSelected?messageActionsBackground:userMessageBackground}
+//        paddingRight={1}>
+//     <HighlightedThinkingText text={displayText} .../>
+//   </Box>
+// and HighlightedThinkingText (no triggers) emits a single <Text> row:
+//   <Text color={subtle}>{figures.pointer} </Text><Text color="text">{text}</Text>
+// figures.pointer is U+276F "❯".  No timestamp / role label in the non-brief
+// path — that only appears in the brief/chat layout.
+
+/// The figures.pointer glyph used as the user-message prefix (matches TS).
+inline constexpr std::string_view kFiguresPointer = "\xE2\x9D\xAF";  // ❯ U+276F
+
+/// Faithful render of a user prompt message (UserPromptMessage.tsx ->
+/// HighlightedThinkingText non-brief path).  Full-width, left-aligned, with a
+/// `›` (subtle) prefix followed by the prompt text.  add_margin adds a top
+/// blank line; is_selected swaps the prefix + bg color.
+[[nodiscard]] inline Element RenderUserPromptMessage(const UserTextMessageData& data) {
+    Elements row;
+    // Prefix "❯ " in subtle (dim gray) — or "suggestion" (cyan) when selected.
+    const Decorator prefix_style =
+        data.is_transcript_mode ? (dim | color(Color::GrayDark))
+                                : color(Color::GrayDark);
+    row.push_back(text(std::string(kFiguresPointer)) | prefix_style);
+    row.push_back(text(" ") | prefix_style);
+    // Body text — "text" color (default foreground), dimmed in transcript mode.
+    Decorator body_style = data.is_transcript_mode ? dim : nothing;
+    row.push_back(text(data.content) | body_style);
+    // paddingRight={1} → trailing space column.
+    row.push_back(text(" "));
+
+    Element inner = hbox(std::move(row));
+    if (data.is_transcript_mode) {
+        return vbox({text(""), hbox({inner, filler()})});
+    }
+    // backgroundColor="userMessageBackground" — a subtle dark tint.  Use
+    // GrayDark background (matches the prior system bubble's intent).  We keep
+    // it left-aligned and full-width like the TS <Box width="100%">.
+    return vbox({
+        text(""),
+        hbox({inner | bgcolor(Color::GrayDark) | flex, text(" ") | bgcolor(Color::GrayDark)}),
+    });
+}
+
+/// Faithful render of a slash-command user message (UserCommandMessage.tsx):
+///   <Box marginTop={addMargin?1:0} backgroundColor="userMessageBackground" paddingRight={1}>
+///     <Text><Text color="subtle">{figures.pointer} </Text>
+///           <Text color="text">/{command args}</Text></Text>
+///   </Box>
+[[nodiscard]] inline Element RenderUserCommandMessage(const UserTextMessageData& data) {
+    std::string body = data.command_name
+        ? ("/" + *data.command_name)
+        : data.content;
+    Element row = hbox({
+        text(std::string(kFiguresPointer)) | color(Color::GrayDark),
+        text(" ") | color(Color::GrayDark),
+        text(body),
+        text(" "),
+    });
+    if (data.is_transcript_mode) return vbox({text(""), row});
+    return vbox({
+        text(""),
+        hbox({row | bgcolor(Color::GrayDark) | flex,
+              text(" ") | bgcolor(Color::GrayDark)}),
+    });
+}
+
 }  // namespace cc::ui::messages

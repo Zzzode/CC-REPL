@@ -136,13 +136,97 @@ namespace repl = cc::ui::repl_screen;
 }
 
 // ============================================================
+// project_messages — TS-faithful projection that splits a single
+// AssistantMessage into MULTIPLE display rows when it mixes a ThinkingBlock
+// with a TextBlock / ToolUseBlock.  TS renders these as separate sibling
+// messages (a collapsed `∴ Thinking` row followed by the visible answer /
+// tool-use row); the legacy single-entry projection collapsed them into one
+// thinking row, which hid the visible answer once M4 routed thinking rows
+// through RenderThinkingMessageFaithful (collapsed → raw text hidden).
+//
+// Non-assistant messages and assistant messages with a single block kind
+// still project to exactly one entry (identical to project_message).
+// ============================================================
+[[nodiscard]] inline std::vector<repl::MessageDisplayEntry>
+project_messages(const Message& msg) {
+    std::vector<repl::MessageDisplayEntry> out;
+    const auto now = std::chrono::system_clock::now();
+
+    std::visit([&](const auto& m) {
+        using T = std::decay_t<decltype(m)>;
+
+        if constexpr (std::is_same_v<T, AssistantMessage>) {
+            // Pass 1: collect block kinds present.
+            std::string text_acc;
+            std::string thinking_acc;
+            std::vector<const ToolUseBlock*> tools;
+            for (const auto& block : m.content) {
+                if (const auto* tb = std::get_if<TextBlock>(&block)) {
+                    text_acc += tb->text;
+                } else if (const auto* thk = std::get_if<ThinkingBlock>(&block)) {
+                    if (!thinking_acc.empty()) thinking_acc.push_back('\n');
+                    thinking_acc += thk->thinking;
+                } else if (const auto* tool = std::get_if<ToolUseBlock>(&block)) {
+                    tools.push_back(tool);
+                }
+            }
+
+            const bool has_thinking = !thinking_acc.empty();
+            const bool has_text     = !text_acc.empty();
+            const bool mixed        = has_thinking && (has_text || !tools.empty());
+
+            if (!mixed) {
+                // Single-kind assistant message → one entry, identical to
+                // project_message semantics.
+                out.push_back(project_message(msg));
+                return;
+            }
+
+            // Mixed → emit thinking row, then text row, then tool rows, in
+            // TS block order (thinking precedes the visible answer; the
+            // upstream stream already orders them this way).
+            if (has_thinking) {
+                repl::MessageDisplayEntry t;
+                t.role = "assistant";
+                t.is_thinking = true;
+                t.content_preview = thinking_acc.substr(0, 200);
+                t.timestamp = now;
+                out.push_back(std::move(t));
+            }
+            if (has_text) {
+                repl::MessageDisplayEntry a;
+                a.role = "assistant";
+                a.content_preview = text_acc;
+                if (a.content_preview.size() > 500) a.content_preview.resize(500);
+                a.timestamp = now;
+                out.push_back(std::move(a));
+            }
+            for (const auto* tool : tools) {
+                repl::MessageDisplayEntry tu;
+                tu.role = "assistant";
+                tu.is_tool_use = true;
+                tu.tool_name = tool->name;
+                tu.tool_input_json = tool->input_json;
+                tu.timestamp = now;
+                out.push_back(std::move(tu));
+            }
+        } else {
+            // Non-assistant → identical to the single-entry projection.
+            out.push_back(project_message(msg));
+        }
+    }, msg);
+
+    if (out.empty()) out.push_back(project_message(msg));
+    return out;
+}
+
+// ============================================================
 // Convenience: render a single core Message to an Element.
 // Used by tests and callers that want a quick rendering of one message.
 // ============================================================
 
 [[nodiscard]] inline Element RenderMessage(const Message& msg) {
-    std::vector<repl::MessageDisplayEntry> entries{ project_message(msg) };
-    return repl::RenderMessages(entries, -1, 40);
+    return repl::RenderMessages(project_messages(msg), -1, 40);
 }
 
 // ============================================================
@@ -411,7 +495,13 @@ public:
             // The LLM system prompt is an API argument, never a visible message (TS parity:
             // REPL.tsx passes systemPrompt separately, not in the messages array). Skip it.
             if (std::holds_alternative<SystemMessage>(msg)) continue;
-            screen_state_->messages.push_back(project_message(msg));
+            // TS-faithful split: an assistant turn mixing a ThinkingBlock with
+            // a TextBlock / ToolUseBlock renders as SEPARATE sibling rows
+            // (thinking row then the visible answer / tool-use).  See
+            // project_messages for the rationale.
+            auto projected = project_messages(msg);
+            for (auto& e : projected)
+                screen_state_->messages.push_back(std::move(e));
         }
 
         auto usage = engine_->get_usage();
@@ -482,7 +572,10 @@ public:
                 screen_state_->messages.reserve(messages.size() + 1);
                 for (const auto& msg : messages) {
                     if (std::holds_alternative<SystemMessage>(msg)) continue;
-                    screen_state_->messages.push_back(project_message(msg));
+                    // TS-faithful split (thinking + answer render as sibling rows).
+                    auto projected = project_messages(msg);
+                    for (auto& e : projected)
+                        screen_state_->messages.push_back(std::move(e));
                 }
                 screen_state_->messages.push_back(std::move(streaming_entry));
                 screen_state_->scroll_pinned_to_bottom = true;

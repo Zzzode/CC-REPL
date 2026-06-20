@@ -375,4 +375,52 @@ class AssistantTextMessageComponent : public ComponentBase {
     });
 }
 
+// ─── M4: Faithful TS renderer ──────────────────────────────────────────
+// Mirrors AssistantTextMessage.tsx default branch (the common assistant turn
+// shape).  Markdown rendering itself is M5; M4 nails the message FRAMING:
+//   <Box alignItems="flex-start" flexDirection="row"
+//        justifyContent="space-between" marginTop={addMargin?1:0}
+//        width="100%" backgroundColor={isSelected?bg:undefined}>
+//     <Box flexDirection="row">
+//       {shouldShowDot && <NoSelect minWidth={2}>
+//         <Text color={isSelected?'suggestion':'text'}>{BLACK_CIRCLE}</Text>
+//       </NoSelect>}
+//       <Box flexDirection="column"><Markdown>{text}</Markdown></Box>
+//     </Box>
+//   </Box>
+// No header label, no timestamp, no separator, no action buttons, no token
+// footer — the existing divergent Component adds all of those.
+//
+// `body` is the already-rendered body Element (caller passes the markdown or a
+// plain-text fallback).  This keeps M4 focused on framing; M5 swaps in the
+// real Markdown renderer.
+[[nodiscard]] inline Element RenderAssistantTextMessageFaithful(
+    const AssistantTextMessageData& data, Element body,
+    bool add_margin = true) {
+    // Optional leading dot (BLACK_CIRCLE, minWidth=2).  Selected → "suggestion"
+    // (cyan), else "text" (default fg).
+    const Color dot_color = Color::Cyan;
+    Elements row;
+    if (data.show_dot) {
+        // "⏺ " — BLACK_CIRCLE + space (minWidth=2 cell).
+        row.push_back(text("\xE2\x8F\xBA ") | color(dot_color));
+    }
+    row.push_back(std::move(body));
+
+    Element content = hbox(std::move(row));
+    Element framed = hbox({content, filler()}) | flex;
+    if (add_margin) {
+        return vbox({text(""), std::move(framed)});
+    }
+    return framed;
+}
+
+/// Convenience overload: body defaults to the markdown-rendered (XML-stripped)
+/// content.  M5 will replace render_markdown with the faithful Markdown port.
+[[nodiscard]] inline Element RenderAssistantTextMessageFaithful(
+    const AssistantTextMessageData& data, bool add_margin = true) {
+    auto body = ::cc::ui::render_markdown(detail::strip_prompt_xml_tags(data.content));
+    return RenderAssistantTextMessageFaithful(data, std::move(body), add_margin);
+}
+
 }  // namespace cc::ui::messages

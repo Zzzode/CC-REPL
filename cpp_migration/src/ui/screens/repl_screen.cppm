@@ -190,6 +190,13 @@ struct MessageDisplayEntry {
     std::optional<std::string> agent_display_name, agent_color_name;
     std::chrono::system_clock::time_point timestamp;
     int estimated_height_lines = 3;
+    /// M4 live-path: system-row subtype hint.  When set on a `system` entry,
+    /// RenderMessages routes the row through the matching faithful
+    /// RenderSystemTextMessageFaithful branch (away_summary / teardrop event /
+    /// generic dot).  When unset the projection falls back to a heuristic
+    /// derived from content_preview (see RenderMessages).  The engine / G2
+    /// app.cppm may populate this from the upstream SystemMessage tag later.
+    std::optional<std::string> system_subtype;
 };
 
 /// Permission prompt subset (TS ToolUseConfirm).  Full shape: UI8/UI9.
@@ -428,7 +435,47 @@ struct ReplScreenCallbacks {
                 .duration_ms = std::nullopt});
         } else {
             input.shapes.push_back(messages::MessageShape::SystemText);
+            // Bridge the system-row subtype so the LIVE faithful renderer
+            // (RenderSystemTextMessageFaithful dispatches per subtype) shows
+            // the right glyph (※ away_summary / ✻ event / ⏺ generic).  When
+            // the engine hasn't set system_subtype we derive a best-effort
+            // subtype from the preview text — same labels TS SystemTextMessage
+            // keys on (turn_duration / memory_saved / etc.).
+            auto derive_subtype = [](const std::string& s,
+                const std::optional<std::string>& hint) {
+                using ST = messages::SystemMessageSubtype;
+                if (hint) {
+                    if (*hint == "away_summary")    return ST::AwaySummary;
+                    if (*hint == "turn_duration")   return ST::TurnDuration;
+                    if (*hint == "memory_saved")    return ST::MemorySaved;
+                    if (*hint == "bridge_status")   return ST::BridgeStatus;
+                    if (*hint == "thinking_summary")return ST::ThinkingSummary;
+                    if (*hint == "hook_summary")    return ST::HookSummary;
+                    if (*hint == "model_switch")    return ST::ModelSwitch;
+                    if (*hint == "background_task") return ST::BackgroundTask;
+                }
+                // Heuristic fallback: scan preview text for TS-style keywords.
+                if (s.find("away for") != std::string::npos ||
+                    s.find("Welcome back") != std::string::npos)
+                    return ST::AwaySummary;
+                if (s.find("took") != std::string::npos ||
+                    s.find("duration") != std::string::npos ||
+                    s.find("seconds") != std::string::npos)
+                    return ST::TurnDuration;
+                if (s.find("memory") != std::string::npos ||
+                    s.find("saved") != std::string::npos)
+                    return ST::MemorySaved;
+                if (s.find("bridge") != std::string::npos ||
+                    s.find("IDE") != std::string::npos)
+                    return ST::BridgeStatus;
+                if (s.find("model") != std::string::npos &&
+                    (s.find("switch") != std::string::npos ||
+                     s.find("changed") != std::string::npos))
+                    return ST::ModelSwitch;
+                return ST::Plain;
+            };
             input.rows.push_back(messages::SystemTextMessageData{
+                .subtype = derive_subtype(m.content_preview, m.system_subtype),
                 .summary = m.content_preview,
                 .detail = {},
                 .timestamp = m.timestamp});
