@@ -227,6 +227,121 @@ TEST(DialogQueue, BottomTypingSuppression) {
     EXPECT_EQ(dsys::id_of(peeked->get()), "cost-1");
 }
 
+TEST(DialogQueue, Band3AnimationSuppression) {
+    using dsys::DialogPriority;
+
+    // ------------------------------------------------------------------
+    // Bottom slot: PromptDialog / Elicitation / WorkerSandboxPermission
+    // are Band3 (i=2).  When allow_dialogs_with_animation=false,
+    // they MUST be skipped in favour of the next active band (or nullopt
+    // if no higher-priority non-suppressed dialog exists).
+    // ------------------------------------------------------------------
+    dsys::DialogQueue q;
+
+    // Case A: Band3-only queue + animation active → nullopt.
+    {
+        dsys::PromptDialogPayload prompt;
+        prompt.id = "prompt-1";
+        q.push(dsys::DialogPayloadVariant{prompt});
+    }
+    auto peeked = q.peek_bottom(/*typing=*/false,
+                                 /*allow_dialogs_with_animation=*/false);
+    EXPECT_FALSE(peeked.has_value())
+        << "Band3 PromptDialog MUST be suppressed when animation is active";
+
+    // Case B: same queue + animation inactive → PromptDialog visible.
+    peeked = q.peek_bottom(false, /*animation_ok=*/true);
+    ASSERT_TRUE(peeked.has_value());
+    EXPECT_EQ(dsys::id_of(peeked->get()), "prompt-1");
+
+    // Case C: SandboxPermission (Band2, i=1) + animation active → still
+    // visible (only Band3 is blocked).
+    {
+        dsys::SandboxPermissionPayload sbx;
+        sbx.id = "sbx-1";
+        q.push(dsys::DialogPayloadVariant{sbx});
+    }
+    peeked = q.peek_bottom(false, /*animation_ok=*/false);
+    ASSERT_TRUE(peeked.has_value());
+    EXPECT_EQ(dsys::id_of(peeked->get()), "sbx-1")
+        << "Band2 SandboxPermission MUST NOT be blocked by animation";
+    // Pop the Band2 front.
+    q.pop_bottom(false, /*animation_ok=*/false);
+    EXPECT_EQ(q.total_size(), 1u); // prompt-1 still in Band3
+
+    // Case D: now Band3 (prompt) is next; animation still active → nullopt.
+    peeked = q.peek_bottom(false, /*animation_ok=*/false);
+    EXPECT_FALSE(peeked.has_value());
+
+    // Case E: Push Band4 CostThreshold below.  With animation active,
+    // Band4 (i=3) MUST still be reachable since we SKIP Band3 (i=2)
+    // but continue the loop to i=3.
+    {
+        dsys::CostThresholdPayload cost;
+        cost.id = "cost-1";
+        q.push(dsys::DialogPayloadVariant{cost});
+    }
+    peeked = q.peek_bottom(false, /*animation_ok=*/false);
+    ASSERT_TRUE(peeked.has_value())
+        << "Band4 CostThreshold MUST be reachable when Band3 is skipped "
+           "for animation suppression — find_active_band must CONTINUE, "
+           "not RETURN, on !allow_dialogs_with_animation";
+    EXPECT_EQ(dsys::id_of(peeked->get()), "cost-1");
+    // pop correctly uses the same suppression rule
+    q.pop_bottom(false, /*animation_ok=*/false);
+    EXPECT_EQ(q.total_size(), 1u); // only prompt-1 remains
+
+    // Case F: Cost gone — prompt is alone again.  Animation off → prompt.
+    peeked = q.peek_bottom(false, /*animation_ok=*/true);
+    ASSERT_TRUE(peeked.has_value());
+    EXPECT_EQ(dsys::id_of(peeked->get()), "prompt-1");
+    q.pop_bottom(false, true);
+    EXPECT_TRUE(q.empty());
+
+    // ------------------------------------------------------------------
+    // Overlay slot: ToolPermission is implicitly Band3; should_show_dialog
+    // free function MUST suppress it when !allow_dialogs_with_animation.
+    // ------------------------------------------------------------------
+    {
+        dsys::ToolPermissionPayload tp;
+        tp.id = "tp-1";
+        q.push(dsys::DialogPayloadVariant{tp}); // → Overlay slot
+    }
+    EXPECT_TRUE(q.has_overlay());
+    auto overlay_peek = q.peek_overlay();
+    ASSERT_TRUE(overlay_peek.has_value());
+
+    EXPECT_FALSE(dsys::should_show_dialog(overlay_peek->get(),
+                                           /*typing=*/false,
+                                           /*animation_ok=*/false))
+        << "Overlay (ToolPermission, Band3) MUST be suppressed by should_show_dialog "
+           "when animation is active";
+    EXPECT_TRUE(dsys::should_show_dialog(overlay_peek->get(),
+                                          /*typing=*/false,
+                                          /*animation_ok=*/true))
+        << "Overlay (ToolPermission, Band3) MUST show when animation is off";
+
+    // ------------------------------------------------------------------
+    // Bottom slot free-function check: PromptDialog (Band3) suppressed
+    // by animation, CostThreshold (Band4) NOT suppressed.
+    // ------------------------------------------------------------------
+    dsys::PromptDialogPayload prompt2;
+    prompt2.id = "prompt2";
+    auto prompt_v = dsys::DialogPayloadVariant{prompt2};
+    EXPECT_FALSE(dsys::should_show_dialog(prompt_v, false, false));
+    EXPECT_TRUE(dsys::should_show_dialog(prompt_v, false, true));
+    // typing always suppresses it too
+    EXPECT_FALSE(dsys::should_show_dialog(prompt_v, true, true));
+
+    dsys::CostThresholdPayload cost2;
+    cost2.id = "cost2";
+    auto cost_v = dsys::DialogPayloadVariant{cost2};
+    EXPECT_TRUE(dsys::should_show_dialog(cost_v, false, false))
+        << "Band4 CostThreshold is NOT suppressed by the animation flag";
+    EXPECT_FALSE(dsys::should_show_dialog(cost_v, true, true))
+        << "Band4 CostThreshold IS suppressed by typing (typing kills bands 2..6)";
+}
+
 TEST(DialogQueue, ModalStack) {
     dsys::DialogQueue q;
 
@@ -1054,7 +1169,9 @@ TEST(DialogTriggers, CommandMetadataCreateAgent) {
 
     bool pushed = dtrig::PushFromCommandMetadata(queue, "CREATE_AGENT");
     EXPECT_TRUE(pushed);
-    EXPECT_TRUE(queue.has_modal());
+    // CreateAgentWizard is a full-screen standalone dialog (M7 §3.1).
+    EXPECT_TRUE(queue.has_standalone());
+    EXPECT_FALSE(queue.has_modal());
 }
 
 TEST(DialogTriggers, CommandMetadataEditAgent) {
@@ -1063,7 +1180,9 @@ TEST(DialogTriggers, CommandMetadataEditAgent) {
 
     bool pushed = dtrig::PushFromCommandMetadata(queue, "EDIT_AGENT|my-agent");
     EXPECT_TRUE(pushed);
-    EXPECT_TRUE(queue.has_modal());
+    // EditAgentWizard is a full-screen standalone dialog (M7 §3.1).
+    EXPECT_TRUE(queue.has_standalone());
+    EXPECT_FALSE(queue.has_modal());
 }
 
 TEST(DialogTriggers, CommandMetadataPluginDialog) {
@@ -1575,8 +1694,10 @@ TEST(DialogTriggers, PushTrustDialogCreatesDialog) {
 
     dtrig::PushTrustDialog(queue, "example.com",
         [](bool) {});
-    EXPECT_TRUE(queue.has_modal());
-    auto peek = queue.peek_modal();
+    // TrustDialog is a full-screen standalone dialog (M7 §3.1).
+    EXPECT_TRUE(queue.has_standalone());
+    EXPECT_FALSE(queue.has_modal());
+    auto peek = queue.peek_standalone();
     ASSERT_TRUE(peek.has_value());
     EXPECT_EQ(dsys::type_of(*peek), dsys::DialogType::TrustDialog);
 }

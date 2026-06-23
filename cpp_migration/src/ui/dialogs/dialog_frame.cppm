@@ -101,6 +101,18 @@ struct DialogFrameProps {
     /// The main content body.
     Element content = text("");
 
+    /// Optional explicit border color override.
+    /// When set, takes precedence over the `style`-derived border color.
+    /// Matches the TS PermissionDialog `color` prop: free-form theme color key
+    /// that gets resolved to an ANSI color at render time.
+    std::optional<Color> color_override;
+
+    /// Optional explicit title color override.
+    /// When set, the title text color is replaced with this value (the default
+    /// is theme-inherited / no color wrap, i.e. the terminal foreground).
+    /// Matches the TS PermissionDialog `titleColor` prop.
+    std::optional<Color> title_color_override;
+
     /// Horizontal padding inside the content area (cells).
     int inner_padding_x = 1;
     /// Vertical padding inside the content area (cells).
@@ -122,10 +134,18 @@ struct DialogFrameProps {
 /// Faithful to TS PermissionDialog.tsx.
 [[nodiscard]] inline Element DialogFrame(const DialogFrameProps& props,
                                           const Theme& theme) {
-    auto border_col = frame_border_color(props.style, theme);
+    // Resolve border color: explicit override wins, otherwise derive from FrameStyle.
+    auto border_col = props.color_override.value_or(
+        frame_border_color(props.style, theme));
 
     // ---- Title row ----
-    auto title_el = text(props.title) | bold;
+    auto title_el = [&]() -> Element {
+        auto t = text(props.title) | bold;
+        if (props.title_color_override) {
+            t = t | color(*props.title_color_override);
+        }
+        return t;
+    }();
 
     Elements title_row_els;
     title_row_els.push_back(title_el);

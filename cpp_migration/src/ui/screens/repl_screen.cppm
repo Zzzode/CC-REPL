@@ -23,7 +23,7 @@
 ///   spinner      -> cc.ui.components.spinner_widget (UI19)
 ///   msg list     -> cc.ui.messages (RenderMessages wrapper, UI4/5)
 ///   prompt input -> cc.ui.prompt.prompt_input_full (UI2)
-///   dialogs      -> cc.ui.dialogs.* (RouteDialog dispatches, UI8-UI11/UI16)
+///   dialogs      -> cc.ui.dialogs.* (DialogQueue 4-slot system, UI8-UI11/UI16)
 module;
 
 #include <string>
@@ -287,24 +287,7 @@ struct PermissionRequestInfo {
     // Skill
     std::optional<std::string> skill_name;
     std::optional<std::string> skill_source;  // "bundled" / "user" / "plugin"
-};
-
-/// Transient dialog payloads for RouteDialog dispatch.
-struct DialogContext {
-    std::optional<std::string> sandbox_host_pattern, sandbox_worker_request_id;
-    std::optional<std::string> elicitation_server_name;
-    std::optional<std::uint64_t> elicitation_request_id;
-    std::optional<double> cost_threshold_usd;
-    std::optional<std::uint32_t> idle_return_minutes;
-    std::optional<std::string> ide_installation_status, model_switch_alias;
-    std::optional<std::string> plugin_hint_name, plugin_hint_description;
-    std::optional<std::string> lsp_rec_extension, lsp_rec_file_ext;
-    std::optional<std::string> ultraplan_blurb;
-    // UI13: agent wizard — name of agent being edited (empty = create new).
-    std::optional<std::string> agent_wizard_agent_id;
-};
-
-/// Lean orchestration state.  Full app state lives in services/; the
+};/// Lean orchestration state.  Full app state lives in services/; the
 /// engine writes computed projections into this struct between frames.
 struct ReplScreenState {
     ReplMode mode = ReplMode::Normal;
@@ -351,9 +334,7 @@ struct ReplScreenState {
     // Status / spinner / permission / context
     StatusBarData status_bar;
     std::optional<std::string> spinner_verb, spinner_tip;
-    std::optional<PermissionRequestInfo> permission_request;
-    DialogContext dialog_ctx;
-    // Settings-driven UI configuration (mirrors AppState.settings subset
+    std::optional<PermissionRequestInfo> permission_request;    // Settings-driven UI configuration (mirrors AppState.settings subset
     // that the renderer needs — populated by the engine/app layer).
     std::string settings_model;             // Configured default model
     bool status_line_enabled = false;       // User-configurable status line
@@ -365,6 +346,10 @@ struct ReplScreenState {
     bool teams_footer_selected = false;
     // Dialog-suppression flag (typing -> suppress interrupt dialogs)
     bool is_prompt_input_active = false;
+    // M7: True when a JSX tool result is currently rendering an animation in
+    // the message stream.  When set, Band3 dialogs (ToolPermission overlay,
+    // PromptDialog, Elicitation) are suppressed to avoid visual clash.
+    bool is_tool_animation_active = false;
     std::chrono::steady_clock::time_point last_keystroke;
 
     // UI15: opaque wizard component handles (lazily created by
@@ -870,500 +855,36 @@ struct ReplScreenCallbacks {
 }
 
 // =========================================================
-// Dialog routing (delegates each ReplMode to owning UIx agent)
+// M7: Queue-based dialog rendering
 // =========================================================
+//
+// The legacy dialog routing system (ReplMode → RouteDialog → dialog_stubs
+// SimpleDialog builders) was REMOVED in M7 Task #124.
+//
+// ALL dialogs now flow through the DialogQueue:
+//   - Engine side calls PushXxx() triggers in app.cppm / query_engine.cppm
+//     (there are ZERO writes to a "DialogContext" bridge struct anywhere).
+//   - Engine sets ReplMode for some legacy mode-aware UI chrome (mode opts,
+//     vim indicator, etc.) but no longer uses it to determine dialog content.
+//   - SyncReplModeToQueue was also REMOVED — audit confirmed there are ZERO
+//     ReplMode→PushXxx() gaps in the engine call path; every engine-side
+//     ReplMode assignment is paired with a matching DialogQueue push.
+//
+// Render path for queue:
+//   RenderStandaloneDialog() (highest — fullscreen takeover)
+//   RenderModalDialog()       (panel overlay — /settings, /tasks...)
+//   RenderOverlayDialog()     (floating ToolPermission in scroll area)
+//   RenderBottomDialog()      (prompt-affixed focused input dialogs)
+//
+// Event path:
+//   HandleDialogQueueEvent() dispatches in priority order:
+//     standalone > modal > overlay > bottom
+//   with appropriate typing/animation suppression checks.
+//
+// Suppression rules (mirror TS REPL.tsx):
+//   - is_prompt_input_active = typing in progress → Bands 2..6 hidden
+//   - is_tool_animation_active = JSX tool animation running → Band3 hidden
 
-namespace dialog_stubs {
-using Builder = std::function<Element(const ReplScreenState&)>;
-namespace dframe = cc::ui::dialogs::frame;
-using FrameStyle = dframe::FrameStyle;
-using Theme = cc::ui::design::theme::Theme;
-
-/// Build a simple dialog with title + content using DialogFrame.
-/// Common pattern for callout/info dialogs.
-[[nodiscard]] inline Element SimpleDialog(
-    std::string_view title,
-    std::string_view subtitle,
-    Element content,
-    FrameStyle style,
-    const Theme& theme)
-{
-    dframe::DialogFrameProps props;
-    props.title = std::string{title};
-    if (!subtitle.empty()) props.subtitle = std::string{subtitle};
-    props.style = style;
-    props.content = std::move(content);
-    props.full_border = true;
-    props.inner_padding_x = 1;
-    props.inner_padding_y = 0;
-    return dframe::DialogFrame(props, theme);
-}
-
-/// Keyboard hint row (standard pattern: [key] action [key] action ...).
-[[nodiscard]] inline Element KeyHintRow(
-    std::initializer_list<std::pair<std::string, std::string>> hints,
-    Color key_color = Color::Green)
-{
-    Elements row;
-    bool first = true;
-    for (const auto& [key, action] : hints) {
-        if (!first) row.push_back(text("  "));
-        first = false;
-        row.push_back(text("[" + key + "]") | bold | color(key_color));
-        row.push_back(text(" " + action) | dim);
-    }
-    return hbox(std::move(row));
-}
-
-/// Dispatch table.  Each ReplMode dialog mode maps to a builder.
-/// All renders use DialogFrame for faithful TS PermissionDialog visual language.
-[[nodiscard]] inline Builder get_builder(ReplMode m) {
-    using P = std::pair<ReplMode, Builder>;
-    static const P kTable[] = {
-      // UI6  MessageSelector — full toolbar in messages_interactions.cppm
-      P{ReplMode::MessageSelector, [](const auto&){
-         auto theme = cc::ui::design::theme::current_theme();
-         auto content = vbox({
-             text("Select messages to rewind, edit, or summarize") | center,
-             text(""),
-             KeyHintRow({
-                 {"Up/Down", "navigate"},
-                 {"Enter", "edit"},
-                 {"s", "summarize"},
-             }, Color::Cyan),
-             text(""),
-             hbox({
-                 text("[Esc]") | bold | color(Color::Red),
-                 text(" close") | dim,
-             }),
-         });
-         return SimpleDialog("Message Selector", "Rewind / Edit / Summarize",
-                             std::move(content), FrameStyle::Info, theme);
-      }},
-      // UI8  Sandbox (leader + worker) — styled permission panels
-      P{ReplMode::SandboxPermission, [](const auto& s){
-         auto theme = cc::ui::design::theme::current_theme();
-         auto host = s.dialog_ctx.sandbox_host_pattern.value_or("unknown");
-         auto content = vbox({
-             hbox({
-                 text("Host: ") | dim,
-                 text(host) | bold,
-             }),
-             text(""),
-             paragraph("Allow network access to this host?"),
-             text(""),
-             KeyHintRow({
-                 {"y", "Allow"},
-                 {"a", "Always"},
-                 {"n", "Deny"},
-             }),
-             text(""),
-             hbox({
-                 text("[Esc]") | bold | color(Color::Red),
-                 text(" cancel") | dim,
-             }),
-         });
-         return SimpleDialog("Network Access Request",
-                             "Claude wants to access the network",
-                             std::move(content),
-                             FrameStyle::Warning, theme);
-      }},
-      P{ReplMode::WorkerSandboxPermission, [](const auto& s){
-         auto theme = cc::ui::design::theme::current_theme();
-         auto req_id = s.dialog_ctx.sandbox_worker_request_id.value_or("worker");
-         auto content = vbox({
-             hbox({
-                 text("Worker: ") | dim,
-                 text(req_id) | bold,
-             }),
-             text(""),
-             paragraph("This worker requests network access."),
-             text(""),
-             KeyHintRow({
-                 {"y", "Allow"},
-                 {"a", "Always"},
-                 {"n", "Deny"},
-             }),
-             text(""),
-             hbox({
-                 text("[Esc]") | bold | color(Color::Red),
-                 text(" cancel") | dim,
-             }),
-         });
-         return SimpleDialog("Worker Network Access",
-                             "Worker \"" + req_id + "\" requests network access",
-                             std::move(content),
-                             FrameStyle::Warning, theme);
-      }},
-      // UI9  ToolPermission — handled by Component path (faithful permission panels)
-      P{ReplMode::ToolPermission, [](const auto& s){
-         if (!s.permission_request) return Element{};
-         namespace sp = cc::ui::permissions::single_prompt;
-         sp::SinglePromptProps props;
-         props.tool_name = s.permission_request->tool_name;
-         props.description = s.permission_request->description;
-         if (s.permission_request->file_path)
-             props.affected_paths.push_back(*s.permission_request->file_path);
-         auto state = std::make_shared<sp::PromptState>();
-         state->props = std::move(props);
-         return sp::RenderSinglePrompt(state);
-      }},
-      // UI2  Hook prompt — input request from a pre/post hook
-      P{ReplMode::PromptHook, [](const auto&){
-         auto theme = cc::ui::design::theme::current_theme();
-         auto content = vbox({
-             text("A hook requires user input.") | center,
-             text(""),
-             KeyHintRow({
-                 {"Enter", "Submit"},
-             }),
-             text(""),
-             hbox({
-                 text("[Esc]") | bold | color(Color::Red),
-                 text(" cancel") | dim,
-             }),
-         });
-         return SimpleDialog("Input Required", "Hook prompt",
-                             std::move(content),
-                             FrameStyle::Info, theme);
-      }},
-      // UI10 Elicitation (MCP) — server requesting structured input
-      P{ReplMode::Elicitation, [](const auto& s){
-         auto theme = cc::ui::design::theme::current_theme();
-         auto server = s.dialog_ctx.elicitation_server_name.value_or("MCP Server");
-         auto content = vbox({
-             hbox({
-                 text("Server: ") | dim,
-                 text(server) | bold,
-             }),
-             text(""),
-             paragraph("The server needs additional input to proceed."),
-             text(""),
-             KeyHintRow({
-                 {"Enter", "Approve"},
-             }),
-             text(""),
-             hbox({
-                 text("[Esc]") | bold | color(Color::Red),
-                 text(" deny") | dim,
-             }),
-         });
-         return SimpleDialog("MCP Server Request",
-                             std::string{server} + " needs additional input",
-                             std::move(content),
-                             FrameStyle::Info, theme);
-      }},
-      // UI1  Cost threshold — session cost exceeded
-      P{ReplMode::CostThreshold, [](const auto& s){
-         auto theme = cc::ui::design::theme::current_theme();
-         auto cost = s.dialog_ctx.cost_threshold_usd.value_or(0.0);
-         auto current = s.status_bar.cost_usd.value_or(0.0);
-         auto content = vbox({
-             hbox({
-                 text("Current: ") | dim,
-                 text(std::format("${:.2f}", current)) | bold
-                     | color(Color::Yellow),
-             }),
-             hbox({
-                 text("Threshold: ") | dim,
-                 text(std::format("${:.2f}", cost)),
-             }),
-             hbox({
-                 text("Model: ") | dim,
-                 text(s.status_bar.model_name),
-             }),
-             text(""),
-             KeyHintRow({
-                 {"c", "Continue"},
-                 {"r", "Reset counter"},
-                 {"q", "Quit"},
-             }),
-         });
-         return SimpleDialog("Cost Threshold Reached",
-                             "Session cost has exceeded your configured threshold",
-                             std::move(content),
-                             FrameStyle::Warning, theme);
-      }},
-      // UI1  Idle return — session was idle
-      P{ReplMode::IdleReturn, [](const auto& s){
-         auto theme = cc::ui::design::theme::current_theme();
-         auto mins = s.dialog_ctx.idle_return_minutes.value_or(0);
-         auto subtitle = mins > 0
-             ? std::format("Your session has been idle for {} minutes.", mins)
-             : std::string{"Your session has been idle."};
-         auto content = vbox({
-             text("Would you like to resume where you left off?") | center,
-             text(""),
-             hbox({
-                 text("[Enter]") | bold | color(Color::Green),
-                 text(" Resume") | dim,
-                 text("  "),
-                 text("[n]") | bold | color(Color::Cyan),
-                 text(" Start new") | dim,
-             }) | center,
-         });
-         return SimpleDialog("Welcome Back", subtitle, std::move(content),
-                             FrameStyle::Info, theme);
-      }},
-      // UI11 Ultraplan choice — plan proposal
-      P{ReplMode::UltraplanChoice, [](const auto& s){
-         auto theme = cc::ui::design::theme::current_theme();
-         auto blurb = s.dialog_ctx.ultraplan_blurb.value_or(
-             "A structured plan has been generated.");
-         auto content = vbox({
-             paragraph(blurb),
-             text(""),
-             KeyHintRow({
-                 {"Enter", "Accept"},
-             }),
-             text(""),
-             hbox({
-                 text("[Esc]") | bold | color(Color::Red),
-                 text(" cancel") | dim,
-             }),
-         });
-         return SimpleDialog("Plan Proposal", "Ultraplan",
-                             std::move(content),
-                             FrameStyle::Info, theme);
-      }},
-      // UI11 Ultraplan launch
-      P{ReplMode::UltraplanLaunch, [](const auto&){
-         auto theme = cc::ui::design::theme::current_theme();
-         auto content = vbox({
-             text("Launch background plan execution?") | center,
-             text(""),
-             text("Workers will execute the plan steps in parallel.") | dim | center,
-             text(""),
-             KeyHintRow({
-                 {"Enter", "Launch"},
-             }),
-             text(""),
-             hbox({
-                 text("[Esc]") | bold | color(Color::Red),
-                 text(" cancel") | dim,
-             }),
-         });
-         return SimpleDialog("Ultraplan Launch", "Background execution",
-                             std::move(content),
-                             FrameStyle::Info, theme);
-      }},
-      // UI11 IDE Onboarding
-      P{ReplMode::IdeOnboarding, [](const auto&){
-         auto theme = cc::ui::design::theme::current_theme();
-         auto content = vbox({
-             text("Install the IDE extension for enhanced editing,") | center,
-             text("inline completions, and project awareness.") | center,
-             text(""),
-             KeyHintRow({
-                 {"Enter", "Install"},
-             }),
-             text(""),
-             hbox({
-                 text("[Esc]") | bold,
-                 text(" dismiss") | dim,
-             }),
-         });
-         return SimpleDialog("IDE Extension Available", "Enhanced editing experience",
-                             std::move(content),
-                             FrameStyle::Info, theme);
-      }},
-      // UI11 Init onboarding (first-run wizard)
-      P{ReplMode::InitOnboarding, [](const auto&){
-         auto theme = cc::ui::design::theme::current_theme();
-         auto content = vbox({
-             text("Let's get you set up with a quick walkthrough.") | center,
-             text("Configure your API key, model, and preferences.") | center,
-             text(""),
-             KeyHintRow({
-                 {"Enter", "Begin setup"},
-             }),
-             text(""),
-             hbox({
-                 text("[Esc]") | bold,
-                 text(" skip") | dim,
-             }),
-         });
-         return SimpleDialog("Welcome to CC-REPL", "First-time setup",
-                             std::move(content),
-                             FrameStyle::Success, theme);
-      }},
-      // UI11 Model switch suggestion
-      P{ReplMode::ModelSwitch, [](const auto& s){
-         auto theme = cc::ui::design::theme::current_theme();
-         auto model = s.dialog_ctx.model_switch_alias.value_or("a new model");
-         auto content = vbox({
-             text("A better model may be available for this task.") | center,
-             text(""),
-             KeyHintRow({
-                 {"Enter", "Switch"},
-             }),
-             text(""),
-             hbox({
-                 text("[Esc]") | bold,
-                 text(" dismiss") | dim,
-             }),
-         });
-         return SimpleDialog("Try " + std::string{model} + "?",
-                             "Model recommendation",
-                             std::move(content),
-                             FrameStyle::Info, theme);
-      }},
-      // UI11 Auto mode callout
-      P{ReplMode::UndercoverCallout, [](const auto&){
-         auto theme = cc::ui::design::theme::current_theme();
-         auto content = vbox({
-             text("Automatically approve low-risk tool calls") | center,
-             text("(file reads, searches, safe commands).") | center,
-             text(""),
-             KeyHintRow({
-                 {"Enter", "Enable"},
-             }),
-             text(""),
-             hbox({
-                 text("[Esc]") | bold,
-                 text(" dismiss") | dim,
-             }),
-         });
-         return SimpleDialog("Enable Auto-Approve?", "Auto mode",
-                             std::move(content),
-                             FrameStyle::Info, theme);
-      }},
-      // UI11 Effort callout
-      P{ReplMode::EffortCallout, [](const auto&){
-         auto theme = cc::ui::design::theme::current_theme();
-         auto content = vbox({
-             text("Higher effort = deeper reasoning, more tokens.") | center,
-             text("Lower effort = faster, cheaper responses.") | center,
-             text(""),
-             KeyHintRow({
-                 {"Enter", "Configure"},
-             }),
-             text(""),
-             hbox({
-                 text("[Esc]") | bold,
-                 text(" dismiss") | dim,
-             }),
-         });
-         return SimpleDialog("Adjust Response Effort", "Effort level",
-                             std::move(content),
-                             FrameStyle::Warning, theme);
-      }},
-      // UI11 Remote control callout
-      P{ReplMode::RemoteCallout, [](const auto&){
-         auto theme = cc::ui::design::theme::current_theme();
-         auto content = vbox({
-             text("Connect to your IDE for remote editing,") | center,
-             text("file sync, and collaborative features.") | center,
-             text(""),
-             KeyHintRow({
-                 {"Enter", "Enable"},
-             }),
-             text(""),
-             hbox({
-                 text("[Esc]") | bold,
-                 text(" dismiss") | dim,
-             }),
-         });
-         return SimpleDialog("Enable IDE Bridge?", "Remote control",
-                             std::move(content),
-                             FrameStyle::Info, theme);
-      }},
-      // UI11 Desktop upsell
-      P{ReplMode::DesktopUpsell, [](const auto&){
-         auto theme = cc::ui::design::theme::current_theme();
-         auto content = vbox({
-             text("Rich UI, native notifications, multi-window,") | center,
-             text("and file drag-and-drop support.") | center,
-             text(""),
-             KeyHintRow({
-                 {"Enter", "Learn more"},
-             }),
-             text(""),
-             hbox({
-                 text("[Esc]") | bold,
-                 text(" dismiss") | dim,
-             }),
-         });
-         return SimpleDialog("Try the Desktop App", "Enhanced experience",
-                             std::move(content),
-                             FrameStyle::Info, theme);
-      }},
-      // UI16 LSP Recommendation
-      P{ReplMode::LspRecommendation, [](const auto& s){
-         auto theme = cc::ui::design::theme::current_theme();
-         auto ext = s.dialog_ctx.lsp_rec_extension.value_or("language-server");
-         auto fext = s.dialog_ctx.lsp_rec_file_ext.value_or("");
-         Elements body;
-         body.push_back(hbox({
-             text("Extension: ") | dim,
-             text(ext) | bold,
-         }));
-         if (!fext.empty())
-             body.push_back(hbox({
-                 text("For files: ") | dim,
-                 text("*." + fext),
-             }));
-         body.push_back(text(""));
-         body.push_back(KeyHintRow({
-             {"i", "Install"},
-             {"d", "Dismiss"},
-         }, Color::Cyan));
-         return SimpleDialog("LSP Server Recommended", "Language server suggestion",
-                             vbox(std::move(body)),
-                             FrameStyle::Info, theme);
-      }},
-      // UI16 Plugin hint
-      P{ReplMode::PluginHint, [](const auto& s){
-         auto theme = cc::ui::design::theme::current_theme();
-         auto name = s.dialog_ctx.plugin_hint_name.value_or("plugin");
-         auto desc = s.dialog_ctx.plugin_hint_description.value_or("");
-         Elements body;
-         body.push_back(text(name) | bold);
-         if (!desc.empty()) body.push_back(text(desc) | dim);
-         body.push_back(text(""));
-         body.push_back(KeyHintRow({
-             {"i", "Install"},
-             {"d", "Dismiss"},
-         }, Color::Cyan));
-         return SimpleDialog("Plugin Suggestion", "Recommended plugin",
-                             vbox(std::move(body)),
-                             FrameStyle::Info, theme);
-      }},
-    };
-    for (const auto& p : kTable) if (p.first == m) return p.second;
-    return nullptr;
-}
-} // namespace dialog_stubs
-
-/// Top-level dialog router: ReplMode -> overlay Element.
-/// Panel modes (Normal / Tasks / Teams / Help / QuickOpen) return nullopt.
-/// Priority matches TS getFocusedInputDialog() (REPL.tsx:2013):
-///   Exit > message-selector > sandbox > permissions/hook/elicit >
-///   cost/idle/ultraplan > onboarding > recs > panels.
-[[nodiscard]] inline std::optional<Element> RouteDialog(
-    ReplMode m, const ReplScreenState& s) {
-    using namespace dialog_stubs;
-    switch (m) {
-      case ReplMode::Normal: case ReplMode::TasksView:
-      case ReplMode::TeamsView: case ReplMode::HelpView:
-      case ReplMode::SettingsView: case ReplMode::AboutView:
-      case ReplMode::QuickOpen: return std::nullopt;
-
-      case ReplMode::InstallGitHubApp:
-      case ReplMode::InstallSlackApp:
-      case ReplMode::CreateAgent:
-      case ReplMode::EditAgent:
-        return std::nullopt;
-
-      default: break; }
-    auto b = get_builder(m);
-    if (!b) return std::nullopt;
-    Element e = b(s);
-    if (!e) return std::nullopt;
-    return e;
-}
-
-// =========================================================
 // M7: Queue-based dialog rendering
 // =========================================================
 
@@ -1398,6 +919,10 @@ namespace frame = cc::ui::dialogs::frame;
     // Suppress while user is typing (matches TS: tool-permission is band 3)
     if (s.is_prompt_input_active) return std::nullopt;
 
+    // Suppress while a JSX tool animation is active (Band3 overlay would
+    // visually clash with the animation frames in the message stream).
+    if (s.is_tool_animation_active) return std::nullopt;
+
     auto payload = queue.peek_overlay();
     if (!payload) return std::nullopt;
 
@@ -1419,7 +944,13 @@ namespace frame = cc::ui::dialogs::frame;
     const auto& queue = s.dialog_queue;
     if (!queue.has_any_bottom()) return std::nullopt;
 
-    auto payload = queue.peek_bottom(s.is_prompt_input_active);
+    // allow_dialogs_with_animation = !is_tool_animation_active — when an
+    // animation is running, Band3 prompt/elicitation dialogs are suppressed
+    // in the bottom slot as well (they're "focused input" interruptions that
+    // would render on top of the scrolling animation).
+    auto payload = queue.peek_bottom(s.is_prompt_input_active,
+                                      /*allow_dialogs_with_animation=*/
+                                      !s.is_tool_animation_active);
     if (!payload) return std::nullopt;
 
     auto ctx = make_context(s, term_cols, term_rows);
@@ -1433,9 +964,9 @@ namespace frame = cc::ui::dialogs::frame;
 /// Render the modal-slot dialog (full-width dbox overlay with ▔ divider).
 /// These are the panel dialogs: /settings, /tasks, /help, /plugins, etc.
 ///
-/// NOTE: For backward compatibility, the modal slot is still primarily driven
-/// by ReplMode + RouteDialog.  The queue-based modal dialogs are additive —
-/// if the queue has a modal dialog, it takes precedence over RouteDialog.
+/// M7 NOTE: Driven entirely by the DialogQueue's Modal slot (stack).  Engine
+/// pushes via PushModalPanel() in app.cppm.  There is no ReplMode-driven
+/// RouteDialog fallback — all modal dialogs go through the queue.
 [[nodiscard]] inline std::optional<Element> RenderModalDialog(
     const ReplScreenState& s,
     int term_cols,
@@ -1455,15 +986,54 @@ namespace frame = cc::ui::dialogs::frame;
     return el | size(HEIGHT, LESS_THAN, std::max(5, term_rows - 4));
 }
 
+/// Render the standalone-slot dialog (full-screen takeover, no chrome).
+/// These are the one-at-a-time dialogs: TrustDialog, Onboarding,
+/// Install*Wizard, CreateAgentWizard, EditAgentWizard (per M7 §3.1).
+/// When a standalone dialog is present, it SHORT-CIRCUITS all other rendering
+/// (no chrome, no prompt, no messages) matching the TS behavior.
+[[nodiscard]] inline std::optional<Element> RenderStandaloneDialog(
+    const ReplScreenState& s,
+    int term_cols,
+    int term_rows)
+{
+    const auto& queue = s.dialog_queue;
+    if (!queue.has_standalone()) return std::nullopt;
+
+    auto payload = queue.peek_standalone();
+    if (!payload) return std::nullopt;
+
+    auto ctx = make_context(s, term_cols, term_rows);
+    auto el = s.dialog_renderers.render(payload->get(), ctx);
+    if (!el) return std::nullopt;
+
+    // Full-screen takeover: fill entire terminal
+    return el | xflex | yflex;
+}
+
 /// Dispatch an event to the currently active dialog in the queue.
-/// Checks slots in priority order: modal > overlay > bottom.
+/// Checks slots in priority order: standalone > modal > overlay > bottom.
 /// Returns true if the event was handled by a queue dialog.
 [[nodiscard]] inline bool HandleDialogQueueEvent(
     ReplScreenState& s, const Event& ev) {
     auto& queue = s.dialog_queue;
     if (queue.empty()) return false;
 
-    // Modal slot — highest priority
+    // Standalone slot — highest priority (takes all input focus, nothing
+    // else is visible behind it per design doc §3.1).
+    if (queue.has_standalone()) {
+        auto payload = queue.peek_standalone_mut();
+        if (payload) {
+            if (s.dialog_renderers.handle_event(payload->get(), ev)) return true;
+            // Esc on standalone → dismiss.  Matches TS: Esc closes the
+            // topmost wizard/takeover dialog.
+            if (ev == Event::Escape) {
+                queue.pop_standalone();
+                return true;
+            }
+        }
+    }
+
+    // Modal slot — next priority
     if (queue.has_modal()) {
         auto payload = queue.peek_modal_mut();
         if (payload) {
@@ -1473,14 +1043,23 @@ namespace frame = cc::ui::dialogs::frame;
 
     // Overlay slot (ToolPermission etc.)
     if (queue.has_overlay()) {
-        auto payload = queue.peek_overlay_mut();
-        if (payload) {
-            return s.dialog_renderers.handle_event(payload->get(), ev);
+        // Respect the same suppression rules as render: no event dispatch
+        // while typing or while a JSX tool animation is active (the dialog
+        // isn't visible, so events would land on a hidden widget — confusing).
+        if (s.is_prompt_input_active || s.is_tool_animation_active) {
+            // fall through to bottom slot check below
+        } else {
+            auto payload = queue.peek_overlay_mut();
+            if (payload) {
+                return s.dialog_renderers.handle_event(payload->get(), ev);
+            }
         }
     }
 
     // Bottom slot — only if prompt not actively typing (matches render suppression rules)
-    auto payload = queue.peek_bottom_mut(s.is_prompt_input_active);
+    auto payload = queue.peek_bottom_mut(s.is_prompt_input_active,
+                                          /*allow_dialogs_with_animation=*/
+                                          !s.is_tool_animation_active);
     if (payload) {
         return s.dialog_renderers.handle_event(payload->get(), ev);
     }
@@ -1492,11 +1071,17 @@ namespace frame = cc::ui::dialogs::frame;
 /// Used by event dispatch logic.
 [[nodiscard]] inline bool HasActiveQueueDialog(const ReplScreenState& s) {
     auto& q = s.dialog_queue;
+    if (q.has_standalone()) return true;
     if (q.has_modal()) return true;
-    if (q.has_overlay()) return true;
+    if (q.has_overlay()) {
+        // Overlay only "active" when not suppressed by typing/animation.
+        if (!s.is_prompt_input_active && !s.is_tool_animation_active) return true;
+    }
     if (q.has_any_bottom()) {
-        // Bottom dialog may be suppressed by typing; check active band
-        auto peek = q.peek_bottom(s.is_prompt_input_active);
+        // Bottom dialog may be suppressed by typing/animation; check active band
+        auto peek = q.peek_bottom(s.is_prompt_input_active,
+                                   /*allow_dialogs_with_animation=*/
+                                   !s.is_tool_animation_active);
         return peek.has_value();
     }
     return false;
@@ -1546,602 +1131,7 @@ namespace frame = cc::ui::dialogs::frame;
       default:
         return false;
     }
-}
-
-/// Synchronize ReplScreenState::mode with the DialogQueue.
-///
-/// When `s.mode` is set to a dialog mode, this function pushes the
-/// corresponding dialog into the queue (if not already present).  The
-/// dialog's response callbacks are wrapped so that resolving the
-/// dialog also resets `s.mode = Normal` and pops the dialog from the
-/// queue.
-///
-/// Panel modes (TasksView, HelpView, etc.) are bridged to the modal slot
-/// as of M7.5 — they use pre-built FTXUI components stored in the payload
-/// so state (selected tab, scroll position) persists across renders.
-///
-/// This is a migration aid: engine code can continue to set `mode`
-/// while the UI gradually migrates to queue-based dialog dispatch.
-inline void SyncReplModeToQueue(ReplScreenState& s,
-                                const std::shared_ptr<ReplScreenCallbacks>& cb)
-{
-    namespace dsys = cc::ui::dialogs::system;
-
-    // Helper: check if mode should be handled by legacy code paths
-    // (Normal is a no-op; ToolPermission uses high-fidelity panels).
-    auto is_legacy_only = [](ReplMode m) {
-        switch (m) {
-          case ReplMode::Normal:
-          case ReplMode::ToolPermission:
-            return true;
-          default: return false;
-        }
-    };
-
-    if (is_legacy_only(s.mode)) {
-        return;
-    }
-
-    // For each dialog mode, push the corresponding payload if not
-    // already in the queue.
-    //
-    // Each callback wrapper:
-    //   1. Forwards to the original engine callback
-    //   2. Pops the dialog from the correct queue slot
-    //   3. Resets s.mode = Normal
-    //   4. Fires on_mode_change
-
-    auto set_mode_normal = [&]() {
-        s.mode = ReplMode::Normal;
-        if (cb && cb->on_mode_change) cb->on_mode_change(ReplMode::Normal);
-    };
-
-    switch (s.mode) {
-      // ==== Band 1: MessageSelector (never suppressed by typing) ====
-      case ReplMode::MessageSelector: {
-        if (s.dialog_queue.contains_type(dsys::DialogType::MessageSelector)) break;
-        dsys::MessageSelectorPayload p;
-        p.id = "msgsel_bridge";
-        p.placeholder = "Select a message";
-        p.on_select = [&, set_mode_normal](int idx) {
-            (void)idx;
-            s.dialog_queue.remove(p.id);
-            set_mode_normal();
-        };
-        s.dialog_queue.push(std::move(p));
-        break;
-      }
-
-      // ==== Band 2: SandboxPermission ====
-      case ReplMode::SandboxPermission: {
-        if (s.dialog_queue.contains_type(dsys::DialogType::SandboxPermission)) break;
-        dsys::SandboxPermissionPayload p;
-        p.id = "sandbox_bridge";
-        p.host_pattern = s.dialog_ctx.sandbox_host_pattern.value_or("unknown");
-        p.is_worker = false;
-        p.on_response = [&, set_mode_normal, cb_p = cb](bool allow, bool always) {
-            if (cb_p && cb_p->on_permission_response) {
-                cb_p->on_permission_response(allow, always ? std::optional{true} : std::nullopt);
-            }
-            s.dialog_queue.remove("sandbox_bridge");
-            set_mode_normal();
-        };
-        s.dialog_queue.push(std::move(p));
-        break;
-      }
-
-      // ==== Band 3: WorkerSandboxPermission ====
-      case ReplMode::WorkerSandboxPermission: {
-        if (s.dialog_queue.contains_type(dsys::DialogType::WorkerSandboxPermission)) break;
-        dsys::WorkerSandboxPermissionPayload p;
-        p.id = "worker_sandbox_bridge";
-        p.worker_id = s.dialog_ctx.sandbox_worker_request_id.value_or("worker");
-        p.tool_name = "worker";
-        p.description = "Worker network access request";
-        p.on_response = [&, set_mode_normal, cb_p = cb](bool allow, bool always) {
-            if (cb_p && cb_p->on_permission_response) {
-                cb_p->on_permission_response(allow, always ? std::optional{true} : std::nullopt);
-            }
-            s.dialog_queue.remove("worker_sandbox_bridge");
-            set_mode_normal();
-        };
-        s.dialog_queue.push(std::move(p));
-        break;
-      }
-
-      // ==== Band 3: ToolPermission (overlay slot) ====
-      case ReplMode::ToolPermission: {
-        if (s.dialog_queue.contains_type(dsys::DialogType::ToolPermission)) break;
-        if (!s.permission_request) break;
-        dsys::ToolPermissionPayload p;
-        p.id = "toolperm_bridge";
-        p.tool_name = s.permission_request->tool_name;
-        p.description = s.permission_request->description;
-        p.can_always_allow = true;
-        p.on_response = [&, set_mode_normal, cb_p = cb](
-            dsys::ToolPermissionPayload::Decision decision, bool sandbox)
-        {
-            bool allow = (decision == dsys::ToolPermissionPayload::Decision::AllowOnce
-                       || decision == dsys::ToolPermissionPayload::Decision::AlwaysAllow);
-            bool always = (decision == dsys::ToolPermissionPayload::Decision::AlwaysAllow);
-            (void)sandbox;
-            if (cb_p && cb_p->on_permission_response) {
-                cb_p->on_permission_response(allow, always ? std::optional{true} : std::nullopt);
-            }
-            s.dialog_queue.remove("toolperm_bridge");
-            set_mode_normal();
-        };
-        p.on_abort = [&, set_mode_normal]() {
-            s.dialog_queue.remove("toolperm_bridge");
-            set_mode_normal();
-        };
-        s.dialog_queue.push(std::move(p));
-        break;
-      }
-
-      // ==== Band 3: PromptDialog (hook prompt) ====
-      case ReplMode::PromptHook: {
-        if (s.dialog_queue.contains_type(dsys::DialogType::PromptDialog)) break;
-        dsys::PromptDialogPayload p;
-        p.id = "prompt_bridge";
-        p.title = "Input Required";
-        p.prompt_text = "A hook requires user input.";
-        p.on_response = [&, set_mode_normal, cb_p = cb](std::optional<std::string> value) {
-            (void)value;
-            if (cb_p && cb_p->on_permission_response) {
-                // Map prompt submit → allow (approximate for bridge)
-                cb_p->on_permission_response(value.has_value(), std::nullopt);
-            }
-            s.dialog_queue.remove("prompt_bridge");
-            set_mode_normal();
-        };
-        s.dialog_queue.push(std::move(p));
-        break;
-      }
-
-      // ==== Band 3: Elicitation (MCP) ====
-      case ReplMode::Elicitation: {
-        if (s.dialog_queue.contains_type(dsys::DialogType::Elicitation)) break;
-        dsys::ElicitationPayload p;
-        p.id = "elicit_bridge";
-        p.server_name = s.dialog_ctx.elicitation_server_name.value_or("MCP Server");
-        p.request_description = "Server needs additional input";
-        p.request_id = s.dialog_ctx.elicitation_request_id.value_or(0);
-        p.on_response = [&, set_mode_normal, cb_p = cb](bool approve) {
-            if (cb_p && cb_p->on_permission_response) {
-                cb_p->on_permission_response(approve, std::nullopt);
-            }
-            s.dialog_queue.remove("elicit_bridge");
-            set_mode_normal();
-        };
-        s.dialog_queue.push(std::move(p));
-        break;
-      }
-
-      // ==== Band 4: CostThreshold ====
-      case ReplMode::CostThreshold: {
-        if (s.dialog_queue.contains_type(dsys::DialogType::CostThreshold)) break;
-        dsys::CostThresholdPayload p;
-        p.id = "cost_bridge";
-        p.cost_threshold_usd = s.dialog_ctx.cost_threshold_usd.value_or(0.0);
-        p.current_cost_usd = s.status_bar.cost_usd.value_or(0.0);
-        p.model_name = s.status_bar.model_name;
-        p.on_response = [&, set_mode_normal, cb_p = cb](bool continue_, bool reset) {
-            if (cb_p && cb_p->on_dialog_action) {
-                // action 0 = continue, 1 = reset, 2 = quit
-                int action = continue_ ? 0 : (reset ? 1 : 2);
-                cb_p->on_dialog_action(ReplMode::CostThreshold, action);
-            }
-            s.dialog_queue.remove("cost_bridge");
-            set_mode_normal();
-        };
-        s.dialog_queue.push(std::move(p));
-        break;
-      }
-
-      // ==== Band 4: IdleReturn ====
-      case ReplMode::IdleReturn: {
-        if (s.dialog_queue.contains_type(dsys::DialogType::IdleReturn)) break;
-        dsys::IdleReturnPayload p;
-        p.id = "idle_bridge";
-        p.idle_minutes = s.dialog_ctx.idle_return_minutes.value_or(0);
-        p.on_response = [&, set_mode_normal](bool resume) {
-            (void)resume;
-            s.dialog_queue.remove("idle_bridge");
-            set_mode_normal();
-        };
-        s.dialog_queue.push(std::move(p));
-        break;
-      }
-
-      // ==== Band 4: UltraplanChoice ====
-      case ReplMode::UltraplanChoice: {
-        if (s.dialog_queue.contains_type(dsys::DialogType::UltraplanChoice)) break;
-        dsys::UltraplanChoicePayload p;
-        p.id = "ultrachoice_bridge";
-        p.plan_name = "Ultraplan";
-        p.price_text = s.dialog_ctx.ultraplan_blurb.value_or("");
-        p.on_response = [&, set_mode_normal](bool upgrade) {
-            (void)upgrade;
-            s.dialog_queue.remove("ultrachoice_bridge");
-            set_mode_normal();
-        };
-        s.dialog_queue.push(std::move(p));
-        break;
-      }
-
-      // ==== Band 4: UltraplanLaunch ====
-      case ReplMode::UltraplanLaunch: {
-        if (s.dialog_queue.contains_type(dsys::DialogType::UltraplanLaunch)) break;
-        dsys::UltraplanLaunchPayload p;
-        p.id = "ultralaunch_bridge";
-        p.plan_name = "Ultraplan";
-        p.on_response = [&, set_mode_normal](bool activate) {
-            (void)activate;
-            s.dialog_queue.remove("ultralaunch_bridge");
-            set_mode_normal();
-        };
-        s.dialog_queue.push(std::move(p));
-        break;
-      }
-
-      // ==== Band 5: Onboarding / callouts ====
-      case ReplMode::IdeOnboarding: {
-        if (s.dialog_queue.contains_type(dsys::DialogType::IdeOnboarding)) break;
-        dsys::IdeOnboardingPayload p;
-        p.id = "ideonboard_bridge";
-        p.ide_name = "IDE Extension";
-        p.on_response = [&, set_mode_normal](bool dismiss) {
-            (void)dismiss;
-            s.dialog_queue.remove("ideonboard_bridge");
-            set_mode_normal();
-        };
-        s.dialog_queue.push(std::move(p));
-        break;
-      }
-
-      case ReplMode::InitOnboarding: {
-        if (s.dialog_queue.contains_type(dsys::DialogType::InitOnboarding)) break;
-        dsys::InitOnboardingPayload p;
-        p.id = "initonboard_bridge";
-        p.on_response = [&, set_mode_normal](bool dismiss) {
-            (void)dismiss;
-            s.dialog_queue.remove("initonboard_bridge");
-            set_mode_normal();
-        };
-        s.dialog_queue.push(std::move(p));
-        break;
-      }
-
-      case ReplMode::ModelSwitch: {
-        if (s.dialog_queue.contains_type(dsys::DialogType::ModelSwitch)) break;
-        dsys::ModelSwitchPayload p;
-        p.id = "modelswitch_bridge";
-        p.from_model = s.status_bar.model_name;
-        p.to_model = s.dialog_ctx.model_switch_alias.value_or("new model");
-        p.on_response = [&, set_mode_normal](bool confirm) {
-            (void)confirm;
-            s.dialog_queue.remove("modelswitch_bridge");
-            set_mode_normal();
-        };
-        s.dialog_queue.push(std::move(p));
-        break;
-      }
-
-      case ReplMode::UndercoverCallout: {
-        if (s.dialog_queue.contains_type(dsys::DialogType::UndercoverCallout)) break;
-        dsys::UndercoverCalloutPayload p;
-        p.id = "undercover_bridge";
-        p.is_active = false;
-        p.on_dismiss = [&, set_mode_normal]() {
-            s.dialog_queue.remove("undercover_bridge");
-            set_mode_normal();
-        };
-        s.dialog_queue.push(std::move(p));
-        break;
-      }
-
-      case ReplMode::EffortCallout: {
-        if (s.dialog_queue.contains_type(dsys::DialogType::EffortCallout)) break;
-        dsys::EffortCalloutPayload p;
-        p.id = "effort_bridge";
-        p.effort_level = s.status_bar.effort_level.value_or("medium");
-        p.on_dismiss = [&, set_mode_normal]() {
-            s.dialog_queue.remove("effort_bridge");
-            set_mode_normal();
-        };
-        s.dialog_queue.push(std::move(p));
-        break;
-      }
-
-      case ReplMode::RemoteCallout: {
-        if (s.dialog_queue.contains_type(dsys::DialogType::RemoteCallout)) break;
-        dsys::RemoteCalloutPayload p;
-        p.id = "remote_bridge";
-        p.host = s.status_bar.bridge_connected ? "connected" : "disconnected";
-        p.is_connected = s.status_bar.bridge_connected;
-        p.on_dismiss = [&, set_mode_normal]() {
-            s.dialog_queue.remove("remote_bridge");
-            set_mode_normal();
-        };
-        s.dialog_queue.push(std::move(p));
-        break;
-      }
-
-      // ==== Band 6: Upsell / Recommendations ====
-      case ReplMode::DesktopUpsell: {
-        if (s.dialog_queue.contains_type(dsys::DialogType::DesktopUpsell)) break;
-        dsys::DesktopUpsellPayload p;
-        p.id = "desktop_bridge";
-        p.on_response = [&, set_mode_normal](bool upgrade) {
-            (void)upgrade;
-            s.dialog_queue.remove("desktop_bridge");
-            set_mode_normal();
-        };
-        s.dialog_queue.push(std::move(p));
-        break;
-      }
-
-      case ReplMode::LspRecommendation: {
-        if (s.dialog_queue.contains_type(dsys::DialogType::LspRecommendation)) break;
-        dsys::LspRecommendationPayload p;
-        p.id = "lsprec_bridge";
-        p.server_name = s.dialog_ctx.lsp_rec_extension.value_or("language-server");
-        p.on_response = [&, set_mode_normal](bool install) {
-            (void)install;
-            s.dialog_queue.remove("lsprec_bridge");
-            set_mode_normal();
-        };
-        s.dialog_queue.push(std::move(p));
-        break;
-      }
-
-      case ReplMode::PluginHint: {
-        if (s.dialog_queue.contains_type(dsys::DialogType::PluginHint)) break;
-        dsys::PluginHintPayload p;
-        p.id = "pluginhint_bridge";
-        p.plugin_name = s.dialog_ctx.plugin_hint_name.value_or("plugin");
-        p.hint_text = s.dialog_ctx.plugin_hint_description.value_or("");
-        p.on_response = [&, set_mode_normal](bool enable) {
-            (void)enable;
-            s.dialog_queue.remove("pluginhint_bridge");
-            set_mode_normal();
-        };
-        s.dialog_queue.push(std::move(p));
-        break;
-      }
-
-      // ==== Modal: InstallGitHubAppWizard ====
-      case ReplMode::InstallGitHubApp: {
-        if (s.dialog_queue.contains_type(dsys::DialogType::InstallGitHubAppWizard)) break;
-        dsys::InstallGitHubAppWizardPayload p;
-        p.id = "github_wiz_bridge";
-        // Pre-create the component so first render shows the real wizard
-        // (not a placeholder — matches legacy render-on-first-frame behavior).
-        namespace gh_wiz = cc::ui::dialogs::install_github_app_wizard;
-        gh_wiz::InstallGitHubAppWizardOptions opts;
-        opts.on_complete = [&, set_mode_normal](auto&&) {
-            s.dialog_queue.remove("github_wiz_bridge");
-            set_mode_normal();
-        };
-        opts.on_cancel = [&, set_mode_normal]() {
-            s.dialog_queue.remove("github_wiz_bridge");
-            set_mode_normal();
-        };
-        p.component = std::make_shared<Component>(
-            gh_wiz::MakeInstallGitHubAppWizard(std::move(opts)));
-        p.on_complete = [](bool) {};  // handled by component callbacks above
-        s.dialog_queue.push(std::move(p));
-        break;
-      }
-
-      // ==== Modal: InstallSlackAppWizard ====
-      case ReplMode::InstallSlackApp: {
-        if (s.dialog_queue.contains_type(dsys::DialogType::InstallSlackAppWizard)) break;
-        dsys::InstallSlackAppWizardPayload p;
-        p.id = "slack_wiz_bridge";
-        namespace sk_wiz = cc::ui::dialogs::install_slack_app_wizard;
-        sk_wiz::InstallSlackAppWizardOptions opts;
-        opts.on_complete = [&, set_mode_normal]() {
-            s.dialog_queue.remove("slack_wiz_bridge");
-            set_mode_normal();
-        };
-        opts.on_cancel = [&, set_mode_normal]() {
-            s.dialog_queue.remove("slack_wiz_bridge");
-            set_mode_normal();
-        };
-        p.component = std::make_shared<Component>(
-            sk_wiz::MakeInstallSlackAppWizard(std::move(opts)));
-        p.on_complete = [](bool) {};  // handled by component callbacks above
-        s.dialog_queue.push(std::move(p));
-        break;
-      }
-
-      // ==== Modal: CreateAgentWizard ====
-      case ReplMode::CreateAgent: {
-        if (s.dialog_queue.contains_type(dsys::DialogType::CreateAgentWizard)) break;
-        dsys::CreateAgentWizardPayload p;
-        p.id = "create_agent_wiz_bridge";
-        namespace aw = cc::ui::agents::wizard;
-        aw::AgentWizardOptions opts;
-        opts.on_save = [&, set_mode_normal, cb_p = cb](const aw::WizardDraft& draft) {
-            if (cb_p && cb_p->save_agent_from_wizard) {
-                cb_p->save_agent_from_wizard(draft);
-            }
-            s.dialog_queue.remove("create_agent_wiz_bridge");
-            set_mode_normal();
-        };
-        opts.on_cancel = [&, set_mode_normal]() {
-            s.dialog_queue.remove("create_agent_wiz_bridge");
-            set_mode_normal();
-        };
-        p.component = std::make_shared<Component>(
-            aw::AgentWizard(std::move(opts)));
-        p.on_complete = [](bool, std::string_view) {};  // handled by component callbacks
-        s.dialog_queue.push(std::move(p));
-        break;
-      }
-
-      // ==== Modal: EditAgentWizard ====
-      case ReplMode::EditAgent: {
-        if (s.dialog_queue.contains_type(dsys::DialogType::EditAgentWizard)) break;
-        dsys::EditAgentWizardPayload p;
-        p.id = "edit_agent_wiz_bridge";
-        p.agent_name = s.dialog_ctx.agent_wizard_agent_id.value_or("");
-        namespace aw = cc::ui::agents::wizard;
-        namespace cards = cc::ui::agents::cards;
-        aw::AgentWizardOptions opts;
-        if (s.dialog_ctx.agent_wizard_agent_id && cb && cb->load_agent_for_wizard) {
-            opts.edit_agent = cb->load_agent_for_wizard(*s.dialog_ctx.agent_wizard_agent_id);
-        } else {
-            cards::AgentCardData card;
-            card.name = p.agent_name;
-            opts.edit_agent = std::move(card);
-        }
-        opts.on_save = [&, set_mode_normal, cb_p = cb](const aw::WizardDraft& draft) {
-            if (cb_p && cb_p->save_agent_from_wizard) {
-                cb_p->save_agent_from_wizard(draft);
-            }
-            s.dialog_queue.remove("edit_agent_wiz_bridge");
-            set_mode_normal();
-        };
-        opts.on_cancel = [&, set_mode_normal]() {
-            s.dialog_queue.remove("edit_agent_wiz_bridge");
-            set_mode_normal();
-        };
-        p.component = std::make_shared<Component>(
-            aw::AgentWizard(std::move(opts)));
-        p.on_complete = [](bool) {};  // handled by component callbacks
-        s.dialog_queue.push(std::move(p));
-        break;
-      }
-
-      // ==== Panel views (modal slot) ====
-      case ReplMode::TasksView: {
-        if (s.dialog_queue.contains_type(dsys::DialogType::TasksView)) break;
-        dsys::TasksViewPayload p;
-        p.id = "tasks_view_bridge";
-        p.on_close = [&, set_mode_normal]() {
-            s.dialog_queue.remove("tasks_view_bridge");
-            set_mode_normal();
-        };
-        s.dialog_queue.push(std::move(p));
-        break;
-      }
-      case ReplMode::TeamsView: {
-        if (s.dialog_queue.contains_type(dsys::DialogType::TeamsView)) break;
-        dsys::TeamsViewPayload p;
-        p.id = "teams_view_bridge";
-        p.on_close = [&, set_mode_normal]() {
-            s.dialog_queue.remove("teams_view_bridge");
-            set_mode_normal();
-        };
-        s.dialog_queue.push(std::move(p));
-        break;
-      }
-      case ReplMode::HelpView: {
-        if (s.dialog_queue.contains_type(dsys::DialogType::HelpView)) break;
-        namespace hv = cc::ui::dialogs::help_view;
-        dsys::HelpViewPayload p;
-        p.id = "help_view_bridge";
-        // Pre-create component so state persists and first render is real
-        hv::HelpViewProps props;
-        props.app_version = s.app_version;
-        props.builtin_commands = hv::default_builtin_commands();
-        props.on_close = [&, set_mode_normal]() {
-            s.dialog_queue.remove("help_view_bridge");
-            set_mode_normal();
-        };
-        props.on_run_command = [&, set_mode_normal, cb](std::string_view cmd_name) {
-            if (cb && cb->enqueue_slash_command) {
-                cb->enqueue_slash_command(std::string{"/"} + std::string{cmd_name});
-            }
-            s.dialog_queue.remove("help_view_bridge");
-            set_mode_normal();
-        };
-        auto state = std::make_shared<hv::HelpViewState>();
-        s.help_view_state = state;  // keep state ref in screen state
-        auto theme = cc::ui::design::theme::current_theme();
-        p.component = std::make_shared<Component>(
-            hv::MakeHelpView(std::move(state), std::move(props), theme));
-        p.on_close = []() {};  // handled by component callbacks
-        s.dialog_queue.push(std::move(p));
-        break;
-      }
-      case ReplMode::SettingsView: {
-        if (s.dialog_queue.contains_type(dsys::DialogType::SettingsPanel)) break;
-        namespace sv = cc::ui::dialogs::settings_view;
-        dsys::SettingsPanelPayload p;
-        p.id = "settings_view_bridge";
-        // Pre-create component so state persists and first render is real
-        sv::SettingsViewProps props;
-        props.app_version = s.app_version;
-        props.model_name = s.status_bar.model_name;
-        props.default_model = s.settings_model;
-        props.vim_mode = s.input_mode == InputMode::VimNormal ||
-                         s.input_mode == InputMode::VimInsert ||
-                         s.input_mode == InputMode::VimVisual;
-        props.brief_mode = s.status_bar.is_brief_mode;
-        props.auto_mode = s.status_bar.is_auto_mode;
-        props.fast_mode = s.status_bar.is_fast_mode;
-        props.on_close = [&, set_mode_normal]() {
-            s.dialog_queue.remove("settings_view_bridge");
-            set_mode_normal();
-        };
-        props.on_open_config = [&, set_mode_normal, cb]() {
-            if (cb && cb->enqueue_slash_command) {
-                cb->enqueue_slash_command("/config");
-            }
-            s.dialog_queue.remove("settings_view_bridge");
-            set_mode_normal();
-        };
-        auto state = std::make_shared<sv::SettingsViewState>();
-        s.settings_view_state = state;  // keep state ref in screen state
-        auto theme = cc::ui::design::theme::current_theme();
-        p.component = std::make_shared<Component>(
-            sv::MakeSettingsView(std::move(state), std::move(props), theme));
-        p.on_close = []() {};  // handled by component callbacks
-        s.dialog_queue.push(std::move(p));
-        break;
-      }
-      case ReplMode::AboutView: {
-        if (s.dialog_queue.contains_type(dsys::DialogType::AboutDialog)) break;
-        namespace av = cc::ui::dialogs::about;
-        dsys::AboutDialogPayload p;
-        p.id = "about_view_bridge";
-        p.version = s.app_version;
-        // Pre-create component so first render is real
-        av::AboutDialogProps props;
-        props.app_version = s.app_version;
-        props.on_close = [&, set_mode_normal]() {
-            s.dialog_queue.remove("about_view_bridge");
-            set_mode_normal();
-        };
-        auto theme = cc::ui::design::theme::current_theme();
-        p.component = std::make_shared<Component>(
-            av::MakeAboutDialog(std::move(props), theme));
-        p.on_close = []() {};  // handled by component callbacks
-        s.dialog_queue.push(std::move(p));
-        break;
-      }
-      case ReplMode::QuickOpen: {
-        if (s.dialog_queue.contains_type(dsys::DialogType::QuickOpen)) break;
-        dsys::QuickOpenPayload p;
-        p.id = "quick_open_bridge";
-        p.on_result = [&, set_mode_normal](int idx, bool confirmed) {
-            (void)idx; (void)confirmed;
-            s.dialog_queue.remove("quick_open_bridge");
-            set_mode_normal();
-        };
-        s.dialog_queue.push(std::move(p));
-        break;
-      }
-
-      default:
-        break;
-    }
-}
-
+}  // close IsModeBridgedToQueue()
 } // namespace dialog_queue_render
 
 // =========================================================
@@ -2318,23 +1308,19 @@ inline void SyncReplModeToQueue(ReplScreenState& s,
     }
 
     // ── modal slot (dbox overlay) ───────────────────────────────────────
-    // M7: Queue-based modal dialogs take priority over legacy RouteDialog.
-    // RouteDialog() still works for legacy dialog modes (backward compat).
+    // M7: All dialogs go through DialogQueue (no legacy RouteDialog fallback).
     auto modal_dlg = dqr::RenderModalDialog(s, term_cols, term_rows);
     if (modal_dlg) {
         slots.modal = std::move(*modal_dlg);
-    } else {
-        // M7.5: Skip RouteDialog for modes that are bridged to the queue
-        // (they render via bottom/overlay slots instead of modal overlay).
-        namespace dqr2 = dialog_queue_render;
-        if (!dqr2::IsModeBridgedToQueue(s.mode)) {
-            auto legacy_dlg = RouteDialog(s.mode, s);
-            if (legacy_dlg) {
-                // Fix #11: clamp the dialog overlay height so it cannot overflow.
-                slots.modal = std::move(*legacy_dlg)
-                    | size(HEIGHT, LESS_THAN, std::max(4, term_rows - 2));
-            }
-        }
+    }
+
+    // ── standalone slot (short-circuit: full-screen takeover) ──────────
+    // M7 §3.1: Standalone dialogs render the ENTIRE terminal with no
+    // chrome, no prompt, no messages visible.  Short-circuits the rest of
+    // FullscreenLayout composition — matches TS behavior.
+    auto standalone_dlg = dqr::RenderStandaloneDialog(s, term_cols, term_rows);
+    if (standalone_dlg) {
+        return *standalone_dlg;
     }
 
     // ── chrome-driver inputs (scroll-derived) ──────────────────────────
@@ -2437,8 +1423,22 @@ using wizard_ns::WizardDraft;
     const std::shared_ptr<ReplScreenCallbacks>& cb) {
     if (!s->wizard_agent) {
         AgentWizardOptions opts;
-        if (s->dialog_ctx.agent_wizard_agent_id && cb->load_agent_for_wizard) {
-            opts.edit_agent = cb->load_agent_for_wizard(*s->dialog_ctx.agent_wizard_agent_id);
+        // M7: Read agent_id from the Standalone-slot EditAgentWizardPayload
+        // in dialog_queue (instead of legacy DialogContext bridge struct).
+        namespace dsys_gw = cc::ui::dialogs::system;
+        auto& q_gw = s->dialog_queue;
+        if (cb->load_agent_for_wizard &&
+            q_gw.contains_type(dsys_gw::DialogType::EditAgentWizard)) {
+            auto st = q_gw.peek_standalone();
+            if (st) {
+                // peek_standalone() returns optional<reference_wrapper<const V>>.
+                // Unwrap with .get() so std::get_if<T> sees a const V*.
+                const auto& variant = st->get();
+                auto* p = std::get_if<dsys_gw::EditAgentWizardPayload>(&variant);
+                if (p && !p->agent_name.empty()) {
+                    opts.edit_agent = cb->load_agent_for_wizard(p->agent_name);
+                }
+            }
         }
         opts.on_save = [s, cb](const WizardDraft& draft) {
             if (cb->save_agent_from_wizard) cb->save_agent_from_wizard(draft);
@@ -2989,11 +1989,8 @@ inline void reset_about_view(const std::shared_ptr<ReplScreenState>& s) {
     ReplScreenCallbacks cbs) {
     auto cb = std::make_shared<ReplScreenCallbacks>(std::move(cbs));
     return Renderer([state, cb]() -> Element {
-        // M7.5: Sync ReplMode → DialogQueue bridge.
-        // Converts legacy mode-based dialogs into queue-based dialogs so
-        // they render through the priority-band system (faithful to TS).
-        namespace dqr = dialog_queue_render;
-        dqr::SyncReplModeToQueue(*state, cb);
+        // M7.5: All dialogs flow through DialogQueue — no legacy bridge needed.
+        // Engine pushes via PushXxx() (app.cppm / query_engine.cppm).
 
         // M6: Faithful permission panels — bash / file_edit / file_write.
         // Rendered as a dbox overlay (matching TS overlay slot).
@@ -3011,10 +2008,8 @@ inline void reset_about_view(const std::shared_ptr<ReplScreenState>& s) {
         return RenderReplScreen(*state);
     })
          | CatchEvent([state, cb](Event ev) -> bool {
-    // M7.5: Sync ReplMode → DialogQueue bridge before event dispatch
-    // (events fire before render in FTXUI, so we sync here too).
-    namespace dqr = dialog_queue_render;
-    dqr::SyncReplModeToQueue(*state, cb);
+    // M7.5: No SyncReplModeToQueue needed — engine pushes via PushXxx() in
+    // app.cppm / query_engine.cppm.  Event dispatch checks DialogQueue first.
 
     // --- Panel-mode predicate (modes that show inline content, not dialogs) ---
     // M7.5: Tasks/Teams/Help/Settings/About/QuickOpen are now modal dialogs

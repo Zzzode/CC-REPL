@@ -225,13 +225,13 @@ enum class DialogSlot : std::uint8_t {
 
         case DialogType::TrustDialog:
         case DialogType::Onboarding:
-            return DialogSlot::Modal;
+            return DialogSlot::Standalone;
 
         case DialogType::InstallGitHubAppWizard:
         case DialogType::InstallSlackAppWizard:
         case DialogType::CreateAgentWizard:
         case DialogType::EditAgentWizard:
-            return DialogSlot::Modal;
+            return DialogSlot::Standalone;
 
         case DialogType::_COUNT:
             return DialogSlot::Modal;
@@ -1060,7 +1060,11 @@ public:
                 modal_stack_.push_back(std::move(payload));
                 break;
             case DialogSlot::Standalone:
-                // Standalone dialogs don't go in the queue
+                // Standalone dialogs are routed through the queue so engine
+                // code can push() uniformly and the renderer can peek from a
+                // single surface.  Each is a single-item slot (only one
+                // standalone can ever show at a time — new one replaces old).
+                standalone_.emplace(std::move(payload));
                 break;
         }
         return id;
@@ -1086,6 +1090,11 @@ public:
         std::erase_if(modal_stack_, [id](const auto& p) {
             return id_of(p) == id;
         });
+
+        // Standalone (single item slot)
+        if (standalone_ && id_of(*standalone_) == id) {
+            standalone_.reset();
+        }
     }
 
     // ---- Overlay slot ----
@@ -1118,24 +1127,37 @@ public:
 
     /// Get the highest-priority non-suppressed dialog in the bottom slot.
     /// Returns nullopt if no dialogs or all are suppressed.
+    ///
+    /// @param is_prompt_input_active  Whether the user is actively typing —
+    ///        suppresses all bands below Band1 (MessageSelector).
+    /// @param allow_dialogs_with_animation  When false, Band3 dialogs
+    ///        (Permissions / Prompt / Elicitation) are additionally suppressed
+    ///        because a JSX tool animation is running and would visually clash
+    ///        with an overlay prompt.  True by default (no animation active).
     [[nodiscard]] std::optional<std::reference_wrapper<const DialogPayloadVariant>>
-    peek_bottom(bool is_prompt_input_active) const {
-        auto* band = find_active_band(is_prompt_input_active);
+    peek_bottom(bool is_prompt_input_active,
+                bool allow_dialogs_with_animation = true) const {
+        auto* band = find_active_band(is_prompt_input_active,
+                                       allow_dialogs_with_animation);
         if (!band || band->empty()) return std::nullopt;
         return std::cref(band->front());
     }
 
     /// Mutable peek at the highest-priority non-suppressed bottom dialog.
     [[nodiscard]] std::optional<std::reference_wrapper<DialogPayloadVariant>>
-    peek_bottom_mut(bool is_prompt_input_active) {
-        auto* band = find_active_band(is_prompt_input_active);
+    peek_bottom_mut(bool is_prompt_input_active,
+                    bool allow_dialogs_with_animation = true) {
+        auto* band = find_active_band(is_prompt_input_active,
+                                       allow_dialogs_with_animation);
         if (!band || band->empty()) return std::nullopt;
         return std::ref(band->front());
     }
 
     /// Pop the front of the highest-priority non-suppressed band.
-    void pop_bottom(bool is_prompt_input_active) {
-        auto* band = find_active_band(is_prompt_input_active);
+    void pop_bottom(bool is_prompt_input_active,
+                    bool allow_dialogs_with_animation = true) {
+        auto* band = find_active_band(is_prompt_input_active,
+                                       allow_dialogs_with_animation);
         if (band && !band->empty()) band->pop_front();
     }
 
@@ -1178,6 +1200,43 @@ public:
         modal_stack_.push_back(std::move(payload));
     }
 
+    // ---- Standalone slot ----
+    //
+    // Full-screen, modal-takeover dialogs: TrustDialog, Onboarding,
+    // Install*Wizard, CreateAgentWizard, EditAgentWizard.  Per design doc
+    // §3.1 these render the entire terminal (no chrome visible) and take
+    // all input focus.  Only one can exist at a time — a new push replaces
+    // the previous one to match the TS "one wizard at a time" invariant.
+
+    /// True if a standalone dialog is currently queued.
+    [[nodiscard]] bool has_standalone() const {
+        return standalone_.has_value();
+    }
+
+    /// Peek the standalone dialog (const).
+    [[nodiscard]] std::optional<std::reference_wrapper<const DialogPayloadVariant>>
+    peek_standalone() const {
+        if (!standalone_) return std::nullopt;
+        return std::cref(*standalone_);
+    }
+
+    /// Mutable peek at the standalone dialog (for event dispatch).
+    [[nodiscard]] std::optional<std::reference_wrapper<DialogPayloadVariant>>
+    peek_standalone_mut() {
+        if (!standalone_) return std::nullopt;
+        return std::ref(*standalone_);
+    }
+
+    /// Dismiss (clear) the standalone dialog.
+    void pop_standalone() {
+        standalone_.reset();
+    }
+
+    /// Push a standalone dialog directly (replaces any existing one).
+    void push_standalone(DialogPayloadVariant payload) {
+        standalone_.emplace(std::move(payload));
+    }
+
     // ---- Aggregate ----
 
     /// Total number of pending dialogs across all slots.
@@ -1185,6 +1244,7 @@ public:
         std::size_t total = overlay_.size();
         for (const auto& band : bottom_bands_) total += band.size();
         total += modal_stack_.size();
+        if (standalone_) total += 1;
         return total;
     }
 
@@ -1198,6 +1258,7 @@ public:
         overlay_.clear();
         for (auto& band : bottom_bands_) band.clear();
         modal_stack_.clear();
+        standalone_.reset();
     }
 
     /// Check if any slot contains a dialog of the given type.
@@ -1213,6 +1274,7 @@ public:
         for (const auto& p : modal_stack_) {
             if (type_of(p) == type) return true;
         }
+        if (standalone_ && type_of(*standalone_) == type) return true;
         return false;
     }
 
@@ -1227,16 +1289,31 @@ private:
     // modal slot: stack (navigation depth)
     std::vector<DialogPayloadVariant> modal_stack_;
 
+    // standalone slot: optional single-item fullscreen (0 or 1 dialog)
+    // New push replaces old — matches TS "one wizard at a time" invariant.
+    std::optional<DialogPayloadVariant> standalone_;
+
     /// Find the highest-priority non-empty non-suppressed bottom band.
     /// Returns nullptr if no active band.
+    ///
+    /// @param is_prompt_input_active  Typing in progress — suppresses Bands 2..6.
+    /// @param allow_dialogs_with_animation  When false, Band3 dialogs
+    ///        (Permissions / Prompt / Elicitation) are additionally
+    ///        suppressed — they visually clash with a JSX tool animation.
     [[nodiscard]] const std::deque<DialogPayloadVariant>*
-    find_active_band(bool is_prompt_input_active) const {
+    find_active_band(bool is_prompt_input_active,
+                     bool allow_dialogs_with_animation = true) const {
         for (std::size_t i = 0; i < bottom_bands_.size(); ++i) {
             if (bottom_bands_[i].empty()) continue;
 
             // Band 1 (index 0) = MessageSelector — never suppressed
             // All others suppressed while typing
             if (is_prompt_input_active && i > 0) continue;
+
+            // Band 3 (index 2) = ToolPermission / PromptDialog / Elicitation —
+            // suppressed while a JSX tool animation is running in the message
+            // stream (visual clash with overlays).
+            if (!allow_dialogs_with_animation && i == 2) continue;
 
             return &bottom_bands_[i];
         }
@@ -1245,10 +1322,12 @@ private:
 
     /// Mutable version of find_active_band.
     [[nodiscard]] std::deque<DialogPayloadVariant>*
-    find_active_band(bool is_prompt_input_active) {
+    find_active_band(bool is_prompt_input_active,
+                     bool allow_dialogs_with_animation = true) {
         auto* const_this = const_cast<const DialogQueue*>(this);
         return const_cast<std::deque<DialogPayloadVariant>*>(
-            const_this->find_active_band(is_prompt_input_active));
+            const_this->find_active_band(is_prompt_input_active,
+                                          allow_dialogs_with_animation));
     }
 };
 
@@ -1256,23 +1335,36 @@ private:
 // Convenience: should this dialog be shown?
 // ============================================================
 
-/// Determine if a dialog should be shown given typing state.
-/// Mirrors TS suppression logic.
+/// Determine if a dialog should be shown given typing state and animation state.
+/// Mirrors TS suppression logic (typing + animation-active guard).
 [[nodiscard]] inline bool should_show_dialog(const DialogPayloadVariant& dlg,
-                                              bool is_prompt_input_active) {
+                                              bool is_prompt_input_active,
+                                              bool allow_dialogs_with_animation = true) {
     auto type = type_of(dlg);
     auto slot = slot_for(type);
 
     // Modal slot: always show when present
     if (slot == DialogSlot::Modal) return true;
 
-    // Overlay slot: suppressed while typing (band 3)
+    // Standalone slot: always show (takeover; nothing else renders behind)
+    if (slot == DialogSlot::Standalone) return true;
+
+    // Overlay slot: suppressed while typing (band 3) AND while a JSX tool
+    // animation is active (they visually clash — ToolPermission overlay floats
+    // above the message stream and would render on top of animation frames).
     if (slot == DialogSlot::Overlay) {
-        return !is_prompt_input_active;
+        if (is_prompt_input_active) return false;
+        if (!allow_dialogs_with_animation) return false;
+        return true;
     }
 
-    // Bottom slot: suppressed only when typing AND dialog is suppressible
-    return !(is_prompt_input_active && is_suppressed_by_typing(type));
+    // Bottom slot: suppressed when typing AND dialog is suppressible; also
+    // suppressed for Band3 dialogs when a JSX tool animation is active.
+    if (is_prompt_input_active && is_suppressed_by_typing(type)) return false;
+    if (!allow_dialogs_with_animation && priority_of(dlg) == DialogPriority::Band3) {
+        return false;
+    }
+    return true;
 }
 
 } // namespace cc::ui::dialogs::system
