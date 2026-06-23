@@ -73,6 +73,10 @@ using tu::RiskSummary;
 using tu::SensitiveMatch;
 using tu::TrustChoice;
 
+// Re-exported constants.
+using tu::kHighTierCountdownSeconds;
+using tu::kCriticalConfirmWord;
+
 // =========================================================================
 // Extra TS-aligned types (carried over from original skeleton)
 // =========================================================================

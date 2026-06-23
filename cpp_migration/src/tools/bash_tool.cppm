@@ -41,6 +41,7 @@ import cc.tools.sed_validation;
 // migrated (Agent 8): result formatting + exit-code semantics
 import cc.tools.command_semantics;
 import cc.tools.bash_result_formatting;
+import cc.tools.bash_permissions;
 // migrated (Agent 3): bash security & validation helper modules
 import cc.tools.destructive_command_warning;
 import cc.tools.mode_validation;
@@ -185,6 +186,30 @@ struct BashToolOutput {
 namespace detail {
 
 constexpr size_t kMaxOutput = 30000;
+
+/// Stream type for progress callbacks (mirrors UI BashStream for consistency).
+enum class BashStream {
+    Stdout,
+    Stderr,
+};
+
+/// Progress snapshot emitted during live bash execution.
+/// Contains both the latest chunk and accumulated totals so consumers can
+/// update a UI progress display (ShellProgressMessage) without re-parsing.
+struct BashProgressSnapshot {
+    BashStream stream{BashStream::Stdout};  ///< Which stream this chunk came from
+    std::string_view chunk;                 ///< Latest output chunk (view, valid only during callback)
+    std::size_t stdout_bytes = 0;           ///< Total stdout bytes received so far
+    std::size_t stderr_bytes = 0;           ///< Total stderr bytes received so far
+    std::size_t stdout_lines = 0;           ///< Approximate stdout line count
+    std::size_t stderr_lines = 0;           ///< Approximate stderr line count
+    std::chrono::milliseconds elapsed_ms{0};///< Wall-clock elapsed time
+    bool finished = false;                  ///< True on final callback after process exits
+};
+
+/// Callback type for live bash progress updates.
+/// Invoked on each output chunk and once more with finished=true at the end.
+using BashProgressCallback = std::function<void(const BashProgressSnapshot&)>;
 
 struct BackgroundTaskStart {
     std::string id;
@@ -451,7 +476,8 @@ inline void append_background_output(BackgroundTaskState& state, std::string_vie
 }
 
 [[nodiscard]] std::expected<BashToolOutput, std::string> execute_shell(
-    const BashToolInput& input) {
+    const BashToolInput& input,
+    BashProgressCallback on_progress = nullptr) {
     auto invocation = build_shell_invocation(input);
     int stdout_pipe[2]{-1, -1};
     int stderr_pipe[2]{-1, -1};
@@ -507,6 +533,12 @@ inline void append_background_output(BackgroundTaskState& state, std::string_vie
 
     // migrated: record duration for Phase-4 UI cards
     const auto exec_started_at = std::chrono::steady_clock::now();
+
+    // Progress tracking accumulators
+    std::size_t prev_stdout_size = 0;
+    std::size_t prev_stderr_size = 0;
+    std::size_t stdout_line_count = 0;
+    std::size_t stderr_line_count = 0;
 
     bool stdout_open = true;
     bool stderr_open = true;
@@ -579,18 +611,75 @@ inline void append_background_output(BackgroundTaskState& state, std::string_vie
             if (stdout_open) {
                 const auto events = fds[index++].revents;
                 if (events != 0) {
+                    prev_stdout_size = output.stdout.size();
                     stdout_open = drain_fd(stdout_pipe[0], output.stdout);
                     if (!stdout_open) close_if_open(stdout_pipe[0]);
+                    // Fire progress callback for stdout chunk
+                    if (on_progress && output.stdout.size() > prev_stdout_size) {
+                        std::size_t new_lines = 0;
+                        for (std::size_t i = prev_stdout_size; i < output.stdout.size(); ++i) {
+                            if (output.stdout[i] == '\n') ++new_lines;
+                        }
+                        stdout_line_count += new_lines;
+                        BashProgressSnapshot snap;
+                        snap.stream = BashStream::Stdout;
+                        snap.chunk = std::string_view{
+                            output.stdout.data() + prev_stdout_size,
+                            output.stdout.size() - prev_stdout_size
+                        };
+                        snap.stdout_bytes = output.stdout.size();
+                        snap.stderr_bytes = output.stderr.size();
+                        snap.stdout_lines = stdout_line_count;
+                        snap.stderr_lines = stderr_line_count;
+                        snap.elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::steady_clock::now() - exec_started_at);
+                        on_progress(snap);
+                    }
                 }
             }
             if (stderr_open) {
                 const auto events = fds[index].revents;
                 if (events != 0) {
+                    prev_stderr_size = output.stderr.size();
                     stderr_open = drain_fd(stderr_pipe[0], output.stderr);
                     if (!stderr_open) close_if_open(stderr_pipe[0]);
+                    // Fire progress callback for stderr chunk
+                    if (on_progress && output.stderr.size() > prev_stderr_size) {
+                        std::size_t new_lines = 0;
+                        for (std::size_t i = prev_stderr_size; i < output.stderr.size(); ++i) {
+                            if (output.stderr[i] == '\n') ++new_lines;
+                        }
+                        stderr_line_count += new_lines;
+                        BashProgressSnapshot snap;
+                        snap.stream = BashStream::Stderr;
+                        snap.chunk = std::string_view{
+                            output.stderr.data() + prev_stderr_size,
+                            output.stderr.size() - prev_stderr_size
+                        };
+                        snap.stdout_bytes = output.stdout.size();
+                        snap.stderr_bytes = output.stderr.size();
+                        snap.stdout_lines = stdout_line_count;
+                        snap.stderr_lines = stderr_line_count;
+                        snap.elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::steady_clock::now() - exec_started_at);
+                        on_progress(snap);
+                    }
                 }
             }
         }
+    }
+
+    // Final progress callback with finished=true
+    if (on_progress) {
+        BashProgressSnapshot snap;
+        snap.stdout_bytes = output.stdout.size();
+        snap.stderr_bytes = output.stderr.size();
+        snap.stdout_lines = stdout_line_count;
+        snap.stderr_lines = stderr_line_count;
+        snap.elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - exec_started_at);
+        snap.finished = true;
+        on_progress(snap);
     }
 
     close_if_open(stdout_pipe[0]);
@@ -885,8 +974,15 @@ public:
     };
     
     void set_permission_mode(PermissionMode mode) { permission_mode_ = mode; }
-    void set_allowed_directories(std::vector<std::string> dirs) { 
-        allowed_directories_ = std::move(dirs); 
+    void set_allowed_directories(std::vector<std::string> dirs) {
+        allowed_directories_ = std::move(dirs);
+    }
+
+    /// Set a progress callback that receives live output chunks during execution.
+    /// The callback is invoked on the calling thread (synchronously) as data
+    /// arrives from the child process.
+    void set_progress_callback(detail::BashProgressCallback cb) {
+        progress_callback_ = std::move(cb);
     }
     
     /// Check if execution is allowed based on permission mode and command type
@@ -916,27 +1012,28 @@ public:
             }
         }
 
-        auto cmd_type = classify_command(parsed->command);
-        
-        switch (permission_mode_) {
-            case PermissionMode::YoloMode:
+        // Use the bash_permissions engine for the authoritative classification.
+        auto perm_mode = to_permission_mode(permission_mode_);
+        auto level = cc::tools::check_bash_permission(parsed->command, perm_mode);
+
+        switch (level) {
+            case cc::tools::BashPermissionLevel::Blocked:
+                return false;
+            case cc::tools::BashPermissionLevel::NeedsApproval:
+                // In YoloMode we auto-allow even needs-approval commands.
+                return permission_mode_ == PermissionMode::YoloMode;
+            case cc::tools::BashPermissionLevel::Allowed:
                 return true;
-            case PermissionMode::AutoAllow:
-                // Auto-allow read-only and simple write commands
-                // Block dangerous commands (require external approval)
-                return cmd_type != CommandType::Dangerous;
-            case PermissionMode::Ask:
-            default:
-                // In ask mode, only auto-allow read-only
-                return cmd_type == CommandType::ReadOnly;
         }
+        return false;
     }
-    
+
     /// Check if command is dangerous and needs explicit confirmation
     [[nodiscard]] bool requires_confirmation(std::string_view command) const {
-        auto cmd_type = classify_command(command);
         if (permission_mode_ == PermissionMode::YoloMode) return false;
-        return cmd_type == CommandType::Dangerous;
+        auto perm_mode = to_permission_mode(permission_mode_);
+        auto level = cc::tools::check_bash_permission(command, perm_mode);
+        return level == cc::tools::BashPermissionLevel::NeedsApproval;
     }
     
     /// Validate working directory is within allowed paths
@@ -977,6 +1074,18 @@ public:
 private:
     PermissionMode permission_mode_ = PermissionMode::AutoAllow;
     std::vector<std::string> allowed_directories_;
+    detail::BashProgressCallback progress_callback_;
+
+    /// Convert BashTool::PermissionMode to bash_permissions engine mode.
+    [[nodiscard]] static cc::tools::PermissionMode to_permission_mode(
+        PermissionMode mode) noexcept {
+        switch (mode) {
+            case PermissionMode::Ask:        return cc::tools::PermissionMode::Strict;
+            case PermissionMode::AutoAllow:  return cc::tools::PermissionMode::Normal;
+            case PermissionMode::YoloMode:   return cc::tools::PermissionMode::Permissive;
+        }
+        return cc::tools::PermissionMode::Normal;
+    }
     
     /// Internal synchronous execution
     Result<ToolResult> execute_internal(const BashToolInput& input) {
@@ -1011,7 +1120,7 @@ private:
                 return format_result(output, input.command, /*semantic_is_error=*/false);
             }
 
-            auto executed = detail::execute_shell(input);
+            auto executed = detail::execute_shell(input, progress_callback_);
             if (!executed) {
                 return ToolResult::error(executed.error());
             }

@@ -138,6 +138,9 @@ import cc.ui.messages.message_hook_progress;
 import cc.ui.messages.message_shutdown;
 import cc.ui.messages.message_advisor;
 
+import cc.ui.tools.registry;
+import cc.ui.tools.generic;
+
 import cc.ui.design.themed_text;
 import cc.ui.design.themed_box;
 import ui.components.spinner;
@@ -854,21 +857,23 @@ inline auto render_payload_row(const MessagesListInput& input,
     MessageShape shape   = input.shapes[row_idx];
     const auto& payload  = input.rows[row_idx];
 
-    // ── LIVE-PATH FAITHFUL RENDER (M4) ───────────────────────────────────
-    // The four core message types (user/assistant/thinking/system) are routed
-    // THROUGH THE FAITHFUL TS-MIRRORING Element renderers added in M4
+    // ── LIVE-PATH FAITHFUL RENDER (M4 + M6) ───────────────────────────────
+    // The five core message types (user/assistant/thinking/system/tool-use)
+    // are routed THROUGH THE FAITHFUL TS-MIRRORING Element renderers
     // (RenderUserPromptMessage, RenderAssistantTextMessageFaithful,
-    // RenderThinkingMessageFaithful, RenderSystemTextMessageFaithful).  These
-    // emit the exact TS Bubble/Message.tsx shapes the running user sees:
+    // RenderThinkingMessageFaithful, RenderSystemTextMessageFaithful,
+    // RenderFaithfulToolUseMessage).  These emit the exact TS
+    // components/messages/* shapes the running user sees:
     //   * user     → `❯ <text>` full-width, userMessageBackground tint
     //   * assistant→ `[dot?] <markdown body>` flex-start, no header chrome
     //   * thinking → `∴ Thinking (ctrl+o to expand)` collapsed / indented body
     //   * system   → `※ / ✻ / ⏺ <content>` flat one-line event row
+    //   * tool-use → `[●] <BoldName> (summary)` + progress/queued line below
     // The divergent RenderMessageRowByType / render_message_envelope path
     // (avatar column + role pill + top accent border) is NOT faithful to TS —
     // it added invented chrome.  We therefore BYPASS it for these core types
-    // and emit the faithful Element directly.  Sub-types not ported in this
-    // pass still flow through the divergent envelope+dispatch path below.
+    // and emit the faithful Element directly.  Sub-types not yet ported still
+    // flow through the divergent envelope+dispatch path below.
     using S = MessageShape;
     const bool is_streaming_tail =
         (input.streaming_tail_row != std::size_t(-1) &&
@@ -929,6 +934,119 @@ inline auto render_payload_row(const MessagesListInput& input,
         if (d) {
             Element el = RenderSystemTextMessageFaithful(*d, /*add_margin=*/true);
             (void)frame_count; (void)is_streaming_tail;
+            return el;
+        }
+    }
+    else if (shape == S::UserToolResult) {
+        auto* opts = std::get_if<ToolResultOptions>(&payload);
+        if (opts) {
+            // Bridge ToolResultOptions (divergent model) → ToolResultFaithfulData
+            // (faithful TS-equivalent model).  The divergent struct carries both
+            // an `output` field (main content, possibly ANSI) and a separate
+            // `error_message` field; the faithful renderer uses a single
+            // `content` field plus a `kind` enum that drives dispatch.
+            ToolResultFaithfulData fd;
+            fd.tool_name = opts->tool_name;
+            fd.duration_ms = opts->duration_ms;
+            fd.is_truncated = opts->is_truncated;
+            fd.verbose = false;
+
+            using DS = ToolResultStatus;   // divergent status
+            using FK = ToolResultKind;     // faithful kind
+
+            switch (opts->status) {
+                case DS::Success:
+                    fd.kind = FK::Success;
+                    fd.content = opts->output;
+                    break;
+                case DS::Error:
+                    fd.kind = FK::Error;
+                    // Prefer error_message if set; fall back to output field.
+                    if (opts->error_message && !opts->error_message->empty()) {
+                        fd.content = opts->error_message;
+                    } else {
+                        fd.content = opts->output;
+                    }
+                    break;
+                case DS::Timeout:
+                    fd.kind = FK::Error;
+                    fd.content = opts->output
+                        ? opts->output
+                        : std::optional<std::string>("Timed out");
+                    break;
+                case DS::Cancelled:
+                    fd.kind = FK::Canceled;
+                    fd.content = opts->output;
+                    break;
+            }
+
+            Element el = RenderToolResultMessageFaithful(fd);
+            (void)frame_count; (void)is_streaming_tail;
+            return el;
+        }
+    }
+    else if (shape == S::AssistantToolUse) {
+        auto* opts = std::get_if<tool_use_message::ToolUseRenderOptions>(&payload);
+        if (opts) {
+            // Bridge ToolUseRenderOptions → FaithfulToolUseData via
+            // the tool UI registry.  Each registered tool provides its
+            // own userFacingName / message / tag / progress / queued
+            // functions (matching TS tool-class UI methods).
+            //
+            // Falls back to the generic renderer for unregistered tools.
+            using namespace cc::ui::tools;
+            const ToolUIFunctions& ui =
+                get_tool_ui_or_generic(opts->call.tool_name);
+
+            tool_use_message::FaithfulToolUseData fd;
+            fd.user_facing_name =
+                ui.user_facing_name
+                    ? ui.user_facing_name(opts->call.raw_parameters)
+                    : std::string{opts->call.tool_name};
+            fd.message =
+                ui.message
+                    ? ui.message(opts->call.raw_parameters)
+                    : std::string{};
+            if (ui.tag) {
+                auto tag = ui.tag(opts->call.raw_parameters);
+                if (tag) fd.tag = *tag;
+            }
+
+            // Status mapping: ToolStatus → FaithfulToolStatus
+            using TS = tool_use_message::ToolStatus;
+            using FTS = tool_use_message::FaithfulToolStatus;
+            switch (opts->call.status) {
+                case TS::Pending:   fd.status = FTS::Queued;  break;
+                case TS::Running:   fd.status = FTS::Running; break;
+                case TS::Success:   fd.status = FTS::Success; break;
+                case TS::Error:     fd.status = FTS::Error;   break;
+                case TS::Cancelled: fd.status = FTS::Error;   break;
+            }
+
+            // Progress / queued text from tool UI functions
+            if (ui.progress) {
+                std::string_view preview = {};
+                if (opts->call.result_preview) {
+                    preview = *opts->call.result_preview;
+                }
+                fd.progress_text = ui.progress(
+                    opts->call.raw_parameters, preview);
+            } else {
+                fd.progress_text = "Running…";
+            }
+            if (ui.queued) {
+                fd.queued_text = ui.queued(opts->call.raw_parameters);
+            } else {
+                fd.queued_text = "Waiting…";
+            }
+
+            fd.is_transparent_wrapper = ui.is_transparent_wrapper;
+            fd.should_show_dot = true;
+            fd.add_margin = true;
+            fd.spinner_frame = static_cast<int>(frame_count);
+            fd.should_animate = (opts->call.status == TS::Running);
+
+            Element el = tool_use_message::RenderFaithfulToolUseMessage(fd);
             return el;
         }
     }

@@ -48,6 +48,15 @@ std::chrono::milliseconds MeasureMs(F&& f) {
     return std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 }
 
+/// Unique temp directory name using a timestamp suffix to avoid collisions
+/// when tests from the same binary run in parallel under ctest -jN.
+[[nodiscard]] std::filesystem::path unique_test_dir(std::string_view prefix) {
+    return std::filesystem::temp_directory_path() / (
+        std::string(prefix) +
+        std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())
+    );
+}
+
 } // namespace
 
 // ===========================================================================
@@ -389,8 +398,7 @@ TEST(KeychainBackend, PayloadSerializationRoundTrips) {
 }
 
 TEST(KeychainBackend, FileBackendRoundTripsToTempDir) {
-    auto root = std::filesystem::temp_directory_path() / "cc_keychain_test";
-    std::filesystem::remove_all(root);
+    auto root = unique_test_dir("cc_keychain_test_");
     oauth::FileKeychainBackend backend("svc", root);
     ASSERT_TRUE(backend.store("acct", "payload").has_value());
     auto got = backend.retrieve("acct");

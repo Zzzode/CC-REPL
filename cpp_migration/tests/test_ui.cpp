@@ -34,6 +34,8 @@ import cc.ui.messages.user_text_message;
 import cc.ui.messages.assistant_text_message;
 import cc.ui.messages.thinking_message;
 import cc.ui.messages.system_text_message;
+import cc.ui.messages.tool_use_message;
+import cc.ui.messages.message_tool_result;
 import cc.ui.prompt_input;
 import cc.ui.markdown;
 import cc.ui.components_extended;
@@ -42,11 +44,18 @@ import cc.ui.wizard_dialog;
 import cc.ui.app;
 import cc.ui.permissions.permission_rules_ui;
 import cc.ui.permissions.rule_list;
+import cc.ui.permissions.permission_file_edit;
+import cc.ui.permissions.permission_bash;
+import cc.ui.components.bash_mode_progress;
+import cc.ui.components.shell_progress_message;
 import cc.ui.components.passes;
 import cc.ui.components.grove;
 import cc.ui.components.lsp_rec_menu;
 import cc.ui.components.plugin_hint_menu;
+import cc.ui.components.file_edit_tool_diff;
+import cc.utils.file_edit;
 import cc.ui.design.theme;
+import cc.ui.design.tokens;
 import cc.config.config;
 import cc.commands.registry;
 import cc.query.query_engine;
@@ -59,10 +68,21 @@ import cc.ui.layout.fullscreen;
 import cc.ui.design.logo;
 import cc.ui.logo;
 import cc.ui.repl_screen;
+import cc.ui.common.declared_cursor;
+import cc.ui.tools.init;
 
 namespace {
 
 namespace fs = std::filesystem;
+
+// Initialize tool UI registry before any tests run (faithful port: tools
+// should have proper userFacingName / renderToolUseMessage, not generic fallback).
+struct ToolUiRegistryInit {
+    ToolUiRegistryInit() {
+        cc::ui::tools::register_builtin_tool_uis();
+    }
+};
+static ToolUiRegistryInit g_tool_ui_registry_init;
 
 void expect_element(const ftxui::Element& element) {
     EXPECT_NE(element, nullptr);
@@ -110,6 +130,17 @@ std::string golden_dir() {
     return f.substr(0, pos + 1) + "golden/";
 }
 
+/// Normalize line endings to LF-only so golden comparisons are robust across
+/// platforms and FTXUI versions that may emit CRLF vs LF.
+std::string normalize_line_endings(std::string_view s) {
+    std::string out;
+    out.reserve(s.size());
+    for (char c : s) {
+        if (c != '\r') out.push_back(c);
+    }
+    return out;
+}
+
 /// Golden-snapshot check: compare `actual` (typically an ANSI render) against
 /// tests/golden/<name>.txt. Set UPDATE_GOLDENS env to (re)write the golden
 /// instead of comparing: `UPDATE_GOLDENS=1 ctest -R VisualSnapshot` to refresh.
@@ -127,8 +158,9 @@ void check_golden(const std::string& name, const std::string& actual) {
                            << " (run UPDATE_GOLDENS=1 to create)";
     std::string expected((std::istreambuf_iterator<char>(in)),
                          std::istreambuf_iterator<char>());
-    EXPECT_EQ(actual, expected) << "golden mismatch for '" << name
-                                << "' (run UPDATE_GOLDENS=1 to refresh)";
+    EXPECT_EQ(normalize_line_endings(actual), normalize_line_endings(expected))
+        << "golden mismatch for '" << name
+        << "' (run UPDATE_GOLDENS=1 to refresh)";
 }
 
 bool wait_until(std::function<bool()> predicate, std::chrono::milliseconds timeout) {
@@ -1115,8 +1147,10 @@ TEST(AppRuntime, CommandsAndStatusRenderWithoutTerminalLoop) {
     // --- Initial render: status bar + prompt input (system prompt is HIDDEN) ---
     app->SyncState();
     auto initial = render_to_plain_text(app->Render(), 120, 28);
-    // Default model appears in the status bar
-    EXPECT_NE(initial.find("claude-sonnet"), std::string::npos);
+    // Default model appears in the welcome header (TS-faithful display name,
+    // e.g. "Claude Sonnet 4" from model ID "claude-sonnet-4-20250514").
+    EXPECT_NE(initial.find("Sonnet"), std::string::npos);
+    EXPECT_EQ(initial.find("Haiku"), std::string::npos);
     // The LLM system prompt is an API argument, never a visible message (UI-fidelity fix:
     // it must NOT leak into the rendered conversation, matching TS REPL.tsx).
     EXPECT_EQ(initial.find("You are Claude"), std::string::npos);
@@ -1124,10 +1158,13 @@ TEST(AppRuntime, CommandsAndStatusRenderWithoutTerminalLoop) {
     // bold green, instead of the legacy ">").
     EXPECT_NE(initial.find("\xE2\x9D\xAF" /* ❯ */), std::string::npos);
 
-    // --- /model haiku-runtime: changes model in status bar ---
+    // --- /model haiku-runtime: changes model in welcome header ---
     app->HandleCommand("/model haiku-runtime");
     auto switched = render_to_plain_text(app->Render(), 120, 28);
-    EXPECT_NE(switched.find("haiku-runtime"), std::string::npos);
+    // Display name updates — "haiku-runtime" contains "haiku" so it maps
+    // to "Claude Haiku 4" via get_model_display_name.
+    EXPECT_NE(switched.find("Haiku"), std::string::npos);
+    EXPECT_EQ(switched.find("Sonnet"), std::string::npos);
 
     // --- /cost: sets status tip (visible via testing accessor) ---
     app->HandleCommand("/cost");
@@ -1137,10 +1174,11 @@ TEST(AppRuntime, CommandsAndStatusRenderWithoutTerminalLoop) {
     EXPECT_NE(status_msg.find("Out:"), std::string::npos);
     EXPECT_NE(status_msg.find("Ctx:"), std::string::npos);
 
-    // --- /clear: clears conversation, status bar retains current model ---
+    // --- /clear: clears conversation, welcome header retains current model ---
     app->HandleCommand("/clear");
     auto cleared = render_to_plain_text(app->Render(), 120, 28);
-    EXPECT_NE(cleared.find("haiku-runtime"), std::string::npos);  // status bar model unchanged
+    EXPECT_NE(cleared.find("Haiku"), std::string::npos);  // model display unchanged
+    EXPECT_EQ(cleared.find("Sonnet"), std::string::npos);
 
     // --- /exit: triggers on_exit callback ---
     app->HandleCommand("/exit");
@@ -1380,10 +1418,10 @@ TEST(AppRuntime, PermissionCallbackRendersAndResolvesUserChoices) {
 
     const bool allow_prompt_shown = wait_until([&] {
         auto rendered = strip_ansi(render_to_plain_text(app->Render(), 120, 34));
-        return rendered.find("Permission Required") != std::string::npos &&
-               rendered.find("Tool:") != std::string::npos &&
-               rendered.find("Bash") != std::string::npos &&
-               rendered.find("Run npm test") != std::string::npos;
+        return rendered.find("Bash") != std::string::npos &&
+               rendered.find("Run npm test") != std::string::npos &&
+               rendered.find("Allow") != std::string::npos &&
+               rendered.find("Deny") != std::string::npos;
     }, std::chrono::milliseconds(1000));
     EXPECT_TRUE(allow_prompt_shown);
     EXPECT_TRUE(app->OnEvent(ftxui::Event::Character('y')));
@@ -1401,10 +1439,10 @@ TEST(AppRuntime, PermissionCallbackRendersAndResolvesUserChoices) {
 
     const bool deny_prompt_shown = wait_until([&] {
         auto rendered = strip_ansi(render_to_plain_text(app->Render(), 120, 34));
-        return rendered.find("Permission Required") != std::string::npos &&
-               rendered.find("Tool:") != std::string::npos &&
-               rendered.find("Write") != std::string::npos &&
-               rendered.find("Modify src/main.cpp") != std::string::npos;
+        return rendered.find("Write") != std::string::npos &&
+               rendered.find("Modify src/main.cpp") != std::string::npos &&
+               rendered.find("Allow") != std::string::npos &&
+               rendered.find("Deny") != std::string::npos;
     }, std::chrono::milliseconds(1000));
     EXPECT_TRUE(deny_prompt_shown);
     EXPECT_TRUE(app->OnEvent(ftxui::Event::Character('n')));
@@ -1422,10 +1460,10 @@ TEST(AppRuntime, PermissionCallbackRendersAndResolvesUserChoices) {
 
     const bool always_prompt_shown = wait_until([&] {
         auto rendered = strip_ansi(render_to_plain_text(app->Render(), 120, 34));
-        return rendered.find("Permission Required") != std::string::npos &&
-               rendered.find("Tool:") != std::string::npos &&
-               rendered.find("Read") != std::string::npos &&
-               rendered.find("Read package.json") != std::string::npos;
+        return rendered.find("Read") != std::string::npos &&
+               rendered.find("Read package.json") != std::string::npos &&
+               rendered.find("Allow") != std::string::npos &&
+               rendered.find("Deny") != std::string::npos;
     }, std::chrono::milliseconds(1000));
     EXPECT_TRUE(always_prompt_shown);
     EXPECT_TRUE(app->OnEvent(ftxui::Event::Character('a')));
@@ -2872,14 +2910,139 @@ TEST(VisualSnapshot, MessageSystemMatchesGolden) {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// M4 LIVE-PATH GOLDEN — renders a small message list (user + assistant +
-// thinking + system) THROUGH the live RenderMessages dispatch path the
-// RUNNING APP uses (repl_screen::RenderMessages → messages_list::
-// render_messages_list_view → detail::render_payload_row → the FAITHFUL
-// Element renderers).  This locks in what users actually see — not what
-// each faithful fn emits in isolation (those are the per-type goldens above).
-// Determinism: fixed data, no streaming tail (streaming_tail_row = N),
-// no selection, fixed width/height.  Refresh:
+// M6 GOLDEN — faithful AssistantToolUseMessage.  Mirrors
+// AssistantToolUseMessage.tsx default branch: bold user-facing tool name,
+// leading dot (ToolUseLoader), summary in parens, progress line below.
+// No borders, no status pills, no footers — all invented chrome stripped.
+// States covered: queued (dim dot + "Waiting…"), running (blinking dot +
+// "Running…"), success (green dot + name only), error (red dot + name only).
+// Determinism: fixed data, frame=0 (so blinking dot is ON), fixed size.
+// Refresh: UPDATE_GOLDENS=1 ctest -R VisualSnapshot.MessageToolUseMatchesGolden
+// ────────────────────────────────────────────────────────────────────────────
+TEST(VisualSnapshot, MessageToolUseMatchesGolden) {
+    namespace tm = cc::ui::messages::tool_use_message;
+
+    // We stack all four states vertically to fit one golden file,
+    // matching the pattern of message_list_live but focused on tool-use.
+    ftxui::Elements rows;
+
+    auto add = [&](const char* label, tm::FaithfulToolStatus s,
+                   const std::string& name, const std::string& msg,
+                   const std::string& prog, int frame = 0) {
+        tm::FaithfulToolUseData d;
+        d.user_facing_name = name;
+        d.message = msg;
+        d.progress_text = prog;
+        d.queued_text = "Waiting…";
+        d.status = s;
+        d.should_show_dot = true;
+        d.add_margin = false;
+        d.spinner_frame = frame;
+        d.should_animate = (s == tm::FaithfulToolStatus::Running);
+        rows.push_back(tm::RenderFaithfulToolUseMessage(d));
+        (void)label;
+    };
+
+    // State 1: Queued
+    add("queued", tm::FaithfulToolStatus::Queued,
+        "Bash", "ls -la", "Running…");
+
+    // State 2: Running (frame=0 = dot visible)
+    add("running", tm::FaithfulToolStatus::Running,
+        "FileEdit", "src/main.tsx", "Running…");
+
+    // State 3: Success (resolved)
+    add("success", tm::FaithfulToolStatus::Success,
+        "Grep", "pattern in 3 files", "");
+
+    // State 4: Error (resolved)
+    add("error", tm::FaithfulToolStatus::Error,
+        "WebFetch", "https://example.com", "");
+
+    // Wrap in a vbox to render together
+    auto el = vbox(std::move(rows));
+    check_golden("message_tool_use", render_to_ansi(std::move(el), 80, 10));
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// M5 GOLDEN — Faithful tool-result renderer (UserToolResultMessage.tsx).
+// Covers all six result kinds stacked vertically:
+//   Success, Error, Canceled, Rejected, PlanRejected, ClassifierDenied
+// Determinism: fixed data, fixed size.  Refresh:
+//   UPDATE_GOLDENS=1 ctest -R VisualSnapshot.MessageToolResultMatchesGolden
+// ────────────────────────────────────────────────────────────────────────────
+TEST(VisualSnapshot, MessageToolResultMatchesGolden) {
+    namespace m = cc::ui::messages;
+    using namespace ftxui;
+
+    Elements rows;
+
+    auto add = [&](const char* label, m::ToolResultKind kind,
+                   const std::string& tool_name,
+                   std::optional<std::string> content,
+                   bool verbose = false, bool truncated = false) {
+        m::ToolResultFaithfulData d;
+        d.tool_name = tool_name;
+        d.kind = kind;
+        d.content = std::move(content);
+        d.verbose = verbose;
+        d.is_truncated = truncated;
+        rows.push_back(m::RenderToolResultMessageFaithful(d));
+        (void)label;
+    };
+
+    // State 1: Success (short output)
+    add("success", m::ToolResultKind::Success,
+        "Bash", "file1.txt\nfile2.txt\nfile3.txt");
+
+    // State 2: Error (single line)
+    add("error", m::ToolResultKind::Error,
+        "Bash", "command not found: foo");
+
+    // State 3: Error (multi-line, non-verbose → +N lines hint)
+    add("error_multi", m::ToolResultKind::Error,
+        "Grep", "line1\nline2\nline3\nline4\nline5\n"
+                "line6\nline7\nline8\nline9\nline10\nline11\nline12");
+
+    // State 4: Canceled
+    add("canceled", m::ToolResultKind::Canceled,
+        "Bash", std::nullopt);
+
+    // State 5: Rejected
+    add("rejected", m::ToolResultKind::Rejected,
+        "Bash", std::nullopt);
+
+    // State 6: Plan rejected
+    add("plan_rejected", m::ToolResultKind::PlanRejected,
+        "Plan", "1. Read the file\n2. Edit the file\n3. Save changes");
+
+    // State 7: Classifier denied
+    add("classifier_denied", m::ToolResultKind::ClassifierDenied,
+        "Bash", std::nullopt);
+
+    // State 8: Success with ANSI color output (verifies ANSI passthrough)
+    add("success_ansi", m::ToolResultKind::Success,
+        "Bash", "\033[32mgreen\033[0m \033[31mred\033[0m normal");
+
+    auto el = vbox(std::move(rows));
+    check_golden("message_tool_result", render_to_ansi(std::move(el), 80, 30));
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// M4 LIVE-PATH GOLDEN — renders a representative message list through the
+// live RenderMessages dispatch path the RUNNING APP uses:
+//   repl_screen::RenderMessages → messages_list::render_messages_list_view
+//     → detail::render_payload_row → the FAITHFUL Element renderers.
+//
+// Covers all 7 core message kinds that go through the faithful path:
+//   user bubble, assistant thinking (collapsed), assistant text,
+//   system event row, tool-use (running), tool-result (success),
+//   tool-result (error).
+//
+// This locks in what users actually see — not just what each faithful fn
+// emits in isolation (those are the per-type goldens above).
+// Determinism: fixed data, no streaming tail, no selection, fixed size.
+// Refresh:
 //   UPDATE_GOLDENS=1 ctest -R VisualSnapshot.MessageListLiveMatchesGolden
 // ────────────────────────────────────────────────────────────────────────────
 TEST(VisualSnapshot, MessageListLiveMatchesGolden) {
@@ -2895,19 +3058,47 @@ TEST(VisualSnapshot, MessageListLiveMatchesGolden) {
         return e;
     };
 
+    // 1. User message (bubble style)
     entries.push_back(mk("user", "What files are in this repo?"));
-    // Assistant thinking row (assistant + is_thinking flag).
+
+    // 2. Assistant thinking (collapsed — default live-path state)
     auto think = mk("assistant", "The user wants to understand the repo structure.");
     think.is_thinking = true;
     entries.push_back(std::move(think));
+
+    // 3. Assistant text (markdown body)
     entries.push_back(mk("assistant", "Here is the layout of the repository."));
+
+    // 4. Tool use — running state (faithful: ● Bash + Running… progress line)
+    auto tool_use = mk("assistant", "{\"command\":\"ls -la\"}");
+    tool_use.is_tool_use = true;
+    tool_use.tool_name = "Bash";
+    tool_use.tool_input_json = "{\"command\":\"ls -la\"}";
+    tool_use.tool_status = "running";
+    entries.push_back(std::move(tool_use));
+
+    // 5. Tool result — success (faithful: ➤ Bash + content block)
+    auto tool_ok = mk("tool", "src/\ntests/\nREADME.md");
+    tool_ok.tool_name = "Bash";
+    tool_ok.tool_status = "success";
+    entries.push_back(std::move(tool_ok));
+
+    // 6. Tool result — error (faithful: ➤ Bash + red error block)
+    auto tool_err = mk("tool", "command not found: foo");
+    tool_err.tool_name = "Bash";
+    tool_err.tool_status = "error";
+    tool_err.is_error = true;
+    entries.push_back(std::move(tool_err));
+
+    // 7. System event row (faithful: ※ / ✻ / ⏺ glyph + text)
     entries.push_back(mk("system", "Welcome back — you were away for 2 hours."));
 
-    // sel = -1, streaming_tail past the end (no streaming cursor), 80x16.
-    auto el = rs::RenderMessages(entries, /*sel=*/-1, /*vlines=*/16,
+    // sel = -1, no streaming tail, 80x24 (enough room for all 7 rows + spacing).
+    // spinner_frame = 0 → running tool-use dot is visible (deterministic).
+    auto el = rs::RenderMessages(entries, /*sel=*/-1, /*vlines=*/24,
                                  /*offs=*/0, /*pinned=*/true, /*spinner_frame=*/0);
     ASSERT_NE(el, nullptr);
-    check_golden("message_list_live", render_to_ansi(std::move(el), 80, 16));
+    check_golden("message_list_live", render_to_ansi(std::move(el), 80, 24));
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -2963,6 +3154,182 @@ TEST(VisualSnapshot, MarkdownInlineMatchesGolden) {
         "This has **bold**, *italic*, `inline code`, and a [link](https://example.com).");
     ASSERT_NE(el, nullptr);
     check_golden("markdown_inline", render_to_ansi(std::move(el), 80, 4));
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// FileEditToolDiff GOLDENS — faithful port of FileEditToolDiff.tsx.
+//
+// Visual contract (TS reference):
+//   - Dashed top/bottom frame (subtle color)
+//   - Structured diff hunks with @@ hunk headers
+//   - "+" green additions, "-" red deletions
+//   - "..." ellipsis separator between hunks (dim)
+//   - Word-level highlighting on paired add/remove lines
+//
+// Determinism: fixed file content, fixed edits, fixed width/height.
+// Refresh: UPDATE_GOLDENS=1 ctest -R VisualSnapshot.FileEditToolDiff
+// ────────────────────────────────────────────────────────────────────────────
+TEST(VisualSnapshot, FileEditToolDiffSingleHunk) {
+    using namespace cc::ui::components::file_edit_tool_diff;
+    namespace fe = cc::utils::file_edit;
+
+    std::string file_content =
+        "function hello() {\n"
+        "  console.log(\"hello world\");\n"
+        "  return 42;\n"
+        "}\n";
+
+    FileEditToolDiffProps props;
+    props.file_path = "src/hello.js";
+    props.edits.push_back(fe::FileEdit{
+        .old_string = "  console.log(\"hello world\");",
+        .new_string = "  console.log(\"hello brave new world\");",
+        .replace_all = false,
+    });
+
+    auto el = render_file_edit_tool_diff(props, file_content, /*terminal_width=*/80);
+    ASSERT_NE(el, nullptr);
+    check_golden("file_edit_diff_single_hunk", render_to_ansi(std::move(el), 80, 12));
+}
+
+TEST(VisualSnapshot, FileEditToolDiffMultipleHunks) {
+    using namespace cc::ui::components::file_edit_tool_diff;
+    namespace fe = cc::utils::file_edit;
+
+    std::string file_content =
+        "function foo() {\n"
+        "  let x = 1;\n"
+        "  return x;\n"
+        "}\n"
+        "\n"
+        "// ===========\n"
+        "// middle section\n"
+        "// with enough\n"
+        "// lines to force\n"
+        "// separate hunks\n"
+        "// ===========\n"
+        "\n"
+        "function bar() {\n"
+        "  let y = 2;\n"
+        "  return y;\n"
+        "}\n";
+
+    FileEditToolDiffProps props;
+    props.file_path = "src/math.js";
+    props.edits.push_back(fe::FileEdit{
+        .old_string = "  let x = 1;",
+        .new_string = "  let x = 42;",
+        .replace_all = false,
+    });
+    props.edits.push_back(fe::FileEdit{
+        .old_string = "  let y = 2;",
+        .new_string = "  let y = 99;",
+        .replace_all = false,
+    });
+
+    auto el = render_file_edit_tool_diff(props, file_content, /*terminal_width=*/80);
+    ASSERT_NE(el, nullptr);
+    check_golden("file_edit_diff_multi_hunk", render_to_ansi(std::move(el), 80, 24));
+}
+
+TEST(VisualSnapshot, FileEditToolDiffPlaceholder) {
+    using namespace cc::ui::components::file_edit_tool_diff;
+    namespace fe = cc::utils::file_edit;
+
+    FileEditToolDiffProps props;
+    props.file_path = "src/test.js";
+
+    auto el = render_file_edit_tool_diff(
+        props, "", /*terminal_width=*/80, /*placeholder=*/true);
+    ASSERT_NE(el, nullptr);
+    check_golden("file_edit_diff_placeholder", render_to_ansi(std::move(el), 80, 4));
+}
+
+// ============================================================================
+// M5: Golden snapshot of the FAITHFUL FileEdit permission prompt.
+// Renders the full permission dialog (title, subtitle, structured diff,
+// question, options, footer hint) at a stable state (Yes selected, no input
+// mode) via the new RenderFileEditPromptForTest function.
+// Determinism: fixed content, no streaming, no animations.
+// Refresh: UPDATE_GOLDENS=1 ctest -R VisualSnapshot.FileEditPermission
+// ============================================================================
+
+TEST(VisualSnapshot, FileEditPermissionMatchesGolden) {
+    namespace fep = cc::ui::permissions::file_edit;
+
+    std::string file_content = R"(function greet(name) {
+  console.log("hello " + name);
+  return 42;
+}
+)";
+
+    auto el = fep::RenderFileEditPromptForTest(
+        /*file_path=*/"/home/user/project/src/greet.js",
+        /*old_string=*/R"(console.log("hello " + name);)",
+        /*new_string=*/R"(console.log("hello, " + name + "!");)",
+        /*file_content=*/file_content,
+        /*relative_path=*/"src/greet.js",
+        /*selected=*/0);
+    ASSERT_NE(el, nullptr);
+    check_golden("file_edit_permission", render_to_ansi(std::move(el), 80, 25));
+}
+
+// M5: Golden snapshot of the FAITHFUL Bash permission prompt.
+// Renders the full permission dialog (title, subtitle, command preview,
+// description, rule explanation, options, footer hints) at a stable state
+// (Yes selected) via RenderBashPermissionPromptForTest.
+// Determinism: fixed content, no streaming, no animations.
+TEST(VisualSnapshot, BashPermissionMatchesGolden) {
+    namespace bp = cc::ui::permissions::bash_prompt;
+
+    auto el = bp::RenderBashPermissionPromptForTest(
+        /*command=*/"ls -la src/",
+        /*description=*/"List source directory contents",
+        /*is_destructive=*/false,
+        /*show_always_allow=*/true,
+        /*selected=*/0);
+    ASSERT_NE(el, nullptr);
+    check_golden("bash_permission_readonly", render_to_ansi(std::move(el), 80, 24));
+}
+
+// Golden: bash permission prompt for a write/destructive command
+// (yellow destructive warning banner, manual approval required).
+TEST(VisualSnapshot, BashPermissionDestructiveMatchesGolden) {
+    namespace bp = cc::ui::permissions::bash_prompt;
+
+    auto el = bp::RenderBashPermissionPromptForTest(
+        /*command=*/"rm -rf build/",
+        /*description=*/"Remove build directory",
+        /*is_destructive=*/true,
+        /*show_always_allow=*/false,
+        /*selected=*/0);
+    ASSERT_NE(el, nullptr);
+    check_golden("bash_permission_destructive", render_to_ansi(std::move(el), 80, 22));
+}
+
+// Golden: bash mode progress with live output (ShellProgressMessage).
+// Shows the full BashModeProgress component with a populated ShellProgress
+// (command, output, elapsed time, line/byte counts).
+TEST(VisualSnapshot, BashModeProgressMatchesGolden) {
+    using namespace cc::ui::components::bash;
+    using namespace cc::ui::design::theme;
+
+    Theme theme{ThemeVariant::Dark, &cc::ui::design::tokens::palette::dark};
+
+    ShellProgress p;
+    p.output = "line 1\nline 2\nline 3\nline 4\nline 5\n";
+    p.full_output = p.output;
+    p.elapsed_time_seconds = 2.5;
+    p.total_lines = 5;
+    p.total_bytes = 35;
+
+    BashModeProgressProps props;
+    props.input = "echo -e 'line 1\\nline 2\\nline 3\\nline 4\\nline 5'";
+    props.progress = std::move(p);
+    props.verbose = false;
+
+    auto el = render_bash_mode_progress(props, theme);
+    check_golden("bash_mode_progress", render_to_ansi(std::move(el), 80, 12));
 }
 
 // M3: The wired prompt must surface the TS prompt glyph (figures.pointer
@@ -3021,6 +3388,450 @@ TEST(RenderPromptInput, WiredSurfacesAutocompleteDropdown) {
     EXPECT_NE(plain.find("/history"), std::string::npos);
     // The real dropdown's header row labels the surface.
     EXPECT_NE(plain.find("Suggestions"), std::string::npos);
+}
+
+// M3+: declared_cursor decorator must set screen.cursor() to the declared
+// position so that ScreenInteractive parks the real terminal cursor there
+// (IME preedit / screen reader support).  Faithful to TS useDeclaredCursor.
+TEST(DeclaredCursor, SetsScreenCursorAtDeclaredPosition) {
+    using namespace ftxui;
+    namespace dc = cc::ui::common::declared_cursor;
+
+    auto el = text("hello") | dc::declared_cursor(
+        /*active=*/true, /*rel_x=*/2, /*rel_y=*/0,
+        Screen::Cursor::Shape::BarBlinking);
+
+    Screen screen = Screen::Create(Dimension::Fixed(20), Dimension::Fixed(3));
+    Render(screen, el);
+
+    auto cursor = screen.cursor();
+    EXPECT_EQ(cursor.shape, Screen::Cursor::BarBlinking)
+        << "declared_cursor should set cursor shape to BarBlinking";
+    EXPECT_EQ(cursor.x, 2)
+        << "declared_cursor should set x = box.x_min + rel_x = 0 + 2";
+    EXPECT_EQ(cursor.y, 0)
+        << "declared_cursor should set y = box.y_min + rel_y = 0 + 0";
+}
+
+TEST(DeclaredCursor, InactiveDoesNotChangeCursor) {
+    using namespace ftxui;
+    namespace dc = cc::ui::common::declared_cursor;
+
+    Screen screen = Screen::Create(Dimension::Fixed(20), Dimension::Fixed(3));
+    // Set initial cursor position
+    screen.SetCursor(Screen::Cursor{5, 1, Screen::Cursor::Block});
+
+    auto el = text("hello") | dc::declared_cursor(
+        /*active=*/false, /*rel_x=*/2, /*rel_y=*/0,
+        Screen::Cursor::Shape::BarBlinking);
+
+    Render(screen, el);
+
+    auto cursor = screen.cursor();
+    // Inactive declared cursor should not modify the screen cursor.
+    // But FTXUI's Render() doesn't reset cursor — the CursorResetNode does.
+    // Here we just verify the shape doesn't change to BarBlinking.
+    EXPECT_EQ(cursor.shape, Screen::Cursor::Block)
+        << "inactive declared_cursor should not change cursor shape";
+}
+
+TEST(DeclaredCursor, CursorResetHidesCursor) {
+    using namespace ftxui;
+    namespace dc = cc::ui::common::declared_cursor;
+
+    auto el = text("hello") | dc::cursor_reset();
+
+    Screen screen = Screen::Create(Dimension::Fixed(20), Dimension::Fixed(3));
+    screen.SetCursor(Screen::Cursor{5, 1, Screen::Cursor::Block});
+    Render(screen, el);
+
+    auto cursor = screen.cursor();
+    EXPECT_EQ(cursor.shape, Screen::Cursor::Hidden)
+        << "cursor_reset should set cursor shape to Hidden";
+}
+
+TEST(DeclaredCursor, PromptInputPlacesCursorAtEndOfBuffer) {
+    namespace rs = cc::ui::repl_screen;
+    namespace dc = cc::ui::common::declared_cursor;
+
+    rs::ReplScreenState s;
+    s.input_mode = rs::InputMode::Prompt;
+    s.input_text = "hello";
+    auto el = rs::RenderPromptInput(s);
+
+    auto screen = ftxui::Screen::Create(
+        ftxui::Dimension::Fixed(60), ftxui::Dimension::Fixed(8));
+    ftxui::Render(screen, el);
+
+    auto cursor = screen.cursor();
+    // Cursor shape should be steady Bar (not blinking) for reliable IME preedit.
+    // A blinking cursor can cause IME composition windows to flicker and
+    // composition windows to flicker and some IMEs rely on a stable cursor anchor.
+    EXPECT_EQ(cursor.shape, ftxui::Screen::Cursor::Bar)
+        << "prompt input should declare a steady Bar cursor for IME";
+    // Cursor should be somewhere on screen (not at default bottom-right)
+    EXPECT_LT(cursor.x, 59) << "cursor should be within screen bounds";
+    EXPECT_LT(cursor.y, 7) << "cursor should be within screen bounds";
+    // Cursor x should be at least past the prompt glyph + text start
+    EXPECT_GE(cursor.x, 3)
+        << "cursor should be after prompt glyph and text start";
+}
+
+// Verify that CJK (Chinese) input places the cursor correctly after wide characters.
+// CJK characters are typically 2 cells wide in terminal emulators.
+TEST(DeclaredCursor, PromptInputCursorWithCJKCharacters) {
+    namespace rs = cc::ui::repl_screen;
+    namespace dc = cc::ui::common::declared_cursor;
+
+    rs::ReplScreenState s;
+    s.input_mode = rs::InputMode::Prompt;
+    // "你好" = 2 CJK characters = 4 display cells wide
+    s.input_text = "你好";
+    auto el = rs::RenderPromptInput(s);
+
+    auto screen = ftxui::Screen::Create(
+        ftxui::Dimension::Fixed(60), ftxui::Dimension::Fixed(8));
+    ftxui::Render(screen, el);
+
+    auto cursor = screen.cursor();
+    // Cursor shape should be steady Bar for IME
+    EXPECT_EQ(cursor.shape, ftxui::Screen::Cursor::Bar);
+    // Cursor x should be past the prompt + at least
+    EXPECT_GE(cursor.x, 3)
+        << "CJK cursor should be after prompt glyph and text start";
+    // Cursor should be further right than ASCII "hello" (5 chars) since CJK chars are wider
+    // "你好" is 2 CJK chars = 4 display cells, vs "hello" is 5 ASCII chars = 5 display cells.
+    // So CJK cursor x should be at position is at position after prompt + 4 = less than hello's 5, so x should be less than hello's cursor position...
+    // Actually let's just verify it's reasonable and non-decreasing for increasing text length increases cursor x
+
+    // Verify that longer CJK text pushes cursor further right
+    rs::ReplScreenState s2;
+    s2.input_mode = rs::InputMode::Prompt;
+    s2.input_text = "你好世界";  // 4 CJK chars = 8 display cells
+    auto el2 = rs::RenderPromptInput(s2);
+    auto screen2 = ftxui::Screen::Create(
+        ftxui::Dimension::Fixed(60), ftxui::Dimension::Fixed(8));
+    ftxui::Render(screen2, el2);
+    auto cursor2 = screen2.cursor();
+    EXPECT_GT(cursor2.x, cursor.x)
+        << "more CJK characters should move cursor further right";
+}
+
+// ─── Faithful BashModeProgress renderer tests ───────────────────────────
+// Ported from BashModeProgress.tsx + ShellProgressMessage.tsx +
+// ShellTimeDisplay.tsx + UserBashInputMessage.tsx.
+
+import cc.ui.components.bash_mode_progress;
+import cc.ui.components.shell_progress_message;
+import cc.ui.components.shell_time_display;
+import cc.ui.components.user_bash_input_message;
+import cc.ui.design.theme;
+import cc.ui.design.tokens;
+
+TEST(BashModeProgress, RendersInputWithExclamationPrefix) {
+    using namespace cc::ui::components::bash;
+    using namespace cc::ui::design::theme;
+
+    Theme theme{ThemeVariant::Dark, &cc::ui::design::tokens::palette::dark};
+
+    BashModeProgressProps props;
+    props.input = "echo hello";
+    props.progress = std::nullopt;
+    props.verbose = false;
+
+    auto el = render_bash_mode_progress(props, theme);
+    auto plain = strip_ansi(render_to_plain_text(std::move(el), 60, 10));
+
+    // Should contain the "!" bash prefix and the command text
+    EXPECT_NE(plain.find("!"), std::string::npos)
+        << "bash input should have '!' prefix";
+    EXPECT_NE(plain.find("echo hello"), std::string::npos)
+        << "bash input should show command text";
+}
+
+TEST(BashModeProgress, RunnersWithoutProgressShowsRunningFallback) {
+    using namespace cc::ui::components::bash;
+    using namespace cc::ui::design::theme;
+
+    Theme theme{ThemeVariant::Dark, &cc::ui::design::tokens::palette::dark};
+
+    BashModeProgressProps props;
+    props.input = "sleep 10";
+    props.progress = std::nullopt;
+    props.verbose = false;
+
+    auto el = render_bash_mode_progress(props, theme);
+    auto plain = strip_ansi(render_to_plain_text(std::move(el), 60, 10));
+
+    // Fallback: BashTool.renderToolUseProgressMessage with empty progress
+    // should show "Running…"
+    EXPECT_NE(plain.find("Running"), std::string::npos)
+        << "no-progress fallback should show 'Running…'";
+    // "⎿" prefix for MessageResponse
+    EXPECT_NE(plain.find("\xe2\x8f\xbf"), std::string::npos)
+        << "fallback should have MessageResponse hook prefix";
+}
+
+TEST(BashModeProgress, WithProgressShowsOutputAndTimer) {
+    using namespace cc::ui::components::bash;
+    using namespace cc::ui::design::theme;
+
+    Theme theme{ThemeVariant::Dark, &cc::ui::design::tokens::palette::dark};
+
+    ShellProgress p;
+    p.output = "line 1\nline 2\nline 3\nline 4\nline 5\nline 6";
+    p.full_output = p.output;
+    p.elapsed_time_seconds = 42.5;
+    p.total_lines = 6;
+
+    BashModeProgressProps props;
+    props.input = "seq 1 100";
+    props.progress = p;
+    props.verbose = false;
+
+    auto el = render_bash_mode_progress(props, theme);
+    auto plain = strip_ansi(render_to_plain_text(std::move(el), 60, 20));
+
+    // Input should be visible
+    EXPECT_NE(plain.find("seq 1 100"), std::string::npos);
+    // Output lines should be visible (last 5 since non-verbose)
+    EXPECT_NE(plain.find("line 2"), std::string::npos)
+        << "non-verbose mode should show last 5 lines";
+    EXPECT_NE(plain.find("line 6"), std::string::npos)
+        << "non-verbose mode should show last line";
+    // "+1 lines" status (6 total - 5 shown = 1 extra)
+    EXPECT_NE(plain.find("+1 lines"), std::string::npos)
+        << "should show +N lines for extra output";
+    // Elapsed time should be shown (42s)
+    EXPECT_NE(plain.find("42s"), std::string::npos)
+        << "should show elapsed time";
+}
+
+TEST(ShellTimeDisplay, ElapsedOnly) {
+    using namespace cc::ui::components::shell;
+    using namespace cc::ui::design::theme;
+
+    Theme theme{ThemeVariant::Dark, &cc::ui::design::tokens::palette::dark};
+
+    ShellTimeDisplayProps props;
+    props.elapsed_time_seconds = 75.0;  // 1m 15s
+    props.timeout_ms = std::nullopt;
+
+    auto el = render_shell_time_display(props, theme);
+    auto plain = strip_ansi(render_to_plain_text(std::move(el), 40, 3));
+    EXPECT_NE(plain.find("1m 15s"), std::string::npos)
+        << "75s should format as 1m 15s";
+    EXPECT_NE(plain.find("("), std::string::npos);
+    EXPECT_NE(plain.find(")"), std::string::npos);
+}
+
+TEST(ShellTimeDisplay, TimeoutOnly) {
+    using namespace cc::ui::components::shell;
+    using namespace cc::ui::design::theme;
+
+    Theme theme{ThemeVariant::Dark, &cc::ui::design::tokens::palette::dark};
+
+    ShellTimeDisplayProps props;
+    props.elapsed_time_seconds = std::nullopt;
+    props.timeout_ms = 300000;  // 5 minutes
+
+    auto el = render_shell_time_display(props, theme);
+    auto plain = strip_ansi(render_to_plain_text(std::move(el), 40, 3));
+    EXPECT_NE(plain.find("timeout"), std::string::npos)
+        << "timeout-only mode should show 'timeout' label";
+    // hideTrailingZeros=true for timeout, 5m with 0s → "5m" not "5m 0s"
+    EXPECT_NE(plain.find("5m"), std::string::npos);
+}
+
+TEST(ShellTimeDisplay, BothElapsedAndTimeout) {
+    using namespace cc::ui::components::shell;
+    using namespace cc::ui::design::theme;
+
+    Theme theme{ThemeVariant::Dark, &cc::ui::design::tokens::palette::dark};
+
+    ShellTimeDisplayProps props;
+    props.elapsed_time_seconds = 30.0;
+    props.timeout_ms = 120000;  // 2 minutes
+
+    auto el = render_shell_time_display(props, theme);
+    auto plain = strip_ansi(render_to_plain_text(std::move(el), 60, 3));
+    EXPECT_NE(plain.find("30s"), std::string::npos);
+    EXPECT_NE(plain.find("timeout"), std::string::npos);
+    EXPECT_NE(plain.find("2m"), std::string::npos);
+    // Middot separator between elapsed and timeout
+    EXPECT_NE(plain.find("\xc2\xb7"), std::string::npos)
+        << "both values should have · separator";
+}
+
+TEST(ShellProgressMessage, EmptyOutputShowsRunningState) {
+    using namespace cc::ui::components::shell;
+    using namespace cc::ui::design::theme;
+
+    Theme theme{ThemeVariant::Dark, &cc::ui::design::tokens::palette::dark};
+
+    ShellProgressMessageProps props;
+    props.output = "";
+    props.full_output = "";
+    props.elapsed_time_seconds = 5.0;
+    props.verbose = false;
+
+    auto el = render_shell_progress_message(props, theme);
+    auto plain = strip_ansi(render_to_plain_text(std::move(el), 60, 5));
+
+    EXPECT_NE(plain.find("Running"), std::string::npos)
+        << "empty output should show Running state";
+    EXPECT_NE(plain.find("5s"), std::string::npos)
+        << "empty output should still show elapsed time";
+}
+
+TEST(ShellProgressMessage, VerboseModeShowsAllOutput) {
+    using namespace cc::ui::components::shell;
+    using namespace cc::ui::design::theme;
+
+    Theme theme{ThemeVariant::Dark, &cc::ui::design::tokens::palette::dark};
+
+    std::string many_lines;
+    for (int i = 1; i <= 20; ++i) {
+        many_lines += "line " + std::to_string(i) + "\n";
+    }
+
+    ShellProgressMessageProps props;
+    props.output = many_lines;
+    props.full_output = many_lines;
+    props.elapsed_time_seconds = 10.0;
+    props.verbose = true;
+
+    auto el = render_shell_progress_message(props, theme);
+    auto plain = strip_ansi(render_to_plain_text(std::move(el), 60, 30));
+
+    // In verbose mode, all lines should be visible
+    EXPECT_NE(plain.find("line 1"), std::string::npos)
+        << "verbose mode should show first line";
+    EXPECT_NE(plain.find("line 20"), std::string::npos)
+        << "verbose mode should show last line";
+}
+
+TEST(ShellProgressMessage, NonVerboseLimitsToFiveLines) {
+    using namespace cc::ui::components::shell;
+    using namespace cc::ui::design::theme;
+
+    Theme theme{ThemeVariant::Dark, &cc::ui::design::tokens::palette::dark};
+
+    std::string many_lines;
+    for (int i = 1; i <= 50; ++i) {
+        many_lines += "line " + std::to_string(i) + "\n";
+    }
+
+    ShellProgressMessageProps props;
+    props.output = many_lines;
+    props.full_output = many_lines;
+    props.elapsed_time_seconds = 10.0;
+    props.verbose = false;
+
+    auto el = render_shell_progress_message(props, theme);
+    auto plain = strip_ansi(render_to_plain_text(std::move(el), 60, 15));
+
+    // Last 5 lines should be shown
+    EXPECT_NE(plain.find("line 46"), std::string::npos);
+    EXPECT_NE(plain.find("line 50"), std::string::npos);
+    // Earlier lines should NOT be visible
+    EXPECT_EQ(plain.find("line 1 "), std::string::npos)
+        << "non-verbose mode should not show first lines";
+}
+
+TEST(ShellProgressMessage, TotalBytesAndLinesShowsTildeStatus) {
+    using namespace cc::ui::components::shell;
+    using namespace cc::ui::design::theme;
+
+    Theme theme{ThemeVariant::Dark, &cc::ui::design::tokens::palette::dark};
+
+    ShellProgressMessageProps props;
+    props.output = "partial output\n";
+    props.full_output = "partial output\n";
+    props.elapsed_time_seconds = 5.0;
+    props.total_lines = 2000;
+    props.total_bytes = 100000;
+    props.verbose = false;
+
+    auto el = render_shell_progress_message(props, theme);
+    auto plain = strip_ansi(render_to_plain_text(std::move(el), 60, 10));
+
+    // "~2000 lines" (truncated estimate)
+    EXPECT_NE(plain.find("~2000 lines"), std::string::npos)
+        << "totalBytes + totalLines should show ~N lines";
+    // File size badge
+    EXPECT_NE(plain.find("KB"), std::string::npos)
+        << "totalBytes should show formatted file size";
+}
+
+TEST(UserBashInputMessage, ExtractsBashInputTag) {
+    using namespace cc::ui::components::bash;
+    using namespace cc::ui::design::theme;
+
+    Theme theme{ThemeVariant::Dark, &cc::ui::design::tokens::palette::dark};
+
+    UserBashInputProps props;
+    props.add_margin = false;
+    props.text = "<bash-input>ls -la /tmp</bash-input>";
+
+    auto el = render_user_bash_input_message(props, theme);
+    auto plain = strip_ansi(render_to_plain_text(std::move(el), 40, 3));
+
+    EXPECT_NE(plain.find("ls -la /tmp"), std::string::npos)
+        << "should extract command from <bash-input> tag";
+    EXPECT_NE(plain.find("!"), std::string::npos)
+        << "should have '!' prefix";
+}
+
+TEST(UserBashInputMessage, EmptyInputReturnsEmptyElement) {
+    using namespace cc::ui::components::bash;
+    using namespace cc::ui::design::theme;
+
+    Theme theme{ThemeVariant::Dark, &cc::ui::design::tokens::palette::dark};
+
+    UserBashInputProps props;
+    props.add_margin = false;
+    props.text = "";  // no bash-input tag → empty
+
+    auto el = render_user_bash_input_message(props, theme);
+    auto plain = strip_ansi(render_to_plain_text(std::move(el), 40, 3));
+
+    // Empty element should not have content
+    EXPECT_EQ(plain.find("!"), std::string::npos)
+        << "empty input should render nothing";
+}
+
+TEST(UserBashInputMessage, AddMarginAddsTopSpacing) {
+    using namespace cc::ui::components::bash;
+    using namespace cc::ui::design::theme;
+
+    Theme theme{ThemeVariant::Dark, &cc::ui::design::tokens::palette::dark};
+
+    // Use a 2-line high screen:
+    //  - with add_margin=false: "! echo hi" on line 0, line 1 blank
+    //  - with add_margin=true:  blank line 0, "! echo hi" on line 1
+    UserBashInputProps props_no_margin;
+    props_no_margin.add_margin = false;
+    props_no_margin.text = "<bash-input>echo hi</bash-input>";
+    auto el_no = render_user_bash_input_message(props_no_margin, theme);
+    auto plain_no = strip_ansi(render_to_plain_text(std::move(el_no), 40, 2));
+
+    UserBashInputProps props_with_margin;
+    props_with_margin.add_margin = true;
+    props_with_margin.text = "<bash-input>echo hi</bash-input>";
+    auto el_with = render_user_bash_input_message(props_with_margin, theme);
+    auto plain_with = strip_ansi(render_to_plain_text(std::move(el_with), 40, 2));
+
+    // First line of no-margin should contain the "!"
+    auto first_no = plain_no.substr(0, plain_no.find('\n'));
+    EXPECT_NE(first_no.find("!"), std::string::npos)
+        << "no margin: first line should contain '!'";
+
+    // First line of with-margin should be empty/whitespace (the margin)
+    auto first_with = plain_with.substr(0, plain_with.find('\n'));
+    // The "!" should NOT be on the first line
+    EXPECT_EQ(first_with.find("!"), std::string::npos)
+        << "with margin: first line should NOT contain '!'";
 }
 
 

@@ -2,6 +2,7 @@
 /// @brief Skill system smoke tests aligned with current C++ modules.
 
 #include <gtest/gtest.h>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <optional>
@@ -11,6 +12,17 @@ import cc.skills.skill;
 import cc.skills.bundled;
 
 namespace fs = std::filesystem;
+
+namespace {
+/// Unique temp directory name using a timestamp suffix to avoid collisions
+/// when tests from the same binary run in parallel under ctest -jN.
+[[nodiscard]] fs::path unique_test_dir(std::string_view prefix) {
+    return fs::temp_directory_path() / (
+        std::string(prefix) +
+        std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())
+    );
+}
+} // namespace
 
 TEST(SkillDefinition, SerializesMetadata) {
     cc::skills::SkillDefinition skill{
@@ -60,8 +72,7 @@ TEST(BundledSkills, RegistersIntoExecutor) {
 }
 
 TEST(SkillLoader, LoadsDirectorySkillMarkdown) {
-    auto root = fs::temp_directory_path() / "cc_repl_skill_directory_test";
-    fs::remove_all(root);
+    auto root = unique_test_dir("cc_repl_skill_directory_test_");
     fs::create_directories(root / "review-skill");
     {
         std::ofstream skill(root / "review-skill" / "SKILL.md");

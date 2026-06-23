@@ -5,6 +5,10 @@
 # ─── Optional tree-sitter dependency for bash AST danger classifier ───────────
 option(CC_ENABLE_TREE_SITTER "Enable tree-sitter bash parsing for AST danger classifier" OFF)
 if(CC_ENABLE_TREE_SITTER)
+    # tree-sitter is wired with the deprecated FetchContent_Populate + manual
+    # library target pattern. CMake 4.x sets CMP0169 to NEW which forbids
+    # FetchContent_Populate; allow it here until the wiring is modernized.
+    cmake_policy(SET CMP0169 OLD)
     include(FetchContent)
     FetchContent_Declare(
         tree_sitter
@@ -309,6 +313,7 @@ target_sources(cc_utils
         utils/hooks_config.cppm
         utils/hooks_execution.cppm
         utils/hooks_registry.cppm
+        utils/statusline_runner.cppm
         utils/plugin_lifecycle.cppm
         utils/plugin_loader.cppm
         utils/plugin_manager.cppm
@@ -1278,6 +1283,7 @@ add_library(cc_ui)
 target_sources(cc_ui
     PUBLIC FILE_SET CXX_MODULES FILES
         ui/app.cppm
+        ui/app_dialog_registration.cppm
         ui/components.cppm
         ui/agents/agent_cards.cppm
         ui/agents/agent_details_dialog.cppm
@@ -1308,22 +1314,27 @@ target_sources(cc_ui
         ui/components/spinner.cppm
         ui/components/spinner_widget.cppm
         ui/components/stats.cppm
-        ui/components/status_line.cppm
         ui/components/structured_diff.cppm
+        ui/components/file_edit_tool_diff.cppm
         ui/components/tag_tabs.cppm
         ui/components/task_view.cppm
         ui/components/text_input.cppm
         ui/components/text_input_widget.cppm
+        ui/components/user_bash_input_message.cppm
         ui/components/auto_updater.cppm
         ui/components/auth_flows.cppm
+        ui/components/bash_mode_progress.cppm
         ui/components/context_visualization.cppm
         ui/components/session_preview.cppm
+        ui/components/shell_progress_message.cppm
+        ui/components/shell_time_display.cppm
         ui/components/spinner_animations.cppm
         ui/components/spinner_shimmer.cppm
         ui/components/spinner_teammate_tree.cppm
         ui/common/ui_types.cppm
         ui/common/ui_formatting.cppm
         ui/common/small_widgets.cppm
+        ui/common/declared_cursor.cppm
         ui/design/dialog.cppm
         ui/design/divider.cppm
         ui/design/list_item.cppm
@@ -1332,11 +1343,23 @@ target_sources(cc_ui
         ui/design/tabs.cppm
         ui/design/themed_box.cppm
         ui/design/themed_text.cppm
+        ui/dialogs/dialog_system.cppm
+        ui/dialogs/dialog_frame.cppm
+        ui/dialogs/dialog_launchers.cppm
+        ui/dialogs/dialog_default_renderers.cppm
+        ui/dialogs/dialog_modal_renderers.cppm
+        ui/dialogs/dialog_bottom_renderers.cppm
+        ui/dialogs/dialog_all_renderers.cppm
+        ui/dialogs/dialog_triggers.cppm
         ui/dialogs/config_dialog.cppm
         ui/dialogs/desktop_upsell.cppm
         ui/dialogs/diff_dialog.cppm
         ui/dialogs/feedback_survey.cppm
         ui/dialogs/help_v2.cppm
+        ui/dialogs/help_view.cppm
+        ui/dialogs/settings_view.cppm
+        ui/dialogs/about_dialog.cppm
+        ui/dialogs/confirmation_dialog.cppm
         ui/dialogs/ide_dialogs.cppm
         ui/dialogs/install_github_app_wizard.cppm
         ui/dialogs/install_slack_app_wizard.cppm
@@ -1442,6 +1465,7 @@ target_sources(cc_ui
         ui/prompt/footer.cppm
         ui/prompt/mode_indicator.cppm
         ui/prompt/notifications.cppm
+        ui/prompt/prompt_input_footer.cppm  # M5 — faithful TS PromptInputFooter port
         ui/prompt/prompt_input_full.cppm
         ui/prompt/prompt_help_menu.cppm
         ui/prompt/prompt_history_search.cppm
@@ -1478,6 +1502,23 @@ target_sources(cc_ui
         ui/tasks/task_detail_dialog.cppm
         ui/tasks/task_remote_session.cppm
         ui/tasks/task_shell_progress.cppm
+        ui/tools/tool_ui_registry.cppm
+        ui/tools/tool_ui_init.cppm
+        ui/tools/tool_ui_generic.cppm
+        ui/tools/tool_ui_bash.cppm
+        ui/tools/tool_ui_file_edit.cppm
+        ui/tools/tool_ui_file_write.cppm
+        ui/tools/tool_ui_file_read.cppm
+        ui/tools/tool_ui_grep.cppm
+        ui/tools/tool_ui_glob.cppm
+        ui/tools/tool_ui_web_fetch.cppm
+        ui/tools/tool_ui_web_search.cppm
+        ui/tools/tool_ui_skill.cppm
+        ui/tools/tool_ui_agent.cppm
+        ui/tools/tool_ui_task.cppm
+        ui/tools/tool_ui_mcp.cppm
+        ui/tools/tool_ui_lsp.cppm
+        ui/tools/tool_ui_longtail.cppm
         ui/teams/teams_overview.cppm
         ui/teams/team_details_dialog.cppm
         ui/teams/swarm_collaboration_view.cppm
@@ -1495,6 +1536,17 @@ target_sources(cc_ui
         ui/design_system/component_primitives.cppm
         ui/design_system/design_extras.cppm       # UI27 — fuzzy picker + theme picker + design extras
 )
+# Module implementation units for cc.ui.app_dialog_registration — one per
+# dialog-renderer aggregator, so no single TU imports more than one aggregator's
+# closure (importing all four at once crashes Clang codegen). This keeps the
+# ~44 dialog implementations out of app.cppm's BMI (source-location budget).
+# See app_dialog_registration.cppm / *_impl.cpp for the rationale.
+target_sources(cc_ui PRIVATE
+    ui/app_dialog_registration_default.cpp
+    ui/app_dialog_registration_modal.cpp
+    ui/app_dialog_registration_bottom.cpp
+    ui/app_dialog_registration_all.cpp
+)
 target_link_libraries(cc_ui
     PUBLIC
         cc_utils
@@ -1505,6 +1557,7 @@ target_link_libraries(cc_ui
         cc_hooks
         cc_plugins
         cc_session
+        cc_history
         # U1: cc.ui.prompt.suggestion_provider imports cc.services.prompt_suggestion
         # directly. cc_ui already consumed cc.services.* transitively via cc_hooks;
         # making the dependency explicit is correct (no cycle: cc_services never

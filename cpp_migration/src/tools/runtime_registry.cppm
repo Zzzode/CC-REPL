@@ -1679,6 +1679,20 @@ constexpr auto try_start_native_agent_resume = &runtime_message_delivery::try_st
     auto json = input.json();
     if (name == "ask_user_question") {
         auto question = json_string(json, "question").value_or("Continue?");
+        auto default_answer = json_string(json, "default_answer");
+
+        // Use the global UI responder if set (e.g. dialog-based prompt).
+        // Falls back to stdio for headless / non-interactive builds.
+        auto& responder = cc::tools::get_global_ask_user_responder();
+        if (responder) {
+            auto result = responder(question, default_answer);
+            if (result.has_value()) {
+                return ToolResult::success(*result);
+            }
+            return ToolResult::error("User cancelled the prompt");
+        }
+
+        // Fallback: stdio
         std::cout << "\n" << question << "\n> ";
         std::string answer;
         if (!std::getline(std::cin, answer)) return ToolResult::error("No interactive input available");

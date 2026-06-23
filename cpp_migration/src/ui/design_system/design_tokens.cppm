@@ -8,7 +8,7 @@
 ///   styled-components / framer-motion – not present (animation is
 ///     useAnimationFrame-driven; here we emit numeric easing constants)
 ///   src/components/StatusBar/– not present (status-line lives under
-///     ui/components/status_line.cppm already)
+///     ui/prompt/prompt_input_footer.cppm as RenderStatusLine)
 module;
 
 #include <cstdint>

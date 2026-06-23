@@ -8,9 +8,17 @@
 Here is the layout of the repository.                                           
                                                                                 
                                                                                 
+[2m● [22m[1mBash[22m (ls -la)                                                                 
+[2mRunning…[22m                                                                        
+                                                                                
+[2msrc/                                                                           [22m 
+[2mtests/                                                                         [22m 
+[2mREADME.md                                                                      [22m 
+                                                                                
+[2m  ⏿  [22m[31m[49mError: command not found: foo[39m[49m                                              
+                                                                                
+                                                                                
 [2m※ Welcome back — you were away for 2 hours.[22m                                     
-                                                                                
-                                                                                
                                                                                 
                                                                                 
                                                                                 

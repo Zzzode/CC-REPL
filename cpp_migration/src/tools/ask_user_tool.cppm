@@ -207,4 +207,29 @@ private:
     AskUserConfig config_;
 };
 
+// --- Global responder for UI integration ---
+//
+// When the UI layer sets a global responder (e.g. a dialog-based one),
+// ask_user_question tool invocations go through it instead of stdio.
+// This enables faithful integration with the DialogQueue system.
+
+using AskUserResponder = std::function<std::optional<std::string>(
+    std::string_view question,
+    std::optional<std::string> default_answer)>;
+
+/// Set a global ask-user responder.
+/// Returns the previous responder (for chaining / testing).
+inline AskUserResponder set_global_ask_user_responder(AskUserResponder responder) {
+    static AskUserResponder s_responder;
+    auto prev = std::move(s_responder);
+    s_responder = std::move(responder);
+    return prev;
+}
+
+/// Get the current global ask-user responder (may be empty).
+inline AskUserResponder& get_global_ask_user_responder() {
+    static AskUserResponder s_responder;
+    return s_responder;
+}
+
 } // namespace cc::tools

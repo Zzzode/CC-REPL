@@ -18,12 +18,14 @@ find_package(Threads REQUIRED)
 
 # ─── E2E-1: SSE mock parser ──────────────────────────────────────────────────
 add_executable(e2e_sse_mock e2e_sse_mock.cpp)
+set_target_properties(e2e_sse_mock PROPERTIES CXX_SCAN_FOR_MODULES OFF)
 target_compile_features(e2e_sse_mock PRIVATE cxx_std_20)
 add_test(NAME E2E_SSE_Mock COMMAND e2e_sse_mock)
 set_tests_properties(E2E_SSE_Mock PROPERTIES TIMEOUT 10)
 
 # ─── E2E-2: REPL --dry-run (fork/exec) ───────────────────────────────────────
 add_executable(e2e_repl_dry_run e2e_repl_dry_run.cpp)
+set_target_properties(e2e_repl_dry_run PROPERTIES CXX_SCAN_FOR_MODULES OFF)
 target_compile_features(e2e_repl_dry_run PRIVATE cxx_std_20)
 target_link_libraries(e2e_repl_dry_run PRIVATE Threads::Threads)
 if(TARGET cc_repl)
@@ -39,6 +41,7 @@ set_tests_properties(E2E_REPL_DryRun PROPERTIES
 
 # ─── E2E-3: BashTool + FileTool composition ──────────────────────────────────
 add_executable(e2e_bash_file e2e_bash_file_integration.cpp)
+set_target_properties(e2e_bash_file PROPERTIES CXX_SCAN_FOR_MODULES OFF)
 target_compile_features(e2e_bash_file PRIVATE cxx_std_20)
 target_link_libraries(e2e_bash_file PRIVATE Threads::Threads)
 add_test(NAME E2E_Bash_File COMMAND e2e_bash_file)

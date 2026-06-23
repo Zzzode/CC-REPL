@@ -1,5 +1,22 @@
 cmake_minimum_required(VERSION 3.28)
 
+# ─── Toolchain selection (must come BEFORE project()) ─────────────────────────
+#
+# CMake's C++23 named-modules support relies on `clang-scan-deps` to discover
+# per-TU import graphs (P1689 format).  Apple's Xcode toolchain ships clang
+# (AppleClang) but does *not* ship `clang-scan-deps`, so CMake detects "the
+# compiler does not provide a way to discover the import graph dependencies"
+# and refuses to generate anything that consumes or produces named modules.
+#
+# Prefer a Homebrew-installed LLVM toolchain (`brew install llvm`) which ships
+# a matching `clang-scan-deps` alongside `clang++`.  The user can override
+# this by passing -DCMAKE_CXX_COMPILER=... / -DCMAKE_C_COMPILER=... on the
+# cmake command line, in which case the cache values win.
+if(NOT DEFINED CMAKE_CXX_COMPILER AND EXISTS "/opt/homebrew/opt/llvm/bin/clang++")
+    set(CMAKE_CXX_COMPILER "/opt/homebrew/opt/llvm/bin/clang++")
+    set(CMAKE_C_COMPILER   "/opt/homebrew/opt/llvm/bin/clang")
+endif()
+
 project(CC-REPL
     VERSION 1.0.0
     DESCRIPTION "CC-REPL: A C++23 Modules-based CLI REPL"
@@ -18,6 +35,7 @@ endif()
 
 # ─── C++20/23 Modules Support ─────────────────────────────────────────────────
 set(CMAKE_CXX_SCAN_FOR_MODULES ON)
+
 
 # Include custom module helpers
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")

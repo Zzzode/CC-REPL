@@ -91,6 +91,14 @@ enum class ActionType : std::uint16_t {
 
     // Settings
     UpdateSettings,
+    SetSettingsModel,
+    SetSettingsTheme,
+    SetSettingsVerbose,
+    SetOutputStyle,
+    SetDisableAllHooks,
+    SetStatusLineEnabled,
+    SetStatusLineCommand,
+    SetStatusLinePadding,
     SetVerbose,
     SetFastMode,
     SetThinkingEnabled,
@@ -465,6 +473,54 @@ concept Reducer = std::invocable<F, const State&, const Action&> &&
         case ActionType::UpdateSettings: {
             if (auto settings = action.get_payload<Settings>()) {
                 next.settings = std::move(*settings);
+            }
+            break;
+        }
+        case ActionType::SetSettingsModel: {
+            if (auto model = action.get_payload<std::string>()) {
+                next.settings.model = std::move(*model);
+            }
+            break;
+        }
+        case ActionType::SetSettingsTheme: {
+            if (auto theme = action.get_payload<std::string>()) {
+                next.settings.theme = std::move(*theme);
+            }
+            break;
+        }
+        case ActionType::SetSettingsVerbose: {
+            if (auto val = action.get_payload<bool>()) {
+                next.settings.verbose = *val;
+            }
+            break;
+        }
+        case ActionType::SetOutputStyle: {
+            if (auto style = action.get_payload<std::string>()) {
+                next.settings.output_style = std::move(*style);
+            }
+            break;
+        }
+        case ActionType::SetDisableAllHooks: {
+            if (auto val = action.get_payload<bool>()) {
+                next.settings.disable_all_hooks = *val;
+            }
+            break;
+        }
+        case ActionType::SetStatusLineEnabled: {
+            if (auto val = action.get_payload<bool>()) {
+                next.settings.status_line.enabled = *val;
+            }
+            break;
+        }
+        case ActionType::SetStatusLineCommand: {
+            if (auto cmd = action.get_payload<std::string>()) {
+                next.settings.status_line.command = std::move(*cmd);
+            }
+            break;
+        }
+        case ActionType::SetStatusLinePadding: {
+            if (auto val = action.get_payload<int>()) {
+                next.settings.status_line.padding = *val;
             }
             break;
         }

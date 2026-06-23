@@ -2576,6 +2576,18 @@ private:
 
         // Emit pre-tool-use hook and check for blocking hooks
         auto exec_start = std::chrono::steady_clock::now();
+
+        // M6: emit tool-execution-start stream event for live result preview UI.
+        // This lets the UI show a progress line as soon as the tool starts
+        // executing, instead of waiting for the full API round-trip.
+        if (options.on_event) {
+            ToolExecutionStart ev;
+            ev.tool_use_id = tool_use.id.value;
+            ev.tool_name = tool_use.name;
+            ev.input_json = effective_input_json;
+            (*options.on_event)(ev);
+        }
+
         if (lifecycle_hooks_) {
             auto block_reason = lifecycle_hooks_->check_and_emit_pre_tool_use(cc::hooks::PreToolUseEvent{
                 .tool_name = tool_use.name,
@@ -2711,6 +2723,16 @@ private:
             if (const auto* tb = std::get_if<TextBlock>(&result_msg.content[0])) {
                 output_preview = tb->text.substr(0, 500);
             }
+        }
+
+        // M6: emit tool-execution-end stream event with the final result.
+        // Completes the live result preview UI.
+        if (options.on_event) {
+            ToolExecutionEnd ev;
+            ev.tool_use_id = tool_use.id.value;
+            ev.result = output_preview;
+            ev.is_error = result_msg.is_error;
+            (*options.on_event)(ev);
         }
 
         // Emit post-tool-use lifecycle event

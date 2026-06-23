@@ -248,6 +248,26 @@ struct ContentBlockStop {
     std::uint32_t index;
 };
 
+/// Tool execution has started (used for live result preview / progress UI)
+struct ToolExecutionStart {
+    std::string tool_use_id;      ///< Tool use ID from the model
+    std::string tool_name;        ///< Tool name (e.g. "Bash", "Edit")
+    std::string input_json;       ///< Tool input parameters (JSON)
+};
+
+/// Tool execution progress update (partial result preview)
+struct ToolExecutionProgress {
+    std::string tool_use_id;      ///< Tool use ID
+    std::string partial_result;   ///< Accumulated (or latest) partial result text
+};
+
+/// Tool execution has completed
+struct ToolExecutionEnd {
+    std::string tool_use_id;      ///< Tool use ID
+    std::string result;           ///< Final result
+    bool is_error = false;        ///< Whether the execution failed
+};
+
 /// The entire message stream is complete
 struct StreamEnd {
     std::optional<std::string> stop_reason;
@@ -266,6 +286,9 @@ using StreamEvent = std::variant<
     ContentBlockStart,
     ContentBlockDelta,
     ContentBlockStop,
+    ToolExecutionStart,
+    ToolExecutionProgress,
+    ToolExecutionEnd,
     StreamEnd,
     StreamError
 >;

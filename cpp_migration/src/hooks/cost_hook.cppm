@@ -72,6 +72,17 @@ inline std::optional<std::string> check_cost_threshold() {
 }
 
 
+inline void update_cost(CostUpdate data) {
+    detail::current_cost_data() = std::move(data);
+    // Notify all listeners
+    const auto& listeners = detail::cost_listeners();
+    const auto& current = detail::current_cost_data();
+    for (const auto& listener : listeners) {
+        if (listener) listener(current);
+    }
+}
+
+
 inline void set_cost_budget(double max_usd) {
     detail::cost_budget_limit() = max_usd;
 }

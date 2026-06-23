@@ -24,6 +24,7 @@ module;
 #include <ftxui/component/component_base.hpp>
 #include <ftxui/component/event.hpp>
 #include <ftxui/component/screen_interactive.hpp>
+#include <ftxui/screen/string.hpp>  // for string_width
 
 export module ui.components.text_input;
 
@@ -260,6 +261,37 @@ public:
     }
     const std::string& text() const { return text_; }
     int cursor() const { return cursor_; }
+
+    // ------------------------------------------------------------
+    // Cursor display position (for declared cursor / IME support)
+    // ------------------------------------------------------------
+    /// Zero-indexed line number of the cursor within the buffer.
+    [[nodiscard]] int cursor_line() const {
+        int line = 0, col = 0;
+        compute_cursor_position(line, col);
+        return line;
+    }
+
+    /// Display column (visual width) of the cursor on its line.
+    /// Unlike `compute_cursor_position` which returns byte offset, this
+    /// accounts for full-width CJK characters that occupy 2 terminal cells.
+    [[nodiscard]] int cursor_display_col() const {
+        int line = 0, byte_col = 0;
+        compute_cursor_position(line, byte_col);
+        // Find the line's start byte
+        int line_start = 0;
+        for (int i = 0; i < line; ++i) {
+            // Advance past this line and its newline
+            while (line_start < (int)text_.size() && text_[line_start] != '\n')
+                ++line_start;
+            ++line_start;  // skip the '\n'
+        }
+        int line_end = line_start;
+        while (line_end < (int)text_.size() && text_[line_end] != '\n')
+            ++line_end;
+        const std::string line_str = text_.substr(line_start, byte_col);
+        return string_width(line_str);
+    }
     bool has_selection() const {
         return sel_start_ >= 0 && sel_end_ >= 0 && sel_start_ != sel_end_;
     }
