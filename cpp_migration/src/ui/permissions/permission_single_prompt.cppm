@@ -303,6 +303,9 @@ struct PromptState {
     bool always_allow_checkbox = false;
     bool sandbox_toggle = false;
     int  focused_button = 0;   // 0=Allow once  1=Deny  2=Always allow  3=Always deny
+    // One-shot guard: TS contract fires EXACTLY ONE terminal callback per prompt.
+    // Priority 1) on_abort (if present), 2) else on_decide(...). NEVER both.
+    bool callback_fired = false;
 };
 
 /// Render the complete single-prompt dialog body.
@@ -431,6 +434,14 @@ struct PromptState {
     state->sandbox_toggle = state->props.initial_sandbox_toggle;
 
     auto emit = [state](Decision d) {
+        if (state->callback_fired) return;
+        state->callback_fired = true;
+        // TS contract: one-shot. For Abort, prefer on_abort when present; else
+        // fall back to on_decide(Abort). For all other decisions, use on_decide.
+        if (d == Decision::Abort && state->props.on_abort) {
+            state->props.on_abort();
+            return;
+        }
         if (state->props.on_decide) {
             state->props.on_decide(d, state->sandbox_toggle);
         }
@@ -501,9 +512,10 @@ struct PromptState {
             return true;
         }
 
-        // ----- Escape: treat as Deny + notify abort callback -----
+        // ----- Escape: abort with one-shot priority ----
+        // Priority: (1) on_abort if set, (2) else on_decide(Abort).
+        // Never both — emit() enforces the oneshot via callback_fired.
         if (event == Event::Escape) {
-            if (state->props.on_abort) state->props.on_abort();
             emit(Decision::Abort);
             return true;
         }

@@ -61,7 +61,7 @@ class UserTextMessageComponent : public ComponentBase {
           on_copy_(std::move(on_copy)),
           on_click_(std::move(on_click)) {}
 
-    Element Render() override {
+    Element OnRender() override {
         auto bubble_body = BuildContent();
 
         // Right-side header: timestamp + role tag

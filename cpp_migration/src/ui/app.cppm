@@ -48,15 +48,8 @@ import cc.hooks.cost_hook;
 import cc.services.mcp.elicitation_handler;
 import cc.tools.ask_user;
 import cc.ui.repl_screen;
-import cc.ui.common.declared_cursor;
-import cc.ui.tools.init;
-import cc.ui.app_dialog_registration;
-import cc.ui.dialogs.system;
-import cc.ui.dialogs.triggers;
-import cc.utils.settings_manager;
-import cc.utils.statusline_runner;
-import cc.utils.model.model;
-import cc.constants.constants;
+import cc.ui.dialogs.dialog_default_renderers;
+import cc.ui.dialogs.dialog_system;
 
 export namespace cc::ui {
 
@@ -339,6 +332,11 @@ public:
           on_exit_(std::move(on_exit)),
           screen_state_(std::make_shared<repl::ReplScreenState>()) {
 
+        // ── M7: Register default dialog renderers in the registry ────
+        // Overlay (ToolPermission), plus any future default slots.
+        cc::ui::dialogs::default_renderers::register_default_renderers(
+            screen_state_->dialog_renderers);
+
         current_session_id_ = utils::SessionStorage::generate_session_id();
         session_start_time_ = std::chrono::steady_clock::now();
 
@@ -417,7 +415,22 @@ public:
         };
         cbs.on_dialog_action = [this](repl::ReplMode mode, int action) {
             if (mode == repl::ReplMode::CostThreshold) {
-                if (action == 2 && on_exit_) on_exit_();
+                namespace ct = cc::ui::dialogs::cost_threshold;
+                switch (static_cast<ct::Action>(action)) {
+                    case ct::Action::Continue:
+                        // Acknowledge dialog and proceed — matches TS
+                        // onDone which sets hasAcknowledgedCostThreshold.
+                        break;
+                    case ct::Action::Reset:
+                        // Reset session cost counter to $0.00.
+                        screen_state_->status_bar.cost_usd = 0.0;
+                        screen_state_->dialog_ctx.cost_threshold_usd.reset();
+                        break;
+                    case ct::Action::Quit:
+                        // Stop the REPL (action 2 → on_exit).
+                        if (on_exit_) on_exit_();
+                        break;
+                }
             }
             screen_state_->mode = repl::ReplMode::Normal;
         };
@@ -830,6 +843,14 @@ public:
             return;
         }
 
+        if (cmd == "/config" || cmd == "/settings") {
+            screen_state_->mode = repl::ReplMode::SettingsView;
+            // Note: if the engine later exposes a ConfigManager accessor,
+            // wire it here.  For now the dialog uses its internal fallback.
+            screen_state_->settings_config = nullptr;
+            return;
+        }
+
         if (cmd_registry_) {
             auto result = cmd_registry_->execute(std::string(cmd), command_context_for_engine(engine_));
             if (result) {
@@ -1118,7 +1139,7 @@ public:
         TriggerStatuslineUpdate();
     }
 
-    Element Render() override {
+    Element OnRender() override {
         ConsumePendingResult();
 
         if (query_running_.load()) {

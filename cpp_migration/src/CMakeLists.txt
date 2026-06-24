@@ -1354,6 +1354,7 @@ target_sources(cc_ui
         ui/dialogs/config_dialog.cppm
         ui/dialogs/desktop_upsell.cppm
         ui/dialogs/diff_dialog.cppm
+        ui/dialogs/elicitation_dialog.cppm
         ui/dialogs/feedback_survey.cppm
         ui/dialogs/help_v2.cppm
         ui/dialogs/help_view.cppm
@@ -1372,6 +1373,7 @@ target_sources(cc_ui
         ui/dialogs/permission_dialog.cppm
         ui/dialogs/permission_prompts.cppm
         ui/dialogs/plugin_dialog.cppm
+        ui/dialogs/prompt_dialog.cppm
         ui/dialogs/quick_open.cppm
         ui/dialogs/sandbox_dialog.cppm
         ui/dialogs/settings_dialog.cppm
@@ -1384,12 +1386,20 @@ target_sources(cc_ui
         ui/dialogs/auto_mode_dialog.cppm
         ui/dialogs/bridge_dialog.cppm
         ui/dialogs/cost_threshold_dialog.cppm
+        ui/dialogs/dialog_default_renderers.cppm
+        ui/dialogs/dialog_system.cppm
         ui/dialogs/export_dialog.cppm
         ui/dialogs/global_search_dialog.cppm
         ui/dialogs/history_search_dialog.cppm
+        ui/dialogs/idle_return_dialog.cppm
         ui/dialogs/ide_connect_dialog.cppm
         ui/dialogs/remote_env_dialog.cppm
         ui/dialogs/worktree_exit_dialog.cppm
+        ui/dialogs/all_renderers.cppm            # new: DialogRendererRegistry + all renderers
+        ui/dialogs/bottom_renderers.cppm         # new: Bottom-band dialog renderers
+        ui/dialogs/modal_renderers.cppm          # new: Overlay/Modal dialog renderers
+        ui/dialogs/sandbox_permission.cppm       # new: SandboxPermission renderer
+        ui/dialogs/triggers.cppm                 # new: Dialog trigger / invocation routing
         ui/events/event_system.cppm
         ui/layout.cppm
         ui/layout/fullscreen_layout.cppm

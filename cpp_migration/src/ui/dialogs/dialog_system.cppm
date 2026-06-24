@@ -347,6 +347,24 @@ struct SandboxPermissionPayload {
     bool is_worker = false;
     std::string worker_request_id;
     std::function<void(bool allow, bool always)> on_response;
+    // -- Faithful-port extension fields (added in Dialog#2 SandboxPermission) --
+    /// When true, suppress the "always allow this host" option (matches TS
+    /// `shouldAllowManagedSandboxDomainsOnly()`).  nullopt => not set, treat
+    /// as false so the default behavior matches TS pre-feature-gate.
+    std::optional<bool> managed_domains_only;
+    /// 0-based focused index in the option list.  Renderers and event
+    /// handlers use this to highlight the active Select option.  Mapping:
+    ///   0 -> "Yes" (always present)
+    ///   1 -> "Yes, and don't ask again for <host>" (when !managed_domains_only)
+    ///   2 -> "No, ... (esc)" (always present)
+    std::optional<std::int8_t> focused_index;
+    /// Optional: the rule that caused this prompt to fire (TS permission-
+    /// system extension surface for audit logging / explainability).
+    std::optional<std::string> permission_rule_match_explanation;
+    /// Optional: abort/cancel callback used by JSX-tool-animation overlay
+    /// consumers (TS: onCancel).  Defaults to the same callback shape as
+    /// the Deny branch for backwards compatibility.
+    std::function<void()> on_dismiss;
 };
 
 /// Payload for PromptDialog (hook input) — bottom slot, band 3.
@@ -368,12 +386,20 @@ struct ElicitationPayload {
 };
 
 /// Payload for CostThreshold dialog — bottom slot, band 4.
+///
+/// P0x3 CONTRACT (DO NOT ADD fabricated Continue/Reset/Quit actions):
+///   - dollars_spent formatted into the title with $%.0f
+///   - optional model_name rendered for context
+///   - on_done() is a 0-arg void() callback.
+///     Both Enter AND Escape invoke on_done() — no data-loss exits.
 struct CostThresholdPayload {
     std::string id;
-    double cost_threshold_usd = 0.0;
-    double current_cost_usd = 0.0;
-    std::string model_name;
-    std::function<void(bool continue_, bool reset)> on_response;
+    /// Dollars spent this session — interpolated into title as $%.0f.
+    double dollars_spent = 0.0;
+    /// Optional model name (context only, not part of chrome).
+    std::optional<std::string> model_name;
+    /// 0-arg acknowledgement callback — NOT on_response(bool,bool).
+    std::function<void()> on_done;
 };
 
 /// Payload for IdleReturn dialog — bottom slot, band 4.

@@ -105,7 +105,7 @@ public:
         : state_(std::move(state)), theme_(std::move(theme)),
           start_(std::chrono::steady_clock::now()) {}
 
-    Element Render() override {
+    Element OnRender() override {
         using namespace ftxui;
         const auto& s = state_;
 

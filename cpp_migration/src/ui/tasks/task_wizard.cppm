@@ -802,7 +802,7 @@ struct TaskWizardOptions {
                     std::shared_ptr<void> kept;
                     KeepAliveBase(Component c, std::shared_ptr<void> k)
                         : child(std::move(c)), kept(std::move(k)) {}
-                    Element Render() override { return child->Render(); }
+                    Element OnRender() override { return child->Render(); }
                     bool OnEvent(Event e) override { return child->OnEvent(e); }
                 };
                 return Make<KeepAliveBase>(std::move(inner), kept);

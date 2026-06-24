@@ -132,7 +132,7 @@ class ShutdownMessageComponent : public ComponentBase {
         }
     }
 
-    Element Render() override {
+    Element OnRender() override {
         // Grey separator line with centered title
         auto divider = hbox({
             separator() | color(Color::GrayDark),

@@ -1183,7 +1183,7 @@ public:
     explicit MarkdownComponentBase(MarkdownComponentOptions opts)
         : opts_(std::move(opts)), scroll_offset_(0) {}
 
-    Element Render() override {
+    Element OnRender() override {
         auto element = render_markdown(opts_.content, opts_.render_options);
 
         // For long content, add scroll viewport

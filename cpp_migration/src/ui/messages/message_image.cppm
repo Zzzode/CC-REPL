@@ -267,7 +267,7 @@ class ImageMessageComponent : public ComponentBase {
           on_click_(std::move(on_click)),
           on_copy_(std::move(on_copy)) {}
 
-    Element Render() override {
+    Element OnRender() override {
         auto body = render(data_);
 
         // Right-side header: timestamp + role tag

@@ -35,10 +35,12 @@ export module cc.ui.dialogs.default_renderers;
 
 import cc.ui.dialogs.system;
 import cc.ui.dialogs.frame;
+import cc.ui.dialogs.sandbox_permission;
 import cc.ui.permissions.single_prompt;
 import cc.ui.permissions.components;
 import cc.ui.design.theme;
 import cc.ui.design.primitives;
+import cc.ui.dialogs.cost_threshold_dialog;
 
 export namespace cc::ui::dialogs::default_renderers {
 
@@ -142,114 +144,53 @@ inline bool HandleToolPermissionEvent(
     const dsys::SandboxPermissionPayload& p,
     const dsys::DialogRenderContext& ctx)
 {
-    dframe::DialogFrameProps props;
-    props.title = p.is_worker ? "Worker Network Access" : "Network Access Request";
-    props.subtitle = p.is_worker
-        ? std::string{"Worker \"" + p.worker_request_id + "\" requests network access"}
-        : std::string{"Claude wants to access the network"};
-    props.style = dframe::FrameStyle::Warning;
-    props.content = vbox({
-        hbox({
-            text("Host: ") | dim,
-            text(p.host_pattern) | bold,
-        }),
-        text(""),
-        hbox({
-            text("Allow access to ") | dim,
-            text(p.host_pattern),
-            text("?") | dim,
-        }),
-        text(""),
-        hbox({
-            text(" [y] Allow") | color(Color::Green),
-            text("  [a] Always allow") | color(Color::Cyan),
-            text("  [n] Deny") | color(Color::Red),
-            text("  [Esc] Cancel") | dim,
-        }),
-    });
-    return dframe::DialogFrame(props, ctx.theme);
+    // Delegate to the faithful renderer port in cc.ui.dialogs.sandbox_permission
+    // (see sandbox_permission.cppm for the 1:1 TS layout).
+    return cc::ui::dialogs::sandbox_permission::RenderDefault(p, ctx);
 }
 
 inline bool HandleSandboxPermissionEvent(
     dsys::SandboxPermissionPayload& p,
     const Event& event)
 {
-    if (event == Event::Character('y') || event == Event::Character('Y')) {
-        if (p.on_response) p.on_response(true, false);
-        return true;
-    }
-    if (event == Event::Character('a') || event == Event::Character('A')) {
-        if (p.on_response) p.on_response(true, true);
-        return true;
-    }
-    if (event == Event::Character('n') || event == Event::Character('N')) {
-        if (p.on_response) p.on_response(false, false);
-        return true;
-    }
-    if (event == Event::Escape) {
-        if (p.on_response) p.on_response(false, false);
-        return true;
-    }
-    if (event == Event::Return) {
-        if (p.on_response) p.on_response(true, false);
-        return true;
-    }
-    return false;
+    // Delegate to the faithful event handler (y/a/n/Esc/Enter + arrow nav).
+    return cc::ui::dialogs::sandbox_permission::HandleSandboxPermissionEvent(
+        p, event);
 }
 
 // ============================================================
 // CostThreshold renderer
+//
+// UNIFIED: delegates EXCLUSIVELY to cost_threshold_dialog.cppm's
+// RenderCostThreshold / HandleCostThresholdEvent to guarantee the
+// P0x3 contract.  This renderer previously contained fabricated
+// "Continue / Reset counter / Quit" chrome — that code has been
+// permanently removed.
 // ============================================================
 
 [[nodiscard]] inline Element RenderCostThreshold(
     const dsys::CostThresholdPayload& p,
-    const dsys::DialogRenderContext& ctx)
+    const dsys::DialogRenderContext& /*ctx*/)
 {
-    dframe::DialogFrameProps props;
-    props.title = "Cost Threshold Reached";
-    props.subtitle = "Session cost has exceeded your configured threshold.";
-    props.style = dframe::FrameStyle::Warning;
-    props.content = vbox({
-        hbox({
-            text("Current: ") | dim,
-            text(std::format("${:.2f}", p.current_cost_usd)) | bold | color(Color::Yellow),
-        }),
-        hbox({
-            text("Threshold: ") | dim,
-            text(std::format("${:.2f}", p.cost_threshold_usd)),
-        }),
-        hbox({
-            text("Model: ") | dim,
-            text(p.model_name),
-        }),
-        text(""),
-        hbox({
-            text(" [c] Continue") | color(Color::Green),
-            text("  [r] Reset counter") | color(Color::Cyan),
-            text("  [q] Quit") | color(Color::Red),
-        }),
-    });
-    return dframe::DialogFrame(props, ctx.theme);
+    namespace ct = cc::ui::dialogs::cost_threshold;
+    ct::CostThresholdState st;
+    st.dollars_spent = p.dollars_spent;
+    st.model_name    = p.model_name;
+    st.selected_index = 0;
+    return ct::RenderCostThreshold(st);
 }
 
 inline bool HandleCostThresholdEvent(
     dsys::CostThresholdPayload& p,
     const Event& event)
 {
-    if (event == Event::Character('c') || event == Event::Character('C')) {
-        if (p.on_response) p.on_response(true, false);
-        return true;
-    }
-    if (event == Event::Character('r') || event == Event::Character('R')) {
-        if (p.on_response) p.on_response(true, true);
-        return true;
-    }
-    if (event == Event::Character('q') || event == Event::Character('Q') ||
-        event == Event::Escape) {
-        if (p.on_response) p.on_response(false, false);
-        return true;
-    }
-    return false;
+    namespace ct = cc::ui::dialogs::cost_threshold;
+    ct::CostThresholdState st;
+    st.dollars_spent = p.dollars_spent;
+    st.model_name    = p.model_name;
+    st.selected_index = 0;
+    st.on_done = [&p] { if (p.on_done) p.on_done(); };
+    return ct::HandleCostThresholdEvent(st, event);
 }
 
 // ============================================================

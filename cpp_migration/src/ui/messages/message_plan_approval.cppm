@@ -132,7 +132,7 @@ class PlanApprovalComponent : public ComponentBase {
         }
     }
 
-    Element Render() override {
+    Element OnRender() override {
         // State badge
         auto state_badge = [&]() -> Element {
             switch (opts_.state) {

@@ -211,7 +211,7 @@ public:
         return ComponentBase::OnEvent(e);
     }
 
-    Element Render() override {
+    Element OnRender() override {
         using namespace ftxui;
 
         // ── Header ───────────────────────────────────────────────

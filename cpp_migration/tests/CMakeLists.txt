@@ -178,15 +178,78 @@ add_executable(test_ui test_ui.cpp)
 target_link_libraries(test_ui
     PRIVATE
         cc_core
-        cc_ui                  # all cc.ui.* imports (messages, components, dialogs, permissions, design, prompt, layout, etc.)
-        cc_utils               # cc.utils.file_edit, cc.utils.permissions_engine, cc.utils.session_storage
-        cc_query               # cc.query.query_engine
-        cc_tools               # cc.tools.tool
-        cc_commands            # cc.commands.registry
-        cc_services            # cc.services.prompt_suggestion
+        cc_ui           # defense-in-depth: UI modules must be discoverable
         GTest::gtest_main
 )
 gtest_discover_tests(test_ui DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+
+# ---------------------------------------------------------------------------
+# M7 Dialog #1 (ToolPermission) renderer + event handler regression suite.
+# Faithful-port contract: keyboard mapping, golden chrome, and queue
+# suppression policy are all covered here so any UI drift is caught in CI.
+# ---------------------------------------------------------------------------
+add_executable(test_dialog_toolpermission test_dialog_toolpermission.cpp)
+target_link_libraries(test_dialog_toolpermission
+    PRIVATE
+        cc_core
+        cc_ui
+        GTest::gtest_main
+)
+target_compile_options(test_dialog_toolpermission PRIVATE
+    $<$<CXX_COMPILER_ID:Clang,AppleClang>:-Wno-missing-designated-field-initializers>
+)
+gtest_discover_tests(test_dialog_toolpermission
+    DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+
+
+# ---------------------------------------------------------------------------
+# M7 Dialog System core — payload serde, DialogQueue, DialogRendererRegistry,
+# Elicitation/SandboxPermission/SettingsView routing tests
+# ---------------------------------------------------------------------------
+add_executable(test_dialog_system test_dialog_system.cpp)
+target_link_libraries(test_dialog_system
+    PRIVATE
+        cc_core
+        cc_ui                  # cc.ui.dialogs.* + cc.ui.design.theme
+        GTest::gtest_main
+)
+target_compile_options(test_dialog_system PRIVATE
+    $<$<CXX_COMPILER_ID:Clang,AppleClang>:-Wno-missing-designated-field-initializers>
+)
+cc_test_target_enable_modules(test_dialog_system)
+gtest_discover_tests(test_dialog_system
+    DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+
+
+# ---------------------------------------------------------------------------
+# M7 Dialog #3 (PromptDialog SELECT/FORM) renderer + event handling tests
+# ---------------------------------------------------------------------------
+add_executable(test_prompt_dialog test_prompt_dialog.cpp)
+target_link_libraries(test_prompt_dialog
+    PRIVATE
+        cc_core
+        cc_ui
+        GTest::gtest_main
+)
+target_compile_options(test_prompt_dialog PRIVATE
+    $<$<CXX_COMPILER_ID:Clang,AppleClang>:-Wno-missing-designated-field-initializers>
+)
+gtest_discover_tests(test_prompt_dialog
+    DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+
+
+# ---------------------------------------------------------------------------
+# M7 Dialog #5 (CostThreshold) — enum Action, callback wiring, visual goldens
+# ---------------------------------------------------------------------------
+add_executable(test_cost_threshold_dialog test_cost_threshold_dialog.cpp)
+target_link_libraries(test_cost_threshold_dialog
+    PRIVATE
+        cc_core
+        cc_ui
+        GTest::gtest_main
+)
+gtest_discover_tests(test_cost_threshold_dialog
+    DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
 
 
 add_executable(test_dialog_system test_dialog_system.cpp)

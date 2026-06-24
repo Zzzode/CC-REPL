@@ -184,7 +184,7 @@ class AssistantTextMessageComponent : public ComponentBase {
         }
     }
 
-    Element Render() override {
+    Element OnRender() override {
         // Header row: role + optional model + timestamp + streaming cursor
         Elements header;
         header.push_back(text("🤖 ") | color(Color::Purple4));

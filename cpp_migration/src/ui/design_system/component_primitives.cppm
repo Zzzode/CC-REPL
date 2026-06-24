@@ -246,7 +246,7 @@ public:
         : role_(role), theme_(std::move(theme)), label_(label),
           start_(std::chrono::steady_clock::now()) {}
 
-    ftxui::Element Render() override {
+    ftxui::Element OnRender() override {
         using namespace ftxui;
         auto elapsed = std::chrono::steady_clock::now() - start_;
         auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();

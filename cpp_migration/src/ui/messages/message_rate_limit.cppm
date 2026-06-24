@@ -76,7 +76,7 @@ class RateLimitMessageComponent : public ComponentBase {
         }
     }
 
-    Element Render() override {
+    Element OnRender() override {
         const Color accent = info_.is_hard_limit ? Color::Red : Color::Yellow;
 
         auto icon = hbox({
