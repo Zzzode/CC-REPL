@@ -172,6 +172,48 @@ struct ApiClientConfig {
     std::chrono::milliseconds base_retry_delay{1000};
 };
 
+struct ApiMessagesEndpoint {
+    std::string client_base_url;
+    std::string path;
+};
+
+[[nodiscard]] inline std::expected<ApiMessagesEndpoint, std::string> api_messages_endpoint(
+    std::string_view base_url
+) {
+    const auto scheme_end = base_url.find("://");
+    if (scheme_end == std::string_view::npos) {
+        return std::unexpected("API base URL must include http:// or https://");
+    }
+
+    const auto authority_start = scheme_end + 3;
+    const auto path_start = base_url.find('/', authority_start);
+    std::string client_base_url = path_start == std::string_view::npos
+        ? std::string(base_url)
+        : std::string(base_url.substr(0, path_start));
+    std::string path_prefix = path_start == std::string_view::npos
+        ? std::string{}
+        : std::string(base_url.substr(path_start));
+
+    while (client_base_url.size() > scheme_end + 3 && client_base_url.ends_with('/')) {
+        client_base_url.pop_back();
+    }
+    while (!path_prefix.empty() && path_prefix.ends_with('/')) {
+        path_prefix.pop_back();
+    }
+    if (path_prefix == "/") path_prefix.clear();
+
+    if (client_base_url.size() <= scheme_end + 3) {
+        return std::unexpected("API base URL host cannot be empty");
+    }
+
+    std::string path = path_prefix;
+    path += path.ends_with("/v1") ? "/messages" : "/v1/messages";
+    return ApiMessagesEndpoint{
+        .client_base_url = std::move(client_base_url),
+        .path = std::move(path),
+    };
+}
+
 /// Permission denial record
 struct PermissionDenial {
     std::string tool_name;
@@ -2088,10 +2130,12 @@ private:
         apply_time_based_microcompact();
         apply_tool_result_budget();
 
-        // Build URL
-        std::string url = api_config_.base_url;
-        if (!url.ends_with("/")) url += "/";
-        url += "v1/messages";
+        auto endpoint = api_messages_endpoint(api_config_.base_url);
+        if (!endpoint) {
+            return std::unexpected(Error::make(
+                ErrorCode::InvalidRequest,
+                endpoint.error()));
+        }
 
         // Build headers
         httplib::Headers headers;
@@ -2109,13 +2153,13 @@ private:
         std::string body = build_request_body(options);
 
         // Create HTTP client
-        httplib::Client cli(api_config_.base_url);
+        httplib::Client cli(endpoint->client_base_url);
         cli.set_connection_timeout(api_config_.timeout);
         cli.set_read_timeout(api_config_.timeout);
         cli.set_write_timeout(api_config_.timeout);
 
         // Send request
-        auto res = cli.Post("/v1/messages", headers, body, "application/json");
+        auto res = cli.Post(endpoint->path, headers, body, "application/json");
 
         if (!res) {
             auto err = res.error();
@@ -2263,8 +2307,21 @@ private:
         // Build streaming request body
         std::string body = build_request_body(options, /*stream=*/true);
 
+        auto endpoint = api_messages_endpoint(api_config_.base_url);
+        if (!endpoint) {
+            result.failed = true;
+            result.error_message = endpoint.error();
+            if (options.on_event) {
+                StreamError ev;
+                ev.error_type = "invalid_request_error";
+                ev.message = result.error_message;
+                (*options.on_event)(ev);
+            }
+            return result;
+        }
+
         // Create HTTP client
-        httplib::Client cli(api_config_.base_url);
+        httplib::Client cli(endpoint->client_base_url);
         cli.set_connection_timeout(api_config_.timeout);
         cli.set_read_timeout(api_config_.timeout);
         cli.set_write_timeout(api_config_.timeout);
@@ -2434,7 +2491,7 @@ private:
         // Streaming POST using httplib's send() with content_receiver on Request
         httplib::Request req;
         req.method = "POST";
-        req.path = "/v1/messages";
+        req.path = endpoint->path;
         req.headers = headers;
         req.headers.emplace("Content-Type", "application/json");
         req.body = body;

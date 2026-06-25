@@ -156,7 +156,22 @@ public:
         return bodies_;
     }
 
+    [[nodiscard]] std::optional<std::vector<std::string>> wait_for_request_lines(
+        std::size_t count,
+        std::chrono::milliseconds timeout = std::chrono::seconds(5)) {
+        std::unique_lock lock(mutex_);
+        if (!cv_.wait_for(lock, timeout, [this, count] { return request_lines_.size() >= count; })) {
+            return std::nullopt;
+        }
+        return request_lines_;
+    }
+
 private:
+    struct RawHttpRequest {
+        std::string request_line;
+        std::string body;
+    };
+
     void accept_loop() {
         while (running_.load()) {
             sockaddr_in client_addr{};
@@ -171,7 +186,7 @@ private:
         }
     }
 
-    static std::string read_request(int fd) {
+    static RawHttpRequest read_request(int fd) {
         std::string request;
         char buffer[4096];
         std::size_t header_end = std::string::npos;
@@ -180,6 +195,7 @@ private:
             if (n <= 0) return {};
             request.append(buffer, buffer + n);
         }
+        const auto first_line_end = request.find("\r\n");
         auto header = request.substr(0, header_end + 4);
         std::size_t content_length = 0;
         auto length_pos = header.find("Content-Length:");
@@ -202,15 +218,22 @@ private:
             if (n <= 0) break;
             request.append(buffer, buffer + n);
         }
-        return request.substr(body_start, content_length);
+        return {
+            .request_line = first_line_end == std::string::npos
+                ? std::string{}
+                : request.substr(0, first_line_end),
+            .body = request.substr(body_start, content_length),
+        };
     }
 
     void handle_client(int fd) {
-        auto body = read_request(fd);
+        auto request = read_request(fd);
+        if (request.request_line.empty()) return;
         std::size_t idx = 0;
         {
             std::lock_guard lock(mutex_);
-            bodies_.push_back(body);
+            request_lines_.push_back(std::move(request.request_line));
+            bodies_.push_back(std::move(request.body));
             idx = bodies_.size() - 1;
         }
         cv_.notify_all();
@@ -246,6 +269,7 @@ private:
     std::thread thread_;
     std::mutex mutex_;
     std::condition_variable cv_;
+    std::vector<std::string> request_lines_;
     std::vector<std::string> bodies_;
     std::vector<Response> responses_;
 };
@@ -513,6 +537,37 @@ TEST(QueryEngineFix, FallsBackToSecondaryModelOnOverloadedError) {
     ASSERT_TRUE(parsed.has_value()) << parsed.error().message();
     EXPECT_EQ(parsed->root().get("model").as_str(), "fallback-model")
         << "fallback retry request should use the fallback model";
+
+    fs::remove_all(root);
+}
+
+TEST(QueryEngineFix, PreservesPathPrefixInAnthropicBaseUrl) {
+    ScriptedHttpServer server({
+        ScriptedHttpServer::Response{.status = 200, .body = R"({"id":"msg_ok","type":"message","role":"assistant","model":"primary-model","content":[{"type":"text","text":"done"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}})"},
+    });
+    ASSERT_NE(server.port(), 0);
+
+    auto root = fs::temp_directory_path() / "cc_repl_query_engine_base_path_test";
+    fs::remove_all(root);
+    fs::create_directories(root);
+
+    cc::core::ToolRegistry registry;
+    cc::core::QueryEngineConfig config;
+    config.api_key = "test-key";
+    config.base_url = server.base_url() + "/api/anthropic";
+    config.cwd = root.string();
+    config.retry_policy.max_retries = 1;
+    config.model_params.model = "primary-model";
+    config.context_window.auto_compact = false;
+
+    cc::core::QueryEngine engine(std::move(config), registry);
+    auto response = engine.query("ping");
+    ASSERT_TRUE(response.has_value()) << response.error().message;
+
+    auto request_lines = server.wait_for_request_lines(1);
+    ASSERT_TRUE(request_lines.has_value());
+    ASSERT_EQ(request_lines->size(), 1u);
+    EXPECT_EQ((*request_lines)[0], "POST /api/anthropic/v1/messages HTTP/1.1");
 
     fs::remove_all(root);
 }
