@@ -1,0 +1,28 @@
+[32m[49m╭ ℹ️ [1mInformation[22m ───────────────────────────────────────────────────────────────────────╮[39m[49m  
+[32m[49m│                                                                                      │[39m[49m  
+[32m[49m│ ℹ️ [1mWorkspace Access[22m                                                                   │[39m[49m  
+[32m[49m│                                                                                      │[39m[49m  
+[32m[49m├──────────────────────────────────────────────────────────────────────────────────────┤[39m[49m  
+[32m[49m│[2mAccessing workspace: [22m[1m/home/alice/projects/cc-repl[22m                                     │[39m[49m  
+[32m[49m│                                                                                      │[39m[49m  
+[32m[49m│Quick safety check: Is this a project you created or one you trust? (Like your own    │[39m[49m  
+[32m[49m│code, a well-known open source project, or work from your team). If not, take a moment│[39m[49m  
+[32m[49m│to review what's in this folder first.                                                │[39m[49m  
+[32m[49m│[2mClaude Code'll be able to read, edit, and execute files here.                         [22m│[39m[49m  
+[32m[49m│[97m[49mClaude Code wants access to the workspace at /home/alice/projects/cc-repl.      [32m[49m      │[39m[49m  
+[32m[49m│                                                                                      │[39m[49m  
+[32m[49m│[2m                                                                                      [22m│[39m[49m  
+[32m[49m│[2m [1m[2m Risk factors:                                                                      [22m[2m [22m│[39m[49m  
+[32m[49m│[2m   • No specific risk factors detected — review before allowing anyway.               [22m│[39m[49m  
+[32m[49m│[2m                                                                                      [22m│[39m[49m  
+[32m[49m├──────────────────────────────────────────────────────────────────────────────────────┤[39m[49m  
+[32m[49m│[1m▶ Allow [22m    Cancel                                                                    │[39m[49m  
+[32m[49m│                                                                                      │[39m[49m  
+[32m[49m│[2m[4m[36m[49mSecurity guide[24m[32m[49m                                                                        [22m│[39m[49m  
+[32m[49m│[1m[2mEnter[22m[2m to confirm · [1m[2mEsc[22m[2m to cancel · [1m[2m↑/↓ j/k[22m[2m navigate · [1m[2mD[22m[2m details · [1m[2mSpace[22m[2m toggle checkbo[22m│[39m[49m  
+[32m[49m│                                                                                      │[39m[49m  
+[32m[49m│                                                                                      │[39m[49m  
+[32m[49m│                                                                                      │[39m[49m  
+[32m[49m│                                                                                      │[39m[49m  
+[32m[49m│                                                                                      │[39m[49m  
+[32m[49m╰──────────────────────────────────────────────────────────────────────────────────────╯[39m[49m  

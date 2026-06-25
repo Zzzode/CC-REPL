@@ -1,0 +1,10 @@
+[2m● [22m[1mBash[22m (ls -la)                                                                 
+[2mWaiting…[22m                                                                        
+                                                                                
+[2m● [22m[1mFileEdit[22m (src/main.tsx)                                                       
+[2mRunning…[22m                                                                        
+                                                                                
+[32m[49m● [1m[39m[49mGrep[22m (pattern in 3 files)                                                     
+                                                                                
+[31m[49m● [1m[39m[49mWebFetch[22m (https://example.com)                                                
+                                                                                

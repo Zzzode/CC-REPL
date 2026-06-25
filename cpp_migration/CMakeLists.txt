@@ -1,10 +1,78 @@
 cmake_minimum_required(VERSION 3.28)
 
+# ─── Toolchain selection (must come BEFORE project()) ─────────────────────────
+#
+# CMake's C++23 named-modules support relies on `clang-scan-deps` to discover
+# per-TU import graphs (P1689 format).  Apple's Xcode toolchain ships clang
+# (AppleClang) but does *not* ship `clang-scan-deps`, so CMake detects "the
+# compiler does not provide a way to discover the import graph dependencies"
+# and refuses to generate anything that consumes or produces named modules.
+#
+# Prefer a Homebrew-installed LLVM toolchain (`brew install llvm`) which ships
+# a matching `clang-scan-deps` alongside `clang++`.  The user can override
+# this by passing -DCMAKE_CXX_COMPILER=... / -DCMAKE_C_COMPILER=... on the
+# cmake command line, in which case the cache values win.
+if(NOT DEFINED CMAKE_CXX_COMPILER AND EXISTS "/opt/homebrew/opt/llvm/bin/clang++")
+    set(CMAKE_CXX_COMPILER "/opt/homebrew/opt/llvm/bin/clang++")
+    set(CMAKE_C_COMPILER   "/opt/homebrew/opt/llvm/bin/clang")
+endif()
+
 project(CC-REPL
     VERSION 1.0.0
     DESCRIPTION "CC-REPL: A C++23 Modules-based CLI REPL"
     LANGUAGES CXX C
 )
+
+# ─── Ninja Job Pools (eliminate scan-deps BMI races without throttling the
+#     rest of the build) ───────────────────────────────────────────────────────
+# Background: at high -j (Ninja default = hw.ncpu), the P1689 dependency-scan
+# rules (``clang-scan-deps -format=p1689``) for many sibling .cppm files under
+# a single target race to (a) produce their ``.ddi.tmp → .ddi`` atomic rename
+# and (b) update the shared ``CXX.dd`` dyndep file.  The symptom is transient
+# ``mv: <file>.ddi.tmp: No such file or directory`` on ~3% of scans, followed
+# by a successful retry.  Rather than force the entire build to -j 1/2 to work
+# around it, we cap ONLY the depfile-gen rules to a small pool and leave the
+# actual compile + link steps at full concurrency.
+#
+# NOTE: this block is defined HERE (top-level) and NOT in src/CMakeLists.txt
+# because CMAKE_NINJA_JOB_POOL_* are normal CMake variables with directory
+# scope; if set only inside src/, they leak to tests/CMakeLists.txt via
+# add_subdirectory ordering but their value is lost when processing other
+# sibling subdirectories.  Setting them at the top level guarantees every
+# target under this project (src + tests + benchmarks) observes the cap.
+if(CMAKE_GENERATOR MATCHES "Ninja")
+    include(ProcessorCount)
+    ProcessorCount(NPROC)
+    if(NOT NPROC OR NPROC LESS 1)
+        set(NPROC 4)
+    endif()
+    # Link jobs are memory heavy — cap at 2.  Compile: all cores.
+    # Depfile scan: cap at 2 (removes the P1689 rename race entirely).
+    if(NPROC GREATER 16)
+        set(_LINK_POOL 4)
+    else()
+        set(_LINK_POOL 2)
+    endif()
+    set_property(GLOBAL APPEND PROPERTY JOB_POOLS
+        compile_jobs=${NPROC}
+        link_jobs=${_LINK_POOL}
+        scan_modules=2
+    )
+    # Assign the pools.  Names here are the CMake canonical ones:
+    #   JOB_POOL_COMPILE → every <LANG>_COMPILE_OBJECT rule
+    #   JOB_POOL_LINK    → every <LANG>_LINK_* rule
+    #   CMAKE_NINJA_JOB_POOL_CXX_MODULE_DEPFILE_GEN (3.28+) → depfile scans
+    set(CMAKE_JOB_POOL_COMPILE compile_jobs)
+    set(CMAKE_JOB_POOL_LINK    link_jobs)
+    # CMake 3.28+ exposes the depfile-gen pools directly.  On older versions
+    # these set() calls are harmless — the variables are simply unused.  Set at
+    # this (top-level) scope so child directories (src / tests / benchmarks)
+    # inherit the cap naturally via directory variable scope.
+    set(CMAKE_NINJA_JOB_POOL_CXX_MODULE_DEPFILE_GEN scan_modules)
+    set(CMAKE_NINJA_JOB_POOL_C_MODULE_DEPFILE_GEN   scan_modules)
+    unset(_LINK_POOL)
+    message(STATUS "[Ninja pools] compile=${NPROC}  link=2/4  scan_modules=2")
+endif()
 
 # ─── C++23 Standard ───────────────────────────────────────────────────────────
 set(CMAKE_CXX_STANDARD 23)
@@ -18,6 +86,7 @@ endif()
 
 # ─── C++20/23 Modules Support ─────────────────────────────────────────────────
 set(CMAKE_CXX_SCAN_FOR_MODULES ON)
+
 
 # Include custom module helpers
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")

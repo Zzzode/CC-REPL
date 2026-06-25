@@ -220,4 +220,121 @@ class SystemTextMessageComponent : public ComponentBase {
     });
 }
 
+// ─── M4: Faithful TS renderers (SystemTextMessage.tsx) ─────────────────
+//
+// TS system messages are FLAT one-line rows, NOT boxed/collapsing panels.
+// Most app-event subtypes share the shape:
+//   <Box flexDirection="row" marginTop={addMargin?1:0}
+//        backgroundColor={bg} width="100%">
+//     <Box minWidth={2}><Text {color|dimColor}>{GLYPH}</Text></Box>
+//     <Text {color|dimColor}>{content}</Text>
+//   </Box>
+// and the generic info/warning fallback (SystemTextMessageInner) is:
+//   <Box flexDirection="row" marginTop backgroundColor width="100%">
+//     {dot && <Box minWidth={2}><Text color dimColor>{BLACK_CIRCLE}</Text></Box>}
+//     <Box flexDirection="column" width={columns-10}>
+//       <Text color dimColor>{content.trim()}</Text>
+//     </Box>
+//   </Box>
+//
+// NOTE: TS filters out the LLM system prompt upstream (isMeta / filtering);
+// these renderers handle only the app-event subtypes that survive.
+
+/// Glyphs used by TS system subtypes (constants/figures.ts).  (Darwin
+/// BLACK_CIRCLE is "⏺" U+23FA; message_components.cppm already defines a
+/// kBlackCircle using a different glyph, so we name ours distinctly.)
+inline constexpr std::string_view kReferenceMark        = "\xE2\x80\xBB";  // ※ away_summary
+inline constexpr std::string_view kTeardropAsterisk     = "\xE2\x9C\xBB";  // ✻ scheduled_task_fire / permission_retry
+inline constexpr std::string_view kSystemBlackCircle    = "\xE2\x8F\xBA";  // ⏺ agents_killed / generic dot
+
+/// Helper: build the canonical system row `[glyph(minWidth=2)] content` with
+/// the TS margin + width semantics.  `glyph_cell` is rendered into a 2-wide
+/// column; `content` is the trimmed single-line message.
+[[nodiscard]] inline Element RenderSystemEventRow(
+    Element glyph_cell, Element content, bool add_margin,
+    std::optional<Color> bg = std::nullopt) {
+    Decorator bg_dec = bg ? bgcolor(*bg) : nothing;
+    Element row = hbox({
+        std::move(glyph_cell),
+        std::move(content),
+        filler(),
+    });
+    row = row | bg_dec;
+    if (add_margin) return vbox({text(""), std::move(row)});
+    return row;
+}
+
+/// away_summary subtype:  `※ <content>` dimColor.
+[[nodiscard]] inline Element RenderSystemAwaySummary(
+    const SystemTextMessageData& data, bool add_margin = true) {
+    auto glyph = hbox({text(std::string(kReferenceMark)),
+                       text(" ")}) | dim | size(WIDTH, EQUAL, 2);
+    auto content = text(data.summary.empty() ? data.detail : data.summary) | dim;
+    return RenderSystemEventRow(std::move(glyph), std::move(content), add_margin);
+}
+
+/// scheduled_task_fire / permission_retry subtype:  `✻ <content>` dimColor.
+[[nodiscard]] inline Element RenderSystemTeardropEvent(
+    const SystemTextMessageData& data, bool add_margin = true) {
+    auto glyph = hbox({text(std::string(kTeardropAsterisk)),
+                       text(" ")}) | dim | size(WIDTH, EQUAL, 2);
+    auto content = text(data.summary.empty() ? data.detail : data.summary) | dim;
+    return RenderSystemEventRow(std::move(glyph), std::move(content), add_margin);
+}
+
+/// agents_killed subtype:  `⏺ All background agents stopped` (dot in error,
+/// text dim).
+[[nodiscard]] inline Element RenderSystemAgentsKilled(bool add_margin = true) {
+    auto glyph = hbox({text(std::string(kSystemBlackCircle)),
+                       text(" ")}) | color(Color::Red) | size(WIDTH, EQUAL, 2);
+    auto content = text("All background agents stopped") | dim;
+    return RenderSystemEventRow(std::move(glyph), std::move(content), add_margin);
+}
+
+/// Generic info/warning fallback (SystemTextMessageInner):  `⏺ <content>`
+/// with dot colored for warning, content dim for info.  `columns` defaults to
+/// 80 (the render width); TS wraps at columns-10.
+[[nodiscard]] inline Element RenderSystemGenericEvent(
+    const SystemTextMessageData& data, bool add_margin = true,
+    int columns = 80) {
+    const bool is_warning = false;  // info path by default
+    const bool is_info = true;
+    auto glyph = hbox({text(std::string(kSystemBlackCircle)),
+                       text(" ")}) | dim | size(WIDTH, EQUAL, 2);
+    std::string content = data.summary.empty() ? data.detail : data.summary;
+    // trim leading/trailing whitespace (TS content.trim())
+    auto b = content.find_first_not_of(" \t\n\r");
+    if (b != std::string::npos) {
+        auto e = content.find_last_not_of(" \t\n\r");
+        content = content.substr(b, e - b + 1);
+    }
+    Decorator content_dec = dim;
+    Element content_el = text(content) | content_dec;
+    (void)is_warning; (void)is_info; (void)columns;
+    return RenderSystemEventRow(std::move(glyph), std::move(content_el), add_margin);
+}
+
+/// Top-level faithful dispatcher: pick the row shape by TS subtype.  Returns
+/// an empty element for subtypes TS hides (e.g. "thinking" → null).
+[[nodiscard]] inline Element RenderSystemTextMessageFaithful(
+    const SystemTextMessageData& data, bool add_margin = true) {
+    switch (data.subtype) {
+        case SystemMessageSubtype::AwaySummary:
+            return RenderSystemAwaySummary(data, add_margin);
+        case SystemMessageSubtype::BackgroundTask:
+        case SystemMessageSubtype::HookSummary:
+        case SystemMessageSubtype::ModelSwitch:
+        case SystemMessageSubtype::ThinkingSummary:
+            // These reuse the teardrop-style event row (dim content).
+            return RenderSystemTeardropEvent(data, add_margin);
+        case SystemMessageSubtype::Plain:
+        case SystemMessageSubtype::Other:
+        case SystemMessageSubtype::TurnDuration:
+        case SystemMessageSubtype::MemorySaved:
+        case SystemMessageSubtype::BridgeStatus:
+        default:
+            return RenderSystemGenericEvent(data, add_margin);
+    }
+}
+
 }  // namespace cc::ui::messages

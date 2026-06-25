@@ -287,11 +287,14 @@ struct TempWorkspace {
     std::filesystem::path root;
     std::filesystem::path file;
     explicit TempWorkspace(std::string_view rel = "src/sample.cpp") {
-        auto tmpl = std::filesystem::temp_directory_path() / "cc_at_mention_XXXXXX";
-        root = std::string(tmpl);
-        // mkdtemp-style unique dir via PID + a counter-safe suffix is overkill here;
-        // use a fixed unique-ish path and remove first.
-        std::filesystem::remove_all(root);
+        // Use a unique path per instance to avoid races when tests run in parallel
+        // (ctest -jN runs separate test binaries concurrently; each binary may have
+        // multiple tests using TempWorkspace sequentially, but cross-binary races
+        // can happen when the same fixed path is used.)
+        auto suffix = std::to_string(
+            std::chrono::steady_clock::now().time_since_epoch().count()
+        );
+        root = std::filesystem::temp_directory_path() / ("cc_at_mention_" + suffix);
         std::filesystem::create_directories(root / std::filesystem::path(std::string(rel)).parent_path());
         file = root / std::string(rel);
         std::ofstream out(file);

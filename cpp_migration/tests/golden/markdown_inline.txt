@@ -1,0 +1,4 @@
+This has [1mbold[22m, [2mitalic[22m, [38;2;87;105;247m[49minline code[39m[49m, and a [4mlink[24m.                                 
+                                                                                
+                                                                                
+                                                                                

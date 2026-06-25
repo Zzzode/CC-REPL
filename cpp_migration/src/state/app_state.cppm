@@ -67,10 +67,20 @@ struct ToolPermissionContext {
 // ============================================================
 
 
+/// Status line settings (mirrors TS settings.statusLine)
+struct StatusLineSettings {
+    bool enabled = false;
+    std::string command;        // Shell command whose output is shown in the status line
+    int padding = 0;            // Horizontal padding (TS: paddingX)
+};
+
 struct Settings {
     std::string model;
     std::string theme;
     bool verbose = false;
+    std::string output_style;   // TS: settings.outputStyle
+    bool disable_all_hooks = false;
+    StatusLineSettings status_line;
     std::unordered_map<std::string, std::string> env_vars;
     // Add other settings fields...
 };

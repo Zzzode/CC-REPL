@@ -21,8 +21,32 @@ set(CMAKE_CXX_SCAN_FOR_MODULES ON)
 include(GoogleTest)
 
 
-set(CMAKE_CXX_SCAN_FOR_MODULES ON)
+# NOTE: The test TUs below import C++20 named modules (`import cc.xxx.yyy;`)
+# extensively, so CMAKE_CXX_SCAN_FOR_MODULES MUST remain ON at directory scope.
+# Only the googletest vendor targets (which do not export or import modules)
+# have scanning explicitly disabled via set_target_properties below.  Module
+# scanning was previously disabled at directory scope under the incorrect
+# assumption that tests did not import modules — that caused every test TU to
+# fail with "fatal error: module 'cc.*' not found" because BMI discovery was
+# skipped even though the libraries were built correctly.
 set(CC_REPL_TEST_DISCOVERY_TIMEOUT 30 CACHE STRING "Timeout in seconds for GoogleTest discovery")
+
+# Turn scanning OFF for the googletest vendor targets — they contain no module
+# interfaces or imports and would otherwise waste scanner time / confuse BMI
+# dependency tracking on some CMake/Ninja combos.
+foreach(_gt_target IN ITEMS gtest gtest_main gmock gmock_main)
+    if(TARGET ${_gt_target})
+        set_target_properties(${_gt_target} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+    endif()
+endforeach()
+
+# Helper: mark a test executable target as C++-module-importing so that CMake
+# scans its TUs for `import` statements and propagates upstream BMI files.
+function(cc_test_target_enable_modules _name)
+    if(TARGET ${_name})
+        set_target_properties(${_name} PROPERTIES CXX_SCAN_FOR_MODULES ON)
+    endif()
+endfunction()
 
 
 add_executable(test_utils
@@ -34,6 +58,11 @@ add_executable(test_utils
 target_link_libraries(test_utils
     PRIVATE
         cc_core
+        cc_utils           # all 50+ cc.utils.* imports
+        cc_ui              # cc.ui.terminal_io
+        cc_plugins         # cc.plugins.marketplace
+        cc_memdir          # core.memdir
+        cc_screens         # core.screens
         GTest::gtest_main
 )
 gtest_discover_tests(test_utils DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
@@ -43,6 +72,11 @@ add_executable(test_core test_core.cpp)
 target_link_libraries(test_core
     PRIVATE
         cc_core
+        cc_types           # import cc.types.types
+        cc_config          # import cc.config.*
+        cc_constants       # import cc.constants.constants
+        cc_coordinator     # import cc.coordinator.types
+        cc_tasks           # import cc.tasks.task_graph
         GTest::gtest_main
 )
 gtest_discover_tests(test_core DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
@@ -52,6 +86,14 @@ add_executable(test_state test_state.cpp)
 target_link_libraries(test_state
     PRIVATE
         cc_core
+        cc_state           # all cc.state.* imports
+        cc_session         # cc.session.history
+        cc_types           # cc.types.types
+        cc_cli             # cc.cli.update
+        cc_constants       # cc.constants.prompts
+        cc_services        # cc.services.mcp.*
+        cc_hooks           # cc.hooks.tool_permissions
+        cc_ui              # cc.ui.repl_screen / cc.ui.* (broad coverage)
         GTest::gtest_main
 )
 gtest_discover_tests(test_state DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
@@ -61,6 +103,10 @@ add_executable(test_tools test_tools.cpp)
 target_link_libraries(test_tools
     PRIVATE
         cc_core
+        cc_tools           # all 40+ cc.tools.* imports
+        cc_hooks           # cc.hooks.tool_permissions
+        cc_services        # cc.services.api.client, cc.services.mcp.*
+        cc_utils           # cc.utils.* helpers
         GTest::gtest_main
 )
 gtest_discover_tests(test_tools DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
@@ -70,6 +116,8 @@ add_executable(test_hooks test_hooks.cpp)
 target_link_libraries(test_hooks
     PRIVATE
         cc_core
+        cc_hooks           # all cc.hooks.* imports
+        cc_utils           # cc.utils.hooks_*
         GTest::gtest_main
 )
 gtest_discover_tests(test_hooks DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
@@ -95,6 +143,7 @@ gtest_discover_tests(test_services DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TI
 add_executable(test_sse_mock test_sse_mock.cpp)
 target_link_libraries(test_sse_mock
     PRIVATE
+        cc_core
         cc_services
         cc_utils
         httplib::httplib
@@ -105,7 +154,8 @@ gtest_discover_tests(test_sse_mock DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TI
 add_executable(test_with_retry test_with_retry.cpp)
 target_link_libraries(test_with_retry
     PRIVATE
-        cc_services
+        cc_core
+        cc_services            # cc.services.api.with_retry*, cc.services.oauth
         cc_utils
         GTest::gtest_main
 )
@@ -117,6 +167,7 @@ gtest_discover_tests(test_with_retry DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_
 add_executable(test_mcp_stdio test_mcp_stdio.cpp)
 target_link_libraries(test_mcp_stdio
     PRIVATE
+        cc_core
         cc_services
         cc_utils
         GTest::gtest_main
@@ -127,15 +178,87 @@ add_executable(test_ui test_ui.cpp)
 target_link_libraries(test_ui
     PRIVATE
         cc_core
+        cc_ui           # defense-in-depth: UI modules must be discoverable
         GTest::gtest_main
 )
 gtest_discover_tests(test_ui DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+
+# ---------------------------------------------------------------------------
+# M7 Dialog #1 (ToolPermission) renderer + event handler regression suite.
+# Faithful-port contract: keyboard mapping, golden chrome, and queue
+# suppression policy are all covered here so any UI drift is caught in CI.
+# ---------------------------------------------------------------------------
+add_executable(test_dialog_toolpermission test_dialog_toolpermission.cpp)
+target_link_libraries(test_dialog_toolpermission
+    PRIVATE
+        cc_core
+        cc_ui
+        GTest::gtest_main
+)
+target_compile_options(test_dialog_toolpermission PRIVATE
+    $<$<CXX_COMPILER_ID:Clang,AppleClang>:-Wno-missing-designated-field-initializers>
+)
+gtest_discover_tests(test_dialog_toolpermission
+    DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+
+
+# ---------------------------------------------------------------------------
+# M7 Dialog System core — payload serde, DialogQueue, DialogRendererRegistry,
+# Elicitation/SandboxPermission/SettingsView routing tests
+# ---------------------------------------------------------------------------
+add_executable(test_dialog_system test_dialog_system.cpp)
+target_link_libraries(test_dialog_system
+    PRIVATE
+        cc_core
+        cc_ui                  # cc.ui.dialogs.* + cc.ui.design.theme
+        GTest::gtest_main
+)
+target_compile_options(test_dialog_system PRIVATE
+    $<$<CXX_COMPILER_ID:Clang,AppleClang>:-Wno-missing-designated-field-initializers>
+)
+cc_test_target_enable_modules(test_dialog_system)
+gtest_discover_tests(test_dialog_system
+    DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+
+
+# ---------------------------------------------------------------------------
+# M7 Dialog #3 (PromptDialog SELECT/FORM) renderer + event handling tests
+# ---------------------------------------------------------------------------
+add_executable(test_prompt_dialog test_prompt_dialog.cpp)
+target_link_libraries(test_prompt_dialog
+    PRIVATE
+        cc_core
+        cc_ui
+        GTest::gtest_main
+)
+target_compile_options(test_prompt_dialog PRIVATE
+    $<$<CXX_COMPILER_ID:Clang,AppleClang>:-Wno-missing-designated-field-initializers>
+)
+gtest_discover_tests(test_prompt_dialog
+    DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+
+
+# ---------------------------------------------------------------------------
+# M7 Dialog #5 (CostThreshold) — enum Action, callback wiring, visual goldens
+# ---------------------------------------------------------------------------
+add_executable(test_cost_threshold_dialog test_cost_threshold_dialog.cpp)
+target_link_libraries(test_cost_threshold_dialog
+    PRIVATE
+        cc_core
+        cc_ui
+        GTest::gtest_main
+)
+gtest_discover_tests(test_cost_threshold_dialog
+    DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
 
 
 add_executable(test_tasks test_tasks.cpp)
 target_link_libraries(test_tasks
     PRIVATE
         cc_core
+        cc_tasks               # cc.tasks.*
+        cc_tools               # cc.tools.agent_* / team / spawn_multi_agent
+        cc_utils               # cc.utils.swarm_backends
         GTest::gtest_main
 )
 gtest_discover_tests(test_tasks DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
@@ -145,9 +268,25 @@ add_executable(test_commands test_commands.cpp)
 target_link_libraries(test_commands
     PRIVATE
         cc_core
+        cc_commands            # cc.commands.*
+        cc_query               # cc.query.query_engine
+        cc_types               # cc.types.types
         GTest::gtest_main
 )
 gtest_discover_tests(test_commands DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+
+# ---------------------------------------------------------------------------
+# Statusline (commands + utils/statusline_runner) unit tests
+# ---------------------------------------------------------------------------
+add_executable(test_statusline test_statusline.cpp)
+target_link_libraries(test_statusline
+    PRIVATE
+        cc_core
+        cc_commands            # cc.commands.statusline
+        cc_utils               # cc.utils.statusline_runner / cc.utils.json
+        GTest::gtest_main
+)
+gtest_discover_tests(test_statusline DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
 
 
 # ---------------------------------------------------------------------------
@@ -157,6 +296,11 @@ add_executable(test_bootstrap test_bootstrap.cpp)
 target_link_libraries(test_bootstrap
     PRIVATE
         cc_core
+        cc_bootstrap           # cc.bootstrap.interactive
+        cc_history             # cc.history
+        cc_task_types          # cc.task_types
+        cc_state               # cc.state.teammate_view_helpers
+        cc_utils               # cc.utils.json
         GTest::gtest_main
 )
 gtest_discover_tests(test_bootstrap DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
@@ -169,6 +313,8 @@ add_executable(test_migrations test_migrations.cpp)
 target_link_libraries(test_migrations
     PRIVATE
         cc_core
+        cc_migrations          # all cc.migrations.* imports
+        cc_utils               # cc.utils.json
         GTest::gtest_main
 )
 target_compile_options(test_migrations PRIVATE
@@ -199,6 +345,8 @@ add_executable(test_skills test_skills.cpp)
 target_link_libraries(test_skills
     PRIVATE
         cc_core
+        cc_skills              # cc.skills.skill, cc.skills.bundled
+        cc_skills_core
         GTest::gtest_main
 )
 gtest_discover_tests(test_skills DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
@@ -346,6 +494,7 @@ gtest_discover_tests(test_fix_query_engine DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISC
 add_executable(test_fix_state test_fix_state.cpp)
 target_link_libraries(test_fix_state
     PRIVATE
+        cc_core
         cc_state
         cc_utils
         GTest::gtest_main
@@ -356,7 +505,9 @@ gtest_discover_tests(test_fix_state DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_T
 add_executable(test_fix_plugin test_fix_plugin.cpp)
 target_link_libraries(test_fix_plugin
     PRIVATE
+        cc_core
         cc_utils
+        cc_plugins
         GTest::gtest_main
 )
 gtest_discover_tests(test_fix_plugin DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
@@ -398,6 +549,7 @@ gtest_discover_tests(test_fix_api DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIM
 add_executable(test_fix_notifs test_fix_notifs.cpp)
 target_link_libraries(test_fix_notifs
     PRIVATE
+        cc_core
         cc_hooks
         cc_services
         GTest::gtest_main
@@ -411,7 +563,50 @@ gtest_discover_tests(test_fix_notifs DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_
 add_executable(test_fix_misc_low test_fix_misc_low.cpp)
 target_link_libraries(test_fix_misc_low
     PRIVATE
+        cc_core
         cc_services
         GTest::gtest_main
 )
 gtest_discover_tests(test_fix_misc_low DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+
+# ── Mark ALL test executables as module-importing so CMake scans them for
+#    `import cc.*` statements and propagates upstream BMI files.  Any
+#    individual target that truly does not import modules (e.g. a legacy
+#    pre-module TU) can override with:
+#        set_target_properties(<name> PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+#    after this block.
+foreach(_cc_test IN ITEMS
+    test_utils
+    test_core
+    test_state
+    test_tools
+    test_hooks
+    test_services
+    test_sse_mock
+    test_with_retry
+    test_mcp_stdio
+    test_ui
+    test_dialog_system
+    test_tasks
+    test_commands
+    test_statusline
+    test_bootstrap
+    test_migrations
+    test_bridge
+    test_skills
+    phase3_permission_smoke
+    bench_core
+    test_fix_hooks_integration
+    test_fix_query_engine
+    test_fix_state
+    test_fix_plugin
+    test_fix_yoga
+    test_fix_lsp_tool
+    test_fix_api
+    test_fix_notifs
+    test_fix_misc_low
+)
+    if(TARGET ${_cc_test})
+        set_target_properties(${_cc_test} PROPERTIES CXX_SCAN_FOR_MODULES ON)
+    endif()
+endforeach()

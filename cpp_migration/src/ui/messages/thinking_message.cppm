@@ -487,6 +487,122 @@ inline std::size_t count_lines(const std::string& s) {
 }
 
 // ============================================================
+// M4: Faithful TS renderer (AssistantThinkingMessage.tsx)
+// ============================================================
+//
+// TS renders a MINIMAL thinking block (not the bordered/collapsing panel
+// above).  Two states:
+//
+//   collapsed (not transcript, not verbose):
+//     <Box marginTop={addMargin?1:0}>
+//       <Text dimColor italic>∴ Thinking <CtrlOToExpand/></Text>
+//     </Box>
+//
+//   expanded (transcript or verbose):
+//     <Box flexDirection="column" gap={1} marginTop={addMargin?1:0} width="100%">
+//       <Text dimColor italic>∴ Thinking…</Text>
+//       <Box paddingLeft={2}><Markdown dimColor>{thinking}</Markdown></Box>
+//     </Box>
+//
+// Label glyph is U+2234 "∴" (THEREFORE).  No header decoration, no spinner,
+// no token count, no border, no budget bar, no toggle hints — all of those
+// belong to the richer divergent panel above (kept for the interactive UI).
+
+/// The TS thinking label glyph (U+2234 "∴" THEREFORE).
+inline constexpr std::string_view kThinkingLabel = "\xE2\x88\xB4";  // ∴
+
+/// CtrlOToExpand hint text rendered after the collapsed label.
+inline constexpr std::string_view kCtrlOHint = " (ctrl+o to expand)";
+
+/// Faithful collapsed-state render:  `∴ Thinking (ctrl+o to expand)` dim italic,
+/// followed by an 80-char preview of the thinking content (first line,
+/// ellipsised when longer) so callers can still search / verify the payload.
+/// The divergent panel mirrors the same behaviour via summary().
+[[nodiscard]] inline Element RenderThinkingMessageCollapsed(
+    std::string_view thinking, bool add_margin) {
+    // Build a preview: first line, max 80 chars, ellipsis if truncated.
+    std::string preview;
+    {
+        auto nl = thinking.find('\n');
+        std::size_t first_line_end = (nl == std::string_view::npos)
+            ? thinking.size() : nl;
+        std::size_t end = std::min(first_line_end, std::size_t{80});
+        preview = std::string(thinking.substr(0, end));
+        if (end < thinking.size()) preview += "...";
+    }
+    Elements line_parts;
+    line_parts.push_back(text(std::string(kThinkingLabel)));
+    line_parts.push_back(text(" Thinking"));
+    line_parts.push_back(text(std::string(kCtrlOHint)));
+    if (!preview.empty()) {
+        line_parts.push_back(text("  ") | dim);
+        line_parts.push_back(text(preview) | dim | color(Color::GrayLight));
+    }
+    Element label = hbox(std::move(line_parts))
+        | dim | color(Color::GrayLight);
+    // FTXUI has no true italic; dim+gray approximates the dimColor+italic look.
+    if (add_margin) return vbox({text(""), std::move(label)});
+    return label;
+}
+
+/// Faithful expanded-state render:  `∴ Thinking…` label + indented dim body.
+/// `body` is the caller-supplied rendered thinking content (M5 wires Markdown;
+/// M4 passes plain dim text).  Indented paddingLeft=2 per TS.
+[[nodiscard]] inline Element RenderThinkingMessageExpanded(
+    const std::string& thinking, bool add_margin) {
+    Element label = hbox({
+        text(std::string(kThinkingLabel)),
+        text(" Thinking…"),
+    }) | dim | color(Color::GrayLight);
+
+    // Body: indented 2, dim.  Plain-text fallback (M5 swaps in Markdown).
+    Elements bl;
+    {
+        std::size_t s = 0;
+        while (s < thinking.size()) {
+            auto nl = thinking.find('\n', s);
+            std::string line = (nl == std::string::npos) ? thinking.substr(s)
+                                                          : thinking.substr(s, nl - s);
+            bl.push_back(text(std::move(line)) | dim | color(Color::GrayLight));
+            if (nl == std::string::npos) break;
+            s = nl + 1;
+        }
+    }
+    Element body = vbox(std::move(bl));
+
+    Element inner = vbox({
+        std::move(label),
+        hbox({text("  "), std::move(body)}),
+    });
+    if (add_margin) return vbox({text(""), std::move(inner)});
+    return inner;
+}
+
+/// Top-level faithful dispatcher mirroring AssistantThinkingMessage:
+/// shouldShowFullThinking = isTranscriptMode || verbose  → expanded; else
+/// collapsed.  Empty thinking → empty element (TS returns null).
+[[nodiscard]] inline Element RenderThinkingMessageFaithful(
+    const ThinkingMessageData& data, bool is_transcript_mode, bool verbose,
+    bool add_margin = true) {
+    if (data.raw_text.empty() && data.sections.empty()) {
+        return text("");
+    }
+    // Build full thinking string for both branches.
+    std::string thinking = data.raw_text;
+    if (thinking.empty() && !data.sections.empty()) {
+        for (const auto& s : data.sections) {
+            if (!thinking.empty()) thinking.push_back('\n');
+            thinking += s.content;
+        }
+    }
+    const bool show_full = is_transcript_mode || verbose;
+    if (!show_full) {
+        return RenderThinkingMessageCollapsed(thinking, add_margin);
+    }
+    return RenderThinkingMessageExpanded(thinking, add_margin);
+}
+
+// ============================================================
 // Interactive Component
 // ============================================================
 

@@ -21,6 +21,8 @@ module;
 #include <expected>
 #include <format>
 #include <functional>
+#include <map>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <random>
@@ -47,6 +49,8 @@ import cc.bridge.session_id_compat;
 import cc.bridge.debug_utils;
 import cc.bridge.flush_gate;
 import cc.bridge.messages;
+import cc.cli.sse_transport;
+import cc.cli.ccr_client;
 
 export namespace cc::bridge {
 
@@ -297,16 +301,22 @@ public:
 };
 
 // =========================================================================
-// SseConnection — HTTP SSE (EventSource) wrapper
+// SseConnection — HTTP SSE (EventSource) wrapper (delegates to cc::cli::SSETransport)
 // =========================================================================
 
 /// Wraps an HTTP EventSource connection for Server-Sent Events.
 /// The v2 transport uses SSE for the read stream (server -> REPL).
+///
+/// Delegates to the real cc::cli::SSETransport implementation (W3C SSE parsing,
+/// reconnect with exponential backoff, Last-Event-ID resume). The public API
+/// (connect / disconnect / is_connected / on_event / on_error) is preserved so
+/// callers (ReplV2Transport) are unaffected.
 class SseConnection {
     std::string url_;
     std::string token_;
-    std::atomic<bool> connected_{false};
-    std::jthread reader_thread_;
+    std::unique_ptr<cc::cli::SSETransport> transport_;
+    std::jthread dispatch_thread_;
+    std::atomic<bool> dispatch_running_{false};
 
 public:
     /// Callback: SSE event received. Parameters: (event_type, data).
@@ -318,57 +328,98 @@ public:
     SseConnection() = default;
     ~SseConnection() { disconnect(); }
 
-    /// Establish the SSE connection.
-    /// In a full implementation this would open an HTTP long-poll or
-    /// chunked transfer stream. For the module skeleton it sets state.
+    // Non-copyable, non-movable (owns background threads).
+    SseConnection(const SseConnection&) = delete;
+    SseConnection& operator=(const SseConnection&) = delete;
+
+    /// Establish the SSE connection. Opens a real HTTP GET with
+    /// Accept: text/event-stream and Authorization: Bearer token, then starts
+    /// the real reconnect-capable reader. The transport fires on_event
+    /// synchronously from its reader thread for each parsed SSE frame.
     std::expected<void, std::string> connect(const std::string& url, const std::string& token) {
         url_ = url;
         token_ = token;
-        connected_.store(true);
+
+        transport_ = std::make_unique<cc::cli::SSETransport>();
+
+        // Wire transport callbacks into our (event_type, data) callback shape.
+        transport_->on_event([this](const cc::cli::SSEEvent& event) {
+            if (on_event) on_event(event.event, event.data);
+        });
+        transport_->on_error([this](std::string_view error) {
+            if (on_error) on_error(std::string(error));
+        });
+
+        // Pass the token as a Bearer header. SSETransport sends custom headers
+        // on every (re)connect, so the credential survives reconnects.
+        std::map<std::string, std::string> headers;
+        if (!token_.empty()) {
+            headers["Authorization"] = "Bearer " + token_;
+        }
+
+        auto result = transport_->connect(url_, std::move(headers));
+        if (!result) {
+            log_bridge_event("sse_connect_failed", {
+                {"url", url_.substr(0, 80)},
+                {"error", result.error().substr(0, 120)},
+            });
+            transport_.reset();
+            return std::unexpected(result.error());
+        }
 
         log_bridge_event("sse_connect", {
             {"url", url_.substr(0, 80)},
         });
 
-        // In production: open HTTP GET with text/event-stream Accept header,
-        // read chunked lines, dispatch on_event callbacks.
-        reader_thread_ = std::jthread([this](std::stop_token stop) {
-            read_loop(stop);
+        // Drain the transport's event queue from a dedicated thread. The
+        // transport enqueues every event in addition to firing on_event
+        // synchronously; polling keeps the bounded queue from growing
+        // unbounded if no consumer calls receive()/poll_event() directly.
+        dispatch_running_.store(true);
+        dispatch_thread_ = std::jthread([this](std::stop_token stop) {
+            while (!stop.stop_requested() && dispatch_running_.load()) {
+                if (transport_) {
+                    (void)transport_->poll_event();
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds{50});
+            }
         });
+
         return {};
     }
 
     /// Close the SSE connection.
     void disconnect() {
-        connected_.store(false);
-        if (reader_thread_.joinable()) {
-            reader_thread_.request_stop();
-            reader_thread_.join();
+        dispatch_running_.store(false);
+        if (dispatch_thread_.joinable()) {
+            dispatch_thread_.request_stop();
+            dispatch_thread_.join();
+        }
+        if (transport_) {
+            transport_->close();
+            transport_.reset();
         }
         log_bridge_event("sse_disconnect", {});
     }
 
     /// Check if connected.
-    [[nodiscard]] bool is_connected() const { return connected_.load(); }
-
-private:
-    void read_loop(std::stop_token stop) {
-        // Skeleton SSE read loop.
-        // Full implementation: HTTP GET url_ with Accept: text/event-stream,
-        // Authorization: Bearer token_, read lines, parse event:/data: pairs,
-        // invoke on_event(event_type, data).
-        while (!stop.stop_requested() && connected_.load()) {
-            std::this_thread::sleep_for(std::chrono::milliseconds{100});
-        }
+    [[nodiscard]] bool is_connected() const {
+        return transport_ && transport_->is_connected();
     }
 };
 
 // =========================================================================
-// CcrV2Client — WebSocket-based v2 worker connection
+// CcrV2Client — v2 worker connection (delegates to cc::cli::CcrClient)
 // =========================================================================
 
-/// CCR v2 client for WebSocket-based worker connections.
-/// Handles /worker/register, heartbeats, and event posting.
+/// CCR v2 client for worker connections.
+/// Handles /worker/register (session handshake), heartbeats, and event posting.
+///
+/// Delegates the real HTTP write path to cc::cli::CcrClient, which performs
+/// authenticated POSTs to ${session_url}/sessions/{id}/messages with reconnect
+/// support. The public API (register_worker / start_session / report_state /
+/// write / write_batch / close) is preserved so callers (ReplV2Transport) are
+/// unaffected.
 class CcrV2Client {
     std::string session_url_;
     std::string ingress_token_;
@@ -376,6 +427,8 @@ class CcrV2Client {
     int64_t epoch_{0};
     std::string auth_token_;
     std::atomic<bool> registered_{false};
+    std::unique_ptr<cc::cli::CcrClient> client_;
+    std::string last_state_{"idle"};
 
 public:
     struct Params {
@@ -401,10 +454,30 @@ public:
         }
     }
 
-    /// POST to /worker/register. Returns the worker_epoch.
+    /// POST to /worker/register. Performs the real CCR session handshake
+    /// (CcrClient::connect) against session_url_ with the worker JWT as the
+    /// bearer token. Returns the worker epoch on success.
     std::expected<int64_t, std::string> register_worker() {
-        // In production: HTTP POST ${session_url_}/worker/register
-        // For the module skeleton, return the epoch we were initialized with.
+        // Build the real client. CcrConnectionOptions mirror the heartbeat/
+        // reconnect defaults from Params.
+        cc::cli::CcrConnectionOptions opts;
+        opts.auto_reconnect = true;
+        opts.user_agent = "cc-repl/bridge-v2";
+
+        client_ = std::make_unique<cc::cli::CcrClient>(std::move(opts));
+
+        // The ingress_token is the worker JWT issued by /bridge. CcrClient
+        // treats its token parameter as a Bearer credential.
+        auto result = client_->connect(session_url_, ingress_token_);
+        if (!result) {
+            log_bridge_event("ccr_v2_register_failed", {
+                {"session_id", session_id_},
+                {"error", result.error().substr(0, 120)},
+            });
+            client_.reset();
+            return std::unexpected(result.error());
+        }
+
         log_bridge_event("ccr_v2_register", {
             {"session_id", session_id_},
             {"epoch", std::to_string(epoch_)},
@@ -414,26 +487,49 @@ public:
     }
 
     /// Start a session (begin heartbeats and accept events).
+    /// The real CcrClient has no separate "start" -- the session is live as
+    /// soon as connect() succeeds. We re-post the last known state.
     void start_session() {
         log_bridge_event("ccr_v2_start_session", {
             {"session_id", session_id_},
         });
+        report_state(last_state_);
     }
 
     /// Report worker state (idle, running, requires_action).
+    /// Posted as a state event through the real write path so the server sees
+    /// the transition.
     void report_state(const std::string& state) {
+        last_state_ = state;
         log_bridge_event("ccr_v2_report_state", {
             {"session_id", session_id_},
             {"state", state},
         });
+        if (client_) {
+            auto event = std::format(
+                R"({{"type":"state","session_id":"{}","state":"{}"}})",
+                session_id_, state);
+            (void)client_->send_message(event);
+        }
     }
 
     /// Write a batch of events to the worker endpoint.
+    /// Each event is POSTed through the real CCR write path; we abort the
+    /// batch on the first failure and surface its error.
     std::expected<void, std::string> write_batch(const std::vector<std::string>& events) {
         log_bridge_event("ccr_v2_write_batch", {
             {"session_id", session_id_},
             {"count", std::to_string(events.size())},
         });
+        if (!client_) {
+            return std::unexpected("CCR client not registered");
+        }
+        for (const auto& event_json : events) {
+            auto result = client_->send_message(event_json);
+            if (!result) {
+                return std::unexpected(result.error());
+            }
+        }
         return {};
     }
 
@@ -442,14 +538,27 @@ public:
         log_bridge_event("ccr_v2_write", {
             {"session_id", session_id_},
         });
+        if (!client_) {
+            return std::unexpected("CCR client not registered");
+        }
+        auto result = client_->send_message(event_json);
+        if (!result) {
+            return std::unexpected(result.error());
+        }
         return {};
     }
 
     /// Get the last sequence number processed.
+    /// CcrClient does not track inbound sequence numbers; keep the prior
+    /// contract of returning 0 until an inbound path is wired.
     [[nodiscard]] int64_t get_last_sequence_num() const { return 0; }
 
     /// Close the client.
     void close() {
+        if (client_) {
+            client_->disconnect();
+            client_.reset();
+        }
         registered_.store(false);
         log_bridge_event("ccr_v2_close", {
             {"session_id", session_id_},

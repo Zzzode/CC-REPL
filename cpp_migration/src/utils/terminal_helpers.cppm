@@ -2,6 +2,8 @@ module;
 
 #include <atomic>
 #include <cstddef>
+#include <cstdio>
+#include <cstdlib>
 #include <expected>
 #include <functional>
 #include <optional>
@@ -94,23 +96,94 @@ void reset_socket_state();
 
 // ─── Fullscreen Mode ─────────────────────────────────────────────────────────
 
-/// Detects if running inside tmux -CC control mode (iTerm2 integration)
-bool is_tmux_control_mode();
+namespace detail {
 
-/// Whether fullscreen/alt-screen mode is supported in the current terminal
-bool supports_fullscreen();
+/// Helper: check if an env var is set and truthy (1, true, yes, on).
+inline bool is_env_truthy(const char* name) {
+    const char* v = std::getenv(name);
+    if (!v || !*v) return false;
+    std::string_view s(v);
+    return s == "1" || s == "true" || s == "yes" || s == "on"
+        || s == "TRUE" || s == "YES" || s == "ON";
+}
 
-/// Whether fullscreen mode is currently enabled
-bool is_fullscreen_enabled();
+/// Helper: check if an env var is explicitly defined and falsy (0, false, no, off).
+inline bool is_env_defined_falsy(const char* name) {
+    const char* v = std::getenv(name);
+    if (!v) return false;  // not defined at all
+    if (!*v) return true;   // empty string = falsy
+    std::string_view s(v);
+    return s == "0" || s == "false" || s == "no" || s == "off"
+        || s == "FALSE" || s == "NO" || s == "OFF";
+}
 
-/// Enter fullscreen/alternate screen mode
-void enter_fullscreen();
+} // namespace detail
 
-/// Exit fullscreen/alternate screen mode
-void exit_fullscreen();
+/// Detects if running inside tmux -CC control mode (iTerm2 integration).
+/// Uses env-heuristic only (no subprocess probe): checks $TMUX is set AND
+/// $TERM_PROGRAM is unset (iTerm2's tell-tale sign of -CC mode).
+inline bool is_tmux_control_mode() {
+    const char* tmux = std::getenv("TMUX");
+    if (!tmux || !*tmux) return false;
+    // When tmux -CC is active, TERM_PROGRAM is typically unset because
+    // tmux takes over terminal emulation for iTerm2's control mode.
+    const char* term_program = std::getenv("TERM_PROGRAM");
+    if (!term_program || !*term_program) return true;
+    return false;
+}
 
-/// Toggle fullscreen mode
-void toggle_fullscreen();
+/// Whether fullscreen/alt-screen mode is supported in the current terminal.
+/// Faithful to TS: supported unless tmux -CC control mode is detected.
+inline bool supports_fullscreen() {
+    return !is_tmux_control_mode();
+}
+
+/// Whether fullscreen mode is currently enabled.
+///
+/// Faithful port of TS `isFullscreenEnvEnabled()` from utils/fullscreen.ts:
+///   - Explicit opt-out (CLAUDE_CODE_NO_FLICKER=0) → false
+///   - Explicit opt-in  (CLAUDE_CODE_NO_FLICKER=1) → true
+///   - Auto-disable under tmux -CC control mode    → false
+///   - Default: USER_TYPE == "ant" ? true : false
+inline bool is_fullscreen_enabled() {
+    // Explicit user opt-out always wins.
+    if (detail::is_env_defined_falsy("CLAUDE_CODE_NO_FLICKER")) return false;
+    // Explicit opt-in overrides auto-detection.
+    if (detail::is_env_truthy("CLAUDE_CODE_NO_FLICKER")) return true;
+    // Auto-disable under tmux -CC: alt-screen + mouse tracking corrupts
+    // terminal state on double-click and mouse wheel is dead.
+    if (is_tmux_control_mode()) return false;
+    // Default: on for ant builds, off for external users.
+    const char* user_type = std::getenv("USER_TYPE");
+    return user_type && std::string_view(user_type) == "ant";
+}
+
+/// Enter fullscreen/alternate screen mode (smcup / DEC 1049).
+inline void enter_fullscreen() {
+    std::fprintf(stdout, "\033[?1049h");
+    std::fflush(stdout);
+}
+
+/// Exit fullscreen/alternate screen mode (rmcup / DEC 1049).
+inline void exit_fullscreen() {
+    std::fprintf(stdout, "\033[?1049l");
+    std::fflush(stdout);
+}
+
+/// Toggle fullscreen mode.
+///
+/// Tracks state locally with a static flag (mirrors TS `toggleFullscreen()`).
+/// Caller is responsible for ensuring enter/exit are paired correctly.
+inline void toggle_fullscreen() {
+    static bool s_fullscreen_active = false;
+    if (s_fullscreen_active) {
+        exit_fullscreen();
+        s_fullscreen_active = false;
+    } else {
+        enter_fullscreen();
+        s_fullscreen_active = true;
+    }
+}
 
 // ─── Horizontal Scroll ───────────────────────────────────────────────────────
 

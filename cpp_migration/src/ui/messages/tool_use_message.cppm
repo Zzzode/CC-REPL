@@ -162,6 +162,20 @@ constexpr std::size_t kLargeContentWarnBytes = 5 * 1024 * 1024;  // 5 MB
     return {"?", Color::White};
 }
 
+/// Parse a status string from the shared projection contract
+/// ("pending"|"running"|"success"|"error", with "cancelled" tolerated) into
+/// the renderer's ToolStatus enum.  Unknown / empty => Pending (default).
+/// G1 reads entry.tool_status (populated by G2 / app.cppm) via this helper.
+[[nodiscard]] inline ToolStatus parse_tool_status(std::string_view s) {
+    if (s == "running")          return ToolStatus::Running;
+    if (s == "success")          return ToolStatus::Success;
+    if (s == "error" || s == "failed")
+                                return ToolStatus::Error;
+    if (s == "cancelled" || s == "canceled")
+                                return ToolStatus::Cancelled;
+    return ToolStatus::Pending;  // "pending" / "" / unknown
+}
+
 [[nodiscard]] inline std::string tool_icon(std::string_view tool_name) {
     using namespace std::string_view_literals;
     auto has = [&](std::string_view s) {
@@ -273,7 +287,6 @@ constexpr std::size_t kLargeContentWarnBytes = 5 * 1024 * 1024;  // 5 MB
 
 [[nodiscard]] inline Element RenderToolHeader(const ToolUseCallData& call,
                                                int spinner_frame = 0) {
-    (void)spinner_frame;
     auto [status_text, status_color] = status_display(call.status);
     Elements left;
 
@@ -282,7 +295,10 @@ constexpr std::size_t kLargeContentWarnBytes = 5 * 1024 * 1024;  // 5 MB
         spinner_ns::SpinnerOptions sopts;
         sopts.mode = spinner_ns::SpinnerMode::Processing;
         sopts.reduced_motion = false;
-        // Static element - caller drives animation via Renderer.
+        // Caller drives animation by passing a monotonically increasing
+        // spinner_frame each repaint; SpinnerElement honours it to index the
+        // glyph array so the tool spinner actually animates.
+        sopts.frame = spinner_frame;
         left.push_back(spinner_ns::SpinnerElement(sopts));
         left.push_back(text(" "));
     } else {
@@ -366,11 +382,12 @@ constexpr std::size_t kLargeContentWarnBytes = 5 * 1024 * 1024;  // 5 MB
 // ============================================================
 
 /// Render a single tool use message.  Returns the Element.
-[[nodiscard]] inline Element RenderToolUseMessage(const ToolUseRenderOptions& opts) {
+[[nodiscard]] inline Element RenderToolUseMessage(const ToolUseRenderOptions& opts,
+                                                  int spinner_frame = 0) {
     const auto& call = opts.call;
     auto [_, status_color] = status_display(call.status);
 
-    auto header = RenderToolHeader(call);
+    auto header = RenderToolHeader(call, spinner_frame);
     Elements body_parts = {header};
 
     // File path indicator
@@ -558,7 +575,7 @@ constexpr std::size_t kLargeContentWarnBytes = 5 * 1024 * 1024;  // 5 MB
     return Renderer([s] {
         if (s->opts.call.status == ToolStatus::Running) ++s->frame;
         s->opts.show_result = s->expanded || s->opts.call.status == ToolStatus::Error;
-        return RenderToolUseMessage(s->opts);
+        return RenderToolUseMessage(s->opts, s->frame);
     }) | CatchEvent([s](Event e) -> bool {
         if (e == Event::Return || e == Event::Character(' ')) {
             s->expanded = !s->expanded;
@@ -608,6 +625,201 @@ constexpr std::size_t kLargeContentWarnBytes = 5 * 1024 * 1024;  // 5 MB
              }
              return false;
          });
+}
+
+// ============================================================
+// M6: Faithful TS renderer (AssistantToolUseMessage.tsx parity)
+// ============================================================
+// Mirrors the TS default branch of AssistantToolUseMessage.tsx.
+// The existing RenderToolUseMessage / ToolUseMessage above are the
+// divergent FTXUI reimplementation (borders, status pills, footers,
+// parameter blocks — all invented chrome not in TS).  The faithful
+// version renders exactly what the TS Ink component does:
+//
+//   <Box flexDirection="row" justifyContent="space-between"
+//        marginTop={addMargin?1:0} width="100%" backgroundColor={bg}>
+//     <Box flexDirection="column">
+//       <Box flexDirection="row" flexWrap="nowrap" minWidth={...}>
+//         {shouldShowDot && <ToolUseLoader .../>}   // ● blinking/solid dot
+//         <Box flexShrink={0}>
+//           <Text bold wrap="truncate-end">
+//             {userFacingToolName}
+//           </Text>
+//         </Box>
+//         {renderedToolUseMessage !== '' && <Box><Text>({msg})</Text></Box>}
+//         {tool.renderToolUseTag?.(input)}
+//       </Box>
+//       {!isResolved && !isQueued && progress/permission/classifier}
+//       {!isResolved && isQueued && queuedMessage}
+//     </Box>
+//   </Box>
+//
+// No borders, no status pills, no timestamps, no footers, no
+// parameter JSON blocks — just the dot + bold name + (summary) +
+// optional progress line.
+
+/// Status of a faithful tool-use row (matches TS isQueued / isResolved semantics)
+enum class FaithfulToolStatus : std::uint8_t {
+    Queued,     // Not in progress, not resolved → waiting in queue
+    Running,    // In progress → show progress + blinking dot
+    Success,    // Resolved successfully → solid green dot
+    Error,      // Resolved with error → solid red dot
+};
+
+/// Data for the faithful tool-use renderer.  Mirrors the props that
+/// AssistantToolUseMessage.tsx derives from (param + tools + lookups +
+/// progressMessagesForMessage).  The caller (e.g. repl_screen projection)
+/// is responsible for computing these values from the real tool definition
+/// and execution state — this renderer only paints, matching TS visuals.
+struct FaithfulToolUseData {
+    std::string user_facing_name;    // tool.userFacingName(input) — bold header
+    std::string message;             // tool.renderToolUseMessage(...) — in parens
+    std::string tag;                 // tool.renderToolUseTag?.(input) — optional
+    std::string progress_text;       // progress line text when Running
+    std::string queued_text;         // progress line text when Queued
+    FaithfulToolStatus status{FaithfulToolStatus::Queued};
+    bool should_show_dot = true;     // shouldShowDot prop
+    bool add_margin = true;          // add marginTop=1
+    bool is_transparent_wrapper = false;  // tool.isTransparentWrapper
+    int spinner_frame = 0;           // drive blink animation
+    bool should_animate = true;      // shouldAnimate prop
+};
+
+/// Render a single tool-use header line: [dot] [BoldName] (message) [tag]
+/// This is the equivalent of the first <Box flexDirection="row"> in TS.
+[[nodiscard]] inline Element RenderFaithfulToolHeader(const FaithfulToolUseData& data) {
+    Elements row;
+
+    // Leading dot (ToolUseLoader).
+    // TS behavior:
+    //   Queued/Running (unresolved) → dim, blinks when animated
+    //   Resolved success → solid "success" color (green)
+    //   Resolved error → solid "error" color (red)
+    if (data.should_show_dot) {
+        const bool is_unresolved =
+            (data.status == FaithfulToolStatus::Queued ||
+             data.status == FaithfulToolStatus::Running);
+
+        // Blink logic: when animating + unresolved + not error, alternate
+        // between BLACK_CIRCLE and space on even/odd frames.  TS uses
+        // useBlink() which toggles at ~500ms; we approximate with frame count.
+        const bool blink_off =
+            data.should_animate && is_unresolved &&
+            (data.spinner_frame % 2 == 1);  // off every other "tick"
+
+        if (blink_off) {
+            // Space placeholder — maintains 2-cell minWidth like TS minWidth={2}
+            row.push_back(text("  "));
+        } else {
+            // BLACK_CIRCLE = ⏺ (U+23FA).  TS uses "●" (U+25CF BLACK_CIRCLE)
+            // but Ink/Chalk renders it; we use the same visual glyph.
+            std::string glyph = "\xE2\x97\x8F ";  // ● + space (2 cells)
+            Color fg = Color{};
+            bool is_dim = false;
+
+            if (is_unresolved) {
+                is_dim = true;  // dimColor={isUnresolved}
+                // color=undefined → default text color
+            } else if (data.status == FaithfulToolStatus::Error) {
+                fg = Color::Red;  // color="error"
+            } else {
+                fg = Color::Green;  // color="success"
+            }
+
+            auto el = text(glyph);
+            if (is_dim) el = el | ftxui::dim;
+            if (fg != Color{}) el = el | color(fg);
+            row.push_back(std::move(el));
+        }
+    }
+
+    // Bold user-facing tool name (flexShrink=0, wrap=truncate-end)
+    if (!data.user_facing_name.empty()) {
+        row.push_back(text(data.user_facing_name) | bold);
+    }
+
+    // Rendered message in parens "(message)"
+    // TS: <Text>({renderedToolUseMessage})</Text> — plain, not dim
+    if (!data.message.empty()) {
+        Elements parts;
+        parts.push_back(text(" ("));
+        parts.push_back(text(data.message));
+        parts.push_back(text(")"));
+        row.push_back(hbox(std::move(parts)));
+    }
+
+    // Tool-specific tag (renderToolUseTag)
+    // TS: tool.renderToolUseTag?.(input) — tool decides styling; we render as plain
+    if (!data.tag.empty()) {
+        row.push_back(text(" "));
+        row.push_back(text(data.tag));
+    }
+
+    return hbox(std::move(row));
+}
+
+/// Render the full faithful tool-use message.  Mirrors the complete
+/// AssistantToolUseMessage.tsx output including header + progress/queued
+/// line below.  Returns a full-width Element (justifyContent: space-between
+/// on the outer row, per TS).
+[[nodiscard]] inline Element RenderFaithfulToolUseMessage(const FaithfulToolUseData& data) {
+    // Transparent wrapper tools (e.g. TungstenTool, certain agent wrappers)
+    // only show progress — no header.  TS: if (isTransparentWrapper) { ... }
+    if (data.is_transparent_wrapper) {
+        if (data.status == FaithfulToolStatus::Queued ||
+            data.status == FaithfulToolStatus::Success ||
+            data.status == FaithfulToolStatus::Error) {
+            return text("");  // null — transparent + not running = invisible
+        }
+        // Running → show only progress text
+        if (!data.progress_text.empty()) {
+            Element progress = text(data.progress_text) | dim;
+            if (data.add_margin) {
+                return vbox({text(""), hbox({std::move(progress), filler()}) | flex});
+            }
+            return hbox({std::move(progress), filler()}) | flex;
+        }
+        return text("");
+    }
+
+    // If userFacingToolName is empty, return nothing (TS: returns null)
+    if (data.user_facing_name.empty()) {
+        return text("");
+    }
+
+    Elements column;
+    column.push_back(RenderFaithfulToolHeader(data));
+
+    // Progress / queued line below header
+    // TS: shown only when !isResolved && !isQueued (running state)
+    //     or when !isResolved && isQueued (queued state)
+    const bool is_resolved =
+        (data.status == FaithfulToolStatus::Success ||
+         data.status == FaithfulToolStatus::Error);
+
+    if (!is_resolved && data.status == FaithfulToolStatus::Running) {
+        if (!data.progress_text.empty()) {
+            column.push_back(hbox({
+                text(data.progress_text) | dim,
+            }));
+        }
+    } else if (!is_resolved && data.status == FaithfulToolStatus::Queued) {
+        if (!data.queued_text.empty()) {
+            column.push_back(hbox({
+                text(data.queued_text) | dim,
+            }));
+        }
+    }
+
+    Element body = vbox(std::move(column));
+
+    // Outer container: flexDirection="row", justifyContent="space-between",
+    // width="100%", marginTop={addMargin?1:0}
+    Element outer = hbox({body, filler()}) | flex;
+    if (data.add_margin) {
+        return vbox({text(""), std::move(outer)});
+    }
+    return outer;
 }
 
 } // namespace cc::ui::messages::tool_use_message

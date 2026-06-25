@@ -2,9 +2,22 @@
 # Each target corresponds to a C++23 module partition of the system.
 # All .cppm files in each directory are registered as CXX_MODULES sources.
 
+# ─── NOTE: Ninja Job Pools are now configured at the TOP LEVEL CMakeLists.txt
+#     (project root), immediately after the project() call.  The GLOBAL
+#     set_property(JOB_POOLS) and the CMAKE_NINJA_JOB_POOL_* variables live
+#     there so that ALL sibling subdirectories (src/, tests/, benchmarks/)
+#     observe the same scan_modules=2 cap — this eliminates the P1689 rename
+#     race for every target under this project.  Do NOT re-declare JOB_POOLS
+#     here; APPENDing to the GLOBAL property twice just duplicates entries.
+# ─────────────────────────────────────────────────────────────────────────────
+
 # ─── Optional tree-sitter dependency for bash AST danger classifier ───────────
 option(CC_ENABLE_TREE_SITTER "Enable tree-sitter bash parsing for AST danger classifier" OFF)
 if(CC_ENABLE_TREE_SITTER)
+    # tree-sitter is wired with the deprecated FetchContent_Populate + manual
+    # library target pattern. CMake 4.x sets CMP0169 to NEW which forbids
+    # FetchContent_Populate; allow it here until the wiring is modernized.
+    cmake_policy(SET CMP0169 OLD)
     include(FetchContent)
     FetchContent_Declare(
         tree_sitter
@@ -91,10 +104,7 @@ target_sources(cc_utils
         utils/auth_portable.cppm
         utils/auth_utils.cppm
         utils/abort_controller.cppm
-        utils/api_client.cppm
         utils/auto_mode_denials.cppm
-        utils/auto_updater.cppm
-        utils/background_remote.cppm
         utils/bash_execution.cppm
         utils/bash_parser.cppm
         utils/bash_security.cppm
@@ -111,15 +121,11 @@ target_sources(cc_utils
         utils/cli_highlight.cppm
         utils/collapse_read_search.cppm
         utils/collapse_notifications.cppm
-        utils/command_lifecycle.cppm
         utils/commit_attribution.cppm
-        utils/computer_use.cppm
         utils/code_indexing.cppm
         utils/concurrent_sessions.cppm
         utils/content_array.cppm
-        utils/context_analysis.cppm
         utils/control_message_compat.cppm
-        utils/conversation_recovery.cppm
         utils/config_constants.cppm
         utils/config_utils.cppm
         utils/cron_scheduler.cppm
@@ -150,7 +156,6 @@ target_sources(cc_utils
         utils/file.cppm
         utils/file_edit_utils.cppm
         utils/file_history.cppm
-        utils/file_operations.cppm
         utils/file_persistence.cppm
         utils/file_read.cppm
         utils/file_read_cache.cppm
@@ -198,7 +203,6 @@ target_sources(cc_utils
         utils/memory.cppm
         utils/memory_file_detection.cppm
         utils/message_mappers.cppm
-        utils/message_processing.cppm
         utils/model/agent.cppm
         utils/model/aliases.cppm
         utils/model/ant_models.cppm
@@ -237,7 +241,6 @@ target_sources(cc_utils
         utils/platform.cppm
         utils/powershell_parser.cppm
         utils/process.cppm
-        utils/profiler.cppm
         utils/privacy_level.cppm
         utils/prompt_category.cppm
         utils/proxy_utils.cppm
@@ -247,7 +250,6 @@ target_sources(cc_utils
         utils/render_options.cppm
         utils/ripgrep_utils.cppm
         utils/sandbox.cppm
-        utils/secure_storage.cppm
         utils/semantic_boolean.cppm
         utils/semantic_number.cppm
         utils/sanitization.cppm
@@ -275,7 +277,6 @@ target_sources(cc_utils
         utils/shell_parser.cppm
         utils/shell_rule_matching.cppm
         utils/signal_utils.cppm
-        utils/skill_change_detector.cppm
         utils/slash_command_parsing.cppm
         utils/sleep_utils.cppm
         utils/slice_ansi.cppm
@@ -321,9 +322,7 @@ target_sources(cc_utils
         utils/hooks_config.cppm
         utils/hooks_execution.cppm
         utils/hooks_registry.cppm
-        utils/plugin_cache.cppm
-        utils/plugin_installation.cppm
-        utils/plugin_integrations.cppm
+        utils/statusline_runner.cppm
         utils/plugin_lifecycle.cppm
         utils/plugin_loader.cppm
         utils/plugin_manager.cppm
@@ -341,9 +340,7 @@ target_sources(cc_utils
         utils/telemetry_exporters.cppm
         utils/ultraplan.cppm
         utils/ansi_rendering.cppm
-        utils/aws_auth.cppm
         utils/cleanup_registry.cppm
-        utils/doctor_diagnostics.cppm
         utils/prompt_helpers.cppm
         utils/tool_management.cppm
         utils/team_coordination.cppm
@@ -602,7 +599,7 @@ target_sources(cc_tasks
         tasks/task_graph.cppm
         tasks/types.cppm
 )
-target_link_libraries(cc_tasks PUBLIC cc_utils cc_types cc_state cc_coordinator)
+target_link_libraries(cc_tasks PUBLIC cc_utils cc_types cc_state cc_coordinator cc_hooks)
 
 # ─── cc_skills_core: Skill primitives without tool dependencies ──────────────
 add_library(cc_skills_core)
@@ -737,6 +734,7 @@ target_link_libraries(cc_tools
         cc_config
         cc_services
         cc_skills_core
+        cc_hooks
         yyjson
         uv_a
 )
@@ -785,8 +783,6 @@ target_sources(cc_commands
         commands/env.cppm
         commands/exit.cppm
         commands/export_cmd.cppm
-        commands/extra_commands.cppm
-        commands/extra_commands2.cppm
         commands/extra_usage.cppm
         commands/fast.cppm
         commands/feedback.cppm
@@ -908,7 +904,6 @@ target_sources(cc_services
         services/api/client.cppm
         services/api/error_utils.cppm
         services/api/errors.cppm
-        services/api/files_api.cppm
         services/api/grove.cppm
         services/api/logging.cppm
         services/api/metrics_opt_out.cppm
@@ -1206,7 +1201,6 @@ target_sources(cc_cli
 target_link_libraries(cc_cli
     PUBLIC
         cc_utils
-        cc_bridge
         yyjson
         uv_a
         httplib::httplib
@@ -1251,6 +1245,7 @@ target_link_libraries(cc_bridge
     PUBLIC
         cc_utils
         cc_types
+        cc_cli
         OpenSSL::Crypto
         yyjson
         uv_a
@@ -1297,6 +1292,7 @@ add_library(cc_ui)
 target_sources(cc_ui
     PUBLIC FILE_SET CXX_MODULES FILES
         ui/app.cppm
+        ui/app_dialog_registration.cppm
         ui/components.cppm
         ui/agents/agent_cards.cppm
         ui/agents/agent_details_dialog.cppm
@@ -1327,22 +1323,27 @@ target_sources(cc_ui
         ui/components/spinner.cppm
         ui/components/spinner_widget.cppm
         ui/components/stats.cppm
-        ui/components/status_line.cppm
         ui/components/structured_diff.cppm
+        ui/components/file_edit_tool_diff.cppm
         ui/components/tag_tabs.cppm
         ui/components/task_view.cppm
         ui/components/text_input.cppm
         ui/components/text_input_widget.cppm
+        ui/components/user_bash_input_message.cppm
         ui/components/auto_updater.cppm
         ui/components/auth_flows.cppm
+        ui/components/bash_mode_progress.cppm
         ui/components/context_visualization.cppm
         ui/components/session_preview.cppm
+        ui/components/shell_progress_message.cppm
+        ui/components/shell_time_display.cppm
         ui/components/spinner_animations.cppm
         ui/components/spinner_shimmer.cppm
         ui/components/spinner_teammate_tree.cppm
         ui/common/ui_types.cppm
         ui/common/ui_formatting.cppm
         ui/common/small_widgets.cppm
+        ui/common/declared_cursor.cppm
         ui/design/dialog.cppm
         ui/design/divider.cppm
         ui/design/list_item.cppm
@@ -1351,11 +1352,20 @@ target_sources(cc_ui
         ui/design/tabs.cppm
         ui/design/themed_box.cppm
         ui/design/themed_text.cppm
+        ui/dialogs/dialog_system.cppm
+        ui/dialogs/dialog_frame.cppm
+        ui/dialogs/dialog_launchers.cppm
+        ui/dialogs/dialog_default_renderers.cppm
         ui/dialogs/config_dialog.cppm
         ui/dialogs/desktop_upsell.cppm
         ui/dialogs/diff_dialog.cppm
+        ui/dialogs/elicitation_dialog.cppm
         ui/dialogs/feedback_survey.cppm
         ui/dialogs/help_v2.cppm
+        ui/dialogs/help_view.cppm
+        ui/dialogs/settings_view.cppm
+        ui/dialogs/about_dialog.cppm
+        ui/dialogs/confirmation_dialog.cppm
         ui/dialogs/ide_dialogs.cppm
         ui/dialogs/install_github_app_wizard.cppm
         ui/dialogs/install_slack_app_wizard.cppm
@@ -1368,6 +1378,7 @@ target_sources(cc_ui
         ui/dialogs/permission_dialog.cppm
         ui/dialogs/permission_prompts.cppm
         ui/dialogs/plugin_dialog.cppm
+        ui/dialogs/prompt_dialog.cppm
         ui/dialogs/quick_open.cppm
         ui/dialogs/sandbox_dialog.cppm
         ui/dialogs/settings_dialog.cppm
@@ -1383,11 +1394,19 @@ target_sources(cc_ui
         ui/dialogs/export_dialog.cppm
         ui/dialogs/global_search_dialog.cppm
         ui/dialogs/history_search_dialog.cppm
+        ui/dialogs/idle_return_dialog.cppm
         ui/dialogs/ide_connect_dialog.cppm
         ui/dialogs/remote_env_dialog.cppm
         ui/dialogs/worktree_exit_dialog.cppm
+        ui/dialogs/all_renderers.cppm            # new: DialogRendererRegistry + all renderers
+        ui/dialogs/bottom_renderers.cppm         # new: Bottom-band dialog renderers
+        ui/dialogs/modal_renderers.cppm          # new: Overlay/Modal dialog renderers
+        ui/dialogs/sandbox_permission.cppm       # new: SandboxPermission renderer
+        ui/dialogs/triggers.cppm                 # new: Dialog trigger / invocation routing
+        ui/dialogs/dialog_modern_renderer_stubs.cppm  # new: 12 chrome-stub Render+Handle (M8 fills in)
         ui/events/event_system.cppm
         ui/layout.cppm
+        ui/layout/fullscreen_layout.cppm
         ui/layout/logo.cppm
         ui/layout/measure.cppm
         ui/layout/wrap_text.cppm
@@ -1460,6 +1479,7 @@ target_sources(cc_ui
         ui/prompt/footer.cppm
         ui/prompt/mode_indicator.cppm
         ui/prompt/notifications.cppm
+        ui/prompt/prompt_input_footer.cppm  # M5 — faithful TS PromptInputFooter port
         ui/prompt/prompt_input_full.cppm
         ui/prompt/prompt_help_menu.cppm
         ui/prompt/prompt_history_search.cppm
@@ -1467,6 +1487,7 @@ target_sources(cc_ui
         ui/prompt/prompt_queued_commands.cppm
         ui/prompt/prompt_stash_notice.cppm
         ui/prompt/shimmer.cppm
+        ui/prompt/suggestion_provider.cppm  # U1 — surfaces real PromptSuggestionService in the prompt UI
         ui/prompt/vim_input.cppm
         ui/prompt/voice_indicator.cppm
         ui/prompt_input.cppm
@@ -1495,6 +1516,23 @@ target_sources(cc_ui
         ui/tasks/task_detail_dialog.cppm
         ui/tasks/task_remote_session.cppm
         ui/tasks/task_shell_progress.cppm
+        ui/tools/tool_ui_registry.cppm
+        ui/tools/tool_ui_init.cppm
+        ui/tools/tool_ui_generic.cppm
+        ui/tools/tool_ui_bash.cppm
+        ui/tools/tool_ui_file_edit.cppm
+        ui/tools/tool_ui_file_write.cppm
+        ui/tools/tool_ui_file_read.cppm
+        ui/tools/tool_ui_grep.cppm
+        ui/tools/tool_ui_glob.cppm
+        ui/tools/tool_ui_web_fetch.cppm
+        ui/tools/tool_ui_web_search.cppm
+        ui/tools/tool_ui_skill.cppm
+        ui/tools/tool_ui_agent.cppm
+        ui/tools/tool_ui_task.cppm
+        ui/tools/tool_ui_mcp.cppm
+        ui/tools/tool_ui_lsp.cppm
+        ui/tools/tool_ui_longtail.cppm
         ui/teams/teams_overview.cppm
         ui/teams/team_details_dialog.cppm
         ui/teams/swarm_collaboration_view.cppm
@@ -1512,6 +1550,17 @@ target_sources(cc_ui
         ui/design_system/component_primitives.cppm
         ui/design_system/design_extras.cppm       # UI27 — fuzzy picker + theme picker + design extras
 )
+# Module implementation units for cc.ui.app_dialog_registration — one per
+# dialog-renderer aggregator, so no single TU imports more than one aggregator's
+# closure (importing all four at once crashes Clang codegen). This keeps the
+# ~44 dialog implementations out of app.cppm's BMI (source-location budget).
+# See app_dialog_registration.cppm / *_impl.cpp for the rationale.
+target_sources(cc_ui PRIVATE
+    ui/app_dialog_registration_default.cpp
+    ui/app_dialog_registration_modal.cpp
+    ui/app_dialog_registration_bottom.cpp
+    ui/app_dialog_registration_all.cpp
+)
 target_link_libraries(cc_ui
     PUBLIC
         cc_utils
@@ -1522,6 +1571,12 @@ target_link_libraries(cc_ui
         cc_hooks
         cc_plugins
         cc_session
+        cc_history
+        # U1: cc.ui.prompt.suggestion_provider imports cc.services.prompt_suggestion
+        # directly. cc_ui already consumed cc.services.* transitively via cc_hooks;
+        # making the dependency explicit is correct (no cycle: cc_services never
+        # imports cc.ui.*).
+        cc_services
         cc_ui_messages       # Phase 4B-UI21/22/25: list + virtual scroll + interactions
         cc_ui_screens        # Phase 4B-UI23: log selector
         cc_ui_permissions    # Phase 4B-UI24: rule list (+ advanced prompts)

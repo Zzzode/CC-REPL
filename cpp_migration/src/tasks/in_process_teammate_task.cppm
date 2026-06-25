@@ -13,6 +13,7 @@ export module cc.tasks.in_process_teammate_task;
 
 import cc.tasks.task;
 import cc.tasks.types;
+import cc.hooks.remaining_notifs;  // W7: feed TeammateShutdown slot from live tasks
 
 export namespace cc::tasks {
 
@@ -95,6 +96,28 @@ inline void inject_user_message_to_teammate(
         if (task == nullptr || !is_in_process_teammate_task(*task)) continue;
         result.push_back(*static_cast<const InProcessTeammateTaskState*>(task));
     }
+    // Refresh the TeammateShutdown notification slot from the same live task
+    // list this reader returns. Mirrors TS useTeammateLifecycleNotification
+    // scanning the AppState task map for terminal teammates. Idempotent (the
+    // bridge dedups by agent_id) and runs only on full reads, not per turn.
+    cc::hooks::notifs::inject_teammate_shutdowns_from_tasks(
+        result,
+        [](const InProcessTeammateTaskState& t) {
+            return cc::core::is_terminal_status(t.status);
+        },
+        [](const InProcessTeammateTaskState& t)
+            -> cc::hooks::notifs::TeammateShutdownCause {
+            using TS = cc::core::TaskStatus;
+            using C = cc::hooks::notifs::TeammateShutdownCause;
+            switch (t.status) {
+                case TS::Completed: return C::Finished;
+                case TS::Failed:    return C::Failed;
+                case TS::Killed:
+                case TS::Cancelled:
+                case TS::TimedOut:  return C::Crashed;
+                default:            return C::Finished;
+            }
+        });
     return result;
 }
 

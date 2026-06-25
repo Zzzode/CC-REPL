@@ -32,6 +32,7 @@ struct LaunchOptions {
     bool mcp = false;                            // --mcp
     bool print_version = false;                  // --version
     bool print_help = false;                     // --help
+    std::optional<std::string> settings;         // --settings <file|json>
 };
 
 /// Parse CLI arguments into LaunchOptions
@@ -59,6 +60,8 @@ struct LaunchOptions {
             opts.prompt = argv[++i];
         } else if (arg == "--model" && i + 1 < argc) {
             opts.model = argv[++i];
+        } else if (arg == "--settings" && i + 1 < argc) {
+            opts.settings = argv[++i];
         } else if (arg == "--cwd" && i + 1 < argc) {
             opts.cwd = argv[++i];
         } else if (arg == "--session-id" && i + 1 < argc) {

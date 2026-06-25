@@ -60,6 +60,7 @@ import cc.services.rate_limit;
 import cc.services.telemetry;
 import cc.services.token_estimation;
 import cc.services.voice.voice;
+import cc.services.prompt_suggestion;
 import cc.server.server_routes;
 import cc.server.server_main;
 import cc.session.storage;
@@ -6985,6 +6986,66 @@ TEST(ServerTypes, RolesScopes) {
     // Revoked always-expired semantics.
     s.revoked = true;
     EXPECT_TRUE(s.is_expired());
+}
+
+// ── Speculation suggestion engine (port of TS speculation.ts) ────────────────
+// The deterministic ranker replaces the former single hardcoded suggestion.
+// These tests pin the ranker's contract without a live LLM.
+
+TEST(SpeculationSuggestion, EmptyTurnsReturnsNothing) {
+    using cc::services::prompt_suggestion::rank_candidate_suggestions;
+    using cc::services::prompt_suggestion::SuggestionRequest;
+    SuggestionRequest req;
+    EXPECT_TRUE(rank_candidate_suggestions(req).empty());
+}
+
+TEST(SpeculationSuggestion, NoAssistantTurnReturnsNothing) {
+    using namespace cc::services::prompt_suggestion;
+    SuggestionRequest req;
+    req.recent_turns.push_back({.role = "user", .content = "implement the login flow"});
+    // Early gate: needs >= 1 assistant turn before suggesting.
+    EXPECT_TRUE(rank_candidate_suggestions(req).empty());
+}
+
+TEST(SpeculationSuggestion, AssistantTurnYieldsRankedCandidates) {
+    using namespace cc::services::prompt_suggestion;
+    SuggestionRequest req;
+    req.recent_turns.push_back({.role = "user", .content = "implement the login flow"});
+    req.recent_turns.push_back({.role = "assistant", .content = "I implemented the login flow with tests."});
+    const auto r = rank_candidate_suggestions(req);
+    EXPECT_FALSE(r.empty());
+    for (const auto& s : r) {
+        EXPECT_GE(s.confidence, 0.0);
+        EXPECT_LE(s.confidence, 1.0);
+        EXPECT_FALSE(s.text.empty());
+    }
+}
+
+TEST(SpeculationSuggestion, ResultsSortedByConfidenceDesc) {
+    using namespace cc::services::prompt_suggestion;
+    SuggestionRequest req;
+    req.recent_turns.push_back({.role = "user", .content = "refactor the module"});
+    req.recent_turns.push_back({.role = "assistant", .content = "I refactored it and added tests."});
+    const auto r = rank_candidate_suggestions(req);
+    for (std::size_t i = 1; i < r.size(); ++i) {
+        EXPECT_GE(r[i - 1].confidence, r[i].confidence);
+    }
+}
+
+TEST(SpeculationSuggestion, RespectsMaxSuggestions) {
+    using namespace cc::services::prompt_suggestion;
+    SuggestionRequest req;
+    req.max_suggestions = 2;
+    req.recent_turns.push_back({.role = "user", .content = "ship the feature"});
+    req.recent_turns.push_back({.role = "assistant", .content = "Shipped with full test coverage."});
+    const auto r = rank_candidate_suggestions(req);
+    EXPECT_LE(r.size(), 2u);
+}
+
+TEST(SpeculationSuggestion, QualityFilterRejectsEmpty) {
+    using cc::services::prompt_suggestion::should_filter_suggestion;
+    EXPECT_TRUE(should_filter_suggestion(""));
+    EXPECT_TRUE(should_filter_suggestion("   "));
 }
 
 }  // namespace

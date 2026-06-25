@@ -196,6 +196,45 @@ public:
     return std::nullopt;
 }
 
+// ============================================================
+// Settings Selectors
+// ============================================================
+
+/// Get the configured model from settings
+[[nodiscard]] inline std::string_view get_settings_model(const AppState& state) noexcept {
+    return state.settings.model;
+}
+
+/// Get the configured theme from settings
+[[nodiscard]] inline std::string_view get_settings_theme(const AppState& state) noexcept {
+    return state.settings.theme;
+}
+
+/// Check if status line is enabled in settings
+[[nodiscard]] inline bool is_status_line_enabled(const AppState& state) noexcept {
+    return state.settings.status_line.enabled;
+}
+
+/// Get the status line command from settings
+[[nodiscard]] inline std::string_view get_status_line_command(const AppState& state) noexcept {
+    return state.settings.status_line.command;
+}
+
+/// Get the status line padding from settings
+[[nodiscard]] inline int get_status_line_padding(const AppState& state) noexcept {
+    return state.settings.status_line.padding;
+}
+
+/// Get the output style from settings
+[[nodiscard]] inline std::string_view get_output_style(const AppState& state) noexcept {
+    return state.settings.output_style;
+}
+
+/// Check if all hooks are disabled in settings
+[[nodiscard]] inline bool are_all_hooks_disabled(const AppState& state) noexcept {
+    return state.settings.disable_all_hooks;
+}
+
 /// Get the number of notifications
 [[nodiscard]] inline size_t get_notification_count(const AppState& state) noexcept {
     return state.notifications.size();

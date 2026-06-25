@@ -14,6 +14,7 @@
 #include <csignal>
 #include <expected>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <iostream>
 #include <memory>
@@ -50,6 +51,7 @@ import cc.session.history;
 import cc.daemon.daemon_server;
 import cc.server.server_main;
 import cc.cli.websocket_transport;
+import cc.config.settings;
 
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
 namespace fs = std::filesystem;
@@ -82,6 +84,9 @@ struct CliOptions {
     bool bridge_daemon_once = false;
     bool dangerously_skip_permissions = false;
     bool plan_mode_required = false;
+    // --settings <file-or-json>: parsed EARLY (before init) per TS semantics.
+    // Accepts either a path to a JSON file or an inline JSON object string.
+    std::optional<std::string> settings;
     std::string server_host = "127.0.0.1";
     uint16_t server_port = 3000;
     std::optional<std::string> server_auth_token;
@@ -126,6 +131,11 @@ Options:
   --model <model>      Set the default model to use
   --version, -v        Print version and exit
   --help, -h           Show this help message
+  --settings <file|json>
+                       Load settings from a JSON file path or inline JSON.
+                       Highest-priority source. Supports `env` (process env
+                       vars, e.g. ANTHROPIC_API_KEY/ANTHROPIC_BASE_URL),
+                       `apiKey`, and `model`.
   --debug              Enable debug logging
   --simple-ui          Use simple text UI (not interactive)
   --headless           Run without UI for daemon/remote session work
@@ -196,6 +206,16 @@ auto parse_args(int argc, const char* argv[]) -> std::expected<CliOptions, std::
             opts.show_version = true;
         } else if (arg == "--help" || arg == "-h") {
             opts.show_help = true;
+        } else if (arg == "--settings") {
+            // --settings accepts a path to a JSON file OR an inline JSON object.
+            // Parsed eagerly in main() before other subsystems start, mirroring
+            // the TS loadSettingsFromFlag / eagerLoadSettings flow.
+            if (++i >= argc) {
+                return std::unexpected("--settings requires a value");
+            }
+            opts.settings = std::string(argv[i]);
+        } else if (arg.starts_with("--settings=")) {
+            opts.settings = std::string(arg.substr(std::string_view("--settings=").size()));
         } else if (arg == "--debug") {
             opts.debug = true;
         } else if (arg == "--simple-ui") {
@@ -468,6 +488,57 @@ void set_env_value_pair(const char* primary, const char* compatible, const std::
     set_env_value(compatible, *value);
 }
 
+/// Load and apply a --settings payload (path OR inline JSON) before the rest of
+/// startup. Mirrors TS `loadSettingsFromFlag`:
+///   - If the value parses as a JSON object, treat it as inline settings.
+///   - Otherwise, treat it as a file path and read it.
+/// On invalid JSON or unreadable file, prints the TS-faithful error and exits.
+/// Returns the parsed result so the caller can override model/apiKey.
+std::optional<cc::config::FlagSettingsResult> load_flag_settings(
+    const std::string& settings_arg,
+    const cc::config::EnvSetter& env_setter,
+    std::optional<std::string>& out_model_override,
+    std::optional<std::string>& out_api_key_override
+) {
+    auto trimmed = settings_arg;
+    while (!trimmed.empty() && (trimmed.front() == ' ' || trimmed.front() == '\t' ||
+                                 trimmed.front() == '\n' || trimmed.front() == '\r')) {
+        trimmed.erase(trimmed.begin());
+    }
+    while (!trimmed.empty() && (trimmed.back() == ' ' || trimmed.back() == '\t' ||
+                                 trimmed.back() == '\n' || trimmed.back() == '\r')) {
+        trimmed.pop_back();
+    }
+
+    const bool looks_like_json = trimmed.starts_with('{') && trimmed.ends_with('}');
+
+    std::string json_text;
+    if (looks_like_json) {
+        json_text = trimmed;
+    } else {
+        // Treat as a file path; resolve relative to CWD (TS uses safeResolvePath
+        // + readFileSync). An unreadable/missing file is a hard error.
+        std::ifstream file(trimmed);
+        if (!file.is_open()) {
+            std::println(stderr, "Error: Invalid JSON provided to --settings");
+            return std::nullopt;
+        }
+        json_text.assign(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+    }
+
+    auto parsed = cc::utils::json::parse(json_text);
+    if (!parsed || !parsed->root().is_obj()) {
+        // Faithful C++ equivalent of the TS error message.
+        std::println(stderr, "Error: Invalid JSON provided to --settings");
+        return std::nullopt;
+    }
+
+    auto result = cc::config::apply_flag_settings(parsed->root(), env_setter);
+    if (result.model) out_model_override = result.model;
+    if (result.api_key) out_api_key_override = result.api_key;
+    return result;
+}
+
 void apply_teammate_environment(const CliOptions& opts) {
     set_env_value_pair("CC_REPL_AGENT_ID", "CLAUDE_CODE_AGENT_ID", opts.agent_id);
     set_env_value_pair("CC_REPL_AGENT_NAME", "CLAUDE_CODE_AGENT_NAME", opts.agent_name);
@@ -556,6 +627,11 @@ auto load_config() -> cc::core::QueryEngineConfig {
     // API key from environment (required for operation)
     if (const char* key = std::getenv("ANTHROPIC_API_KEY")) {
         config.api_key = key;
+    }
+    // OAuth/Pro/gateway bearer token (e.g. ANTHROPIC_AUTH_TOKEN supplied via --settings env).
+    // When present it is sent as "Authorization: Bearer" and takes precedence over api_key.
+    if (const char* token = std::getenv("ANTHROPIC_AUTH_TOKEN")) {
+        config.auth_token = token;
     }
 
     // Base URL override (e.g. for proxies or custom endpoints)
@@ -1547,6 +1623,47 @@ int main(int argc, const char* argv[]) {
     }
     auto opts = std::move(opts_result.value());
 
+    // Apply --settings EARLY, before --version/--help and every other subsystem.
+    // This mirrors the TS eagerLoadSettings() flow: a malformed payload is a
+    // hard error that surfaces before any other processing, while a valid
+    // payload populates the process env (ANTHROPIC_API_KEY / ANTHROPIC_BASE_URL
+    // / ...) and records model/apiKey overrides for later application.
+    std::optional<std::string> settings_model_override;
+    std::optional<std::string> settings_api_key_override;
+    if (opts.settings && !opts.settings->empty()) {
+        auto applied = load_flag_settings(
+            *opts.settings,
+            /*env_setter=*/[](std::string_view name, std::string_view value) {
+                set_env_value(std::string(name).c_str(), std::string(value));
+            },
+            settings_model_override,
+            settings_api_key_override);
+        if (!applied) {
+            // load_flag_settings already printed the faithful error message.
+            return 1;
+        }
+        // `apiKey` from settings mirrors a sibling `env.ANTHROPIC_API_KEY`:
+        // apply it to the process env BEFORE load_config() reads it, so the API
+        // client picks it up without an explicit `env` block.
+        if (settings_api_key_override && !settings_api_key_override->empty()) {
+            set_env_value("ANTHROPIC_API_KEY", *settings_api_key_override);
+        }
+        if (opts.debug) {
+            for (const auto& key : applied->applied_env_keys) {
+                std::println(stderr, "[settings] applied env: {}", key);
+            }
+            if (applied->model) {
+                std::println(stderr, "[settings] model override: {}", *applied->model);
+            }
+            if (applied->api_key) {
+                std::println(stderr, "[settings] apiKey override provided");
+            }
+            for (const auto& key : applied->deferred_keys) {
+                std::println(stderr, "[settings] deferred key (not yet applied): {}", key);
+            }
+        }
+    }
+
     if (opts.show_version) {
         std::println("cc-repl {}", kVersion);
         return 0;
@@ -1606,8 +1723,13 @@ int main(int argc, const char* argv[]) {
     }
 
     auto config = load_config();
+    // Priority: explicit --model flag > --settings `model` > env > default.
+    // If the user passed --model on the command line, it wins; otherwise let a
+    // settings-provided model override the default/env-derived value.
     if (opts.model.has_value()) {
         config.model_params.model = opts.model.value();
+    } else if (settings_model_override && !settings_model_override->empty()) {
+        config.model_params.model = *settings_model_override;
     }
     if (opts.task_budget) {
         config.task_budget = cc::core::QueryEngineConfig::TaskBudget{
@@ -1621,13 +1743,13 @@ int main(int argc, const char* argv[]) {
 
     // Validate API key is present for model queries. Local slash commands in
     // simple UI mode do not need API access.
-    if (config.api_key.empty() && opts.use_simple_ui) {
+    if (config.api_key.empty() && config.auth_token.empty() && opts.use_simple_ui) {
         auto cmd_registry = cc::commands::AppCommandRegistry{};
         return run_simple_ui(nullptr, cmd_registry);
     }
-    if (config.api_key.empty()) {
-        std::println(stderr, "Error: ANTHROPIC_API_KEY environment variable is not set.");
-        std::println(stderr, "Set it with: export ANTHROPIC_API_KEY=\"your-key-here\"");
+    if (config.api_key.empty() && config.auth_token.empty()) {
+        std::println(stderr, "Error: no API credentials found (set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN,");
+        std::println(stderr, "or provide them via --settings <file>).");
         return 1;
     }
 

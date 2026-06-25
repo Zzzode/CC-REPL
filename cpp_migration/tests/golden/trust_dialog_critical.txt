@@ -1,0 +1,30 @@
+[31m[49m╭ 🛑 [1mCRITICAL RISK[22m ────────────────────────────────────────────────────────────────────╮[39m[49m    
+[31m[49m│                                                                                      │[39m[49m    
+[31m[49m│ 🛑 [1mModify credential file[22m                                                            │[39m[49m    
+[31m[49m│                                                                                      │[39m[49m    
+[31m[49m├──────────────────────────────────────────────────────────────────────────────────────┤[39m[49m    
+[31m[49m│[97m[49mThis action overwrites a file that stores credentials.                          [31m[49m      │[39m[49m    
+[31m[49m│                                                                                      │[39m[49m    
+[31m[49m│[2m                                                                                      [22m│[39m[49m    
+[31m[49m│[2m [1m[2m Sensitive paths detected:                                                          [22m[2m [22m│[39m[49m    
+[31m[49m│[2m   ‣ [1m[2m[AWS credentials] [22m[2m~/.aws/credentials                                             [22m│[39m[49m    
+[31m[49m│[2m       Contains AWS access keys and secrets. Exfiltrating these keys allows spending  [22m│[39m[49m    
+[31m[49m│[2m                                                                                      [22m│[39m[49m    
+[31m[49m│[2m [1m[2m Risk factors:                                                                      [22m[2m [22m│[39m[49m    
+[31m[49m│[2m   • Accesses 1 sensitive path                                                        [22m│[39m[49m    
+[31m[49m│[2m                                                                                      [22m│[39m[49m    
+[31m[49m├──────────────────────────────────────────────────────────────────────────────────────┤[39m[49m    
+[31m[49m│[1m☐ [22mI understand the risk of proceeding.                                                │[39m[49m    
+[31m[49m│                                                                                      │[39m[49m    
+[31m[49m│[1m▶ Enable anyway [22m    Cancel                                                            │[39m[49m    
+[31m[49m│                                                                                      │[39m[49m    
+[31m[49m│[2m[4m[36m[49mSecurity guide[24m[31m[49m                                                                        [22m│[39m[49m    
+[31m[49m│[1m[2mEnter[22m[2m to confirm · [1m[2mEsc[22m[2m to cancel · [1m[2m↑/↓ j/k[22m[2m navigate · [1m[2mD[22m[2m details · [1m[2mSpace[22m[2m toggle checkbo[22m│[39m[49m    
+[31m[49m│                                                                                      │[39m[49m    
+[31m[49m│                                                                                      │[39m[49m    
+[31m[49m│                                                                                      │[39m[49m    
+[31m[49m│                                                                                      │[39m[49m    
+[31m[49m│                                                                                      │[39m[49m    
+[31m[49m│                                                                                      │[39m[49m    
+[31m[49m│                                                                                      │[39m[49m    
+[31m[49m╰──────────────────────────────────────────────────────────────────────────────────────╯[39m[49m    

@@ -67,6 +67,7 @@ import cc.utils.control_message_compat;
 import cc.utils.sanitization;
 import cc.utils.diff_utils;
 import cc.utils.shell_providers;
+import cc.config.settings;
 import cc.utils.git_diff;
 import cc.utils.proxy_utils;
 import cc.utils.github_utils;
@@ -2545,4 +2546,61 @@ TEST(JsonCCUtils, JsonGetPathAccess) {
     EXPECT_EQ(root.get("a").get("b").as_str(), "deep");
     EXPECT_FALSE(root.get("a").get("missing").valid());
     EXPECT_FALSE(root.get("nonexistent").valid());
+}
+
+// ---------------------------------------------------------------------------
+// --settings flag application (cc::config::apply_flag_settings)
+//
+// Mirrors the TS `loadSettingsFromFlag` priority subset: `env` is applied via
+// an injectable setter, `apiKey`/`model` are reported back, and unhandled keys
+// surface in `deferred_keys` for honest feedback. Uses a recording setter so the
+// test is deterministic and does not mutate the process environment.
+// ---------------------------------------------------------------------------
+
+TEST(FlagSettings, AppliesEnvBlockAndModelAndApiKey) {
+    auto parsed = cc::utils::json::parse(
+        R"({"env":{"ANTHROPIC_API_KEY":"sk-test","ANTHROPIC_BASE_URL":"https://glm.example"},"model":"glm-4.6","apiKey":"sk-from-apikey"})");
+    ASSERT_TRUE(parsed.has_value());
+
+    std::unordered_map<std::string, std::string> recorded;
+    auto result = cc::config::apply_flag_settings(
+        parsed->root(),
+        [&](std::string_view name, std::string_view value) {
+            recorded[std::string(name)] = std::string(value);
+        });
+
+    ASSERT_EQ(recorded.size(), 2u);
+    EXPECT_EQ(recorded["ANTHROPIC_API_KEY"], "sk-test");
+    EXPECT_EQ(recorded["ANTHROPIC_BASE_URL"], "https://glm.example");
+    ASSERT_TRUE(result.model.has_value());
+    EXPECT_EQ(*result.model, "glm-4.6");
+    ASSERT_TRUE(result.api_key.has_value());
+    EXPECT_EQ(*result.api_key, "sk-from-apikey");
+    // env/apiKey/model are the only applied keys; nothing deferred.
+    EXPECT_TRUE(result.deferred_keys.empty());
+}
+
+TEST(FlagSettings, RecordsDeferredKeys) {
+    auto parsed = cc::utils::json::parse(
+        R"({"model":"m","permissions":{"allow":["Bash"]},"hooks":{},"mcpServers":{"x":{}}})");
+    ASSERT_TRUE(parsed.has_value());
+
+    auto result = cc::config::apply_flag_settings(parsed->root(), [](auto, auto) {});
+
+    ASSERT_TRUE(result.model.has_value());
+    EXPECT_EQ(*result.model, "m");
+    // permissions/hooks/mcpServers are recognized TS keys we do NOT yet apply.
+    ASSERT_EQ(result.deferred_keys.size(), 3u);
+    std::set<std::string> deferred(result.deferred_keys.begin(), result.deferred_keys.end());
+    EXPECT_EQ(deferred.count("permissions"), 1u);
+    EXPECT_EQ(deferred.count("hooks"), 1u);
+    EXPECT_EQ(deferred.count("mcpServers"), 1u);
+}
+
+TEST(FlagSettings, NonObjectRootReportsDeferred) {
+    auto parsed = cc::utils::json::parse(R"(["not","an","object"])");
+    ASSERT_TRUE(parsed.has_value());
+    auto result = cc::config::apply_flag_settings(parsed->root(), [](auto, auto) {});
+    ASSERT_EQ(result.deferred_keys.size(), 1u);
+    EXPECT_EQ(result.deferred_keys.front(), "<root-not-object>");
 }

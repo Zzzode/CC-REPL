@@ -18,7 +18,6 @@ export import ui.components.spinner;
 export import ui.components.dev_bar;
 export import ui.components.stats;
 export import cc.ui.components.tag_tabs;
-export import ui.components.status_line;
 export import ui.components.text_input;
 export import cc.ui.components.feature_dialogs;
 
@@ -53,10 +52,6 @@ using cc::ui::components::Tab;
 using cc::ui::components::TagTabsOptions;
 using cc::ui::components::TagTabs;
 using cc::ui::components::TagTabsComponent;
-
-using ::ui::components::ConnectionStatus;
-using ::ui::components::StatusLineOptions;
-using ::ui::components::StatusLine;
 
 using ::ui::components::Suggestion;
 using ::ui::components::SuggestionCategory;

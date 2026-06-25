@@ -165,6 +165,7 @@ struct BudgetTracker {
 struct ApiClientConfig {
     std::string base_url{"https://api.anthropic.com"};
     std::string api_key;
+    std::string auth_token;  // OAuth/Pro/gateway bearer token; sent as Authorization: Bearer when non-empty (takes precedence over api_key)
     std::string api_version{"2023-06-01"};
     std::chrono::milliseconds timeout{120000};
     int max_retries{3};
@@ -224,7 +225,8 @@ struct QueryEngineConfig {
     RetryPolicy retry_policy;
     ContextWindowConfig context_window;
     ThinkingConfig thinking_config;
-    std::string api_key;                            // Anthropic API key
+    std::string api_key;                            // Anthropic API key (x-api-key)
+    std::string auth_token;                         // OAuth/gateway bearer token (Authorization: Bearer); takes precedence over api_key when set
     std::optional<std::string> base_url;            // Custom API base URL
     std::optional<std::string> custom_system_prompt;// Custom system prompt
     std::optional<std::string> append_system_prompt;// Append to default system prompt
@@ -729,6 +731,7 @@ private:
     void setup_api_client() {
         api_config_.base_url = config_.base_url.value_or("https://api.anthropic.com");
         api_config_.api_key = config_.api_key;
+        api_config_.auth_token = config_.auth_token;
         api_config_.api_version = "2023-06-01";
         api_config_.timeout = std::chrono::milliseconds{120000};
         api_config_.max_retries = static_cast<int>(config_.retry_policy.max_retries);
@@ -2088,7 +2091,11 @@ private:
         httplib::Headers headers;
         headers.emplace("Content-Type", "application/json");
         headers.emplace("anthropic-version", api_config_.api_version);
-        headers.emplace("x-api-key", api_config_.api_key);
+        if (!api_config_.auth_token.empty()) {
+            headers.emplace("Authorization", std::format("Bearer {}", api_config_.auth_token));
+        } else {
+            headers.emplace("x-api-key", api_config_.api_key);
+        }
         headers.emplace("User-Agent", "CC-REPL/1.0");
         add_beta_headers(headers);
 
@@ -2237,7 +2244,11 @@ private:
         httplib::Headers headers;
         headers.emplace("Content-Type", "application/json");
         headers.emplace("anthropic-version", api_config_.api_version);
-        headers.emplace("x-api-key", api_config_.api_key);
+        if (!api_config_.auth_token.empty()) {
+            headers.emplace("Authorization", std::format("Bearer {}", api_config_.auth_token));
+        } else {
+            headers.emplace("x-api-key", api_config_.api_key);
+        }
         headers.emplace("User-Agent", "CC-REPL/1.0");
         add_beta_headers(headers);
 
@@ -2565,6 +2576,18 @@ private:
 
         // Emit pre-tool-use hook and check for blocking hooks
         auto exec_start = std::chrono::steady_clock::now();
+
+        // M6: emit tool-execution-start stream event for live result preview UI.
+        // This lets the UI show a progress line as soon as the tool starts
+        // executing, instead of waiting for the full API round-trip.
+        if (options.on_event) {
+            ToolExecutionStart ev;
+            ev.tool_use_id = tool_use.id.value;
+            ev.tool_name = tool_use.name;
+            ev.input_json = effective_input_json;
+            (*options.on_event)(ev);
+        }
+
         if (lifecycle_hooks_) {
             auto block_reason = lifecycle_hooks_->check_and_emit_pre_tool_use(cc::hooks::PreToolUseEvent{
                 .tool_name = tool_use.name,
@@ -2700,6 +2723,16 @@ private:
             if (const auto* tb = std::get_if<TextBlock>(&result_msg.content[0])) {
                 output_preview = tb->text.substr(0, 500);
             }
+        }
+
+        // M6: emit tool-execution-end stream event with the final result.
+        // Completes the live result preview UI.
+        if (options.on_event) {
+            ToolExecutionEnd ev;
+            ev.tool_use_id = tool_use.id.value;
+            ev.result = output_preview;
+            ev.is_error = result_msg.is_error;
+            (*options.on_event)(ev);
         }
 
         // Emit post-tool-use lifecycle event

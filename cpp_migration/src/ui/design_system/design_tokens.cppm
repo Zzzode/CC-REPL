@@ -8,7 +8,7 @@
 ///   styled-components / framer-motion – not present (animation is
 ///     useAnimationFrame-driven; here we emit numeric easing constants)
 ///   src/components/StatusBar/– not present (status-line lives under
-///     ui/components/status_line.cppm already)
+///     ui/prompt/prompt_input_footer.cppm as RenderStatusLine)
 module;
 
 #include <cstdint>
@@ -392,12 +392,13 @@ inline const Palette monochrome = {
 }
 
 // ─── HSL → RGB (used by AnimatedAsterisk hue sweep) ──────────────────────────
-/// Simple HSL→RGB with S=0.6, L=0.55 tuned for asterisk sweep.
+/// Simple HSL→RGB with S=0.70, L=0.60 tuned to match the TS AnimatedAsterisk
+/// hue sweep (src/components/LogoV2/AnimatedAsterisk.tsx uses ~s=0.70, l=0.60).
 [[nodiscard]] inline ftxui::Color hue_to_rgb(double hue_deg) noexcept {
     double h = std::fmod(hue_deg, 360.0) / 60.0;
     if (h < 0) h += 6.0;
-    constexpr double s = 0.60;
-    constexpr double l = 0.55;
+    constexpr double s = 0.70;
+    constexpr double l = 0.60;
     double c = (1.0 - std::fabs(2.0 * l - 1.0)) * s;
     double x = c * (1.0 - std::fabs(std::fmod(h, 2.0) - 1.0));
     double m = l - c / 2.0;

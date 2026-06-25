@@ -5,6 +5,7 @@ module;
 #include <functional>
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
+#include <ftxui/component/event.hpp>
 
 export module cc.ui.components.tag_tabs;
 
@@ -118,13 +119,13 @@ ftxui::Component TagTabsComponent(const TagTabsOptions& options) {
     });
     
     auto container = Container::Horizontal({
-        renderer | CatchEvent([tabs, state, on_change](Event e) {
-            if (e == Event::ArrowRight || e == Event::Tab) {
+        renderer | CatchEvent([tabs, state, on_change](ftxui::Event e) {
+            if (e == ftxui::Event::ArrowRight || e == ftxui::Event::Tab) {
                 *state = (*state + 1) % static_cast<int>(tabs.size());
                 if (on_change) on_change(*state);
                 return true;
             }
-            if (e == Event::ArrowLeft || e == Event::TabReverse) {
+            if (e == ftxui::Event::ArrowLeft || e == ftxui::Event::TabReverse) {
                 *state = (*state - 1 + static_cast<int>(tabs.size())) % static_cast<int>(tabs.size());
                 if (on_change) on_change(*state);
                 return true;

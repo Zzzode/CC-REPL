@@ -1,0 +1,1 @@
+# GOLDEN PLACEHOLDER — regenerate with UPDATE_GOLDENS=1 ctest -R VisualSnapshot

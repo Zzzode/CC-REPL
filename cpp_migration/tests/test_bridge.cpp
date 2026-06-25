@@ -1515,7 +1515,8 @@ TEST(BridgeDaemon, ForkExecsHeadlessSessionWithCcrSdkUrl) {
             if (line == "--sdk-url") saw_sdk_url_flag = true;
             if (line == "http://session-ingress.local/v1/code/sessions/session_1") saw_sdk_url = true;
         }
-        if (saw_sdk_url_flag && saw_sdk_url) break;
+        auto sessions = daemon.sessions();
+        if (saw_sdk_url_flag && saw_sdk_url && !sessions.empty() && sessions.front().status == "completed") break;
         std::this_thread::sleep_for(std::chrono::milliseconds{10});
     }
 
@@ -1585,7 +1586,9 @@ TEST(BridgeDaemon, ForkExecsHeadlessSessionWithV1SessionIngressSdkUrl) {
             if (line == "ws://127.0.0.1:19191/v2/session_ingress/ws/session_1") saw_sdk_url = true;
             if (line == "CLAUDE_CODE_POST_FOR_SESSION_INGRESS_V2=1") saw_v1_post_env = true;
         }
-        if (saw_sdk_url_flag && saw_sdk_url && saw_v1_post_env) break;
+        auto sessions = daemon.sessions();
+        if (saw_sdk_url_flag && saw_sdk_url && saw_v1_post_env
+            && !sessions.empty() && sessions.front().status == "completed") break;
         std::this_thread::sleep_for(std::chrono::milliseconds{10});
     }
 
@@ -1664,7 +1667,9 @@ TEST(BridgeDaemon, ForkExecsHeadlessSessionWithCcrWorkerEpochEnvironment) {
             if (line == "ENV:CLAUDE_CODE_USE_CCR_V2=1") saw_ccr_v2 = true;
             if (line == "ENV:CLAUDE_CODE_REMOTE_API_BASE_URL=" + server.base_url()) saw_api_base = true;
         }
-        if (saw_sdk_url && saw_worker_epoch && saw_ccr_v2 && saw_api_base) break;
+        auto sessions = daemon.sessions();
+        if (saw_sdk_url && saw_worker_epoch && saw_ccr_v2 && saw_api_base
+            && !sessions.empty() && sessions.front().status == "completed") break;
         std::this_thread::sleep_for(std::chrono::milliseconds{10});
     }
 
@@ -1803,12 +1808,15 @@ TEST(BridgeDaemon, RpcStdinRoutesRemoteInputToHeadlessChild) {
     ASSERT_TRUE(closed.has_value()) << closed.error();
 
     std::string stdout_response;
+    bool saw_reply = false;
     for (int i = 0; i < 500; ++i) {
         daemon.reap_sessions();
         auto stdout_result = client.stdout_lines(session_id);
         ASSERT_TRUE(stdout_result.has_value()) << stdout_result.error();
         stdout_response = *stdout_result;
-        if (stdout_response.find("rpc child reply") != std::string::npos) break;
+        if (stdout_response.find("rpc child reply") != std::string::npos) saw_reply = true;
+        auto sessions = daemon.sessions();
+        if (saw_reply && !sessions.empty() && sessions.front().stdout_closed) break;
         std::this_thread::sleep_for(std::chrono::milliseconds{10});
     }
 
@@ -1876,12 +1884,15 @@ TEST(BridgeDaemon, RpcEventRoutesRemotePayloadToHeadlessChildStdin) {
     ASSERT_TRUE(closed.has_value()) << closed.error();
 
     std::string stdout_response;
+    bool saw_hello = false;
     for (int i = 0; i < 500; ++i) {
         daemon.reap_sessions();
         auto stdout_result = client.stdout_lines(session_id);
         ASSERT_TRUE(stdout_result.has_value()) << stdout_result.error();
         stdout_response = *stdout_result;
-        if (stdout_response.find("remote event hello") != std::string::npos) break;
+        if (stdout_response.find("remote event hello") != std::string::npos) saw_hello = true;
+        auto sessions = daemon.sessions();
+        if (saw_hello && !sessions.empty() && sessions.front().stdout_closed) break;
         std::this_thread::sleep_for(std::chrono::milliseconds{10});
     }
 

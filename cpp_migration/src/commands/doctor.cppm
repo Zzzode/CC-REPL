@@ -6,7 +6,9 @@ module;
 
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <string>
+#include <string_view>
 #include <vector>
 #include <optional>
 #include <expected>
@@ -16,6 +18,15 @@ module;
 #include <filesystem>
 #include <chrono>
 #include <array>
+
+#if !defined(_WIN32)
+#  include <sys/socket.h>
+#  include <netdb.h>
+#  include <unistd.h>
+#  include <fcntl.h>
+#  include <poll.h>
+#  include <cerrno>
+#endif
 
 export module cc.commands.doctor;
 
@@ -137,15 +148,103 @@ private:
         };
     }
 
-    /// Check API endpoint connectivity
+    /// Check API endpoint connectivity via a real TCP probe.
+    /// Performs a short-timeout non-blocking connect to the API host on port
+    /// 443 and reports the measured RTT. Fail-closed: any probe error yields a
+    /// Fail status carrying the real error string rather than a fake Pass.
     [[nodiscard]] static DiagnosticCheck check_api_connectivity() {
-        // Network checks are opt-in in the migration build; report the configured endpoint.
+        constexpr std::string_view kHost = "api.anthropic.com";
+        constexpr int kPort = 443;
+        constexpr int kTimeoutMs = 3000;
+
+        auto probe = tcp_connect_rtt_ms(kHost, kPort, kTimeoutMs);
+        if (probe.has_value()) {
+            return DiagnosticCheck{
+                .name = "API Connectivity",
+                .status = CheckStatus::Pass,
+                .message = std::format("Reached {}:{} in {} ms", kHost, kPort, *probe),
+                .detail = std::format(
+                    "https://{} (TCP connect OK, RTT {} ms)", kHost, *probe),
+            };
+        }
+        // Fail-closed: surface the real error instead of a hardcoded Pass.
         return DiagnosticCheck{
             .name = "API Connectivity",
-            .status = CheckStatus::Pass,
-            .message = "API endpoint reachable",
-            .detail = "https://api.anthropic.com (200 OK)",
+            .status = CheckStatus::Fail,
+            .message = std::format("Cannot reach {}:{}", kHost, kPort),
+            .detail = probe.error(),
+            .fix_suggestion = "Check DNS resolution, proxy configuration, and firewall rules.",
         };
+    }
+
+    /// Open a non-blocking TCP connection to host:port within timeout_ms.
+    /// Returns the measured round-trip in milliseconds, or an error string.
+    /// Mirrors the proven implementation in cc.ui.doctor_screen but kept local
+    /// to avoid exposing a UI-internal helper across module boundaries.
+    [[nodiscard]] static std::expected<int, std::string>
+    tcp_connect_rtt_ms(std::string_view host, int port, int timeout_ms) {
+#if defined(_WIN32)
+        (void)host; (void)port; (void)timeout_ms;
+        return std::unexpected(std::string{"TCP probe not supported on this platform"});
+#else
+        struct addrinfo hints {};
+        hints.ai_family = AF_UNSPEC;
+        hints.ai_socktype = SOCK_STREAM;
+        std::string host_str(host);
+        std::string port_str = std::to_string(port);
+        struct addrinfo* res = nullptr;
+        int gai = getaddrinfo(host_str.c_str(), port_str.c_str(), &hints, &res);
+        if (gai != 0 || res == nullptr) {
+            return std::unexpected(std::string{"DNS resolution failed: "} +
+                                   (gai == 0 ? "no addresses" : gai_strerror(gai)));
+        }
+        int fd = -1;
+        struct addrinfo* chosen = nullptr;
+        for (struct addrinfo* p = res; p != nullptr; p = p->ai_next) {
+            fd = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
+            if (fd >= 0) { chosen = p; break; }
+        }
+        if (fd < 0 || chosen == nullptr) {
+            freeaddrinfo(res);
+            return std::unexpected(std::string{"socket() failed: "} + std::strerror(errno));
+        }
+        int flags = fcntl(fd, F_GETFL, 0);
+        if (flags >= 0) fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+
+        auto t0 = std::chrono::steady_clock::now();
+        int rc = ::connect(fd, chosen->ai_addr, chosen->ai_addrlen);
+        bool connected = false;
+        std::string err;
+        if (rc == 0) {
+            connected = true;
+        } else if (errno == EINPROGRESS) {
+            struct pollfd pfd {};
+            pfd.fd = fd;
+            pfd.events = POLLOUT;
+            int pr = ::poll(&pfd, 1, timeout_ms);
+            if (pr > 0) {
+                int soerr = 0;
+                socklen_t sl = sizeof(soerr);
+                if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &soerr, &sl) == 0 && soerr == 0) {
+                    connected = true;
+                } else {
+                    err = std::string{"connect failed: "} + std::strerror(soerr);
+                }
+            } else if (pr == 0) {
+                err = "connect timed out after " + std::to_string(timeout_ms) + " ms";
+            } else {
+                err = std::string{"poll failed: "} + std::strerror(errno);
+            }
+        } else {
+            err = std::string{"connect failed: "} + std::strerror(errno);
+        }
+        auto rtt = static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                        std::chrono::steady_clock::now() - t0).count());
+        ::close(fd);
+        freeaddrinfo(res);
+        if (!connected) return std::unexpected(err);
+        return rtt;
+#endif
     }
 
     /// Check git availability and version

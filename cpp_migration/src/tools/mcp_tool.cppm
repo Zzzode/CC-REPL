@@ -29,6 +29,7 @@ import cc.services.mcp.auth;
 import cc.services.mcp.types;
 import cc.utils.json;
 import cc.tools.mcp_classify;  // migrated: integrate collapse decision
+import cc.hooks.remaining_notifs;  // W7: feed MCP connectivity slot from live manager
 
 
 export namespace cc::tools {
@@ -995,6 +996,11 @@ public:
 
         std::lock_guard lock(mutex_);
         std::vector<NativeMcpServerStatus> statuses;
+        // Refresh the McpConnectivity notification slot from the same live
+        // snapshots the UI status read consumes. Mirrors TS
+        // useMcpConnectivityStatus deriving from mcpClients. Idempotent and
+        // called only on status reads, not in any hot loop.
+        cc::hooks::notifs::inject_mcp_connectivity_from_manager(*manager_);
         for (const auto& snapshot : manager_->snapshot_all_servers()) {
             statuses.push_back(to_native_status(snapshot));
         }

@@ -452,11 +452,18 @@ bool drain_fd(int fd, std::string& out, bool& eof_out) {
 } // namespace cmd_detail
 
 struct CommandHookRunner {
+    /// Run a raw command with optional stdin input.
+    /// @param cmd Command to execute
+    /// @param args Arguments
+    /// @param timeout_ms Timeout in milliseconds
+    /// @param env_pairs Additional environment variables
+    /// @param stdin_input Optional data to write to stdin before reading output
     static HookCommandResult run_raw(
         const std::string& cmd,
         const std::vector<std::string>& args = {},
         int timeout_ms = 30000,
-        const std::vector<std::pair<std::string, std::string>>& env_pairs = {})
+        const std::vector<std::pair<std::string, std::string>>& env_pairs = {},
+        std::string_view stdin_input = {})
     {
         using namespace cmd_detail;
         HookCommandResult result;
@@ -522,14 +529,39 @@ struct CommandHookRunner {
         int spawn_rc = posix_spawnp(&pid, cmd.c_str(), &acts, nullptr,
                                     argv.data(), envp.data());
         posix_spawn_file_actions_destroy(&acts);
-        (void)child_stdin_r.release(); (void)child_stdout_w.release(); (void)child_stderr_w.release();
+        // Close child-side pipe ends in the parent. The child process
+        // already received its own copies via posix_spawn file_actions;
+        // failing to close our copies keeps the write ends of stdout/stderr
+        // open, so poll() never sees POLLHUP and the command always waits
+        // for the full timeout.
+        child_stdin_r = FdGuard{};
+        child_stdout_w = FdGuard{};
+        child_stderr_w = FdGuard{};
 
         if (spawn_rc != 0) {
             result.error = "posix_spawnp failed: " + std::string(strerror(spawn_rc));
             return result;
         }
 
-        // Close parent's stdin write (no input to send).
+        // Write stdin input to child, then close stdin.
+        if (!stdin_input.empty()) {
+            std::size_t written = 0;
+            const char* data = stdin_input.data();
+            std::size_t remaining = stdin_input.size();
+            while (remaining > 0) {
+                ssize_t n = ::write(parent_stdin_w.fd, data + written, remaining);
+                if (n < 0) {
+                    if (errno == EINTR) continue;
+                    break;  // EPIPE or other error — child may have exited early
+                }
+                written += static_cast<std::size_t>(n);
+                remaining -= static_cast<std::size_t>(n);
+            }
+            // Write newline to match TS behavior (jsonInput + '\n')
+            if (remaining == 0) {
+                ::write(parent_stdin_w.fd, "\n", 1);
+            }
+        }
         parent_stdin_w = FdGuard{};
 
         auto set_nonblock = [](int fd) -> bool {
