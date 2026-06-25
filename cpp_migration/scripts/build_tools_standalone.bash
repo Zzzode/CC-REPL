@@ -10,7 +10,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BUILD="${CC_TOOLS_STANDALONE_BUILD_DIR:-${ROOT}/build/clang-debug}"
+BUILD="${CC_TOOLS_STANDALONE_BUILD_DIR:-${ROOT}/build/debug}"
 SRC="${ROOT}/src"
 TESTS="${ROOT}/tests"
 PCM_DIR="${BUILD}/tools_smoke_pcms"

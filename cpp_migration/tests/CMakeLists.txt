@@ -14,7 +14,11 @@ FetchContent_Declare(
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 # Disable C++ module scanning for GoogleTest (it doesn't use modules)
 set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
+set(_CC_REPL_TEST_WERROR_OLD ${CMAKE_COMPILE_WARNING_AS_ERROR})
+set(CMAKE_COMPILE_WARNING_AS_ERROR OFF)
 FetchContent_MakeAvailable(googletest)
+set(CMAKE_COMPILE_WARNING_AS_ERROR ${_CC_REPL_TEST_WERROR_OLD})
+unset(_CC_REPL_TEST_WERROR_OLD)
 set(CMAKE_CXX_SCAN_FOR_MODULES ON)
 
 
@@ -132,9 +136,6 @@ target_link_libraries(test_services
         cc_utils
         GTest::gtest_main
 )
-target_compile_options(test_services PRIVATE
-    $<$<CXX_COMPILER_ID:Clang,AppleClang>:-Wno-missing-designated-field-initializers>
-)
 gtest_discover_tests(test_services DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
 
 # ---------------------------------------------------------------------------
@@ -195,9 +196,6 @@ target_link_libraries(test_dialog_toolpermission
         cc_ui
         GTest::gtest_main
 )
-target_compile_options(test_dialog_toolpermission PRIVATE
-    $<$<CXX_COMPILER_ID:Clang,AppleClang>:-Wno-missing-designated-field-initializers>
-)
 gtest_discover_tests(test_dialog_toolpermission
     DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
 
@@ -213,9 +211,6 @@ target_link_libraries(test_dialog_system
         cc_ui                  # cc.ui.dialogs.* + cc.ui.design.theme
         GTest::gtest_main
 )
-target_compile_options(test_dialog_system PRIVATE
-    $<$<CXX_COMPILER_ID:Clang,AppleClang>:-Wno-missing-designated-field-initializers>
-)
 cc_test_target_enable_modules(test_dialog_system)
 gtest_discover_tests(test_dialog_system
     DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
@@ -230,9 +225,6 @@ target_link_libraries(test_prompt_dialog
         cc_core
         cc_ui
         GTest::gtest_main
-)
-target_compile_options(test_prompt_dialog PRIVATE
-    $<$<CXX_COMPILER_ID:Clang,AppleClang>:-Wno-missing-designated-field-initializers>
 )
 gtest_discover_tests(test_prompt_dialog
     DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
@@ -317,9 +309,6 @@ target_link_libraries(test_migrations
         cc_utils               # cc.utils.json
         GTest::gtest_main
 )
-target_compile_options(test_migrations PRIVATE
-    $<$<CXX_COMPILER_ID:Clang,AppleClang>:-Wno-missing-designated-field-initializers>
-)
 gtest_discover_tests(test_migrations DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
 
 
@@ -329,9 +318,6 @@ target_link_libraries(test_bridge
         cc_core
         cc_daemon
         GTest::gtest_main
-)
-target_compile_options(test_bridge PRIVATE
-    $<$<CXX_COMPILER_ID:Clang,AppleClang>:-Wno-missing-designated-field-initializers>
 )
 add_dependencies(test_bridge cc_repl)
 target_compile_definitions(test_bridge
@@ -528,9 +514,6 @@ target_link_libraries(test_fix_lsp_tool
         cc_core
         GTest::gtest_main
 )
-target_compile_options(test_fix_lsp_tool PRIVATE
-    $<$<CXX_COMPILER_ID:Clang,AppleClang>:-Wno-missing-designated-field-initializers>
-)
 gtest_discover_tests(test_fix_lsp_tool DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
 
 # M6: API stubs -> real HTTP (first_token_date, ultrareview_quota, overage_credit)
@@ -553,9 +536,6 @@ target_link_libraries(test_fix_notifs
         cc_hooks
         cc_services
         GTest::gtest_main
-)
-target_compile_options(test_fix_notifs PRIVATE
-    $<$<CXX_COMPILER_ID:Clang,AppleClang>:-Wno-missing-designated-field-initializers>
 )
 gtest_discover_tests(test_fix_notifs DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
 

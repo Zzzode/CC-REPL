@@ -1,13 +1,13 @@
 #!/usr/bin/env zsh
 # Build tools_smoke.cpp manually by re-using the C++23 module units from the
-# main clang-debug build.  This script exists because `tools_smoke` depends
+# main debug build.  This script exists because `tools_smoke` depends
 # only on the two impl_* modules and the bare STL — linking it through
 # cc_tools transitively pulls cc_services (sse_client et al.) which can be
 # independently broken in partial builds.
 set -euo pipefail
 
 ROOT="/Users/bytedance/Develop/CC-REPL/cpp_migration"
-BUILD="${ROOT}/build/clang-debug"
+BUILD="${ROOT}/build/debug"
 SRC="${ROOT}/src"
 TESTS="${ROOT}/tests"
 BIN="${BUILD}/tools_smoke"
@@ -31,8 +31,8 @@ COMMON=(
   -fcxx-modules
   -fimplicit-module-maps
   -fprebuilt-module-path="${PCM_DIR}"
-  -I"${ROOT}/build/clang-debug/_deps/yyjson-src/src"
-  -I"${ROOT}/build/clang-debug/_deps/libuv-src/include"
+  -I"${ROOT}/build/debug/_deps/yyjson-src/src"
+  -I"${ROOT}/build/debug/_deps/libuv-src/include"
   -O0 -g
   -Wall
 )

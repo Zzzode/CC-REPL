@@ -31,19 +31,15 @@ jobs:
           clang++ --version
 
       - name: Configure
-        run: |
-          cmake -B cpp_migration/build/clang-debug \
-                -S cpp_migration \
-                --preset clang-debug
+        working-directory: cpp_migration
+        run: cmake --preset debug
 
       - name: Build
         timeout-minutes: 15
-        run: |
-          cmake --build cpp_migration/build/clang-debug -j4
+        working-directory: cpp_migration
+        run: cmake --build --preset debug
 
       - name: Test
         timeout-minutes: 5
-        run: |
-          ctest --test-dir cpp_migration/build/clang-debug \
-                -j4 \
-                --output-on-failure
+        working-directory: cpp_migration
+        run: ctest --preset debug --parallel 4

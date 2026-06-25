@@ -7,6 +7,9 @@ add_executable(bench_core bench_core.cpp)
 set_target_properties(bench_core PROPERTIES
     CXX_SCAN_FOR_MODULES ON
 )
+target_compile_options(bench_core PRIVATE
+    $<$<CXX_COMPILER_ID:Clang,AppleClang>:-Wno-c2y-extensions>
+)
 
 target_link_libraries(bench_core
     PRIVATE

@@ -1,20 +1,16 @@
 cmake_minimum_required(VERSION 3.28)
 
-# ─── Toolchain selection (must come BEFORE project()) ─────────────────────────
-#
-# CMake's C++23 named-modules support relies on `clang-scan-deps` to discover
-# per-TU import graphs (P1689 format).  Apple's Xcode toolchain ships clang
-# (AppleClang) but does *not* ship `clang-scan-deps`, so CMake detects "the
-# compiler does not provide a way to discover the import graph dependencies"
-# and refuses to generate anything that consumes or produces named modules.
-#
-# Prefer a Homebrew-installed LLVM toolchain (`brew install llvm`) which ships
-# a matching `clang-scan-deps` alongside `clang++`.  The user can override
-# this by passing -DCMAKE_CXX_COMPILER=... / -DCMAKE_C_COMPILER=... on the
-# cmake command line, in which case the cache values win.
-if(NOT DEFINED CMAKE_CXX_COMPILER AND EXISTS "/opt/homebrew/opt/llvm/bin/clang++")
-    set(CMAKE_CXX_COMPILER "/opt/homebrew/opt/llvm/bin/clang++")
-    set(CMAKE_C_COMPILER   "/opt/homebrew/opt/llvm/bin/clang")
+# Toolchain selection is owned by CMakePresets.json via
+# cmake/AutoToolchain.cmake.  Do not silently pick a compiler here: C++23 named
+# modules require a matching clang++ and clang-scan-deps pair, and hidden
+# fallback makes broken local builds hard to diagnose.
+if(NOT DEFINED CMAKE_TOOLCHAIN_FILE
+   AND NOT DEFINED CMAKE_C_COMPILER
+   AND NOT DEFINED CMAKE_CXX_COMPILER)
+    message(FATAL_ERROR
+        "CC-REPL requires an explicit LLVM toolchain. Configure with "
+        "`cmake --preset debug`, `cmake --preset release`, `cmake --preset asan`, or set "
+        "CMAKE_TOOLCHAIN_FILE / CMAKE_C_COMPILER / CMAKE_CXX_COMPILER.")
 endif()
 
 project(CC-REPL
@@ -22,6 +18,33 @@ project(CC-REPL
     DESCRIPTION "CC-REPL: A C++23 Modules-based CLI REPL"
     LANGUAGES CXX C
 )
+
+if(COMMAND _cc_repl_assert_llvm21)
+    _cc_repl_assert_llvm21()
+endif()
+
+if(CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
+    message(FATAL_ERROR
+        "AppleClang cannot build CC-REPL C++23 modules because it does not "
+        "ship clang-scan-deps. Use a preset backed by Homebrew LLVM, for "
+        "example `cmake --preset release`.")
+endif()
+
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    if(NOT CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS)
+        message(FATAL_ERROR
+            "CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS is not set. Use "
+            "cmake/AutoToolchain.cmake through CMakePresets.json or set it "
+            "explicitly to the clang-scan-deps binary that matches clang++.")
+    elseif(NOT EXISTS "${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS}")
+        message(FATAL_ERROR
+            "clang-scan-deps not found: ${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS}")
+    endif()
+endif()
+
+message(STATUS
+    "[Toolchain] CXX=${CMAKE_CXX_COMPILER} "
+    "scan-deps=${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS}")
 
 # ─── Ninja Job Pools (eliminate scan-deps BMI races without throttling the
 #     rest of the build) ───────────────────────────────────────────────────────
@@ -46,17 +69,49 @@ if(CMAKE_GENERATOR MATCHES "Ninja")
     if(NOT NPROC OR NPROC LESS 1)
         set(NPROC 4)
     endif()
-    # Link jobs are memory heavy — cap at 2.  Compile: all cores.
-    # Depfile scan: cap at 2 (removes the P1689 rename race entirely).
-    if(NPROC GREATER 16)
+
+    set(CC_REPL_BUILD_JOBS "0" CACHE STRING
+        "Maximum compile jobs for Ninja pools; 0 means host processor count.")
+    set(CC_REPL_LINK_JOBS "0" CACHE STRING
+        "Maximum link jobs for Ninja pools; 0 means automatic memory-safe cap.")
+    set(CC_REPL_SCAN_JOBS "4" CACHE STRING
+        "Maximum C++ module depfile scan jobs. Keep this capped until Ninja #2782 is released.")
+
+    foreach(_job_var IN ITEMS CC_REPL_BUILD_JOBS CC_REPL_LINK_JOBS CC_REPL_SCAN_JOBS)
+        if(NOT "${${_job_var}}" MATCHES "^[0-9]+$")
+            message(FATAL_ERROR "${_job_var} must be a non-negative integer.")
+        endif()
+    endforeach()
+
+    set(_COMPILE_POOL ${NPROC})
+    if(CC_REPL_BUILD_JOBS GREATER 0)
+        set(_COMPILE_POOL ${CC_REPL_BUILD_JOBS})
+    endif()
+
+    # Link jobs are memory heavy.  Compile uses all configured build jobs.
+    # Depfile scan defaults to 4 after 10 consecutive clean configure+full-build
+    # runs with 0 P1689/dyndep races on 2026-06-25.  Ninja #2782 is merged into
+    # Ninja main but not released, so scan jobs remain separately capped.
+    if(CC_REPL_LINK_JOBS GREATER 0)
+        set(_LINK_POOL ${CC_REPL_LINK_JOBS})
+    elseif(_COMPILE_POOL GREATER 16)
         set(_LINK_POOL 4)
     else()
         set(_LINK_POOL 2)
     endif()
-    set_property(GLOBAL APPEND PROPERTY JOB_POOLS
-        compile_jobs=${NPROC}
+
+    if(CC_REPL_SCAN_JOBS LESS 1)
+        message(FATAL_ERROR "CC_REPL_SCAN_JOBS must be at least 1.")
+    endif()
+    set(_SCAN_POOL ${CC_REPL_SCAN_JOBS})
+    if(_SCAN_POOL GREATER _COMPILE_POOL)
+        set(_SCAN_POOL ${_COMPILE_POOL})
+    endif()
+
+    set_property(GLOBAL PROPERTY JOB_POOLS
+        compile_jobs=${_COMPILE_POOL}
         link_jobs=${_LINK_POOL}
-        scan_modules=2
+        scan_modules=${_SCAN_POOL}
     )
     # Assign the pools.  Names here are the CMake canonical ones:
     #   JOB_POOL_COMPILE → every <LANG>_COMPILE_OBJECT rule
@@ -70,8 +125,12 @@ if(CMAKE_GENERATOR MATCHES "Ninja")
     # inherit the cap naturally via directory variable scope.
     set(CMAKE_NINJA_JOB_POOL_CXX_MODULE_DEPFILE_GEN scan_modules)
     set(CMAKE_NINJA_JOB_POOL_C_MODULE_DEPFILE_GEN   scan_modules)
+    message(STATUS
+        "[Ninja pools] compile=${_COMPILE_POOL} link=${_LINK_POOL} "
+        "scan_modules=${_SCAN_POOL}")
+    unset(_COMPILE_POOL)
     unset(_LINK_POOL)
-    message(STATUS "[Ninja pools] compile=${NPROC}  link=2/4  scan_modules=2")
+    unset(_SCAN_POOL)
 endif()
 
 # ─── C++23 Standard ───────────────────────────────────────────────────────────
@@ -106,13 +165,6 @@ endif()
 # conflict with C++23 named modules.
 if(MSVC)
     add_compile_options(/experimental:module)
-endif()
-
-# ─── General Compiler Warnings ────────────────────────────────────────────────
-if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
-    add_compile_options(-Wall -Wextra -Wpedantic)
-elseif(MSVC)
-    add_compile_options(/W4)
 endif()
 
 # ─── Find System Packages ─────────────────────────────────────────────────────
@@ -178,6 +230,29 @@ set(CMAKE_CXX_SCAN_FOR_MODULES_OLD2 ${CMAKE_CXX_SCAN_FOR_MODULES})
 set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 FetchContent_MakeAvailable(yyjson libuv httplib ftxui benchmark)
 set(CMAKE_CXX_SCAN_FOR_MODULES ${CMAKE_CXX_SCAN_FOR_MODULES_OLD2})
+
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    foreach(_cc_repl_benchmark_target IN ITEMS benchmark benchmark_main)
+        if(TARGET ${_cc_repl_benchmark_target})
+            target_compile_options(${_cc_repl_benchmark_target} PRIVATE
+                -Wno-c2y-extensions)
+        endif()
+    endforeach()
+    unset(_cc_repl_benchmark_target)
+endif()
+
+# ─── Project Warning Policy ──────────────────────────────────────────────────
+option(CC_REPL_WARNINGS_AS_ERRORS
+    "Treat CC-REPL project warnings as errors."
+    ON)
+
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
+    add_compile_options(-Wall -Wextra -Wpedantic)
+elseif(MSVC)
+    add_compile_options(/W4)
+endif()
+
+set(CMAKE_COMPILE_WARNING_AS_ERROR ${CC_REPL_WARNINGS_AS_ERRORS})
 
 # ─── Subdirectories ───────────────────────────────────────────────────────────
 add_subdirectory(src)

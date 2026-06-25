@@ -10,6 +10,7 @@
       "name": "base",
       "hidden": true,
       "generator": "Ninja",
+      "toolchainFile": "${sourceDir}/cmake/AutoToolchain.cmake",
       "binaryDir": "${sourceDir}/build/${presetName}",
       "installDir": "${sourceDir}/install/${presetName}",
       "cacheVariables": {
@@ -17,13 +18,17 @@
         "CMAKE_CXX_STANDARD_REQUIRED": "ON",
         "CMAKE_CXX_EXTENSIONS": "OFF",
         "CMAKE_CXX_SCAN_FOR_MODULES": "ON",
-        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "CC_REPL_BUILD_JOBS": "0",
+        "CC_REPL_LINK_JOBS": "0",
+        "CC_REPL_SCAN_JOBS": "4",
+        "CC_REPL_WARNINGS_AS_ERRORS": "ON"
       }
     },
     {
       "name": "debug",
-      "displayName": "Debug (default compiler)",
-      "description": "Debug build with default system compiler",
+      "displayName": "Debug",
+      "description": "Debug build using the project LLVM toolchain",
       "inherits": "base",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug"
@@ -31,171 +36,41 @@
     },
     {
       "name": "release",
-      "displayName": "Release (default compiler)",
-      "description": "Optimized release build",
-      "inherits": "base",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release"
-      }
-    },
-    {
-      "name": "relwithdebinfo",
-      "displayName": "Release with Debug Info",
-      "description": "Optimized build with debug symbols for profiling",
-      "inherits": "base",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "RelWithDebInfo"
-      }
-    },
-    {
-      "name": "clang-debug",
-      "displayName": "Homebrew LLVM Clang Debug",
-      "description": "Debug build using Homebrew LLVM Clang with module dependency scanning",
-      "inherits": "base",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug",
-        "CMAKE_C_COMPILER": "/opt/homebrew/opt/llvm/bin/clang",
-        "CMAKE_CXX_COMPILER": "/opt/homebrew/opt/llvm/bin/clang++",
-        "CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS": "/opt/homebrew/opt/llvm/bin/clang-scan-deps"
-      }
-    },
-    {
-      "name": "clang-release",
-      "displayName": "Homebrew LLVM Clang Release",
-      "description": "Optimized release build using Homebrew LLVM Clang with LTO and module dependency scanning",
+      "displayName": "Release",
+      "description": "Optimized release build using the project LLVM toolchain",
       "inherits": "base",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "CMAKE_C_COMPILER": "/opt/homebrew/opt/llvm/bin/clang",
-        "CMAKE_CXX_COMPILER": "/opt/homebrew/opt/llvm/bin/clang++",
-        "CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS": "/opt/homebrew/opt/llvm/bin/clang-scan-deps",
         "CMAKE_C_FLAGS_RELEASE": "-O2 -DNDEBUG",
         "CMAKE_CXX_FLAGS_RELEASE": "-O2 -DNDEBUG",
         "CMAKE_INTERPROCEDURAL_OPTIMIZATION": "ON"
       }
     },
     {
-      "name": "clang-coverage",
-      "displayName": "Homebrew LLVM Clang Coverage",
-      "description": "Debug build with code coverage instrumentation using Homebrew LLVM Clang",
-      "inherits": "base",
-      "binaryDir": "${sourceDir}/build/clang-coverage",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug",
-        "CMAKE_C_COMPILER": "/opt/homebrew/opt/llvm/bin/clang",
-        "CMAKE_CXX_COMPILER": "/opt/homebrew/opt/llvm/bin/clang++",
-        "CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS": "/opt/homebrew/opt/llvm/bin/clang-scan-deps",
-        "CMAKE_C_FLAGS": "-fprofile-instr-generate -fcoverage-mapping",
-        "CMAKE_CXX_FLAGS": "-fprofile-instr-generate -fcoverage-mapping",
-        "CMAKE_EXE_LINKER_FLAGS": "-fprofile-instr-generate"
-      }
-    },
-    {
-      "name": "linux-debug",
-      "displayName": "Linux LLVM Clang 21 Debug",
-      "description": "Linux debug build using user-local LLVM Clang 21 with system libstdc++",
-      "inherits": "base",
-      "condition": {
-        "type": "equals",
-        "lhs": "${hostSystemName}",
-        "rhs": "Linux"
-      },
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug",
-        "CMAKE_C_COMPILER": "$env{HOME}/.local/bin/clang-21-local",
-        "CMAKE_CXX_COMPILER": "$env{HOME}/.local/bin/clang++-21-local",
-        "CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS": "$env{HOME}/.local/bin/clang-scan-deps-21-local",
-        "CMAKE_C_FLAGS": "-resource-dir $env{HOME}/.local/opt/llvm-21/usr/lib/llvm-21/lib/clang/21",
-        "CMAKE_CXX_FLAGS": "-resource-dir $env{HOME}/.local/opt/llvm-21/usr/lib/llvm-21/lib/clang/21",
-        "CMAKE_C_FLAGS_RELEASE": "-O2 -DNDEBUG",
-        "CMAKE_CXX_FLAGS_RELEASE": "-O2 -DNDEBUG"
-      }
-    },
-    {
-      "name": "linux-release",
-      "displayName": "Linux LLVM Clang 21 Release",
-      "description": "Linux release build using user-local LLVM Clang 21 with system libstdc++",
-      "inherits": "base",
-      "condition": {
-        "type": "equals",
-        "lhs": "${hostSystemName}",
-        "rhs": "Linux"
-      },
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release",
-        "CMAKE_C_COMPILER": "$env{HOME}/.local/bin/clang-21-local",
-        "CMAKE_CXX_COMPILER": "$env{HOME}/.local/bin/clang++-21-local",
-        "CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS": "$env{HOME}/.local/bin/clang-scan-deps-21-local",
-        "CMAKE_C_FLAGS": "-resource-dir $env{HOME}/.local/opt/llvm-21/usr/lib/llvm-21/lib/clang/21",
-        "CMAKE_CXX_FLAGS": "-resource-dir $env{HOME}/.local/opt/llvm-21/usr/lib/llvm-21/lib/clang/21"
-      }
-    },
-    {
-      "name": "sanitize",
-      "displayName": "Debug + Sanitizers",
-      "description": "Debug build with ASan + UBSan enabled",
+      "name": "asan",
+      "displayName": "ASan",
+      "description": "Debug build with AddressSanitizer and UBSan",
       "inherits": "base",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-        "CMAKE_CXX_FLAGS": "-fsanitize=address,undefined -fno-omit-frame-pointer"
-      }
-    },
-    {
-      "name": "tsan",
-      "displayName": "Debug + ThreadSanitizer",
-      "description": "Debug build with TSan for data race detection",
-      "inherits": "base",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug",
-        "CMAKE_CXX_FLAGS": "-fsanitize=thread -fno-omit-frame-pointer"
+        "CMAKE_C_FLAGS": "-fsanitize=address,undefined -fno-omit-frame-pointer",
+        "CMAKE_CXX_FLAGS": "-fsanitize=address,undefined -fno-omit-frame-pointer",
+        "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=address,undefined"
       }
     }
   ],
   "buildPresets": [
     {
       "name": "debug",
-      "configurePreset": "debug",
-      "jobs": 0
+      "configurePreset": "debug"
     },
     {
       "name": "release",
-      "configurePreset": "release",
-      "jobs": 0
+      "configurePreset": "release"
     },
     {
-      "name": "clang-debug",
-      "configurePreset": "clang-debug",
-      "jobs": 0
-    },
-    {
-      "name": "clang-release",
-      "configurePreset": "clang-release",
-      "jobs": 0
-    },
-    {
-      "name": "clang-coverage",
-      "configurePreset": "clang-coverage",
-      "jobs": 0
-    },
-    {
-      "name": "linux-debug",
-      "configurePreset": "linux-debug",
-      "jobs": 0
-    },
-    {
-      "name": "linux-release",
-      "configurePreset": "linux-release",
-      "jobs": 0
-    },
-    {
-      "name": "sanitize",
-      "configurePreset": "sanitize",
-      "jobs": 0
-    },
-    {
-      "name": "tsan",
-      "configurePreset": "tsan",
-      "jobs": 0
+      "name": "asan",
+      "configurePreset": "asan"
     }
   ],
   "testPresets": [
@@ -214,8 +89,8 @@
       }
     },
     {
-      "name": "sanitize",
-      "configurePreset": "sanitize",
+      "name": "asan",
+      "configurePreset": "asan",
       "output": {
         "outputOnFailure": true
       },
@@ -223,20 +98,13 @@
         "ASAN_OPTIONS": "detect_leaks=1:halt_on_error=1",
         "UBSAN_OPTIONS": "print_stacktrace=1:halt_on_error=1"
       }
-    },
-    {
-      "name": "clang-coverage",
-      "configurePreset": "clang-coverage",
-      "output": {
-        "outputOnFailure": true
-      }
     }
   ],
   "workflowPresets": [
     {
       "name": "dev",
       "displayName": "Development workflow",
-      "description": "Configure + build in debug mode",
+      "description": "Configure and build the debug preset",
       "steps": [
         { "type": "configure", "name": "debug" },
         { "type": "build", "name": "debug" }
@@ -245,7 +113,7 @@
     {
       "name": "ci",
       "displayName": "CI workflow",
-      "description": "Configure + build + test in release mode",
+      "description": "Configure, build, and test the release preset",
       "steps": [
         { "type": "configure", "name": "release" },
         { "type": "build", "name": "release" },
@@ -254,12 +122,12 @@
     },
     {
       "name": "check",
-      "displayName": "Sanitizer check workflow",
-      "description": "Build and test with sanitizers",
+      "displayName": "ASan check workflow",
+      "description": "Configure, build, and test the ASan preset",
       "steps": [
-        { "type": "configure", "name": "sanitize" },
-        { "type": "build", "name": "sanitize" },
-        { "type": "test", "name": "sanitize" }
+        { "type": "configure", "name": "asan" },
+        { "type": "build", "name": "asan" },
+        { "type": "test", "name": "asan" }
       ]
     }
   ]
