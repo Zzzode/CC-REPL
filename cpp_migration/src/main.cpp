@@ -135,7 +135,7 @@ Options:
                        Load settings from a JSON file path or inline JSON.
                        Highest-priority source. Supports `env` (process env
                        vars, e.g. ANTHROPIC_API_KEY/ANTHROPIC_BASE_URL),
-                       `apiKey`, and `model`.
+                       `apiKey`, `model`, and `statusLine`.
   --debug              Enable debug logging
   --simple-ui          Use simple text UI (not interactive)
   --headless           Run without UI for daemon/remote session work
@@ -488,6 +488,30 @@ void set_env_value_pair(const char* primary, const char* compatible, const std::
     set_env_value(compatible, *value);
 }
 
+void set_env_bool_pair(const char* primary, const char* compatible, bool value) {
+    set_env_value(primary, value ? "1" : "0");
+    set_env_value(compatible, value ? "1" : "0");
+}
+
+void apply_flag_status_line_environment(const cc::config::FlagStatusLineSettings& status_line) {
+    const bool has_command = status_line.command && !status_line.command->empty();
+    const bool type_allows_command = !status_line.type || *status_line.type == "command";
+    const bool enabled = status_line.enabled.value_or(has_command && type_allows_command) &&
+        has_command && type_allows_command;
+
+    if (has_command) {
+        set_env_value("CC_REPL_STATUS_LINE_COMMAND", *status_line.command);
+        set_env_value("CLAUDE_CODE_STATUS_LINE_COMMAND", *status_line.command);
+    }
+    set_env_bool_pair("CC_REPL_STATUS_LINE_ENABLED", "CLAUDE_CODE_STATUS_LINE_ENABLED", enabled);
+
+    if (status_line.padding) {
+        const auto padding = std::to_string(*status_line.padding);
+        set_env_value("CC_REPL_STATUS_LINE_PADDING", padding);
+        set_env_value("CLAUDE_CODE_STATUS_LINE_PADDING", padding);
+    }
+}
+
 /// Load and apply a --settings payload (path OR inline JSON) before the rest of
 /// startup. Mirrors TS `loadSettingsFromFlag`:
 ///   - If the value parses as a JSON object, treat it as inline settings.
@@ -639,12 +663,14 @@ auto load_config() -> cc::core::QueryEngineConfig {
         config.base_url = url;
     }
 
-    // Model override from environment
-    if (const char* model = std::getenv("ANTHROPIC_MODEL")) {
-        config.model_params.model = model;
-    } else {
-        config.model_params.model = "claude-sonnet-4-20250514";
-    }
+    config.model_params.model = cc::config::resolve_default_model_from_environment(
+        [](std::string_view name) -> std::optional<std::string> {
+            const auto key = std::string(name);
+            if (const char* value = std::getenv(key.c_str()); value && *value) {
+                return std::string(value);
+            }
+            return std::nullopt;
+        });
 
     config.max_budget_usd = 10.0;
     config.cwd = fs::current_path().string();
@@ -1650,6 +1676,9 @@ int main(int argc, const char* argv[]) {
         if (settings_api_key_override && !settings_api_key_override->empty()) {
             set_env_value("ANTHROPIC_API_KEY", *settings_api_key_override);
         }
+        if (applied->status_line) {
+            apply_flag_status_line_environment(*applied->status_line);
+        }
         if (opts.debug) {
             for (const auto& key : applied->applied_env_keys) {
                 std::println(stderr, "[settings] applied env: {}", key);
@@ -1659,6 +1688,10 @@ int main(int argc, const char* argv[]) {
             }
             if (applied->api_key) {
                 std::println(stderr, "[settings] apiKey override provided");
+            }
+            if (applied->status_line) {
+                std::println(stderr, "[settings] statusLine override: {}",
+                    applied->status_line->command.value_or("<none>"));
             }
             for (const auto& key : applied->deferred_keys) {
                 std::println(stderr, "[settings] deferred key (not yet applied): {}", key);

@@ -489,7 +489,13 @@ public:
 
             append_pending_native_agent_notifications();
             // Stream a single API call
-            auto [assistant_msg, round_usage, has_tool_use] = stream_single_api_call(options);
+            auto stream_call = stream_single_api_call(options);
+            if (stream_call.failed) {
+                break;
+            }
+            auto& assistant_msg = stream_call.message;
+            auto& round_usage = stream_call.usage;
+            const bool has_tool_use = stream_call.has_tool_use;
 
             budget_tracker_.add_usage(round_usage, config_.model_params.model, model_cost_);
             cumulative_usage_ += round_usage;
@@ -2231,6 +2237,8 @@ private:
         AssistantMessage message;
         TokenUsage usage;
         bool has_tool_use = false;
+        bool failed = false;
+        std::string error_message;
     };
 
     /// Stream a single API call with event callbacks
@@ -2272,6 +2280,17 @@ private:
             std::string accumulated_json;
         };
         std::vector<BlockAccum> blocks;
+
+        auto emit_stream_error = [&](std::string error_type, std::string message) {
+            result.failed = true;
+            result.error_message = message.empty() ? error_type : message;
+            if (options.on_event) {
+                StreamError ev;
+                ev.error_type = std::move(error_type);
+                ev.message = result.error_message;
+                (*options.on_event)(ev);
+            }
+        };
 
         auto parse_sse_event = [&](const std::string& event_type,
                                     const std::string& data) {
@@ -2397,13 +2416,14 @@ private:
                 // Stream completed successfully
             } else if (event_type == "error") {
                 auto err = root.get("error");
-                if (err.valid() && options.on_event) {
-                    StreamError ev;
+                if (err.valid()) {
+                    std::string type_text = "stream_error";
+                    std::string message_text = "Streaming API error";
                     auto type = err.get("type");
-                    if (type.valid()) ev.error_type = std::string(type.as_str());
+                    if (type.valid()) type_text = std::string(type.as_str());
                     auto msg = err.get("message");
-                    if (msg.valid()) ev.message = std::string(msg.as_str());
-                    (*options.on_event)(ev);
+                    if (msg.valid()) message_text = std::string(msg.as_str());
+                    emit_stream_error(std::move(type_text), std::move(message_text));
                 }
             }
         };
@@ -2441,7 +2461,12 @@ private:
             if (fallback) {
                 result.message = std::move(fallback->message);
                 result.usage = fallback->usage;
+            } else {
+                emit_stream_error("api_error", fallback.error().format());
+                return result;
             }
+        } else if (result.failed && blocks.empty()) {
+            return result;
         } else {
             // Assemble final message from accumulated blocks
             result.message.timestamp = std::chrono::system_clock::now();
@@ -2465,7 +2490,7 @@ private:
         }
 
         // Emit stream end
-        if (options.on_event) {
+        if (!result.failed && options.on_event) {
             StreamEnd end_event;
             end_event.stop_reason = result.message.stop_reason;
             end_event.usage = result.usage;

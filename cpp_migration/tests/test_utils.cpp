@@ -2580,6 +2580,48 @@ TEST(FlagSettings, AppliesEnvBlockAndModelAndApiKey) {
     EXPECT_TRUE(result.deferred_keys.empty());
 }
 
+TEST(FlagSettings, AppliesStatusLineCommandSettings) {
+    auto parsed = cc::utils::json::parse(
+        R"({"statusLine":{"type":"command","command":"~/.claude/statusline.sh","padding":2}})");
+    ASSERT_TRUE(parsed.has_value());
+
+    auto result = cc::config::apply_flag_settings(parsed->root(), [](auto, auto) {});
+
+    ASSERT_TRUE(result.status_line.has_value());
+    ASSERT_TRUE(result.status_line->type.has_value());
+    EXPECT_EQ(*result.status_line->type, "command");
+    ASSERT_TRUE(result.status_line->command.has_value());
+    EXPECT_EQ(*result.status_line->command, "~/.claude/statusline.sh");
+    ASSERT_TRUE(result.status_line->padding.has_value());
+    EXPECT_EQ(*result.status_line->padding, 2);
+    EXPECT_TRUE(result.deferred_keys.empty());
+}
+
+TEST(FlagSettings, ResolvesDefaultModelFromEnvironmentPriority) {
+    std::map<std::string, std::string> env{
+        {"ANTHROPIC_DEFAULT_SONNET_MODEL", "glm-sonnet-default"},
+    };
+    auto getter = [&](std::string_view name) -> std::optional<std::string> {
+        auto it = env.find(std::string(name));
+        if (it == env.end()) return std::nullopt;
+        return it->second;
+    };
+
+    EXPECT_EQ(
+        cc::config::resolve_default_model_from_environment(getter),
+        "glm-sonnet-default");
+
+    env["ANTHROPIC_MODEL"] = "anthropic-model";
+    EXPECT_EQ(
+        cc::config::resolve_default_model_from_environment(getter),
+        "anthropic-model");
+
+    env["CLAUDE_MODEL"] = "claude-model";
+    EXPECT_EQ(
+        cc::config::resolve_default_model_from_environment(getter),
+        "claude-model");
+}
+
 TEST(FlagSettings, RecordsDeferredKeys) {
     auto parsed = cc::utils::json::parse(
         R"({"model":"m","permissions":{"allow":["Bash"]},"hooks":{},"mcpServers":{"x":{}}})");

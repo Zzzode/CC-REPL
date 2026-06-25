@@ -11,6 +11,7 @@ module;
 #include <functional>
 #include <chrono>
 #include <format>
+#include <initializer_list>
 #include <deque>
 #include <map>
 #include <set>
@@ -19,6 +20,7 @@ module;
 #include <mutex>
 #include <condition_variable>
 #include <atomic>
+#include <cstdlib>
 
 #include <unistd.h>  // for getcwd
 
@@ -68,6 +70,34 @@ using namespace cc::core;
 
 namespace repl = cc::ui::repl_screen;
 namespace dsys = cc::ui::dialogs::system;
+
+[[nodiscard]] inline std::optional<std::string> non_empty_env(const char* name) {
+    if (const char* value = std::getenv(name); value && *value) {
+        return std::string(value);
+    }
+    return std::nullopt;
+}
+
+[[nodiscard]] inline std::optional<std::string> first_non_empty_env(std::initializer_list<const char*> names) {
+    for (const auto* name : names) {
+        if (auto value = non_empty_env(name)) return value;
+    }
+    return std::nullopt;
+}
+
+[[nodiscard]] inline std::optional<bool> parse_bool_text(const std::string& value) {
+    if (value == "true" || value == "1" || value == "yes" || value == "on") return true;
+    if (value == "false" || value == "0" || value == "no" || value == "off") return false;
+    return std::nullopt;
+}
+
+[[nodiscard]] inline std::optional<int> parse_int_text(const std::string& value) {
+    try {
+        return std::stoi(value);
+    } catch (...) {
+        return std::nullopt;
+    }
+}
 
 [[nodiscard]] inline std::vector<Message> compact_runtime_messages(void* state) {
     auto* engine = static_cast<core::QueryEngine*>(state);
@@ -331,6 +361,35 @@ private:
     int statusline_debounce_ms_ = 300;  // TS: 300ms debounce
 
 public:
+    ~AppAdapter() override {
+        if (query_running_.load() && engine_) {
+            engine_->abort();
+        }
+        if (query_thread_.joinable()) query_thread_.request_stop();
+        if (spinner_thread_.joinable()) spinner_thread_.request_stop();
+        if (statusline_thread_.joinable()) statusline_thread_.request_stop();
+        {
+            std::lock_guard lk(statusline_mutex_);
+            statusline_dirty_.store(true);
+        }
+        {
+            std::lock_guard lk(permission_mutex_);
+            permission_response_ = false;
+        }
+        {
+            std::lock_guard lk(elicitation_mutex_);
+            elicitation_response_ = false;
+        }
+        {
+            std::lock_guard lk(ask_user_mutex_);
+            ask_user_response_ = std::optional<std::string>{};
+        }
+        statusline_cv_.notify_all();
+        permission_cv_.notify_all();
+        elicitation_cv_.notify_all();
+        ask_user_cv_.notify_all();
+    }
+
     AppAdapter(core::QueryEngine* engine,
                cc::commands::AppCommandRegistry* cmd_registry,
                utils::SessionStorage* storage,
@@ -915,45 +974,70 @@ public:
         }
 
         // --- status line config (settings.statusLine) ---
+        std::optional<std::string> status_line_type;
+        std::string status_line_command;
+        std::optional<bool> status_line_enabled;
+        int status_line_padding = 0;
+
         auto sl_it = settings.find("statusLine");
         if (sl_it != settings.end() &&
             std::holds_alternative<std::map<std::string, std::string>>(sl_it->second)) {
             const auto& sl_map = std::get<std::map<std::string, std::string>>(sl_it->second);
 
+            auto type_it = sl_map.find("type");
+            if (type_it != sl_map.end()) {
+                status_line_type = type_it->second;
+            }
+
             // enabled flag
             auto enabled_it = sl_map.find("enabled");
             if (enabled_it != sl_map.end()) {
-                const auto& v = enabled_it->second;
-                screen_state_->status_line_enabled =
-                    (v == "true" || v == "1" || v == "yes" || v == "on");
-            } else {
-                screen_state_->status_line_enabled = false;
+                status_line_enabled = parse_bool_text(enabled_it->second);
             }
 
             // shell command
             auto cmd_it = sl_map.find("command");
             if (cmd_it != sl_map.end()) {
-                screen_state_->status_line_command = cmd_it->second;
-            } else {
-                screen_state_->status_line_command.clear();
+                status_line_command = cmd_it->second;
             }
 
             // horizontal padding
             auto pad_it = sl_map.find("padding");
             if (pad_it != sl_map.end()) {
-                try {
-                    screen_state_->status_line_padding = std::stoi(pad_it->second);
-                } catch (...) {
-                    screen_state_->status_line_padding = 0;
+                if (auto parsed = parse_int_text(pad_it->second)) {
+                    status_line_padding = *parsed;
                 }
-            } else {
-                screen_state_->status_line_padding = 0;
             }
-        } else {
-            // No statusLine key in settings — defaults (false/empty/0)
-            screen_state_->status_line_enabled = false;
-            screen_state_->status_line_command.clear();
-            screen_state_->status_line_padding = 0;
+        }
+
+        if (auto command = first_non_empty_env({
+                "CC_REPL_STATUS_LINE_COMMAND",
+                "CLAUDE_CODE_STATUS_LINE_COMMAND"})) {
+            status_line_command = *command;
+            status_line_type = "command";
+        }
+        if (auto enabled = first_non_empty_env({
+                "CC_REPL_STATUS_LINE_ENABLED",
+                "CLAUDE_CODE_STATUS_LINE_ENABLED"})) {
+            status_line_enabled = parse_bool_text(*enabled);
+        }
+        if (auto padding = first_non_empty_env({
+                "CC_REPL_STATUS_LINE_PADDING",
+                "CLAUDE_CODE_STATUS_LINE_PADDING"})) {
+            if (auto parsed = parse_int_text(*padding)) {
+                status_line_padding = *parsed;
+            }
+        }
+
+        const bool type_allows_command = !status_line_type || *status_line_type == "command";
+        const bool enabled = status_line_enabled.value_or(
+            !status_line_command.empty() && type_allows_command);
+        screen_state_->status_line_command = std::move(status_line_command);
+        screen_state_->status_line_padding = status_line_padding;
+        screen_state_->status_line_enabled =
+            enabled && type_allows_command && !screen_state_->status_line_command.empty();
+        if (!screen_state_->status_line_enabled) {
+            screen_state_->status_line_text.clear();
         }
     }
 
@@ -1114,11 +1198,18 @@ public:
 
         std::lock_guard lk(result_mutex_);
 
-        if (pending_error_) {
-            pending_error_.reset();
-        }
+        auto pending_error = std::move(pending_error_);
+        pending_error_.reset();
 
         SyncState();
+        if (pending_error && !pending_error->empty()) {
+            repl::MessageDisplayEntry error_entry;
+            error_entry.role = "system";
+            error_entry.content_preview = "Error: " + *pending_error;
+            error_entry.is_error = true;
+            error_entry.timestamp = std::chrono::system_clock::now();
+            screen_state_->messages.push_back(std::move(error_entry));
+        }
         screen_state_->spinner_mode = repl::SpinnerMode::Hidden;
         screen_state_->spinner_verb = std::nullopt;
         screen_state_->spinner_tip = std::nullopt;
@@ -1334,6 +1425,29 @@ public:
 
     [[nodiscard]] std::string status_message_for_testing() const {
         return screen_state_->spinner_tip.value_or(std::string{});
+    }
+
+    [[nodiscard]] bool status_line_enabled_for_testing() const noexcept {
+        return screen_state_->status_line_enabled;
+    }
+
+    [[nodiscard]] std::string status_line_command_for_testing() const {
+        return screen_state_->status_line_command;
+    }
+
+    [[nodiscard]] int status_line_padding_for_testing() const noexcept {
+        return screen_state_->status_line_padding;
+    }
+
+    [[nodiscard]] std::string status_bar_model_for_testing() const {
+        return screen_state_->status_bar.model_name;
+    }
+
+    [[nodiscard]] bool has_pending_dialog_for_testing() const noexcept {
+        return screen_state_->dialog_queue.has_overlay() ||
+               screen_state_->dialog_queue.has_any_bottom() ||
+               screen_state_->dialog_queue.has_modal() ||
+               screen_state_->dialog_queue.has_standalone();
     }
 };
 

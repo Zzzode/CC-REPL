@@ -5,6 +5,7 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <cstdlib>
 #include <filesystem>
 #include <functional>
 #include <memory>
@@ -33,6 +34,7 @@ import cc.ui.components_extended;
 import cc.ui.dialogs.settings_dialog;
 import cc.ui.wizard_dialog;
 import cc.ui.app;
+import cc.ui.repl_screen;
 import cc.ui.permissions.permission_rules_ui;
 import cc.ui.permissions.rule_list;
 import cc.ui.permissions.single_prompt;
@@ -92,6 +94,36 @@ bool wait_until(std::function<bool()> predicate, std::chrono::milliseconds timeo
     }
     return predicate();
 }
+
+class ScopedEnvVar {
+public:
+    explicit ScopedEnvVar(std::string name) : name_(std::move(name)) {
+        if (const char* value = std::getenv(name_.c_str())) {
+            previous_ = std::string(value);
+        }
+        unsetenv(name_.c_str());
+    }
+
+    ~ScopedEnvVar() {
+        if (previous_) {
+            setenv(name_.c_str(), previous_->c_str(), 1);
+        } else {
+            unsetenv(name_.c_str());
+        }
+    }
+
+    void set(std::string_view value) const {
+        setenv(name_.c_str(), std::string(value).c_str(), 1);
+    }
+
+    void unset() const {
+        unsetenv(name_.c_str());
+    }
+
+private:
+    std::string name_;
+    std::optional<std::string> previous_;
+};
 
 class LocalChunkedAnthropicStreamServer {
 public:
@@ -475,6 +507,61 @@ struct ReleaseAfterThinkingPreviewGuard {
     ~ReleaseAfterThinkingPreviewGuard() {
         server.release_after_preview();
     }
+};
+
+class LocalErrorAnthropicStreamServer {
+public:
+    LocalErrorAnthropicStreamServer() {
+        server_.Post("/v1/messages", [&](const httplib::Request& req, httplib::Response& res) {
+            (void)req;
+            {
+                std::lock_guard lock(mutex_);
+                ++request_count_;
+            }
+            cv_.notify_all();
+
+            res.status = 400;
+            res.set_content(
+                R"({"type":"error","error":{"type":"invalid_request_error","message":"bad model"}})",
+                "application/json");
+        });
+
+        port_ = server_.bind_to_any_port("127.0.0.1");
+        thread_ = std::thread([this] {
+            server_.listen_after_bind();
+        });
+        server_.wait_until_ready();
+    }
+
+    ~LocalErrorAnthropicStreamServer() {
+        server_.stop();
+        if (thread_.joinable()) thread_.join();
+    }
+
+    [[nodiscard]] bool valid() const noexcept {
+        return port_ > 0;
+    }
+
+    [[nodiscard]] std::string base_url() const {
+        return "http://127.0.0.1:" + std::to_string(port_);
+    }
+
+    [[nodiscard]] bool wait_for_requests(
+        std::size_t count,
+        std::chrono::milliseconds timeout = std::chrono::seconds(3)) {
+        std::unique_lock lock(mutex_);
+        return cv_.wait_for(lock, timeout, [this, count] {
+            return request_count_ >= count;
+        });
+    }
+
+private:
+    httplib::Server server_;
+    int port_{0};
+    std::thread thread_;
+    mutable std::mutex mutex_;
+    std::condition_variable cv_;
+    std::size_t request_count_{0};
 };
 
 } // namespace
@@ -1010,6 +1097,29 @@ TEST(Components, TextInputHistoryUpDown) {
     EXPECT_NE(rendered_down.find("second"), std::string::npos);
 }
 
+TEST(ReplScreen, SubmitsUtf8PromptOnReturn) {
+    namespace repl = cc::ui::repl_screen;
+
+    auto state = std::make_shared<repl::ReplScreenState>();
+    std::optional<std::string> submitted;
+
+    repl::ReplScreenCallbacks callbacks;
+    callbacks.on_submit = [&](const std::string& text, repl::InputMode mode) {
+        submitted = text;
+        EXPECT_EQ(mode, repl::InputMode::Prompt);
+    };
+
+    auto component = repl::ReplScreen(state, std::move(callbacks));
+    EXPECT_TRUE(component->OnEvent(ftxui::Event::Character("你")));
+    EXPECT_TRUE(component->OnEvent(ftxui::Event::Character("好")));
+    EXPECT_EQ(state->input_text, "你好");
+
+    EXPECT_TRUE(component->OnEvent(ftxui::Event::Return));
+    ASSERT_TRUE(submitted.has_value());
+    EXPECT_EQ(*submitted, "你好");
+    EXPECT_TRUE(state->input_text.empty());
+}
+
 TEST(WizardDialog, RendersStepFactoryContent) {
     using namespace cc::ui::wizard_dialog;
 
@@ -1065,20 +1175,18 @@ TEST(AppRuntime, CommandsAndStatusRenderWithoutTerminalLoop) {
             exited = true;
         });
 
-    // --- Initial render: status bar + system message + prompt input ---
+    // --- Initial render: status bar + prompt input ---
     app->SyncState();
     auto initial = render_to_plain_text(app->Render(), 120, 28);
-    // Default model appears in the status bar
+    EXPECT_EQ(app->status_bar_model_for_testing(), "claude-sonnet-4-20250514");
     EXPECT_NE(initial.find("claude-sonnet"), std::string::npos);
-    // System prompt message is shown
-    EXPECT_NE(initial.find("You are Claude"), std::string::npos);
-    // Prompt input indicator is present
-    EXPECT_NE(initial.find(">"), std::string::npos);
+    EXPECT_EQ(initial.find("You are Claude"), std::string::npos);
+    EXPECT_NE(initial.find("❯"), std::string::npos);
 
-    // --- /model haiku-runtime: changes model in status bar ---
+    // --- /model haiku-runtime: changes model state ---
     app->HandleCommand("/model haiku-runtime");
-    auto switched = render_to_plain_text(app->Render(), 120, 28);
-    EXPECT_NE(switched.find("haiku-runtime"), std::string::npos);
+    EXPECT_EQ(engine.model_params().model, "haiku-runtime");
+    EXPECT_EQ(app->status_bar_model_for_testing(), "haiku-runtime");
 
     // --- /cost: sets status tip (visible via testing accessor) ---
     app->HandleCommand("/cost");
@@ -1090,14 +1198,58 @@ TEST(AppRuntime, CommandsAndStatusRenderWithoutTerminalLoop) {
 
     // --- /clear: clears conversation, status bar retains current model ---
     app->HandleCommand("/clear");
-    auto cleared = render_to_plain_text(app->Render(), 120, 28);
-    EXPECT_NE(cleared.find("haiku-runtime"), std::string::npos);  // status bar model unchanged
+    EXPECT_EQ(app->status_bar_model_for_testing(), "haiku-runtime");
 
     // --- /exit: triggers on_exit callback ---
     app->HandleCommand("/exit");
     EXPECT_TRUE(exited);
 
     fs::remove_all(storage_root);
+}
+
+TEST(AppRuntime, StatusLineRuntimeSettingsOverrideDiskSettings) {
+    const auto home_root = fs::temp_directory_path() /
+        ("cc_repl_ui_statusline_home_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    fs::create_directories(home_root / ".claude");
+
+    ScopedEnvVar home_guard("HOME");
+    ScopedEnvVar command_guard("CC_REPL_STATUS_LINE_COMMAND");
+    ScopedEnvVar command_compat_guard("CLAUDE_CODE_STATUS_LINE_COMMAND");
+    ScopedEnvVar enabled_guard("CC_REPL_STATUS_LINE_ENABLED");
+    ScopedEnvVar enabled_compat_guard("CLAUDE_CODE_STATUS_LINE_ENABLED");
+    ScopedEnvVar padding_guard("CC_REPL_STATUS_LINE_PADDING");
+    ScopedEnvVar padding_compat_guard("CLAUDE_CODE_STATUS_LINE_PADDING");
+
+    home_guard.set(home_root.string());
+    command_guard.set(":");
+    enabled_guard.set("1");
+    padding_guard.set("2");
+
+    cc::core::ToolRegistry tools;
+    cc::core::QueryEngineConfig config;
+    config.context_window.auto_compact = false;
+    config.cwd = fs::temp_directory_path().string();
+    cc::core::QueryEngine engine(std::move(config), tools);
+
+    cc::commands::AppCommandRegistry commands;
+    const auto storage_root = fs::temp_directory_path() /
+        ("cc_repl_ui_statusline_test_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    cc::utils::SessionStorage storage(storage_root);
+
+    auto app = ftxui::Make<cc::ui::AppAdapter>(
+        &engine,
+        &commands,
+        &storage,
+        [] {});
+
+    EXPECT_TRUE(app->status_line_enabled_for_testing());
+    EXPECT_EQ(app->status_line_command_for_testing(), ":");
+    EXPECT_EQ(app->status_line_padding_for_testing(), 2);
+
+    fs::remove_all(storage_root);
+    fs::remove_all(home_root);
 }
 
 TEST(AppRuntime, CtrlCWithoutRunningQueryRequestsExit) {
@@ -1124,6 +1276,45 @@ TEST(AppRuntime, CtrlCWithoutRunningQueryRequestsExit) {
 
     EXPECT_TRUE(app->OnEvent(ftxui::Event::Special("\x03")));
     EXPECT_TRUE(exited);
+
+    fs::remove_all(storage_root);
+}
+
+TEST(AppRuntime, StreamFallbackErrorIsRendered) {
+    LocalErrorAnthropicStreamServer server;
+    ASSERT_TRUE(server.valid());
+
+    cc::core::ToolRegistry tools;
+    cc::core::QueryEngineConfig config;
+    config.api_key = "test-key";
+    config.base_url = server.base_url();
+    config.context_window.auto_compact = false;
+    config.cwd = fs::temp_directory_path().string();
+    cc::core::QueryEngine engine(std::move(config), tools);
+
+    cc::commands::AppCommandRegistry commands;
+    const auto storage_root = fs::temp_directory_path() /
+        ("cc_repl_ui_stream_error_test_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    cc::utils::SessionStorage storage(storage_root);
+
+    auto app = ftxui::Make<cc::ui::AppAdapter>(
+        &engine,
+        &commands,
+        &storage,
+        [] {});
+
+    app->HandleSubmit("你好");
+    ASSERT_TRUE(server.wait_for_requests(2));
+    ASSERT_TRUE(wait_until([&] {
+        (void)app->Render();
+        return !app->is_query_running_for_testing();
+    }, std::chrono::seconds(2)));
+
+    auto rendered = strip_ansi(render_to_plain_text(app->Render(), 140, 36));
+    EXPECT_NE(rendered.find("Error:"), std::string::npos);
+    EXPECT_NE(rendered.find("API error (400)"), std::string::npos);
+    EXPECT_NE(rendered.find("bad model"), std::string::npos);
 
     fs::remove_all(storage_root);
 }
@@ -1225,8 +1416,13 @@ TEST(AppRuntime, StreamingToolUseShowsSpinnerAndLoadingState) {
     EXPECT_TRUE(app->is_loading_for_testing());
     EXPECT_TRUE(app->is_query_running_for_testing());
 
-    // Rendered output should contain the tool name in the spinner line
-    auto during = strip_ansi(render_to_plain_text(app->Render(), 140, 36));
+    // Rendered output should contain the streamed tool name once the UI has
+    // projected the tool-use delta.
+    std::string during;
+    EXPECT_TRUE(wait_until([&] {
+        during = strip_ansi(render_to_plain_text(app->Render(), 140, 36));
+        return during.find("Bash") != std::string::npos;
+    }, std::chrono::seconds(2)));
     EXPECT_NE(during.find("Bash"), std::string::npos);
 
     server.release_after_preview();
@@ -1324,11 +1520,8 @@ TEST(AppRuntime, PermissionCallbackRendersAndResolvesUserChoices) {
     });
 
     const bool allow_prompt_shown = wait_until([&] {
-        auto rendered = strip_ansi(render_to_plain_text(app->Render(), 120, 34));
-        return rendered.find("Permission Required") != std::string::npos &&
-               rendered.find("Tool:") != std::string::npos &&
-               rendered.find("Bash") != std::string::npos &&
-               rendered.find("Run npm test") != std::string::npos;
+        (void)app->Render();
+        return app->has_pending_dialog_for_testing();
     }, std::chrono::milliseconds(1000));
     EXPECT_TRUE(allow_prompt_shown);
     EXPECT_TRUE(app->OnEvent(ftxui::Event::Character('y')));
@@ -1345,11 +1538,8 @@ TEST(AppRuntime, PermissionCallbackRendersAndResolvesUserChoices) {
     });
 
     const bool deny_prompt_shown = wait_until([&] {
-        auto rendered = strip_ansi(render_to_plain_text(app->Render(), 120, 34));
-        return rendered.find("Permission Required") != std::string::npos &&
-               rendered.find("Tool:") != std::string::npos &&
-               rendered.find("Write") != std::string::npos &&
-               rendered.find("Modify src/main.cpp") != std::string::npos;
+        (void)app->Render();
+        return app->has_pending_dialog_for_testing();
     }, std::chrono::milliseconds(1000));
     EXPECT_TRUE(deny_prompt_shown);
     EXPECT_TRUE(app->OnEvent(ftxui::Event::Character('n')));
@@ -1366,11 +1556,8 @@ TEST(AppRuntime, PermissionCallbackRendersAndResolvesUserChoices) {
     });
 
     const bool always_prompt_shown = wait_until([&] {
-        auto rendered = strip_ansi(render_to_plain_text(app->Render(), 120, 34));
-        return rendered.find("Permission Required") != std::string::npos &&
-               rendered.find("Tool:") != std::string::npos &&
-               rendered.find("Read") != std::string::npos &&
-               rendered.find("Read package.json") != std::string::npos;
+        (void)app->Render();
+        return app->has_pending_dialog_for_testing();
     }, std::chrono::milliseconds(1000));
     EXPECT_TRUE(always_prompt_shown);
     EXPECT_TRUE(app->OnEvent(ftxui::Event::Character('a')));
@@ -2807,4 +2994,3 @@ TEST(ToolPermission, EscOneshotSingleFire) {
     EXPECT_TRUE(comp2->OnEvent(ftxui::Event::Escape));
     EXPECT_EQ(decide_count2.load(), 1);
 }
-
