@@ -22,6 +22,8 @@
 
 #include <atomic>
 #include <cstdint>
+#include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -81,6 +83,18 @@ std::string read_file_text(const fs::path& p) {
     std::ostringstream oss;
     oss << ifs.rdbuf();
     return oss.str();
+}
+
+void write_file_text(const fs::path& p, std::string_view content) {
+    std::ofstream ofs(p, std::ios::binary);
+    ASSERT_TRUE(ofs.good()) << "cannot write golden: " << p;
+    ofs << content;
+}
+
+/// Returns true if UPDATE_GOLDENS env var is set to a non-empty, non-"0" value.
+bool update_goldens() {
+    const char* v = std::getenv("UPDATE_GOLDENS");
+    return v && *v && std::strcmp(v, "0") != 0;
 }
 
 fs::path golden_dir() {
@@ -269,8 +283,13 @@ TEST(CostThreshold, Golden_TitleWithInterpolatedDollars) {
         .selected_index = 0,
     };
     const auto actual = norm(render_to_plain_text(ct::RenderCostThreshold(st), 78, 12));
-    const auto expected = norm(read_file_text(
-        golden_dir() / "cost_threshold_title_with_interpolated_dollars.txt"));
+    const auto path = golden_dir() / "cost_threshold_title_with_interpolated_dollars.txt";
+    if (update_goldens()) {
+        write_file_text(path, actual);
+        GTEST_SKIP() << "golden updated: " << path;
+        return;
+    }
+    const auto expected = norm(read_file_text(path));
     EXPECT_EQ(actual, expected);
 }
 
@@ -282,8 +301,13 @@ TEST(CostThreshold, Golden_WithDocsLinkRendered) {
         .selected_index = 0,
     };
     const auto actual = norm(render_to_plain_text(ct::RenderCostThreshold(st), 78, 11));
-    const auto expected = norm(read_file_text(
-        golden_dir() / "cost_threshold_with_docs_link_rendered.txt"));
+    const auto path = golden_dir() / "cost_threshold_with_docs_link_rendered.txt";
+    if (update_goldens()) {
+        write_file_text(path, actual);
+        GTEST_SKIP() << "golden updated: " << path;
+        return;
+    }
+    const auto expected = norm(read_file_text(path));
     EXPECT_EQ(actual, expected);
 }
 

@@ -189,7 +189,7 @@ public:
         }
     }
 
-    Element OnRender() override {
+    Element Render() override {
         using namespace ftxui;
 
         // Rating stars + average.
@@ -403,7 +403,7 @@ public:
         return false;
     }
 
-    Element OnRender() override {
+    Element Render() override {
         using namespace ftxui;
 
         // Filter row: search input + installed-only checkbox.

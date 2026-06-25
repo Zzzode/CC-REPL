@@ -106,7 +106,7 @@ class SystemTextMessageComponent : public ComponentBase {
           on_toggle_(std::move(on_toggle)),
           expanded_(data_.start_expanded) {}
 
-    Element OnRender() override {
+    Element Render() override {
         // Header: ⚙ System  [subtype]  ⏱ HH:MM  ▾ expand/hide button
         const auto icon = std::string(SubtypeIcon(data_.subtype));
         const auto label = std::string(SubtypeLabel(data_.subtype));

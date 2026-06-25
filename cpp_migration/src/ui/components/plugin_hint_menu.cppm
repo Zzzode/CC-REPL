@@ -130,7 +130,7 @@ public:
         Add(learn_btn_);
     }
 
-    Element OnRender() override {
+    Element Render() override {
         using namespace ftxui;
 
         // ── Top line: emoji + name + category ────────────────────
@@ -286,7 +286,7 @@ public:
         return false;
     }
 
-    Element OnRender() override {
+    Element Render() override {
         using namespace ftxui;
 
         // ── Header ───────────────────────────────────────────────

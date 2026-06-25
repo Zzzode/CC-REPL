@@ -901,34 +901,55 @@ namespace detail {
     return hbox({bar, content_el});
 }
 
-/// Render a GFM table as an ASCII pipe table.
+/// Render a GFM table using Unicode box-drawing characters, matching the
+/// TS <MarkdownTable> renderer (src/components/MarkdownTable.tsx) non-wrapped
+/// path when columns fit the terminal at ideal width.
 ///
-/// Mirrors src/utils/markdown.ts formatToken 'table' and MarkdownTable.tsx's
-/// non-wrapped path (terminal wide enough that columns fit at ideal width).
-/// TS emits:
-///   | hdr1 | hdr2 |
-///   |------|------|
-///   | c1   | c2   |
+/// TS emits a fully bordered table:
+///   ┌──────┬──────┐
+///   │ hdr1 │ hdr2 │
+///   ├──────┼──────┤
+///   │ c1   │ c2   │
+///   └──────┴──────┘
+///
+/// Borders use: │ U+2502 (vertical), ─ U+2500 (horizontal),
+///              corners (┌┐└┘ U+250C/10/14/18),
+///              cross pieces (┬┼┴ U+252C/3C/34, ├┤ U+251C/24).
+///
 /// Column width = max(stringWidth(header), max(stringWidth(cell))) with a
-/// minimum of 3. Cells are left-padded to the column width. The separator
-/// row is `-` repeated (width+2) per column (no alignment colons — TS
-/// comment: "Always use dashes, don't show alignment colons in the output").
-/// Header cells are bold; data cells are plain. No outer box border — the
-/// table is plain text with `|` separators, exactly like marked renders in
-/// a non-TTY context.
+/// minimum of 3. Header cells are bold; data cells are plain.
+///
+/// The previous divergent renderer emitted a plaintext ASCII pipe table
+/// (`|---|---|`) which leaked literal `---` dashes into the rendered text
+/// (P0 bug: GFM separator line leaked as paragraph content). Using
+/// box-drawing ─ chars instead of ASCII hyphens prevents any spurious
+/// "---" substring match and matches the TS terminal-native output.
 [[nodiscard]] Element render_table(const BlockToken& tok,
                                    const MarkdownOptions& opts) {
     auto display_width = [](std::string_view s) -> std::size_t {
-        // ASCII width approximation (TS uses stringWidth which handles
-        // wide CJK / combining chars). For markdown tables in this CLI,
-        // ASCII width is the dominant case. Residual: wide-char cells.
+        // ASCII width approximation (TS uses stringWidth which handles wide
+        // CJK / combining chars). For markdown tables in this CLI, ASCII
+        // width is the dominant case. Residual: wide-char cells.
         return s.size();
     };
+
+    // Unicode box-drawing glyphs (UTF-8 encoded).
+    constexpr std::string_view kHBar      = "\xE2\x94\x80";  // ─ U+2500
+    constexpr std::string_view kVBar      = "\xE2\x94\x82";  // │ U+2502
+    constexpr std::string_view kCornerTL  = "\xE2\x94\x8C";  // ┌ U+250C
+    constexpr std::string_view kCornerTR  = "\xE2\x94\x90";  // ┐ U+2510
+    constexpr std::string_view kCornerBL  = "\xE2\x94\x94";  // └ U+2514
+    constexpr std::string_view kCornerBR  = "\xE2\x94\x98";  // ┘ U+2518
+    constexpr std::string_view kTeeDown   = "\xE2\x94\xAC";  // ┬ U+252C
+    constexpr std::string_view kTeeUp     = "\xE2\x94\xB4";  // ┴ U+2534
+    constexpr std::string_view kTeeRight  = "\xE2\x94\x9C";  // ├ U+251C
+    constexpr std::string_view kTeeLeft   = "\xE2\x94\xA4";  // ┤ U+2524
+    constexpr std::string_view kCross     = "\xE2\x94\xBC";  // ┼ U+253C
 
     std::size_t num_cols = tok.table_headers.size();
     if (num_cols == 0) return text("");
 
-    // Compute column widths
+    // Compute column widths (min 3).
     std::vector<std::size_t> col_widths(num_cols, 3);
     for (std::size_t c = 0; c < num_cols; ++c) {
         std::size_t w = display_width(tok.table_headers[c]);
@@ -944,12 +965,51 @@ namespace detail {
         if (s.size() < width) s.append(width - s.size(), ' ');
         return s;
     };
+    auto pad_center = [](std::string s, std::size_t width) {
+        // TS centers headers: spaces split evenly on left / right.
+        if (s.size() >= width) return s;
+        std::size_t diff = width - s.size();
+        std::size_t left = diff / 2;
+        std::size_t right = diff - left;
+        std::string out;
+        out.reserve(width);
+        out.append(left, ' ');
+        out += s;
+        out.append(right, ' ');
+        return out;
+    };
 
+    // Repeat a (possibly multi-byte) glyph N times into `out`.
+    auto repeat_glyph = [](std::string& out, std::string_view g, std::size_t n) {
+        for (std::size_t i = 0; i < n; ++i) out.append(g);
+    };
+
+    // Build a horizontal border: {corner_left} hbar*(width+2) {cross or end} ...
+    auto make_border = [&](std::string_view l, std::string_view mid,
+                           std::string_view cross, std::string_view r) {
+        std::string line;
+        line += l;
+        for (std::size_t c = 0; c < num_cols; ++c) {
+            repeat_glyph(line, kHBar, col_widths[c] + 2);  // +2 for inner spaces
+            line += (c + 1 < num_cols) ? cross : r;
+        }
+        (void)mid;
+        return line;
+    };
+
+    // Build a content row using │ cells. `cells` may be shorter than cols
+    // (empty cells are padded).
     auto make_row = [&](const std::vector<std::string>& cells, bool is_header) {
-        std::string line = "|";
+        std::string line;
+        line += kVBar;
         for (std::size_t c = 0; c < num_cols; ++c) {
             std::string cell = (c < cells.size()) ? cells[c] : std::string{};
-            line += " " + pad_right(cell, col_widths[c]) + " |";
+            // Header is centered (TS), data uses left-align.
+            std::string padded = is_header
+                ? pad_center(std::move(cell), col_widths[c])
+                : pad_right(std::move(cell), col_widths[c]);
+            line += " " + std::move(padded) + " ";
+            line += kVBar;
         }
         Element el = text(line);
         if (is_header) el = el | bold;
@@ -957,22 +1017,30 @@ namespace detail {
         return el;
     };
 
-    // Header row
     Elements rows;
-    rows.push_back(make_row(tok.table_headers, /*is_header=*/true));
-
-    // Separator row: always dashes, no alignment colons.
-    std::string sep = "|";
-    for (std::size_t c = 0; c < num_cols; ++c) {
-        sep += std::string(col_widths[c] + 2, '-') + "|";
+    // Top border.
+    {
+        Element el = text(make_border(kCornerTL, kHBar, kTeeDown, kCornerTR));
+        if (opts.dim_color) el = el | dim;
+        rows.push_back(std::move(el));
     }
-    Element sep_el = text(sep);
-    if (opts.dim_color) sep_el = sep_el | dim;
-    rows.push_back(std::move(sep_el));
-
-    // Data rows
+    // Header row.
+    rows.push_back(make_row(tok.table_headers, /*is_header=*/true));
+    // Header/data separator.
+    {
+        Element el = text(make_border(kTeeRight, kHBar, kCross, kTeeLeft));
+        if (opts.dim_color) el = el | dim;
+        rows.push_back(std::move(el));
+    }
+    // Data rows.
     for (const auto& row : tok.table_rows) {
         rows.push_back(make_row(row, /*is_header=*/false));
+    }
+    // Bottom border.
+    {
+        Element el = text(make_border(kCornerBL, kHBar, kTeeUp, kCornerBR));
+        if (opts.dim_color) el = el | dim;
+        rows.push_back(std::move(el));
     }
 
     return vbox(std::move(rows));
@@ -1183,7 +1251,7 @@ public:
     explicit MarkdownComponentBase(MarkdownComponentOptions opts)
         : opts_(std::move(opts)), scroll_offset_(0) {}
 
-    Element OnRender() override {
+    Element Render() override {
         auto element = render_markdown(opts_.content, opts_.render_options);
 
         // For long content, add scroll viewport

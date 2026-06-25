@@ -124,7 +124,7 @@ class HookProgressComponent : public ComponentBase {
         }
     }
 
-    Element OnRender() override {
+    Element Render() override {
         auto s = Summarize(hooks_);
 
         // Header: animated spinner + title + percentage

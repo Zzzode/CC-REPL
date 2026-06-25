@@ -111,7 +111,7 @@ class AdvisorMessageComponent : public ComponentBase {
         }
     }
 
-    Element OnRender() override {
+    Element Render() override {
         if (dismissed_) return text("") | size(HEIGHT, EQUAL, 0);
 
         auto [icon, title, accent] = SeverityPalette(msg_.severity);

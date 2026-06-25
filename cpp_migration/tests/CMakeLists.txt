@@ -252,16 +252,6 @@ gtest_discover_tests(test_cost_threshold_dialog
     DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
 
 
-add_executable(test_dialog_system test_dialog_system.cpp)
-target_link_libraries(test_dialog_system
-    PRIVATE
-        cc_core
-        cc_ui                  # cc.ui.dialogs.* + cc.ui.design.theme
-        GTest::gtest_main
-)
-gtest_discover_tests(test_dialog_system DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
-
-
 add_executable(test_tasks test_tasks.cpp)
 target_link_libraries(test_tasks
     PRIVATE

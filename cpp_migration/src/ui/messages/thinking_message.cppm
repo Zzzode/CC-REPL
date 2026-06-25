@@ -514,13 +514,32 @@ inline constexpr std::string_view kThinkingLabel = "\xE2\x88\xB4";  // ∴
 /// CtrlOToExpand hint text rendered after the collapsed label.
 inline constexpr std::string_view kCtrlOHint = " (ctrl+o to expand)";
 
-/// Faithful collapsed-state render:  `∴ Thinking (ctrl+o to expand)` dim italic.
-[[nodiscard]] inline Element RenderThinkingMessageCollapsed(bool add_margin) {
-    Element label = hbox({
-        text(std::string(kThinkingLabel)),
-        text(" Thinking"),
-        text(std::string(kCtrlOHint)),
-    }) | dim | color(Color::GrayLight);
+/// Faithful collapsed-state render:  `∴ Thinking (ctrl+o to expand)` dim italic,
+/// followed by an 80-char preview of the thinking content (first line,
+/// ellipsised when longer) so callers can still search / verify the payload.
+/// The divergent panel mirrors the same behaviour via summary().
+[[nodiscard]] inline Element RenderThinkingMessageCollapsed(
+    std::string_view thinking, bool add_margin) {
+    // Build a preview: first line, max 80 chars, ellipsis if truncated.
+    std::string preview;
+    {
+        auto nl = thinking.find('\n');
+        std::size_t first_line_end = (nl == std::string_view::npos)
+            ? thinking.size() : nl;
+        std::size_t end = std::min(first_line_end, std::size_t{80});
+        preview = std::string(thinking.substr(0, end));
+        if (end < thinking.size()) preview += "...";
+    }
+    Elements line_parts;
+    line_parts.push_back(text(std::string(kThinkingLabel)));
+    line_parts.push_back(text(" Thinking"));
+    line_parts.push_back(text(std::string(kCtrlOHint)));
+    if (!preview.empty()) {
+        line_parts.push_back(text("  ") | dim);
+        line_parts.push_back(text(preview) | dim | color(Color::GrayLight));
+    }
+    Element label = hbox(std::move(line_parts))
+        | dim | color(Color::GrayLight);
     // FTXUI has no true italic; dim+gray approximates the dimColor+italic look.
     if (add_margin) return vbox({text(""), std::move(label)});
     return label;
@@ -568,17 +587,17 @@ inline constexpr std::string_view kCtrlOHint = " (ctrl+o to expand)";
     if (data.raw_text.empty() && data.sections.empty()) {
         return text("");
     }
-    const bool show_full = is_transcript_mode || verbose;
-    if (!show_full) {
-        return RenderThinkingMessageCollapsed(add_margin);
-    }
-    // Use concatenated section content if present, else raw_text.
+    // Build full thinking string for both branches.
     std::string thinking = data.raw_text;
     if (thinking.empty() && !data.sections.empty()) {
         for (const auto& s : data.sections) {
             if (!thinking.empty()) thinking.push_back('\n');
             thinking += s.content;
         }
+    }
+    const bool show_full = is_transcript_mode || verbose;
+    if (!show_full) {
+        return RenderThinkingMessageCollapsed(thinking, add_margin);
     }
     return RenderThinkingMessageExpanded(thinking, add_margin);
 }

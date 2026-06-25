@@ -648,7 +648,7 @@ struct [[nodiscard]] VirtualListComponentBase : ftxui::ComponentBase {
     handle.state = s.get();
   }
 
-  ftxui::Element OnRender() override {
+  ftxui::Element Render() override {
     using namespace ftxui;
     tick_frame(s->fsm);
     maybe_trigger_load(*s);

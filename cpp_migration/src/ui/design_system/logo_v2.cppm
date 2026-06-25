@@ -102,7 +102,7 @@ public:
           reduced_motion_(reduced_motion),
           start_(std::chrono::steady_clock::now()) {}
 
-    ftxui::Element OnRender() override {
+    ftxui::Element Render() override {
         using namespace ftxui;
         if (reduced_motion_ || settled()) {
             // TS always renders the teardrop "✻" (AnimatedAsterisk.tsx uses
@@ -169,7 +169,7 @@ public:
         Add(asterisk_);
     }
 
-    ftxui::Element OnRender() override {
+    ftxui::Element Render() override {
         using namespace ftxui;
         Element wm = [&]() -> Element {
             if (style_ == LogoStyle::Mark) return filler() | size(WIDTH, EQUAL, 0);

@@ -1314,7 +1314,7 @@ class MessagesListComponent final : public ComponentBase {
     }
 
     // ── Rendering ------------------------------------------------------
-    Element OnRender() override {
+    Element Render() override {
         ++frame_count_;
 
         // Rebuild visible rows whenever the caller replaced input_

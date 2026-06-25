@@ -108,7 +108,7 @@ class UserCommandMessageComponent : public ComponentBase {
         Add(toggle_btn_);
     }
 
-    Element OnRender() override {
+    Element Render() override {
         Elements header_parts;
         if (data_.is_skill_format) {
             header_parts.push_back(hbox({

@@ -41,6 +41,7 @@ import cc.ui.permissions.components;
 import cc.ui.design.theme;
 import cc.ui.design.primitives;
 import cc.ui.dialogs.cost_threshold_dialog;
+import cc.ui.dialogs.dialog_modern_renderer_stubs;
 
 export namespace cc::ui::dialogs::default_renderers {
 
@@ -52,85 +53,196 @@ namespace sp = cc::ui::permissions::single_prompt;
 using Theme = cc::ui::design::theme::Theme;
 
 // ============================================================
-// ToolPermission renderer
+// ToolPermission renderer + event handler
 // ============================================================
 
-/// Render the ToolPermission dialog using the faithful SinglePrompt.
-/// This delegates to cc.ui.permissions.single_prompt.
-[[nodiscard]] inline Element RenderToolPermission(
-    const dsys::ToolPermissionPayload& p,
-    const dsys::DialogRenderContext& /*ctx*/)
+namespace detail {
+/// Lazily initialise and return the PromptState attached to a payload via the
+/// type-erased ui_state field.  Subsequent calls reuse the same shared state
+/// so button focus, checkboxes, and one-shot guard survive repaints.
+inline std::shared_ptr<sp::PromptState> EnsurePromptState(
+    const dsys::ToolPermissionPayload& p)
 {
-    // Build SinglePromptProps from the payload
-    sp::SinglePromptProps props;
-    props.tool_name = p.tool_name;
-    props.action_kind = p.action_kind;
-    props.risk_level = p.risk_level;
-    props.description = p.description;
-    props.affected_paths = p.affected_paths;
-    if (p.workspace_root) props.workspace_root = *p.workspace_root;
-    props.detail = p.detail;
-    props.rule_match_explanation = p.rule_match_explanation;
-    props.initial_sandbox_toggle = p.initial_sandbox_toggle;
-    // Note: callbacks are invoked via the event handler, not here
-    // (this is just the render function).
-
-    // Use SinglePrompt's render function for faithful output
-    auto state = std::make_shared<sp::PromptState>();
-    state->props = std::move(props);
-    return sp::RenderSinglePrompt(state);
+    auto st = std::static_pointer_cast<sp::PromptState>(p.ui_state);
+    if (st) return st;
+    st = std::make_shared<sp::PromptState>();
+    return st;
 }
 
-/// ToolPermission event handler — delegates to SinglePrompt's event handling.
+/// Sync fields currently known only by the payload (decision shortcut bools,
+/// current sandbox toggle) onto the PromptState before rendering or handling
+/// an event.  Called on every render so mutations made through the event
+/// handler remain visible.
+inline void SyncPayloadToState(const dsys::ToolPermissionPayload& p,
+                               sp::PromptState& st)
+{
+    st.props.tool_name = p.tool_name;
+    st.props.action_kind = p.action_kind;
+    st.props.risk_level = p.risk_level;
+    st.props.description = p.description;
+    st.props.affected_paths = p.affected_paths;
+    if (p.workspace_root) st.props.workspace_root = *p.workspace_root;
+    st.props.detail = p.detail;
+    st.props.rule_match_explanation = p.rule_match_explanation;
+    st.props.initial_sandbox_toggle = p.initial_sandbox_toggle;
+    st.sandbox_toggle = p.initial_sandbox_toggle;
+}
+
+/// Emit a decision exactly once per prompt.  Enforces the TS contract:
+/// on_abort wins over on_response if set, and once the guard fires any
+/// subsequent decision key is swallowed.  Returns true on the first
+/// successful emission; subsequent calls or a missing callback return false
+/// so Arrow/Tab still appear handled but nothing fires.
+inline bool EmitDecision(dsys::ToolPermissionPayload& p,
+                         sp::PromptState& st,
+                         sp::Decision d)
+{
+    if (st.callback_fired) return true; // swallow, but report handled
+    st.callback_fired = true;
+
+    const bool sandbox = st.sandbox_toggle;
+
+    if (d == sp::Decision::Abort) {
+        // Priority 1: on_abort, if set, fires alone.
+        if (p.on_abort) {
+            p.on_abort();
+            return true;
+        }
+        // Priority 2: no on_abort → fall through to on_response(Abort, …)
+        // so the consumer always receives SOME signal.
+        if (p.on_response) p.on_response(sp::Decision::Abort, sandbox);
+        return true;
+    }
+
+    if (d == sp::Decision::AlwaysAllow && !p.can_always_allow) {
+        // "Always allow" disabled — treat as AllowOnce (matches TS guard).
+        d = sp::Decision::AllowOnce;
+    }
+
+    if (p.on_response) {
+        p.on_response(d, sandbox);
+        return true;
+    }
+    return false; // no callback wired → handled but nothing fired
+}
+
+/// Map a focused-button index to a Decision.
+inline sp::Decision FocusToDecision(int focused_button)
+{
+    switch (focused_button) {
+        case 1:  return sp::Decision::Deny;
+        case 2:  return sp::Decision::AlwaysAllow;
+        case 3:  return sp::Decision::AlwaysDeny;
+        case 0:
+        default: return sp::Decision::AllowOnce;
+    }
+}
+} // namespace
+
+/// Render the ToolPermission dialog using the faithful SinglePrompt.
+/// Lazily attaches a PromptState to the payload on first render so UI state
+/// (focus, checkboxes, guard) persists across repaint + event cycles.
+[[nodiscard]] inline Element RenderToolPermission(
+    dsys::ToolPermissionPayload& p,
+    const dsys::DialogRenderContext& /*ctx*/)
+{
+    if (!p.ui_state) p.ui_state = std::make_shared<sp::PromptState>();
+    auto st = std::static_pointer_cast<sp::PromptState>(p.ui_state);
+    detail::SyncPayloadToState(p, *st);
+    return sp::RenderSinglePrompt(std::move(st));
+}
+
+/// ToolPermission event handler — shared-state aware.
+///
+/// Keyboard layout (faithful TS single-prompt):
+///   y / Y      → Allow once
+///   n / N      → Deny
+///   a / A      → Always allow (respects p.can_always_allow)
+///   d / D      → Always deny
+///   s / S      → Toggle sandbox
+///   1          → Toggle "always deny this tool" checkbox
+///   2          → Toggle "always allow this tool" checkbox (if can_always_allow)
+///   ← / →      → Cycle button focus
+///   Tab / S-Tab→ Same as → / ←
+///   Return     → Activate focused button
+///   Esc        → on_abort first; otherwise on_response(Abort)
+///
+/// Implements the TS one-shot guard via PromptState::callback_fired so
+/// exactly one terminal callback fires per prompt lifetime.
 inline bool HandleToolPermissionEvent(
     dsys::ToolPermissionPayload& p,
     const Event& event)
 {
-    // We need a PromptState to use the existing event handling.
-    // Build a temporary state, handle the event, and update the payload.
-    // For now, implement simplified key handling matching the SinglePrompt patterns.
+    if (!p.ui_state) p.ui_state = std::make_shared<sp::PromptState>();
+    auto st = std::static_pointer_cast<sp::PromptState>(p.ui_state);
 
-    // Direct shortcuts
+    // ── Direct shortcuts ─────────────────────────────────────────────
     if (event == Event::Character('y') || event == Event::Character('Y')) {
-        if (p.on_response) {
-            p.on_response(sp::Decision::AllowOnce, p.initial_sandbox_toggle);
+        // 'y' with always_allow checkbox pre-checked → AlwaysAllow wins.
+        if (st->always_allow_checkbox && p.can_always_allow) {
+            return detail::EmitDecision(p, *st, sp::Decision::AlwaysAllow);
         }
-        return true;
+        return detail::EmitDecision(p, *st, sp::Decision::AllowOnce);
     }
     if (event == Event::Character('n') || event == Event::Character('N')) {
-        if (p.on_response) {
-            p.on_response(sp::Decision::Deny, p.initial_sandbox_toggle);
+        if (st->always_deny_checkbox) {
+            return detail::EmitDecision(p, *st, sp::Decision::AlwaysDeny);
         }
-        return true;
+        return detail::EmitDecision(p, *st, sp::Decision::Deny);
     }
     if (event == Event::Character('a') || event == Event::Character('A')) {
-        if (p.can_always_allow && p.on_response) {
-            p.on_response(sp::Decision::AlwaysAllow, p.initial_sandbox_toggle);
-        }
-        return true;
+        if (!p.can_always_allow) return false;
+        return detail::EmitDecision(p, *st, sp::Decision::AlwaysAllow);
     }
     if (event == Event::Character('d') || event == Event::Character('D')) {
-        if (p.on_response) {
-            p.on_response(sp::Decision::AlwaysDeny, p.initial_sandbox_toggle);
-        }
+        return detail::EmitDecision(p, *st, sp::Decision::AlwaysDeny);
+    }
+
+    // ── Checkbox toggles ─────────────────────────────────────────────
+    if (event == Event::Character('1')) {
+        st->always_deny_checkbox = !st->always_deny_checkbox;
         return true;
     }
+    if (event == Event::Character('2')) {
+        if (!p.can_always_allow) return false;
+        st->always_allow_checkbox = !st->always_allow_checkbox;
+        return true;
+    }
+
+    // ── Sandbox toggle ───────────────────────────────────────────────
     if (event == Event::Character('s') || event == Event::Character('S')) {
-        p.initial_sandbox_toggle = !p.initial_sandbox_toggle;
+        st->sandbox_toggle = !st->sandbox_toggle;
+        // Keep payload in sync so the value is visible on render / observers.
+        p.initial_sandbox_toggle = st->sandbox_toggle;
         return true;
     }
+
+    // ── Escape ───────────────────────────────────────────────────────
     if (event == Event::Escape) {
-        if (p.on_abort) p.on_abort();
-        if (p.on_response) {
-            p.on_response(sp::Decision::Abort, p.initial_sandbox_toggle);
-        }
+        return detail::EmitDecision(p, *st, sp::Decision::Abort);
+    }
+
+    // ── Focus movement / button activation ───────────────────────────
+    constexpr int kNumButtons = 4; // 0 AllowOnce 1 Deny 2 AlwaysAllow 3 AlwaysDeny
+    if (event == Event::ArrowRight || event == Event::Tab) {
+        st->focused_button = (st->focused_button + 1) % kNumButtons;
         return true;
     }
-    if (event == Event::Return) {
-        if (p.on_response) {
-            p.on_response(sp::Decision::AllowOnce, p.initial_sandbox_toggle);
-        }
+    if (event == Event::ArrowLeft || event == Event::TabReverse) {
+        st->focused_button = (st->focused_button - 1 + kNumButtons) % kNumButtons;
         return true;
+    }
+    if (event == Event::Return || event == Event::Character(' ')) {
+        // Honor checkbox overrides as well on Enter, just like shortcuts.
+        sp::Decision d = detail::FocusToDecision(st->focused_button);
+        if (st->always_allow_checkbox && p.can_always_allow
+            && d == sp::Decision::AllowOnce) {
+            d = sp::Decision::AlwaysAllow;
+        }
+        if (st->always_deny_checkbox && d == sp::Decision::Deny) {
+            d = sp::Decision::AlwaysDeny;
+        }
+        return detail::EmitDecision(p, *st, d);
     }
 
     return false;
@@ -363,6 +475,37 @@ inline bool HandleElicitationEvent(
     return dframe::DialogFrame(props, ctx.theme);
 }
 
+/// Generic dialog event handler — arrow nav across buttons + Enter on
+/// focused, Esc dismisses (invokes default_button=none → -1 callback).
+inline bool HandleGenericDialogEvent(
+    dsys::GenericDialogPayload& p,
+    const Event& event)
+{
+    const int n = static_cast<int>(p.buttons.size());
+    if (n <= 0) return false;
+    int focus = p.default_button.value_or(-1);
+    if (focus < 0) focus = 0;
+    if (event == Event::ArrowRight) {
+        ++focus; if (focus >= n) focus = n - 1;
+        p.default_button = focus;
+        return true;
+    }
+    if (event == Event::ArrowLeft) {
+        --focus; if (focus < 0) focus = 0;
+        p.default_button = focus;
+        return true;
+    }
+    if (event == Event::Return) {
+        if (p.on_response) p.on_response(focus);
+        return true;
+    }
+    if (event == Event::Escape) {
+        if (p.on_response) p.on_response(-1);
+        return true;
+    }
+    return false;
+}
+
 // ============================================================
 // Registry setup — register all default renderers
 // ============================================================
@@ -373,7 +516,7 @@ void register_default_renderers(dsys::DialogRendererRegistry& registry) {
     // ToolPermission
     registry.register_dialog(
         dsys::DialogType::ToolPermission,
-        [](const dsys::DialogPayloadVariant& payload,
+        [](dsys::DialogPayloadVariant& payload,
            const dsys::DialogRenderContext& ctx) -> Element {
             auto* p = std::get_if<dsys::ToolPermissionPayload>(&payload);
             if (!p) return text("");
@@ -389,7 +532,7 @@ void register_default_renderers(dsys::DialogRendererRegistry& registry) {
     // SandboxPermission
     registry.register_dialog(
         dsys::DialogType::SandboxPermission,
-        [](const dsys::DialogPayloadVariant& payload,
+        [](dsys::DialogPayloadVariant& payload,
            const dsys::DialogRenderContext& ctx) -> Element {
             auto* p = std::get_if<dsys::SandboxPermissionPayload>(&payload);
             if (!p) return text("");
@@ -405,7 +548,7 @@ void register_default_renderers(dsys::DialogRendererRegistry& registry) {
     // PromptDialog
     registry.register_dialog(
         dsys::DialogType::PromptDialog,
-        [](const dsys::DialogPayloadVariant& payload,
+        [](dsys::DialogPayloadVariant& payload,
            const dsys::DialogRenderContext& ctx) -> Element {
             auto* p = std::get_if<dsys::PromptDialogPayload>(&payload);
             if (!p) return text("");
@@ -421,7 +564,7 @@ void register_default_renderers(dsys::DialogRendererRegistry& registry) {
     // Elicitation
     registry.register_dialog(
         dsys::DialogType::Elicitation,
-        [](const dsys::DialogPayloadVariant& payload,
+        [](dsys::DialogPayloadVariant& payload,
            const dsys::DialogRenderContext& ctx) -> Element {
             auto* p = std::get_if<dsys::ElicitationPayload>(&payload);
             if (!p) return text("");
@@ -437,7 +580,7 @@ void register_default_renderers(dsys::DialogRendererRegistry& registry) {
     // CostThreshold
     registry.register_dialog(
         dsys::DialogType::CostThreshold,
-        [](const dsys::DialogPayloadVariant& payload,
+        [](dsys::DialogPayloadVariant& payload,
            const dsys::DialogRenderContext& ctx) -> Element {
             auto* p = std::get_if<dsys::CostThresholdPayload>(&payload);
             if (!p) return text("");
@@ -453,7 +596,7 @@ void register_default_renderers(dsys::DialogRendererRegistry& registry) {
     // IdleReturn
     registry.register_dialog(
         dsys::DialogType::IdleReturn,
-        [](const dsys::DialogPayloadVariant& payload,
+        [](dsys::DialogPayloadVariant& payload,
            const dsys::DialogRenderContext& ctx) -> Element {
             auto* p = std::get_if<dsys::IdleReturnPayload>(&payload);
             if (!p) return text("");
@@ -463,6 +606,105 @@ void register_default_renderers(dsys::DialogRendererRegistry& registry) {
             auto* p = std::get_if<dsys::IdleReturnPayload>(&payload);
             if (!p) return false;
             return HandleIdleReturnEvent(*p, event);
+        }
+    );
+
+    // ─── Modern chrome stubs (6 dialogs; full FTXUI components tracked in M8)
+    namespace mr = cc::ui::dialogs::modern_renderers;
+
+    // ManagedSettingsSecurity
+    registry.register_dialog(
+        dsys::DialogType::ManagedSettingsSecurity,
+        [](dsys::DialogPayloadVariant& payload,
+           const dsys::DialogRenderContext& ctx) -> Element {
+            auto* p = std::get_if<dsys::ManagedSettingsSecurityPayload>(&payload);
+            if (!p) return text("");
+            return mr::RenderManagedSettingsSecurity(*p, ctx);
+        },
+        [](dsys::DialogPayloadVariant& payload, const Event& event) -> bool {
+            auto* p = std::get_if<dsys::ManagedSettingsSecurityPayload>(&payload);
+            if (!p) return false;
+            return mr::HandleManagedSettingsSecurityEvent(*p, event);
+        }
+    );
+
+    // FeedbackSurvey
+    registry.register_dialog(
+        dsys::DialogType::FeedbackSurvey,
+        [](dsys::DialogPayloadVariant& payload,
+           const dsys::DialogRenderContext& ctx) -> Element {
+            auto* p = std::get_if<dsys::FeedbackSurveyPayload>(&payload);
+            if (!p) return text("");
+            return mr::RenderFeedbackSurvey(*p, ctx);
+        },
+        [](dsys::DialogPayloadVariant& payload, const Event& event) -> bool {
+            auto* p = std::get_if<dsys::FeedbackSurveyPayload>(&payload);
+            if (!p) return false;
+            return mr::HandleFeedbackSurveyEvent(*p, event);
+        }
+    );
+
+    // GlobalSearch
+    registry.register_dialog(
+        dsys::DialogType::GlobalSearch,
+        [](dsys::DialogPayloadVariant& payload,
+           const dsys::DialogRenderContext& ctx) -> Element {
+            auto* p = std::get_if<dsys::GlobalSearchPayload>(&payload);
+            if (!p) return text("");
+            return mr::RenderGlobalSearch(*p, ctx);
+        },
+        [](dsys::DialogPayloadVariant& payload, const Event& event) -> bool {
+            auto* p = std::get_if<dsys::GlobalSearchPayload>(&payload);
+            if (!p) return false;
+            return mr::HandleGlobalSearchEvent(*p, event);
+        }
+    );
+
+    // HistorySearch
+    registry.register_dialog(
+        dsys::DialogType::HistorySearch,
+        [](dsys::DialogPayloadVariant& payload,
+           const dsys::DialogRenderContext& ctx) -> Element {
+            auto* p = std::get_if<dsys::HistorySearchPayload>(&payload);
+            if (!p) return text("");
+            return mr::RenderHistorySearch(*p, ctx);
+        },
+        [](dsys::DialogPayloadVariant& payload, const Event& event) -> bool {
+            auto* p = std::get_if<dsys::HistorySearchPayload>(&payload);
+            if (!p) return false;
+            return mr::HandleHistorySearchEvent(*p, event);
+        }
+    );
+
+    // PluginDialog
+    registry.register_dialog(
+        dsys::DialogType::PluginDialog,
+        [](dsys::DialogPayloadVariant& payload,
+           const dsys::DialogRenderContext& ctx) -> Element {
+            auto* p = std::get_if<dsys::PluginDialogPayload>(&payload);
+            if (!p) return text("");
+            return mr::RenderPluginDialog(*p, ctx);
+        },
+        [](dsys::DialogPayloadVariant& payload, const Event& event) -> bool {
+            auto* p = std::get_if<dsys::PluginDialogPayload>(&payload);
+            if (!p) return false;
+            return mr::HandlePluginDialogEvent(*p, event);
+        }
+    );
+
+    // DiffDialog
+    registry.register_dialog(
+        dsys::DialogType::DiffDialog,
+        [](dsys::DialogPayloadVariant& payload,
+           const dsys::DialogRenderContext& ctx) -> Element {
+            auto* p = std::get_if<dsys::DiffDialogPayload>(&payload);
+            if (!p) return text("");
+            return mr::RenderDiffDialog(*p, ctx);
+        },
+        [](dsys::DialogPayloadVariant& payload, const Event& event) -> bool {
+            auto* p = std::get_if<dsys::DiffDialogPayload>(&payload);
+            if (!p) return false;
+            return mr::HandleDiffDialogEvent(*p, event);
         }
     );
 }

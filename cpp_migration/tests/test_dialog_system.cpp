@@ -558,7 +558,7 @@ TEST(DialogRendererRegistry, CustomRendererOverridesFallback) {
 
     bool called = false;
     registry.register_dialog(dsys::DialogType::ToolPermission,
-        [&](const dsys::DialogPayloadVariant&,
+        [&](dsys::DialogPayloadVariant&,
             const dsys::DialogRenderContext&) -> ftxui::Element {
             called = true;
             return ftxui::text("custom renderer");
@@ -911,10 +911,12 @@ TEST(FullDialogRegistry, AllDialogTypesRenderable) {
     ctx.is_fullscreen = false;
 
     // Helper: push a payload and verify it renders
+    // NOTE: registry.render() takes DialogPayloadVariant& (non-const) so renderers
+    // can lazily attach per-dialog UI state (e.g. ToolPermission ui_state).
     auto check_render = [&](dsys::DialogPayloadVariant payload,
                             const char* name) {
         SCOPED_TRACE(name);
-        auto el = registry.render(std::move(payload), ctx);
+        auto el = registry.render(payload, ctx);
         EXPECT_TRUE(el) << "DialogType " << name << " has no renderer";
         if (el) {
             // Render to screen to verify no crashes
@@ -2395,7 +2397,7 @@ TEST(DialogRenderers, Golden_ToolPermissionOverlay) {
 
     dsys::DialogRendererRegistry registry;
     registry.register_dialog(dsys::DialogType::ToolPermission,
-        [&, kCommand, kCwd](const dsys::DialogPayloadVariant& v,
+        [&, kCommand, kCwd](dsys::DialogPayloadVariant& v,
                             const dsys::DialogRenderContext&) -> ftxui::Element {
             const auto* p = std::get_if<dsys::ToolPermissionPayload>(&v);
             if (!p) return text("");
@@ -2449,7 +2451,8 @@ TEST(DialogRenderers, Golden_ToolPermissionOverlay) {
     ctx.term_rows = 30;
     ctx.theme = theme;
 
-    auto el = registry.render(dsys::DialogPayloadVariant{tp}, ctx);
+    dsys::DialogPayloadVariant variant{tp};
+    auto el = registry.render(variant, ctx);
     ASSERT_NE(el, nullptr);
     dialog_test_golden::check_golden(
         "dialog_tool_permission_overlay",
@@ -2466,7 +2469,7 @@ TEST(DialogRenderers, Golden_SandboxPermission) {
 
     dsys::DialogRendererRegistry registry;
     registry.register_dialog(dsys::DialogType::SandboxPermission,
-        [](const dsys::DialogPayloadVariant& v,
+        [](dsys::DialogPayloadVariant& v,
            const dsys::DialogRenderContext& ctx) -> ftxui::Element {
             const auto* p = std::get_if<dsys::SandboxPermissionPayload>(&v);
             if (!p) return text("");
@@ -2493,7 +2496,8 @@ TEST(DialogRenderers, Golden_SandboxPermission) {
     ctx.term_rows = 30;
     ctx.theme = theme;
 
-    auto el = registry.render(dsys::DialogPayloadVariant{sp}, ctx);
+    dsys::DialogPayloadVariant variant{sp};
+    auto el = registry.render(variant, ctx);
     ASSERT_NE(el, nullptr);
     dialog_test_golden::check_golden(
         "dialog_sandbox_permission",
@@ -2713,7 +2717,7 @@ TEST(DialogRenderers, Golden_PromptDialog) {
 
     dsys::DialogRendererRegistry registry;
     registry.register_dialog(dsys::DialogType::PromptDialog,
-        [&](const dsys::DialogPayloadVariant& v,
+        [&](dsys::DialogPayloadVariant& v,
             const dsys::DialogRenderContext&) -> ftxui::Element {
             const auto* p = std::get_if<dsys::PromptDialogPayload>(&v);
             if (!p) return text("");
@@ -2756,7 +2760,8 @@ TEST(DialogRenderers, Golden_PromptDialog) {
     ctx.term_rows = 30;
     ctx.theme = theme;
 
-    auto el = registry.render(dsys::DialogPayloadVariant{pd}, ctx);
+    dsys::DialogPayloadVariant variant{pd};
+    auto el = registry.render(variant, ctx);
     ASSERT_NE(el, nullptr);
     dialog_test_golden::check_golden(
         "dialog_prompt",
@@ -2768,7 +2773,7 @@ TEST(DialogRenderers, Golden_Elicitation) {
 
     dsys::DialogRendererRegistry registry;
     registry.register_dialog(dsys::DialogType::Elicitation,
-        [&](const dsys::DialogPayloadVariant& v,
+        [&](dsys::DialogPayloadVariant& v,
             const dsys::DialogRenderContext&) -> ftxui::Element {
             const auto* p = std::get_if<dsys::ElicitationPayload>(&v);
             if (!p) return text("");
@@ -2812,7 +2817,8 @@ TEST(DialogRenderers, Golden_Elicitation) {
     ctx.term_rows = 30;
     ctx.theme = theme;
 
-    auto el = registry.render(dsys::DialogPayloadVariant{elp}, ctx);
+    dsys::DialogPayloadVariant variant{elp};
+    auto el = registry.render(variant, ctx);
     ASSERT_NE(el, nullptr);
     dialog_test_golden::check_golden(
         "dialog_elicitation",
@@ -2820,61 +2826,69 @@ TEST(DialogRenderers, Golden_Elicitation) {
 }
 
 TEST(DialogRenderers, Golden_CostThreshold) {
+    // P0x3 contract — CostThreshold render MUST be delegated to the unified
+    // cc.ui.dialogs.cost_threshold_dialog module (single source of truth).
+    // No locally-fabricated chrome (Continue / Reset counter / Quit) is
+    // permitted.  See the dedicated golden snapshots in
+    // test_cost_threshold_dialog.cpp:
+    //   - cost_threshold_title_with_interpolated_dollars
+    //   - cost_threshold_with_docs_link_rendered
+    //
+    // This test simply verifies that the registered renderer emits the
+    // contractually-required content when driven through the registry.
     auto theme = dialog_test_golden::get_light_theme();
 
     dsys::DialogRendererRegistry registry;
-    registry.register_dialog(dsys::DialogType::CostThreshold,
-        [&](const dsys::DialogPayloadVariant& v,
-            const dsys::DialogRenderContext&) -> ftxui::Element {
-            const auto* p = std::get_if<dsys::CostThresholdPayload>(&v);
-            if (!p) return text("");
-
-            dframe::DialogFrameProps props;
-            props.title = "Cost threshold exceeded";
-            props.subtitle =
-                "Session cost has exceeded your configured threshold.";
-            props.style = dframe::FrameStyle::Warning;
-            props.content = vbox({
-                hbox({
-                    text("Accumulated: ") | dim,
-                    text(std::format("${:.2f}", p->current_cost_usd)) | bold
-                        | color(ftxui::Color::Yellow),
-                }),
-                hbox({
-                    text("Threshold: ") | dim,
-                    text(std::format("${:.2f}", p->cost_threshold_usd)),
-                }),
-                text(""),
-                paragraph(
-                    "You can continue the current session (the counter keeps "
-                    "running), reset the counter and continue, or stop here."),
-                text(""),
-                hbox({
-                    text(" [c] Continue") | color(ftxui::Color::Green),
-                    text("  [r] Reset counter") | color(ftxui::Color::Cyan),
-                    text("  [q] Quit") | color(ftxui::Color::Red),
-                }),
-            });
-            return dframe::DialogFrame(props, theme);
-        });
+    drender::register_default_renderers(registry);
 
     dsys::CostThresholdPayload ct;
     ct.id = "cost-gold-1";
-    ct.cost_threshold_usd = 5.0;
-    ct.current_cost_usd = 7.23;
-    ct.model_name = "claude-sonnet-4.6";
-    ct.on_response = [](bool, bool) {};
+    ct.dollars_spent = 4.7;        // rounds to $5 per %.0f
+    ct.model_name = "claude-3-5-sonnet-20241022";
+    std::atomic<int> done_calls{0};
+    ct.on_done = [&] { done_calls.fetch_add(1); };
 
     dsys::DialogRenderContext ctx;
     ctx.term_cols = 100;
     ctx.term_rows = 30;
     ctx.theme = theme;
 
-    auto el = registry.render(dsys::DialogPayloadVariant{ct}, ctx);
+    dsys::DialogPayloadVariant variant{ct};
+    auto el = registry.render(variant, ctx);
     ASSERT_NE(el, nullptr);
-    dialog_test_golden::check_golden(
-        "dialog_cost_threshold",
-        dialog_test_golden::render_to_ansi(std::move(el), 100, 30));
+
+    auto screen = ftxui::Screen::Create(
+        ftxui::Dimension::Fixed(100), ftxui::Dimension::Fixed(30));
+    ftxui::Render(screen, el);
+    const std::string out = screen.ToString();
+
+    // Contractually required content.
+    EXPECT_NE(out.find("You've spent $5 on the Anthropic API this session."),
+              std::string::npos);
+    EXPECT_NE(out.find("Learn more about how to monitor your spending:"),
+              std::string::npos);
+    EXPECT_NE(out.find("https://code.claude.com/docs/en/costs"),
+              std::string::npos);
+    EXPECT_NE(out.find("(model: claude-3-5-sonnet-20241022)"),
+              std::string::npos);
+    EXPECT_NE(out.find("Got it, thanks!"), std::string::npos);
+
+    // Fabricated 3-action chrome MUST be absent (P0).
+    EXPECT_EQ(out.find("[c] Continue"),      std::string::npos);
+    EXPECT_EQ(out.find("Reset counter"),     std::string::npos);
+    EXPECT_EQ(out.find("[q] Quit"),          std::string::npos);
+
+    // Keyboard — both Enter and Escape MUST call on_done() (no data-loss).
+    variant = ct;  // reset variant to fresh payload
+    done_calls = 0;
+    EXPECT_TRUE(registry.handle_event(variant, ftxui::Event::Return));
+    EXPECT_EQ(done_calls.load(), 1);
+
+    variant = ct;
+    done_calls = 0;
+    EXPECT_TRUE(registry.handle_event(variant, ftxui::Event::Escape));
+    EXPECT_EQ(done_calls.load(), 1)
+        << "Escape MUST ACKNOWLEDGE via on_done() — NOT quit (data loss).";
 }
 
 TEST(DialogRenderers, Golden_IdleReturn) {
@@ -2882,7 +2896,7 @@ TEST(DialogRenderers, Golden_IdleReturn) {
 
     dsys::DialogRendererRegistry registry;
     registry.register_dialog(dsys::DialogType::IdleReturn,
-        [&](const dsys::DialogPayloadVariant& v,
+        [&](dsys::DialogPayloadVariant& v,
             const dsys::DialogRenderContext&) -> ftxui::Element {
             const auto* p = std::get_if<dsys::IdleReturnPayload>(&v);
             if (!p) return text("");
@@ -2922,7 +2936,8 @@ TEST(DialogRenderers, Golden_IdleReturn) {
     ctx.term_rows = 30;
     ctx.theme = theme;
 
-    auto el = registry.render(dsys::DialogPayloadVariant{ir}, ctx);
+    dsys::DialogPayloadVariant variant{ir};
+    auto el = registry.render(variant, ctx);
     ASSERT_NE(el, nullptr);
     dialog_test_golden::check_golden(
         "dialog_idle_return",
@@ -2934,7 +2949,7 @@ TEST(DialogRenderers, Golden_SettingsPanel) {
 
     dsys::DialogRendererRegistry registry;
     registry.register_dialog(dsys::DialogType::SettingsPanel,
-        [&](const dsys::DialogPayloadVariant& v,
+        [&](dsys::DialogPayloadVariant& v,
             const dsys::DialogRenderContext&) -> ftxui::Element {
             const auto* p = std::get_if<dsys::SettingsPanelPayload>(&v);
             if (!p) return text("");
@@ -2984,7 +2999,8 @@ TEST(DialogRenderers, Golden_SettingsPanel) {
     ctx.term_rows = 30;
     ctx.theme = theme;
 
-    auto el = registry.render(dsys::DialogPayloadVariant{sp}, ctx);
+    dsys::DialogPayloadVariant variant{sp};
+    auto el = registry.render(variant, ctx);
     ASSERT_NE(el, nullptr);
     dialog_test_golden::check_golden(
         "dialog_settings_panel",
@@ -3012,23 +3028,24 @@ struct MiniReplState {
 /// Logic: peek_bottom(is_typing, !is_animation) -> render via registry ->
 /// clamp to ~40% of terminal rows.
 [[nodiscard]] inline std::optional<ftxui::Element> LocalRenderBottomDialog(
-    const MiniReplState& s,
+    MiniReplState& s,        // mutable so renderers can attach UI state
     int term_cols,
     int term_rows)
 {
-    const auto& queue = s.dialog_queue;
+    auto& queue = s.dialog_queue;   // mutable for peek_bottom_mut (renderer may attach UI state)
     if (!queue.has_any_bottom()) return std::nullopt;
 
-    auto payload = queue.peek_bottom(
+    auto payload_opt = queue.peek_bottom_mut(
         /*is_prompt_input_active=*/s.is_prompt_input_active,
         /*allow_dialogs_with_animation=*/!s.is_tool_animation_active);
-    if (!payload) return std::nullopt;
+    if (!payload_opt) return std::nullopt;
+    auto& payload = payload_opt->get();
 
     dsys::DialogRenderContext ctx;
     ctx.term_cols = term_cols;
     ctx.term_rows = term_rows;
 
-    auto el = s.dialog_renderers.render(payload->get(), ctx);
+    auto el = s.dialog_renderers.render(payload, ctx);
     if (!el) return std::nullopt;
 
     // Bottom-slot height clamp (~40% of rows)
@@ -3046,7 +3063,7 @@ TEST(ReplScreenIntegration, TypingSuppressionSkipsBottomDialogs) {
     auto reg = [&](dsys::DialogType ty, std::string label) {
         s.dialog_renderers.register_renderer(ty,
             [label = std::move(label)](
-                const dsys::DialogPayloadVariant&,
+                dsys::DialogPayloadVariant&,
                 const dsys::DialogRenderContext&) -> ftxui::Element {
                 return ftxui::window(
                     ftxui::text(" " + label + " "),
@@ -3074,8 +3091,7 @@ TEST(ReplScreenIntegration, TypingSuppressionSkipsBottomDialogs) {
     {
         dsys::CostThresholdPayload ct;
         ct.id = "ct-int";
-        ct.cost_threshold_usd = 5.0;
-        ct.current_cost_usd = 7.23;
+        ct.dollars_spent = 7.23;
         s.dialog_queue.push(dsys::DialogPayloadVariant{ct});
     }
 

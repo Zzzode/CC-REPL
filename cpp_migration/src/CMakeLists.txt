@@ -2,6 +2,15 @@
 # Each target corresponds to a C++23 module partition of the system.
 # All .cppm files in each directory are registered as CXX_MODULES sources.
 
+# ─── NOTE: Ninja Job Pools are now configured at the TOP LEVEL CMakeLists.txt
+#     (project root), immediately after the project() call.  The GLOBAL
+#     set_property(JOB_POOLS) and the CMAKE_NINJA_JOB_POOL_* variables live
+#     there so that ALL sibling subdirectories (src/, tests/, benchmarks/)
+#     observe the same scan_modules=2 cap — this eliminates the P1689 rename
+#     race for every target under this project.  Do NOT re-declare JOB_POOLS
+#     here; APPENDing to the GLOBAL property twice just duplicates entries.
+# ─────────────────────────────────────────────────────────────────────────────
+
 # ─── Optional tree-sitter dependency for bash AST danger classifier ───────────
 option(CC_ENABLE_TREE_SITTER "Enable tree-sitter bash parsing for AST danger classifier" OFF)
 if(CC_ENABLE_TREE_SITTER)
@@ -1347,10 +1356,6 @@ target_sources(cc_ui
         ui/dialogs/dialog_frame.cppm
         ui/dialogs/dialog_launchers.cppm
         ui/dialogs/dialog_default_renderers.cppm
-        ui/dialogs/dialog_modal_renderers.cppm
-        ui/dialogs/dialog_bottom_renderers.cppm
-        ui/dialogs/dialog_all_renderers.cppm
-        ui/dialogs/dialog_triggers.cppm
         ui/dialogs/config_dialog.cppm
         ui/dialogs/desktop_upsell.cppm
         ui/dialogs/diff_dialog.cppm
@@ -1386,8 +1391,6 @@ target_sources(cc_ui
         ui/dialogs/auto_mode_dialog.cppm
         ui/dialogs/bridge_dialog.cppm
         ui/dialogs/cost_threshold_dialog.cppm
-        ui/dialogs/dialog_default_renderers.cppm
-        ui/dialogs/dialog_system.cppm
         ui/dialogs/export_dialog.cppm
         ui/dialogs/global_search_dialog.cppm
         ui/dialogs/history_search_dialog.cppm
@@ -1400,6 +1403,7 @@ target_sources(cc_ui
         ui/dialogs/modal_renderers.cppm          # new: Overlay/Modal dialog renderers
         ui/dialogs/sandbox_permission.cppm       # new: SandboxPermission renderer
         ui/dialogs/triggers.cppm                 # new: Dialog trigger / invocation routing
+        ui/dialogs/dialog_modern_renderer_stubs.cppm  # new: 12 chrome-stub Render+Handle (M8 fills in)
         ui/events/event_system.cppm
         ui/layout.cppm
         ui/layout/fullscreen_layout.cppm

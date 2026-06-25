@@ -306,6 +306,9 @@ enum class DialogPriority : std::uint8_t {
 
 /// Whether a dialog is suppressed while the user is actively typing.
 /// Mirrors TS: only MessageSelector (band 1) shows while typing.
+/// Bottom-slot banners 2..6 are all hidden during typing so the focus
+/// remains on the user's input.  Overlay and Modal/Standalone have their
+/// own typing rules in should_show_dialog().
 [[nodiscard]] inline bool is_suppressed_by_typing(DialogType type) noexcept {
     return priority_for(type) != DialogPriority::Band1;
 }
@@ -334,6 +337,10 @@ struct ToolPermissionPayload {
     std::string rule_match_explanation;
     bool can_always_allow = true;
     bool initial_sandbox_toggle = false;
+    /// Opaque UI state (type-erased shared_ptr<sp::PromptState>).
+    /// Lazily initialised by the renderer; reused across renders + events so
+    /// button focus and checkboxes persist between frames.
+    std::shared_ptr<void> ui_state = nullptr;
     /// Callback invoked when the user makes a choice.
     std::function<void(Decision, bool sandbox)> on_response;
     /// Optional abort callback (Esc).
@@ -383,6 +390,9 @@ struct ElicitationPayload {
     std::string request_description;
     std::uint64_t request_id = 0;
     std::function<void(bool approve)> on_response;
+    /// Optional separate cancel path (Esc out-of-band).  When bound, Esc fires
+    /// on_cancel() instead of falling back to on_response(false).
+    std::function<void()> on_cancel;
 };
 
 /// Payload for CostThreshold dialog — bottom slot, band 4.
@@ -960,7 +970,9 @@ struct DialogRenderContext {
 // ============================================================
 
 /// Render function signature: given a payload + context, return an Element.
-using DialogRenderer = std::function<Element(const DialogPayloadVariant&,
+/// Renderers take a non-const payload so they may lazily initialise
+/// type-erased UI state shared with the event handler (e.g. PromptState).
+using DialogRenderer = std::function<Element(DialogPayloadVariant&,
                                               const DialogRenderContext&)>;
 
 /// Event handler signature: given a payload + event, return whether handled.
@@ -1005,7 +1017,7 @@ public:
 
     /// Render a dialog payload using its registered renderer.
     /// Returns an empty element if no renderer is registered.
-    [[nodiscard]] Element render(const DialogPayloadVariant& payload,
+    [[nodiscard]] Element render(DialogPayloadVariant& payload,
                                  const DialogRenderContext& ctx) const {
         auto type = type_of(payload);
         auto idx = static_cast<std::size_t>(type);

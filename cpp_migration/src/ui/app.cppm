@@ -48,8 +48,17 @@ import cc.hooks.cost_hook;
 import cc.services.mcp.elicitation_handler;
 import cc.tools.ask_user;
 import cc.ui.repl_screen;
-import cc.ui.dialogs.dialog_default_renderers;
-import cc.ui.dialogs.dialog_system;
+import cc.ui.dialogs.default_renderers;
+import cc.ui.dialogs.system;
+import cc.ui.dialogs.cost_threshold_dialog;
+import cc.ui.dialogs.triggers;
+import cc.ui.app_dialog_registration;
+import cc.ui.tools.init;
+import cc.utils.settings_manager;
+import cc.utils.statusline_runner;
+import cc.constants.constants;
+import cc.utils.model.model;
+import cc.ui.common.declared_cursor;
 
 export namespace cc::ui {
 
@@ -415,21 +424,20 @@ public:
         };
         cbs.on_dialog_action = [this](repl::ReplMode mode, int action) {
             if (mode == repl::ReplMode::CostThreshold) {
-                namespace ct = cc::ui::dialogs::cost_threshold;
-                switch (static_cast<ct::Action>(action)) {
-                    case ct::Action::Continue:
-                        // Acknowledge dialog and proceed — matches TS
-                        // onDone which sets hasAcknowledgedCostThreshold.
-                        break;
-                    case ct::Action::Reset:
-                        // Reset session cost counter to $0.00.
-                        screen_state_->status_bar.cost_usd = 0.0;
-                        screen_state_->dialog_ctx.cost_threshold_usd.reset();
-                        break;
-                    case ct::Action::Quit:
-                        // Stop the REPL (action 2 → on_exit).
-                        if (on_exit_) on_exit_();
-                        break;
+                // Cost threshold dialog is a single-button info panel
+                // (0-arg on_done) with no action enum.  The P0 contract
+                // just lets the user ack; Reset/Quit semantics live in
+                // the PushCostTrigger callback (see below).  The legacy
+                // Action::Continue/Reset/Quit code path is unused and
+                // retained as a no-op only to match the ReplScreenState
+                // status transition below.
+                (void)action;
+                if (action == 1) {
+                    // Reset session cost counter to $0.00.
+                    screen_state_->status_bar.cost_usd = 0.0;
+                }
+                if (action == 2) {
+                    if (on_exit_) on_exit_();
                 }
             }
             screen_state_->mode = repl::ReplMode::Normal;
@@ -1139,7 +1147,7 @@ public:
         TriggerStatuslineUpdate();
     }
 
-    Element OnRender() override {
+    Element Render() override {
         ConsumePendingResult();
 
         if (query_running_.load()) {

@@ -58,12 +58,13 @@ import cc.ui.messages.thinking_message;
 import cc.ui.messages.tool_use_message;
 import cc.ui.messages.message_tool_result;
 import cc.ui.dialogs.permission_dialog;
-import cc.ui.dialogs.dialog_system;
+import cc.ui.dialogs.system;
 import cc.ui.dialogs.cost_threshold_dialog;
 import cc.ui.dialogs.idle_return_dialog;
 import cc.ui.dialogs.settings_dialog;
-import cc.ui.dialogs.trust_dialog;
-import cc.ui.dialogs.sandbox_dialog;
+import cc.config.config;
+import cc.ui.trust_dialog;
+import cc.ui.sandbox_dialog;
 import cc.ui.agents.agent_cards;
 import cc.ui.agents.agent_wizard;
 import cc.ui.dialogs.install_github_app_wizard;
@@ -139,6 +140,13 @@ import cc.ui.permissions.single_prompt;
 
 export namespace cc::ui::repl_screen {
 using namespace ftxui;
+
+// M7: pull the dialog framework types up into convenient aliases.
+namespace dsys_fw   = cc::ui::dialogs::system;
+using DialogQueue            = dsys_fw::DialogQueue;
+using DialogRendererRegistry = dsys_fw::DialogRendererRegistry;
+using DialogRenderContext    = dsys_fw::DialogRenderContext;
+using DialogPayloadVariant   = dsys_fw::DialogPayloadVariant;
 
 // =========================================================
 // Enums
@@ -384,14 +392,23 @@ struct ReplScreenState {
     // UI13: agent wizard component handle (lazily created by
     // dialog_router::get_agent_wizard()).
     std::shared_ptr<void> wizard_agent;
+    // UI8: trust dialog component handle (lazy-created; opaque).
+    std::shared_ptr<void> wizard_trust;
+    // UI3: settings dialog component (lazy-created).  Opaque so state
+    // doesn't need to import the settings dialog module types.
+    std::shared_ptr<void> settings_component;
+    // Optional external ConfigManager reference.  When set, settings_dialog
+    // reads/writes against this engine-owned instance; otherwise it uses a
+    // thread-local fallback (snapshot-only).
+    void* settings_config = nullptr;
 
     // M7 Dialog Framework (Task #124): dialog queue (4 slots) +
     // renderer/event-handler registry.  The engine pushes payloads into
     // dialog_queue between frames; ReplScreen dispatches render + events
     // through dialog_renderers at priority Standalone > Modal > Overlay
     // > Bottom.
-    cc::ui::dialogs::DialogQueue dialog_queue;
-    cc::ui::dialogs::DialogRendererRegistry dialog_renderers;
+    DialogQueue dialog_queue;
+    DialogRendererRegistry dialog_renderers;
 };
 
 /// Engine-facing callbacks (TS ReplScreen external prop callbacks).
@@ -888,321 +905,6 @@ struct ReplScreenCallbacks {
 // M7: Queue-based dialog rendering
 // =========================================================
 
-namespace dialog_queue_render {
-
-/// Dispatch table.  Each ReplMode dialog mode maps to a builder.
-[[nodiscard]] inline Builder get_builder(ReplMode m) {
-    using P = std::pair<ReplMode, Builder>;
-    static const P kTable[] = {
-      // UI6  MessageSelector — full toolbar in messages_interactions.cppm
-      P{ReplMode::MessageSelector, [](const auto&){
-         return window(text(" Message Selector "),
-             vbox({
-                 text("Select messages to rewind, edit, or summarize") | center,
-                 separator(),
-                 hbox({
-                     text(" [Up/Down]") | bold | color(Color::Cyan), text(" nav "),
-                     text("[Enter]") | bold | color(Color::Cyan), text(" edit "),
-                     text("[s]") | bold | color(Color::Cyan), text(" summarize "),
-                     text("[Esc]") | bold | color(Color::Cyan), text(" close"),
-                 }) | dim,
-             }) | size(WIDTH, GREATER_THAN, 50)); }},
-      // UI8  Sandbox (leader + worker) — styled permission panels
-      P{ReplMode::SandboxPermission, [](const auto& s){
-         auto host = s.dialog_ctx.sandbox_host_pattern.value_or("unknown");
-         return window(text(" Sandbox Permission ") | color(Color::Yellow),
-             vbox({
-                 hbox({text("Network access requested") | bold}),
-                 separator(),
-                 text("  Host: " + host) | dim,
-                 text(""),
-                 hbox({
-                     text(" [y]") | bold | color(Color::Green), text(" allow "),
-                     text("[n]") | bold | color(Color::Red), text(" deny "),
-                     text("[a]") | bold | color(Color::Cyan), text(" always allow"),
-                 }) | dim,
-             }) | size(WIDTH, GREATER_THAN, 50)) | color(Color::Yellow); }},
-      P{ReplMode::WorkerSandboxPermission, [](const auto& s){
-         auto req_id = s.dialog_ctx.sandbox_worker_request_id.value_or("worker");
-         return window(text(" Worker Sandbox Permission ") | color(Color::Yellow),
-             vbox({
-                 hbox({text("Worker requests network access") | bold}),
-                 separator(),
-                 text("  Request: " + req_id) | dim,
-                 text(""),
-                 hbox({
-                     text(" [y]") | bold | color(Color::Green), text(" allow "),
-                     text("[n]") | bold | color(Color::Red), text(" deny "),
-                     text("[a]") | bold | color(Color::Cyan), text(" always allow"),
-                 }) | dim,
-             }) | size(WIDTH, GREATER_THAN, 50)) | color(Color::Yellow); }},
-      // UI9  ToolPermission — delegates to permission_dialog.cppm base style
-      P{ReplMode::ToolPermission, [](const auto& s){
-         if (!s.permission_request) return Element{};
-         dialogs::PermissionRequest r{};
-         r.tool_name   = s.permission_request->tool_name;
-         r.description = s.permission_request->description;
-         r.risk_level  = s.permission_request->risk_labels.empty()
-                       ? "medium" : s.permission_request->risk_labels.front();
-         if (s.permission_request->file_path)
-             r.affected_paths.push_back(*s.permission_request->file_path);
-         return paragraph(dialogs::render_permission_dialog(std::move(r),80)); }},
-      // UI2  Hook prompt — input request from a pre/post hook
-      P{ReplMode::PromptHook, [](const auto&){
-         return window(text(" Hook Prompt ") | color(Color::Magenta),
-             vbox({
-                 text("A hook requires user input") | center,
-                 separator(),
-                 hbox({
-                     text(" [Enter]") | bold | color(Color::Green), text(" submit "),
-                     text("[Esc]") | bold | color(Color::Red), text(" cancel"),
-                 }) | dim,
-             }) | size(WIDTH, GREATER_THAN, 44)) | color(Color::Magenta); }},
-      // UI10 Elicitation (MCP) — server requesting structured input
-      P{ReplMode::Elicitation, [](const auto& s){
-         auto server = s.dialog_ctx.elicitation_server_name.value_or("MCP Server");
-         return window(text(" MCP Elicitation ") | color(Color::Blue),
-             vbox({
-                 hbox({text(server) | bold, text(" requests permission") | dim}),
-                 separator(),
-                 text("  The server needs additional input to proceed.") | dim,
-                 text(""),
-                 hbox({
-                     text(" [Enter]") | bold | color(Color::Green), text(" approve "),
-                     text("[Esc]") | bold | color(Color::Red), text(" deny"),
-                 }) | dim,
-             }) | size(WIDTH, GREATER_THAN, 50)) | color(Color::Blue); }},
-      // UI1  Cost threshold — session cost exceeded (faithful port,
-      //      delegates to cc.ui.dialogs.cost_threshold_dialog renderer
-      //      so TS-parity visuals + URL live in one module, not here).
-      P{ReplMode::CostThreshold, [](const auto& s){
-         namespace ct = cc::ui::dialogs::cost_threshold;
-         ct::CostThresholdState st;
-         st.dollars_spent = s.status_bar.cost_usd.value_or(
-             s.dialog_ctx.cost_threshold_usd.value_or(0.0));
-         st.model_name    = s.status_bar.model_name.empty()
-                                ? std::optional<std::string>(std::nullopt)
-                                : std::optional<std::string>(s.status_bar.model_name);
-         st.selected_index = 0;
-         return ct::RenderCostThreshold(st); }},
-      // UI1  Idle return — session was idle
-      P{ReplMode::IdleReturn, [](const auto& s){
-         auto mins = s.dialog_ctx.idle_return_minutes.value_or(0);
-         return window(text(" Welcome Back "),
-             vbox({
-                 text("Session has been idle") | bold | center,
-                 separator(),
-                 text(mins > 0 ? std::format("  Idle for {} minutes", mins) : "") | dim,
-                 text(""),
-                 hbox({
-                     text(" [Enter]") | bold | color(Color::Green), text(" resume "),
-                     text("[n]") | bold | color(Color::Cyan), text(" start new"),
-                 }) | dim,
-             }) | size(WIDTH, GREATER_THAN, 40)); }},
-      // UI11 Ultraplan choice — plan proposal
-      P{ReplMode::UltraplanChoice, [](const auto& s){
-         auto blurb = s.dialog_ctx.ultraplan_blurb.value_or(
-             "A structured plan has been generated.");
-         return window(text(" Ultraplan ") | color(Color::Cyan),
-             vbox({
-                 text("Plan Proposal") | bold | color(Color::Cyan),
-                 separator(),
-                 text("  " + blurb) | dim,
-                 text(""),
-                 hbox({
-                     text(" [Enter]") | bold | color(Color::Green), text(" accept "),
-                     text("[Esc]") | bold | color(Color::Red), text(" cancel"),
-                 }) | dim,
-             }) | size(WIDTH, GREATER_THAN, 50)) | color(Color::Cyan); }},
-      // UI11 Ultraplan launch
-      P{ReplMode::UltraplanLaunch, [](const auto&){
-         return window(text(" Ultraplan Launch ") | color(Color::Cyan),
-             vbox({
-                 text("Launch background plan execution?") | bold | center,
-                 separator(),
-                 text("  Workers will execute the plan steps in parallel.") | dim,
-                 text(""),
-                 hbox({
-                     text(" [Enter]") | bold | color(Color::Green), text(" launch "),
-                     text("[Esc]") | bold | color(Color::Red), text(" cancel"),
-                 }) | dim,
-             }) | size(WIDTH, GREATER_THAN, 50)) | color(Color::Cyan); }},
-      // UI11 IDE Onboarding
-      P{ReplMode::IdeOnboarding, [](const auto&){
-         return window(text(" IDE Integration ") | color(Color::Blue),
-             vbox({
-                 text("IDE Extension Available") | bold | center,
-                 separator(),
-                 text("  Install the IDE extension for enhanced editing,") | dim,
-                 text("  inline completions, and project awareness.") | dim,
-                 text(""),
-                 hbox({
-                     text(" [Enter]") | bold | color(Color::Green), text(" install "),
-                     text("[Esc]") | bold | color(Color::GrayLight), text(" dismiss"),
-                 }) | dim,
-             }) | size(WIDTH, GREATER_THAN, 50)) | color(Color::Blue); }},
-      // UI11 Init onboarding (first-run wizard)
-      P{ReplMode::InitOnboarding, [](const auto&){
-         return window(text(" Welcome ") | color(Color::Green),
-             vbox({
-                 text("Welcome to CC-REPL") | bold | center | color(Color::Green),
-                 separator(),
-                 text("  Let's get you set up with a quick walkthrough.") | dim,
-                 text("  Configure your API key, model, and preferences.") | dim,
-                 text(""),
-                 hbox({
-                     text(" [Enter]") | bold | color(Color::Green), text(" begin setup "),
-                     text("[Esc]") | bold | color(Color::GrayLight), text(" skip"),
-                 }) | dim,
-             }) | size(WIDTH, GREATER_THAN, 50)) | color(Color::Green); }},
-      // UI11 Model switch suggestion
-      P{ReplMode::ModelSwitch, [](const auto& s){
-         auto model = s.dialog_ctx.model_switch_alias.value_or("a new model");
-         return window(text(" Model Switch ") | color(Color::Cyan),
-             vbox({
-                 text("Try " + model + "?") | bold | center,
-                 separator(),
-                 text("  A better model may be available for this task.") | dim,
-                 text(""),
-                 hbox({
-                     text(" [Enter]") | bold | color(Color::Green), text(" switch "),
-                     text("[Esc]") | bold | color(Color::GrayLight), text(" dismiss"),
-                 }) | dim,
-             }) | size(WIDTH, GREATER_THAN, 44)) | color(Color::Cyan); }},
-      // UI11 Auto mode callout
-      P{ReplMode::UndercoverCallout, [](const auto&){
-         return window(text(" Auto Mode ") | color(Color::Magenta),
-             vbox({
-                 text("Enable Auto-Approve?") | bold | center,
-                 separator(),
-                 text("  Automatically approve low-risk tool calls") | dim,
-                 text("  (file reads, searches, safe commands).") | dim,
-                 text(""),
-                 hbox({
-                     text(" [Enter]") | bold | color(Color::Green), text(" enable "),
-                     text("[Esc]") | bold | color(Color::GrayLight), text(" dismiss"),
-                 }) | dim,
-             }) | size(WIDTH, GREATER_THAN, 48)) | color(Color::Magenta); }},
-      // UI11 Effort callout
-      P{ReplMode::EffortCallout, [](const auto&){
-         return window(text(" Effort Level ") | color(Color::Yellow),
-             vbox({
-                 text("Adjust Response Effort") | bold | center,
-                 separator(),
-                 text("  Higher effort = deeper reasoning, more tokens.") | dim,
-                 text("  Lower effort = faster, cheaper responses.") | dim,
-                 text(""),
-                 hbox({
-                     text(" [Enter]") | bold | color(Color::Green), text(" configure "),
-                     text("[Esc]") | bold | color(Color::GrayLight), text(" dismiss"),
-                 }) | dim,
-             }) | size(WIDTH, GREATER_THAN, 48)) | color(Color::Yellow); }},
-      // UI11 Remote control callout
-      P{ReplMode::RemoteCallout, [](const auto&){
-         return window(text(" Remote Control ") | color(Color::Cyan),
-             vbox({
-                 text("Enable IDE Bridge?") | bold | center,
-                 separator(),
-                 text("  Connect to your IDE for remote editing,") | dim,
-                 text("  file sync, and collaborative features.") | dim,
-                 text(""),
-                 hbox({
-                     text(" [Enter]") | bold | color(Color::Green), text(" enable "),
-                     text("[Esc]") | bold | color(Color::GrayLight), text(" dismiss"),
-                 }) | dim,
-             }) | size(WIDTH, GREATER_THAN, 48)) | color(Color::Cyan); }},
-      // UI11 Desktop upsell
-      P{ReplMode::DesktopUpsell, [](const auto&){
-         return window(text(" Desktop App ") | color(Color::Cyan),
-             vbox({
-                 text("Try the Desktop App") | bold | center | color(Color::Cyan),
-                 separator(),
-                 text("  Rich UI, native notifications, multi-window,") | dim,
-                 text("  and file drag-and-drop support.") | dim,
-                 text(""),
-                 hbox({
-                     text(" [Enter]") | bold | color(Color::Green), text(" learn more "),
-                     text("[Esc]") | bold | color(Color::GrayLight), text(" dismiss"),
-                 }) | dim,
-             }) | size(WIDTH, GREATER_THAN, 48)) | color(Color::Cyan); }},
-      // UI16 LSP Recommendation
-      P{ReplMode::LspRecommendation, [](const auto& s){
-         auto ext = s.dialog_ctx.lsp_rec_extension.value_or("language-server");
-         auto fext = s.dialog_ctx.lsp_rec_file_ext.value_or("");
-         Elements body;
-         body.push_back(text("LSP Server Recommended") | bold | center);
-         body.push_back(separator());
-         body.push_back(text("  Extension: " + ext));
-         if (!fext.empty())
-             body.push_back(text("  For files: *." + fext) | dim);
-         body.push_back(text(""));
-         body.push_back(hbox({
-             text(" [i]") | bold | color(Color::Green), text(" install "),
-             text("[d]") | bold | color(Color::GrayLight), text(" dismiss"),
-         }) | dim);
-         return window(text(" LSP Recommendation ") | color(Color::Blue),
-             vbox(std::move(body)) | size(WIDTH, GREATER_THAN, 48))
-             | color(Color::Blue); }},
-      // UI16 Plugin hint
-      P{ReplMode::PluginHint, [](const auto& s){
-         auto name = s.dialog_ctx.plugin_hint_name.value_or("plugin");
-         auto desc = s.dialog_ctx.plugin_hint_description.value_or("");
-         Elements body;
-         body.push_back(text("Plugin Suggestion") | bold | center);
-         body.push_back(separator());
-         body.push_back(text("  " + name) | bold);
-         if (!desc.empty())
-             body.push_back(text("  " + desc) | dim);
-         body.push_back(text(""));
-         body.push_back(hbox({
-             text(" [i]") | bold | color(Color::Green), text(" install "),
-             text("[d]") | bold | color(Color::GrayLight), text(" dismiss"),
-         }) | dim);
-         return window(text(" Plugin Hint ") | color(Color::Magenta),
-             vbox(std::move(body)) | size(WIDTH, GREATER_THAN, 48))
-             | color(Color::Magenta); }},
-      // UI3  Settings panel
-      P{ReplMode::SettingsView, [](const auto&){
-         return window(text(" Settings ") | color(Color::Cyan),
-             vbox({
-                 text("Settings") | bold | center,
-                 separator(),
-                 text("  /config        Open configuration") | dim,
-                 text("  /model         Change model") | dim,
-                 text("  /permissions   View permissions") | dim,
-                 text("  /mcp           MCP servers") | dim,
-                 text(""),
-                 hbox({
-                     text(" [Esc]") | bold | color(Color::Red), text(" close"),
-                 }) | dim,
-             }) | size(WIDTH, GREATER_THAN, 44)) | color(Color::Cyan); }},
-      // UI8  TrustDialog — standalone fullscreen takeover.
-      // The rich Component is rendered separately via dialog_router
-      // (below); this stub only shows when the wizard component is
-      // unexpectedly null.
-      P{ReplMode::TrustDialog, [](const auto& s){
-         auto path = s.dialog_ctx.trust_workspace_path.value_or("<workspace>");
-         return window(text(" Accessing workspace: ") | color(Color::Yellow),
-             vbox({
-                 text(path) | bold,
-                 separator(),
-                 paragraph(
-                   "Quick safety check: Is this a project you created or "
-                   "one you trust? (Like your own code, a well-known open "
-                   "source project, or work from your team). If not, take "
-                   "a moment to review what's in this folder first."),
-                 text("Claude Code'll be able to read, edit, and execute files here.") | dim,
-                 text(""),
-                 hbox({
-                     text(" [Enter]") | bold | color(Color::Green), text(" trust "),
-                     text("[Esc]") | bold | color(Color::Red), text(" exit "),
-                 }) | dim,
-             }) | size(WIDTH, GREATER_THAN, 52)) | color(Color::Yellow); }},
-    };
-    for (const auto& p : kTable) if (p.first == m) return p.second;
-    return nullptr;
-}
-
 // =========================================================
 // M7 Dialog Framework: dialog_queue renderer dispatchers
 // =========================================================
@@ -1215,35 +917,34 @@ namespace dialog_queue_render {
 // true if they consumed the event.
 namespace dialog_queue_render {
 
-namespace dsys = cc::ui::dialogs;
+namespace dsys = dsys_fw;
 
 /// Build the render-time width/height context for the registry.
 [[nodiscard]] inline dsys::DialogRenderContext MakeContext(
     int term_w = 120, int term_h = 40)
 {
     dsys::DialogRenderContext c;
-    c.terminal_width  = term_w;
-    c.terminal_height = term_h;
-    c.spinner_frame   = 0;
+    c.term_cols  = term_w;
+    c.term_rows  = term_h;
     return c;
 }
 
 /// Standalone dialog: full-takeover render (no chrome).
-[[nodiscard]] inline Element RenderStandaloneDialog(const ReplScreenState& s,
+[[nodiscard]] inline Element RenderStandaloneDialog(ReplScreenState& s,
                                                     int w = 120, int h = 40) {
-    auto peek = s.dialog_queue.peek_standalone();
+    auto peek = s.dialog_queue.peek_standalone_mut();
     if (!peek) return Element{};
-    const dsys::DialogPayloadVariant& payload = peek->get();
+    dsys::DialogPayloadVariant& payload = peek->get();
     if (std::holds_alternative<std::monostate>(payload)) return Element{};
     return s.dialog_renderers.render(payload, MakeContext(w, h));
 }
 
 /// Modal dialog (stack top): rendered full-width dbox above the rest.
-[[nodiscard]] inline Element RenderModalDialog(const ReplScreenState& s,
+[[nodiscard]] inline Element RenderModalDialog(ReplScreenState& s,
                                                int w = 120, int h = 40) {
-    auto peek = s.dialog_queue.peek_modal();
+    auto peek = s.dialog_queue.peek_modal_mut();
     if (!peek) return Element{};
-    const dsys::DialogPayloadVariant& payload = peek->get();
+    dsys::DialogPayloadVariant& payload = peek->get();
     if (std::holds_alternative<std::monostate>(payload)) return Element{};
     auto el = s.dialog_renderers.render(payload, MakeContext(w, h));
     if (!el) return Element{};
@@ -1259,17 +960,16 @@ namespace dsys = cc::ui::dialogs;
 /// Suppressed when prompt has input active or when allow_animation
 /// dialogs are disabled (mid-tool-animation).
 [[nodiscard]] inline Element RenderOverlayDialog(
-    const ReplScreenState& s,
+    ReplScreenState& s,
     bool is_prompt_input_active,
     bool allow_dialogs_with_animation = true,
     int w = 120, int h = 40)
 {
-    auto peek = s.dialog_queue.peek_overlay();
+    auto peek = s.dialog_queue.peek_overlay_mut();
     if (!peek) return Element{};
-    const dsys::DialogPayloadVariant& payload = peek->get();
+    dsys::DialogPayloadVariant& payload = peek->get();
     if (std::holds_alternative<std::monostate>(payload)) return Element{};
-    dsys::DialogType t = dsys::type_of(payload);
-    if (!dsys::should_show_dialog(t, is_prompt_input_active,
+    if (!dsys::should_show_dialog(payload, is_prompt_input_active,
                                    allow_dialogs_with_animation)) {
         return Element{};
     }
@@ -1289,17 +989,18 @@ namespace dsys = cc::ui::dialogs;
 
 /// Bottom slot: banner-style dialogs pushed to the bottom of the screen.
 [[nodiscard]] inline Element RenderBottomDialog(
-    const ReplScreenState& s,
+    ReplScreenState& s,
     bool is_prompt_input_active,
     bool allow_dialogs_with_animation,
     int w = 120)
 {
-    auto peek = s.dialog_queue.peek_bottom();
+    (void)w;
+    auto peek = s.dialog_queue.peek_bottom_mut(is_prompt_input_active,
+                                               allow_dialogs_with_animation);
     if (!peek) return Element{};
-    const dsys::DialogPayloadVariant& payload = peek->get();
+    dsys::DialogPayloadVariant& payload = peek->get();
     if (std::holds_alternative<std::monostate>(payload)) return Element{};
-    dsys::DialogType t = dsys::type_of(payload);
-    if (!dsys::should_show_dialog(t, is_prompt_input_active,
+    if (!dsys::should_show_dialog(payload, is_prompt_input_active,
                                    allow_dialogs_with_animation)) {
         return Element{};
     }
@@ -1313,7 +1014,7 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
                                       const ftxui::Event& ev,
                                       bool is_prompt_input_active,
                                       bool allow_dialogs_with_animation) {
-    namespace dsys = cc::ui::dialogs;
+    namespace dsys = dsys_fw;
 
     // Standalone always takes every event.
     {
@@ -1343,45 +1044,15 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
                     return true;
                 }
             }
-            if (state->mode == ReplMode::IdleReturn) {
-                namespace ird = cc::ui::dialogs::idle_return;
-                auto commit = [&](ird::IdleReturnAction a) {
-                    if (cb->on_dialog_action)
-                        cb->on_dialog_action(ReplMode::IdleReturn,
-                                             static_cast<int>(a));
-                    state->dialog_ctx.idle_return_selected_index = 0;
-                    state->mode = ReplMode::Normal;
-                };
-                if (c=='n'||c=='N') {
-                    commit(ird::IdleReturnAction::Clear);
-                    return true;
-                }
-                if (c=='c'||c=='C') {
-                    commit(ird::IdleReturnAction::Continue);
-                    return true;
-                }
-                if (c=='d'||c=='D') {
-                    commit(ird::IdleReturnAction::Never);
-                    return true;
-                }
-                if (c>='1' && c<='3') {
-                    const int idx = c - '1';
-                    state->dialog_ctx.idle_return_selected_index = idx;
-                    commit(ird::action_for_index(idx));
-                    return true;
-                }
-            }
         }
     }
-
     // Overlay (Band3).  Skip when suppressed so typing can continue.
     {
         auto peek = s.dialog_queue.peek_overlay_mut();
         if (peek) {
             dsys::DialogPayloadVariant& payload = peek->get();
             if (!std::holds_alternative<std::monostate>(payload)) {
-                dsys::DialogType t = dsys::type_of(payload);
-                if (dsys::should_show_dialog(t, is_prompt_input_active,
+                if (dsys::should_show_dialog(payload, is_prompt_input_active,
                                              allow_dialogs_with_animation)) {
                     if (s.dialog_renderers.handle_event(payload, ev)) return true;
                 }
@@ -1391,12 +1062,12 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
 
     // Bottom.
     {
-        auto peek = s.dialog_queue.peek_bottom_mut();
+        auto peek = s.dialog_queue.peek_bottom_mut(is_prompt_input_active,
+                                                   allow_dialogs_with_animation);
         if (peek) {
             dsys::DialogPayloadVariant& payload = peek->get();
             if (!std::holds_alternative<std::monostate>(payload)) {
-                dsys::DialogType t = dsys::type_of(payload);
-                if (dsys::should_show_dialog(t, is_prompt_input_active,
+                if (dsys::should_show_dialog(payload, is_prompt_input_active,
                                              allow_dialogs_with_animation)) {
                     if (s.dialog_renderers.handle_event(payload, ev)) return true;
                 }
@@ -1411,7 +1082,7 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
 /// separately (full-takeover, replaces the entire render).
 [[nodiscard]] inline Element LayerAllDialogs(
     Element base_chrome,
-    const ReplScreenState& s,
+    ReplScreenState& s,
     bool is_prompt_input_active,
     bool allow_dialogs_with_animation,
     int w = 120, int h = 40)
@@ -1444,39 +1115,17 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
 ///   cost/idle/ultraplan > onboarding > recs > panels.
 [[nodiscard]] inline std::optional<Element> RouteDialog(
     ReplMode m, const ReplScreenState& s) {
-    using namespace dialog_stubs;
+    (void)s;
+    // M7: All legacy ReplMode dialog routing is retired.  Dialogs now flow
+    // exclusively via the 4-slot DialogQueue with priority
+    // Standalone > Modal > Overlay > Bottom.  Any remaining ReplMode-driven
+    // chrome (IdleReturn return-from-idle prompt, onboarding, etc.) is
+    // rendered by the owning slot in dialog_queue_render.  This stub
+    // preserves the file's historical RouteDialog() API so downstream
+    // callers (RenderReplScreen) don't need another rewrite.
     switch (m) {
-      case ReplMode::MessageSelector:
-      case ReplMode::SandboxPermission:
-      case ReplMode::WorkerSandboxPermission:
-      case ReplMode::PromptHook:
-      case ReplMode::Elicitation:
-      case ReplMode::CostThreshold:
-      case ReplMode::IdleReturn:
-      case ReplMode::UltraplanChoice:
-      case ReplMode::UltraplanLaunch:
-      case ReplMode::IdeOnboarding:
-      case ReplMode::InitOnboarding:
-      case ReplMode::ModelSwitch:
-      case ReplMode::UndercoverCallout:
-      case ReplMode::EffortCallout:
-      case ReplMode::RemoteCallout:
-      case ReplMode::DesktopUpsell:
-      case ReplMode::LspRecommendation:
-      case ReplMode::PluginHint:
-      case ReplMode::InstallGitHubApp:
-      case ReplMode::InstallSlackApp:
-      case ReplMode::CreateAgent:
-      case ReplMode::EditAgent:
-      case ReplMode::SettingsView:
-        return std::nullopt;
-
       default: break; }
-    auto b = get_builder(m);
-    if (!b) return std::nullopt;
-    Element e = b(s);
-    if (!e) return std::nullopt;
-    return e;
+    return std::nullopt;
 }
 
 // =========================================================
@@ -1505,7 +1154,7 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
 /// Fix #1: welcome header atop the list on a fresh session.
 /// Fix #7: StatusBar just above prompt input (TS bottom status line).
 /// Fix #11: terminal size probed once per frame for adaptive clamping.
-[[nodiscard]] inline Element RenderReplScreen(const ReplScreenState& s) {
+[[nodiscard]] inline Element RenderReplScreen(ReplScreenState& s) {
     // Probe terminal size once per frame for adaptive layout (fix #11).
     auto [term_cols, term_rows] = cc::ui::ink_utils::query_terminal_size();
     if (term_cols <= 0) term_cols = 80;
@@ -1527,6 +1176,7 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
     // Builds the same top→bottom order the old flat vbox had for the
     // message transcript area: welcome header (fresh session), messages,
     // spinner, tasks/teams panel.
+    Elements L;
     Elements scroll_rows; scroll_rows.reserve(6);
     if (s.messages.empty() && s.spinner_mode == SpinnerMode::Hidden)
         scroll_rows.push_back(RenderWelcomeHeader(s, spinner_frame));
@@ -1577,7 +1227,24 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
         case InputMode::PlanMode:     footer_mode = pif::PromptInputMode::PlanMode; break;
         default: break;
     }
-    Element base = vbox(std::move(L));
+    // ── Assemble the bottom slot: StatusBar → PromptInput → Footer ──
+    L.reserve(3);
+    L.push_back(RenderStatusBar(s.status_bar));
+    L.push_back(RenderPromptInput(s));
+    // PromptInputFooter: LeftSide carries mode/tasks/teams via
+    // ModeIndicatorOptions; StatusLine is its own nested struct.
+    pif::LeftSideOptions left_opts;
+    left_opts.mode_indicator.mode                 = footer_mode;
+    left_opts.mode_indicator.background_task_count = s.background_task_count;
+    left_opts.mode_indicator.teammate_count        = s.teammate_count;
+    left_opts.mode_indicator.teams_selected        = s.teams_footer_selected;
+    pif::FooterOptions footer_opts;
+    footer_opts.status_line = std::move(status_line_opts);
+    footer_opts.left_side   = std::move(left_opts);
+    footer_opts.is_fullscreen = cc::utils::is_fullscreen_enabled();
+    L.push_back(pif::RenderPromptInputFooter(footer_opts));
+
+    slots.bottom = vbox(std::move(L)) | flex_shrink;
 
     // M7: Standalone slot (trust dialog, first-run onboarding) takes over
     // the entire terminal — no chrome, no prompt, no messages rendered.
@@ -1588,6 +1255,7 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
     // Legacy RouteDialog path — only used when dialog_queue has no
     // overlay/bottom/modal slots.  Eventually this will be phased out
     // in favour of the queue for all dialogs.
+    Element base = fl::ComposeFullscreen(std::move(slots));
     auto dlg = RouteDialog(s.mode, s);
     if (dlg) base = dbox({
         std::move(base) | dim,
@@ -1767,13 +1435,14 @@ using settings_ns::MakeSettingsDialog;
         // Use the supplied config manager, otherwise manufacture a default.
         static thread_local cc::core::ConfigManager fallback_config;
         cc::core::ConfigManager* cfg = s->settings_config
-                                            ? s->settings_config
+                                            ? static_cast<cc::core::ConfigManager*>(
+                                                  s->settings_config)
                                             : &fallback_config;
         SettingsDialogOptions opts;
         opts.initial_tab = SettingsTabId::General;
         opts.on_close = [s, cb](std::optional<std::string>, CommandResultDisplay) {
             s->mode = ReplMode::Normal;
-            reset_settings_component(s);
+            s->settings_component.reset();
             if (cb->on_mode_change) cb->on_mode_change(ReplMode::Normal);
         };
         s->settings_component = std::make_shared<Component>(
@@ -1805,6 +1474,74 @@ inline bool forward_settings(
     return comp && (*comp)->OnEvent(std::move(ev));
 }
 
+// -------------------------------------------------------------------
+// Trust dialog helpers (UI8)
+// -------------------------------------------------------------------
+//
+// Trust dialog lives in the STANDALONE slot (full-takeover).  We also
+// keep a ReplMode-driven path as a bridge for callers that haven't
+// migrated to the queue yet.  The Component is lazy-created via
+// MakeWorkspaceTrustDialog() and stored as an opaque handle so
+// ReplScreenState doesn't need to import the trust_dialog types.
+
+namespace trust_ns = cc::ui::trust_dialog;
+using trust_ns::TrustChoice;
+using trust_ns::WorkspaceTrustProps;
+using trust_ns::SecuritySources;
+using trust_ns::MakeWorkspaceTrustDialog;
+
+/// Lazily create (or re-create) the trust dialog component.
+[[nodiscard]] inline std::shared_ptr<Component> get_trust_dialog(
+    const std::shared_ptr<ReplScreenState>& s,
+    const std::shared_ptr<ReplScreenCallbacks>& cb) {
+    if (!s->wizard_trust) {
+        WorkspaceTrustProps props;
+        props.workspace_path = s->cwd.empty() ? "." : s->cwd;
+        props.on_done = [s, cb](TrustChoice choice) {
+            // Bridge choices onto the permission + exit callbacks.  The
+            // enum actually ships 5 values (AllowOnce/AlwaysAllow/ViewFile/
+            // Cancel/EnableAnyway) — the "Exit" variant is handled by the
+            // on_exit callback directly inside the trust dialog component
+            // when the user chooses the corresponding option, not via
+            // choice enum here.
+            using C = TrustChoice;
+            if (cb->on_permission_response) {
+                switch (choice) {
+                  case C::AllowOnce:    cb->on_permission_response(true, false); break;
+                  case C::AlwaysAllow:  cb->on_permission_response(true, true);  break;
+                  case C::EnableAnyway: cb->on_permission_response(true, true);  break;
+                  case C::ViewFile:     cb->on_permission_response(true, false); break;
+                  case C::Cancel:
+                  default:              cb->on_permission_response(false, std::nullopt); break;
+                }
+            }
+            s->mode = ReplMode::Normal;
+            if (cb->on_mode_change) cb->on_mode_change(ReplMode::Normal);
+            s->wizard_trust.reset();
+        };
+        s->wizard_trust = std::make_shared<Component>(
+            MakeWorkspaceTrustDialog(std::move(props)));
+    }
+    return std::static_pointer_cast<Component>(s->wizard_trust);
+}
+
+/// Render the trust dialog content as an Element.
+[[nodiscard]] inline Element render_trust_dialog(
+    const std::shared_ptr<ReplScreenState>& s,
+    const std::shared_ptr<ReplScreenCallbacks>& cb) {
+    auto d = get_trust_dialog(s, cb);
+    return d ? (*d)->Render() : text("(trust dialog unavailable)");
+}
+
+/// Forward an event to the trust dialog component.
+inline bool forward_trust_dialog(
+    const std::shared_ptr<ReplScreenState>& s,
+    const std::shared_ptr<ReplScreenCallbacks>& cb,
+    Event ev) {
+    auto d = get_trust_dialog(s, cb);
+    return d && (*d)->OnEvent(std::move(ev));
+}
+
 } // namespace dialog_router
 
 /// Build the REPL screen as an FTXUI Component.
@@ -1824,8 +1561,21 @@ inline bool forward_settings(
         // Rendered as a dbox overlay (matching TS overlay slot).
         if (state->mode == ReplMode::ToolPermission &&
             state->permission_request) {
+            // Convert repl_screen PermissionRequestInfo →
+            // cc::ui::dialogs::PermissionRequest (lives in the dialogs
+            // namespace, NOT a nested permission_dialog sub-namespace).
+            using pd_pr = cc::ui::dialogs::PermissionRequest;
+            pd_pr r{};
+            r.tool_name   = state->permission_request->tool_name;
+            r.description = state->permission_request->description;
+            r.risk_level  = state->permission_request->risk_labels.empty()
+                          ? "medium"
+                          : state->permission_request->risk_labels.front();
+            if (state->permission_request->file_path)
+                r.affected_paths.push_back(*state->permission_request->file_path);
             Element base = RenderReplScreen(*state);
-            Element panel = dialog_router::render_permission_panel(state, cb);
+            Element panel = paragraph(
+                cc::ui::dialogs::render_permission_dialog(std::move(r), 80));
             return dbox({
                 base | dim,
                 vbox({ filler(),
@@ -1877,13 +1627,13 @@ inline bool forward_settings(
     const bool in_dialog = !is_panel(state->mode);
 
     // 0) Dialog queue — takes priority over legacy ReplMode dialogs
-    //    (M7.5: migration path from ReplMode to DialogQueue)
-    namespace dqr = dialog_queue_render;
-    if (dqr::HasActiveQueueDialog(*state)) {
-        if (dqr::HandleDialogQueueEvent(*state, ev)) {
-            return true;
-        }
-    }
+    //    (M7.5: migration path from ReplMode to DialogQueue).
+    //    NOTE: has_standalone/modal/overlay/bottom are checked inline
+    //    inside DispatchDialogQueueEvents() (called above), so this
+    //    block is intentionally empty — the dedicated per-slot helper
+    //    namespace functions are not re-exposed as free predicates here
+    //    to avoid a duplicate definition with dialog_queue_render.
+    (void)state;
 
     // 1) Dialog-context events
     if (in_dialog) {

@@ -221,7 +221,7 @@ public:
         RefreshAllBanks();
     }
 
-    Element OnRender() override {
+    Element Render() override {
         // Gate the runtime flag; if off, show the standard placeholder.
         if (!config::feature("proactive_memory")) {
             return feature_disabled_placeholder("proactive_memory");
@@ -816,7 +816,7 @@ public:
     explicit FeedbackDialogBase(FeedbackOptions opts)
         : opts_(std::move(opts)) {}
 
-    Element OnRender() override {
+    Element Render() override {
         if (!config::feature("user_feedback"))
             return feature_disabled_placeholder("user_feedback");
 
@@ -1134,7 +1134,7 @@ public:
         }
     }
 
-    Element OnRender() override {
+    Element Render() override {
         if (!config::feature("kairos_grove"))
             return feature_disabled_placeholder("kairos_grove");
 
