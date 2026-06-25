@@ -187,6 +187,9 @@ inline auto send(const SessionHandle& session, const ToolTrigger& trigger)
     ToolResponse resp{
         .agent_id = trigger.agent_id,
         .tool_name = trigger.tool_name,
+        .output_json = {},
+        .error = {},
+        .status_code = 0
     };
     const auto key = detail::make_key(session.session_id, trigger.agent_id, trigger.tool_name);
 

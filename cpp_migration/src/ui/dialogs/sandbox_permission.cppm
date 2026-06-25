@@ -52,7 +52,6 @@ using namespace ftxui;
 ///   WorkerSandboxPermissionPayload → .description + on_response only (stub chrome)
 [[nodiscard]] inline Element RenderDefault(
     const auto& p, const auto& /*ctx*/) {
-    using T = std::decay_t<decltype(p)>;
     // ToolPermissionPayload: .origin + .initial_sandbox_toggle
     if constexpr (requires { p.origin; p.initial_sandbox_toggle; }) {
         return RenderDefault(std::string_view{p.origin}, p.initial_sandbox_toggle);
@@ -119,7 +118,6 @@ requires requires (PayloadT& x) {
     x.on_response; x.can_always_allow; x.initial_sandbox_toggle; x.on_abort;
 }
 {
-    using Decision = std::decay_t<decltype(p.on_response)>;
     if (event == Event::Character('y') || event == Event::Character('Y') ||
         event == Event::Return) {
         if (p.on_response) p.on_response(/*Decision::AllowOnce*/ 0, p.initial_sandbox_toggle);

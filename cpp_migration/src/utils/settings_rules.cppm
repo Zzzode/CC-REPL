@@ -5,6 +5,7 @@
 module;
 
 #include <algorithm>
+#include <array>
 #include <filesystem>
 #include <functional>
 #include <map>
@@ -15,6 +16,7 @@ module;
 #include <string_view>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -75,6 +77,23 @@ struct ValidationResult {
     std::vector<std::string> examples;
 };
 
+[[nodiscard]] inline ValidationResult valid_result() {
+    return {};
+}
+
+[[nodiscard]] inline ValidationResult invalid_result(
+    std::string error,
+    std::string suggestion = {},
+    std::vector<std::string> examples = {})
+{
+    ValidationResult result;
+    result.valid = false;
+    result.error = std::move(error);
+    result.suggestion = std::move(suggestion);
+    result.examples = std::move(examples);
+    return result;
+}
+
 /// A single validation error with location context
 struct SettingsError {
     std::string file;
@@ -107,7 +126,7 @@ public:
     [[nodiscard]] static ValidationResult validate(std::string_view rule) {
         // Empty rule check
         if (rule.empty() || is_only_whitespace(rule)) {
-            return {.valid = false, .error = "Permission rule cannot be empty"};
+            return invalid_result("Permission rule cannot be empty");
         }
 
         std::string rule_str(rule);
@@ -116,11 +135,9 @@ public:
         int open_count = count_unescaped_char(rule_str, '(');
         int close_count = count_unescaped_char(rule_str, ')');
         if (open_count != close_count) {
-            return {
-                .valid = false,
-                .error = "Mismatched parentheses",
-                .suggestion = "Ensure all opening parentheses have matching closing parentheses",
-            };
+            return invalid_result(
+                "Mismatched parentheses",
+                "Ensure all opening parentheses have matching closing parentheses");
         }
 
         // Check for empty parentheses
@@ -129,19 +146,15 @@ public:
             std::string tool_name = (paren_pos != std::string::npos)
                 ? rule_str.substr(0, paren_pos) : "";
             if (tool_name.empty()) {
-                return {
-                    .valid = false,
-                    .error = "Empty parentheses with no tool name",
-                    .suggestion = "Specify a tool name before the parentheses",
-                };
+                return invalid_result(
+                    "Empty parentheses with no tool name",
+                    "Specify a tool name before the parentheses");
             }
-            return {
-                .valid = false,
-                .error = "Empty parentheses",
-                .suggestion = "Either specify a pattern or use just \"" +
-                              tool_name + "\" without parentheses",
-                .examples = {tool_name, tool_name + "(some-pattern)"},
-            };
+            return invalid_result(
+                "Empty parentheses",
+                "Either specify a pattern or use just \"" +
+                    tool_name + "\" without parentheses",
+                {tool_name, tool_name + "(some-pattern)"});
         }
 
         // Parse the rule into tool name and content
@@ -150,18 +163,16 @@ public:
         // MCP validation
         if (is_mcp_rule(tool_name)) {
             if (rule_content.has_value() || open_count > 0) {
-                return {
-                    .valid = false,
-                    .error = "MCP rules do not support patterns in parentheses",
-                    .suggestion = "Use \"" + tool_name + "\" without parentheses",
-                };
+                return invalid_result(
+                    "MCP rules do not support patterns in parentheses",
+                    "Use \"" + tool_name + "\" without parentheses");
             }
-            return {.valid = true};
+            return valid_result();
         }
 
         // Tool name validation
         if (tool_name.empty()) {
-            return {.valid = false, .error = "Tool name cannot be empty"};
+            return invalid_result("Tool name cannot be empty");
         }
 
         // Tool name must start with uppercase
@@ -169,11 +180,9 @@ public:
             std::string capitalized = tool_name;
             capitalized[0] = static_cast<char>(
                 std::toupper(static_cast<unsigned char>(capitalized[0])));
-            return {
-                .valid = false,
-                .error = "Tool names must start with uppercase",
-                .suggestion = "Use \"" + capitalized + "\"",
-            };
+            return invalid_result(
+                "Tool names must start with uppercase",
+                "Use \"" + capitalized + "\"");
         }
 
         // Bash-specific validation
@@ -188,7 +197,7 @@ public:
             if (!file_result.valid) return file_result;
         }
 
-        return {.valid = true};
+        return valid_result();
     }
 
 private:
@@ -268,41 +277,35 @@ private:
         auto colon_star_pos = content.find(":*");
         if (colon_star_pos != std::string::npos &&
             colon_star_pos + 2 != content.size()) {
-            return {
-                .valid = false,
-                .error = "The :* pattern must be at the end",
-                .suggestion = "Move :* to the end for prefix matching",
-                .examples = {
+            return invalid_result(
+                "The :* pattern must be at the end",
+                "Move :* to the end for prefix matching",
+                {
                     tool_name + "(npm run:*) - prefix matching (legacy)",
                     tool_name + "(npm run *) - wildcard matching",
-                },
-            };
+                });
         }
         if (content == ":*") {
-            return {
-                .valid = false,
-                .error = "Prefix cannot be empty before :*",
-                .suggestion = "Specify a command prefix before :*",
-                .examples = {tool_name + "(npm:*)", tool_name + "(git:*)"},
-            };
+            return invalid_result(
+                "Prefix cannot be empty before :*",
+                "Specify a command prefix before :*",
+                {tool_name + "(npm:*)", tool_name + "(git:*)"});
         }
-        return {.valid = true};
+        return valid_result();
     }
 
     [[nodiscard]] static ValidationResult validate_file_content(
         const std::string& content, const std::string& tool_name) {
         if (content.find(":*") != std::string::npos) {
-            return {
-                .valid = false,
-                .error = "The \":*\" syntax is only for Bash prefix rules",
-                .suggestion = "Use glob patterns like \"*\" or \"**\" for file matching",
-                .examples = {
+            return invalid_result(
+                "The \":*\" syntax is only for Bash prefix rules",
+                "Use glob patterns like \"*\" or \"**\" for file matching",
+                {
                     tool_name + "(*.ts) - matches .ts files",
                     tool_name + "(src/**) - matches all files in src",
-                },
-            };
+                });
         }
-        return {.valid = true};
+        return valid_result();
     }
 };
 

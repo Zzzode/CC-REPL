@@ -114,7 +114,10 @@ fetch_ultrareview_quota() {
                                                          oauth_pairs.end());
     headers["x-organization-uuid"] = credentials->org_uuid;
 
-    cc::utils::HttpClient http{cc::utils::HttpConfig{.timeout_ms = 5'000, .max_retries = 0}};
+    cc::utils::HttpConfig http_config;
+    http_config.timeout_ms = 5'000;
+    http_config.max_retries = 0;
+    cc::utils::HttpClient http{http_config};
     auto response = http.get(url, headers);
     if (!response) return std::unexpected(response.error().message);
     if (!response->is_ok()) {

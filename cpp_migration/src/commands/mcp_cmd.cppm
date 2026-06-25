@@ -126,7 +126,6 @@ public:
         return CommandDefinition{
             .name = "mcp",
             .description = "Manage Model Context Protocol (MCP) server connections",
-            .aliases = {},
             .args = {
                 CommandArg{
                     .name = "action",
@@ -143,8 +142,9 @@ public:
                     .required = false,
                 },
             },
-            .hidden = false,
             .category = "tools",
+            .aliases = {},
+            .hidden = false,
         };
     }
 
@@ -422,7 +422,7 @@ private:
     /// Read XAA IdP connection status (from settings + env-based keychain stubs).
     [[nodiscard]] XaaIdpStatus read_xaa_idp_status() const {
         XaaIdpStatus s;
-        const_cast<McpCommand*>(this)->ensure_config_loaded();
+        if (!const_cast<McpCommand*>(this)->ensure_config_loaded()) return s;
         const auto& xaa = config_manager_.settings().xaa_idp;
         if (xaa.issuer.empty()) return s;
         s.configured = true;

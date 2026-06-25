@@ -132,15 +132,7 @@ public:
         return child;
     }
 
-    [[nodiscard]] std::string to_string() const {
-        if (!val_) return {};
-        std::size_t len = 0;
-        char* json = yyjson_val_write(val_, 0, &len);
-        if (!json) return {};
-        std::string result(json, len);
-        free(json);
-        return result;
-    }
+    [[nodiscard]] std::string to_string() const;
 
 private:
     yyjson_val* val_;
@@ -383,24 +375,10 @@ public:
     [[nodiscard]] JsonMutVal root_mut() noexcept { return {yyjson_mut_doc_get_root(doc_), doc_}; }
 
 
-    [[nodiscard]] std::string to_string() const {
-        std::size_t len = 0;
-        char* json = yyjson_mut_write(doc_, 0, &len);
-        if (!json) return {};
-        std::string result(json, len);
-        free(json);
-        return result;
-    }
+    [[nodiscard]] std::string to_string() const;
 
 
-    [[nodiscard]] std::string to_pretty_string() const {
-        std::size_t len = 0;
-        char* json = yyjson_mut_write(doc_, YYJSON_WRITE_PRETTY, &len);
-        if (!json) return {};
-        std::string result(json, len);
-        free(json);
-        return result;
-    }
+    [[nodiscard]] std::string to_pretty_string() const;
 
     [[nodiscard]] yyjson_mut_doc* raw() const noexcept { return doc_; }
 
@@ -549,23 +527,9 @@ template <typename Path>
 }
 
 
-[[nodiscard]] inline std::string to_string(const JsonDoc& doc) {
-    std::size_t len = 0;
-    char* json = yyjson_write(doc.raw(), 0, &len);
-    if (!json) return {};
-    std::string result(json, len);
-    free(json);
-    return result;
-}
+[[nodiscard]] std::string to_string(const JsonDoc& doc);
 
-[[nodiscard]] inline std::string to_pretty_string(const JsonDoc& doc) {
-    std::size_t len = 0;
-    char* json = yyjson_write(doc.raw(), YYJSON_WRITE_PRETTY, &len);
-    if (!json) return {};
-    std::string result(json, len);
-    free(json);
-    return result;
-}
+[[nodiscard]] std::string to_pretty_string(const JsonDoc& doc);
 
 [[nodiscard]] inline std::string to_string(JsonVal val) {
     return val.to_string();

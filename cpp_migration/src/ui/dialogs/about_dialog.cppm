@@ -50,6 +50,7 @@ module;
 
 export module cc.ui.dialogs.about;
 
+import cc.constants.product;
 import cc.ui.dialogs.frame;
 import cc.ui.design.theme;
 import cc.ui.design.tokens;
@@ -69,8 +70,8 @@ using Role = cc::ui::design::tokens::Role;
 struct AboutDialogProps {
     std::string app_name = "Claude Code";
     std::string app_version = "0.0.0";
-    std::string build_date = __DATE__;
-    std::string build_time = __TIME__;
+    std::string build_date = std::string(cc::constants::product::BUILD_DATE);
+    std::string build_time = std::string(cc::constants::product::BUILD_TIME);
     std::string runtime = "C++23 modules";
     std::string framework = "FTXUI + libuv";
     std::string website = "https://code.claude.com";
@@ -122,7 +123,7 @@ namespace detail {
 }
 
 /// Render the credit / footer text.
-[[nodiscard]] inline Element RenderCredits(const Theme& theme) {
+[[nodiscard]] inline Element RenderCredits(const Theme&) {
     return vbox({
         text(""),
         hbox({

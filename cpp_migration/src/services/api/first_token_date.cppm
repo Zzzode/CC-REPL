@@ -96,7 +96,10 @@ fetch_first_token_date(const StoreSink& store_sink = {}) {
     // TS sets User-Agent: getClaudeCodeUserAgent(); use the shared helper.
     headers["User-Agent"] = cc::utils::get_user_agent();
 
-    cc::utils::HttpClient http{cc::utils::HttpConfig{.timeout_ms = 10'000, .max_retries = 0}};
+    cc::utils::HttpConfig http_config;
+    http_config.timeout_ms = 10'000;
+    http_config.max_retries = 0;
+    cc::utils::HttpClient http{http_config};
     auto response = http.get(url, headers);
     if (!response) return std::unexpected(response.error().message);
     if (!response->is_ok()) {

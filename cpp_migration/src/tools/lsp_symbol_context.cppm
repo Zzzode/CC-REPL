@@ -50,7 +50,13 @@ inline auto get_symbol_at_position(
         while (end < static_cast<int>(text_line.size()) && is_ident(static_cast<unsigned char>(text_line[end]))) ++end;
         if (begin == end) return std::nullopt;
         auto name = text_line.substr(static_cast<std::size_t>(begin), static_cast<std::size_t>(end - begin));
-        return SymbolContext{.name = name, .kind = "Identifier", .file = file, .line = line};
+        return SymbolContext{
+            .name = name,
+            .kind = "Identifier",
+            .file = file,
+            .line = line,
+            .container = std::nullopt
+        };
     }
     return std::nullopt;
 }

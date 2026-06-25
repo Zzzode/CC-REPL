@@ -47,10 +47,10 @@ static std::string locate_repl_binary(const char* argv0) {
     std::string here = ::dirname(buf);
 
     std::vector<std::string> candidates = {
-        here + "/../../build/clang-debug/bin/cc-repl",  // from <build>/tests/
-        here + "/../build/clang-debug/bin/cc-repl",
-        here + "/build/clang-debug/bin/cc-repl",
-        "build/clang-debug/bin/cc-repl",                 // from repo root
+        here + "/../../build/debug/bin/cc-repl",  // from <build>/tests/
+        here + "/../build/debug/bin/cc-repl",
+        here + "/build/debug/bin/cc-repl",
+        "build/debug/bin/cc-repl",                 // from repo root
     };
     for (const auto& c : candidates) {
         if (file_exists_executable(c)) return c;
@@ -181,7 +181,10 @@ int main(int /*argc*/, char* argv[]) {
     // The native C++ build exposes version suffix "-cpp" for build id purposes.
     bool has_build_suffix = v.stdout_.find("1.0.0-cpp") != string::npos ||
                             v.stdout_.find("-cpp") != string::npos;
-    assert(has_build_suffix);
+    if (!has_build_suffix) {
+        fprintf(stderr, "[E2E-2] --version output missing native build suffix\n");
+        return 3;
+    }
 
     // --- run 2: --list-runtime-tools (the fast non-interactive banner path)
     //

@@ -222,6 +222,7 @@ public:
             .to_agent_id = std::string(to),
             .context = std::move(context),
             .timestamp = std::chrono::system_clock::now(),
+            .reason = std::nullopt
         };
         state_.handoff_history.push_back(event);
         state_.active_agent_id = std::string(to);

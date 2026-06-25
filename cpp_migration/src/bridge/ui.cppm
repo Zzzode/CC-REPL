@@ -59,7 +59,7 @@ class BridgeLogger {
 public:
     explicit BridgeLogger(bool verbose = false, 
                          std::function<void(const std::string&)> writer = nullptr)
-        : verbose_(verbose), writer_(std::move(writer)) {}
+        : writer_(std::move(writer)), verbose_(verbose) {}
 
     /// Print banner with connection info
     void print_banner(const BridgeConfig& config, const std::string& environment_id) {

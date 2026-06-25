@@ -169,7 +169,10 @@ inline auto get_state() -> SwarmState& {
     };
 
     state.workers[id] = info;
-    state.health[id] = HealthStatus{.worker_id = id, .healthy = true};
+    HealthStatus health;
+    health.worker_id = id;
+    health.healthy = true;
+    state.health[id] = health;
 
     return info;
 }

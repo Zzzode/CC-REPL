@@ -15,7 +15,7 @@ struct CommandResponse { bool ok{true}; std::string message; };
     std::string msg = "cc-repl ";
     msg += cc::constants::product::CC_REPL_VERSION;
     msg += " (C++23, built ";
-    msg += __DATE__;
+    msg += cc::constants::product::BUILD_DATE;
     msg += ")";
     if (!detail.empty()) {
         msg += " [";

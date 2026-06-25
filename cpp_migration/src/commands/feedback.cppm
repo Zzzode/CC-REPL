@@ -32,13 +32,13 @@ public:
         return CommandDefinition{
             .name = "feedback",
             .description = "Submit feedback about Claude Code",
-            .aliases = {"bug"},
             .args = {
                 CommandArg{.name = "text", .description = "Feedback text",
                            .type = ArgType::Text, .required = false},
             },
-            .hidden = false,
             .category = "support",
+            .aliases = {"bug"},
+            .hidden = false,
         };
     }
 

@@ -110,8 +110,6 @@ inline FuzzyResult fuzzy_match(std::string_view q, std::string_view hay) {
     int qi = 0, hi = 0;
     int gaps = 0;
     int qn = (int)Q.size(), hn = (int)H.size();
-    bool matched_prefix = true;
-    int first_diff = 0;
     while (qi < qn && hi < hn) {
         if (Q[qi] == H[hi]) {
             r.indices.push_back(hi);
@@ -122,7 +120,7 @@ inline FuzzyResult fuzzy_match(std::string_view q, std::string_view hay) {
         int skip = 0;
         while (skip < 3 && hi < hn && Q[qi] != H[hi]) { ++skip; ++hi; }
         if (hi >= hn) break;
-        if (skip > 0) { ++gaps; first_diff += skip; }
+        if (skip > 0) { ++gaps; }
     }
     if (qi < qn) return r;  // not all chars matched → fail
 

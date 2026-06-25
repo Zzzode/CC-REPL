@@ -112,19 +112,25 @@ public:
                         .name = "task_id",
                         .type = "string",
                         .description = "The task ID to get output from",
-                        .required = true
+                        .required = true,
+                        .default_value = std::nullopt,
+                        .enum_values = std::nullopt
                     },
                     SchemaProperty{
                         .name = "block",
                         .type = "boolean",
                         .description = "Whether to wait for task completion (default: true)",
-                        .required = false
+                        .required = false,
+                        .default_value = "true",
+                        .enum_values = std::nullopt
                     },
                     SchemaProperty{
                         .name = "timeout",
                         .type = "number",
                         .description = "Max wait time in milliseconds (0-600000, default: 30000)",
-                        .required = false
+                        .required = false,
+                        .default_value = "30000",
+                        .enum_values = std::nullopt
                     },
                 }
             },

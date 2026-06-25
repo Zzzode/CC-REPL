@@ -111,7 +111,7 @@ public:
 
     VoidResult load_policy(PolicySet policy) {
         if (policy.name.empty()) {
-            return std::unexpected(Error{ErrorCode::InvalidInput, {}, "policy name required"});
+            return std::unexpected(Error::make(ErrorCode::InvalidInput, "policy name required"));
         }
         policy.loaded_at = Clock::now();
         active_policy_ = std::move(policy);
@@ -120,7 +120,7 @@ public:
 
 
     [[nodiscard]] PolicyEvaluation evaluate_tool(std::string_view tool_name) const {
-        if (!active_policy_) return {PolicyAction::Allow, "", "no policy loaded"};
+        if (!active_policy_) return {PolicyAction::Allow, "", "no policy loaded", Clock::now()};
         for (const auto& rule : active_policy_->tool_rules) {
             if (matches_pattern(tool_name, rule.tool_name)) {
                 return {
@@ -138,7 +138,7 @@ public:
     [[nodiscard]] PolicyEvaluation evaluate_model(
         std::string_view model_name, std::size_t requested_tokens = 0) const
     {
-        if (!active_policy_) return {PolicyAction::Allow, "", "no policy loaded"};
+        if (!active_policy_) return {PolicyAction::Allow, "", "no policy loaded", Clock::now()};
         for (const auto& rule : active_policy_->model_rules) {
             if (matches_pattern(model_name, rule.model_pattern)) {
                 if (rule.action == PolicyAction::Allow &&
@@ -157,7 +157,7 @@ public:
 
 
     [[nodiscard]] PolicyEvaluation evaluate_network(std::string_view host) const {
-        if (!active_policy_) return {PolicyAction::Allow, "", "no policy loaded"};
+        if (!active_policy_) return {PolicyAction::Allow, "", "no policy loaded", Clock::now()};
         for (const auto& rule : active_policy_->network_rules) {
             if (matches_pattern(host, rule.host_pattern)) {
                 return {rule.action, std::format("net:{}", rule.host_pattern),
@@ -169,7 +169,7 @@ public:
 
 
     [[nodiscard]] PolicyEvaluation check_rate_limit(const std::string& resource) {
-        if (!active_policy_) return {PolicyAction::Allow, "", "no policy loaded"};
+        if (!active_policy_) return {PolicyAction::Allow, "", "no policy loaded", Clock::now()};
         for (const auto& rule : active_policy_->rate_limits) {
             if (rule.resource == resource) {
                 auto& tracker = rate_trackers_[resource];

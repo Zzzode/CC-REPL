@@ -574,7 +574,7 @@ inline auto render_sprite(const CompanionBones& bones, int frame = 0)
 
 // -- sprite_frame_count -----------------------------------------------------
 
-inline auto sprite_frame_count(Species species) -> int {
+inline auto sprite_frame_count([[maybe_unused]] Species species) -> int {
     return 3; // All species have 3 frames
 }
 

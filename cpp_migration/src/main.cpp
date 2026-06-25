@@ -1112,7 +1112,9 @@ int run_headless_stream_json_sse(
         (void)cc::services::api::send_worker_heartbeat();
     }
 
-    cc::utils::HttpClient http(cc::utils::HttpConfig{.timeout_ms = 1'000});
+    cc::utils::HttpConfig http_config;
+    http_config.timeout_ms = 1'000;
+    cc::utils::HttpClient http(http_config);
     auto last_worker_heartbeat = std::chrono::steady_clock::now();
     std::optional<std::string> last_sse_event_id;
     while (!g_should_exit.load()) {

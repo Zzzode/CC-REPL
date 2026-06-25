@@ -90,10 +90,6 @@ inline auto format_signature_help(
         return oss.str();
     }
 
-
-    auto params_str = signature.substr(paren_start + 1, paren_end - paren_start - 1);
-
-
     std::string indicator(signature.size(), ' ');
     int param_index = 0;
     size_t pos = paren_start + 1;

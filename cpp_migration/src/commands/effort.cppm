@@ -28,14 +28,14 @@ public:
         return CommandDefinition{
             .name = "effort",
             .description = "Set the effort level (low/medium/high/max/auto)",
-            .aliases = {},
             .args = {
                 CommandArg{.name = "level", .description = "Effort level: low, medium, high, max, auto",
                            .type = ArgType::Choice, .required = false,
                            .choices = {"low", "medium", "high", "max", "auto"}},
             },
-            .hidden = false,
             .category = "configuration",
+            .aliases = {},
+            .hidden = false,
         };
     }
 

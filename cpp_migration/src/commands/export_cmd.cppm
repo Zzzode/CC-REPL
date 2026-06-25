@@ -383,7 +383,6 @@ public:
         return CommandDefinition{
             .name = "export",
             .description = "Export conversation to Markdown / JSON / JSONL / Transcript",
-            .aliases = {},
             .args = {
                 CommandArg{.name = "format", .description = "md|markdown|json|jsonl|transcript",
                            .type = ArgType::Choice, .required = false,
@@ -409,8 +408,9 @@ public:
                 CommandArg{.name = "--clipboard", .description = "Copy to clipboard",
                            .type = ArgType::None, .required = false},
             },
-            .hidden = false,
             .category = "session",
+            .aliases = {},
+            .hidden = false,
         };
     }
 

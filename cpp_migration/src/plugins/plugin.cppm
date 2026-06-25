@@ -211,6 +211,9 @@ public:
             .id = std::to_string(next_request_id_++),
             .method = "initialize",
             .params_json = inst->definition.to_json(),
+            .is_response = false,
+            .result_json = std::nullopt,
+            .error_message = std::nullopt
         });
 
         return {};
@@ -245,6 +248,9 @@ public:
             .id = std::to_string(next_request_id_++),
             .method = "shutdown",
             .params_json = "{}",
+            .is_response = false,
+            .result_json = std::nullopt,
+            .error_message = std::nullopt
         });
 
         // Force kill after timeout via libuv timer (simplified: immediate kill)
@@ -260,7 +266,7 @@ public:
     void shutdown_all() {
         for (auto& [name, inst] : plugins_) {
             if (inst->is_healthy()) {
-                stop_plugin(name);
+                (void)stop_plugin(name);
             }
         }
     }
@@ -279,6 +285,9 @@ public:
             .id = std::to_string(next_request_id_++),
             .method = std::move(method),
             .params_json = std::move(params_json),
+            .is_response = false,
+            .result_json = std::nullopt,
+            .error_message = std::nullopt
         });
         return {};
     }

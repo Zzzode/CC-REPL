@@ -41,7 +41,6 @@ public:
         return CommandDefinition{
             .name = "branch",
             .description = "Manage git branches",
-            .aliases = {"br"},
             .args = {
                 CommandArg{.name = "action", .description = "list | create | switch | delete",
                            .type = ArgType::Choice, .required = false,
@@ -49,8 +48,9 @@ public:
                 CommandArg{.name = "branch_name", .description = "Branch name",
                            .type = ArgType::Text, .required = false},
             },
-            .hidden = false,
             .category = "git",
+            .aliases = {"br"},
+            .hidden = false,
         };
     }
 

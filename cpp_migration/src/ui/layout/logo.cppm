@@ -181,7 +181,7 @@ inline constexpr std::array<std::string_view, 5> kLogoArt = {
 }
 
 // Render the condensed logo (compact display for narrow terminals)
-[[nodiscard]] inline auto render_condensed_logo(const CondensedLogoProps& props,
+[[nodiscard]] inline auto render_condensed_logo(const CondensedLogoProps&,
                                                  const LogoDisplayData& data,
                                                  int terminal_width)
     -> std::string {

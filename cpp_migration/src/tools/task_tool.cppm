@@ -115,7 +115,12 @@ public:
             .description = std::move(description),
             .status = TaskStatus::Pending,
             .agent_type = type,
+            .result = std::nullopt,
+            .error_message = std::nullopt,
+            .output = {},
             .created_at = std::chrono::steady_clock::now(),
+            .started_at = std::nullopt,
+            .completed_at = std::nullopt
         };
         auto [it, _] = tasks_.emplace(std::move(id), std::move(task));
         return &it->second;
@@ -252,6 +257,8 @@ inline TaskStore& global_task_store() {
         .error_message = record.error,
         .output = native_task_output_text(record),
         .created_at = std::chrono::steady_clock::now(),
+        .started_at = std::nullopt,
+        .completed_at = std::nullopt
     };
 }
 

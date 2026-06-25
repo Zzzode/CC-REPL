@@ -81,6 +81,7 @@ inline void record_tool_use(
             ? std::nullopt 
             : std::optional{tracker.recent_activities.back()},
         .recent_activities = tracker.recent_activities,
+        .summary = std::nullopt
     };
 }
 

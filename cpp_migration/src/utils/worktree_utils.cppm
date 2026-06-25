@@ -7,7 +7,6 @@ module;
 #include <expected>
 #include <filesystem>
 #include <cstdio>
-#include <array>
 #include <sstream>
 
 export module cc.utils.worktree_utils;
@@ -51,7 +50,6 @@ create_worktree(const fs::path& repo_root, std::string_view branch,
     if (!pipe_cap) {
         return std::unexpected("Failed to execute git worktree add");
     }
-    std::array<char, 512> buffer{};
     std::string output = std::move(pipe_cap->output);
     int status = pipe_cap->status;
     if (status != 0) {
@@ -91,7 +89,6 @@ inline std::expected<void, std::string> remove_worktree(const fs::path& worktree
         return std::unexpected("Failed to determine repository root");
     }
 
-    std::array<char, 1024> buffer{};
     std::string git_common_dir = std::move(root_cap->output);
     while (!git_common_dir.empty() && git_common_dir.back() == '\n')
         git_common_dir.pop_back();

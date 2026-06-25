@@ -107,7 +107,7 @@ public:
             case SummaryFormat::Structured:  return generate_structured(summary);
             case SummaryFormat::Markdown:    return generate_markdown(summary);
         }
-        return std::unexpected(Error{ErrorCode::InvalidInput, {}, "unknown format"});
+        return std::unexpected(Error::make(ErrorCode::InvalidInput, "unknown format"));
     }
 
 

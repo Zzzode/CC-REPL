@@ -68,7 +68,7 @@ inline std::expected<size_t, std::string> remove_recursive(const fs::path& targe
         count = 1;
     }
 
-    auto removed = fs::remove_all(target, ec);
+    fs::remove_all(target, ec);
     if (ec) {
         return std::unexpected("Remove failed: " + ec.message());
     }

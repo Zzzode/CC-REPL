@@ -162,7 +162,6 @@ public:
         return CommandDefinition{
             .name = "permissions",
             .description = "Manage tool execution permission rules",
-            .aliases = {"perms"},
             .args = {
                 CommandArg{.name = "action", .description =
                     "list | show | allow | deny | reset | reset-all | dump",
@@ -177,8 +176,9 @@ public:
                            .choices = {"global", "project", "session", "command",
                                        "g", "p", "s", "c"}},
             },
-            .hidden = false,
             .category = "config",
+            .aliases = {"perms"},
+            .hidden = false,
         };
     }
 

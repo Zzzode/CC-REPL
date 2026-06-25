@@ -67,13 +67,17 @@ public:
                         .name = "task_id",
                         .type = "string",
                         .description = "The ID of the background task to stop",
-                        .required = false
+                        .required = false,
+                        .default_value = std::nullopt,
+                        .enum_values = std::nullopt
                     },
                     SchemaProperty{
                         .name = "shell_id",
                         .type = "string",
                         .description = "Deprecated: use task_id instead",
-                        .required = false
+                        .required = false,
+                        .default_value = std::nullopt,
+                        .enum_values = std::nullopt
                     },
                 }
             },

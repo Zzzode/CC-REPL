@@ -158,7 +158,12 @@ run_shell_async(std::string_view command, ShellOptions opts = {}) {
     return std::async(std::launch::async, [cmd, opts = std::move(opts)]() -> ShellResult {
         auto result = run_shell(cmd, opts);
         if (result) return *result;
-        return ShellResult{.exit_code = -1, .stderr_output = result.error(), .duration = milliseconds(0)};
+        return ShellResult{
+            .exit_code = -1,
+            .stdout_output = {},
+            .stderr_output = result.error(),
+            .duration = milliseconds(0),
+        };
     });
 }
 

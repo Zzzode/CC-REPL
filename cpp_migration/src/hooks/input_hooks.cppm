@@ -250,7 +250,7 @@ public:
         }
 
         // Feed paste detector
-        paste_detector_.feed(event);
+        (void)paste_detector_.feed(event);
 
         // Find matching handler for current mode
         auto canonical = event.canonical();
@@ -271,7 +271,11 @@ public:
             }
         }
 
-        return InputAction{.type = ActionType::Passthrough};
+        return InputAction{
+            .type = ActionType::Passthrough,
+            .action_name = {},
+            .payload = std::nullopt
+        };
     }
 
     // Access sub-systems
@@ -303,21 +307,33 @@ private:
 
     // Ctrl+C: cancel
     manager.register_handler(InputMode::Normal, "Ctrl+c", [](const KeyEvent&) {
-        return InputAction{.type = ActionType::Cancel, .action_name = "cancel"};
+        return InputAction{
+            .type = ActionType::Cancel,
+            .action_name = "cancel",
+            .payload = std::nullopt
+        };
     });
 
     // Enter: submit
     manager.register_handler(InputMode::Normal, "Enter", [](const KeyEvent&) {
-        return InputAction{.type = ActionType::Submit, .action_name = "submit"};
+        return InputAction{
+            .type = ActionType::Submit,
+            .action_name = "submit",
+            .payload = std::nullopt
+        };
     });
 
     // Tab: complete
     manager.register_handler(InputMode::Normal, "Tab", [](const KeyEvent&) {
-        return InputAction{.type = ActionType::Complete, .action_name = "tab_complete"};
+        return InputAction{
+            .type = ActionType::Complete,
+            .action_name = "tab_complete",
+            .payload = std::nullopt
+        };
     });
 
     // Ctrl+R: search mode
-    manager.register_handler(InputMode::Normal, "Ctrl+r", [&manager](const KeyEvent&) {
+    manager.register_handler(InputMode::Normal, "Ctrl+r", [](const KeyEvent&) {
         return InputAction{.type = ActionType::ModeSwitch, .action_name = "search",
                           .payload = "search"};
     });

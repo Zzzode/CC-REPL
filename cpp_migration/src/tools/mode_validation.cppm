@@ -144,39 +144,40 @@ validate_command_for_mode(std::string_view cmd, PermissionMode mode) {
         trimmed.remove_prefix(1);
     }
     if (trimmed.empty()) {
-        return {
-            .behavior = PermissionBehavior::kPassthrough,
-            .message = "Base command not found",
-        };
+        PermissionResult result;
+        result.behavior = PermissionBehavior::kPassthrough;
+        result.message = "Base command not found";
+        return result;
     }
     auto base_cmd = extract_base_command(trimmed);
     if (base_cmd.empty()) {
-        return {
-            .behavior = PermissionBehavior::kPassthrough,
-            .message = "Base command not found",
-        };
+        PermissionResult result;
+        result.behavior = PermissionBehavior::kPassthrough;
+        result.message = "Base command not found";
+        return result;
     }
 
     // In Accept Edits mode, auto-allow filesystem operations
     if (mode == PermissionMode::kAcceptEdits &&
         is_filesystem_command(base_cmd)) {
-        return {
-            .behavior = PermissionBehavior::kAllow,
-            .updated_command = std::string(cmd),
-            .decision_reason = DecisionReason{
-                .type = DecisionReasonType::kMode,
-                .mode = PermissionMode::kAcceptEdits,
-            },
+        PermissionResult result;
+        result.behavior = PermissionBehavior::kAllow;
+        result.updated_command = std::string(cmd);
+        result.decision_reason = DecisionReason{
+            .type = DecisionReasonType::kMode,
+            .mode = PermissionMode::kAcceptEdits,
+            .reason = {},
         };
+        return result;
     }
 
-    return {
-        .behavior = PermissionBehavior::kPassthrough,
-        .message = std::format(
-            "No mode-specific handling for '{}' in mode {}",
-            std::string(base_cmd),
-            static_cast<int>(mode)),
-    };
+    PermissionResult result;
+    result.behavior = PermissionBehavior::kPassthrough;
+    result.message = std::format(
+        "No mode-specific handling for '{}' in mode {}",
+        std::string(base_cmd),
+        static_cast<int>(mode));
+    return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -200,18 +201,18 @@ validate_command_for_mode(std::string_view cmd, PermissionMode mode) {
 check_permission_mode(std::string_view full_command, PermissionMode mode) {
     // Bypass mode is handled elsewhere in the main permission flow.
     if (mode == PermissionMode::kBypassPermissions) {
-        return {
-            .behavior = PermissionBehavior::kPassthrough,
-            .message = "Bypass mode is handled in main permission flow",
-        };
+        PermissionResult result;
+        result.behavior = PermissionBehavior::kPassthrough;
+        result.message = "Bypass mode is handled in main permission flow";
+        return result;
     }
 
     // DontAsk mode is handled elsewhere in the main permission flow.
     if (mode == PermissionMode::kDontAsk) {
-        return {
-            .behavior = PermissionBehavior::kPassthrough,
-            .message = "DontAsk mode is handled in main permission flow",
-        };
+        PermissionResult result;
+        result.behavior = PermissionBehavior::kPassthrough;
+        result.message = "DontAsk mode is handled in main permission flow";
+        return result;
     }
 
     auto subcommands = split_subcommands(full_command);
@@ -225,10 +226,10 @@ check_permission_mode(std::string_view full_command, PermissionMode mode) {
         }
     }
 
-    return {
-        .behavior = PermissionBehavior::kPassthrough,
-        .message = "No mode-specific validation required",
-    };
+    PermissionResult result;
+    result.behavior = PermissionBehavior::kPassthrough;
+    result.message = "No mode-specific validation required";
+    return result;
 }
 
 /// Returns the list of commands auto-allowed for a given permission mode.

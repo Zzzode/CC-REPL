@@ -33,7 +33,7 @@ inline std::string get_ps_tool_name() {
     return "powershell";
 }
 
-inline bool is_common_parameter(std::string_view param_name) {
+inline bool is_common_parameter([[maybe_unused]] std::string_view param_name) {
     return false;
 }
 

@@ -213,7 +213,6 @@ public:
         return CommandDefinition{
             .name = "review-remote",
             .description = "Review a remote GitHub PR by URL or number",
-            .aliases = {"pr-review"},
             .args = {
                 CommandArg{
                     .name = "pr",
@@ -230,8 +229,9 @@ public:
                     .default_value = "markdown",
                 },
             },
-            .hidden = false,
             .category = "git",
+            .aliases = {"pr-review"},
+            .hidden = false,
         };
     }
 

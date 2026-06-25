@@ -28,10 +28,10 @@ public:
         return CommandDefinition{
             .name = "brief",
             .description = "Toggle brief-only mode",
-            .aliases = {},
             .args = {},
-            .hidden = false,
             .category = "mode",
+            .aliases = {},
+            .hidden = false,
         };
     }
 

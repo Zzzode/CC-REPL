@@ -61,16 +61,25 @@ inline auto render_notification_bar(std::vector<PromptNotification> notification
                 break;
         }
 
-        out << color << icon << " " << notif.message << "\033[0m";
+        std::string message = notif.message;
+        const int max_message_width = std::max(width - 2, 0);
+        if (max_message_width > 0 &&
+            static_cast<int>(message.size()) > max_message_width) {
+            if (max_message_width > 3) {
+                message = message.substr(
+                    0, static_cast<std::size_t>(max_message_width - 3)) + "...";
+            } else {
+                message = message.substr(0, static_cast<std::size_t>(max_message_width));
+            }
+        }
 
-        // Truncate if exceeds width
-        // (simplified: just append newline for next notification)
+        out << color << icon << " " << message << "\033[0m";
+
         if (i < notifications.size() - 1) {
             out << "\n";
         }
     }
 
-    // Pad or truncate the output to fit width
     std::string result = out.str();
     return result;
 }

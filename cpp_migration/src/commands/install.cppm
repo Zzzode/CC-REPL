@@ -49,9 +49,9 @@ public:
 
         out += "\nThe native build has no npm installer. To update:\n";
         out += "  1. Pull the latest source.\n";
-        out += "  2. Reconfigure with CMake (cmake --preset clang-debug).\n";
-        out += "  3. Build (cmake --build build-clang).\n";
-        out += "  4. Copy the resulting binary (build-clang/bin/cc-repl) onto your PATH.";
+        out += "  2. Reconfigure with CMake (cmake --preset debug).\n";
+        out += "  3. Build (cmake --build --preset debug --target cc_repl).\n";
+        out += "  4. Copy the resulting binary (build/debug/bin/cc-repl) onto your PATH.";
         return CommandResult::success(std::move(out));
     }
 

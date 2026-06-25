@@ -151,6 +151,8 @@ public:
         ScriptResult result{
             .exit_code = status,
             .output = std::move(output),
+            .errors = timed_out ? "Script exceeded configured timeout" : std::string{},
+            .diagnostics = {},
             .duration = elapsed,
         };
 

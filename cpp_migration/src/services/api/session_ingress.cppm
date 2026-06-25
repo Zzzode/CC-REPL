@@ -24,9 +24,9 @@ struct IngressConfig {
     std::string endpoint;
     std::string session_id;
     std::string auth_token;
-    std::optional<std::string> organization_uuid;
+    std::optional<std::string> organization_uuid = std::nullopt;
     bool use_code_sessions = false;
-    std::optional<int64_t> worker_epoch;
+    std::optional<int64_t> worker_epoch = std::nullopt;
 };
 
 namespace detail {
@@ -303,7 +303,9 @@ auto send_worker_heartbeat() -> std::expected<void, std::string> {
     if (!detail::ingress_active) return std::unexpected("No active ingress connection");
     if (!detail::worker_active(detail::active_config)) return {};
 
-    cc::utils::HttpClient http(cc::utils::HttpConfig{.timeout_ms = 5'000});
+    cc::utils::HttpConfig http_config;
+    http_config.timeout_ms = 5'000;
+    cc::utils::HttpClient http(http_config);
     auto response = http.post(
         detail::worker_heartbeat_url(detail::active_config),
         detail::worker_heartbeat_body(detail::active_config),

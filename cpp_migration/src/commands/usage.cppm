@@ -25,18 +25,18 @@ using namespace cc::core;
 
 /// Rate limit status information
 struct RateLimitInfo {
-    std::uint32_t requests_remaining;
-    std::uint32_t tokens_remaining;
-    std::chrono::seconds reset_in;
+    std::uint32_t requests_remaining = 0;
+    std::uint32_t tokens_remaining = 0;
+    std::chrono::seconds reset_in{0};
 };
 
 /// Tracks accumulated usage for a session
 struct SessionUsage {
-    TokenUsage total_tokens;
+    TokenUsage total_tokens{};
     std::uint32_t request_count = 0;
     double total_cost_usd = 0.0;
-    std::chrono::system_clock::time_point session_start;
-    std::optional<RateLimitInfo> rate_limit;
+    std::chrono::system_clock::time_point session_start{};
+    std::optional<RateLimitInfo> rate_limit{};
 };
 
 /// UsageCommand implements the /usage slash command.
@@ -47,14 +47,14 @@ public:
         return CommandDefinition{
             .name = "usage",
             .description = "Show token usage, cost, and rate limit status",
-            .aliases = {"tokens"},
             .args = {
                 CommandArg{.name = "section", .description = "tokens | cost | time | limits | all",
                            .type = ArgType::Choice, .required = false,
                            .choices = {"tokens", "cost", "time", "limits", "all"}},
             },
-            .hidden = false,
             .category = "session",
+            .aliases = {"tokens"},
+            .hidden = false,
         };
     }
 

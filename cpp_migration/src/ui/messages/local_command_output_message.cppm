@@ -204,8 +204,7 @@ struct LocalCommandOptions {
         Element el = text(text_body);
         switch (line.kind) {
             case StreamKind::Stderr:
-                el = el | color(Color::Red);
-                if (opts.show_stderr_red) el = el; // already colored
+                el = el | color(opts.show_stderr_red ? Color::Red : Color::GrayLight);
                 break;
             case StreamKind::StdinEcho:
                 el = el | color(Color::Cyan) | dim;

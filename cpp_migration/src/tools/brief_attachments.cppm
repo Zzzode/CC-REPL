@@ -26,15 +26,17 @@ struct UploadResult {
     std::optional<std::string> error;
 };
 
-inline std::expected<std::vector<BriefAttachment>, std::string> process_attachments(const std::vector<std::string>& paths) {
+inline std::expected<std::vector<BriefAttachment>, std::string> process_attachments(
+    [[maybe_unused]] const std::vector<std::string>& paths) {
     return std::vector<BriefAttachment>{};
 }
 
-inline std::expected<UploadResult, std::string> upload_attachment(const BriefAttachment& attachment) {
+inline std::expected<UploadResult, std::string> upload_attachment(
+    [[maybe_unused]] const BriefAttachment& attachment) {
     return UploadResult{true, "", std::nullopt};
 }
 
-inline bool is_supported_format(std::string_view filename) {
+inline bool is_supported_format([[maybe_unused]] std::string_view filename) {
     return true;
 }
 

@@ -80,7 +80,10 @@ public:
         if (auto it = endpoints_.find(resolved); it != endpoints_.end())
             return it->second;
 
-        return ModelEndpoint{.provider = ModelProvider::anthropic, .model_id = resolved};
+        ModelEndpoint endpoint;
+        endpoint.provider = ModelProvider::anthropic;
+        endpoint.model_id = std::move(resolved);
+        return endpoint;
     }
 
 

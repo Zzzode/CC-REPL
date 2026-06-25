@@ -29,7 +29,7 @@ inline std::string get_tool_name() {
     return "bash";
 }
 
-inline bool should_use_sandbox(std::string_view command, bool user_requested) {
+inline bool should_use_sandbox([[maybe_unused]] std::string_view command, bool user_requested) {
     return user_requested;
 }
 
@@ -41,7 +41,7 @@ inline std::string normalize_line_endings(std::string_view text) {
     return std::string(text);
 }
 
-inline std::optional<std::string> extract_shebang(std::string_view script) {
+inline std::optional<std::string> extract_shebang([[maybe_unused]] std::string_view script) {
     return std::nullopt;
 }
 

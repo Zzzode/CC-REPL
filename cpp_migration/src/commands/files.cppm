@@ -28,10 +28,10 @@ public:
         return CommandDefinition{
             .name = "files",
             .description = "Show all files currently in context",
-            .aliases = {},
             .args = {},
-            .hidden = false,
             .category = "context",
+            .aliases = {},
+            .hidden = false,
         };
     }
 

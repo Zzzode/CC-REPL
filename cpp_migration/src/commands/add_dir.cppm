@@ -38,7 +38,7 @@ public:
         };
     }
 
-    [[nodiscard]] VoidResult validate(const CommandContext& ctx) {
+    [[nodiscard]] VoidResult validate(const CommandContext&) {
         // If path is provided, we could validate it here
         return {};
     }
@@ -62,7 +62,7 @@ public:
         return CommandResult::success(std::format("{} · /permissions to manage", message));
     }
 
-    [[nodiscard]] std::vector<std::string> complete(std::string_view partial) {
+    [[nodiscard]] std::vector<std::string> complete(std::string_view) {
         // Could provide path completion here
         return {};
     }

@@ -383,10 +383,12 @@ public:
         std::lock_guard lock(mutex_);
         for (auto& [_, task] : tasks_) {
             if (task.status == TaskStatus::Running && task.is_timed_out()) {
-                runner_.cancel(task);
+                auto cancel_result = runner_.cancel(task);
                 task.status = TaskStatus::TimedOut;
                 task.completed_at = std::chrono::system_clock::now();
-                task.error = "Task exceeded timeout limit";
+                task.error = cancel_result
+                    ? "Task exceeded timeout limit"
+                    : "Task exceeded timeout limit; cancellation failed: " + cancel_result.error().message;
             }
         }
     }

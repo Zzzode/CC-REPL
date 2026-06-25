@@ -122,7 +122,7 @@ namespace detail {
 // advance(step, ctx, user_input) -> Step
 // ============================================================
 [[nodiscard]] Step advance(Step step,
-                                  const InstallSlackAppContext& ctx,
+                                  const InstallSlackAppContext&,
                                   std::string_view user_input) {
     (void)user_input;
     switch (step) {

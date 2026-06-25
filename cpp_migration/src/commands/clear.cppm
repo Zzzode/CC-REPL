@@ -42,7 +42,6 @@ public:
         return CommandDefinition{
             .name = "clear",
             .description = "Clear the screen and optionally reset conversation state",
-            .aliases = {"cls"},
             .args = {
                 CommandArg{.name = "--reset", .description = "Also reset conversation history",
                            .type = ArgType::None, .required = false},
@@ -51,8 +50,9 @@ public:
                 CommandArg{.name = "--all", .description = "Clear screen, conversation, and cache",
                            .type = ArgType::None, .required = false},
             },
-            .hidden = false,
             .category = "session",
+            .aliases = {"cls"},
+            .hidden = false,
         };
     }
 

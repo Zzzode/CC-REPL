@@ -77,6 +77,8 @@ TEST(SpawnMultiAgent, TeamNameSpawnsTeammateBackend) {
                 .agent_id = "reviewer-two@migration-team",
                 .role = cc::tools::MemberRole::Reviewer,
                 .status = cc::tools::MemberStatus::Working,
+                .current_task = std::nullopt,
+                .last_result = std::nullopt,
             }
         }
     );

@@ -233,7 +233,7 @@ inline std::optional<PluginMeta> parse_manifest(const std::filesystem::path& man
     if (!ver_str.empty()) {
         int maj = 0, min = 0, pat = 0;
         std::sscanf(ver_str.c_str(), "%d.%d.%d", &maj, &min, &pat);
-        meta.version = SemVer{maj, min, pat};
+        meta.version = SemVer{maj, min, pat, {}};
     }
 
     return meta;
@@ -302,7 +302,7 @@ public:
             if (!ver.empty()) {
                 int mj=0, mn=0, pt=0;
                 std::sscanf(ver.c_str(), "%d.%d.%d", &mj, &mn, &pt);
-                meta.version = SemVer{mj, mn, pt};
+                meta.version = SemVer{mj, mn, pt, {}};
             }
             if (!meta.id.empty()) plugins.push_back(std::move(meta));
             pos = obj_end + 1;
@@ -353,11 +353,17 @@ public:
         return {PluginMeta{
             .id = "code-review",
             .name = "Code Review",
-            .version = SemVer{1, 0, 0},
             .description = "Review code changes and surface high-confidence issues",
+            .author = "Claude Code",
+            .version = SemVer{1, 0, 0, {}},
+            .min_host_version = SemVer{0, 0, 0, {}},
             .source = PluginSource::official_marketplace,
+            .tags = {},
+            .homepage_url = {},
+            .repository_url = {},
             .download_count = 1,
-            .rating = 5.0
+            .rating = 5.0,
+            .published_at = std::chrono::system_clock::time_point{}
         }};
     }
     
@@ -468,8 +474,14 @@ public:
         }
         
 
-        InstalledPlugin p{*meta, opts.auto_enable ? PluginStatus::enabled : PluginStatus::installed,
-                         install_path, std::chrono::system_clock::now()};
+        InstalledPlugin p{
+            .meta = *meta,
+            .status = opts.auto_enable ? PluginStatus::enabled : PluginStatus::installed,
+            .install_path = install_path,
+            .installed_at = std::chrono::system_clock::now(),
+            .available_update = std::nullopt,
+            .settings = {}
+        };
         
         // Remove existing entry if upgrading
         std::erase_if(installed_, [&](const auto& existing) { return existing.meta.id == plugin_id; });
@@ -496,7 +508,11 @@ public:
             [&](const auto& p) { return p.meta.id == plugin_id; });
         if (it == installed_.end()) return std::unexpected("plugin not installed");
 
-        return install(plugin_id, {.auto_enable = (it->status == PluginStatus::enabled)});
+        return install(plugin_id, {
+            .auto_enable = (it->status == PluginStatus::enabled),
+            .trust_unverified = false,
+            .specific_version = std::nullopt
+        });
     }
     
 
@@ -546,10 +562,26 @@ public:
             if (!entry.is_directory()) continue;
             auto id = entry.path().filename().string();
             installed_.push_back(InstalledPlugin{
-                .meta = PluginMeta{.id = id, .name = id, .version = SemVer{0, 0, 0}, .source = PluginSource::local},
+                .meta = PluginMeta{
+                    .id = id,
+                    .name = id,
+                    .description = {},
+                    .author = {},
+                    .version = SemVer{0, 0, 0, {}},
+                    .min_host_version = SemVer{0, 0, 0, {}},
+                    .source = PluginSource::local,
+                    .tags = {},
+                    .homepage_url = {},
+                    .repository_url = {},
+                    .download_count = 0,
+                    .rating = 0.0,
+                    .published_at = std::chrono::system_clock::time_point{}
+                },
                 .status = PluginStatus::installed,
                 .install_path = entry.path(),
-                .installed_at = std::chrono::system_clock::now()
+                .installed_at = std::chrono::system_clock::now(),
+                .available_update = std::nullopt,
+                .settings = {}
             });
         }
     }

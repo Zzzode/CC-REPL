@@ -184,8 +184,8 @@ struct DoctorDataModel {
 // Check-definition table (13 items, stable order)
 // ============================================================
 
-[[nodiscard]] inline constexpr std::array<CheckDefinition, kCheckCount> AllChecks() {
-    return {{
+[[nodiscard]] inline const std::array<CheckDefinition, kCheckCount>& AllChecks() {
+    static const std::array<CheckDefinition, kCheckCount> kChecks{{
         { CheckId::ApiKey,
           "API Key Validity",
           "Validates the Anthropic API key via an authenticated HTTP probe.",
@@ -239,9 +239,10 @@ struct DoctorDataModel {
           "Lists loaded plugins, reports manifest errors, and flags load failures.",
           "Integrations" },
     }};
+    return kChecks;
 }
 
-[[nodiscard]] inline constexpr const CheckDefinition& CheckDef(CheckId id) {
+[[nodiscard]] inline const CheckDefinition& CheckDef(CheckId id) {
     return AllChecks()[static_cast<std::size_t>(id)];
 }
 

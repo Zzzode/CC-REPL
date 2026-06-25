@@ -178,7 +178,9 @@ public:
                         .name = "url",
                         .type = "string",
                         .description = "URL to fetch content from",
-                        .required = true
+                        .required = true,
+                        .default_value = std::nullopt,
+                        .enum_values = std::nullopt
                     }
                 }
             },
@@ -189,7 +191,7 @@ public:
     
     WebFetchTool() = default;
     
-    [[nodiscard]] bool check_permission(const ToolInput& input) const {
+    [[nodiscard]] bool check_permission([[maybe_unused]] const ToolInput& input) const {
         return true;
     }
     

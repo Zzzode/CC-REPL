@@ -432,7 +432,13 @@ inline void append_background_output(BackgroundTaskState& state, std::string_vie
         .pid = worker,
         .command = input.command,
         .agent_id = input.agent_id,
+        .output = {},
+        .running = true,
+        .stopped = false,
+        .exit_code = std::nullopt,
+        .error = std::nullopt,
         .created_at = std::chrono::steady_clock::now(),
+        .reader_thread = {}
     });
     {
         std::lock_guard lock(background_tasks_mutex);
@@ -527,9 +533,8 @@ inline void append_background_output(BackgroundTaskState& state, std::string_vie
     (void)set_nonblocking(stdout_pipe[0]);
     (void)set_nonblocking(stderr_pipe[0]);
 
-    BashToolOutput output{
-        .exit_code = -1
-    };
+    BashToolOutput output;
+    output.exit_code = -1;
 
     // migrated: record duration for Phase-4 UI cards
     const auto exec_started_at = std::chrono::steady_clock::now();
@@ -928,31 +933,41 @@ public:
                         .name = "command",
                         .type = "string",
                         .description = "The shell command to execute",
-                        .required = true
+                        .required = true,
+                        .default_value = std::nullopt,
+                        .enum_values = std::nullopt
                     },
                     SchemaProperty{
                         .name = "cwd",
                         .type = "string",
                         .description = "Working directory for execution (optional)",
-                        .required = false
+                        .required = false,
+                        .default_value = std::nullopt,
+                        .enum_values = std::nullopt
                     },
                     SchemaProperty{
                         .name = "description",
                         .type = "string",
                         .description = "Clear description of what this command does",
-                        .required = false
+                        .required = false,
+                        .default_value = std::nullopt,
+                        .enum_values = std::nullopt
                     },
                     SchemaProperty{
                         .name = "timeout",
                         .type = "number",
                         .description = "Timeout in milliseconds (default: 120000)",
-                        .required = false
+                        .required = false,
+                        .default_value = "120000",
+                        .enum_values = std::nullopt
                     },
                     SchemaProperty{
                         .name = "run_in_background",
                         .type = "boolean",
                         .description = "Run command in background (optional)",
-                        .required = false
+                        .required = false,
+                        .default_value = "false",
+                        .enum_values = std::nullopt
                     }
                 }
             },
@@ -1108,15 +1123,14 @@ private:
                     return ToolResult::error(background_task.error());
                 }
 
-                BashToolOutput output{
-                    .stdout = std::format(
-                        "Background task started\nTask ID: {}\nPID: {}",
-                        background_task->id,
-                        background_task->pid),
-                    .exit_code = 0,
-                    .background_task_id = background_task->id,
-                    .no_output_expected = false
-                };
+                BashToolOutput output;
+                output.stdout = std::format(
+                    "Background task started\nTask ID: {}\nPID: {}",
+                    background_task->id,
+                    background_task->pid);
+                output.exit_code = 0;
+                output.background_task_id = background_task->id;
+                output.no_output_expected = false;
                 return format_result(output, input.command, /*semantic_is_error=*/false);
             }
 

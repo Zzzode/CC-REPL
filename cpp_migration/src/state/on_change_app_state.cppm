@@ -201,7 +201,7 @@ public:
 // ============================================================
 
 /// Handler for permission mode changes
-inline void on_permission_mode_changed(const AppState& prev, const AppState& next) {
+inline void on_permission_mode_changed(const AppState&, const AppState& next) {
     // In a real implementation, this would:
     // 1. Notify external listeners (like the CCR bridge)
     // 2. Update any UI components that depend on permission mode
@@ -212,38 +212,38 @@ inline void on_permission_mode_changed(const AppState& prev, const AppState& nex
 }
 
 /// Handler for main loop model changes
-inline void on_main_loop_model_changed(const AppState& prev, const AppState& next) {
+inline void on_main_loop_model_changed(const AppState&, const AppState&) {
     // Update settings, notify model manager, etc.
 }
 
 /// Handler for verbose mode changes
-inline void on_verbose_mode_changed(const AppState& prev, const AppState& next) {
+inline void on_verbose_mode_changed(const AppState&, const AppState&) {
     // Update logging configuration
 }
 
 /// Handler for expanded view changes
-inline void on_expanded_view_changed(const AppState& prev, const AppState& next) {
+inline void on_expanded_view_changed(const AppState&, const AppState&) {
     // This would persist the expanded view setting to config
     // Similar to how TypeScript version updates global config
 }
 
 /// Handler for messages changes
-inline void on_messages_changed(const AppState& prev, const AppState& next) {
+inline void on_messages_changed(const AppState&, const AppState&) {
     // Trigger UI update, scroll to bottom, etc.
 }
 
 /// Handler for tasks changes
-inline void on_tasks_changed(const AppState& prev, const AppState& next) {
+inline void on_tasks_changed(const AppState&, const AppState&) {
     // Update task list UI, notify task manager, etc.
 }
 
 /// Handler for auth version changes
-inline void on_auth_version_changed(const AppState& prev, const AppState& next) {
+inline void on_auth_version_changed(const AppState&, const AppState&) {
     // Clear caches, re-authenticate if needed, etc.
 }
 
 /// Handler for MCP reconnect key changes
-inline void on_mcp_reconnect_key_changed(const AppState& prev, const AppState& next) {
+inline void on_mcp_reconnect_key_changed(const AppState&, const AppState&) {
     // Trigger MCP reconnection
 }
 

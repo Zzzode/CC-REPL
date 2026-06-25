@@ -1138,7 +1138,7 @@ struct SelectProps {
     bool inline_descriptions = false;
     int visible_option_count = 5;
     std::string highlight_text;
-    SelectLayoutLegacy layout = SelectLayoutLegacy::Compact;
+    SelectLayout layout = SelectLayout::Compact;
 
     std::function<void(const std::string& value)> on_change;
     std::function<void(const std::string& value)> on_focus;
@@ -1152,7 +1152,7 @@ struct SelectProps {
     CustomSelectOptions o;
     o.options = std::move(props.options);
     o.mode = props.multi_select ? SelectMode::Multi : SelectMode::Single;
-    o.layout = (SelectLayout)props.layout;
+    o.layout = props.layout;
     o.visible_count = props.visible_option_count;
     o.default_value = props.default_value;
     o.show_indexes = !props.hide_indexes;

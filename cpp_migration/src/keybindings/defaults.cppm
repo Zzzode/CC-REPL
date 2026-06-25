@@ -4,6 +4,7 @@
 module;
 
 #include <algorithm>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -14,6 +15,20 @@ export module cc.keybindings.defaults;
 import cc.keybindings.schema;
 
 export namespace cc::keybindings {
+
+[[nodiscard]] inline Keybinding default_binding(
+    std::string_view id,
+    std::string_view key,
+    std::string_view command,
+    std::string_view when = {})
+{
+    Keybinding binding;
+    binding.id = std::string(id);
+    binding.keys = {parse_key_chord(key)};
+    binding.command = std::string(command);
+    if (!when.empty()) binding.when = std::string(when);
+    return binding;
+}
 
 /// Reserved shortcuts that cannot be overridden by user bindings
 [[nodiscard]] inline const std::unordered_set<std::string>& reserved_shortcuts() {
@@ -34,24 +49,24 @@ export namespace cc::keybindings {
 [[nodiscard]] inline std::vector<Keybinding> get_default_bindings() {
     return {
         // Navigation
-        {.id = "navigate.up", .keys = {parse_key_chord("up")}, .command = "navigate_up"},
-        {.id = "navigate.down", .keys = {parse_key_chord("down")}, .command = "navigate_down"},
-        {.id = "navigate.page_up", .keys = {parse_key_chord("pageup")}, .command = "page_up"},
-        {.id = "navigate.page_down", .keys = {parse_key_chord("pagedown")}, .command = "page_down"},
+        default_binding("navigate.up", "up", "navigate_up"),
+        default_binding("navigate.down", "down", "navigate_down"),
+        default_binding("navigate.page_up", "pageup", "page_up"),
+        default_binding("navigate.page_down", "pagedown", "page_down"),
         
         // Editing
-        {.id = "edit.submit", .keys = {parse_key_chord("enter")}, .command = "submit", .when = "inputFocused"},
-        {.id = "edit.newline", .keys = {parse_key_chord("shift+enter")}, .command = "insert_newline", .when = "inputFocused"},
-        {.id = "edit.cancel", .keys = {parse_key_chord("escape")}, .command = "cancel"},
+        default_binding("edit.submit", "enter", "submit", "inputFocused"),
+        default_binding("edit.newline", "shift+enter", "insert_newline", "inputFocused"),
+        default_binding("edit.cancel", "escape", "cancel"),
         
         // Task management
-        {.id = "task.background", .keys = {parse_key_chord("ctrl+b")}, .command = "background_task"},
-        {.id = "task.interrupt", .keys = {parse_key_chord("ctrl+c")}, .command = "interrupt"},
+        default_binding("task.background", "ctrl+b", "background_task"),
+        default_binding("task.interrupt", "ctrl+c", "interrupt"),
         
         // Overlays
-        {.id = "overlay.help", .keys = {parse_key_chord("ctrl+/")}, .command = "show_help"},
-        {.id = "overlay.tasks", .keys = {parse_key_chord("ctrl+t")}, .command = "show_tasks"},
-        {.id = "overlay.command_palette", .keys = {parse_key_chord("ctrl+k")}, .command = "command_palette"},
+        default_binding("overlay.help", "ctrl+/", "show_help"),
+        default_binding("overlay.tasks", "ctrl+t", "show_tasks"),
+        default_binding("overlay.command_palette", "ctrl+k", "command_palette"),
     };
 }
 

@@ -36,6 +36,7 @@ public:
     current_model_ = ModelConfig{
       .name = "claude-3-5-sonnet",
       .type = ModelType::claude_3_5_sonnet,
+      .api_endpoint = {},
       .context_window = 200000
     };
   }
@@ -55,6 +56,7 @@ private:
   ModelConfig current_model_{
     .name = "claude-3-5-sonnet",
     .type = ModelType::claude_3_5_sonnet,
+    .api_endpoint = {},
     .context_window = 200000
   };
   std::optional<ModelConfig> session_model_;

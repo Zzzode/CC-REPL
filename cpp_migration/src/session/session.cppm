@@ -106,6 +106,11 @@ public:
             .created_at = std::chrono::system_clock::now(),
             .updated_at = std::chrono::system_clock::now(),
             .state = SessionState::Created,
+            .message_count = 0,
+            .total_usage = {},
+            .working_directory = std::nullopt,
+            .model = std::nullopt,
+            .error_message = std::nullopt,
         } {}
 
     /// Create a session with explicit metadata (for deserialization)
@@ -501,6 +506,10 @@ private:
             .updated_at = now,
             .state = parse_session_state(read_string(root, "state").value_or("created")),
             .message_count = static_cast<std::uint32_t>(read_int(root, "message_count").value_or(0)),
+            .total_usage = {},
+            .working_directory = std::nullopt,
+            .model = std::nullopt,
+            .error_message = std::nullopt,
         };
         return Session(std::move(metadata));
     }

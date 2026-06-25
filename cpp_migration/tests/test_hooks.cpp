@@ -387,7 +387,14 @@ TEST(AtMentionResolve, FailsOnMissingFile) {
 }
 
 TEST(AtMentionResolve, FailsOnSymbolMention) {
-    cc::hooks::AtMention sym{.type = "symbol", .value = "Foo", .start = 0, .end = 0};
+    cc::hooks::AtMention sym{
+        .type = "symbol",
+        .value = "Foo",
+        .start = 0,
+        .end = 0,
+        .line_start = std::nullopt,
+        .line_end = std::nullopt,
+    };
     auto resolved = cc::hooks::resolve_at_mention(sym, "/tmp");
     ASSERT_FALSE(resolved.has_value());
     EXPECT_NE(resolved.error().find("Symbol resolution"), std::string::npos);
@@ -424,8 +431,13 @@ TEST(NotifHooks, DismissedNpmDeprecationHidden) {
     NotifStateReset guard;
     const int64_t future = notif::detail::now_ms() + 60 * 60 * 1000;
     notif::set_npm_deprecation_data(notif::NpmDeprecationInfo{
-        .id = "npm-dismiss-me", .deadline_ms = future,
-        .message = "x", .package_name = "p", .deprecated_version = "1", .recommended_version = "2"});
+        .id = "npm-dismiss-me",
+        .message = "x",
+        .deadline_ms = future,
+        .package_name = "p",
+        .deprecated_version = "1",
+        .recommended_version = "2",
+    });
     notif::acknowledge_notification("npm_deprecation", "npm-dismiss-me");
     EXPECT_FALSE(notif::check_npm_deprecation().has_value());
 }
@@ -434,8 +446,13 @@ TEST(NotifHooks, DeadlineExpiredHidden) {
     NotifStateReset guard;
     const int64_t past = notif::detail::now_ms() - 1000;
     notif::set_npm_deprecation_data(notif::NpmDeprecationInfo{
-        .id = "npm-expired", .deadline_ms = past,
-        .message = "x", .package_name = "p", .deprecated_version = "1", .recommended_version = "2"});
+        .id = "npm-expired",
+        .message = "x",
+        .deadline_ms = past,
+        .package_name = "p",
+        .deprecated_version = "1",
+        .recommended_version = "2",
+    });
     EXPECT_FALSE(notif::check_npm_deprecation().has_value());
 }
 
@@ -761,13 +778,23 @@ TEST(Hooks, FilterByMatcher) {
     IndividualHookConfig cfg_match;
     cfg_match.event = HookEventType::PreToolUse;
     cfg_match.matcher = "tool.name == bash";
-    cfg_match.config = CommandHookConfig{.command = "echo match"};
+    cfg_match.config = CommandHookConfig{
+        .command = "echo match",
+        .shell = "bash",
+        .condition = std::nullopt,
+        .timeout_seconds = std::nullopt,
+    };
     cfg_match.source = HookSource::UserSettings;
 
     IndividualHookConfig cfg_miss;
     cfg_miss.event = HookEventType::PreToolUse;
     cfg_miss.matcher = "tool.name == file_write";
-    cfg_miss.config = CommandHookConfig{.command = "echo miss"};
+    cfg_miss.config = CommandHookConfig{
+        .command = "echo miss",
+        .shell = "bash",
+        .condition = std::nullopt,
+        .timeout_seconds = std::nullopt,
+    };
     cfg_miss.source = HookSource::UserSettings;
 
     std::vector<IndividualHookConfig> all = {cfg_match, cfg_miss};
@@ -782,12 +809,22 @@ TEST(Hooks, FilterByMatcher) {
 TEST(Hooks, ApiQueryPipelineAccumulatesPrompts) {
     IndividualHookConfig p1;
     p1.event = HookEventType::UserPromptSubmit;
-    p1.config = PromptHookConfig{.prompt = "Hook A: tool=${tool.name}"};
+    p1.config = PromptHookConfig{
+        .prompt = "Hook A: tool=${tool.name}",
+        .model = std::nullopt,
+        .condition = std::nullopt,
+        .timeout_seconds = std::nullopt,
+    };
     p1.source = HookSource::UserSettings;
 
     IndividualHookConfig p2;
     p2.event = HookEventType::UserPromptSubmit;
-    p2.config = PromptHookConfig{.prompt = "Hook B: user=${user.role}"};
+    p2.config = PromptHookConfig{
+        .prompt = "Hook B: user=${user.role}",
+        .model = std::nullopt,
+        .condition = std::nullopt,
+        .timeout_seconds = std::nullopt,
+    };
     p2.source = HookSource::UserSettings;
 
     std::vector<IndividualHookConfig> reg = {p1, p2};
@@ -807,7 +844,12 @@ TEST(Hooks, PostToolBlocksOnError) {
     // A shell hook that exits non-zero should produce a blocking/aborting action.
     IndividualHookConfig bad;
     bad.event = HookEventType::PostToolUse;
-    bad.config = CommandHookConfig{.command = "exit 1"};
+    bad.config = CommandHookConfig{
+        .command = "exit 1",
+        .shell = "bash",
+        .condition = std::nullopt,
+        .timeout_seconds = std::nullopt,
+    };
     bad.source = HookSource::UserSettings;
     std::vector<IndividualHookConfig> reg = {bad};
     auto ctx = ctx_with_vars({});
@@ -834,7 +876,12 @@ IndividualHookConfig make_prompt_hook(HookEventType evt,
     IndividualHookConfig h;
     h.event = evt;
     h.matcher = std::move(matcher);
-    h.config = PromptHookConfig{.prompt = std::move(prompt_tmpl)};
+    h.config = PromptHookConfig{
+        .prompt = std::move(prompt_tmpl),
+        .model = std::nullopt,
+        .condition = std::nullopt,
+        .timeout_seconds = std::nullopt,
+    };
     h.source = HookSource::UserSettings;
     return h;
 }
@@ -942,4 +989,3 @@ TEST(HooksE2E, VariableInterpolationAcrossHooks) {
     EXPECT_NE(modified.find("user=admin"), std::string::npos);
     EXPECT_NE(modified.find("cwd=/repo"), std::string::npos);
 }
-

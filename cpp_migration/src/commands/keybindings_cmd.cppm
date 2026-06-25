@@ -73,7 +73,6 @@ public:
         return CommandDefinition{
             .name = "keybindings",
             .description = "Manage keyboard shortcuts (list, search, reset, export, set)",
-            .aliases = {"kb", "keys"},
             .args = {
                 CommandArg{
                     .name = "action",
@@ -81,16 +80,20 @@ public:
                     .type = ArgType::Choice,
                     .required = false,
                     .choices = {"list", "search", "reset", "export", "set"},
+                    .default_value = {},
                 },
                 CommandArg{
                     .name = "target",
                     .description = "Pattern (search), KEY (set), or empty for default",
                     .type = ArgType::Text,
                     .required = false,
+                    .choices = {},
+                    .default_value = {},
                 },
             },
-            .hidden = false,
             .category = "tools",
+            .aliases = {"kb", "keys"},
+            .hidden = false,
         };
     }
 
@@ -478,7 +481,6 @@ private:
         namespace fs = std::filesystem;
         auto path = cc::keybindings::get_keybindings_path();
         std::error_code ec;
-        bool file_existed = fs::exists(path, ec);
 
         // Build a new user bindings JSON (only user-level entries — not the
         // full defaults). The KeybindingLoader merges on load.

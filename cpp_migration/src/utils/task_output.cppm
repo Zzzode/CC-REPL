@@ -565,7 +565,6 @@ inline void ensure_task_output_dir() {
     if (!size_result) return "";
 
     auto file_size = *size_result;
-    auto read_size = std::min(file_size, max_bytes);
 
     if (file_size == 0) return "";
 

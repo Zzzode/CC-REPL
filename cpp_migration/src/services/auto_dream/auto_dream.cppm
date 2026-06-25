@@ -109,7 +109,7 @@ public:
     [[nodiscard]] std::expected<ConsolidationResult, Error> consolidate() {
         std::lock_guard lock(mutex_);
         if (state_ == DreamState::Running) {
-            return std::unexpected(Error{ErrorCode::InvalidInput, {}, "consolidation already running"});
+            return std::unexpected(Error::make(ErrorCode::InvalidInput, "consolidation already running"));
         }
         state_ = DreamState::Running;
         auto start = Clock::now();

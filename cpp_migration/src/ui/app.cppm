@@ -696,7 +696,9 @@ public:
                                 .tool_name = tool->name,
                                 .tool_use_id = tool->id.value,
                                 .input_json = tool->input_json == "{}" ? std::string{} : tool->input_json,
+                                .result_preview = {},
                                 .complete = false,
+                                .is_error = false,
                             };
                             screen_state_->spinner_mode = repl::SpinnerMode::ToolUse;
                             screen_state_->spinner_verb = tool->name;

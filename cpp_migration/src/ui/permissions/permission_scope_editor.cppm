@@ -485,10 +485,11 @@ struct EditorState {
 
 /// Flush the current UI allowlist state into the engine.
 /// This removes-and-readds to match what the user sees in the table.
-inline void FlushAllowlistToEngine(EditorState& st) {
+[[nodiscard]] inline bool FlushAllowlistToEngine(EditorState& st) {
+    bool changed = false;
     // Remove existing allowlist rules
     for (const auto& r : st.allowlist) {
-        eng::remove_rule(r.id);
+        changed = eng::remove_rule(r.id) || changed;
     }
     // Re-add enabled ones
     for (const auto& r : st.allowlist) {
@@ -501,8 +502,9 @@ inline void FlushAllowlistToEngine(EditorState& st) {
         rule.scope = PermissionScope::Project;
         rule.path_pattern = r.path_pattern;
         rule.priority = 50;
-        (void)eng::add_rule(std::move(rule));
+        changed = eng::add_rule(std::move(rule)).has_value() || changed;
     }
+    return changed;
 }
 
 /// Sync allowlist rows from the engine (for import).
@@ -556,8 +558,9 @@ inline bool HandleAllowlistEvents(EditorState& st, Event event) {
                 row.scope = scopes[st.new_scope_idx];
                 row.enabled = true;
                 st.allowlist.push_back(std::move(row));
-                FlushAllowlistToEngine(st);
-                ++st.rules_changed_count;
+                if (FlushAllowlistToEngine(st)) {
+                    ++st.rules_changed_count;
+                }
             }
             st.adding_row = false;
             st.new_path_pattern.clear();
@@ -611,8 +614,9 @@ inline bool HandleAllowlistEvents(EditorState& st, Event event) {
         // Toggle enabled on cursor row (skip default rows)
         if (st.al_cursor < N && !st.allowlist[st.al_cursor].is_default) {
             st.allowlist[st.al_cursor].enabled = !st.allowlist[st.al_cursor].enabled;
-            FlushAllowlistToEngine(st);
-            ++st.rules_changed_count;
+            if (FlushAllowlistToEngine(st)) {
+                ++st.rules_changed_count;
+            }
             return true;
         }
         return false;
@@ -622,10 +626,12 @@ inline bool HandleAllowlistEvents(EditorState& st, Event event) {
             auto id = st.allowlist[st.al_cursor].id;
             st.allowlist.erase(st.allowlist.begin() +
                 static_cast<std::ptrdiff_t>(st.al_cursor));
-            eng::remove_rule(id);
+            const bool removed = eng::remove_rule(id);
             if (st.al_cursor >= st.allowlist.size() && !st.allowlist.empty())
                 st.al_cursor = st.allowlist.size() - 1;
-            ++st.rules_changed_count;
+            if (removed) {
+                ++st.rules_changed_count;
+            }
             return true;
         }
         return false;
@@ -745,7 +751,7 @@ inline bool HandlePreapprovalEvents(EditorState& st, Event event) {
             st.preapprovals[st.pa_cursor].enabled = !st.preapprovals[st.pa_cursor].enabled;
             // sync to engine: remove + readd
             auto id = st.preapprovals[st.pa_cursor].id;
-            eng::remove_rule(id);
+            bool changed = eng::remove_rule(id);
             if (st.preapprovals[st.pa_cursor].enabled) {
                 const auto& pr = st.preapprovals[st.pa_cursor];
                 PermissionRule rule;
@@ -756,9 +762,11 @@ inline bool HandlePreapprovalEvents(EditorState& st, Event event) {
                 rule.strategy = MatchStrategy::Glob;
                 rule.path_pattern = pr.path_pattern;
                 rule.priority = 100;
-                (void)eng::add_rule(std::move(rule));
+                changed = eng::add_rule(std::move(rule)).has_value() || changed;
             }
-            ++st.rules_changed_count;
+            if (changed) {
+                ++st.rules_changed_count;
+            }
             return true;
         }
         return false;
@@ -768,10 +776,12 @@ inline bool HandlePreapprovalEvents(EditorState& st, Event event) {
             auto id = st.preapprovals[st.pa_cursor].id;
             st.preapprovals.erase(st.preapprovals.begin() +
                 static_cast<std::ptrdiff_t>(st.pa_cursor));
-            eng::remove_rule(id);
+            const bool removed = eng::remove_rule(id);
             if (st.pa_cursor >= st.preapprovals.size() && !st.preapprovals.empty())
                 st.pa_cursor = st.preapprovals.size() - 1;
-            ++st.rules_changed_count;
+            if (removed) {
+                ++st.rules_changed_count;
+            }
             return true;
         }
         return false;
@@ -831,10 +841,14 @@ inline bool HandleDangerousEvents(EditorState& st, Event event) {
         auto& d = st.dangerous[st.dp_cursor];
         if (d.exception != DangerousPathRow::ExceptionStatus::None) {
             // remove both possible engine rules
-            eng::remove_rule(std::format("dp_ws_{}", d.path));
-            eng::remove_rule(std::format("dp_never_{}", d.path));
+            const bool removed_workspace =
+                eng::remove_rule(std::format("dp_ws_{}", d.path));
+            const bool removed_never =
+                eng::remove_rule(std::format("dp_never_{}", d.path));
             d.exception = DangerousPathRow::ExceptionStatus::None;
-            ++st.rules_changed_count;
+            if (removed_workspace || removed_never) {
+                ++st.rules_changed_count;
+            }
         }
         return true;
     }

@@ -16,6 +16,7 @@ module;
 #include <ranges>
 #include <algorithm>
 #include <functional>
+#include <utility>
 
 export module cc.services.tips;
 
@@ -138,59 +139,45 @@ public:
     }
 
 private:
+    void register_builtin_tip(std::string id, std::string content, TipCategory category) {
+        Tip tip;
+        tip.id = std::move(id);
+        tip.content = std::move(content);
+        tip.category = category;
+        register_tip(std::move(tip));
+    }
+
     /// Load built-in tips covering features, shortcuts, and workflows
     void load_builtin_tips() {
         // --- Shortcut tips ---
-        register_tip({"shortcut-escape", "Press Escape to interrupt the current response",
-                      TipCategory::Shortcut});
-        register_tip({"shortcut-clear", "Use /clear to start a fresh conversation",
-                      TipCategory::Shortcut});
-        register_tip({"shortcut-compact", "Use /compact to compress context when hitting limits",
-                      TipCategory::Shortcut});
-        register_tip({"shortcut-help", "Type /help for a list of all slash commands",
-                      TipCategory::Shortcut});
-        register_tip({"shortcut-vim", "Enable /vim for vi-mode keybindings in the input",
-                      TipCategory::Shortcut});
+        register_builtin_tip("shortcut-escape", "Press Escape to interrupt the current response", TipCategory::Shortcut);
+        register_builtin_tip("shortcut-clear", "Use /clear to start a fresh conversation", TipCategory::Shortcut);
+        register_builtin_tip("shortcut-compact", "Use /compact to compress context when hitting limits", TipCategory::Shortcut);
+        register_builtin_tip("shortcut-help", "Type /help for a list of all slash commands", TipCategory::Shortcut);
+        register_builtin_tip("shortcut-vim", "Enable /vim for vi-mode keybindings in the input", TipCategory::Shortcut);
 
         // --- Feature tips ---
-        register_tip({"feature-mcp", "Connect external tools via MCP with /mcp add",
-                      TipCategory::Feature});
-        register_tip({"feature-agent", "Spawn sub-agents for parallel work with the Agent tool",
-                      TipCategory::Feature});
-        register_tip({"feature-review", "Use /review to get a code review of staged changes",
-                      TipCategory::Feature});
-        register_tip({"feature-commit", "Use /commit to auto-generate commit messages",
-                      TipCategory::Feature});
-        register_tip({"feature-doctor", "Run /doctor to diagnose configuration issues",
-                      TipCategory::Feature});
-        register_tip({"feature-cost", "Track token usage and cost with /cost",
-                      TipCategory::Feature});
-        register_tip({"feature-context", "Add files to context with /context add <path>",
-                      TipCategory::Feature});
+        register_builtin_tip("feature-mcp", "Connect external tools via MCP with /mcp add", TipCategory::Feature);
+        register_builtin_tip("feature-agent", "Spawn sub-agents for parallel work with the Agent tool", TipCategory::Feature);
+        register_builtin_tip("feature-review", "Use /review to get a code review of staged changes", TipCategory::Feature);
+        register_builtin_tip("feature-commit", "Use /commit to auto-generate commit messages", TipCategory::Feature);
+        register_builtin_tip("feature-doctor", "Run /doctor to diagnose configuration issues", TipCategory::Feature);
+        register_builtin_tip("feature-cost", "Track token usage and cost with /cost", TipCategory::Feature);
+        register_builtin_tip("feature-context", "Add files to context with /context add <path>", TipCategory::Feature);
 
         // --- Workflow tips ---
-        register_tip({"workflow-plan", "Use /plan for complex tasks to get a step-by-step approach",
-                      TipCategory::Workflow});
-        register_tip({"workflow-resume", "Resume previous sessions with /resume",
-                      TipCategory::Workflow});
-        register_tip({"workflow-branch", "Use /branch to work on isolated task branches",
-                      TipCategory::Workflow});
-        register_tip({"workflow-export", "Export conversations with /export for sharing",
-                      TipCategory::Workflow});
-        register_tip({"workflow-session", "Use /session to manage and switch between sessions",
-                      TipCategory::Workflow});
+        register_builtin_tip("workflow-plan", "Use /plan for complex tasks to get a step-by-step approach", TipCategory::Workflow);
+        register_builtin_tip("workflow-resume", "Resume previous sessions with /resume", TipCategory::Workflow);
+        register_builtin_tip("workflow-branch", "Use /branch to work on isolated task branches", TipCategory::Workflow);
+        register_builtin_tip("workflow-export", "Export conversations with /export for sharing", TipCategory::Workflow);
+        register_builtin_tip("workflow-session", "Use /session to manage and switch between sessions", TipCategory::Workflow);
 
         // --- Performance tips ---
-        register_tip({"perf-compact", "Compacting context reduces tokens and cost significantly",
-                      TipCategory::Performance});
-        register_tip({"perf-model", "Switch to a faster model with /model for simple tasks",
-                      TipCategory::Performance});
-        register_tip({"perf-context", "Keep context focused: remove unneeded files from context",
-                      TipCategory::Performance});
-        register_tip({"perf-cache", "System prompt caching saves tokens on repeated tool use",
-                      TipCategory::Performance});
-        register_tip({"perf-parallel", "Use team mode for parallel independent tasks",
-                      TipCategory::Performance});
+        register_builtin_tip("perf-compact", "Compacting context reduces tokens and cost significantly", TipCategory::Performance);
+        register_builtin_tip("perf-model", "Switch to a faster model with /model for simple tasks", TipCategory::Performance);
+        register_builtin_tip("perf-context", "Keep context focused: remove unneeded files from context", TipCategory::Performance);
+        register_builtin_tip("perf-cache", "System prompt caching saves tokens on repeated tool use", TipCategory::Performance);
+        register_builtin_tip("perf-parallel", "Use team mode for parallel independent tasks", TipCategory::Performance);
     }
 
     std::unordered_map<std::string, Tip> tips_;
@@ -233,6 +220,7 @@ public:
     /// Check whether a tip should be shown now (respects cooldown and preferences)
     [[nodiscard]] bool should_show() const {
         if (!enabled_) return false;
+        if (shown_this_session_ >= max_per_session_) return false;
         auto now = std::chrono::steady_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - last_shown_);
         return elapsed >= periodic_interval_;
@@ -240,12 +228,14 @@ public:
 
     /// Get a tip for the given event (if a trigger is registered)
     [[nodiscard]] std::optional<Tip> get_tip_for_event(TipEvent event) {
+        if (!enabled_ || shown_this_session_ >= max_per_session_) return std::nullopt;
         auto it = event_triggers_.find(event);
         if (it == event_triggers_.end()) return std::nullopt;
         auto tip = registry_.get_next_tip(it->second);
         if (tip) {
             registry_.mark_shown(tip->id);
             last_shown_ = std::chrono::steady_clock::now();
+            ++shown_this_session_;
         }
         return tip;
     }
@@ -260,6 +250,7 @@ public:
         if (tip) {
             registry_.mark_shown(tip->id);
             last_shown_ = std::chrono::steady_clock::now();
+            ++shown_this_session_;
         }
         return tip;
     }

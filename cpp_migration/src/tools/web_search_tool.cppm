@@ -295,7 +295,9 @@ public:
                         .name = "query",
                         .type = "string",
                         .description = "Search query string",
-                        .required = true
+                        .required = true,
+                        .default_value = std::nullopt,
+                        .enum_values = std::nullopt
                     }
                 }
             },
@@ -306,7 +308,7 @@ public:
     
     WebSearchTool() = default;
     
-    [[nodiscard]] bool check_permission(const ToolInput& input) const {
+    [[nodiscard]] bool check_permission([[maybe_unused]] const ToolInput& input) const {
         return true;
     }
     

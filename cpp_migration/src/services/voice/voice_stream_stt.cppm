@@ -357,7 +357,10 @@ private:
 
             // Read payload
             std::vector<uint8_t> payload(payload_len);
-            if (payload_len > 0 && recv_exact(payload.data(), payload_len) != payload_len) break;
+            if (payload_len > 0) {
+                const auto received = recv_exact(payload.data(), payload_len);
+                if (received < 0 || static_cast<uint64_t>(received) != payload_len) break;
+            }
 
             if (masked) {
                 for (size_t i = 0; i < payload_len; ++i)

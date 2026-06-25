@@ -635,12 +635,12 @@ private:
         
         // Load resources
         if (client.server_capabilities().resources) {
-            client.list_resources();
+            (void)client.list_resources();
         }
         
         // Load prompts
         if (client.server_capabilities().prompts) {
-            client.list_prompts();
+            (void)client.list_prompts();
         }
     }
 

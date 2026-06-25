@@ -178,6 +178,7 @@ public:
             .message_id = msg_id,
             .status = DeliveryStatus::Delivered,
             .timestamp = std::chrono::system_clock::now(),
+            .error_detail = std::nullopt
         };
     }
 
@@ -240,7 +241,9 @@ public:
             .priority = priority,
             .status = DeliveryStatus::Queued,
             .sent_at = std::chrono::system_clock::now(),
+            .delivered_at = std::nullopt,
             .reply_to = std::move(reply_to),
+            .metadata = {}
         };
 
         return MessageRouter::instance().route(std::move(msg));

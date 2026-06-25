@@ -157,8 +157,8 @@ struct SchemaProperty {
     std::string type;                        // "string", "number", "boolean", "array", "object"
     std::string description;
     bool required = false;
-    std::optional<std::string> default_value;
-    std::optional<std::vector<std::string>> enum_values;  // For enum-typed properties
+    std::optional<std::string> default_value = std::nullopt;
+    std::optional<std::vector<std::string>> enum_values = std::nullopt;  // For enum-typed properties
 };
 
 /// Full JSON schema describing a tool's expected input
@@ -206,7 +206,7 @@ struct ToolDefinition {
     InputSchema input_schema;            // JSON schema for tool parameters
     ToolPermission permission;           // Required permission level
     bool is_hidden = false;              // Hidden tools are not shown in listings
-    std::optional<std::string> category; // Grouping category (e.g., "filesystem", "search")
+    std::optional<std::string> category = std::nullopt; // Grouping category (e.g., "filesystem", "search")
     std::size_t max_result_size_chars = 100'000; // TS maxResultSizeChars default for result persistence
     bool max_result_size_unbounded = false;      // TS maxResultSizeChars: Infinity
 };

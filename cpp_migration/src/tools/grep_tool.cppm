@@ -54,13 +54,17 @@ public:
                         .name = "pattern",
                         .type = "string",
                         .description = "Search pattern (string or regex)",
-                        .required = true
+                        .required = true,
+                        .default_value = std::nullopt,
+                        .enum_values = std::nullopt
                     },
                     SchemaProperty{
                         .name = "path",
                         .type = "string",
                         .description = "Directory or file to search in",
-                        .required = false
+                        .required = false,
+                        .default_value = std::nullopt,
+                        .enum_values = std::nullopt
                     }
                 }
             },
@@ -72,7 +76,7 @@ public:
     
     GrepTool() = default;
     
-    [[nodiscard]] bool check_permission(const ToolInput& input) const {
+    [[nodiscard]] bool check_permission([[maybe_unused]] const ToolInput& input) const {
         return true;
     }
     

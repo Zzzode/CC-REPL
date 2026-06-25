@@ -39,14 +39,14 @@ public:
         return CommandDefinition{
             .name = "plan",
             .description = "Enter plan mode (read-only) or show current plan",
-            .aliases = {},
             .args = {
                 CommandArg{.name = "action", .description = "on | off | show | clear",
                            .type = ArgType::Choice, .required = false,
                            .choices = {"on", "off", "show", "clear"}},
             },
-            .hidden = false,
             .category = "session",
+            .aliases = {},
+            .hidden = false,
         };
     }
 

@@ -45,7 +45,7 @@ struct SessionConfig {
     std::uint32_t heartbeat_interval_ms = 30000;   // Heartbeat ping interval
     std::uint32_t auth_timeout_ms = 5000;          // Authentication timeout
     std::uint8_t max_reconnect_attempts = 10;      // Max reconnection attempts
-    std::optional<std::string> jwt_secret;         // Secret for JWT validation
+    std::optional<std::string> jwt_secret{};       // Secret for JWT validation
 
     /// Default configuration for local development
     [[nodiscard]] static SessionConfig dev_defaults() {
@@ -330,7 +330,9 @@ private:
         auto* self = static_cast<SessionRunner*>(handle->data);
         if (self->bridge_ && self->bridge_->is_connected()) {
             // Send a progress update as heartbeat
-            self->send(OutboundMessage{.type = "heartbeat", .content = "keepalive"});
+            if (auto result = self->send(OutboundMessage{.type = "heartbeat", .content = "keepalive"}); !result) {
+                self->handle_error(result.error());
+            }
         }
     }
 

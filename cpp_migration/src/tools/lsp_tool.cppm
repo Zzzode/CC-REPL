@@ -91,8 +91,8 @@ struct LspPosition {
 
 // Range in a document
 struct LspRange {
-    LspPosition start;
-    LspPosition end;
+    LspPosition start{};
+    LspPosition end{};
 };
 
 // Location result (file + range)
@@ -130,13 +130,13 @@ struct LspSymbol {
 // from/to peer of incoming/outgoing call edges.
 struct LspCallItem {
     std::string name;
-    std::string kind;        // human-readable SymbolKind name
-    std::string uri;
-    std::string detail;
-    std::optional<std::string> tags;       // raw tag array string when present
-    LspRange range;
-    LspRange selection_range;
-    std::optional<std::string> data_json;  // opaque server payload
+    std::string kind = {};        // human-readable SymbolKind name
+    std::string uri = {};
+    std::string detail = {};
+    std::optional<std::string> tags = std::nullopt; // raw tag array string when present
+    LspRange range{};
+    LspRange selection_range{};
+    std::optional<std::string> data_json = std::nullopt; // opaque server payload
 };
 
 // CallHierarchyIncomingCall / OutgoingCall edge. For incoming, `peer` is the
@@ -157,8 +157,8 @@ struct LspHoverResult {
 struct LspRequest {
     LspAction action;
     std::filesystem::path file_path;
-    std::optional<LspPosition> position;  // Required for definition, references, completion, hover
-    std::optional<std::string> query;     // Optional filter for symbols
+    std::optional<LspPosition> position = std::nullopt; // Required for definition, references, completion, hover
+    std::optional<std::string> query = std::nullopt;    // Optional filter for symbols
 };
 
 // Unified LSP result (variant of all possible response types)
@@ -391,7 +391,10 @@ inline void append_symbol(
     if (!root.is_obj()) return result;
     auto contents = contents_to_text(root.get("contents"));
     if (contents.empty()) return result;
-    LspHoverResult hover{.contents = std::move(contents)};
+    LspHoverResult hover{
+        .contents = std::move(contents),
+        .range = std::nullopt
+    };
     auto range = root.get("range");
     if (range.is_obj()) hover.range = parse_range(range);
     result.hover = std::move(hover);

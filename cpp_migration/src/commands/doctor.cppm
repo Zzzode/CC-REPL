@@ -60,11 +60,11 @@ enum class CheckStatus : std::uint8_t {
 
 /// Result of a single diagnostic check
 struct DiagnosticCheck {
-    std::string name;
-    CheckStatus status;
-    std::string message;
-    std::optional<std::string> detail;
-    std::optional<std::string> fix_suggestion;
+    std::string name{};
+    CheckStatus status{CheckStatus::Skip};
+    std::string message{};
+    std::optional<std::string> detail{};
+    std::optional<std::string> fix_suggestion{};
 };
 
 /// DoctorCommand implements the /doctor slash command.
@@ -75,15 +75,15 @@ public:
         return CommandDefinition{
             .name = "doctor",
             .description = "Run system diagnostics and check environment health",
-            .aliases = {"diag"},
             .args = {
                 CommandArg{.name = "--verbose", .description = "Show detailed diagnostic info",
                            .type = ArgType::None, .required = false},
                 CommandArg{.name = "--fix", .description = "Attempt to fix common issues",
                            .type = ArgType::None, .required = false},
             },
-            .hidden = false,
             .category = "session",
+            .aliases = {"diag"},
+            .hidden = false,
         };
     }
 
@@ -460,11 +460,10 @@ private:
     /// Run a shell command and return output through the command runner.
     [[nodiscard]] static std::string run_command(std::string_view cmd) {
         if (cmd.empty()) return {};
-        std::array<char, 4096> buffer{};
         std::string result;
         auto pipe_cap = cc::utils::bash::exec_capture(std::string(cmd).c_str());
-    if (!pipe_cap) return {};
-    result = std::move(pipe_cap->output);
+        if (!pipe_cap) return {};
+        result = std::move(pipe_cap->output);
         // Trim trailing newline
         while (!result.empty() && (result.back() == '\n' || result.back() == '\r')) {
             result.pop_back();

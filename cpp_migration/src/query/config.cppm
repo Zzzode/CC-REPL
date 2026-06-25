@@ -23,15 +23,15 @@ enum class EffortLevel : std::uint8_t {
 
 /// Query configuration options
 struct QueryConfig {
-    std::string model;
-    std::optional<int> max_tokens;
-    std::optional<double> temperature;
+    std::string model{};
+    std::optional<int> max_tokens{};
+    std::optional<double> temperature{};
     EffortLevel effort = EffortLevel::High;
     bool enable_thinking = true;
     int thinking_budget = 10'000;
     bool enable_caching = true;
-    std::optional<std::chrono::milliseconds> timeout;
-    std::vector<std::string> stop_sequences;
+    std::optional<std::chrono::milliseconds> timeout{};
+    std::vector<std::string> stop_sequences{};
     bool stream = true;
 };
 

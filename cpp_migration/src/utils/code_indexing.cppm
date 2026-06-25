@@ -235,7 +235,7 @@ public:
                 continue;
             }
             if (current_mtime != mtime) {
-                index_file(path);
+                (void)index_file(path);
                 ++refreshed;
             }
         }

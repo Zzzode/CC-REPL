@@ -44,7 +44,6 @@ public:
         return CommandDefinition{
             .name = "session",
             .description = "Manage conversation sessions",
-            .aliases = {"sessions"},
             .args = {
                 CommandArg{.name = "action", .description = "list | info | rename | delete | export",
                            .type = ArgType::Choice, .required = false,
@@ -52,8 +51,9 @@ public:
                 CommandArg{.name = "value", .description = "New name, session ID, or export path",
                            .type = ArgType::Text, .required = false},
             },
-            .hidden = false,
             .category = "session",
+            .aliases = {"sessions"},
+            .hidden = false,
         };
     }
 

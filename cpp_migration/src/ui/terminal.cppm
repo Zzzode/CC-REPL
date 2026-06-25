@@ -255,7 +255,7 @@ public:
 
     /// Build the main component tree and run the interactive loop.
     /// This blocks until the user exits.
-    void run(const cc::state::AppState& initial_state) {
+    void run(const cc::state::AppState&) {
         std::string input_content;
 
         // Input component with multiline support
@@ -291,7 +291,7 @@ public:
 
 private:
     /// Handle key events and dispatch to actions
-    bool handle_key_event(ftxui::Event& event, std::string& input) {
+    bool handle_key_event(ftxui::Event& event, std::string&) {
         // Ctrl+C: interrupt
         if (event == ftxui::Event::Special("\x03")) {
             if (on_interrupt_) on_interrupt_();

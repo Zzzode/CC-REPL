@@ -191,7 +191,6 @@ public:
         return CommandDefinition{
             .name = "copy",
             .description = "Copy response content to clipboard or file",
-            .aliases = {"cp"},
             .args = {
                 CommandArg{.name = "subcommand", .description =
                     "last | message N | codeblock N | all-as-markdown | all-as-json | path PATH",
@@ -201,8 +200,9 @@ public:
                 CommandArg{.name = "--stdout", .description = "Print to stdout instead of clipboard",
                            .type = ArgType::None, .required = false},
             },
-            .hidden = false,
             .category = "tools",
+            .aliases = {"cp"},
+            .hidden = false,
         };
     }
 

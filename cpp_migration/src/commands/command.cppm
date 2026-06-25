@@ -122,7 +122,7 @@ class ICommand {
 public:
     virtual ~ICommand() = default;
     [[nodiscard]] virtual const CommandDefinition& definition() const noexcept = 0;
-    [[nodiscard]] virtual VoidResult validate(const CommandContext& ctx) = 0;
+    [[nodiscard]] virtual VoidResult validate(const CommandContext&) = 0;
     [[nodiscard]] virtual Result<CommandResult> execute(const CommandContext& ctx) = 0;
     [[nodiscard]] virtual std::vector<std::string> complete(std::string_view partial) { (void)partial; return {}; }
 };

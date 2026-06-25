@@ -28,13 +28,13 @@ public:
         return CommandDefinition{
             .name = "tag",
             .description = "Toggle a searchable tag on the current session",
-            .aliases = {},
             .args = {
                 CommandArg{.name = "tag-name", .description = "Name of the tag to add/remove",
                            .type = ArgType::Text, .required = false},
             },
-            .hidden = false,
             .category = "session",
+            .aliases = {},
+            .hidden = false,
         };
     }
 

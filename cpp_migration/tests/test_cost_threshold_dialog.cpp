@@ -218,7 +218,12 @@ TEST(CostThreshold, PayloadWithoutModelNameYieldsEmptyOptional) {
 
 // Test 8 — Renderer includes interpolated title.
 TEST(CostThreshold, RenderShowsInterpolatedTitle) {
-    ct::CostThresholdState st{.dollars_spent = 5.0, .selected_index = 0};
+    ct::CostThresholdState st{
+        .dollars_spent = 5.0,
+        .model_name = std::nullopt,
+        .selected_index = 0,
+        .on_done = nullptr,
+    };
     auto plain = strip_ansi(render_to_plain_text(ct::RenderCostThreshold(st), 78, 14));
     EXPECT_NE(plain.find("You've spent $5 on the Anthropic API this session."),
               std::string::npos);
@@ -226,7 +231,12 @@ TEST(CostThreshold, RenderShowsInterpolatedTitle) {
 
 // Test 9 — Renderer includes docs URL (body paragraph + external link).
 TEST(CostThreshold, RenderShowsDocsLink) {
-    ct::CostThresholdState st{.dollars_spent = 12.0, .selected_index = 0};
+    ct::CostThresholdState st{
+        .dollars_spent = 12.0,
+        .model_name = std::nullopt,
+        .selected_index = 0,
+        .on_done = nullptr,
+    };
     auto plain = strip_ansi(render_to_plain_text(ct::RenderCostThreshold(st), 78, 14));
     EXPECT_NE(plain.find("Learn more about how to monitor your spending:"),
               std::string::npos);
@@ -239,6 +249,7 @@ TEST(CostThreshold, RenderShowsModelNameWhenPresent) {
         .dollars_spent = 5.0,
         .model_name    = std::string("claude-opus-3"),
         .selected_index = 0,
+        .on_done = nullptr,
     };
     auto plain = strip_ansi(render_to_plain_text(ct::RenderCostThreshold(st), 78, 14));
     EXPECT_NE(plain.find("(model: claude-opus-3)"), std::string::npos);
@@ -250,6 +261,7 @@ TEST(CostThreshold, RenderOmitsModelLineWhenEmpty) {
         .dollars_spent = 12.0,
         .model_name    = std::nullopt,
         .selected_index = 0,
+        .on_done = nullptr,
     };
     auto plain = strip_ansi(render_to_plain_text(ct::RenderCostThreshold(st), 78, 14));
     EXPECT_EQ(plain.find("(model:"), std::string::npos);
@@ -258,7 +270,12 @@ TEST(CostThreshold, RenderOmitsModelLineWhenEmpty) {
 // Test 12 — Renderer has EXACTLY one Select-style option ("Got it, thanks!").
 //            NO fabricated "Continue / Reset / Quit" 3-action chrome.
 TEST(CostThreshold, RenderHasSingleGotItThanksButtonNo3ActionChrome) {
-    ct::CostThresholdState st{.dollars_spent = 5.0, .selected_index = 0};
+    ct::CostThresholdState st{
+        .dollars_spent = 5.0,
+        .model_name = std::nullopt,
+        .selected_index = 0,
+        .on_done = nullptr,
+    };
     auto plain = strip_ansi(render_to_plain_text(ct::RenderCostThreshold(st), 78, 14));
 
     // The single correct button label must appear.
@@ -281,6 +298,7 @@ TEST(CostThreshold, Golden_TitleWithInterpolatedDollars) {
         .dollars_spent  = 4.7,  // rounds to $5
         .model_name     = std::string("claude-3-5-sonnet-20241022"),
         .selected_index = 0,
+        .on_done = nullptr,
     };
     const auto actual = norm(render_to_plain_text(ct::RenderCostThreshold(st), 78, 12));
     const auto path = golden_dir() / "cost_threshold_title_with_interpolated_dollars.txt";
@@ -299,6 +317,7 @@ TEST(CostThreshold, Golden_WithDocsLinkRendered) {
         .dollars_spent  = 12.0,
         .model_name     = std::nullopt,
         .selected_index = 0,
+        .on_done = nullptr,
     };
     const auto actual = norm(render_to_plain_text(ct::RenderCostThreshold(st), 78, 11));
     const auto path = golden_dir() / "cost_threshold_with_docs_link_rendered.txt";

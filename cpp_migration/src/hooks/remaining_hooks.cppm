@@ -162,7 +162,12 @@ public:
     void detect() {
 
         if (std::getenv("SSH_CONNECTION")) {
-            session_ = SSHInfo{.host = "remote", .connected = true};
+            session_ = SSHInfo{
+                .host = "remote",
+                .user = {},
+                .port = 22,
+                .connected = true
+            };
         }
     }
     [[nodiscard]] auto is_ssh() const -> bool { return session_.has_value(); }

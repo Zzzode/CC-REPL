@@ -77,6 +77,10 @@ protected:
                 .description = "Echo back input",
                 .input_schema = cc::core::InputSchema{},
                 .permission = cc::core::ToolPermission::ReadOnly,
+                .is_hidden = false,
+                .category = std::nullopt,
+                .max_result_size_chars = 100'000,
+                .max_result_size_unbounded = false,
             },
         };
 

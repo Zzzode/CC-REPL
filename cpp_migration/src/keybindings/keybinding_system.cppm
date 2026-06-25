@@ -202,7 +202,7 @@ private:
 
 
         actions_ = {
-            {"submit", "submit input", {.key = "Enter"}, KeybindingContext::insert},
+            {"submit", "submit input", {.key = "Enter", .modifiers = {}}, KeybindingContext::insert},
             {"newline", "insert newline", {.key = "Enter", .modifiers = {.shift = true}}, KeybindingContext::insert},
             {"cancel", "cancel", {.key = "c", .modifiers = {.ctrl = true}}, KeybindingContext::global},
             {"clear", "clear screen", {.key = "l", .modifiers = {.ctrl = true}}, KeybindingContext::global},

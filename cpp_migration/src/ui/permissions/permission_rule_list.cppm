@@ -85,11 +85,11 @@ struct RuleEntry {
     MatchStrategy                strategy  = MatchStrategy::Glob;
     PermissionAction             action    = PermissionAction::Ask;
     PermissionScope              scope     = PermissionScope::Session;
-    std::optional<std::string>   path_pattern;
+    std::optional<std::string>   path_pattern = std::nullopt;
     int                          priority  = 50;
 
     std::string                  group_id;       // e.g. "g3"
-    std::vector<std::string>     tools;          // explicit tool list (ToolMulti)
+    std::vector<std::string>     tools = {};     // explicit tool list (ToolMulti)
     std::string                  description;    // human-readable rule memo
     std::string                  source;         // Bundled / User / CustomPath
     bool                         enabled     = true;
@@ -1599,7 +1599,7 @@ struct DenialEntry {
     std::string path;              // affected path / target
     std::string deny_reason;       // why it was denied
     bool        resolved = false;
-    std::string rule_that_would_allow;
+    std::string rule_that_would_allow = {};
 };
 
 // --- Workspace directory -------------------------------------------------
@@ -1661,7 +1661,7 @@ inline auto acknowledge(int idx) -> void {
 
 /// Internal helper: push a fresh denial.  Used by unit tests and by hooks
 /// that feed denials into the UI.
-[[nodiscard]] inline auto push_denial(DenialEntry d) -> void {
+inline auto push_denial(DenialEntry d) -> void {
     auto& s = g_state();
     std::lock_guard<std::mutex> lk(s.mx);
     if (d.ts_ms == 0) {
@@ -2169,20 +2169,29 @@ enum class PermTab : std::uint8_t {
         return peng::workspace_directories();
     };
 
-    auto do_add = [add_modal_open, on_add](fs::path p, peng::WorkspaceEntry::Policy pol) {
+    auto do_add = [add_modal_open, add_result, on_add](
+        fs::path p,
+        peng::WorkspaceEntry::Policy pol)
+    {
         *add_modal_open = false;
-        if (on_add) on_add(std::move(p), pol);
-        else {
+        if (on_add) {
+            on_add(std::move(p), pol);
+            *add_result = {};
+        } else {
             // Default: mutate the engine singleton directly.
-            peng::add_workspace_dir(std::move(p), pol);
+            *add_result = peng::add_workspace_dir(std::move(p), pol);
         }
     };
 
     auto do_remove = [rem_modal_open, on_remove, pending_remove](bool yes) {
+        bool removed = true;
         if (yes && pending_remove->has_value()) {
             const auto p = (*pending_remove)->path;
             if (on_remove) on_remove(p);
-            else peng::remove_workspace_dir(p);
+            else removed = peng::remove_workspace_dir(p);
+        }
+        if (!removed) {
+            return;
         }
         *pending_remove = std::nullopt;
         *rem_modal_open = false;
@@ -2476,7 +2485,7 @@ enum class PermTab : std::uint8_t {
         if (on_no) on_no();
     };
 
-    return Renderer([&open, entry, disabled, do_yes, do_no] {
+    return Renderer([entry, disabled, do_yes, do_no] {
         Elements body_lines;
         body_lines.push_back(paragraph(
             std::format("Remove workspace rule for {}?", entry.path.string())));
@@ -2504,7 +2513,7 @@ enum class PermTab : std::uint8_t {
         });
         return DialogFrame(" Remove Workspace Rule ", Color::Red,
                            std::move(body), std::move(footer));
-    }) | CatchEvent([&open, disabled, do_yes, do_no](Event e) {
+    }) | CatchEvent([disabled, do_yes, do_no](Event e) {
         if (e == Event::Escape || e == Event::Character('n')
                                || e == Event::Character('N')) {
             do_no(); return true;
@@ -2966,4 +2975,3 @@ using namespace rl_anon_2; // unnamed
 namespace cc::utils::permissions {
     namespace engine_engine_alias = cc::utils::permissions_engine;
 }
-

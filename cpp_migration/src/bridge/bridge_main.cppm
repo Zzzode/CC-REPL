@@ -688,6 +688,7 @@ private:
             .sdk_url = opts_.api_base_url,
             .access_token = work.secret,
             .use_ccr_v2 = false,
+            .worker_epoch = std::nullopt,
             .dir = opts_.dir,
         };
 
@@ -740,7 +741,6 @@ private:
         auto it = active_sessions_.find(session_id);
         if (it == active_sessions_.end()) return;
 
-        auto& handle = it->second;
         auto start = session_start_times_.find(session_id);
         auto duration = start != session_start_times_.end()
             ? std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -1040,6 +1040,7 @@ private:
     // --------------------------------------------------------
 
     static void on_signal(uv_signal_t* handle, int signum) {
+        (void)signum;
         auto* self = static_cast<BridgeMain*>(handle->data);
         self->shutting_down_.store(true);
         self->abort_poll_.store(true);
@@ -1052,7 +1053,7 @@ private:
             uv_timer_stop(handle);
             return;
         }
-        self->poll_once();
+        (void)self->poll_once();
 
         // Adjust the repeat interval based on current state
         auto interval = self->compute_poll_interval();

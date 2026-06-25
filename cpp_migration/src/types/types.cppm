@@ -348,9 +348,9 @@ enum class ErrorCode : std::uint16_t {
 struct Error {
     ErrorCode code;
     ErrorSeverity severity = ErrorSeverity::Error;
-    std::string message;
-    std::optional<std::string> detail;       // Extended diagnostic info
-    std::optional<std::string> suggestion;   // Suggested remediation
+    std::string message{};
+    std::optional<std::string> detail{};       // Extended diagnostic info
+    std::optional<std::string> suggestion{};   // Suggested remediation
 
     /// Create a simple error with message
     [[nodiscard]] static Error make(ErrorCode code, std::string message) {

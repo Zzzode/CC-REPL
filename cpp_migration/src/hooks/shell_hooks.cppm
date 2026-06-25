@@ -581,9 +581,11 @@ public:
             .event_name = "PreToolUse",
             .tool_name = std::string(tool_name),
             .tool_input_json = std::string(tool_input_json),
+            .tool_output_preview = {},
             .tool_use_id = std::string(tool_use_id),
             .session_id = std::string(session_id),
             .working_directory = std::filesystem::current_path().string(),
+            .extra_env = {}
         };
         return execute_event(HookEventType::PreToolUse, tool_name, ctx);
     }
@@ -598,10 +600,12 @@ public:
         HookContext ctx{
             .event_name = "PostToolUse",
             .tool_name = std::string(tool_name),
+            .tool_input_json = {},
             .tool_output_preview = std::string(output_preview),
             .tool_use_id = std::string(tool_use_id),
             .session_id = std::string(session_id),
             .working_directory = std::filesystem::current_path().string(),
+            .extra_env = {}
         };
         return execute_event(HookEventType::PostToolUse, tool_name, ctx);
     }
@@ -612,8 +616,13 @@ public:
     {
         HookContext ctx{
             .event_name = "Notification",
+            .tool_name = {},
+            .tool_input_json = {},
+            .tool_output_preview = {},
+            .tool_use_id = {},
             .session_id = std::string(session_id),
             .working_directory = std::filesystem::current_path().string(),
+            .extra_env = {}
         };
         return execute_event(HookEventType::Notification, "", ctx);
     }
@@ -624,8 +633,13 @@ public:
     {
         HookContext ctx{
             .event_name = "Stop",
+            .tool_name = {},
+            .tool_input_json = {},
+            .tool_output_preview = {},
+            .tool_use_id = {},
             .session_id = std::string(session_id),
             .working_directory = std::filesystem::current_path().string(),
+            .extra_env = {}
         };
         return execute_event(HookEventType::Stop, "", ctx);
     }
@@ -637,8 +651,13 @@ public:
     {
         HookContext ctx{
             .event_name = "UserPromptSubmit",
+            .tool_name = {},
+            .tool_input_json = {},
+            .tool_output_preview = {},
+            .tool_use_id = {},
             .session_id = std::string(session_id),
             .working_directory = std::filesystem::current_path().string(),
+            .extra_env = {}
         };
         ctx.extra_env["CLAUDE_HOOK_PROMPT"] = std::string(prompt_text);
         return execute_event(HookEventType::UserPromptSubmit, "", ctx);
@@ -787,7 +806,7 @@ public:
         if (!loader_.has_hooks_for_event(HookEventType::PostToolUse)) {
             return;
         }
-        executor_.execute_post_tool_use(tool_name, tool_use_id, output_preview, session_id);
+        (void)executor_.execute_post_tool_use(tool_name, tool_use_id, output_preview, session_id);
     }
 
     /// Get the deny reason from the last pre_tool_use check (if denied)
@@ -845,8 +864,13 @@ public:
             }
             HookContext ctx{
                 .event_name = "Stop",
+                .tool_name = {},
+                .tool_input_json = {},
+                .tool_output_preview = {},
+                .tool_use_id = {},
                 .session_id = session_id_,
                 .working_directory = std::filesystem::current_path().string(),
+                .extra_env = {}
             };
             auto summary = executor_.execute_event(HookEventType::Stop, "", ctx);
             if (summary.any_denied) {

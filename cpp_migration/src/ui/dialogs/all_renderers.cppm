@@ -20,7 +20,6 @@ import cc.ui.dialogs.modal_renderers;
 import cc.ui.dialogs.cost_threshold_dialog;
 import cc.ui.dialogs.sandbox_permission;
 import cc.ui.dialogs.quick_open;
-import cc.ui.dialogs.dialog_modern_renderer_stubs;
 
 export namespace cc::ui::dialogs::all_renderers {
 
@@ -65,28 +64,5 @@ using cc::ui::dialogs::sandbox_permission::HandleSandboxPermissionEvent;
 // ── Layer 3: quick_open (exact signatures already, direct using) ─────────
 using cc::ui::dialogs::quick_open::RenderQuickOpen;
 using cc::ui::dialogs::quick_open::HandleQuickOpenEvent;
-
-// ── Layer 4: modern chrome stubs for 12 remaining test-addressed dialogs ─
-// (ManagedSettingsSecurity, FeedbackSurvey, GlobalSearch, HistorySearch,
-//  PluginDialog, DiffDialog — each Render+Handle pair)
-namespace mr = cc::ui::dialogs::modern_renderers;
-
-using mr::RenderManagedSettingsSecurity;
-using mr::HandleManagedSettingsSecurityEvent;
-
-using mr::RenderFeedbackSurvey;
-using mr::HandleFeedbackSurveyEvent;
-
-using mr::RenderGlobalSearch;
-using mr::HandleGlobalSearchEvent;
-
-using mr::RenderHistorySearch;
-using mr::HandleHistorySearchEvent;
-
-using mr::RenderPluginDialog;
-using mr::HandlePluginDialogEvent;
-
-using mr::RenderDiffDialog;
-using mr::HandleDiffDialogEvent;
 
 }  // namespace cc::ui::dialogs::all_renderers

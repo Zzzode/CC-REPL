@@ -339,7 +339,7 @@ public:
         return client_.initialize(attributes);
     }
 
-    void write(const AnalyticsEvent& event) override {
+    void write(const AnalyticsEvent&) override {
         // Not used for GrowthBook - it's for feature flags, not event logging
     }
 

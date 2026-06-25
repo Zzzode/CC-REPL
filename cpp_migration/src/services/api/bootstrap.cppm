@@ -259,7 +259,7 @@ public:
         // Cache in background
         std::thread([config]() {
             BootstrapClient bg_client(config);
-            bg_client.fetch_and_cache();
+            (void)bg_client.fetch_and_cache();
         }).detach();
 
         return {};
@@ -308,7 +308,7 @@ private:
 // Simple async bootstrap (non-blocking)
 inline void bootstrap_async(const BootstrapConfig& config) {
     std::thread([config]() {
-        BootstrapState::instance().initialize(config);
+        (void)BootstrapState::instance().initialize(config);
     }).detach();
 }
 

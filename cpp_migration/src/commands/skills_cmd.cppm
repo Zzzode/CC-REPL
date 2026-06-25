@@ -67,7 +67,6 @@ public:
         return CommandDefinition{
             .name = "skills",
             .description = "Manage installed skills",
-            .aliases = {"skill"},
             .args = {
                 CommandArg{
                     .name = "action",
@@ -83,8 +82,9 @@ public:
                     .required = false,
                 },
             },
-            .hidden = false,
             .category = "tools",
+            .aliases = {"skill"},
+            .hidden = false,
         };
     }
 
@@ -379,13 +379,6 @@ private:
         // Invalidate any caches by re-running discover_all + manifests.
         cc::skills::SkillLoader loader;
         auto discovered = loader.discover_all();
-        std::size_t count = discovered ? discovered->size() : 0;
-
-        // Also count manifest-discovered skills.
-        for (const auto& path : cc::skills::get_skills_search_paths()) {
-            auto manifests = cc::skills::load_skills_directory(path);
-            count += manifests.size();
-        }
 
         // Deduplicate estimate: use set of names
         std::unordered_set<std::string> names;

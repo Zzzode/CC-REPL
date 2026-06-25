@@ -72,7 +72,6 @@ public:
         return CommandDefinition{
             .name = "commit",
             .description = "Generate a conventional commit message and commit staged changes",
-            .aliases = {"ci"},
             .args = {
                 CommandArg{.name = "--amend", .description = "Amend the previous commit",
                            .type = ArgType::None, .required = false},
@@ -81,8 +80,9 @@ public:
                 CommandArg{.name = "-m", .description = "Provide commit message directly (skip LLM generation)",
                            .type = ArgType::Text, .required = false},
             },
-            .hidden = false,
             .category = "git",
+            .aliases = {"ci"},
+            .hidden = false,
         };
     }
 
@@ -178,7 +178,13 @@ private:
 
         // Stage all tracked changes if --all flag
         if (opts.all) {
-            run_git_command("add -u");
+            const auto add_output = run_git_command("add -u");
+            if (add_output.starts_with("fatal:") || add_output.starts_with("error:")) {
+                return std::unexpected(Error::make(
+                    ErrorCode::ToolExecutionFailed,
+                    std::format("Git add failed: {}", add_output)
+                ));
+            }
         }
 
         // Get staged diff (what will be committed)

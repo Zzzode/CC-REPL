@@ -332,7 +332,7 @@ class ProviderErrorMessages {
 public:
     [[nodiscard]] static std::string_view model_not_found(
         Provider provider,
-        std::string_view model_id) {
+        std::string_view) {
         switch (provider) {
             case Provider::Anthropic:
                 return "Model not found";

@@ -177,7 +177,7 @@ struct WorkerBadgeProps {
 
 // Render a file edit preview showing old/new strings
 [[nodiscard]] inline auto render_file_edit_preview(const FileEditInfo& info,
-                                                    int terminal_width) -> std::string {
+                                                    int) -> std::string {
     std::string result;
     result += "\033[1m" + info.file_path + "\033[0m\n";
     result += "\033[31m- " + info.old_string.substr(0, 80) + "\033[0m\n";
@@ -187,7 +187,7 @@ struct WorkerBadgeProps {
 
 // Render a file write preview
 [[nodiscard]] inline auto render_file_write_preview(const FileWriteInfo& info,
-                                                     int terminal_width) -> std::string {
+                                                     int) -> std::string {
     std::string result;
     result += "\033[1m" + info.file_path + "\033[0m\n";
     auto preview = info.content.substr(0, 200);

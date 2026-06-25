@@ -102,7 +102,9 @@ public:
         plan_ = PlanDocument{
             .title = std::move(title),
             .summary = std::move(summary),
+            .sections = {},
             .created_at = std::chrono::system_clock::now(),
+            .finalized_at = std::nullopt
         };
         active_ = true;
         return {};

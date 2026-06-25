@@ -231,7 +231,7 @@ struct MessageModelInfo {
 // ============================================================
 /// Renders the plan-rejection card: subtle header + rounded bordered plan body.
 [[nodiscard]] inline Element render_rejected_plan_message(
-    std::string_view plan_text,
+    std::string_view,
     Element rendered_plan_body) {
     return render_message_response(
         vbox({

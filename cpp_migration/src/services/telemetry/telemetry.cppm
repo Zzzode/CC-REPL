@@ -118,7 +118,8 @@ public:
             .type = type, .name = std::move(name),
             .properties = std::move(props), .metrics = std::move(metrics),
             .timestamp = std::chrono::system_clock::now(),
-            .session_id = current_session_id_
+            .session_id = current_session_id_,
+            .trace_id = std::nullopt,
         };
         buffer_.push_back(std::move(event));
         

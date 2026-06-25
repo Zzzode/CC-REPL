@@ -41,7 +41,6 @@ public:
         return CommandDefinition{
             .name = "diff",
             .description = "Show file changes made in the current session",
-            .aliases = {},
             .args = {
                 CommandArg{.name = "mode", .description = "full | summary | stat",
                            .type = ArgType::Choice, .required = false,
@@ -49,8 +48,9 @@ public:
                 CommandArg{.name = "file", .description = "Specific file to show diff for",
                            .type = ArgType::FilePath, .required = false},
             },
-            .hidden = false,
             .category = "git",
+            .aliases = {},
+            .hidden = false,
         };
     }
 

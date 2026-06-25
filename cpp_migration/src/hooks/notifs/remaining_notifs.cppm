@@ -408,19 +408,23 @@ inline auto get_plugin_installation_status() -> std::vector<PluginInstallInfo> {
     for (const auto& q : snap.queued) {
         out.push_back(PluginInstallInfo{
             .plugin_id = q.plugin_id, .name = q.name,
-            .status = PluginInstallStatus::Pending});
+            .status = PluginInstallStatus::Pending,
+            .progress_pct = 0,
+            .error = std::nullopt});
     }
     if (snap.installing) {
         out.push_back(PluginInstallInfo{
             .plugin_id = snap.installing->plugin_id,
             .name = snap.installing->name,
             .status = PluginInstallStatus::Installing,
-            .progress_pct = snap.installing->progress_pct});
+            .progress_pct = snap.installing->progress_pct,
+            .error = std::nullopt});
     }
     for (const auto& f : snap.failed) {
         out.push_back(PluginInstallInfo{
             .plugin_id = f.plugin_id, .name = f.name,
             .status = PluginInstallStatus::Failed,
+            .progress_pct = 0,
             .error = f.error});
     }
     return out;

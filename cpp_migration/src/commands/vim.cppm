@@ -39,14 +39,14 @@ public:
         return CommandDefinition{
             .name = "vim",
             .description = "Toggle vim-style keybindings",
-            .aliases = {"vi"},
             .args = {
                 CommandArg{.name = "action", .description = "on | off | status",
                            .type = ArgType::Choice, .required = false,
                            .choices = {"on", "off", "status"}},
             },
-            .hidden = false,
             .category = "config",
+            .aliases = {"vi"},
+            .hidden = false,
         };
     }
 

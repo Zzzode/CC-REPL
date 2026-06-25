@@ -75,7 +75,7 @@ public:
         if (config.install_completions) {
             if (auto completions = install_completions(); !completions) return {false, installed, completions.error()};
         }
-        return {true, installed};
+        return {true, installed, std::nullopt};
     }
     
 
@@ -135,7 +135,13 @@ public:
             auto end = text.find('"', pos);
             return end == std::string::npos ? std::string{} : text.substr(pos, end - pos);
         };
-        return DxtManifest{.name = extract("name"), .version = extract("version"), .description = extract("description"), .entry_point = extract("entry_point")};
+        return DxtManifest{
+            .name = extract("name"),
+            .version = extract("version"),
+            .description = extract("description"),
+            .entry_point = extract("entry_point"),
+            .files = {},
+        };
     }
     
 
@@ -182,7 +188,12 @@ public:
     [[nodiscard]] auto create(std::string name) -> std::string {
         auto id = "bg_" + std::to_string(tasks_.size());
         tasks_.push_back({.id = id, .name = std::move(name), 
-                         .created_at = std::chrono::system_clock::now()});
+                         .state = BackgroundTaskState::pending,
+                         .created_at = std::chrono::system_clock::now(),
+                         .completed_at = std::nullopt,
+                         .progress = 0.0,
+                         .result = std::nullopt,
+                         .error = std::nullopt});
         return id;
     }
     

@@ -260,7 +260,14 @@ public:
             ctx.set(key, value);
         }
 
-        WorkflowResult result{.workflow_name = definition.name};
+        WorkflowResult result{
+            .workflow_name = definition.name,
+            .success = true,
+            .step_results = {},
+            .total_duration = std::chrono::milliseconds{0},
+            .steps_executed = 0,
+            .steps_skipped = 0
+        };
 
 
         for (const auto& step : definition.steps) {
@@ -283,6 +290,8 @@ public:
                 StepResult err_result{
                     .step_id = step.id,
                     .success = false,
+                    .output = {},
+                    .duration = std::chrono::milliseconds{0},
                     .error_message = std::string(format_error(step_result.error())),
                 };
                 result.step_results.push_back(std::move(err_result));
@@ -407,6 +416,7 @@ private:
             .success = true,
             .output = std::move(output),
             .duration = elapsed,
+            .error_message = std::nullopt
         };
     }
 };

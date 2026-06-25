@@ -22,8 +22,6 @@ module;
 #include <utility>
 #include <vector>
 
-#include <yyjson.h>
-
 export module cc.bootstrap.interactive;
 
 import cc.hooks.ide_at_mentioned;
@@ -228,15 +226,8 @@ inline std::pair<bool, ParsedCommand::PasteKind> detect_paste_kind(std::string_v
     size_t p = 0;
     while (p < text.size() && std::isspace(static_cast<unsigned char>(text[p]))) ++p;
     if (p < text.size() && (text[p] == '{' || text[p] == '[')) {
-        // Use STOP_WHEN_DONE so we tolerate trailing content (e.g. concatenated JSON snippets in a paste)
         std::string buf{text};
-        yyjson_read_err err;
-        yyjson_doc* doc = yyjson_read_opts(
-            buf.data(), buf.size(),
-            YYJSON_READ_STOP_WHEN_DONE,
-            nullptr, &err);
-        if (doc) {
-            yyjson_doc_free(doc);
+        if (cc::utils::json::parse(buf)) {
             return {true, ParsedCommand::PasteKind::Json};
         }
     }

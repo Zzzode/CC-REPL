@@ -895,8 +895,6 @@ struct ChipDef {
     if (s.project_cursor >= total_rows && total_rows > 0)
         s.project_cursor = total_rows - 1;
 
-    SessionLogEntry const* preview = nullptr;
-
     for (auto& p : s.projects) {
         const bool is_collapsed = std::any_of(
             s.collapsed_projects.begin(), s.collapsed_projects.end(),
@@ -934,7 +932,6 @@ struct ChipDef {
             const bool in_batch = s.selected_ids.count(e.id) > 0;
             cards.push_back(ui19_style::RenderSessionCard(
                 e, row_focus || in_batch, row_focus, e.pinned));
-            if (row_focus) preview = &e;
             cards.push_back(text(" "));
             ++flat_index;
         }
@@ -1517,7 +1514,6 @@ inline bool HandleEvents(SelectorState& s, Event event) {
         // strings, but simpler bindings are: 'J' / 'K' for range select
         // and '{' / '}' for pin reorder (mapped per spec "Shift+↑/↓").
         if (flat_tab) {
-            const std::size_t from = s.cursor;
             if (down) { if (s.cursor + 1 < s.view.size()) ++s.cursor; }
             else      { if (s.cursor > 0) --s.cursor; }
             if (s.visual_mode) {
@@ -1542,7 +1538,7 @@ inline bool HandleEvents(SelectorState& s, Event event) {
 
     // Shift+arrow / J / K range extend
     if (event == Event::Character('J')
-        || event.input() == "\e[1;2B")  // Shift+Down xterm
+        || event.input() == "\x1b[1;2B")  // Shift+Down xterm
     {
         s.visual_mode = true;
         if (s.view.size() > s.cursor + 1) {
@@ -1554,7 +1550,7 @@ inline bool HandleEvents(SelectorState& s, Event event) {
         return true;
     }
     if (event == Event::Character('K')
-        || event.input() == "\e[1;2A")  // Shift+Up xterm
+        || event.input() == "\x1b[1;2A")  // Shift+Up xterm
     {
         s.visual_mode = true;
         if (s.cursor > 0) {
@@ -1569,7 +1565,7 @@ inline bool HandleEvents(SelectorState& s, Event event) {
     // Pin reorder: Shift+↑/↓ (handled via { / } as well since many terminals
     // don't emit distinct Shift+Arrow sequences).
     if (flat_tab && (event == Event::Character('{')
-                     || event.input() == "\e[1;2A_pin"))
+                     || event.input() == "\x1b[1;2A_pin"))
     {
         if (s.view.size() > 1 && s.cursor > 0) {
             // Swap only pinned with pinned to preserve semantics.
@@ -1581,7 +1577,7 @@ inline bool HandleEvents(SelectorState& s, Event event) {
         return true;
     }
     if (flat_tab && (event == Event::Character('}')
-                     || event.input() == "\e[1;2B_pin"))
+                     || event.input() == "\x1b[1;2B_pin"))
     {
         if (s.cursor + 1 < s.view.size()) {
             auto& cur = s.all_sessions[s.view[s.cursor]];

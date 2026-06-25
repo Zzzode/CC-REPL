@@ -78,7 +78,7 @@ inline std::optional<BenchmarkWorkspace> create_isolated_workspace(
         .dir = repo_dir.string(),
         .cleanup = [temp_root, source_cwd, repo_dir]() {
             try {
-                cc::utils::git::worktree_remove(source_cwd, repo_dir.string());
+                (void)cc::utils::git::worktree_remove(source_cwd, repo_dir.string());
             } catch (...) {}
             try {
                 fs::remove_all(temp_root);

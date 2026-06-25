@@ -47,11 +47,7 @@ auto micro_compact(std::span<MicroMessage> messages, int target_tokens)
 
 // Check if micro-compact is applicable (small overage)
 auto can_micro_compact(std::span<MicroMessage> messages) -> bool {
-    int total = 0;
-    for (const auto& msg : messages) {
-        total += msg.token_count;
-    }
-    // Micro-compact is suitable for < 20% overage
+    // Micro-compact needs enough history to trim older messages.
     return messages.size() > 2;
 }
 

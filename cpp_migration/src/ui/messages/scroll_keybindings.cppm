@@ -255,32 +255,38 @@ apply_scroll_by(ScrollState &s, ScrollCallbacks const &cb, int delta) noexcept {
 [[nodiscard]] inline bool dispatch_op(ScrollOp op, int multiplier,
                                        ScrollState &s,
                                        ScrollCallbacks const &cb,
-                                       FSMContext &fsm) noexcept {
+                                       FSMContext&) noexcept {
   int const vh = std::max(1, s.viewport_rows);
   switch (op) {
     case ScrollOp::Up1: {
       int n = std::max(1, multiplier);
-      return apply_scroll_by(s, cb, -n), true;
+      (void)apply_scroll_by(s, cb, -n);
+      return true;
     }
     case ScrollOp::Down1: {
       int n = std::max(1, multiplier);
-      return apply_scroll_by(s, cb, n), true;
+      (void)apply_scroll_by(s, cb, n);
+      return true;
     }
     case ScrollOp::PgUp: {
       int n = std::max(1, multiplier) * vh;
-      return apply_scroll_by(s, cb, -n), true;
+      (void)apply_scroll_by(s, cb, -n);
+      return true;
     }
     case ScrollOp::PgDn: {
       int n = std::max(1, multiplier) * vh;
-      return apply_scroll_by(s, cb, n), true;
+      (void)apply_scroll_by(s, cb, n);
+      return true;
     }
     case ScrollOp::HalfPgUp: {
       int half = std::max(1, vh / 2) * std::max(1, multiplier);
-      return apply_scroll_by(s, cb, -half), true;
+      (void)apply_scroll_by(s, cb, -half);
+      return true;
     }
     case ScrollOp::HalfPgDown: {
       int half = std::max(1, vh / 2) * std::max(1, multiplier);
-      return apply_scroll_by(s, cb, half), true;
+      (void)apply_scroll_by(s, cb, half);
+      return true;
     }
     case ScrollOp::Top:
       apply_scroll_to(s, cb, 0);
@@ -482,11 +488,11 @@ HandleScrollKey(ftxui::Event const &event, ScrollState &s,
   // ── Printable letter dispatches ───────────────────────────────────
   switch (c0) {
     case 'j':
-      dispatch_op(ScrollOp::Down1, mult, s, cb, fsm);
+      (void)dispatch_op(ScrollOp::Down1, mult, s, cb, fsm);
       fsm.pending_digit = 0;
       return true;
     case 'k':
-      dispatch_op(ScrollOp::Up1, mult, s, cb, fsm);
+      (void)dispatch_op(ScrollOp::Up1, mult, s, cb, fsm);
       fsm.pending_digit = 0;
       return true;
 
@@ -505,9 +511,9 @@ HandleScrollKey(ftxui::Event const &event, ScrollState &s,
     case 'G':   // shift+g — End / bottom.  Optional digit prefix = row N.
       if (mult > 0) {
         // "123G" = go to row 123.  Vim-style.
-        dispatch_op(ScrollOp::ToRow, mult, s, cb, fsm);
+        (void)dispatch_op(ScrollOp::ToRow, mult, s, cb, fsm);
       } else {
-        dispatch_op(ScrollOp::Bottom, 1, s, cb, fsm);
+        (void)dispatch_op(ScrollOp::Bottom, 1, s, cb, fsm);
       }
       fsm.pending_digit = 0;
       fsm.g_pressed_frame = -1;
@@ -520,20 +526,20 @@ HandleScrollKey(ftxui::Event const &event, ScrollState &s,
       return true;
 
     case 'n':
-      dispatch_op(ScrollOp::SearchNext, mult, s, cb, fsm);
+      (void)dispatch_op(ScrollOp::SearchNext, mult, s, cb, fsm);
       fsm.pending_digit = 0;
       return true;
     case 'N':
-      dispatch_op(ScrollOp::SearchPrev, mult, s, cb, fsm);
+      (void)dispatch_op(ScrollOp::SearchPrev, mult, s, cb, fsm);
       fsm.pending_digit = 0;
       return true;
 
     case ' ':   // space = full page down (less convention)
-      dispatch_op(ScrollOp::PgDn, mult, s, cb, fsm);
+      (void)dispatch_op(ScrollOp::PgDn, mult, s, cb, fsm);
       fsm.pending_digit = 0;
       return true;
     case 'b':   // bare b = page up (less convention, Ctrl+B handled above)
-      dispatch_op(ScrollOp::PgUp, mult, s, cb, fsm);
+      (void)dispatch_op(ScrollOp::PgUp, mult, s, cb, fsm);
       fsm.pending_digit = 0;
       return true;
 

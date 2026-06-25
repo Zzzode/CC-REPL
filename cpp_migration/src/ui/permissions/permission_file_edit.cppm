@@ -84,14 +84,14 @@ enum class SessionScope : std::uint8_t {
 
 /// One selectable option in the dialog.
 struct Option {
-    std::string value;              ///< Machine-readable identifier
-    std::string label;              ///< Display label
-    std::string description;        ///< Inline description (dimmed, below)
-    Decision decision;              ///< Which decision this option triggers
+    std::string value{};            ///< Machine-readable identifier
+    std::string label{};            ///< Display label
+    std::string description{};      ///< Inline description (dimmed, below)
+    Decision decision{Decision::Deny}; ///< Which decision this option triggers
     SessionScope scope{SessionScope::Default}; ///< For session options
     bool is_input = false;          ///< True when in feedback-input mode
-    std::string input_value;        ///< Current input text (if is_input)
-    std::string input_placeholder;  ///< Placeholder hint (if is_input)
+    std::string input_value{};      ///< Current input text (if is_input)
+    std::string input_placeholder{}; ///< Placeholder hint (if is_input)
 };
 
 /// Props for the file edit permission prompt.

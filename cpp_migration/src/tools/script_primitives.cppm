@@ -298,10 +298,10 @@ auto run_typecheck_inline(const TypecheckOptions& opts) -> PrimitiveResult {
         diag.column = d.column;
         diag.message = std::format("TS{}: {}", d.code, d.message);
         diag.level  = (d.severity == script_typecheck::Severity::Error)
-            ? Diagnostic::Level::Error
+            ? DiagnosticLevel::Error
             : (d.severity == script_typecheck::Severity::Warning
-                ? Diagnostic::Level::Warning
-                : Diagnostic::Level::Info);
+                ? DiagnosticLevel::Warning
+                : DiagnosticLevel::Info);
         out.diagnostics.push_back(std::move(diag));
     }
     // Stdout: concise summary line
@@ -333,10 +333,10 @@ auto run_typecheck_files(const std::vector<fs::path>& files,
         diag.column = d.column;
         diag.message = std::format("TS{}: {}", d.code, d.message);
         diag.level  = (d.severity == script_typecheck::Severity::Error)
-            ? Diagnostic::Level::Error
+            ? DiagnosticLevel::Error
             : (d.severity == script_typecheck::Severity::Warning
-                ? Diagnostic::Level::Warning
-                : Diagnostic::Level::Info);
+                ? DiagnosticLevel::Warning
+                : DiagnosticLevel::Info);
         out.diagnostics.push_back(std::move(diag));
     }
     out.stdout_text = std::format(

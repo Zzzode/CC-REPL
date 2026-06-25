@@ -34,13 +34,13 @@ public:
         return CommandDefinition{
             .name = "logout",
             .description = "Clear stored authentication credentials",
-            .aliases = {},
             .args = {
                 CommandArg{.name = "flag", .description = "--force to skip confirmation",
                            .type = ArgType::None, .required = false},
             },
-            .hidden = false,
             .category = "auth",
+            .aliases = {},
+            .hidden = false,
         };
     }
 

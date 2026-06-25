@@ -401,17 +401,17 @@ inline std::optional<ToolCallResult> parse_tool_call_result(const std::string& j
 // =========================================================================
 
 struct McpOAuthConfig {
-    std::optional<std::string> auth_server_metadata_url;
-    std::optional<int> callback_port;
-    std::optional<std::string> client_id;
+    std::optional<std::string> auth_server_metadata_url = std::nullopt;
+    std::optional<int> callback_port = std::nullopt;
+    std::optional<std::string> client_id = std::nullopt;
     bool xaa = false;
 };
 
 struct McpServerConfig {
     std::string type; // "stdio", "sse", "http"
     std::string url;
-    std::unordered_map<std::string, std::string> headers;
-    std::optional<McpOAuthConfig> oauth;
+    std::unordered_map<std::string, std::string> headers = {};
+    std::optional<McpOAuthConfig> oauth = std::nullopt;
 };
 
 // Common types for MCP protocol (legacy aliases)

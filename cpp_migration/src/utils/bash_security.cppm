@@ -505,11 +505,6 @@ inline bool involves_system(std::string_view command) {
     bool in_double_quote = false;
     bool escaped = false;
 
-    auto is_path_char = [](char c) -> bool {
-        return c != ' ' && c != '\t' && c != ';' && c != '|' &&
-               c != '&' && c != '>' && c != '<' && c != '(' && c != ')';
-    };
-
     // Simple tokenizer - extract tokens that look like paths
     std::vector<std::string> tokens;
     std::string token;

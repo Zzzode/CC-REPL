@@ -281,8 +281,8 @@ inline Task<Result<ProcessResult>> spawn_process(
 class ProcessPool {
 public:
     explicit ProcessPool(std::size_t max_concurrent = 4,
-                         EventLoop& loop = EventLoop::default_loop())
-        : max_concurrent_(max_concurrent), loop_(loop) {}
+                         EventLoop& = EventLoop::default_loop())
+        : max_concurrent_(max_concurrent) {}
 
 
     void submit(ProcessOptions opts,
@@ -313,7 +313,6 @@ private:
     std::size_t max_concurrent_;
     std::size_t active_ = 0;
     std::deque<PendingJob> pending_;
-    EventLoop& loop_;
 };
 
 } // namespace cc::utils::process

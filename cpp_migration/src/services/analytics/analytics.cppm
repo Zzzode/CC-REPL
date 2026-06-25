@@ -440,7 +440,7 @@ public:
     }
 
     /// Track tool usage event
-    void tool_used(std::string_view name, Duration duration, bool success) {
+    void tool_used(std::string_view, Duration duration, bool success) {
         EventMetadata meta;
         meta.int_values["duration_ms"] = duration.count();
         meta.bool_values["success"] = success;
@@ -448,7 +448,7 @@ public:
     }
 
     /// Track API call metrics
-    void api_call(std::string_view model, std::size_t tokens_in,
+    void api_call(std::string_view, std::size_t tokens_in,
                   std::size_t tokens_out, Duration latency) {
         EventMetadata meta;
         meta.int_values["tokens_in"] = static_cast<std::int64_t>(tokens_in);
@@ -458,7 +458,7 @@ public:
     }
 
     /// Track an error occurrence
-    void error_occurred(std::string_view code, std::string_view message) {
+    void error_occurred(std::string_view, std::string_view) {
         EventMetadata meta;
         log_event("error", std::move(meta));
     }

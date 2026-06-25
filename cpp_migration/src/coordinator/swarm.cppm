@@ -465,7 +465,8 @@ public:
     VoidResult cancel_all() {
         for (auto& [id, handle] : handles_) {
             if (!handle.is_terminal()) {
-                backend_.terminate(handle.id);
+                auto terminated = backend_.terminate(handle.id);
+                if (!terminated) return terminated;
                 handle.state = WorkerState::Failed;
                 handle.error_message = "Cancelled by swarm manager";
             }

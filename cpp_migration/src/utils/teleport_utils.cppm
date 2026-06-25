@@ -1235,6 +1235,13 @@ using BundleUploadResult = std::expected<BundleUploadSuccess, BundleUploadFailur
 	    auto mk_bundle = [&](std::string_view base) {
 	        return run_git(git_root, "bundle create " + shell_quote(bundle_path.string()) + " " + std::string(base) + extra);
 	    };
+	    auto success = [](std::size_t size, BundleScope scope) {
+	        BundleCreateResult result;
+	        result.ok = true;
+	        result.size = size;
+	        result.scope = scope;
+	        return result;
+	    };
 
 	    if (should_abort && should_abort()) {
 	        return BundleCreateResult{
@@ -1253,7 +1260,7 @@ using BundleUploadResult = std::expected<BundleUploadSuccess, BundleUploadFailur
 	        };
 	    }
 	    if (auto size = bundle_file_size(bundle_path); size && *size <= max_bytes) {
-	        return BundleCreateResult{.ok = true, .size = *size, .scope = BundleScope::all};
+	        return success(*size, BundleScope::all);
 	    }
 
 	    if (should_abort && should_abort()) {
@@ -1273,7 +1280,7 @@ using BundleUploadResult = std::expected<BundleUploadSuccess, BundleUploadFailur
 	        };
 	    }
 	    if (auto size = bundle_file_size(bundle_path); size && *size <= max_bytes) {
-	        return BundleCreateResult{.ok = true, .size = *size, .scope = BundleScope::head};
+	        return success(*size, BundleScope::head);
 	    }
 
 	    const auto tree_ref = has_stash ? std::string{"refs/seed/stash^{tree}"} : std::string{"HEAD^{tree}"};
@@ -1302,7 +1309,7 @@ using BundleUploadResult = std::expected<BundleUploadSuccess, BundleUploadFailur
 	        };
 	    }
 	    if (auto size = bundle_file_size(bundle_path); size && *size <= max_bytes) {
-	        return BundleCreateResult{.ok = true, .size = *size, .scope = BundleScope::squashed};
+	        return success(*size, BundleScope::squashed);
 	    }
 
 	    return BundleCreateResult{

@@ -169,7 +169,7 @@ public:
     // Called after tool use completes
     auto on_tool_use() -> void {
         if (enabled_ && config_.on_tool_use) {
-            save_now(); // Ignore result for background saves
+            (void)save_now(); // Ignore result for background saves.
             last_save_ = std::chrono::steady_clock::now();
         }
     }
@@ -177,7 +177,7 @@ public:
     // Called after a complete message exchange
     auto on_message_complete() -> void {
         if (enabled_ && config_.on_message_complete) {
-            save_now();
+            (void)save_now();
             last_save_ = std::chrono::steady_clock::now();
         }
     }
@@ -185,7 +185,7 @@ public:
     // Called on graceful exit
     auto on_exit() -> void {
         if (enabled_ && config_.on_exit) {
-            save_now();
+            (void)save_now();
             cleanup_lock_file();
         }
     }
@@ -215,7 +215,9 @@ public:
                         .session_id = entry.path().stem().string().substr(8), // strip "session_"
                         .save_path = entry.path(),
                         .last_saved = sctp,
-                        .is_corrupted = false
+                        .message_count = 0,
+                        .is_corrupted = false,
+                        .error_detail = std::nullopt
                     });
                 }
             }
@@ -300,7 +302,8 @@ private:
         return SaveResult{
             .status = SaveStatus::Success,
             .path = path,
-            .bytes_written = bytes
+            .bytes_written = bytes,
+            .error = std::nullopt
         };
     }
 

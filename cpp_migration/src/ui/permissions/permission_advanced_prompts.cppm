@@ -85,30 +85,30 @@ enum class QuestionKind : std::uint8_t {
 
 /// A single option for MultiChoice questions (label + longer description).
 struct QuestionOption {
-    std::string value;
-    std::string label;
-    std::string description;
+    std::string value{};
+    std::string label{};
+    std::string description{};
 };
 
 /// A single user-facing question (part of a possibly-multi-question flow).
 struct UserQuestion {
     QuestionKind       kind = QuestionKind::Confirm;
-    std::string        title;             // bold header
-    std::string        subtitle;          // dim secondary line
-    std::string        body;              // free-form body (may contain markdown)
-    std::vector<QuestionOption> options;  // MultiChoice only
-    std::string        default_text;      // FreeText / CodeInput initial
-    std::string        placeholder;       // FreeText placeholder hint
+    std::string        title{};           // bold header
+    std::string        subtitle{};        // dim secondary line
+    std::string        body{};            // free-form body (may contain markdown)
+    std::vector<QuestionOption> options{}; // MultiChoice only
+    std::string        default_text{};    // FreeText / CodeInput initial
+    std::string        placeholder{};     // FreeText placeholder hint
     bool               multi_select = false;  // MultiChoice: allow >1
-    std::vector<std::string> image_attachments; // (base64 placeholders)
+    std::vector<std::string> image_attachments{}; // (base64 placeholders)
 };
 
 /// User answer payload — kind + variant fields.
 struct UserAnswer {
-    QuestionKind kind;
+    QuestionKind kind = QuestionKind::Confirm;
     bool         confirmed = false;          // Info / Confirm
-    std::vector<std::string> chosen_values;  // MultiChoice
-    std::string  text;                       // FreeText / CodeInput
+    std::vector<std::string> chosen_values{}; // MultiChoice
+    std::string  text{};                     // FreeText / CodeInput
     bool         always_allow = false;       // sticky checkbox result
 };
 
@@ -834,7 +834,7 @@ inline bool HandleSkillDialog(std::shared_ptr<SkillPermissionState> st,
             st->cbs.on_respond(c, aa);
     };
     if (e == Event::Character('r') || e == Event::Character('R') ||
-        st->focused_idx == 0 && e == Event::Return) {
+        (st->focused_idx == 0 && e == Event::Return)) {
         if (st->cbs.on_reject) st->cbs.on_reject();
         respond(SkillChoice::No, false);
         return true;
@@ -933,7 +933,6 @@ namespace fdetail {
 
     Elements rows;
     int indent = 0;
-    int depth_fold = -1;     // negative = unfolded; ≥0 collapse from this depth
     int row = 0;
     std::string cur; cur.reserve(120);
     auto flush = [&]() {
@@ -1166,8 +1165,6 @@ struct FallbackPermissionState {
 inline bool HandleFallbackDialog(std::shared_ptr<FallbackPermissionState> st,
                                  Event e)
 {
-    const auto& p = st->props;
-
     if (e == Event::Tab) {
         st->focus_zone = (st->focus_zone + 1) % 4;
         if (st->focus_zone == 2) {

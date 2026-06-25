@@ -416,6 +416,10 @@ class PasteDetector {
 public:
     // Returns true if the sequence of inputs looks like a paste
     auto feed(char ch) -> bool {
+        if (ch == '\0') {
+            reset();
+            return false;
+        }
         auto now = Clock::now();
         if (last_input_ && (now - *last_input_) < std::chrono::milliseconds(5)) {
             rapid_count_++;
@@ -427,7 +431,10 @@ public:
         return rapid_count_ > 4;
     }
 
-    auto reset() -> void { rapid_count_ = 0; last_input_ = std::nullopt; }
+    auto reset() -> void {
+        rapid_count_ = 0;
+        last_input_ = std::nullopt;
+    }
 
 private:
     std::optional<Clock::time_point> last_input_;

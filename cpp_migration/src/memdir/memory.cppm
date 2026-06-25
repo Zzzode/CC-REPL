@@ -341,7 +341,7 @@ private:
         std::string line;
         while (std::getline(in, line)) {
             if (auto entry = deserialize_entry(line); entry.has_value()) {
-                store_.add(std::move(*entry));
+                (void)store_.add(std::move(*entry));
             }
         }
     }

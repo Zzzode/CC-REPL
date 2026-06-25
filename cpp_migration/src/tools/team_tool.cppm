@@ -106,11 +106,11 @@ constexpr auto format_error(TeamError err) -> std::string_view {
 
 // Team member representation
 struct TeamMember {
-    std::string agent_id;
+    std::string agent_id{};
     MemberRole role{MemberRole::Worker};
     MemberStatus status{MemberStatus::Idle};
-    std::optional<std::string> current_task;
-    std::optional<std::string> last_result;
+    std::optional<std::string> current_task{};
+    std::optional<std::string> last_result{};
 };
 
 // Shared task item for team coordination
@@ -234,6 +234,8 @@ inline bool persist_team_record(const Team& team) {
                 .agent_id = std::move(agent_id),
                 .role = member_role_from_string(item.get_string("role")).value_or(MemberRole::Worker),
                 .status = member_status_from_string(item.get_string("status")).value_or(MemberStatus::Idle),
+                .current_task = std::nullopt,
+                .last_result = std::nullopt
             };
             auto current_task = item.get("current_task");
             if (current_task.is_str()) member.current_task = std::string(current_task.as_str());
@@ -252,7 +254,9 @@ inline bool persist_team_record(const Team& team) {
             SharedTaskItem task{
                 .id = std::move(id),
                 .description = std::move(description),
+                .assigned_to = std::nullopt,
                 .completed = item.get("completed").is_bool() && item.get("completed").as_bool(),
+                .result = std::nullopt
             };
             auto assigned_to = item.get("assigned_to");
             if (assigned_to.is_str()) task.assigned_to = std::string(assigned_to.as_str());
@@ -288,6 +292,7 @@ public:
             .id = id,
             .name = std::move(team_name),
             .members = std::move(members),
+            .task_list = {},
             .created_at = std::chrono::steady_clock::now(),
         };
         auto [it, _] = teams_.emplace(std::move(id), std::move(team));

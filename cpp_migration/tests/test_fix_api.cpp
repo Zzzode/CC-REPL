@@ -67,12 +67,24 @@ TEST(OverageCredit, FormatGrantAmountNonUsdReturnsNullopt) {
 }
 
 TEST(OverageCredit, FormatGrantAmountMissingAmountReturnsNullopt) {
-    OverageCreditGrantInfo info{.currency = std::string("USD")};
+    OverageCreditGrantInfo info{
+        .available = false,
+        .eligible = false,
+        .granted = false,
+        .amount_minor_units = std::nullopt,
+        .currency = std::string("USD"),
+    };
     EXPECT_FALSE(cc::services::api::format_grant_amount(info).has_value());
 }
 
 TEST(OverageCredit, FormatGrantAmountMissingCurrencyReturnsNullopt) {
-    OverageCreditGrantInfo info{.amount_minor_units = 500};
+    OverageCreditGrantInfo info{
+        .available = false,
+        .eligible = false,
+        .granted = false,
+        .amount_minor_units = 500,
+        .currency = std::nullopt,
+    };
     EXPECT_FALSE(cc::services::api::format_grant_amount(info).has_value());
 }
 

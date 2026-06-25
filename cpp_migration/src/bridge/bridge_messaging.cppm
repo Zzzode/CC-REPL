@@ -178,16 +178,16 @@ struct BridgeEligibleMessage {
 /// Descriptor for the subset of Message fields needed to decide
 /// whether a user message should title the session.
 struct TitleCandidate {
-    std::string type;
+    std::string type{};
     bool is_meta = false;
     bool is_tool_use_result = false;
     bool is_compact_summary = false;
     struct Origin {
-        std::string kind;  // "human", "task_notification", etc.
+        std::string kind{};  // "human", "task_notification", etc.
     };
-    std::optional<Origin> origin;
+    std::optional<Origin> origin{};
     /// Content: either a raw string or a vector of text blocks.
-    std::optional<std::variant<std::string, std::vector<TextBlock>>> content;
+    std::optional<std::variant<std::string, std::vector<TextBlock>>> content{};
 };
 
 /// Extract title-worthy text from a message for onUserMessage.
@@ -622,6 +622,18 @@ struct SDKResultSuccess {
 /// The server needs this event before a WS close to trigger archival.
 [[nodiscard]] inline SDKResultSuccess make_result_message(const std::string& session_id) {
     return SDKResultSuccess{
+        .type = "result",
+        .subtype = "success",
+        .duration_ms = 0,
+        .duration_api_ms = 0,
+        .is_error = false,
+        .num_turns = 0,
+        .result = {},
+        .stop_reason = std::nullopt,
+        .total_cost_usd = 0.0,
+        .usage_json = "{}",
+        .model_usage_json = "{}",
+        .permission_denials_json = "[]",
         .session_id = session_id,
         .uuid = generate_bridge_uuid(),
     };

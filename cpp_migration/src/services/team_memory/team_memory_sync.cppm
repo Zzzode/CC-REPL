@@ -166,11 +166,9 @@ struct WatcherConfig {
     // triggers the callback when filesystem changes are detected via stat() polling.
     static std::function<void(MemoryChange)> s_callback;
     static WatcherConfig s_config;
-    static bool s_active = false;
 
     s_callback = std::move(callback);
     s_config = config;
-    s_active = true;
 
     return {};
 }

@@ -331,7 +331,6 @@ inline std::size_t count_lines(const std::string& s) {
     auto split_and_emit = [&](const std::string& content, int indent,
                               bool is_key_insight, int limit) -> int {
         // returns remaining lines not rendered
-        size_t pos = 0;
         int rendered = 0;
         int total = 0;
         // First pass: total lines

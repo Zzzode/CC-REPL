@@ -28,13 +28,13 @@ public:
         return CommandDefinition{
             .name = "advisor",
             .description = "Configure the advisor model",
-            .aliases = {},
             .args = {
                 CommandArg{.name = "model", .description = "Model name to use as advisor, or 'off' to disable",
                            .type = ArgType::Text, .required = false},
             },
-            .hidden = false,
             .category = "configuration",
+            .aliases = {},
+            .hidden = false,
         };
     }
 

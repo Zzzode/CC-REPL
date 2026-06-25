@@ -1,5 +1,4 @@
 module;
-#include <array>
 #include <cstdlib>
 #include <filesystem>
 #include <optional>
@@ -138,7 +137,6 @@ std::vector<RgMatch> rg_search(std::string_view pattern, fs::path dir, RgOptions
     cmd += " 2>/dev/null";
 
     // Execute ripgrep and capture output
-    std::array<char, 4096> buffer;
     std::string output;
 
     auto pipe_cap = cc::utils::bash::exec_capture(cmd.c_str());
@@ -155,8 +153,6 @@ std::vector<fs::path> rg_files(fs::path dir, std::optional<std::string> glob) {
     cmd += " " + dir.string() + " 2>/dev/null";
 
     std::vector<fs::path> files;
-    std::array<char, 4096> buffer;
-
     auto pipe_cap = cc::utils::bash::exec_capture(cmd.c_str());
     if (!pipe_cap) return files;
     std::string output = std::move(pipe_cap->output);

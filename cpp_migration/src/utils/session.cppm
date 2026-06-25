@@ -70,6 +70,7 @@ public:
             .updated_at = now,
             .message_count = 0,
             .model_id = "claude-sonnet-4-20250514",
+            .tags = {},
             .cwd = std::string(cwd)
         };
         (void)save_session(meta, "[]");
@@ -101,7 +102,8 @@ public:
             return std::unexpected(SessionError{SessionError::not_found, "session not found"});
         std::ifstream in(path);
         if (!in) return std::unexpected(SessionError{SessionError::io_error, "failed to read session file"});
-        SessionMeta meta{.id = std::string(id)};
+        SessionMeta meta{};
+        meta.id = std::string(id);
         std::string line;
         while (std::getline(in, line)) {
             auto eq = line.find('=');
@@ -147,7 +149,9 @@ public:
 
 
     [[nodiscard]] auto get_recent(size_t count = 10) const -> std::vector<SessionMeta> {
-        auto all = list_sessions({.limit = count});
+        SessionFilter filter;
+        filter.limit = count;
+        auto all = list_sessions(filter);
         std::sort(all.begin(), all.end(), [](const auto& a, const auto& b) {
             return a.updated_at > b.updated_at;
         });

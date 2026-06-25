@@ -52,20 +52,20 @@ enum class ContentBlockType {
 
 struct ContentBlock {
     ContentBlockType type = ContentBlockType::Text;
-    std::string text;
+    std::string text{};
 
     // Tool use specific
-    std::string tool_use_id;
-    std::string tool_name;
-    std::string tool_input_json;
+    std::string tool_use_id{};
+    std::string tool_name{};
+    std::string tool_input_json{};
 
     // Image specific
-    std::string media_type;
-    std::string image_data;
+    std::string media_type{};
+    std::string image_data{};
 
     // Thinking specific
-    std::string thinking;
-    std::string signature;
+    std::string thinking{};
+    std::string signature{};
 };
 
 // =========================================================================
@@ -73,14 +73,17 @@ struct ContentBlock {
 // =========================================================================
 
 struct Message {
-    std::string role;  // "user" or "assistant"
-    std::vector<ContentBlock> content;
+    std::string role{};  // "user" or "assistant"
+    std::vector<ContentBlock> content{};
 
     [[nodiscard]] static Message from_text(std::string_view role,
                                            std::string_view text) {
         Message msg;
         msg.role = std::string(role);
-        msg.content.push_back({ContentBlockType::Text, std::string(text)});
+        ContentBlock block;
+        block.type = ContentBlockType::Text;
+        block.text = std::string(text);
+        msg.content.push_back(std::move(block));
         return msg;
     }
 };
@@ -837,11 +840,11 @@ public:
                      parser]() {
             auto curl_result = CurlHandle::create();
             if (!curl_result) {
-                parser->set_error(ApiErrorDetails{
-                    .category = errors::ApiErrorCategory::NetworkError,
-                    .error_type = "curl_error",
-                    .error_message = "Failed to initialize CURL"
-                });
+                ApiErrorDetails details;
+                details.category = errors::ApiErrorCategory::NetworkError;
+                details.error_type = "curl_error";
+                details.error_message = "Failed to initialize CURL";
+                parser->set_error(std::move(details));
                 return;
             }
             CurlHandle curl = std::move(*curl_result);
@@ -880,11 +883,11 @@ public:
 
             // Signal completion/error to the parser
             if (res != CURLE_OK) {
-                parser->set_error(ApiErrorDetails{
-                    .category = errors::ApiErrorCategory::NetworkError,
-                    .error_type = "curl_error",
-                    .error_message = curl_easy_strerror(res)
-                });
+                ApiErrorDetails details;
+                details.category = errors::ApiErrorCategory::NetworkError;
+                details.error_type = "curl_error";
+                details.error_message = curl_easy_strerror(res);
+                parser->set_error(std::move(details));
             } else {
                 // Check HTTP status
                 long http_code = 0;

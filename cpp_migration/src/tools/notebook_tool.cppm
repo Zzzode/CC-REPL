@@ -46,7 +46,7 @@ namespace json = cc::utils::json;
 
 // Replace (or insert) `key`→`value` on a mutable object via the canonical API.
 void replace_obj_value(json::JsonMutVal obj, std::string_view key, json::JsonMutVal value) {
-    obj.remove(key);
+    (void)obj.remove(key);
     obj.add(key, value);
 }
 

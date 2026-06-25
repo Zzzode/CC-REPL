@@ -112,14 +112,20 @@ public:
         auto path = config_.cassette_dir / std::format("{}.json", name);
         if (!fs::exists(path)) {
 
-            Cassette c{.name = name, .file_path = path.string(),
-                       .created_at = Clock::now(), .last_used = Clock::now()};
+            Cassette c;
+            c.name = name;
+            c.file_path = path.string();
+            c.created_at = Clock::now();
+            c.last_used = Clock::now();
             active_cassette_ = c;
             return c;
         }
 
-        Cassette c{.name = name, .file_path = path.string(),
-                   .created_at = Clock::now(), .last_used = Clock::now()};
+        Cassette c;
+        c.name = name;
+        c.file_path = path.string();
+        c.created_at = Clock::now();
+        c.last_used = Clock::now();
         active_cassette_ = c;
         return c;
     }
@@ -129,31 +135,33 @@ public:
         const RecordedRequest& request)
     {
         if (!active_cassette_) {
-            return std::unexpected(Error{ErrorCode::InvalidInput, {}, "no cassette loaded"});
+            return std::unexpected(Error::make(ErrorCode::InvalidInput, "no cassette loaded"));
         }
         switch (config_.mode) {
             case VcrMode::Playback:
                 return find_matching_response(request);
             case VcrMode::Record:
-                return std::unexpected(Error{ErrorCode::InvalidInput, {},
-                    "record mode: forward request to real server"});
+                return std::unexpected(Error::make(
+                    ErrorCode::InvalidInput,
+                    "record mode: forward request to real server"));
             case VcrMode::Auto: {
                 auto result = find_matching_response(request);
                 if (result) return result;
 
-                return std::unexpected(Error{ErrorCode::NotFound, {},
-                    "no matching interaction, forward and record"});
+                return std::unexpected(Error::make(
+                    ErrorCode::NotFound,
+                    "no matching interaction, forward and record"));
             }
             case VcrMode::PassThrough:
-                return std::unexpected(Error{ErrorCode::InvalidInput, {}, "pass-through mode"});
+                return std::unexpected(Error::make(ErrorCode::InvalidInput, "pass-through mode"));
         }
-        return std::unexpected(Error{ErrorCode::InvalidInput, {}, "unknown mode"});
+        return std::unexpected(Error::make(ErrorCode::InvalidInput, "unknown mode"));
     }
 
 
     VoidResult record_interaction(RecordedRequest req, RecordedResponse resp) {
         if (!active_cassette_) {
-            return std::unexpected(Error{ErrorCode::InvalidInput, {}, "no cassette loaded"});
+            return std::unexpected(Error::make(ErrorCode::InvalidInput, "no cassette loaded"));
         }
 
         sanitize_headers(req.headers);
@@ -167,7 +175,7 @@ public:
 
     [[nodiscard]] VoidResult save_cassette() const {
         if (!active_cassette_) {
-            return std::unexpected(Error{ErrorCode::InvalidInput, {}, "no cassette loaded"});
+            return std::unexpected(Error::make(ErrorCode::InvalidInput, "no cassette loaded"));
         }
         auto path = fs::path(active_cassette_->file_path);
         if (path.empty()) {
@@ -176,7 +184,7 @@ public:
         std::error_code ec;
         fs::create_directories(path.parent_path(), ec);
         if (ec) {
-            return std::unexpected(Error{ErrorCode::ConfigWriteError, {}, "cannot create cassette directory"});
+            return std::unexpected(Error::make(ErrorCode::ConfigWriteError, "cannot create cassette directory"));
         }
         // Serialize as JSON
         std::string json = "{\n  \"name\": \"" + active_cassette_->name + "\",\n";
@@ -195,7 +203,7 @@ public:
         json += "  ]\n}\n";
         std::ofstream file(path);
         if (!file) {
-            return std::unexpected(Error{ErrorCode::ConfigWriteError, {}, "cannot write cassette file"});
+            return std::unexpected(Error::make(ErrorCode::ConfigWriteError, "cannot write cassette file"));
         }
         file << json;
         return {};
@@ -224,7 +232,7 @@ private:
         const RecordedRequest& request)
     {
         if (!active_cassette_) {
-            return std::unexpected(Error{ErrorCode::NotFound, {}, "no cassette"});
+            return std::unexpected(Error::make(ErrorCode::NotFound, "no cassette"));
         }
         for (auto& interaction : active_cassette_->interactions) {
             if (matches(request, interaction.request)) {
@@ -232,7 +240,7 @@ private:
                 return interaction.response;
             }
         }
-        return std::unexpected(Error{ErrorCode::NotFound, {}, "no matching interaction"});
+        return std::unexpected(Error::make(ErrorCode::NotFound, "no matching interaction"));
     }
 
 

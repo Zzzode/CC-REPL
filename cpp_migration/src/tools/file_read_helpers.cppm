@@ -29,19 +29,24 @@ inline ReadLimits get_default_limits() {
     return {};
 }
 
-inline std::expected<ImageProcessResult, std::string> process_image(std::string_view path) {
+inline std::expected<ImageProcessResult, std::string> process_image(
+    [[maybe_unused]] std::string_view path) {
     return ImageProcessResult{"png", 0, 0, 0, std::nullopt};
 }
 
-inline bool is_image_file(std::string_view path) {
+inline bool is_image_file([[maybe_unused]] std::string_view path) {
     return false;
 }
 
-inline bool exceeds_limits(std::string_view path, const ReadLimits& limits) {
+inline bool exceeds_limits(
+    [[maybe_unused]] std::string_view path,
+    [[maybe_unused]] const ReadLimits& limits) {
     return false;
 }
 
-inline std::expected<std::string, std::string> read_with_limits(std::string_view path, const ReadLimits& limits) {
+inline std::expected<std::string, std::string> read_with_limits(
+    [[maybe_unused]] std::string_view path,
+    [[maybe_unused]] const ReadLimits& limits) {
     return std::string{""};
 }
 

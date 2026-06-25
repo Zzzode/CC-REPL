@@ -40,14 +40,14 @@ public:
         return CommandDefinition{
             .name = "cost",
             .description = "Show cost breakdown for the current session",
-            .aliases = {},
             .args = {
                 CommandArg{.name = "view", .description = "summary | messages | models",
                            .type = ArgType::Choice, .required = false,
                            .choices = {"summary", "messages", "models"}},
             },
-            .hidden = false,
             .category = "session",
+            .aliases = {},
+            .hidden = false,
         };
     }
 

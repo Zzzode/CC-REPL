@@ -70,7 +70,6 @@ struct ExtraUsageInfo {
 /// the decision + billing note string.
 [[nodiscard]] inline bool is_overage(
     std::uint32_t reviews_remaining,
-    std::uint32_t reviews_limit,
     const ExtraUsageInfo& extra,
     bool is_team_or_enterprise_subscriber,
     bool session_overage_confirmed
@@ -399,7 +398,6 @@ public:
         return CommandDefinition{
             .name = "ultrareview",
             .description = "Deep multi-round code review (cloud-executed bughunter)",
-            .aliases = {"ur", "deep-review"},
             .args = {
                 CommandArg{
                     .name = "target",
@@ -414,12 +412,13 @@ public:
                     .required = false,
                 },
             },
-            .hidden = !is_ultrareview_enabled(),
             .category = "git",
+            .aliases = {"ur", "deep-review"},
+            .hidden = !is_ultrareview_enabled(),
         };
     }
 
-    [[nodiscard]] static VoidResult validate(const CommandContext& ctx) {
+    [[nodiscard]] static VoidResult validate(const CommandContext&) {
         if (!is_ultrareview_enabled()) {
             return std::unexpected(Error::make(
                 ErrorCode::InvalidRequest,
@@ -462,7 +461,7 @@ public:
         }
 
         if (is_overage(
-                quota.remaining, quota.total,
+                quota.remaining,
                 extra,
                 is_team_or_ent,
                 s_session_overage_confirmed)) {
@@ -524,6 +523,9 @@ public:
                               plan.all_files.size(),
                               plan.total_additions, plan.total_deletions);
         if (!note.empty()) prompt << note << "\n";
+        if (force_local) {
+            prompt << "Execution mode: local-only; do not teleport this review to a cloud session.\n";
+        }
         prompt << std::format("Planned rounds: {}\n\n", plan.total_rounds);
 
         prompt << "## Execution plan\n\n";

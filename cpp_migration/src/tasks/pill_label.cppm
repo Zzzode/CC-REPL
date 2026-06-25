@@ -109,6 +109,18 @@ template<typename Container, typename Pred>
             
             case cc::core::TaskType::Dream:
                 return "dreaming";
+
+            case cc::core::TaskType::Search:
+                return (n == 1) ? "1 search" : std::format("{} searches", n);
+
+            case cc::core::TaskType::GeneralPurpose:
+                return (n == 1) ? "1 background task" : std::format("{} background tasks", n);
+
+            case cc::core::TaskType::Shell:
+                return (n == 1) ? "1 shell" : std::format("{} shells", n);
+
+            case cc::core::TaskType::Agent:
+                return (n == 1) ? "1 agent" : std::format("{} agents", n);
         }
     }
     

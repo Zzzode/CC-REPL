@@ -367,7 +367,6 @@ public:
         return CommandDefinition{
             .name = "security-review",
             .description = "Security audit of pending branch changes (OWASP Top 10 + secrets)",
-            .aliases = {"sec-review", "audit"},
             .args = {
                 CommandArg{
                     .name = "base_ref",
@@ -388,8 +387,9 @@ public:
                     .required = false,
                 },
             },
-            .hidden = false,
             .category = "security",
+            .aliases = {"sec-review", "audit"},
+            .hidden = false,
         };
     }
 

@@ -2885,7 +2885,6 @@ private:
     std::unordered_set<std::string> loaded_nested_memory_paths_;
     std::unordered_set<std::string> content_replacement_seen_ids_;
     std::unordered_map<std::string, std::string> content_replacements_;
-    bool has_handled_orphaned_permission_ = false;
     std::chrono::system_clock::time_point session_start_;
     BudgetTracker budget_tracker_;
     ModelCost model_cost_;

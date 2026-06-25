@@ -30,6 +30,9 @@ std::string GetFastIconString(bool apply_color = true, bool cooldown = false) {
     if (!apply_color) {
         return std::string(figs::LIGHTNING_BOLT);
     }
+    if (cooldown) {
+        return std::string(figs::LIGHTNING_BOLT);
+    }
     
     // Note: Color application would depend on theme system
     return std::string(figs::LIGHTNING_BOLT);

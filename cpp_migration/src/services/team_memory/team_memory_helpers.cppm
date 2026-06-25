@@ -36,22 +36,22 @@ inline std::expected<MemorySyncState, std::string> get_sync_state(std::string_vi
 }
 
 inline std::expected<std::vector<SharedMemoryEntry>, std::string> pull_shared_memories(
-    std::string_view team_id) {
+    std::string_view) {
     return {};
 }
 
-inline std::expected<void, std::string> push_memory(std::string_view team_id,
-                                                     std::string_view key,
-                                                     std::string_view value) {
+inline std::expected<void, std::string> push_memory(std::string_view,
+                                                     std::string_view,
+                                                     std::string_view) {
     return {};
 }
 
 inline std::expected<ConflictResolution, std::string> resolve_conflict(
-    std::string_view key, std::string_view local_value, std::string_view remote_value) {
+    std::string_view key, std::string_view, std::string_view remote_value) {
     return ConflictResolution{std::string(key), std::string(remote_value), "remote_wins"};
 }
 
-inline std::expected<void, std::string> mark_sync_complete(std::string_view team_id) {
+inline std::expected<void, std::string> mark_sync_complete(std::string_view) {
     return {};
 }
 

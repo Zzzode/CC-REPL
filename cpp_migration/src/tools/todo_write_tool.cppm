@@ -472,20 +472,25 @@ using JsonVal = cc::utils::json::JsonVal;
                         .name = "todos",
                         .type = "array",
                         .description = "Array of todo items with id, content, status, priority",
-                        .required = true
+                        .required = true,
+                        .default_value = std::nullopt,
+                        .enum_values = std::nullopt
                     },
                     cc::core::SchemaProperty{
                         .name = "merge",
                         .type = "boolean",
                         .description = "Merge with existing list by id (true) or replace all (false)",
                         .required = false,
-                        .default_value = "false"
+                        .default_value = "false",
+                        .enum_values = std::nullopt
                     },
                     cc::core::SchemaProperty{
                         .name = "agent_id",
                         .type = "string",
                         .description = "Runtime scope id injected for sub-agent todo isolation",
-                        .required = false
+                        .required = false,
+                        .default_value = std::nullopt,
+                        .enum_values = std::nullopt
                     }
                 }
             },

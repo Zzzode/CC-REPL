@@ -56,15 +56,6 @@ inline auto render_tabs(TabConfig config) -> std::string {
     out << "\n";
 
     // Underline: active tab has a gap, others have a line
-    int total_width = 0;
-    for (size_t i = 0; i < config.labels.size(); ++i) {
-        int tab_width = static_cast<int>(config.labels[i].size()) + 4;
-        if (config.closeable) tab_width += 2;
-        total_width += tab_width;
-        if (i < config.labels.size() - 1) total_width += 1;
-    }
-
-    int pos = 0;
     for (size_t i = 0; i < config.labels.size(); ++i) {
         int tab_width = static_cast<int>(config.labels[i].size()) + 4;
         if (config.closeable) tab_width += 2;
@@ -75,11 +66,9 @@ inline auto render_tabs(TabConfig config) -> std::string {
         } else {
             out << repeat_tabs("─", tab_width);
         }
-        pos += tab_width;
 
         if (i < config.labels.size() - 1) {
             out << "─";
-            pos += 1;
         }
     }
 

@@ -18,7 +18,8 @@ export namespace cc::core::constants {
 
 // ============================================================
 inline constexpr std::string_view kVersion = "1.0.0-cpp";
-inline constexpr std::string_view kBuildDate = __DATE__;
+inline constexpr std::string_view kBuildDate = "unknown";
+inline constexpr std::string_view kBuildTime = "unknown";
 inline constexpr std::string_view kAppName = "cc-repl";
 inline constexpr std::string_view kUserAgent = "cc-repl/1.0.0-cpp";
 

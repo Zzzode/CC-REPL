@@ -261,15 +261,6 @@ inline dsys::ToolPermissionPayload& tp(dsys::DialogPayloadVariant& v) {
     }
     return *p;
 }
-inline const dsys::ToolPermissionPayload& tp(const dsys::DialogPayloadVariant& v) {
-    auto* p = std::get_if<dsys::ToolPermissionPayload>(&v);
-    if (!p) {
-        ADD_FAILURE() << "Variant does not hold ToolPermissionPayload (const)";
-        static const dsys::ToolPermissionPayload dummy; // crash-safe fallback
-        return dummy;
-    }
-    return *p;
-}
 
 TEST(DialogSystem, QueuePushRoutesByTypeAndPopById) {
     dsys::DialogQueue q;
@@ -382,7 +373,6 @@ TEST(VisualSnapshot, ToolPermissionGenericMatchesGolden) {
 // ─── 4. Keyboard event handling ────────────────────────────────────────────
 
 using DecisionPair = std::pair<bool, std::optional<bool>>;
-constexpr DecisionPair kNone = {false, std::nullopt};
 
 struct DecisionRecorder {
     std::optional<DecisionPair> response;
@@ -586,14 +576,14 @@ TEST(DialogDispatchPriority, OverlayDispatchedBeforeBottom) {
     dr::register_default_renderers(s.dialog_renderers);
 
     // Push overlay + bottom.  queue.push() auto-routes by DialogType.
-    DecisionRecorder rec_bash, rec_idle;
+    DecisionRecorder rec_bash;
     auto bash = MakeRecordedBash(rec_bash);
     s.dialog_queue.push(std::move(bash));
 
     dsys::IdleReturnPayload idle;
     idle.id = "idle-return";
     idle.idle_minutes = 42;
-    idle.on_response = [&rec_idle](auto) {};
+    idle.on_response = [](auto) {};
     s.dialog_queue.push(std::move(idle));
 
     // 'y' should be consumed by the overlay, not the idle bottom payload.

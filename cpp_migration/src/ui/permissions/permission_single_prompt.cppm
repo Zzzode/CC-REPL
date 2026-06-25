@@ -65,9 +65,9 @@ using RiskLevel  = pc::RiskLevel;
 /// Tool-specific detail payload (rendered inside the body).
 struct DetailBash {
     std::string command;
-    std::optional<std::string> working_dir;
+    std::optional<std::string> working_dir = std::nullopt;
     bool is_destructive = false;
-    std::string destructive_reason; // empty if is_destructive=false
+    std::string destructive_reason = {}; // empty if is_destructive=false
 };
 struct DetailFileEdit {
     std::string file_path;

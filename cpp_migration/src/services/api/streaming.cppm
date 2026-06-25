@@ -453,9 +453,9 @@ public:
 
     // Factory method for parser setup; AnthropicClient owns the HTTP transfer.
     static std::optional<StreamParser> create(
-        const std::string& url,
-        const std::string& body,
-        const std::vector<std::string>& headers,
+        const std::string&,
+        const std::string&,
+        const std::vector<std::string>&,
         std::chrono::milliseconds timeout) {
         StreamParser parser;
         {

@@ -174,10 +174,16 @@ cc::utils::Result<ToolResult> TeamCreateTool::execute(const ToolInput& input) {
     // inner delegation uses an allow-all checker rather than fail-closed
     // denial for the Write-level "team_create" runtime tool.
     cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{
+        .parent_permission_mode = std::nullopt,
         .permission_check = cc::tools::agent::AgentLivePermissionCheckFn{[](
             std::string_view, std::string_view, std::string_view) {
-            return cc::tools::agent::AgentLivePermissionCheck{.allowed = true};
+            return cc::tools::agent::AgentLivePermissionCheck{
+                .allowed = true,
+                .updated_input_json = std::nullopt,
+                .message = std::nullopt,
+            };
         }},
+        .permission_hook_valid_for_background = false,
     });
     auto delegated = registry.execute("team_create", input);
     if (!delegated) return ToolResult::error(delegated.error().format());

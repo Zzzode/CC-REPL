@@ -19,6 +19,7 @@ module;
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include <netdb.h>
@@ -348,6 +349,21 @@ struct IdeRpcResponse {
     std::optional<std::string> error;
 };
 
+[[nodiscard]] inline IdeRpcResponse ide_rpc_success(std::string result) {
+    IdeRpcResponse response;
+    response.success = true;
+    response.result = std::move(result);
+    return response;
+}
+
+[[nodiscard]] inline IdeRpcResponse ide_rpc_failure(std::string error, std::string result = {}) {
+    IdeRpcResponse response;
+    response.success = false;
+    response.result = std::move(result);
+    response.error = std::move(error);
+    return response;
+}
+
 /// Sends JSON-RPC requests to the IDE's MCP endpoint
 class IdeRpcClient {
 public:
@@ -372,7 +388,7 @@ public:
     [[nodiscard]] IdeRpcResponse call(std::string_view tool_name,
                                        std::string_view params_json = "{}") {
         if (!connected_ || !lockfile_) {
-            return IdeRpcResponse{.success = false, .error = "Not connected to IDE"};
+            return ide_rpc_failure("Not connected to IDE");
         }
 
         if (lockfile_->transport && *lockfile_->transport == "ws") {
@@ -394,10 +410,8 @@ public:
         cc::services::mcp::McpClient client(std::move(config));
         const auto connected = client.connect_sse(lockfile_->mcp_url(), {});
         if (!connected) {
-            return IdeRpcResponse{
-                .success = false,
-                .error = std::format("Failed to connect to IDE MCP server: {}", mcp_error_to_string(connected.error()))
-            };
+            return ide_rpc_failure(
+                std::format("Failed to connect to IDE MCP server: {}", mcp_error_to_string(connected.error())));
         }
 
         cc::services::mcp::ToolCallRequest tool_request{
@@ -408,18 +422,16 @@ public:
         client.shutdown();
 
         if (!result) {
-            return IdeRpcResponse{
-                .success = false,
-                .error = std::format("IDE MCP tool call failed: {}", mcp_error_to_string(result.error()))
-            };
+            return ide_rpc_failure(
+                std::format("IDE MCP tool call failed: {}", mcp_error_to_string(result.error())));
         }
 
         auto content_json = serialize_content(result->content);
         if (result->is_error) {
-            return IdeRpcResponse{.success = false, .result = content_json, .error = content_json};
+            return ide_rpc_failure(content_json, content_json);
         }
 
-        return IdeRpcResponse{.success = true, .result = content_json};
+        return ide_rpc_success(content_json);
     }
 
     /// Convenience: notify file changed
@@ -526,12 +538,12 @@ private:
         std::string_view params_json) {
         auto parts = parse_ws_url(lockfile_->mcp_url());
         if (!parts) {
-            return IdeRpcResponse{.success = false, .error = parts.error()};
+            return ide_rpc_failure(parts.error());
         }
 
         auto fd = connect_tcp(*parts);
         if (!fd) {
-            return IdeRpcResponse{.success = false, .error = fd.error()};
+            return ide_rpc_failure(fd.error());
         }
 
         const auto close_fd = [](int socket_fd) {
@@ -545,7 +557,7 @@ private:
         if (!handshake) {
             auto error = handshake.error();
             close_fd(*fd);
-            return IdeRpcResponse{.success = false, .error = error};
+            return ide_rpc_failure(error);
         }
 
         const auto initialize_id = next_id_++;
@@ -555,12 +567,12 @@ private:
         if (auto sent = send_ws_text(*fd, initialize_request); !sent) {
             auto error = sent.error();
             close_fd(*fd);
-            return IdeRpcResponse{.success = false, .error = error};
+            return ide_rpc_failure(error);
         }
         if (auto initialized = receive_ws_response(*fd, initialize_id); !initialized) {
             auto error = initialized.error();
             close_fd(*fd);
-            return IdeRpcResponse{.success = false, .error = error};
+            return ide_rpc_failure(error);
         }
 
         const std::string initialized_notification =
@@ -568,7 +580,7 @@ private:
         if (auto sent = send_ws_text(*fd, initialized_notification); !sent) {
             auto error = sent.error();
             close_fd(*fd);
-            return IdeRpcResponse{.success = false, .error = error};
+            return ide_rpc_failure(error);
         }
 
         const auto tool_id = next_id_++;
@@ -579,13 +591,13 @@ private:
         if (auto sent = send_ws_text(*fd, tool_request); !sent) {
             auto error = sent.error();
             close_fd(*fd);
-            return IdeRpcResponse{.success = false, .error = error};
+            return ide_rpc_failure(error);
         }
 
         auto tool_response = receive_ws_response(*fd, tool_id);
         close_fd(*fd);
         if (!tool_response) {
-            return IdeRpcResponse{.success = false, .error = tool_response.error()};
+            return ide_rpc_failure(tool_response.error());
         }
         return parse_tool_call_response(*tool_response);
     }
@@ -854,33 +866,26 @@ private:
     [[nodiscard]] static IdeRpcResponse parse_tool_call_response(std::string_view response_json) {
         auto doc = parse(response_json);
         if (!doc) {
-            return IdeRpcResponse{.success = false, .error = "Invalid IDE WebSocket MCP response"};
+            return ide_rpc_failure("Invalid IDE WebSocket MCP response");
         }
         auto root = doc->root();
         auto error = root.get("error");
         if (error.valid() && !error.is_null()) {
-            return IdeRpcResponse{
-                .success = false,
-                .result = error.to_string(),
-                .error = error.to_string()
-            };
+            auto error_json = error.to_string();
+            return ide_rpc_failure(error_json, error_json);
         }
 
         auto result = root.get("result");
         if (!result.valid() || result.is_null()) {
-            return IdeRpcResponse{.success = true, .result = "[]"};
+            return ide_rpc_success("[]");
         }
 
         auto content = result.get("content");
         auto content_json = content.valid() ? content.to_string() : result.to_string();
         if (result.get("isError").as_bool()) {
-            return IdeRpcResponse{
-                .success = false,
-                .result = content_json,
-                .error = content_json
-            };
+            return ide_rpc_failure(content_json, content_json);
         }
-        return IdeRpcResponse{.success = true, .result = content_json};
+        return ide_rpc_success(content_json);
     }
 
     [[nodiscard]] static std::string json_escape(std::string_view input) {
@@ -919,13 +924,13 @@ private:
     IdeLockfileScanner scanner;
     auto lockfile = scanner.find_best_match();
     if (!lockfile) {
-        return IdeRpcResponse{.success = false, .error = "No IDE lockfile found"};
+        return ide_rpc_failure("No IDE lockfile found");
     }
 
     IdeRpcClient client;
     auto connect_result = client.connect(*lockfile);
     if (!connect_result) {
-        return IdeRpcResponse{.success = false, .error = connect_result.error()};
+        return ide_rpc_failure(connect_result.error());
     }
 
     return client.call(method, params_json);

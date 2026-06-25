@@ -323,7 +323,7 @@ inline Decorator padding(int all) { return padding(all, all, all, all); }
         // NOTE: this means callers should invoke this helper *before* they
         // have an active conversation they care about.  (Resume screen is
         // shown exactly at startup / session-picker time, which fits.)
-        mutable_store->switch_conversation(id);
+        if (!mutable_store->switch_conversation(id)) continue;
         auto* conv = mutable_store->get_active_conversation();
         if (!conv) continue;
 
@@ -395,8 +395,8 @@ struct FilteredIndex {
             case SortMode::TitleAsc:
                 return ra.title < rb.title;
             case SortMode::ModelAsc: {
-                std::string_view ma = ra.model_name ? *ra.model_name : "";
-                std::string_view mb = rb.model_name ? *rb.model_name : "";
+                std::string_view ma = ra.model_name ? std::string_view{*ra.model_name} : std::string_view{};
+                std::string_view mb = rb.model_name ? std::string_view{*rb.model_name} : std::string_view{};
                 if (ma != mb) return ma < mb;
                 return ra.last_active_at > rb.last_active_at;
             }
@@ -1163,8 +1163,8 @@ struct ResumeScreenAction {
         QuickPickNumber,    // payload: index (0-based) into recent sessions
     };
     Kind kind = Kind::None;
-    std::string session_id;
-    std::string extra;   // rename: new_title;  share: session_id too
+    std::string session_id{};
+    std::string extra{};   // rename: new_title;  share: session_id too
     std::size_t index = 0;
 };
 
@@ -1270,7 +1270,11 @@ inline void ensure_preview_loaded(ResumeScreenState& s) {
         s.preview_for_session_id = row.session_id;
         return;
     }
-    s.opts.store->switch_conversation(row.session_id);
+    if (!s.opts.store->switch_conversation(row.session_id)) {
+        s.preview_cache = std::vector<Message>{};
+        s.preview_for_session_id = row.session_id;
+        return;
+    }
     auto* conv = s.opts.store->get_active_conversation();
     if (!conv) {
         s.preview_cache = std::vector<Message>{};
@@ -1442,9 +1446,10 @@ inline void ensure_preview_loaded(ResumeScreenState& s) {
                 }
                 // Apply immediately to store if available.
                 if (state->opts.store) {
-                    state->opts.store->switch_conversation(row.session_id);
-                    auto* conv = state->opts.store->get_active_conversation();
-                    if (conv) conv->set_title(row.title);
+                    if (state->opts.store->switch_conversation(row.session_id)) {
+                        auto* conv = state->opts.store->get_active_conversation();
+                        if (conv) conv->set_title(row.title);
+                    }
                 }
                 ResumeScreenAction a;
                 a.kind = ResumeScreenAction::Kind::RenameSession;
@@ -1669,8 +1674,6 @@ inline void ensure_preview_loaded(ResumeScreenState& s) {
                 // Enter = resume / open details
                 if (event == Event::Return) {
                     if (count == 0) return true;
-                    const std::size_t safe = std::min(state->selected_idx, count - 1);
-                    const auto& row = state->rows[state->filtered[safe].row_index];
                     if (state->view == ScreenView::DetailsPreview) {
                         // Already handled above; should not reach here.
                         return true;

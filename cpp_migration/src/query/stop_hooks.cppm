@@ -29,7 +29,7 @@ enum class StopReason : std::uint8_t {
 struct StopCheckResult {
     bool should_stop = false;
     StopReason reason = StopReason::EndTurn;
-    std::optional<std::string> message;
+    std::optional<std::string> message{};
 };
 
 /// Hook that can be registered to check stop conditions

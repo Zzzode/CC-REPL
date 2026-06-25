@@ -220,7 +220,6 @@ class Bridge {
     // Configuration
     std::string bind_host_ = "127.0.0.1";
     std::uint16_t bind_port_ = 0;           // 0 = auto-assign
-    std::uint32_t heartbeat_interval_ms_ = 30000;
 
     bool is_listening_ = false;
 

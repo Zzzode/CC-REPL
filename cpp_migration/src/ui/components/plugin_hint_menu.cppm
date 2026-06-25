@@ -85,7 +85,7 @@ struct PluginHintMenuState {
 
 /// Render the step-savings badge.  Color scales: green for >=50%,
 /// yellow for >=25%, else red.
-[[nodiscard]] inline Element savings_badge(double pct, const Theme& t) {
+[[nodiscard]] inline Element savings_badge(double pct, const Theme&) {
     auto rounded = std::clamp(std::round(pct), 0.0, 999.0);
     Color c = Color::Red;
     if (rounded >= 50.0)      c = Color::Green;

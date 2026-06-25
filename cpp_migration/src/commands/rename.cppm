@@ -28,13 +28,13 @@ public:
         return CommandDefinition{
             .name = "rename",
             .description = "Rename the current session",
-            .aliases = {},
             .args = {
                 CommandArg{.name = "name", .description = "New name for the session",
                            .type = ArgType::Text, .required = false},
             },
-            .hidden = false,
             .category = "session",
+            .aliases = {},
+            .hidden = false,
         };
     }
 

@@ -172,7 +172,7 @@ struct Suggestion {
 struct ConversationTurn {
     std::string role;      // user / assistant
     std::string content;
-    std::chrono::system_clock::time_point timestamp;
+    std::chrono::system_clock::time_point timestamp{};
 };
 
 struct ShellHistoryEntry {
@@ -617,6 +617,7 @@ struct ContentHaystack {
             .source = SuggestionSource::Speculative,
             .priority = SuggestionPriority::High,
             .confidence = s.score,
+            .tags = {},
         });
     }
 
@@ -854,7 +855,9 @@ inline constexpr std::string_view INTERRUPT_MESSAGE_FOR_TOOL_USE =
     std::vector<SimplifiedMessage> out;
     out.reserve(messages.size());
     for (const auto& msg : messages) {
-        SimplifiedMessage filtered{.role = msg.role, .is_api_error = msg.is_api_error};
+        SimplifiedMessage filtered;
+        filtered.role = msg.role;
+        filtered.is_api_error = msg.is_api_error;
         for (const auto& b : msg.content) {
             if (keep_block(b)) filtered.content.push_back(b);
         }
@@ -941,6 +944,7 @@ private:
                 .source = SuggestionSource::ConversationContext,
                 .priority = SuggestionPriority::Medium,
                 .confidence = 0.6,
+                .tags = {},
             });
             out.push_back({
                 .text = "What are the potential issues with this approach?",
@@ -948,6 +952,7 @@ private:
                 .source = SuggestionSource::ConversationContext,
                 .priority = SuggestionPriority::Medium,
                 .confidence = 0.5,
+                .tags = {},
             });
         }
     }
@@ -963,6 +968,7 @@ private:
                 .source = SuggestionSource::FileSystem,
                 .priority = SuggestionPriority::Low,
                 .confidence = 0.4,
+                .tags = {},
             });
         }
     }
@@ -989,6 +995,7 @@ private:
                 .source = SuggestionSource::ShellHistory,
                 .priority = SuggestionPriority::High,
                 .confidence = 0.8,
+                .tags = {},
             });
         }
     }

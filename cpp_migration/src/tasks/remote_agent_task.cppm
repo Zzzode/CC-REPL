@@ -239,8 +239,8 @@ public:
     
     RemoteSessionPoller(const RemoteSessionPoller&) = delete;
     RemoteSessionPoller& operator=(const RemoteSessionPoller&) = delete;
-    RemoteSessionPoller(RemoteSessionPoller&&) = default;
-    RemoteSessionPoller& operator=(RemoteSessionPoller&&) = default;
+    RemoteSessionPoller(RemoteSessionPoller&&) = delete;
+    RemoteSessionPoller& operator=(RemoteSessionPoller&&) = delete;
 };
 
 // ============================================================

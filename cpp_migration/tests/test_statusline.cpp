@@ -634,7 +634,9 @@ TEST(StatuslineExecute, ComplexJsonInputPassedCorrectly) {
     input.vim = cc::utils::statusline::StatusLineVimInfo{.mode = "NORMAL"};
     input.rate_limits = cc::utils::statusline::StatusLineRateLimits{
         .five_hour = cc::utils::statusline::StatusLineRateLimitBucket{
-            .used_percentage = 50.0, .resets_at = 1234567890LL}};
+            .used_percentage = 50.0, .resets_at = 1234567890LL},
+        .seven_day = std::nullopt,
+    };
 
     // Use python (if available) or grep to verify the JSON has expected keys
     // We'll just check the output length and a few key fields

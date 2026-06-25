@@ -157,7 +157,9 @@ public:
     /// Execute a single task and produce a report
     TaskReport handle_task(const TaskPayload& task) {
         auto start_time = std::chrono::steady_clock::now();
-        TaskReport report{.id = task.id, .status = TaskStatus::Running};
+        TaskReport report{};
+        report.id = task.id;
+        report.status = TaskStatus::Running;
 
         // Check constraints before execution
         if (auto err = validate_constraints(task.constraints)) {

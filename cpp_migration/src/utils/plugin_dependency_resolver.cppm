@@ -8,6 +8,7 @@ module;
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 export module cc.utils.plugin_dependency_resolver;
@@ -89,20 +90,33 @@ using LookupFn = std::function<std::optional<DependencyLookupResult>(const std::
 
     const auto parsed = cc::utils::plugin_identifier::parse_plugin_identifier(id);
     if (parsed.marketplace != root_marketplace && !(parsed.marketplace && allowed_cross_marketplaces.contains(*parsed.marketplace))) {
-        return ResolutionResult{.ok = false, .reason = ResolutionFailure::CrossMarketplace, .dependency = id, .required_by = required_by, .message = "cross-marketplace dependency"};
+        ResolutionResult result;
+        result.reason = ResolutionFailure::CrossMarketplace;
+        result.dependency = id;
+        result.required_by = required_by;
+        result.message = "cross-marketplace dependency";
+        return result;
     }
 
     if (std::find(stack.begin(), stack.end(), id) != stack.end()) {
-        auto chain = stack;
-        chain.push_back(id);
-        return ResolutionResult{.ok = false, .reason = ResolutionFailure::Cycle, .chain = chain, .message = "dependency cycle"};
+        ResolutionResult result;
+        result.reason = ResolutionFailure::Cycle;
+        result.chain = stack;
+        result.chain.push_back(id);
+        result.message = "dependency cycle";
+        return result;
     }
     if (visited.contains(id)) return std::nullopt;
     visited.insert(id);
 
     auto entry = lookup(id);
     if (!entry) {
-        return ResolutionResult{.ok = false, .reason = ResolutionFailure::NotFound, .missing = id, .required_by = required_by, .message = "dependency not found"};
+        ResolutionResult result;
+        result.reason = ResolutionFailure::NotFound;
+        result.missing = id;
+        result.required_by = required_by;
+        result.message = "dependency not found";
+        return result;
     }
 
     stack.push_back(id);
@@ -128,7 +142,10 @@ using LookupFn = std::function<std::optional<DependencyLookupResult>(const std::
     std::vector<std::string> stack;
     const auto root_marketplace = cc::utils::plugin_identifier::parse_plugin_identifier(root_id).marketplace;
     if (auto err = detail::walk(root_id, root_id, root_id, root_marketplace, lookup, already_enabled, allowed_cross_marketplaces, closure, visited, stack)) return *err;
-    return ResolutionResult{.ok = true, .reason = ResolutionFailure::None, .closure = closure};
+    ResolutionResult result;
+    result.ok = true;
+    result.closure = std::move(closure);
+    return result;
 }
 
 [[nodiscard]] inline DemotionResult verify_and_demote(const std::vector<LoadedPlugin>& plugins) {

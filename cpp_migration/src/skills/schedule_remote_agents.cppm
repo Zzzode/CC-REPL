@@ -336,6 +336,7 @@ create_scheduled_task(
     ScheduleCronTool tool;
     return tool.execute(CronRequest{
         .action = CronAction::Create,
+        .task_id = std::nullopt,
         .name = std::move(name),
         .message = std::move(message),
         .cron_expression = std::move(cron_expr),
@@ -350,6 +351,10 @@ cancel_scheduled_task(std::string task_id) {
     return tool.execute(CronRequest{
         .action = CronAction::Delete,
         .task_id = std::move(task_id),
+        .name = std::nullopt,
+        .message = std::nullopt,
+        .cron_expression = std::nullopt,
+        .timezone = std::nullopt,
     });
 }
 

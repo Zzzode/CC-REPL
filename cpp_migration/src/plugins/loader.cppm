@@ -136,10 +136,10 @@ class PluginLoader {
     std::vector<std::filesystem::path> search_paths_;
     std::unordered_map<std::string, PluginCacheEntry> cache_;
     std::string host_version_ = "1.0.0";  // Current CLI version for compat checks
-    uv_loop_t* loop_;
 
 public:
-    explicit PluginLoader(uv_loop_t* loop) : loop_(loop) {
+    explicit PluginLoader(uv_loop_t* loop) {
+        (void)loop;
         // Default plugin search paths
         if (auto home = std::getenv("HOME")) {
             search_paths_.emplace_back(

@@ -755,7 +755,11 @@ inline ValidatePathResult validate_path(
     if (!absolute.is_absolute()) absolute = cwd / absolute;
     absolute = resolve_for_permission(absolute);
 
-    ValidatePathResult r{.resolved_path = absolute};
+    ValidatePathResult r{
+        .allowed = true,
+        .resolved_path = absolute,
+        .decision_reason = std::nullopt
+    };
 
     // (1) Path must be under one of ctx.allowed_dirs.
     const bool any_allowed = ctx.allowed_dirs.empty() ||
@@ -771,6 +775,7 @@ inline ValidatePathResult validate_path(
         r.allowed = false;
         r.decision_reason = DecisionReason{
             .type = DecisionReasonType::kSafety,
+            .mode = std::nullopt,
             .reason = "path outside allowed directories",
         };
         return r;
@@ -786,6 +791,7 @@ inline ValidatePathResult validate_path(
             r.allowed = false;
             r.decision_reason = DecisionReason{
                 .type = DecisionReasonType::kSafety,
+                .mode = std::nullopt,
                 .reason = "modification of Claude-internal configuration is not allowed",
             };
             return r;
@@ -824,6 +830,7 @@ inline auto create_path_checker(
                 cmd == PathCommand::Mv ? "mv" : "cp");
             result.decision_reason = DecisionReason{
                 .type = DecisionReasonType::kOther,
+                .mode = std::nullopt,
                 .reason = std::format(
                     "{} command with flags requires manual approval",
                     cmd == PathCommand::Mv ? "mv" : "cp"),
@@ -839,6 +846,7 @@ inline auto create_path_checker(
                 "require explicit approval to ensure paths are evaluated correctly.";
             result.decision_reason = DecisionReason{
                 .type = DecisionReasonType::kOther,
+                .mode = std::nullopt,
                 .reason =
                     "Compound command contains cd with write operation - "
                     "manual approval required to prevent path resolution bypass",
@@ -905,17 +913,20 @@ inline auto create_path_checker(
                     result.suggestions.push_back(PermissionUpdate{
                         .type = PermissionUpdateType::kAddReadRule,
                         .directories = {vr.resolved_path.parent_path()},
+                        .mode = std::nullopt
                     });
                 } else {
                     result.suggestions.push_back(PermissionUpdate{
                         .type = PermissionUpdateType::kAddDirectories,
                         .directories = {vr.resolved_path.parent_path()},
+                        .mode = std::nullopt
                     });
                 }
                 if (op == FileOperationType::kWrite ||
                     op == FileOperationType::kCreate) {
                     result.suggestions.push_back(PermissionUpdate{
                         .type = PermissionUpdateType::kSetMode,
+                        .directories = {},
                         .mode = PermissionMode::kAcceptEdits,
                     });
                 }
@@ -949,6 +960,7 @@ inline auto create_path_checker(
                         absolute.string());
                     result.decision_reason = DecisionReason{
                         .type = DecisionReasonType::kOther,
+                        .mode = std::nullopt,
                         .reason = std::format(
                             "Dangerous {} operation on critical path: {}",
                             cmd == PathCommand::Rm ? "rm" : "rmdir",
@@ -1172,6 +1184,7 @@ check_path_constraints(
             "commands and requires manual approval";
         result.decision_reason = DecisionReason{
             .type = DecisionReasonType::kOther,
+            .mode = std::nullopt,
             .reason = "Process substitution requires manual approval",
         };
         return result;
@@ -1194,6 +1207,7 @@ check_path_constraints(
             "Shell expansion syntax in paths requires manual approval";
         result.decision_reason = DecisionReason{
             .type = DecisionReasonType::kOther,
+            .mode = std::nullopt,
             .reason =
                 "Shell expansion syntax in paths requires manual approval",
         };
@@ -1208,6 +1222,7 @@ check_path_constraints(
             "require explicit approval to ensure paths are evaluated correctly.";
         result.decision_reason = DecisionReason{
             .type = DecisionReasonType::kOther,
+            .mode = std::nullopt,
             .reason =
                 "Compound command contains cd with output redirection - "
                 "manual approval required to prevent path resolution bypass",
@@ -1229,6 +1244,7 @@ check_path_constraints(
             result.suggestions.push_back(PermissionUpdate{
                 .type = PermissionUpdateType::kAddDirectories,
                 .directories = {vr.resolved_path.parent_path()},
+                .mode = std::nullopt
             });
             return result;
         }

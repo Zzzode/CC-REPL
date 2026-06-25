@@ -52,7 +52,6 @@ public:
         return CommandDefinition{
             .name = "config",
             .description = "View and modify CLI configuration settings",
-            .aliases = {"cfg"},
             .args = {
                 CommandArg{.name = "action", .description = "Subcommand: list, get, set, open, path",
                            .type = ArgType::Choice, .required = false,
@@ -62,8 +61,9 @@ public:
                 CommandArg{.name = "value", .description = "New value (for set)",
                            .type = ArgType::Text, .required = false},
             },
-            .hidden = false,
             .category = "session",
+            .aliases = {"cfg"},
+            .hidden = false,
         };
     }
 

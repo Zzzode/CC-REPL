@@ -14,8 +14,8 @@ export namespace cc::commands {
 
 struct CommandResult {
     bool success{true};
-    std::string output;
-    std::optional<std::string> error;
+    std::string output{};
+    std::optional<std::string> error{};
 };
 
 

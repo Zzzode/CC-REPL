@@ -308,6 +308,7 @@ public:
                              std::string_view request_id)
         -> std::expected<void, std::string>
     {
+        (void)request_id;
         auto lock = std::lock_guard{mutex_};
         if (!callbacks_) return std::unexpected("no callback registered");
         return callbacks_->send_request(request_json);

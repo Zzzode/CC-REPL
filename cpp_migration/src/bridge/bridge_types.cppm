@@ -104,22 +104,22 @@ struct SessionActivity {
 // ---- BridgeConfig (worker-side) ----
 
 struct BridgeConfig {
-    std::string dir;
-    std::string machine_name;
-    std::string branch;
-    std::optional<std::string> git_repo_url;
+    std::string dir = {};
+    std::string machine_name = {};
+    std::string branch = {};
+    std::optional<std::string> git_repo_url = std::nullopt;
     int max_sessions{1};
     SpawnMode spawn_mode{SpawnMode::single_session};
     bool verbose{false};
     bool sandbox{false};
-    std::string bridge_id;
-    std::string worker_type;
-    std::string environment_id;
-    std::optional<std::string> reuse_environment_id;
-    std::string api_base_url;
-    std::string session_ingress_url;
-    std::optional<std::string> debug_file;
-    std::optional<std::chrono::milliseconds> session_timeout_ms;
+    std::string bridge_id = {};
+    std::string worker_type = {};
+    std::string environment_id = {};
+    std::optional<std::string> reuse_environment_id = std::nullopt;
+    std::string api_base_url = {};
+    std::string session_ingress_url = {};
+    std::optional<std::string> debug_file = std::nullopt;
+    std::optional<std::chrono::milliseconds> session_timeout_ms = std::nullopt;
 };
 
 

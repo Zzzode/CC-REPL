@@ -34,22 +34,22 @@ inline std::expected<TeamDiscoveryResult, std::string> discover_team() {
 }
 
 inline std::expected<void, std::string> send_to_mailbox(
-    std::string_view teammate_id, std::string_view message) {
+    std::string_view, std::string_view) {
     return {};
 }
 
 inline std::expected<std::vector<MailboxMessage>, std::string> read_mailbox(
-    std::string_view teammate_id) {
+    std::string_view) {
     return {};
 }
 
 inline std::expected<std::string, std::string> get_teammate_context(
-    std::string_view teammate_id) {
+    std::string_view) {
     return "";
 }
 
 inline std::expected<void, std::string> sync_team_memory(
-    std::string_view team_id) {
+    std::string_view) {
     return {};
 }
 

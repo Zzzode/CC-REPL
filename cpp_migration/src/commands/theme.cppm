@@ -57,7 +57,6 @@ public:
         return CommandDefinition{
             .name = "theme",
             .description = "Switch visual theme or color scheme",
-            .aliases = {},
             .args = {
                 CommandArg{.name = "action", .description = "list | set | current | colors",
                            .type = ArgType::Choice, .required = false,
@@ -65,8 +64,9 @@ public:
                 CommandArg{.name = "theme_name", .description = "Theme name to apply",
                            .type = ArgType::Text, .required = false},
             },
-            .hidden = false,
             .category = "config",
+            .aliases = {},
+            .hidden = false,
         };
     }
 

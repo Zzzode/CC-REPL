@@ -74,7 +74,6 @@ public:
         return CommandDefinition{
             .name = "review",
             .description = "Review code changes with AI-powered analysis",
-            .aliases = {"cr"},
             .args = {
                 CommandArg{.name = "--branch", .description = "Compare against a specific branch",
                            .type = ArgType::Text, .required = false},
@@ -83,8 +82,9 @@ public:
                 CommandArg{.name = "files", .description = "Specific files to review",
                            .type = ArgType::FilePath, .required = false},
             },
-            .hidden = false,
             .category = "git",
+            .aliases = {"cr"},
+            .hidden = false,
         };
     }
 

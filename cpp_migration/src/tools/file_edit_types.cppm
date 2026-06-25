@@ -75,13 +75,20 @@ struct ValidationOutcome {
     /// Convenience factory
     static ValidationOutcome ok() { return {}; }
     static ValidationOutcome ok_with(std::vector<std::pair<std::string, std::string>> m) {
-        return {.passed = true, .meta = std::move(m)};
+        return {
+            .passed = true,
+            .behavior = ValidationBehavior::Fail,
+            .message = {},
+            .code = ValidationErrorCode::Ok,
+            .meta = std::move(m)
+        };
     }
     static ValidationOutcome ask(std::string msg, ValidationErrorCode c) {
         return {.passed = false,
                 .behavior = ValidationBehavior::Ask,
                 .message = std::move(msg),
-                .code = c};
+                .code = c,
+                .meta = {}};
     }
 };
 

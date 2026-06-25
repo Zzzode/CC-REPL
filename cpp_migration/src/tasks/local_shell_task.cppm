@@ -109,7 +109,6 @@ public:
         thread_ = std::jthread([this, task_id = std::move(task_id), 
                                  description = std::move(description),
                                  on_stall = std::move(on_stall)](std::stop_token stop) {
-            std::size_t last_size = 0;
             auto last_growth = std::chrono::steady_clock::now();
             
             while (!stop.stop_requested() && !cancelled_.load(std::memory_order_relaxed)) {
@@ -140,11 +139,11 @@ public:
     
     ~StallWatchdog() { cancel(); }
     
-    // Non-copyable, movable
+    // Non-copyable and non-movable: the watchdog owns thread and atomic state.
     StallWatchdog(const StallWatchdog&) = delete;
     StallWatchdog& operator=(const StallWatchdog&) = delete;
-    StallWatchdog(StallWatchdog&&) = default;
-    StallWatchdog& operator=(StallWatchdog&&) = default;
+    StallWatchdog(StallWatchdog&&) = delete;
+    StallWatchdog& operator=(StallWatchdog&&) = delete;
 };
 
 // ============================================================

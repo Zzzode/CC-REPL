@@ -89,55 +89,73 @@ public:
                         .name = "taskId",
                         .type = "string",
                         .description = "The ID of the task to update",
-                        .required = true
+                        .required = true,
+                        .default_value = std::nullopt,
+                        .enum_values = std::nullopt
                     },
                     SchemaProperty{
                         .name = "subject",
                         .type = "string",
                         .description = "New subject for the task",
-                        .required = false
+                        .required = false,
+                        .default_value = std::nullopt,
+                        .enum_values = std::nullopt
                     },
                     SchemaProperty{
                         .name = "description",
                         .type = "string",
                         .description = "New description for the task",
-                        .required = false
+                        .required = false,
+                        .default_value = std::nullopt,
+                        .enum_values = std::nullopt
                     },
                     SchemaProperty{
                         .name = "activeForm",
                         .type = "string",
                         .description = "Present continuous form shown in spinner when in_progress",
-                        .required = false
+                        .required = false,
+                        .default_value = std::nullopt,
+                        .enum_values = std::nullopt
                     },
                     SchemaProperty{
                         .name = "status",
                         .type = "string",
                         .description = "New status: pending, in_progress, completed, or deleted",
-                        .required = false
+                        .required = false,
+                        .default_value = std::nullopt,
+                        .enum_values = std::vector<std::string>{"pending", "in_progress", "completed", "deleted"}
                     },
                     SchemaProperty{
                         .name = "owner",
                         .type = "string",
                         .description = "New owner for the task",
-                        .required = false
+                        .required = false,
+                        .default_value = std::nullopt,
+                        .enum_values = std::nullopt
                     },
                     SchemaProperty{
                         .name = "addBlocks",
                         .type = "array",
                         .description = "Task IDs that this task blocks",
-                        .required = false
+                        .required = false,
+                        .default_value = std::nullopt,
+                        .enum_values = std::nullopt
                     },
                     SchemaProperty{
                         .name = "addBlockedBy",
                         .type = "array",
                         .description = "Task IDs that block this task",
-                        .required = false
+                        .required = false,
+                        .default_value = std::nullopt,
+                        .enum_values = std::nullopt
                     },
                     SchemaProperty{
                         .name = "metadata",
                         .type = "object",
                         .description = "Metadata keys to merge. Set a key to null to delete it.",
-                        .required = false
+                        .required = false,
+                        .default_value = std::nullopt,
+                        .enum_values = std::nullopt
                     },
                 }
             },

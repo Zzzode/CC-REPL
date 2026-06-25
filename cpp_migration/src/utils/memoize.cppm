@@ -62,11 +62,6 @@ private:
 // Memoize a function with LRU cache (thread-safe)
 template<typename F>
 auto memoize(F func, std::size_t capacity = 128) {
-    using ArgTuple = decltype(std::apply(
-        [](auto&&... args) { return std::make_tuple(args...); },
-        std::declval<typename decltype(std::function{func})::argument_type>()
-    ));
-
     // Simplified: memoize single-argument functions
     // For the general case, we use a wrapper
     struct MemoizedState {

@@ -207,6 +207,7 @@ struct AgentViewOptions {
         text(" 🤖 Agents ") | bold | color(Color::Cyan),
         text(std::format("({} total", opts.agents.size())) | dim,
         text(active > 0 ? std::format(", {} active", active) : "") | color(Color::Green),
+        text(completed > 0 ? std::format(", {} done", completed) : "") | color(Color::Blue),
         text(failed > 0 ? std::format(", {} failed", failed) : "") | color(Color::Red),
         text(")") | dim,
         filler(),

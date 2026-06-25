@@ -93,7 +93,13 @@ public:
 
 class NoSandbox : public SandboxAdapter {
 public:
-    NoSandbox() : SandboxAdapter({.type = SandboxType::none}) {}
+    NoSandbox() : SandboxAdapter({
+        .type = SandboxType::none,
+        .capabilities = {},
+        .working_dir = {},
+        .env_vars = {},
+        .container_image = std::nullopt,
+    }) {}
     
     auto execute(std::string_view command) -> std::expected<SandboxResult, std::string> override {
         auto start = std::chrono::steady_clock::now();
@@ -108,7 +114,15 @@ public:
         }
         int status = cc::utils::bash::pclose_spawn(pipe);
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start);
-        return SandboxResult{.exit_code = status, .stdout_output = output, .execution_time = elapsed};
+        return SandboxResult{
+            .exit_code = status,
+            .stdout_output = output,
+            .stderr_output = {},
+            .execution_time = elapsed,
+            .memory_peak_mb = 0,
+            .timed_out = false,
+            .oom_killed = false,
+        };
     }
     auto write_file(const std::filesystem::path& path, std::string_view content) 
         -> std::expected<void, std::string> override {

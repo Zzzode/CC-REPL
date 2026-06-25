@@ -4,6 +4,7 @@
 // (including the pre-read instruction, line-prefix-format note, and the
 // ANT-user minimal-uniqueness hint).
 module;
+#include <cstddef>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -123,7 +124,7 @@ inline std::string get_tool_use_summary(const FileEditInput* input) {
 /// tool_result content.
 inline std::string format_tool_result_block(
     const FileEditOutput& out,
-    std::string_view tool_use_id
+    [[maybe_unused]] std::string_view tool_use_id
 ) {
     const std::string modified_note = out.user_modified
         ? ".  The user modified your proposed changes before accepting them. "
@@ -175,15 +176,26 @@ inline std::string format_edit_preview(
 
     auto old_lines = split_lines(op.old_string);
     auto new_lines = split_lines(op.new_string);
+    const auto max_preview_lines = context_lines < 0
+        ? std::size_t{0}
+        : static_cast<std::size_t>(context_lines);
 
     oss << "@@ removal/addition @@\n";
 
-    for (const auto& line : old_lines) {
-        oss << "- " << line << "\n";
+    for (std::size_t i = 0; i < old_lines.size() && i < max_preview_lines; ++i) {
+        oss << "- " << old_lines[i] << "\n";
     }
 
-    for (const auto& line : new_lines) {
-        oss << "+ " << line << "\n";
+    if (old_lines.size() > max_preview_lines) {
+        oss << "- ...\n";
+    }
+
+    for (std::size_t i = 0; i < new_lines.size() && i < max_preview_lines; ++i) {
+        oss << "+ " << new_lines[i] << "\n";
+    }
+
+    if (new_lines.size() > max_preview_lines) {
+        oss << "+ ...\n";
     }
 
     if (op.replace_all) {

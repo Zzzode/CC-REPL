@@ -939,6 +939,7 @@ TEST(SessionHistory, LoadAllRestoresCompactBoundaryMetadata) {
                     .tail_uuid = "tail-message",
                 },
             },
+            std::nullopt,
         });
         ASSERT_TRUE(store.save_all().has_value());
     }

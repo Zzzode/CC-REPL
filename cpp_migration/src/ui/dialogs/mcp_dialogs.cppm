@@ -542,21 +542,6 @@ namespace ElicitFocus {
 // Elicitation rendering — FORM mode + stub mode
 // ============================================================
 
-// 8-dot braille cycle (standard spinner used by FTXUI samples).
-[[nodiscard]] inline char BrailleFrame(std::uint64_t tick) {
-    // 8 phases, cycle 4 times to get 32-phase smoother animation.
-    static constexpr std::array<char, 8> kCycle = {
-        '\xE2','\xE2','\xE2','\xE2','\xE2','\xE2','\xE2','\xE2'
-    };
-    // Use proper unicode U+28xx braille dots via direct UTF-8 bytes.
-    static constexpr const char* kFrames[] = {
-        "\xE2\xA0\x81", "\xE2\xA0\x82", "\xE2\xA0\x84", "\xE2\xA0\x80",
-        "\xE2\xA0\x40", "\xE2\xA0\x20", "\xE2\xA0\x10", "\xE2\xA0\x80",
-    };
-    (void)kCycle;
-    return 0; // never called: we use the string table below.
-}
-
 [[nodiscard]] inline std::string BrailleSpinnerFrame(std::uint64_t tick) {
     static constexpr const char* kFrames[] = {
         "\xE2\xA0\x81", "\xE2\xA0\x82", "\xE2\xA0\x84", "\xE2\xA0\x80",

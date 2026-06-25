@@ -6,8 +6,8 @@
 #     (project root), immediately after the project() call.  The GLOBAL
 #     set_property(JOB_POOLS) and the CMAKE_NINJA_JOB_POOL_* variables live
 #     there so that ALL sibling subdirectories (src/, tests/, benchmarks/)
-#     observe the same scan_modules=2 cap — this eliminates the P1689 rename
-#     race for every target under this project.  Do NOT re-declare JOB_POOLS
+#     observe the same CC_REPL_SCAN_JOBS cap. This keeps P1689 depfile
+#     scanning bounded for every target under this project. Do NOT re-declare JOB_POOLS
 #     here; APPENDing to the GLOBAL property twice just duplicates entries.
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -359,6 +359,10 @@ target_sources(cc_utils
         utils/file_index.cppm
         utils/tree_sitter/tree_sitter.cppm
         utils/tree_sitter/bash/ast.cppm
+)
+target_sources(cc_utils
+    PRIVATE
+        utils/json_impl.cpp
 )
 set_source_files_properties(utils/swarm_backends.cppm PROPERTIES
     COMPILE_OPTIONS "$<$<CXX_COMPILER_ID:Clang>:-O0>"
@@ -1403,7 +1407,13 @@ target_sources(cc_ui
         ui/dialogs/modal_renderers.cppm          # new: Overlay/Modal dialog renderers
         ui/dialogs/sandbox_permission.cppm       # new: SandboxPermission renderer
         ui/dialogs/triggers.cppm                 # new: Dialog trigger / invocation routing
-        ui/dialogs/dialog_modern_renderer_stubs.cppm  # new: 12 chrome-stub Render+Handle (M8 fills in)
+        # M8 note: ManagedSettingsSecurity / FeedbackSurvey / GlobalSearch /
+        # HistorySearch / PluginDialog / DiffDialog — FTXUI chrome not yet ported.
+        # Do NOT add placeholder sources into FILE_SET CXX_MODULES: CMake 4.x
+        # cascades "not scheduled for compilation" diagnostics across the
+        # entire target if any listed source is missing.  Only add module
+        # sources that exist AND contain real implementations.  Registration
+        # lives in register_default_renderers() in default_renderers.cppm.
         ui/events/event_system.cppm
         ui/layout.cppm
         ui/layout/fullscreen_layout.cppm
@@ -1682,6 +1692,8 @@ target_link_libraries(cc_buddy PUBLIC cc_utils)
 # ─── cc_migrations: Schema Migrations ─────────────────────────────────────────
 add_library(cc_migrations)
 target_sources(cc_migrations
+    PRIVATE
+        migrations/concrete_migrations.cpp
     PUBLIC FILE_SET CXX_MODULES FILES
         migrations/concrete_migrations.cppm
         migrations/config_orchestrator.cppm

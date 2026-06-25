@@ -39,8 +39,13 @@ inline auto get_active_tasks() -> std::vector<TaskInfo> {
     filter.status = "pending";
 
 
-    auto pending = list_tasks(TaskFilter{.status = "pending"});
-    auto in_progress = list_tasks(TaskFilter{.status = "in_progress"});
+    TaskFilter pending_filter;
+    pending_filter.status = "pending";
+    auto pending = list_tasks(pending_filter);
+
+    TaskFilter in_progress_filter;
+    in_progress_filter.status = "in_progress";
+    auto in_progress = list_tasks(in_progress_filter);
 
     std::vector<TaskInfo> active;
     active.reserve(pending.size() + in_progress.size());

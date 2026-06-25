@@ -201,7 +201,11 @@ public:
             .message = std::move(message),
             .expression = std::move(expr),
             .timezone = std::move(timezone),
+            .state = CronTaskState::Active,
             .created_at = std::chrono::system_clock::now(),
+            .last_run = std::nullopt,
+            .next_run = std::nullopt,
+            .run_count = 0
         };
         auto [it, _] = tasks_.emplace(id, std::move(task));
         return &it->second;

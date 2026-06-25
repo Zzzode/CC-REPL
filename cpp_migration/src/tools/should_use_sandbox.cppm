@@ -86,7 +86,12 @@ struct SandboxRuntimeConfig {
 [[nodiscard]] inline BashPermissionRule
 parse_permission_rule(std::string_view raw_pattern) {
     const std::string pattern(raw_pattern);
-    BashPermissionRule r{.pattern = pattern};
+    BashPermissionRule r{
+        .type = PermissionRuleType::kPrefix,
+        .prefix = {},
+        .command = {},
+        .pattern = pattern,
+    };
 
     // Wildcard rule: pattern contains '*' (possibly combined with '=' exact-match suffix).
     if (pattern.find('*') != std::string::npos) {

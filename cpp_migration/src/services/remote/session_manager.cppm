@@ -93,7 +93,12 @@ public:
         };
         current_session_ = session;
         state_ = RemoteSessionState::connected;
-        send_message(RemoteMessage{.type = RemoteMessageType::command, .payload = "create:" + session.name, .session_id = session.id});
+        send_message(RemoteMessage{
+            .type = RemoteMessageType::command,
+            .payload = "create:" + session.name,
+            .session_id = session.id,
+            .timestamp = std::chrono::system_clock::now(),
+        });
         return session;
     }
 
@@ -103,7 +108,12 @@ public:
         if (!current_session_ || current_session_->id != id)
             return std::unexpected(RemoteError{RemoteError::session_not_found, "session not found"});
         state_ = RemoteSessionState::connected;
-        send_message(RemoteMessage{.type = RemoteMessageType::command, .payload = "resume", .session_id = std::string{id}});
+        send_message(RemoteMessage{
+            .type = RemoteMessageType::command,
+            .payload = "resume",
+            .session_id = std::string{id},
+            .timestamp = std::chrono::system_clock::now(),
+        });
         return {};
     }
 

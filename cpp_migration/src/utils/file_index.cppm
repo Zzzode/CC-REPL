@@ -131,7 +131,6 @@ struct MatchResult {
     
     // Score the match
     int score = 0;
-    bool prev_matched = false;
     int consecutive = 0;
     
     for (size_t i = 0; i < positions.size(); ++i) {
@@ -153,13 +152,11 @@ struct MatchResult {
             if (positions[i] == positions[i-1] + 1) {
                 consecutive++;
                 score += BONUS_CONSECUTIVE * consecutive;
-                prev_matched = true;
             } else {
                 // Gap penalty
                 auto gap = static_cast<int>(positions[i] - positions[i-1] - 1);
                 score += GAP_START + GAP_EXTENSION * (gap - 1);
                 consecutive = 0;
-                prev_matched = false;
             }
         }
     }

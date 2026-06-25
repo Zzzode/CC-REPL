@@ -118,10 +118,9 @@ public:
         if (config_.enable_secret_scanning) {
             auto scan = scan_for_secrets(entry.content);
             if (scan.has_secrets) {
-                return std::unexpected(Error{
-                    ErrorCode::PermissionDenied, {},
-                    std::format("Secret detected: {}", scan.detected_patterns.front())
-                });
+                return std::unexpected(Error::make(
+                    ErrorCode::PermissionDenied,
+                    std::format("Secret detected: {}", scan.detected_patterns.front())));
             }
         }
         std::lock_guard lock(mutex_);
@@ -141,13 +140,13 @@ public:
         if (config_.enable_secret_scanning) {
             auto scan = scan_for_secrets(new_content);
             if (scan.has_secrets) {
-                return std::unexpected(Error{ErrorCode::PermissionDenied, {}, "secret detected"});
+                return std::unexpected(Error::make(ErrorCode::PermissionDenied, "secret detected"));
             }
         }
         std::lock_guard lock(mutex_);
         auto it = entries_.find(id);
         if (it == entries_.end()) {
-            return std::unexpected(Error{ErrorCode::NotFound, {}, "entry not found"});
+            return std::unexpected(Error::make(ErrorCode::NotFound, "entry not found"));
         }
         auto& entry = it->second;
         entry.content = std::move(new_content);

@@ -8,6 +8,7 @@
 /// match any port as long as the path matches.
 module;
 #include <arpa/inet.h>
+#include <bit>
 #include <cerrno>
 #include <cstdint>
 #include <cstdio>
@@ -43,6 +44,13 @@ inline constexpr int kRedirectPortMaxAttempts = 100;
 
 namespace detail {
 
+[[nodiscard]] constexpr uint16_t host_to_network_u16(uint16_t value) noexcept {
+    if constexpr (std::endian::native == std::endian::little) {
+        return std::byteswap(value);
+    }
+    return value;
+}
+
 /// Read the MCP_OAUTH_CALLBACK_PORT override; returns 0 when unset/invalid.
 [[nodiscard]] inline uint16_t configured_callback_port() noexcept {
     const char* raw = std::getenv("MCP_OAUTH_CALLBACK_PORT");
@@ -65,8 +73,8 @@ namespace detail {
     (void)::setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
     struct sockaddr_in addr{};
     addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    addr.sin_port = htons(port);
+    addr.sin_addr.s_addr = INADDR_ANY;
+    addr.sin_port = host_to_network_u16(port);
     bool ok = ::bind(fd, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) == 0;
     ::close(fd);
     return ok;

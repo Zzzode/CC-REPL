@@ -33,6 +33,7 @@ struct BackgroundProcessInfo {
 
 // Launch a command in the background, returning its PID
 std::expected<int, std::string> run_in_background(std::string_view command, std::span<std::string> args) {
+    (void)args;
     if (command.empty()) {
         return std::unexpected("Command cannot be empty");
     }

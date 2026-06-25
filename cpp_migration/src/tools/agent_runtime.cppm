@@ -97,47 +97,47 @@ enum class NativeAgentStatus {
 }
 
 struct NativeAgentRecord {
-    std::string agent_id;
-    std::string agent_type;
-    std::optional<std::string> parent_agent_id;
-    std::optional<std::string> description;
-    std::optional<std::string> name;
-    std::optional<std::string> team_name;
-    std::optional<std::string> cwd;
-    std::optional<std::string> isolation;
-    std::optional<std::string> mode;
+    std::string agent_id{};
+    std::string agent_type{};
+    std::optional<std::string> parent_agent_id{};
+    std::optional<std::string> description{};
+    std::optional<std::string> name{};
+    std::optional<std::string> team_name{};
+    std::optional<std::string> cwd{};
+    std::optional<std::string> isolation{};
+    std::optional<std::string> mode{};
     bool background = false;
     NativeAgentStatus status = NativeAgentStatus::Queued;
     std::chrono::system_clock::time_point created_at = std::chrono::system_clock::now();
     std::chrono::system_clock::time_point updated_at = created_at;
-    std::optional<std::string> output;
-    std::optional<std::string> error;
-    std::vector<std::string> capabilities;
-    std::optional<std::string> transcript_path;
-    std::optional<std::string> sidechain_jsonl_path;
-    std::optional<std::string> output_file_path;
-    std::vector<std::string> sidechain_entries;
-    std::vector<std::string> pending_messages;
-    std::optional<std::string> worktree_path;
-    std::optional<std::string> worktree_branch;
-    std::optional<std::string> worktree_base_commit;
-    std::optional<std::string> worktree_git_root;
-    std::optional<std::string> teammate_backend;
-    std::optional<std::string> teammate_task_id;
-    std::optional<std::string> teammate_pane_id;
-    std::optional<std::string> teammate_color;
-    std::optional<std::string> parent_session_id;
-    std::optional<std::string> remote_task_id;
-    std::optional<std::string> remote_task_type;
-    std::optional<std::string> remote_session_id;
-    std::optional<std::string> remote_session_url;
-    std::optional<std::string> remote_title;
-    std::optional<std::string> remote_command;
-    std::optional<std::string> remote_metadata_json;
-    std::optional<std::string> remote_last_event_id;
+    std::optional<std::string> output{};
+    std::optional<std::string> error{};
+    std::vector<std::string> capabilities{};
+    std::optional<std::string> transcript_path{};
+    std::optional<std::string> sidechain_jsonl_path{};
+    std::optional<std::string> output_file_path{};
+    std::vector<std::string> sidechain_entries{};
+    std::vector<std::string> pending_messages{};
+    std::optional<std::string> worktree_path{};
+    std::optional<std::string> worktree_branch{};
+    std::optional<std::string> worktree_base_commit{};
+    std::optional<std::string> worktree_git_root{};
+    std::optional<std::string> teammate_backend{};
+    std::optional<std::string> teammate_task_id{};
+    std::optional<std::string> teammate_pane_id{};
+    std::optional<std::string> teammate_color{};
+    std::optional<std::string> parent_session_id{};
+    std::optional<std::string> remote_task_id{};
+    std::optional<std::string> remote_task_type{};
+    std::optional<std::string> remote_session_id{};
+    std::optional<std::string> remote_session_url{};
+    std::optional<std::string> remote_title{};
+    std::optional<std::string> remote_command{};
+    std::optional<std::string> remote_metadata_json{};
+    std::optional<std::string> remote_last_event_id{};
     std::size_t remote_idle_polls = 0;
-    std::vector<std::string> transcript;
-    std::optional<double> progress;
+    std::vector<std::string> transcript{};
+    std::optional<double> progress{};
     bool cancel_requested = false;
     bool notification_delivered = false;
     bool worktree_cleanup_performed = false;
@@ -146,6 +146,16 @@ struct NativeAgentRecord {
     bool remote_is_long_running = false;
     bool remote_has_output = false;
 };
+
+[[nodiscard]] inline NativeAgentRecord make_native_agent_record(
+    std::string agent_id,
+    std::string agent_type)
+{
+    NativeAgentRecord record;
+    record.agent_id = std::move(agent_id);
+    record.agent_type = std::move(agent_type);
+    return record;
+}
 
 struct RemoteAgentPollResult {
     std::optional<std::string> session_status;
@@ -1352,6 +1362,7 @@ inline constexpr std::string_view kGuideWhen =
         .mcp_servers = {},
         .inline_mcp_servers = {},
         .skills = {},
+        .hooks = {},
         .hooks_present = false,
         .effort = std::nullopt,
         .memory = std::nullopt,
@@ -1380,6 +1391,7 @@ inline constexpr std::string_view kGuideWhen =
         .mcp_servers = {},
         .inline_mcp_servers = {},
         .skills = {},
+        .hooks = {},
         .hooks_present = false,
         .effort = std::nullopt,
         .memory = std::nullopt,
@@ -1415,6 +1427,7 @@ inline constexpr std::string_view kGuideWhen =
             .mcp_servers = {},
             .inline_mcp_servers = {},
             .skills = {},
+            .hooks = {},
             .hooks_present = false,
             .effort = std::nullopt,
             .memory = std::nullopt,
@@ -1447,6 +1460,7 @@ inline constexpr std::string_view kGuideWhen =
             .mcp_servers = {},
             .inline_mcp_servers = {},
             .skills = {},
+            .hooks = {},
             .hooks_present = false,
             .effort = std::nullopt,
             .memory = std::nullopt,
@@ -1487,6 +1501,7 @@ inline constexpr std::string_view kGuideWhen =
             .mcp_servers = {},
             .inline_mcp_servers = {},
             .skills = {},
+            .hooks = {},
             .hooks_present = false,
             .effort = std::nullopt,
             .memory = std::nullopt,
@@ -1523,6 +1538,7 @@ inline constexpr std::string_view kGuideWhen =
             .mcp_servers = {},
             .inline_mcp_servers = {},
             .skills = {},
+            .hooks = {},
             .hooks_present = false,
             .effort = std::nullopt,
             .memory = std::nullopt,
@@ -3390,23 +3406,23 @@ inline bool persist_native_agent_record(const NativeAgentRecord& record) {
 
     auto status = native_agent_status_from_string(root.get_string("status"))
         .value_or(NativeAgentStatus::Queued);
-    NativeAgentRecord record{
-        .agent_id = std::move(agent_id),
-        .agent_type = root.get_string("agent_type").empty() ? std::string("runtime") : root.get_string("agent_type"),
-        .background = root.get("background").is_bool() && root.get("background").as_bool(),
-        .status = status,
-        .capabilities = json_string_array(root.get("capabilities")),
-        .cancel_requested = root.get("cancel_requested").is_bool() && root.get("cancel_requested").as_bool(),
-        .notification_delivered = root.get("notification_delivered").is_bool() &&
-            root.get("notification_delivered").as_bool(),
-        .worktree_cleanup_performed = root.get("worktree_cleanup_performed").is_bool() &&
-            root.get("worktree_cleanup_performed").as_bool(),
-        .remote_is_review = root.get("remote_is_review").is_bool() && root.get("remote_is_review").as_bool(),
-        .remote_is_ultraplan = root.get("remote_is_ultraplan").is_bool() && root.get("remote_is_ultraplan").as_bool(),
-        .remote_is_long_running = root.get("remote_is_long_running").is_bool() &&
-            root.get("remote_is_long_running").as_bool(),
-        .remote_has_output = root.get("remote_has_output").is_bool() && root.get("remote_has_output").as_bool(),
-    };
+    auto agent_type = root.get_string("agent_type").empty()
+        ? std::string("runtime")
+        : root.get_string("agent_type");
+    NativeAgentRecord record = make_native_agent_record(std::move(agent_id), std::move(agent_type));
+    record.background = root.get("background").is_bool() && root.get("background").as_bool();
+    record.status = status;
+    record.capabilities = json_string_array(root.get("capabilities"));
+    record.cancel_requested = root.get("cancel_requested").is_bool() && root.get("cancel_requested").as_bool();
+    record.notification_delivered = root.get("notification_delivered").is_bool() &&
+        root.get("notification_delivered").as_bool();
+    record.worktree_cleanup_performed = root.get("worktree_cleanup_performed").is_bool() &&
+        root.get("worktree_cleanup_performed").as_bool();
+    record.remote_is_review = root.get("remote_is_review").is_bool() && root.get("remote_is_review").as_bool();
+    record.remote_is_ultraplan = root.get("remote_is_ultraplan").is_bool() && root.get("remote_is_ultraplan").as_bool();
+    record.remote_is_long_running = root.get("remote_is_long_running").is_bool() &&
+        root.get("remote_is_long_running").as_bool();
+    record.remote_has_output = root.get("remote_has_output").is_bool() && root.get("remote_has_output").as_bool();
     auto remote_idle_polls = root.get("remote_idle_polls");
     if (remote_idle_polls.is_num()) {
         record.remote_idle_polls = static_cast<std::size_t>(std::max<int64_t>(0, remote_idle_polls.as_int()));
@@ -4106,15 +4122,12 @@ inline std::expected<AgentExecutionResult, std::string> run_agent(const AgentRun
     if (config.worktree_path && !config.worktree_path->empty()) {
         std::error_code ec;
         if (!fs::exists(*config.worktree_path, ec) || !fs::is_directory(*config.worktree_path, ec)) {
-            NativeAgentRecord failed{
-                .agent_id = id,
-                .agent_type = "runtime",
-                .parent_agent_id = config.parent_agent_id,
-                .cwd = config.working_dir.empty() ? std::nullopt : std::optional<std::string>{config.working_dir},
-                .status = NativeAgentStatus::Failed,
-                .error = "Configured worktree does not exist",
-                .capabilities = config.capabilities,
-            };
+            NativeAgentRecord failed = make_native_agent_record(id, "runtime");
+            failed.parent_agent_id = config.parent_agent_id;
+            failed.cwd = config.working_dir.empty() ? std::nullopt : std::optional<std::string>{config.working_dir};
+            failed.status = NativeAgentStatus::Failed;
+            failed.error = "Configured worktree does not exist";
+            failed.capabilities = config.capabilities;
             native_agent_store().upsert(std::move(failed));
             return std::unexpected("Configured worktree does not exist: " + *config.worktree_path);
         }
@@ -4127,19 +4140,16 @@ inline std::expected<AgentExecutionResult, std::string> run_agent(const AgentRun
     if (!config.working_dir.empty()) {
         std::error_code ec;
         if (!fs::exists(config.working_dir, ec) || !fs::is_directory(config.working_dir, ec)) {
-            NativeAgentRecord failed{
-                .agent_id = id,
-                .agent_type = "runtime",
-                .parent_agent_id = config.parent_agent_id,
-                .cwd = config.working_dir,
-                .status = NativeAgentStatus::Failed,
-                .error = "Working directory does not exist",
-                .capabilities = config.capabilities,
-                .worktree_path = config.worktree_path,
-                .worktree_branch = config.worktree_branch,
-                .worktree_base_commit = config.worktree_base_commit,
-                .worktree_git_root = config.worktree_git_root,
-            };
+            NativeAgentRecord failed = make_native_agent_record(id, "runtime");
+            failed.parent_agent_id = config.parent_agent_id;
+            failed.cwd = config.working_dir;
+            failed.status = NativeAgentStatus::Failed;
+            failed.error = "Working directory does not exist";
+            failed.capabilities = config.capabilities;
+            failed.worktree_path = config.worktree_path;
+            failed.worktree_branch = config.worktree_branch;
+            failed.worktree_base_commit = config.worktree_base_commit;
+            failed.worktree_git_root = config.worktree_git_root;
             native_agent_store().upsert(std::move(failed));
             return std::unexpected("Working directory does not exist: " + config.working_dir);
         }
@@ -4158,30 +4168,25 @@ inline std::expected<AgentExecutionResult, std::string> run_agent(const AgentRun
             cur = rec->parent_agent_id;
         }
         if (depth >= 16) {
-            NativeAgentRecord failed{
-                .agent_id = id,
-                .agent_type = "runtime",
-                .parent_agent_id = config.parent_agent_id,
-                .status = NativeAgentStatus::Failed,
-                .error = "Agent nesting depth limit exceeded",
-            };
+            NativeAgentRecord failed = make_native_agent_record(id, "runtime");
+            failed.parent_agent_id = config.parent_agent_id;
+            failed.status = NativeAgentStatus::Failed;
+            failed.error = "Agent nesting depth limit exceeded";
             native_agent_store().upsert(std::move(failed));
             return std::unexpected("Agent nesting depth limit exceeded");
         }
     }
 
-    native_agent_store().upsert(NativeAgentRecord{
-        .agent_id = id,
-        .agent_type = "runtime",
-        .parent_agent_id = config.parent_agent_id,
-        .cwd = config.working_dir.empty() ? std::nullopt : std::optional<std::string>{config.working_dir},
-        .status = NativeAgentStatus::Queued,
-        .capabilities = config.capabilities,
-        .worktree_path = config.worktree_path,
-        .worktree_branch = config.worktree_branch,
-        .worktree_base_commit = config.worktree_base_commit,
-        .worktree_git_root = config.worktree_git_root,
-    });
+    NativeAgentRecord queued = make_native_agent_record(id, "runtime");
+    queued.parent_agent_id = config.parent_agent_id;
+    queued.cwd = config.working_dir.empty() ? std::nullopt : std::optional<std::string>{config.working_dir};
+    queued.status = NativeAgentStatus::Queued;
+    queued.capabilities = config.capabilities;
+    queued.worktree_path = config.worktree_path;
+    queued.worktree_branch = config.worktree_branch;
+    queued.worktree_base_commit = config.worktree_base_commit;
+    queued.worktree_git_root = config.worktree_git_root;
+    native_agent_store().upsert(std::move(queued));
     native_agent_store().mark_running(id);
 
     // migrated edge case: fork directive on bare run_agent call — TS errors
@@ -4303,24 +4308,22 @@ inline std::expected<std::string, std::string> fork_subagent(std::string_view pa
             worktree_notice));
     }
 
-    native_agent_store().upsert(NativeAgentRecord{
-        .agent_id = child_id,
-        .agent_type = parent->agent_type,
-        .parent_agent_id = std::string(parent_id),
-        .team_name = parent->team_name,
-        .cwd = std::move(child_cwd),
-        .isolation = parent->isolation,
-        .mode = parent->mode,
-        .background = true,
-        .status = NativeAgentStatus::Queued,
-        .capabilities = fork_child_capabilities(*parent, config),
-        .sidechain_entries = std::move(inherited_sidechain_entries),
-        .worktree_path = std::move(child_worktree_path),
-        .worktree_branch = std::move(child_worktree_branch),
-        .worktree_base_commit = std::move(child_worktree_base_commit),
-        .worktree_git_root = std::move(child_worktree_git_root),
-        .transcript = std::move(inherited_transcript),
-    });
+    NativeAgentRecord child = make_native_agent_record(child_id, parent->agent_type);
+    child.parent_agent_id = std::string(parent_id);
+    child.team_name = parent->team_name;
+    child.cwd = std::move(child_cwd);
+    child.isolation = parent->isolation;
+    child.mode = parent->mode;
+    child.background = true;
+    child.status = NativeAgentStatus::Queued;
+    child.capabilities = fork_child_capabilities(*parent, config);
+    child.sidechain_entries = std::move(inherited_sidechain_entries);
+    child.worktree_path = std::move(child_worktree_path);
+    child.worktree_branch = std::move(child_worktree_branch);
+    child.worktree_base_commit = std::move(child_worktree_base_commit);
+    child.worktree_git_root = std::move(child_worktree_git_root);
+    child.transcript = std::move(inherited_transcript);
+    native_agent_store().upsert(std::move(child));
     return child_id;
 }
 

@@ -151,6 +151,7 @@ public:
             if (question.default_answer) {
                 return UserResponse{
                     .text = *question.default_answer,
+                    .selected_options = {*question.default_answer},
                     .is_default = true,
                     .response_time = elapsed,
                 };
@@ -176,8 +177,11 @@ public:
     {
         Question q{
             .text = std::string(question_text),
+            .header = std::nullopt,
             .options = {"Yes", "No"},
+            .multi_select = false,
             .default_answer = default_yes ? "Yes" : "No",
+            .placeholder = std::nullopt
         };
 
         auto response = execute(std::move(q));

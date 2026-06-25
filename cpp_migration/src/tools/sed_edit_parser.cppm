@@ -595,7 +595,7 @@ inline void replace_all_str(std::string& s, std::string_view from, std::string_v
         return pattern; // ERE matches C++ std::regex semantics closely enough
     }
 
-    // Step 1: protect literal \\
+    // Step 1: protect literal backslash pairs.
     detail::replace_all_str(pattern, "\\\\", std::string(detail::kBsPh));
     // Step 2: convert BRE-escaped metachars → placeholders
     detail::replace_all_str(pattern, "\\+",  std::string(detail::kPlusPh));

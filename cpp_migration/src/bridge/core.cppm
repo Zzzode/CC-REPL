@@ -578,7 +578,6 @@ class ReplV2Transport {
     SseConnection sse_;
     std::unique_ptr<CcrV2Client> ccr_client_;
     std::string session_id_;
-    int64_t epoch_{0};
     std::atomic<bool> connected_{false};
 
 public:
@@ -598,7 +597,6 @@ public:
         int64_t epoch
     )
         : session_id_(session_id)
-        , epoch_(epoch)
     {
         CcrV2Client::Params params;
         params.session_url = session_url;
@@ -615,7 +613,7 @@ public:
         ccr_client_->start_session();
 
         // Wire SSE callbacks
-        sse_.on_event = [this](const std::string& event_type, const std::string& data) {
+        sse_.on_event = [this](const std::string&, const std::string& data) {
             if (on_data) on_data(data);
         };
         sse_.on_error = [this](const std::string& error) {
@@ -716,9 +714,6 @@ class EnvLessReplBridgeHandle final : public ReplBridgeHandle {
     // Parameters / callbacks (copied from EnvLessBridgeParams)
     EnvLessBridgeParams params_;
     EnvLessBridgeConfig cfg_;
-
-    // Connect cause for telemetry
-    ConnectCause connect_cause_{ConnectCause::initial};
 
     // User message callback latch
     bool user_message_callback_done_{false};
@@ -1289,7 +1284,7 @@ std::unique_ptr<ReplBridgeHandle> init_env_less_bridge_core(EnvLessBridgeParams 
     TokenRefreshScheduler::Params refresh_params;
     refresh_params.refresh_buffer_ms = std::chrono::milliseconds{cfg.token_refresh_buffer_ms};
     refresh_params.label = "remote";
-    refresh_params.on_refresh = [&params, &cfg, session_id](
+    refresh_params.on_refresh = [session_id](
         const std::string& /*sid*/, const std::string& /*oauth_token*/
     ) {
         // Proactive refresh: re-fetch credentials and rebuild transport.

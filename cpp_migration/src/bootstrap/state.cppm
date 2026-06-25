@@ -62,6 +62,7 @@ struct BootstrapConfig {
         .sessions_dir = sessions_dir,
         .initial_model = override_model,
         .is_git_repo = std::filesystem::exists(project_root / ".git"),
+        .git_remote_url = std::nullopt,
         .session_id = session_id,
         .startup_time = now,
     };

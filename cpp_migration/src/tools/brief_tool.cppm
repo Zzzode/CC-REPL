@@ -196,17 +196,18 @@ private:
         size_t max_chars = TokenEstimator::chars_for_tokens(budget);
 
         auto truncated = content.substr(0, std::min(content.size(), max_chars * 4));
+        const auto focus_suffix = focus ? std::format(" focused on {}", *focus) : std::string{};
 
         switch (format) {
             case BriefFormat::Bullet:
-                return std::format("• Summary of {} chars content (budget: {} tokens)",
-                    content.size(), budget);
+                return std::format("• Summary of {} chars content{} (budget: {} tokens)",
+                    content.size(), focus_suffix, budget);
             case BriefFormat::Narrative:
-                return std::format("Summary: Content of {} characters has been analyzed.",
-                    content.size());
+                return std::format("Summary: Content of {} characters{} has been analyzed.",
+                    content.size(), focus_suffix);
             case BriefFormat::Structured:
-                return std::format("# Summary\n## Overview\nContent length: {} chars\n## Key Points\n(generated)",
-                    content.size());
+                return std::format("# Summary\n## Overview\nContent length: {} chars{}\n## Key Points\n(generated)",
+                    content.size(), focus_suffix);
             default:
                 return std::string(truncated.substr(0, max_chars));
         }

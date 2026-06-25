@@ -90,8 +90,8 @@ public:
     // Non-copyable, movable
     SessionStorage(const SessionStorage&) = delete;
     SessionStorage& operator=(const SessionStorage&) = delete;
-    SessionStorage(SessionStorage&&) = default;
-    SessionStorage& operator=(SessionStorage&&) = default;
+    SessionStorage(SessionStorage&&) = delete;
+    SessionStorage& operator=(SessionStorage&&) = delete;
 
     /// Save a conversation to storage
     [[nodiscard]] Result<std::string> save_session(
@@ -495,7 +495,15 @@ private:
             return digits.empty() ? 0 : static_cast<std::uint32_t>(std::stoul(std::string(digits)));
         };
         auto now = std::chrono::system_clock::now();
-        return SessionMetadata{.id = extract_string("id"), .title = extract_string("title"), .created_at = now, .updated_at = now, .message_count = extract_uint("message_count")};
+        return SessionMetadata{
+            .id = extract_string("id"),
+            .title = extract_string("title"),
+            .created_at = now,
+            .updated_at = now,
+            .message_count = extract_uint("message_count"),
+            .model_used = std::nullopt,
+            .total_cost_usd = std::nullopt,
+        };
     }
 };
 

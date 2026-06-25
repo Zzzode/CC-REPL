@@ -222,6 +222,7 @@ private:
                 emit_event(KeyEvent{
                     .key = std::move(key_name),
                     .modifiers = mods,
+                    .is_paste = false,
                     .raw_bytes = std::move(raw)
                 });
                 in_escape_ = false;
@@ -265,7 +266,12 @@ private:
         }
 
         buffer_.erase(buffer_.begin(), buffer_.begin() + 3);
-        emit_event(KeyEvent{.key = std::move(key_name), .raw_bytes = std::move(raw)});
+        emit_event(KeyEvent{
+            .key = std::move(key_name),
+            .modifiers = KeyModifiers{},
+            .is_paste = false,
+            .raw_bytes = std::move(raw)
+        });
         in_escape_ = false;
         return true;
     }
@@ -288,6 +294,7 @@ private:
         buffer_.erase(buffer_.begin(), buffer_.begin() + expected_len);
         emit_event(KeyEvent{
             .key = std::move(key_str),
+            .modifiers = KeyModifiers{},
             .is_paste = in_bracketed_paste_,
             .raw_bytes = std::move(raw)
         });
@@ -312,6 +319,7 @@ private:
         emit_event(KeyEvent{
             .key = std::move(key_name),
             .modifiers = mods,
+            .is_paste = false,
             .raw_bytes = {byte}
         });
     }
@@ -348,6 +356,7 @@ private:
                 std::string paste_text(paste_data.begin(), paste_data.end());
                 emit_event(KeyEvent{
                     .key = std::move(paste_text),
+                    .modifiers = KeyModifiers{},
                     .is_paste = true,
                     .raw_bytes = std::move(paste_data)
                 });
@@ -364,7 +373,12 @@ private:
         if (elapsed >= escape_timeout_ && buffer_.size() == 1 && buffer_[0] == 0x1B) {
             buffer_.clear();
             in_escape_ = false;
-            emit_event(KeyEvent{.key = "Escape", .raw_bytes = {0x1B}});
+            emit_event(KeyEvent{
+                .key = "Escape",
+                .modifiers = KeyModifiers{},
+                .is_paste = false,
+                .raw_bytes = {0x1B}
+            });
         }
     }
 

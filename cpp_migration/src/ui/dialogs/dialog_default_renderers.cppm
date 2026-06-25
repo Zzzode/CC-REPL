@@ -41,7 +41,6 @@ import cc.ui.permissions.components;
 import cc.ui.design.theme;
 import cc.ui.design.primitives;
 import cc.ui.dialogs.cost_threshold_dialog;
-import cc.ui.dialogs.dialog_modern_renderer_stubs;
 
 export namespace cc::ui::dialogs::default_renderers {
 
@@ -609,104 +608,18 @@ void register_default_renderers(dsys::DialogRendererRegistry& registry) {
         }
     );
 
-    // ─── Modern chrome stubs (6 dialogs; full FTXUI components tracked in M8)
-    namespace mr = cc::ui::dialogs::modern_renderers;
-
-    // ManagedSettingsSecurity
-    registry.register_dialog(
-        dsys::DialogType::ManagedSettingsSecurity,
-        [](dsys::DialogPayloadVariant& payload,
-           const dsys::DialogRenderContext& ctx) -> Element {
-            auto* p = std::get_if<dsys::ManagedSettingsSecurityPayload>(&payload);
-            if (!p) return text("");
-            return mr::RenderManagedSettingsSecurity(*p, ctx);
-        },
-        [](dsys::DialogPayloadVariant& payload, const Event& event) -> bool {
-            auto* p = std::get_if<dsys::ManagedSettingsSecurityPayload>(&payload);
-            if (!p) return false;
-            return mr::HandleManagedSettingsSecurityEvent(*p, event);
-        }
-    );
-
-    // FeedbackSurvey
-    registry.register_dialog(
-        dsys::DialogType::FeedbackSurvey,
-        [](dsys::DialogPayloadVariant& payload,
-           const dsys::DialogRenderContext& ctx) -> Element {
-            auto* p = std::get_if<dsys::FeedbackSurveyPayload>(&payload);
-            if (!p) return text("");
-            return mr::RenderFeedbackSurvey(*p, ctx);
-        },
-        [](dsys::DialogPayloadVariant& payload, const Event& event) -> bool {
-            auto* p = std::get_if<dsys::FeedbackSurveyPayload>(&payload);
-            if (!p) return false;
-            return mr::HandleFeedbackSurveyEvent(*p, event);
-        }
-    );
-
-    // GlobalSearch
-    registry.register_dialog(
-        dsys::DialogType::GlobalSearch,
-        [](dsys::DialogPayloadVariant& payload,
-           const dsys::DialogRenderContext& ctx) -> Element {
-            auto* p = std::get_if<dsys::GlobalSearchPayload>(&payload);
-            if (!p) return text("");
-            return mr::RenderGlobalSearch(*p, ctx);
-        },
-        [](dsys::DialogPayloadVariant& payload, const Event& event) -> bool {
-            auto* p = std::get_if<dsys::GlobalSearchPayload>(&payload);
-            if (!p) return false;
-            return mr::HandleGlobalSearchEvent(*p, event);
-        }
-    );
-
-    // HistorySearch
-    registry.register_dialog(
-        dsys::DialogType::HistorySearch,
-        [](dsys::DialogPayloadVariant& payload,
-           const dsys::DialogRenderContext& ctx) -> Element {
-            auto* p = std::get_if<dsys::HistorySearchPayload>(&payload);
-            if (!p) return text("");
-            return mr::RenderHistorySearch(*p, ctx);
-        },
-        [](dsys::DialogPayloadVariant& payload, const Event& event) -> bool {
-            auto* p = std::get_if<dsys::HistorySearchPayload>(&payload);
-            if (!p) return false;
-            return mr::HandleHistorySearchEvent(*p, event);
-        }
-    );
-
-    // PluginDialog
-    registry.register_dialog(
-        dsys::DialogType::PluginDialog,
-        [](dsys::DialogPayloadVariant& payload,
-           const dsys::DialogRenderContext& ctx) -> Element {
-            auto* p = std::get_if<dsys::PluginDialogPayload>(&payload);
-            if (!p) return text("");
-            return mr::RenderPluginDialog(*p, ctx);
-        },
-        [](dsys::DialogPayloadVariant& payload, const Event& event) -> bool {
-            auto* p = std::get_if<dsys::PluginDialogPayload>(&payload);
-            if (!p) return false;
-            return mr::HandlePluginDialogEvent(*p, event);
-        }
-    );
-
-    // DiffDialog
-    registry.register_dialog(
-        dsys::DialogType::DiffDialog,
-        [](dsys::DialogPayloadVariant& payload,
-           const dsys::DialogRenderContext& ctx) -> Element {
-            auto* p = std::get_if<dsys::DiffDialogPayload>(&payload);
-            if (!p) return text("");
-            return mr::RenderDiffDialog(*p, ctx);
-        },
-        [](dsys::DialogPayloadVariant& payload, const Event& event) -> bool {
-            auto* p = std::get_if<dsys::DiffDialogPayload>(&payload);
-            if (!p) return false;
-            return mr::HandleDiffDialogEvent(*p, event);
-        }
-    );
+    // ─── M8 unimplemented chrome dialogs ────────────────────────────────────────────
+    //
+    // DialogPayloadVariant holds concrete payloads for the following dialog types (see
+    // dialog_system.h / cpp_migration DialogType enum):
+    //   ManagedSettingsSecurity, FeedbackSurvey, GlobalSearch,
+    //   HistorySearch, PluginDialog, DiffDialog
+    //
+    // They are intentionally NOT registered here.  No trigger paths exist yet for these
+    // types, so registering a stub renderer would be dead code / a misleading
+    // placeholder.  When M8 chrome is actually ported, add the real FTXUI components
+    // (`cc.ui.dialogs.*` module(s)) and call registry.register_dialog(...) here,
+    // one block per pair, matching the 7 types above.
 }
 
 } // namespace cc::ui::dialogs::default_renderers

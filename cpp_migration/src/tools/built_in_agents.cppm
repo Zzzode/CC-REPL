@@ -587,6 +587,7 @@ inline constexpr std::string_view kClaudeCodeGuideWhenToUse =
         .mcp_servers = {},
         .inline_mcp_servers = {},
         .skills = {},
+        .hooks = {},
         .hooks_present = false,
         .effort = std::nullopt,
         .memory = std::nullopt,
@@ -617,6 +618,7 @@ inline constexpr std::string_view kClaudeCodeGuideWhenToUse =
         .mcp_servers = {},
         .inline_mcp_servers = {},
         .skills = {},
+        .hooks = {},
         .hooks_present = false,
         .effort = std::nullopt,
         .memory = std::nullopt,
@@ -653,6 +655,7 @@ inline constexpr std::string_view kClaudeCodeGuideWhenToUse =
         .mcp_servers = {},
         .inline_mcp_servers = {},
         .skills = {},
+        .hooks = {},
         .hooks_present = false,
         .effort = std::nullopt,
         .memory = std::nullopt,
@@ -689,6 +692,7 @@ inline constexpr std::string_view kClaudeCodeGuideWhenToUse =
         .mcp_servers = {},
         .inline_mcp_servers = {},
         .skills = {},
+        .hooks = {},
         .hooks_present = false,
         .effort = std::nullopt,
         .memory = std::nullopt,
@@ -740,6 +744,7 @@ inline constexpr std::string_view kClaudeCodeGuideWhenToUse =
         .mcp_servers = {},
         .inline_mcp_servers = {},
         .skills = {},
+        .hooks = {},
         .hooks_present = false,
         .effort = std::nullopt,
         .memory = std::nullopt,
@@ -776,6 +781,7 @@ inline constexpr std::string_view kClaudeCodeGuideWhenToUse =
         .mcp_servers = {},
         .inline_mcp_servers = {},
         .skills = {},
+        .hooks = {},
         .hooks_present = false,
         .effort = std::nullopt,
         .memory = std::nullopt,
@@ -796,8 +802,8 @@ inline constexpr std::string_view kClaudeCodeGuideWhenToUse =
 // Default: enabled in 3P (non-ant) builds to match TS default true for
 // Bedrock/Vertex. Ant-native builds opt-in via explicit GrowthBook flag port.
 [[nodiscard]] inline bool are_explore_plan_agents_enabled() {
-    const auto& env_truthy = cc::tools::agent_runtime::env_truthy;
 #if defined(ANT_NATIVE_BUILD)
+    const auto& env_truthy = cc::tools::agent_runtime::env_truthy;
     // Ant-native: default off; enable only via GrowthBook flag (tengu_amber_stoat)
     // when that layer is ported. For now, explicit env override wins.
     return env_truthy("CLAUDE_CODE_ENABLE_EXPLORE_PLAN_AGENTS") ||
@@ -891,6 +897,7 @@ inline constexpr std::string_view kCoordinatorWorkerWhenToUse =
         .mcp_servers = {},
         .inline_mcp_servers = {},
         .skills = {},
+        .hooks = {},
         .hooks_present = false,
         .effort = std::nullopt,
         .memory = std::nullopt,

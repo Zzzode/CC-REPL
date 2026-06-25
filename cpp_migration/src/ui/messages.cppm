@@ -34,18 +34,18 @@ enum class BlockType { Paragraph, CodeBlock, Heading, List, Quote, HorizontalRul
 
 // Inline text segment with styling
 struct InlineSegment {
-    std::string text;
+    std::string text{};
     InlineStyle style{InlineStyle::Plain};
-    std::optional<std::string> link_url;
+    std::optional<std::string> link_url{};
 };
 
 // A block of markdown content
 struct MarkdownBlock {
     BlockType type{BlockType::Paragraph};
-    std::vector<InlineSegment> content;
-    std::string language;         // For code blocks
+    std::vector<InlineSegment> content{};
+    std::string language{};       // For code blocks
     std::size_t heading_level{0}; // For headings (1-6)
-    std::vector<std::vector<InlineSegment>> list_items;
+    std::vector<std::vector<InlineSegment>> list_items{};
 };
 
 // Parse markdown text into structured blocks

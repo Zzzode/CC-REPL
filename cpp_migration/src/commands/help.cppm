@@ -44,7 +44,6 @@ public:
         return CommandDefinition{
             .name = "help",
             .description = "Show available commands and usage information",
-            .aliases = {"h", "?"},
             .args = {
                 CommandArg{.name = "command", .description = "Specific command to get help for",
                            .type = ArgType::Text, .required = false},
@@ -53,8 +52,9 @@ public:
                 CommandArg{.name = "--examples", .description = "Show usage examples",
                            .type = ArgType::None, .required = false},
             },
-            .hidden = false,
             .category = "session",
+            .aliases = {"h", "?"},
+            .hidden = false,
         };
     }
 

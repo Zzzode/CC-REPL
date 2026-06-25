@@ -41,13 +41,13 @@ public:
         return CommandDefinition{
             .name = "resume",
             .description = "Resume a previous conversation session",
-            .aliases = {"r"},
             .args = {
                 CommandArg{.name = "session_id", .description = "Session ID to resume, or 'last'",
                            .type = ArgType::Text, .required = false},
             },
-            .hidden = false,
             .category = "session",
+            .aliases = {"r"},
+            .hidden = false,
         };
     }
 

@@ -81,7 +81,11 @@ public:
             .priority = NotifPriority::high,
             .title = "Auto-mode warning",
             .message = "Auto-approved " + std::to_string(auto_approved_count_) + " operations, recommend checking execution results",
-            .created_at = std::chrono::system_clock::now()
+            .action_label = std::nullopt,
+            .action_url = std::nullopt,
+            .created_at = std::chrono::system_clock::now(),
+            .dismissed = false,
+            .persistent = false
         };
     }
 };
@@ -99,9 +103,14 @@ public:
             if (f.name == feature_used) {
                 return Notification{
                     .id = "deprecation_" + f.name, .type = NotifType::deprecation_warning,
+                    .priority = NotifPriority::normal,
                     .title = "Feature deprecated: " + f.name,
                     .message = "Please use " + f.replacement + " (will be removed in " + f.removal_version + ")",
-                    .created_at = std::chrono::system_clock::now()
+                    .action_label = std::nullopt,
+                    .action_url = std::nullopt,
+                    .created_at = std::chrono::system_clock::now(),
+                    .dismissed = false,
+                    .persistent = false
                 };
             }
         }
@@ -127,7 +136,9 @@ public:
             .title = "API rate limited",
             .message = "Triggered " + std::to_string(consecutive_limits_) + " rate limits, waiting for recovery",
             .action_label = "View usage", .action_url = "/usage",
-            .created_at = last_limit_at_
+            .created_at = last_limit_at_,
+            .dismissed = false,
+            .persistent = false
         };
     }
 };
@@ -143,10 +154,13 @@ public:
         if (!latest_version_ || *latest_version_ == current_version_) return std::nullopt;
         return Notification{
             .id = "update_available", .type = NotifType::update_available,
+            .priority = NotifPriority::normal,
             .title = "New version available: " + *latest_version_,
             .message = "Current version " + current_version_ + ", use /upgrade to upgrade",
             .action_label = "Upgrade", .action_url = "/upgrade",
-            .created_at = std::chrono::system_clock::now(), .persistent = true
+            .created_at = std::chrono::system_clock::now(),
+            .dismissed = false,
+            .persistent = true
         };
     }
 };
@@ -171,7 +185,11 @@ public:
                     .priority = NotifPriority::high,
                     .title = "MCP server disconnected: " + s.name,
                     .message = s.error.empty() ? "Connection lost" : s.error,
-                    .created_at = std::chrono::system_clock::now()
+                    .action_label = std::nullopt,
+                    .action_url = std::nullopt,
+                    .created_at = std::chrono::system_clock::now(),
+                    .dismissed = false,
+                    .persistent = false
                 });
             }
         }
@@ -195,7 +213,11 @@ public:
             .priority = NotifPriority::normal,
             .title = "IDE not connected",
             .message = ide_name_.empty() ? "No IDE connection detected" : ide_name_ + " connection lost",
-            .created_at = std::chrono::system_clock::now()
+            .action_label = std::nullopt,
+            .action_url = std::nullopt,
+            .created_at = std::chrono::system_clock::now(),
+            .dismissed = false,
+            .persistent = false
         };
     }
 };
@@ -214,9 +236,12 @@ public:
         std::string msg = std::to_string(pending_updates_.size()) + " plugin(s) have updates available";
         return Notification{
             .id = "plugin_updates", .type = NotifType::plugin_update,
+            .priority = NotifPriority::normal,
             .title = "Plugin update", .message = msg,
             .action_label = "Update", .action_url = "/plugin update",
-            .created_at = std::chrono::system_clock::now()
+            .created_at = std::chrono::system_clock::now(),
+            .dismissed = false,
+            .persistent = false
         };
     }
 };
@@ -234,7 +259,11 @@ public:
             .priority = NotifPriority::high,
             .title = "Settings configuration error",
             .message = errors_.front() + (errors_.size() > 1 ? " (+" + std::to_string(errors_.size()-1) + " other error(s))" : ""),
-            .created_at = std::chrono::system_clock::now()
+            .action_label = std::nullopt,
+            .action_url = std::nullopt,
+            .created_at = std::chrono::system_clock::now(),
+            .dismissed = false,
+            .persistent = false
         };
     }
 };

@@ -42,7 +42,6 @@ public:
         return CommandDefinition{
             .name = "context",
             .description = "Show and manage context window",
-            .aliases = {"ctx"},
             .args = {
                 CommandArg{.name = "action", .description = "show | add | remove | breakdown | clear",
                            .type = ArgType::Choice, .required = false,
@@ -50,8 +49,9 @@ public:
                 CommandArg{.name = "path", .description = "File path to add/remove",
                            .type = ArgType::FilePath, .required = false},
             },
-            .hidden = false,
             .category = "session",
+            .aliases = {"ctx"},
+            .hidden = false,
         };
     }
 

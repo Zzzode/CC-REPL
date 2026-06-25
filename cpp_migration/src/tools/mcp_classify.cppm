@@ -102,11 +102,6 @@ inline auto truncate_mcp_output(std::string_view content, size_t max_length) -> 
         return std::string(content);
     }
 
-
-    static constexpr std::string_view truncation_marker =
-        "\n\n... [output truncated, {} bytes omitted] ...\n\n";
-
-
     size_t head_size = max_length * 2 / 5;
     size_t tail_size = max_length * 2 / 5;
     size_t omitted = content.size() - head_size - tail_size;

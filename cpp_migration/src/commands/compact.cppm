@@ -83,7 +83,6 @@ public:
         return CommandDefinition{
             .name = "compact",
             .description = "Compress conversation context to free up token budget",
-            .aliases = {"compress"},
             .args = {
                 CommandArg{.name = "--target", .description = "Target token count after compaction",
                            .type = ArgType::Text, .required = false},
@@ -92,8 +91,9 @@ public:
                 CommandArg{.name = "--dry-run", .description = "Show what would be compressed without applying",
                            .type = ArgType::None, .required = false},
             },
-            .hidden = false,
             .category = "session",
+            .aliases = {"compress"},
+            .hidden = false,
         };
     }
 

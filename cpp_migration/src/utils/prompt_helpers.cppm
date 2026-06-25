@@ -24,7 +24,7 @@ struct PromptSubmitResult {
 };
 
 inline std::expected<std::string, std::string> open_in_editor(
-    std::string_view content, const EditorConfig& config) {
+    std::string_view content, const EditorConfig&) {
     return std::string(content);
 }
 
@@ -34,7 +34,7 @@ inline std::expected<PromptSubmitResult, std::string> handle_prompt_submit(
 }
 
 inline std::expected<std::string, std::string> execute_shell_prompt(
-    std::string_view command) {
+    std::string_view) {
     return "";
 }
 

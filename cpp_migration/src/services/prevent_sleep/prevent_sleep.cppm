@@ -72,7 +72,7 @@ public:
     VoidResult activate() {
         if (state_ == InhibitState::Active) return {};
         if (platform_ == Platform::Unknown) {
-            return std::unexpected(Error{ErrorCode::NotFound, {}, "unsupported platform"});
+            return std::unexpected(Error::make(ErrorCode::NotFound, "unsupported platform"));
         }
 
         handle_ = InhibitHandle{

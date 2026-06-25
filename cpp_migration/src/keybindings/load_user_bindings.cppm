@@ -315,7 +315,7 @@ private:
     }
 
     /// Handle file change event from watcher
-    void handle_change(const std::filesystem::path& path) {
+    void handle_change(const std::filesystem::path&) {
         auto result = load();
         std::lock_guard lock(mutex_);
         cached_bindings_ = result.bindings;

@@ -578,7 +578,6 @@ public:
         return CommandDefinition{
             .name = "init-verifiers",
             .description = "Generate CI/CD verifier configuration for this repo",
-            .aliases = {"verifiers", "create-verifiers"},
             .args = {
                 CommandArg{
                     .name = "--type",
@@ -586,22 +585,28 @@ public:
                     .type = ArgType::Choice,
                     .required = false,
                     .choices = {"github", "gitlab", "jenkins", "shell"},
+                    .default_value = {},
                 },
                 CommandArg{
                     .name = "--apply",
                     .description = "Write files to disk (default: preview only)",
                     .type = ArgType::None,
                     .required = false,
+                    .choices = {},
+                    .default_value = {},
                 },
                 CommandArg{
                     .name = "--all",
                     .description = "Generate all four targets at once instead of auto-selecting one",
                     .type = ArgType::None,
                     .required = false,
+                    .choices = {},
+                    .default_value = {},
                 },
             },
-            .hidden = false,
             .category = "configuration",
+            .aliases = {"verifiers", "create-verifiers"},
+            .hidden = false,
         };
     }
 

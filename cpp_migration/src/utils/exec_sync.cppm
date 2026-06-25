@@ -4,7 +4,6 @@ module;
 #include <string_view>
 #include <vector>
 #include <expected>
-#include <array>
 #include <cstdio>
 #include <sstream>
 
@@ -24,7 +23,6 @@ exec_sync(std::string_view command) {
     if (!pipe_cap) {
         return std::unexpected("Failed to execute command: " + std::string(command));
     }
-    std::array<char, 4096> buffer{};
     std::string output = std::move(pipe_cap->output);
     int status = pipe_cap->status;
     if (status != 0) {

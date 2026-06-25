@@ -57,7 +57,7 @@ public:
         return CommandResult::inject(std::format("Side question: {}", *opts.question));
     }
 
-    [[nodiscard]] std::vector<std::string> complete(std::string_view partial) {
+    [[nodiscard]] std::vector<std::string> complete(std::string_view) {
         return {};
     }
 

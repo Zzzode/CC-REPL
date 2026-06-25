@@ -39,7 +39,6 @@ public:
         return CommandDefinition{
             .name = "voice",
             .description = "Toggle voice input mode",
-            .aliases = {},
             .args = {
                 CommandArg{.name = "action", .description = "on | off | status | config",
                            .type = ArgType::Choice, .required = false,
@@ -47,8 +46,9 @@ public:
                 CommandArg{.name = "option", .description = "Configuration key=value",
                            .type = ArgType::Text, .required = false},
             },
-            .hidden = false,
             .category = "config",
+            .aliases = {},
+            .hidden = false,
         };
     }
 

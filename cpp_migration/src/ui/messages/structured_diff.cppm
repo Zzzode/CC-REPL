@@ -77,7 +77,7 @@ inline auto compute_lcs(const std::vector<std::string>& old_lines,
 // Render a unified diff view with additions/deletions highlighted
 inline auto render_structured_diff(std::string_view old_content,
                                     std::string_view new_content,
-                                    int width) -> std::string {
+                                    int) -> std::string {
     auto old_lines = detail::split_lines(old_content);
     auto new_lines = detail::split_lines(new_content);
     auto matches = detail::compute_lcs(old_lines, new_lines);

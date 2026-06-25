@@ -154,8 +154,7 @@ inline bool starts_multi_byte_seq_at(std::string_view s, size_t i,
     return s.substr(i, seq.size()) == seq;
 }
 
-inline bool is_opening_context(std::string_view text, size_t char_byte_index,
-                               size_t byte_len = 1) {
+inline bool is_opening_context(std::string_view text, size_t char_byte_index) {
     // Look at the character *before* char_byte_index.
     if (char_byte_index == 0) return true;
 
@@ -268,10 +267,6 @@ inline bool is_unicode_letter(char prev, char next) {
         new_string.empty() &&
         !old_string.ends_with('\n') &&
         original_content.find(std::string(old_string) + "\n") != std::string_view::npos;
-
-    const std::string_view effective_old =
-        strip_trailing_newline ? std::string_view{} : std::string_view{};
-    // (we materialize below to avoid string_view lifetime issues)
 
     if (strip_trailing_newline) {
         std::string search = std::string(old_string) + "\n";
@@ -500,7 +495,6 @@ inline std::vector<PatchHunk> compute_structured_patch(
 
         // Pre-Equal context (the Equal run just before hunk_start, if any)
         PatchHunk hunk;
-        int old_off = 0, new_off = 0;
         if (hunk_start > 0 && runs[hunk_start - 1].op == Equal) {
             const auto& eq = runs[hunk_start - 1];
             size_t len = eq.a_end - eq.a_start;
@@ -508,8 +502,6 @@ inline std::vector<PatchHunk> compute_structured_patch(
             size_t from = eq.a_end - keep;
             for (size_t k = from; k < eq.a_end; ++k)
                 hunk.lines.push_back(" " + a[k]);
-            old_off += static_cast<int>(len - keep);
-            new_off += static_cast<int>(len - keep);
             --hunk_start; // include this (truncated) Equal run
         }
 
@@ -578,18 +570,7 @@ inline std::vector<PatchHunk> compute_structured_patch(
                 if (r.op != Insert && !o_start) o_start = r.a_start;
                 if (r.op != Remove && !n_start) n_start = r.b_start;
             }
-            // Subtract pre-Equal context lines we kept (they came before).
-            int pre_eq_kept = 0;
-            for (const auto& line : hunk.lines) {
-                if (!line.empty() && line[0] == ' ' &&
-                    (runs[hunk_start].op == Equal ||
-                     (hunk_start > 0 && runs[hunk_start - 1].op == Equal))) {
-                    // We already counted these; break once we see first non-' '.
-                    // Use a simpler approach below:
-                    break;
-                }
-            }
-            // Simpler: count leading ' ' lines and subtract that many.
+            // Count leading context lines and subtract that many.
             int leading_ctx = 0;
             for (const auto& line : hunk.lines) {
                 if (!line.empty() && line[0] == ' ') leading_ctx++;
@@ -630,7 +611,7 @@ inline std::expected<PatchForEditsResult, std::string> get_patch_for_edits(
     std::string_view file_contents,
     const std::vector<FileEdit>& edits)
 {
-    // (void)file_path; — kept for call-site parity with TS; unused in pure fn
+    (void)file_path;
 
     // Empty-file special case
     if (file_contents.empty() && edits.size() == 1 &&
@@ -741,16 +722,6 @@ inline std::string get_snippet_for_two_file_diff(
 {
     auto hunks = compute_structured_patch(a, b, /*context=*/8);
     if (hunks.empty()) return "";
-
-    auto apply = [&](std::string_view in) -> std::string {
-        auto lines = patch_detail::split_lines(in);
-        std::vector<std::string> kept;
-        int line = 1;
-        // We need: kept lines (non-deleted, non-meta) with line numbers.
-        // Strategy: walk a, keeping lines not removed (use hunk info).
-        // Simpler: render from new perspective, drop '-' and '\' lines.
-        return {};
-    };
 
     // Simpler approach — follow TS exactly:
     //   for each hunk: filter OUT lines starting with '-' or '\', drop the

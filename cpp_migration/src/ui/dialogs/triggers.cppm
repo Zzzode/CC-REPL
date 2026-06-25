@@ -21,6 +21,7 @@ module;
 
 export module cc.ui.dialogs.triggers;
 
+import cc.constants.product;
 import cc.ui.dialogs.system;
 
 export namespace cc::ui::dialogs::triggers {
@@ -209,7 +210,7 @@ inline void PushAboutDialog(dsys::DialogQueue& queue,
     dsys::AboutDialogPayload p;
     p.id = "about-dialog";
     p.version = std::move(version);
-    p.build_date = __DATE__;
+    p.build_date = std::string(cc::constants::product::BUILD_DATE);
     p.on_close = std::move(on_close);
     queue.push_modal(std::move(p));
 }

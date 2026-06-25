@@ -149,6 +149,7 @@ private:
                 .cache_write_per_mtok = 375,
                 .cache_read_per_mtok = 30,
             },
+            .api_model_id = {},
         });
         aliases_["sonnet"] = "claude-sonnet-4-20250514";
         aliases_["claude-sonnet"] = "claude-sonnet-4-20250514";
@@ -176,6 +177,7 @@ private:
                 .cache_write_per_mtok = 1875,
                 .cache_read_per_mtok = 150,
             },
+            .api_model_id = {},
         });
         aliases_["opus"] = "claude-opus-4-20250514";
         aliases_["claude-opus"] = "claude-opus-4-20250514";
@@ -203,6 +205,7 @@ private:
                 .cache_write_per_mtok = 375,
                 .cache_read_per_mtok = 30,
             },
+            .api_model_id = {},
         });
         aliases_["sonnet-3.5"] = "claude-3-5-sonnet-20241022";
 
@@ -229,6 +232,7 @@ private:
                 .cache_write_per_mtok = 125,
                 .cache_read_per_mtok = 10,
             },
+            .api_model_id = {},
         });
         aliases_["haiku"] = "claude-3-5-haiku-20241022";
 
@@ -255,6 +259,7 @@ private:
                 .cache_write_per_mtok = 375,
                 .cache_read_per_mtok = 30,
             },
+            .api_model_id = {},
         });
     }
 

@@ -127,7 +127,7 @@ inline CliHandler createDefaultCliHandler() {
         "Show help information",
         "help [command]",
         {},
-        [](const std::vector<std::string>& args) {
+        [](const std::vector<std::string>&) {
             std::cout << "Type 'help' for more information.\n";
             return 0;
         }
@@ -140,7 +140,7 @@ inline CliHandler createDefaultCliHandler() {
         "Show version information",
         "version",
         {},
-        [](const std::vector<std::string>& args) {
+        [](const std::vector<std::string>&) {
             std::cout << "Claude Code v1.0.0\n";
             return 0;
         }
@@ -153,7 +153,7 @@ inline CliHandler createDefaultCliHandler() {
         "Run diagnostics",
         "doctor",
         {},
-        [](const std::vector<std::string>& args) {
+        [](const std::vector<std::string>&) {
             std::cout << "Running diagnostics...\n";
             return 0;
         }
@@ -203,7 +203,7 @@ struct EntrypointConfig {
 };
 
 // Main entrypoint function
-inline int mainEntrypoint(int argc, const char* argv[], EntrypointConfig config = {EntrypointType::Cli, false, std::nullopt, {}, {}}) {
+inline int mainEntrypoint(int argc, const char* argv[], EntrypointConfig = {EntrypointType::Cli, false, std::nullopt, {}, {}}) {
     std::cout << "Starting Claude Code...\n";
     
     // Parse arguments
@@ -255,13 +255,13 @@ inline int agentEntrypoint(int argc, const char* argv[]) {
 }
 
 // Test entrypoint
-inline int testEntrypoint(int argc, const char* argv[]) {
+inline int testEntrypoint(int, const char*[]) {
     std::cout << "Running tests...\n";
     return 0;
 }
 
 // Benchmark entrypoint
-inline int benchmarkEntrypoint(int argc, const char* argv[]) {
+inline int benchmarkEntrypoint(int, const char*[]) {
     std::cout << "Running benchmarks...\n";
     return 0;
 }

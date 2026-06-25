@@ -9,7 +9,6 @@ module;
 #include <sstream>
 #include <cstdlib>
 #include <cstdio>
-#include <array>
 #include <vector>
 #include <algorithm>
 #include <chrono>
@@ -287,8 +286,6 @@ std::expected<void, std::string> apply_update(std::filesystem::path update_file)
     // Determine the path of the currently running binary
     #ifdef __APPLE__
     // On macOS, use _NSGetExecutablePath or /proc/self/exe equivalent
-    std::array<char, 4096> path_buf{};
-    uint32_t buf_size = path_buf.size();
     std::string current_binary;
     // Use /proc/self/exe on Linux, realpath on argv[0] as fallback
     if (fs::exists("/proc/self/exe")) {

@@ -53,7 +53,6 @@ inline const std::vector<DestructivePattern>& get_destructive_patterns() {
     static const std::vector<DestructivePattern> patterns = [] {
         using re = std::regex;
         auto ic = std::regex::icase;
-        auto ec = std::regex_constants::ECMAScript;
 
         std::vector<DestructivePattern> v;
         v.reserve(20);

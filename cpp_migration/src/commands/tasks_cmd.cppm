@@ -68,7 +68,6 @@ public:
         return CommandDefinition{
             .name = "tasks",
             .description = "Manage running background tasks",
-            .aliases = {"task"},
             .args = {
                 CommandArg{
                     .name = "action",
@@ -84,8 +83,9 @@ public:
                     .required = false,
                 },
             },
-            .hidden = false,
             .category = "tools",
+            .aliases = {"task"},
+            .hidden = false,
         };
     }
 

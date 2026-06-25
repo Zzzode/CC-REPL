@@ -292,7 +292,9 @@ inline auto exec_cmd(const std::string& cmd) -> std::expected<std::string, std::
     auto end = std::chrono::steady_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
-    auto ver = options.version ? parse_version(*options.version) : std::expected<PluginVersion, std::string>{PluginVersion{0,0,1}};
+    auto ver = options.version ? parse_version(*options.version) : std::expected<PluginVersion, std::string>{
+        PluginVersion{.major = 0, .minor = 0, .patch = 1, .prerelease = std::nullopt}
+    };
 
     {
         std::lock_guard lock(reg.mutex);
@@ -302,7 +304,7 @@ inline auto exec_cmd(const std::string& cmd) -> std::expected<std::string, std::
     return InstallResult{
         .plugin_id = std::string(plugin_id),
         .state = PluginState::Installed,
-        .installed_version = ver.value_or(PluginVersion{0,0,1}),
+        .installed_version = ver.value_or(PluginVersion{.major = 0, .minor = 0, .patch = 1, .prerelease = std::nullopt}),
         .warnings = {},
         .duration = duration,
     };

@@ -19,17 +19,17 @@ struct RenderOptions {
 };
 
 inline std::expected<std::vector<uint8_t>, std::string> ansi_to_png(
-    std::string_view ansi_text, const RenderOptions& opts = {}) {
+    std::string_view, const RenderOptions& = {}) {
     return std::vector<uint8_t>{};
 }
 
 inline std::expected<std::string, std::string> ansi_to_svg(
-    std::string_view ansi_text, const RenderOptions& opts = {}) {
+    std::string_view, const RenderOptions& = {}) {
     return "";
 }
 
 inline std::expected<std::string, std::string> to_asciicast(
-    std::string_view session_recording) {
+    std::string_view) {
     return "";
 }
 

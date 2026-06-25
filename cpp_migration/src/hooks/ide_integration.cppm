@@ -152,7 +152,13 @@ public:
             return std::unexpected("IDE bridge port must be non-zero");
         }
 
-        connection_ = IdeConnection{.port = port, .ide_type = detect_ide_type(port)};
+        connection_ = IdeConnection{
+            .host = "127.0.0.1",
+            .port = port,
+            .ide_type = detect_ide_type(port),
+            .auth_token = std::nullopt,
+            .timeout = std::chrono::milliseconds{5000}
+        };
         state_.connected = true;
         state_.ide_type = connection_->ide_type;
         state_.connected_at = std::chrono::system_clock::now();

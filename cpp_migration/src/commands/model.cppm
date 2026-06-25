@@ -40,7 +40,6 @@ public:
         return CommandDefinition{
             .name = "model",
             .description = "Switch or display the active model",
-            .aliases = {},
             .args = {
                 CommandArg{.name = "subcommand", .description = "list | set | info",
                            .type = ArgType::Choice, .required = false,
@@ -48,8 +47,9 @@ public:
                 CommandArg{.name = "model_name", .description = "Model identifier to switch to",
                            .type = ArgType::Text, .required = false},
             },
-            .hidden = false,
             .category = "config",
+            .aliases = {},
+            .hidden = false,
         };
     }
 
