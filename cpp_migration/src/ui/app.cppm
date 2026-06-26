@@ -303,6 +303,8 @@ private:
     std::jthread query_thread_;
     std::jthread spinner_thread_;
     std::atomic<bool> query_running_{false};
+    std::atomic<std::int64_t> welcome_animation_deadline_ms_{0};
+    std::atomic<std::uint64_t> ui_animation_tick_count_{0};
     std::mutex result_mutex_;
     std::optional<std::string> pending_error_;
     std::string streaming_text_;
@@ -320,7 +322,7 @@ private:
     };
     std::map<std::uint32_t, StreamingToolPreview> streaming_tools_;
     std::map<std::uint32_t, StreamingThinkingPreview> streaming_thinking_;
-    ScreenInteractive* screen_ = nullptr;
+    std::atomic<ScreenInteractive*> screen_{nullptr};
 
     // Permission confirmation
     std::mutex permission_mutex_;
@@ -363,6 +365,51 @@ private:
     std::mutex statusline_mutex_;
     std::condition_variable statusline_cv_;
     int statusline_debounce_ms_ = 300;  // TS: 300ms debounce
+
+    [[nodiscard]] static std::int64_t steady_now_ms() {
+        return std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+    }
+
+    void RestartWelcomeAnimationClock() {
+        constexpr std::int64_t kWelcomeAnimationMs = 3000;
+        welcome_animation_deadline_ms_.store(
+            steady_now_ms() + kWelcomeAnimationMs,
+            std::memory_order_relaxed);
+    }
+
+    void StartUiAnimationTicker() {
+        spinner_thread_ = std::jthread([this](std::stop_token st) {
+            constexpr auto kTick = std::chrono::milliseconds(50);
+            int query_statusline_tick = 0;
+            while (!st.stop_requested()) {
+                std::this_thread::sleep_for(kTick);
+                if (st.stop_requested()) break;
+
+                const bool query_active = query_running_.load();
+                const bool welcome_active =
+                    steady_now_ms() <
+                    welcome_animation_deadline_ms_.load(std::memory_order_relaxed);
+                if (!query_active && !welcome_active) {
+                    query_statusline_tick = 0;
+                    continue;
+                }
+
+                ui_animation_tick_count_.fetch_add(1, std::memory_order_relaxed);
+                PostRenderEvent();
+
+                if (query_active && ++query_statusline_tick % 20 == 0) {
+                    TriggerStatuslineUpdate();
+                }
+            }
+        });
+    }
+
+    void PostRenderEvent() {
+        if (auto* screen = screen_.load(std::memory_order_acquire)) {
+            screen->Post(Event::Custom);
+        }
+    }
 
     [[nodiscard]] static std::string lowercase_ascii(std::string_view value) {
         std::string out(value);
@@ -505,6 +552,7 @@ public:
         for (unsigned char c : current_session_id_)
             tip_hash = tip_hash * 131u + static_cast<std::size_t>(c);
         screen_state_->welcome_tip_index = tip_hash;
+        RestartWelcomeAnimationClock();
 
         // ── Load settings from disk and project into screen state ──────────
         // Settings come from ~/.claude/settings.json (user),
@@ -524,7 +572,7 @@ public:
                 ProjectSettingsToScreenState();
                 // Settings change → statusline may need re-run (command changed).
                 TriggerStatuslineUpdate();
-                if (screen_) screen_->Post(ftxui::Event::Custom);
+                PostRenderEvent();
             });
 
         repl::ReplScreenCallbacks cbs;
@@ -616,13 +664,13 @@ public:
                                 // Dismiss the dialog from the bottom slot.
                                 screen_state_->dialog_queue.pop_bottom(
                                     /*is_prompt_input_active=*/false);
-                                if (screen_) screen_->Post(Event::Custom);
+                                PostRenderEvent();
                             } else {
                                 // Quit
                                 if (on_exit_) on_exit_();
                             }
                         });
-                    if (screen_) screen_->Post(Event::Custom);
+                    PostRenderEvent();
                 });
         }
 
@@ -651,7 +699,7 @@ public:
                             elicitation_cv_.notify_one();
                         });
                 }
-                if (screen_) screen_->Post(Event::Custom);
+                PostRenderEvent();
 
                 // Wait for user response
                 std::unique_lock lk(elicitation_mutex_);
@@ -664,7 +712,7 @@ public:
                 // Dismiss the dialog
                 screen_state_->dialog_queue.pop_bottom(
                     /*is_prompt_input_active=*/false);
-                if (screen_) screen_->Post(Event::Custom);
+                PostRenderEvent();
 
                 if (approved) {
                     // Elicitation dialog in this simplified build is just
@@ -708,7 +756,7 @@ public:
                     dialog_id = p.id;
                     screen_state_->dialog_queue.push(std::move(p));
                 }
-                if (screen_) screen_->Post(Event::Custom);
+                PostRenderEvent();
 
                 // Wait for user response
                 std::unique_lock lk2(ask_user_mutex_);
@@ -720,7 +768,7 @@ public:
 
                 // Dismiss dialog
                 screen_state_->dialog_queue.remove(dialog_id);
-                if (screen_) screen_->Post(Event::Custom);
+                PostRenderEvent();
 
                 return result;
             });
@@ -783,14 +831,15 @@ public:
                 }
 
                 // Trigger re-render on UI thread
-                if (screen_ && !st.stop_requested()) {
-                    screen_->Post(ftxui::Event::Custom);
+                if (!st.stop_requested()) {
+                    PostRenderEvent();
                 }
             }
         });
 
         // Fire initial statusline update on mount
         TriggerStatuslineUpdate();
+        StartUiAnimationTicker();
     }
 
     void HandleSubmit(const std::string& text) {
@@ -897,29 +946,13 @@ public:
                     }
                 }, ev);
 
-                if (screen_) screen_->Post(Event::Custom);
+                PostRenderEvent();
             };
 
             engine_->stream_query(text, opts);
 
             query_running_.store(false);
-            if (screen_) screen_->Post(Event::Custom);
-        });
-
-        spinner_thread_ = std::jthread([this](std::stop_token st) {
-            int tick = 0;
-            while (!st.stop_requested() && query_running_.load()) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                if (st.stop_requested()) break;
-                if (screen_ && query_running_.load())
-                    screen_->Post(Event::Custom);
-                // Trigger statusline update every ~1s during streaming
-                // (faithful to TS debounced update pattern — refreshes
-                // cost/token display periodically while the model is running).
-                if (++tick % 10 == 0) {
-                    TriggerStatuslineUpdate();
-                }
-            }
+            PostRenderEvent();
         });
     }
 
@@ -966,7 +999,7 @@ public:
                         (void)confirm; // always confirmed via /model command
                         screen_state_->dialog_queue.pop_bottom(
                             /*is_prompt_input_active=*/false);
-                        if (screen_) screen_->Post(Event::Custom);
+                        PostRenderEvent();
                     });
             }
             SyncState();
@@ -1019,7 +1052,7 @@ public:
                             *result->metadata,
                             enqueue_fn))
                     {
-                        if (screen_) screen_->Post(Event::Custom);
+                        PostRenderEvent();
                         return;
                     }
                 }
@@ -1466,7 +1499,10 @@ public:
         return repl_component_;
     }
 
-    void set_screen(ScreenInteractive* screen) { screen_ = screen; }
+    void set_screen(ScreenInteractive* screen) {
+        screen_.store(screen, std::memory_order_release);
+        RestartWelcomeAnimationClock();
+    }
 
     [[nodiscard]] std::function<bool(std::string_view, std::string_view)> get_permission_callback() {
         return [this](std::string_view tool_name, std::string_view description) -> bool {
@@ -1507,7 +1543,7 @@ public:
 
                 permission_response_.reset();
             }
-            if (screen_) screen_->Post(Event::Custom);
+            PostRenderEvent();
 
             std::unique_lock lk(permission_mutex_);
             permission_cv_.wait(lk, [this] { return permission_response_.has_value(); });
@@ -1523,6 +1559,10 @@ public:
 
     [[nodiscard]] bool is_loading_for_testing() const noexcept {
         return screen_state_->spinner_mode != repl::SpinnerMode::Hidden;
+    }
+
+    [[nodiscard]] std::uint64_t ui_animation_tick_count_for_testing() const noexcept {
+        return ui_animation_tick_count_.load(std::memory_order_relaxed);
     }
 
     [[nodiscard]] std::string status_message_for_testing() const {

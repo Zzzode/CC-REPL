@@ -1279,6 +1279,34 @@ TEST(AppRuntime, ProjectsVersionIntoInitialWelcome) {
     fs::remove_all(storage_root);
 }
 
+TEST(AppRuntime, FreshWelcomeAnimationTicksWithoutInputEvents) {
+    cc::core::ToolRegistry tools;
+    cc::core::QueryEngineConfig config;
+    config.context_window.auto_compact = false;
+    config.cwd = fs::temp_directory_path().string();
+    cc::core::QueryEngine engine(std::move(config), tools);
+
+    cc::commands::AppCommandRegistry commands;
+    const auto storage_root = fs::temp_directory_path() /
+        ("cc_repl_ui_welcome_animation_test_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    cc::utils::SessionStorage storage(storage_root);
+
+    auto app = ftxui::Make<cc::ui::AppAdapter>(
+        &engine,
+        &commands,
+        &storage,
+        [] {});
+
+    const auto initial_ticks = app->ui_animation_tick_count_for_testing();
+    EXPECT_TRUE(wait_until([&] {
+        return app->ui_animation_tick_count_for_testing() > initial_ticks;
+    }, std::chrono::milliseconds(300)));
+    EXPECT_FALSE(app->is_query_running_for_testing());
+
+    fs::remove_all(storage_root);
+}
+
 TEST(StatusLine, KeepsAnsiBrightnessWithoutGlobalDim) {
     namespace pif = cc::ui::prompt::footer;
 
