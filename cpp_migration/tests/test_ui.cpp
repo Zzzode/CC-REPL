@@ -52,6 +52,7 @@ import cc.query.query_engine;
 import cc.tools.tool;
 import cc.utils.session_storage;
 import cc.utils.permissions_engine;
+import cc.constants.constants;
 
 namespace {
 
@@ -1159,6 +1160,69 @@ TEST(ReplScreen, CustomStatusLineOnlyRendersInPromptMode) {
     EXPECT_EQ(rendered.find("custom status"), std::string::npos);
 }
 
+TEST(ReplScreen, WelcomeHeaderUsesLogoV2HomeCard) {
+    namespace repl = cc::ui::repl_screen;
+
+    repl::ReplScreenState state;
+    state.app_version = "9.9.9-test";
+    state.model_display_name = "GLM-5.2";
+    state.cwd = "/tmp/cpp_migration";
+
+    auto rendered = strip_ansi(render_to_plain_text(
+        repl::RenderWelcomeHeader(state, /*spinner_frame=*/0, /*term_cols=*/120),
+        120,
+        16));
+
+    EXPECT_NE(rendered.find("Claude Code"), std::string::npos);
+    EXPECT_NE(rendered.find("v9.9.9-test"), std::string::npos);
+    EXPECT_NE(rendered.find("Welcome back!"), std::string::npos);
+    EXPECT_NE(rendered.find("GLM-5.2"), std::string::npos);
+    EXPECT_NE(rendered.find("Recent activity"), std::string::npos);
+    EXPECT_NE(rendered.find("What's new"), std::string::npos);
+    EXPECT_EQ(rendered.find("Welcome to Claude Code"), std::string::npos);
+    EXPECT_EQ(rendered.find("Use /model to switch between models"), std::string::npos);
+}
+
+TEST(ReplScreen, FreshScreenDoesNotRenderLegacyEmptyState) {
+    namespace repl = cc::ui::repl_screen;
+
+    repl::ReplScreenState state;
+    state.app_version = "9.9.9-test";
+    state.model_display_name = "GLM-5.2";
+    state.cwd = "/tmp/cpp_migration";
+
+    auto rendered = strip_ansi(render_to_plain_text(
+        repl::RenderReplScreen(state),
+        120,
+        32));
+
+    EXPECT_NE(rendered.find("Claude Code"), std::string::npos);
+    EXPECT_EQ(rendered.find("Type a message to begin."), std::string::npos);
+    EXPECT_EQ(rendered.find("/help    -- list commands"), std::string::npos);
+    EXPECT_EQ(rendered.find("/model   -- change model"), std::string::npos);
+    EXPECT_EQ(rendered.find("/config  -- open settings"), std::string::npos);
+}
+
+TEST(ReplScreen, WelcomeHeaderAnimatesAsteriskColor) {
+    namespace repl = cc::ui::repl_screen;
+
+    repl::ReplScreenState state;
+    state.app_version = "9.9.9-test";
+    state.model_display_name = "GLM-5.2";
+
+    auto frame0 = render_to_plain_text(
+        repl::RenderWelcomeHeader(state, /*spinner_frame=*/0, /*term_cols=*/120),
+        120,
+        16);
+    auto frame8 = render_to_plain_text(
+        repl::RenderWelcomeHeader(state, /*spinner_frame=*/8, /*term_cols=*/120),
+        120,
+        16);
+
+    EXPECT_NE(strip_ansi(frame0).find("✻"), std::string::npos);
+    EXPECT_NE(frame0, frame8);
+}
+
 TEST(ReplScreen, PromptInputRendersTopAndBottomBorders) {
     namespace repl = cc::ui::repl_screen;
 
@@ -1186,6 +1250,33 @@ TEST(ReplScreen, PromptInputRendersTopAndBottomBorders) {
 
     EXPECT_GE(border_lines, 2u);
     EXPECT_NE(rendered.find("❯ /"), std::string::npos);
+}
+
+TEST(AppRuntime, ProjectsVersionIntoInitialWelcome) {
+    cc::core::ToolRegistry tools;
+    cc::core::QueryEngineConfig config;
+    config.context_window.auto_compact = false;
+    config.cwd = fs::temp_directory_path().string();
+    cc::core::QueryEngine engine(std::move(config), tools);
+
+    cc::commands::AppCommandRegistry commands;
+    const auto storage_root = fs::temp_directory_path() /
+        ("cc_repl_ui_welcome_version_test_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    cc::utils::SessionStorage storage(storage_root);
+
+    auto app = ftxui::Make<cc::ui::AppAdapter>(
+        &engine,
+        &commands,
+        &storage,
+        [] {});
+
+    auto rendered = strip_ansi(render_to_plain_text(app->Render(), 120, 32));
+    EXPECT_NE(rendered.find("v" + std::string(cc::core::constants::kVersion)),
+              std::string::npos);
+    EXPECT_EQ(rendered.find("v0.0.0"), std::string::npos);
+
+    fs::remove_all(storage_root);
 }
 
 TEST(StatusLine, KeepsAnsiBrightnessWithoutGlobalDim) {

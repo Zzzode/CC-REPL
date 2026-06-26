@@ -515,6 +515,7 @@ public:
         settings_manager_ = std::make_unique<cc::utils::settings_manager::SettingsManager>();
         settings_manager_->initialize();
         ProjectSettingsToScreenState();
+        ProjectRuntimeMetadataToScreenState();
 
         // Re-project settings whenever they change on disk (e.g. user edits
         // settings.json from another terminal, or the /config command saves).
@@ -1026,6 +1027,30 @@ public:
         }
     }
 
+    void ProjectRuntimeMetadataToScreenState() {
+        screen_state_->app_version = std::string(cc::core::constants::kVersion);
+
+        const auto& model_id = engine_->model_params().model;
+        screen_state_->status_bar.model_name = model_id;
+        screen_state_->model_display_name =
+            cc::utils::get_model_display_name(model_id);
+
+        auto usage = engine_->get_usage();
+        screen_state_->status_bar.input_tokens =
+            static_cast<int>(usage.input_tokens);
+        screen_state_->status_bar.output_tokens =
+            static_cast<int>(usage.output_tokens);
+        screen_state_->status_bar.cost_usd =
+            engine_->budget_tracker().current_spend_usd;
+        screen_state_->status_bar.context_token_count =
+            static_cast<int>(usage.input_tokens + usage.output_tokens);
+
+        char cwd_buf[4096];
+        if (auto* cwd = ::getcwd(cwd_buf, sizeof(cwd_buf))) {
+            screen_state_->cwd = cwd;
+        }
+    }
+
     /// Project settings from SettingsManager into screen_state_.
     /// Mirrors how the TS engine projects AppState.settings into the REPL
     /// screen's model/status-line fields.  Only the subset needed by the
@@ -1255,25 +1280,14 @@ public:
                 screen_state_->messages.push_back(std::move(e));
         }
 
-        auto usage = engine_->get_usage();
-        const auto& model_id = engine_->model_params().model;
-        screen_state_->status_bar.model_name = model_id;
-        screen_state_->model_display_name =
-            cc::utils::get_model_display_name(model_id);
-        screen_state_->status_bar.input_tokens = static_cast<int>(usage.input_tokens);
-        screen_state_->status_bar.output_tokens = static_cast<int>(usage.output_tokens);
-        screen_state_->status_bar.cost_usd = engine_->budget_tracker().current_spend_usd;
-        // Real tokens consumed so far (input grows with the context window). The previous
-        // formula context_utilization()*max_tokens was meaningless - max_tokens is the OUTPUT cap.
-        screen_state_->status_bar.context_token_count =
-            static_cast<int>(usage.input_tokens + usage.output_tokens);
+        ProjectRuntimeMetadataToScreenState();
 
         // Notify cost hook subscribers (drives CostThreshold dialog, etc.).
         cc::hooks::update_cost(cc::hooks::CostUpdate{
             .session_cost = engine_->budget_tracker().current_spend_usd,
             .monthly_cost = 0.0,  // TODO: wire through monthly cost from API
-            .input_tokens = static_cast<int>(usage.input_tokens),
-            .output_tokens = static_cast<int>(usage.output_tokens),
+            .input_tokens = screen_state_->status_bar.input_tokens,
+            .output_tokens = screen_state_->status_bar.output_tokens,
         });
     }
 
@@ -1326,6 +1340,7 @@ public:
     }
 
     Element Render() override {
+        ProjectRuntimeMetadataToScreenState();
         ConsumePendingResult();
 
         if (query_running_.load()) {

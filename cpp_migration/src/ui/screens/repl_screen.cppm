@@ -499,6 +499,15 @@ struct ReplScreenCallbacks {
     return hbox(p);
 }
 
+[[nodiscard]] inline std::string truncate_columns(std::string text, int max_cols) {
+    if (max_cols <= 0) return {};
+    if (string_width(text) <= max_cols) return text;
+    while (!text.empty() && string_width(text + "…") > max_cols) {
+        text.pop_back();
+    }
+    return text + "…";
+}
+
 // UI4/UI5: message list.  Delegates to messages_list.cppm (UI21).
 // `spinner_frame` drives the tool-use header spinner animation (fix #10).
 [[nodiscard]] inline Element RenderMessages(
@@ -507,14 +516,7 @@ struct ReplScreenCallbacks {
     [[maybe_unused]] int offs = 0, bool pinned = true,
     int spinner_frame = 0) {
     if (entries.empty()) {
-        // Empty-list placeholder kept minimal; the rich welcome header is
-        // rendered by RenderWelcomeHeader() above the messages list.
-        return vbox({ filler(),
-            vbox({ text("  Type a message to begin.") | dim | center,
-                   text("  /help    -- list commands") | dim | center,
-                   text("  /model   -- change model") | dim | center,
-                   text("  /config  -- open settings") | dim | center }) | center,
-            filler() }) | flex;
+        return filler();
     }
 
     namespace ml = cc::ui::messages_list;
@@ -635,81 +637,146 @@ struct ReplScreenCallbacks {
                                          static_cast<std::size_t>(spinner_frame)) | flex;
 }
 
-// UI0: welcome header.  M2 faithful port of the TS LogoV2/WelcomeV2 welcome.
-// Renders:
-//   * the 58-col WelcomeV2 ASCII banner (Clawd mascot + scattered asterisks
-//     + embedded clawd mark) — verbatim from WelcomeV2.tsx dark-theme branch;
-//   * the animated hue-sweeping teardrop asterisk "✻" driven by the M1
-//     per-frame `spinner_frame` tick (no Component tree required);
-//   * formatWelcomeMessage parity ("Welcome back!" / "Welcome back {user}!");
-//   * model display name + cwd metadata lines (dim, like TS);
-//   * a single deterministic welcome tip below the banner.
-// Shown only on a fresh idle session (messages empty + spinner hidden) — the
-// gate lives in RenderReplScreen.
+[[nodiscard]] inline Element RenderClawdMark(Color body, Color bg) {
+    return vbox({
+        hbox({
+            text(" ▐") | color(body),
+            text("▛███▜") | color(body) | bgcolor(bg),
+            text("▌") | color(body),
+        }),
+        hbox({
+            text("▝▜") | color(body),
+            text("█████") | color(body) | bgcolor(bg),
+            text("▛▘") | color(body),
+        }),
+        text("  ▘▘ ▝▝  ") | color(body),
+    });
+}
+
+[[nodiscard]] inline Element RenderWelcomeFeed(std::string title,
+                                               std::string message,
+                                               int width,
+                                               Color accent,
+                                               Color muted) {
+    width = std::max(width, 10);
+    Elements rows;
+    rows.push_back(text(std::move(title)) | bold | color(accent));
+    rows.push_back(text(truncate_columns(std::move(message), width)) | color(muted) | dim);
+    return vbox(std::move(rows)) | size(WIDTH, EQUAL, width);
+}
+
+[[nodiscard]] inline Element RenderWelcomeFeedColumn(int width,
+                                                     Color accent,
+                                                     Color muted) {
+    width = std::max(width, 30);
+    return vbox({
+        RenderWelcomeFeed(
+            "Recent activity",
+            "No recent activity",
+            width,
+            accent,
+            muted),
+        separator() | color(accent),
+        RenderWelcomeFeed(
+            "What's new",
+            "Check the Claude Code changelog for updates",
+            width,
+            accent,
+            muted),
+    }) | size(WIDTH, EQUAL, width);
+}
+
+[[nodiscard]] inline Element RenderWelcomeLeftPanel(const ReplScreenState& s,
+                                                    int spinner_frame,
+                                                    int width,
+                                                    Color accent,
+                                                    Color muted,
+                                                    Color bg) {
+    const std::string welcome = cc::ui::logo::format_welcome_message(
+        s.user_display_name);
+    const std::string model_line = !s.model_display_name.empty()
+        ? s.model_display_name
+        : s.settings_model;
+    std::string cwd_line = s.cwd;
+    if (!cwd_line.empty()) {
+        cwd_line = truncate_columns(std::move(cwd_line), std::max(10, width - 2));
+    }
+
+    Elements meta;
+    if (!model_line.empty()) {
+        meta.push_back(text(truncate_columns(model_line, std::max(10, width - 2)))
+            | color(muted) | dim);
+    }
+    if (!cwd_line.empty()) {
+        meta.push_back(text(std::move(cwd_line)) | color(muted) | dim);
+    }
+    if (meta.empty()) meta.push_back(text(""));
+
+    return vbox({
+        text(""),
+        hbox({
+            cc::ui::design::logo::welcome_animated_asterisk(spinner_frame),
+            text(" "),
+            text(welcome) | bold,
+        }) | center,
+        text(""),
+        RenderClawdMark(accent, bg) | center,
+        text(""),
+        vbox(std::move(meta)) | center,
+    }) | size(WIDTH, EQUAL, width) | size(HEIGHT, GREATER_THAN, 9);
+}
+
+// UI0: welcome header.  Faithful to TS LogoV2's REPL home surface.
+// WelcomeV2 is used by onboarding; the REPL home screen uses LogoV2: a
+// bordered card titled "Claude Code vX", a left panel with the welcome line,
+// Clawd mark, model/cwd metadata, and a feed column on wide terminals.
+// Shown only on a fresh idle session (messages empty + spinner hidden).
 [[nodiscard]] inline Element RenderWelcomeHeader(const ReplScreenState& s,
-                                                 int spinner_frame = 0) {
-    namespace logo  = cc::ui::design::logo;
-    namespace lgo   = cc::ui::logo;
+                                                 int spinner_frame = 0,
+                                                 int term_cols = 80) {
+    namespace logo = cc::ui::design::logo;
     namespace thm   = cc::ui::design::theme;
-    // clawd_body colour from the active theme (TS "clawd_body" role).
-    const auto clawd = thm::current_theme().palette->primary;
+    const auto theme = thm::current_theme();
+    const auto accent = theme.palette->primary;
+    const auto muted = theme.palette->muted;
+    const auto bg = theme.palette->background;
 
-    Elements head;
-    // 2-space left indent so the banner sits roughly where the TS layout
-    // centers it (the surrounding FullscreenLayout slot adds more chrome).
-    head.push_back(text("  "));
-    head.push_back(logo::welcome_v2_banner(s.app_version, clawd));
+    const bool horizontal = term_cols >= 70;
+    const std::string welcome = cc::ui::logo::format_welcome_message(
+        s.user_display_name);
+    const std::string model_line = !s.model_display_name.empty()
+        ? s.model_display_name
+        : s.settings_model;
+    const int content_width = std::max(
+        string_width(welcome),
+        std::max(string_width(model_line), string_width(s.cwd)));
+    const int left_width = std::min(std::max(content_width, 20) + 4, 50);
 
-    // Welcome-message line: animated ✻ + formatWelcomeMessage.
-    // New users (no display name known) fall back to the WelcomeV2 banner
-    // caption that's already drawn; the message line mirrors the TS
-    // LogoV2.tsx compact/horizontal welcome block.
-    Elements wm;
-    wm.push_back(text("  "));
-    wm.push_back(logo::welcome_animated_asterisk(spinner_frame));
-    wm.push_back(text(" "));
-    wm.push_back(text(lgo::format_welcome_message(s.user_display_name)) | bold);
-    head.push_back(hbox(std::move(wm)));
+    Element left = RenderWelcomeLeftPanel(
+        s, spinner_frame, left_width, accent, muted, bg);
 
-    // Metadata lines (dim, TS-style): model display name, cwd.
-    // Priority: model_display_name (friendly name) > settings_model (config ID).
-    if (!s.model_display_name.empty()) {
-        head.push_back(hbox({
-            text("  "),
-            text(s.model_display_name) | dim,
-        }));
-    } else if (!s.settings_model.empty()) {
-        head.push_back(hbox({
-            text("  "),
-            text(s.settings_model) | dim,
-        }));
-    }
-    if (!s.cwd.empty()) {
-        std::string cwd_disp = s.cwd;
-        if (cwd_disp.size() > 56)
-            cwd_disp = "…" + cwd_disp.substr(cwd_disp.size() - 55);
-        head.push_back(hbox({
-            text("  "),
-            text(cwd_disp) | dim,
-        }));
+    Element body;
+    int outer_width = std::min(std::max(term_cols - 4, 40), 120);
+    if (horizontal) {
+        const int feed_width = std::max(30, outer_width - left_width - 7);
+        body = hbox({
+            std::move(left),
+            separator() | color(accent) | dim,
+            RenderWelcomeFeedColumn(feed_width, accent, muted),
+        });
+        outer_width = std::min(term_cols - 4, left_width + feed_width + 7);
+    } else {
+        body = std::move(left);
+        outer_width = std::min(term_cols - 4, std::max(left_width + 4, 24));
     }
 
-    // One deterministic tip from the kWelcomeTips feed.  The TS EmergencyTip
-    // is growthbook-driven and effectively empty in this port, so we surface
-    // the in-repo kWelcomeTips list instead (frame-stable pick).
-    if (!lgo::kWelcomeTips.empty()) {
-        // Stable per-session pick: s.welcome_tip_index is seeded once from the
-        // session id (app.cppm) - NOT spinner_frame, which would flicker the tip
-        // on every mouse-move-triggered re-render.
-        const auto idx = s.welcome_tip_index % lgo::kWelcomeTips.size();
-        head.push_back(text(""));
-        head.push_back(hbox({
-            text("  "),
-            text(std::string(lgo::kWelcomeTips[idx])) | dim,
-        }));
-    }
-
-    return vbox(std::move(head));
+    auto version = s.app_version.empty() ? std::string("0.0.0") : s.app_version;
+    Element title = hbox({
+        text(" Claude Code ") | color(accent) | bold,
+        text("v" + version + " ") | color(muted) | dim,
+    });
+    return window(std::move(title), std::move(body) | xflex)
+        | size(WIDTH, EQUAL, outer_width);
 }
 
 // UI2: prompt input shell.  Full feature parity in prompt_input_full.cppm.
@@ -851,15 +918,6 @@ struct ReplScreenCallbacks {
         content,
         rule(),
     });
-}
-
-[[nodiscard]] inline std::string truncate_columns(std::string text, int max_cols) {
-    if (max_cols <= 0) return {};
-    if (string_width(text) <= max_cols) return text;
-    while (!text.empty() && string_width(text + "…") > max_cols) {
-        text.pop_back();
-    }
-    return text + "…";
 }
 
 [[nodiscard]] inline std::string pad_to_columns(std::string text, int width) {
@@ -1229,7 +1287,7 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
     Elements L;
     Elements scroll_rows; scroll_rows.reserve(6);
     if (s.messages.empty() && s.spinner_mode == SpinnerMode::Hidden)
-        scroll_rows.push_back(RenderWelcomeHeader(s, spinner_frame));
+        scroll_rows.push_back(RenderWelcomeHeader(s, spinner_frame, term_cols));
     scroll_rows.push_back(RenderMessages(s.messages, s.selected_message_idx,
                                          s.viewport_height_lines, s.scroll_offset,
                                          s.scroll_pinned_to_bottom, spinner_frame));
