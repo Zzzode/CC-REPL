@@ -35,6 +35,7 @@ import cc.ui.dialogs.settings_dialog;
 import cc.ui.wizard_dialog;
 import cc.ui.app;
 import cc.ui.repl_screen;
+import cc.ui.prompt.prompt_input_footer;
 import cc.ui.permissions.permission_rules_ui;
 import cc.ui.permissions.rule_list;
 import cc.ui.permissions.single_prompt;
@@ -1139,6 +1140,21 @@ TEST(ReplScreen, CustomStatusLineSuppressesDefaultHintAndNativeStatusBar) {
     EXPECT_EQ(rendered.find("? for shortcuts"), std::string::npos);
     EXPECT_EQ(rendered.find("native-status-model"), std::string::npos);
     EXPECT_EQ(rendered.find("$0.1234"), std::string::npos);
+}
+
+TEST(StatusLine, KeepsAnsiBrightnessWithoutGlobalDim) {
+    namespace pif = cc::ui::prompt::footer;
+
+    auto rendered = render_to_plain_text(
+        pif::RenderStatusLine(pif::StatusLineOptions{
+            .content = "\033[38;5;44mbright-status\033[0m",
+            .should_display = true,
+        }),
+        120,
+        1);
+
+    EXPECT_NE(rendered.find("bright-status"), std::string::npos);
+    EXPECT_EQ(rendered.find("\033[2m"), std::string::npos);
 }
 
 TEST(WizardDialog, RendersStepFactoryContent) {

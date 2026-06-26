@@ -362,7 +362,8 @@ struct StatusLineOptions {
 ///
 /// Faithful to TS StatusLine.tsx:
 ///   - Text may contain ANSI escape codes (SGR) for colored output
-///   - Text is rendered dim (dimColor in TS)
+///   - ANSI output keeps its own brightness; TS passes dimColor to the local
+///     Text component, but that component only consumes the `dim` prop
 ///   - Single line, truncated if too long
 ///   - In fullscreen mode, reserves a row even while loading (stable height)
 ///   - Horizontal padding from settings.statusLine.padding (paddingX in TS)
@@ -381,10 +382,10 @@ struct StatusLineOptions {
         return text("");
     }
 
-    // Parse ANSI codes into colored FTXUI elements, then apply dim to the whole
-    // thing.  This mirrors TS: <Text dimColor><Ansi>{statusLineText}</Ansi></Text>
+    // Parse ANSI codes into colored FTXUI elements. Do not add a global dim:
+    // the TS status line leaves command-provided ANSI colors at normal weight.
     namespace msgs = cc::ui::messages;
-    Element content = msgs::ansi_to_ftxui_elements(opts.content) | dim;
+    Element content = msgs::ansi_to_ftxui_elements(opts.content);
 
     // Apply horizontal padding (mirrors TS paddingX on the wrapping Box).
     // Padding is applied equally on left and right sides.
