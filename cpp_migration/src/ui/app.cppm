@@ -24,6 +24,7 @@ module;
 #include <cctype>
 #include <algorithm>
 #include <cmath>
+#include <iterator>
 
 #include <unistd.h>  // for getcwd
 
@@ -373,6 +374,8 @@ private:
     }
 
     void RefreshAutocompleteSuggestions() {
+        const auto previous_suggestions = screen_state_->autocomplete_suggestions;
+        const int previous_index = screen_state_->autocomplete_index;
         screen_state_->autocomplete_suggestions.clear();
         screen_state_->autocomplete_index = -1;
 
@@ -409,7 +412,23 @@ private:
                 });
         }
         if (!screen_state_->autocomplete_suggestions.empty()) {
-            screen_state_->autocomplete_index = 0;
+            int preserved_index = 0;
+            if (previous_index >= 0 &&
+                previous_index < static_cast<int>(previous_suggestions.size())) {
+                const auto& previous =
+                    previous_suggestions[static_cast<std::size_t>(previous_index)];
+                auto it = std::ranges::find(
+                    screen_state_->autocomplete_suggestions,
+                    previous.display_text,
+                    &repl::ReplScreenState::AutocompleteSuggestion::display_text);
+                if (it != screen_state_->autocomplete_suggestions.end()) {
+                    preserved_index = static_cast<int>(
+                        std::distance(
+                            screen_state_->autocomplete_suggestions.begin(),
+                            it));
+                }
+            }
+            screen_state_->autocomplete_index = preserved_index;
         }
     }
 
@@ -1522,6 +1541,10 @@ public:
             out.push_back(suggestion.display_text);
         }
         return out;
+    }
+
+    [[nodiscard]] int autocomplete_index_for_testing() const noexcept {
+        return screen_state_->autocomplete_index;
     }
 
     [[nodiscard]] bool has_pending_dialog_for_testing() const noexcept {

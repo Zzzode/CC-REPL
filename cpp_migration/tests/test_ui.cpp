@@ -1338,6 +1338,14 @@ TEST(AppRuntime, SlashInputShowsRegistrySuggestions) {
 
     EXPECT_TRUE(app->OnEvent(ftxui::Event::Character("/")));
     EXPECT_GT(app->autocomplete_suggestion_count_for_testing(), 0u);
+    ASSERT_GT(app->autocomplete_suggestion_count_for_testing(), 1u);
+    EXPECT_EQ(app->autocomplete_index_for_testing(), 0);
+
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::ArrowDown));
+    EXPECT_EQ(app->autocomplete_index_for_testing(), 1);
+
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::ArrowUp));
+    EXPECT_EQ(app->autocomplete_index_for_testing(), 0);
 
     auto slash_rendered = strip_ansi(render_to_plain_text(app->Render(), 120, 32));
     EXPECT_NE(slash_rendered.find("❯ /"), std::string::npos);

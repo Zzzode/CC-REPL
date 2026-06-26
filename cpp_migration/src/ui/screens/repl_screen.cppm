@@ -1839,6 +1839,14 @@ inline bool forward_trust_dialog(
         if (ev.input() == "\x1B[Z" && asn > 0) {
             state->autocomplete_index = state->autocomplete_index < 0 ? asn - 1
                 : (state->autocomplete_index - 1 + asn) % asn; return true; }
+        // Up / Down navigate visible autocomplete suggestions before history.
+        if (ev == Event::ArrowUp && asn > 0) {
+            state->autocomplete_index = state->autocomplete_index <= 0 ? asn - 1
+                : state->autocomplete_index - 1; return true; }
+        if (ev == Event::ArrowDown && asn > 0) {
+            state->autocomplete_index = state->autocomplete_index < 0 ||
+                state->autocomplete_index >= asn - 1
+                ? 0 : state->autocomplete_index + 1; return true; }
         // Up (history back) / Down (history forward)
         if (ev == Event::ArrowUp && state->input_text.empty()
             && !state->input_history.empty()) {
