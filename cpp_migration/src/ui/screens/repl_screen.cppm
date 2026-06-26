@@ -359,7 +359,11 @@ struct ReplScreenState {
     // app.cppm). The renderer mods this by kWelcomeTips.size(). Previously the
     // tip used spinner_frame, which cycled the tip on every mouse-move re-render.
     std::size_t welcome_tip_index{0};
-    std::vector<std::string> autocomplete_suggestions;
+    struct AutocompleteSuggestion {
+        std::string display_text;
+        std::string description;
+    };
+    std::vector<AutocompleteSuggestion> autocomplete_suggestions;
     int autocomplete_index = -1;
     std::deque<std::string> input_history;
     std::size_t history_index = std::string::npos;
@@ -728,8 +732,8 @@ struct ReplScreenCallbacks {
 //
 // Rendered faithful to TS BaseTextInput.tsx:
 //   * TS prompt glyph figures.pointer "❯" (green) for normal mode,
-//     "!" (red) for bash, "/" (cyan) for slash, "❮" (yellow/magenta) for
-//     vim Normal/Visual — driven by s.input_mode.
+//     "!" (red) for bash, "❮" (yellow/magenta) for vim Normal/Visual —
+//     driven by s.input_mode.
 //   * DECLARED CARET at the insertion point: TextInputImpl.Render() draws an
 //     inverted glyph at the cursor offset (TS parks the real terminal cursor
 //     there via useDeclaredCursor; we render a visible caret that lands on
@@ -739,8 +743,8 @@ struct ReplScreenCallbacks {
 //     impl when a selection range is set.
 //   * Vim-mode badge (-- INSERT -- / -- NORMAL -- / -- VISUAL --) like TS,
 //     driven by the existing vim_input::mode_display() helper.
-//   * Autocomplete dropdown surfaced inline below the input (faithful to TS
-//     ContextSuggestions) when s.autocomplete_suggestions is non-empty.
+//   * Prompt chrome uses top and bottom horizontal rules, matching TS
+//     borderStyle="round" with left/right borders disabled.
 [[nodiscard]] inline Element RenderPromptInput(const ReplScreenState& s) {
     namespace uic = ::ui::components;
     namespace vim = cc::ui::prompt::vim_input;
@@ -766,7 +770,7 @@ struct ReplScreenCallbacks {
     // primitive for caret/multiline/selection fidelity.
     uic::TextInputOptions opts;
     opts.placeholder  = s.input_placeholder;
-    opts.prefix       = " ";   // glyph drawn separately (coloured per mode)
+    opts.prefix       = "";    // glyph drawn separately (coloured per mode)
     opts.multiline    = true;
     opts.show_line_numbers = false;
     opts.enable_undo_redo   = false;
@@ -811,33 +815,9 @@ struct ReplScreenCallbacks {
             Screen::Cursor::Shape::Bar);
     }
 
-    // --- 4. Autocomplete dropdown (TS ContextSuggestions parity) --------
     Elements box_body;
-    if (!s.autocomplete_suggestions.empty()) {
-        uic::TextInputOptions ac_opts;
-        ac_opts.multiline = false;
-        ac_opts.show_line_numbers = false;
-        ac_opts.enable_undo_redo = false;
-        ac_opts.cursor_blink_ms = 0;
-        auto ac_impl = std::make_shared<uic::TextInputImpl>(ac_opts);
-        std::vector<uic::Suggestion> sugs;
-        sugs.reserve(s.autocomplete_suggestions.size());
-        for (const auto& raw : s.autocomplete_suggestions) {
-            uic::Suggestion sg;
-            sg.text = raw;
-            sg.display_text = raw;
-            sugs.push_back(std::move(sg));
-        }
-        // Drive the impl's dropdown renderer by injecting the suggestions
-        // list directly — RenderSuggestionsDropdown paints the
-        // header/rows/footer faithful to TS ContextSuggestions.
-        Element ac_dropdown = ac_impl->RenderSuggestionsFromListPub(
-            sugs, std::clamp(s.autocomplete_index, 0,
-                             static_cast<int>(sugs.size()) - 1));
-        box_body.push_back(hbox({ text("  "), ac_dropdown, filler() }));
-    }
 
-    // --- 5. Vim-mode badge (-- INSERT -- / -- NORMAL -- / -- VISUAL --) -
+    // --- 4. Vim-mode badge (-- INSERT -- / -- NORMAL -- / -- VISUAL --) -
     // Faithful to TS: drawn alongside the prompt, dim+bold, mode-coloured.
     std::optional<std::pair<std::string, Color>> vim_badge;
     if (s.input_mode == InputMode::VimInsert)
@@ -853,22 +833,92 @@ struct ReplScreenCallbacks {
         }));
     }
 
-    // --- 6. Compose -----------------------------------------------------
+    // --- 5. Compose -----------------------------------------------------
     box_body.push_back(hbox({
         text(" "),
         text(mp + " ") | color(mc) | bold,
         input_area,
     }));
-    box_body.push_back(text(""));
 
     auto content = vbox(std::move(box_body));
-    // TS: borderStyle="round" borderLeft={false} borderRight={false} borderBottom
-    // (PromptInput.tsx).  Only the bottom border is visible, colored with
-    // promptBorder (medium gray, rgb(153,153,153)).
+    // TS: borderStyle="round" with borderLeft={false} borderRight={false}.
+    // Ink renders top and bottom horizontal rules without side rails.
+    auto rule = [] {
+        return separator() | color(Color::RGB(153, 153, 153));
+    };
     return vbox({
+        rule(),
         content,
-        separator() | color(Color::RGB(153, 153, 153)),
+        rule(),
     });
+}
+
+[[nodiscard]] inline std::string truncate_columns(std::string text, int max_cols) {
+    if (max_cols <= 0) return {};
+    if (string_width(text) <= max_cols) return text;
+    while (!text.empty() && string_width(text + "…") > max_cols) {
+        text.pop_back();
+    }
+    return text + "…";
+}
+
+[[nodiscard]] inline std::string pad_to_columns(std::string text, int width) {
+    const int pad = width - string_width(text);
+    if (pad > 0) text.append(static_cast<std::size_t>(pad), ' ');
+    return text;
+}
+
+[[nodiscard]] inline Element RenderPromptSuggestions(const ReplScreenState& s,
+                                                     int term_cols) {
+    if (s.autocomplete_suggestions.empty()) return Element{};
+
+    constexpr int kMaxVisibleItems = 5;
+    const int total = static_cast<int>(s.autocomplete_suggestions.size());
+    const int selected = std::clamp(
+        s.autocomplete_index < 0 ? 0 : s.autocomplete_index,
+        0,
+        total - 1);
+    const int visible = std::min(kMaxVisibleItems, total);
+    const int start = std::max(
+        0,
+        std::min(selected - visible / 2, total - visible));
+    const int end = std::min(start + visible, total);
+
+    int widest = 0;
+    for (int i = start; i < end; ++i) {
+        widest = std::max(
+            widest,
+            string_width(s.autocomplete_suggestions[static_cast<std::size_t>(i)].display_text));
+    }
+    const int max_name_width = std::max(10, term_cols * 2 / 5);
+    const int name_width = std::min(widest + 5, max_name_width);
+    const int desc_width = std::max(0, term_cols - name_width - 4);
+
+    Elements rows;
+    rows.reserve(static_cast<std::size_t>(visible));
+    for (int i = start; i < end; ++i) {
+        const auto& item = s.autocomplete_suggestions[static_cast<std::size_t>(i)];
+        const bool is_selected = i == selected;
+        auto display = truncate_columns(item.display_text, name_width - 2);
+        auto desc = truncate_columns(item.description, desc_width);
+        Element name = text(pad_to_columns(std::move(display), name_width));
+        Element detail = text(std::move(desc));
+        if (is_selected) {
+            name = name | color(Color::Cyan) | bold;
+            detail = detail | color(Color::Cyan);
+        } else {
+            name = name | dim;
+            detail = detail | dim;
+        }
+        rows.push_back(hbox({
+            text("  "),
+            std::move(name),
+            std::move(detail),
+            filler(),
+        }));
+    }
+
+    return vbox(std::move(rows));
 }
 
 // =========================================================
@@ -1192,7 +1242,7 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
 
     // ── bottom slot (pinned, flexShrink=0) ──────────────────────────────
     // Faithful to TS PromptInputFooter structure:
-    //   separator  →  prompt input  →  footer (left/right columns)
+    //   suggestions overlay?  →  prompt input  →  footer (left/right columns)
     //
     // The footer contains StatusLine (optional, user-configurable) +
     // PromptInputFooterLeftSide (mode indicator, tasks, teams, hints) on
@@ -1234,8 +1284,11 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
         case InputMode::PlanMode:     footer_mode = pif::PromptInputMode::PlanMode; break;
         default: break;
     }
-    // ── Assemble the bottom slot: PromptInput → Footer ──
-    L.reserve(2);
+    // ── Assemble the bottom slot: Suggestions → PromptInput → Footer ──
+    L.reserve(3);
+    if (!s.autocomplete_suggestions.empty()) {
+        L.push_back(RenderPromptSuggestions(s, term_cols));
+    }
     L.push_back(RenderPromptInput(s));
     // PromptInputFooter: LeftSide carries mode/tasks/teams via
     // ModeIndicatorOptions; StatusLine is its own nested struct.
@@ -1814,13 +1867,6 @@ inline bool forward_trust_dialog(
             if (!state->input_text.empty()) {
                 state->input_text.clear();
                 state->history_index = std::string::npos; return true; } }
-        // Slash auto-detection
-        if (!state->input_text.empty() && state->input_text[0] == '/'
-            && state->input_mode == InputMode::Prompt)
-            state->input_mode = InputMode::SlashCommand;
-        if (state->input_text.empty()
-            && state->input_mode == InputMode::SlashCommand)
-            state->input_mode = InputMode::Prompt;
         // Printable chars — accepts both ASCII and multi-byte UTF-8 (CJK).
         // FTXUI delivers composed IME characters as a single character event
         // containing the full UTF-8 byte sequence in ev.character().

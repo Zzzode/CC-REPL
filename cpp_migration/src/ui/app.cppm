@@ -21,6 +21,7 @@ module;
 #include <condition_variable>
 #include <atomic>
 #include <cstdlib>
+#include <cctype>
 #include <algorithm>
 #include <cmath>
 
@@ -361,6 +362,56 @@ private:
     std::mutex statusline_mutex_;
     std::condition_variable statusline_cv_;
     int statusline_debounce_ms_ = 300;  // TS: 300ms debounce
+
+    [[nodiscard]] static std::string lowercase_ascii(std::string_view value) {
+        std::string out(value);
+        for (char& ch : out) {
+            ch = static_cast<char>(
+                std::tolower(static_cast<unsigned char>(ch)));
+        }
+        return out;
+    }
+
+    void RefreshAutocompleteSuggestions() {
+        screen_state_->autocomplete_suggestions.clear();
+        screen_state_->autocomplete_index = -1;
+
+        if (!cmd_registry_) return;
+        const std::string& input = screen_state_->input_text;
+        if (input.empty() || input.front() != '/') return;
+
+        // TS commandSuggestions hides slash suggestions once arguments start.
+        if (input.find_first_of(" \t\n") != std::string::npos) return;
+
+        const std::string query = lowercase_ascii(std::string_view(input).substr(1));
+        struct Candidate {
+            std::string display_text;
+            std::string description;
+        };
+        std::vector<Candidate> candidates;
+        for (const auto* def : cmd_registry_->visible_commands()) {
+            if (!def) continue;
+            const auto name = lowercase_ascii(def->name);
+            if (!query.empty() && !name.starts_with(query)) continue;
+            candidates.push_back(Candidate{
+                .display_text = "/" + def->name,
+                .description = def->description,
+            });
+        }
+
+        std::ranges::sort(candidates, {}, &Candidate::display_text);
+        screen_state_->autocomplete_suggestions.reserve(candidates.size());
+        for (auto& candidate : candidates) {
+            screen_state_->autocomplete_suggestions.push_back(
+                repl::ReplScreenState::AutocompleteSuggestion{
+                    .display_text = std::move(candidate.display_text),
+                    .description = std::move(candidate.description),
+                });
+        }
+        if (!screen_state_->autocomplete_suggestions.empty()) {
+            screen_state_->autocomplete_index = 0;
+        }
+    }
 
 public:
     ~AppAdapter() override {
@@ -1372,7 +1423,9 @@ public:
     }
 
     bool OnEvent(Event event) override {
-        return repl_component_->OnEvent(event);
+        const bool handled = repl_component_->OnEvent(event);
+        if (handled) RefreshAutocompleteSuggestions();
+        return handled;
     }
 
     Component ActiveChild() override {
@@ -1456,6 +1509,19 @@ public:
 
     [[nodiscard]] std::string status_bar_model_for_testing() const {
         return screen_state_->status_bar.model_name;
+    }
+
+    [[nodiscard]] std::size_t autocomplete_suggestion_count_for_testing() const noexcept {
+        return screen_state_->autocomplete_suggestions.size();
+    }
+
+    [[nodiscard]] std::vector<std::string> autocomplete_suggestions_for_testing() const {
+        std::vector<std::string> out;
+        out.reserve(screen_state_->autocomplete_suggestions.size());
+        for (const auto& suggestion : screen_state_->autocomplete_suggestions) {
+            out.push_back(suggestion.display_text);
+        }
+        return out;
     }
 
     [[nodiscard]] bool has_pending_dialog_for_testing() const noexcept {

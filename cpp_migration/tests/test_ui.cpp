@@ -1159,6 +1159,35 @@ TEST(ReplScreen, CustomStatusLineOnlyRendersInPromptMode) {
     EXPECT_EQ(rendered.find("custom status"), std::string::npos);
 }
 
+TEST(ReplScreen, PromptInputRendersTopAndBottomBorders) {
+    namespace repl = cc::ui::repl_screen;
+
+    repl::ReplScreenState state;
+    state.input_text = "/";
+
+    auto rendered = strip_ansi(render_to_plain_text(
+        repl::RenderPromptInput(state),
+        80,
+        4));
+
+    std::size_t border_lines = 0;
+    std::size_t line_start = 0;
+    while (line_start <= rendered.size()) {
+        const auto line_end = rendered.find('\n', line_start);
+        const auto line = rendered.substr(
+            line_start,
+            line_end == std::string::npos ? std::string::npos : line_end - line_start);
+        if (line.find("──────────") != std::string::npos) {
+            ++border_lines;
+        }
+        if (line_end == std::string::npos) break;
+        line_start = line_end + 1;
+    }
+
+    EXPECT_GE(border_lines, 2u);
+    EXPECT_NE(rendered.find("❯ /"), std::string::npos);
+}
+
 TEST(StatusLine, KeepsAnsiBrightnessWithoutGlobalDim) {
     namespace pif = cc::ui::prompt::footer;
 
@@ -1284,6 +1313,42 @@ TEST(AppRuntime, CommandsAndStatusRenderWithoutTerminalLoop) {
     // --- /exit: triggers on_exit callback ---
     app->HandleCommand("/exit");
     EXPECT_TRUE(exited);
+
+    fs::remove_all(storage_root);
+}
+
+TEST(AppRuntime, SlashInputShowsRegistrySuggestions) {
+    cc::core::ToolRegistry tools;
+    cc::core::QueryEngineConfig config;
+    config.context_window.auto_compact = false;
+    config.cwd = fs::temp_directory_path().string();
+    cc::core::QueryEngine engine(std::move(config), tools);
+
+    cc::commands::AppCommandRegistry commands;
+    const auto storage_root = fs::temp_directory_path() /
+        ("cc_repl_ui_slash_suggestions_test_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    cc::utils::SessionStorage storage(storage_root);
+
+    auto app = ftxui::Make<cc::ui::AppAdapter>(
+        &engine,
+        &commands,
+        &storage,
+        [] {});
+
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::Character("/")));
+    EXPECT_GT(app->autocomplete_suggestion_count_for_testing(), 0u);
+
+    auto slash_rendered = strip_ansi(render_to_plain_text(app->Render(), 120, 32));
+    EXPECT_NE(slash_rendered.find("❯ /"), std::string::npos);
+    EXPECT_EQ(slash_rendered.find("/ /"), std::string::npos);
+
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::Character("h")));
+    const auto suggestions = app->autocomplete_suggestions_for_testing();
+    EXPECT_NE(std::find(suggestions.begin(), suggestions.end(), "/help"), suggestions.end());
+
+    auto help_rendered = strip_ansi(render_to_plain_text(app->Render(), 120, 32));
+    EXPECT_NE(help_rendered.find("/help"), std::string::npos);
 
     fs::remove_all(storage_root);
 }
