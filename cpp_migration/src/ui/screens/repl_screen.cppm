@@ -1206,15 +1206,22 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
     // Build StatusLine options (user-configurable command-driven status).
     //
     // Faithful to TS StatusLine.tsx:
-    //   - Shown when settings.statusLine is configured (status_line_enabled)
+    //   - Configured by settings.statusLine, rendered only in prompt mode
+    //     and hidden in short fullscreen layouts
     //   - content comes from executing the user's shell command
     //   - In fullscreen, reserves a row even while loading (stable height)
     //   - Text may contain ANSI escape codes for coloring
+    const bool is_fullscreen = cc::utils::is_fullscreen_enabled();
+    const bool is_short = is_fullscreen && term_rows < 24;
+    const bool status_line_configured =
+        s.status_line_enabled && !s.status_line_command.empty();
     pif::StatusLineOptions status_line_opts;
     status_line_opts.content = s.status_line_text;
     status_line_opts.should_display =
-        s.status_line_enabled && !s.status_line_command.empty();
-    status_line_opts.is_fullscreen = cc::utils::is_fullscreen_enabled();
+        status_line_configured &&
+        s.input_mode == InputMode::Prompt &&
+        !is_short;
+    status_line_opts.is_fullscreen = is_fullscreen;
     status_line_opts.padding_x = s.status_line_padding;
 
     // Map InputMode to footer PromptInputMode
@@ -1237,13 +1244,14 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
     left_opts.mode_indicator.background_task_count = s.background_task_count;
     left_opts.mode_indicator.teammate_count        = s.teammate_count;
     left_opts.mode_indicator.teams_selected        = s.teams_footer_selected;
-    if (status_line_opts.should_display) {
+    if (status_line_configured) {
         left_opts.mode_indicator.show_hint = false;
     }
     pif::FooterOptions footer_opts;
     footer_opts.status_line = std::move(status_line_opts);
     footer_opts.left_side   = std::move(left_opts);
-    footer_opts.is_fullscreen = cc::utils::is_fullscreen_enabled();
+    footer_opts.is_fullscreen = is_fullscreen;
+    footer_opts.is_narrow = term_cols < 80;
     L.push_back(pif::RenderPromptInputFooter(footer_opts));
 
     slots.bottom = vbox(std::move(L)) | flex_shrink;

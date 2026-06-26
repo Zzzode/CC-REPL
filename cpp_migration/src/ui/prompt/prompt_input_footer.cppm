@@ -502,7 +502,8 @@ struct FooterOptions {
     Elements left_col;
     left_col.reserve(2);
 
-    // StatusLine (always shown when configured, per TS StatusLine.tsx).
+    // StatusLine (shown only when the caller's TS-equivalent visibility gate
+    // allows it).
     // In fullscreen mode, reserves a blank row even while loading so the
     // footer height never shifts (stable height — same trick as LeftSide).
     // Exit message / pasting / history search affect only LeftSide (below),
@@ -543,41 +544,36 @@ struct FooterOptions {
         right_row.push_back(RenderBridgeStatus(opts.bridge));
     }
 
-    // ── Compose: single row (space-between) when StatusLine hidden,
-    //    StatusLine spans full width when shown (above LeftSide + right).
-    //    Actually, in TS StatusLine is only in the LEFT column, so the
-    //    right column sits to the right of BOTH rows.  We match that.
-    if (show_status_line) {
-        // Two-row layout: left column has 2 rows, right column top-aligned
-        return vbox({
-                   // Row 1: StatusLine spans full width?  No — TS has
-                   // StatusLine only in left column, right column is empty
-                   // on row 1.  We match: StatusLine left, empty right.
-                   hbox({
-                       text("  "),
-                       RenderStatusLine(opts.status_line) | flex,
-                       filler(),
-                       text("  "),
-                   }),
-                   // Row 2: LeftSide + right items
-                   hbox({
-                       text("  "),
-                       RenderLeftSide(opts.left_side) | flex,
-                       right_row.empty() ? text("")
-                                         : hbox(std::move(right_row)),
-                       text("  "),
-                   }),
-               });
+    const bool has_right = !right_row.empty();
+    Element right_el = has_right ? hbox(std::move(right_row)) : text("");
+
+    // TS: outer Box switches row -> column at narrow widths.  The StatusLine
+    // remains inside the left column, so right-column content top-aligns with
+    // the StatusLine row when it is present.
+    if (opts.is_narrow) {
+        Elements rows;
+        rows.push_back(hbox({
+            text("  "),
+            std::move(left_el),
+            text("  "),
+        }));
+        if (has_right) {
+            rows.push_back(hbox({
+                text("  "),
+                std::move(right_el),
+                text("  "),
+            }));
+        }
+        return vbox(std::move(rows));
     }
 
-    // Single-row layout: left and right side by side
     return hbox({
-               text("  "),   // paddingX={2}
-               left_el,
-               filler(),
-               right_row.empty() ? text("") : hbox(std::move(right_row)),
-               text("  "),   // paddingX={2}
-           });
+        text("  "),   // paddingX={2}
+        std::move(left_el),
+        filler(),
+        std::move(right_el),
+        text("  "),   // paddingX={2}
+    });
 }
 
 } // namespace cc::ui::prompt::footer

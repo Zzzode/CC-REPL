@@ -1142,6 +1142,23 @@ TEST(ReplScreen, CustomStatusLineSuppressesDefaultHintAndNativeStatusBar) {
     EXPECT_EQ(rendered.find("$0.1234"), std::string::npos);
 }
 
+TEST(ReplScreen, CustomStatusLineOnlyRendersInPromptMode) {
+    namespace repl = cc::ui::repl_screen;
+
+    repl::ReplScreenState state;
+    state.input_mode = repl::InputMode::SlashCommand;
+    state.status_line_enabled = true;
+    state.status_line_command = ":";
+    state.status_line_text = "custom status";
+
+    auto rendered = strip_ansi(render_to_plain_text(
+        repl::RenderReplScreen(state),
+        120,
+        30));
+
+    EXPECT_EQ(rendered.find("custom status"), std::string::npos);
+}
+
 TEST(StatusLine, KeepsAnsiBrightnessWithoutGlobalDim) {
     namespace pif = cc::ui::prompt::footer;
 
@@ -1155,6 +1172,33 @@ TEST(StatusLine, KeepsAnsiBrightnessWithoutGlobalDim) {
 
     EXPECT_NE(rendered.find("bright-status"), std::string::npos);
     EXPECT_EQ(rendered.find("\033[2m"), std::string::npos);
+}
+
+TEST(PromptInputFooter, AlignsRightColumnWithStatusLineRow) {
+    namespace pif = cc::ui::prompt::footer;
+
+    pif::FooterOptions opts;
+    opts.status_line = pif::StatusLineOptions{
+        .content = "custom status",
+        .should_display = true,
+    };
+    opts.bridge = pif::BridgeOptions{
+        .status = pif::BridgeStatus::Connected,
+        .explicit_remote = true,
+    };
+
+    auto rendered = strip_ansi(render_to_plain_text(
+        pif::RenderPromptInputFooter(opts),
+        100,
+        4));
+
+    auto status_pos = rendered.find("custom status");
+    auto bridge_pos = rendered.find("Remote Control");
+    ASSERT_NE(status_pos, std::string::npos);
+    ASSERT_NE(bridge_pos, std::string::npos);
+    EXPECT_EQ(
+        std::count(rendered.begin(), rendered.begin() + static_cast<std::ptrdiff_t>(status_pos), '\n'),
+        std::count(rendered.begin(), rendered.begin() + static_cast<std::ptrdiff_t>(bridge_pos), '\n'));
 }
 
 TEST(WizardDialog, RendersStepFactoryContent) {
