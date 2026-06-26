@@ -21,6 +21,8 @@ module;
 #include <condition_variable>
 #include <atomic>
 #include <cstdlib>
+#include <algorithm>
+#include <cmath>
 
 #include <unistd.h>  // for getcwd
 
@@ -1111,16 +1113,29 @@ public:
         input.context_window.total_input_tokens = usage.input_tokens;
         input.context_window.total_output_tokens = usage.output_tokens;
         input.context_window.context_window_size =
-            engine_->model_params().max_tokens > 0
-                ? static_cast<std::int64_t>(engine_->model_params().max_tokens)
-                : 200'000LL;  // reasonable default
-        input.context_window.current_usage =
-            usage.input_tokens + usage.output_tokens;
-        if (input.context_window.context_window_size > 0) {
-            double pct = static_cast<double>(input.context_window.current_usage) /
-                         static_cast<double>(input.context_window.context_window_size);
-            input.context_window.used_percentage = pct * 100.0;
-            input.context_window.remaining_percentage = (1.0 - pct) * 100.0;
+            static_cast<std::int64_t>(engine_->max_context_tokens());
+        const bool has_usage = usage.input_tokens > 0 || usage.output_tokens > 0 ||
+            usage.cache_creation_tokens > 0 || usage.cache_read_tokens > 0;
+        if (has_usage) {
+            input.context_window.current_usage = sl::StatusLineCurrentUsageInfo{
+                .input_tokens = usage.input_tokens,
+                .output_tokens = usage.output_tokens,
+                .cache_creation_input_tokens = usage.cache_creation_tokens,
+                .cache_read_input_tokens = usage.cache_read_tokens,
+            };
+            const auto input_context_tokens =
+                static_cast<std::int64_t>(usage.input_tokens) +
+                static_cast<std::int64_t>(usage.cache_creation_tokens) +
+                static_cast<std::int64_t>(usage.cache_read_tokens);
+            if (input.context_window.context_window_size > 0) {
+                auto pct = static_cast<int>(std::llround(
+                    static_cast<double>(input_context_tokens) /
+                    static_cast<double>(input.context_window.context_window_size) *
+                    100.0));
+                pct = std::clamp(pct, 0, 100);
+                input.context_window.used_percentage = static_cast<double>(pct);
+                input.context_window.remaining_percentage = static_cast<double>(100 - pct);
+            }
         }
 
         // 200k threshold flag

@@ -646,6 +646,11 @@ public:
     /// Get current token usage for the session
     [[nodiscard]] TokenUsage get_usage() const noexcept { return cumulative_usage_; }
 
+    /// Get the configured model context window size.
+    [[nodiscard]] std::uint32_t max_context_tokens() const noexcept {
+        return config_.context_window.max_context_tokens;
+    }
+
     /// Get estimated context window utilization ratio [0.0, 1.0]
     [[nodiscard]] double context_utilization() const noexcept {
         auto estimated = estimate_conversation_tokens();
@@ -2244,6 +2249,14 @@ private:
         if (usage.valid() && usage.is_obj()) {
             result.usage.input_tokens = static_cast<std::uint32_t>(usage.get("input_tokens").as_int());
             result.usage.output_tokens = static_cast<std::uint32_t>(usage.get("output_tokens").as_int());
+            auto cache_creation = usage.get("cache_creation_input_tokens");
+            if (cache_creation.valid()) {
+                result.usage.cache_creation_tokens = static_cast<std::uint32_t>(cache_creation.as_int());
+            }
+            auto cache_read = usage.get("cache_read_input_tokens");
+            if (cache_read.valid()) {
+                result.usage.cache_read_tokens = static_cast<std::uint32_t>(cache_read.as_int());
+            }
         }
 
         return result;
@@ -2364,6 +2377,21 @@ private:
                     if (id.valid()) result.message.id.value = std::string(id.as_str());
                     auto model = msg.get("model");
                     if (model.valid()) result.message.model = std::string(model.as_str());
+                    auto usage = msg.get("usage");
+                    if (usage.valid() && usage.is_obj()) {
+                        auto input = usage.get("input_tokens");
+                        if (input.valid()) {
+                            result.usage.input_tokens = static_cast<std::uint32_t>(input.as_int());
+                        }
+                        auto cache_creation = usage.get("cache_creation_input_tokens");
+                        if (cache_creation.valid()) {
+                            result.usage.cache_creation_tokens = static_cast<std::uint32_t>(cache_creation.as_int());
+                        }
+                        auto cache_read = usage.get("cache_read_input_tokens");
+                        if (cache_read.valid()) {
+                            result.usage.cache_read_tokens = static_cast<std::uint32_t>(cache_read.as_int());
+                        }
+                    }
                 }
                 if (options.on_event) {
                     StreamStart ev;
@@ -2468,6 +2496,14 @@ private:
                 if (usage.valid()) {
                     auto ot = usage.get("output_tokens");
                     if (ot.valid()) result.usage.output_tokens = static_cast<std::uint32_t>(ot.as_int());
+                    auto cache_creation = usage.get("cache_creation_input_tokens");
+                    if (cache_creation.valid()) {
+                        result.usage.cache_creation_tokens = static_cast<std::uint32_t>(cache_creation.as_int());
+                    }
+                    auto cache_read = usage.get("cache_read_input_tokens");
+                    if (cache_read.valid()) {
+                        result.usage.cache_read_tokens = static_cast<std::uint32_t>(cache_read.as_int());
+                    }
                 }
             } else if (event_type == "message_stop") {
                 // Stream completed successfully

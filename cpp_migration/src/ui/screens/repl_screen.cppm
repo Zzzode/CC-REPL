@@ -1138,7 +1138,7 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
 ///   scrollable slot (flexGrow region) =
 ///     [WelcomeHeader (fresh session)] | Messages | Spinner | Tasks/Teams
 ///   bottom slot (pinned, flexShrink=0) =
-///     StatusBar | PromptInput | Footer (counts)
+    ///     PromptInput | Footer
 ///   modal slot (dbox overlay, bottom-anchored) =
 ///     RouteDialog() when non-null (with MODAL_TRANSCRIPT_PEEK peek)
 ///   overlay slot =
@@ -1146,13 +1146,13 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
 ///      currently permission flows through RouteDialog as the modal slot,
 ///      matching how it rendered before.)
 ///
-/// All existing render functions are PRESERVED (RenderWelcomeHeader,
-/// RenderMessages, RenderSpinner, RenderStatusBar, RenderPromptInput,
+    /// All existing render functions are PRESERVED (RenderWelcomeHeader,
+    /// RenderMessages, RenderSpinner, RenderPromptInput,
 /// RouteDialog) — only HOW they are composed changed.  Visual order is
 /// preserved: messages scroll above, status/prompt pinned below.
 ///
 /// Fix #1: welcome header atop the list on a fresh session.
-/// Fix #7: StatusBar just above prompt input (TS bottom status line).
+    /// Fix #7: StatusLine lives inside the prompt footer, matching TS.
 /// Fix #11: terminal size probed once per frame for adaptive clamping.
 [[nodiscard]] inline Element RenderReplScreen(ReplScreenState& s) {
     // Probe terminal size once per frame for adaptive layout (fix #11).
@@ -1227,9 +1227,8 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
         case InputMode::PlanMode:     footer_mode = pif::PromptInputMode::PlanMode; break;
         default: break;
     }
-    // ── Assemble the bottom slot: StatusBar → PromptInput → Footer ──
-    L.reserve(3);
-    L.push_back(RenderStatusBar(s.status_bar));
+    // ── Assemble the bottom slot: PromptInput → Footer ──
+    L.reserve(2);
     L.push_back(RenderPromptInput(s));
     // PromptInputFooter: LeftSide carries mode/tasks/teams via
     // ModeIndicatorOptions; StatusLine is its own nested struct.
@@ -1238,6 +1237,9 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
     left_opts.mode_indicator.background_task_count = s.background_task_count;
     left_opts.mode_indicator.teammate_count        = s.teammate_count;
     left_opts.mode_indicator.teams_selected        = s.teams_footer_selected;
+    if (status_line_opts.should_display) {
+        left_opts.mode_indicator.show_hint = false;
+    }
     pif::FooterOptions footer_opts;
     footer_opts.status_line = std::move(status_line_opts);
     footer_opts.left_side   = std::move(left_opts);

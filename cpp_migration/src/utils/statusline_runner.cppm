@@ -72,13 +72,20 @@ struct StatusLineCostInfo {
     std::int64_t total_lines_removed = 0;
 };
 
+struct StatusLineCurrentUsageInfo {
+    std::int64_t input_tokens = 0;
+    std::int64_t output_tokens = 0;
+    std::int64_t cache_creation_input_tokens = 0;
+    std::int64_t cache_read_input_tokens = 0;
+};
+
 struct StatusLineContextWindowInfo {
     std::int64_t total_input_tokens = 0;
     std::int64_t total_output_tokens = 0;
     std::int64_t context_window_size = 0;
-    std::int64_t current_usage = 0;
-    double used_percentage = 0.0;
-    double remaining_percentage = 0.0;
+    std::optional<StatusLineCurrentUsageInfo> current_usage;
+    std::optional<double> used_percentage;
+    std::optional<double> remaining_percentage;
 };
 
 struct StatusLineVimInfo {
@@ -219,9 +226,26 @@ struct StatusLineCommandInput {
         cw.add("total_input_tokens", doc.number(input.context_window.total_input_tokens));
         cw.add("total_output_tokens", doc.number(input.context_window.total_output_tokens));
         cw.add("context_window_size", doc.number(input.context_window.context_window_size));
-        cw.add("current_usage", doc.number(input.context_window.current_usage));
-        cw.add("used_percentage", doc.number(input.context_window.used_percentage));
-        cw.add("remaining_percentage", doc.number(input.context_window.remaining_percentage));
+        if (input.context_window.current_usage) {
+            auto current = doc.object();
+            current.add("input_tokens", doc.number(input.context_window.current_usage->input_tokens));
+            current.add("output_tokens", doc.number(input.context_window.current_usage->output_tokens));
+            current.add("cache_creation_input_tokens", doc.number(input.context_window.current_usage->cache_creation_input_tokens));
+            current.add("cache_read_input_tokens", doc.number(input.context_window.current_usage->cache_read_input_tokens));
+            cw.add("current_usage", std::move(current));
+        } else {
+            cw.add("current_usage", doc.null());
+        }
+        if (input.context_window.used_percentage) {
+            cw.add("used_percentage", doc.number(*input.context_window.used_percentage));
+        } else {
+            cw.add("used_percentage", doc.null());
+        }
+        if (input.context_window.remaining_percentage) {
+            cw.add("remaining_percentage", doc.number(*input.context_window.remaining_percentage));
+        } else {
+            cw.add("remaining_percentage", doc.null());
+        }
         root.add("context_window", std::move(cw));
     }
 

@@ -198,7 +198,12 @@ TEST(StatuslineJson, SerializesContextWindowInfo) {
     input.context_window.total_input_tokens = 10000;
     input.context_window.total_output_tokens = 2000;
     input.context_window.context_window_size = 200000;
-    input.context_window.current_usage = 12000;
+    input.context_window.current_usage = cc::utils::statusline::StatusLineCurrentUsageInfo{
+        .input_tokens = 11000,
+        .output_tokens = 2000,
+        .cache_creation_input_tokens = 500,
+        .cache_read_input_tokens = 250,
+    };
     input.context_window.used_percentage = 6.0;
     input.context_window.remaining_percentage = 94.0;
 
@@ -211,9 +216,30 @@ TEST(StatuslineJson, SerializesContextWindowInfo) {
     EXPECT_EQ(cw.get("total_input_tokens").as_int(), 10000);
     EXPECT_EQ(cw.get("total_output_tokens").as_int(), 2000);
     EXPECT_EQ(cw.get("context_window_size").as_int(), 200000);
-    EXPECT_EQ(cw.get("current_usage").as_int(), 12000);
+    auto current_usage = cw.get("current_usage");
+    ASSERT_TRUE(current_usage.is_obj());
+    EXPECT_EQ(current_usage.get("input_tokens").as_int(), 11000);
+    EXPECT_EQ(current_usage.get("output_tokens").as_int(), 2000);
+    EXPECT_EQ(current_usage.get("cache_creation_input_tokens").as_int(), 500);
+    EXPECT_EQ(current_usage.get("cache_read_input_tokens").as_int(), 250);
     EXPECT_DOUBLE_EQ(cw.get("used_percentage").as_double(), 6.0);
     EXPECT_DOUBLE_EQ(cw.get("remaining_percentage").as_double(), 94.0);
+}
+
+TEST(StatuslineJson, SerializesUnknownContextUsageAsNulls) {
+    StatusLineCommandInput input;
+    input.context_window.context_window_size = 200000;
+
+    auto json_str = to_json(input);
+    auto doc = parse(json_str);
+    ASSERT_TRUE(doc.has_value());
+
+    auto cw = doc->root().get("context_window");
+    EXPECT_TRUE(cw.is_obj());
+    EXPECT_EQ(cw.get("context_window_size").as_int(), 200000);
+    EXPECT_TRUE(cw.get("current_usage").is_null());
+    EXPECT_TRUE(cw.get("used_percentage").is_null());
+    EXPECT_TRUE(cw.get("remaining_percentage").is_null());
 }
 
 TEST(StatuslineJson, SerializesExceeds200kTokensFlag) {
@@ -630,6 +656,12 @@ TEST(StatuslineExecute, ComplexJsonInputPassedCorrectly) {
     input.context_window.total_input_tokens = 50000;
     input.context_window.total_output_tokens = 10000;
     input.context_window.context_window_size = 200000;
+    input.context_window.current_usage = cc::utils::statusline::StatusLineCurrentUsageInfo{
+        .input_tokens = 50000,
+        .output_tokens = 10000,
+        .cache_creation_input_tokens = 1000,
+        .cache_read_input_tokens = 2000,
+    };
     input.exceeds_200k_tokens = false;
     input.vim = cc::utils::statusline::StatusLineVimInfo{.mode = "NORMAL"};
     input.rate_limits = cc::utils::statusline::StatusLineRateLimits{

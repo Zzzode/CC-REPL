@@ -1120,6 +1120,27 @@ TEST(ReplScreen, SubmitsUtf8PromptOnReturn) {
     EXPECT_TRUE(state->input_text.empty());
 }
 
+TEST(ReplScreen, CustomStatusLineSuppressesDefaultHintAndNativeStatusBar) {
+    namespace repl = cc::ui::repl_screen;
+
+    repl::ReplScreenState state;
+    state.status_line_enabled = true;
+    state.status_line_command = ":";
+    state.status_line_text = "custom status";
+    state.status_bar.model_name = "native-status-model";
+    state.status_bar.cost_usd = 0.1234;
+
+    auto rendered = strip_ansi(render_to_plain_text(
+        repl::RenderReplScreen(state),
+        120,
+        30));
+
+    EXPECT_NE(rendered.find("custom status"), std::string::npos);
+    EXPECT_EQ(rendered.find("? for shortcuts"), std::string::npos);
+    EXPECT_EQ(rendered.find("native-status-model"), std::string::npos);
+    EXPECT_EQ(rendered.find("$0.1234"), std::string::npos);
+}
+
 TEST(WizardDialog, RendersStepFactoryContent) {
     using namespace cc::ui::wizard_dialog;
 
@@ -1175,11 +1196,11 @@ TEST(AppRuntime, CommandsAndStatusRenderWithoutTerminalLoop) {
             exited = true;
         });
 
-    // --- Initial render: status bar + prompt input ---
+    // --- Initial render: prompt input without the old native status bar ---
     app->SyncState();
     auto initial = render_to_plain_text(app->Render(), 120, 28);
     EXPECT_EQ(app->status_bar_model_for_testing(), "claude-sonnet-4-20250514");
-    EXPECT_NE(initial.find("claude-sonnet"), std::string::npos);
+    EXPECT_EQ(initial.find("claude-sonnet-4-20250514"), std::string::npos);
     EXPECT_EQ(initial.find("You are Claude"), std::string::npos);
     EXPECT_NE(initial.find("❯"), std::string::npos);
 
