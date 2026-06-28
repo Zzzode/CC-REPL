@@ -1,10 +1,10 @@
 // Canonical task data model and validation helpers.
 // NOTE on deduplication: several hook-local Task types exist with narrower
 // shapes (hooks/task_hooks.cppm uses a 3-state TaskStatus / 3-level priority,
-// hooks/tasks_v2.cppm uses a v2-specific pending/completed/cancelled enum,
-// tasks/types.cppm holds task-engine state variants, and commands/tasks_cmd.cppm
-// serialises user-facing task-records).  Those files will migrate toward this
-// module as their canonical source of truth.
+// hooks/tasks.cppm uses a pending/completed/cancelled enum, tasks/types.cppm
+// holds task-engine state variants, and commands/tasks_cmd.cppm serialises
+// user-facing task-records).  Those files will migrate toward this module as
+// their canonical source of truth.
 module;
 
 #include <algorithm>

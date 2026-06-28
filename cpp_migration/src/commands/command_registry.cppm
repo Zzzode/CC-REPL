@@ -205,6 +205,23 @@ public:
         return registry_.visible_commands();
     }
 
+    /// SL-01: hidden-command exact-name escape hatch (delegates to the core
+    /// registry). See CommandRegistry::hidden_command_if_exact.
+    [[nodiscard]] const CommandDefinition* hidden_command_if_exact(
+        std::string_view name) const {
+        return registry_.hidden_command_if_exact(name);
+    }
+
+    /// SL-03: look up a VISIBLE command definition by exact name (for argument
+    /// hints). Returns nullptr if not found or hidden.
+    [[nodiscard]] const CommandDefinition* find_definition(
+        std::string_view name) const {
+        for (const auto* def : registry_.visible_commands()) {
+            if (def->name == name) return def;
+        }
+        return nullptr;
+    }
+
     /// Get total registered command count
     [[nodiscard]] std::size_t command_count() const noexcept {
         return registry_.size();

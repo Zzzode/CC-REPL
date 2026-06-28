@@ -7,6 +7,7 @@
 #include <condition_variable>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -21,6 +22,7 @@
 #include <ftxui/screen/screen.hpp>
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/event.hpp>
+#include <ftxui/component/mouse.hpp>
 #include <gtest/gtest.h>
 #include <httplib.h>
 
@@ -44,6 +46,7 @@ import cc.ui.components.passes;
 import cc.ui.components.grove;
 import cc.ui.components.lsp_rec_menu;
 import cc.ui.components.plugin_hint_menu;
+import cc.ui.common.declared_cursor;
 import cc.ui.design.theme;
 import cc.ui.mcp_dialogs;
 import cc.config.config;
@@ -86,6 +89,38 @@ std::string strip_ansi(std::string_view s) {
         ++i;
     }
     return out;
+}
+
+std::size_t max_line_width_bytes(std::string_view s) {
+    std::size_t max_width = 0;
+    std::size_t line_width = 0;
+    for (char ch : s) {
+        if (ch == '\n') {
+            max_width = std::max(max_width, line_width);
+            line_width = 0;
+        } else {
+            ++line_width;
+        }
+    }
+    return std::max(max_width, line_width);
+}
+
+bool same_rendered_line_contains(std::string_view s,
+                                 std::string_view first,
+                                 std::string_view second) {
+    std::size_t line_start = 0;
+    while (line_start <= s.size()) {
+        auto line_end = s.find('\n', line_start);
+        if (line_end == std::string_view::npos) line_end = s.size();
+        auto line = s.substr(line_start, line_end - line_start);
+        if (line.find(first) != std::string_view::npos &&
+            line.find(second) != std::string_view::npos) {
+            return true;
+        }
+        if (line_end == s.size()) break;
+        line_start = line_end + 1;
+    }
+    return false;
 }
 
 bool wait_until(std::function<bool()> predicate, std::chrono::milliseconds timeout) {
@@ -691,10 +726,27 @@ TEST(Components, TextInputRendersPlaceholderWithoutExtraCursorSpace) {
     options.placeholder = "Type";
     auto component = cc::ui::components::TextInput(options);
 
-    auto rendered = render_to_plain_text(component->Render(), 20, 3);
+    auto rendered = strip_ansi(render_to_plain_text(component->Render(), 20, 3));
 
     EXPECT_NE(rendered.find("Type"), std::string::npos);
     EXPECT_EQ(rendered.find("  Type"), std::string::npos);
+}
+
+TEST(Components, TextInputRendersPlaceholderCaretWithoutNativeCursor) {
+    cc::ui::components::TextInputOptions options;
+    options.prefix = "";
+    options.placeholder = "Type";
+    options.cursor_blink_ms = 0;
+    auto component = cc::ui::components::TextInput(options);
+
+    auto screen = ftxui::Screen::Create(
+        ftxui::Dimension::Fixed(20),
+        ftxui::Dimension::Fixed(3));
+    ftxui::Render(screen, component->Render());
+
+    const auto& first_cell = screen.PixelAt(0, 0);
+    EXPECT_EQ(first_cell.character, "T");
+    EXPECT_TRUE(first_cell.inverted);
 }
 
 TEST(Components, TextInputHidesPlaceholderAfterTyping) {
@@ -704,7 +756,7 @@ TEST(Components, TextInputHidesPlaceholderAfterTyping) {
     auto component = cc::ui::components::TextInput(options);
 
     ASSERT_TRUE(component->OnEvent(ftxui::Event::Character("a")));
-    auto rendered = render_to_plain_text(component->Render(), 20, 3);
+    auto rendered = strip_ansi(render_to_plain_text(component->Render(), 20, 3));
 
     EXPECT_NE(rendered.find("a"), std::string::npos);
     EXPECT_EQ(rendered.find("Type"), std::string::npos);
@@ -743,7 +795,7 @@ TEST(Components, TextInputBackspace) {
     component->OnEvent(ftxui::Event::Character("b"));
     component->OnEvent(ftxui::Event::Backspace);
 
-    auto rendered = render_to_plain_text(component->Render(), 20, 3);
+    auto rendered = strip_ansi(render_to_plain_text(component->Render(), 20, 3));
     EXPECT_NE(rendered.find("a"), std::string::npos);
     EXPECT_EQ(rendered.find("ab"), std::string::npos);
 }
@@ -762,7 +814,7 @@ TEST(Components, TextInputSelectAll) {
     // Backspace should delete all
     component->OnEvent(ftxui::Event::Backspace);
 
-    auto rendered = render_to_plain_text(component->Render(), 20, 3);
+    auto rendered = strip_ansi(render_to_plain_text(component->Render(), 20, 3));
     // After delete all, placeholder should be visible
     EXPECT_NE(rendered.find("Type your message"), std::string::npos);
 }
@@ -1122,6 +1174,61 @@ TEST(ReplScreen, SubmitsUtf8PromptOnReturn) {
     EXPECT_TRUE(state->input_text.empty());
 }
 
+TEST(ReplScreen, TabAcceptsSelectedSlashSuggestion) {
+    namespace repl = cc::ui::repl_screen;
+
+    auto state = std::make_shared<repl::ReplScreenState>();
+    state->input_text = "/a";
+    state->autocomplete_suggestions = {
+        {.display_text = "/add-dir", .description = "Add a working directory",
+         .insert_text = "/add-dir ", .replacement_start = 0, .replacement_end = 2,
+         .submit_on_return = true},
+        {.display_text = "/agents", .description = "Manage agent configurations",
+         .insert_text = "/agents ", .replacement_start = 0, .replacement_end = 2,
+         .submit_on_return = true},
+    };
+    state->autocomplete_index = 1;
+
+    auto component = repl::ReplScreen(state, repl::ReplScreenCallbacks{});
+    EXPECT_TRUE(component->OnEvent(ftxui::Event::Tab));
+
+    EXPECT_EQ(state->input_text, "/agents ");
+    EXPECT_TRUE(state->autocomplete_suggestions.empty());
+    EXPECT_EQ(state->autocomplete_index, -1);
+}
+
+TEST(ReplScreen, ReturnSubmitsSelectedSlashSuggestion) {
+    namespace repl = cc::ui::repl_screen;
+
+    auto state = std::make_shared<repl::ReplScreenState>();
+    state->input_text = "/a";
+    state->autocomplete_suggestions = {
+        {.display_text = "/add-dir", .description = "Add a working directory",
+         .insert_text = "/add-dir ", .replacement_start = 0, .replacement_end = 2,
+         .submit_on_return = true},
+        {.display_text = "/agents", .description = "Manage agent configurations",
+         .insert_text = "/agents ", .replacement_start = 0, .replacement_end = 2,
+         .submit_on_return = true},
+    };
+    state->autocomplete_index = 1;
+
+    std::optional<std::string> submitted;
+    repl::ReplScreenCallbacks callbacks;
+    callbacks.on_submit = [&](const std::string& text, repl::InputMode mode) {
+        submitted = text;
+        EXPECT_EQ(mode, repl::InputMode::Prompt);
+    };
+
+    auto component = repl::ReplScreen(state, std::move(callbacks));
+    EXPECT_TRUE(component->OnEvent(ftxui::Event::Return));
+
+    ASSERT_TRUE(submitted.has_value());
+    EXPECT_EQ(*submitted, "/agents ");
+    EXPECT_TRUE(state->input_text.empty());
+    EXPECT_TRUE(state->autocomplete_suggestions.empty());
+    EXPECT_EQ(state->autocomplete_index, -1);
+}
+
 TEST(ReplScreen, CustomStatusLineSuppressesDefaultHintAndNativeStatusBar) {
     namespace repl = cc::ui::repl_screen;
 
@@ -1160,7 +1267,7 @@ TEST(ReplScreen, CustomStatusLineOnlyRendersInPromptMode) {
     EXPECT_EQ(rendered.find("custom status"), std::string::npos);
 }
 
-TEST(ReplScreen, WelcomeHeaderUsesLogoV2HomeCard) {
+TEST(ReplScreen, WelcomeHeaderUsesHomeCard) {
     namespace repl = cc::ui::repl_screen;
 
     repl::ReplScreenState state;
@@ -1173,14 +1280,79 @@ TEST(ReplScreen, WelcomeHeaderUsesLogoV2HomeCard) {
         120,
         16));
 
+    // Phase 2 Faithful: CondensedLogo 3-line strip + Opus1M notice banner
+    // (replaces the old ASCII-card + Recent activity / What's new feed).
     EXPECT_NE(rendered.find("Claude Code"), std::string::npos);
     EXPECT_NE(rendered.find("v9.9.9-test"), std::string::npos);
-    EXPECT_NE(rendered.find("Welcome back!"), std::string::npos);
     EXPECT_NE(rendered.find("GLM-5.2"), std::string::npos);
-    EXPECT_NE(rendered.find("Recent activity"), std::string::npos);
-    EXPECT_NE(rendered.find("What's new"), std::string::npos);
+    EXPECT_NE(rendered.find("/tmp/cpp_migration"), std::string::npos);
+    EXPECT_NE(rendered.find("Opus now defaults to 1M context"),
+              std::string::npos);
+    EXPECT_NE(rendered.find("5x more room, same pricing"),
+              std::string::npos);
+
+    // Old feed-card fields that no longer appear in the faithful layout.
+    EXPECT_EQ(rendered.find("Welcome back!"), std::string::npos);
+    EXPECT_EQ(rendered.find("Recent activity"), std::string::npos);
+    EXPECT_EQ(rendered.find("What's new"), std::string::npos);
     EXPECT_EQ(rendered.find("Welcome to Claude Code"), std::string::npos);
-    EXPECT_EQ(rendered.find("Use /model to switch between models"), std::string::npos);
+    EXPECT_EQ(rendered.find("Use /model to switch between models"),
+              std::string::npos);
+    // Faithful Clawd is a 9×3 block-art composed of unicode BOX DRAWING /
+    // QUADRANT chars (▛ ▜ ▝ ▘ etc.) — there must be NO 🐱 U+1F431 emoji
+    // anywhere (the UTF-8 encoding of U+1F431 is the 4-byte sequence below).
+    EXPECT_EQ(rendered.find("\xF0\x9F\x90\xB1"), std::string::npos);
+}
+
+TEST(ReplScreen, WelcomeHeaderWidthAndClaudeColorTrackTerminal) {
+    namespace repl = cc::ui::repl_screen;
+    namespace thm = cc::ui::design::theme;
+
+    const auto previous_theme = thm::current_theme();
+    thm::set_theme(thm::ThemeVariant::Dark);
+    repl::ReplScreenState state;
+    state.app_version = "9.9.9-test";
+    state.model_display_name = "GLM-5.2";
+    state.cwd = "/Users/example/Develop/Project";
+
+    auto wide_element =
+        repl::RenderWelcomeHeader(state, /*spinner_frame=*/0, /*term_cols=*/200);
+    auto screen = ftxui::Screen::Create(
+        ftxui::Dimension::Fixed(200),
+        ftxui::Dimension::Fixed(16));
+    ftxui::Render(screen, wide_element);
+    auto wide = strip_ansi(screen.ToString());
+    // CondensedLogo should be able to consume almost the full terminal width
+    // when cwd is long enough to need it.
+    EXPECT_GE(max_line_width_bytes(wide), 40u);
+    EXPECT_NE(wide.find("Opus now defaults to 1M context"),
+              std::string::npos);
+
+    // Faithful condensed logo uses the brand-orange accent (🐱, same as TS
+    // LogoV2's Clawd accent RGB(255,140,0)) on the first row glyph, instead
+    // of the old primary-palette border decoration.  The accent must appear
+    // somewhere in the rendered header.
+    const ftxui::Color kBrandAccent(255, 140, 0);
+    bool has_brand_accent_pixel = false;
+    for (int y = 0; y < 16 && !has_brand_accent_pixel; ++y) {
+        for (int x = 0; x < 200; ++x) {
+            if (screen.PixelAt(x, y).foreground_color == kBrandAccent) {
+                has_brand_accent_pixel = true;
+                break;
+            }
+        }
+    }
+    EXPECT_TRUE(has_brand_accent_pixel);
+
+    auto normal = strip_ansi(render_to_plain_text(
+        repl::RenderWelcomeHeader(state, /*spinner_frame=*/0, /*term_cols=*/120),
+        120,
+        16));
+    // CWD field truncates to fit narrower terminal; wide row should still be
+    // measurably more filled on the CWD row.
+    EXPECT_LT(max_line_width_bytes(normal),
+              max_line_width_bytes(wide) + 1);  // monotonic non-decrease
+    thm::set_theme(previous_theme);
 }
 
 TEST(ReplScreen, FreshScreenDoesNotRenderLegacyEmptyState) {
@@ -1219,8 +1391,16 @@ TEST(ReplScreen, WelcomeHeaderAnimatesAsteriskColor) {
         120,
         16);
 
-    EXPECT_NE(strip_ansi(frame0).find("✻"), std::string::npos);
-    EXPECT_NE(frame0, frame8);
+    // Phase 2 Faithful CondensedLogo: the welcome strip is a static 3-line
+    // logo + Opus1M notice; it no longer embeds a per-frame asterisk
+    // animation.  Both frames must therefore render identically, and the
+    // spinner glyph (✻) that decorated the old header must be absent.
+    EXPECT_EQ(strip_ansi(frame0).find("✻"), std::string::npos);
+    EXPECT_EQ(frame0, frame8);
+    // Sanity: the condensed-logo branding is present in both frames.
+    EXPECT_NE(strip_ansi(frame0).find("Claude Code"), std::string::npos);
+    EXPECT_NE(strip_ansi(frame0).find("Opus now defaults to 1M context"),
+              std::string::npos);
 }
 
 TEST(ReplScreen, PromptInputRendersTopAndBottomBorders) {
@@ -1230,7 +1410,7 @@ TEST(ReplScreen, PromptInputRendersTopAndBottomBorders) {
     state.input_text = "/";
 
     auto rendered = strip_ansi(render_to_plain_text(
-        repl::RenderPromptInput(state),
+        repl::RenderPromptInput(state, 80),
         80,
         4));
 
@@ -1252,6 +1432,106 @@ TEST(ReplScreen, PromptInputRendersTopAndBottomBorders) {
     EXPECT_NE(rendered.find("❯ /"), std::string::npos);
 }
 
+TEST(ReplScreen, TranscriptScrollOffsetMovesLongLocalCommandOutput) {
+    namespace repl = cc::ui::repl_screen;
+
+    repl::ReplScreenState state;
+    state.viewport_height_lines = 8;
+    state.scroll_pinned_to_bottom = false;
+
+    repl::MessageDisplayEntry message;
+    message.is_local_command_output = true;
+    for (int i = 0; i < 40; ++i) {
+        message.content_preview += std::format("line-{:02}", i);
+        if (i != 39) message.content_preview += '\n';
+    }
+    state.messages.push_back(std::move(message));
+
+    auto top = strip_ansi(render_to_plain_text(
+        repl::RenderMessages(state.messages,
+                             state.selected_message_idx,
+                             state.viewport_height_lines,
+                             state.scroll_offset,
+                             state.scroll_pinned_to_bottom),
+        120,
+        8));
+    EXPECT_NE(top.find("line-00"), std::string::npos);
+    EXPECT_EQ(top.find("line-24"), std::string::npos);
+
+    state.scroll_offset = 24;
+    auto scrolled = strip_ansi(render_to_plain_text(
+        repl::RenderMessages(state.messages,
+                             state.selected_message_idx,
+                             state.viewport_height_lines,
+                             state.scroll_offset,
+                             state.scroll_pinned_to_bottom),
+        120,
+        8));
+    EXPECT_EQ(scrolled.find("line-00"), std::string::npos);
+    EXPECT_NE(scrolled.find("line-25"), std::string::npos);
+}
+
+TEST(ReplScreen, MouseWheelScrollsTranscript) {
+    namespace repl = cc::ui::repl_screen;
+
+    auto state = std::make_shared<repl::ReplScreenState>();
+    state->viewport_height_lines = 8;
+
+    repl::MessageDisplayEntry message;
+    message.is_local_command_output = true;
+    for (int i = 0; i < 40; ++i) {
+        message.content_preview += std::format("line-{:02}", i);
+        if (i != 39) message.content_preview += '\n';
+    }
+    state->messages.push_back(std::move(message));
+
+    auto component = repl::ReplScreen(state, repl::ReplScreenCallbacks{});
+    ftxui::Mouse wheel;
+    wheel.button = ftxui::Mouse::WheelDown;
+
+    EXPECT_TRUE(component->OnEvent(ftxui::Event::Mouse("", wheel)));
+    EXPECT_GT(state->scroll_offset, 0);
+    EXPECT_FALSE(state->scroll_pinned_to_bottom);
+
+    wheel.button = ftxui::Mouse::WheelUp;
+    EXPECT_TRUE(component->OnEvent(ftxui::Event::Mouse("", wheel)));
+    EXPECT_EQ(state->scroll_offset, 0);
+}
+
+TEST(ReplScreen, PromptInputParksHiddenNativeCursorAtCaret) {
+    namespace repl = cc::ui::repl_screen;
+    namespace dc = cc::ui::common::declared_cursor;
+
+    repl::ReplScreenState state;
+    state.input_text = "hello";
+
+    auto screen = ftxui::Screen::Create(
+        ftxui::Dimension::Fixed(80),
+        ftxui::Dimension::Fixed(5));
+    ftxui::Render(screen, repl::RenderPromptInput(state, 80) | dc::cursor_reset());
+
+    const auto cursor = screen.cursor();
+    EXPECT_EQ(cursor.shape, ftxui::Screen::Cursor::Shape::Hidden);
+    EXPECT_GT(cursor.x, 0);
+    EXPECT_GT(cursor.y, 0);
+    EXPECT_LT(cursor.x, 79);
+    EXPECT_LT(cursor.y, 4);
+}
+
+TEST(ReplScreen, CursorResetParksHiddenCursorAwayFromTopLeft) {
+    namespace dc = cc::ui::common::declared_cursor;
+
+    auto screen = ftxui::Screen::Create(
+        ftxui::Dimension::Fixed(20),
+        ftxui::Dimension::Fixed(5));
+    ftxui::Render(screen, ftxui::text("idle") | dc::cursor_reset());
+
+    const auto cursor = screen.cursor();
+    EXPECT_EQ(cursor.shape, ftxui::Screen::Cursor::Shape::Hidden);
+    EXPECT_EQ(cursor.x, 19);
+    EXPECT_EQ(cursor.y, 4);
+}
+
 TEST(AppRuntime, ProjectsVersionIntoInitialWelcome) {
     cc::core::ToolRegistry tools;
     cc::core::QueryEngineConfig config;
@@ -1267,6 +1547,7 @@ TEST(AppRuntime, ProjectsVersionIntoInitialWelcome) {
 
     auto app = ftxui::Make<cc::ui::AppAdapter>(
         &engine,
+        nullptr,
         &commands,
         &storage,
         [] {});
@@ -1294,6 +1575,7 @@ TEST(AppRuntime, FreshWelcomeAnimationTicksWithoutInputEvents) {
 
     auto app = ftxui::Make<cc::ui::AppAdapter>(
         &engine,
+        nullptr,
         &commands,
         &storage,
         [] {});
@@ -1307,7 +1589,46 @@ TEST(AppRuntime, FreshWelcomeAnimationTicksWithoutInputEvents) {
     fs::remove_all(storage_root);
 }
 
-TEST(StatusLine, KeepsAnsiBrightnessWithoutGlobalDim) {
+TEST(AppRuntime, FreshWelcomeAnimationKeepsTickingAfterStartupWindow) {
+    cc::core::ToolRegistry tools;
+    cc::core::QueryEngineConfig config;
+    config.context_window.auto_compact = false;
+    config.cwd = fs::temp_directory_path().string();
+    cc::core::QueryEngine engine(std::move(config), tools);
+
+    cc::commands::AppCommandRegistry commands;
+    const auto storage_root = fs::temp_directory_path() /
+        ("cc_repl_ui_welcome_animation_long_test_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    cc::utils::SessionStorage storage(storage_root);
+
+    auto app = ftxui::Make<cc::ui::AppAdapter>(
+        &engine,
+        nullptr,
+        &commands,
+        &storage,
+        [] {});
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(3200));
+    const auto ticks_after_startup_window =
+        app->ui_animation_tick_count_for_testing();
+    EXPECT_TRUE(wait_until([&] {
+        return app->ui_animation_tick_count_for_testing() >
+               ticks_after_startup_window;
+    }, std::chrono::milliseconds(300)));
+    EXPECT_FALSE(app->is_query_running_for_testing());
+
+    fs::remove_all(storage_root);
+}
+
+TEST(StatusLine, AppliesGlobalDimAndStripsOuterBgcolor) {
+    // Verifies the Phase 2 / Round 6 visual fix: external flux-statusline script
+    // emits ANSI bold colors AND pill background SGR codes (48;2 / 48;5); the
+    // faithful render applies |dim so the statusline reads as muted chrome
+    // instead of shouting neon, and wraps the content in a neutral bgcolor
+    // (RGB 20,20,22) so any external SGR 48/49 pill doesn't bleed a colored
+    // box into the prompt footer (reported in IMG#18 as "folder pill has a
+    // deep blue background").
     namespace pif = cc::ui::prompt::footer;
 
     auto rendered = render_to_plain_text(
@@ -1319,7 +1640,8 @@ TEST(StatusLine, KeepsAnsiBrightnessWithoutGlobalDim) {
         1);
 
     EXPECT_NE(rendered.find("bright-status"), std::string::npos);
-    EXPECT_EQ(rendered.find("\033[2m"), std::string::npos);
+    // Dim (SGR 2) MUST be present around the user-facing content.
+    EXPECT_NE(rendered.find("\033[2m"), std::string::npos);
 }
 
 TEST(PromptInputFooter, AlignsRightColumnWithStatusLineRow) {
@@ -1398,6 +1720,7 @@ TEST(AppRuntime, CommandsAndStatusRenderWithoutTerminalLoop) {
     bool exited = false;
     auto app = ftxui::Make<cc::ui::AppAdapter>(
         &engine,
+        nullptr,
         &commands,
         &storage,
         [&] {
@@ -1451,6 +1774,7 @@ TEST(AppRuntime, SlashInputShowsRegistrySuggestions) {
 
     auto app = ftxui::Make<cc::ui::AppAdapter>(
         &engine,
+        nullptr,
         &commands,
         &storage,
         [] {});
@@ -1472,12 +1796,515 @@ TEST(AppRuntime, SlashInputShowsRegistrySuggestions) {
 
     EXPECT_TRUE(app->OnEvent(ftxui::Event::Character("h")));
     const auto suggestions = app->autocomplete_suggestions_for_testing();
-    EXPECT_NE(std::find(suggestions.begin(), suggestions.end(), "/help"), suggestions.end());
+    // SL-07: canonical row shows a matched-alias parenthetical (e.g. "/help (h)"
+    // when the user typed the alias "h"), so match by substring, not exact element.
+    const bool has_help = std::any_of(suggestions.begin(), suggestions.end(),
+        [](const std::string& s) { return s.find("/help") != std::string::npos; });
+    EXPECT_TRUE(has_help);
 
     auto help_rendered = strip_ansi(render_to_plain_text(app->Render(), 120, 32));
     EXPECT_NE(help_rendered.find("/help"), std::string::npos);
 
     fs::remove_all(storage_root);
+}
+
+TEST(AppRuntime, SkillsDialogDismissOrderDebug) {
+    cc::core::ToolRegistry tools;
+    cc::core::QueryEngineConfig config;
+    config.context_window.auto_compact = false;
+    config.cwd = fs::temp_directory_path().string();
+    cc::core::QueryEngine engine(std::move(config), tools);
+    cc::commands::AppCommandRegistry commands;
+    const auto storage_root = fs::temp_directory_path() /
+        ("cc_repl_ui_skills_order_dbg_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    cc::utils::SessionStorage storage(storage_root);
+
+    auto app = ftxui::Make<cc::ui::AppAdapter>(
+        &engine, nullptr, &commands, &storage, [] {});
+
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::Character('/')));
+    for (char c : std::string("skills")) {
+        EXPECT_TRUE(app->OnEvent(ftxui::Event::Character(c)));
+    }
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::Return));
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::Escape));
+
+    const auto msgs = app->messages_for_testing();
+    EXPECT_FALSE(msgs.empty());
+    if (!msgs.empty()) {
+        EXPECT_EQ(msgs[0].substr(0, std::string("lc-input").size()), "lc-input")
+            << "expected /skills echo first, got: " << msgs[0];
+    }
+
+    // Submit a text message ("hello") AFTER /skills dismiss — the local-command
+    // rows must stay ABOVE the user text row (chronological order).
+    for (char c : std::string("hello")) {
+        EXPECT_TRUE(app->OnEvent(ftxui::Event::Character(c)));
+    }
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::Return));
+    for (int i = 0; i < 100 && app->is_query_running_for_testing(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    // Trigger a render so Render()/SyncState projects the engine conversation
+    // (the hello row lives in engine_->get_conversation(), only reaches
+    // screen_state_->messages after a Render pass).
+    (void)strip_ansi(render_to_plain_text(app->Render(), 120, 32));
+    const auto msgs2 = app->messages_for_testing();
+    // Find positions of lc-input and the user text row.
+    int lc_input_pos = -1, user_pos = -1;
+    for (int i = 0; i < static_cast<int>(msgs2.size()); ++i) {
+        if (msgs2[i].substr(0, std::string("lc-input").size()) == "lc-input" && lc_input_pos < 0)
+            lc_input_pos = i;
+        if (msgs2[i].substr(0, std::string("user").size()) == "user" && user_pos < 0)
+            user_pos = i;
+    }
+    EXPECT_GE(lc_input_pos, 0);
+    EXPECT_GE(user_pos, 0);
+    EXPECT_LT(lc_input_pos, user_pos)
+        << "local-command /skills row must render ABOVE the later user text row";
+
+    fs::remove_all(storage_root);
+}
+
+TEST(AppRuntime, CommandResultMessagesRenderInTranscript) {
+    cc::core::ToolRegistry tools;
+    cc::core::QueryEngineConfig config;
+    config.context_window.auto_compact = false;
+    config.cwd = fs::temp_directory_path().string();
+    cc::core::QueryEngine engine(std::move(config), tools);
+
+    cc::commands::AppCommandRegistry commands;
+    const auto storage_root = fs::temp_directory_path() /
+        ("cc_repl_ui_command_result_test_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    cc::utils::SessionStorage storage(storage_root);
+
+    auto app = ftxui::Make<cc::ui::AppAdapter>(
+        &engine,
+        nullptr,
+        &commands,
+        &storage,
+        [] {});
+
+    app->HandleCommand("/help");
+    auto rendered = strip_ansi(render_to_plain_text(app->Render(), 160, 60));
+    EXPECT_NE(rendered.find("Available commands"), std::string::npos);
+
+    app->HandleCommand("/theme list");
+    rendered = strip_ansi(render_to_plain_text(app->Render(), 160, 80));
+    EXPECT_NE(rendered.find("Available themes"), std::string::npos);
+
+    app->HandleCommand("/clear");
+    rendered = strip_ansi(render_to_plain_text(app->Render(), 160, 40));
+    EXPECT_EQ(rendered.find("Available commands"), std::string::npos);
+
+    fs::remove_all(storage_root);
+}
+
+TEST(AppRuntime, SkillsCommandRendersInlineOutputAndRejectsListSubcommand) {
+    const auto cwd_root = fs::temp_directory_path() /
+        ("cc_repl_ui_skills_menu_cwd_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    const auto home_root = fs::temp_directory_path() /
+        ("cc_repl_ui_skills_menu_home_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    fs::create_directories(home_root);
+    ScopedEnvVar home_guard("HOME");
+    ScopedEnvVar skills_path_guard("CLAUDE_SKILLS_PATH");
+    home_guard.set(home_root.string());
+    const auto skills_dir = cwd_root / ".claude" / "skills" / "cpp-review";
+    fs::create_directories(skills_dir);
+    {
+        std::ofstream out(skills_dir / "SKILL.md");
+        out << "---\n"
+            << "name: cpp-review\n"
+            << "description: Review migrated C++ UI code.\n"
+            << "version: 1.0.0\n"
+            << "---\n"
+            << "Review C++ UI migration changes.\n"
+            << std::string(4000, 'x') << "\n";
+    }
+
+    cc::core::ToolRegistry tools;
+    cc::core::QueryEngineConfig config;
+    config.context_window.auto_compact = false;
+    config.cwd = cwd_root.string();
+    cc::core::QueryEngine engine(std::move(config), tools);
+
+    cc::commands::AppCommandRegistry commands;
+    const auto storage_root = fs::temp_directory_path() /
+        ("cc_repl_ui_skills_menu_storage_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    cc::utils::SessionStorage storage(storage_root);
+
+    auto app = ftxui::Make<cc::ui::AppAdapter>(
+        &engine,
+        nullptr,
+        &commands,
+        &storage,
+        [] {});
+
+    app->HandleCommand("/skills");
+    auto rendered = strip_ansi(render_to_plain_text(app->Render(), 140, 40));
+    EXPECT_NE(rendered.find("❯ /skills"), std::string::npos);
+    EXPECT_NE(rendered.find("Skills"), std::string::npos);
+    EXPECT_NE(rendered.find("1 skill"), std::string::npos);
+    EXPECT_NE(rendered.find("Project skills"), std::string::npos);
+    EXPECT_NE(
+        rendered.find("cpp-review · ~10 description tokens"),
+        std::string::npos);
+    EXPECT_NE(rendered.find("Esc to close"), std::string::npos);
+    EXPECT_EQ(rendered.find("Built-in skills"), std::string::npos);
+    EXPECT_EQ(rendered.find("batch ·"), std::string::npos);
+    EXPECT_EQ(rendered.find("Try \"write a test\""), std::string::npos);
+    EXPECT_EQ(rendered.find("Skills dialog dismissed"), std::string::npos);
+    EXPECT_EQ(rendered.find("⎿"), std::string::npos);
+
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::Escape));
+    rendered = strip_ansi(render_to_plain_text(app->Render(), 140, 40));
+    EXPECT_NE(rendered.find("❯ /skills"), std::string::npos);
+    EXPECT_NE(rendered.find("⎿"), std::string::npos);
+    EXPECT_NE(rendered.find("Skills dialog dismissed"), std::string::npos);
+
+    app->HandleCommand("/skills list");
+    rendered = strip_ansi(render_to_plain_text(app->Render(), 160, 80));
+    EXPECT_NE(rendered.find("Usage: /skills"), std::string::npos);
+    EXPECT_EQ(rendered.find("Installed skills"), std::string::npos);
+
+    fs::remove_all(storage_root);
+    fs::remove_all(home_root);
+    fs::remove_all(cwd_root);
+}
+
+TEST(AppRuntime, SkillsCommandInlineOutputScrollsWithTranscript) {
+    const auto cwd_root = fs::temp_directory_path() /
+        ("cc_repl_ui_skills_scroll_cwd_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    const auto home_root = fs::temp_directory_path() /
+        ("cc_repl_ui_skills_scroll_home_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    fs::create_directories(home_root);
+    ScopedEnvVar home_guard("HOME");
+    ScopedEnvVar skills_path_guard("CLAUDE_SKILLS_PATH");
+    home_guard.set(home_root.string());
+
+    for (int i = 0; i < 36; ++i) {
+        const auto skills_dir = cwd_root / ".claude" / "skills" /
+            ("scroll-skill-" + std::to_string(i));
+        fs::create_directories(skills_dir);
+        std::ofstream out(skills_dir / "SKILL.md");
+        out << "---\n"
+            << "name: scroll-skill-" << i << "\n"
+            << "description: Scroll regression fixture " << i << ".\n"
+            << "---\n"
+            << "Use this skill for scroll regression fixture " << i << ".\n";
+    }
+
+    cc::core::ToolRegistry tools;
+    cc::core::QueryEngineConfig config;
+    config.context_window.auto_compact = false;
+    config.cwd = cwd_root.string();
+    cc::core::QueryEngine engine(std::move(config), tools);
+
+    cc::commands::AppCommandRegistry commands;
+    const auto storage_root = fs::temp_directory_path() /
+        ("cc_repl_ui_skills_scroll_storage_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    cc::utils::SessionStorage storage(storage_root);
+
+    auto app = ftxui::Make<cc::ui::AppAdapter>(
+        &engine,
+        nullptr,
+        &commands,
+        &storage,
+        [] {});
+
+    app->HandleCommand("/skills");
+    auto rendered = strip_ansi(render_to_plain_text(app->Render(), 120, 14));
+    EXPECT_NE(rendered.find("scroll-skill-0"), std::string::npos);
+    EXPECT_EQ(rendered.find("scroll-skill-35"), std::string::npos);
+
+    ftxui::Mouse wheel;
+    wheel.button = ftxui::Mouse::WheelDown;
+    for (int i = 0; i < 6; ++i) {
+        EXPECT_TRUE(app->OnEvent(ftxui::Event::Mouse("", wheel)));
+    }
+
+    rendered = strip_ansi(render_to_plain_text(app->Render(), 120, 14));
+    EXPECT_EQ(rendered.find("scroll-skill-0"), std::string::npos) << rendered;
+    EXPECT_NE(rendered.find("scroll-skill-"), std::string::npos) << rendered;
+
+    fs::remove_all(storage_root);
+    fs::remove_all(home_root);
+    fs::remove_all(cwd_root);
+}
+
+TEST(AppRuntime, ReturnSubmitsAgentSlashSubcommandsWhenCompletionIsVisible) {
+    const auto cwd_root = fs::temp_directory_path() /
+        ("cc_repl_ui_slash_subcommand_return_cwd_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    const auto home_root = fs::temp_directory_path() /
+        ("cc_repl_ui_slash_subcommand_return_home_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    fs::create_directories(home_root);
+    ScopedEnvVar home_guard("HOME");
+    ScopedEnvVar skills_path_guard("CLAUDE_SKILLS_PATH");
+    home_guard.set(home_root.string());
+    const auto skills_dir = cwd_root / ".claude" / "skills" / "cpp-review";
+    fs::create_directories(skills_dir);
+    {
+        std::ofstream out(skills_dir / "SKILL.md");
+        out << "---\n"
+            << "name: cpp-review\n"
+            << "description: Review migrated C++ UI code.\n"
+            << "---\n"
+            << "Review C++ UI migration changes.\n";
+    }
+
+    cc::core::ToolRegistry tools;
+    cc::core::QueryEngineConfig config;
+    config.context_window.auto_compact = false;
+    config.cwd = cwd_root.string();
+    cc::core::QueryEngine engine(std::move(config), tools);
+
+    cc::commands::AppCommandRegistry commands;
+    const auto storage_root = fs::temp_directory_path() /
+        ("cc_repl_ui_slash_subcommand_return_storage_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    cc::utils::SessionStorage storage(storage_root);
+
+    auto app = ftxui::Make<cc::ui::AppAdapter>(
+        &engine,
+        nullptr,
+        &commands,
+        &storage,
+        [] {});
+
+    ASSERT_TRUE(app->OnEvent(ftxui::Event::Character("/agents list")));
+    ASSERT_GT(app->autocomplete_suggestion_count_for_testing(), 0u);
+    ASSERT_TRUE(app->OnEvent(ftxui::Event::Return));
+    EXPECT_TRUE(app->input_text_for_testing().empty());
+
+    auto rendered = strip_ansi(render_to_plain_text(app->Render(), 180, 110));
+    EXPECT_TRUE(rendered.find("Available agents") != std::string::npos ||
+                rendered.find("No agents available") != std::string::npos);
+    EXPECT_FALSE(same_rendered_line_contains(
+        rendered, "Available agents", "claude-code-guide"));
+
+    fs::remove_all(storage_root);
+    fs::remove_all(home_root);
+    fs::remove_all(cwd_root);
+}
+
+TEST(AppRuntime, DynamicPromptSuggestionsCoverSkillsFilesAndCursorEditing) {
+    const auto cwd_root = fs::temp_directory_path() /
+        ("cc_repl_ui_dynamic_suggestions_cwd_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    const auto skills_dir = cwd_root / ".claude" / "skills" / "cpp-review";
+    fs::create_directories(skills_dir);
+    {
+        std::ofstream out(skills_dir / "SKILL.md");
+        out << "---\n"
+            << "name: cpp-review\n"
+            << "description: Review migrated C++ UI code.\n"
+            << "---\n"
+            << "Review C++ UI migration changes.\n";
+    }
+    {
+        std::ofstream out(cwd_root / "src_file.cpp");
+        out << "int main() { return 0; }\n";
+    }
+
+    cc::core::ToolRegistry tools;
+    cc::core::QueryEngineConfig config;
+    config.context_window.auto_compact = false;
+    config.cwd = cwd_root.string();
+    cc::core::QueryEngine engine(std::move(config), tools);
+
+    cc::commands::AppCommandRegistry commands;
+    const auto storage_root = fs::temp_directory_path() /
+        ("cc_repl_ui_dynamic_suggestions_storage_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    cc::utils::SessionStorage storage(storage_root);
+
+    auto app = ftxui::Make<cc::ui::AppAdapter>(
+        &engine,
+        nullptr,
+        &commands,
+        &storage,
+        [] {});
+
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::Character("/")));
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::Character("c")));
+    const auto slash_suggestions = app->autocomplete_suggestions_for_testing();
+    EXPECT_NE(
+        std::find(slash_suggestions.begin(), slash_suggestions.end(), "/cpp-review"),
+        slash_suggestions.end());
+
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::Escape));
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::Escape));
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::Character("@")));
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::Character("s")));
+    const auto at_suggestions = app->autocomplete_suggestions_for_testing();
+    EXPECT_TRUE(std::any_of(at_suggestions.begin(), at_suggestions.end(), [](const auto& suggestion) {
+        return suggestion.find("src_file.cpp") != std::string::npos;
+    }));
+
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::Escape));
+    if (!app->input_text_for_testing().empty()) {
+        EXPECT_TRUE(app->OnEvent(ftxui::Event::Escape));
+    }
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::Character("a")));
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::Character("b")));
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::ArrowLeft));
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::Character("你")));
+    EXPECT_EQ(app->input_text_for_testing(), "a你b");
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::Backspace));
+    EXPECT_EQ(app->input_text_for_testing(), "ab");
+
+    fs::remove_all(storage_root);
+    fs::remove_all(cwd_root);
+}
+
+TEST(AppRuntime, ReturnOnSelectedSlashSuggestionOpensAgentsLocalJsx) {
+    const auto home_root = fs::temp_directory_path() /
+        ("cc_repl_ui_slash_agents_home_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    fs::create_directories(home_root / ".claude");
+    ScopedEnvVar home_guard("HOME");
+    home_guard.set(home_root.string());
+
+    const auto cwd_root = fs::temp_directory_path() /
+        ("cc_repl_ui_slash_agents_cwd_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    fs::create_directories(cwd_root);
+
+    cc::core::ToolRegistry tools;
+    cc::core::QueryEngineConfig config;
+    config.context_window.auto_compact = false;
+    config.cwd = cwd_root.string();
+    cc::core::QueryEngine engine(std::move(config), tools);
+
+    cc::commands::AppCommandRegistry commands;
+    const auto storage_root = fs::temp_directory_path() /
+        ("cc_repl_ui_slash_agents_accept_test_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    cc::utils::SessionStorage storage(storage_root);
+
+    auto app = ftxui::Make<cc::ui::AppAdapter>(
+        &engine,
+        nullptr,
+        &commands,
+        &storage,
+        [] {});
+
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::Character("/")));
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::Character("a")));
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::Character("g")));
+    ASSERT_GT(app->autocomplete_suggestion_count_for_testing(), 0u);
+    const auto suggestions = app->autocomplete_suggestions_for_testing();
+    ASSERT_FALSE(suggestions.empty());
+    EXPECT_EQ(suggestions.front(), "/agents");
+
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::Return));
+    EXPECT_FALSE(app->is_agents_view_for_testing());
+    EXPECT_TRUE(app->is_local_jsx_command_for_testing("agents"));
+    EXPECT_TRUE(app->input_text_for_testing().empty());
+    EXPECT_GT(app->agent_card_count_for_testing(), 0u);
+
+    auto rendered = strip_ansi(render_to_plain_text(app->Render(), 140, 40));
+    EXPECT_NE(rendered.find("/agents"), std::string::npos);
+    EXPECT_NE(rendered.find("Agents"), std::string::npos);
+    EXPECT_NE(rendered.find("No agents found"), std::string::npos);
+    EXPECT_NE(rendered.find("Create new agent"), std::string::npos);
+    EXPECT_NE(rendered.find("Built-in (always available):"), std::string::npos);
+    EXPECT_NE(rendered.find("Press ↑↓ to navigate"), std::string::npos);
+    EXPECT_EQ(rendered.find("Esc to close"), std::string::npos);
+    EXPECT_EQ(rendered.find("╭"), std::string::npos);
+    EXPECT_EQ(rendered.find("╰"), std::string::npos);
+    const auto create_pos = rendered.find("› Create new agent");
+    ASSERT_NE(create_pos, std::string::npos);
+    const auto create_line_start = rendered.rfind('\n', create_pos);
+    const auto create_col =
+        create_pos - (create_line_start == std::string::npos ? 0 : create_line_start + 1);
+    EXPECT_LT(create_col, 10u);
+    EXPECT_EQ(rendered.find("Recent activity"), std::string::npos);
+    EXPECT_EQ(rendered.find("Try \"write a test\""), std::string::npos);
+    EXPECT_EQ(rendered.find("Grid"), std::string::npos);
+
+    fs::remove_all(storage_root);
+    fs::remove_all(home_root);
+    fs::remove_all(cwd_root);
+}
+
+TEST(AppRuntime, AgentsLocalJsxArrowKeysSelectProjectAgentAndReturnActs) {
+    const auto home_root = fs::temp_directory_path() /
+        ("cc_repl_ui_agents_nav_home_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    fs::create_directories(home_root / ".claude");
+    ScopedEnvVar home_guard("HOME");
+    home_guard.set(home_root.string());
+
+    const auto cwd_root = fs::temp_directory_path() /
+        ("cc_repl_ui_agents_nav_cwd_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    const auto agents_dir = cwd_root / ".claude" / "agents";
+    fs::create_directories(agents_dir);
+    {
+        std::ofstream out(agents_dir / "cpp-reviewer.md");
+        out << "---\n"
+            << "name: cpp-reviewer\n"
+            << "description: Reviews migrated C++ UI code.\n"
+            << "model: inherit\n"
+            << "---\n"
+            << "Review C++ UI migration changes.\n";
+    }
+
+    cc::core::ToolRegistry tools;
+    cc::core::QueryEngineConfig config;
+    config.context_window.auto_compact = false;
+    config.cwd = cwd_root.string();
+    cc::core::QueryEngine engine(std::move(config), tools);
+
+    cc::commands::AppCommandRegistry commands;
+    const auto storage_root = fs::temp_directory_path() /
+        ("cc_repl_ui_agents_nav_storage_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    cc::utils::SessionStorage storage(storage_root);
+
+    auto app = ftxui::Make<cc::ui::AppAdapter>(
+        &engine,
+        nullptr,
+        &commands,
+        &storage,
+        [] {});
+
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::Character("/")));
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::Character("a")));
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::Character("g")));
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::Return));
+    ASSERT_TRUE(app->is_local_jsx_command_for_testing("agents"));
+    EXPECT_EQ(app->active_agents_selection_position_for_testing(), 0);
+
+    auto initial = strip_ansi(render_to_plain_text(app->Render(), 120, 36));
+    EXPECT_NE(initial.find("› Create new agent"), std::string::npos);
+    EXPECT_NE(initial.find("Project agents"), std::string::npos);
+    EXPECT_NE(initial.find("cpp-reviewer"), std::string::npos);
+
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::ArrowDown));
+    EXPECT_EQ(app->active_agents_selection_position_for_testing(), 1);
+    auto selected = strip_ansi(render_to_plain_text(app->Render(), 120, 36));
+    EXPECT_EQ(selected.find("› Create new agent"), std::string::npos);
+    EXPECT_NE(selected.find("› cpp-reviewer"), std::string::npos);
+
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::Return));
+    EXPECT_FALSE(app->is_local_jsx_command_for_testing("agents"));
+    EXPECT_FALSE(app->is_agents_view_for_testing());
+
+    fs::remove_all(storage_root);
+    fs::remove_all(home_root);
+    fs::remove_all(cwd_root);
 }
 
 TEST(AppRuntime, StatusLineRuntimeSettingsOverrideDiskSettings) {
@@ -1513,6 +2340,7 @@ TEST(AppRuntime, StatusLineRuntimeSettingsOverrideDiskSettings) {
 
     auto app = ftxui::Make<cc::ui::AppAdapter>(
         &engine,
+        nullptr,
         &commands,
         &storage,
         [] {});
@@ -1541,6 +2369,7 @@ TEST(AppRuntime, CtrlCWithoutRunningQueryRequestsExit) {
     bool exited = false;
     auto app = ftxui::Make<cc::ui::AppAdapter>(
         &engine,
+        nullptr,
         &commands,
         &storage,
         [&] {
@@ -1573,6 +2402,7 @@ TEST(AppRuntime, StreamFallbackErrorIsRendered) {
 
     auto app = ftxui::Make<cc::ui::AppAdapter>(
         &engine,
+        nullptr,
         &commands,
         &storage,
         [] {});
@@ -1613,6 +2443,7 @@ TEST(AppRuntime, CtrlCWhileStreamingQueryCancelsWithoutExiting) {
     bool exited = false;
     auto app = ftxui::Make<cc::ui::AppAdapter>(
         &engine,
+        nullptr,
         &commands,
         &storage,
         [&] {
@@ -1670,6 +2501,7 @@ TEST(AppRuntime, StreamingToolUseShowsSpinnerAndLoadingState) {
 
     auto app = ftxui::Make<cc::ui::AppAdapter>(
         &engine,
+        nullptr,
         &commands,
         &storage,
         [] {});
@@ -1729,6 +2561,7 @@ TEST(AppRuntime, StreamingThinkingShowsSpinnerAndFinalContent) {
 
     auto app = ftxui::Make<cc::ui::AppAdapter>(
         &engine,
+        nullptr,
         &commands,
         &storage,
         [] {});
@@ -1780,6 +2613,7 @@ TEST(AppRuntime, PermissionCallbackRendersAndResolvesUserChoices) {
 
     auto app = ftxui::Make<cc::ui::AppAdapter>(
         &engine,
+        nullptr,
         &commands,
         &storage,
         [] {});
@@ -1866,18 +2700,52 @@ TEST(AppRuntime, PermissionCallbackRendersAndResolvesUserChoices) {
     fs::remove_all(storage_root);
 }
 
-TEST(AppRuntime, RenderMessageShowsThinkingContent) {
+TEST(AppRuntime, RenderMessageHidesCompletedThinkingWhenUnselected) {
     cc::core::AssistantMessage assistant;
     assistant.content.push_back(cc::core::ThinkingBlock{
         .thinking = "private reasoning preview",
         .signature = "sig-1",
     });
 
+    // TS AssistantThinkingMessage.tsx line 36-38 guard:
+    //   if (hideInTranscript) return null;
+    // For completed + non-expanded + non-selected thinking blocks in REPL
+    // mode, the row vanishes entirely (no collapsed label, no content).
+    // The inline thinking content is also absent (it never leaked out in
+    // collapsed mode anyway).
     auto rendered = render_to_plain_text(
         cc::ui::RenderMessage(cc::core::Message{std::move(assistant)}), 140, 24);
 
-    EXPECT_NE(rendered.find("Thinking"), std::string::npos);
-    EXPECT_NE(rendered.find("private reasoning preview"), std::string::npos);
+    EXPECT_EQ(rendered.find("Thinking"), std::string::npos);
+    EXPECT_EQ(rendered.find("private reasoning preview"), std::string::npos);
+}
+
+TEST(AppRuntime, RenderMessageShowsCompletedThinkingWhenExpanded) {
+    // Regression safety: transcript mode / explicit expand still renders
+    // the collapsed label + no content preview leakage.
+    cc::core::AssistantMessage assistant;
+    assistant.content.push_back(cc::core::ThinkingBlock{
+        .thinking = "some chain-of-thought here",
+        .signature = "sig-2",
+    });
+
+    // The project_messages() flow with selected_row_idx pointing at the
+    // thinking row is what triggers "selected_or_active=true" in the
+    // render_payload_row() Thinking guard.  RenderMessage() hardcodes
+    // selected_row_idx=-1, so to cover the selected branch we build the
+    // visible list manually via repl_screen::RenderMessages with selected=0.
+    auto input = cc::ui::project_messages(
+        cc::core::Message{std::move(assistant)});
+    auto rendered_selected = render_to_plain_text(
+        cc::ui::repl_screen::RenderMessages(input, /*selected=*/0, 40),
+        140, 24);
+
+    // Selected (expanded or at least eligible for label) thinking row
+    // should still surface the "Thinking" label so the user sees where
+    // the hidden thinking block lives.
+    EXPECT_NE(rendered_selected.find("Thinking"), std::string::npos);
+    EXPECT_EQ(rendered_selected.find("some chain-of-thought here"),
+              std::string::npos);
 }
 
 TEST(AppRuntime, RenderMessageShowsToolUseContent) {

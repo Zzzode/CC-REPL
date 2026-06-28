@@ -203,32 +203,50 @@ inline constexpr std::string_view kFiguresPointer = "\xE2\x9D\xAF";  // ❯ U+27
 
 /// Faithful render of a user prompt message (UserPromptMessage.tsx ->
 /// HighlightedThinkingText non-brief path).  Full-width, left-aligned, with a
-/// `›` (subtle) prefix followed by the prompt text.  add_margin adds a top
-/// blank line; is_selected swaps the prefix + bg color.
-[[nodiscard]] inline Element RenderUserPromptMessage(const UserTextMessageData& data) {
+/// `❯` (subtle) prefix followed by the prompt text.  is_selected swaps the
+/// prefix + bg color to the TS `messageActionsBackground` / `suggestion` tokens.
+[[nodiscard]] inline Element RenderUserPromptMessage(const UserTextMessageData& data,
+                                                     bool is_selected = false) {
+    // TS palette tokens (dark mode, from src/utils/theme.ts):
+    //   subtle                      = rgb( 80, 80, 80)  — pointer glyph prefix
+    //   suggestion                  = rgb(177,185,249)  — pointer glyph (selected)
+    //   text                        = rgb(250,250,252)  — body foreground (default)
+    //   userMessageBackground       = rgb( 55, 55, 55)  — bubble background
+    //   messageActionsBackground    = rgb( 44, 50, 62)  — bubble bg (selected)
+    const Color kText        = Color::RGB(250, 250, 252);
+    const Color kUserBg      = Color::RGB( 55,  55,  55);
+    const Color kUserBgSel   = Color::RGB( 44,  50,  62);
+    const Color kSubtle      = Color::RGB( 80,  80,  80);
+    const Color kSuggestion  = Color::RGB(177, 185, 249);
+
     Elements row;
-    // Prefix "❯ " in subtle (dim gray) — or "suggestion" (cyan) when selected.
+    // Prefix "❯ " — subtle unless selected (suggestion/lavender).
+    const Color prefix_color  = is_selected ? kSuggestion : kSubtle;
     const Decorator prefix_style =
-        data.is_transcript_mode ? (dim | color(Color::GrayDark))
-                                : color(Color::GrayDark);
+        data.is_transcript_mode ? (dim | color(prefix_color))
+                                : color(prefix_color);
     row.push_back(text(std::string(kFiguresPointer)) | prefix_style);
     row.push_back(text(" ") | prefix_style);
-    // Body text — "text" color (default foreground), dimmed in transcript mode.
-    Decorator body_style = data.is_transcript_mode ? dim : nothing;
+    // Body text — "text" color (EXPLICIT: FTXUI does not auto-inherit
+    // theme.text from Ink; wrapping a hbox in bgcolor() leaves default
+    // terminal fg which some terminals render as a washed-out blue/grey
+    // instead of the pure white TS uses).
+    Decorator body_style = data.is_transcript_mode
+        ? (dim | color(kText))
+        : color(kText);
     row.push_back(text(data.content) | body_style);
-    // paddingRight={1} → trailing space column.
-    row.push_back(text(" "));
+    // paddingRight={1} → trailing space column, painted with bg so the tint
+    // reaches the right edge.
+    row.push_back(text(" ") | color(kText));
 
     Element inner = hbox(std::move(row));
     if (data.is_transcript_mode) {
         return vbox({text(""), hbox({inner, filler()})});
     }
-    // backgroundColor="userMessageBackground" — a subtle dark tint.  Use
-    // GrayDark background (matches the prior system bubble's intent).  We keep
-    // it left-aligned and full-width like the TS <Box width="100%">.
+    const Color bg = is_selected ? kUserBgSel : kUserBg;
     return vbox({
         text(""),
-        hbox({inner | bgcolor(Color::GrayDark) | flex, text(" ") | bgcolor(Color::GrayDark)}),
+        hbox({inner | bgcolor(bg) | flex, text(" ") | bgcolor(bg)}),
     });
 }
 
@@ -237,21 +255,46 @@ inline constexpr std::string_view kFiguresPointer = "\xE2\x9D\xAF";  // ❯ U+27
 ///     <Text><Text color="subtle">{figures.pointer} </Text>
 ///           <Text color="text">/{command args}</Text></Text>
 ///   </Box>
-[[nodiscard]] inline Element RenderUserCommandMessage(const UserTextMessageData& data) {
+[[nodiscard]] inline Element RenderUserCommandMessage(const UserTextMessageData& data,
+                                                      bool is_selected = false) {
+    (void)is_selected;  // TS: selection never affects the command chip tint.
+    // TS palette tokens (dark mode, src/utils/theme.ts):
+    //   subtle                      = rgb( 80, 80, 80)  — pointer glyph prefix
+    //   text                        = rgb(255,255,255)  — body foreground
+    //   userMessageBackground       = rgb( 55, 55, 55)  — chip background
+    // NOTE: TS B5 UserCommandMessage ALWAYS renders backgroundColor=
+    // userMessageBackground — no bgcolor swap on selection. Selection affects
+    // BLACK_CIRCLE color in assistant rows and the isSelected context, NOT
+    // this chip's tint (unlike UserPromptMessage which swaps to messageAct-
+    // ionsBackground). Hence bg = kUserBg regardless of is_selected.
+    const Color kUserBg       = Color::RGB( 55,  55,  55);
+    const Color kSubtle       = Color::RGB( 80,  80,  80);
+    // TS UserCommandMessage.tsx B5: the ❯ prefix always uses the "subtle"
+    // token (rgb(80,80,80)).  Selection only affects the BLACK_CIRCLE color
+    // of the assistant row, never the user command chip tint — unlike
+    // UserPromptMessage which swaps both the prefix and the background.
+    const Color prefix_color = kSubtle;
+
     std::string body = data.command_name
         ? ("/" + *data.command_name)
         : data.content;
+    // Faithful foregrounds (match theme.text + theme.subtle tokens exactly).
+    // Explicit colors avoid FTXUI default-fg drift when wrapped in bgcolor().
+    const Color kText = Color::RGB(250, 250, 252);
+    // TS: paddingRight=1 only — no flex, so the chip collapses to content
+    // width instead of stretching to terminal width (F8 compact chip).
     Element row = hbox({
-        text(std::string(kFiguresPointer)) | color(Color::GrayDark),
-        text(" ") | color(Color::GrayDark),
-        text(body),
-        text(" "),
+        text(std::string(kFiguresPointer)) | color(prefix_color),
+        text(" ") | color(prefix_color),
+        text(body) | color(kText),
+        text(" ") | color(kText),  // paddingRight=1
     });
     if (data.is_transcript_mode) return vbox({text(""), row});
+    // Wrap row in a single bgcolor cell that is exactly row-width (no flex).
+    Element chip = hbox({row}) | bgcolor(kUserBg);
     return vbox({
         text(""),
-        hbox({row | bgcolor(Color::GrayDark) | flex,
-              text(" ") | bgcolor(Color::GrayDark)}),
+        hbox({chip, filler()}),  // left-align the chip, filler to end of row
     });
 }
 

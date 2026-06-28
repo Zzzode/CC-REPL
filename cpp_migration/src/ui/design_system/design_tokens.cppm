@@ -110,6 +110,11 @@ struct Palette {
     ftxui::Color rate_limit_fill;
     ftxui::Color rate_limit_empty;
     ftxui::Color brief_label;
+    // User/assistant message bubble & selection chrome (TS theme tokens):
+    //   userMessageBackground    — dark-mode user bubble tint
+    //   messageActionsBackground — cool-gray bubble when selected/focused
+    ftxui::Color user_message_background;
+    ftxui::Color message_actions_background;
     // rainbow cycle used by ultra-thinking (7 steps)
     std::array<ftxui::Color, 7> rainbow;
     ftxui::Color rainbow_shimmer;
@@ -138,15 +143,24 @@ inline const Palette dark = {
     .warning             = ftxui::Color::RGB(255, 193,   7),
     .danger              = ftxui::Color::RGB(255, 107, 128),
     .muted               = ftxui::Color::RGB(153, 153, 153),
-    .subtle              = ftxui::Color::RGB( 87,  87,  87),
-    .suggestion          = ftxui::Color::RGB(173, 216, 255),
-    .text                = ftxui::Color::RGB(230, 237, 243),
+    // TS dark tokens (src/utils/theme.ts rgb() values — exact copy):
+    //   subtle                   = rgb(80, 80, 80)
+    //   suggestion               = rgb(177, 185, 249)  (lavender, NOT sky blue)
+    //   text                     = rgb(255, 255, 255)  (pure white)
+    .subtle              = ftxui::Color::RGB( 80,  80,  80),
+    .suggestion          = ftxui::Color::RGB(177, 185, 249),
+    .text                = ftxui::Color::RGB(255, 255, 255),
     .inverse_text        = ftxui::Color::RGB( 32,  33,  36),
     .background          = ftxui::Color::RGB( 32,  33,  36),
     .chrome              = ftxui::Color::RGB( 55,  57,  61),
     .rate_limit_fill     = ftxui::Color::RGB( 80, 140, 255),
     .rate_limit_empty    = ftxui::Color::RGB( 60,  60,  80),
     .brief_label         = CLAWDED,
+    // TS dark message-chrome tokens:
+    //   userMessageBackground    = rgb(55, 55, 55)      (dark slate bubble)
+    //   messageActionsBackground = rgb(44, 50, 62)      (cool-gray selection)
+    .user_message_background      = ftxui::Color::RGB( 55,  55,  55),
+    .message_actions_background   = ftxui::Color::RGB( 44,  50,  62),
     .rainbow = {{
         ftxui::Color::RGB(255,  99, 132),
         ftxui::Color::RGB(255, 159,  64),
@@ -181,7 +195,12 @@ inline const Palette light = {
     .rate_limit_fill     = ftxui::Color::RGB( 53, 113, 232),
     .rate_limit_empty    = ftxui::Color::RGB(225, 230, 240),
     .brief_label         = CLAWDED,
-    .rainbow = dark.rainbow,
+    // Light-mode equivalents of the TS message chrome tokens:
+    //   userMessageBackground    = rgb(240, 240, 240)  near-white bubble
+    //   messageActionsBackground = rgb(232, 236, 244)  cool gray
+    .user_message_background      = ftxui::Color::RGB(240, 240, 240),
+    .message_actions_background   = ftxui::Color::RGB(232, 236, 244),
+    .rainbow              = dark.rainbow,
     .rainbow_shimmer     = ftxui::Color::RGB(120,  80, 200),
     .diff_added          = ftxui::Color::RGB( 38, 130,  60),
     .diff_removed        = ftxui::Color::RGB(210,  50,  45),
@@ -209,6 +228,9 @@ inline const Palette dark_daltonized = {
     .rate_limit_fill     = dark.rate_limit_fill,
     .rate_limit_empty    = dark.rate_limit_empty,
     .brief_label         = ftxui::Color::RGB(198, 128,  80),
+    // Daltonized: reuse dark-daltonized base bubble chromes
+    .user_message_background      = dark.user_message_background,
+    .message_actions_background   = dark.message_actions_background,
     .rainbow = {{
         ftxui::Color::RGB(190, 130, 140),
         ftxui::Color::RGB(205, 160,  90),
@@ -243,6 +265,8 @@ inline const Palette light_daltonized = {
     .rate_limit_fill     = light.rate_limit_fill,
     .rate_limit_empty    = light.rate_limit_empty,
     .brief_label         = dark_daltonized.primary,
+    .user_message_background      = light.user_message_background,
+    .message_actions_background   = light.message_actions_background,
     .rainbow             = dark_daltonized.rainbow,
     .rainbow_shimmer     = light.rainbow_shimmer,
     .diff_added          = ftxui::Color::RGB( 70, 120, 170),
@@ -270,6 +294,8 @@ inline const Palette monochrome = {
     .rate_limit_fill     = ftxui::Color::White,
     .rate_limit_empty    = ftxui::Color::GrayDark,
     .brief_label         = ftxui::Color::White,
+    .user_message_background      = ftxui::Color::GrayDark,
+    .message_actions_background   = ftxui::Color::GrayDark,
     .rainbow = {{ ftxui::Color::White, ftxui::Color::White, ftxui::Color::White,
                   ftxui::Color::White, ftxui::Color::White, ftxui::Color::White,
                   ftxui::Color::White }},
@@ -392,8 +418,8 @@ inline const Palette monochrome = {
 }
 
 // ─── HSL → RGB (used by AnimatedAsterisk hue sweep) ──────────────────────────
-/// Simple HSL→RGB with S=0.70, L=0.60 tuned to match the TS AnimatedAsterisk
-/// hue sweep (src/components/LogoV2/AnimatedAsterisk.tsx uses ~s=0.70, l=0.60).
+/// Simple HSL→RGB with S=0.70, L=0.60 tuned to match the TS animated asterisk
+/// hue sweep.
 [[nodiscard]] inline ftxui::Color hue_to_rgb(double hue_deg) noexcept {
     double h = std::fmod(hue_deg, 360.0) / 60.0;
     if (h < 0) h += 6.0;

@@ -48,6 +48,7 @@ public:
             .category = "session",
             .aliases = {"r"},
             .hidden = false,
+            .argument_hint = "<session_id|last>",
         };
     }
 

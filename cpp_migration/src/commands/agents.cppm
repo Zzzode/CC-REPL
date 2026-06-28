@@ -11,6 +11,7 @@ module;
 #include <span>
 #include <array>
 #include <sstream>
+#include <filesystem>
 
 export module cc.commands.agents;
 
@@ -46,6 +47,7 @@ public:
                 CommandArg{.name = "edit", .description = "Edit an agent (wizard)", .type = ArgType::Text, .required = false},
             },
             .category = "agents",
+            .argument_hint = "<list|use|configure|create|edit>",
         };
     }
 
@@ -61,7 +63,10 @@ public:
             return CommandResult::success("Available commands:\n  /agents list - List available agents\n  /agents use <agent> - Select an agent\n  /agents configure <agent> - Configure an agent\n  /agents create - Create a new agent (wizard)\n  /agents edit <agent> - Edit an agent (wizard)");
         }
 
-        auto agents = cc::tools::agent_runtime::get_all_agent_definitions();
+        auto agents = cc::tools::agent_runtime::get_all_agent_definitions(
+            ctx.cwd.empty()
+                ? std::nullopt
+                : std::optional<std::filesystem::path>{ctx.cwd});
 
         if (*opts.subcommand == "list") {
             return CommandResult::success(format_agent_list(agents));

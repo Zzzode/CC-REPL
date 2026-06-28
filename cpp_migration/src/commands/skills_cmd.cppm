@@ -1,6 +1,5 @@
 /// @file skills_cmd.cppm
 /// @brief SkillsCommand implementing the /skills slash command.
-/// Subcommands: list | run NAME | info NAME | reload | import DIR | test NAME.
 /// Reuses cc.skills.skill (SkillDefinition, SkillLoader) and
 /// cc.skills.load_skills_dir (SkillManifest) — no type duplication.
 /// UI rendering (FTXUI tables/dialogs) DEFERRED to Phase 4.
@@ -66,78 +65,31 @@ public:
     [[nodiscard]] static CommandDefinition definition() {
         return CommandDefinition{
             .name = "skills",
-            .description = "Manage installed skills",
-            .args = {
-                CommandArg{
-                    .name = "action",
-                    .description = "list | run | info | reload | import | test",
-                    .type = ArgType::Choice,
-                    .required = false,
-                    .choices = {"list", "run", "info", "reload", "import", "test"},
-                },
-                CommandArg{
-                    .name = "target",
-                    .description = "Skill name (run|info|test) or directory path (import)",
-                    .type = ArgType::Text,
-                    .required = false,
-                },
-            },
+            .description = "List available skills",
+            .args = {},
             .category = "tools",
-            .aliases = {"skill"},
+            .aliases = {},
             .hidden = false,
         };
     }
 
     [[nodiscard]] VoidResult validate(const CommandContext& ctx) {
-        if (ctx.args.empty()) return {};
-        auto action = ctx.args[0];
-        static constexpr std::array valid = {
-            "list", "run", "info", "reload", "import", "test"};
-        if (std::ranges::find(valid, action) == valid.end()) {
-            return std::unexpected(Error::make(ErrorCode::InvalidRequest,
-                std::format("Invalid action: '{}'. Use: list|run|info|reload|import|test",
-                    action)));
-        }
-        // Actions that require a 2nd arg
-        static constexpr std::array need_target = {"run", "info", "import", "test"};
-        if (std::ranges::find(need_target, action) != need_target.end() &&
-            ctx.args.size() < 2) {
-            return std::unexpected(Error::make(ErrorCode::InvalidRequest,
-                std::format("Usage: /skills {} <target>", action)));
+        if (!ctx.args.empty()) {
+            return std::unexpected(Error::make(
+                ErrorCode::InvalidRequest,
+                "Usage: /skills"));
         }
         return {};
     }
 
     [[nodiscard]] Result<CommandResult> execute(const CommandContext& ctx) {
-        if (ctx.args.empty()) {
-            auto rows = list_skill_rows();
-            return CommandResult::success(format_skill_list_text(rows));
-        }
-        auto action = std::string(ctx.args[0]);
-        if (action == "list") {
-            auto rows = list_skill_rows();
-            return CommandResult::success(format_skill_list_text(rows));
-        }
-        if (action == "info")   return show_info(std::string(ctx.args[1]));
-        if (action == "run")    return run_skill(std::string(ctx.args[1]));
-        if (action == "test")   return test_skill(std::string(ctx.args[1]));
-        if (action == "reload") return reload_skills();
-        if (action == "import") return import_skills_dir(std::string(ctx.args[1]));
-        return CommandResult::fail(std::format("Unknown skill action: {}", action));
+        auto rows = list_skill_rows(ctx.cwd);
+        return CommandResult::success(format_skill_list_text(rows));
     }
 
     [[nodiscard]] std::vector<std::string> complete(std::string_view partial) {
-        std::vector<std::string> suggestions;
-        for (auto s : {"list", "run", "info", "reload", "import", "test"}) {
-            if (std::string_view(s).starts_with(partial))
-                suggestions.emplace_back(s);
-        }
-        auto rows = list_skill_rows();
-        for (const auto& r : rows) {
-            if (r.name.starts_with(partial))
-                suggestions.push_back(r.name);
-        }
-        return suggestions;
+        (void)partial;
+        return {};
     }
 
     // ========================================================================
@@ -146,14 +98,28 @@ public:
 
     /// Collect all installed skills as rows, using SkillLoader::discover_all
     /// (from cc.skills.skill) and bundled skills from cc.skills.bundled.
-    [[nodiscard]] static std::vector<SkillListRow> list_skill_rows() {
+    static void add_context_skill_path(
+        cc::skills::SkillLoader& loader,
+        std::string_view cwd) {
+        if (!cwd.empty()) {
+            loader.add_search_path(std::filesystem::path(std::string(cwd)) /
+                                   ".claude" / "skills");
+        }
+    }
+
+    [[nodiscard]] static std::vector<SkillListRow> list_skill_rows(
+        std::string_view cwd = {}) {
         std::vector<SkillListRow> rows;
 
         // 1. User-discovered skills via SkillLoader
         cc::skills::SkillLoader loader;
+        add_context_skill_path(loader, cwd);
         auto discovered = loader.discover_all();
         if (discovered) {
             for (const auto& def : *discovered) {
+                if (std::ranges::find_if(rows, [&](const SkillListRow& r) {
+                        return r.name == def.name; }) != rows.end())
+                    continue;
                 SkillListRow r;
                 r.name = def.name;
                 r.description = def.description.empty()
@@ -206,9 +172,11 @@ public:
 
     /// Return the trigger pattern rows for a given skill name.
     [[nodiscard]] static std::vector<SkillTriggerRow> list_trigger_rows(
-        std::string_view name) {
+        std::string_view name,
+        std::string_view cwd = {}) {
         std::vector<SkillTriggerRow> rows;
         cc::skills::SkillLoader loader;
+        add_context_skill_path(loader, cwd);
         auto discovered = loader.discover_all();
         if (!discovered) return rows;
         auto it = std::ranges::find_if(*discovered,
@@ -223,8 +191,9 @@ public:
 
     /// Return SkillDefinition by name (or nullopt if not found).
     [[nodiscard]] static std::optional<cc::skills::SkillDefinition>
-    find_skill_definition(std::string_view name) {
+    find_skill_definition(std::string_view name, std::string_view cwd = {}) {
         cc::skills::SkillLoader loader;
+        add_context_skill_path(loader, cwd);
         auto discovered = loader.discover_all();
         if (!discovered) return std::nullopt;
         auto it = std::ranges::find_if(*discovered,
@@ -280,13 +249,15 @@ private:
 
     // ---- Execute subcommand helpers ---------------------------------------
 
-    [[nodiscard]] static Result<CommandResult> show_info(const std::string& name) {
-        auto def = find_skill_definition(name);
+    [[nodiscard]] static Result<CommandResult> show_info(
+        const std::string& name,
+        std::string_view cwd = {}) {
+        auto def = find_skill_definition(name, cwd);
         if (!def) {
             return std::unexpected(Error::make(ErrorCode::ToolNotFound,
                 std::format("Skill '{}' not found.", name)));
         }
-        auto triggers = list_trigger_rows(name);
+        auto triggers = list_trigger_rows(name, cwd);
 
         std::string out = std::format(
             "Skill: {}\n"
@@ -317,8 +288,10 @@ private:
         return CommandResult::success(std::move(out));
     }
 
-    [[nodiscard]] static Result<CommandResult> run_skill(const std::string& name) {
-        auto def = find_skill_definition(name);
+    [[nodiscard]] static Result<CommandResult> run_skill(
+        const std::string& name,
+        std::string_view cwd = {}) {
+        auto def = find_skill_definition(name, cwd);
         if (!def) {
             return std::unexpected(Error::make(ErrorCode::ToolNotFound,
                 std::format("Skill '{}' not found.", name)));
@@ -334,8 +307,10 @@ private:
             name, def->trigger_patterns.size()));
     }
 
-    [[nodiscard]] static Result<CommandResult> test_skill(const std::string& name) {
-        auto def = find_skill_definition(name);
+    [[nodiscard]] static Result<CommandResult> test_skill(
+        const std::string& name,
+        std::string_view cwd = {}) {
+        auto def = find_skill_definition(name, cwd);
         if (!def) {
             return std::unexpected(Error::make(ErrorCode::ToolNotFound,
                 std::format("Skill '{}' not found.", name)));

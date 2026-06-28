@@ -1,5 +1,5 @@
 /// @file help_view.cppm
-/// @brief Faithful Help dialog — port of TS HelpV2.tsx with 3 tabs:
+/// @brief Faithful Help dialog with 3 tabs:
 ///        general, commands, custom-commands.
 ///
 /// MODULE:   cc.ui.dialogs.help_view
@@ -7,9 +7,7 @@
 ///           dialog_default_renderers (queue-based rendering).
 ///
 /// TS REFERENCE:
-///   src/components/HelpV2/HelpV2.tsx
-///   src/components/HelpV2/General.tsx
-///   src/components/HelpV2/Commands.tsx
+///   Upstream help dialog, general tab, and commands tab components.
 ///
 /// VISUAL STRUCTURE (faithful to TS):
 ///   ┌─ Claude Code v0.0.0 ─────────────────────────────┐
@@ -151,7 +149,7 @@ namespace detail {
 }
 
 /// Render the General tab content.
-/// Faithful to TS HelpV2/General.tsx: intro text + Shortcuts list.
+/// Faithful to TS help general tab: intro text + Shortcuts list.
 [[nodiscard]] inline Element RenderGeneralTab(const Theme& theme) {
     Elements shortcuts;
     shortcuts.push_back(text("Shortcuts") | bold);
@@ -187,7 +185,7 @@ namespace detail {
 }
 
 /// Render the Commands / Custom Commands tab content.
-/// Faithful to TS HelpV2/Commands.tsx: selectable list with descriptions.
+/// Faithful to TS help commands tab: selectable list with descriptions.
 [[nodiscard]] inline Element RenderCommandsTab(
     const std::vector<HelpCommandEntry>& commands,
     int selected_index,
@@ -270,7 +268,7 @@ namespace detail {
 // ============================================================
 
 /// Render the help dialog (read-only version — no interaction).
-/// Faithful to TS HelpV2 visual structure.
+/// Faithful to TS help visual structure.
 [[nodiscard]] inline Element RenderHelpView(
     const HelpViewProps& props,
     const HelpViewState& state,
@@ -336,7 +334,7 @@ namespace detail {
 // ============================================================
 
 /// Create an interactive HelpView component (with keyboard navigation).
-/// Faithful to TS HelpV2 interactive behavior.
+/// Faithful to TS help interactive behavior.
 [[nodiscard]] inline Component MakeHelpView(
     std::shared_ptr<HelpViewState> state,
     HelpViewProps props,

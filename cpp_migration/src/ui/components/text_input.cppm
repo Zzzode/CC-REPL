@@ -1091,9 +1091,14 @@ private:
                             std::string rest = after.substr(cc);
                             if (!rest.empty()) line_parts.push_back(ftxui::text(rest));
                         } else {
-                            // End of line cursor — render blinking block space
-                            line_parts.push_back(ftxui::text(blink_visible_ ? "█" : " ") |
-                                                 color(Color::CyanLight));
+                            // End of line cursor — declared-caret style
+                            // (same inverse-glyph pattern used mid-line and in
+                            // TS useDeclaredCursor).  A blank space + inverted
+                            // paints a solid block in fg/bg swap = consistent
+                            // visual with the mid-line caret.
+                            line_parts.push_back(ftxui::text(
+                                blink_visible_ ? " " : "") |
+                                inverted | color(Color::White));
                             if (!after.empty()) line_parts.push_back(ftxui::text(after));
                         }
                     } else if (seg.selected) {
@@ -1128,21 +1133,53 @@ private:
                 }
             }
 
-            // Empty line placeholder
+            // Empty line placeholder — declared-caret style (same as the
+            // mid-line / end-of-line caret: inverted blank space = solid
+            // foreground block, matching TS useDeclaredCursor).
             if (line_len == 0 && is_cursor_line && !has_selection()) {
-                line_parts.push_back(ftxui::text(blink_visible_ ? "█" : " ") |
-                                     color(Color::CyanLight));
+                line_parts.push_back(ftxui::text(
+                    blink_visible_ ? " " : "") |
+                    inverted | color(Color::White));
             }
 
             lines_elements.push_back(hbox(line_parts));
             byte_offset += line_len + 1; // +1 for the '\n'
         }
 
-        // --- Placeholder rendering for empty, unfocused ---
+        // --- Placeholder rendering for empty input ---
+        // TS renderPlaceholder.ts + BaseTextInput.tsx lines 91-112:
+        //   * When cursor is visible and placeholder is non-empty:
+        //       chalk.inverse(placeholder[0]) + chalk.dim(placeholder.slice(1))
+        //   * When cursor is visible and placeholder is EMPTY:
+        //       chalk.inverse(' ')   (solid block cursor, no text visible)
+        //   * When not showing cursor (blink hidden, unfocused):
+        //       chalk.dim(full placeholder)
+        // Prefix (options_.prefix) is not colored per-mode here, because in
+        // the faithful prompt_input flow the prefix ("❯" / "!") is rendered
+        // OUTSIDE of TextInputImpl (by repl_screen::RenderPromptInput), so
+        // this prefix is typically empty.  Color = theme.text (not green).
         if (lines_elements.size() == 1 && lines[0].empty()) {
             Elements ph_parts;
-            ph_parts.push_back(ftxui::text(options_.prefix) | color(Color::Green) | bold);
-            ph_parts.push_back(ftxui::text(options_.placeholder) | dim);
+            ph_parts.push_back(ftxui::text(options_.prefix) | color(Color::White));
+            if (blink_visible_ && !options_.placeholder.empty()) {
+                std::string cursor_ch{options_.placeholder[0]};
+                size_t cc = 1;
+                while (cc < options_.placeholder.size() &&
+                       detail::is_utf8_continuation(
+                           static_cast<unsigned char>(options_.placeholder[cc]))) {
+                    cursor_ch.push_back(options_.placeholder[cc]);
+                    ++cc;
+                }
+                ph_parts.push_back(ftxui::text(cursor_ch) | inverted |
+                                   color(Color::White));
+                const std::string rest = options_.placeholder.substr(cc);
+                if (!rest.empty()) ph_parts.push_back(ftxui::text(rest) | dim | color(Color::GrayLight));
+            } else if (options_.placeholder.empty()) {
+                ph_parts.push_back(ftxui::text(blink_visible_ ? " " : "") | inverted |
+                                   color(Color::White));
+            } else {
+                ph_parts.push_back(ftxui::text(options_.placeholder) | dim);
+            }
             return hbox(ph_parts);
         }
 
@@ -1424,4 +1461,3 @@ Component TextInput(const TextInputOptions& options = {},
 }
 
 } // namespace ui::components
-

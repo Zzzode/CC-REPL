@@ -598,7 +598,7 @@ src/ui/dialogs/
 ├── quick_open_dialog.cppm
 ├── global_search_dialog.cppm
 ├── history_search_dialog.cppm
-├── help_v2_dialog.cppm
+├── help_view.cppm
 ├── settings_dialog.cppm
 ├── export_dialog.cppm
 ├── feedback_survey.cppm

@@ -40,9 +40,8 @@ namespace detail {
 //
 // Apply this at the root of the render tree to ensure the terminal cursor
 // starts hidden each frame — then any `declared_cursor` decorator on a child
-// can override it with a visible cursor at the declared position.  This
-// matches the TS Ink behavior where the cursor is hidden by default and
-// `useDeclaredCursor` makes it visible.
+// can override the physical cursor position and shape.  The prompt input keeps
+// that native cursor hidden and draws its own visible caret, matching TS Ink.
 class CursorResetNode : public Node {
 public:
     explicit CursorResetNode(Element child)
@@ -60,9 +59,13 @@ public:
 
     void Render(Screen& screen) override {
         // Reset to hidden BEFORE children render, so active declared cursors
-        // can override with a visible shape.
+        // can override the position/shape.  FTXUI emits cursor movement escape
+        // sequences even for a hidden cursor, so park it at the neutral
+        // bottom-right position instead of (0, 0) to avoid cursor-guide jumps.
         screen.SetCursor(Screen::Cursor{
-            /*x=*/0, /*y=*/0, Screen::Cursor::Shape::Hidden,
+            /*x=*/std::max(0, screen.dimx() - 1),
+            /*y=*/std::max(0, screen.dimy() - 1),
+            Screen::Cursor::Shape::Hidden,
         });
         Node::Render(screen);
     }
@@ -162,9 +165,8 @@ private:
 ///
 /// Wrap the root of your render tree with this decorator to ensure the cursor
 /// starts hidden each frame.  Any `declared_cursor` decorator applied to
-/// descendants will override this with a visible cursor at the declared
-/// position.  This mirrors how TS Ink hides the cursor by default and
-/// `useDeclaredCursor` makes it visible.
+/// descendants can override this with a declared physical cursor position.
+/// Prompt input keeps the native cursor hidden and renders its own caret.
 [[nodiscard]] inline Decorator cursor_reset() {
     return [](Element child) -> Element {
         return std::make_shared<detail::CursorResetNode>(std::move(child));

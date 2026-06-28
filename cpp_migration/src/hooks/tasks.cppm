@@ -7,7 +7,7 @@ module;
 #include <unordered_map>
 #include <vector>
 
-export module cc.hooks.tasks_v2;
+export module cc.hooks.tasks;
 
 export namespace cc::hooks {
 
@@ -19,7 +19,7 @@ enum class TaskStatus {
   failed
 };
 
-struct TaskV2 {
+struct Task {
   std::string id;
   std::string title;
   std::string description;
@@ -30,14 +30,14 @@ struct TaskV2 {
   std::unordered_map<std::string, std::string> metadata;
 };
 
-using TaskChangeCallback = std::function<void(const TaskV2&)>;
+using TaskChangeCallback = std::function<void(const Task&)>;
 using TaskListChangeCallback = std::function<void()>;
 
-class TasksV2Hook {
+class TasksHook {
 public:
-  TasksV2Hook() = default;
+  TasksHook() = default;
 
-  auto add_task(TaskV2 task) -> std::string {
+  auto add_task(Task task) -> std::string {
     task.id = generate_task_id();
     task.created_at = std::chrono::system_clock::now();
     task.updated_at = task.created_at;
@@ -66,15 +66,15 @@ public:
     return false;
   }
 
-  auto get_task(std::string_view id) const -> std::optional<TaskV2> {
+  auto get_task(std::string_view id) const -> std::optional<Task> {
     if (auto it = tasks_.find(std::string(id)); it != tasks_.end()) {
       return it->second;
     }
     return std::nullopt;
   }
 
-  auto get_tasks() const -> std::vector<TaskV2> {
-    std::vector<TaskV2> result;
+  auto get_tasks() const -> std::vector<Task> {
+    std::vector<Task> result;
     result.reserve(tasks_.size());
     for (const auto& [id, task] : tasks_) {
       result.push_back(task);
@@ -85,8 +85,8 @@ public:
     return result;
   }
 
-  auto get_pending_tasks() const -> std::vector<TaskV2> {
-    std::vector<TaskV2> result;
+  auto get_pending_tasks() const -> std::vector<Task> {
+    std::vector<Task> result;
     for (const auto& [id, task] : tasks_) {
       if (task.status != TaskStatus::completed && task.status != TaskStatus::cancelled) {
         result.push_back(task);
@@ -123,7 +123,7 @@ private:
     return "task_" + std::to_string(++counter);
   }
 
-  std::unordered_map<std::string, TaskV2> tasks_;
+  std::unordered_map<std::string, Task> tasks_;
   TaskChangeCallback change_callback_;
   TaskListChangeCallback list_callback_;
   std::chrono::milliseconds hide_delay_{5000};

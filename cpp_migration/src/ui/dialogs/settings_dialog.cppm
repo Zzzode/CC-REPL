@@ -47,8 +47,6 @@ using cc::core::Settings;
 using cc::core::FeatureFlag;
 using cc::core::McpServerConfig;
 using custom_select::SelectOption;
-using custom_select::SelectProps;
-using custom_select::Select;
 
 // ============================================================
 // Types

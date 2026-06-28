@@ -382,10 +382,20 @@ struct StatusLineOptions {
         return text("");
     }
 
-    // Parse ANSI codes into colored FTXUI elements. Do not add a global dim:
-    // the TS status line leaves command-provided ANSI colors at normal weight.
+    // Parse ANSI codes into colored FTXUI elements.
+    //
+    // Two faithful-to-TS alignment:
+    //   (1) TS StatusLine.tsx wraps the rendered node in dimColor (SGR 2) so
+    //       user shell colors are always slightly muted.  We apply `dim` here.
+    //   (2) External scripts frequently set their own SGR 48;2 / bgcolor
+    //       (e.g. Flux statusline's 📁 folder pill with a deep-blue pill bg)
+    //       which bleeds through and clashes with our terminal chrome.  We
+    //       force a neutral userMessageBackground RGB(20,20,22) as the row bg
+    //       so the content stays subdued and in-theme.
     namespace msgs = cc::ui::messages;
-    Element content = msgs::ansi_to_ftxui_elements(opts.content);
+    Element content = msgs::ansi_to_ftxui_elements(opts.content)
+                   | dim
+                   | bgcolor(Color::RGB(20, 20, 22));
 
     // Apply horizontal padding (mirrors TS paddingX on the wrapping Box).
     // Padding is applied equally on left and right sides.
@@ -474,6 +484,14 @@ struct FooterOptions {
     // Suggestions (when present, footer shows only suggestions)
     bool has_suggestions = false;
     Element suggestions_content;       // pre-rendered suggestions list
+
+    // M4 faithful: outer footer chrome.
+    //   - clipboard_image_hint: localized hint rendered in the right column, e.g.
+    //   "Image in clipboard · ctrl+v to paste" when an OS clipboard image is
+    //   detected by the engine.  std::nullopt = hide the hint.
+    // NOTE: Upstream TS does NOT carry a "CC-REPL brand pill" in the footer
+    // left column.  Branding lives only at the top header (CondensedLogo).
+    std::optional<std::string> clipboard_image_hint;
 };
 
 /// Render the full PromptInputFooter with left/right column layout.
@@ -522,6 +540,12 @@ struct FooterOptions {
     // ── Right column ───────────────────────────────────────────────────
     // TS: <Box flexShrink={1} gap={1}> — items in a row, right-aligned
     Elements right_row;
+
+    // M4 faithful: clipboard-image hint ("Image in clipboard · ctrl+v to paste").
+    if (opts.clipboard_image_hint.has_value() && !opts.clipboard_image_hint->empty()) {
+        if (!right_row.empty()) right_row.push_back(text("  ") | dim);
+        right_row.push_back(text(*opts.clipboard_image_hint) | dim | color(Color::GrayDark));
+    }
 
     // Notifications (non-fullscreen only, per TS)
     if (opts.show_notifications && !opts.is_fullscreen) {

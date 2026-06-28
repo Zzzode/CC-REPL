@@ -190,6 +190,7 @@ target_sources(cc_utils
         utils/input_router.cppm
         utils/intl.cppm
         utils/json.cppm
+        utils/skill_usage.cppm
         utils/list_sessions.cppm
         utils/lockfile.cppm
         utils/log.cppm
@@ -363,6 +364,7 @@ target_sources(cc_utils
 target_sources(cc_utils
     PRIVATE
         utils/json_impl.cpp
+        utils/skill_usage_impl.cpp
 )
 set_source_files_properties(utils/swarm_backends.cppm PROPERTIES
     COMPILE_OPTIONS "$<$<CXX_COMPILER_ID:Clang>:-O0>"
@@ -943,6 +945,7 @@ target_sources(cc_services
         services/lsp/passive_feedback.cppm
         services/lsp/types.cppm
         services/magic_docs/magic_docs.cppm
+        services/mcp/at_mention_handler.cppm
         services/mcp/auth.cppm
         services/mcp/channel_allowlist.cppm
         services/mcp/channel_notification.cppm
@@ -1141,7 +1144,7 @@ target_sources(cc_hooks
         hooks/ssh_session.cppm
         hooks/swarm_hooks.cppm
         hooks/task_hooks.cppm
-        hooks/tasks_v2.cppm
+        hooks/tasks.cppm
         hooks/teammate_view_auto_exit.cppm
         hooks/teleport_resume.cppm
         hooks/terminal_size.cppm
@@ -1296,6 +1299,7 @@ add_library(cc_ui)
 target_sources(cc_ui
     PUBLIC FILE_SET CXX_MODULES FILES
         ui/app.cppm
+        ui/autocomplete_sources.cppm
         ui/app_dialog_registration.cppm
         ui/components.cppm
         ui/agents/agent_cards.cppm
@@ -1365,7 +1369,6 @@ target_sources(cc_ui
         ui/dialogs/diff_dialog.cppm
         ui/dialogs/elicitation_dialog.cppm
         ui/dialogs/feedback_survey.cppm
-        ui/dialogs/help_v2.cppm
         ui/dialogs/help_view.cppm
         ui/dialogs/settings_view.cppm
         ui/dialogs/about_dialog.cppm
@@ -1485,7 +1488,9 @@ target_sources(cc_ui
         ui/permissions/permission_single_prompt.cppm
         ui/permissions/permission_batch_panel.cppm
         ui/permissions/sandbox_config_dialog.cppm
-        ui/prompt/autocomplete.cppm
+        ui/prompt/at_attachments.cppm
+        ui/prompt/file_index.cppm
+        ui/prompt/fuzzy_rank_nucleo.cppm
         ui/prompt/footer.cppm
         ui/prompt/mode_indicator.cppm
         ui/prompt/notifications.cppm
@@ -1497,7 +1502,6 @@ target_sources(cc_ui
         ui/prompt/prompt_queued_commands.cppm
         ui/prompt/prompt_stash_notice.cppm
         ui/prompt/shimmer.cppm
-        ui/prompt/suggestion_provider.cppm  # U1 — surfaces real PromptSuggestionService in the prompt UI
         ui/prompt/vim_input.cppm
         ui/prompt/voice_indicator.cppm
         ui/prompt_input.cppm
@@ -1556,7 +1560,7 @@ target_sources(cc_ui
         ui/terminal.cppm
         ui/design_system/design_tokens.cppm       # UI20 (merged from cc_ui_design to resolve module-import cycle)
         ui/design_system/theme_provider.cppm
-        ui/design_system/logo_v2.cppm
+        ui/design_system/logo.cppm
         ui/design_system/component_primitives.cppm
         ui/design_system/design_extras.cppm       # UI27 — fuzzy picker + theme picker + design extras
 )
@@ -1566,6 +1570,9 @@ target_sources(cc_ui
 # ~44 dialog implementations out of app.cppm's BMI (source-location budget).
 # See app_dialog_registration.cppm / *_impl.cpp for the rationale.
 target_sources(cc_ui PRIVATE
+    ui/autocomplete_sources_impl.cpp
+    ui/app_prompt_suggestion_wiring.cpp
+    ui/prompt/at_attachments_impl.cpp
     ui/app_dialog_registration_default.cpp
     ui/app_dialog_registration_modal.cpp
     ui/app_dialog_registration_bottom.cpp
@@ -1611,7 +1618,7 @@ target_link_libraries(cc_ui_messages INTERFACE cc_ui)
 add_library(cc_ui_screens INTERFACE)
 target_link_libraries(cc_ui_screens INTERFACE cc_ui)
 
-# ─── cc_ui_permissions: Phase 4B Permissions v2 (rule list / advanced prompts)
+# ─── cc_ui_permissions: Phase 4B Permissions (rule list / advanced prompts)
 # UI24 (PermissionRuleList + PermissionAdvancedPrompts)
 add_library(cc_ui_permissions INTERFACE)
 target_link_libraries(cc_ui_permissions INTERFACE cc_ui)
@@ -1623,7 +1630,7 @@ target_link_libraries(cc_ui_components INTERFACE cc_ui)
 
 # ─── cc_ui_design: Design System (tokens / theme / logo / primitives) ────────
 # Phase 4-UI20: mirrors the TS-side design-system package
-#   (src/components/design-system/* + src/utils/theme.ts + src/components/LogoV2/*).
+#   (src/components/design-system/* + src/utils/theme.ts + upstream logo components).
 # Phase 4B REFACTOR: Sources moved into parent `cc_ui`'s FILE_SET so that C++23
 #   named-module BMI lookup can resolve intra-module imports both ways
 #   (cc.ui.design.* ↔ cc.ui.messages.* / cc.ui.components.*).

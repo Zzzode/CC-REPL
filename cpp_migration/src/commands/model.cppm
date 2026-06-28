@@ -50,6 +50,7 @@ public:
             .category = "config",
             .aliases = {},
             .hidden = false,
+            .argument_hint = "<list|set|info> [model_name]",
         };
     }
 

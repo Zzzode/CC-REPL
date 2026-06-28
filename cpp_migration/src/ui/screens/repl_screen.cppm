@@ -30,6 +30,7 @@ module;
 #include <vector>
 #include <memory>
 #include <functional>
+#include <mutex>
 #include <optional>
 #include <variant>
 #include <format>
@@ -37,11 +38,14 @@ module;
 #include <chrono>
 #include <algorithm>
 #include <deque>
+#include <random>
+#include <array>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_base.hpp>
 #include <ftxui/component/event.hpp>
+#include <ftxui/component/mouse.hpp>
 #include <ftxui/screen/string.hpp>  // for string_width
 
 export module cc.ui.repl_screen;
@@ -57,6 +61,7 @@ import cc.ui.messages.system_text_message;
 import cc.ui.messages.thinking_message;
 import cc.ui.messages.tool_use_message;
 import cc.ui.messages.message_tool_result;
+import cc.ui.messages.local_command_output_message;
 import cc.ui.dialogs.permission_dialog;
 import cc.ui.dialogs.system;
 import cc.ui.dialogs.cost_threshold_dialog;
@@ -67,10 +72,11 @@ import cc.ui.trust_dialog;
 import cc.ui.sandbox_dialog;
 import cc.ui.agents.agent_cards;
 import cc.ui.agents.agent_wizard;
+import cc.tools.agent_display;
 import cc.ui.dialogs.install_github_app_wizard;
 import cc.ui.dialogs.install_slack_app_wizard;
-// Welcome header: Clawd mark + animated asterisk (logo_v2) — was dead code,
-// now wired into RenderReplScreen for fresh sessions.
+// Welcome header: Clawd mark + animated asterisk, wired into RenderReplScreen
+// for fresh sessions.
 import cc.ui.design.logo;
 // M2: theme::current_theme() for the clawd_body colour used by the banner.
 import cc.ui.design.theme;
@@ -117,6 +123,9 @@ import cc.ui.dialogs.help_view;
 import cc.ui.dialogs.settings_view;
 // M7: Faithful About dialog.
 import cc.ui.dialogs.about;
+// Spinner verb list (TS src/constants/spinnerVerbs.ts) used by RenderSpinner
+// to pick a random playful loading label per request.
+import cc.constants.spinner_verbs;
 
 // M6: Faithful permission panels — bash / file_edit / file_write.
 // These replace the old crude permission_dialog.cppm string renderer.
@@ -177,7 +186,7 @@ enum class ReplMode : std::uint8_t {
     LspRecommendation,        // 'lsp-recommendation'
     PluginHint,               // 'plugin-hint'
     // Panels (rendered inline — no overlay)
-    TasksView, TeamsView, SettingsView, HelpView, AboutView, QuickOpen,
+    TasksView, TeamsView, AgentsView, SettingsView, HelpView, AboutView, QuickOpen,
     // UI15 (Phase 4) — install-command wizard overlays.
     InstallGitHubApp,   // 12-step /install-github-app  FTXUI wizard
     InstallSlackApp,    // 3-step  /install-slack-app   FTXUI wizard
@@ -225,6 +234,15 @@ struct StatusBarData {
 struct MessageDisplayEntry {
     std::string id, role, content_preview;
     bool is_streaming = false, is_thinking = false, is_tool_use = false;
+    /// True when the thinking block is still being streamed (or the entry
+    /// is a static projection that should render the collapsed "Thinking"
+    /// label instead of being hidden entirely by the Complete-state fast
+    /// path in the faithful renderer).  Messages-list uses this to decide
+    /// whether the row contributes vertical space when unselected.
+    bool thinking_active = false;
+    bool is_local_command_input = false;
+    bool is_local_command_output = false;
+    bool is_local_jsx_output = false;
     bool is_compact_boundary = false, is_error = false;
     std::optional<std::string> tool_name, tool_status;
     /// Parsed tool input JSON for tool-use entries.  Threaded into
@@ -327,6 +345,11 @@ struct ReplScreenState {
     SpinnerMode spinner_mode = SpinnerMode::Hidden;
     // Messages
     std::vector<MessageDisplayEntry> messages;
+    bool active_local_jsx_command = false;
+    std::string active_local_jsx_command_name;
+    std::string active_local_jsx_command_args;
+    std::string active_local_jsx_content;
+    int active_agents_selection_position = 0;
     int scroll_offset = 0, selected_message_idx = -1;
     int viewport_height_lines = 40;
     bool scroll_pinned_to_bottom = true;
@@ -351,6 +374,10 @@ struct ReplScreenState {
     // Welcome-header data (shown when messages is empty on a fresh session).
     std::string app_version = "0.0.0";
     std::string model_display_name;
+    // TS LogoV2/CondensedLogo row 2 separator billing_type token (e.g.
+    // "API Usage Billing" / "Team Seat" / "Rate Limited").  Empty = row 2
+    // shows only the model name without " · <billing>" suffix.
+    std::string billing_type;
     std::string cwd;
     // M2: oauthAccount.displayName analogue — drives formatWelcomeMessage
     // ("Welcome back {user}!" vs "Welcome back!").  Empty for new users.
@@ -362,11 +389,54 @@ struct ReplScreenState {
     struct AutocompleteSuggestion {
         std::string display_text;
         std::string description;
+        std::string insert_text;
+        std::size_t replacement_start = std::string::npos;
+        std::size_t replacement_end = std::string::npos;
+        bool submit_on_return = false;
+        // INF-02: stable identity for selection preservation across refreshes
+        // (TS getPreservedSelection-by-id, src/hooks/useTypeahead.tsx:52-74).
+        // Defaults to display_text when a caller doesn't supply a richer id,
+        // so same-display items from different sources can be distinguished.
+        // `{}` in-class init so existing partial designated initializers (e.g.
+        // in tests/test_ui.cpp) don't trip -Wmissing-designated-field-initializers.
+        std::string id{};
     };
     std::vector<AutocompleteSuggestion> autocomplete_suggestions;
+    // INF-05: input text at which the user dismissed the popup with Esc.
+    // RefreshAutocompleteSuggestions stays dismissed until the input changes
+    // (TS dismissedForInputRef, src/hooks/useTypeahead.tsx:893-908).
+    std::string dismissed_autocomplete_for_input;
+    // INF-03: precomputed stable name-column width for slash suggestions (max
+    // over ALL candidates) so the description column doesn't jitter while
+    // filtering. 0 = derive dynamically per visible row (@, #, ...).
+    // Mirrors TS maxColumnWidth (src/hooks/useTypeahead.tsx:380-386).
+    int autocomplete_stable_name_width = 0;
+    // SL-03: pending inline argument hint for the slash command currently being
+    // typed (e.g. "set <key> <value>"). Populated by RefreshAutocompleteSuggestions
+    // when input matches "/cmd "; rendered by TextInputImpl.
+    std::string pending_argument_hint;
+    // SL-05: pending ghost-text completion suffix for a mid-input "/prefix"
+    // command token (e.g. input "text /com" → ghost "mit"). Rendered inline
+    // by TextInputImpl inline_ghost_text.
+    std::string pending_ghost_text;
+    // SL-11: deterministic next-action suggestion produced by
+    // PromptSuggestionService on QueryEnd (no LLM). When set and the prompt
+    // input is empty, RefreshAutocompleteSuggestions surfaces it as the lone
+    // AutocompleteSuggestion; any non-empty input clears it. Acts as the
+    // shared hand-off between the engine-side QueryEndHook (writer) and the
+    // renderer (reader). Cleared on accept / first keystroke.
+    std::optional<std::string> next_action_suggestion;
     int autocomplete_index = -1;
+    std::size_t input_cursor = std::string::npos;
     std::deque<std::string> input_history;
     std::size_t history_index = std::string::npos;
+    // AT-09: inbound IDE at_mentioned notifications deliver a fully-formed
+    // "@<relpath>#L<a>-<b>" token to insert at the prompt cursor. They arrive
+    // on the MCP receive thread, so they are staged here under mutex and
+    // drained on the render thread (DrainPendingAtMentionInserts). Faithful
+    // to TS useIdeAtMentioned.ts -> inputState.insert at cursor.
+    std::mutex pending_at_mention_mutex;
+    std::vector<std::string> pending_at_mention_inserts;
     // Status / spinner / permission / context
     StatusBarData status_bar;
     std::optional<std::string> spinner_verb, spinner_tip;
@@ -377,6 +447,12 @@ struct ReplScreenState {
     std::string status_line_command;        // Shell command for status line
     int status_line_padding = 0;            // Horizontal padding for status line
     std::string status_line_text;           // Cached output of the status line command (may contain ANSI)
+    // M4 faithful: rendered dimly in the footer right column when the OS
+    // clipboard has an image.  The engine detects the clipboard image and
+    // sets this to a localized hint such as "Image in clipboard · ctrl+v to
+    // paste".  std::nullopt = hide the hint entirely (default until the
+    // engine wires up platform clipboard detection).
+    std::optional<std::string> clipboard_image_hint;
     // Counts
     int background_task_count = 0, teammate_count = 0;
     bool teams_footer_selected = false;
@@ -396,6 +472,8 @@ struct ReplScreenState {
     // UI13: agent wizard component handle (lazily created by
     // dialog_router::get_agent_wizard()).
     std::shared_ptr<void> wizard_agent;
+    std::vector<cc::ui::agents::cards::AgentCardData> agent_cards;
+    std::shared_ptr<void> agents_component;
     // UI8: trust dialog component handle (lazy-created; opaque).
     std::shared_ptr<void> wizard_trust;
     // UI3: settings dialog component (lazy-created).  Opaque so state
@@ -436,6 +514,8 @@ struct ReplScreenCallbacks {
     std::function<std::optional<cc::ui::agents::cards::AgentCardData>(
         std::string_view agent_id)> load_agent_for_wizard;
     std::function<void(const cc::ui::agents::wizard::WizardDraft& draft)> save_agent_from_wizard;
+    std::function<void()> on_local_jsx_cancel;
+    std::function<bool(Event)> on_local_jsx_event;
 };
 
 // =========================================================
@@ -475,26 +555,50 @@ struct ReplScreenCallbacks {
          | bgcolor(Color::RGB(20, 20, 22));
 }
 
-// UI19: spinner line shell.  Animations/shimmer in spinner_widget.cppm.
+// UI19: spinner line shell.  Faithful port of TS Spinner.tsx + BriefSpinner.
+// Single claude-gold theme, cycling TEARDROP_ASTERISK glyph, random playful
+// verb sampled from spinner_verbs list, 3-dot blink cadence.
 [[nodiscard]] inline Element RenderSpinner(
     SpinnerMode m, const std::optional<std::string>& verb,
-    const std::optional<std::string>& tip) {
+    const std::optional<std::string>& tip,
+    int frame = 0) {
     if (m == SpinnerMode::Hidden) return text("");
-    struct S { std::string_view p, l; Color c; };
-    S s{};
-    switch (m) {
-      case SpinnerMode::Requesting: s={"^ ","Requesting",Color::Blue}; break;
-      case SpinnerMode::Thinking:   s={"(?) ","Thinking",Color::Cyan}; break;
-      case SpinnerMode::Responding: s={"v ","Responding",Color::Cyan}; break;
-      case SpinnerMode::ToolInput:  s={"(o) ","Preparing",Color::Yellow}; break;
-      case SpinnerMode::ToolUse:    s={"(o) ","Running",Color::Yellow}; break;
-      case SpinnerMode::Briefing:   s={"... ","Idle",Color::GrayLight}; break;
-      case SpinnerMode::IdleBrief:  s={"  ","",Color::GrayDark}; break;
-      default: return text(""); }
-    std::string label(s.l);
-    if (verb) label += ": " + *verb;
-    Elements p = { text(" "), text(std::string(s.p)) | color(s.c),
-                   text(label) | color(s.c) };
+    // TS Spinner.tsx: defaultColor='claude' (amber/gold), shimmer animation.
+    // Single theme token regardless of mode — no per-mode color switch.
+    const Color kClaudeGold = Color::RGB(217, 154, 56);  // ~claude token
+
+    // Pick a random playful verb once "per mount".  We don't track mount
+    // state here, so hash the mode + pid and sample the verbs list.
+    using cc::constants::spinner_verbs::SPINNER_VERBS;
+    static std::mt19937 rng{std::random_device{}()};
+    static thread_local std::uniform_int_distribution<std::size_t> dist(
+        0, SPINNER_VERBS.size() - 1);
+    static thread_local std::string_view cached_verb = SPINNER_VERBS[dist(rng)];
+    // Re-sample when mode transitions from Hidden -> something (frame==0
+    // from caller signals first visible frame of a new request).
+    if (frame == 1) cached_verb = SPINNER_VERBS[dist(rng)];
+
+    // 3-dot blink cycle: Math.floor(time/300)%3 per TS BriefSpinner.
+    // Frame increments ~per render at ~60Hz; use frame/18 as ~300ms tick.
+    const int dot_idx = std::max(0, frame / 18) % 3;
+    const std::string dots = std::string(static_cast<std::size_t>(dot_idx + 1), '.') +
+                             std::string(static_cast<std::size_t>(3 - dot_idx - 1), ' ');
+
+    // SpinnerGlyph cycle (frames of TEARDROP_ASTERISK animation); 8 frames.
+    constexpr std::array<std::string_view, 8> kGlyphs = {
+        "✻", "❋", "✦", "✧", "✶", "✷", "✸", "✹"
+    };
+    const auto glyph = kGlyphs[static_cast<std::size_t>(std::max(0, frame / 6)) % kGlyphs.size()];
+
+    std::string_view selected_verb = verb ? std::string_view(*verb) : cached_verb;
+    std::string label = std::string(selected_verb) + "\xE2\x80\xA6";  // …
+    Elements p = {
+        text("  ") | size(WIDTH, EQUAL, 2),  // paddingLeft=2
+        text(std::string(glyph)) | color(kClaudeGold),
+        text(" "),
+        text(label) | color(kClaudeGold),
+        text(dots)  | color(kClaudeGold) | dim,
+    };
     if (tip) p.push_back(text("  -- " + *tip) | dim);
     return hbox(p);
 }
@@ -508,15 +612,56 @@ struct ReplScreenCallbacks {
     return text + "…";
 }
 
+[[nodiscard]] inline std::string repeat_welcome_segment(std::string_view text, int count) {
+    std::string out;
+    for (int i = 0; i < count; ++i) out += text;
+    return out;
+}
+
+[[nodiscard]] inline std::vector<MessageDisplayEntry> BuildVisibleMessages(
+    const ReplScreenState& s) {
+    auto entries = s.messages;
+    if (!s.active_local_jsx_command) return entries;
+
+    MessageDisplayEntry command;
+    command.role = "user";
+    command.is_local_command_input = true;
+    command.content_preview = "/" + s.active_local_jsx_command_name;
+    if (!s.active_local_jsx_command_args.empty()) {
+        command.content_preview += " " + s.active_local_jsx_command_args;
+    }
+    command.timestamp = std::chrono::system_clock::now();
+    entries.push_back(std::move(command));
+
+    std::string content = s.active_local_jsx_content;
+    if (!content.empty() && content.back() != '\n') content.push_back('\n');
+    if (content.find("Esc to close") == std::string::npos &&
+        content.find("Esc to go back") == std::string::npos) {
+        content += "\nEsc to close";
+    }
+    MessageDisplayEntry local_jsx;
+    local_jsx.role = "system";
+    local_jsx.is_local_jsx_output = true;
+    local_jsx.content_preview = std::move(content);
+    local_jsx.timestamp = std::chrono::system_clock::now();
+    entries.push_back(std::move(local_jsx));
+
+    return entries;
+}
+
 // UI4/UI5: message list.  Delegates to messages_list.cppm (UI21).
 // `spinner_frame` drives the tool-use header spinner animation (fix #10).
 [[nodiscard]] inline Element RenderMessages(
     const std::vector<MessageDisplayEntry>& entries,
     int sel = -1, int vlines = 40,
-    [[maybe_unused]] int offs = 0, bool pinned = true,
+    int offs = 0, bool pinned = true,
     int spinner_frame = 0) {
     if (entries.empty()) {
-        return filler();
+        // Empty transcript: reserve zero height (do NOT return filler()/flex).
+        // Returning a flex filler here caused the sibling WelcomeHeader above
+        // to be compressed to 0 rows inside the outer scroll_rows vbox under a
+        // nested flex distribution (see repl_screen.cppm Compose call site).
+        return text("");
     }
 
     namespace ml = cc::ui::messages_list;
@@ -525,7 +670,45 @@ struct ReplScreenCallbacks {
     input.shapes.reserve(entries.size());
 
     for (const auto& m : entries) {
-        if (m.role == "user") {
+        if (m.is_local_command_input) {
+            input.shapes.push_back(messages::MessageShape::UserCommand);
+            input.rows.push_back(messages::UserTextMessageData{
+                .content = m.content_preview,
+                .timestamp = m.timestamp,
+                .quoted_reply = std::nullopt,
+                .is_transcript_mode = false,
+                .command_name = std::nullopt});
+        } else if (m.is_local_jsx_output) {
+            input.shapes.push_back(messages::MessageShape::UserLocalJsxOutput);
+            input.rows.push_back(messages::UserTextMessageData{
+                .content = m.content_preview,
+                .timestamp = m.timestamp,
+                .quoted_reply = std::nullopt,
+                .is_transcript_mode = false,
+                .command_name = std::nullopt});
+        } else if (m.is_local_command_output) {
+            input.shapes.push_back(messages::MessageShape::UserLocalCommandOutput);
+            messages::local_cmd::LocalCommandOptions opts;
+            opts.show_line_numbers = false;
+            opts.data.exit_code = m.is_error ? 1 : 0;
+
+            std::size_t start = 0;
+            while (start <= m.content_preview.size()) {
+                auto nl = m.content_preview.find('\n', start);
+                std::string line = nl == std::string::npos
+                    ? m.content_preview.substr(start)
+                    : m.content_preview.substr(start, nl - start);
+                opts.data.lines.push_back(messages::local_cmd::OutputLine{
+                    .kind = m.is_error
+                        ? messages::local_cmd::StreamKind::Stderr
+                        : messages::local_cmd::StreamKind::Stdout,
+                    .text = std::move(line),
+                });
+                if (nl == std::string::npos) break;
+                start = nl + 1;
+            }
+            input.rows.push_back(std::move(opts));
+        } else if (m.role == "user") {
             input.shapes.push_back(messages::MessageShape::UserText);
             input.rows.push_back(messages::UserTextMessageData{
                 .content = m.content_preview,
@@ -537,6 +720,14 @@ struct ReplScreenCallbacks {
                 input.shapes.push_back(messages::MessageShape::AssistantThinking);
                 messages::thinking_message::ThinkingMessageOptions opts;
                 opts.data.raw_text = m.content_preview;
+                // Static / unselected view must render the collapsed "Thinking"
+                // label (TS: AssistantThinkingMessage.tsx collapsed state)
+                // rather than hiding the row.  The messages-list fast path
+                // hides rows where thinking is neither selected nor "active".
+                if (m.thinking_active) {
+                    opts.data.state =
+                        messages::thinking_message::ThinkingState::Active;
+                }
                 input.rows.push_back(std::move(opts));
             } else if (m.is_tool_use) {
                 input.shapes.push_back(messages::MessageShape::AssistantToolUse);
@@ -631,10 +822,46 @@ struct ReplScreenCallbacks {
     const auto N = entries.size();
     bool has_streaming = !entries.empty() && entries.back().is_streaming;
     input.streaming_tail_row = has_streaming ? N - 1 : N;
+    input.pin_to_bottom = pinned;
+    input.scroll_offset = std::max(0, offs);
+    input.viewport_rows = std::max(1, vlines);
 
-    (void)vlines; (void)pinned;
     return ml::render_messages_list_view(std::move(input),
                                          static_cast<std::size_t>(spinner_frame)) | flex;
+}
+
+[[nodiscard]] inline int CountTextLines(std::string_view text) {
+    if (text.empty()) return 1;
+    return static_cast<int>(std::count(text.begin(), text.end(), '\n')) + 1;
+}
+
+[[nodiscard]] inline int EstimateTranscriptRows(
+    const std::vector<MessageDisplayEntry>& entries) {
+    int rows = 0;
+    for (const auto& entry : entries) {
+        rows += CountTextLines(entry.content_preview);
+        // Message list inserts one empty separator after each rendered row.
+        rows += 1;
+    }
+    return rows;
+}
+
+inline bool ScrollTranscript(const std::shared_ptr<ReplScreenState>& state,
+                             int delta) {
+    if (!state || delta == 0) return false;
+
+    const int viewport_rows = std::max(1, state->viewport_height_lines);
+    const auto visible_messages = BuildVisibleMessages(*state);
+    if (visible_messages.empty()) return false;
+    const int max_offset =
+        std::max(0, EstimateTranscriptRows(visible_messages) - viewport_rows);
+    if (max_offset == 0) return false;
+
+    const int next =
+        std::clamp(state->scroll_offset + delta, 0, max_offset);
+    state->scroll_offset = next;
+    state->scroll_pinned_to_bottom = next >= max_offset;
+    return true;
 }
 
 [[nodiscard]] inline Element RenderClawdMark(Color body, Color bg) {
@@ -686,11 +913,46 @@ struct ReplScreenCallbacks {
     }) | size(WIDTH, EQUAL, width);
 }
 
+[[nodiscard]] inline Element RenderWelcomeWindow(Element title,
+                                                 Element body,
+                                                 int width,
+                                                 int title_width,
+                                                 Color accent) {
+    width = std::max(width, 4);
+    const int title_offset = std::min(3, std::max(0, width - 2));
+    const int right_rule_width =
+        std::max(0, width - 2 - title_offset - title_width);
+
+    Element top = hbox({
+        text("╭") | color(accent),
+        text(repeat_welcome_segment("─", title_offset)) | color(accent),
+        std::move(title),
+        text(repeat_welcome_segment("─", right_rule_width)) | color(accent),
+        text("╮") | color(accent),
+    });
+    Element middle = hbox({
+        separator() | color(accent),
+        std::move(body) | size(WIDTH, EQUAL, width - 2),
+        separator() | color(accent),
+    });
+    Element bottom = hbox({
+        text("╰") | color(accent),
+        text(repeat_welcome_segment("─", width - 2)) | color(accent),
+        text("╯") | color(accent),
+    });
+    return vbox({
+        std::move(top),
+        std::move(middle),
+        std::move(bottom),
+    }) | size(WIDTH, EQUAL, width);
+}
+
 [[nodiscard]] inline Element RenderWelcomeLeftPanel(const ReplScreenState& s,
                                                     int spinner_frame,
                                                     int width,
                                                     Color accent,
                                                     Color muted,
+                                                    Color text_color,
                                                     Color bg) {
     const std::string welcome = cc::ui::logo::format_welcome_message(
         s.user_display_name);
@@ -717,7 +979,7 @@ struct ReplScreenCallbacks {
         hbox({
             cc::ui::design::logo::welcome_animated_asterisk(spinner_frame),
             text(" "),
-            text(welcome) | bold,
+            text(welcome) | bold | color(text_color),
         }) | center,
         text(""),
         RenderClawdMark(accent, bg) | center,
@@ -726,57 +988,40 @@ struct ReplScreenCallbacks {
     }) | size(WIDTH, EQUAL, width) | size(HEIGHT, GREATER_THAN, 9);
 }
 
-// UI0: welcome header.  Faithful to TS LogoV2's REPL home surface.
-// WelcomeV2 is used by onboarding; the REPL home screen uses LogoV2: a
-// bordered card titled "Claude Code vX", a left panel with the welcome line,
-// Clawd mark, model/cwd metadata, and a feed column on wide terminals.
+// UI0: welcome header.  Faithful to TS LogoV2/CondensedLogo + Opus1mMergeNotice:
+//   Row 1: orange AnimatedClawd + "Claude Code" bold + "vX.X.X" dim
+//   Row 2: model · billing_type dim
+//   Row 3: [@agent · ] cwd dim
+//   Row 4: ↑ "Opus now defaults to 1M context" banner
 // Shown only on a fresh idle session (messages empty + spinner hidden).
+// The old ASCII-art bordered card / left-panel / FeedColumn helpers are
+// preserved in this file but no longer called by this renderer.
 [[nodiscard]] inline Element RenderWelcomeHeader(const ReplScreenState& s,
-                                                 int spinner_frame = 0,
+                                                 int /*spinner_frame*/ = 0,
                                                  int term_cols = 80) {
-    namespace logo = cc::ui::design::logo;
-    namespace thm   = cc::ui::design::theme;
-    const auto theme = thm::current_theme();
-    const auto accent = theme.palette->primary;
-    const auto muted = theme.palette->muted;
-    const auto bg = theme.palette->background;
+    namespace logo = cc::ui::logo;
 
-    const bool horizontal = term_cols >= 70;
-    const std::string welcome = cc::ui::logo::format_welcome_message(
-        s.user_display_name);
     const std::string model_line = !s.model_display_name.empty()
         ? s.model_display_name
         : s.settings_model;
-    const int content_width = std::max(
-        string_width(welcome),
-        std::max(string_width(model_line), string_width(s.cwd)));
-    const int left_width = std::min(std::max(content_width, 20) + 4, 50);
+    const std::string& version = s.app_version.empty()
+        ? (const std::string&)(const std::string)"0.0.0" : s.app_version;
 
-    Element left = RenderWelcomeLeftPanel(
-        s, spinner_frame, left_width, accent, muted, bg);
+    // Gather the LogoDisplayData consumed by RenderCondensedLogoElement.
+    // agent_name is NOT exposed by ReplScreenState today; leave nullopt
+    // and let the renderer skip the "@agent · " prefix.
+    logo::LogoDisplayData data;
+    data.version            = version;
+    data.cwd                = s.cwd;
+    data.billing_type       = s.billing_type;
+    data.agent_name         = std::nullopt;
+    data.model_display_name = model_line;
 
-    Element body;
-    int outer_width = std::min(std::max(term_cols - 4, 40), 120);
-    if (horizontal) {
-        const int feed_width = std::max(30, outer_width - left_width - 7);
-        body = hbox({
-            std::move(left),
-            separator() | color(accent) | dim,
-            RenderWelcomeFeedColumn(feed_width, accent, muted),
-        });
-        outer_width = std::min(term_cols - 4, left_width + feed_width + 7);
-    } else {
-        body = std::move(left);
-        outer_width = std::min(term_cols - 4, std::max(left_width + 4, 24));
-    }
-
-    auto version = s.app_version.empty() ? std::string("0.0.0") : s.app_version;
-    Element title = hbox({
-        text(" Claude Code ") | color(accent) | bold,
-        text("v" + version + " ") | color(muted) | dim,
+    return vbox({
+        logo::RenderCondensedLogoElement(data, term_cols),
+        text(""),   // breathing room between logo and banner (TS LogoV2 margin)
+        logo::RenderOpus1MNotice(),
     });
-    return window(std::move(title), std::move(body) | xflex)
-        | size(WIDTH, EQUAL, outer_width);
 }
 
 // UI2: prompt input shell.  Full feature parity in prompt_input_full.cppm.
@@ -812,23 +1057,155 @@ struct ReplScreenCallbacks {
 //     driven by the existing vim_input::mode_display() helper.
 //   * Prompt chrome uses top and bottom horizontal rules, matching TS
 //     borderStyle="round" with left/right borders disabled.
-[[nodiscard]] inline Element RenderPromptInput(const ReplScreenState& s) {
+[[nodiscard]] inline bool is_utf8_continuation_byte(unsigned char c) {
+    return (c & 0xC0) == 0x80;
+}
+
+[[nodiscard]] inline std::size_t clamp_input_cursor(
+    const std::string& text,
+    std::size_t pos) {
+    if (pos == std::string::npos || pos > text.size()) return text.size();
+    while (pos > 0 &&
+           pos < text.size() &&
+           is_utf8_continuation_byte(static_cast<unsigned char>(text[pos]))) {
+        --pos;
+    }
+    return pos;
+}
+
+[[nodiscard]] inline std::size_t input_cursor_or_end(
+    const ReplScreenState& s) {
+    return clamp_input_cursor(s.input_text, s.input_cursor);
+}
+
+[[nodiscard]] inline std::size_t previous_utf8_boundary(
+    const std::string& text,
+    std::size_t pos) {
+    pos = clamp_input_cursor(text, pos);
+    if (pos == 0) return 0;
+    --pos;
+    while (pos > 0 &&
+           is_utf8_continuation_byte(static_cast<unsigned char>(text[pos]))) {
+        --pos;
+    }
+    return pos;
+}
+
+[[nodiscard]] inline std::size_t next_utf8_boundary(
+    const std::string& text,
+    std::size_t pos) {
+    pos = clamp_input_cursor(text, pos);
+    if (pos >= text.size()) return text.size();
+    ++pos;
+    while (pos < text.size() &&
+           is_utf8_continuation_byte(static_cast<unsigned char>(text[pos]))) {
+        ++pos;
+    }
+    return pos;
+}
+
+inline void set_prompt_input_text(
+    const std::shared_ptr<ReplScreenState>& state,
+    std::string value,
+    std::size_t cursor) {
+    state->input_text = std::move(value);
+    state->input_cursor = clamp_input_cursor(state->input_text, cursor);
+    state->is_prompt_input_active = true;
+    state->last_keystroke = std::chrono::steady_clock::now();
+}
+
+inline void insert_prompt_text(
+    const std::shared_ptr<ReplScreenState>& state,
+    std::string_view value) {
+    auto cursor = input_cursor_or_end(*state);
+    state->input_text.insert(cursor, value);
+    set_prompt_input_text(state, std::move(state->input_text), cursor + value.size());
+}
+
+// AT-09: drain inbound IDE at_mentioned tokens staged by the MCP receive
+// thread. MUST be called on the render thread (it mutates input_text/cursor).
+// Returns the number of tokens inserted. Empty under the lock fast-path when
+// nothing is pending so per-frame cost is negligible (keeps app.cppm thin).
+inline std::size_t DrainPendingAtMentionInserts(
+    const std::shared_ptr<ReplScreenState>& state) {
+    std::vector<std::string> batch;
+    {
+        std::lock_guard<std::mutex> lk(state->pending_at_mention_mutex);
+        if (state->pending_at_mention_inserts.empty()) return 0;
+        batch.swap(state->pending_at_mention_inserts);
+    }
+    for (const auto& token : batch) {
+        if (!token.empty()) insert_prompt_text(state, token);
+    }
+    return batch.size();
+}
+
+inline bool backspace_prompt_text(const std::shared_ptr<ReplScreenState>& state) {
+    auto cursor = input_cursor_or_end(*state);
+    if (cursor == 0) return false;
+    const auto prev = previous_utf8_boundary(state->input_text, cursor);
+    state->input_text.erase(prev, cursor - prev);
+    set_prompt_input_text(state, std::move(state->input_text), prev);
+    return true;
+}
+
+inline bool delete_prompt_text(const std::shared_ptr<ReplScreenState>& state) {
+    auto cursor = input_cursor_or_end(*state);
+    if (cursor >= state->input_text.size()) return false;
+    const auto next = next_utf8_boundary(state->input_text, cursor);
+    state->input_text.erase(cursor, next - cursor);
+    set_prompt_input_text(state, std::move(state->input_text), cursor);
+    return true;
+}
+
+inline void move_prompt_cursor_left(const std::shared_ptr<ReplScreenState>& state) {
+    state->input_cursor = previous_utf8_boundary(
+        state->input_text,
+        input_cursor_or_end(*state));
+    state->is_prompt_input_active = true;
+    state->last_keystroke = std::chrono::steady_clock::now();
+}
+
+inline void move_prompt_cursor_right(const std::shared_ptr<ReplScreenState>& state) {
+    state->input_cursor = next_utf8_boundary(
+        state->input_text,
+        input_cursor_or_end(*state));
+    state->is_prompt_input_active = true;
+    state->last_keystroke = std::chrono::steady_clock::now();
+}
+
+[[nodiscard]] inline Element RenderPromptInput(const ReplScreenState& s,
+                                                  int term_cols) {
     namespace uic = ::ui::components;
     namespace vim = cc::ui::prompt::vim_input;
 
     // --- 1. Prompt glyph (figures.pointer in TS) + accent colour ---------
-    std::string mp; Color mc = Color::White;
+    // TS PromptInputModeIndicator:
+    //   * normal prompt  : color=undefined → uses theme.text (dark: white,
+    //     light: black), NOT Green (hard-coded green was a CPP-only mistake).
+    //     Figures pointer = U+276F HEAVY RIGHT-POINTING ANGLE QUOTATION MARK ORNAMENT "❯".
+    //   * bash mode (!)  : bashBorder = ansi:magenta → RGB(255,0,135) dark token.
+    //   * slash command (/): subtle/muted.
+    //   * vim modes: same glyph as normal prompt, NOT per-mode color shifts
+    //     (the ModeIndicator badge shows the vim state separately).
+    //
+    // Color table mapped to FTXUI Color, faithful to theme.ts dark tokens:
+    //   theme.text        = ansi:whiteBright ≈ Color::White
+    //   theme.subtle      = ansi:blackBright ≈ Color::GrayLight
+    //   theme.promptBorder= ansi:white       ≈ Color::Palette::White
+    //   theme.bashBorder  = ansi:magenta     ≈ Color::Palette::Magenta
+    std::string mp; Color mc = Color::White;   // default: theme.text (white)
     switch (s.input_mode) {
-      case InputMode::Prompt:       mp="❯";   mc=Color::Green;    break;
-      case InputMode::Bash:         mp="!";   mc=Color::Red;      break;
-      case InputMode::SlashCommand: mp="/";   mc=Color::Cyan;     break;
-      case InputMode::HistorySearch:mp="?";   mc=Color::Magenta;  break;
-      case InputMode::PlanMode:     mp="▣";   mc=Color::Yellow;   break;
-      case InputMode::VimInsert:    mp="❯";  mc=Color::Green;    break;
-      case InputMode::VimNormal:    mp="❮";  mc=Color::Yellow;   break;
-      case InputMode::VimVisual:    mp="❮";  mc=Color::Magenta;  break;
+      case InputMode::Prompt:       mp="❯";   mc=Color::White;    break;
+      case InputMode::Bash:         mp="!";   mc=Color::Magenta;  break;   // bashBorder
+      case InputMode::SlashCommand: mp="/";   mc=Color::GrayLight;break;   // subtle
+      case InputMode::HistorySearch:mp="?";   mc=Color::GrayLight;break;   // subtle
+      case InputMode::PlanMode:     mp="▣";   mc=Color::Yellow; break;
+      case InputMode::VimInsert:    mp="❯";  mc=Color::White;    break;   // same as normal
+      case InputMode::VimNormal:    mp="❮";  mc=Color::White;    break;   // same
+      case InputMode::VimVisual:    mp="❮";  mc=Color::White;    break;   // same
       case InputMode::OrphanedPermission: mp="!"; mc=Color::Red;  break;
-      case InputMode::TaskNotification: mp="*"; mc=Color::Cyan;   break; }
+      case InputMode::TaskNotification: mp="*"; mc=Color::Cyan;  break; }
 
     // --- 2. Sync a TextInputImpl from the projection --------------------
     // Built per render (cheap: only the buffer text + cursor move).  We do
@@ -843,11 +1220,17 @@ struct ReplScreenCallbacks {
     opts.enable_undo_redo   = false;
     opts.cursor_blink_ms    = 0;   // deterministic snapshot (no flicker)
     opts.show_history       = false;
+    opts.argument_hint      = s.pending_argument_hint;  // SL-03
+    opts.inline_ghost_text = s.pending_ghost_text;      // SL-05
     auto impl = std::make_shared<uic::TextInputImpl>(opts);
     impl->set_text(s.input_text);  // parks cursor at end of buffer
-    // If the projection carries a caret offset in the future, an
-    // impl->move_cursor(...) call here would honour it.  Today the engine
-    // treats input as append-only, so end-of-buffer is the faithful caret.
+    const auto cursor = input_cursor_or_end(s);
+    const auto end = s.input_text.size();
+    if (cursor < end) {
+        impl->move_cursor(
+            -static_cast<int>(end - cursor),
+            /*extend_selection=*/false);
+    }
 
     // --- 3. Render the input area from the REAL component ---------------
     // RenderInputArea paints: prefix, multi-line vbox, the declared caret
@@ -869,9 +1252,10 @@ struct ReplScreenCallbacks {
         const int prefix_w = string_width(opts.prefix);
         const int rel_x = prefix_w + impl->cursor_display_col();
         const int rel_y = impl->cursor_line();
-        // Steady bar shape for IME compatibility.  Blinking cursors can
-        // interfere with some IME preedit rendering; a steady bar gives
-        // the IME a stable anchor point for the composition window.
+        // Keep the native terminal cursor hidden.  The visible caret is
+        // rendered by TextInputImpl (matching TS TextInput's inverse-glyph
+        // caret), while the hidden native cursor still gives IME/a11y tools a
+        // stable physical anchor.
         // The prompt input is the primary focus target in the REPL screen,
         // so we always declare the cursor position (mirrors TS where
         // `props.focus` is true for the prompt when no dialog is active).
@@ -879,7 +1263,7 @@ struct ReplScreenCallbacks {
         // "prompt has focus" instead of always-on.
         input_area = input_area | dc::declared_cursor(
             /*active=*/true, rel_x, rel_y,
-            Screen::Cursor::Shape::Bar);
+            Screen::Cursor::Shape::Hidden);
     }
 
     Elements box_body;
@@ -901,23 +1285,42 @@ struct ReplScreenCallbacks {
     }
 
     // --- 5. Compose -----------------------------------------------------
+    // TS renders the mode-prefix glyph at natural weight (no bold) using
+    // theme.text / theme.subtle / theme.bashBorder as the foreground.
+    // Adding `bold` here causes terminals that map bold to bright colors
+    // to produce a washed-out/bright-white prefix instead of the pure white
+    // TS emits.
     box_body.push_back(hbox({
         text(" "),
-        text(mp + " ") | color(mc) | bold,
+        text(mp + " ") | color(mc),
         input_area,
     }));
 
     auto content = vbox(std::move(box_body));
-    // TS: borderStyle="round" with borderLeft={false} borderRight={false}.
-    // Ink renders top and bottom horizontal rules without side rails.
-    auto rule = [] {
-        return separator() | color(Color::RGB(153, 153, 153));
-    };
+
+    // TS: Box with borderStyle="round", borderLeft={false}, borderRight={false}.
+    // Ink renders this as TWO plain horizontal rules:
+    //   - top:     "─" × width  (U+2500 BOX DRAWINGS LIGHT HORIZONTAL)
+    //   - bottom:  "─" × width
+    // No side borders; no corner chars (since left/right disabled).
+    // Color: promptBorder token → dark ansi:white ≈ RGB(153,153,153) in light;
+    // theme.promptBorder = ansi:whiteBright in dark.  Use a mid-gray for
+    // visibility in both themes.
+    const Color k_prompt_border = Color::RGB(153, 153, 153);
+
+    // FTXUI separator() fills the allocated width with the horizontal
+    // box-drawing glyph (equivalent to U+2500).  The outer size() below
+    // guarantees the width equals term_cols, so the rule spans the screen.
+    Element top_rule    = separator() | color(k_prompt_border);
+    Element bottom_rule = separator() | color(k_prompt_border);
+
+    // Outer container: allocate the exact requested width so separators
+    // expand to the full column count (no "missing border" artefacts).
     return vbox({
-        rule(),
+        std::move(top_rule),
         content,
-        rule(),
-    });
+        std::move(bottom_rule),
+    }) | size(WIDTH, EQUAL, std::max(term_cols, 40));
 }
 
 [[nodiscard]] inline std::string pad_to_columns(std::string text, int width) {
@@ -943,10 +1346,15 @@ struct ReplScreenCallbacks {
     const int end = std::min(start + visible, total);
 
     int widest = 0;
-    for (int i = start; i < end; ++i) {
-        widest = std::max(
-            widest,
-            string_width(s.autocomplete_suggestions[static_cast<std::size_t>(i)].display_text));
+    if (s.autocomplete_stable_name_width > 0) {
+        // INF-03: stable precomputed width (slash-command path) — no jitter.
+        widest = s.autocomplete_stable_name_width;
+    } else {
+        for (int i = start; i < end; ++i) {
+            widest = std::max(
+                widest,
+                string_width(s.autocomplete_suggestions[static_cast<std::size_t>(i)].display_text));
+        }
     }
     const int max_name_width = std::max(10, term_cols * 2 / 5);
     const int name_width = std::min(widest + 5, max_name_width);
@@ -977,6 +1385,41 @@ struct ReplScreenCallbacks {
     }
 
     return vbox(std::move(rows));
+}
+
+[[nodiscard]] inline std::optional<std::string> accept_selected_prompt_suggestion(
+    const std::shared_ptr<ReplScreenState>& state) {
+    if (state->autocomplete_suggestions.empty()) return std::nullopt;
+
+    const int total = static_cast<int>(state->autocomplete_suggestions.size());
+    const int selected = std::clamp(
+        state->autocomplete_index < 0 ? 0 : state->autocomplete_index,
+        0,
+        total - 1);
+    std::string accepted =
+        state->autocomplete_suggestions[static_cast<std::size_t>(selected)].insert_text;
+    if (accepted.empty()) {
+        accepted =
+            state->autocomplete_suggestions[static_cast<std::size_t>(selected)].display_text;
+    }
+
+    const auto& suggestion =
+        state->autocomplete_suggestions[static_cast<std::size_t>(selected)];
+    std::size_t start = suggestion.replacement_start;
+    std::size_t end = suggestion.replacement_end;
+    if (start == std::string::npos || end == std::string::npos ||
+        start > end || end > state->input_text.size()) {
+        start = 0;
+        end = state->input_text.size();
+    }
+
+    state->input_text.replace(start, end - start, accepted);
+    state->input_cursor = clamp_input_cursor(state->input_text, start + accepted.size());
+    state->autocomplete_suggestions.clear();
+    state->autocomplete_index = -1;
+    state->is_prompt_input_active = true;
+    state->last_keystroke = std::chrono::steady_clock::now();
+    return state->input_text;
 }
 
 // =========================================================
@@ -1267,6 +1710,7 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
     auto [term_cols, term_rows] = cc::ui::ink_utils::query_terminal_size();
     if (term_cols <= 0) term_cols = 80;
     if (term_rows <= 0) term_rows = 24;
+    s.viewport_height_lines = std::max(1, term_rows - 5);
 
     // Spinner frame tick: monotonically increments per render call so the
     // tool-use header spinner animates.  (The interactive ToolUseMessage
@@ -1282,90 +1726,125 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
 
     // ── scrollable slot (flexGrow region) ───────────────────────────────
     // Builds the same top→bottom order the old flat vbox had for the
-    // message transcript area: welcome header (fresh session), messages,
-    // spinner, tasks/teams panel.
+    // message transcript area: welcome header (fresh session), messages.
+    // Spinner is NOT a scroll row — it lives in the pinned chrome between
+    // the messages list and the prompt input (TS BriefSpinner marginTop=1).
     Elements L;
-    Elements scroll_rows; scroll_rows.reserve(6);
-    if (s.messages.empty() && s.spinner_mode == SpinnerMode::Hidden)
-        scroll_rows.push_back(RenderWelcomeHeader(s, spinner_frame, term_cols));
-    scroll_rows.push_back(RenderMessages(s.messages, s.selected_message_idx,
+    Elements scroll_rows; scroll_rows.reserve(4);
+    const auto visible_messages = BuildVisibleMessages(s);
+    // Faithful to TS FullscreenLayout.tsx: the CondensedLogo (welcome header)
+    // is ALWAYS rendered at the top of the scroll area — even when transcript
+    // messages exist (see IMG#19 — TS shows 4 history messages below the 4-line
+    // CondensedLogo + Opus notice).  The old `messages.empty()` gate caused the
+    // massive P0 visual gap reported in IMG#18.
+    //
+    // Height is pinned to HEIGHT EQUAL so nested yframe/flex never compresses
+    // the strip to 0 rows, and pinned width fills TERM_COLS so the strip has correct
+    // horizontal anchor.  Opus notice is rendered only when session is idle (no
+    // streaming, no JSX command active).
+    scroll_rows.push_back(RenderWelcomeHeader(s, spinner_frame, term_cols)
+                        | size(HEIGHT, EQUAL, 4)
+                        | size(WIDTH,  EQUAL, term_cols));
+    scroll_rows.push_back(RenderMessages(visible_messages, s.selected_message_idx,
                                          s.viewport_height_lines, s.scroll_offset,
                                          s.scroll_pinned_to_bottom, spinner_frame));
+    // Spinner lives in the chrome BETWEEN messages list and prompt input
+    // (TS BriefSpinner marginTop=1, NOT a message row inside scroll content).
+    Element spinner_chrome = text("");
     if (s.spinner_mode != SpinnerMode::Hidden)
-        scroll_rows.push_back(RenderSpinner(s.spinner_mode, s.spinner_verb, s.spinner_tip));
+        spinner_chrome = RenderSpinner(s.spinner_mode, s.spinner_verb,
+                                       s.spinner_tip, spinner_frame);
     // M7.5: Panel views (Tasks/Teams/Help/Settings/About/QuickOpen) are
     // now rendered as modal dialogs via DialogQueue — no longer inlined
     // in the scrollable slot.
     slots.scrollable = vbox(std::move(scroll_rows));
 
-    // ── bottom slot (pinned, flexShrink=0) ──────────────────────────────
-    // Faithful to TS PromptInputFooter structure:
-    //   suggestions overlay?  →  prompt input  →  footer (left/right columns)
-    //
-    // The footer contains StatusLine (optional, user-configurable) +
-    // PromptInputFooterLeftSide (mode indicator, tasks, teams, hints) on
-    // the left, and bridge/notifications on the right.
-    //
-    // STABLE HEIGHT: The LeftSide row is always exactly 1 row so scroll
-    // content never shifts when hints change.  StatusLine adds a row when
-    // present but is conditionally shown only in prompt mode + not short.
-    namespace pif = cc::ui::prompt::footer;
+    if (!s.active_local_jsx_command) {
+        // ── bottom slot (pinned, flexShrink=0) ──────────────────────────────
+        // Chrome order: [spinner (marginTop=1)] → [suggestions overlay?] →
+        //               [prompt input] → [footer]
+        //
+        // Faithful to TS PromptInputFooter structure:
+        //   suggestions overlay?  →  prompt input  →  footer (left/right columns)
+        //
+        // The footer contains StatusLine (optional, user-configurable) +
+        // PromptInputFooterLeftSide (mode indicator, tasks, teams, hints) on
+        // the left, and bridge/notifications on the right.
+        //
+        // STABLE HEIGHT: The LeftSide row is always exactly 1 row so scroll
+        // content never shifts when hints change.  StatusLine adds a row when
+        // present but is conditionally shown only in prompt mode + not short.
+        namespace pif = cc::ui::prompt::footer;
 
-    // Build StatusLine options (user-configurable command-driven status).
-    //
-    // Faithful to TS StatusLine.tsx:
-    //   - Configured by settings.statusLine, rendered only in prompt mode
-    //     and hidden in short fullscreen layouts
-    //   - content comes from executing the user's shell command
-    //   - In fullscreen, reserves a row even while loading (stable height)
-    //   - Text may contain ANSI escape codes for coloring
-    const bool is_fullscreen = cc::utils::is_fullscreen_enabled();
-    const bool is_short = is_fullscreen && term_rows < 24;
-    const bool status_line_configured =
-        s.status_line_enabled && !s.status_line_command.empty();
-    pif::StatusLineOptions status_line_opts;
-    status_line_opts.content = s.status_line_text;
-    status_line_opts.should_display =
-        status_line_configured &&
-        s.input_mode == InputMode::Prompt &&
-        !is_short;
-    status_line_opts.is_fullscreen = is_fullscreen;
-    status_line_opts.padding_x = s.status_line_padding;
+        // Build StatusLine options (user-configurable command-driven status).
+        //
+        // Faithful to TS StatusLine.tsx:
+        //   - Configured by settings.statusLine, rendered only in prompt mode
+        //     and hidden in short fullscreen layouts
+        //   - content comes from executing the user's shell command
+        //   - In fullscreen, reserves a row even while loading (stable height)
+        //   - Text may contain ANSI escape codes for coloring
+        const bool is_fullscreen = cc::utils::is_fullscreen_enabled();
+        const bool is_short = is_fullscreen && term_rows < 24;
+        const bool status_line_configured =
+            s.status_line_enabled && !s.status_line_command.empty();
+        pif::StatusLineOptions status_line_opts;
+        status_line_opts.content = s.status_line_text;
+        status_line_opts.should_display =
+            status_line_configured &&
+            s.input_mode == InputMode::Prompt &&
+            !is_short;
+        status_line_opts.is_fullscreen = is_fullscreen;
+        status_line_opts.padding_x = s.status_line_padding;
 
-    // Map InputMode to footer PromptInputMode
-    pif::PromptInputMode footer_mode = pif::PromptInputMode::Prompt;
-    switch (s.input_mode) {
-        case InputMode::Prompt:       footer_mode = pif::PromptInputMode::Prompt; break;
-        case InputMode::Bash:         footer_mode = pif::PromptInputMode::Bash; break;
-        case InputMode::SlashCommand: footer_mode = pif::PromptInputMode::SlashCommand; break;
-        case InputMode::HistorySearch:footer_mode = pif::PromptInputMode::HistorySearch; break;
-        case InputMode::PlanMode:     footer_mode = pif::PromptInputMode::PlanMode; break;
-        default: break;
-    }
-    // ── Assemble the bottom slot: Suggestions → PromptInput → Footer ──
-    L.reserve(3);
-    if (!s.autocomplete_suggestions.empty()) {
-        L.push_back(RenderPromptSuggestions(s, term_cols));
-    }
-    L.push_back(RenderPromptInput(s));
-    // PromptInputFooter: LeftSide carries mode/tasks/teams via
-    // ModeIndicatorOptions; StatusLine is its own nested struct.
-    pif::LeftSideOptions left_opts;
-    left_opts.mode_indicator.mode                 = footer_mode;
-    left_opts.mode_indicator.background_task_count = s.background_task_count;
-    left_opts.mode_indicator.teammate_count        = s.teammate_count;
-    left_opts.mode_indicator.teams_selected        = s.teams_footer_selected;
-    if (status_line_configured) {
-        left_opts.mode_indicator.show_hint = false;
-    }
-    pif::FooterOptions footer_opts;
-    footer_opts.status_line = std::move(status_line_opts);
-    footer_opts.left_side   = std::move(left_opts);
-    footer_opts.is_fullscreen = is_fullscreen;
-    footer_opts.is_narrow = term_cols < 80;
-    L.push_back(pif::RenderPromptInputFooter(footer_opts));
+        // Map InputMode to footer PromptInputMode
+        pif::PromptInputMode footer_mode = pif::PromptInputMode::Prompt;
+        switch (s.input_mode) {
+            case InputMode::Prompt:       footer_mode = pif::PromptInputMode::Prompt; break;
+            case InputMode::Bash:         footer_mode = pif::PromptInputMode::Bash; break;
+            case InputMode::SlashCommand: footer_mode = pif::PromptInputMode::SlashCommand; break;
+            case InputMode::HistorySearch:footer_mode = pif::PromptInputMode::HistorySearch; break;
+            case InputMode::PlanMode:     footer_mode = pif::PromptInputMode::PlanMode; break;
+            default: break;
+        }
+        // ── Assemble the bottom slot ──
+        L.reserve(4);
+        if (s.spinner_mode != SpinnerMode::Hidden) {
+            L.push_back(hbox({spinner_chrome, filler()}) | flex_shrink);
+        }
+        if (!s.autocomplete_suggestions.empty()) {
+            L.push_back(RenderPromptSuggestions(s, term_cols));
+        }
+        L.push_back(RenderPromptInput(s, term_cols));
+        // PromptInputFooter: LeftSide carries mode/tasks/teams via
+        // ModeIndicatorOptions; StatusLine is its own nested struct.
+        pif::LeftSideOptions left_opts;
+        left_opts.mode_indicator.mode                 = footer_mode;
+        left_opts.mode_indicator.background_task_count = s.background_task_count;
+        left_opts.mode_indicator.teammate_count        = s.teammate_count;
+        left_opts.mode_indicator.teams_selected        = s.teams_footer_selected;
+        if (status_line_configured) {
+            left_opts.mode_indicator.show_hint = false;
+        }
+        pif::FooterOptions footer_opts;
+        footer_opts.status_line = std::move(status_line_opts);
+        footer_opts.left_side   = std::move(left_opts);
+        footer_opts.is_fullscreen = is_fullscreen;
+        footer_opts.is_narrow = term_cols < 80;
+        // M4 faithful: outer chrome.
+        //   * Clipboard image hint — stays nullopt until the engine wires up
+        //     platform clipboard-image detection; no visual regression while
+        //     empty.
+        // NOTE: TS upstream does NOT render a brand pill in the footer
+        // (PromptInputFooter.tsx has zero occurrences of "CC-REPL" /
+        // "Claude Code" text).  Branding is rendered by CondensedLogo only
+        // in the top header.
+        if (s.clipboard_image_hint.has_value())
+            footer_opts.clipboard_image_hint = s.clipboard_image_hint;
+        L.push_back(pif::RenderPromptInputFooter(footer_opts));
 
-    slots.bottom = vbox(std::move(L)) | flex_shrink;
+        slots.bottom = vbox(std::move(L)) | flex_shrink;
+    }
 
     // M7: Standalone slot (trust dialog, first-run onboarding) takes over
     // the entire terminal — no chrome, no prompt, no messages rendered.
@@ -1533,6 +2012,258 @@ inline bool forward_agent(
 /// Reset (destroy) the agent wizard so the next entry starts fresh.
 inline void reset_agent_wizard(const std::shared_ptr<ReplScreenState>& s) {
     s->wizard_agent.reset();
+}
+
+// -------------------------------------------------------------------
+// Agents menu helpers (UI13)
+// -------------------------------------------------------------------
+
+namespace agents_menu {
+
+namespace cards = cc::ui::agents::cards;
+namespace agent_display = cc::tools::agent_display;
+
+struct AgentMenuOptions {
+    std::vector<cards::AgentCardData> agents;
+    std::function<void()> on_create_new;
+    std::function<void(const std::string& id)> on_select;
+    std::function<void()> on_cancel;
+};
+
+[[nodiscard]] inline bool is_built_in(const cards::AgentCardData& agent) {
+    return agent.source == "built-in";
+}
+
+[[nodiscard]] inline std::string resolved_model_label(
+    const cards::AgentCardData& agent) {
+    if (agent.model_override && !agent.model_override->empty()) {
+        return *agent.model_override;
+    }
+    return is_built_in(agent) ? "inherit" : "";
+}
+
+[[nodiscard]] inline std::vector<std::size_t> selectable_indices(
+    const std::vector<cards::AgentCardData>& agents) {
+    std::vector<std::size_t> out;
+    out.reserve(agents.size());
+    for (std::size_t i = 0; i < agents.size(); ++i) {
+        if (!is_built_in(agents[i])) out.push_back(i);
+    }
+    return out;
+}
+
+class AgentMenuListBase : public ComponentBase {
+public:
+    explicit AgentMenuListBase(AgentMenuOptions opts)
+        : opts_(std::move(opts)) {}
+
+    Element Render() override {
+        auto selectable = selectable_indices(opts_.agents);
+        const int item_count = 1 + static_cast<int>(selectable.size());
+        if (selected_position_ < 0 || selected_position_ >= item_count) {
+            selected_position_ = 0;
+        }
+
+        const auto theme = cc::ui::design::theme::current_theme();
+        const auto accent = theme.palette->primary;
+        const auto muted = theme.palette->muted;
+        const auto suggestion = theme.palette->suggestion;
+        const int active_count = static_cast<int>(opts_.agents.size());
+
+        Elements rows;
+        rows.push_back(render_create_row(selected_position_ == 0, suggestion));
+
+        for (const auto& group : agent_display::agent_source_groups()) {
+            if (group.source == "built-in") continue;
+            Elements group_rows;
+            for (std::size_t i = 0; i < opts_.agents.size(); ++i) {
+                const auto& agent = opts_.agents[i];
+                if (agent.source != group.source) continue;
+                group_rows.push_back(render_agent_row(
+                    agent,
+                    selected_position_for_index(selectable, i) == selected_position_,
+                    /*selectable=*/true,
+                    suggestion,
+                    muted));
+            }
+            if (group_rows.empty()) continue;
+            rows.push_back(text(""));
+            rows.push_back(text("  " + group.label) | bold | color(muted) | dim);
+            for (auto& row : group_rows) rows.push_back(std::move(row));
+        }
+
+        Elements built_in;
+        for (const auto& agent : opts_.agents) {
+            if (!is_built_in(agent)) continue;
+            built_in.push_back(render_agent_row(
+                agent,
+                /*selected=*/false,
+                /*selectable=*/false,
+                suggestion,
+                muted));
+        }
+        if (!built_in.empty()) {
+            rows.push_back(text(""));
+            rows.push_back(hbox({
+                text("  Built-in agents") | bold | color(muted) | dim,
+                text(" (always available)") | color(muted) | dim,
+            }));
+            for (auto& row : built_in) rows.push_back(std::move(row));
+        }
+
+        Element body = vbox(std::move(rows))
+            | vscroll_indicator
+            | yframe
+            | size(HEIGHT, LESS_THAN, 26);
+
+        Element title = vbox({
+            text("Agents") | bold | color(accent),
+            text(std::format("{} agents", active_count)) | color(muted) | dim,
+        });
+
+        return vbox({
+            title,
+            text(""),
+            std::move(body),
+        }) | flex;
+    }
+
+    bool OnEvent(Event ev) override {
+        if (ev == Event::Escape) {
+            if (opts_.on_cancel) opts_.on_cancel();
+            return true;
+        }
+
+        auto selectable = selectable_indices(opts_.agents);
+        const int item_count = 1 + static_cast<int>(selectable.size());
+        if (item_count <= 0) return false;
+
+        if (ev == Event::ArrowDown || ev == Event::Character('j')) {
+            selected_position_ = (selected_position_ + 1) % item_count;
+            return true;
+        }
+        if (ev == Event::ArrowUp || ev == Event::Character('k')) {
+            selected_position_ = (selected_position_ - 1 + item_count) % item_count;
+            return true;
+        }
+        if (ev == Event::Return) {
+            if (selected_position_ == 0) {
+                if (opts_.on_create_new) opts_.on_create_new();
+                return true;
+            }
+            const int idx = selected_position_ - 1;
+            if (idx >= 0 && idx < static_cast<int>(selectable.size())) {
+                const auto& agent = opts_.agents[selectable[static_cast<std::size_t>(idx)]];
+                if (opts_.on_select) opts_.on_select(agent.id);
+            }
+            return true;
+        }
+        return false;
+    }
+
+private:
+    [[nodiscard]] static int selected_position_for_index(
+        const std::vector<std::size_t>& selectable,
+        std::size_t index) {
+        for (std::size_t i = 0; i < selectable.size(); ++i) {
+            if (selectable[i] == index) return static_cast<int>(i) + 1;
+        }
+        return -1;
+    }
+
+    [[nodiscard]] static Element render_create_row(bool selected, Color suggestion) {
+        const auto c = selected ? suggestion : Color::Default;
+        return hbox({
+            text(selected ? "  › " : "    ") | color(c) | bold,
+            text("Create new agent") | color(c),
+        });
+    }
+
+    [[nodiscard]] static Element render_agent_row(
+        const cards::AgentCardData& agent,
+        bool selected,
+        bool selectable,
+        Color suggestion,
+        Color muted) {
+        const bool dimmed = !selectable;
+        const auto c = selected ? suggestion : Color::Default;
+        const auto model = resolved_model_label(agent);
+        Elements parts;
+        parts.push_back(text(selectable ? (selected ? "  › " : "    ") : "    ")
+            | color(c) | bold);
+        Element name = text(agent.name) | color(c);
+        if (dimmed) name = name | dim;
+        parts.push_back(std::move(name));
+        if (!model.empty()) {
+            parts.push_back(text(" · " + model)
+                | color(selected ? c : muted)
+                | dim);
+        }
+        return hbox(std::move(parts));
+    }
+
+    AgentMenuOptions opts_;
+    int selected_position_ = 0;  // 0 is "Create new agent".
+};
+
+[[nodiscard]] inline Component AgentMenuList(AgentMenuOptions opts) {
+    return Make<AgentMenuListBase>(std::move(opts));
+}
+
+} // namespace agents_menu
+
+inline void close_agents_menu(
+    const std::shared_ptr<ReplScreenState>& s,
+    const std::shared_ptr<ReplScreenCallbacks>& cb) {
+    s->mode = ReplMode::Normal;
+    s->agents_component.reset();
+    if (cb->on_mode_change) cb->on_mode_change(ReplMode::Normal);
+}
+
+[[nodiscard]] inline std::shared_ptr<Component> get_agents_component(
+    const std::shared_ptr<ReplScreenState>& s,
+    const std::shared_ptr<ReplScreenCallbacks>& cb) {
+    if (!s->agents_component) {
+        agents_menu::AgentMenuOptions opts;
+        opts.agents = s->agent_cards;
+        opts.on_create_new = [s, cb] {
+            close_agents_menu(s, cb);
+            if (cb->enqueue_slash_command) cb->enqueue_slash_command("/agents create");
+        };
+        opts.on_select = [s, cb](const std::string& id) {
+            close_agents_menu(s, cb);
+            if (cb->enqueue_slash_command) cb->enqueue_slash_command("/agents configure " + id);
+        };
+        opts.on_cancel = [s, cb] {
+            close_agents_menu(s, cb);
+        };
+        s->agents_component = std::make_shared<Component>(
+            agents_menu::AgentMenuList(std::move(opts)));
+    }
+    return std::static_pointer_cast<Component>(s->agents_component);
+}
+
+[[nodiscard]] inline Element render_agents_menu(
+    const std::shared_ptr<ReplScreenState>& s,
+    const std::shared_ptr<ReplScreenCallbacks>& cb) {
+    auto comp = get_agents_component(s, cb);
+    Element footer = text("  Press ↑↓ to navigate · Enter to select · Esc to go back")
+        | color(cc::ui::design::theme::current_theme().palette->muted)
+        | dim;
+    return comp ? vbox({(*comp)->Render(), std::move(footer)}) | flex : text("");
+}
+
+inline bool forward_agents_menu(
+    const std::shared_ptr<ReplScreenState>& s,
+    const std::shared_ptr<ReplScreenCallbacks>& cb,
+    Event ev) {
+    auto comp = get_agents_component(s, cb);
+    if (comp && (*comp)->OnEvent(ev)) return true;
+    if (ev == Event::Escape) {
+        close_agents_menu(s, cb);
+        return true;
+    }
+    return false;
 }
 
 // -------------------------------------------------------------------
@@ -1716,6 +2447,15 @@ inline bool forward_trust_dialog(
                            | flex_shrink,
                        filler() }) | flex });
         }
+        if (state->mode == ReplMode::AgentsView) {
+            Element agents_content = dialog_router::render_agents_menu(state, cb);
+            return vbox({ filler(),
+                          separator() |
+                              color(cc::ui::design::theme::current_theme().palette->muted),
+                          hbox({ text("  "),
+                                 agents_content | flex,
+                                 text("  ") }) | flex_shrink }) | flex;
+        }
         // UI8: TrustDialog is a STANDALONE slot — it takes over the full
         // terminal.  No chrome, no prompt, no messages show behind it.
         if (state->mode == ReplMode::TrustDialog) {
@@ -1769,6 +2509,9 @@ inline bool forward_trust_dialog(
         if (state->mode == ReplMode::CreateAgent ||
             state->mode == ReplMode::EditAgent) {
             return dialog_router::forward_agent(state, cb, ev);
+        }
+        if (state->mode == ReplMode::AgentsView) {
+            return dialog_router::forward_agents_menu(state, cb, ev);
         }
         // UI15 wizard modes: forward every event to the wizard
         // component (they manage Esc/Enter/buttons internally).
@@ -1866,33 +2609,120 @@ inline bool forward_trust_dialog(
         { if (cb->on_exit) cb->on_exit(); return true; }
     if (ev == Event::Character('\x0C')) {
         state->input_text.clear();
+        state->input_cursor = std::string::npos;
         state->autocomplete_suggestions.clear();
         state->autocomplete_index = -1; return true; }
     if (ev == Event::Character('\x0F')) return true;  // Ctrl+O transcript
 
+    if (!in_dialog &&
+        state->active_local_jsx_command &&
+        cb->on_local_jsx_event &&
+        cb->on_local_jsx_event(ev)) {
+        return true;
+    }
+
+    if (!in_dialog && state->active_local_jsx_command && ev == Event::Escape) {
+        if (cb->on_local_jsx_cancel) {
+            cb->on_local_jsx_cancel();
+        } else {
+            state->active_local_jsx_command = false;
+            state->active_local_jsx_command_name.clear();
+            state->active_local_jsx_command_args.clear();
+            state->active_local_jsx_content.clear();
+        }
+        return true;
+    }
+
+    if (!in_dialog && ev.is_mouse()) {
+        if (ev.mouse().button == Mouse::WheelUp) {
+            return ScrollTranscript(state, -3);
+        }
+        if (ev.mouse().button == Mouse::WheelDown) {
+            return ScrollTranscript(state, 3);
+        }
+    }
+    if (!in_dialog && state->autocomplete_suggestions.empty()) {
+        const int page = std::max(1, state->viewport_height_lines / 2);
+        if (ev == Event::PageUp) {
+            return ScrollTranscript(state, -page);
+        }
+        if (ev == Event::PageDown) {
+            return ScrollTranscript(state, page);
+        }
+    }
+
     // 3) Input-context events
     const bool accept_input = !in_dialog;
     if (accept_input) {
+        const int asn = static_cast<int>(state->autocomplete_suggestions.size());
         // Enter
+        if (ev == Event::Return && asn > 0) {
+            const int selected = std::clamp(
+                state->autocomplete_index < 0 ? 0 : state->autocomplete_index,
+                0,
+                asn - 1);
+            const bool submit =
+                state->autocomplete_suggestions[static_cast<std::size_t>(selected)]
+                    .submit_on_return;
+            auto accepted = accept_selected_prompt_suggestion(state);
+            if (submit && accepted && cb->on_submit) {
+                cb->on_submit(*accepted, state->input_mode);
+                state->input_history.push_back(*accepted);
+                if (state->input_history.size() > 1000) state->input_history.pop_front();
+                state->history_index = std::string::npos;
+                state->input_text.clear();
+                state->input_cursor = std::string::npos;
+                state->is_prompt_input_active = false;
+            }
+            return true;
+        }
         if (ev == Event::Return && !state->input_text.empty()) {
             if (cb->on_submit) cb->on_submit(state->input_text, state->input_mode);
             state->input_history.push_back(state->input_text);
             if (state->input_history.size() > 1000) state->input_history.pop_front();
             state->history_index = std::string::npos;
             state->input_text.clear();
+            state->input_cursor = std::string::npos;
             state->autocomplete_suggestions.clear();
             state->autocomplete_index = -1;
             state->is_prompt_input_active = false; return true; }
         // Ctrl+Enter -> newline (Ctrl+J in terminals)
         if (ev == Event::Character('\x0A')) {
-            state->input_text += '\n';
-            state->is_prompt_input_active = true;
-            state->last_keystroke = std::chrono::steady_clock::now(); return true; }
+            insert_prompt_text(state, "\n");
+            return true; }
         // Tab / Shift+Tab -> autocomplete
-        const int asn = static_cast<int>(state->autocomplete_suggestions.size());
         if (ev == Event::Tab && asn > 0) {
-            state->autocomplete_index = state->autocomplete_index < 0 ? 0
-                : (state->autocomplete_index + 1) % asn; return true; }
+            // AT-07: complete to the common prefix of all visible suggestion
+            // insert_texts when it strictly extends what's typed (e.g. "@sr"
+            // with {@src/readme, @src/main} → "@src/"); otherwise accept the
+            // selected suggestion. Faithful to TS typeahead Tab behavior.
+            const auto& sugg = state->autocomplete_suggestions;
+            std::string common = sugg[0].insert_text;
+            for (int k = 1; k < asn && !common.empty(); ++k) {
+                const auto& ins = sugg[k].insert_text;
+                std::size_t j = 0;
+                while (j < common.size() && j < ins.size() && common[j] == ins[j]) ++j;
+                common.resize(j);
+            }
+            const int idx = std::clamp(state->autocomplete_index, 0, asn - 1);
+            const auto& sel = sugg[idx];
+            const std::size_t rs = (sel.replacement_start == std::string::npos)
+                ? 0 : sel.replacement_start;
+            const std::size_t re = (sel.replacement_end == std::string::npos)
+                ? state->input_text.size() : sel.replacement_end;
+            const std::string typed = (rs <= re && re <= state->input_text.size())
+                ? state->input_text.substr(rs, re - rs) : std::string{};
+            if (!common.empty() && common.size() > typed.size() &&
+                common.compare(0, typed.size(), typed) == 0) {
+                state->input_text.replace(rs, re - rs, common);
+                state->input_cursor = rs + common.size();
+                state->is_prompt_input_active = true;
+                state->last_keystroke = std::chrono::steady_clock::now();
+            } else {
+                (void)accept_selected_prompt_suggestion(state);
+            }
+            return true;
+        }
         // Shift+Tab (ISO backtab) = \x1B[Z
         if (ev.input() == "\x1B[Z" && asn > 0) {
             state->autocomplete_index = state->autocomplete_index < 0 ? asn - 1
@@ -1912,6 +2742,7 @@ inline bool forward_trust_dialog(
                 ? state->input_history.size() - 1
                 : std::max<std::size_t>(0, state->history_index - 1);
             state->input_text = state->input_history[state->history_index];
+            state->input_cursor = state->input_text.size();
             state->is_prompt_input_active = true;
             state->last_keystroke = std::chrono::steady_clock::now(); return true; }
         if (ev == Event::ArrowDown
@@ -1919,20 +2750,49 @@ inline bool forward_trust_dialog(
             if (state->history_index + 1 >= state->input_history.size()) {
                 state->history_index = std::string::npos;
                 state->input_text.clear();
+                state->input_cursor = std::string::npos;
             } else {
-                state->input_text = state->input_history[++state->history_index]; }
+                state->input_text = state->input_history[++state->history_index];
+                state->input_cursor = state->input_text.size(); }
             state->is_prompt_input_active = true;
             state->last_keystroke = std::chrono::steady_clock::now(); return true; }
         // Esc
         if (ev == Event::Escape) {
             if (!state->autocomplete_suggestions.empty()) {
+                // INF-05: remember the dismissed input so a later non-mutating
+                // keystroke (e.g. arrow keys) doesn't reopen the popup.
+                state->dismissed_autocomplete_for_input = state->input_text;
                 state->autocomplete_suggestions.clear();
                 state->autocomplete_index = -1; return true; }
             if (state->selected_message_idx >= 0)
                 { state->selected_message_idx = -1; return true; }
             if (!state->input_text.empty()) {
                 state->input_text.clear();
+                state->input_cursor = std::string::npos;
                 state->history_index = std::string::npos; return true; } }
+        if (ev == Event::ArrowLeft) {
+            move_prompt_cursor_left(state);
+            return true;
+        }
+        if (ev == Event::ArrowRight) {
+            move_prompt_cursor_right(state);
+            return true;
+        }
+        if (ev == Event::Home) {
+            state->input_cursor = 0;
+            state->is_prompt_input_active = true;
+            state->last_keystroke = std::chrono::steady_clock::now();
+            return true;
+        }
+        if (ev == Event::End) {
+            state->input_cursor = state->input_text.size();
+            state->is_prompt_input_active = true;
+            state->last_keystroke = std::chrono::steady_clock::now();
+            return true;
+        }
+        if (ev == Event::Delete) {
+            if (delete_prompt_text(state)) return true;
+        }
         // Printable chars — accepts both ASCII and multi-byte UTF-8 (CJK).
         // FTXUI delivers composed IME characters as a single character event
         // containing the full UTF-8 byte sequence in ev.character().
@@ -1944,9 +2804,7 @@ inline bool forward_trust_dialog(
                 // start bytes (0xC0..0xFF).  Continuation bytes (0x80..0xBF)
                 // should never appear as the first byte of a character event.
                 if ((first >= 0x20 && first < 0x7F) || first >= 0xC0) {
-                    state->input_text += ch;
-                    state->is_prompt_input_active = true;
-                    state->last_keystroke = std::chrono::steady_clock::now();
+                    insert_prompt_text(state, ch);
                     return true;
                 }
             }
@@ -1955,18 +2813,7 @@ inline bool forward_trust_dialog(
         // codepoint, not just the last byte.  CJK characters are 3 bytes in
         // UTF-8, so a plain pop_back() would leave a partial/invalid sequence.
         if (ev == Event::Backspace && !state->input_text.empty()) {
-            // Back up from the end to the previous UTF-8 character boundary.
-            // UTF-8 continuation bytes have the top bit set and second bit
-            // clear (0b10xxxxxx).  We skip them to find the start byte.
-            std::size_t pos = state->input_text.size();
-            while (pos > 0) {
-                --pos;
-                unsigned char c = static_cast<unsigned char>(state->input_text[pos]);
-                if ((c & 0xC0) != 0x80) break;  // not a continuation byte
-            }
-            state->input_text.erase(pos);
-            state->is_prompt_input_active = true;
-            state->last_keystroke = std::chrono::steady_clock::now();
+            (void)backspace_prompt_text(state);
             return true;
         }
     }

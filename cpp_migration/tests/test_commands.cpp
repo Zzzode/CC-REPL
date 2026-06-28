@@ -85,7 +85,11 @@ struct LoginReaderGuard {
 };
 
 cc::core::CommandContext ctx(std::vector<std::string> args = {}, std::string raw = {}) {
-    return cc::core::CommandContext{.args = std::move(args), .raw_input = std::move(raw)};
+    return cc::core::CommandContext{
+        .args = std::move(args),
+        .raw_input = std::move(raw),
+        .cwd = {},
+    };
 }
 
 std::vector<cc::core::Message> compact_runtime_messages(void* state) {

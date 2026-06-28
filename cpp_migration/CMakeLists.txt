@@ -248,6 +248,13 @@ option(CC_REPL_WARNINGS_AS_ERRORS
 
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
     add_compile_options(-Wall -Wextra -Wpedantic)
+    # Clang: emit reduced BMI (smaller source-location footprint) so TUs that
+    # transitively import many cc.ui modules (e.g. tests/test_ui.cpp ~30 imports)
+    # stay under clang's 2GB source-location budget. Without this, accumulating
+    # cc.ui.* + std-header source locations across the import chain overflows.
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
+        add_compile_options(-fmodules-reduced-bmi)
+    endif()
 elseif(MSVC)
     add_compile_options(/W4)
 endif()

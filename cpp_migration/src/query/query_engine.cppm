@@ -305,6 +305,12 @@ struct QueryOptions {
     std::vector<std::string> enabled_tools;        // Subset of tools to enable
     std::optional<std::string> prompt_uuid;        // UUID for this prompt
     bool is_meta = false;                           // Whether this is a meta prompt
+    // AT-02: materialized @-mention file attachments (TextBlock/ImageBlock/...).
+    // stream_query appends these to the user message content after the text
+    // block so the model actually sees file contents — faithful to TS
+    // utils/attachments.ts (the C++ port previously passed "@path" literally,
+    // making @ a no-op for the model).
+    std::vector<ContentBlock> attachments;
 };
 
 // ============================================================
@@ -509,6 +515,11 @@ public:
         }
 
         auto msg = make_user_message(user_message, options.prompt_uuid);
+        // AT-02: append materialized @-mention attachments so the model sees
+        // the referenced file contents (not the literal "@path" string).
+        for (const auto& block : options.attachments) {
+            msg.content.push_back(block);
+        }
         append_message(Message{std::move(msg)});
 
         std::uint32_t round = 0;
@@ -747,6 +758,11 @@ public:
 
     /// Get current model parameters
     [[nodiscard]] const ModelParams& model_params() const noexcept { return config_.model_params; }
+
+    /// Get the effective working directory used by the engine.
+    [[nodiscard]] std::string working_directory() const {
+        return config_.cwd.value_or(std::filesystem::current_path().string());
+    }
 
     /// Get session ID
     [[nodiscard]] const SessionId& session_id() const noexcept { return session_id_; }

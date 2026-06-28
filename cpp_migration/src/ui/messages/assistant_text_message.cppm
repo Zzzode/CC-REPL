@@ -141,7 +141,8 @@ struct AssistantTextMessageData {
     std::optional<std::string> model_name;
     AssistantMessageKind kind = AssistantMessageKind::Normal;
     bool verbose = false;          // show raw text
-    bool show_dot = false;         // for empty streaming start
+    bool show_dot = true;          // TS BLACK_CIRCLE per text block (MessageRow
+                                   // passes shouldShowDot=true unconditionally)
     bool is_streaming = false;
     std::uint64_t input_tokens = 0;
     std::uint64_t output_tokens = 0;
@@ -394,12 +395,20 @@ class AssistantTextMessageComponent : public ComponentBase {
 // `body` is the already-rendered body Element (caller passes the markdown or a
 // plain-text fallback).  This keeps M4 focused on framing; M5 swaps in the
 // real Markdown renderer.
+//
+// `is_selected` controls the BLACK_CIRCLE dot color:
+//   * true  → "suggestion" (rgb(177,185,249) lavender, matching TS dark theme)
+//   * false → "text"       (rgb(255,255,255) pure white)
 [[nodiscard]] inline Element RenderAssistantTextMessageFaithful(
     const AssistantTextMessageData& data, Element body,
-    bool add_margin = true) {
-    // Optional leading dot (BLACK_CIRCLE, minWidth=2).  Selected → "suggestion"
-    // (cyan), else "text" (default fg).
-    const Color dot_color = Color::Cyan;
+    bool add_margin = true,
+    bool is_selected = false) {
+    // TS dark theme tokens (src/utils/theme.ts):
+    //   suggestion = rgb(177, 185, 249)  lavender
+    //   text       = rgb(255, 255, 255)  pure white
+    const Color dot_color = is_selected
+        ? Color::RGB(177, 185, 249)
+        : Color::RGB(255, 255, 255);
     Elements row;
     if (data.show_dot) {
         // "⏺ " — BLACK_CIRCLE + space (minWidth=2 cell).
@@ -420,9 +429,11 @@ class AssistantTextMessageComponent : public ComponentBase {
 /// with src/utils/markdown.ts), so this path now renders faithful markdown
 /// in the running app (no separate renderer swap needed).
 [[nodiscard]] inline Element RenderAssistantTextMessageFaithful(
-    const AssistantTextMessageData& data, bool add_margin = true) {
+    const AssistantTextMessageData& data,
+    bool add_margin = true,
+    bool is_selected = false) {
     auto body = ::cc::ui::render_markdown(detail::strip_prompt_xml_tags(data.content));
-    return RenderAssistantTextMessageFaithful(data, std::move(body), add_margin);
+    return RenderAssistantTextMessageFaithful(data, std::move(body), add_margin, is_selected);
 }
 
 }  // namespace cc::ui::messages

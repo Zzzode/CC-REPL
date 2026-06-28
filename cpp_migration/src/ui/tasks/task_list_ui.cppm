@@ -1,6 +1,6 @@
 /// @file task_list_ui.cppm
 /// @brief Task list display with status indicators, progress bars, and filtering.
-/// Migrated from src/components/tasks/ and TaskListV2.tsx
+/// Migrated from the upstream task list components.
 module;
 
 #include <string>

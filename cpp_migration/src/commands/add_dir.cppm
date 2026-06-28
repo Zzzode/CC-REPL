@@ -35,6 +35,7 @@ public:
                 CommandArg{.name = "--remember", .description = "Save to local settings", .type = ArgType::None, .required = false},
             },
             .category = "workspace",
+            .argument_hint = "<path> [--remember]",
         };
     }
 

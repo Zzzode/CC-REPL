@@ -222,6 +222,9 @@ struct MessagesListInput {
     Filters                         filters;
     std::string                     search_query;   // case-insensitive
     std::optional<std::size_t>      jump_to_row_on_init;
+    bool                            pin_to_bottom = false;
+    int                             scroll_offset = 0;
+    int                             viewport_rows = 40;
 };
 
 enum class ActionKind { Copy, Regenerate, Delete };
@@ -597,6 +600,7 @@ inline auto role_emoji(MessageShape s) -> const char* {
         case MessageShape::UserBashInput:
         case MessageShape::UserBashOutput:
         case MessageShape::UserLocalCommandOutput:
+        case MessageShape::UserLocalJsxOutput:
         case MessageShape::UserTeammate:
         case MessageShape::UserAgentNotification:
         case MessageShape::UserMemoryInput:
@@ -645,6 +649,7 @@ inline auto role_label(MessageShape s) -> const char* {
         case MessageShape::UserBashInput:
         case MessageShape::UserBashOutput:
         case MessageShape::UserLocalCommandOutput:
+        case MessageShape::UserLocalJsxOutput:
         case MessageShape::UserTeammate:
         case MessageShape::UserAgentNotification:
         case MessageShape::UserMemoryInput:
@@ -673,6 +678,7 @@ inline auto role_pill_color(MessageShape s) -> Color {
         case MessageShape::UserBashInput:
         case MessageShape::UserBashOutput:
         case MessageShape::UserLocalCommandOutput:
+        case MessageShape::UserLocalJsxOutput:
         case MessageShape::UserTeammate:
         case MessageShape::UserAgentNotification:
         case MessageShape::UserMemoryInput:
@@ -713,6 +719,7 @@ inline auto accent_top_color(const RenderEnvelopeOptions& o) -> Color {
         case MessageShape::UserBashInput:
         case MessageShape::UserBashOutput:
         case MessageShape::UserLocalCommandOutput:
+        case MessageShape::UserLocalJsxOutput:
         case MessageShape::UserTeammate:
         case MessageShape::UserAgentNotification:
         case MessageShape::UserMemoryInput:
@@ -849,13 +856,21 @@ inline auto derive_status_badge(MessageShape s, std::size_t row_idx,
 inline auto render_payload_row(const MessagesListInput& input,
                                std::size_t row_idx,
                                bool is_selected,
-                               std::size_t frame_count) -> Element
+                               std::size_t frame_count,
+                               bool add_margin) -> Element
 {
     if (row_idx >= input.shapes.size() || row_idx >= input.rows.size()) {
         return text("⚠ bad row_idx") | color(Color::Yellow);
     }
     MessageShape shape   = input.shapes[row_idx];
     const auto& payload  = input.rows[row_idx];
+
+    // Helper: returns true for shapes that belong to the same assistant
+    // "turn group" (i.e. multiple content blocks inside one TS assistant
+    // message: thinking, text, tool_use, redacted_thinking, grouped_tools).
+    // Used by the caller to decide whether add_margin should be true (first
+    // block of a turn) or false (same-turn siblings).
+    (void)add_margin;
 
     // ── LIVE-PATH FAITHFUL RENDER (M4 + M6) ───────────────────────────────
     // The five core message types (user/assistant/thinking/system/tool-use)
@@ -879,7 +894,7 @@ inline auto render_payload_row(const MessagesListInput& input,
         (input.streaming_tail_row != std::size_t(-1) &&
          row_idx == input.streaming_tail_row);
 
-    if (shape == S::UserText || shape == S::UserPrompt) {
+    if (shape == S::UserText || shape == S::UserPrompt || shape == S::UserCommand) {
         auto* d = std::get_if<UserTextMessageData>(&payload);
         if (d) {
             // Bridge the row-data variant to the faithful fn's args.  The
@@ -889,21 +904,79 @@ inline auto render_payload_row(const MessagesListInput& input,
             // command_name chip is set, route through the slash-command shape.
             const UserTextMessageData fd = *d;
             Element el = (shape == S::UserCommand || fd.command_name)
-                ? RenderUserCommandMessage(fd)
-                : RenderUserPromptMessage(fd);
+                ? RenderUserCommandMessage(fd, /*is_selected=*/is_selected)
+                : RenderUserPromptMessage(fd, /*is_selected=*/is_selected);
             (void)frame_count; (void)is_streaming_tail;
             return el;
+        }
+    }
+    else if (shape == S::UserLocalCommandOutput) {
+        auto* opts = std::get_if<local_cmd::LocalCommandOptions>(&payload);
+        if (opts) {
+            Element el = local_cmd::RenderLocalCommandOutputFaithful(*opts);
+            (void)frame_count; (void)is_streaming_tail;
+            return el;
+        }
+    }
+    else if (shape == S::UserLocalJsxOutput) {
+        auto* d = std::get_if<UserTextMessageData>(&payload);
+        if (d) {
+            Elements lines;
+            std::size_t start = 0;
+            while (start <= d->content.size()) {
+                const auto nl = d->content.find('\n', start);
+                std::string line = nl == std::string::npos
+                    ? d->content.substr(start)
+                    : d->content.substr(start, nl - start);
+
+                Element row = text(line.empty() ? " " : line);
+                if (line == "Skills" || line == "Agents") {
+                    row = std::move(row) | bold | color(Color::BlueLight);
+                } else if (line == "Esc to close" ||
+                           line.starts_with("Press ")) {
+                    row = std::move(row) | dim;
+                } else if (line.starts_with("› ")) {
+                    row = std::move(row) | bold | color(Color::Cyan);
+                } else if (line.find("─") != std::string::npos) {
+                    row = std::move(row) | dim;
+                } else if (line.ends_with("skills") ||
+                           line.find("skills (") != std::string::npos ||
+                           line == "MCP skills" ||
+                           line == "Workflow commands" ||
+                           line.ends_with("agents") ||
+                           line.find("agents (") != std::string::npos ||
+                           line == "Built-in (always available):") {
+                    row = std::move(row) | bold | dim;
+                } else if (const auto marker = line.find(" · ");
+                           marker != std::string::npos) {
+                    row = hbox({
+                        text(line.substr(0, marker)),
+                        text(line.substr(marker)) | dim,
+                    });
+                } else {
+                    row = std::move(row) | color(Color::GrayLight);
+                }
+                lines.push_back(std::move(row));
+
+                if (nl == std::string::npos) break;
+                start = nl + 1;
+            }
+            if (lines.empty()) lines.push_back(text(" "));
+            (void)frame_count; (void)is_streaming_tail;
+            return vbox(std::move(lines));
         }
     }
     else if (shape == S::AssistantText) {
         auto* d = std::get_if<AssistantTextMessageData>(&payload);
         if (d) {
-            AssistantTextMessageData fd = *d;
-            // The streaming tail shows a leading dot (TS BLACK_CIRCLE) — for a
-            // streaming row we surface it; for non-streaming we keep whatever
-            // the payload requested.
-            if (is_streaming_tail) fd.show_dot = true;
-            Element el = RenderAssistantTextMessageFaithful(fd, /*add_margin=*/true);
+            // TS shouldShowDot is ALWAYS true for every AssistantTextMessage
+            // block within a turn (B4), regardless of streaming state. The
+            // streaming-tail-only override below is REMOVED — the payload's
+            // own show_dot field (defaulted true in AssistantTextMessageData)
+            // now governs. Selection recolors the dot via is_selected below.
+            const AssistantTextMessageData& fd = *d;
+            Element el = RenderAssistantTextMessageFaithful(
+                fd, add_margin, /*is_selected=*/is_selected);
             (void)frame_count;
             return el;
         }
@@ -911,28 +984,42 @@ inline auto render_payload_row(const MessagesListInput& input,
     else if (shape == S::AssistantThinking || shape == S::AssistantRedactedThinking) {
         auto* o = std::get_if<thinking_message::ThinkingMessageOptions>(&payload);
         if (o) {
-            // Bridge: faithful fn takes the inner ThinkingMessageData plus the
-            // transcript/verbose flags.  We expose a row as "transcript" when
-            // selected (so selecting a thinking row expands it — same gesture
-            // as the divergent panel's toggle), and otherwise collapsed like
-            // the TS default.  Redacted thinking isn't in the faithful TS
-            // renderer's contract (TS hides it); we fall through to the
-            // divergent path for Redacted so the lock-badge panel still shows.
-            if (shape == S::AssistantThinking) {
-                Element el = thinking_message::RenderThinkingMessageFaithful(
-                    o->data,
-                    /*is_transcript_mode=*/is_selected,
-                    /*verbose=*/false,
-                    /*add_margin=*/true);
-                (void)frame_count;
-                return el;
+            // TS AssistantThinkingMessage.tsx line 36-38 guard:
+            //   if (hideInTranscript) return null;
+            // hideInTranscript = ThinkingState::Complete && !isTranscriptMode &&
+            //                    !verbose, which in the REPL faithful path maps to
+            //   complete && NOT (row selected for expand  OR  is the active
+            //   streaming tail block).
+            // Rows hidden here still contribute their turn-group side effects
+            // (add_margin state) so sibling assistant text blocks inside the
+            // same turn correctly inherit add_margin=false.
+            using TM = messages::thinking_message::ThinkingState;
+            const bool is_complete = o->data.state == TM::Complete;
+            const bool selected_or_active = is_selected || is_streaming_tail;
+            if (is_complete && !selected_or_active) {
+                (void)add_margin; (void)frame_count;
+                return text("");
             }
+            // NOTE: `is_selected` (row navigation highlight) does NOT mean
+            // "expanded" in the TS sense.  Expansion requires an explicit
+            // user gesture (Ctrl+O / Enter) via the interactive Component
+            // path.  On this plain-Element render path, selected merely
+            // lifts the "hide on complete" guard so the collapsed label is
+            // visible.  `is_transcript_mode` (full thinking content) is
+            // therefore always false here.
+            Element el = thinking_message::RenderThinkingMessageFaithful(
+                o->data,
+                /*is_transcript_mode=*/false,
+                /*verbose=*/false,
+                /*add_margin=*/add_margin);
+            (void)frame_count;
+            return el;
         }
     }
     else if (shape == S::SystemText) {
         auto* d = std::get_if<SystemTextMessageData>(&payload);
         if (d) {
-            Element el = RenderSystemTextMessageFaithful(*d, /*add_margin=*/true);
+            Element el = RenderSystemTextMessageFaithful(*d, /*add_margin=*/add_margin);
             (void)frame_count; (void)is_streaming_tail;
             return el;
         }
@@ -1042,7 +1129,7 @@ inline auto render_payload_row(const MessagesListInput& input,
 
             fd.is_transparent_wrapper = ui.is_transparent_wrapper;
             fd.should_show_dot = true;
-            fd.add_margin = true;
+            fd.add_margin = add_margin;
             fd.spinner_frame = static_cast<int>(frame_count);
             fd.should_animate = (opts->call.status == TS::Running);
 
@@ -1145,6 +1232,11 @@ constexpr std::size_t kMaxRenderedLastN = 80;   // last-N render cap
 
     Elements rows;
     rows.reserve(visible.size() - start + 2);
+    // TS semantics: each MESSAGE (API level) owns one marginTop=1 blank line.
+    // Blocks inside the same assistant message (thinking/text/tool_use) share
+    // that margin — only the FIRST assistant block of a turn emits it.  User
+    // messages are always treated as turn boundaries.
+    bool next_add_margin = true;   // true = row is "first after turn boundary"
     for (std::size_t vi = start; vi < visible.size(); ++vi) {
         const auto& vr = visible[vi];
         const bool is_selected =
@@ -1153,12 +1245,40 @@ constexpr std::size_t kMaxRenderedLastN = 80;   // last-N render cap
             vr.row_idx == *input.selected_row_idx;
 
         if (vr.kind == VisibleRow::Kind::Payload) {
+            const MessageShape shape =
+                (vr.row_idx < input.shapes.size())
+                    ? input.shapes[vr.row_idx]
+                    : MessageShape::SystemTaskAssignment;   // = max enum; treated as "not user/assistant"
+            using S = MessageShape;
+            const bool is_assistant_block =
+                (shape == S::AssistantText ||
+                 shape == S::AssistantThinking ||
+                 shape == S::AssistantRedactedThinking ||
+                 shape == S::AssistantToolUse ||
+                 shape == S::AssistantGroupedTools);
+            const bool is_user_row =
+                (shape == S::UserText ||
+                 shape == S::UserPrompt ||
+                 shape == S::UserCommand);
+            const bool row_add_margin = next_add_margin;
+            // Advance turn-state: user rows / system / tool-results are
+            // boundaries — next row gets its own margin.  An assistant block
+            // starts or continues a turn: next sibling assistant block has
+            // add_margin=false.  Any non-assistant row resets.
+            if (is_user_row || !is_assistant_block) {
+                next_add_margin = true;
+            } else {
+                // assistant turn continues
+                next_add_margin = false;
+            }
+
             rows.push_back(detail::render_payload_row(
-                input, vr.row_idx, is_selected, frame_count));
+                input, vr.row_idx, is_selected, frame_count, row_add_margin));
         } else {
+            // compact group row — always treated as a boundary
             rows.push_back(detail::render_compact_group_row(vr, is_selected));
+            next_add_margin = true;
         }
-        rows.push_back(separatorEmpty());
 
         // ---- Streaming tail: append after the row indicated by
         //      streaming_tail_row.  If that row is at or beyond the end of
@@ -1180,7 +1300,23 @@ constexpr std::size_t kMaxRenderedLastN = 80;   // last-N render cap
         }
     }
 
-    return vbox(std::move(rows)) | yframe | vscroll_indicator | flex;
+    Element list = vbox(std::move(rows));
+    if (input.scroll_offset > 0) {
+        const int viewport_rows = std::max(1, input.viewport_rows);
+        list = std::move(list)
+             | focusPosition(0, input.scroll_offset + viewport_rows / 2);
+    } else if (input.pin_to_bottom && visible.size() > 1) {
+        list = std::move(list) | focusPositionRelative(0, 1);
+    }
+    // NOTE: We used to apply yframe | vscroll_indicator here unconditionally,
+    // which caused a 0-row messages area (empty transcript) to EAT its sibling
+    // WelcomeHeader inside the outer flex vbox.  Only apply flex when the
+    // message list actually has content so the welcome strip keeps its
+    // natural 4 rows.
+    if (visible.empty()) {
+        return std::move(list) | yframe | vscroll_indicator;
+    }
+    return std::move(list) | yframe | vscroll_indicator | flex;
 }
 
 // =========================================================================
@@ -1360,20 +1496,46 @@ class MessagesListComponent final : public ComponentBase {
 
             Elements rows;
             rows.reserve(visible_rows_.size() - start + 2);
+            // Same turn-state machine as render_messages_list_view() — only
+            // the FIRST row of a user/assistant turn owns its marginTop;
+            // sibling assistant blocks share it.
+            bool next_add_margin = true;
             for (std::size_t vi = start; vi < visible_rows_.size(); ++vi) {
                 const auto& vr = visible_rows_[vi];
                 const bool is_selected =
                     selected_visible_index_.has_value() &&
                     *selected_visible_index_ == vi;
 
+                bool row_add_margin = next_add_margin;
                 if (vr.kind == VisibleRow::Kind::Payload) {
+                    const MessageShape shape =
+                        (vr.row_idx < input_.shapes.size())
+                            ? input_.shapes[vr.row_idx]
+                            : MessageShape::SystemTaskAssignment;  // = max enum; treated as "not user/assistant"
+                    using S = MessageShape;
+                    const bool is_assistant_block =
+                        (shape == S::AssistantText ||
+                         shape == S::AssistantThinking ||
+                         shape == S::AssistantRedactedThinking ||
+                         shape == S::AssistantToolUse ||
+                         shape == S::AssistantGroupedTools);
+                    const bool is_user_row =
+                        (shape == S::UserText ||
+                         shape == S::UserPrompt ||
+                         shape == S::UserCommand);
+                    if (is_user_row || !is_assistant_block) {
+                        next_add_margin = true;
+                    } else {
+                        next_add_margin = false;
+                    }
+
                     rows.push_back(detail::render_payload_row(
-                        input_, vr.row_idx, is_selected, frame_count_));
+                        input_, vr.row_idx, is_selected, frame_count_, row_add_margin));
                 } else {
                     rows.push_back(
                         detail::render_compact_group_row(vr, is_selected));
+                    next_add_margin = true;
                 }
-                rows.push_back(separatorEmpty());
 
                 // Streaming tail
                 if (vr.kind == VisibleRow::Kind::Payload &&

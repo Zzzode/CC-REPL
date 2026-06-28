@@ -14,6 +14,7 @@ module;
 #include <concepts>
 #include <format>
 #include <algorithm>
+#include <cctype>
 #include <regex>
 #include <filesystem>
 #include <fstream>
@@ -43,6 +44,8 @@ struct SkillDefinition {
     bool is_builtin = false;                   // Whether this is a built-in skill
     std::optional<std::string> author;         // Skill author (for custom skills)
     std::optional<std::string> version;        // Skill version string
+    std::optional<std::string> kind = std::nullopt;  // SL-08: skill kind (e.g. "workflow")
+    bool user_invocable = true;                // SL-10: false => reject /name invocation
 
     /// Serialize to JSON string for API transport
     [[nodiscard]] std::string to_json() const {
@@ -258,6 +261,13 @@ private:
             else if (key == "author") def.author = value;
             else if (key == "version") def.version = value;
             else if (key == "trigger") def.trigger_patterns.push_back(value);
+            else if (key == "kind" || key == "type") def.kind = value;  // SL-08
+            else if (key == "user-invocable" || key == "user_invocable") {  // SL-10
+                std::string v = value;
+                std::transform(v.begin(), v.end(), v.begin(),
+                    [](unsigned char c) { return std::tolower(c); });
+                def.user_invocable = !(v == "false" || v == "0" || v == "no");
+            }
         }
     }
 };

@@ -15,6 +15,7 @@ module;
 #include <deque>
 #include <map>
 #include <set>
+#include <unordered_set>
 #include <variant>
 #include <thread>
 #include <mutex>
@@ -22,11 +23,11 @@ module;
 #include <atomic>
 #include <cstdlib>
 #include <cctype>
+#include <cstdint>
 #include <algorithm>
 #include <cmath>
 #include <iterator>
-
-#include <unistd.h>  // for getcwd
+#include <filesystem>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/screen/screen.hpp>
@@ -43,6 +44,7 @@ import cc.types.command;
 import cc.commands.command;
 import cc.commands.registry;
 import cc.utils.session_storage;
+import cc.utils.skill_usage;
 import cc.ui.components;
 import cc.ui.components_extended;
 import cc.ui.markdown;
@@ -52,8 +54,17 @@ import cc.vim.vim_commands;
 import cc.hooks.tool_permissions;
 import cc.hooks.cost_hook;
 import cc.services.mcp.elicitation_handler;
+import cc.services.mcp.at_mention_handler;
 import cc.tools.ask_user;
+import cc.tools.agent_runtime;
+import cc.tools.agent_display;
 import cc.ui.repl_screen;
+import cc.ui.autocomplete_sources;
+import cc.ui.prompt.at_attachments;
+import cc.ui.prompt.file_index;
+import cc.ui.prompt.fuzzy_rank_nucleo;
+import cc.ui.agents.agent_cards;
+import cc.ui.agents.shared_widgets;
 import cc.ui.dialogs.default_renderers;
 import cc.ui.dialogs.system;
 import cc.ui.dialogs.cost_threshold_dialog;
@@ -64,9 +75,17 @@ import cc.utils.settings_manager;
 import cc.utils.statusline_runner;
 import cc.constants.constants;
 import cc.utils.model.model;
+import cc.hooks.lifecycle_hooks;
 import cc.ui.common.declared_cursor;
 
 export namespace cc::ui {
+
+// SL-11: defined in app_prompt_suggestion_wiring.cpp (impl unit) to keep the
+// heavy cc.services.prompt_suggestion import out of this thin module (clang
+// 2GB source-location budget).
+void wire_prompt_suggestion_hook(cc::hooks::LifecycleHookRegistry& hooks,
+                                 core::QueryEngine* engine,
+                                 std::shared_ptr<cc::ui::repl_screen::ReplScreenState> state);
 
 using namespace ftxui;
 using namespace cc::ui::components;
@@ -74,6 +93,13 @@ using namespace cc::core;
 
 namespace repl = cc::ui::repl_screen;
 namespace dsys = cc::ui::dialogs::system;
+namespace agent_runtime = cc::tools::agent_runtime;
+namespace agent_display = cc::tools::agent_display;
+namespace agent_cards = cc::ui::agents::cards;
+namespace agent_shared = cc::ui::agents::shared;
+namespace acsrc = cc::ui::autocomplete_sources;
+namespace atatt = cc::ui::prompt::at_attachments;
+namespace fidx = cc::ui::prompt::file_index;
 
 [[nodiscard]] inline std::optional<std::string> non_empty_env(const char* name) {
     if (const char* value = std::getenv(name); value && *value) {
@@ -103,6 +129,102 @@ namespace dsys = cc::ui::dialogs::system;
     }
 }
 
+[[nodiscard]] inline std::string trim_ascii_copy(std::string_view value) {
+    while (!value.empty() &&
+           std::isspace(static_cast<unsigned char>(value.front()))) {
+        value.remove_prefix(1);
+    }
+    while (!value.empty() &&
+           std::isspace(static_cast<unsigned char>(value.back()))) {
+        value.remove_suffix(1);
+    }
+    return std::string(value);
+}
+
+[[nodiscard]] inline std::string summarize_agent_description(
+    std::string_view description) {
+    auto newline = description.find('\n');
+    if (newline != std::string_view::npos) {
+        description = description.substr(0, newline);
+    }
+    std::string out = trim_ascii_copy(description);
+    constexpr std::size_t kMaxSummaryBytes = 160;
+    if (out.size() > kMaxSummaryBytes) {
+        out.resize(kMaxSummaryBytes);
+        out += "...";
+    }
+    return out;
+}
+
+[[nodiscard]] inline std::string lowercase_ascii(std::string_view value) {
+    std::string out(value);
+    for (char& ch : out) {
+        ch = static_cast<char>(
+            std::tolower(static_cast<unsigned char>(ch)));
+    }
+    return out;
+}
+
+// AT-12: nucleo-grade fuzzy ranking (drop-in for the former fuzzy_rank_ascii).
+namespace frn = cc::ui::prompt::fuzzy_rank_nucleo;
+
+[[nodiscard]] inline agent_cards::AgentCardData project_agent_definition_card(
+    const agent_runtime::AgentDefinition& agent) {
+    agent_cards::AgentCardData card;
+    card.id = agent.agent_type;
+    card.name = agent.agent_type;
+    card.agent_type = agent.agent_type;
+    card.source = agent.source;
+    card.description = summarize_agent_description(agent.when_to_use);
+    card.description_long = agent.when_to_use;
+    card.role_tags.push_back(std::string(agent_display::source_display_name(agent.source)));
+    card.tools = agent.tools;
+    card.status = agent_shared::AgentStatus::Idle;
+    if (!agent.model.empty()) {
+        card.model_override = agent.model;
+    }
+    card.permission_mode = agent.permission_mode;
+    card.is_subagent = true;
+    return card;
+}
+
+struct AutocompleteToken {
+    std::size_t start = 0;
+    std::size_t end = 0;
+    std::string text;
+};
+
+[[nodiscard]] inline bool ascii_isspace(char ch) {
+    return std::isspace(static_cast<unsigned char>(ch)) != 0;
+}
+
+[[nodiscard]] inline AutocompleteToken token_around_cursor(
+    std::string_view input,
+    std::size_t cursor) {
+    if (cursor == std::string::npos || cursor > input.size()) {
+        cursor = input.size();
+    }
+
+    std::size_t start = cursor;
+    while (start > 0 && !ascii_isspace(input[start - 1])) --start;
+
+    std::size_t end = cursor;
+    while (end < input.size() && !ascii_isspace(input[end])) ++end;
+
+    return AutocompleteToken{
+        .start = start,
+        .end = cursor,
+        .text = std::string(input.substr(start, cursor - start)),
+    };
+}
+
+// AT-12: fuzzy_match_ascii / fuzzy_rank_ascii removed — all autocomplete
+// ranking now delegates to cc::ui::prompt::fuzzy_rank_nucleo (frn::), which
+// ports the nucleo/fzf-v2 scorer (boundary/camel/consecutive/gap/path bonuses)
+// while preserving the exact {0..3} base range so the tier offsets (alias +1,
+// skill +4, plugin +6) and the rank-ascending sort stay unchanged. See
+// ui/prompt/fuzzy_rank_nucleo.cppm. lowercase_ascii() above is retained.
+
 [[nodiscard]] inline std::vector<Message> compact_runtime_messages(void* state) {
     auto* engine = static_cast<core::QueryEngine*>(state);
     return engine ? engine->get_conversation() : std::vector<Message>{};
@@ -124,10 +246,14 @@ namespace dsys = cc::ui::dialogs::system;
     return VoidResult{};
 }
 
-[[nodiscard]] inline CommandContext command_context_for_engine(core::QueryEngine* engine) {
+[[nodiscard]] inline CommandContext command_context_for_engine(
+    core::QueryEngine* engine,
+    std::string cwd = {}) {
+    if (cwd.empty() && engine) cwd = engine->working_directory();
     return CommandContext{
         .args = {},
         .raw_input = {},
+        .cwd = std::move(cwd),
         .runtime_state = engine,
         .compact_message_provider = compact_runtime_messages,
         .compact_applier = compact_runtime_apply,
@@ -287,12 +413,14 @@ project_messages(const Message& msg) {
 class AppAdapter : public ComponentBase {
 private:
     core::QueryEngine* engine_;
+    cc::hooks::LifecycleHookRegistry* lifecycle_hooks_{nullptr};
     cc::commands::AppCommandRegistry* cmd_registry_;
     utils::SessionStorage* storage_;
     std::function<void()> on_exit_;
 
     std::shared_ptr<repl::ReplScreenState> screen_state_;
     Component repl_component_;
+    std::vector<repl::MessageDisplayEntry> local_command_messages_;
 
     std::string current_session_id_;
 
@@ -303,7 +431,6 @@ private:
     std::jthread query_thread_;
     std::jthread spinner_thread_;
     std::atomic<bool> query_running_{false};
-    std::atomic<std::int64_t> welcome_animation_deadline_ms_{0};
     std::atomic<std::uint64_t> ui_animation_tick_count_{0};
     std::mutex result_mutex_;
     std::optional<std::string> pending_error_;
@@ -366,18 +493,6 @@ private:
     std::condition_variable statusline_cv_;
     int statusline_debounce_ms_ = 300;  // TS: 300ms debounce
 
-    [[nodiscard]] static std::int64_t steady_now_ms() {
-        return std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now().time_since_epoch()).count();
-    }
-
-    void RestartWelcomeAnimationClock() {
-        constexpr std::int64_t kWelcomeAnimationMs = 3000;
-        welcome_animation_deadline_ms_.store(
-            steady_now_ms() + kWelcomeAnimationMs,
-            std::memory_order_relaxed);
-    }
-
     void StartUiAnimationTicker() {
         spinner_thread_ = std::jthread([this](std::stop_token st) {
             constexpr auto kTick = std::chrono::milliseconds(50);
@@ -388,8 +503,9 @@ private:
 
                 const bool query_active = query_running_.load();
                 const bool welcome_active =
-                    steady_now_ms() <
-                    welcome_animation_deadline_ms_.load(std::memory_order_relaxed);
+                    screen_state_ &&
+                    screen_state_->messages.empty() &&
+                    screen_state_->spinner_mode == repl::SpinnerMode::Hidden;
                 if (!query_active && !welcome_active) {
                     query_statusline_tick = 0;
                     continue;
@@ -399,7 +515,7 @@ private:
                 PostRenderEvent();
 
                 if (query_active && ++query_statusline_tick % 20 == 0) {
-                    TriggerStatuslineUpdate();
+                    this->TriggerStatuslineUpdate();
                 }
             }
         });
@@ -409,6 +525,62 @@ private:
         if (auto* screen = screen_.load(std::memory_order_acquire)) {
             screen->Post(Event::Custom);
         }
+    }
+
+    void AppendLocalMessagesToScreenState() {
+        screen_state_->messages.insert(
+            screen_state_->messages.end(),
+            local_command_messages_.begin(),
+            local_command_messages_.end());
+    }
+
+    void AppendLocalCommandInputMessage(std::string command) {
+        if (command.empty()) return;
+        repl::MessageDisplayEntry entry;
+        entry.role = "user";
+        entry.content_preview = std::move(command);
+        entry.is_local_command_input = true;
+        entry.timestamp = std::chrono::system_clock::now();
+        local_command_messages_.push_back(std::move(entry));
+    }
+
+    void AppendLocalCommandMessage(std::string message, bool is_error = false) {
+        if (message.empty()) return;
+        repl::MessageDisplayEntry entry;
+        entry.role = "system";
+        entry.content_preview = std::move(message);
+        entry.is_local_command_output = true;
+        entry.is_error = is_error;
+        entry.timestamp = std::chrono::system_clock::now();
+        local_command_messages_.push_back(std::move(entry));
+        this->SyncState();
+        PostRenderEvent();
+    }
+
+    void AppendCommandResult(const CommandResult& result) {
+        AppendLocalCommandMessage(
+            result.message,
+            !result.ok || result.status == CommandStatus::Failed);
+    }
+
+    void ClearActiveLocalJsxCommand() {
+        screen_state_->active_local_jsx_command = false;
+        screen_state_->active_local_jsx_command_name.clear();
+        screen_state_->active_local_jsx_command_args.clear();
+        screen_state_->active_local_jsx_content.clear();
+        screen_state_->active_agents_selection_position = 0;
+    }
+
+    void DismissLocalJsxCommand(std::string result_message) {
+        if (!screen_state_->active_local_jsx_command) return;
+        std::string command = "/" + screen_state_->active_local_jsx_command_name;
+        if (!screen_state_->active_local_jsx_command_args.empty()) {
+            command += " " + screen_state_->active_local_jsx_command_args;
+        }
+
+        ClearActiveLocalJsxCommand();
+        AppendLocalCommandInputMessage(std::move(command));
+        AppendLocalCommandMessage(std::move(result_message), false);
     }
 
     [[nodiscard]] static std::string lowercase_ascii(std::string_view value) {
@@ -425,49 +597,50 @@ private:
         const int previous_index = screen_state_->autocomplete_index;
         screen_state_->autocomplete_suggestions.clear();
         screen_state_->autocomplete_index = -1;
+        screen_state_->autocomplete_stable_name_width = 0;  // INF-03: slash branch sets it
 
-        if (!cmd_registry_) return;
         const std::string& input = screen_state_->input_text;
-        if (input.empty() || input.front() != '/') return;
+        const std::size_t cursor =
+            screen_state_->input_cursor == std::string::npos ||
+                screen_state_->input_cursor > input.size()
+            ? input.size()
+            : screen_state_->input_cursor;
+        const auto token = token_around_cursor(input, cursor);
 
-        // TS commandSuggestions hides slash suggestions once arguments start.
-        if (input.find_first_of(" \t\n") != std::string::npos) return;
-
-        const std::string query = lowercase_ascii(std::string_view(input).substr(1));
-        struct Candidate {
-            std::string display_text;
-            std::string description;
-        };
-        std::vector<Candidate> candidates;
-        for (const auto* def : cmd_registry_->visible_commands()) {
-            if (!def) continue;
-            const auto name = lowercase_ascii(def->name);
-            if (!query.empty() && !name.starts_with(query)) continue;
-            candidates.push_back(Candidate{
-                .display_text = "/" + def->name,
-                .description = def->description,
-            });
-        }
-
-        std::ranges::sort(candidates, {}, &Candidate::display_text);
-        screen_state_->autocomplete_suggestions.reserve(candidates.size());
-        for (auto& candidate : candidates) {
+        auto add_suggestion = [&](std::string display,
+                                  std::string description,
+                                  std::string insert,
+                                  std::size_t start,
+                                  std::size_t end,
+                                  bool submit_on_return = false,
+                                  std::string id = "") {
+            if (id.empty()) id = display;  // INF-02: stable-id fallback
             screen_state_->autocomplete_suggestions.push_back(
                 repl::ReplScreenState::AutocompleteSuggestion{
-                    .display_text = std::move(candidate.display_text),
-                    .description = std::move(candidate.description),
+                    .display_text = std::move(display),
+                    .description = std::move(description),
+                    .insert_text = std::move(insert),
+                    .replacement_start = start,
+                    .replacement_end = end,
+                    .submit_on_return = submit_on_return,
+                    .id = std::move(id),
                 });
-        }
-        if (!screen_state_->autocomplete_suggestions.empty()) {
+        };
+
+        auto restore_index = [&] {
+            if (screen_state_->autocomplete_suggestions.empty()) return;
             int preserved_index = 0;
             if (previous_index >= 0 &&
                 previous_index < static_cast<int>(previous_suggestions.size())) {
                 const auto& previous =
                     previous_suggestions[static_cast<std::size_t>(previous_index)];
+                // INF-02: match by stable id (falls back to display_text via
+                // add_suggestion's default), so same-display items from
+                // different sources don't collide.
                 auto it = std::ranges::find(
                     screen_state_->autocomplete_suggestions,
-                    previous.display_text,
-                    &repl::ReplScreenState::AutocompleteSuggestion::display_text);
+                    previous.id,
+                    &repl::ReplScreenState::AutocompleteSuggestion::id);
                 if (it != screen_state_->autocomplete_suggestions.end()) {
                     preserved_index = static_cast<int>(
                         std::distance(
@@ -476,7 +649,951 @@ private:
                 }
             }
             screen_state_->autocomplete_index = preserved_index;
+        };
+
+        if (input.empty()) {
+            // SL-11: empty-prompt deterministic next-action suggestion.
+            // Surface the QueryEnd-generated suggestion as the lone popup
+            // entry while idle (not responding). A non-empty input falls
+            // through and clears next_action_suggestion below.
+            if (!query_running_.load() && screen_state_->next_action_suggestion &&
+                screen_state_->next_action_suggestion->front() != '/') {
+                const auto& text = *screen_state_->next_action_suggestion;
+                add_suggestion(text, "Suggested next action", text,
+                               0, 0, /*submit_on_return=*/false,
+                               /*id=*/"__next_action_suggestion__");
+                restore_index();
+            }
+            return;
         }
+        // SL-11: user typed something — retire the next-action suggestion.
+        screen_state_->next_action_suggestion.reset();
+
+        // INF-05: honor a previous Esc dismissal — if the user closed the
+        // popup for this exact input, don't reopen until the input changes.
+        // (Suggestions were already cleared at the top of this function.)
+        if (input == screen_state_->dismissed_autocomplete_for_input) {
+            return;
+        }
+        screen_state_->dismissed_autocomplete_for_input.clear();
+
+        // SL-03: derive inline argument hint for "/cmd ..." inputs (shown by
+        // TextInputImpl after the prompt). Faithful to TS useTypeahead's
+        // commandArgumentHint (src/hooks/useTypeahead.tsx:729-770).
+        screen_state_->pending_argument_hint.clear();
+        if (input.starts_with('/') && cmd_registry_) {
+            const auto sp = input.find(' ');
+            if (sp != std::string::npos && sp > 1) {
+                const std::string cmd_name = input.substr(1, sp - 1);
+                if (const auto* def = cmd_registry_->find_definition(cmd_name)) {
+                    if (!def->argument_hint.empty()) {
+                        screen_state_->pending_argument_hint = def->argument_hint;
+                    }
+                }
+            }
+        }
+
+        // SL-05: mid-input slash ghost text — a "/prefix" token appearing
+        // mid-input (input doesn't start with '/') completes inline to the
+        // shortest matching command name. Faithful to TS findMidInputSlashCommand
+        // + getBestCommandMatch (src/utils/commandSuggestions.ts:114-195).
+        screen_state_->pending_ghost_text.clear();
+        if (!input.starts_with('/') && token.text.starts_with('/') &&
+            cmd_registry_) {
+            const std::string partial = token.text.substr(1);
+            if (!(partial.empty() || partial.find(' ') != std::string::npos)) {
+                const CommandDefinition* best = nullptr;
+                for (const auto* def : cmd_registry_->visible_commands()) {
+                    if (def->name.size() >= partial.size() &&
+                        def->name.compare(0, partial.size(), partial) == 0) {
+                        if (!best || def->name.size() < best->name.size()) best = def;
+                    }
+                }
+                if (best && best->name.size() > partial.size()) {
+                    screen_state_->pending_ghost_text = best->name.substr(partial.size());
+                }
+            }
+        }
+
+        auto add_directory_suggestions = [&](std::string_view partial) {
+            std::filesystem::path base = screen_state_->cwd.empty()
+                ? std::filesystem::current_path()
+                : std::filesystem::path(screen_state_->cwd);
+            std::filesystem::path raw{std::string(partial)};
+            std::filesystem::path parent = raw.has_parent_path()
+                ? base / raw.parent_path()
+                : base;
+            const auto prefix = raw.has_parent_path()
+                ? raw.parent_path().string() + "/"
+                : std::string{};
+            const auto leaf = raw.filename().string();
+
+            std::error_code ec;
+            if (!std::filesystem::is_directory(parent, ec)) return;
+
+            struct DirCandidate { std::string display; std::string insert; int rank; };
+            std::vector<DirCandidate> dirs;
+            for (const auto& entry : std::filesystem::directory_iterator(parent, ec)) {
+                if (ec) break;
+                if (!entry.is_directory(ec)) continue;
+                const auto name = entry.path().filename().string();
+                if (!frn::fuzzy_match_nucleo(name, leaf)) continue;
+                auto insert = prefix + name + "/";
+                dirs.push_back(DirCandidate{
+                    .display = insert,
+                    .insert = insert,
+                    .rank = frn::fuzzy_rank_nucleo(name, leaf),
+                });
+                if (dirs.size() >= 50) break;
+            }
+            std::ranges::sort(dirs, [](const auto& a, const auto& b) {
+                if (a.rank != b.rank) return a.rank < b.rank;
+                return a.display < b.display;
+            });
+            for (auto& dir : dirs) {
+                add_suggestion(
+                    std::move(dir.display),
+                    "Directory",
+                    std::move(dir.insert),
+                    token.start,
+                    token.end,
+                    false);
+            }
+        };
+
+        auto add_session_suggestions = [&](std::string_view partial) {
+            if (!storage_) return;
+            auto sessions = storage_->list_sessions(50);
+            if (!sessions) return;
+            for (const auto& session : *sessions) {
+                const auto& id = session.metadata.id;
+                const auto& title = session.metadata.title;
+                if (!frn::fuzzy_match_nucleo(id, partial) &&
+                    !frn::fuzzy_match_nucleo(title, partial)) {
+                    continue;
+                }
+                add_suggestion(
+                    id.substr(0, std::min<std::size_t>(id.size(), 8)),
+                    title.empty() ? "Session" : title,
+                    id,
+                    token.start,
+                    token.end,
+                    true);
+            }
+        };
+
+        const auto before_cursor = input.substr(0, cursor);
+        if (before_cursor.starts_with("/add-dir ") ||
+            before_cursor.starts_with("/add-dir\t")) {
+            add_directory_suggestions(token.text);
+            restore_index();
+            return;
+        }
+        if (before_cursor.starts_with("/resume ") ||
+            before_cursor.starts_with("/resume\t") ||
+            before_cursor.starts_with("/r ") ||
+            before_cursor.starts_with("/r\t")) {
+            add_session_suggestions(token.text);
+            restore_index();
+            return;
+        }
+
+        if (input.starts_with('/') &&
+            cursor <= input.size() &&
+            before_cursor.find_first_of(" \t\n") != std::string::npos &&
+            cmd_registry_) {
+            auto completions = cmd_registry_->complete(before_cursor);
+            for (auto& completion : completions) {
+                const bool whole_command = completion.starts_with('/');
+                add_suggestion(
+                    completion,
+                    "Command argument",
+                    whole_command ? completion + " " : completion,
+                    whole_command ? 0 : token.start,
+                    whole_command ? cursor : token.end,
+                    true);
+            }
+            if (!screen_state_->autocomplete_suggestions.empty()) {
+                restore_index();
+                return;
+            }
+        }
+
+        if (token.text.starts_with('/')) {
+            const auto query = std::string_view(token.text).substr(1);
+            struct SlashCandidate {
+                std::string display;
+                std::string description;
+                std::string insert;
+                int rank = 0;
+                bool submit = true;
+                std::string id;  // INF-02: source-aware stable id
+            };
+            std::vector<SlashCandidate> candidates;
+
+            if (cmd_registry_) {
+                for (const auto* def : cmd_registry_->visible_commands()) {
+                    if (!def) continue;
+                    // SL-02: multi-key match — name (exact/prefix/substring/subseq)
+                    // outranks a description-word match, so commands are still
+                    // surfaced when the user types a description term (TS Fuse
+                    // weights descriptionKey×0.5; cpp previously matched name only).
+                    int cmd_rank = -1;
+                    if (frn::fuzzy_match_nucleo(def->name, query)) {
+                        cmd_rank = frn::fuzzy_rank_nucleo(def->name, query);
+                    } else {
+                        const auto d = lowercase_ascii(def->description);
+                        const auto q = lowercase_ascii(query);
+                        if (!q.empty() && d.find(q) != std::string::npos) {
+                            cmd_rank = 10;  // description match, lower priority
+                        }
+                    }
+                    if (cmd_rank >= 0) {
+                        // SL-06: only auto-execute (submit on Enter) commands that
+                        // don't require arguments — commands with required args
+                        // expand to "/cmd " so the user can type them. Faithful
+                        // to TS shouldExecute gated on argNames.length.
+                        bool needs_args = false;
+                        for (const auto& a : def->args) {
+                            if (a.required) { needs_args = true; break; }
+                        }
+                        // SL-07: TS shows the matched alias as a parenthetical on
+                        // the CANONICAL row (commandSuggestions.ts:265-287
+                        // createCommandSuggestionItem — aliasText = ` (${alias})`).
+                        std::string matched_alias;
+                        if (!query.empty() && !def->aliases.empty()) {
+                            const auto q = lowercase_ascii(query);
+                            for (const auto& alias : def->aliases) {
+                                if (lowercase_ascii(alias).starts_with(q)) {
+                                    matched_alias = alias;
+                                    break;
+                                }
+                            }
+                        }
+                        std::string display = "/" + def->name;
+                        if (!matched_alias.empty()) display += " (" + matched_alias + ")";
+                        candidates.push_back(SlashCandidate{
+                            .display = std::move(display),
+                            .description = def->description,
+                            .insert = "/" + def->name + " ",
+                            .rank = cmd_rank,
+                            .submit = !needs_args,
+                            .id = "cmd:" + def->name,
+                        });
+                    }
+                    for (const auto& alias : def->aliases) {
+                        if (!frn::fuzzy_match_nucleo(alias, query)) continue;
+                        candidates.push_back(SlashCandidate{
+                            .display = "/" + alias,
+                            .description = "Alias for /" + def->name,
+                            .insert = "/" + alias + " ",
+                            .rank = frn::fuzzy_rank_nucleo(alias, query) + 1,
+                            .submit = true,
+                            .id = "alias:" + alias,
+                        });
+                    }
+                }
+            }
+
+            for (const auto& skill : acsrc::collect_skill_suggestions(screen_state_->cwd)) {
+                // SL-02: name match outranks a description-word match (Fuse
+                // keeps descriptionKey at lower weight; cpp matched name only).
+                int skill_rank = -1;
+                if (frn::fuzzy_match_nucleo(skill.name, query)) {
+                    skill_rank = frn::fuzzy_rank_nucleo(skill.name, query) + 4;
+                } else {
+                    const auto d = lowercase_ascii(skill.description);
+                    const auto q = lowercase_ascii(query);
+                    if (!q.empty() && d.find(q) != std::string::npos) skill_rank = 14;
+                }
+                if (skill_rank < 0) continue;
+                // SL-04: recency boost — recently-used skills rank higher
+                // (TS getSkillUsageScore). Bounded so fuzzy relevance still wins
+                // on non-empty queries; on empty '/' all skills tie on fuzzy rank
+                // so recency dominates, surfacing recent skills first.
+                const int recency_bonus = static_cast<int>(
+                    std::min(cc::utils::skill_usage::get_skill_usage_score(skill.name), 3.0));
+                candidates.push_back(SlashCandidate{
+                    .display = "/" + skill.name,
+                    .description = (skill.kind == "workflow")
+                        ? std::format("[workflow] {} skill · {}", skill.source, skill.description)
+                        : std::format("{} skill · {}", skill.source, skill.description),
+                    .insert = "/" + skill.name + " ",
+                    .rank = skill_rank - recency_bonus,
+                    .submit = true,
+                    .id = "skill:" + skill.name + ":" + skill.source,
+                });
+            }
+
+            for (const auto& plugin_command : acsrc::collect_plugin_commands(screen_state_->cwd)) {
+                int plugin_rank = -1;
+                if (frn::fuzzy_match_nucleo(plugin_command.command, query)) {
+                    plugin_rank = frn::fuzzy_rank_nucleo(plugin_command.command, query) + 6;
+                } else {
+                    const auto d = lowercase_ascii(plugin_command.plugin_name);
+                    const auto q = lowercase_ascii(query);
+                    if (!q.empty() && d.find(q) != std::string::npos) plugin_rank = 16;
+                }
+                if (plugin_rank < 0) continue;
+                candidates.push_back(SlashCandidate{
+                    .display = "/" + plugin_command.command,
+                    .description = "Plugin command · " + plugin_command.plugin_name,
+                    .insert = "/" + plugin_command.command + " ",
+                    .rank = plugin_rank,
+                    .submit = false,
+                    .id = "plugin:" + plugin_command.command + ":" + plugin_command.plugin_name,
+                });
+            }
+
+            // SL-01: hidden-command exact-name escape hatch — if the user typed
+            // the full name of a hidden command, surface it at the top (TS
+            // commandSuggestions.ts:391-401 hiddenExact). visible_commands()
+            // otherwise hides them entirely.
+            if (auto* hidden = cmd_registry_->hidden_command_if_exact(query)) {
+                candidates.push_back(SlashCandidate{
+                    .display = "/" + hidden->name,
+                    .description = hidden->description,
+                    .insert = "/" + hidden->name + " ",
+                    .rank = -1000,  // force top (rank ascending = smaller first)
+                    .submit = true,
+                    .id = "hidden-cmd:" + hidden->name,
+                });
+            }
+
+            std::ranges::sort(candidates, [](const auto& a, const auto& b) {
+                if (a.rank != b.rank) return a.rank < b.rank;
+                return a.display < b.display;
+            });
+            // INF-03: precompute stable name-column width over ALL candidates
+            // (not just the visible window) so the description column doesn't
+            // jitter as the user filters. Slash names are ASCII, so size() is a
+            // faithful width measure here. Mirrors TS maxColumnWidth over
+            // visible commands (src/hooks/useTypeahead.tsx:380-386).
+            {
+                int widest = 0;
+                for (const auto& c : candidates) {
+                    widest = std::max(widest, static_cast<int>(c.display.size()));
+                }
+                screen_state_->autocomplete_stable_name_width = widest;
+            }
+            const std::size_t limit = std::min<std::size_t>(candidates.size(), 80);
+            for (std::size_t i = 0; i < limit; ++i) {
+                add_suggestion(
+                    std::move(candidates[i].display),
+                    std::move(candidates[i].description),
+                    std::move(candidates[i].insert),
+                    token.start,
+                    token.end,
+                    candidates[i].submit,
+                    std::move(candidates[i].id));
+            }
+            restore_index();
+            return;
+        }
+
+        // INF-01/AT-08: @ mentions are suppressed in bash mode. Faithful to TS
+        // useTypeahead (the @DM/@file branches are gated on mode !== 'bash');
+        // in bash mode we fall through to the $PATH shell-command scan below.
+        if (token.text.starts_with('@') &&
+            screen_state_->input_mode != repl::InputMode::Bash) {
+            const auto query = std::string_view(token.text).substr(1);
+            std::filesystem::path base = screen_state_->cwd.empty()
+                ? std::filesystem::current_path()
+                : std::filesystem::path(screen_state_->cwd);
+            std::filesystem::path raw{std::string(query)};
+            std::filesystem::path parent = raw.has_parent_path()
+                ? base / raw.parent_path()
+                : base;
+            const auto prefix = raw.has_parent_path()
+                ? raw.parent_path().string() + "/"
+                : std::string{};
+            const auto leaf = raw.filename().string();
+
+            // AT-01: bare @-queries (no path separator) fuzzy-match the whole
+            // repo via the file index — TS searches the index, so "@readme"
+            // finds src/readme.md. The directory_iterator block below still
+            // handles explicit path browsing (@src/...).
+            const bool bare_query = query.find('/') == std::string_view::npos &&
+                                    query.find('\\') == std::string_view::npos;
+
+            // AT-05: bare-@ teammate DM precedence — when the query has no path
+            // separator, teammate (native-agent) DM matches are shown EXCLUSIVELY
+            // before file/agent/mcp, mirroring TS useTypeahead @DM
+            // (src/hooks/useTypeahead.tsx:596-637, startsWith on lowercased name).
+            // With a match we return immediately so the popup is DM-only.
+            if (bare_query) {
+                auto starts_with_ci = [](std::string_view name, std::string_view q) {
+                    if (name.size() < q.size()) return false;
+                    for (std::size_t i = 0; i < q.size(); ++i) {
+                        if (std::tolower(static_cast<unsigned char>(name[i])) !=
+                            std::tolower(static_cast<unsigned char>(q[i]))) {
+                            return false;
+                        }
+                    }
+                    return true;
+                };
+                struct DmCandidate { std::string display; std::string insert; std::string desc; };
+                std::vector<DmCandidate> dms;
+                for (const auto& record : agent_runtime::load_all_native_agent_records()) {
+                    const auto name = record.name.value_or(record.agent_id);
+                    if (!starts_with_ci(name, query)) continue;
+                    dms.push_back(DmCandidate{
+                        .display = "@" + std::string(name),
+                        .insert = "@" + std::string(name) + " ",
+                        .desc = "Teammate · " +
+                                std::string(agent_runtime::native_agent_status_name(record.status)),
+                    });
+                }
+                if (!dms.empty()) {
+                    for (auto& d : dms) {
+                        add_suggestion(std::move(d.display), std::move(d.desc),
+                                       std::move(d.insert), token.start, token.end, false);
+                    }
+                    restore_index();
+                    return;  // exclusive: bare-@ with teammate match shows DMs only
+                }
+            }
+
+            std::error_code ec;
+            // AT-06: skip the file index when the query is empty (bare "@") —
+            // TS shows teammates/MCP/agents on an empty @ query, not every file
+            // in the repo. With a non-empty query the index fuzzy-matches.
+            if (bare_query && !query.empty()) {
+                struct RepoCandidate { std::string display; std::string insert; std::string desc; int rank; };
+                std::vector<RepoCandidate> repos;
+                for (const auto& rel : fidx::collect_repo_files(screen_state_->cwd)) {
+                    const std::size_t slash = rel.find_last_of("/\\");
+                    const std::string base = (slash == std::string::npos)
+                        ? rel : rel.substr(slash + 1);
+                    const bool match_base = frn::fuzzy_match_nucleo(base, query);
+                    const bool match_path = !match_base && frn::fuzzy_match_nucleo(rel, query);
+                    if (!match_base && !match_path) continue;
+                    repos.push_back(RepoCandidate{
+                        .display = "@" + rel,
+                        .insert = "@" + rel + " ",
+                        .desc = "File",
+                        .rank = frn::fuzzy_rank_nucleo(base, query) + (match_base ? 0 : 2),
+                    });
+                    if (repos.size() >= 60) break;
+                }
+                std::ranges::sort(repos, [](const auto& a, const auto& b) {
+                    if (a.rank != b.rank) return a.rank < b.rank;
+                    return a.display < b.display;
+                });
+                for (auto& r : repos) {
+                    add_suggestion(std::move(r.display), std::move(r.desc),
+                                   std::move(r.insert), token.start, token.end, false);
+                }
+            } else if (std::filesystem::is_directory(parent, ec)) {
+                struct FileCandidate { std::string display; std::string insert; std::string desc; int rank; };
+                std::vector<FileCandidate> files;
+                for (const auto& entry : std::filesystem::directory_iterator(parent, ec)) {
+                    if (ec) break;
+                    const auto name = entry.path().filename().string();
+                    if (name.starts_with(".")) continue;
+                    if (!frn::fuzzy_match_nucleo(name, leaf)) continue;
+                    const bool is_dir = entry.is_directory(ec);
+                    auto rel = prefix + name + (is_dir ? "/" : "");
+                    files.push_back(FileCandidate{
+                        .display = "@" + rel,
+                        .insert = "@" + rel,
+                        .desc = is_dir ? "Directory" : "File",
+                        .rank = frn::fuzzy_rank_nucleo(name, leaf),
+                    });
+                    if (files.size() >= 60) break;
+                }
+                std::ranges::sort(files, [](const auto& a, const auto& b) {
+                    if (a.rank != b.rank) return a.rank < b.rank;
+                    return a.display < b.display;
+                });
+                for (auto& file : files) {
+                    add_suggestion(
+                        std::move(file.display),
+                        std::move(file.desc),
+                        std::move(file.insert),
+                        token.start,
+                        token.end,
+                        false);
+                }
+            }
+
+            std::optional<std::filesystem::path> cwd_path;
+            if (!screen_state_->cwd.empty()) cwd_path = std::filesystem::path(screen_state_->cwd);
+            for (const auto& agent : agent_runtime::get_all_agent_definitions(cwd_path)) {
+                if (!frn::fuzzy_match_nucleo(agent.agent_type, query)) continue;
+                add_suggestion(
+                    "@" + agent.agent_type,
+                    "Agent · " + summarize_agent_description(agent.when_to_use),
+                    "@" + agent.agent_type + " ",
+                    token.start,
+                    token.end,
+                    false);
+            }
+            for (const auto& record : agent_runtime::load_all_native_agent_records()) {
+                const auto name = record.name.value_or(record.agent_id);
+                if (!frn::fuzzy_match_nucleo(name, query)) continue;
+                add_suggestion(
+                    "@" + name,
+                    "Teammate · " + std::string(agent_runtime::native_agent_status_name(record.status)),
+                    "@" + name + " ",
+                    token.start,
+                    token.end,
+                    false);
+            }
+            for (const auto& resource : acsrc::collect_mcp_resource_suggestions()) {
+                if (!frn::fuzzy_match_nucleo(resource.display, query) &&
+                    !frn::fuzzy_match_nucleo(resource.insert_text, query)) {
+                    continue;
+                }
+                add_suggestion(
+                    "@" + resource.display,
+                    resource.description,
+                    "@" + resource.insert_text + " ",
+                    token.start,
+                    token.end,
+                    false);
+            }
+            restore_index();
+            return;
+        }
+
+        // INF-01/AT-08: # channels are suppressed in bash mode. Faithful to TS
+        // useTypeahead (the #slack branch is gated on mode === 'prompt'); in
+        // bash mode we fall through to the $PATH shell-command scan below.
+        if (token.text.starts_with('#') &&
+            screen_state_->input_mode != repl::InputMode::Bash) {
+            const auto query = std::string_view(token.text).substr(1);
+            for (const auto& resource : acsrc::collect_mcp_resource_suggestions()) {
+                if (!resource.channel_like) continue;
+                const auto display = resource.display.starts_with("#")
+                    ? resource.display
+                    : "#" + resource.display;
+                if (!frn::fuzzy_match_nucleo(display, token.text) &&
+                    !frn::fuzzy_match_nucleo(resource.insert_text, query)) {
+                        continue;
+                    }
+                add_suggestion(
+                    display,
+                    resource.description,
+                    display + " ",
+                    token.start,
+                    token.end,
+                    false);
+            }
+            restore_index();
+            return;
+        }
+
+        if (screen_state_->input_mode == repl::InputMode::Bash && !token.text.empty()) {
+            std::unordered_set<std::string> seen;
+            if (const char* path_env = std::getenv("PATH")) {
+                std::string_view paths(path_env);
+                while (!paths.empty()) {
+                    auto sep = paths.find(':');
+                    auto current = sep == std::string_view::npos
+                        ? paths
+                        : paths.substr(0, sep);
+                    if (sep == std::string_view::npos) paths = {};
+                    else paths.remove_prefix(sep + 1);
+
+                    std::error_code ec;
+                    std::filesystem::path dir{std::string(current)};
+                    if (!std::filesystem::is_directory(dir, ec)) continue;
+                    for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
+                        if (ec) break;
+                        auto name = entry.path().filename().string();
+                        if (seen.contains(name) || !frn::fuzzy_match_nucleo(name, token.text)) continue;
+                        seen.insert(name);
+                        add_suggestion(
+                            name,
+                            "Shell command",
+                            name + " ",
+                            token.start,
+                            token.end,
+                            false);
+                        if (screen_state_->autocomplete_suggestions.size() >= 50) break;
+                    }
+                    if (screen_state_->autocomplete_suggestions.size() >= 50) break;
+                }
+            }
+            restore_index();
+        }
+    }
+
+    [[nodiscard]] static bool is_built_in_agent(
+        const agent_cards::AgentCardData& agent) {
+        return agent.source == "built-in";
+    }
+
+    [[nodiscard]] static std::vector<std::size_t> selectable_agent_indices(
+        const std::vector<agent_cards::AgentCardData>& agents) {
+        std::vector<std::size_t> out;
+        out.reserve(agents.size());
+        for (std::size_t i = 0; i < agents.size(); ++i) {
+            if (!is_built_in_agent(agents[i])) out.push_back(i);
+        }
+        return out;
+    }
+
+    [[nodiscard]] static std::string agent_model_label(
+        const agent_cards::AgentCardData& agent) {
+        if (agent.model_override && !agent.model_override->empty()) {
+            return *agent.model_override;
+        }
+        return is_built_in_agent(agent) ? "inherit" : "";
+    }
+
+    [[nodiscard]] static std::string FormatAgentsMenuOutput(
+        const std::vector<agent_cards::AgentCardData>& agents,
+        int selected_position) {
+        const auto selectable = selectable_agent_indices(agents);
+        const int selectable_count = static_cast<int>(selectable.size());
+        const int display_count = static_cast<int>(agents.size());
+        const int item_count = std::max(1, selectable_count + 1);
+        selected_position = std::clamp(selected_position, 0, item_count - 1);
+
+        std::string out;
+        out += "Agents\n";
+        if (selectable_count == 0) {
+            out += "No agents found\n";
+        } else {
+            out += std::format(
+                "{} agent{}\n",
+                display_count,
+                display_count == 1 ? "" : "s");
+        }
+
+        out += "\n";
+        out += selected_position == 0 ? "› Create new agent\n"
+                                      : "  Create new agent\n";
+
+        if (selectable_count == 0) {
+            out += "\n";
+            out += "No agents found. Create specialized subagents that Claude can delegate to.\n";
+            out += "Each subagent has its own context window, custom system prompt, and specific tools.\n";
+            out += "Try creating: Code Reviewer, Code Simplifier, Security Reviewer, Tech Lead, or UX Reviewer.\n";
+        } else {
+            int position = 1;
+            for (const auto& group : agent_display::agent_source_groups()) {
+                if (group.source == "built-in") continue;
+
+                bool has_group = false;
+                for (const auto& agent : agents) {
+                    if (agent.source == group.source) {
+                        has_group = true;
+                        break;
+                    }
+                }
+                if (!has_group) continue;
+
+                out += "\n";
+                out += group.label;
+                out += "\n";
+                for (const auto& agent : agents) {
+                    if (agent.source != group.source) continue;
+                    out += position == selected_position ? "› " : "  ";
+                    out += agent.name;
+                    const auto model = agent_model_label(agent);
+                    if (!model.empty()) {
+                        out += " · ";
+                        out += model;
+                    }
+                    out += "\n";
+                    ++position;
+                }
+            }
+        }
+
+        bool has_built_in = false;
+        for (const auto& agent : agents) {
+            if (is_built_in_agent(agent)) {
+                has_built_in = true;
+                break;
+            }
+        }
+        if (has_built_in) {
+            out += "\n────────────────────────────────────────────────────────────────\n\n";
+            out += selectable_count == 0
+                ? "Built-in (always available):\n"
+                : "Built-in agents (always available)\n";
+            for (const auto& agent : agents) {
+                if (!is_built_in_agent(agent)) continue;
+                out += agent.name;
+                const auto model = agent_model_label(agent);
+                if (!model.empty()) {
+                    out += " · ";
+                    out += model;
+                }
+                out += "\n";
+            }
+        }
+
+        out += "\nPress ↑↓ to navigate · Enter to select · Esc to go back";
+        return out;
+    }
+
+    void RefreshAgentsMenuOutput() {
+        screen_state_->active_local_jsx_content = FormatAgentsMenuOutput(
+            screen_state_->agent_cards,
+            screen_state_->active_agents_selection_position);
+    }
+
+    void LoadAgentCardsForMenu() {
+        std::optional<std::filesystem::path> cwd;
+        if (!screen_state_->cwd.empty()) {
+            cwd = std::filesystem::path(screen_state_->cwd);
+        }
+
+        auto definitions = agent_runtime::get_all_agent_definitions(std::move(cwd));
+        std::ranges::sort(definitions, agent_display::CompareAgentsByName{});
+
+        screen_state_->agent_cards.clear();
+        screen_state_->agent_cards.reserve(definitions.size());
+        for (const auto& definition : definitions) {
+            screen_state_->agent_cards.push_back(
+                project_agent_definition_card(definition));
+        }
+        screen_state_->agents_component.reset();
+    }
+
+    void OpenAgentsMenu() {
+        LoadAgentCardsForMenu();
+        screen_state_->mode = repl::ReplMode::Normal;
+        screen_state_->active_local_jsx_command = true;
+        screen_state_->active_local_jsx_command_name = "agents";
+        screen_state_->active_local_jsx_command_args.clear();
+        screen_state_->active_agents_selection_position = 0;
+        RefreshAgentsMenuOutput();
+        screen_state_->scroll_offset = 0;
+        screen_state_->scroll_pinned_to_bottom = false;
+        PostRenderEvent();
+    }
+
+    bool HandleLocalJsxEvent(const Event& ev) {
+        if (!screen_state_->active_local_jsx_command ||
+            screen_state_->active_local_jsx_command_name != "agents") {
+            return false;
+        }
+
+        const auto selectable = selectable_agent_indices(screen_state_->agent_cards);
+        const int item_count = 1 + static_cast<int>(selectable.size());
+        if (item_count <= 0) return false;
+
+        auto refresh_selection = [&] {
+            RefreshAgentsMenuOutput();
+            PostRenderEvent();
+        };
+
+        if (ev == Event::ArrowDown || ev == Event::Character('j')) {
+            screen_state_->active_agents_selection_position =
+                (screen_state_->active_agents_selection_position + 1) % item_count;
+            refresh_selection();
+            return true;
+        }
+        if (ev == Event::ArrowUp || ev == Event::Character('k')) {
+            screen_state_->active_agents_selection_position =
+                (screen_state_->active_agents_selection_position - 1 + item_count) %
+                item_count;
+            refresh_selection();
+            return true;
+        }
+        if (ev == Event::Return) {
+            const int selected = std::clamp(
+                screen_state_->active_agents_selection_position,
+                0,
+                item_count - 1);
+            std::string command = "/agents create";
+            if (selected > 0) {
+                const auto agent_index =
+                    selectable[static_cast<std::size_t>(selected - 1)];
+                command = "/agents configure " +
+                    screen_state_->agent_cards[agent_index].id;
+            }
+            ClearActiveLocalJsxCommand();
+            screen_state_->scroll_offset = 0;
+            screen_state_->scroll_pinned_to_bottom = true;
+            HandleCommand(command);
+            PostRenderEvent();
+            return true;
+        }
+        return false;
+    }
+
+    [[nodiscard]] static int skill_source_order(std::string_view source) {
+        if (source == "project") return 0;
+        if (source == "user") return 1;
+        if (source == "plugin") return 2;
+        if (source == "mcp") return 3;
+        return 4;
+    }
+
+    [[nodiscard]] static bool is_visible_skills_menu_source(
+        std::string_view source) {
+        return source == "project" ||
+               source == "user" ||
+               source == "plugin" ||
+               source == "mcp";
+    }
+
+    [[nodiscard]] static bool utf8_continuation(unsigned char ch) {
+        return (ch & 0xC0) == 0x80;
+    }
+
+    [[nodiscard]] static std::size_t utf16_code_unit_count(
+        std::string_view value) {
+        std::size_t count = 0;
+        for (std::size_t i = 0; i < value.size();) {
+            const auto c0 = static_cast<unsigned char>(value[i]);
+            std::uint32_t codepoint = c0;
+            std::size_t length = 1;
+
+            if (c0 < 0x80) {
+                codepoint = c0;
+            } else if ((c0 & 0xE0) == 0xC0 &&
+                       i + 1 < value.size() &&
+                       utf8_continuation(static_cast<unsigned char>(value[i + 1]))) {
+                codepoint =
+                    (static_cast<std::uint32_t>(c0 & 0x1F) << 6) |
+                    static_cast<std::uint32_t>(
+                        static_cast<unsigned char>(value[i + 1]) & 0x3F);
+                length = 2;
+            } else if ((c0 & 0xF0) == 0xE0 &&
+                       i + 2 < value.size() &&
+                       utf8_continuation(static_cast<unsigned char>(value[i + 1])) &&
+                       utf8_continuation(static_cast<unsigned char>(value[i + 2]))) {
+                codepoint =
+                    (static_cast<std::uint32_t>(c0 & 0x0F) << 12) |
+                    (static_cast<std::uint32_t>(
+                         static_cast<unsigned char>(value[i + 1]) & 0x3F) << 6) |
+                    static_cast<std::uint32_t>(
+                        static_cast<unsigned char>(value[i + 2]) & 0x3F);
+                length = 3;
+            } else if ((c0 & 0xF8) == 0xF0 &&
+                       i + 3 < value.size() &&
+                       utf8_continuation(static_cast<unsigned char>(value[i + 1])) &&
+                       utf8_continuation(static_cast<unsigned char>(value[i + 2])) &&
+                       utf8_continuation(static_cast<unsigned char>(value[i + 3]))) {
+                codepoint =
+                    (static_cast<std::uint32_t>(c0 & 0x07) << 18) |
+                    (static_cast<std::uint32_t>(
+                         static_cast<unsigned char>(value[i + 1]) & 0x3F) << 12) |
+                    (static_cast<std::uint32_t>(
+                         static_cast<unsigned char>(value[i + 2]) & 0x3F) << 6) |
+                    static_cast<std::uint32_t>(
+                        static_cast<unsigned char>(value[i + 3]) & 0x3F);
+                length = 4;
+            }
+
+            count += codepoint > 0xFFFF ? 2 : 1;
+            i += length;
+        }
+        return count;
+    }
+
+    [[nodiscard]] static std::size_t rough_js_token_count(
+        std::string_view value) {
+        return static_cast<std::size_t>(
+            std::llround(static_cast<double>(utf16_code_unit_count(value)) / 4.0));
+    }
+
+    [[nodiscard]] static std::size_t skills_menu_token_estimate(
+        const acsrc::SkillSuggestionData& skill) {
+        std::string frontmatter = skill.name;
+        if (!skill.description.empty()) {
+            frontmatter.push_back(' ');
+            frontmatter += skill.description;
+        }
+        return rough_js_token_count(frontmatter);
+    }
+
+    [[nodiscard]] static std::string collapse_home_path(std::string path) {
+        if (const char* home = std::getenv("HOME"); home && *home) {
+            const std::string home_path(home);
+            if (path == home_path) return "~";
+            if (path.starts_with(home_path + "/")) {
+                return "~" + path.substr(home_path.size());
+            }
+        }
+        return path;
+    }
+
+    [[nodiscard]] static std::string skill_source_group_title(
+        const acsrc::SkillSuggestionData& skill) {
+        if (skill.source == "project") {
+            return skill.source_detail.empty()
+                ? "Project skills"
+                : "Project skills (" + collapse_home_path(skill.source_detail) + ")";
+        }
+        if (skill.source == "user") return "User skills (~/.claude/skills)";
+        if (skill.source == "plugin") {
+            return skill.source_detail.empty()
+                ? "Plugin skills"
+                : "Plugin skills (" + skill.source_detail + ")";
+        }
+        if (skill.source == "mcp") return "MCP skills";
+        return "Other skills";
+    }
+
+    [[nodiscard]] static std::string FormatSkillsMenuOutput(
+        std::vector<acsrc::SkillSuggestionData> skills) {
+        std::erase_if(skills, [](const auto& skill) {
+            return !is_visible_skills_menu_source(skill.source);
+        });
+
+        std::ranges::sort(skills, [](const auto& a, const auto& b) {
+            const int ao = skill_source_order(a.source);
+            const int bo = skill_source_order(b.source);
+            if (ao != bo) return ao < bo;
+            if (a.source_detail != b.source_detail) {
+                return a.source_detail < b.source_detail;
+            }
+            return a.name < b.name;
+        });
+
+        std::string out;
+        out += "Skills\n";
+        out += std::format(
+            "{} skill{}\n",
+            skills.size(),
+            skills.size() == 1 ? "" : "s");
+
+        if (skills.empty()) {
+            out += "\nNo skills found.\n";
+            out += "Create skills under `.claude/skills` or `~/.claude/skills`.\n";
+            return out;
+        }
+
+        std::string current_group;
+        bool first_group = true;
+        for (const auto& skill : skills) {
+            const std::string group = skill_source_group_title(skill);
+            if (group != current_group) {
+                if (!first_group) out += "\n";
+                first_group = false;
+                current_group = group;
+                out += "\n" + current_group + "\n";
+            }
+
+            out += skill.name;
+            out += std::format(
+                " · ~{} description tokens",
+                skills_menu_token_estimate(skill));
+            out += "\n";
+        }
+        return out;
+    }
+
+    void OpenSkillsMenu() {
+        auto skills = acsrc::collect_skill_suggestions(screen_state_->cwd);
+        screen_state_->mode = repl::ReplMode::Normal;
+        screen_state_->active_local_jsx_command = true;
+        screen_state_->active_local_jsx_command_name = "skills";
+        screen_state_->active_local_jsx_command_args.clear();
+        screen_state_->active_local_jsx_content =
+            FormatSkillsMenuOutput(std::move(skills));
+        screen_state_->scroll_offset = 0;
+        screen_state_->scroll_pinned_to_bottom = false;
+        PostRenderEvent();
     }
 
 public:
@@ -510,10 +1627,12 @@ public:
     }
 
     AppAdapter(core::QueryEngine* engine,
+               cc::hooks::LifecycleHookRegistry* lifecycle_hooks,
                cc::commands::AppCommandRegistry* cmd_registry,
                utils::SessionStorage* storage,
                std::function<void()> on_exit)
         : engine_(engine),
+          lifecycle_hooks_(lifecycle_hooks),
           cmd_registry_(cmd_registry),
           storage_(storage),
           on_exit_(std::move(on_exit)),
@@ -523,6 +1642,14 @@ public:
         // Overlay (ToolPermission), plus any future default slots.
         cc::ui::dialogs::default_renderers::register_default_renderers(
             screen_state_->dialog_renderers);
+
+        // ── SL-11: deterministic next-action suggestion on QueryEnd ──
+        // Impl lives in app_prompt_suggestion_wiring.cpp (impl unit) so the
+        // heavy cc.services.prompt_suggestion import stays out of this thin
+        // module (clang 2GB source-location budget).
+        if (lifecycle_hooks_) {
+            wire_prompt_suggestion_hook(*lifecycle_hooks_, engine_, screen_state_);
+        }
 
         current_session_id_ = utils::SessionStorage::generate_session_id();
         session_start_time_ = std::chrono::steady_clock::now();
@@ -552,7 +1679,6 @@ public:
         for (unsigned char c : current_session_id_)
             tip_hash = tip_hash * 131u + static_cast<std::size_t>(c);
         screen_state_->welcome_tip_index = tip_hash;
-        RestartWelcomeAnimationClock();
 
         // ── Load settings from disk and project into screen state ──────────
         // Settings come from ~/.claude/settings.json (user),
@@ -562,22 +1688,22 @@ public:
         // settings manager directly.
         settings_manager_ = std::make_unique<cc::utils::settings_manager::SettingsManager>();
         settings_manager_->initialize();
-        ProjectSettingsToScreenState();
-        ProjectRuntimeMetadataToScreenState();
+        this->ProjectSettingsToScreenState();
+        this->ProjectRuntimeMetadataToScreenState();
 
         // Re-project settings whenever they change on disk (e.g. user edits
         // settings.json from another terminal, or the /config command saves).
         settings_unsubscribe_ = settings_manager_->on_change(
             [this](cc::utils::settings_manager::SettingSource) {
-                ProjectSettingsToScreenState();
+                this->ProjectSettingsToScreenState();
                 // Settings change → statusline may need re-run (command changed).
-                TriggerStatuslineUpdate();
+                this->TriggerStatuslineUpdate();
                 PostRenderEvent();
             });
 
         repl::ReplScreenCallbacks cbs;
         cbs.on_submit = [this](const std::string& text, repl::InputMode) {
-            HandleSubmit(text);
+            this->HandleSubmit(text);
         };
         cbs.on_interrupt = [this]() {
             if (query_running_.load()) {
@@ -624,7 +1750,18 @@ public:
         };
         cbs.on_mode_change = [](repl::ReplMode) {};
         cbs.enqueue_slash_command = [this](const std::string& cmd) {
-            HandleCommand(cmd);
+            this->HandleCommand(cmd);
+        };
+        cbs.on_local_jsx_cancel = [this] {
+            const std::string command_name =
+                screen_state_->active_local_jsx_command_name;
+            this->DismissLocalJsxCommand(
+                command_name == "agents"
+                    ? "Agents dialog dismissed"
+                    : "Skills dialog dismissed");
+        };
+        cbs.on_local_jsx_event = [this](const Event& ev) {
+            return this->HandleLocalJsxEvent(ev);
         };
 
         repl_component_ = repl::ReplScreen(screen_state_, std::move(cbs));
@@ -723,6 +1860,37 @@ public:
                 return std::unexpected(std::string{"User declined elicitation request from "} + req.server_name);
             });
 
+        // ── IDE at_mentioned responder (AT-09) ───────────────────────────
+        // Faithful to TS useIdeAtMentioned.ts: on an inbound MCP
+        // "at_mentioned" notification we insert "@<relpath>#L<a>-<b>" at the
+        // prompt cursor. The MCP receive thread calls us via
+        // McpConnectionManager::handle_server_notification -> dispatch_at_mention,
+        // so we only stage the token on ReplScreenState and let Render() drain
+        // it (see DrainPendingAtMentionInserts) to keep input_text mutations
+        // on the render thread.
+        cc::services::mcp::set_at_mention_responder(
+            [this](const cc::services::mcp::AtMentionNotification& n)
+                -> void
+            {
+                if (n.file_path.empty()) return;
+                // TS inserts "@<relpath>#L<a>-<b>"; relpath is the file_path
+                // verbatim (IDE provides it relative to the workspace root).
+                std::string token = "@" + n.file_path;
+                if (n.line_start.has_value()) {
+                    token += "#L" + std::to_string(*n.line_start);
+                    if (n.line_end.has_value() && *n.line_end != *n.line_start) {
+                        token += "-" + std::to_string(*n.line_end);
+                    }
+                }
+                {
+                    std::lock_guard<std::mutex> lk(
+                        screen_state_->pending_at_mention_mutex);
+                    screen_state_->pending_at_mention_inserts.push_back(
+                        std::move(token));
+                }
+                PostRenderEvent();
+            });
+
         // ── Ask-user tool → PromptDialog (M7.5) ────────────────────────
         // Wire the ask_user_question tool through the DialogQueue so it
         // renders as a proper PromptDialog instead of using stdio.
@@ -773,7 +1941,7 @@ public:
                 return result;
             });
 
-        SyncState();
+        this->SyncState();
 
         // ── Statusline worker thread ──────────────────────────────────────
         // Faithful to TS StatusLine.tsx's debounced doUpdate() pattern.
@@ -815,7 +1983,7 @@ public:
                 statusline_running_.store(true);
 
                 // Build input payload from current engine state
-                auto input = BuildStatuslineInput();
+                auto input = this->BuildStatuslineInput();
 
                 // Execute command
                 namespace sl = cc::utils::statusline;
@@ -838,7 +2006,7 @@ public:
         });
 
         // Fire initial statusline update on mount
-        TriggerStatuslineUpdate();
+        this->TriggerStatuslineUpdate();
         StartUiAnimationTicker();
     }
 
@@ -846,7 +2014,7 @@ public:
         if (text.empty()) return;
 
         if (text.starts_with('/')) {
-            HandleCommand(text);
+            this->HandleCommand(text);
             return;
         }
 
@@ -949,7 +2117,12 @@ public:
                 PostRenderEvent();
             };
 
-            engine_->stream_query(text, opts);
+            // AT-02: materialize @-mention file references into content blocks
+            // so the model sees file contents, not the literal "@path" string.
+            auto materialized = atatt::materialize_at_mentions(text, screen_state_->cwd);
+            opts.attachments = std::move(materialized.blocks);
+
+            engine_->stream_query(materialized.text, opts);
 
             query_running_.store(false);
             PostRenderEvent();
@@ -957,21 +2130,26 @@ public:
     }
 
     void HandleCommand(std::string_view cmd) {
-        if (cmd == "/exit" || cmd == "/quit") {
+        std::string command = trim_ascii_copy(cmd);
+        std::string_view normalized = command;
+        if (normalized.empty()) return;
+
+        if (normalized == "/exit" || normalized == "/quit") {
             if (on_exit_) on_exit_();
             return;
         }
-        if (cmd == "/clear") {
+        if (normalized == "/clear") {
             engine_->clear_conversation();
-            SyncState();
+            local_command_messages_.clear();
+            this->SyncState();
             return;
         }
-        if (cmd == "/compact") {
+        if (normalized == "/compact") {
             auto result = engine_->compact_conversation();
-            if (result) SyncState();
+            if (result) this->SyncState();
             return;
         }
-        if (cmd == "/cost") {
+        if (normalized == "/cost") {
             auto usage = engine_->get_usage();
             auto cost = engine_->budget_tracker().current_spend_usd;
             screen_state_->spinner_tip = std::format(
@@ -980,10 +2158,10 @@ public:
                 engine_->context_utilization() * 100.0);
             return;
         }
-        if (cmd.starts_with("/model")) {
-            auto args_start = cmd.find(' ');
+        if (normalized.starts_with("/model")) {
+            auto args_start = normalized.find(' ');
             if (args_start != std::string_view::npos) {
-                auto new_model = cmd.substr(args_start + 1);
+                auto new_model = normalized.substr(args_start + 1);
                 auto params = engine_->model_params();
                 std::string old_model = params.model;
                 params.model = std::string(new_model);
@@ -1002,15 +2180,15 @@ public:
                         PostRenderEvent();
                     });
             }
-            SyncState();
+            this->SyncState();
             return;
         }
-        if (cmd.starts_with("/vim")) {
-            auto args_start = cmd.find(' ');
+        if (normalized.starts_with("/vim")) {
+            auto args_start = normalized.find(' ');
             if (args_start == std::string_view::npos)
                 vim_enabled_ = !vim_enabled_;
             else {
-                auto arg = cmd.substr(args_start + 1);
+                auto arg = normalized.substr(args_start + 1);
                 vim_enabled_ = (arg == "on" || arg == "1");
             }
             if (vim_enabled_) cc::vim::enable_vim_mode();
@@ -1018,7 +2196,7 @@ public:
             return;
         }
 
-        if (cmd == "/config" || cmd == "/settings") {
+        if (normalized == "/config" || normalized == "/settings") {
             screen_state_->mode = repl::ReplMode::SettingsView;
             // Note: if the engine later exposes a ConfigManager accessor,
             // wire it here.  For now the dialog uses its internal fallback.
@@ -1026,11 +2204,76 @@ public:
             return;
         }
 
+        if (normalized == "/agents") {
+            this->OpenAgentsMenu();
+            return;
+        }
+
+        if (normalized == "/skills") {
+            this->OpenSkillsMenu();
+            return;
+        }
+
+        if (auto parsed = cc::core::CommandRegistry::parse(normalized)) {
+            const bool known_command =
+                cmd_registry_ && cmd_registry_->has_command(parsed->name);
+            if (!known_command) {
+                if (auto skill =
+                        acsrc::find_skill_suggestion(screen_state_->cwd, parsed->name)) {
+                    // SL-10: reject skills marked user_invocable=false (model-only).
+                    if (!skill->user_invocable) {
+                        AppendLocalCommandInputMessage(std::string(normalized));
+                        AppendLocalCommandMessage(
+                            std::format("This skill can only be invoked by Claude, not "
+                                        "directly by users. Ask Claude to use the \"{}\" skill.",
+                                        skill->name),
+                            true);
+                        return;
+                    }
+                    std::string user_text;
+                    const auto args_start = normalized.find(' ');
+                    if (args_start != std::string_view::npos) {
+                        user_text = trim_ascii_copy(normalized.substr(args_start + 1));
+                    }
+                    cc::utils::skill_usage::record_skill_usage(skill->name);  // SL-04
+                    this->HandleSubmit(acsrc::skill_invocation_prompt(*skill, user_text));
+                    return;
+                }
+                // SL-09: unknown-command file-path disambiguation (TS
+                // processSlashCommand.tsx:332-361). When the name looks like a
+                // command (only [a-zA-Z0-9:-_]) but isn't one, and a same-named
+                // path exists in cwd, surface that hint instead of a bare error.
+                const auto looks_like_command = [](std::string_view name) {
+                    return !name.empty() &&
+                        name.find_first_not_of(
+                            "abcdefghijklmnopqrstuvwxyz"
+                            "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                            "0123456789:-_") == std::string_view::npos;
+                };
+                if (looks_like_command(parsed->name)) {
+                    std::error_code ec;
+                    const std::filesystem::path candidate{"./" + parsed->name};
+                    if (std::filesystem::exists(candidate, ec) && !ec) {
+                        AppendLocalCommandInputMessage(std::string(normalized));
+                        AppendLocalCommandMessage(
+                            std::format("\"/{}\" is not a command or skill, but \"{}\" "
+                                        "exists in the current directory. If you meant to "
+                                        "reference the file, drop the leading slash.",
+                                        parsed->name, candidate.string()),
+                            false);
+                        return;
+                    }
+                }
+            }
+        }
+
         if (cmd_registry_) {
-            auto result = cmd_registry_->execute(std::string(cmd), command_context_for_engine(engine_));
+            auto result = cmd_registry_->execute(
+                command,
+                command_context_for_engine(engine_, screen_state_->cwd));
             if (result) {
                 if (result->status == CommandStatus::Injected) {
-                    HandleSubmit(result->message);
+                    this->HandleSubmit(result->message);
                     return;
                 }
                 if (result->metadata == "EXIT" && on_exit_) {
@@ -1044,7 +2287,7 @@ public:
                     namespace dtrig = cc::ui::dialogs::triggers;
                     auto enqueue_fn = [this](std::string_view c) {
                         if (c.starts_with('/')) {
-                            HandleCommand(c);
+                            this->HandleCommand(c);
                         }
                     };
                     if (dtrig::PushFromCommandMetadata(
@@ -1056,7 +2299,13 @@ public:
                         return;
                     }
                 }
+                AppendCommandResult(*result);
+                return;
             }
+            AppendLocalCommandMessage(result.error().message, true);
+            return;
+        } else {
+            AppendLocalCommandMessage("Command registry is not available.", true);
         }
     }
 
@@ -1078,10 +2327,7 @@ public:
         screen_state_->status_bar.context_token_count =
             static_cast<int>(usage.input_tokens + usage.output_tokens);
 
-        char cwd_buf[4096];
-        if (auto* cwd = ::getcwd(cwd_buf, sizeof(cwd_buf))) {
-            screen_state_->cwd = cwd;
-        }
+        screen_state_->cwd = engine_->working_directory();
     }
 
     /// Project settings from SettingsManager into screen_state_.
@@ -1197,11 +2443,9 @@ public:
         input.model.display_name = cc::utils::get_model_display_name(model);
 
         // Workspace
-        char cwd_buf[4096];
-        if (auto* cwd = ::getcwd(cwd_buf, sizeof(cwd_buf))) {
-            input.workspace.current_dir = cwd;
-            input.workspace.project_dir = cwd;
-        }
+        const auto cwd = engine_->working_directory();
+        input.workspace.current_dir = cwd;
+        input.workspace.project_dir = cwd;
         // added_dirs: not easily accessible at the app level; populated by
         // tool permission context when additional directories are configured.
         // Left empty (empty vector) to match TS semantics for default config.
@@ -1312,8 +2556,22 @@ public:
             for (auto& e : projected)
                 screen_state_->messages.push_back(std::move(e));
         }
+        AppendLocalMessagesToScreenState();
+        // Restore chronological order: local-command rows are created at
+        // dismiss/submit time but held in a side vector; merge them with the
+        // engine rows by timestamp. Stable sort preserves intra-source order
+        // (engine conversation order, /skills-before-dismissed pair). TS uses
+        // ONE chronological array (REPL.tsx onQuery [...prev, ...newMessages]);
+        // cpp's engine-first/local-appended split inverted chronology.
+        std::stable_sort(
+            screen_state_->messages.begin(),
+            screen_state_->messages.end(),
+            [](const repl::MessageDisplayEntry& a,
+               const repl::MessageDisplayEntry& b) {
+                return a.timestamp < b.timestamp;
+            });
 
-        ProjectRuntimeMetadataToScreenState();
+        this->ProjectRuntimeMetadataToScreenState();
 
         // Notify cost hook subscribers (drives CostThreshold dialog, etc.).
         cc::hooks::update_cost(cc::hooks::CostUpdate{
@@ -1333,7 +2591,7 @@ public:
         auto pending_error = std::move(pending_error_);
         pending_error_.reset();
 
-        SyncState();
+        this->SyncState();
         if (pending_error && !pending_error->empty()) {
             repl::MessageDisplayEntry error_entry;
             error_entry.role = "system";
@@ -1369,12 +2627,15 @@ public:
         }
 
         // Query finished → update statusline with final cost/token counts
-        TriggerStatuslineUpdate();
+        this->TriggerStatuslineUpdate();
     }
 
     Element Render() override {
-        ProjectRuntimeMetadataToScreenState();
+        this->ProjectRuntimeMetadataToScreenState();
         ConsumePendingResult();
+        // AT-09: apply any inbound IDE at_mentioned tokens that landed since
+        // the last frame (drained on the render thread for input_text safety).
+        repl::DrainPendingAtMentionInserts(screen_state_);
 
         if (query_running_.load()) {
             std::lock_guard lk(result_mutex_);
@@ -1393,6 +2654,16 @@ public:
                 for (auto& e : projected)
                     screen_state_->messages.push_back(std::move(e));
             }
+            AppendLocalMessagesToScreenState();
+            // Restore chronological order (see SyncState). Applied BEFORE the
+            // in-flight streaming projection so streaming rows stay last.
+            std::stable_sort(
+                screen_state_->messages.begin(),
+                screen_state_->messages.end(),
+                [](const repl::MessageDisplayEntry& a,
+                   const repl::MessageDisplayEntry& b) {
+                    return a.timestamp < b.timestamp;
+                });
 
             // ── Faithful live-path: project in-flight content blocks ──
             // TS renders each content block as a separate message row as it
@@ -1481,8 +2752,8 @@ public:
         }
 
         // Reset cursor to hidden each frame (TS Ink default behavior).
-        // Any active declared_cursor decorator on descendant elements will
-        // override this with a visible cursor at the declared position.
+        // Any active declared_cursor decorator on descendant elements can
+        // override this with a physical cursor anchor at the declared position.
         // This enables IME preedit text to appear inline at the insertion
         // point and lets screen readers / magnifiers follow the input.
         namespace dc = cc::ui::common::declared_cursor;
@@ -1491,7 +2762,16 @@ public:
 
     bool OnEvent(Event event) override {
         const bool handled = repl_component_->OnEvent(event);
-        if (handled) RefreshAutocompleteSuggestions();
+        if (handled && event != Event::Escape) {
+            // SL-11: any accepted keystroke that fills input retires the
+            // next-action suggestion for this turn (RefreshAutocompleteSuggestions
+            // also clears on non-empty input, but this is the unambiguous
+            // reset for the accept-on-Return path).
+            if (!screen_state_->input_text.empty()) {
+                screen_state_->next_action_suggestion.reset();
+            }
+            RefreshAutocompleteSuggestions();
+        }
         return handled;
     }
 
@@ -1501,7 +2781,6 @@ public:
 
     void set_screen(ScreenInteractive* screen) {
         screen_.store(screen, std::memory_order_release);
-        RestartWelcomeAnimationClock();
     }
 
     [[nodiscard]] std::function<bool(std::string_view, std::string_view)> get_permission_callback() {
@@ -1602,6 +2881,45 @@ public:
         return screen_state_->autocomplete_index;
     }
 
+    // Debug/testing: snapshot screen_state_->messages as "label:preview" rows
+    // to verify transcript ordering (local-command vs user vs assistant).
+    [[nodiscard]] std::vector<std::string> messages_for_testing() const {
+        std::vector<std::string> out;
+        out.reserve(screen_state_->messages.size());
+        for (const auto& m : screen_state_->messages) {
+            std::string label = m.role;
+            if (m.is_local_command_input) label = "lc-input";
+            else if (m.is_local_command_output) label = "lc-output";
+            else if (m.is_thinking) label = "thinking";
+            std::string pv = m.content_preview.substr(
+                0, std::min<std::size_t>(30, m.content_preview.size()));
+            out.push_back(label + ":" + pv);
+        }
+        return out;
+    }
+
+    [[nodiscard]] std::string input_text_for_testing() const {
+        return screen_state_->input_text;
+    }
+
+    [[nodiscard]] bool is_agents_view_for_testing() const noexcept {
+        return screen_state_->mode == repl::ReplMode::AgentsView;
+    }
+
+    [[nodiscard]] bool is_local_jsx_command_for_testing(
+        std::string_view command_name) const noexcept {
+        return screen_state_->active_local_jsx_command &&
+               screen_state_->active_local_jsx_command_name == command_name;
+    }
+
+    [[nodiscard]] int active_agents_selection_position_for_testing() const noexcept {
+        return screen_state_->active_agents_selection_position;
+    }
+
+    [[nodiscard]] std::size_t agent_card_count_for_testing() const noexcept {
+        return screen_state_->agent_cards.size();
+    }
+
     [[nodiscard]] bool has_pending_dialog_for_testing() const noexcept {
         return screen_state_->dialog_queue.has_overlay() ||
                screen_state_->dialog_queue.has_any_bottom() ||
@@ -1618,7 +2936,8 @@ public:
     core::QueryEngine& engine,
     cc::commands::AppCommandRegistry& cmd_registry,
     utils::SessionStorage& storage,
-    cc::hooks::ToolPermissionHook* permission_hook = nullptr
+    cc::hooks::ToolPermissionHook* permission_hook = nullptr,
+    cc::hooks::LifecycleHookRegistry* lifecycle_hooks = nullptr
 ) {
     // Use the alternate-screen fullscreen like TS (AlternateScreen) - the REPL owns the terminal.
     auto screen = ScreenInteractive::Fullscreen();
@@ -1627,6 +2946,7 @@ public:
 
     auto app = Make<AppAdapter>(
         &engine,
+        lifecycle_hooks,
         &cmd_registry,
         &storage,
         [&screen, &should_exit]() {
@@ -1659,9 +2979,10 @@ public:
 
 extern "C" int cc_ui_run_app_bridge(
     cc::core::QueryEngine* engine,
+    cc::hooks::LifecycleHookRegistry* lifecycle_hooks,
     cc::commands::AppCommandRegistry* cmd_registry,
     cc::utils::SessionStorage* storage,
     cc::hooks::ToolPermissionHook* permission_hook
 ) {
-    return cc::ui::RunApp(*engine, *cmd_registry, *storage, permission_hook);
+    return cc::ui::RunApp(*engine, *cmd_registry, *storage, permission_hook, lifecycle_hooks);
 }

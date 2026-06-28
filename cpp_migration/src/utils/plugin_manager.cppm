@@ -68,11 +68,11 @@ struct InstalledPlugin {
 /// Clear the installed plugins cache (forces reload from disk)
 void clear_installed_plugins_cache();
 
-/// Migrate to single plugin file format (V1→V2 consolidation)
+/// Migrate legacy plugin registries into the single plugin file format.
 void migrate_to_single_plugin_file();
 
-/// Load installed plugins in V2 format
-[[nodiscard]] InstalledPluginsFile load_installed_plugins_v2();
+/// Load installed plugins in the current registry format.
+[[nodiscard]] InstalledPluginsFile load_installed_plugins_registry();
 
 /// Load installed plugins directly from disk (bypasses cache)
 [[nodiscard]] InstalledPluginsFile load_installed_plugins_from_disk();
@@ -275,8 +275,8 @@ struct RefreshResult {
 // because the TS implementations depend on subsystems that are NOT yet migrated
 // to C++:
 //
-//   - loadInstalledPluginsV2() / load_installed_plugins_v2(): declared in this
-//     header but never DEFINED — the V2 disk-format reader is missing.
+//   - loadInstalledPlugins() / load_installed_plugins_registry(): declared in
+//     this header but never DEFINED — the disk-format reader is missing.
 //   - isInstallationRelevantToCurrentProject(): needs getOriginalCwd (cwd
 //     bootstrap is not migrated).
 //   - getSettings_DEPRECATED().enabledPlugins: the enabledPlugins settings

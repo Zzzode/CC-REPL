@@ -55,6 +55,12 @@ struct CommandDefinition {
     std::string category{"general"};
     std::vector<std::string> aliases{};
     bool hidden{false};
+    // SL-03: static argument hint shown inline after the command while the user
+    // types args (e.g. "set <key> <value>"). Faithful to TS command.argumentHint.
+    // `{}` in-class initializer so existing partial designated initializers in
+    // each command's definition() don't trip -Wmissing-designated-field-
+    // initializers (the project builds with -Werror).
+    std::string argument_hint{};
 };
 
 /// Parsed command invocation.
@@ -78,6 +84,7 @@ using RuntimeCompactApplier = VoidResult (*)(void*);
 struct CommandContext {
     std::vector<std::string> args;
     std::string raw_input;
+    std::string cwd;
     void* runtime_state = nullptr;
     RuntimeMessageProvider compact_message_provider = nullptr;
     RuntimeCompactApplier compact_applier = nullptr;
@@ -339,6 +346,18 @@ public:
             if (!cmd->definition().hidden) result.push_back(&cmd->definition());
         }
         return result;
+    }
+
+    /// SL-01: return a hidden command whose name exactly matches @a name, or
+    /// nullptr. TS lets users reach hidden commands by typing their full name
+    /// (commandSuggestions.ts:391-401 hiddenExact); cpp visible_commands()
+    /// otherwise hides them entirely, so this is the escape hatch.
+    [[nodiscard]] const CommandDefinition* hidden_command_if_exact(
+        std::string_view name) const {
+        for (const auto& [n, cmd] : commands_) {
+            if (cmd->definition().hidden && n == name) return &cmd->definition();
+        }
+        return nullptr;
     }
 
     [[nodiscard]] std::vector<std::string> command_names() const {

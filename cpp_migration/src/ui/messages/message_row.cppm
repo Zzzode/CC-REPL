@@ -231,6 +231,7 @@ enum class MessageShape {
     UserBashInput,
     UserBashOutput,
     UserLocalCommandOutput,    // UI5: dedicated local_command_output_message
+    UserLocalJsxOutput,
     UserTeammate,
     UserChannel,
     UserAgentNotification,
@@ -269,6 +270,7 @@ inline auto MessageShapeToString(MessageShape s) -> std::string_view {
         case MessageShape::UserBashInput:            return "user.bash_input";
         case MessageShape::UserBashOutput:           return "user.bash_output";
         case MessageShape::UserLocalCommandOutput:   return "user.local_command_output";
+        case MessageShape::UserLocalJsxOutput:       return "user.local_jsx_output";
         case MessageShape::UserTeammate:             return "user.teammate";
         case MessageShape::UserChannel:              return "user.channel";
         case MessageShape::UserAgentNotification:    return "user.agent_notification";

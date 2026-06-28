@@ -90,16 +90,41 @@ public:
 };
 
 
+// IDE at-mention payload (TS IDEAtMentioned parity: filePath / lineStart / lineEnd,
+// line numbers already 1-based by the time the responder fires, matching TS
+// useIdeAtMentioned.ts which adds +1 to the 0-based IDE values).
+struct IdeAtMentionPayload {
+    std::string file_path;
+    std::optional<int> line_start;
+    std::optional<int> line_end;
+};
+
 class IdeAtMentionHook {
-    struct Mention { std::string file_path; int line; std::string context; };
-    std::vector<Mention> pending_mentions_;
+    std::vector<IdeAtMentionPayload> pending_mentions_;
+    std::function<void(const IdeAtMentionPayload&)> on_at_mentioned_;
 public:
-    void add_mention(std::string path, int line, std::string ctx) {
-        pending_mentions_.push_back({std::move(path), line, std::move(ctx)});
+    // Push a parsed at-mention (called by the MCP at_mentioned responder).
+    void add_mention(IdeAtMentionPayload m) {
+        pending_mentions_.push_back(std::move(m));
+        if (on_at_mentioned_ && !pending_mentions_.empty()) {
+            on_at_mentioned_(pending_mentions_.back());
+        }
     }
-    [[nodiscard]] auto get_pending() const -> const std::vector<Mention>& { return pending_mentions_; }
+    // Legacy convenience overload retained for existing call sites.
+    void add_mention(std::string path, int line, std::string ctx) {
+        IdeAtMentionPayload p{.file_path = std::move(path),
+                              .line_start = line > 0 ? std::optional<int>(line) : std::nullopt,
+                              .line_end = std::nullopt};
+        (void)ctx;
+        add_mention(std::move(p));
+    }
+    [[nodiscard]] auto get_pending() const -> const std::vector<IdeAtMentionPayload>& { return pending_mentions_; }
     void consume_all() { pending_mentions_.clear(); }
     [[nodiscard]] auto has_pending() const -> bool { return !pending_mentions_.empty(); }
+    // Subscribe to each incoming at-mention (used by the UI to insert @path).
+    void on_at_mentioned(std::function<void(const IdeAtMentionPayload&)> cb) {
+        on_at_mentioned_ = std::move(cb);
+    }
 };
 
 

@@ -1,0 +1,21 @@
+{
+  "model": {
+    "default_model": "claude-sonnet-4-20250514",
+    "max_output_tokens": 16384,
+    "extended_thinking": false,
+    "context_window_size": 200000
+  },
+  "display": {
+    "show_thinking": true,
+    "show_token_usage": false,
+    "compact_mode": false,
+    "theme": "auto"
+  },
+  "network": {
+    "timeout_seconds": 120,
+    "max_retries": 3,
+    "verify_ssl": true
+  },
+  "features": 0,
+  "mcpServers": {}
+}

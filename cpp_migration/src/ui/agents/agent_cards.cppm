@@ -77,6 +77,7 @@ struct AgentCardData {
     std::string id;
     std::string name;
     std::string agent_type;        ///< e.g. "general-purpose", "explorer"
+    std::string source;            ///< AgentDefinition::source bucket.
     std::string description;       ///< 1-liner shown on Mini/Card
     std::string description_long;  ///< Block shown on LargeCard
 

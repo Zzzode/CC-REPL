@@ -99,6 +99,7 @@ struct McpResource {
     std::string name;
     std::string mime_type;
     std::optional<std::string> description;
+    std::string server_name{};  // AT-11: owning server, for @server:uri mentions
 };
 
 struct McpToolInfo {
@@ -1079,6 +1080,7 @@ public:
                     .name = resource.name.empty() ? resource.uri : resource.name,
                     .mime_type = resource.mime_type.empty() ? "text/plain" : resource.mime_type,
                     .description = resource.description.empty() ? std::nullopt : std::optional<std::string>{resource.description},
+                    .server_name = *server_name,
                 });
             }
             return resources;
@@ -1091,6 +1093,7 @@ public:
                     .name = resource.name.empty() ? resource.uri : resource.name,
                     .mime_type = resource.mime_type.empty() ? "text/plain" : resource.mime_type,
                     .description = resource.description.empty() ? std::nullopt : std::optional<std::string>{resource.description},
+                    .server_name = snapshot.name,
                 });
             }
         }

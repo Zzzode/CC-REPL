@@ -1,17 +1,10 @@
-/// @file logo_v2.cppm
+/// @file logo.cppm
 /// @brief Seed / Clawd ASCII logo with an animated asterisk.
-/// TS-side references audited:
-///   src/components/LogoV2/AnimatedAsterisk.tsx — 50ms useAnimationFrame with
-///       HSL hue sweep (SWEEP_DURATION_MS 1500, SWEEP_COUNT 2 → 3000ms total).
-///   src/components/LogoV2/WelcomeV2.tsx       — Clawd ASCII block 9 chars
-///       wide built from █ █▄███▄█ characters plus scattered * asterisks.
-///   src/components/LogoV2/CondensedLogo.tsx   — clawd icon + wordmark.
+/// TS-side references audited: animated asterisk, welcome banner, condensed logo.
 /// We render the clawd mark with unicode block characters, suffix "🌱 Seed" as
 /// the Seed wordmark (TS SVG logos don't port to TTY), and implement the
 /// animated asterisk via an FTXUI Component (Renderer + CatchEvent) that
-/// ticks on a 120ms cadence to stay within the Phase 4 CPU budget.  The
-/// WelcomeV2 full-screen layout is PHASE_5 — too wide to reproduce faithfully
-/// inside a 380-line module and requires layout measurement primitives.
+/// ticks on a 120ms cadence.
 module;
 
 #include <atomic>
@@ -158,12 +151,12 @@ private:
     return ftxui::Make<AnimatedAsteriskBase>(sweep_ms, sweep_count, reduced_motion);
 }
 
-// ─── Logo V2 component (static + asterisk animation) ─────────────────────────
+// ─── Logo component (static + asterisk animation) ───────────────────────────
 // Combines the mark + wordmark with a teardrop asterisk that plays the
 // AnimatedAsterisk sweep once on mount.
-class LogoV2Base : public ftxui::ComponentBase {
+class LogoBase : public ftxui::ComponentBase {
 public:
-    explicit LogoV2Base(LogoStyle style, Theme theme)
+    explicit LogoBase(LogoStyle style, Theme theme)
         : style_(style), theme_(std::move(theme)),
           asterisk_(make_animated_asterisk(0, 0, theme_.a11y.reduced_motion)) {
         Add(asterisk_);
@@ -202,30 +195,29 @@ private:
     ftxui::Component asterisk_;
 };
 
-[[nodiscard]] inline ftxui::Component make_logo_v2(LogoStyle style = LogoStyle::Full,
-                                                   Theme theme = current_theme()) {
-    return ftxui::Make<LogoV2Base>(style, std::move(theme));
+[[nodiscard]] inline ftxui::Component make_logo(LogoStyle style = LogoStyle::Full,
+                                                Theme theme = current_theme()) {
+    return ftxui::Make<LogoBase>(style, std::move(theme));
 }
 
-// ─── WelcomeV2 banner (M2 faithful port) ────────────────────────────────────
-// Reproduces src/components/LogoV2/WelcomeV2.tsx's dark-theme branch line for
-// line.  The TS banner is a 58-col fixed-width ASCII block: a row-0 welcome
+// ─── Welcome banner ─────────────────────────────────────────────────────────
+// The upstream banner is a 58-col fixed-width ASCII block: a row-0 welcome
 // caption, a 60-char dotted underline, then a hand-drawn "Clawd" mascot made
 // of ░ ▒ ▓ █ quadrants with scattered * / bold-* / dim-* asterisks scattered
 // around it, and a single embedded Clawd ASCII mark (█████████ / ██▄█████▄██
 // / █████████) in the clawd_body colour.  Every glyph below is transcribed
-// verbatim from the compiled JS so the silhouette matches the real product;
+// from the compiled JS so the silhouette matches the real product;
 // only the trailing block-row colouring is parameterised on `clawd_body`.
 //
 // Width reference (TTY display columns; all glyphs are width-1 BMP): the
 // mascot rows are 58 cols, the dotted underline is 60 cols (overhangs by 2,
 // matching TS).  The whole banner is wrapped in a fixed 58-col Box so the
-// right edge lines up exactly like the TS <Box width={WELCOME_V2_WIDTH}>.
+// right edge lines up exactly like the upstream fixed-width box.
 
-namespace welcome_v2_detail {
+namespace welcome_banner_detail {
 // Mascot body rows (no colour applied; the clawd mark span is coloured
 // separately by the caller).  These are the exact literals from the
-// dark-theme branch of WelcomeV2.tsx.
+// dark-theme branch of the upstream welcome banner.
 constexpr std::string_view k_row_caption = "Welcome to Claude Code ";
 constexpr std::string_view k_row_dotted  =
     "……………………………………………………………………………………………………………………"; // 60 × …
@@ -273,17 +265,17 @@ constexpr std::string_view k_row_tail_pre  = "………"; // 7 dots
 constexpr std::string_view k_row_tail_mark = "█ █   █ █";
 constexpr std::string_view k_row_tail_post =
     "……………………………………………………………………"; // 40 dots (total row ≈ 58)
-} // namespace welcome_v2_detail
+} // namespace welcome_banner_detail
 
-/// Render the WelcomeV2 banner as a static Element.  `clawd_body` is the
+/// Render the welcome banner as a static Element.  `clawd_body` is the
 /// foreground colour for the embedded Clawd mark spans; everything else is
 /// plain text, with the per-row bold/dim styling baked in to match TS.
 /// `version` is substituted into the caption ("v{version}").
-[[nodiscard]] inline ftxui::Element welcome_v2_banner(
+[[nodiscard]] inline ftxui::Element welcome_banner(
     std::string_view version, ftxui::Color clawd_body,
     std::optional<ftxui::Color> clawd_bg = std::nullopt) {
     using namespace ftxui;
-    namespace d = welcome_v2_detail;
+    namespace d = welcome_banner_detail;
     auto bg = [&](Element e) -> Element {
         return clawd_bg ? (e | bgcolor(*clawd_bg)) : e;
     };
@@ -345,11 +337,10 @@ constexpr std::string_view k_row_tail_post =
 // frame counter (the M1 per-frame `spinner_frame`) instead of a Component
 // timer, so it works inside the pure-Element render path the REPL uses.
 //
-// Sweep math matches TS exactly: hue = (elapsed_ms / SWEEP_MS) * 360 mod 360,
-// where SWEEP_MS=1500 and the sweep runs SWEEP_COUNT=2 times before settling
-// to grey (153,153,153).  We map `frame` → elapsed_ms via the screen refresh
-// cadence: M1 ticks roughly once per ~50ms (the AnimatedAsterisk useAnimation
-// cadence), so elapsed_ms ≈ frame * 50.
+// Hue math matches TS exactly: hue = (elapsed_ms / SWEEP_MS) * 360 mod 360,
+// where SWEEP_MS=1500.  Unlike the one-shot TS AnimatedAsterisk component,
+// the REPL home card keeps this glyph mounted for the whole idle session, so
+// it loops the sweep instead of settling permanently after three seconds.
 //
 // `reduced_motion` short-circuits to the settled grey glyph immediately.
 [[nodiscard]] inline ftxui::Element welcome_animated_asterisk(
@@ -364,10 +355,7 @@ constexpr std::string_view k_row_tail_post =
     if (reduced_motion) {
         return text(std::string(k_glyph)) | color(Color::RGB(153, 153, 153));
     }
-    double elapsed = static_cast<double>(frame) * frame_ms;
-    if (elapsed >= total_ms) {
-        return text(std::string(k_glyph)) | color(Color::RGB(153, 153, 153));
-    }
+    double elapsed = std::fmod(static_cast<double>(frame) * frame_ms, total_ms);
     double hue = std::fmod((elapsed / sw_ms) * 360.0, 360.0);
     auto c = hue_to_rgb(hue);
     // Fade to settled grey over the final 15% (mirrors AnimatedAsteriskBase).

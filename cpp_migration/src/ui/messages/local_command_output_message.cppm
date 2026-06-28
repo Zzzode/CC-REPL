@@ -284,6 +284,29 @@ struct LocalCommandOptions {
     return vbox(parts) | borderRounded | color(border);
 }
 
+[[nodiscard]] inline Element RenderLocalCommandOutputFaithful(
+    const LocalCommandOptions& opts) {
+    Elements content;
+    content.reserve(opts.data.lines.size());
+
+    for (const auto& line : opts.data.lines) {
+        Decorator colorize = line.kind == StreamKind::Stderr
+            ? color(Color::Red)
+            : dim;
+        content.push_back(paragraph(line.text.empty() ? " " : line.text)
+                          | colorize);
+    }
+
+    if (content.empty()) {
+        content.push_back(text("(no content)") | dim);
+    }
+
+    return hbox({
+        text("  ⎿  ") | dim,
+        vbox(std::move(content)) | flex,
+    });
+}
+
 // ============================================================
 // Interactive Component
 // ============================================================

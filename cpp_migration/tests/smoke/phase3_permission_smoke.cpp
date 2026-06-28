@@ -177,12 +177,12 @@ int main() {
     // -----------------------------------------------------------------------
     {
         const auto& pat = std::string_view("**/*.cppm");
-        const bool ok1 = MatchGlob(pat, "src/ui/dialogs/help_v2.cppm");
-        const bool ok2 = MatchGlob(pat, "help_v2.cppm");
+        const bool ok1 = MatchGlob(pat, "src/ui/dialogs/help_view.cppm");
+        const bool ok2 = MatchGlob(pat, "help_view.cppm");
         const bool ok3 = MatchGlob(pat, "src/x.cpp");     // wrong suffix
         const bool ok4 = MatchGlob(pat, "src/x.cppm/foo"); // wrong position
-        Check("Case5a: **/*.cppm matches src/ui/dialogs/help_v2.cppm", ok1);
-        Check("Case5b: **/*.cppm matches help_v2.cppm (no dir)",       ok2);
+        Check("Case5a: **/*.cppm matches src/ui/dialogs/help_view.cppm", ok1);
+        Check("Case5b: **/*.cppm matches help_view.cppm (no dir)",       ok2);
         Check("Case5c: **/*.cppm rejects src/x.cpp (suffix)",         !ok3);
         Check("Case5d: **/*.cppm rejects src/x.cppm/foo (middle)",    !ok4);
 

@@ -36,6 +36,7 @@ public:
             .category = "configuration",
             .aliases = {},
             .hidden = false,
+            .argument_hint = "<low|medium|high|max|auto>",
         };
     }
 

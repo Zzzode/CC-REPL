@@ -58,6 +58,7 @@ namespace fs = std::filesystem;
 
 extern "C" [[nodiscard]] int cc_ui_run_app_bridge(
     cc::core::QueryEngine* engine,
+    cc::hooks::LifecycleHookRegistry* lifecycle_hooks,
     cc::commands::AppCommandRegistry* cmd_registry,
     cc::utils::SessionStorage* storage,
     cc::hooks::ToolPermissionHook* permission_hook
@@ -706,6 +707,7 @@ cc::core::CommandContext command_context_for_engine(cc::core::QueryEngine* engin
     return cc::core::CommandContext{
         .args = {},
         .raw_input = {},
+        .cwd = engine ? engine->working_directory() : fs::current_path().string(),
         .runtime_state = engine,
         .compact_message_provider = compact_runtime_messages,
         .compact_applier = compact_runtime_apply,
@@ -1863,7 +1865,7 @@ int main(int argc, const char* argv[]) {
         if (opts.use_simple_ui) {
             return run_simple_ui(&engine, cmd_registry);
         } else {
-            return cc_ui_run_app_bridge(&engine, &cmd_registry, &storage, &permission_hook);
+            return cc_ui_run_app_bridge(&engine, &lifecycle_hooks, &cmd_registry, &storage, &permission_hook);
         }
     } catch (const std::exception& e) {
         std::println(stderr, "UI startup failed: {}", e.what());
