@@ -26,6 +26,10 @@ module;
 #include <vector>
 
 #include <ftxui/dom/elements.hpp>
+#include <ftxui/dom/node.hpp>
+#include <ftxui/dom/requirement.hpp>
+#include <ftxui/screen/box.hpp>
+#include <ftxui/screen/screen.hpp>
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_base.hpp>
 #include <ftxui/component/event.hpp>
@@ -1892,8 +1896,41 @@ namespace ui_tabs_detail {
 /// to Elements here.  Decorators applied via `|` (color, bold, size, ...) on
 /// a Component are honoured because `Component | Decorator` returns a new
 /// Component whose Render() applies the decoration.
+namespace compel_detail {
+/// Node wrapper that keeps a Component alive for the Element's lifetime.
+///
+/// FTXUI Button::Render() emits an Element containing `reflect(&box_)` (Button
+/// tracks its box for focus/mouse).  When CompEl flattens a Button Component to
+/// an Element and drops the Component, a later ftxui::Render() walks the tree
+/// and Reflect::SetBox writes through the dangling box_ — heap-use-after-free.
+///
+/// This node OWNS the Component as a member, so the Button (and its box_) live
+/// as long as the Element tree.  Rendering/box-delegation mirrors FTXUI's own
+/// NodeDecorator: pass through to the single child unchanged.
+class ComponentHolderNode : public Node {
+ public:
+    Component held_;
+    ComponentHolderNode(Component c, Element el)
+        : Node(Elements{std::move(el)}), held_(std::move(c)) {}
+    void ComputeRequirement() override {
+        Node::ComputeRequirement();
+        requirement_ = children_[0]->requirement();
+    }
+    void SetBox(Box box) override {
+        Node::SetBox(box);
+        children_[0]->SetBox(box);
+    }
+};
+}  // namespace compel_detail
+
 [[nodiscard]] inline Element CompEl(Component c) {
-    return c ? c->Render() : emptyElement();
+    if (!c) return emptyElement();
+    // Wrap the Component's Element in a ComponentHolderNode so the Component
+    // (Button, with its box_) stays alive for the returned Element's lifetime.
+    // See compel_detail::ComponentHolderNode for why this is required.
+    Element el = c->Render();
+    return std::make_shared<compel_detail::ComponentHolderNode>(
+        std::move(c), std::move(el));
 }
 
 // =========================================================================
