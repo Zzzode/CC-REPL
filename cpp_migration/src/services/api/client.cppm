@@ -20,6 +20,7 @@ export module cc.services.api.client;
 import cc.services.api.streaming;
 import cc.services.api.models;
 import cc.services.api.errors;
+import cc.services.auth.provider_selector;
 import cc.utils.json;
 import cc.utils.error;
 
@@ -643,7 +644,8 @@ public:
 
     explicit AnthropicClient(Config config)
         : config_(std::move(config))
-        , rate_limiter_(60) {}
+        , rate_limiter_(60)
+        , auth_ctx_(std::make_unique<cc::services::auth::byoc::EnterpriseAuthContext>()) {}
 
     [[nodiscard]] static cc::utils::Error error_from_http_response(
         int status_code,
@@ -817,9 +819,14 @@ public:
         CreateMessageRequest stream_request = request;
         stream_request.stream = true;
 
-        auto json_body = RequestSerializer::serialize(stream_request);
-        auto url = std::format("{}/v1/messages", config_.base_url);
-        auto headers = build_headers(betas_for_request(request));
+        auto betas = betas_for_request(request);
+        auto prepared = prepare_request(stream_request, betas,
+                                        /*streaming=*/true);
+        if (!prepared) return std::unexpected(prepared.error());
+
+        auto& url = prepared->url;
+        auto& json_body = prepared->body;
+        auto& headers = prepared->headers;
         headers.push_back("Accept: text/event-stream");
         headers.push_back("Cache-Control: no-cache");
         headers.push_back("Connection: keep-alive");
@@ -831,13 +838,19 @@ public:
         auto parser = std::make_shared<StreamParser>(stream_config);
         parser->start();
 
+        // On streaming 401/403, invalidate caches so the QueryEngine's retry
+        // loop (which re-enters create_message_stream) gets fresh tokens.
+        const bool is_enterprise_provider =
+            (auth_ctx_->provider() != EProv::FirstParty);
+        auto auth_ctx_ptr = auth_ctx_.get();
+
         // Launch streaming CURL transfer in a detached thread.
         // The parser is shared between the producer thread and the consumer.
         std::thread([url = std::move(url),
                      json_body = std::move(json_body),
                      headers = std::move(headers),
                      timeout = config_.timeout,
-                     parser]() {
+                     parser, auth_ctx_ptr, is_enterprise_provider]() {
             auto curl_result = CurlHandle::create();
             if (!curl_result) {
                 ApiErrorDetails details;
@@ -851,9 +864,13 @@ public:
             curl.setopt(CURLOPT_URL, url.c_str());
             apply_loopback_no_proxy(curl, url);
             curl.setopt(CURLOPT_POSTFIELDS, json_body.c_str());
-            curl.setopt(CURLOPT_POSTFIELDSIZE, static_cast<long>(json_body.size()));
-            curl.setopt(CURLOPT_TIMEOUT_MS, static_cast<long>(timeout.count()));
-            curl.setopt(CURLOPT_CONNECTTIMEOUT_MS, static_cast<long>(std::min(timeout, std::chrono::milliseconds{30000}).count()));
+            curl.setopt(CURLOPT_POSTFIELDSIZE,
+                        static_cast<long>(json_body.size()));
+            curl.setopt(CURLOPT_TIMEOUT_MS,
+                        static_cast<long>(timeout.count()));
+            curl.setopt(CURLOPT_CONNECTTIMEOUT_MS,
+                static_cast<long>(std::min(timeout,
+                                std::chrono::milliseconds{30000}).count()));
 
             // Set headers
             struct curl_slist* header_list = nullptr;
@@ -868,7 +885,8 @@ public:
             };
             WriteCtx ctx{parser};
 
-            auto write_cb = +[](char* ptr, size_t size, size_t nmemb, void* userdata) -> size_t {
+            auto write_cb = +[](char* ptr, size_t size, size_t nmemb,
+                                void* userdata) -> size_t {
                 auto* wctx = static_cast<WriteCtx*>(userdata);
                 size_t bytes = size * nmemb;
                 wctx->parser->feed(std::string_view(ptr, bytes));
@@ -891,11 +909,17 @@ public:
             } else {
                 // Check HTTP status
                 long http_code = 0;
-                curl_easy_getinfo(static_cast<CURL*>(curl.get()), CURLINFO_RESPONSE_CODE, &http_code);
+                curl_easy_getinfo(static_cast<CURL*>(curl.get()),
+                                  CURLINFO_RESPONSE_CODE, &http_code);
+                if (is_enterprise_provider &&
+                    (http_code == 401 || http_code == 403)) {
+                    auth_ctx_ptr->invalidate_all();
+                }
                 if (http_code >= 400) {
                     parser->set_error(ErrorFactory::from_http(
                         static_cast<int>(http_code),
-                        std::format("HTTP {} error during streaming at {}", http_code, url)));
+                        std::format("HTTP {} error during streaming at {}",
+                                    http_code, url)));
                 } else {
                     parser->finish();
                 }
@@ -939,16 +963,119 @@ private:
         return betas;
     }
 
+    // Replace the top-level "model": "..." value in a serialized JSON body by
+    // reparsing.  Cheap because requests are already valid compact JSON.
+    [[nodiscard]] static std::string override_model_in_json(
+        std::string json_body,
+        std::string_view new_model) {
+        using namespace cc::utils::json;
+        auto parsed = parse(json_body);
+        if (!parsed) return json_body;
+        auto old_model = parsed->root().get_string("model");
+        if (old_model == new_model) return json_body;
+        // Deep-copy the whole JSON into a mutable doc to mutate "model" string.
+        JsonMutDoc mdoc;
+        auto new_root = mdoc.copy_val(parsed->root());
+        if (!new_root.valid() || !new_root.is_obj()) return json_body;
+        // If the old model string node exists and is a string, we need to
+        // remove and replace: JsonMutVal::remove + add(new_model).
+        (void)new_root.remove("model");
+        new_root.add("model", mdoc.string(new_model));
+        mdoc.set_root(new_root);
+        auto rewritten = mdoc.to_string();
+        return rewritten.empty() ? json_body : rewritten;
+    }
+
+    // Drop existing 1P auth headers, then append provider-specific headers.
+    [[nodiscard]] static std::vector<std::string> merge_auth_headers(
+        std::vector<std::string> base_headers,
+        const std::vector<std::pair<std::string, std::string>>& extra) {
+        std::vector<std::string> out;
+        out.reserve(base_headers.size() + extra.size());
+        for (auto& h : base_headers) {
+            std::string_view hv(h);
+            // Remove x-api-key / Authorization: Bearer that build_headers()
+            // may have appended for FirstParty.  Enterprise providers supply
+            // their own auth.
+            const bool is_1p_auth =
+                hv.starts_with("x-api-key:") || hv.starts_with("X-Api-Key:") ||
+                hv.starts_with("Authorization:");
+            if (is_1p_auth) continue;
+            out.push_back(std::move(h));
+        }
+        for (const auto& [k, v] : extra) {
+            out.push_back(std::format("{}: {}", k, v));
+        }
+        return out;
+    }
+
+    // Output of prepare_request() — rewritten URL / body / headers that
+    // account for Bedrock/Vertex/Foundry routing, SigV4, OAuth2 etc.
+    struct PreparedRequest {
+        std::string url;
+        std::string body;
+        std::vector<std::string> headers;
+    };
+
+    using EProv = cc::services::auth::byoc::EnterpriseProvider;
+
+    [[nodiscard]] Result<PreparedRequest> prepare_request(
+        const CreateMessageRequest& request,
+        const std::vector<std::string>& betas,
+        bool streaming) {
+        const std::string canonical_id = request.model;
+        std::string json_body = RequestSerializer::serialize(request);
+        std::vector<std::string> headers = build_headers(betas);
+
+        auto resolved = auth_ctx_->resolve_auth_for_request(
+            canonical_id, "POST", json_body, streaming,
+            /*extra_agnostic_headers=*/{});
+        if (!resolved) {
+            return std::unexpected(cc::utils::Error(
+                cc::utils::ErrorCode::invalid_argument,
+                std::format("enterprise auth resolve: {}",
+                            resolved.error().message())));
+        }
+
+        std::string url;
+        if (resolved->provider == EProv::FirstParty) {
+            url = std::format("{}/v1/messages", config_.base_url);
+        } else {
+            // Bedrock: {base_url}{/model/.../invoke[-with-response-stream]}
+            // Vertex:  {base_url}{/publishers/.../models/ID:streamRawPredict}
+            // Foundry: {base_url}{/openai/deployments/.../chat/completions}
+            url = resolved->base_url + resolved->bedrock_path;
+            headers = merge_auth_headers(std::move(headers), resolved->headers);
+            if (!resolved->model_id.empty() &&
+                resolved->model_id != canonical_id) {
+                json_body = override_model_in_json(std::move(json_body),
+                                                   resolved->model_id);
+            }
+        }
+        return PreparedRequest{
+            .url = std::move(url),
+            .body = std::move(json_body),
+            .headers = std::move(headers),
+        };
+    }
+
     [[nodiscard]] Result<CreateMessageResponse> perform_request(
         const CreateMessageRequest& request) {
 
-        auto json_body = RequestSerializer::serialize(request);
-        auto url = std::format("{}/v1/messages", config_.base_url);
-        auto headers = build_headers(betas_for_request(request));
+        auto betas = betas_for_request(request);
+        auto prepared = prepare_request(request, betas, /*streaming=*/false);
+        if (!prepared) return std::unexpected(prepared.error());
 
-        auto http_result = HttpClient::post(url, json_body, headers, config_.timeout);
+        auto http_result = HttpClient::post(
+            prepared->url, prepared->body, prepared->headers, config_.timeout);
         if (!http_result) {
             return std::unexpected(http_result.error());
+        }
+
+        // On 401/403, refresh all credential caches so the retry loop uses
+        // fresh tokens / signatures on the next attempt.
+        if (http_result->status_code == 401 || http_result->status_code == 403) {
+            auth_ctx_->invalidate_all();
         }
 
         // Check for HTTP errors
@@ -996,6 +1123,7 @@ private:
 
     Config config_;
     RateLimiter rate_limiter_;
+    std::unique_ptr<cc::services::auth::byoc::EnterpriseAuthContext> auth_ctx_;
 };
 
 } // namespace cc::services::api

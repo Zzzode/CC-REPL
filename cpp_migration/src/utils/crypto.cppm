@@ -10,6 +10,7 @@ module;
 #include <expected>
 #include <format>
 #include <random>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -116,11 +117,22 @@ inline std::array<uint8_t, 32> sha256_raw(const uint8_t* data, std::size_t len) 
 
 } // namespace detail
 
-
 [[nodiscard]] inline std::string sha256(std::string_view data) {
     auto hash = detail::sha256_raw(
         reinterpret_cast<const uint8_t*>(data.data()), data.size());
 
+    std::string hex;
+    hex.reserve(64);
+    for (uint8_t byte : hash) {
+        hex += std::format("{:02x}", byte);
+    }
+    return hex;
+}
+
+/// Returns lowercase hex of a SHA-256 raw byte array (or any 32-byte block).
+/// Exposed as a detail helper so HMAC / SigV4 code shares the same printer.
+[[nodiscard]] inline std::string sha256_bytes_to_hex(
+    const std::array<uint8_t, 32>& hash) {
     std::string hex;
     hex.reserve(64);
     for (uint8_t byte : hash) {
@@ -184,6 +196,19 @@ constexpr std::string_view base64url_chars =
         result += '=';
     }
     return result;
+}
+
+/// Byte-span overload for signing outputs (JWT, etc.).
+[[nodiscard]] inline std::string base64_encode(std::span<const uint8_t> bytes) {
+    return base64_encode(std::string_view(
+        reinterpret_cast<const char*>(bytes.data()), bytes.size()));
+}
+
+/// Raw-pointer + length overload for convenience.
+[[nodiscard]] inline std::string base64_encode(const uint8_t* data,
+                                                std::size_t n) {
+    return base64_encode(std::string_view(
+        reinterpret_cast<const char*>(data), n));
 }
 
 
@@ -304,6 +329,66 @@ constexpr std::string_view base64url_chars =
         diff |= static_cast<uint8_t>(a[i]) ^ static_cast<uint8_t>(b[i]);
     }
     return diff == 0;
+}
+
+// =========================================================================
+// HMAC-SHA256 (FIPS 198-1) — general purpose, 32-byte raw output + hex.
+// Block size B = 64 for SHA-256. Inner pad = 0x36 repeated B times,
+// outer pad = 0x5C repeated B times.  H(k XOR opad, H(k XOR ipad, msg)).
+// =========================================================================
+namespace detail {
+inline std::array<uint8_t, 32> hmac_sha256_raw(
+    const uint8_t* key, std::size_t key_len,
+    const uint8_t* msg, std::size_t msg_len) {
+    constexpr std::size_t B = 64; // SHA-256 block size
+    std::array<uint8_t, 64> k_padded{};
+    if (key_len <= B) {
+        std::memcpy(k_padded.data(), key, key_len);
+    } else {
+        // Keys longer than block size get hashed first.
+        auto digest = sha256_raw(key, key_len);
+        std::memcpy(k_padded.data(), digest.data(), 32);
+    }
+    std::array<uint8_t, 64> inner;
+    std::array<uint8_t, 64> outer;
+    for (std::size_t i = 0; i < B; ++i) {
+        inner[i] = static_cast<uint8_t>(k_padded[i] ^ 0x36);
+        outer[i] = static_cast<uint8_t>(k_padded[i] ^ 0x5C);
+    }
+    // Concatenate: inner || msg, hash it, then outer || hash.
+    std::vector<uint8_t> inner_input;
+    inner_input.reserve(B + msg_len);
+    inner_input.insert(inner_input.end(), inner.begin(), inner.end());
+    inner_input.insert(inner_input.end(), msg, msg + msg_len);
+    auto inner_hash = sha256_raw(inner_input.data(), inner_input.size());
+    std::vector<uint8_t> outer_input;
+    outer_input.reserve(B + 32);
+    outer_input.insert(outer_input.end(), outer.begin(), outer.end());
+    outer_input.insert(outer_input.end(), inner_hash.begin(), inner_hash.end());
+    return sha256_raw(outer_input.data(), outer_input.size());
+}
+} // namespace detail
+
+/// Returns 32 raw bytes of HMAC-SHA256(key, data).
+[[nodiscard]] inline std::array<uint8_t, 32> hmac_sha256(
+    std::span<const uint8_t> key, std::span<const uint8_t> data) {
+    return detail::hmac_sha256_raw(
+        key.data(), key.size(), data.data(), data.size());
+}
+
+/// Overload taking string_view for key + data — convenient for text inputs.
+[[nodiscard]] inline std::array<uint8_t, 32> hmac_sha256(
+    std::string_view key, std::string_view data) {
+    return detail::hmac_sha256_raw(
+        reinterpret_cast<const uint8_t*>(key.data()), key.size(),
+        reinterpret_cast<const uint8_t*>(data.data()), data.size());
+}
+
+/// Returns 64 lowercase hex chars of HMAC-SHA256(key, data).
+[[nodiscard]] inline std::string hmac_sha256_hex(
+    std::string_view key, std::string_view data) {
+    auto raw = hmac_sha256(key, data);
+    return sha256_bytes_to_hex(raw);
 }
 
 } // namespace cc::utils::crypto

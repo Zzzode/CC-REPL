@@ -163,6 +163,23 @@ target_link_libraries(test_with_retry
 gtest_discover_tests(test_with_retry DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
 
 # ---------------------------------------------------------------------------
+# Phase P0-5: Enterprise Auth (SigV4 / GCP ADC / Azure DefaultAzureCredential
+# / Provider selector).  Link OpenSSL::Crypto for the GCP service-account
+# RS256 self-signed JWT signer.
+# ---------------------------------------------------------------------------
+add_executable(test_enterprise_auth test_enterprise_auth.cpp)
+target_link_libraries(test_enterprise_auth
+    PRIVATE
+        cc_core
+        cc_services
+        cc_utils
+        httplib::httplib
+        OpenSSL::Crypto
+        GTest::gtest_main
+)
+gtest_discover_tests(test_enterprise_auth DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+
+# ---------------------------------------------------------------------------
 # Phase 3-D: MCP stdio transport + mock echo server
 # ---------------------------------------------------------------------------
 add_executable(test_mcp_stdio test_mcp_stdio.cpp)
@@ -564,6 +581,7 @@ foreach(_cc_test IN ITEMS
     test_services
     test_sse_mock
     test_with_retry
+    test_enterprise_auth
     test_mcp_stdio
     test_ui
     test_dialog_system

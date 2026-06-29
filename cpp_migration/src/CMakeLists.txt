@@ -181,6 +181,7 @@ target_sources(cc_utils
         utils/hash.cppm
         utils/heatmap.cppm
         utils/http.cppm
+        utils/http_encoding.cppm
         utils/hyperlink.cppm
         utils/idle_timeout.cppm
         utils/image_handling.cppm
@@ -926,6 +927,10 @@ target_sources(cc_services
         services/auto_dream/consolidation_lock.cppm
         services/auto_dream/consolidation_prompt.cppm
         services/away_summary.cppm
+        services/auth/sigv4.cppm
+        services/auth/gcp_adc.cppm
+        services/auth/azure_credential.cppm
+        services/auth/provider_selector.cppm
         services/compact/auto_compact.cppm
         services/compact/compact.cppm
         services/compact/grouping.cppm
@@ -1049,6 +1054,8 @@ target_link_libraries(cc_services
         yyjson
         uv_a
         httplib::httplib
+        OpenSSL::SSL
+        OpenSSL::Crypto
 )
 # Native macOS Keychain backend (services/oauth) uses the Security framework.
 if(APPLE)
