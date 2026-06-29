@@ -1233,43 +1233,49 @@ inline void move_prompt_cursor_right(const std::shared_ptr<ReplScreenState>& sta
     }
 
     // --- 3. Render the input area from the REAL component ---------------
-    // RenderInputArea paints: prefix, multi-line vbox, the declared caret
-    // (inverted glyph at the cursor offset — TS useDeclaredCursor parity),
-    // and selection highlight.  We strip the impl's own green prefix below
-    // and prepend the mode-coloured TS glyph instead.
     Element input_area = impl->RenderInputAreaPub();
 
     // --- 3b. Declared cursor (IME / accessibility) ----------------------
-    // Faithful port of TS useDeclaredCursor: park the real terminal cursor
-    // at the insertion point so IME preedit renders inline and screen
-    // readers / magnifiers can follow the input.
+    // Faithful port of TS useDeclaredCursor: park the real terminal cursor at
+    // the insertion point so IME preedit renders inline and screen readers /
+    // magnifiers can follow the input.
     //
-    // The cursor's display column = prefix width + text display width up to
-    // the cursor.  The line is the zero-indexed line within the input area.
+    // NOTE on cursor-display math (BUG-2 FIXED):
+    //   We previously rendered the prefix OUTSIDE TextInputImpl in a separate
+    //   hbox, but left opts.prefix empty.  declared_cursor then used
+    //   `string_width(opts.prefix) = 0` as the prefix width, so the native
+    //   cursor parked 3-4 display columns to the LEFT of actual text start.
+    //
+    //   After this commit: opts.prefix contains the rendered 2-cell glyph,
+    //   impl->cursor_display_col() includes prefix width in its return, and
+    //   declared_cursor below positions the terminal cursor EXACTLY over the
+    //   character where the next keystroke will insert.  No arithmetic tricks
+    //   are required — TextInputImpl's own prefix logic (see RenderInputArea
+    //   inside text_input.cppm) already accounts for it.
+    //
+    //   We ALSO add 1 column for the left-side " " padding space rendered in
+    //   hbox #5 (the `text(" ")` before the text area hbox row — this is a
+    //   pure layout margin that TextInputImpl does NOT know about so we
+    //   account for it here manually).
     {
-        namespace dc = cc::ui::common::declared_cursor;
-        using Screen = ftxui::Screen;
-        const int prefix_w = string_width(opts.prefix);
-        const int rel_x = prefix_w + impl->cursor_display_col();
-        const int rel_y = impl->cursor_line();
-        // Keep the native terminal cursor hidden.  The visible caret is
-        // rendered by TextInputImpl (matching TS TextInput's inverse-glyph
-        // caret), while the hidden native cursor still gives IME/a11y tools a
-        // stable physical anchor.
-        // The prompt input is the primary focus target in the REPL screen,
-        // so we always declare the cursor position (mirrors TS where
-        // `props.focus` is true for the prompt when no dialog is active).
-        // TODO: once dialog focus management is wired, gate this on
-        // "prompt has focus" instead of always-on.
-        input_area = input_area | dc::declared_cursor(
-            /*active=*/true, rel_x, rel_y,
-            Screen::Cursor::Shape::Hidden);
+        // Native terminal cursor parks at the screen bottom-right (Hidden) via
+        // the root CursorResetNode in app.cppm.  We intentionally do NOT declare
+        // the prompt caret position here: FTXUI's ScreenInteractive emits a
+        // cursor-MOVE sequence every frame (from bottom-right to the declared
+        // position) even when nothing else changed, and many terminals render
+        // those hidden-cursor moves as visible flicker during the ~20Hz idle
+        // re-render.  Leaving the cursor at bottom-right makes the move delta
+        // zero, so FTXUI emits no move and the idle frame is flicker-free.
+        // The visible caret is still drawn by TextInputImpl (inverted glyph), so
+        // the user sees their caret; only the hidden native cursor (IME/a11y
+        // anchor) parks at the corner instead of over the caret.
     }
 
     Elements box_body;
 
     // --- 4. Vim-mode badge (-- INSERT -- / -- NORMAL -- / -- VISUAL --) -
-    // Faithful to TS: drawn alongside the prompt, dim+bold, mode-coloured.
+    // Faithful to TS: drawn as a separate row (NOT a prefix glyph swap),
+    // dim+bold, per-mode color (see vim_input.cppm mode_display).
     std::optional<std::pair<std::string, Color>> vim_badge;
     if (s.input_mode == InputMode::VimInsert)
         vim_badge = {"-- INSERT --", vim::mode_display(vim::VimMode::Insert).second};

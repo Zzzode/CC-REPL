@@ -496,7 +496,18 @@ private:
     void StartUiAnimationTicker() {
         spinner_thread_ = std::jthread([this](std::stop_token st) {
             constexpr auto kTick = std::chrono::milliseconds(50);
+            // TS is event-driven: Ink re-renders only on state changes, never
+            // on a fixed timer.  This ticker exists solely to advance ANIMATIONS
+            // (the welcome-intro asterisk hue sweep, the query spinner).  Once
+            // the welcome intro has played (asterisk_sweep_ms × sweep_count =
+            // 1500 × 2 = 3000ms ≈ 60 ticks) the screen is static, so we stop
+            // forcing re-renders at idle — FTXUI otherwise re-emits the whole
+            // frame + cursor-move sequences 20×/s, which flickers on terminals
+            // that paint hidden-cursor movement.  Event-driven re-renders
+            // (input, queries, statusline, cost hooks) still work normally.
+            constexpr int kWelcomeIntroTicks = 80;  // 80 × 50ms = 4s (3s sweep + margin)
             int query_statusline_tick = 0;
+            int welcome_render_ticks = 0;
             while (!st.stop_requested()) {
                 std::this_thread::sleep_for(kTick);
                 if (st.stop_requested()) break;
@@ -506,7 +517,17 @@ private:
                     screen_state_ &&
                     screen_state_->messages.empty() &&
                     screen_state_->spinner_mode == repl::SpinnerMode::Hidden;
-                if (!query_active && !welcome_active) {
+                if (!welcome_active) welcome_render_ticks = 0;
+
+                // Re-render only while an animation is actually advancing:
+                // an active query (spinner) or the welcome-intro sweep.  At
+                // static idle we skip — no animation to drive.
+                if (query_active) {
+                    // spinner animation: keep ticking
+                } else if (welcome_active &&
+                           welcome_render_ticks < kWelcomeIntroTicks) {
+                    ++welcome_render_ticks;
+                } else {
                     query_statusline_tick = 0;
                     continue;
                 }

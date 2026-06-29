@@ -355,7 +355,12 @@ constexpr std::string_view k_row_tail_post =
     if (reduced_motion) {
         return text(std::string(k_glyph)) | color(Color::RGB(153, 153, 153));
     }
-    double elapsed = std::fmod(static_cast<double>(frame) * frame_ms, total_ms);
+    // TS AnimatedAsteriskBase performs `sweep_count` hue sweeps then settles to
+    // SETTLED_GREY — it does NOT loop forever.  Clamping (not fmod) at total_ms
+    // freezes the final settled frame so the welcome header stops producing
+    // per-frame color changes (which would otherwise drive continuous render
+    // diffs + cursor movement).
+    double elapsed = std::min(static_cast<double>(frame) * frame_ms, total_ms);
     double hue = std::fmod((elapsed / sw_ms) * 360.0, 360.0);
     auto c = hue_to_rgb(hue);
     // Fade to settled grey over the final 15% (mirrors AnimatedAsteriskBase).
