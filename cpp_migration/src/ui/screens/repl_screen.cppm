@@ -50,10 +50,14 @@ module;
 
 export module cc.ui.repl_screen;
 
+// Core engine types (Role, Message, ContentBlock, ImageBlock, etc.)
+import cc.types.types;
+
 // --- Sub-modules we DEPEND ON (skeleton-wired, bodies delegated) ---
 import cc.ui.task_list_ui;
 import cc.ui.team_status;
 import cc.ui.messages.message_row;
+import cc.ui.messages.message_image;
 import cc.ui.messages.messages_list;
 import cc.ui.messages.user_text_message;
 import cc.ui.messages.assistant_text_message;
@@ -258,6 +262,13 @@ struct MessageDisplayEntry {
     bool is_local_command_output = false;
     bool is_local_jsx_output = false;
     bool is_compact_boundary = false, is_error = false;
+    /// True when the entry corresponds to a user-attached ImageBlock and
+    /// should be routed through MessageShape::UserImage (instead of
+    /// UserText).  Populated by project_messages when splitting a single
+    /// UserMessage with mixed text+image content into multiple sibling
+    /// display rows (TS parity: each <UserImageMessage/> is its own row).
+    bool is_image = false;
+    std::optional<::cc::core::ImageBlock> image_block;
     std::optional<std::string> tool_name, tool_status;
     /// Parsed tool input JSON for tool-use entries.  Threaded into
     /// ToolUseRenderOptions.raw_parameters (shared G1/G2 contract) instead of
@@ -725,6 +736,7 @@ struct ReplScreenCallbacks {
     }
 
     namespace ml = cc::ui::messages_list;
+    namespace image = cc::ui::messages::image;
     ml::MessagesListInput input;
     input.rows.reserve(entries.size());
     input.shapes.reserve(entries.size());
@@ -775,12 +787,55 @@ struct ReplScreenCallbacks {
             }
             input.rows.push_back(std::move(opts));
         } else if (m.role == "user") {
-            input.shapes.push_back(messages::MessageShape::UserText);
-            input.rows.push_back(messages::UserTextMessageData{
-                .content = m.content_preview,
-                .timestamp = m.timestamp,
-                .quoted_reply = std::nullopt,
-                .command_name = std::nullopt});
+            if (m.is_image && m.image_block) {
+                // TS parity: each user-attached image is its own UserImage row.
+                // See TS src/components/UserImageMessage.tsx full file.
+                // The data flow is: project_messages() → is_image=true +
+                // image_block; we translate the block metadata into
+                // image::ImageMessageData which message_image.cppm already
+                // knows how to render.
+                using image::ImageMessageData;
+                using image::ImageSource;
+                ImageMessageData d;
+                const auto& ib = *m.image_block;
+                d.timestamp = m.timestamp;
+                d.media_type = ib.media_type;
+                if (ib.file_name)        d.file_name = *ib.file_name;
+                if (ib.source_path)      d.source = *ib.source_path;
+                if (ib.width)            d.width = *ib.width;
+                if (ib.height)           d.height = *ib.height;
+                if (ib.size_bytes)       d.file_size = *ib.size_bytes;
+                switch (ib.source) {
+                    using IS = ::cc::core::ImageBlockSource;
+                    case IS::Clipboard: d.source_type = ImageSource::Clipboard; break;
+                    case IS::File:      d.source_type = ImageSource::File; break;
+                    case IS::Base64:    d.source_type = ImageSource::Base64; break;
+                    case IS::Unknown:
+                    default:
+                        // Heuristic: empty source + non-empty data means a
+                        // raw inline paste (no file path known).
+                        d.source_type = d.source.empty()
+                            ? ImageSource::Clipboard
+                            : ImageSource::File;
+                        break;
+                }
+                // Pass the raw base64 payload through via the alt_text field
+                // so the renderer can generate a deterministic ASCII-art
+                // thumbnail from the data (without the need for a full PNG
+                // decoder).  The renderer falls back to the filename if
+                // alt_text is unset.
+                if (!ib.data.empty())
+                    d.alt_text = ib.data.substr(0, 256);
+                input.shapes.push_back(messages::MessageShape::UserImage);
+                input.rows.push_back(std::move(d));
+            } else {
+                input.shapes.push_back(messages::MessageShape::UserText);
+                input.rows.push_back(messages::UserTextMessageData{
+                    .content = m.content_preview,
+                    .timestamp = m.timestamp,
+                    .quoted_reply = std::nullopt,
+                    .command_name = std::nullopt});
+            }
         } else if (m.role == "assistant") {
             if (m.is_thinking) {
                 input.shapes.push_back(messages::MessageShape::AssistantThinking);
