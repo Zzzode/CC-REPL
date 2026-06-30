@@ -89,6 +89,7 @@ inline constexpr std::string_view kCheckboxOn  = "\xE2\x98\x92";  // ☒ U+2612 
 inline constexpr std::string_view kCheckboxOff = "\xE2\x98\x90";  // ☐ U+2610 (figures.checkboxOff)
 inline constexpr std::string_view kHamburger   = "\xE2\x98\xB0";  // ☰ U+2630 (figures.hamburger — three bars)
 inline constexpr std::string_view kBullet      = "\xE2\x97\x8F";  // ● U+25CF (figures.bullet)
+inline constexpr std::string_view kArrowDown   = "\xE2\x86\x93";  // ↓ U+2193 (figures.arrowDown — new-messages pill caret)
 
 // ─── Message connector / separator glyphs ──────────────────────────────
 // TS components/messages/Connector.tsx: ⌐ U+2310 "REVERSED NOT SIGN"

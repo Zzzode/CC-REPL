@@ -544,84 +544,331 @@ inline constexpr std::array<std::string_view, 15> kWelcomeV2DarkRows = {{
 }
 
 // --------------------------------------------------------------------
+// §5b  Feed / FeedColumn system — faithful port of Feed.tsx + FeedColumn.tsx
+// --------------------------------------------------------------------
+// TS Feed types (Feed.tsx L6-19):
+//   type FeedLine  = { text: string; timestamp?: string }
+//   type FeedConfig = {
+//     title: string; lines: FeedLine[];
+//     footer?: string; emptyMessage?: string;
+//     customContent?: { content: ReactNode; width: number }
+//   };
+//
+// calculateFeedWidth (Feed.tsx L24-50):
+//   maxWidth = stringWidth(title)
+//   if customContent: maxWidth = max(maxWidth, customContent.width)
+//   else if lines.empty && emptyMessage: maxWidth = max(maxWidth, stringWidth(emptyMessage))
+//   else: maxTimestampWidth = max(0, ...lines.map(l => l.timestamp?.width ?? 0))
+//         for each line: w = textWidth + (timestamp>0 ? timestampWidth+2 : 0)
+//                        maxWidth = max(maxWidth, w)
+//   if footer: maxWidth = max(maxWidth, stringWidth(footer))
+struct FeedLine {
+  std::string text;
+  std::optional<std::string> timestamp;
+};
+
+struct FeedConfig {
+  std::string title;
+  std::vector<FeedLine> lines;
+  std::optional<std::string> footer;
+  std::optional<std::string> empty_message;
+};
+
+namespace detail {
+
+// TS utils/format.ts truncate(s, maxWidth) — suffix-truncate with
+// trailing U+2026 HORIZONTAL ELLIPSIS when the string is too long.
+// Simple byte-based truncation (sufficient for ASCII paths/models).
+// Defined early (before RenderFeedColumn) so it is visible to all helpers.
+// TS REF: src/utils/format.ts::truncate
+[[nodiscard]] inline auto truncate_str(std::string s, int max_width)
+    -> std::string {
+  if (max_width <= 0) return "";
+  if (static_cast<int>(s.size()) <= max_width) return s;
+  if (max_width == 1) return "\xE2\x80\xA6";
+  s.resize(static_cast<std::size_t>(max_width - 3));
+  s += "\xE2\x80\xA6";  // … U+2026
+  return s;
+}
+
+// TS Feed::calculateFeedWidth — faithful logic (byte-width approx).
+[[nodiscard]] inline auto calculate_feed_width(const FeedConfig& cfg) -> int {
+  auto sw = [](const std::string& s) { return static_cast<int>(s.size()); };
+
+  int max_w = sw(cfg.title);
+  if (cfg.lines.empty() && cfg.empty_message.has_value()) {
+    max_w = std::max(max_w, sw(*cfg.empty_message));
+  } else {
+    int max_ts = 0;
+    for (const auto& l : cfg.lines) {
+      if (l.timestamp.has_value()) {
+        max_ts = std::max(max_ts, sw(*l.timestamp));
+      }
+    }
+    for (const auto& l : cfg.lines) {
+      int w = sw(l.text);
+      if (max_ts > 0) w += max_ts + 2;  // "  " gap between timestamp + text
+      max_w = std::max(max_w, w);
+    }
+  }
+  if (cfg.footer.has_value()) {
+    max_w = std::max(max_w, sw(*cfg.footer));
+  }
+  return max_w;
+}
+
+// TS Feed component (Feed.tsx L51-106) — renders a single feed:
+//   <Text bold color=claude>{title}</Text>
+//   customContent.content  OR  (emptyMessage  OR  lines+padding+footer)
+// Each row: [timestamp padEnd(maxTs) + "  " + truncate(text, textWidth)]
+[[nodiscard]] inline auto RenderFeed(const FeedConfig& cfg, int actual_width)
+    -> Element {
+  using namespace ftxui;
+  actual_width = std::max(actual_width, 10);
+
+  // Title row: bold + claude color.
+  Element title_el = text(truncate_str(cfg.title, actual_width))
+                   | bold | color(kClaude);
+
+  // Body rows.
+  int max_ts = 0;
+  for (const auto& l : cfg.lines) {
+    if (l.timestamp.has_value()) {
+      max_ts = std::max(max_ts, static_cast<int>(l.timestamp->size()));
+    }
+  }
+
+  Elements body;
+  if (cfg.lines.empty() && cfg.empty_message.has_value()) {
+    body.push_back(text(truncate_str(*cfg.empty_message, actual_width))
+                   | dim | color(kMuted));
+  } else {
+    body.reserve(cfg.lines.size() + (cfg.footer ? 1 : 0));
+    const int text_width = std::max(10,
+        actual_width - (max_ts > 0 ? max_ts + 2 : 0));
+    for (const auto& l : cfg.lines) {
+      Elements row_parts;
+      if (max_ts > 0) {
+        std::string ts = l.timestamp.value_or("");
+        // padEnd: right-pad to max_ts with spaces.
+        if (static_cast<int>(ts.size()) < max_ts) {
+          ts += std::string(static_cast<std::size_t>(
+              max_ts - static_cast<int>(ts.size())), ' ');
+        }
+        row_parts.push_back(text(ts) | dim | color(kMuted));
+        row_parts.push_back(text("  "));  // gap
+      }
+      row_parts.push_back(text(truncate_str(l.text, text_width)));
+      body.push_back(hbox(std::move(row_parts)));
+    }
+    if (cfg.footer.has_value()) {
+      body.push_back(text(truncate_str(*cfg.footer, actual_width))
+                     | dim);
+    }
+  }
+
+  Elements all;
+  all.reserve(1 + body.size());
+  all.push_back(std::move(title_el));
+  for (auto& r : body) all.push_back(std::move(r));
+  return vbox(std::move(all))
+       | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, actual_width);
+}
+
+// TS FeedColumn (FeedColumn.tsx L11-54):
+//   widths = feeds.map(calculateFeedWidth)
+//   actualWidth = min(max(...widths), maxWidth)
+//   feeds.map((f, i) => <>
+//     <Feed config=f actualWidth=actualWidth />
+//     {i < feeds.length-1 && <Divider color=claude width=actualWidth />}
+//   </>)
+// Returns the rightWidth used for geometry hints (caller's benefit).
+struct RenderedFeedColumn {
+  Element element;
+  int actual_width;
+};
+
+[[nodiscard]] inline auto RenderFeedColumn(std::vector<FeedConfig> feeds,
+                                            int max_width)
+    -> RenderedFeedColumn {
+  if (feeds.empty()) {
+    return { text(""), 0 };
+  }
+  int max_of_all = 0;
+  for (const auto& f : feeds) {
+    max_of_all = std::max(max_of_all, calculate_feed_width(f));
+  }
+  int actual_width = std::min(max_of_all, std::max(max_width, 10));
+
+  Elements rows;
+  rows.reserve(feeds.size() * 2);
+  for (std::size_t i = 0; i < feeds.size(); ++i) {
+    rows.push_back(RenderFeed(feeds[i], actual_width));
+    if (i + 1 < feeds.size()) {
+      // TS Divider color=claude width=actualWidth — 1-row horizontal
+      // divider of actualWidth chars in claude accent colour.
+      // Using FTXUI separator() styled with the claude colour.
+      rows.push_back(ftxui::separator() | color(kClaude)
+                   | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, actual_width));
+    }
+  }
+  return { vbox(std::move(rows))
+               | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, actual_width),
+           actual_width };
+}
+
+} // namespace detail
+
+// Output geometry for horizontal-layout render — mirrors what the caller
+// needs to know for slot sizing / layout debugging.
+struct HorizontalLayoutOutput {
+  Element layout;
+  int left_width  = 0;
+  int right_width = 0;
+};
+
+// --------------------------------------------------------------------
 // §6  Compact & Horizontal card layouts
 // --------------------------------------------------------------------
 namespace detail {
 
+// TS logoV2Utils.MAX_USERNAME_LENGTH = 20.
+inline constexpr int kMaxUsernameLength = 20;
+// TS logoV2Utils layout constants — faithful to L17-22.
+inline constexpr int kMaxLeftWidth    = 50;
+inline constexpr int kBorderPadding   = 4;
+inline constexpr int kDividerWidth    = 1;
+inline constexpr int kContentPadding  = 2;
+
 // TS formatWelcomeMessage(username):
-//   username empty → "Welcome to Claude Code"
-//   new user →      "Welcome to Claude Code, {username}!"
-//   returning →     "Welcome back, {username}!"
+//   username empty/null OR longer than MAX_USERNAME_LENGTH(20) → "Welcome back!"
+//   Otherwise → "Welcome back {username}!"
+// NOTE: The first-run "Welcome to Claude Code" variant is NOT produced by
+// this function — it is handled separately by the WelcomeV2 card renderer
+// (see RenderWelcomeV2).
+// TS REF: src/components/LogoV2/LogoV2.tsx::formatWelcomeMessage
 [[nodiscard]] inline auto format_welcome_message(
-    const std::optional<std::string>& username, bool is_new_user) -> std::string {
-  if (!username.has_value() || username->empty()) {
-    return is_new_user ? "Welcome to Claude Code" : "Welcome to Claude Code";
+    const std::optional<std::string>& username) -> std::string {
+  if (!username.has_value() || username->empty()
+      || static_cast<int>(username->size()) > kMaxUsernameLength) {
+    return "Welcome back!";
   }
-  return is_new_user
-      ? ("Welcome to Claude Code, " + *username + "!")
-      : ("Welcome back, " + *username + "!");
+  return "Welcome back " + *username + "!";
 }
 
 } // namespace detail
 
 // Compact mode (cols < 70, TS LogoV2.tsx L253-330):
-//   <Box flexDirection="column" borderStyle="round" borderColor="claude"
-//        borderText={compactBorderTitle} paddingX={1} paddingY={1}
-//        alignItems="center" width={columns}>
-//     <Text bold>{welcomeMessage}</Text>
-//     <Box marginTop={1}><Clawd /></Box>
-//     <Text dimColor>{modelDisplayName}</Text>
-//     <Text dimColor>{billingType}</Text>
-//     <Text dimColor>{agent ? "@agent · cwd" : cwd}</Text>
-//   </Box>
+//
+// Structure (faithful, line-by-line):
+//   <OffscreenFreeze>
+//     <Box flexDirection="column"
+//          borderStyle="round" borderColor="claude"
+//          borderText={compactBorderTitle}   ← " Claude Code " in claude color
+//          paddingX={1} paddingY={1}
+//          alignItems="center" width={columns}>
+//       <Text bold>{welcomeMessage}</Text>
+//       <Box marginTop={1}><Clawd /></Box>
+//       <Text dimColor>{modelDisplayName}</Text>
+//       <Text dimColor>{billingType}</Text>
+//       <Text dimColor>{agent ? "@agent · cwd" : cwd}</Text>
+//     </Box>
+//   </OffscreenFreeze>
+//   notices…
+//
+// borderText: { content: compactBorderTitle, position: "top", align: "start", offset: 1 }
+//   → the title text is inset 1 char from the left border corner.
+//
+// FTXUI Ink-compatibility note: Ink's borderText embeds text directly into the
+// border stroke. FTXUI's closest equivalent is ftxui::window(title, body) which
+// paints title inside a ╭─{title}─…─╮ box. The visual structure (inset title on
+// the top border, rounded-style border) is preserved.
 [[nodiscard]] inline auto RenderCompactLayout(const LogoV2Options& o,
                                                int term_cols,
-                                               bool is_new_user = false)
+                                               int /*is_new_user_unused*/ = 0)
     -> Element {
   using namespace detail;
   namespace logo = cc::ui::logo;
+  using ftxui::window;
 
-  const std::string welcome = format_welcome_message(o.username, is_new_user);
-  const int width = std::max(term_cols, 20);
+  const std::string welcome = format_welcome_message(o.username);
+  // Compact card uses BORDER_PADDING (4 chars: 2 borders + 2 paddingX).
+  // TS compact layout sets width={columns} (full terminal width).
+  // Card inner width = columns - kBorderPadding (subtract 2 borders + 2 padX).
+  const int card_width   = std::max(term_cols, 20);
+  const int inner_width  = std::max(card_width - kBorderPadding, 12);
 
-  // Compact borderTitle: " Claude Code " rendered in the claude token,
-  // wrapped in a round border. FTXUI supports borderStyled with a title.
-  const Color kClaudeBorder = kClaude;
+  // If welcome message is wider than available space, fall back to the
+  // username=null variant (TS LogoV2.tsx L255-263).
+  const std::string welcome_effective =
+      static_cast<int>(welcome.size()) > inner_width
+          ? format_welcome_message(std::nullopt)
+          : welcome;
 
-  // Clawd (3 rows, faithful to TS Clawd.tsx): reuse the 9×3 block-art
-  // used by RenderCondensedLogoElement but wrapped in marginTop box.
+  // compactBorderTitle: color("claude", userTheme)(" Claude Code ")
+  // Title sits on the top border, inset by offset=1 (TS borderText.offset).
+  Element border_title = hbox({
+      // offset=1: 1 leading space, then the title text.
+      text(" ") | color(kClaude),
+      text("Claude Code") | color(kClaude) | bold,
+      text(" ") | color(kClaude),
+  });
+
+  // --- Clawd (9 cols × 3 rows) faithful to TS Clawd.tsx POSES.default. ---
   auto clawd = [&]() -> Element {
-    const Color kClawd(215, 119, 87);   // theme.clawd_body #D77757
-    const std::string_view r1 = "  \xE2\x96\x9B\xE2\x96\x88\xE2\x96\x88"
-                                 "\xE2\x96\x88\xE2\x96\x9C ";
-    const std::string_view r2 = "\xE2\x96\x9D\xE2\x96\x9C"
-                                 "\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88"
-                                 "\xE2\x96\x9B\xE2\x96\x98";
-    const std::string_view r3 = "  \xE2\x96\x98\xE2\x96\x98 \xE2\x96\x9D\xE2\x96\x9D  ";
+    const std::string_view r1L = " \xE2\x96\x90";                           //  ▐
+    const std::string_view r1E = "\xE2\x96\x9B\xE2\x96\x88\xE2\x96\x88"
+                                 "\xE2\x96\x88\xE2\x96\x9C";               // ▛███▜
+    const std::string_view r1R = "\xE2\x96\x8C";                           // ▌
+    const std::string_view r2L = "\xE2\x96\x9D\xE2\x96\x9C";               // ▝▜
+    const std::string_view r2B = "\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88"
+                                 "\xE2\x96\x88\xE2\x96\x88";               // █████
+    const std::string_view r2R = "\xE2\x96\x9B\xE2\x96\x98";               // ▛▘
+    const std::string_view r3  = "  \xE2\x96\x98\xE2\x96\x98 "
+                                 "\xE2\x96\x9D\xE2\x96\x9D  ";             // ▘▘ ▝▝
     return vbox({
-      text(std::string(r1)) | color(kClawd),
-      text(std::string(r2)) | color(kClawd),
-      text(std::string(r3)) | color(kClawd),
-    });
+      // Row 1: {r1L (fg=clawd)} {r1E (fg=clawd, bg=clawd_bg)} {r1R (fg=clawd)}
+      hbox({
+        text(std::string(r1L)) | color(kClawdBody),
+        text(std::string(r1E)) | color(kClawdBody),
+        text(std::string(r1R)) | color(kClawdBody),
+      }),
+      // Row 2: {r2L} {r2B (bg)} {r2R}
+      hbox({
+        text(std::string(r2L)) | color(kClawdBody),
+        text(std::string(r2B)) | color(kClawdBody),
+        text(std::string(r2R)) | color(kClawdBody),
+      }),
+      // Row 3: feet (fg=clawd_body only, no bg)
+      text(std::string(r3)) | color(kClawdBody),
+    }) | ftxui::center;
   };
 
-  // Row 2 model line / billing / agent+cwd: all dimColor.
-  const std::string model_line = !o.model_display_name.empty()
-      ? o.model_display_name : std::string("Claude");
-  const std::string& billing = o.billing_type;
+  // --- Model line + billing + agent·cwd, all dimColor (TS L289,293,297) ---
+  // Width budget = inner_width (inside card, after borders + paddingX).
+  // "paddingX={1}" on outer Box → content starts 2 cols in.
+  const int content_budget = inner_width;
+
+  const std::string model_display = !o.model_display_name.empty()
+      ? truncate_str(o.model_display_name, content_budget)
+      : truncate_str(std::string("Claude"), content_budget);
+  const std::string billing_display =
+      truncate_str(o.billing_type, content_budget);
+
   const std::string cwd_line = [&]() -> std::string {
-    // Width budget for cwd line: width - 4 (border + padding)
-    const int budget = std::max(width - 4, 10);
-    int agent_cost = 0;
+    // cwdAvailableWidth = agentName ? columns - 4 - 1 - stringWidth(agentName) - 3
+    //                                   : columns - 4
+    // TS L265-266. Note: 4 = layoutWidth (border+padding).
+    int budget = content_budget;
     if (o.agent_name.has_value() && !o.agent_name->empty()) {
       // "@" + name + " · " = 1 + name.size() + 3
-      agent_cost = 1 + static_cast<int>(o.agent_name->size()) + 3;
+      budget = budget - 1 - static_cast<int>(o.agent_name->size()) - 3;
     }
-    const int cwd_budget = std::max(budget - agent_cost, 10);
+    budget = std::max(budget, 10);
     std::string cwd = o.cwd;
-    if (static_cast<int>(cwd.size()) > cwd_budget) {
-      cwd = "\xE2\x80\xA6" + cwd.substr(cwd.size()
-          - static_cast<std::size_t>(cwd_budget - 3));
+    if (static_cast<int>(cwd.size()) > budget) {
+      cwd = "\xE2\x80\xA6" + cwd.substr(
+          cwd.size() - static_cast<std::size_t>(budget - 3));
     }
     if (o.agent_name.has_value() && !o.agent_name->empty()) {
       return "@" + *o.agent_name + " \xC2\xB7 " + cwd;
@@ -629,70 +876,91 @@ namespace detail {
     return cwd;
   }();
 
+  // alignItems="center" → center each line horizontally.
   Element inner = vbox({
-    text(welcome) | bold,
-    text(""),  // marginTop={1}
+    text(welcome_effective) | bold | ftxui::center,
+    text(""),                        // marginTop={1} (Clawd wrapped in it)
     clawd(),
-    text(model_line) | dim | color(kMuted),
-    text(billing)    | dim | color(kMuted),
-    text(cwd_line)   | dim | color(kMuted),
-  }) | ftxui::center;
+    text(model_display) | dim | color(kMuted) | ftxui::center,
+    text(billing_display) | dim | color(kMuted) | ftxui::center,
+    text(cwd_line)      | dim | color(kMuted) | ftxui::center,
+  }) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, inner_width);
 
-  // Title: "Claude Code" (claud color), mimicking borderText.
-  Element title = hbox({
-    text(" Claude Code ") | color(kClaudeBorder) | bold,
-  });
-  (void)title;  // FTXUI border doesn't natively support inline colored
-                // titles the way Ink does; we instead use borderRounded +
-                // colorise the whole border; the title appears as a
-                // top-positioned text line inside the card if strictly
-                // required, otherwise we rely on the welcome banner above.
+  // ftxui::window(title, body) — equivalent of Ink's borderText with
+  // position="top" align="start". Border colour = claude (kClaude).
+  Element card = window(std::move(border_title), std::move(inner))
+               | color(kClaude);
 
-  return inner
-       | ftxui::borderStyled(ftxui::ROUNDED, kClaudeBorder)
-       | size(WIDTH, EQUAL, width);
+  return card | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, card_width);
 }
 
 // Horizontal mode (cols >= 70, TS LogoV2.tsx L331-428):
-//   <Box flexDirection="column" borderStyle="round" borderColor="claude"
-//        borderText={borderTitle}>
-//     <Box flexDirection="row" paddingX={1} gap={1}>
-//       <Box width={leftWidth} justifyContent="space-between"
-//            alignItems="center" minHeight={9}>  /* LEFT PANEL */
-//         welcome
-//         Clawd
-//         <Box alignItems="center">{modelLine}{cwdLine}</Box>
+//
+// Outer structure (faithful):
+//   <OffscreenFreeze>
+//     <Box flexDirection="column"
+//          borderStyle="round" borderColor="claude"
+//          borderText={borderTitle}>          ← " Claude Code vX.X.X "
+//       <Box flexDirection="row" paddingX={1} gap={1}>
+//         {LEFT_PANEL}
+//         {layoutMode === "horizontal" && <VERTICAL_DIVIDER />}
+//         {layoutMode === "horizontal" && <FeedColumn feeds=... />}
 //       </Box>
-//       {layout === horizontal && <Box height=100%
-//            borderStyle=single borderTop/bottom/left=false borderColor=claude />}
-//       <FeedColumn feeds={...} maxWidth={rightWidth} />
+//     </Box>
+//   </OffscreenFreeze>
+//   notices…
+//
+// borderText offset=3 → the title text starts 3 chars in from the left corner.
+//
+// Left panel (TS L403-411):
+//   <Box flexDirection="column" width={leftWidth}
+//        justifyContent="space-between" alignItems="center" minHeight={9}>
+//     <Box marginTop={1}><Text bold>{welcomeMessage}</Text></Box>
+//     <Clawd />
+//     <Box flexDirection="column" alignItems="center">
+//       <Text dimColor>{modelLine}</Text>
+//       <Text dimColor>{cwdLine}</Text>
 //     </Box>
 //   </Box>
 //
-// borderTitle: "{colorClaude(Claude Code)} {colorInactive(vX.X.X)}"
-// FeedColumn is deliberately out of scope for this P0 (it requires
-// recent-activity / changelog IO which belongs to the caller). The
-// right-hand slot is left as an empty placeholder sized to rightWidth;
-// callers may later inject the FeedColumn via composition.
-struct HorizontalLayoutOutput {
-  Element layout;
-  int left_width  = 0;
-  int right_width = 0;
-};
+// Layout math (faithful, see logoV2Utils L43-74):
+//   optimalLeftWidth = min(max( welcome.width, cwdLine.width, modelLine.width, 20 ) + 4, 50)
+//   if horizontal:
+//     leftWidth  = optimalLeftWidth
+//     usedSpace  = BORDER_PADDING(4) + CONTENT_PADDING(2) + DIVIDER(1) + leftWidth
+//     rightWidth = max(30, columns - usedSpace)
+//     totalWidth = min(leftWidth + rightWidth + DIVIDER + CONTENT_PADDING,
+//                      columns - BORDER_PADDING)
+//     if total clamped: rightWidth = totalWidth - leftWidth - DIVIDER - CONTENT_PADDING
+//   (compact branch not reached here — horizontal mode selection is the caller's)
+//
+// Feed selection (TS L421, 4-armed ternary):
+//   showOnboarding       → [ProjectOnboarding, RecentActivity]
+//   showGuestPassesUpsell → [RecentActivity, GuestPasses]
+//   showOverageCredit    → [RecentActivity, OverageCredit]
+//   (default)            → [RecentActivity, What'sNew]
+//
+// We accept feeds as a vector<FeedConfig> via LogoV2Options; if empty we fall
+// back to the default two-feed layout [RecentActivity, What'sNew] using the
+// placeholders provided by the repl_screen caller data.
 
-[[nodiscard]] inline auto RenderHorizontalLayout(const LogoV2Options& o,
-                                                 int term_cols,
-                                                 bool is_new_user = false,
-                                                 Element feed_column = {})
+[[nodiscard]] inline auto RenderHorizontalLayout(
+    const LogoV2Options& o,
+    int term_cols,
+    int /*is_new_user_unused*/ = 0,
+    std::vector<FeedConfig> feeds = std::vector<FeedConfig>(),
+    Element feed_column_override = Element())
     -> HorizontalLayoutOutput {
   using namespace detail;
 
-  const int width = std::max(term_cols, 70);
-  // TS optimalLeftWidth: derived from longest(welcome, cwdLine, modelLine)
-  // clamped to LEFT_PANEL_MAX_WIDTH (50). Then calculateLayoutDimensions
-  // assigns the rest to feed column.
-  const std::string welcome = format_welcome_message(o.username, is_new_user);
-  const std::string model_line_full = [&]() {
+  const int columns = std::max(term_cols, kHorizontalMinCols);
+
+  // --- Compute welcome / modelLine / cwdLine. ---
+  const std::string welcome = format_welcome_message(o.username);
+
+  // modelLine: org ? `${model} · ${billing} · ${orgName}` : `${model} · ${billing}`
+  // (TS LogoV2.tsx L332-333 — NOT the compact 3-separate-lines variant).
+  std::string model_line_full = [&]() {
     std::string m = o.model_display_name.empty()
         ? std::string("Claude") : o.model_display_name;
     if (!o.billing_type.empty()) {
@@ -703,17 +971,22 @@ struct HorizontalLayoutOutput {
     }
     return m;
   }();
+
+  // cwdLine: agentName ? `@${agent} · ${truncatedCwd}` : truncatedCwd
+  // Left-panel budget = LEFT_PANEL_MAX_WIDTH (50).
+  // TS L333: cwdAvailableWidth = agentName ? MAX(50) - 1 - name.size() - 3 : 50
+  // (Note: TS uses agent name + "@" + " · " as the fixed prefix.)
   const std::string cwd_line_full = [&]() {
-    const int max_w = 50;  // LEFT_PANEL_MAX_WIDTH
+    const int max_w = kMaxLeftWidth;
     int agent_cost = 0;
     if (o.agent_name.has_value() && !o.agent_name->empty()) {
       agent_cost = 1 + static_cast<int>(o.agent_name->size()) + 3;
     }
-    const int cwd_budget = std::max(max_w - agent_cost, 10);
+    int budget = std::max(max_w - agent_cost, 10);
     std::string cwd = o.cwd;
-    if (static_cast<int>(cwd.size()) > cwd_budget) {
-      cwd = "\xE2\x80\xA6" + cwd.substr(cwd.size()
-          - static_cast<std::size_t>(cwd_budget - 3));
+    if (static_cast<int>(cwd.size()) > budget) {
+      cwd = "\xE2\x80\xA6" + cwd.substr(
+          cwd.size() - static_cast<std::size_t>(budget - 3));
     }
     if (o.agent_name.has_value() && !o.agent_name->empty()) {
       return "@" + *o.agent_name + " \xC2\xB7 " + cwd;
@@ -721,65 +994,148 @@ struct HorizontalLayoutOutput {
     return cwd;
   }();
 
-  auto line_len = [](const std::string& s) { return static_cast<int>(s.size()); };
-  const int longest = std::max({
-      line_len(welcome), line_len(model_line_full), line_len(cwd_line_full) });
-  int left_w = std::clamp(longest + 4 /* hpad */, 34, 50 /* LEFT_PANEL_MAX_WIDTH */);
-  // width - left_w - 2 (outer border) - 1 (inner gap) - 1 (divider col)
-  int right_w = std::max(width - left_w - 2 - 1 - 1, 20);
+  // --- calculateOptimalLeftWidth (TS L80-92) ---
+  auto sw = [](const std::string& s){ return static_cast<int>(s.size()); };
+  const int content_width = std::max({
+      sw(welcome), sw(cwd_line_full), sw(model_line_full), 20 /* min for clawd */ });
+  const int optimal_left_width = std::min(content_width + 4, kMaxLeftWidth);
 
-  // Left panel: justify=space-between (welcome at top, clawd in the
-  // middle, meta at bottom). FTXUI lacks justify-content: space-between
-  // as a direct DOM property; we approximate with filler + clawd + filler.
-  auto clawd = [&]() -> Element {
-    const Color kClawd(215, 119, 87);
-    return vbox({
-      text("  \xE2\x96\x9B\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x9C ")
-          | color(kClawd),
-      text("\xE2\x96\x9D\xE2\x96\x9C\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x9B\xE2\x96\x98")
-          | color(kClawd),
-      text("  \xE2\x96\x98\xE2\x96\x98 \xE2\x96\x9D\xE2\x96\x9D  ")
-          | color(kClawd),
-    });
-  };
+  // --- calculateLayoutDimensions, horizontal branch (TS L43-65) ---
+  const int left_width  = optimal_left_width;
+  const int used_space  = kBorderPadding + kContentPadding + kDividerWidth + left_width;
+  int right_width       = std::max(30, columns - used_space);
+  int total_width = std::min(
+      left_width + right_width + kDividerWidth + kContentPadding,
+      columns - kBorderPadding);
+  if (total_width < left_width + right_width + kDividerWidth + kContentPadding) {
+    right_width = total_width - left_width - kDividerWidth - kContentPadding;
+  }
+  right_width = std::max(right_width, 20);  // safety minimum
 
-  Element left_panel = vbox({
-      hbox({ text(welcome) | bold }) | ftxui::center,
-      text(""),  // marginTop
-      clawd() | ftxui::center,
-      vbox({
-          text(model_line_full) | dim | color(kMuted),
-          text(cwd_line_full)    | dim | color(kMuted),
-      }) | ftxui::center,
-  }) | size(WIDTH, EQUAL, left_w) | size(HEIGHT, GREATER_THAN, 9);
-
-  // Vertical divider: "single" border style, only the right edge, full
-  // height. Approximate with a 1-wide column of "│" chars (U+2502) in
-  // claude-purple, clamped to 9 rows (minimum of left panel).
-  Element divider = vbox(Elements(9, text("\xE2\x94\x82") | color(kClaude)))
-                  | size(WIDTH, EQUAL, 1)
-                  | size(HEIGHT, GREATER_THAN, 9);
-
-  // Feed placeholder — caller can pass a real FeedColumn; otherwise a
-  // dim hint "Feed column pending / Recent activity + changelog".
-  Element feed = feed_column ? std::move(feed_column) : vbox({
-      text("Recent activity") | bold | color(kClaude),
-      text("  (no data yet — activity feed requires Engine wiring)")
-          | dim | color(kMuted),
-  }) | size(WIDTH, EQUAL, right_w);
-
-  Element row = hbox({
-      std::move(left_panel),
-      std::move(divider),
-      std::move(feed),
+  // --- borderTitle (TS L251):
+  //   ` ${color("claude", userTheme)("Claude Code")} ${color("inactive", userTheme)(`v${version}`)} `
+  //   offset=3 → title starts at column 3 from the left border corner.
+  const std::string v = o.version.empty() ? std::string("0.0.0") : o.version;
+  Element border_title = hbox({
+      text("   ") | color(kClaude),                // offset=3 leading spaces
+      text("Claude Code") | color(kClaude) | bold,
+      text(" v" + v + " ") | color(kMuted) | dim,  // inactive/muted version
   });
 
-  const Color kClaudeBorder = kClaude;
-  Element outer = std::move(row)
-                | ftxui::borderStyled(ftxui::ROUNDED, kClaudeBorder)
-                | size(WIDTH, EQUAL, width);
+  // --- Clawd (standard 3 rows, 9 cols) centered. ---
+  auto clawd = [&]() -> Element {
+    using ftxui::vbox;
+    const std::string_view r1L = " \xE2\x96\x90";
+    const std::string_view r1E = "\xE2\x96\x9B\xE2\x96\x88\xE2\x96\x88"
+                                 "\xE2\x96\x88\xE2\x96\x9C";
+    const std::string_view r1R = "\xE2\x96\x8C";
+    const std::string_view r2L = "\xE2\x96\x9D\xE2\x96\x9C";
+    const std::string_view r2B = "\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88"
+                                 "\xE2\x96\x88\xE2\x96\x88";
+    const std::string_view r2R = "\xE2\x96\x9B\xE2\x96\x98";
+    const std::string_view r3  = "  \xE2\x96\x98\xE2\x96\x98 "
+                                 "\xE2\x96\x9D\xE2\x96\x9D  ";
+    return vbox({
+      ftxui::hbox({
+        text(std::string(r1L)) | color(kClawdBody),
+        text(std::string(r1E)) | color(kClawdBody),
+        text(std::string(r1R)) | color(kClawdBody),
+      }),
+      ftxui::hbox({
+        text(std::string(r2L)) | color(kClawdBody),
+        text(std::string(r2B)) | color(kClawdBody),
+        text(std::string(r2R)) | color(kClawdBody),
+      }),
+      text(std::string(r3)) | color(kClawdBody),
+    }) | ftxui::center;
+  };
 
-  return { std::move(outer), left_w, right_w };
+  // --- Left panel: justify-content: space-between approximated. ---
+  // FTXUI can't do true space-between; we push the welcome up, clawd in middle,
+  // meta at bottom using flexbox with filler rows.
+  Element left_panel = ftxui::vbox({
+      // marginTop={1} → one blank row then welcome.
+      text(""),
+      hbox({ text(welcome) | bold }) | ftxui::center,
+      text(""),
+      clawd(),
+      ftxui::vbox({
+          text(truncate_str(model_line_full, left_width - 2))
+              | dim | color(kMuted),
+          text(truncate_str(cwd_line_full, left_width - 2))
+              | dim | color(kMuted),
+      }) | ftxui::center,
+  }) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, left_width)
+     | ftxui::size(ftxui::HEIGHT, ftxui::GREATER_THAN, 9);
+
+  // --- Vertical divider (TS L414-417):
+  //   <Box height="100%" borderStyle="single" borderColor="claude"
+  //        borderDimColor borderTop/bottom/left=false />
+  // This is a single full-height vertical rule in the accent colour (or a
+  // dimmed variant). We approximate with 9 rows of "│" in kClaude, sized to
+  // the minimum of the left panel (GREATER_THAN 9).
+  Element divider =
+      vbox(Elements(9, text("\xE2\x94\x82") | color(kClaude)))
+      | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, kDividerWidth)
+      | ftxui::size(ftxui::HEIGHT, ftxui::GREATER_THAN, 9);
+
+  // --- Feed column. ---
+  Element feed;
+  if (feed_column_override) {
+    feed = std::move(feed_column_override);
+  } else if (!feeds.empty()) {
+    auto [fc, _aw] = detail::RenderFeedColumn(std::move(feeds), right_width);
+    feed = std::move(fc);
+  } else {
+    // Default two-feed placeholder layout matching the TS default branch
+    // ([createRecentActivityFeed(activities), createWhatsNewFeed(changelog)]
+    // when no upsells / onboarding are active).
+    std::vector<FeedConfig> default_feeds;
+    {
+      FeedConfig recent;
+      recent.title = "Recent activity";
+      recent.empty_message = "(no recent activity yet — engine wiring pending)";
+      default_feeds.push_back(std::move(recent));
+    }
+    {
+      FeedConfig whats_new;
+      whats_new.title = "What's new";
+      whats_new.lines = {
+        // TS REF: changelog placeholder lines — no timestamps on default feed
+        FeedLine{ .text = "Paste images with Ctrl+V directly into the prompt",
+                  .timestamp = std::nullopt },
+        FeedLine{ .text = "New logo modes: compact, condensed, horizontal",
+                  .timestamp = std::nullopt },
+        FeedLine{ .text = "Sandboxing bash commands with /sandbox toggle",
+                  .timestamp = std::nullopt },
+      };
+      whats_new.footer = "See full changelog at /changelog";
+      default_feeds.push_back(std::move(whats_new));
+    }
+    auto [fc, _aw] = detail::RenderFeedColumn(std::move(default_feeds), right_width);
+    feed = std::move(fc);
+  }
+  feed = std::move(feed)
+       | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, right_width);
+
+  // --- Inner row: paddingX={1} gap={1} approximated. ---
+  // gap=1 → one space between panels.
+  Element inner_row = hbox({
+      text(" "),  // paddingX={1} left
+      std::move(left_panel),
+      text(" "),  // gap={1}
+      std::move(divider),
+      text(" "),  // gap={1}
+      std::move(feed),
+      text(" "),  // paddingX={1} right
+  });
+
+  // Wrap inner_row in window() with the borderTitle — equivalent of Ink's
+  // borderStyle=round + borderColor=claude + borderText.
+  Element outer = ftxui::window(std::move(border_title), std::move(inner_row))
+                | color(kClaude);
+
+  return { std::move(outer), left_width, right_width };
 }
 
 // --------------------------------------------------------------------
@@ -803,8 +1159,8 @@ struct LogoV2Result {
 
 [[nodiscard]] inline auto RenderLogoV2(const LogoV2Options& o,
                                        int term_cols,
-                                       bool is_new_user = false,
-                                       Element feed_column = {})
+                                       std::vector<FeedConfig> feeds = std::vector<FeedConfig>(),
+                                       Element feed_column_override = Element())
     -> LogoV2Result {
   if (o.is_condensed_mode) {
     // --- CONDENSED path (L179-247 TS LogoV2.tsx) ---
@@ -832,10 +1188,12 @@ struct LogoV2Result {
   struct W { int l = 0, r = 0; };
   W widths;
   if (mode == LogoLayoutMode::Compact) {
-    card = RenderCompactLayout(o, term_cols, is_new_user);
+    // Compact mode: 3rd param is (unused) is_new_user compatibility flag.
+    card = RenderCompactLayout(o, term_cols, 0);
   } else {
-    auto [h, lw, rw] = RenderHorizontalLayout(o, term_cols, is_new_user,
-                                              std::move(feed_column));
+    auto [h, lw, rw] = RenderHorizontalLayout(o, term_cols, 0,
+                                              std::move(feeds),
+                                              std::move(feed_column_override));
     card = std::move(h);
     widths = {lw, rw};
   }
@@ -852,9 +1210,9 @@ struct LogoV2Result {
 // common case in repl_screen::RenderWelcomeHeader).
 [[nodiscard]] inline auto render_logo_v2(const LogoV2Options& o,
                                           int term_cols = 120,
-                                          bool is_new_user = false)
+                                          std::vector<FeedConfig> feeds = {})
     -> Element {
-  return RenderLogoV2(o, term_cols, is_new_user).root;
+  return RenderLogoV2(o, term_cols, std::move(feeds)).root;
 }
 
 } // namespace cc::ui::logo_v2
