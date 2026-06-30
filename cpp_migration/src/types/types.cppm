@@ -98,10 +98,29 @@ struct ToolResultBlock {
     bool is_error = false;      // Whether the tool execution failed
 };
 
+/// Where an ImageBlock came from — used by the user-facing renderer to
+/// pick the correct leading icon (TS: clipboard pastes show 📎; file paths
+/// show 📁; base64 embeds show 📋).  Mirrors the enum in
+/// ui/messages/message_image.cppm (ImageSource) but lives at the types layer
+/// so the projection step can annotate content blocks without pulling in the
+/// entire UI layer.
+enum class ImageBlockSource : std::uint8_t {
+    Unknown,
+    File,        // @file reference or drag-and-drop
+    Clipboard,   // ctrl+v / cmd+v clipboard paste
+    Base64,      // Inline base64 payload from programmatic sources
+};
+
 /// Base64 image content block.
 struct ImageBlock {
-    std::string media_type;      // e.g. image/png
-    std::string data;            // base64 encoded bytes
+    std::string media_type;                       // e.g. "image/png"
+    std::string data;                             // base64 encoded bytes
+    std::optional<std::size_t> width;             // pixels, if known at capture
+    std::optional<std::size_t> height;            // pixels, if known at capture
+    std::optional<std::size_t> size_bytes;        // raw payload size (before base64)
+    std::optional<std::string> file_name;         // e.g. "Screenshot 2026-06-30.png"
+    std::optional<std::string> source_path;       // absolute path, if from file
+    ImageBlockSource source = ImageBlockSource::Unknown;
 };
 
 /// Base64 document content block.

@@ -496,7 +496,10 @@ private:
                 block.get("is_error").is_bool() && block.get("is_error").as_bool()};
         }
         if (type == "image") {
-            return ImageBlock{block.get_string("media_type"), block.get_string("data")};
+            ImageBlock ib;
+            ib.media_type = block.get_string("media_type");
+            ib.data       = block.get_string("data");
+            return ib;
         }
         if (type == "document") {
             return DocumentBlock{block.get_string("media_type"), block.get_string("data")};

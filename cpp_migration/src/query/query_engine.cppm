@@ -2823,10 +2823,16 @@ private:
             result_msg.is_error = tr.is_error;
             for (auto& content : tr.content) {
                 if (content.format && *content.format == "image" && content.media_type && content.data) {
-                    result_msg.content.push_back(ImageBlock{
-                        .media_type = std::move(*content.media_type),
-                        .data = std::move(*content.data),
-                    });
+                    // NOTE: width/height/size_bytes are not returned by the
+                    // tool-use executor (it only forwards format/media_type/data).
+                    // Left as std::nullopt; user-facing renderer falls back to
+                    // "<no metadata>" text and an ASCII thumbnail seeded from
+                    // the base64 payload.
+                    ImageBlock ib;
+                    ib.media_type = std::move(*content.media_type);
+                    ib.data       = std::move(*content.data);
+                    ib.source     = ImageBlockSource::Unknown;
+                    result_msg.content.push_back(std::move(ib));
                     continue;
                 }
                 if (content.format && *content.format == "document" && content.media_type && content.data) {
