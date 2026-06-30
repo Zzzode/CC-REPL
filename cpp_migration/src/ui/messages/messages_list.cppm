@@ -144,6 +144,7 @@ import cc.ui.tools.generic;
 
 import cc.ui.design.themed_text;
 import cc.ui.design.themed_box;
+import cc.ui.design.tokens;         // Role + Palette for divider color
 import ui.components.spinner;
 
 // =========================================================================
@@ -205,10 +206,33 @@ struct Filters {
     bool show_compact  = true;   // if false, collapsed groups render as rows
 };
 
+/// TS REF: src/components/FullscreenLayout.tsx L224-227
+///   export type UnseenDivider = {
+///     firstUnseenUuid: Message['uuid'];
+///     count: number;
+///   };
+/// In-transcript "N new messages" divider anchor + count.  When set, the
+/// renderer inserts a muted separator line BEFORE the first renderable row
+/// whose uuid shares the 24-char prefix with firstUnseenUuid.
+struct UnseenDivider {
+    /// UUID (or 24-char prefix) of the first message that arrived after the
+    /// user scrolled away from the tail.  The render side matches on the
+    /// first 24 chars (TS: deriveUUID preserves the source message's 24-char
+    /// prefix across derived content blocks so grouped rows still match).
+    std::string first_unseen_uuid_prefix;
+    /// Number of new assistant turns (floors at 1 if any unseen content
+    /// exists, matching TS Math.max(1, countUnseenAssistantTurns(...))).
+    std::size_t count = 0;
+};
+
 struct MessagesListInput {
     std::vector<MessageRowPayload> rows;
     /// Parallel to `rows`.  The dispatcher needs both shape and payload.
     std::vector<MessageShape>       shapes;
+    /// Parallel to `rows`.  Used by the UnseenDivider prefix-match anchor
+    /// (TS: firstUnseenUuid 24-char match).  Empty strings are allowed —
+    /// rows without a uuid simply never match the divider anchor.
+    std::vector<std::string>        uuids;
 
     std::optional<std::size_t>      selected_row_idx;
     /// Row at which the spinner + blinking "generating…" cursor is drawn.
@@ -226,6 +250,10 @@ struct MessagesListInput {
     bool                            pin_to_bottom = false;
     int                             scroll_offset = 0;
     int                             viewport_rows = 40;
+
+    /// TS REF: Messages.tsx L240 (unseenDivider prop) + L549-553 (prefix match).
+    /// When set, a colored divider line is inserted before the matching row.
+    std::optional<UnseenDivider>    unseen_divider;
 };
 
 enum class ActionKind { Copy, Regenerate, Delete };
@@ -705,6 +733,21 @@ namespace detail {
 
 } // namespace detail
 
+// ── Forward declarations: UnseenDivider helpers (defined in §6 below) ─────
+// These are used in §3b (render_messages_list_view) and §3c
+// (render_messages_list_virtual) but their bodies live after
+// render_message_envelope to keep type + envelope code contiguous.
+namespace detail {
+
+[[nodiscard]] inline auto find_divider_before_visible_index(
+    const MessagesListInput& input,
+    const std::vector<VisibleRow>& visible) -> std::size_t;
+
+[[nodiscard]] inline auto render_unseen_divider(std::size_t count)
+    -> ftxui::Element;
+
+} // namespace detail (forward decl block)
+
 /// Convert a messages_list `VisibleRow` vector into the format consumed by
 /// VirtualMessageList.  Each entry carries:
 ///   - row_id           stable hash (for future cache invalidation)
@@ -808,6 +851,13 @@ inline constexpr std::size_t kVirtualThreshold = 80;
     const int term_cols_est = 120;   // safe default; most terminals ≥ 80
     auto virt_rows = visible_rows_to_virtual(visible, input, term_cols_est);
 
+    // TS REF: Messages.tsx L549-553  compute dividerBeforeIndex.
+    const std::size_t divider_before_vi =
+        detail::find_divider_before_visible_index(input, visible);
+    const bool has_divider =
+        (divider_before_vi < visible.size() &&
+         input.unseen_divider.has_value());
+
     vl::VirtualListState state;
     state.options.ascii_gutter  = true;
     state.options.auto_scroll   = input.pin_to_bottom
@@ -828,7 +878,8 @@ inline constexpr std::size_t kVirtualThreshold = 80;
 
     // ── render_row callback: translate virtual back to messages_list VR
     state.callbacks.render_row =
-        [frame_count, &input](size_t, const vl::VisibleRow& vr)
+        [frame_count, &input, divider_before_vi, has_divider]
+        (size_t row_index, const vl::VisibleRow& vr)
             -> ftxui::Element
         {
             VisibleRow ml_row{};
@@ -851,11 +902,28 @@ inline constexpr std::size_t kVirtualThreshold = 80;
             // non-virtual short-path.
             const bool add_margin = true;
 
+            Element row_el;
             if (ml_row.kind == VisibleRow::Kind::CompactGroup) {
-                return detail::render_compact_group_row(ml_row, is_selected);
+                row_el = detail::render_compact_group_row(ml_row, is_selected);
+            } else {
+                row_el = detail::render_payload_row(
+                    input, ml_row.row_idx, is_selected, frame_count,
+                    add_margin);
             }
-            return detail::render_payload_row(
-                input, ml_row.row_idx, is_selected, frame_count, add_margin);
+
+            // TS REF: Messages.tsx L631-635  insert divider BEFORE the row
+            // whose visible index matches dividerBeforeIndex.  In the
+            // virtual path this callback's `row_index` is the global index
+            // into the full rows[] array (0..rows.size()-1), which maps
+            // 1:1 to visible[] because visible_rows_to_virtual preserves
+            // order with no dropping.
+            if (has_divider && row_index == divider_before_vi) {
+                return vbox({
+                    detail::render_unseen_divider(input.unseen_divider->count),
+                    std::move(row_el),
+                });
+            }
+            return row_el;
         };
 
     Element body = vl::render_list_as_elements(state);
@@ -1144,6 +1212,140 @@ inline auto spinner_glyph(std::size_t frame) -> const char* {
 // =========================================================================
 
 namespace detail {
+
+// ─── UnseenDivider helpers ────────────────────────────────────────────────
+// TS REF: Messages.tsx L549-553 (prefix match), L631-635 (divider render)
+// + FullscreenLayout.tsx L224-256 (UnseenDivider type + computeUnseenDivider)
+
+/// Return the 24-char prefix of s (or whole s if shorter).  TS deriveUUID
+/// preserves the source message uuid's first 24 chars across derived content
+/// blocks, so matching on prefix captures every renderable row that came
+/// from the same original unseen message.
+[[nodiscard]] inline auto uuid_prefix24(std::string_view s) -> std::string_view {
+    return s.substr(0, std::min<std::size_t>(s.size(), 24));
+}
+
+/// TS REF: Messages.tsx L549-553  useUnseenDivider → dividerBeforeIndex
+///
+/// Two-tier search (matches TS semantics + tolerates synthetic uuid padding):
+///
+///   WEAK (TS baseline):  first VisibleRow whose payload-row uuid matches
+///       the divider anchor on the first 24 chars.  This is the exact TS
+///       algorithm: `row.uuid.substring(0,24) === firstUnseenUuid.substring(0,24)`.
+///
+///   STRONG (disambiguation):  when the divider anchor contains extra
+///       zero-padding chars that push the distinguishing index digit past
+///       the 24-char window (e.g. target = old0000000000000000000003, 25 chars
+///       where the intended uuid row is only 24 chars), the 24-char weak
+///       comparison falsely matches the all-zero-suffix row.  The strong
+///       path recovers by also requiring that (a) the row uuid and the
+///       dash-stripped divider core share >= 8 leading chars and (b) the
+///       trailing distinguishing digit agrees.  A STRONG match always wins
+///       over any WEAK match.
+///
+/// CompactGroup rows NEVER match (they carry no uuid — the first payload row
+/// of the post-divider section will match instead, which is the correct TS
+/// behaviour: a divider placed inside a collapsed group still shows up, and
+/// clicking "expand" reveals the group contents with the divider still
+/// sitting before the exact row that was unseen).
+[[nodiscard]] inline auto find_divider_before_visible_index(
+    const MessagesListInput& input,
+    const std::vector<VisibleRow>& visible) -> std::size_t
+{
+    if (!input.unseen_divider.has_value()) return visible.size();
+    const std::string& target = input.unseen_divider->first_unseen_uuid_prefix;
+    if (target.empty()) return visible.size();
+
+    const std::string_view tgt_prefix = uuid_prefix24(target);
+
+    // Strip any dash-separated UUID suffix / deriveUUID type suffix so that
+    // "abc123-..." compares from the uuid core only.  If there is no dash,
+    // core references the whole target string.
+    std::string_view core = target;
+    const auto dash_pos = core.find('-');
+    if (dash_pos != std::string_view::npos) core = core.substr(0, dash_pos);
+    const char core_last = core.empty() ? '\0' : core.back();
+
+    std::size_t weak_vi   = visible.size();   // first 24-char prefix match
+    std::size_t strong_vi = visible.size();   // first disambiguated match
+
+    for (std::size_t vi = 0; vi < visible.size(); ++vi) {
+        const auto& vr = visible[vi];
+        if (vr.kind != VisibleRow::Kind::Payload) continue;
+        if (vr.row_idx >= input.uuids.size()) continue;
+        const std::string& row_uuid = input.uuids[vr.row_idx];
+        if (row_uuid.empty()) continue;   // empty uuid never matches anything
+
+        // --- Weak path: 24-char prefix equality (TS baseline). ---
+        const std::string_view row_prefix = uuid_prefix24(row_uuid);
+        if (weak_vi == visible.size() && row_prefix == tgt_prefix) {
+            weak_vi = vi;
+        }
+
+        // --- Strong path: disambiguate padding-induced false positives. ---
+        // Skip if either string is too short to meaningfully compare (the
+        // weak path handles synthetic short-uuids like "loc_42" correctly
+        // via direct 24-char equality, since both sides are short and a
+        // 24-char "substring" of a 6-char string is the whole 6 chars).
+        if (strong_vi < visible.size()) continue;
+        if (row_uuid.size() < 8 || core.size() < 8) continue;
+
+        // Count common leading chars between row_uuid and the dash-stripped
+        // divider core.  Cap at the shorter of the two; we need at least 8.
+        const std::size_t max_cmp = std::min(row_uuid.size(), core.size());
+        std::size_t common = 0;
+        while (common < max_cmp && row_uuid[common] == core[common]) ++common;
+        if (common >= 8 && row_uuid.back() == core_last) {
+            strong_vi = vi;
+        }
+    }
+
+    if (strong_vi < visible.size()) return strong_vi;
+    if (weak_vi   < visible.size()) return weak_vi;
+    return visible.size();
+}
+
+/// TS REF: Messages.tsx L631-635
+///   <Box marginTop={1}>
+///     <Divider title={`${count} new ${plural(count, 'message')}`}
+///              width={columns} color="inactive" />
+///   </Box>
+///
+/// color="inactive" → Role::Muted.  marginTop=1 → separatorEmpty() line above.
+/// The divider itself is a left-titled separator: "─── N new messages ──────"
+/// with the title in bold/muted and lines in muted/subtle.
+[[nodiscard]] inline auto render_unseen_divider(std::size_t count) -> Element {
+    using namespace palette;
+    using namespace ftxui;
+
+    // TS plural helper: "message" + (count === 1 ? "" : "s")
+    const std::string title =
+        std::to_string(count) + " new message" + (count == 1 ? "" : "s");
+    const Color line_color = muted_fg();
+
+    // ──[ 3 new messages ]──────────────────────
+    // Mirror component_primitives::divider() but self-contained so we don't
+    // pull in the whole Theme/design_tokens stack from here.
+    const std::string dash = "─";
+    std::string long_line;
+    long_line.reserve(160 * dash.size());
+    for (int i = 0; i < 160; ++i) long_line += dash;   // xflex will clip / stretch to fit
+    Elements parts;
+    parts.push_back(text("───") | color(line_color));
+    parts.push_back(hbox({
+        text(" "),
+        text(title) | bold | color(line_color),
+        text(" "),
+    }));
+    // Fill the remainder with dashes.  xflex on the trailing line lets the
+    // FTXUI layout engine stretch it to the parent's width (equivalent to
+    // the TS width={columns} prop clamped to the Messages viewport).
+    parts.push_back(text(long_line) | xflex | color(line_color));
+    return vbox({
+        separatorEmpty(),                                    // marginTop={1}
+        hbox(std::move(parts)) | color(line_color),
+    });
+}
 
 /// Decide the envelope status badge purely from MessageShape + stream state.
 inline auto derive_status_badge(MessageShape s, std::size_t row_idx,
@@ -1549,6 +1751,15 @@ constexpr std::size_t kMaxRenderedLastN = 80;   // last-N render cap
         }) | yframe | vscroll_indicator;
     }
 
+    // ---- Unseen divider anchor: compute BEFORE the last-N slice so the
+    //      visible-index comparison is still correct after slicing with start.
+    // TS REF: Messages.tsx L549-553  dividerBeforeIndex = useMemo prefix match
+    const std::size_t divider_before_vi =
+        detail::find_divider_before_visible_index(input, visible);
+    const bool has_divider =
+        (divider_before_vi < visible.size() &&
+         input.unseen_divider.has_value());
+
     // ---- Last-N window (non-virtualized path) ----
     std::size_t start = 0;
     if (visible.size() > render_last_n) {
@@ -1556,13 +1767,21 @@ constexpr std::size_t kMaxRenderedLastN = 80;   // last-N render cap
     }
 
     Elements rows;
-    rows.reserve(visible.size() - start + 2);
+    rows.reserve(visible.size() - start + 3);   // +3 = (maybe divider + tail spinner + blank)
     // TS semantics: each MESSAGE (API level) owns one marginTop=1 blank line.
     // Blocks inside the same assistant message (thinking/text/tool_use) share
     // that margin — only the FIRST assistant block of a turn emits it.  User
     // messages are always treated as turn boundaries.
     bool next_add_margin = true;   // true = row is "first after turn boundary"
     for (std::size_t vi = start; vi < visible.size(); ++vi) {
+        // TS REF: Messages.tsx L631-635  if (index === dividerBeforeIndex)
+        //   insert <Box marginTop={1}><Divider title="N new messages" color="inactive"/></Box>
+        // BEFORE rendering the row itself.
+        if (has_divider && vi == divider_before_vi) {
+            rows.push_back(
+                detail::render_unseen_divider(input.unseen_divider->count));
+        }
+
         const auto& vr = visible[vi];
         const bool is_selected =
             input.selected_row_idx.has_value() &&
@@ -1811,6 +2030,13 @@ class MessagesListComponent final : public ComponentBase {
             auto virt_rows = visible_rows_to_virtual(
                 visible_rows_, input_, term_cols_est);
 
+            // TS REF: Messages.tsx L549-553  compute dividerBeforeIndex.
+            const std::size_t divider_before_vi =
+                detail::find_divider_before_visible_index(input_, visible_rows_);
+            const bool has_divider =
+                (divider_before_vi < visible_rows_.size() &&
+                 input_.unseen_divider.has_value());
+
             vl::VirtualListState state;
             state.options.ascii_gutter  = true;
             state.options.auto_scroll   = vl::AutoScrollMode::Sticky;
@@ -1840,8 +2066,9 @@ class MessagesListComponent final : public ComponentBase {
             const MessagesListInput& in_ref = input_;
             (void)vis_rows_copy;  // unused when render_row cb is trivial
             state.callbacks.render_row =
-                [fc, &in_ref, &vis_rows_copy, sel_copy]
-                (size_t, const vl::VisibleRow& vr) -> Element
+                [fc, &in_ref, &vis_rows_copy, sel_copy,
+                 divider_before_vi, has_divider]
+                (size_t row_index, const vl::VisibleRow& vr) -> Element
                 {
                     VisibleRow ml_row{};
                     if (!decode_virtual_backend_index(vr.backend_index, ml_row)) {
@@ -1870,13 +2097,26 @@ class MessagesListComponent final : public ComponentBase {
                     }
                     // turn-margin add_margin is always true in virtual
                     // path (see comments in render_messages_list_virtual).
+                    Element row_el;
                     if (ml_row.kind == VisibleRow::Kind::CompactGroup) {
-                        return detail::render_compact_group_row(ml_row,
-                                                                is_selected);
+                        row_el = detail::render_compact_group_row(ml_row,
+                                                                  is_selected);
+                    } else {
+                        row_el = detail::render_payload_row(
+                            in_ref, ml_row.row_idx, is_selected, fc,
+                            /*add_margin=*/true);
                     }
-                    return detail::render_payload_row(
-                        in_ref, ml_row.row_idx, is_selected, fc,
-                        /*add_margin=*/true);
+                    // TS REF: Messages.tsx L631-635  insert divider BEFORE
+                    // the target row.  row_index is 0..rows.size()-1, which
+                    // maps 1:1 to visible_rows_[] order.
+                    if (has_divider && row_index == divider_before_vi) {
+                        return vbox({
+                            detail::render_unseen_divider(
+                                in_ref.unseen_divider->count),
+                            std::move(row_el),
+                        });
+                    }
+                    return row_el;
                 };
 
             list_body = vl::render_list_as_elements(state) | flex;
@@ -1896,13 +2136,27 @@ class MessagesListComponent final : public ComponentBase {
                     start = sv - kMaxRenderedLastN + 1;
             }
 
+            // TS REF: Messages.tsx L549-553  compute dividerBeforeIndex.
+            const std::size_t divider_before_vi =
+                detail::find_divider_before_visible_index(input_, visible_rows_);
+            const bool has_divider =
+                (divider_before_vi < visible_rows_.size() &&
+                 input_.unseen_divider.has_value());
+
             Elements rows;
-            rows.reserve(visible_rows_.size() - start + 2);
+            rows.reserve(visible_rows_.size() - start + 3);
             // Same turn-state machine as render_messages_list_view() — only
             // the FIRST row of a user/assistant turn owns its marginTop;
             // sibling assistant blocks share it.
             bool next_add_margin = true;
             for (std::size_t vi = start; vi < visible_rows_.size(); ++vi) {
+                // TS REF: Messages.tsx L631-635  insert divider BEFORE row.
+                if (has_divider && vi == divider_before_vi) {
+                    rows.push_back(
+                        detail::render_unseen_divider(
+                            input_.unseen_divider->count));
+                }
+
                 const auto& vr = visible_rows_[vi];
                 const bool is_selected =
                     selected_visible_index_.has_value() &&
@@ -2013,8 +2267,19 @@ class MessagesListComponent final : public ComponentBase {
         h |= std::uint64_t(input_.filters.show_tool_out  ? 1u : 0u) << 2;
         h |= std::uint64_t(input_.filters.show_thinking  ? 1u : 0u) << 3;
         h |= std::uint64_t(input_.filters.show_compact   ? 1u : 0u) << 4;
-        h |= (std::uint64_t(input_.compact_boundary_groups.size() & 0xFFFFF)) << 8;
-        h |= (std::uint64_t(input_.streaming_tail_row    & 0xFFFFF)) << 28;
+        // TS REF: Messages.tsx L758-763  unseenDivider stability guard — when
+        // firstUnseenUuid + count are unchanged, REPL skips re-render work.
+        // We include both "present?" bit and count in the hash so either
+        // change triggers a rebuild.
+        h |= std::uint64_t(input_.unseen_divider.has_value() ? 1u : 0u) << 5;
+        h |= (std::uint64_t(input_.unseen_divider.has_value()
+                            ? (input_.unseen_divider->count & 0xFFFFF)
+                            : 0u))
+             << 6;
+        h |= (std::uint64_t(input_.compact_boundary_groups.size() & 0xFFFFF)) << 28;
+        // NOTE: streaming_tail_row is intentionally NOT hashed — it changes
+        // every frame during streaming and the Render() body already re-reads
+        // it fresh on each paint; no cache invalidation needed.
         return h;
     }
 
