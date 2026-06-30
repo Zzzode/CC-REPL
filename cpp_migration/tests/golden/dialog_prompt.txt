@@ -1,0 +1,30 @@
+                                                                                                    
+[38;2;53;113;232m[49m────────────────────────────────────────────────────────────────────────────────────────────────────[39m[49m
+  [1mFollow-up question[22m                                                                                
+                                                                                                    
+  [2m[38;2;120;120;120m[49mClaude needs clarification                                                                      [22m[39m[49m  
+[90m[49m────────────────────────────────────────────────────────────────────────────────────────────────────[39m[49m
+   You asked for unit tests, but didn't specify a test framework. Which framework should I use?     
+   (leave blank for project default)                                                                
+                                                                                                    
+   [2m[[22mgtest[2m][22m                                                                                          
+                                                                                                    
+   [32m[49m [Enter] Submit[31m[49m  [Esc] Cancel[39m[49m                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    

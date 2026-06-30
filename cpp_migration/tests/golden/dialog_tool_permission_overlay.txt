@@ -1,0 +1,30 @@
+                                                                                                    
+[38;2;210;60;80m[49m────────────────────────────────────────────────────────────────────────────────────────────────────[39m[49m
+  [1mBash — Permission Required[22m                                                                        
+                                                                                                    
+  [2m[38;2;120;120;120m[49mHigh-risk command · needs manual approval                                                       [22m[39m[49m  
+[90m[49m────────────────────────────────────────────────────────────────────────────────────────────────────[39m[49m
+   [2mTool: [22m[1mbash[22m                                                                                       
+                                                                                                    
+   [2mCommand: [22m[1m[31m[49mrm -rf node_modules/[22m[39m[49m                                                                    
+   [2mCwd: [22m/home/user/proj                                                                             
+                                                                                                    
+   Run destructive command                                                                          
+                                                                                                    
+   [32m[49m [y] Allow once[36m[49m  [a] Always allow[31m[49m  [n] Deny[2m[39m[49m  [Esc] Cancel[22m                                        
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    

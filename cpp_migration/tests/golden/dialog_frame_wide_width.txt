@@ -1,0 +1,15 @@
+                                                                                                                        
+[38;2;210;60;80m[49m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[39m[49m
+  [1mWide Panel With Lots of Room[22m                                                                                          
+                                                                                                                        
+  [2m[38;2;120;120;120m[49mExtended diagnostics view                                                                                           [22m[39m[49m  
+[90m[49m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[39m[49m
+                                                                                                                        
+    The system detected the following issues during the last build:                                                     
+                                                                                                                        
+    [2m1. [22mUnused variable 'result' on line 42                                                                              
+    [2m2. [22mMissing const qualifier in helper function                                                                       
+    [2m3. [22mMagic number 0xDEADBEEF should be a named constant                                                               
+    [2m4. [22mTODO comment without tracking issue reference                                                                    
+    [2m5. [22mPotential null-pointer dereference without guard                                                                 
+    [2m6. [22mstd::format argument count mismatch (string_view issue)                                                          

@@ -1,0 +1,30 @@
+                                                                                                    
+[38;2;120;120;120m[49m────────────────────────────────────────────────────────────────────────────────────────────────────[39m[49m
+  [1mSession Idle[22m                                                                                      
+                                                                                                    
+  [2m[38;2;120;120;120m[49mReturning to idle in 15 minutes — click Cancel to stay                                          [22m[39m[49m  
+[90m[49m────────────────────────────────────────────────────────────────────────────────────────────────────[39m[49m
+                             Your session has been idle for 15 minutes.                             
+                                                                                                    
+   Resuming will re-hydrate the conversation context and continue from where you left off.          
+                                                                                                    
+                                 [32m[49m [Enter] Resume[36m[49m  [n] Cancel (stay)[39m[49m                                 
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    

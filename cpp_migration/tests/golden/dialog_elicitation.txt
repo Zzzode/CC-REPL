@@ -1,0 +1,30 @@
+                                                                                                    
+[38;2;53;113;232m[49m────────────────────────────────────────────────────────────────────────────────────────────────────[39m[49m
+  [1mMCP Server Request[22m                                                                                
+                                                                                                    
+  [2m[38;2;120;120;120m[49mgithub.com needs additional input                                                               [22m[39m[49m  
+[90m[49m────────────────────────────────────────────────────────────────────────────────────────────────────[39m[49m
+   [2mServer: [22m[1mgithub.com[22m                                                                               
+                                                                                                    
+   The github MCP server needs a repository owner and name before it can list pull requests.        
+   Please provide these values.                                                                     
+                                                                                                    
+   [2mRequest ID: 42[22m                                                                                   
+                                                                                                    
+   [32m[49m [Enter] Approve[31m[49m  [Esc] Deny[39m[49m                                                                     
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
