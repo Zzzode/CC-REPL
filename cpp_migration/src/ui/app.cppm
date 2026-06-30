@@ -280,8 +280,29 @@ struct AutocompleteToken {
         if constexpr (std::is_same_v<T, UserMessage>) {
             e.role = "user";
             for (const auto& block : m.content) {
-                if (const auto* tb = std::get_if<TextBlock>(&block))
+                if (const auto* tb = std::get_if<TextBlock>(&block)) {
                     e.content_preview += tb->text;
+                } else if (const auto* ib = std::get_if<ImageBlock>(&block)) {
+                    // Single-entry fallback (user only attached images, no
+                    // text).  When project_messages runs below with the
+                    // full multi-row split, each ImageBlock becomes its own
+                    // entry with is_image=true; this path just ensures the
+                    // legacy / one-entry case doesn't render a completely
+                    // blank card.
+                    if (e.content_preview.empty() && m.content.size() == 1) {
+                        e.is_image = true;
+                        e.image_block = *ib;
+                    }
+                    e.content_preview += e.content_preview.empty() ? "" : "\n";
+                    e.content_preview += "[Image";
+                    if (ib->width && ib->height) {
+                        char buf[48];
+                        std::snprintf(buf, sizeof(buf), " %zux%zu",
+                                      *ib->width, *ib->height);
+                        e.content_preview += buf;
+                    }
+                    e.content_preview += "]";
+                }
             }
         } else if constexpr (std::is_same_v<T, AssistantMessage>) {
             e.role = "assistant";
@@ -393,6 +414,64 @@ project_messages(const Message& msg) {
                 tu.tool_input_json = tool->input_json;
                 tu.timestamp = now;
                 out.push_back(std::move(tu));
+            }
+        } else if constexpr (std::is_same_v<T, UserMessage>) {
+            // ── TS parity: each ImageBlock in the user message becomes its
+            //    own transcript row (UserImageMessage), interleaved with text
+            //    rows in the same order as m.content.  The TS renderer
+            //    maps every user-pasted attachment to an <UserImageMessage/>
+            //    sibling followed/followed by text rows.
+            std::string text_acc;
+            auto flush_text = [&] {
+                if (text_acc.empty()) return;
+                repl::MessageDisplayEntry u;
+                u.role = "user";
+                u.content_preview = text_acc;
+                if (u.content_preview.size() > 500) u.content_preview.resize(500);
+                u.timestamp = now;
+                out.push_back(std::move(u));
+                text_acc.clear();
+            };
+            for (const auto& block : m.content) {
+                if (const auto* tb = std::get_if<TextBlock>(&block)) {
+                    if (!text_acc.empty() && !tb->text.empty() &&
+                        tb->text.front() != '\n') text_acc += '\n';
+                    text_acc += tb->text;
+                } else if (const auto* ib = std::get_if<ImageBlock>(&block)) {
+                    flush_text();
+                    repl::MessageDisplayEntry img;
+                    img.role = "user";
+                    img.is_image = true;
+                    img.image_block = *ib;
+                    img.timestamp = now;
+                    // Human-readable preview for list views / debugger tools.
+                    // Mirrors TS format "[Image W×H]" shown in history previews.
+                    std::string preview = "[Image";
+                    if (ib->width && ib->height) {
+                        char buf[48];
+                        std::snprintf(buf, sizeof(buf), " %zux%zu",
+                                      *ib->width, *ib->height);
+                        preview += buf;
+                    }
+                    if (ib->file_name) {
+                        preview += " ";
+                        preview += *ib->file_name;
+                    }
+                    preview += "]";
+                    img.content_preview = std::move(preview);
+                    img.estimated_height_lines = 7; // ASCII thumbnail (4 rows) + metadata + margin
+                    out.push_back(std::move(img));
+                }
+                // ThinkingBlock/ToolUseBlock in a user message are API
+                // invariants; ignore if present (project_message doesn't
+                // render them either).
+            }
+            flush_text();
+            if (out.empty()) {
+                // Degenerate case: user message with zero renderable blocks.
+                // Fall back to the one-entry project_message so we never
+                // emit an empty list.
+                out.push_back(project_message(msg));
             }
         } else {
             // Non-assistant → identical to the single-entry projection.
@@ -3003,48 +3082,58 @@ public:
     }
 
     bool OnEvent(Event event) override {
-        // DIAGNOSTIC (clipboard paste): log the first ~50 events OnEvent
-        // receives (hex) to confirm the loop is calling us + what keystrokes
-        // arrive, especially ctrl+v (\x16).  Remove once paste is confirmed.
-        { static int diag_n = 0;
-          if (diag_n < 50) {
-            ++diag_n;
-            std::string hex;
-            for (unsigned char c : event.input()) hex += std::format("{:02x} ", c);
-            std::ofstream("/tmp/cc-imagepaste.log", std::ios::app)
-                << "evt#" << diag_n << " sz=" << event.input().size()
-                << " hex=" << hex << "\n";
-          }
-        }
-        // Clipboard image paste (TS chat:imagePaste = ctrl+v).  Terminal raw
-        // mode delivers ctrl+v as SYN (\x16); if the clipboard holds an image
-        // we read it as PNG, base64 it, and stash it on pending_image_ for the
-        // next HandleSubmit to attach.  No image → fall through so the text
-        // input / terminal paste behaves normally.
+        // Clipboard image paste (TS chat:imagePaste = ctrl+v / cmd+v).  Terminal
+        // raw mode delivers ctrl+v as SYN (\x16); if the clipboard holds an
+        // image we read it as PNG, base64 it, and stash it on pending_image_
+        // for the next HandleSubmit to attach.  No image → fall through so
+        // the text input / terminal paste behaves normally.
+        //
+        // TS REF: src/utils/imagePaste.ts (clipboard read + size-cap)
+        //         + PromptInput.tsx L1151-1183 (onImagePaste → state + placeholder).
         if (event.input() == "\x16" && !query_running_.load()) {
-            // DIAGNOSTIC (clipboard paste): log ctrl+v delivery + detection so
-            // we can confirm whether the keystroke reaches the app and whether
-            // the clipboard image is detected.  Remove once paste is confirmed.
             const bool clip_img = cc::utils::clipboard::has_image();
-            { std::ofstream("/tmp/cc-imagepaste.log", std::ios::app)
-                  << "ctrl+v received; has_image=" << (clip_img ? "true" : "false")
-                  << " query_running=" << query_running_.load() << "\n"; }
             if (clip_img) {
                 auto png = cc::utils::clipboard::read_image_png();
                 if (png && !png->empty()) {
-                    pending_image_ = ImageBlock{
-                        .media_type = "image/png",
-                        .data = cc::utils::crypto::base64_encode(png->data(), png->size()),
-                    };
-                    screen_state_->clipboard_image_hint =
-                        "🖼️ Image attached (" + std::to_string(png->size()) +
-                        " bytes) · Enter to send (Esc to discard)";
-                    { std::ofstream("/tmp/cc-imagepaste.log", std::ios::app)
-                          << "image attached, " << png->size() << " bytes\n"; }
+                    // Approximate the base64 size to warn the user early about
+                    // API limits (Anthropic: 5 MB base64).  Better to show a
+                    // soft warning in the footer hint than to get a 400 from
+                    // the API after submit.  Hard downsampling (M6 in the
+                    // gap matrix) is still TODO: either integrate stb_image +
+                    // stb_image_resize, or shell out to macOS `sips` +
+                    // pngquant.
+                    const std::size_t raw_bytes = png->size();
+                    const std::size_t approx_b64 = (raw_bytes + 2) / 3 * 4;
+                    const bool oversize = approx_b64 > 4'500'000;  // ~4.5 MB base64
+                    // Filename: "clipboard YYYYMMDD-HHMMSS.png" — same pattern
+                    // TS uses when persisting pastes.
+                    auto t = std::chrono::system_clock::to_time_t(
+                        std::chrono::system_clock::now());
+                    std::tm tm_buf{};
+                    localtime_r(&t, &tm_buf);
+                    char fname[48];
+                    std::strftime(fname, sizeof(fname),
+                                  "clipboard %Y%m%d-%H%M%S.png", &tm_buf);
+                    ImageBlock ib;
+                    ib.media_type = "image/png";
+                    ib.data = cc::utils::crypto::base64_encode(
+                        png->data(), png->size());
+                    ib.size_bytes = raw_bytes;
+                    ib.file_name  = std::string(fname);
+                    ib.source     = ImageBlockSource::Clipboard;
+                    pending_image_ = std::move(ib);
+                    // Footer hint mirrors TS PromptInput placeholder style:
+                    // shows size + filename + oversize warning (if any).
+                    std::string hint("🖼️ Image attached (");
+                    hint += std::to_string(raw_bytes);
+                    hint += " bytes) · Enter to send (Esc to discard)";
+                    if (oversize) {
+                        hint.insert(0,
+                            "⚠️ Image may be too large for the API — ");
+                    }
+                    screen_state_->clipboard_image_hint = std::move(hint);
                     return true;
                 }
-                { std::ofstream("/tmp/cc-imagepaste.log", std::ios::app)
-                      << "read_image_png returned empty/null\n"; }
             }
         }
         // Esc discards a pending pasted image.
