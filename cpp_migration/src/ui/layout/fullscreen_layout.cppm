@@ -75,6 +75,12 @@ inline constexpr int kModalTranscriptPeek = 2;
 // a default so a caller can populate incrementally without breaking.
 
 struct FullscreenLayoutSlots {
+    /// Pinned header drawn ABOVE the scroll region (never scrolls out of
+    /// view).  Maps to TS `<LogoHeader>` in Messages.tsx line 679 — placed
+    /// OUTSIDE <VirtualMessageList>, so scrolling messages never clip it.
+    /// Optional; render-time null check skips it.
+    Element header{};
+
     /// Content that scrolls (messages, tool output).  Maps to TS `scrollable`.
     /// Required — drives the flexGrow region.
     Element scrollable{};
@@ -260,11 +266,15 @@ struct FullscreenLayoutSlots {
         ? (std::move(s.bottom) | size(HEIGHT, LESS_THAN, bottom_max_h))
         : (filler() | size(HEIGHT, EQUAL, 0));
 
-    // ── normal-flow base: scrollwrap grows, bottom pinned ──────────────
-    Element base = vbox({
-        std::move(scrollwrap),
-        std::move(bottom_slot),
-    }) | flex;
+    // ── normal-flow base: [pinned header (non-scroll)] + scrollwrap (grows) + bottom pinned ──
+    // Faithful to TS Messages.tsx:679 — LogoHeader is rendered OUTSIDE
+    // VirtualMessageList, so scrolling content never scrolls it away.
+    Elements normal_flow;
+    normal_flow.reserve(3);
+    if (s.header) normal_flow.push_back(std::move(s.header) | flex_shrink);
+    normal_flow.push_back(std::move(scrollwrap));
+    normal_flow.push_back(std::move(bottom_slot));
+    Element base = vbox(std::move(normal_flow)) | flex;
 
     // ── modal overlay (absolute bottom-anchored, via dbox) ─────────────
     //   TS: position absolute, bottom:0, maxHeight=rows-PEEK.  In FTXUI a

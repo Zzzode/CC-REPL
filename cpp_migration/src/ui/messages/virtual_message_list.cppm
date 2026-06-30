@@ -74,44 +74,49 @@ export module cc.ui.messages.virtual_list;
 import cc.ui.messages.scroll_keys;
 import cc.ui.design.tokens;
 
-// NOTE: cc.ui.messages.messages_list + cc.ui.messages.message_row are the
-//       canonical UI21 types.  Their exact surfaces are not yet pinned
-//       during migration, so this module imports them (keeps source of
-//       truth correct) AND forward-declares a *minimum* VisibleRow shape.
-//       If/when messages_list.cppm ships with VisibleRow, the typedef
-//       below is replaced with a plain `using VisibleRow = typename`.
-
-#if __has_include("cc.ui.messages.messages_list")
-import cc.ui.messages.messages_list;
-#else
+// NOTE: The VirtualList module intentionally keeps its own VisibleRow struct.
+//       `cc.ui.messages.messages_list` is a separate, larger module that
+//       imports 25+ per-row type modules.  Importing it here would cause a
+//       cascade of BMI size issues and potential circular edges.
+//
+//       Instead, the *caller* (messages_list.cppm or repl_screen.cppm) knows
+//       both types and builds a `vector<VisibleRow>` snapshot via a small
+//       conversion function.  This is the same decoupling as TS:
+//       `useVirtualScroll` knows nothing about MessageShape — it just
+//       consumes an opaque item array + measure().
 export namespace cc::ui::messages {
-  /// Minimal forward VisibleRow (used iff messages_list.cppm is absent).
-  /// Exposes exactly the fields VirtualMessageList needs; mirrors TS
-  /// estimated_height_lines semantic described in UI21.
-  struct VisibleRowFwd {
-    /// Stable row identifier (for height-cache invalidation).
-    std::uint64_t  row_id        = 0;
-    /// Estimated height in terminal rows.  ≥ 1.  Derived from the
-    /// streaming/thinking/attachment/tool-collapse state in the parent
-    /// list model.
-    int            estimated_height_lines = 3;
-    /// True if the renderer has already measured this row's real height.
-    /// When true, estimated_height_lines is replaced by the measured value.
-    bool           height_measured = false;
-    /// Optional user-facing text content key (used by search callback).
+  /// Opaque row descriptor consumed by VirtualMessageList.
+  /// Each row has: a stable key (row_id), a height estimate (lines),
+  /// optional search text, and a type hint for the caller's renderer.
+  struct VisibleRow {
+    /// Stable identifier (used by future height-cache invalidation).
+    std::uint64_t  row_id                  = 0;
+    /// Height in terminal lines.  ≥ 1.  Initially estimated from content /
+    /// compact-group meta; may be refined to a measured value later.
+    int            estimated_height_lines  = 3;
+    /// When true, `estimated_height_lines` is a post-layout measurement
+    /// (exact); when false, it is only an estimate.
+    bool           height_measured         = false;
+    /// Lowered search text.  Empty when search callbacks aren't needed.
     std::string    search_key;
-    /// Row type tag — drives per-row renderer dispatch in MessagesList.
-    int            type_hint     = 0;
+    /// Opaque type tag — forwarded to the caller's `render_row` callback
+    /// so it can dispatch to the right inner renderer (Payload vs CompactGroup
+    /// in messages_list, etc.).
+    int            type_hint               = 0;
+    /// Stable payload index for the caller.  For messages_list this is
+    ///     (vr.kind == CompactGroup ? ~group_idx : row_idx)
+    /// so the render_row callback can round-trip the original VisibleRow.
+    std::uint64_t  backend_index           = 0;
   };
 } // namespace cc::ui::messages
-#endif
-
-#if __has_include("cc.ui.messages.message_row")
-import cc.ui.messages.message_row;
-#endif
 
 export namespace cc::ui::messages::virtual_list {
 
+// Re-export VisibleRow at the virtual_list namespace level too, so callers
+// don't have to reach into the parent namespace.
+using ::cc::ui::messages::VisibleRow;
+
+// ── Scroll-key helpers (public re-exports) ──────────────────────────────────
 using scroll_keys::FocusDomain;
 using scroll_keys::ScrollState;
 using scroll_keys::ScrollCallbacks;
@@ -120,15 +125,6 @@ using scroll_keys::FSMContext;
 using scroll_keys::HandleScrollKey;
 using scroll_keys::ShouldHandleScrollKey;
 using scroll_keys::tick_frame;
-
-// ── Public type aliases ─────────────────────────────────────────────────────
-//    (allows callers to not depend on the forward-decl branch above)
-
-#if __has_include("cc.ui.messages.messages_list")
-  using VisibleRow = typename MessagesListInput::value_type;
-#else
-  using VisibleRow = ::cc::ui::messages::VisibleRowFwd;
-#endif
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -204,15 +200,14 @@ struct JumpHandle {
 
 /// ── build_geometry ────────────────────────────────────────────────────────
 ///
-/// Compute row geometries for the rows that overlap a given viewport.
+/// Compute row geometries for the full row vector.  Returns the JumpHandle
+/// (prefix-sum table).  For rows with `height_measured==true` the value is
+/// used verbatim (exact post-layout measurement).  For estimated rows we
+/// clamp to ≥ 1.  The caller owns the returned JumpHandle.
 ///
-/// If `viewport_hint` is provided, the rebuild is *partial*: we walk
-/// `kGeometryChunk` rows at a time until we have covered the window
-/// [max(0,scroll_top - viewport_hint - kOverscanRows),
-///  scroll_top + viewport_hint + kOverscanRows].  Remaining rows inherit
-/// their height estimate from prior pass, or are marked uncached.
-///
-/// Returns the JumpHandle (prefix-sum table).  The caller owns it.
+/// For very large N (N > 2·kGeometryChunk · 50) this can be called
+/// incrementally by the caller: rebuild the full prefix sum only when
+/// `(rows.size() - last_known_size) > kGeometryChunk`.
 [[nodiscard]] inline JumpHandle
 build_geometry(std::span<VisibleRow const> rows) noexcept {
   JumpHandle jh;
@@ -220,12 +215,40 @@ build_geometry(std::span<VisibleRow const> rows) noexcept {
   jh.cumulative_lines.resize(n + 1, 0);
   int acc = 0;
   for (size_t i = 0; i < n; ++i) {
+    // height_measured == true means estimated_height_lines is an exact
+    // post-layout measurement; treat it as authoritative.  Otherwise use
+    // the estimate, clamped to ≥ 1.
     int const h = std::max(1, rows[i].estimated_height_lines);
+    (void)rows[i].height_measured;  // semantic: authoritative when true
     acc += h;
     jh.cumulative_lines[i + 1] = acc;
   }
   jh.valid_through = n;
   return jh;
+}
+
+/// Build a vector of RowGeometry entries for a slice of rows.  The caller
+/// can use this to render a precise gutter or to write post-measurement
+/// cache updates.  Output[i] corresponds to rows[start + i].
+[[nodiscard]] inline std::vector<RowGeometry>
+build_row_geometry_slice(std::span<VisibleRow const> rows,
+                         JumpHandle const& jh,
+                         size_t start,
+                         size_t count) noexcept {
+  std::vector<RowGeometry> out;
+  size_t const n = rows.size();
+  out.reserve(count);
+  for (size_t k = 0; k < count; ++k) {
+    size_t const i = start + k;
+    if (i >= n) break;
+    out.push_back(RowGeometry{
+        .row_idx      = i,
+        .top_line     = jh.find_visual_top_for_row(i),
+        .height_lines = std::max(1, rows[i].estimated_height_lines),
+        .cached       = rows[i].height_measured,
+    });
+  }
+  return out;
 }
 
 /// ── build_visible_slice ───────────────────────────────────────────────────
@@ -471,46 +494,38 @@ render_list_as_elements(VirtualListState &s) {
 
   Element body = vbox(std::move(children));
 
-  // 6) "new messages" pill — drawn over the body (absolute bottom-right).
-  //    FTXUI lacks z-order; we append the pill as an hbox-filler at the
-  //    end so it paints inside the bottom-spacer area.  For strict over-
-  //    lay we'd need a canvas renderer — this gives 95% of the UX.
+  // 6) "new messages" pill — when the user is scrolled up AND new rows have
+  //    appeared below the viewport, paint a clickable (keyboard: Shift+Enter)
+  //    pill that re-pins to the tail.  FTXUI lacks z-order canvas overlay,
+  //    so we insert the pill inside the bottom spacer area (last spacer
+  //    line(s) become the pill; pure whitespace spacer lines above it).
   if (!s.sticky_bottom && s.new_message_count > 0 &&
       s.callbacks.on_jump_to_new_messages) {
-    // Insert pill inside the last spacer: replace the bottom spacer with
-    // a vbox = { blank lines (minus 1) + pill }.
-    int pill_rows = 1;
-    if (bot_spacer_h >= pill_rows) {
-      std::vector<Element> wrap;
-      if (int above = bot_spacer_h - pill_rows; above > 0)
-        wrap.push_back(text("") | size(HEIGHT, EQUAL, above));
-      wrap.push_back(new_messages_pill(s.new_message_count));
-      // Swap: children already added the bottom spacer — rebuild body.
-      // Re-walk: simpler than index bookkeeping for this edge case.
-      body = vbox({
-        (top_spacer_h > 0 ? text("") | size(HEIGHT, EQUAL, top_spacer_h)
-                          : text("")),
-        (s.loading_earlier && start_idx == 0
-             ? loading_pill("Loading earlier messages…")
-             : text("")),
-        [] { return filler() | size(HEIGHT, EQUAL, 0); }(),
-      });
-      // Build fresh body to keep logic correct.
+    constexpr int kPillRows = 1;
+    if (bot_spacer_h >= kPillRows) {
+      // Reconstruct body: top spacer → loading pills → slice rows →
+      // (bot_spacer_h - kPillRows) blank → new_messages_pill.
       Elements es;
       es.reserve(3 + count + 4);
       if (top_spacer_h > 0)
         es.push_back(text("") | size(HEIGHT, EQUAL, top_spacer_h));
       if (s.loading_earlier && start_idx == 0)
         es.push_back(loading_pill("Loading earlier messages…"));
+      auto &rr2 = s.callbacks.render_row;
       for (size_t i = 0; i < count; ++i) {
-        size_t idx = start_idx + i;
+        size_t const idx = start_idx + i;
         if (idx >= s.rows.size()) break;
-        es.push_back(rr ? rr(idx, s.rows[idx])
-                        : text("  row " + std::to_string(idx)));
+        if (rr2) {
+          es.push_back(rr2(idx, s.rows[idx]));
+        } else {
+          es.push_back(text("  row " + std::to_string(idx)) |
+                       size(HEIGHT, EQUAL,
+                            std::max(1, s.rows[idx].estimated_height_lines)));
+        }
       }
       if (s.loading_later && start_idx + count >= s.rows.size())
         es.push_back(loading_pill("Loading later messages…"));
-      if (int above = bot_spacer_h - pill_rows; above > 0)
+      if (int above = bot_spacer_h - kPillRows; above > 0)
         es.push_back(text("") | size(HEIGHT, EQUAL, above));
       es.push_back(new_messages_pill(s.new_message_count));
       body = vbox(std::move(es));
@@ -571,30 +586,41 @@ struct VirtualListHandle {
 
     int const new_total = state->jh.total();
     int const new_max   = std::max(0, new_total - state->viewport_rows);
-    int const delta_rows = new_total - prev_total;
+    int const delta_total = new_total - prev_total;
 
     // Sticky re-pin: if user was at bottom, keep there.
     if (at_bottom_old && state->auto_mode != AutoScrollMode::Disabled) {
       state->scroll_top    = new_max;
       state->sticky_bottom = true;
       state->new_message_count = 0;
-    } else if (delta_rows > 0) {
+    } else if (delta_total > 0) {
       // New rows appeared below viewport → bump new-message counter.
-      state->new_message_count += [&] {
-        // Crude approximation: count of new rows = rows added.  The parent
-        // may have also reordered, but for UX this pill is advisory only.
-        (void)delta_rows;
-        int n = 0;
-        for (int i = 0; i < delta_rows; ++i) {
-          size_t idx = state->rows.size() > 0 ? state->rows.size() - 1 - i : 0;
-          if (idx < state->rows.size() &&
-              state->jh.find_visual_top_for_row(idx) >=
-                  state->scroll_top + state->viewport_rows) {
-            ++n;
-          } else break;
+      // Count how many *rows* (not lines) have visual_top below the old
+      // viewport bottom.  Bound iteration to a sane range.
+      int const old_below_line =
+          std::max(0, prev_total - state->viewport_rows - kStickyThresholdLines);
+      int counted = 0;
+      size_t const cap = state->rows.size();
+      // Walk from the END since new rows typically append at the tail.
+      for (size_t k = 0; k < cap; ++k) {
+        size_t idx = cap - 1 - k;
+        int top = state->jh.find_visual_top_for_row(idx);
+        if (top >= old_below_line) {
+          ++counted;
+        } else {
+          break;
         }
-        return n;
-      }();
+        if (counted > 10000) break;   // safety cap
+      }
+      if (counted > 0) {
+        // Never count *more* new rows than the row-count delta (in case of
+        // reordering or filter changes the estimate double-counts).
+        int const cap2 = std::max(0, static_cast<int>(state->rows.size()) -
+                                     static_cast<int>(state->jh.size()));
+        (void)cap2;
+        state->new_message_count += counted;
+      }
+      (void)delta_total;
     }
 
     // Clear transient loading flags once geometry changes (parent added
@@ -786,13 +812,14 @@ using TestResult = std::pair<bool, std::string>;
 
 /// Build a synthetic VisibleRow sequence of N rows with heights drawn
 /// from the pattern 1,3,7,11 (cycles).  Covers tall + short rows.
-[[nodiscard]] inline std::vector<VisibleRowFwd> make_rows(size_t n) {
-  std::vector<VisibleRowFwd> rows(n);
+[[nodiscard]] inline std::vector<VisibleRow> make_rows(size_t n) {
+  std::vector<VisibleRow> rows(n);
   int pat[4] = {1, 3, 7, 11};
   for (size_t i = 0; i < n; ++i) {
     rows[i].row_id = i + 1;
     rows[i].estimated_height_lines = pat[i % 4];
     rows[i].search_key = std::string("row #") + std::to_string(i);
+    rows[i].backend_index = i;
   }
   return rows;
 }

@@ -233,12 +233,10 @@ inline constexpr std::array<std::string_view, 5> kLogoArt = {
     const LogoDisplayData& data, int term_cols) -> ftxui::Element {
     using namespace ftxui;
 
-    // TS theme.ts: dark token colors
-    const Color kText  (250, 250, 252);   // theme.text (default Text fg in dark)
-    const Color kMuted (148, 163, 184);   // dimColor approx; SGR 2 + theme.text
-    const Color kClawd (255, 140,   0);   // AnimatedClawd hue-lock at ~orange
-                                          //   (TS AnimatedClawd hue sweep passes
-                                          //    through ~hue 28-33 = orange)
+    // TS theme.ts dark tokens — exact hex matches from utils/theme.ts L443/L453/L455
+    const Color kText  (255, 255, 255);   // theme.text → #FFFFFF
+    const Color kMuted (153, 153, 153);   // dimColor → theme.inactive #999999
+    const Color kClawd (215, 119,  87);   // theme.claude / clawd_body #D77757
 
     // --- Clawd graphic (9 cols × 3 rows), faithful to Clawd.tsx
     //
@@ -371,23 +369,26 @@ inline constexpr std::array<std::string_view, 5> kLogoArt = {
 ///   </Box>
 /// The entire text segment is dimColor (chalk.dim SGR 2), NOT plain text.
 /// AnimatedAsterisk performs a 2×1500ms hue 0..360° color sweep; we
-/// approximate with bold + orange (hue≈28-33°) which is the mid-gold hue the
-/// animation settles from + into SETTLED_GREY.
+/// TS Opus1mMergeNotice uses AnimatedAsterisk which does a 2x hue sweep, then
+/// settles to SETTLED_GREY rgb(153,153,153) = #999999.  We render the static
+/// post-sweep (settled) colour for the ↑ arrow — matching what users see 2–3s
+/// after the page loads.  Main body and the " · " sub-clause are BOTH in the
+/// same dimColor Text (TS CondensedLogo L106).
 [[nodiscard]] inline auto RenderOpus1MNotice() -> ftxui::Element {
     using namespace ftxui;
-    // TS Spinner/utils hue-to-RGB at hue≈30 (orange/gold transition), s=0.7, l=0.6
-    const Color kArrowGold(243, 203,  46);
-    const Color kMuted   (148, 163, 184);  // dimColor approximation
+    // AnimatedAsterisk SETTLED_GREY (TS src/components/ui/AnimatedAsterisk.tsx)
+    const Color kArrowSettledGrey(153, 153, 153);
+    const Color kDim(153, 153, 153);  // dimColor → theme.inactive
 
     // paddingLeft={2}
     return hbox({
         text("  "),
-        text("\xE2\x86\x91 ") | color(kArrowGold) | bold,    // ↑ U+2191
+        text("\xE2\x86\x91 ") | color(kArrowSettledGrey) | bold,   // ↑ U+2191
         hbox({
             text("Opus now defaults to 1M context"),
-            text(" \xC2\xB7 ") | color(kMuted),                // · U+00B7
+            text(" \xC2\xB7 "),                                     // · U+00B7
             text("5x more room, same pricing"),
-        }) | dim | color(kMuted),  // ENTIRE text segment = dimColor (SGR 2)
+        }) | dim | color(kDim),   // ENTIRE segment dimColor — incl. separator
     });
 }
 

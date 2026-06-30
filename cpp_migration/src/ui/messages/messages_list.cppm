@@ -113,6 +113,7 @@ export module cc.ui.messages.messages_list;
 // ─── Strict re-uses (no type / colour duplication) ──────────────────────
 import cc.ui.messages.message_row;
 import cc.ui.messages.message_timestamp;
+import cc.ui.messages.virtual_list;   // P0-3: VirtualMessageList types + factory
 
 // Per-message-type structs — imported explicitly since C++20 modules
 // don't re-export imported entities by default (and message_row keeps
@@ -555,6 +556,310 @@ inline auto build_visible_rows(MessagesListInput& input) -> std::vector<VisibleR
         });
     }
     return out;
+}
+
+// =========================================================================
+// Forward declarations of section-6 detail::render helpers.  These are
+// defined later in the translation unit but section-3c's virtual-path
+// render_messages_list_virtual already references them.
+// =========================================================================
+namespace detail {
+    inline auto render_empty_state(const std::string& search_query) -> Element;
+    inline auto render_compact_group_row(const VisibleRow& vr, bool is_selected) -> Element;
+    inline auto render_payload_row(const MessagesListInput& input,
+                                   std::size_t row_idx,
+                                   bool is_selected,
+                                   std::size_t frame_count,
+                                   bool add_margin) -> Element;
+} // namespace detail
+
+// =========================================================================
+// 3b) Estimated row height + VisibleRow → virtual_list::VisibleRow converter
+// =========================================================================
+//
+// P0-3 virtual scroll needs per-row LINE estimates so JumpHandle's prefix-
+// sum table produces accurate scroll thumbs.  These estimates are HEURISTIC:
+//   • Short assistant text / user prompt   →  2-3 lines (min 1)
+//   • Long content (tool result, bash)     →  4 + wrapped lines (capped 80)
+//   • Thinking (compact)                   →  1 line  (hidden when complete)
+//   • Compact group row                    →  1 line
+//
+// TS useVirtualScroll.ts DEFAULT_ESTIMATE = 3 (per-message) — our VisibleRow
+// is *finer-grained* so we target mean ≈ 2.2 lines / VisibleRow.
+
+namespace detail {
+
+/// Count *wrapped* lines for `text` given terminal columns.  Mirrors TS
+/// text-wrap heuristic (hard-break at term_cols, plus existing '\n').  The
+/// result is the maximum vertical space the content COULD take inside a
+/// 36-col reserved left-gutter message envelope; 36 is subtracted from
+/// term_cols to account for the fixed avatar column.
+[[nodiscard]] inline auto estimate_content_lines(
+    std::string_view text,
+    int term_cols,
+    int envelope_gutter_cols = 36) -> int {
+    const int content_cols =
+        std::max(20, term_cols - envelope_gutter_cols);
+    int lines = 1;
+    int current = 0;
+    for (char c : text) {
+        if (c == '\n') {
+            lines += 1;
+            current = 0;
+            continue;
+        }
+        current += 1;
+        if (current > content_cols) {
+            lines += 1;
+            current = 0;
+        }
+    }
+    // Clip to [1, 80] — rows taller than 80 are reported as 80 (overscan
+    // covers the difference during actual scroll; FTXUI will size to real
+    // content at paint time).
+    return std::clamp(lines, 1, 80);
+}
+
+/// Estimate visual height for one messages_list::VisibleRow.  Adds 1 line
+/// for the envelope's top-accent + role-header row and 1 for trailing
+/// separator (except for 1-line rows where it collapses).
+[[nodiscard]] inline auto estimate_row_height(
+    const VisibleRow& vr,
+    const MessagesListInput& input,
+    int term_cols) -> int {
+    using K = VisibleRow::Kind;
+    if (vr.kind == K::CompactGroup) {
+        // Collapsed "📦 27 messages collapsed (📦 8 tool turns, +++12 ---7)"
+        return 1;
+    }
+    // Payload rows — dispatch by MessageShape content length.
+    if (vr.row_idx >= input.rows.size()) return 2;
+    const std::string preview =
+        detail::lowered(detail::payload_preview(input.rows[vr.row_idx]));
+    const MessageShape shape =
+        vr.row_idx < input.shapes.size()
+            ? input.shapes[vr.row_idx]
+            : MessageShape::SystemTaskAssignment;
+
+    using S = MessageShape;
+    int content_lines = 1;
+    switch (shape) {
+        case S::AssistantThinking:
+        case S::AssistantRedactedThinking:
+            // Collapsed label: "∴ Thinking (ctrl+o to expand)".  If expanded
+            // the caller will have already split thinking into multiple rows
+            // outside our view; 2 lines covers label + separator.
+            content_lines = 2;
+            break;
+        case S::AssistantToolUse:
+        case S::AssistantGroupedTools:
+            // "• tool_name arg1=…" rows typically 2-4; capped low because
+            // grouped tools render their own inner grid.
+            content_lines = 2 + estimate_content_lines(preview, term_cols, 40) / 2;
+            break;
+        case S::UserToolResult:
+        case S::UserBashOutput:
+        case S::UserLocalCommandOutput:
+            // Tallest content category — the full estimate.
+            content_lines = estimate_content_lines(preview, term_cols, 4);
+            break;
+        case S::SystemText:
+        case S::SystemRateLimit:
+        case S::SystemPlanApproval:
+        case S::SystemHookProgress:
+        case S::SystemShutdown:
+        case S::SystemAdvisor:
+        case S::SystemTaskAssignment:
+        case S::SystemAPIError:
+        case S::SystemCollapsedContent:
+        case S::SystemCompactBoundary:
+            content_lines = 1 + estimate_content_lines(preview, term_cols, 4) / 2;
+            break;
+        case S::UserBashInput:
+            // "> echo hello" prompt-style — short.
+            content_lines = 2;
+            break;
+        case S::UserImage:
+            content_lines = 8;   // thumbnail placeholder
+            break;
+        case S::UserAttachments:
+            content_lines = 3;   // grid header + 1 row of thumbs
+            break;
+        default:
+            content_lines = 1 + estimate_content_lines(preview, term_cols, 36);
+            break;
+    }
+    // +1 line for envelope header (avatar + role pill) unless content is
+    // already collapsed / system-style which shares headers.
+    switch (shape) {
+        case S::AssistantThinking:
+        case S::AssistantRedactedThinking:
+        case S::SystemCompactBoundary:
+        case S::SystemCollapsedContent:
+            break;   // no header row added
+        default:
+            content_lines += 1;
+    }
+    return std::clamp(content_lines, 1, 120);
+}
+
+} // namespace detail
+
+/// Convert a messages_list `VisibleRow` vector into the format consumed by
+/// VirtualMessageList.  Each entry carries:
+///   - row_id           stable hash (for future cache invalidation)
+///   - estimated_hl     content-aware estimate (lines)
+///   - search_key       lowered preview text (for scroll_search callback)
+///   - type_hint        0 = Payload, 1 = CompactGroup
+///   - backend_index    round-trip key for render_row callback
+[[nodiscard]] inline auto visible_rows_to_virtual(
+    const std::vector<VisibleRow>& visible,
+    const MessagesListInput& input,
+    int term_cols = 80)
+    -> std::vector<cc::ui::messages::virtual_list::VisibleRow>
+{
+    namespace vl = cc::ui::messages::virtual_list;
+    std::vector<vl::VisibleRow> out;
+    out.reserve(visible.size());
+    for (std::size_t i = 0; i < visible.size(); ++i) {
+        const auto& vr = visible[i];
+        const int est = detail::estimate_row_height(vr, input, term_cols);
+        const std::uint64_t backend =
+            (vr.kind == VisibleRow::Kind::CompactGroup)
+                // Use MSB sentinel ~group_idx; cast safely via ull.
+                ? (std::uint64_t(1) << 63) | static_cast<std::uint64_t>(vr.group_idx)
+                : static_cast<std::uint64_t>(vr.row_idx);
+        vl::VisibleRow row{
+            .row_id                 = static_cast<std::uint64_t>(i) + 1,
+            .estimated_height_lines = est,
+            .height_measured        = false,
+            .search_key             = {},
+            .type_hint              = (vr.kind == VisibleRow::Kind::CompactGroup) ? 1 : 0,
+            .backend_index          = backend,
+        };
+        if (row.type_hint == 0 && vr.row_idx < input.rows.size()) {
+            // Populate search_key lazily for payload rows (compact-group
+            // rows use a static "collapsed" label).
+            row.search_key = detail::lowered(
+                detail::payload_preview(input.rows[vr.row_idx]));
+        }
+        out.push_back(std::move(row));
+    }
+    return out;
+}
+
+/// Decode the backend_index set by `visible_rows_to_virtual` back into a
+/// messages_list::VisibleRow.  `out` is filled in place; returns true if
+/// decode succeeded, false if the key was malformed (out is reset to a
+/// safe payload(0) sentinel on failure).
+[[nodiscard]] inline bool decode_virtual_backend_index(
+    std::uint64_t backend_index,
+    VisibleRow& out) noexcept
+{
+    constexpr std::uint64_t kGroupBit = std::uint64_t(1) << 63;
+    if ((backend_index & kGroupBit) != 0) {
+        out.kind      = VisibleRow::Kind::CompactGroup;
+        out.group_idx = backend_index & (~kGroupBit);
+        out.row_idx   = 0;
+        return true;
+    }
+    out.kind    = VisibleRow::Kind::Payload;
+    out.row_idx = static_cast<std::size_t>(backend_index);
+    out.group_idx = 0;
+    return true;
+}
+
+// =========================================================================
+// 3c) Render path: P0-3 VirtualMessageList when visible_rows > threshold
+// =========================================================================
+//
+// Threshold kVirtualThreshold (default 80) matches the legacy Last-N cap
+// AND TS VirtualMessageList.  Below threshold we still render everything
+// via render_messages_list_view (simple, deterministic, no overscan).
+// At/above threshold, this function:
+//   (1) converts visible_rows → virtual rows (with height estimates)
+//   (2) calls render_list_as_elements (spacer+slice+spacer, O(visible) not O(N))
+//   (3) forwards render_row back to messages_list's per-row envelope renderer
+//
+// Returns a fully-rendered FTXUI Element (yframe + vscroll_indicator applied).
+// Accepts an optional `scroll_top_lines` value so ReplScreen's existing
+// scroll_offset plumbing can still drive the initial window position.
+
+inline constexpr std::size_t kVirtualThreshold = 80;
+
+[[nodiscard]] inline auto render_messages_list_virtual(
+    const MessagesListInput& input_const,
+    std::size_t frame_count,
+    int viewport_rows,
+    int scroll_top_lines) -> Element
+{
+    namespace vl = cc::ui::messages::virtual_list;
+
+    MessagesListInput input = input_const;
+    auto visible = build_visible_rows(input);
+    if (visible.empty()) {
+        return vbox({ detail::render_empty_state(input.search_query) })
+             | yframe | vscroll_indicator;
+    }
+
+    // Build virtual rows.  Use viewport_rows + 80 as a proxy for terminal
+    // height (the caller knows viewport_rows; width defaults are fine since
+    // content estimates already clip generously to 20-120 range).
+    const int term_cols_est = 120;   // safe default; most terminals ≥ 80
+    auto virt_rows = visible_rows_to_virtual(visible, input, term_cols_est);
+
+    vl::VirtualListState state;
+    state.options.ascii_gutter  = true;
+    state.options.auto_scroll   = input.pin_to_bottom
+                                      ? vl::AutoScrollMode::Smart
+                                      : vl::AutoScrollMode::Disabled;
+    state.viewport_rows         = std::max(1, viewport_rows);
+    state.options.viewport_rows = state.viewport_rows;
+    state.rows                  = std::move(virt_rows);
+    state.jh                    = vl::build_geometry(std::span{state.rows});
+    // Initial scroll window
+    if (input.pin_to_bottom) {
+        const int max = std::max(0, state.jh.total() - state.viewport_rows);
+        state.scroll_top    = max;
+        state.sticky_bottom = true;
+    } else {
+        state.scroll_top = std::max(0, scroll_top_lines);
+    }
+
+    // ── render_row callback: translate virtual back to messages_list VR
+    state.callbacks.render_row =
+        [frame_count, &input](size_t, const vl::VisibleRow& vr)
+            -> ftxui::Element
+        {
+            VisibleRow ml_row{};
+            if (!decode_virtual_backend_index(vr.backend_index, ml_row)) {
+                return text("") | size(HEIGHT, EQUAL,
+                    std::max(1, vr.estimated_height_lines));
+            }
+            // is_selected: only Payload rows can be selected.
+            bool is_selected = false;
+            if (ml_row.kind == VisibleRow::Kind::Payload &&
+                input.selected_row_idx.has_value())
+            {
+                is_selected = (ml_row.row_idx == *input.selected_row_idx);
+            }
+            // turn-margin state is not restored in the virtual path (the
+            // per-row renderer still works, but turn boundaries across the
+            // slice gap are not tracked by this stateless callback).  For
+            // the virtual path we always pass add_margin = true to give
+            // consistent breathing room.  The turn SM is preserved in the
+            // non-virtual short-path.
+            const bool add_margin = true;
+
+            if (ml_row.kind == VisibleRow::Kind::CompactGroup) {
+                return detail::render_compact_group_row(ml_row, is_selected);
+            }
+            return detail::render_payload_row(
+                input, ml_row.row_idx, is_selected, frame_count, add_margin);
+        };
+
+    Element body = vl::render_list_as_elements(state);
+    return body | yframe | vscroll_indicator | flex;
 }
 
 // =========================================================================
@@ -1213,6 +1518,26 @@ constexpr std::size_t kMaxRenderedLastN = 80;   // last-N render cap
     std::size_t frame_count = 0,
     std::size_t render_last_n = kMaxRenderedLastN) -> Element
 {
+    // P0-3 virtual path: for *large* transcripts, delegate to the
+    // windowed renderer so 100k+ messages cost O(viewport) per paint,
+    // not O(N).  The threshold is slightly higher than `render_last_n`
+    // so small chats that fit entirely inside the Last-N cap still use
+    // the simpler, turn-state-machine-correct legacy path.
+    constexpr std::size_t kBigChatThreshold = kMaxRenderedLastN + 10;
+    // Build visible just to get the size check — cheap O(N) walk, the
+    // virtual path would rebuild it anyway.
+    {
+        MessagesListInput probe = input_const;
+        const std::size_t n_visible = build_visible_rows(probe).size();
+        if (n_visible > kBigChatThreshold) {
+            return render_messages_list_virtual(
+                input_const,
+                frame_count,
+                /*viewport_rows=*/std::max(1, input_const.viewport_rows),
+                /*scroll_top_lines=*/std::max(0, input_const.scroll_offset));
+        }
+    }
+
     // build_visible_rows takes a non-const ref (it mutates nothing, but the
     // signature allows future precomputation caching) — copy-on-write.
     MessagesListInput input = input_const;
@@ -1477,13 +1802,90 @@ class MessagesListComponent final : public ComponentBase {
         Element list_body;
         if (visible_rows_.empty()) {
             list_body = detail::render_empty_state(input_.search_query);
+        } else if (visible_rows_.size() > kVirtualThreshold) {
+            // ── P0-3 VIRTUAL PATH ──────────────────────────────────
+            // Build virtual rows from cached visible_rows_.  Use
+            // viewport_rows from input (default 40) as the window height.
+            namespace vl = cc::ui::messages::virtual_list;
+            const int term_cols_est = 120;
+            auto virt_rows = visible_rows_to_virtual(
+                visible_rows_, input_, term_cols_est);
+
+            vl::VirtualListState state;
+            state.options.ascii_gutter  = true;
+            state.options.auto_scroll   = vl::AutoScrollMode::Sticky;
+            state.viewport_rows         = std::max(1, input_.viewport_rows);
+            state.options.viewport_rows = state.viewport_rows;
+            state.rows                  = std::move(virt_rows);
+            state.jh                    = vl::build_geometry(std::span{state.rows});
+
+            // Initial scroll window: if a selection exists, jump to it
+            // with 3-line headroom; else pin to tail.
+            if (selected_visible_index_.has_value()) {
+                const size_t sv = std::min(*selected_visible_index_,
+                                           state.rows.size() - 1);
+                const int top = state.jh.find_visual_top_for_row(sv);
+                state.scroll_top = std::max(0, top - 3);
+                state.sticky_bottom = false;
+            } else {
+                const int max = std::max(0,
+                    state.jh.total() - state.viewport_rows);
+                state.scroll_top    = max;
+                state.sticky_bottom = true;
+            }
+
+            const auto& vis_rows_copy = visible_rows_;
+            const auto sel_copy = selected_visible_index_;
+            const std::size_t fc = frame_count_;
+            const MessagesListInput& in_ref = input_;
+            (void)vis_rows_copy;  // unused when render_row cb is trivial
+            state.callbacks.render_row =
+                [fc, &in_ref, &vis_rows_copy, sel_copy]
+                (size_t, const vl::VisibleRow& vr) -> Element
+                {
+                    VisibleRow ml_row{};
+                    if (!decode_virtual_backend_index(vr.backend_index, ml_row)) {
+                        return text("") | size(HEIGHT, EQUAL,
+                            std::max(1, vr.estimated_height_lines));
+                    }
+                    // Selection check: compare against visible index by
+                    // searching the round-tripped ml_row in vis_rows_copy.
+                    // Linear scan is fine because vis_rows_copy items past
+                    // the threshold are only rendered inside the window
+                    // (~60 rows per pass after overscan).
+                    bool is_selected = false;
+                    if (sel_copy.has_value()) {
+                        const size_t sv = *sel_copy;
+                        if (sv < vis_rows_copy.size()) {
+                            const auto& ref = vis_rows_copy[sv];
+                            if (ref.kind == ml_row.kind) {
+                                if (ref.kind == VisibleRow::Kind::Payload &&
+                                    ref.row_idx == ml_row.row_idx)
+                                    is_selected = true;
+                                else if (ref.kind == VisibleRow::Kind::CompactGroup &&
+                                         ref.group_idx == ml_row.group_idx)
+                                    is_selected = true;
+                            }
+                        }
+                    }
+                    // turn-margin add_margin is always true in virtual
+                    // path (see comments in render_messages_list_virtual).
+                    if (ml_row.kind == VisibleRow::Kind::CompactGroup) {
+                        return detail::render_compact_group_row(ml_row,
+                                                                is_selected);
+                    }
+                    return detail::render_payload_row(
+                        in_ref, ml_row.row_idx, is_selected, fc,
+                        /*add_margin=*/true);
+                };
+
+            list_body = vl::render_list_as_elements(state) | flex;
         } else {
-            // ---- Last-N window ------------------------------------
+            // ---- Last-N window (non-virtualized path, ≤kVirtualThreshold)
             std::size_t start = 0;
             if (visible_rows_.size() > kMaxRenderedLastN) {
                 start = visible_rows_.size() - kMaxRenderedLastN;
             }
-
             // If a row is selected, try to keep it inside the rendered
             // window (pure "last-N" would push it out of view).  This
             // mirrors TS VirtualMessageList behaviour for non-virtual mode.
