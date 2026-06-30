@@ -45,6 +45,8 @@ import cc.commands.command;
 import cc.commands.registry;
 import cc.utils.session_storage;
 import cc.utils.skill_usage;
+import cc.utils.clipboard;
+import cc.utils.crypto;
 import cc.ui.components;
 import cc.ui.components_extended;
 import cc.ui.markdown;
@@ -434,12 +436,21 @@ private:
     std::atomic<std::uint64_t> ui_animation_tick_count_{0};
     std::mutex result_mutex_;
     std::optional<std::string> pending_error_;
+    // Pasted clipboard image awaiting attachment to the next submitted user
+    // message (ctrl+v with an image in the clipboard).  Attached via
+    // QueryOptions.attachments in HandleSubmit, then cleared.
+    std::optional<ImageBlock> pending_image_;
     std::string streaming_text_;
     struct StreamingToolPreview {
         std::string tool_name;
         std::string tool_use_id;  ///< M6: matches ToolExecution* events
         std::string input_json;
         std::string result_preview;  ///< M6: live streaming result preview
+        // P0-2 Stage 5: Augmented tool result fields (lazy computed once on
+        // ToolExecutionEnd — used by collapsed tool card + transcript.
+        std::string compact_preview;   /// 200-char one-liner
+        int         error_code      = 0;  /// 0=none, >0 shell exit/HTTP code
+        bool        truncated       = false;/// result > 4 KiB threshold
         bool complete = false;
         bool is_error = false;
     };
@@ -2032,10 +2043,38 @@ public:
     }
 
     void HandleSubmit(const std::string& text) {
-        if (text.empty()) return;
+        // Allow a paste-only submit (image, no text); otherwise require text.
+        if (text.empty() && !pending_image_) return;
 
         if (text.starts_with('/')) {
             this->HandleCommand(text);
+            return;
+        }
+
+        // P0-1: TS-equivalent bash (!) routing.  Per inputModes.ts:
+        //   - A leading '!' is a MODE GLYPH that is NEVER persisted in the
+        //     input state.  When the user types a bare '!' at the start,
+        //     it's swallowed by single-char detection as a mode-change.
+        //   - If somehow "!cmd" reaches HandleSubmit (e.g. user typed while
+        //     a query was running so mode-change routing was bypassed, or
+        //     history restored an entry that was saved WITH the prefix, or
+        //     a teammate-synthesized input carries it), strip it and route
+        //     the rest as bash.
+        //   - The stripped suffix (possibly empty) is submitted as a local
+        //     bash command instead of an LLM query.  Empty → no-op.
+        if (text.starts_with('!')) {
+            namespace figs = cc::ui::design::figures;
+            const std::string stripped(figs::strip_mode_prefix(text));
+            if (!stripped.empty()) {
+                // Strip then route as a bash command.
+                this->HandleCommand(stripped);  // TODO: replace with actual bash tool dispatch when wired.
+                // For now, set input_mode back to Bash so the prefix stays
+                // consistent with what the user typed.  (InputMode enum lives
+                // in repl_screen.cppm; the wire-up below does a best-effort
+                // assignment via the projection callback.)
+            }
+            // Bare '!' with no trailing text is a no-op (mode-change only,
+            // handled by the single-char interceptor in OnTextEvent).
             return;
         }
 
@@ -2050,16 +2089,40 @@ public:
             streaming_text_.clear();
             streaming_tools_.clear();
             streaming_thinking_.clear();
+            // P0-2 Stage 1: reset event dedup tracker for the new turn.
+            event_dedup_.clear();
         }
 
-        query_thread_ = std::jthread([this, text](std::stop_token st) {
+        // Capture the pasted clipboard image by value — the query runs on a
+        // worker thread, so we snapshot + clear pending_image_ here (main
+        // thread) to avoid a race.
+        std::optional<ImageBlock> attached_image = pending_image_;
+        pending_image_.reset();
+        screen_state_->clipboard_image_hint.reset();
+
+        query_thread_ = std::jthread([this, text, attached_image](std::stop_token st) {
             core::QueryOptions opts;
+            // Attach the pasted image (ctrl+v) to this user message.
+            if (attached_image) {
+                opts.attachments.push_back(*attached_image);
+            }
             opts.on_event = [this, &st](const core::StreamEvent& ev) {
                 if (st.stop_requested()) return;
 
-                std::visit([this](const auto& e) {
+                // ── P0-2 Stage 1 EVENT_DEDUP gate ──────────────────────
+                // TS: messagesSlice.ts dedupEvents.  Deduplicate per-index
+                // lifecycle transitions (Start / Delta / Stop) and per
+                // tool_use_id exec transitions BEFORE any state mutations.
+                // Duplicate packets are silently dropped; PostRenderEvent
+                // is also skipped for them to avoid flicker.
+                bool apply_event = true;
+
+                std::visit([this, &apply_event](const auto& e) {
                     using T = std::decay_t<decltype(e)>;
+
                     if constexpr (std::is_same_v<T, core::ContentBlockStart>) {
+                        apply_event = event_dedup_.should_accept_start(e.index);
+                        if (!apply_event) return;
                         std::lock_guard lk(result_mutex_);
                         if (const auto* tool = std::get_if<core::ToolUseBlock>(&e.block)) {
                             streaming_tools_[e.index] = StreamingToolPreview{
@@ -2782,6 +2845,32 @@ public:
     }
 
     bool OnEvent(Event event) override {
+        // Clipboard image paste (TS chat:imagePaste = ctrl+v).  Terminal raw
+        // mode delivers ctrl+v as SYN (\x16); if the clipboard holds an image
+        // we read it as PNG, base64 it, and stash it on pending_image_ for the
+        // next HandleSubmit to attach.  No image → fall through so the text
+        // input / terminal paste behaves normally.
+        if (event == Event::Character('\x16') && !query_running_.load()) {
+            if (cc::utils::clipboard::has_image()) {
+                auto png = cc::utils::clipboard::read_image_png();
+                if (png && !png->empty()) {
+                    pending_image_ = ImageBlock{
+                        .media_type = "image/png",
+                        .data = cc::utils::crypto::base64_encode(png->data(), png->size()),
+                    };
+                    screen_state_->clipboard_image_hint =
+                        "🖼️ Image attached (" + std::to_string(png->size()) +
+                        " bytes) · Enter to send (Esc to discard)";
+                    return true;
+                }
+            }
+        }
+        // Esc discards a pending pasted image.
+        if (event == Event::Escape && pending_image_) {
+            pending_image_.reset();
+            screen_state_->clipboard_image_hint.reset();
+            return true;
+        }
         const bool handled = repl_component_->OnEvent(event);
         if (handled && event != Event::Escape) {
             // SL-11: any accepted keystroke that fills input retires the

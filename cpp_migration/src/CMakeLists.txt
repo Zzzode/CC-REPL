@@ -179,6 +179,7 @@ target_sources(cc_utils
         utils/glob_utils.cppm
         utils/graceful_shutdown.cppm
         utils/hash.cppm
+        utils/clipboard.cppm
         utils/heatmap.cppm
         utils/http.cppm
         utils/http_encoding.cppm
