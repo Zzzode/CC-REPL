@@ -38,6 +38,7 @@ import cc.ui.dialogs.settings_dialog;
 import cc.ui.wizard_dialog;
 import cc.ui.app;
 import cc.ui.repl_screen;
+import cc.ui.messages.message_image;
 import cc.ui.prompt.prompt_input_footer;
 import cc.ui.permissions.permission_rules_ui;
 import cc.ui.permissions.rule_list;
@@ -5811,4 +5812,208 @@ TEST(MessagesList, UnseenDivider_AnchorWithEmptyUuidEntries_NoCrash) {
     // Divider title for count=1 MUST appear.
     EXPECT_NE(snap.find("1 new message"), std::string::npos);
     (void)snap;
+}
+
+// =============================================================================
+// GAP: image-paste-display-broken (P0, user-reported 2026-06-30)
+// BUG: Clipboard Ctrl+V capture + API transmission paths (EXIST per commit
+// f85a5b8), but the display pipeline was broken at TWO links:
+//   (M3) project_message() silently dropped ImageBlocks when iterating user
+//        message content — only TextBlock* was std::get_if'd.
+//   (M4) repl_screen's row builder mapped ALL role=="user" entries to a single
+//        MessageShape::UserText row — MessageShape::UserImage + message_image
+//        module were dead code.
+// FIX (commits above):
+//   1. ImageBlock gains {width,height,size_bytes,file_name,source_path,source}
+//   2. project_messages() SPLITS a UserMessage with mixed TextBlock+ImageBlock
+//      content into MULTIPLE display rows (TS parity: each UserImageMessage is
+//      its own transcript row).
+//   3. BuildMessages() in repl_screen dispatches is_image entries to
+//      MessageShape::UserImage and populates ImageMessageData from the block.
+// TS REF: src/components/UserImageMessage.tsx (renderer)
+//         src/utils/processUserInput/processUserInput.ts L351-395 (content blocks)
+// =============================================================================
+
+namespace image_paste_test {
+using namespace cc::core;
+using cc::ui::project_message;
+using cc::ui::project_messages;
+using cc::ui::repl_screen::MessageDisplayEntry;
+using cc::ui::repl_screen::RenderMessages;
+
+/// Build a synthetic UserMessage with TextBlock + 2 ImageBlocks.
+cc::core::UserMessage make_mixed_user_message() {
+    using cc::core::ContentBlock;
+    cc::core::UserMessage m;
+    ImageBlock img1;
+    img1.media_type = "image/png";
+    img1.data = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
+    img1.width = 1;
+    img1.height = 1;
+    img1.size_bytes = 68;
+    img1.file_name = "screenshot_a.png";
+    img1.source = ImageBlockSource::Clipboard;
+
+    ImageBlock img2;
+    img2.media_type = "image/jpeg";
+    img2.data = "/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAABAAEDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/9oADAMBAAIRAxEAPwCmHw4Q==";
+    img2.width = 1024;
+    img2.height = 768;
+    img2.size_bytes = 142'311;
+    img2.file_name = "IMG_1234.jpg";
+    img2.source_path = "/tmp/IMG_1234.jpg";
+    img2.source = ImageBlockSource::File;
+
+    m.content = std::vector<ContentBlock>{
+        TextBlock{"Describe these images:"},
+        std::move(img1),
+        TextBlock{"\nAlso see this one:"},
+        std::move(img2),
+    };
+    return m;
+}
+} // namespace image_paste_test
+
+/// Structural: project_messages splits a mixed user message into N rows.
+TEST(ImagePaste, MixedTextAndImage_SplitsIntoMultipleRows_OrderPreserved) {
+    using namespace image_paste_test;
+    Message msg = make_mixed_user_message();
+    auto rows = project_messages(msg);
+
+    // Expected 4 rows (in order):
+    //   0 — text "Describe these images:"
+    //   1 — image screenshot_a.png (clipboard)
+    //   2 — text "Also see this one:"
+    //   3 — image IMG_1234.jpg (file)
+    ASSERT_EQ(rows.size(), 4u) << "expected 1+1+1+1=4 projected rows, got "
+                               << rows.size();
+    EXPECT_EQ(rows[0].role, "user");
+    EXPECT_FALSE(rows[0].is_image);
+    EXPECT_NE(rows[0].content_preview.find("Describe these images"),
+              std::string::npos);
+
+    EXPECT_EQ(rows[1].role, "user");
+    EXPECT_TRUE(rows[1].is_image);
+    ASSERT_TRUE(rows[1].image_block.has_value());
+    EXPECT_EQ(rows[1].image_block->file_name, "screenshot_a.png");
+    EXPECT_EQ(rows[1].image_block->source, ImageBlockSource::Clipboard);
+    EXPECT_NE(rows[1].content_preview.find("1x1"), std::string::npos);
+    EXPECT_NE(rows[1].content_preview.find("screenshot_a.png"),
+              std::string::npos);
+
+    EXPECT_EQ(rows[2].role, "user");
+    EXPECT_FALSE(rows[2].is_image);
+    EXPECT_NE(rows[2].content_preview.find("Also see this one"),
+              std::string::npos);
+
+    EXPECT_EQ(rows[3].role, "user");
+    EXPECT_TRUE(rows[3].is_image);
+    ASSERT_TRUE(rows[3].image_block.has_value());
+    EXPECT_EQ(rows[3].image_block->width, 1024u);
+    EXPECT_EQ(rows[3].image_block->height, 768u);
+    EXPECT_EQ(rows[3].image_block->size_bytes, 142311u);
+    EXPECT_EQ(rows[3].image_block->source, ImageBlockSource::File);
+    EXPECT_NE(rows[3].content_preview.find("1024x768"), std::string::npos);
+}
+
+/// Regression: user message with ONLY an ImageBlock (no text) → projects to
+/// exactly ONE image row (not empty text).
+TEST(ImagePaste, ImageOnly_NoEmptyTextRow) {
+    using namespace image_paste_test;
+    cc::core::UserMessage u;
+    ImageBlock img_only;
+    img_only.media_type = "image/png";
+    img_only.data = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
+    img_only.width = 1;
+    img_only.height = 1;
+    img_only.size_bytes = 68;
+    img_only.file_name = "only.png";
+    img_only.source = ImageBlockSource::Clipboard;
+    u.content = std::vector<cc::core::ContentBlock>{std::move(img_only)};
+    Message msg = u;
+    auto rows = project_messages(msg);
+    ASSERT_EQ(rows.size(), 1u);
+    EXPECT_TRUE(rows[0].is_image);
+    ASSERT_TRUE(rows[0].image_block.has_value());
+    EXPECT_EQ(rows[0].image_block->file_name, "only.png");
+    // content_preview should NOT be empty (used for history / debugger).
+    EXPECT_FALSE(rows[0].content_preview.empty());
+    // And the legacy single-entry project_message fallback must also land on
+    // the image (since there is only one content block).
+    auto single = project_message(msg);
+    EXPECT_TRUE(single.is_image);
+    EXPECT_TRUE(single.image_block.has_value());
+}
+
+/// End-to-end render: a mixed user message rendered through the full
+/// BuildMessages pipeline must emit clipboard icon + image filename in the
+/// transcript (verifies both M3 and M4 are correctly wired).
+TEST(ImagePaste, ClipboardImageCard_RendersClipboardIconAndFilename) {
+    using namespace image_paste_test;
+    using namespace cc::ui::repl_screen;
+    using namespace sticky_prompt_test;  // strip_ansi, render_ansi
+
+    Message msg = make_mixed_user_message();
+    // project_messages → BuildMessages → full Screen render.
+    auto entries = project_messages(msg);
+    // Tag each entry with a synthetic uuid so BuildMessages (and any divider
+    // code) does not choke on empty ids.
+    char ubuf[32];
+    for (std::size_t i = 0; i < entries.size(); ++i) {
+        std::snprintf(ubuf, sizeof(ubuf), "imgtest_%05zu", i);
+        entries[i].id = std::string(ubuf, 24);
+    }
+
+    Element el = RenderMessages(entries, -1, 40);
+    std::string snap = strip_ansi(
+        render_ansi(std::move(el), /*w=*/100, /*h=*/60));
+
+    // Text rows.
+    EXPECT_NE(snap.find("Describe these images:"), std::string::npos);
+    EXPECT_NE(snap.find("Also see this one:"), std::string::npos);
+
+    // Clipboard icon (📎 U+1F4CE = "\xF0\x9F\x93\x8E") appears exactly once
+    // (second row; first image was source=Clipboard, second was source=File).
+    std::size_t clip_pos = snap.find("\xF0\x9F\x93\x8E");
+    EXPECT_NE(clip_pos, std::string::npos)
+        << "clipboard image row should show the 📎 icon";
+    // Filename for image #1 must appear AFTER the clip icon.
+    std::size_t fn1 = snap.find("screenshot_a.png");
+    EXPECT_NE(fn1, std::string::npos);
+    EXPECT_GT(fn1, clip_pos) << "filename should follow the clipboard icon";
+
+    // File icon (📁 U+1F4C1 = "\xF0\x9F\x93\x81") is what message_image.cppm
+    // emits for source=File.
+    EXPECT_NE(snap.find("\xF0\x9F\x93\x81"), std::string::npos)
+        << "file-sourced image row should show the 📁 icon";
+    EXPECT_NE(snap.find("IMG_1234.jpg"), std::string::npos);
+
+    // Dimension text "1024×768" (× = U+00D7 = UTF-8 "\xC3\x97").
+    // NB: split the hex literal + ASCII digits so the C preprocessor does not
+    // greedily consume "97768" as one hex escape sequence.
+    EXPECT_NE(snap.find("1024\xC3\x97" "768"), std::string::npos)
+        << "file-sourced image should render W×H metadata";
+    // 142311 bytes → "139 KB".
+    EXPECT_NE(snap.find("KB"), std::string::npos)
+        << "file size should render as pretty-printed KB/MB";
+}
+
+/// Golden: Render a single clipboard-paste ImageMessageData card through
+/// message_image directly; snapshot pins exact layout (thumbnail, icon,
+/// filename, dimensions, size).
+TEST(ImagePaste, ClipboardCard_GoldenSnapshot) {
+    using namespace cc::ui::messages::image;
+    using namespace sticky_prompt_test;
+    ImageMessageData d;
+    d.source_type = ImageSource::Clipboard;
+    d.source = "";  // clipboard — no on-disk path
+    d.alt_text = "screenshot_a.png 1x1 test data seed";
+    d.width = 1280; d.height = 800;
+    d.file_size = 483'211;   // → "471 KB"
+    d.media_type = "image/png";
+    d.file_name = "Screenshot 2026-06-30 at 14.22.05.png";
+    d.add_margin = false;
+    auto el = RenderImageBubble(d);
+    check_golden("clipboard_image_card",
+                 render_ansi(std::move(el), 100, 15));
 }
