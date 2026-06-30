@@ -451,29 +451,68 @@ for (const entry of toImplement) {
     }
   );
 
-  // --- adversarial verdict: if TEST_REGRESSION, spawn a dedicated debugger agent ---
+  // --- adversarial verdict: BUILD_FAIL / TEST_REGRESSION → dedicated debugger agent ---
+  //
+  // NOTE(2026-06-30, round-1 post-mortem): the original code only dispatched a
+  // debugger on TEST_REGRESSION.  BUILD_FAIL silently propagated as a failed
+  // gap, which forced a manual 3-agent + 4-human fixup.  Both failure modes now
+  // enter the same debugger loop; the prompt adapts to which artefact to read.
   let fixups = null;
-  if (verify && verify.verdict === 'TEST_REGRESSION' && verify.ctest_new_fails.length > 0) {
+  const is_build_fail = verify && verify.verdict === 'BUILD_FAIL';
+  const is_regression = verify && verify.verdict === 'TEST_REGRESSION'
+                     && verify.ctest_new_fails && verify.ctest_new_fails.length > 0;
+  if (is_build_fail || is_regression) {
     phase('Verify');
-    log(`  Regression detected on ${verify.ctest_new_fails.join(', ')} — dispatching debugger.`);
-    fixups = await agent(
-      `DEBUG the following test regressions from gap ${gap.id}: ` +
-      verify.ctest_new_fails.join(', ') + `\n` +
-      `Read /tmp/ctest_${gap.id}.log tail, read failing test source, read related implementation.\n` +
-      `Fix the underlying bug (do NOT downgrade test sensitivity).\n` +
-      `Re-run VERIFY steps 2–10 until ctest_new_fails=[].\n` +
-      `Return VERIFY_REPORT_SCHEMA for the FINAL state. If unable to fix within 3 iterations, ` +
-      `return the final failing report but set verdict=TEST_REGRESSION and explain in a free-text ` +
-      `note the blocker (but first check the PREEXISTING_FAILS set — regressions already there ` +
-      `should be reclassified as PASS).\n` +
-      GROUND_RULES,
-      {
-        label: `debug:${gap.id}`,
-        phase: 'Verify',
-        schema: VERIFY_REPORT_SCHEMA,
-        effort: 'xhigh',
-      }
-    );
+    let debuggerPrompt;
+    if (is_build_fail) {
+      log(`  Build failure on ${gap.id} — dispatching debugger.`);
+      debuggerPrompt =
+        `DEBUG the following BUILD failure from gap ${gap.id}.\n` +
+        `The verify agent reported build_rc != 0 and warning_count=` +
+        `${verify ? JSON.stringify(verify.warning_count || '?') : '?'} .\n` +
+        `\n` +
+        `Investigation plan:\n` +
+        `  1. Read the build log tail at /tmp/builddbg_${gap.id}.log (it contains ` +
+        `     the combined Release + Debug ninja stderr/stdout). Identify the first ` +
+        `     error (not warning) — usually one of the 7-class FTXUI build bugs ` +
+        `     listed in GROUND_RULES.\n` +
+        `  2. Open the failing source file. Typical root causes:\n` +
+        `       - module import name typo (design_tokens → tokens is the #1 hit)\n` +
+        `       - aggregate init missing designated field name → `-Wmissing-field-initializers + -Werror`\n` +
+        `       - int→bool narrowing / Mouse struct field order mismatch (Button,Motion,shift,meta,control,x,y)\n` +
+        `       - reflect(&box_) passing pointer instead of non-const Box&\n` +
+        `       - stray line continuation that dropped text into a comment\n` +
+        `       - unused `using T=...` typedef triggering -Wunused-local-typedef\n` +
+        `       - stray `=` inside /*...*/ that produced a syntax error\n` +
+        `  3. Edit in place. Do NOT delete existing tests to make things pass; ` +
+        `     fix the implementation or the dataflow, never the spec.\n` +
+        `  4. Re-run VERIFY steps 2–10 (see agent prompt) until build_rc == 0.\n` +
+        `\n` +
+        `Return VERIFY_REPORT_SCHEMA for the FINAL state. If genuinely blocked ` +
+        `after 3 iterations, return verdict=BUILD_FAIL with a free-text blocker ` +
+        `note describing the missing dep / architectural pre-req.\n` +
+        GROUND_RULES;
+    } else {
+      // TEST_REGRESSION
+      log(`  Regression detected on ${verify.ctest_new_fails.join(', ')} — dispatching debugger.`);
+      debuggerPrompt =
+        `DEBUG the following test regressions from gap ${gap.id}: ` +
+        verify.ctest_new_fails.join(', ') + `\n` +
+        `Read /tmp/ctest_${gap.id}.log tail, read failing test source, read related implementation.\n` +
+        `Fix the underlying bug (do NOT downgrade test sensitivity).\n` +
+        `Re-run VERIFY steps 2–10 until ctest_new_fails=[].\n` +
+        `Return VERIFY_REPORT_SCHEMA for the FINAL state. If unable to fix within 3 iterations, ` +
+        `return the final failing report but set verdict=TEST_REGRESSION and explain in a free-text ` +
+        `note the blocker (but first check the PREEXISTING_FAILS set — regressions already there ` +
+        `should be reclassified as PASS).\n` +
+        GROUND_RULES;
+    }
+    fixups = await agent(debuggerPrompt, {
+      label: `debug:${gap.id}`,
+      phase: 'Verify',
+      schema: VERIFY_REPORT_SCHEMA,
+      effort: 'xhigh',
+    });
   }
 
   const finalVerify = fixups || verify;
