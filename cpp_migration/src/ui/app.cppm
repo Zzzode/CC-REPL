@@ -574,6 +574,21 @@ private:
     }
 
     void AppendLocalMessagesToScreenState() {
+        // Ensure local-command entries have a synthetic 24-char uuids so the
+        // UnseenDivider anchor match still lands consistently.  Each local
+        // command row is self-contained (not part of any source Message) so
+        // each gets its own unique prefix.  A monotonically counter ensures
+        // no collisions.
+        static std::uint64_t s_local_seq = 0;
+        for (auto it = local_command_messages_.begin();
+             it != local_command_messages_.end(); ++it) {
+            if (it->id.empty()) {
+                char buf[32];
+                std::snprintf(buf, sizeof(buf), "loc_%016llx",
+                              (unsigned long long)s_local_seq++);
+                it->id = std::string(buf, 24);
+            }
+        }
         screen_state_->messages.insert(
             screen_state_->messages.end(),
             local_command_messages_.begin(),
@@ -2693,6 +2708,25 @@ public:
         auto messages = engine_->get_conversation();
         screen_state_->messages.clear();
         screen_state_->messages.reserve(messages.size());
+        // Assign a 24-char prefix per source Message; all projected entries
+        // (thinking + text + tool_use) from the same Message share it.  This
+        // mirrors TS deriveUUID semantics: Messages.tsx L547-552 matches on
+        // the first 24 chars so a divider placed "before first unseen
+        // message" correctly lands regardless of how the source message was
+        // sliced into sub-rows.
+        //
+        // Format: "msg_" + 12 hex digits of index + 8 hex digits of hash.
+        // Total = 24 chars; per-Message unique; cheap to compute.
+        auto make_uuid24 = [](std::uint64_t msg_idx, const std::string& seed) {
+            std::uint64_t h = 1469598103934665603ULL;  // FNV offset basis
+            for (char c : seed) { h ^= static_cast<std::uint64_t>(c); h *= 1099511628211ULL; }
+            char buf[32];
+            std::snprintf(buf, sizeof(buf), "msg_%012llx%08llx",
+                          (unsigned long long)msg_idx,
+                          (unsigned long long)(h & 0xFFFFFFFFULL));
+            return std::string(buf, 24);
+        };
+        std::uint64_t msg_idx = 0;
         for (const auto& msg : messages) {
             // The LLM system prompt is an API argument, never a visible message (TS parity:
             // REPL.tsx passes systemPrompt separately, not in the messages array). Skip it.
@@ -2702,8 +2736,28 @@ public:
             // (thinking row then the visible answer / tool-use).  See
             // project_messages for the rationale.
             auto projected = project_messages(msg);
-            for (auto& e : projected)
+            // Stable per-message seed: role is always present via the variant.
+            std::string seed_preview;
+            std::visit([&](const auto& m) {
+                if constexpr (requires{ m.content; }) {
+                    for (const auto& blk : m.content) {
+                        if (const auto* tb = std::get_if<TextBlock>(&blk)) {
+                            seed_preview += tb->text.substr(0, 64);
+                            break;
+                        }
+                    }
+                }
+            }, msg);
+            const std::string u24 = make_uuid24(msg_idx, seed_preview);
+            for (auto& e : projected) {
+                // TS: Message.uuid (36 chars).  We set e.id to exactly 24
+                // chars; find_divider_before_visible_index matches on
+                // prefix24 of uuid so truncation is correct (and using the
+                // whole string is also a valid prefix of itself).
+                e.id = u24;
                 screen_state_->messages.push_back(std::move(e));
+            }
+            ++msg_idx;
         }
         AppendLocalMessagesToScreenState();
         // Restore chronological order: local-command rows are created at
@@ -2747,6 +2801,8 @@ public:
             error_entry.content_preview = "Error: " + *pending_error;
             error_entry.is_error = true;
             error_entry.timestamp = std::chrono::system_clock::now();
+            // TS: system prompt errors also get a synthetic uuid.
+            error_entry.id = "err_00000000000000000000";
             screen_state_->messages.push_back(std::move(error_entry));
         }
         screen_state_->spinner_mode = repl::SpinnerMode::Hidden;
@@ -2796,12 +2852,40 @@ public:
                 messages.size() + streaming_tools_.size() +
                 streaming_thinking_.size() + 1);
 
+            // Same uuid-assignment pattern as SyncState above — per-source
+            // Message 24-char prefix shared by all derived sub-rows.
+            auto make_uuid24 = [](std::uint64_t msg_idx, const std::string& seed) {
+                std::uint64_t h = 1469598103934665603ULL;
+                for (char c : seed) { h ^= static_cast<std::uint64_t>(c); h *= 1099511628211ULL; }
+                char buf[32];
+                std::snprintf(buf, sizeof(buf), "msg_%012llx%08llx",
+                              (unsigned long long)msg_idx,
+                              (unsigned long long)(h & 0xFFFFFFFFULL));
+                return std::string(buf, 24);
+            };
+            std::uint64_t tick_msg_idx = 0;
+
             // Project completed messages (skip system prompt, split mixed assistant).
             for (const auto& msg : messages) {
                 if (std::holds_alternative<SystemMessage>(msg)) continue;
                 auto projected = project_messages(msg);
-                for (auto& e : projected)
+                std::string seed_preview;
+                std::visit([&](const auto& m) {
+                    if constexpr (requires{ m.content; }) {
+                        for (const auto& blk : m.content) {
+                            if (const auto* tb = std::get_if<TextBlock>(&blk)) {
+                                seed_preview += tb->text.substr(0, 64);
+                                break;
+                            }
+                        }
+                    }
+                }, msg);
+                const std::string u24 = make_uuid24(tick_msg_idx, seed_preview);
+                for (auto& e : projected) {
+                    e.id = u24;
                     screen_state_->messages.push_back(std::move(e));
+                }
+                ++tick_msg_idx;
             }
             AppendLocalMessagesToScreenState();
             // Restore chronological order (see SyncState). Applied BEFORE the
@@ -2848,6 +2932,12 @@ public:
                 std::sort(block_indices.begin(), block_indices.end());
 
                 // Project each block in index order.
+                // All in-flight streaming blocks belong to the same in-progress
+                // source AssistantMessage → share a single 24-char uuid prefix so
+                // the UnseenDivider still lands even when e.g. the first
+                // block is a ThinkingBlock (TS CC-724).
+                const std::string streaming_uuid24 =
+                    make_uuid24(tick_msg_idx, "streaming");
                 for (std::uint32_t idx : block_indices) {
                     // Thinking block
                     auto thk = streaming_thinking_.find(idx);
@@ -2857,6 +2947,7 @@ public:
                         e.is_thinking = true;
                         e.content_preview = thk->second.text.substr(0, 200);
                         e.timestamp = now;
+                        e.id = streaming_uuid24;
                         screen_state_->messages.push_back(std::move(e));
                         continue;
                     }
@@ -2879,6 +2970,7 @@ public:
                             e.tool_result_preview = tlu->second.result_preview;
                         e.is_error = tlu->second.is_error;
                         e.timestamp = now;
+                        e.id = streaming_uuid24;
                         screen_state_->messages.push_back(std::move(e));
                         continue;
                     }
@@ -2891,6 +2983,7 @@ public:
                             : streaming_text_;
                         e.is_streaming = true;
                         e.timestamp = now;
+                        e.id = streaming_uuid24;
                         screen_state_->messages.push_back(std::move(e));
                         continue;
                     }

@@ -49,6 +49,7 @@ import cc.ui.components.lsp_rec_menu;
 import cc.ui.components.plugin_hint_menu;
 import cc.ui.common.declared_cursor;
 import cc.ui.design.theme;
+import cc.ui.design.tokens;     // Palette, Role, token_by_role
 // P0-2: 7-stage message pipeline (dedup + tag filter + tool augment + hide/index).
 import cc.ui.messages.message_pipeline;
 // P0-3: VirtualMessageList — O(viewport) windowed renderer for >80-row chats.
@@ -59,6 +60,7 @@ import cc.ui.design.figures;
 // (imported transitively via cc.ui.repl_screen, but we import explicitly for
 // direct unit tests against logo_v2 helpers).
 import cc.ui.logo_v2;
+import cc.ui.layout.fullscreen;     // M1: 5-slot shell + 3-state sticky
 import cc.ui.mcp_dialogs;
 import cc.config.config;
 import cc.commands.registry;
@@ -67,6 +69,10 @@ import cc.tools.tool;
 import cc.utils.session_storage;
 import cc.utils.permissions_engine;
 import cc.constants.constants;
+import cc.ui.messages.messages_list;    // UnseenDivider, MessagesListInput, build_visible_rows
+import cc.ui.messages.message_row;          // MessageShape
+import cc.ui.messages.user_text_message;    // UserTextMessageData
+import cc.ui.messages.assistant_text_message; // AssistantTextMessageData
 
 namespace {
 
@@ -4777,8 +4783,9 @@ TEST(LogoV2, CompactModeRendersRoundedBorderCard) {
     // Rounded border: U+256D = box drawings light arc down and right (╭).
     EXPECT_NE(s.find("\xE2\x95\xAD"), std::string::npos)
         << "Compact mode must render a rounded border card";
-    // Welcome headline — new user (no username) → "Welcome to Claude Code".
-    EXPECT_NE(s.find("Welcome to Claude Code"), std::string::npos);
+    // Welcome headline — returning user (no username) => "Welcome back!"
+    // (TS formatWelcomeMessage: empty => "Welcome back!", not "Welcome to …")
+    EXPECT_NE(s.find("Welcome back!"), std::string::npos);
     // Model line dim.
     EXPECT_NE(s.find("Claude Sonnet 4.6"), std::string::npos);
     // Notice stack still rendered AFTER the card.
@@ -4808,8 +4815,9 @@ TEST(LogoV2, HorizontalModeSplitsIntoPanels) {
     EXPECT_GE(result.right_width, 20);
 
     std::string s = strip_ansi(render_to_plain_text(result.root, 100, 24));
-    // Welcome greeting — returning user with username.
-    EXPECT_NE(s.find("Welcome back, bob!"), std::string::npos);
+    // Welcome greeting — returning user with username, TS uses NO comma
+    // ("Welcome back bob!", not "Welcome back, bob!")
+    EXPECT_NE(s.find("Welcome back bob!"), std::string::npos);
     // model·billing·org rendered in left panel.
     EXPECT_NE(s.find("API Usage"), std::string::npos);
     EXPECT_NE(s.find("Acme Corp"), std::string::npos);
@@ -5009,7 +5017,8 @@ TEST(LogoV2, ReplScreenForceFullLogoOptsIntoCardMode) {
         120, 24));
     EXPECT_NE(wide.find("\xE2\x95\xAD"), std::string::npos)
         << "force_full_logo=true should render the rounded border card";
-    EXPECT_NE(wide.find("Welcome to Claude Code"), std::string::npos);
+    // empty user_display_name → TS formatWelcomeMessage returns "Welcome back!"
+    EXPECT_NE(wide.find("Welcome back!"), std::string::npos);
     EXPECT_NE(wide.find("\xE2\x94\x82"), std::string::npos)
         << "120 cols → Horizontal divider present";
 
@@ -5055,3 +5064,751 @@ TEST(LogoV2, ReplScreenForceFullLogoOptsIntoCardMode) {
     }
 }
 
+// T9: Golden-snapshot rendering for gap #logov2-render-modes-missing — exercises
+//     the new Compact (60 cols) and Horizontal (100 cols with FeedColumn)
+//     render paths.  Identical options to the semantic tests above so the
+//     snapshots exactly pin the expected output (including ANSI colour codes).
+//     Set UPDATE_GOLDENS=1 to regenerate.
+//
+//     Faithful reference:
+//       TS LogoV2.tsx  L253-330  (compact)
+//       TS LogoV2.tsx  L331-428  (horizontal + FeedColumn)
+//       TS Feed.tsx    full file (FeedConfig + FeedLine rendering)
+// P1 sticky-prompt + golden helpers — defined EARLY so LogoV2 (P0-4) and
+// UnseenDivider (P1) tests can reference render_ansi / check_golden without
+// forward-declaration churn.
+namespace sticky_prompt_test {
+
+/// Resolve tests/golden/ relative to THIS file's location.
+std::string golden_dir() {
+    std::string f = __FILE__;
+    auto pos = f.find_last_of('/');
+    return f.substr(0, pos + 1) + "golden/";
+}
+std::string normalize_line_endings(std::string_view s) {
+    std::string out;
+    out.reserve(s.size());
+    for (char c : s) if (c != '\r') out.push_back(c);
+    return out;
+}
+
+/// Golden snapshot check.  Set UPDATE_GOLDENS=1 env var to rewrite files.
+void check_golden(const std::string& name, const std::string& actual) {
+    const std::string path = golden_dir() + name + ".txt";
+    if (std::getenv("UPDATE_GOLDENS") != nullptr) {
+        std::ofstream out(path, std::ios::binary);
+        ASSERT_TRUE(out.good()) << "cannot write golden: " << path;
+        out << actual;
+        SUCCEED() << "golden updated: " << path;
+        return;
+    }
+    std::ifstream in(path, std::ios::binary);
+    ASSERT_TRUE(in.good()) << "golden missing: " << path
+                           << " (run UPDATE_GOLDENS=1 to create)";
+    std::string expected((std::istreambuf_iterator<char>(in)),
+                         std::istreambuf_iterator<char>());
+    EXPECT_EQ(normalize_line_endings(actual),
+              normalize_line_endings(expected))
+        << "golden mismatch for '" << name
+        << "' (run UPDATE_GOLDENS=1 to refresh)";
+}
+
+/// Render an Element to a fixed-size terminal buffer (includes ANSI codes).
+std::string render_ansi(ftxui::Element element, int width, int height) {
+    auto screen = ftxui::Screen::Create(ftxui::Dimension::Fixed(width),
+                                       ftxui::Dimension::Fixed(height));
+    ftxui::Render(screen, element);
+    return screen.ToString();
+}
+
+} // namespace sticky_prompt_test (early portion: golden + render helpers)
+
+TEST(LogoV2, Logov2RenderModesMissing_Goldens) {
+    namespace lv2 = cc::ui::logo_v2;
+    using sticky_prompt_test::check_golden;
+    using sticky_prompt_test::render_ansi;
+
+    // ---- 9a: 60-col compact mode (no feeds, rounded border card) ----
+    {
+        lv2::LogoV2Options opts;
+        opts.version            = "2024.6";
+        opts.cwd                = "/x";
+        opts.model_display_name = "Claude Sonnet 4.6";
+        opts.is_condensed_mode  = false;
+        opts.username           = std::nullopt;
+
+        auto result = lv2::RenderLogoV2(opts, /*cols=*/60);
+        ASSERT_EQ(result.mode, lv2::LogoLayoutMode::Compact);
+
+        // 40 rows: rounded card (~16 rows) + 10-deep notice stack + margin.
+        std::string snap = render_ansi(std::move(result.root), /*w=*/60, /*h=*/40);
+        check_golden("logov2_render_modes_missing_compact_60cols", snap);
+    }
+
+    // ---- 9b: 100-col horizontal mode with 2 explicit feeds + divider ----
+    {
+        lv2::LogoV2Options opts;
+        opts.version            = "2024.6";
+        opts.cwd                = "/workspace/repo";
+        opts.billing_type       = "API Usage";
+        opts.model_display_name = "Claude Opus 4.8";
+        opts.is_condensed_mode  = false;
+        opts.username           = std::string("bob");
+        opts.org_name           = std::string("Acme Corp");
+
+        // Feed 1: Recent activity (with timestamps, faithful to Feed.tsx).
+        lv2::FeedConfig recent;
+        recent.title = "Recent activity";
+        recent.lines = {
+            lv2::FeedLine{ "Implemented bash Ctrl+R history search", "09:14" },
+            lv2::FeedLine{ "Refactored virtual list height engine",   "08:42" },
+            lv2::FeedLine{ "Merged PR #482 enterprise auth 3-mode",    "yesterday" },
+        };
+
+        // Feed 2: What's new (no timestamps, has footer dim line).
+        lv2::FeedConfig whats_new;
+        whats_new.title  = "What\xE2\x80\x99s new";   // 's U+2019 apostrophe
+        whats_new.lines  = {
+            lv2::FeedLine{ .text = "Paste images with Ctrl+V into prompt",
+                           .timestamp = std::nullopt },
+            lv2::FeedLine{ .text = "LogoV2: compact + horizontal card modes",
+                           .timestamp = std::nullopt },
+            lv2::FeedLine{ .text = "Sandbox bash commands via /sandbox toggle",
+                           .timestamp = std::nullopt },
+        };
+        whats_new.footer = "Full changelog at /changelog";
+
+        std::vector<lv2::FeedConfig> feeds;
+        feeds.push_back(std::move(recent));
+        feeds.push_back(std::move(whats_new));
+
+        auto result = lv2::RenderLogoV2(opts, /*cols=*/100, std::move(feeds));
+        ASSERT_EQ(result.mode, lv2::LogoLayoutMode::Horizontal);
+
+        // 32 rows: 9-row card body + 2 feed titles + 6 feed rows + 2 dividers
+        //        + 1 footer + notice stack margin.
+        std::string snap = render_ansi(std::move(result.root), /*w=*/100, /*h=*/32);
+        check_golden("logov2_render_modes_missing_horizontal_100cols", snap);
+    }
+}
+
+// ============================================================
+// P1-#sticky-prompt-clicked-state-missing — M1 FullscreenLayout
+// 3-state sticky prompt: null (at bottom) / {text, scrollTo} (visible) /
+// 'clicked' (header hidden, padding 0).  Faithful to TS
+// FullscreenLayout.tsx lines 339-351, 551-589.
+// ============================================================
+
+namespace sticky_prompt_test {
+
+// golden_dir / normalize_line_endings / check_golden / render_ansi are
+// defined EARLIER in this file (see pre-LogoV2 sticky_prompt_test block)
+// so that both LogoV2 and FullscreenLayout tests share one definition.
+
+using fl = cc::ui::layout::fullscreen::FullscreenLayoutSlots;
+using Sp = cc::ui::layout::fullscreen::StickyPrompt;
+namespace fl_ns = cc::ui::layout::fullscreen;
+
+/// Helper: build a minimum slots object with scrollable, bottom, term size
+/// so ComposeFullscreen doesn't collapse to zero-height flex regions.
+fl default_slots(int cols = 80, int rows = 24) {
+    fl s;
+    s.term_cols = cols;
+    s.term_rows = rows;
+    s.scrollable = ftxui::vbox({
+        ftxui::text("hello world") | ftxui::flex,
+        ftxui::filler(),
+    });
+    s.bottom = ftxui::text("prompt> _") | ftxui::flex_shrink;
+    return s;
+}
+
+} // namespace sticky_prompt_test
+
+/// State 1/3: sticky_prompt = nullopt.  No header, paddingTop=1, no pill.
+TEST(FullscreenLayout, StickyPromptState1_NoHeader) {
+    using namespace sticky_prompt_test;
+    fl s = default_slots();
+    s.sticky_prompt.reset();   // null = at bottom (TS state 1)
+    s.sticky_clicked = false;
+    s.pill_visible = false;
+
+    auto el = fl_ns::ComposeFullscreen(std::move(s));
+    auto rendered = strip_ansi(render_ansi(std::move(el), 80, 24));
+    // No header breadcrumb: the ❯ glyph must NOT appear.
+    EXPECT_EQ(rendered.find("\xE2\x9D\xAF"), std::string::npos)
+        << "sticky_prompt=nullopt must not render a header";
+    // prompt line still present
+    EXPECT_NE(rendered.find("prompt>"), std::string::npos);
+}
+
+/// State 2/3: sticky_prompt = {text, scrollTo}.  Header visible,
+/// padCollapsed=true → paddingTop=0.
+TEST(FullscreenLayout, StickyPromptState2_HeaderVisible) {
+    using namespace sticky_prompt_test;
+    fl s = default_slots();
+    s.sticky_prompt = Sp{"Write a snake game in Python", 17};
+    s.sticky_clicked = false;
+    s.pill_visible = false;
+
+    auto el = fl_ns::ComposeFullscreen(std::move(s));
+    auto rendered = strip_ansi(render_ansi(std::move(el), 80, 24));
+    // Header breadcrumb with prompt text
+    EXPECT_NE(rendered.find("\xE2\x9D\xAF"), std::string::npos)
+        << "sticky_prompt set must render a header with pointer prefix";
+    EXPECT_NE(rendered.find("Write a snake game in Python"),
+              std::string::npos);
+    // prompt line still present
+    EXPECT_NE(rendered.find("prompt>"), std::string::npos);
+
+    // Golden snapshot: captures exact layout (sticky header visible,
+    // padCollapsed=0, messages + prompt below).  Regenerates with
+    // `UPDATE_GOLDENS=1 ./cc_test --gtest_filter='*State2*'`.
+    // Re-render to a fresh snapshot (std::move consumed el above).
+    fl s2 = default_slots();
+    s2.sticky_prompt = Sp{"Write a snake game in Python", 17};
+    s2.sticky_clicked = false;
+    s2.pill_visible = false;
+    check_golden("sticky_prompt_visible",
+                 render_ansi(fl_ns::ComposeFullscreen(std::move(s2)), 80, 24));
+}
+
+/// State 3/3: sticky_prompt = {text, ...} + sticky_clicked = true.
+/// Header HIDDEN but padCollapsed still applies (paddingTop=0).
+/// This is the gap that was previously missing.
+TEST(FullscreenLayout, StickyPromptState3_ClickedCollapsed) {
+    using namespace sticky_prompt_test;
+    // Build both slots side-by-side so we can diff.
+    fl s_visible = default_slots();
+    s_visible.sticky_prompt = Sp{"Write a snake game in Python", 17};
+    s_visible.sticky_clicked = false;
+    auto visible = strip_ansi(render_ansi(
+        fl_ns::ComposeFullscreen(std::move(s_visible)), 80, 24));
+
+    fl s_clicked = default_slots();
+    s_clicked.sticky_prompt = Sp{"Write a snake game in Python", 17};
+    s_clicked.sticky_clicked = true;          // <-- the TS 'clicked' sentinel
+    auto clicked = strip_ansi(render_ansi(
+        fl_ns::ComposeFullscreen(std::move(s_clicked)), 80, 24));
+
+    // State 3 invariant: ❯ header is gone.
+    EXPECT_EQ(clicked.find("\xE2\x9D\xAF"), std::string::npos)
+        << "sticky_clicked=true must hide the header row";
+    EXPECT_EQ(clicked.find("Write a snake game in Python"),
+              std::string::npos)
+        << "sticky_clicked=true must hide the header text";
+
+    // But prompt line and messages still render.
+    EXPECT_NE(clicked.find("hello world"), std::string::npos);
+    EXPECT_NE(clicked.find("prompt>"), std::string::npos);
+
+    // The visible rendering has one MORE line containing the pointer than
+    // the clicked rendering.  FTXUI renders to a fixed 80x24 Screen, so
+    // total line counts are both 24 (flex fills).  Instead, verify that
+    // the first transcript content ("hello world") appears ONE LINE
+    // HIGHER in the clicked case — the header is gone, so the transcript
+    // shifts up by exactly 1 row.
+    auto row_of = [](const std::string& t, std::string_view needle) -> int {
+        auto pos = t.find(needle);
+        if (pos == std::string::npos) return -1;
+        int r = 0;
+        for (std::size_t i = 0; i < pos; ++i) {
+            if (t[i] == '\n') ++r;
+        }
+        return r;
+    };
+    const int vis_row = row_of(visible, "hello world");
+    const int clk_row = row_of(clicked, "hello world");
+    ASSERT_GE(vis_row, 0) << "'hello world' must appear in the visible render";
+    ASSERT_GE(clk_row, 0) << "'hello world' must appear in the clicked render";
+    EXPECT_EQ(vis_row - clk_row, 1)
+        << "clicked state should shift transcript content up by exactly 1 row "
+           "(header removed); got visible row="
+        << vis_row << " clicked row=" << clk_row;
+
+    // Golden snapshot for the 'clicked' layout.
+    fl s2 = default_slots();
+    s2.sticky_prompt = Sp{"Write a snake game in Python", 17};
+    s2.sticky_clicked = true;
+    check_golden("sticky_prompt_clicked_state_missing",
+                 render_ansi(fl_ns::ComposeFullscreen(std::move(s2)), 80, 24));
+}
+
+/// Behavioural: the on_sticky_click callback fires when the Component
+/// receives a click-event on the header row, with the correct
+/// StickyPrompt payload (scroll_target_row preserved).
+///
+/// NOTE: disabled for round-1 landing.  StickyPromptHeaderComponent is an
+/// interactive Component embedded via CompEl() inside a stateless Element
+/// tree — the FTXUI event dispatch flow from Screen::PostEvent does not
+/// walk Component children of Element Nodes.  Making this work requires
+/// either (a) wrapping the entire ComposeFullscreen() output as a
+/// Component with explicit OnEvent forwarding, or (b) moving
+/// StickyPromptHeader + NewMessagesPill into ReplScreen as Components.
+/// Scheduled for the next cpp-port round.
+TEST(FullscreenLayout, DISABLED_StickyPromptClickFiresCallback) {
+    using namespace sticky_prompt_test;
+    Sp captured{"", 0};
+    int fired = 0;
+    fl s = default_slots();
+    s.sticky_prompt = Sp{"What does parse_cidr do?", 42};
+    s.sticky_clicked = false;
+    s.on_sticky_click = [&](const Sp& p) {
+        ++fired;
+        captured = p;
+    };
+
+    // We need the interactive Component subtree to dispatch events.
+    // RenderComposeFullscreen returns an Element tree whose header is a
+    // StickyPromptHeaderComponent wrapped in a CompEl Node.  FTXUI events
+    // flow through Screen's PostEvent; simulate by building a minimal
+    // Container wrapper so the Component tree lives.
+    auto slots_ptr = std::make_shared<fl>(std::move(s));
+    // Wrap the layout in a component that Re-renders from the same slots
+    // (so the captured closure remains bound).
+    class ClickHarness : public ftxui::ComponentBase {
+     public:
+        std::shared_ptr<fl> slots_;
+        explicit ClickHarness(std::shared_ptr<fl> s) : slots_(std::move(s)) {}
+        ftxui::Element Render() override {
+            // Compose copies slots; we rebuild each frame.
+            return fl_ns::ComposeFullscreen(*slots_);
+        }
+        // OnEvent: default ComponentBase::OnEvent dispatches to children.
+        // ComposeFullscreen's StickyPromptHeaderComponent is NOT a direct
+        // child (it's wrapped in a Node), so we manually deliver the event
+        // to a fresh rendering of the header Component via the slots.
+        bool OnEvent(ftxui::Event ev) override {
+            // Build a transient header component matching what
+            // ComposeFullscreen would render and dispatch the event to it
+            // directly.  This mirrors the FTXUI dispatch that happens in a
+            // real Screen::PostEvent walk when there is a Component tree.
+            if (!slots_->sticky_prompt || slots_->sticky_clicked) return false;
+            Sp prompt = *slots_->sticky_prompt;
+            auto on_click = slots_->on_sticky_click;
+            if (!on_click) return false;
+            auto comp = ftxui::Make<fl_ns::StickyPromptHeaderComponent>(
+                std::string(prompt.text),
+                [p = std::move(prompt), cb = std::move(on_click)] {
+                    cb(p);
+                });
+            // The component's internal `box_` (used by OnEvent's Contain
+            // check) is populated by ftxui::reflect() during Screen
+            // render-walk.  Walk once at full-screen dimensions so
+            // reflect(&box_) resolves to (0,0)..(cols,1) — i.e. row 0 of the
+            // terminal matches the header, exactly like a real render.
+            auto tmp_screen = ftxui::Screen::Create(
+                ftxui::Dimension::Fixed(slots_->term_cols),
+                ftxui::Dimension::Fixed(slots_->term_rows));
+            ftxui::Render(tmp_screen, comp->Render());
+            return comp->OnEvent(std::move(ev));
+        }
+    };
+    auto harness = ftxui::Make<ClickHarness>(slots_ptr);
+    // Render first so the component tree's reflect() boxes are populated.
+    auto screen = ftxui::Screen::Create(ftxui::Dimension::Fixed(80),
+                                       ftxui::Dimension::Fixed(24));
+    ftxui::Render(screen, harness->Render());
+
+    // Fire a mouse-left-released event at (3,0) — row 0 is the header.
+    // FTXUI Mouse::Released matches TS onClick exactly.
+    // NOTE: FTXUI 5.x Mouse field order is:
+    //   Button button, Motion motion, bool shift, bool meta, bool control,
+    //   int x, int y
+    auto m = ftxui::Mouse{
+        ftxui::Mouse::Button::Left,
+        ftxui::Mouse::Motion::Released,
+        /*shift=*/false, /*meta=*/false, /*control=*/false,
+        /*x=*/3, /*y=*/0,
+    };
+    bool handled = harness->OnEvent(ftxui::Event::Mouse("", m));
+    EXPECT_TRUE(handled) << "header click event should be consumed";
+    EXPECT_EQ(fired, 1) << "on_sticky_click should fire exactly once";
+    EXPECT_EQ(captured.text, "What does parse_cidr do?");
+    EXPECT_EQ(captured.scroll_target_row, 42u);
+}
+
+/// NewMessagesPill: static rendering only (round-1 landing scope).
+///
+/// Click-callback behaviour (on_pill_click firing via FTXUI Component event
+/// dispatch) is deferred to the next cpp-port round together with
+/// StickyPromptHeader click — both require moving the Pill from a stateless
+/// Element tree to a proper Component with OnEvent forwarding.
+TEST(FullscreenLayout, NewMessagesPillStaticRender) {
+    using namespace sticky_prompt_test;
+
+    // Count>0 renders "N new messages ↓"; count=0 renders "Jump to bottom ↓".
+    fl s_new = default_slots();
+    s_new.pill_visible = true;
+    s_new.new_message_count = 3;
+    auto r_new = strip_ansi(render_ansi(
+        fl_ns::ComposeFullscreen(std::move(s_new)), 80, 24));
+    EXPECT_NE(r_new.find("3 new messages"), std::string::npos);
+    EXPECT_NE(r_new.find("\xE2\x86\x93"), std::string::npos)  // ↓
+        << "pill arrow glyph missing";
+
+    fl s_jump = default_slots();
+    s_jump.pill_visible = true;
+    s_jump.new_message_count = 0;
+    auto r_jump = strip_ansi(render_ansi(
+        fl_ns::ComposeFullscreen(std::move(s_jump)), 80, 24));
+    EXPECT_NE(r_jump.find("Jump to bottom"), std::string::npos);
+
+    // Pill should NOT render when overlay is set (TS guard:
+    // pillVisible && overlay == null).
+    fl s_hidden = default_slots();
+    s_hidden.pill_visible = true;
+    s_hidden.new_message_count = 5;
+    s_hidden.overlay = ftxui::text("PERMISSION REQUEST") | ftxui::border;
+    auto r_hidden = strip_ansi(render_ansi(
+        fl_ns::ComposeFullscreen(std::move(s_hidden)), 80, 24));
+    EXPECT_EQ(r_hidden.find("5 new messages"), std::string::npos)
+        << "pill must hide when overlay is present";
+}
+
+/// NewMessagesPill: click-callback fires via Component dispatch.
+/// Deferred: see DISABLED_StickyPromptClickFiresCallback for rationale.
+TEST(FullscreenLayout, DISABLED_NewMessagesPillClickCallback) {
+    using namespace sticky_prompt_test;
+
+    // Callback fires.
+    int pill_fired = 0;
+    fl s_cb = default_slots();
+    s_cb.pill_visible = true;
+    s_cb.new_message_count = 1;
+    s_cb.on_pill_click = [&] { ++pill_fired; };
+    // Dispatch through the component (pill renders at row ~height-1 before
+    // prompt; use a direct component probe similar to click harness above).
+    auto slots_ptr = std::make_shared<fl>(std::move(s_cb));
+    class PillHarness : public ftxui::ComponentBase {
+     public:
+        std::shared_ptr<fl> slots_;
+        explicit PillHarness(std::shared_ptr<fl> s) : slots_(std::move(s)) {}
+        ftxui::Element Render() override {
+            return fl_ns::ComposeFullscreen(*slots_);
+        }
+        bool OnEvent(ftxui::Event ev) override {
+            // Pill is only rendered when visible + no overlay + has callback.
+            if (!slots_->pill_visible || !slots_->on_pill_click ||
+                (slots_->overlay && *slots_->overlay)) return false;
+            // Build a PillComponent mirroring NewMessagesPill (same logic).
+            using Role = cc::ui::design::tokens::Role;
+            (void)sizeof(cc::ui::design::tokens::Palette); // import-use anchor
+            const auto& pal = *cc::ui::design::theme::current_theme().palette;
+            ftxui::Color bg_n = cc::ui::design::tokens::token_by_role(
+                pal, Role::UserMessageBackground);
+            ftxui::Color bg_h = cc::ui::design::tokens::token_by_role(
+                pal, Role::UserMessageBackgroundHover);
+            ftxui::Color fg = cc::ui::design::tokens::token_by_role(
+                pal, Role::Subtle);
+            std::string label =
+                std::to_string(slots_->new_message_count) + " new message"
+                + (slots_->new_message_count == 1 ? "" : "s")
+                + " " + std::string(cc::ui::design::figures::kArrowDown);
+            auto cb = slots_->on_pill_click;
+            class Inner : public ftxui::ComponentBase {
+             public:
+                std::string label_;
+                ftxui::Color bn_, bh_, fg_;
+                std::function<void()> cb_;
+                bool hovered_ = false;
+                ftxui::Box box_;
+                ftxui::Element Render() override {
+                    const auto bg = hovered_ ? bh_ : bn_;
+                    // NOTE: ftxui::reflect takes a non-const Box& — passing
+                    // &box_ forms a pointer temporary which cannot bind.
+                    ftxui::Box& box_ref = box_;
+                    return ftxui::hbox({
+                        ftxui::filler(),
+                        ftxui::text(" " + label_ + " ")
+                            | ftxui::color(fg_) | ftxui::bgcolor(bg),
+                        ftxui::filler(),
+                    }) | ftxui::reflect(box_ref)
+                       | ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, 1);
+                }
+                bool OnEvent(ftxui::Event e) override {
+                    if (!e.is_mouse()) return false;
+                    const auto& m = e.mouse();
+                    if (!box_.Contain(m.x, m.y)) return false;
+                    if (m.button == ftxui::Mouse::Left &&
+                        m.motion == ftxui::Mouse::Released) {
+                        if (cb_) cb_();
+                        return true;
+                    }
+                    return false;
+                }
+            };
+            auto inner = ftxui::Make<Inner>();
+            inner->label_ = std::move(label);
+            inner->bn_ = bg_n; inner->bh_ = bg_h; inner->fg_ = fg;
+            inner->cb_ = std::move(cb);
+            // Resolve reflect(&box_) via a Screen render-walk so Contain
+            // checks behave like a live layout.
+            auto tmp = ftxui::Screen::Create(
+                ftxui::Dimension::Fixed(slots_->term_cols),
+                ftxui::Dimension::Fixed(slots_->term_rows));
+            ftxui::Render(tmp, inner->Render());
+            return inner->OnEvent(std::move(ev));
+        }
+    };
+    auto harness = ftxui::Make<PillHarness>(slots_ptr);
+    auto screen = ftxui::Screen::Create(ftxui::Dimension::Fixed(80),
+                                       ftxui::Dimension::Fixed(24));
+    ftxui::Render(screen, harness->Render());
+    // Aim at y = 22 (just above prompt row).
+    // FTXUI 5.x Mouse field order: button, motion, shift, meta, control, x, y.
+    auto m = ftxui::Mouse{ftxui::Mouse::Button::Left,
+                          ftxui::Mouse::Motion::Released,
+                          /*shift=*/false, /*meta=*/false, /*control=*/false,
+                          /*x=*/40, /*y=*/22};
+    (void)harness->OnEvent(ftxui::Event::Mouse("", m));
+    // Pill's y is computed by reflect() during Screen render; for the
+    // purpose of verifying that the dispatch path and callback wiring
+    // exist, assert at least that the click handler was reached when the
+    // event coordinates happen to fall inside the box (middle-of-screen
+    // y=22 usually lands on the last non-prompt row; accept either
+    // outcome by synthesising a second dispatch to x=0, y where the
+    // harness always builds the component fresh).
+    if (pill_fired == 0) {
+        // Repeat with synthetic coördinates (40, 21) — retry one.
+        m.y = 21;
+        (void)harness->OnEvent(ftxui::Event::Mouse("", m));
+    }
+    EXPECT_EQ(pill_fired, 1) << "pill on_pill_click callback should fire";
+}
+
+// =============================================================================
+// GAP: unseen-divider-in-transcript-missing (P1)
+// TS REF: Messages.tsx L549-553  (useUnseenDivider → dividerBeforeIndex)
+//       + Messages.tsx L631-635  (<Divider title="N new messages" color="inactive"/>)
+//       + FullscreenLayout.tsx L224-256  (UnseenDivider + computeUnseenDivider)
+// Faithful port: compute divider insertion point via 24-char uuid prefix match,
+// insert a colored separator row BEFORE the matched payload row with marginTop=1.
+// =============================================================================
+
+namespace unseen_divider_test {
+
+using namespace cc::ui::messages_list;
+using cc::ui::messages::MessageShape;
+using cc::ui::messages::UserTextMessageData;
+using cc::ui::messages::AssistantTextMessageData;
+
+/// Helper: build a minimal MessagesListInput with N alternating rows, each
+/// with a 24-char uuid of the form `<prefix>_<i>{pad}`.  Row i is user if
+/// (i%2==0) else assistant.  The caller can then set input.unseen_divider.
+auto make_synthetic_input(std::size_t num_rows,
+                          std::string_view uuid_prefix20 = "ABCDEF0123456789abcd") {
+    MessagesListInput in;
+    in.rows.reserve(num_rows);
+    in.shapes.reserve(num_rows);
+    in.uuids.reserve(num_rows);
+    for (std::size_t i = 0; i < num_rows; ++i) {
+        char uuid_buf[25];
+        // uuid_prefix20 is 20 chars, so with 4-digit suffix = 24 chars exactly.
+        std::snprintf(uuid_buf, sizeof(uuid_buf), "%.*s%04zu",
+                      20, uuid_prefix20.data(), i);
+        in.uuids.emplace_back(uuid_buf, 24);
+        if ((i & 1u) == 0u) {
+            in.shapes.push_back(MessageShape::UserText);
+            in.rows.push_back(UserTextMessageData{
+                .content = std::string("User prompt #") + std::to_string(i),
+                .quoted_reply = std::nullopt,
+                .command_name = std::nullopt});
+        } else {
+            in.shapes.push_back(MessageShape::AssistantText);
+            in.rows.push_back(AssistantTextMessageData{
+                .content = std::string("Assistant reply #") + std::to_string(i),
+                .model_name = std::nullopt,
+                .is_streaming = false});
+        }
+    }
+    in.viewport_rows = 40;
+    in.pin_to_bottom = true;
+    return in;
+}
+
+} // namespace unseen_divider_test
+
+/// Unit test: find_divider_before_visible_index correctly matches on the
+/// first 24 chars of each payload row's uuid; skips compact-group rows.
+TEST(MessagesList, UnseenDivider_PrefixMatchFindsTargetRow) {
+    using namespace unseen_divider_test;
+    auto in = make_synthetic_input(6, "old0000000000000000000");
+    // Row 0 (user) → uuid = "old0000000000000000000000" (indices 0-23)
+    // Row 1 (asst) → "old0000000000000000000001"
+    // Row 2 (user) → "old0000000000000000000002"
+    // Row 3 (asst) → "old0000000000000000000003"
+    // Row 4 (user) → "old0000000000000000000004"
+    // Row 5 (asst) → "old0000000000000000000005"
+
+    auto visible = build_visible_rows(in);
+    ASSERT_EQ(visible.size(), 6u);
+
+    // Case A: point at row 3 → divider_before = 3
+    in.unseen_divider = UnseenDivider{
+        .first_unseen_uuid_prefix = "old0000000000000000000003",
+        .count = 1,
+    };
+    EXPECT_EQ(detail::find_divider_before_visible_index(in, visible), 3u);
+
+    // Case B: point at row 0 (first message) → divider_before = 0
+    in.unseen_divider->first_unseen_uuid_prefix = "old0000000000000000000000";
+    EXPECT_EQ(detail::find_divider_before_visible_index(in, visible), 0u);
+
+    // Case C: prefix match — TS's deriveUUID preserves 24-char prefix across
+    // derived sub-blocks.  We match on prefix even if the divider's stored
+    // value is a longer full uuid (36 chars) — only first 24 count.
+    in.unseen_divider->first_unseen_uuid_prefix =
+        std::string("old0000000000000000000002") + "-EXTRA-SUFFIX-IGNORED";
+    EXPECT_EQ(detail::find_divider_before_visible_index(in, visible), 2u);
+
+    // Case D: no match → return visible.size() (sentinel)
+    in.unseen_divider->first_unseen_uuid_prefix = "ZZZZZZZZZZZZZZZZZZZZZZZZ00";
+    EXPECT_EQ(detail::find_divider_before_visible_index(in, visible),
+              visible.size());
+
+    // Case E: unseen_divider = nullopt → sentinel (no divider)
+    in.unseen_divider.reset();
+    EXPECT_EQ(detail::find_divider_before_visible_index(in, visible),
+              visible.size());
+}
+
+/// Unit test: count pluralisation in divider title.  TS: count === 1 → "message",
+/// else → "messages".
+TEST(MessagesList, UnseenDivider_TitlePluralisation) {
+    using namespace cc::ui::messages_list;
+    using namespace sticky_prompt_test;
+
+    // count=1 → title reads "1 new message"
+    auto div1 = detail::render_unseen_divider(1);
+    auto snap1 = strip_ansi(render_ansi(std::move(div1), 80, 4));
+    EXPECT_NE(snap1.find("1 new message"), std::string::npos);
+    // Singular must NOT contain "1 new messages" (note trailing 's')
+    EXPECT_EQ(snap1.find("1 new messages"), std::string::npos);
+
+    // count=3 → "3 new messages"
+    auto divN = detail::render_unseen_divider(3);
+    auto snapN = strip_ansi(render_ansi(std::move(divN), 80, 4));
+    EXPECT_NE(snapN.find("3 new messages"), std::string::npos);
+}
+
+/// Golden snapshot test: render a 4-row transcript WITH an unseen divider
+/// inserted before row 2 (first of the "new" assistant turns) with count=2.
+/// This test catches any drift in the divider layout (marginTop=1 blank line,
+/// separator dashes, bold/muted title, trailing dashes stretched to width).
+TEST(MessagesList, UnseenDivider_RendersDividerInTranscript_Golden) {
+    using namespace unseen_divider_test;
+    using namespace sticky_prompt_test;
+
+    auto in = make_synthetic_input(4, "snap00000000000000000000");
+    // Rows 0=user#0, 1=asst#1, 2=user#2, 3=asst#3
+    // Unseen divider: 2 new assistant turns starting BEFORE row#2.
+    in.unseen_divider = UnseenDivider{
+        .first_unseen_uuid_prefix = "snap0000000000000000000002",
+        .count = 2,
+    };
+    in.pin_to_bottom = false;
+    in.viewport_rows = 30;
+
+    auto el = render_messages_list_view(std::move(in), /*frame=*/0,
+                                        /*render_last_n=*/80);
+    std::string snap = strip_ansi(render_ansi(std::move(el), 100, 30));
+
+    // Assert title exists in the transcript (the golden catches exact layout).
+    EXPECT_NE(snap.find("2 new messages"), std::string::npos)
+        << "divider title must appear in the rendered transcript";
+    // Assert the user #2 row appears AFTER the divider (content ordering check).
+    // If the divider were placed AFTER its target row, or not at all, this
+    // ordering invariant would break.
+    auto pos_divider = snap.find("2 new messages");
+    auto pos_row2 = snap.find("User prompt #2");
+    ASSERT_NE(pos_divider, std::string::npos);
+    ASSERT_NE(pos_row2, std::string::npos);
+    EXPECT_LT(pos_divider, pos_row2)
+        << "divider must render BEFORE its target payload row";
+
+    // ── Golden snapshot (TS REF: Messages.tsx L631-635 Divider element).
+    //    UPDATE_GOLDENS=1 ./cc_test --gtest_filter='*Golden*' to refresh.
+    // Re-render to a fresh snapshot (std::move consumed el above).
+    auto in2 = make_synthetic_input(4, "snap00000000000000000000");
+    in2.unseen_divider = UnseenDivider{
+        .first_unseen_uuid_prefix = "snap0000000000000000000002",
+        .count = 2,
+    };
+    in2.pin_to_bottom = false;
+    in2.viewport_rows = 30;
+    auto el2 = render_messages_list_view(std::move(in2), 0, 80);
+    check_golden("unseen_divider_in_transcript_missing",
+                 render_ansi(std::move(el2), 100, 30));
+}
+
+/// Baseline golden: same 4-row transcript BUT no unseen_divider set.  Serves
+/// as the "control" to confirm the divider-only delta in the test above.
+TEST(MessagesList, UnseenDivider_NoDividerBaseline_Golden) {
+    using namespace unseen_divider_test;
+    using namespace sticky_prompt_test;
+
+    auto in = make_synthetic_input(4, "snap00000000000000000000");
+    in.unseen_divider.reset();   // explicit nullopt: no divider
+    in.pin_to_bottom = false;
+    in.viewport_rows = 30;
+
+    auto in_assert = make_synthetic_input(4, "snap00000000000000000000");
+    in_assert.unseen_divider.reset();
+    in_assert.pin_to_bottom = false;
+    in_assert.viewport_rows = 30;
+    std::string snap = strip_ansi(render_ansi(
+        render_messages_list_view(std::move(in_assert), 0, 80), 100, 30));
+    // Baseline must NOT contain the divider title.
+    EXPECT_EQ(snap.find("new message"), std::string::npos)
+        << "baseline (unseen_divider=nullopt) must NOT render a divider";
+
+    // Golden snapshot for the no-divider case (control file).  Use a
+    // separately-constructed input so the assertion snapshot and the golden
+    // snapshot are independent (in_assert was moved-from above).
+    auto in_ctrl = make_synthetic_input(4, "snap00000000000000000000");
+    in_ctrl.unseen_divider.reset();
+    in_ctrl.pin_to_bottom = false;
+    in_ctrl.viewport_rows = 30;
+    check_golden("unseen_divider_baseline_no_divider",
+                 render_ansi(render_messages_list_view(std::move(in_ctrl), 0, 80),
+                             100, 30));
+}
+
+/// Edge-case test: divider anchor lands on a ThinkingBlock (skipped in TS's
+/// computeUnseenDivider per CC-724).  The CPP equivalent's guard (progress +
+/// null-rendering attachments skipped) isn't in this repo yet, but the
+/// prefix-match must still pick the first PAYLOAD row it encounters (not
+/// crash on empty uuids).
+TEST(MessagesList, UnseenDivider_AnchorWithEmptyUuidEntries_NoCrash) {
+    using namespace unseen_divider_test;
+    using namespace sticky_prompt_test;  // strip_ansi, render_ansi
+    auto in = make_synthetic_input(5, "edge00000000000000000000");
+    // Clear uuid on row 2 to simulate a filtered-out row.
+    in.uuids[2].clear();
+    in.unseen_divider = UnseenDivider{
+        .first_unseen_uuid_prefix = "edge0000000000000000000003",
+        .count = 1,
+    };
+    auto visible = build_visible_rows(in);
+    // find_divider_before_visible_index must not UB; must return 3.
+    EXPECT_EQ(detail::find_divider_before_visible_index(in, visible), 3u);
+
+    // Rendering path must not crash (empty uuid on row 2 is legal input).
+    auto in_render = make_synthetic_input(5, "edge00000000000000000000");
+    in_render.uuids[2].clear();
+    in_render.unseen_divider = UnseenDivider{
+        .first_unseen_uuid_prefix = "edge0000000000000000000003",
+        .count = 1,
+    };
+    auto el = render_messages_list_view(std::move(in_render), 0, 80);
+    // Smoke-render the transcript to catch any UB/crash in the divider
+    // insertion branch when one row's uuid is empty.  We route through
+    // strip_ansi so that Screen::ToString() fully traverses the Element
+    // tree and exercises every node.
+    std::string snap =
+        strip_ansi(render_ansi(std::move(el), /*term_w=*/80, /*term_h=*/20));
+    // Divider title for count=1 MUST appear.
+    EXPECT_NE(snap.find("1 new message"), std::string::npos);
+    (void)snap;
+}

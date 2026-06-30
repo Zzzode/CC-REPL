@@ -88,6 +88,8 @@ enum class Role : std::uint8_t {
     Chrome,       // UI chrome / background-adjacent lines
     Brief,        // Brief-mode labels
     Ultra,        // Ultra-thinking rainbow head
+    UserMessageBackground,      // user-bubble fill (TS: userMessageBackground)
+    UserMessageBackgroundHover, // user-bubble hover fill (TS: userMessageBackgroundHover)
 };
 
 // ─── Palette ─────────────────────────────────────────────────────────────────
@@ -112,9 +114,11 @@ struct Palette {
     ftxui::Color rate_limit_empty;
     ftxui::Color brief_label;
     // User/assistant message bubble & selection chrome (TS theme tokens):
-    //   userMessageBackground    — dark-mode user bubble tint
-    //   messageActionsBackground — cool-gray bubble when selected/focused
+    //   userMessageBackground      — dark-mode user bubble tint
+    //   messageActionsBackground   — cool-gray bubble when selected/focused
+    //   userMessageBackgroundHover — bubble tint on hover / interactive header
     ftxui::Color user_message_background;
+    ftxui::Color user_message_background_hover;
     ftxui::Color message_actions_background;
     // rainbow cycle used by ultra-thinking (7 steps)
     std::array<ftxui::Color, 7> rainbow;
@@ -175,10 +179,12 @@ inline const Palette dark = {
     .rate_limit_empty    = ftxui::Color::RGB( 60,  60,  80),
     .brief_label         = CLAWDED,
     // TS dark message-chrome tokens:
-    //   userMessageBackground    = rgb(55, 55, 55)      (dark slate bubble)
-    //   messageActionsBackground = rgb(44, 50, 62)      (cool-gray selection)
-    .user_message_background      = ftxui::Color::RGB( 55,  55,  55),
-    .message_actions_background   = ftxui::Color::RGB( 44,  50,  62),
+    //   userMessageBackground      = rgb(55, 55, 55)      (dark slate bubble)
+    //   messageActionsBackground   = rgb(44, 50, 62)      (cool-gray selection)
+    //   userMessageBackgroundHover = rgb(70, 70, 75)      (slightly lighter slate)
+    .user_message_background        = ftxui::Color::RGB( 55,  55,  55),
+    .user_message_background_hover  = ftxui::Color::RGB( 70,  70,  75),
+    .message_actions_background     = ftxui::Color::RGB( 44,  50,  62),
     .rainbow = {{
         ftxui::Color::RGB(255,  99, 132),
         ftxui::Color::RGB(255, 159,  64),
@@ -221,10 +227,12 @@ inline const Palette light = {
     .rate_limit_empty    = ftxui::Color::RGB(225, 230, 240),
     .brief_label         = CLAWDED,
     // Light-mode equivalents of the TS message chrome tokens:
-    //   userMessageBackground    = rgb(240, 240, 240)  near-white bubble
-    //   messageActionsBackground = rgb(232, 236, 244)  cool gray
-    .user_message_background      = ftxui::Color::RGB(240, 240, 240),
-    .message_actions_background   = ftxui::Color::RGB(232, 236, 244),
+    //   userMessageBackground      = rgb(240, 240, 240)  near-white bubble
+    //   messageActionsBackground   = rgb(232, 236, 244)  cool gray
+    //   userMessageBackgroundHover = rgb(220, 220, 228)  slightly darker shade
+    .user_message_background        = ftxui::Color::RGB(240, 240, 240),
+    .user_message_background_hover  = ftxui::Color::RGB(220, 220, 228),
+    .message_actions_background     = ftxui::Color::RGB(232, 236, 244),
     .rainbow              = dark.rainbow,
     .rainbow_shimmer     = ftxui::Color::RGB(120,  80, 200),
     .diff_added          = ftxui::Color::RGB( 38, 130,  60),
@@ -261,8 +269,9 @@ inline const Palette dark_daltonized = {
     .rate_limit_empty    = dark.rate_limit_empty,
     .brief_label         = ftxui::Color::RGB(198, 128,  80),
     // Daltonized: reuse dark-daltonized base bubble chromes
-    .user_message_background      = dark.user_message_background,
-    .message_actions_background   = dark.message_actions_background,
+    .user_message_background        = dark.user_message_background,
+    .user_message_background_hover  = dark.user_message_background_hover,
+    .message_actions_background     = dark.message_actions_background,
     .rainbow = {{
         ftxui::Color::RGB(190, 130, 140),
         ftxui::Color::RGB(205, 160,  90),
@@ -303,8 +312,9 @@ inline const Palette light_daltonized = {
     .rate_limit_fill     = light.rate_limit_fill,
     .rate_limit_empty    = light.rate_limit_empty,
     .brief_label         = dark_daltonized.primary,
-    .user_message_background      = light.user_message_background,
-    .message_actions_background   = light.message_actions_background,
+    .user_message_background        = light.user_message_background,
+    .user_message_background_hover  = light.user_message_background_hover,
+    .message_actions_background     = light.message_actions_background,
     .rainbow             = dark_daltonized.rainbow,
     .rainbow_shimmer     = light.rainbow_shimmer,
     .diff_added          = ftxui::Color::RGB( 70, 120, 170),
@@ -338,8 +348,9 @@ inline const Palette monochrome = {
     .rate_limit_fill     = ftxui::Color::White,
     .rate_limit_empty    = ftxui::Color::GrayDark,
     .brief_label         = ftxui::Color::White,
-    .user_message_background      = ftxui::Color::GrayDark,
-    .message_actions_background   = ftxui::Color::GrayDark,
+    .user_message_background        = ftxui::Color::GrayDark,
+    .user_message_background_hover  = ftxui::Color::GrayLight,
+    .message_actions_background     = ftxui::Color::GrayDark,
     .rainbow = {{ ftxui::Color::White, ftxui::Color::White, ftxui::Color::White,
                   ftxui::Color::White, ftxui::Color::White, ftxui::Color::White,
                   ftxui::Color::White }},
@@ -374,6 +385,8 @@ inline const Palette monochrome = {
         case Role::Chrome:     return pal.chrome;
         case Role::Brief:      return pal.brief_label;
         case Role::Ultra:      return pal.rainbow_shimmer;
+        case Role::UserMessageBackground:     return pal.user_message_background;
+        case Role::UserMessageBackgroundHover:return pal.user_message_background_hover;
     }
     return pal.text;
 }

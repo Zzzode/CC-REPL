@@ -377,9 +377,19 @@ struct ReplScreenState {
     std::shared_ptr<cc::ui::messages::virtual_list::VirtualListState>
         virtual_list_state;
     // M1 (FullscreenLayout slot-system chrome): scroll-derived chrome state.
-    //   sticky_prompt_text — text of the sticky header shown while scrolled up
-    //     into history (TS `stickyPrompt.text` via ScrollChromeContext).
-    //     Empty => no header.
+    //   sticky_prompt — std::nullopt = at bottom (TS null).  Value present =
+    //     scrolled up; the inner .text is shown as a breadcrumb header and
+    //     .scroll_target_row is the absolute transcript row to jump to on
+    //     click (maps to TS `stickyPrompt = {text, scrollTo}`).
+    //   sticky_prompt_clicked — set to true by the header's click handler
+    //     BEFORE the actual scroll happens; corresponds to the TS literal
+    //     sentinel stickyPrompt === 'clicked'.  It hides the header this
+    //     frame so the prompt line rises to absolute row 0 of the scroll
+    //     viewport (the padCollapsed mechanic already strips paddingTop=1
+    //     whenever sticky_prompt is set, so the only delta is hiding the
+    //     header row).  Reset to false by any subsequent scroll event that
+    //     writes a fresh sticky_prompt (StickyTracker emits every
+    //     viewport-top change while unpinned).
     //   unseen_message_count — count of assistant turns added below the fold
     //     while unpinned; drives the "N new messages" pill label (TS
     //     `newMessageCount` + `useUnseenDivider`).  The pill itself only
@@ -387,9 +397,20 @@ struct ReplScreenState {
     //   pill_visible — TS `pillVisible` (useSyncExternalStore against the
     //     scroll handle).  Defaults false so chrome stays dormant until the
     //     engine wires real scroll-observe state.
-    std::string sticky_prompt_text;
+    // TS REF: FullscreenLayout.tsx lines 293 (useState) + 339-351 (3-state
+    //        discriminant + padCollapsed logic).
+    std::optional<::cc::ui::layout::fullscreen::StickyPrompt> sticky_prompt;
+    bool sticky_prompt_clicked = false;
     int unseen_message_count = 0;
     bool pill_visible = false;
+    // TS REF: Messages.tsx L240 (unseenDivider prop) +
+    //        FullscreenLayout.tsx L224-256 (UnseenDivider + computeUnseenDivider).
+    // Populated by App::UpdateScreen from scroll state + messages[].  The
+    // engine sets `first_unseen_uuid_prefix` to the 24-char prefix (or full
+    // uuid) of messages[dividerIndex] after skipping progress + null-rendering
+    // attachments (CC-724).  `count` is Math.max(1, countUnseenAssistantTurns(…)).
+    // nullopt = no divider (pinned to bottom, dividerIndex=null, empty session).
+    std::optional<::cc::ui::messages_list::UnseenDivider> unseen_divider;
     // Input
     std::string input_text;
     // TS-style contextual placeholder rather than a generic default.
@@ -410,6 +431,12 @@ struct ReplScreenState {
     // M2: oauthAccount.displayName analogue — drives formatWelcomeMessage
     // ("Welcome back {user}!" vs "Welcome back!").  Empty for new users.
     std::string user_display_name;
+    // P0 Gap logov2-render-modes-missing: pre-rendered feed content for the
+    // full-logo horizontal mode's right column. Populated by the engine layer
+    // from session storage (recent activity) and changelog parser (what's
+    // new). Empty vectors fall back to placeholders defined in RenderWelcomeHeader.
+    std::vector<std::string> recent_activity_lines;
+    std::vector<std::string> changelog_lines;
     // Stable per-session welcome-tip index (seeded once from the session id in
     // app.cppm). The renderer mods this by kWelcomeTips.size(). Previously the
     // tip used spinner_frame, which cycled the tip on every mouse-move re-render.
@@ -679,11 +706,16 @@ struct ReplScreenCallbacks {
 
 // UI4/UI5: message list.  Delegates to messages_list.cppm (UI21).
 // `spinner_frame` drives the tool-use header spinner animation (fix #10).
+// `unseen_divider` is the optional in-transcript "N new messages" anchor
+// set by useUnseenDivider (FullscreenLayout.tsx L86-190); nullopt when
+// pinned to bottom or the session has no scroll-away yet.
 [[nodiscard]] inline Element RenderMessages(
     const std::vector<MessageDisplayEntry>& entries,
     int sel = -1, int vlines = 40,
     int offs = 0, bool pinned = true,
-    int spinner_frame = 0) {
+    int spinner_frame = 0,
+    std::optional<cc::ui::messages_list::UnseenDivider> unseen_divider =
+        std::nullopt) {
     if (entries.empty()) {
         // Empty transcript: reserve zero height (do NOT return filler()/flex).
         // Returning a flex filler here caused the sibling WelcomeHeader above
@@ -696,8 +728,14 @@ struct ReplScreenCallbacks {
     ml::MessagesListInput input;
     input.rows.reserve(entries.size());
     input.shapes.reserve(entries.size());
+    input.uuids.reserve(entries.size());
+    input.unseen_divider = std::move(unseen_divider);
 
     for (const auto& m : entries) {
+        // TS REF: Messages.tsx L549-553  uuid → 24-char prefix anchor.
+        // Populated parallel to rows/shapes; empty strings are harmless
+        // (find_divider_before_visible_index skips them).
+        input.uuids.push_back(m.id);
         if (m.is_local_command_input) {
             input.shapes.push_back(messages::MessageShape::UserCommand);
             input.rows.push_back(messages::UserTextMessageData{
@@ -1107,9 +1145,55 @@ inline bool ScrollTranscript(const std::shared_ptr<ReplScreenState>& state,
     // jetbrains). All stubs inactive until engine wiring provides data.
     opts.status_notices       = {};
 
-    return lv2::render_logo_v2(opts, term_cols,
-                               /*is_new_user=*/s.user_display_name.empty());
-}
+    // When force_full_logo is set and term_cols >= 70 (horizontal threshold),
+    // build the default [RecentActivity, What'sNew] feed pair (matches the TS
+    // default branch of the 4-armed ternary in LogoV2.tsx L421). Callers that
+    // wire real engine data (session storage / changelog parser) can override
+    // by passing pre-populated FeedConfigs.
+    std::vector<lv2::FeedConfig> feeds;
+    if (force_full_logo) {
+      {
+        lv2::FeedConfig recent;
+        recent.title = "Recent activity";
+        if (s.recent_activity_lines.empty()) {
+          recent.empty_message =
+              "No recent conversations — start a new chat above";
+        } else {
+          recent.lines.reserve(s.recent_activity_lines.size());
+          for (const auto& a : s.recent_activity_lines) {
+            recent.lines.push_back(lv2::FeedLine{
+                /*text=*/std::string(a),
+                /*timestamp=*/std::nullopt});
+          }
+        }
+        feeds.push_back(std::move(recent));
+      }
+      {
+        lv2::FeedConfig whats_new;
+        whats_new.title = "What's new";
+        if (s.changelog_lines.empty()) {
+          whats_new.lines = {
+            lv2::FeedLine{/*text=*/"Paste images into the prompt with Ctrl+V",
+                          /*timestamp=*/std::nullopt},
+            lv2::FeedLine{/*text=*/"3-mode logo: condensed / compact / horizontal",
+                          /*timestamp=*/std::nullopt},
+            lv2::FeedLine{/*text=*/"Bash sandboxing via /sandbox toggle",
+                          /*timestamp=*/std::nullopt},
+          };
+        } else {
+          whats_new.lines.reserve(s.changelog_lines.size());
+          for (const auto& c : s.changelog_lines) {
+            whats_new.lines.push_back(lv2::FeedLine{
+                /*text=*/std::string(c), /*timestamp=*/std::nullopt});
+          }
+        }
+        whats_new.footer = "Full changelog at /changelog";
+        feeds.push_back(std::move(whats_new));
+      }
+    }
+
+    return lv2::render_logo_v2(opts, term_cols, std::move(feeds));
+  }
 
 // UI2: prompt input shell.  Full feature parity in prompt_input_full.cppm.
 //
@@ -1864,7 +1948,8 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
                  | size(WIDTH,  EQUAL, term_cols);
     scroll_rows.push_back(RenderMessages(visible_messages, s.selected_message_idx,
                                          s.viewport_height_lines, s.scroll_offset,
-                                         s.scroll_pinned_to_bottom, spinner_frame));
+                                         s.scroll_pinned_to_bottom, spinner_frame,
+                                         s.unseen_divider));
     // Spinner lives in the chrome BETWEEN messages list and prompt input
     // (TS BriefSpinner marginTop=1, NOT a message row inside scroll content).
     Element spinner_chrome = text("");
@@ -1972,6 +2057,108 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
     // Legacy RouteDialog path — only used when dialog_queue has no
     // overlay/bottom/modal slots.  Eventually this will be phased out
     // in favour of the queue for all dialogs.
+
+    // ── M1 FullscreenLayout: 3-state sticky prompt chrome ─────────────
+    // TS REF: FullscreenLayout.tsx lines 339-351 (3-state discriminant,
+    //        padCollapsed resolution, headerPrompt guard).
+    slots.sticky_prompt         = s.sticky_prompt;
+    slots.sticky_clicked        = s.sticky_prompt_clicked;
+    slots.hide_sticky           = false;
+    slots.pill_visible          = s.pill_visible;
+    slots.hide_pill             = false;
+    slots.new_message_count     = s.unseen_message_count;
+
+    // on_sticky_click: the TS pattern "onClick={headerPrompt.scrollTo}"
+    // (line 344) sets stickyPrompt='clicked' (the literal sentinel) via a
+    // stable setState that reacts before scrollTo side-effects fire.  We
+    // match that order in C++: (1) flip sticky_prompt_clicked to hide the
+    // header + keep padCollapsed=true; (2) compute the delta between the
+    // prompt's visual line and current scroll_top and ask ScrollTranscript
+    // to jump there.
+    //
+    // Captures: `&s` is a ReplScreenState& whose lifetime is bound to the
+    // outer `std::shared_ptr<ReplScreenState>` in MakeReplScreen; it is
+    // stable across renders.  The callback is only invoked from within
+    // FTXUI event dispatch (same thread), so no data races.
+    slots.on_sticky_click = [&s](const fl::StickyPrompt& sp) {
+        s.sticky_prompt_clicked = true;
+        // Jump so the target visual line is at the TOP of the viewport.
+        // scroll_target_row is measured from scroll_top=0 (content
+        // coordinates); ScrollTranscript(delta) is relative — so delta =
+        // target - current.  Clamp against viewport_rows to avoid
+        // overshooting below min-scroll.
+        int current = std::max(0, s.scroll_offset);
+        int delta   = static_cast<int>(sp.scroll_target_row) - current;
+        if (delta != 0) {
+            // We need to call ScrollTranscript which takes
+            // shared_ptr<ReplScreenState>.  Here we only have a bare ref;
+            // but this callback is dispatched from FTXUI's event loop from
+            // within the outer MakeReplScreen Component's OnEvent chain
+            // which owns the shared_ptr.  For a purely visual change
+            // (clicking the header is a scroll, not engine-state mutation),
+            // a direct offset mutation achieves the same effect without
+            // requiring the shared_ptr here.
+            int viewport = std::max(1, s.viewport_height_lines);
+            int total;
+            if (s.virtual_list_active) {
+                namespace vl = cc::ui::messages::virtual_list;
+                total = s.virtual_jh.total();
+            } else {
+                const auto vm = BuildVisibleMessages(s);
+                total = EstimateTranscriptRows(vm);
+            }
+            int max_top = std::max(0, total - viewport);
+            int old_top = std::clamp(current, 0, max_top);
+            int target  = std::clamp(old_top + delta, 0, max_top);
+            if (target != old_top) {
+                s.scroll_offset = target;
+                s.scroll_pinned_to_bottom = (target >= max_top);
+                if (s.virtual_list_state) {
+                    namespace vl = cc::ui::messages::virtual_list;
+                    s.virtual_list_state->scroll_top = target;
+                    vl::update_sticky_after_scroll(*s.virtual_list_state,
+                                                    old_top);
+                }
+            }
+        }
+        // TS note: after the click, stickyPrompt stays at 'clicked' until
+        // the NEXT scroll event re-emits a fresh {text,scrollTo} from
+        // StickyTracker.  Any movement (wheel, PageUp, click-to-select)
+        // that moves the viewport will write a new sticky_prompt and
+        // clear sticky_prompt_clicked.  We therefore do NOT clear the
+        // flag ourselves here.
+    };
+
+    // on_pill_click: TS lines 371-381 — clicking the "N new messages" pill
+    // re-pins to the bottom.  Same lifetime reasoning as on_sticky_click.
+    slots.on_pill_click = [&s] {
+        int viewport = std::max(1, s.viewport_height_lines);
+        int total;
+        if (s.virtual_list_active) {
+            namespace vl = cc::ui::messages::virtual_list;
+            total = s.virtual_jh.total();
+        } else {
+            const auto vm = BuildVisibleMessages(s);
+            total = EstimateTranscriptRows(vm);
+        }
+        int max_top = std::max(0, total - viewport);
+        int old_top = std::clamp(s.scroll_offset, 0, max_top);
+        if (max_top != old_top) {
+            s.scroll_offset = max_top;
+            s.scroll_pinned_to_bottom = true;
+            if (s.virtual_list_state) {
+                namespace vl = cc::ui::messages::virtual_list;
+                s.virtual_list_state->scroll_top = max_top;
+                vl::update_sticky_after_scroll(*s.virtual_list_state, old_top);
+            }
+            // Clear the pill + unseen count on repin (mirrors TS onRepin
+            // setting dividerIndex=null — the pill only shows while
+            // pill_visible=true AND a divider snapshot exists.)
+            s.pill_visible = false;
+            s.unseen_message_count = 0;
+        }
+    };
+
     Element base = fl::ComposeFullscreen(std::move(slots));
     auto dlg = RouteDialog(s.mode, s);
     if (dlg) base = dbox({
