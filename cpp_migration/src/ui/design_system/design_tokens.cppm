@@ -76,13 +76,14 @@ inline constexpr std::int32_t logo_refresh_ms        = 120;
 // token_by_role() rather than reaching into the palette struct by name.
 enum class Role : std::uint8_t {
     Primary,      // Claude accent (clawd_body)
-    Info,         // Permission / prompt-border info
+    Info,         // Info / auxiliary blue accents
     Success,      // Green
     Warning,      // Yellow / amber
-    Danger,       // Error / rejection
+    Danger,       // Error / rejection (= TS "error" token)
     Muted,        // Inactive / dim (replaces ANSI dim per ThemedText.tsx)
     Subtle,       // Subtle foreground (chrome, borders)
     Suggestion,   // Typeahead suggestion foreground
+    Permission,   // Dialog frame color (= TS "permission" token, same as suggestion in dark)
     RateLimit,    // Rate-limit pill fill
     Chrome,       // UI chrome / background-adjacent lines
     Brief,        // Brief-mode labels
@@ -124,6 +125,23 @@ struct Palette {
     ftxui::Color diff_added_word;
     ftxui::Color diff_removed_word;
     ftxui::Color merged;
+    // ─── Prompt / input chrome (TS theme tokens) ─────────────────────────
+    // bashBorder — accent color for '!' bash-mode prefix glyph, prompt border,
+    //              transcript bash-input message frames.  Named for semantic
+    //              role even though the REPL prompt no longer uses a full
+    //              rectangular "border" around the input area.
+    //              TS dark:   rgb(255,   0, 135)  hot pink / magenta
+    //              TS light:  rgb(255,   0, 135)  same (always saturated pink)
+    // promptBorder — outer frame of the brief prompt (separator top/bottom
+    //                lines rendered around input).  TS variants:
+    //                dark/light: ansi:whiteBright ≈ rgb(136,136,136) mid-gray
+    ftxui::Color bash_border;
+    ftxui::Color prompt_border;
+    // TS theme token: "permission" is the default dialog frame color.
+    // In TS dark palette: permission == suggestion == rgb(177, 185, 249).
+    // Kept as a separate struct field so future palette reworks (ANSI,
+    // daltonized) can diverge the two values without breaking call sites.
+    ftxui::Color permission;
 };
 
 // ─── Concrete palettes (copied verbatim from src/utils/theme.ts rgb() values)
@@ -176,6 +194,13 @@ inline const Palette dark = {
     .diff_added_word     = ftxui::Color::RGB( 63, 185,  80),
     .diff_removed_word   = ftxui::Color::RGB(250, 109,  93),
     .merged              = ftxui::Color::RGB(163, 113, 247),
+    // Prompt chrome (TS theme tokens — verbatim):
+    //   dark bashBorder            = rgb(255,  0, 135)
+    //   dark promptBorder          = rgb(136,136, 136)  ansi:whiteBright
+    .bash_border         = ftxui::Color::RGB(255,   0, 135),
+    .prompt_border       = ftxui::Color::RGB(136, 136, 136),
+    // TS dark permission = rgb(177, 185, 249) — identical to suggestion.
+    .permission          = ftxui::Color::RGB(177, 185, 249),
 };
 
 inline const Palette light = {
@@ -207,6 +232,13 @@ inline const Palette light = {
     .diff_added_word     = ftxui::Color::RGB( 50, 160,  75),
     .diff_removed_word   = ftxui::Color::RGB(230,  80,  70),
     .merged              = ftxui::Color::RGB(120,  60, 210),
+    // Prompt chrome (TS light theme tokens — verbatim):
+    //   light bashBorder            = rgb(255,  0, 135)   same saturated pink
+    //   light promptBorder        = rgb(153,153, 153)   ansi:whiteBright
+    .bash_border         = ftxui::Color::RGB(255,   0, 135),
+    .prompt_border       = ftxui::Color::RGB(153, 153, 153),
+    // TS light permission = rgb( 87, 105, 247) — deep blue.
+    .permission          = ftxui::Color::RGB( 87, 105, 247),
 };
 
 // Daltonized variants: desaturated, contrast-boosted for CVD users.
@@ -246,6 +278,12 @@ inline const Palette dark_daltonized = {
     .diff_added_word     = ftxui::Color::RGB(110, 160, 200),
     .diff_removed_word   = ftxui::Color::RGB(200, 130, 140),
     .merged              = ftxui::Color::RGB(150, 120, 220),
+    // Prompt chrome — dark daltonized: bashBorder per TS darkDaltonizedTheme
+    //   = rgb(51,153,255) bright blue (not pink — CVD-safe). promptBorder = dark gray.
+    .bash_border         = ftxui::Color::RGB( 51, 153, 255),
+    .prompt_border       = ftxui::Color::RGB(136, 136, 136),
+    // TS darkDaltonizedTheme permission = rgb(153, 204, 255).
+    .permission          = ftxui::Color::RGB(153, 204, 255),
 };
 
 inline const Palette light_daltonized = {
@@ -274,6 +312,12 @@ inline const Palette light_daltonized = {
     .diff_added_word     = ftxui::Color::RGB( 90, 140, 190),
     .diff_removed_word   = ftxui::Color::RGB(190, 100, 115),
     .merged              = ftxui::Color::RGB(120, 100, 200),
+    // Prompt chrome — light daltonized: bashBorder = TS lightDaltonizedTheme
+    //   rgb(0,102,204) medium blue. promptBorder = light mid-gray.
+    .bash_border         = ftxui::Color::RGB(  0, 102, 204),
+    .prompt_border       = ftxui::Color::RGB(153, 153, 153),
+    // TS lightDaltonizedTheme permission = rgb(0, 51, 153).
+    .permission          = ftxui::Color::RGB(  0,  51, 153),
 };
 
 // Monochrome palette: for reduced-color / braille-only terminals.
@@ -305,6 +349,10 @@ inline const Palette monochrome = {
     .diff_added_word     = ftxui::Color::White,
     .diff_removed_word   = ftxui::Color::White,
     .merged              = ftxui::Color::White,
+    // Prompt chrome (monochrome): pure White for accent, GrayDark for frame.
+    .bash_border         = ftxui::Color::White,
+    .prompt_border       = ftxui::Color::GrayDark,
+    .permission          = ftxui::Color::White,
 };
 
 } // namespace palette
@@ -321,6 +369,7 @@ inline const Palette monochrome = {
         case Role::Muted:      return pal.muted;
         case Role::Subtle:     return pal.subtle;
         case Role::Suggestion: return pal.suggestion;
+        case Role::Permission: return pal.permission;
         case Role::RateLimit:  return pal.rate_limit_fill;
         case Role::Chrome:     return pal.chrome;
         case Role::Brief:      return pal.brief_label;

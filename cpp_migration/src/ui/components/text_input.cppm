@@ -135,6 +135,17 @@ struct TextInputOptions {
     std::string inline_ghost_text;
     /// Optional argument hint shown after a slash command
     std::string argument_hint;
+    /// Explicit color for the prefix glyph.  Empty = use the default
+    /// (historically Color::Green + bold — see below).  Set from the caller
+    /// when the prefix needs to change per mode, e.g. bash mode renders the
+    /// prefix with the TS `bashBorder` accent instead of theme.text.
+    std::optional<ftxui::Color> prefix_color;
+    /// When set, overrides the default `bold` applied to the prefix.
+    /// Default = true (kept for back-compat with callers that don't set
+    /// prefix_color).  The REPL faithful path sets this false because TS
+    /// renders the prefix glyph at normal weight; bold mapping causes some
+    /// terminals to swap pure white for bright-green/cyan.
+    bool prefix_bold = true;
 
     std::function<void(const std::string&, const PromptContext&)> on_submit;
     /// Called on Enter submit when Ctrl+Enter modifier is used
@@ -1014,12 +1025,36 @@ private:
         for (int li = 0; li < total_lines; ++li) {
             Elements line_parts;
 
-            // Line prefix (first line) or indent (subsequent lines)
+            // Line prefix (first line) or indent (subsequent lines).
+            // NOTE (P0-1 glyph unification):
+            //   The REPL faithful path passes a PER-MODE prefix_color and sets
+            //   prefix_bold=false to match TS PromptInputModeIndicator semantics.
+            //   Legacy standalone usages keep the historical default (Green+bold)
+            //   via fallback.  The default prefix was also changed from "▶ "
+            //   (U+25B6, a CPP-only invention) to "❯ " (figures.pointer U+276F),
+            //   matching TS `figures.pointer` exactly.
             if (li == 0) {
-                line_parts.push_back(
-                    ftxui::text(options_.prefix) | color(Color::Green) | bold);
+                using namespace ftxui;
+                Decorator prefix_decor = nothing;
+                if (options_.prefix_color.has_value()) {
+                    prefix_decor = prefix_decor | color(*options_.prefix_color);
+                } else {
+                    // Historical default: bold green.  New callers should set
+                    // prefix_color explicitly instead of relying on this.
+                    prefix_decor = prefix_decor | color(Color::Green) | bold;
+                }
+                if (options_.prefix_bold && !options_.prefix_color.has_value()) {
+                    prefix_decor = prefix_decor | bold;
+                }
+                line_parts.push_back(ftxui::text(options_.prefix) | prefix_decor);
             } else {
-                line_parts.push_back(ftxui::text(std::string(options_.prefix.size(), ' ')));
+                // Prefix-width-preserving indent so wrapped lines don't drift
+                // out of column with the prefix on line 0.  Use string_width()
+                // (not prefix.size()) to handle wide UTF-8 glyphs (❯ = 2 bytes
+                // but 1 display cell, vs some emoji 2 cells).
+                const int display_w = ftxui::string_width(options_.prefix);
+                line_parts.push_back(ftxui::text(std::string(
+                    static_cast<std::size_t>(display_w > 0 ? display_w : 0), ' ')));
             }
 
             // Line numbers

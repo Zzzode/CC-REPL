@@ -30,6 +30,10 @@ module;
 export module cc.ui.messages.user_text_message;
 
 import cc.ui.messages.message_timestamp;
+// P0-1: Unified prompt / user-message glyph source (TS figures.pointer).
+// Eliminates the local `kFiguresPointer` duplicate that diverged from the
+// prompt prefix's UTF-8 byte sequence in CPP Round 1-6.
+import cc.ui.design.figures;
 
 export namespace cc::ui::messages {
 
@@ -197,9 +201,10 @@ class UserTextMessageComponent : public ComponentBase {
 //   <Text color={subtle}>{figures.pointer} </Text><Text color="text">{text}</Text>
 // figures.pointer is U+276F "❯".  No timestamp / role label in the non-brief
 // path — that only appears in the brief/chat layout.
-
-/// The figures.pointer glyph used as the user-message prefix (matches TS).
-inline constexpr std::string_view kFiguresPointer = "\xE2\x9D\xAF";  // ❯ U+276F
+//
+// NOTE: The glyph itself lives in cc.ui.design.figures::kPointer — the
+// authoritative source used by the prompt prefix, user messages, and plugin
+// manager.  Use `namespace figs = cc::ui::design::figures;` below.
 
 /// Faithful render of a user prompt message (UserPromptMessage.tsx ->
 /// HighlightedThinkingText non-brief path).  Full-width, left-aligned, with a
@@ -225,7 +230,7 @@ inline constexpr std::string_view kFiguresPointer = "\xE2\x9D\xAF";  // ❯ U+27
     const Decorator prefix_style =
         data.is_transcript_mode ? (dim | color(prefix_color))
                                 : color(prefix_color);
-    row.push_back(text(std::string(kFiguresPointer)) | prefix_style);
+    row.push_back(text(std::string(cc::ui::design::figures::kPointer)) | prefix_style);
     row.push_back(text(" ") | prefix_style);
     // Body text — "text" color (EXPLICIT: FTXUI does not auto-inherit
     // theme.text from Ink; wrapping a hbox in bgcolor() leaves default
@@ -284,7 +289,7 @@ inline constexpr std::string_view kFiguresPointer = "\xE2\x9D\xAF";  // ❯ U+27
     // TS: paddingRight=1 only — no flex, so the chip collapses to content
     // width instead of stretching to terminal width (F8 compact chip).
     Element row = hbox({
-        text(std::string(kFiguresPointer)) | color(prefix_color),
+        text(std::string(cc::ui::design::figures::kPointer)) | color(prefix_color),
         text(" ") | color(prefix_color),
         text(body) | color(kText),
         text(" ") | color(kText),  // paddingRight=1

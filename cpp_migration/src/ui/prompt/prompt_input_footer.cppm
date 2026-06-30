@@ -49,6 +49,10 @@ export module cc.ui.prompt.prompt_input_footer;
 // ANSI → FTXUI element converter (used by StatusLine for colored command output).
 // Lives in message_tool_result.cppm as a shared inline utility.
 import cc.ui.messages.message_tool_result;
+// P0-1: palette tokens (bash_border / prompt_border color resolution).
+import cc.ui.design.tokens;
+// P0-1: active theme provider for bash-border consistency (BUG-3 fix).
+import cc.ui.design.theme;
 
 export namespace cc::ui::prompt::footer {
 
@@ -163,9 +167,13 @@ struct ModeIndicatorOptions {
 /// STABLE HEIGHT: always renders exactly 1 row (may show a space when empty
 ///   in fullscreen mode — see TS stable-height comment).
 [[nodiscard]] inline Element RenderModeIndicator(const ModeIndicatorOptions& opts) {
-    // Early return for bash mode (TS: "! for bash mode")
+    // Early return for bash mode (TS: "! for bash mode", colored with
+    // bashBorder token for consistency with prompt prefix + transcript
+    // user-bash-input bubble — fixes BUG-3: 3-sites bash-border divergence).
     if (opts.mode == PromptInputMode::Bash) {
-        return hbox({ text("! for bash mode") | color(Color::Red) })
+        using namespace cc::ui::design;
+        const auto& pal = *theme::current_theme().palette;
+        return hbox({ text("! for bash mode") | color(pal.bash_border) })
              | size(HEIGHT, EQUAL, 1);
     }
 

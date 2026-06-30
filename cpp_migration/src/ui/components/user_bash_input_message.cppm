@@ -72,10 +72,12 @@ namespace detail {
 }
 
 /// Bash border color — faithful port of theme.bashBorder.
-/// Dark theme: rgb(255,0,135) — vibrant pink.
+/// Resolved through the active theme provider so light / daltonized /
+/// monochrome variants all get the right colour (BUG-3 fix: the 3 bash-border
+/// sites — prompt prefix, footer hint, and transcript bubble — must agree).
 [[nodiscard]] inline Color bash_border_color() {
-    // TS dark theme: bashBorder: 'rgb(255,0,135)'
-    return Color::RGB(255, 0, 135);
+    using namespace cc::ui::design;
+    return theme::current_theme().palette->bash_border;
 }
 
 /// Bash message background color — faithful port of theme.bashMessageBackgroundColor.

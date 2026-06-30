@@ -289,8 +289,12 @@ enum class RiskLevel : std::uint8_t {
 // ============================================================
 
 /// A thin horizontal separator (dimmer than ftxui::separator()).
-[[nodiscard]] inline Element ThinDivider() {
-    return separator() | color(Color::GrayDark);
+/// Optional `col` override — when provided, paints the separator in that
+/// color (faithful to TS Pane.tsx:52 Divider(color)).  Defaults to GrayDark
+/// for the pre-existing uncoloured in-dialog section separators.
+[[nodiscard]] inline Element ThinDivider(
+    std::optional<Color> col = std::nullopt) {
+    return separator() | color(col.value_or(Color::GrayDark));
 }
 
 // ============================================================

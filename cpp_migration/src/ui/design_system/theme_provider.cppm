@@ -208,7 +208,8 @@ inline void set_theme(Theme t) noexcept {
     if (color == "success") return p.success;
     if (color == "error" || color == "danger") return p.danger;
     if (color == "warning") return p.warning;
-    if (color == "permission" || color == "info") return p.info;
+    if (color == "permission") return p.permission;
+    if (color == "info") return p.info;
     if (color == "inactive" || color == "muted") return p.muted;
     if (color == "subtle") return p.subtle;
     if (color == "suggestion") return p.suggestion;
