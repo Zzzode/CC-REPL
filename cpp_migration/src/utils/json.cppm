@@ -495,6 +495,24 @@ private:
     return JsonDoc(doc);
 }
 
+/// Parse the first JSON value in `json_str`, ignoring any trailing content.
+/// Uses yyjson's YYJSON_READ_STOP_WHEN_DONE so concatenated JSON (e.g. pasted
+/// log lines like {"a":1}{"b":2}) parses the first object instead of failing
+/// the whole document on trailing content.  Mirrors parse() otherwise.
+[[nodiscard]] inline Result<JsonDoc> parse_first(std::string_view json_str) {
+    yyjson_read_err err;
+    auto* doc = yyjson_read_opts(
+        const_cast<char*>(json_str.data()), json_str.size(),
+        YYJSON_READ_STOP_WHEN_DONE, nullptr, &err);
+
+    if (!doc) {
+        return std::unexpected(Error(ErrorCode::parse_error,
+            std::format("JSON parse error at position {}: {}",
+                err.pos, err.msg ? err.msg : "unknown")));
+    }
+    return JsonDoc(doc);
+}
+
 
 [[nodiscard]] inline Result<JsonDoc> parse_file_string(const std::string& path_string) {
     yyjson_read_err err;

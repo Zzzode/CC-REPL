@@ -219,38 +219,6 @@ inline std::string sanitize_paste(std::string text) {
     return text;
 }
 
-// Extract the first balanced JSON object/array value from `text` (starting at
-// the first non-whitespace char).  Used by detect_paste_kind so that pasted
-// *concatenated* JSON (e.g. repeated log lines like {"a":1}{"b":2}) still
-// classifies as JSON: we strict-parse only the first value instead of failing
-// the whole document on the trailing objects.  Returns nullopt if `text` does
-// not start with {/[, or the value is unbalanced.  Handles nested braces and
-// string literals (with escapes) so braces inside strings are ignored.
-[[nodiscard]] inline std::optional<std::string_view> first_json_value(std::string_view text) {
-    size_t i = 0;
-    while (i < text.size() && std::isspace(static_cast<unsigned char>(text[i]))) ++i;
-    if (i >= text.size() || (text[i] != '{' && text[i] != '[')) return std::nullopt;
-    const char open = text[i];
-    const char close = (open == '{') ? '}' : ']';
-    int depth = 0;
-    bool in_str = false, esc = false;
-    for (size_t j = i; j < text.size(); ++j) {
-        const char c = text[j];
-        if (in_str) {
-            if (esc) esc = false;
-            else if (c == '\\') esc = true;
-            else if (c == '"') in_str = false;
-            continue;
-        }
-        if (c == '"') { in_str = true; continue; }
-        if (c == open) ++depth;
-        else if (c == close) {
-            if (--depth == 0) return text.substr(i, j - i + 1);
-        }
-    }
-    return std::nullopt;  // unbalanced
-}
-
 inline std::pair<bool, ParsedCommand::PasteKind> detect_paste_kind(std::string_view text) {
     if (text.empty()) return {false, ParsedCommand::PasteKind::Unknown};
 
@@ -258,13 +226,12 @@ inline std::pair<bool, ParsedCommand::PasteKind> detect_paste_kind(std::string_v
     size_t p = 0;
     while (p < text.size() && std::isspace(static_cast<unsigned char>(text[p]))) ++p;
     if (p < text.size() && (text[p] == '{' || text[p] == '[')) {
-        // Parse the first value only so concatenated JSON still matches.
-        auto first = first_json_value(text);
-        if (first) {
-            std::string buf{*first};
-            if (cc::utils::json::parse(buf)) {
-                return {true, ParsedCommand::PasteKind::Json};
-            }
+        // Parse the first value only (YYJSON_READ_STOP_WHEN_DONE) so pasted
+        // *concatenated* JSON (e.g. repeated log lines {"a":1}{"b":2}) still
+        // classifies as Json — a strict whole-document parse would reject the
+        // trailing objects.
+        if (cc::utils::json::parse_first(text)) {
+            return {true, ParsedCommand::PasteKind::Json};
         }
     }
 
