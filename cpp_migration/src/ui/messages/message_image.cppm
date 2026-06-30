@@ -209,6 +209,12 @@ inline void resolve_from_store(ImageMessageData& data) {
         src_line += " ";
 
         std::string display_source = data.source;
+        // Fallback: clipboard pastes (and other sources without an on-disk
+        // path) may only carry a display filename — show it in the source
+        // line so the user has a human-readable anchor.
+        if (display_source.empty() && !data.file_name.empty()) {
+            display_source = data.file_name;
+        }
         if (display_source.size() > 40) {
             display_source = "…" + display_source.substr(display_source.size() - 39);
         }
