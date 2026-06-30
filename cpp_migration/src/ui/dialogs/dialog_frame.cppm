@@ -57,30 +57,62 @@ namespace pc = cc::ui::permissions::components;
 // ============================================================
 
 /// Style variant for the frame border/background.
+/// Faithful to TS dialog color semantics: the overwhelming default is
+/// `Permission` (= TS `color="permission"`, a slate-blue/lavender hue,
+/// shared with the suggestion token).  Info is reserved for auxiliary
+/// blue accents; Danger/Error map to TS `color="error"` (used only by
+/// the Sandbox bypass-permissions dialog).
 enum class FrameStyle : std::uint8_t {
-    Default,        ///< Neutral chrome border
-    Info,           ///< Info/blue (permission prompts)
-    Success,        ///< Green
-    Warning,        ///< Yellow/orange
-    Danger,         ///< Red (high risk)
-    Critical,       ///< Bold red (critical risk)
-    Muted,          ///< Dim border
+    Permission,     ///< Default dialog frame (TS color="permission")
+    Info,          ///< Auxiliary info-blue
+    Success,       ///< Green
+    Warning,       ///< Yellow/orange
+    Danger,        ///< Red (high risk, alias of Error)
+    Error,         ///< TS color="error" — Sandbox bypass dialogs
+    Critical,      ///< Bold red (critical risk)
+    Muted,         ///< Dim border
 };
 
 /// Get the border color for a frame style.
+/// Faithful to TS color semantics: Permission/Suggestion share a value.
 [[nodiscard]] inline Color frame_border_color(FrameStyle style,
                                               const Theme& theme) {
     switch (style) {
-        case FrameStyle::Default:  return theme.color_for(Role::Chrome);
-        case FrameStyle::Info:     return theme.color_for(Role::Info);
-        case FrameStyle::Success:  return theme.color_for(Role::Success);
-        case FrameStyle::Warning:  return theme.color_for(Role::Warning);
-        case FrameStyle::Danger:   return theme.color_for(Role::Danger);
-        case FrameStyle::Critical: return theme.color_for(Role::Danger);
-        case FrameStyle::Muted:    return theme.color_for(Role::Muted);
+        case FrameStyle::Permission: return theme.color_for(Role::Permission);
+        case FrameStyle::Info:       return theme.color_for(Role::Info);
+        case FrameStyle::Success:    return theme.color_for(Role::Success);
+        case FrameStyle::Warning:    return theme.color_for(Role::Warning);
+        case FrameStyle::Danger:
+        case FrameStyle::Error:
+        case FrameStyle::Critical:   return theme.color_for(Role::Danger);
+        case FrameStyle::Muted:      return theme.color_for(Role::Muted);
     }
-    return theme.color_for(Role::Chrome);
+    return theme.color_for(Role::Permission);
 }
+
+// ============================================================
+// PaneVariant — TS Pane.tsx layout mode
+// ============================================================
+
+/// Controls how the frame is laid out — matches the two branches of
+/// TS `src/components/design-system/Pane.tsx`.
+///
+///   * `PanelPadded` — non-modal panels (Standalone / Bottom / Overlay
+///     slots, or dialogs rendered outside a modal centering wrapper).
+///     Rendering:
+///       `[empty row (paddingTop=1]` → `[Divider(color)]` →
+///       `[content padded with paddingX=2]`
+///     NO rounded corners, NO 4-sided frame — the TS upstream does
+///     Pane.tsx:68 layout: paddingTop(1) + Divider(color) + paddingX(2).
+///
+///   * `ModalMinimal` — content wrapped inside an outer modal (Modal slot
+///     centred by dialog_queue_render::RenderModalDialog).
+///     TS Pane renders `if (useIsInsideModal())` branch → no divider,
+///     only `paddingX=1`, no border chrome.
+enum class PaneVariant : std::uint8_t {
+    PanelPadded = 0,
+    ModalMinimal,
+};
 
 // ============================================================
 // DialogFrameProps — properties for the frame
@@ -90,7 +122,8 @@ enum class FrameStyle : std::uint8_t {
 struct DialogFrameProps {
     std::string title;
     std::optional<std::string> subtitle;
-    FrameStyle style = FrameStyle::Info;
+    /// Default = Permission — matches TS Dialog.tsx default color="permission".
+    FrameStyle style = FrameStyle::Permission;
 
     /// Optional worker badge element (rendered right of title).
     std::optional<Element> worker_badge;
@@ -123,7 +156,19 @@ struct DialogFrameProps {
     bool full_border = true;
 
     /// Whether to use rounded corners.
+    /// @deprecated Kept as a no-op for ABI-compat.  TS Pane.tsx never draws
+    ///             a 4-sided border, so the concept of "rounded" does not
+    ///             apply.  New callers should leave this at its default.
     bool rounded = true;
+
+    /// Pane layout mode — see PaneVariant docs.
+    /// Callers must set this based on which DialogSlot the content will
+    /// be composed into:
+    ///   * PanelPadded  → Standalone, Bottom, Overlay slots, or dialogs
+    ///                    rendered outside the modal centering wrapper.
+    ///   * ModalMinimal → Modal slot (the outer centering dbox already
+    ///                    provides "modal" visual separation).
+    PaneVariant pane_variant = PaneVariant::PanelPadded;
 };
 
 // ============================================================
@@ -181,12 +226,20 @@ struct DialogFrameProps {
     auto header = vbox(header_els);
 
     // ---- Padding for content ----
+    // Faithful to TS Pane.tsx lines 60-66:
+    //   Modal   → paddingX=1 (no divider, no paddingTop)
+    //   Panel   → paddingX=2 (content column)
+    //
+    // `inner_padding_x` adds INSIDE the pane padding so callers that need
+    // extra breathing room (e.g. settings tab content) still work.
+    const int pane_padding_x =
+        props.pane_variant == PaneVariant::ModalMinimal ? 1 : 2;
+    const int total_pad_x = pane_padding_x + props.inner_padding_x;
+
     auto padded_content = [&]() -> Element {
         auto c = props.content;
-        if (props.inner_padding_x > 0) {
-            c = c | size(WIDTH, GREATER_THAN, 1); // ensure min width
-            // Add left/right padding via hbox
-            auto pad = std::string(props.inner_padding_x, ' ');
+        if (total_pad_x > 0) {
+            auto pad = std::string(total_pad_x, ' ');
             c = hbox({ text(pad), c | xflex, text(pad) });
         }
         if (props.inner_padding_y > 0) {
@@ -199,45 +252,72 @@ struct DialogFrameProps {
         return c;
     }();
 
-    // ---- Assemble the frame body ----
-    Elements body_els;
-
-    // Header section (with padding)
-    body_els.push_back(hbox({
-        text(" "),
-        header | xflex,
-        text(" "),
-    }));
-
-    // Divider between header and content
-    body_els.push_back(pc::ThinDivider());
-
-    // Content section
-    body_els.push_back(padded_content);
-
-    auto body = vbox(body_els) | xflex;
-
-    // ---- Apply border ----
-    if (props.full_border) {
-        if (props.rounded) {
-            return body
-                | borderRounded
-                | color(border_col)
-                | size(WIDTH, GREATER_THAN, 30);
-        }
-        return body
-            | borderStyled(border_col)
-            | color(border_col)
-            | size(WIDTH, GREATER_THAN, 30);
+    // ---- Assemble header row (h-padded same as content pane outer) ----
+    // Header always uses PANE_PAD_X (not inner) — the title/subtitle
+    // align visually flush with the left edge of the padded content text.
+    Elements outer_header_els;
+    {
+        auto pad = std::string(pane_padding_x, ' ');
+        auto hp_row = hbox({
+            text(pad),
+            header | xflex,
+            text(pad),
+        });
+        outer_header_els.push_back(hp_row);
     }
 
-    // Top-only border (floating overlay style)
-    // Use window with empty top border — in practice full border is used
-    // for most dialogs and the bottom edge blends into the prompt area.
-    return body
-        | borderStyled(border_col)
-        | color(border_col)
-        | size(WIDTH, GREATER_THAN, 30);
+    // ---- Divider between header and content ----
+    // Pane.tsx:52  <Divider color={color} /> — full width, theme-colored.
+    // In ModalMinimal mode Pane.tsx OMITs the divider (modal content is
+    // already visually separated by the outer dbox centering).
+    Element divider_row = text("");
+    if (props.pane_variant == PaneVariant::PanelPadded) {
+        divider_row = pc::ThinDivider(border_col);
+    }
+
+    // ---- Assemble body (faithful to TS Pane.tsx vertical column) ----
+    //
+    // PanelPadded:
+    //   paddingTop = 1  →  empty row at top
+    //   Divider(color)  →  full width color line
+    //   Header          →  title + subtitle h-padded
+    //   Divider         →  between header and content (ThinDivider already exists)
+    //   Padded content  →  inner body
+    //
+    // ModalMinimal:
+    //   Header          →  title + subtitle (no outer padding row)
+    //   [no divider]
+    //   Padded content  →  paddingX=1 only
+    Elements body_els;
+    body_els.reserve(8);
+
+    if (props.pane_variant == PaneVariant::PanelPadded) {
+        // Pane.tsx:68  paddingTop={1}
+        body_els.push_back(text(""));
+        // Pane.tsx:52  Divider(color) — the top colored stripe.
+        body_els.push_back(divider_row);
+    }
+    // Title + subtitle block.
+    for (auto& el : outer_header_els) body_els.push_back(std::move(el));
+
+    // ThinDivider between header and content (present in BOTH modes — it
+    // demarcates the title area from the body, matching the legacy layout
+    // callers already depend on.  In TS upstream this comes from the
+    // PermissionDialog *content* area, not Pane itself.)
+    body_els.push_back(pc::ThinDivider());
+
+    // Main body.
+    body_els.push_back(padded_content);
+
+    auto body = vbox(std::move(body_els)) | xflex;
+
+    // ---- Apply minimum width, NO 4-sided border, NO rounded corners ----
+    //
+    // TS Pane.tsx + PermissionDialog.tsx NEVER apply a 4-sided border or
+    // rounded corners.  The coloured stripe at the top (PanelPadded) + the
+    // inner ThinDivider demarcate the structure.  Minimum width clamp
+    // preserves layout for tiny terminals.
+    return body | size(WIDTH, GREATER_THAN, 30);
 }
 
 // ============================================================

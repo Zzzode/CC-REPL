@@ -91,7 +91,7 @@ using Theme = cc::ui::design::theme::Theme;
     props.subtitle = p.server_name.empty()
         ? std::string{"An MCP server needs additional input"}
         : std::string{p.server_name + " needs additional input"};
-    props.style = dframe::FrameStyle::Info;
+    props.style = dframe::FrameStyle::Permission;
 
     // Body:
     //   - question: "Allow connecting to <server_name>?"

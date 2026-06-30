@@ -232,12 +232,13 @@ using QuickOpenItem = dsys::QuickOpenItem;
     dframe::DialogFrameProps props;
     props.title = "Quick Open";
     props.subtitle = "Search commands, settings, and more";
-    props.style = dframe::FrameStyle::Default;
+    props.style = dframe::FrameStyle::Permission;
     props.content = full_content;
     props.inner_padding_x = 1;
     props.inner_padding_y = 1;
     props.full_border = true;
     props.rounded = true;
+    props.pane_variant = dframe::PaneVariant::ModalMinimal;
 
     return dframe::DialogFrame(props, ctx.theme)
         | size(WIDTH, EQUAL, std::min(60, ctx.term_cols - 4))

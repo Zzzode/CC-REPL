@@ -317,7 +317,7 @@ inline bool HandleCostThresholdEvent(
     props.subtitle = p.idle_minutes > 0
         ? std::format("Your session has been idle for {} minutes.", p.idle_minutes)
         : std::string{"Your session has been idle."};
-    props.style = dframe::FrameStyle::Info;
+    props.style = dframe::FrameStyle::Permission;
     props.content = vbox({
         text("Would you like to resume where you left off?") | center,
         text(""),
@@ -359,7 +359,7 @@ inline bool HandleIdleReturnEvent(
 {
     dframe::DialogFrameProps props;
     props.title = p.title.empty() ? std::string{"Input Required"} : p.title;
-    props.style = dframe::FrameStyle::Info;
+    props.style = dframe::FrameStyle::Permission;
 
     auto value_display = p.default_value
         ? hbox({ text("[") | dim, text(*p.default_value), text("]") | dim })
@@ -404,7 +404,7 @@ inline bool HandlePromptDialogEvent(
     dframe::DialogFrameProps props;
     props.title = "MCP Server Request";
     props.subtitle = std::string{p.server_name + " needs additional input"};
-    props.style = dframe::FrameStyle::Info;
+    props.style = dframe::FrameStyle::Permission;
     props.content = vbox({
         paragraph(p.request_description),
         text(""),
@@ -446,7 +446,7 @@ inline bool HandleElicitationEvent(
 {
     dframe::DialogFrameProps props;
     props.title = p.title;
-    props.style = dframe::FrameStyle::Default;
+    props.style = dframe::FrameStyle::Permission;
 
     Elements buttons;
     for (size_t i = 0; i < p.buttons.size(); ++i) {

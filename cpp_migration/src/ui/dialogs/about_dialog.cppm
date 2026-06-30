@@ -195,11 +195,12 @@ namespace detail {
     dframe::DialogFrameProps frame_props;
     frame_props.title = "About " + props.app_name;
     frame_props.subtitle = "Version " + props.app_version;
-    frame_props.style = dframe::FrameStyle::Info;
+    frame_props.style = dframe::FrameStyle::Permission;
     frame_props.content = content;
     frame_props.full_border = true;
     frame_props.inner_padding_x = 1;
     frame_props.inner_padding_y = 0;
+    frame_props.pane_variant = dframe::PaneVariant::ModalMinimal;
 
     return dframe::DialogFrame(frame_props, theme);
 }

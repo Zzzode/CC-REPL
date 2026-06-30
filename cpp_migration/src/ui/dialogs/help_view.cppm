@@ -320,11 +320,12 @@ namespace detail {
     dframe::DialogFrameProps frame_props;
     frame_props.title = "Claude Code v" + props.app_version;
     frame_props.subtitle = "Help";
-    frame_props.style = dframe::FrameStyle::Info;
+    frame_props.style = dframe::FrameStyle::Permission;
     frame_props.content = body;
     frame_props.full_border = true;
     frame_props.inner_padding_x = 1;
     frame_props.inner_padding_y = 0;
+    frame_props.pane_variant = dframe::PaneVariant::ModalMinimal;
 
     return dframe::DialogFrame(frame_props, theme);
 }

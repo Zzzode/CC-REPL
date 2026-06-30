@@ -1966,7 +1966,7 @@ TEST(DialogFrame, GoldenWithSubtitle) {
     dframe::DialogFrameProps props;
     props.title = "Project Settings";
     props.subtitle = "version 1.2.3 · user@host";
-    props.style = dframe::FrameStyle::Default;
+    props.style = dframe::FrameStyle::Permission;
     props.content = ftxui::text("A");
 
     auto el = dframe::DialogFrame(props, theme);
@@ -2656,7 +2656,7 @@ TEST(DialogRenderers, Golden_SettingsPanel) {
             dframe::DialogFrameProps props;
             props.title = "Settings";
             props.subtitle = "Tab: " + p->initial_tab;
-            props.style = dframe::FrameStyle::Default;
+            props.style = dframe::FrameStyle::Permission;
             props.inner_padding_x = 2;
             props.inner_padding_y = 1;
             props.content = vbox({

@@ -65,10 +65,11 @@ enum class ConfirmResult : std::uint8_t {
 
 /// Confirmation dialog style variant.
 enum class ConfirmStyle : std::uint8_t {
-    Info,     ///< Neutral info style (default)
+    Info,     ///< Neutral permission/default style (default — maps to FrameStyle::Permission)
     Warning,  ///< Warning / attention style
     Danger,   ///< Destructive / high-risk style
     Success,  ///< Positive / confirm-success style
+    Error,    ///< Alias of Danger, matches TS `color="error"` (e.g. Sandbox Bypass)
 };
 
 /// Button labels for the confirmation dialog.
@@ -105,12 +106,13 @@ namespace detail {
 /// Map ConfirmStyle to FrameStyle.
 [[nodiscard]] inline dframe::FrameStyle to_frame_style(ConfirmStyle style) {
     switch (style) {
-        case ConfirmStyle::Info:    return dframe::FrameStyle::Info;
+        case ConfirmStyle::Info:    return dframe::FrameStyle::Permission;
         case ConfirmStyle::Warning: return dframe::FrameStyle::Warning;
         case ConfirmStyle::Danger:  return dframe::FrameStyle::Danger;
         case ConfirmStyle::Success: return dframe::FrameStyle::Success;
+        case ConfirmStyle::Error:   return dframe::FrameStyle::Error;
     }
-    return dframe::FrameStyle::Info;
+    return dframe::FrameStyle::Permission;
 }
 
 /// Get the accent color for a style.
@@ -120,6 +122,7 @@ namespace detail {
         case ConfirmStyle::Warning: return theme.color_for(Role::Warning);
         case ConfirmStyle::Danger:  return theme.color_for(Role::Danger);
         case ConfirmStyle::Success: return theme.color_for(Role::Success);
+        case ConfirmStyle::Error:   return theme.color_for(Role::Danger);
     }
     return theme.color_for(Role::Info);
 }
@@ -239,6 +242,7 @@ namespace detail {
     frame_props.full_border = true;
     frame_props.inner_padding_x = 2;
     frame_props.inner_padding_y = 1;
+    frame_props.pane_variant = dframe::PaneVariant::ModalMinimal;
 
     return dframe::DialogFrame(frame_props, theme);
 }
