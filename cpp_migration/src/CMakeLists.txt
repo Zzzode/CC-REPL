@@ -1429,6 +1429,7 @@ target_sources(cc_ui
         ui/layout.cppm
         ui/layout/fullscreen_layout.cppm
         ui/layout/logo.cppm
+        ui/layout/logo_v2.cppm          # P0-4: LogoV2 3-mode dispatch + WelcomeV2 + notice stack
         ui/layout/measure.cppm
         ui/layout/wrap_text.cppm
         ui/layout/yoga.cppm
@@ -1473,6 +1474,7 @@ target_sources(cc_ui
         ui/messages/local_command_output_message.cppm
         ui/messages/messages_list.cppm            # UI21 — Messages.tsx + Message.tsx (834+626 → 1308 loc)
         ui/messages/messages_interactions.cppm    # UI25 — MessageSelector + messageActions
+        ui/messages/message_pipeline.cppm         # P0-2 — 7-stage message pipeline (dedup/tag-filter/augment/hide/index)
         ui/messages/scroll_keybindings.cppm       # UI22 — ScrollKeybindingHandler (1011 → 752 loc)
         ui/messages/virtual_message_list.cppm     # UI22 — VirtualScroll (1081 → 857 loc)
         ui/panels.cppm
@@ -1567,6 +1569,7 @@ target_sources(cc_ui
         ui/screens/log_selector.cppm              # UI23 — LogSelector (1574 → 1730 loc)
         ui/terminal.cppm
         ui/design_system/design_tokens.cppm       # UI20 (merged from cc_ui_design to resolve module-import cycle)
+        ui/design_system/figures.cppm             # Shared glyph + prompt-mode constants (TS utils/figures.ts + inputModes.ts)
         ui/design_system/theme_provider.cppm
         ui/design_system/logo.cppm
         ui/design_system/component_primitives.cppm

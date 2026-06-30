@@ -80,8 +80,18 @@ import cc.ui.dialogs.install_slack_app_wizard;
 import cc.ui.design.logo;
 // M2: theme::current_theme() for the clawd_body colour used by the banner.
 import cc.ui.design.theme;
+// M8 (P0-1 glyph unification): shared figures/constants + palette tokens.
+import cc.ui.design.figures;
+import cc.ui.design.tokens;
 // M2: format_welcome_message + kWelcomeTips feed for the welcome header.
 import cc.ui.logo;
+// P0-4: LogoV2 3-mode dispatch + WelcomeV2 58-col static card + full
+// notice stack (Voice/Opus1m/Channels/Debug/Emergency/Tmux/Org/Sandbox/
+// StatusNotices ×6 / GuestPasses / OverageCredit).  Condensed mode is
+// the default (no changelog/onboarding/force_full_logo available yet);
+// Compact & Horizontal modes are used when the caller opts in via the
+// force_full_logo = true flag (see RenderWelcomeHeader below).
+import cc.ui.logo_v2;
 // Terminal size probe for adaptive layout (welcome header centering + future
 // message-scroll height clamping).
 import cc.ui.ink_utils;
@@ -126,6 +136,10 @@ import cc.ui.dialogs.about;
 // Spinner verb list (TS src/constants/spinnerVerbs.ts) used by RenderSpinner
 // to pick a random playful loading label per request.
 import cc.constants.spinner_verbs;
+// P0-3: VirtualMessageList — O(viewport) windowed rendering for transcripts
+// with >80 rows.  Exports VirtualListHandle / VirtualListState types used
+// below in ReplScreenState and ScrollTranscript.
+import cc.ui.messages.virtual_list;
 
 // M6: Faithful permission panels — bash / file_edit / file_write.
 // These replace the old crude permission_dialog.cppm string renderer.
@@ -353,6 +367,15 @@ struct ReplScreenState {
     int scroll_offset = 0, selected_message_idx = -1;
     int viewport_height_lines = 40;
     bool scroll_pinned_to_bottom = true;
+    // P0-3 VirtualMessageList — the imperative handle exposed by the windowed
+    // renderer when the current visible count crosses kVirtualThreshold.
+    // `virtual_list_active` is set per-frame by RenderMessages; when true,
+    // ScrollTranscript uses JumpToVisualLine() which runs O(log N) binary
+    // search against the JumpHandle instead of the crude EstimateTranscriptRows.
+    bool virtual_list_active = false;
+    cc::ui::messages::virtual_list::JumpHandle virtual_jh;
+    std::shared_ptr<cc::ui::messages::virtual_list::VirtualListState>
+        virtual_list_state;
     // M1 (FullscreenLayout slot-system chrome): scroll-derived chrome state.
     //   sticky_prompt_text — text of the sticky header shown while scrolled up
     //     into history (TS `stickyPrompt.text` via ScrollChromeContext).
@@ -371,6 +394,11 @@ struct ReplScreenState {
     std::string input_text;
     // TS-style contextual placeholder rather than a generic default.
     std::string input_placeholder = "Try \"write a test\", \"/help\", or ask anything...";
+    // TS AGENT_COLOR_TO_THEME_COLOR teammate prefix color.  Empty = use
+    // palette.text (the default prompt prefix color).  Populated from the
+    // engine's active-teammate lookup.  Rendered as the prefix glyph's
+    // foreground in RenderPromptInput (replaces the old plain white).
+    std::optional<ftxui::Color> teammate_prefix_color;
     // Welcome-header data (shown when messages is empty on a fresh session).
     std::string app_version = "0.0.0";
     std::string model_display_name;
@@ -851,6 +879,45 @@ inline bool ScrollTranscript(const std::shared_ptr<ReplScreenState>& state,
     if (!state || delta == 0) return false;
 
     const int viewport_rows = std::max(1, state->viewport_height_lines);
+
+    // P0-3 path: if the VirtualMessageList is active for this frame, use
+    // its JumpHandle (prefix-sum table of exact visual lines) for O(log N)
+    // scroll bounds instead of the crude EstimateTranscriptRows heuristic.
+    if (state->virtual_list_active) {
+        namespace vl = cc::ui::messages::virtual_list;
+        const vl::JumpHandle& jh = state->virtual_jh;
+        const int total_lines = jh.total();
+        if (total_lines <= viewport_rows) return false;
+        const int max_top = total_lines - viewport_rows;
+
+        const int old_top = std::clamp(state->scroll_offset, 0, max_top);
+        int target = old_top + delta;
+        // Guarantee at least one row moves on PageUp/PageDown style deltas:
+        // if target equals old_top, step by one row in the requested
+        // direction using binary search.
+        if (delta > 0 && target <= old_top) {
+            size_t cur = jh.find_row_at_visual_line(old_top);
+            if (cur + 1 < jh.size()) target = jh.find_visual_top_for_row(cur + 1);
+        } else if (delta < 0 && target >= old_top) {
+            size_t cur = jh.find_row_at_visual_line(old_top);
+            if (cur > 0) target = jh.find_visual_top_for_row(cur - 1);
+        }
+        target = std::clamp(target, 0, max_top);
+        if (target == old_top) return false;
+
+        state->scroll_offset = target;
+        state->scroll_pinned_to_bottom = (target >= max_top);
+
+        // If we are maintaining a live VirtualListState (Component-mode
+        // wiring), also update its scroll_top so Render() reuses it.
+        if (state->virtual_list_state) {
+            state->virtual_list_state->scroll_top = target;
+            vl::update_sticky_after_scroll(*state->virtual_list_state,
+                                            old_top);
+        }
+        return true;
+    }
+
     const auto visible_messages = BuildVisibleMessages(*state);
     if (visible_messages.empty()) return false;
     const int max_offset =
@@ -996,32 +1063,52 @@ inline bool ScrollTranscript(const std::shared_ptr<ReplScreenState>& state,
 // Shown only on a fresh idle session (messages empty + spinner hidden).
 // The old ASCII-art bordered card / left-panel / FeedColumn helpers are
 // preserved in this file but no longer called by this renderer.
+//
+// P0-4 Faithful dispatch (TS LogoV2.tsx return paths):
+//   is_condensed_mode (default)  → CondensedLogo + 10 notices flat stack
+//   force_full_logo + cols<70    → Compact round card + flat notice stack
+//   force_full_logo + cols>=70   → Horizontal left|divider|feed card + stack
+// The caller may set s.debug_* / s.tmux_* / s.sandboxing_enabled fields to
+// drive notice activation; they default to off so the header renders the
+// same minimal 4-row look the TS default-condensed branch produces.
 [[nodiscard]] inline Element RenderWelcomeHeader(const ReplScreenState& s,
                                                  int /*spinner_frame*/ = 0,
-                                                 int term_cols = 80) {
-    namespace logo = cc::ui::logo;
+                                                 int term_cols = 80,
+                                                 bool force_full_logo = false) {
+    namespace lv2 = cc::ui::logo_v2;
 
     const std::string model_line = !s.model_display_name.empty()
         ? s.model_display_name
         : s.settings_model;
-    const std::string& version = s.app_version.empty()
-        ? (const std::string&)(const std::string)"0.0.0" : s.app_version;
+    const std::string version = s.app_version.empty()
+        ? std::string("0.0.0") : s.app_version;
 
-    // Gather the LogoDisplayData consumed by RenderCondensedLogoElement.
-    // agent_name is NOT exposed by ReplScreenState today; leave nullopt
-    // and let the renderer skip the "@agent · " prefix.
-    logo::LogoDisplayData data;
-    data.version            = version;
-    data.cwd                = s.cwd;
-    data.billing_type       = s.billing_type;
-    data.agent_name         = std::nullopt;
-    data.model_display_name = model_line;
+    // Build the LogoV2Options. Defaults mirror the TS LogoV2 component's
+    // initial props (no onboarding, no release-notes → condensed branch).
+    lv2::LogoV2Options opts;
+    opts.version              = version;
+    opts.cwd                  = s.cwd;
+    opts.billing_type         = s.billing_type;
+    opts.agent_name           = std::nullopt;  // TODO(engine-wire): populate
+    opts.model_display_name   = model_line;
+    opts.username             = s.user_display_name.empty()
+        ? std::nullopt
+        : std::make_optional(s.user_display_name);
+    opts.org_name             = std::nullopt;
+    opts.is_condensed_mode    = !force_full_logo;   // TS early-return gate
+    opts.show_sandbox_status  = false;               // TODO(engine-wire)
+    opts.show_guest_passes    = false;               // TODO(engine-wire)
+    opts.show_overage_credit  = false;               // TODO(engine-wire)
+    opts.is_debug_mode        = false;               // TODO(engine-wire)
+    opts.tmux_session         = std::nullopt;        // TODO(engine-wire)
+    opts.company_announcement = std::nullopt;        // TODO(engine-wire)
+    opts.emergency_tip        = std::nullopt;        // TODO(engine-wire)
+    // StatusNotices: 6 TS definitions (memory/agent/subscriber/apikey/both/
+    // jetbrains). All stubs inactive until engine wiring provides data.
+    opts.status_notices       = {};
 
-    return vbox({
-        logo::RenderCondensedLogoElement(data, term_cols),
-        text(""),   // breathing room between logo and banner (TS LogoV2 margin)
-        logo::RenderOpus1MNotice(),
-    });
+    return lv2::render_logo_v2(opts, term_cols,
+                               /*is_new_user=*/s.user_display_name.empty());
 }
 
 // UI2: prompt input shell.  Full feature parity in prompt_input_full.cppm.
@@ -1176,45 +1263,79 @@ inline void move_prompt_cursor_right(const std::shared_ptr<ReplScreenState>& sta
 
 [[nodiscard]] inline Element RenderPromptInput(const ReplScreenState& s,
                                                   int term_cols) {
-    namespace uic = ::ui::components;
-    namespace vim = cc::ui::prompt::vim_input;
+    namespace uic   = ::ui::components;
+    namespace vim   = cc::ui::prompt::vim_input;
+    namespace figs  = cc::ui::design::figures;
 
-    // --- 1. Prompt glyph (figures.pointer in TS) + accent colour ---------
-    // TS PromptInputModeIndicator:
-    //   * normal prompt  : color=undefined → uses theme.text (dark: white,
-    //     light: black), NOT Green (hard-coded green was a CPP-only mistake).
-    //     Figures pointer = U+276F HEAVY RIGHT-POINTING ANGLE QUOTATION MARK ORNAMENT "❯".
-    //   * bash mode (!)  : bashBorder = ansi:magenta → RGB(255,0,135) dark token.
-    //   * slash command (/): subtle/muted.
-    //   * vim modes: same glyph as normal prompt, NOT per-mode color shifts
-    //     (the ModeIndicator badge shows the vim state separately).
+    // --- 1. Prompt glyph + accent colour (TS faithfulness, unified) ---------
     //
-    // Color table mapped to FTXUI Color, faithful to theme.ts dark tokens:
-    //   theme.text        = ansi:whiteBright ≈ Color::White
-    //   theme.subtle      = ansi:blackBright ≈ Color::GrayLight
-    //   theme.promptBorder= ansi:white       ≈ Color::Palette::White
-    //   theme.bashBorder  = ansi:magenta     ≈ Color::Palette::Magenta
-    std::string mp; Color mc = Color::White;   // default: theme.text (white)
-    switch (s.input_mode) {
-      case InputMode::Prompt:       mp="❯";   mc=Color::White;    break;
-      case InputMode::Bash:         mp="!";   mc=Color::Magenta;  break;   // bashBorder
-      case InputMode::SlashCommand: mp="/";   mc=Color::GrayLight;break;   // subtle
-      case InputMode::HistorySearch:mp="?";   mc=Color::GrayLight;break;   // subtle
-      case InputMode::PlanMode:     mp="▣";   mc=Color::Yellow; break;
-      case InputMode::VimInsert:    mp="❯";  mc=Color::White;    break;   // same as normal
-      case InputMode::VimNormal:    mp="❮";  mc=Color::White;    break;   // same
-      case InputMode::VimVisual:    mp="❮";  mc=Color::White;    break;   // same
-      case InputMode::OrphanedPermission: mp="!"; mc=Color::Red;  break;
-      case InputMode::TaskNotification: mp="*"; mc=Color::Cyan;  break; }
+    // REFERENCE (TS files):
+    //   PromptInputModeIndicator.tsx + inputModes.ts + theme.ts
+    //
+    // SEMANTICS (simplified from TS — the CPP InputMode enum is kept
+    // intact for backward compat with autocomplete gates in app.cppm,
+    // but the PREFIX GLYPH COLLAPSES to exactly TWO visual variants per TS:
+    //
+    //   VARIANT A  — mode == Bash:        glyph = kBashGlyph   "!"
+    //                                        color = bashBorder  rgb(255,0,135)
+    //   VARIANT B  — ALL OTHER modes:     glyph = kPointer     "❯"
+    //                                        color = palette.text (white)
+    //                 OR: if a teammate/agent conversation is active and the
+    //                     engine supplies `teammate_prefix_color`, use that
+    //                     instead of palette.text (TS AGENT_COLOR_TO_THEME_COLOR).
+    //
+    // The old CPP-only per-mode glyphs (Slash "/", History "?", Plan "▣",
+    // VimNormal "❮", VimVisual "❮", Permission "!", Task "*") are ELIMINATED
+    // from the prefix position per TS:
+    //   - Slash / History are routing semantics, not visual glyphs — TS's
+    //     PromptInputModeIndicator falls through to ❯ even for those.
+    //   - Vim mode is shown as a SEPARATE badge below the prefix (the
+    //     "-- INSERT --" / "-- NORMAL --" row rendered later in this fn).
+    //   - Plan mode is shown as a badge in the footer (StatusLine) or as a
+    //     bubble marker, never as a replacement prefix glyph.
+    //   - OrphanedPermission / TaskNotification fall through to the default
+    //     "❯" pointer per TS.
+    //
+    // Fetch the currently active palette via the theme provider (TS ThemeContext
+    // equivalent).  This respects ThemeVariant::Dark / Light / Daltonized /
+    // Monochrome plus the force_monochrome a11y flag.  theme::current_theme()
+    // is a cheap value copy (2 pointers + 3 booleans) with a short mutex grab.
+    namespace thm = cc::ui::design::theme;
+    namespace tok = cc::ui::design::tokens;
+    const tok::Palette& pal = *thm::current_theme().palette;
+    const bool is_bash_mode = (s.input_mode == InputMode::Bash);
+    std::string prefix_str;     // passed into TextInputOptions.prefix;
+    Color       prefix_color;   // applied to the prefix inside renderInputArea.
+
+    // Step 1a: pick glyph.
+    prefix_str += is_bash_mode
+        ? std::string(figs::kBashGlyph)
+        : std::string(figs::kPointer);
+    prefix_str += " ";   // trailing NBSP/space — 2 display cells total (TS).
+
+    // Step 1b: pick color.
+    //
+    // Bash mode always uses bashBorder (TS: dark rgb(255,0,135), daltonized blue
+    // variants, light same).  All other modes: use the teammate color if the
+    // engine has supplied one via s.teammate_prefix_color (TS
+    // AGENT_COLOR_TO_THEME_COLOR map in agentColorManager.ts), otherwise fall
+    // through to palette.text (dark: pure white, light: pure black).
+    if (is_bash_mode) {
+        prefix_color = pal.bash_border;
+    } else if (s.teammate_prefix_color.has_value()) {
+        prefix_color = *s.teammate_prefix_color;
+    } else {
+        prefix_color = pal.text;
+    }
+    // (Prefix rendering happens INSIDE TextInputImpl via opts.prefix — see
+    // below — so cursor_display_col returns correct values automatically
+    // and the declared cursor lands at the right screen column.)
 
     // --- 2. Sync a TextInputImpl from the projection --------------------
-    // Built per render (cheap: only the buffer text + cursor move).  We do
-    // NOT push_undo so the undo stack stays empty here — the engine remains
-    // the source of truth for input_text; the impl is purely a render
-    // primitive for caret/multiline/selection fidelity.
     uic::TextInputOptions opts;
     opts.placeholder  = s.input_placeholder;
-    opts.prefix       = "";    // glyph drawn separately (coloured per mode)
+    opts.prefix       = std::move(prefix_str);   // ← RENDERED INSIDE now (BUG-2 fix)
+    opts.prefix_color = prefix_color;            // ← new field: explicit color for prefix
     opts.multiline    = true;
     opts.show_line_numbers = false;
     opts.enable_undo_redo   = false;
@@ -1222,7 +1343,7 @@ inline void move_prompt_cursor_right(const std::shared_ptr<ReplScreenState>& sta
     opts.show_history       = false;
     opts.argument_hint      = s.pending_argument_hint;  // SL-03
     opts.inline_ghost_text = s.pending_ghost_text;      // SL-05
-    auto impl = std::make_shared<uic::TextInputImpl>(opts);
+    auto impl = std::make_shared<uic::TextInputImpl>(std::move(opts));
     impl->set_text(s.input_text);  // parks cursor at end of buffer
     const auto cursor = input_cursor_or_end(s);
     const auto end = s.input_text.size();
@@ -1291,37 +1412,28 @@ inline void move_prompt_cursor_right(const std::shared_ptr<ReplScreenState>& sta
     }
 
     // --- 5. Compose -----------------------------------------------------
-    // TS renders the mode-prefix glyph at natural weight (no bold) using
-    // theme.text / theme.subtle / theme.bashBorder as the foreground.
-    // Adding `bold` here causes terminals that map bold to bright colors
-    // to produce a washed-out/bright-white prefix instead of the pure white
-    // TS emits.
+    // Per TS layout: a leading space (`text(" ")`) followed by the
+    // TextInputImpl's rendered output (which itself is `prefix_glyph + space
+    // + text`).  The leading space was originally introduced so the glyph
+    // doesn't hug the left edge; we keep it for visual parity.
     box_body.push_back(hbox({
         text(" "),
-        text(mp + " ") | color(mc),
         input_area,
     }));
 
     auto content = vbox(std::move(box_body));
 
     // TS: Box with borderStyle="round", borderLeft={false}, borderRight={false}.
-    // Ink renders this as TWO plain horizontal rules:
-    //   - top:     "─" × width  (U+2500 BOX DRAWINGS LIGHT HORIZONTAL)
-    //   - bottom:  "─" × width
-    // No side borders; no corner chars (since left/right disabled).
-    // Color: promptBorder token → dark ansi:white ≈ RGB(153,153,153) in light;
-    // theme.promptBorder = ansi:whiteBright in dark.  Use a mid-gray for
-    // visibility in both themes.
-    const Color k_prompt_border = Color::RGB(153, 153, 153);
+    // Ink renders this as TWO plain horizontal rules with no side borders and
+    // no corners.  Color = theme.promptBorder (TS dark: ansi:whiteBright ≈
+    // rgb(136,136,136); light: ansi:whiteBright ≈ rgb(153,153,153)).  Use the
+    // palette value we just added instead of the inline hardcoded 153,153,153
+    // so daltonized/monochrome/light variants get the correct frame color.
+    const Color frame_color = pal.prompt_border;
 
-    // FTXUI separator() fills the allocated width with the horizontal
-    // box-drawing glyph (equivalent to U+2500).  The outer size() below
-    // guarantees the width equals term_cols, so the rule spans the screen.
-    Element top_rule    = separator() | color(k_prompt_border);
-    Element bottom_rule = separator() | color(k_prompt_border);
+    Element top_rule    = separator() | color(frame_color);
+    Element bottom_rule = separator() | color(frame_color);
 
-    // Outer container: allocate the exact requested width so separators
-    // expand to the full column count (no "missing border" artefacts).
     return vbox({
         std::move(top_rule),
         content,
@@ -1738,19 +1850,18 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
     Elements L;
     Elements scroll_rows; scroll_rows.reserve(4);
     const auto visible_messages = BuildVisibleMessages(s);
-    // Faithful to TS FullscreenLayout.tsx: the CondensedLogo (welcome header)
-    // is ALWAYS rendered at the top of the scroll area — even when transcript
-    // messages exist (see IMG#19 — TS shows 4 history messages below the 4-line
-    // CondensedLogo + Opus notice).  The old `messages.empty()` gate caused the
-    // massive P0 visual gap reported in IMG#18.
+    // ── Pinned Logo header (R2 fix — TS Messages.tsx:679) ─────────────
+    // Faithful to TS Messages.tsx line 679: LogoHeader is rendered OUTSIDE
+    // the VirtualMessageList — scrolling messages never scroll it out of
+    // view (IMG#18 fix).  We therefore place it in the new `slots.header`
+    // pinned slot (drawn above scrollwrap) rather than inside scroll_rows.
     //
     // Height is pinned to HEIGHT EQUAL so nested yframe/flex never compresses
-    // the strip to 0 rows, and pinned width fills TERM_COLS so the strip has correct
-    // horizontal anchor.  Opus notice is rendered only when session is idle (no
-    // streaming, no JSX command active).
-    scroll_rows.push_back(RenderWelcomeHeader(s, spinner_frame, term_cols)
-                        | size(HEIGHT, EQUAL, 4)
-                        | size(WIDTH,  EQUAL, term_cols));
+    // the strip to 0 rows, and pinned width fills TERM_COLS so the strip has
+    // correct horizontal anchor.
+    slots.header = RenderWelcomeHeader(s, spinner_frame, term_cols)
+                 | size(HEIGHT, EQUAL, 4)
+                 | size(WIDTH,  EQUAL, term_cols);
     scroll_rows.push_back(RenderMessages(visible_messages, s.selected_message_idx,
                                          s.viewport_height_lines, s.scroll_offset,
                                          s.scroll_pinned_to_bottom, spinner_frame));
@@ -2809,7 +2920,43 @@ inline bool forward_trust_dialog(
                 // Accept printable ASCII (0x20..0x7E) and UTF-8 multi-byte
                 // start bytes (0xC0..0xFF).  Continuation bytes (0x80..0xBF)
                 // should never appear as the first byte of a character event.
-                if ((first >= 0x20 && first < 0x7F) || first >= 0xC0) {
+                const bool is_printable =
+                    (first >= 0x20 && first < 0x7F) || first >= 0xC0;
+                if (is_printable) {
+                    namespace figs = cc::ui::design::figures;
+                    // ── P0-1: TS-equivalent single-char mode interception ──
+                    //
+                    // TS PromptInput.tsx lines 869-901: when the user types a
+                    // single '!' with cursor at offset 0 into an EMPTY input
+                    // buffer, that's a MODE TRANSITION — NOT a character to
+                    // store.  The '!' is swallowed, InputMode flips, and the
+                    // prefix glyph changes without the text ever landing in
+                    // the input state (so history persists cleanly).
+                    //
+                    // All other cases (multi-byte paste of "!cmd", cursor
+                    // nonzero, typing '!' into existing text) → fall through
+                    // to insert_prompt_text as normal; HandleSubmit will
+                    // strip the prefix on submit for those.
+                    const bool cursor_at_zero =
+                        state->input_cursor == std::string::npos ||
+                        state->input_cursor == 0;
+                    if (state->input_text.empty() && cursor_at_zero &&
+                        figs::is_mode_character(ch) &&
+                        ch.size() == 1) {
+                        // Swallow the char, flip mode.  Toggle Prompt↔Bash.
+                        state->input_mode =
+                            (state->input_mode == InputMode::Bash)
+                                ? InputMode::Prompt
+                                : InputMode::Bash;
+                        state->is_prompt_input_active = true;
+                        state->last_keystroke =
+                            std::chrono::steady_clock::now();
+                        // Also wipe any dismissed-suggestion memory since
+                        // mode change implicitly changes the autocomplete
+                        // provider context.
+                        state->dismissed_autocomplete_for_input.clear();
+                        return true;
+                    }
                     insert_prompt_text(state, ch);
                     return true;
                 }

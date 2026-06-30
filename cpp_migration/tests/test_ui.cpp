@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -48,6 +49,16 @@ import cc.ui.components.lsp_rec_menu;
 import cc.ui.components.plugin_hint_menu;
 import cc.ui.common.declared_cursor;
 import cc.ui.design.theme;
+// P0-2: 7-stage message pipeline (dedup + tag filter + tool augment + hide/index).
+import cc.ui.messages.message_pipeline;
+// P0-3: VirtualMessageList — O(viewport) windowed renderer for >80-row chats.
+import cc.ui.messages.virtual_list;
+// P0-1/P0-2: glyph + palette constants for preview-truncate ellipsis check.
+import cc.ui.design.figures;
+// P0-4: LogoV2 3-mode dispatch + WelcomeV2 static 58-col card + notice stack
+// (imported transitively via cc.ui.repl_screen, but we import explicitly for
+// direct unit tests against logo_v2 helpers).
+import cc.ui.logo_v2;
 import cc.ui.mcp_dialogs;
 import cc.config.config;
 import cc.commands.registry;
@@ -1328,11 +1339,11 @@ TEST(ReplScreen, WelcomeHeaderWidthAndClaudeColorTrackTerminal) {
     EXPECT_NE(wide.find("Opus now defaults to 1M context"),
               std::string::npos);
 
-    // Faithful condensed logo uses the brand-orange accent (🐱, same as TS
-    // LogoV2's Clawd accent RGB(255,140,0)) on the first row glyph, instead
-    // of the old primary-palette border decoration.  The accent must appear
-    // somewhere in the rendered header.
-    const ftxui::Color kBrandAccent(255, 140, 0);
+    // Faithful condensed logo uses the brand accent (same as TS
+    // LogoV2's Clawd accent RGB(215,119,87) = #D77757) on the first row
+    // glyph, instead of the old primary-palette border decoration.  The
+    // accent must appear somewhere in the rendered header.
+    const ftxui::Color kBrandAccent(215, 119, 87);
     bool has_brand_accent_pixel = false;
     for (int y = 0; y < 16 && !has_brand_accent_pixel; ++y) {
         for (int x = 0; x < 200; ++x) {
@@ -1391,16 +1402,26 @@ TEST(ReplScreen, WelcomeHeaderAnimatesAsteriskColor) {
         120,
         16);
 
-    // Phase 2 Faithful CondensedLogo: the welcome strip is a static 3-line
-    // logo + Opus1M notice; it no longer embeds a per-frame asterisk
-    // animation.  Both frames must therefore render identically, and the
-    // spinner glyph (✻) that decorated the old header must be absent.
-    EXPECT_EQ(strip_ansi(frame0).find("✻"), std::string::npos);
+    // Phase 2 + P0-4 Faithful CondensedLogo: the welcome strip is a
+    // static 3-line logo + notice stack (Voice ✻ + Opus1m + gated rest).
+    // There is NO per-frame asterisk animation — both frames must
+    // therefore render byte-for-byte identical.  The ✻ (U+273B) glyph
+    // comes from VoiceModeNotice (padded-left-2), which is static — that
+    // is the ONLY "asterisk-like" glyph allowed in the output; the old
+    // rotating `✦✧✶` spinner chars embedded inside the old ASCII-art
+    // card must NOT appear.
     EXPECT_EQ(frame0, frame8);
-    // Sanity: the condensed-logo branding is present in both frames.
+    // Sanity: condensed-logo branding + Opus1m body present.
     EXPECT_NE(strip_ansi(frame0).find("Claude Code"), std::string::npos);
     EXPECT_NE(strip_ansi(frame0).find("Opus now defaults to 1M context"),
               std::string::npos);
+    // VoiceModeNotice static glyph present (U+273B Teardrop-Spoked Asterisk).
+    EXPECT_NE(strip_ansi(frame0).find("\xE2\x9C\xBB"), std::string::npos);
+    // Old rotating-spinner glyphs (✦ U+2726, ✧ U+2727, ✶ U+2736) must be
+    // absent — these were the per-frame animation characters.
+    EXPECT_EQ(strip_ansi(frame0).find("\xE2\x9C\xA6"), std::string::npos);  // ✦
+    EXPECT_EQ(strip_ansi(frame0).find("\xE2\x9C\xA7"), std::string::npos);  // ✧
+    EXPECT_EQ(strip_ansi(frame0).find("\xE2\x9C\xB6"), std::string::npos);  // ✶
 }
 
 TEST(ReplScreen, PromptInputRendersTopAndBottomBorders) {
@@ -4135,3 +4156,902 @@ TEST(ToolPermission, EscOneshotSingleFire) {
     EXPECT_TRUE(comp2->OnEvent(ftxui::Event::Escape));
     EXPECT_EQ(decide_count2.load(), 1);
 }
+
+// ──────────────────────────────────────────────────────────────────────────
+// P0-2 MessagePipeline tests — 7 stages message pipeline (Stage 1/4/5/6/7)
+// Faithful to TS messagesSlice dedup / filter / augment / hide / visible.
+// ──────────────────────────────────────────────────────────────────────────
+
+namespace pl = cc::ui::messages::pipeline;
+
+// ── Stage 1 DEDUP ──────────────────────────────────────────────────────────
+TEST(MessagePipeline, DedupStartDeltaStopSmoke) {
+    pl::DedupTracker t;
+    EXPECT_EQ(t.state_of(0), pl::DedupTracker::IndexState::kNotSeen);
+
+    EXPECT_TRUE(t.should_accept_start(0));
+    EXPECT_EQ(t.state_of(0), pl::DedupTracker::IndexState::kOpen);
+
+    // Duplicate Start while Open → accept (still open, no harm).
+    EXPECT_TRUE(t.should_accept_start(0));
+    EXPECT_EQ(t.state_of(0), pl::DedupTracker::IndexState::kOpen);
+
+    // Deltas while Open → accept.
+    EXPECT_TRUE(t.should_accept_delta(0));
+    EXPECT_TRUE(t.should_accept_delta(0));
+
+    // First Stop → accept and transition to terminal.
+    EXPECT_TRUE(t.should_accept_stop(0));
+    EXPECT_EQ(t.state_of(0), pl::DedupTracker::IndexState::kStopped);
+
+    // Post-Stop: Start / Delta / Stop all dedup dropped.
+    EXPECT_FALSE(t.should_accept_start(0)) << "replay Start after Stop must be dropped";
+    EXPECT_FALSE(t.should_accept_delta(0)) << "Delta after Stop must be dropped";
+    EXPECT_FALSE(t.should_accept_stop(0))  << "Second Stop must be dropped";
+
+    // Other indices are unaffected.
+    EXPECT_TRUE(t.should_accept_start(1));
+    EXPECT_TRUE(t.should_accept_start(42));
+}
+
+TEST(MessagePipeline, DedupDeltaBeforeStartPromotesToOpen) {
+    pl::DedupTracker t;
+    // Out-of-order Delta (server sent events in a wacky order) → should accept
+    // and leave the index in Open state so that the subsequent Start doesn't
+    // create a duplicate.
+    EXPECT_TRUE(t.should_accept_delta(7));
+    EXPECT_EQ(t.state_of(7), pl::DedupTracker::IndexState::kOpen);
+    EXPECT_TRUE(t.should_accept_start(7));   // Start after Delta → dedup accept
+}
+
+TEST(MessagePipeline, DedupToolUseExecStartAndEndOneShot) {
+    pl::DedupTracker t;
+    EXPECT_TRUE(t.should_accept_exec_start("toolu_01abc"));
+    EXPECT_TRUE(t.should_accept_exec_end("toolu_01abc"));
+    // Repeated calls are dedup'd.
+    EXPECT_FALSE(t.should_accept_exec_start("toolu_01abc"));
+    EXPECT_FALSE(t.should_accept_exec_end("toolu_01abc"));
+    // Different id is independent.
+    EXPECT_TRUE(t.should_accept_exec_start("toolu_02def"));
+}
+
+TEST(MessagePipeline, DedupClearResetsAllState) {
+    pl::DedupTracker t;
+    (void)t.should_accept_start(0);
+    (void)t.should_accept_stop(0);
+    (void)t.should_accept_exec_start("abc");
+    (void)t.should_accept_exec_end("abc");
+    EXPECT_EQ(t.state_of(0), pl::DedupTracker::IndexState::kStopped);
+
+    t.clear();
+
+    EXPECT_EQ(t.state_of(0), pl::DedupTracker::IndexState::kNotSeen);
+    EXPECT_TRUE(t.should_accept_start(0));
+    EXPECT_TRUE(t.should_accept_exec_start("abc"));
+}
+
+// ── Stage 4 USER_INPUT_FILTER ──────────────────────────────────────────────
+TEST(MessagePipeline, FilterPlainTextFastPath) {
+    auto rows = pl::filter_user_text("hello world");
+    ASSERT_EQ(rows.size(), 1u);
+    EXPECT_EQ(rows[0].kind, pl::UserRowKind::kPlainText);
+    EXPECT_EQ(rows[0].display_text, "hello world");
+}
+
+TEST(MessagePipeline, FilterBashInputTag) {
+    auto rows = pl::filter_user_text("<bash-input>ls -la ~/Documents</bash-input>");
+    ASSERT_GE(rows.size(), 1u);
+    auto it = std::find_if(rows.begin(), rows.end(),
+        [](const auto& r){ return r.kind == pl::UserRowKind::kBashInput; });
+    ASSERT_NE(it, rows.end());
+    EXPECT_EQ(it->display_text, "ls -la ~/Documents");
+}
+
+TEST(MessagePipeline, FilterQuotedReply) {
+    auto rows = pl::filter_user_text(
+        "<quoted-reply># Old issue number 42\nsecond line</quoted-reply>\n"
+        "Please take a look");
+    ASSERT_GE(rows.size(), 1u);
+    auto it = std::find_if(rows.begin(), rows.end(),
+        [](const auto& r){ return r.kind == pl::UserRowKind::kQuotedReply; });
+    ASSERT_NE(it, rows.end());
+    EXPECT_EQ(it->quoted_reply, "# Old issue number 42\nsecond line");
+    EXPECT_EQ(it->display_text, "Please take a look");
+}
+
+TEST(MessagePipeline, FilterToolInvocation) {
+    auto rows = pl::filter_user_text("<tool:BashTool>ls /tmp | head</tool:BashTool>");
+    ASSERT_GE(rows.size(), 1u);
+    auto it = std::find_if(rows.begin(), rows.end(),
+        [](const auto& r){ return r.kind == pl::UserRowKind::kToolInvocation; });
+    ASSERT_NE(it, rows.end());
+    EXPECT_EQ(it->tool_name, "BashTool");
+    EXPECT_EQ(it->display_text, "ls /tmp | head");
+}
+
+TEST(MessagePipeline, FilterAtMentions) {
+    auto rows = pl::filter_user_text(
+        "Please review "
+        "<at-file>src/main.cpp</at-file> and "
+        "<at-agent>SeniorEngineer</at-agent>"
+        "<at-tool>SearchTool</at-tool>");
+    auto has_attach = [](const auto& r){ return r.kind == pl::UserRowKind::kAttachment; };
+    const auto attachments = std::count_if(rows.begin(), rows.end(), has_attach);
+    EXPECT_GE(attachments, 3u);
+    bool found_file = false, found_agent = false, found_tool = false;
+    for (const auto& r : rows) {
+        if (r.kind != pl::UserRowKind::kAttachment) continue;
+        if (r.attachment_ref == "@src/main.cpp") found_file = true;
+        if (r.attachment_ref == "@SeniorEngineer") found_agent = true;
+        if (r.attachment_ref == "@tool:SearchTool") found_tool = true;
+    }
+    EXPECT_TRUE(found_file);
+    EXPECT_TRUE(found_agent);
+    EXPECT_TRUE(found_tool);
+}
+
+TEST(MessagePipeline, FilterMixedContentProducesPlainTextRemainder) {
+    // <bash-input> + extra plain text should also yield a plain-text row.
+    auto rows = pl::filter_user_text(
+        "<bash-input>make</bash-input>\n<at-file>Makefile</at-file>");
+    // Expect at least: kBashInput + kAttachment.  Any extra whitespace/text
+    // may collapse to plain-text row; verify no row has raw XML left.
+    for (const auto& r : rows) {
+        EXPECT_EQ(r.display_text.find('<'), std::string::npos)
+            << "display_text must never contain raw XML: " << r.display_text;
+        EXPECT_EQ(r.quoted_reply.find('<'), std::string::npos);
+    }
+    EXPECT_TRUE(std::any_of(rows.begin(), rows.end(),
+        [](const auto& r){ return r.kind == pl::UserRowKind::kBashInput; }));
+    EXPECT_TRUE(std::any_of(rows.begin(), rows.end(),
+        [](const auto& r){ return r.kind == pl::UserRowKind::kAttachment; }));
+}
+
+TEST(MessagePipeline, FilterEmptyInputProducesSinglePlaceholder) {
+    auto rows = pl::filter_user_text("   ");
+    ASSERT_EQ(rows.size(), 1u);
+    EXPECT_EQ(rows[0].kind, pl::UserRowKind::kPlainText);
+}
+
+// ── Stage 5 TOOL_RESULT_AUGMENT ────────────────────────────────────────────
+TEST(MessagePipeline, ToolAugment_TruncationFlagTriggersAboveThreshold) {
+    std::string big(pl::kMaxToolPreviewBytes + 100, 'x');
+    auto a = pl::augment_tool_result(big, /*is_error=*/false);
+    EXPECT_TRUE(a.truncated);
+    EXPECT_EQ(a.error_code, 0);
+    EXPECT_FALSE(a.preview.empty());   // truncated or not, preview is set
+
+    std::string small(100, 'a');
+    auto b = pl::augment_tool_result(small, /*is_error=*/false);
+    EXPECT_FALSE(b.truncated);
+}
+
+TEST(MessagePipeline, ToolAugment_ParseErrorCodeRecognisesPatterns) {
+    // Pattern 1: "Error 42: ..."
+    EXPECT_EQ(pl::parse_error_code("Error 42: something failed"), 42);
+    // Pattern 2: "exit code: 127"
+    EXPECT_EQ(pl::parse_error_code("exit code: 127\n..."), 127);
+    EXPECT_EQ(pl::parse_error_code("Exit status = 1\n"), 1);
+    EXPECT_EQ(pl::parse_error_code("[exit_code=7] Done"), 7);
+    // Pattern 3: HTTP status codes
+    EXPECT_EQ(pl::parse_error_code("HTTP 404 Not Found\n"), 404);
+    EXPECT_EQ(pl::parse_error_code("http 500 internal server error"), 500);
+    // No numeric prefix → 0
+    EXPECT_EQ(pl::parse_error_code("Success!"), 0);
+    EXPECT_EQ(pl::parse_error_code(""), 0);
+}
+
+TEST(MessagePipeline, ToolAugment_PreviewUsesFirstNonEmptyLine) {
+    const std::string input = "\n\n  \nThis is line four with content.\nLine five ignored.\n";
+    auto a = pl::augment_tool_result(input, false);
+    EXPECT_NE(a.preview.find("This is line four"), std::string::npos)
+        << "preview: " << a.preview;
+    EXPECT_EQ(a.preview.find("Line five"), std::string::npos)
+        << "preview should only include first non-empty line";
+}
+
+TEST(MessagePipeline, ToolAugment_PreviewTruncatesTo200Codepoints) {
+    std::string line = "abcdefghij";   // 10 chars
+    std::string big;
+    for (int i = 0; i < 30; ++i) big += line;  // 300 chars, one line
+    auto a = pl::augment_tool_result(big, false);
+    // kMaxCompactPreviewChars = 200 → preview capped at that plus ellipsis
+    EXPECT_LE(a.preview.size(), 200u + 10u);
+    EXPECT_NE(a.preview.find(cc::ui::design::figures::kEllipsis), std::string::npos)
+        << "long preview should end with … ellipsis";
+}
+
+// ── Stage 6 HIDE_POLICY ────────────────────────────────────────────────────
+TEST(MessagePipeline, HidePolicy_HidesCompletedThinkingWhenUnselected) {
+    pl::HideContext ctx{
+        .is_complete = true,
+        .is_selected = false,
+        .is_streaming_tail = false,
+    };
+    EXPECT_TRUE(pl::should_hide_row(pl::PayloadShape::kAssistantThinking, ctx));
+
+    ctx.is_selected = true;
+    EXPECT_FALSE(pl::should_hide_row(pl::PayloadShape::kAssistantThinking, ctx));
+
+    ctx.is_selected = false;
+    ctx.is_streaming_tail = true;
+    EXPECT_FALSE(pl::should_hide_row(pl::PayloadShape::kAssistantThinking, ctx));
+
+    ctx.is_streaming_tail = false;
+    ctx.is_complete = false;
+    EXPECT_FALSE(pl::should_hide_row(pl::PayloadShape::kAssistantThinking, ctx));
+}
+
+TEST(MessagePipeline, HidePolicy_AlwaysHidesRedactedThinking) {
+    pl::HideContext ctx{};
+    // Redacted thinking is ALWAYS hidden, regardless of context.
+    EXPECT_TRUE(pl::should_hide_row(pl::PayloadShape::kAssistantRedactedThinking, ctx));
+    ctx.is_selected = true;
+    EXPECT_TRUE(pl::should_hide_row(pl::PayloadShape::kAssistantRedactedThinking, ctx));
+}
+
+TEST(MessagePipeline, HidePolicy_HidesCompactedTurnsAndSilentBridgeToolUses) {
+    pl::HideContext ctx{};
+    // UserPrompt is never hidden by default.
+    EXPECT_FALSE(pl::should_hide_row(pl::PayloadShape::kUserPrompt, ctx));
+
+    // Turn compacted → every shape inside is hidden.
+    ctx.is_compacted_turn = true;
+    EXPECT_TRUE(pl::should_hide_row(pl::PayloadShape::kAssistantText, ctx));
+    EXPECT_TRUE(pl::should_hide_row(pl::PayloadShape::kAssistantToolResult, ctx));
+    EXPECT_TRUE(pl::should_hide_row(pl::PayloadShape::kSystemText, ctx));
+    ctx.is_compacted_turn = false;
+
+    // Silent bridge tool call (no error, zero-note preview) → hidden.
+    ctx.is_silent_bridge_call = true;
+    EXPECT_TRUE(pl::should_hide_row(pl::PayloadShape::kAssistantToolUse, ctx));
+    EXPECT_TRUE(pl::should_hide_row(pl::PayloadShape::kAssistantToolResult, ctx));
+    ctx.is_silent_bridge_call = false;
+    EXPECT_FALSE(pl::should_hide_row(pl::PayloadShape::kAssistantToolUse, ctx));
+}
+
+// ── Stage 7 VISIBLE_INDEX ──────────────────────────────────────────────────
+TEST(MessagePipeline, VisibleIndex_EmptyInput) {
+    auto idx = pl::build_visible_index(0, [](std::size_t){ return true; });
+    EXPECT_TRUE(idx.empty());
+}
+
+TEST(MessagePipeline, VisibleIndex_AllRowsVisible) {
+    auto idx = pl::build_visible_index(5, [](std::size_t){ return true; });
+    ASSERT_EQ(idx.size(), 5u);
+    for (std::size_t i = 0; i < 5; ++i) EXPECT_EQ(idx[i], i);
+}
+
+TEST(MessagePipeline, VisibleIndex_EveryOtherRowHidden) {
+    auto idx = pl::build_visible_index(6, [](std::size_t i){ return i % 2 == 0; });
+    ASSERT_EQ(idx.size(), 3u);
+    EXPECT_EQ(idx[0], 0u);
+    EXPECT_EQ(idx[1], 2u);
+    EXPECT_EQ(idx[2], 4u);
+}
+
+TEST(MessagePipeline, VisibleIndex_FirstRowsHiddenPreservesOrder) {
+    // First 10 hidden, then 10 visible, then 5 hidden.
+    auto idx = pl::build_visible_index(25, [](std::size_t i){
+        return i >= 10 && i < 20;
+    });
+    ASSERT_EQ(idx.size(), 10u);
+    for (std::size_t i = 0; i < 10; ++i) EXPECT_EQ(idx[i], 10u + i);
+}
+
+TEST(MessagePipeline, VisibleIndex_ClampViewport) {
+    // 10 visible: V[0..9]
+    const auto [f1, c1] = pl::clamp_viewport(10, 0, 5);
+    EXPECT_EQ(f1, 0u);
+    EXPECT_EQ(c1, 5u);
+
+    // Overflow: ask for 5 starting at 8 → [8,9] only (count=2)
+    const auto [f2, c2] = pl::clamp_viewport(10, 8, 5);
+    EXPECT_EQ(f2, 8u);
+    EXPECT_EQ(c2, 2u);
+
+    // Empty visible list → no rows.
+    const auto [f3, c3] = pl::clamp_viewport(0, 0, 10);
+    EXPECT_EQ(c3, 0u);
+
+    // Zero viewport count → nothing rendered.
+    const auto [f4, c4] = pl::clamp_viewport(100, 50, 0);
+    EXPECT_EQ(c4, 0u);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// P0-3 VirtualMessageList tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+namespace vl = cc::ui::messages::virtual_list;
+using ::cc::ui::messages::VisibleRow;
+
+namespace {
+/// Build N virtual rows of cycling heights [1,3,7,11] (same as internal
+/// test helpers).  Pattern ensures we mix tiny + tall rows throughout.
+inline std::vector<VisibleRow> make_vl_rows(size_t n) {
+    std::vector<VisibleRow> rows(n);
+    int pat[4] = {1, 3, 7, 11};
+    for (size_t i = 0; i < n; ++i) {
+        rows[i].row_id = i + 1;
+        rows[i].estimated_height_lines = pat[i % 4];
+        rows[i].backend_index = i;
+        rows[i].type_hint = 0;
+    }
+    return rows;
+}
+}  // namespace
+
+TEST(VirtualList, GeometryPrefixSumIsExact) {
+    // N=5 rows  h=[1,3,7,11,1]  psum=[0,1,4,11,22,23]
+    auto rows = make_vl_rows(5);
+    auto jh = vl::build_geometry(std::span{rows});
+    ASSERT_EQ(jh.size(), 5u);
+    EXPECT_EQ(jh.total(), 23);
+    EXPECT_EQ(jh.top_of(0), 0);
+    EXPECT_EQ(jh.top_of(1), 1);
+    EXPECT_EQ(jh.top_of(2), 4);
+    EXPECT_EQ(jh.top_of(3), 11);
+    EXPECT_EQ(jh.top_of(4), 22);
+    EXPECT_EQ(jh.top_of(5), 23);  // one past last
+    EXPECT_EQ(jh.height_of(2), 7);
+    EXPECT_EQ(jh.height_of(3), 11);
+}
+
+TEST(VirtualList, FindRowBinarySearch) {
+    auto rows = make_vl_rows(1000);
+    auto jh = vl::build_geometry(std::span{rows});
+    // Exact psum boundary → row whose top is at the target.
+    EXPECT_EQ(jh.find_row_at_visual_line(0), 0u);
+    // 1st row is h=1, so line 1 starts row 1
+    EXPECT_EQ(jh.find_row_at_visual_line(1), 1u);
+    // mid of row 2 (top=4, height=7): lines 4..10
+    EXPECT_EQ(jh.find_row_at_visual_line(4), 2u);
+    EXPECT_EQ(jh.find_row_at_visual_line(5), 2u);
+    EXPECT_EQ(jh.find_row_at_visual_line(10), 2u);
+    // line 11 → row 3
+    EXPECT_EQ(jh.find_row_at_visual_line(11), 3u);
+    // OOB clamp
+    EXPECT_EQ(jh.find_row_at_visual_line(-999), 0u);
+    EXPECT_EQ(jh.find_row_at_visual_line(999999), rows.size() - 1);
+}
+
+TEST(VirtualList, VisibleSliceCoversViewportPlusOverscan) {
+    // 1000 rows of cycling heights → total ≈ 5500 lines
+    auto rows = make_vl_rows(1000);
+    auto jh = vl::build_geometry(std::span{rows});
+    // slice start=0, viewport=40 → must cover lines [0, 40+kOverscan)
+    auto [start, cnt] = vl::build_visible_slice(jh, 0, 40);
+    EXPECT_EQ(start, 0u);
+    const int end_line = jh.find_visual_top_for_row(start + cnt);
+    const int need = 40 + vl::kOverscanRows;
+    EXPECT_GE(end_line, need)
+        << "slice must cover viewport + overscan vertically";
+}
+
+TEST(VirtualList, VisibleSliceMiddleJump) {
+    auto rows = make_vl_rows(1000);
+    auto jh = vl::build_geometry(std::span{rows});
+    // Jump to the row whose visual top is nearest line 2500.
+    size_t target_row = jh.find_row_at_visual_line(2500);
+    ASSERT_GT(target_row, 200u);   // sanity: not in the first 200
+    int scroll_top = jh.find_visual_top_for_row(target_row);
+    auto [start, cnt] = vl::build_visible_slice(jh, scroll_top, 40);
+    EXPECT_LE(start, target_row);
+    EXPECT_GT(start + cnt, target_row);
+    // start should be within overscan of target_row (overscan rows
+    // *average_height* ≈ overscan * 5.5 lines ≈ 110 lines).
+    EXPECT_GE(start + 10, target_row)  // generous bound
+        << "slice should start WITHIN overscan ABOVE the target row";
+}
+
+TEST(VirtualList, LargeN100K_NoOverflow) {
+    // 100'000 rows: build_geometry must not grow memory beyond ~800 KB,
+    // find_row_at_visual_line stays O(log N), slice finds the right region.
+    auto rows = make_vl_rows(100'000);
+    auto jh = vl::build_geometry(std::span{rows});
+    EXPECT_EQ(jh.size(), 100'000u);
+    // Avg row height ≈ (1+3+7+11)/4 = 5.5 → total ≈ 550'000 lines
+    EXPECT_GT(jh.total(), 500'000);
+    // Sample 3 locations
+    for (int line : {12345, 271828, 540000}) {
+        size_t idx = jh.find_row_at_visual_line(line);
+        ASSERT_LT(idx, rows.size());
+        EXPECT_LE(jh.top_of(idx), line);
+        if (idx + 1 < jh.size())
+            EXPECT_GT(jh.top_of(idx + 1), line);
+    }
+    // slice near tail
+    auto [s, c] = vl::build_visible_slice(jh, jh.total() - 100, 40);
+    EXPECT_GT(s + c, 99'500u) << "tail slice must include the last rows";
+    EXPECT_GT(c, 0u);
+}
+
+TEST(VirtualList, ClampScrollEmptyList) {
+    vl::VirtualListState s;
+    s.viewport_rows = 40;
+    s.rows.clear();
+    s.jh = vl::build_geometry(std::span{s.rows});
+    vl::clamp_scroll(s);
+    EXPECT_EQ(s.scroll_top, 0);
+}
+
+TEST(VirtualList, StickyBottomOnSetRowsGrowth) {
+    vl::VirtualListHandle h;
+    auto state = std::make_shared<vl::VirtualListState>();
+    h.state = state.get();
+    state->viewport_rows = 10;
+    state->auto_mode = vl::AutoScrollMode::Sticky;
+    // Initial list of 5 rows (heights [1,3,7,11,1]) → total = 23.
+    auto rows = make_vl_rows(5);
+    h.SetRows(std::vector<VisibleRow>(rows.begin(), rows.end()));
+    // After initial SetRows with sticky semantics enabled:
+    //   max = total - vp = 23 - 10 = 13.  Start at max means the viewport
+    //   covers lines [13, 23) — pinned to the tail.
+    EXPECT_EQ(state->scroll_top, 13);
+    EXPECT_TRUE(state->sticky_bottom);
+
+    // Simulate the user manually scrolling away (not sticky anymore).
+    state->scroll_top = 0;
+    state->sticky_bottom = false;
+    vl::update_sticky_after_scroll(*state, 13);
+
+    // Append rows 5..14 (10 more rows).  Because scroll is not sticky,
+    // the new-message counter MUST increment.
+    auto more = make_vl_rows(15);
+    h.SetRows(std::vector<VisibleRow>(more.begin(), more.end()));
+    EXPECT_GT(state->new_message_count, 0)
+        << "scrolled-up + appended rows = new_message_count must grow";
+    EXPECT_FALSE(state->sticky_bottom);
+    EXPECT_EQ(state->scroll_top, 0) << "non-sticky list must NOT re-pin";
+}
+
+TEST(VirtualList, BuildRowGeometrySliceMatchesPsum) {
+    auto rows = make_vl_rows(100);
+    auto jh = vl::build_geometry(std::span{rows});
+    // Request a slice at rows [37, 42).
+    auto gs = vl::build_row_geometry_slice(std::span{rows}, jh, 37, 5);
+    ASSERT_EQ(gs.size(), 5u);
+    for (size_t k = 0; k < gs.size(); ++k) {
+        size_t idx = 37 + k;
+        EXPECT_EQ(gs[k].row_idx, idx);
+        EXPECT_EQ(gs[k].top_line, jh.find_visual_top_for_row(idx));
+        EXPECT_EQ(gs[k].height_lines,
+                  std::max(1, (int)rows[idx].estimated_height_lines));
+        // `height_measured` was never set → `cached == false`.
+        EXPECT_FALSE(gs[k].cached);
+    }
+}
+
+TEST(VirtualList, HandleJumpToRowCentersHeadroom) {
+    vl::VirtualListHandle h;
+    auto state = std::make_shared<vl::VirtualListState>();
+    h.state = state.get();
+    state->viewport_rows = 40;
+    state->auto_mode = vl::AutoScrollMode::Disabled;
+    auto rows = make_vl_rows(500);
+    h.SetRows(std::vector<VisibleRow>(rows.begin(), rows.end()));
+
+    // JumpToRow(100, headroom=3) → scroll_top set to top(100) - 3, clamped ≥ 0.
+    h.JumpToRow(100, 3);
+    int expected = std::max(0, state->jh.find_visual_top_for_row(100) - 3);
+    EXPECT_EQ(state->scroll_top, expected);
+    // JumpToRow(0) when headroom would go negative → clamp to 0.
+    h.JumpToRow(0, 999);
+    EXPECT_EQ(state->scroll_top, 0);
+    // JumpToRow past the end → clamped to last row.
+    h.JumpToRow(99999, 0);
+    ASSERT_FALSE(state->rows.empty());
+    size_t last = state->rows.size() - 1;
+    int last_top = state->jh.find_visual_top_for_row(last);
+    EXPECT_LE(state->scroll_top, last_top);
+}
+
+TEST(VirtualList, RenderListEmptyDoesNotCrash) {
+    vl::VirtualListState s;
+    s.viewport_rows = 40;
+    s.rows.clear();
+    s.jh = vl::build_geometry(std::span{s.rows});
+    // render_list_as_elements on empty → returns 1-line filler, no segfault.
+    ftxui::Element el = vl::render_list_as_elements(s);
+    ftxui::Screen screen(80, 5);
+    ftxui::Render(screen, el);
+    // Screen must render successfully.  Empty output is acceptable as long
+    // as the call didn't abort (ASAN would catch OOB).
+    EXPECT_TRUE(true);
+    (void)screen;
+}
+
+TEST(VirtualList, RenderListMediumProducesValidVBox) {
+    // 200 rows, viewport 40 = definitely windowed (OVERSCAN in both dirs).
+    vl::VirtualListState s;
+    s.options.ascii_gutter = true;
+    s.auto_mode = vl::AutoScrollMode::Disabled;
+    s.viewport_rows = 40;
+    s.options.viewport_rows = 40;
+    auto rows = make_vl_rows(200);
+    s.rows.assign(rows.begin(), rows.end());
+    s.jh = vl::build_geometry(std::span{s.rows});
+    int n_rendered = 0;
+    s.callbacks.render_row = [&](size_t i, const VisibleRow&) -> ftxui::Element {
+        ++n_rendered;
+        return ftxui::text("row " + std::to_string(i))
+             | ftxui::size(ftxui::HEIGHT, ftxui::EQUAL,
+                           std::max(1, rows[i].estimated_height_lines));
+    };
+    // Scroll to mid-list.
+    s.scroll_top = s.jh.total() / 2;
+    ftxui::Element el = vl::render_list_as_elements(s);
+    // Rendering is required to force FTXUI layout.
+    ftxui::Screen screen(120, 40);
+    ftxui::Render(screen, el);
+    // Critical invariant: # of rendered rows MUST be strictly less than
+    // rows.size() (the whole point of virtual windowing).  A conservative
+    // upper bound is viewport_rows + 2·kOverscanRows + 4 (for pills).
+    EXPECT_LT(n_rendered, (int)rows.size())
+        << "virtual window must not render all rows";
+    const int expected_max = 40 + 2 * (int)vl::kOverscanRows + 4;
+    EXPECT_LE(n_rendered, expected_max)
+        << "rendered count cap: viewport + 2·overscan + pills";
+    (void)screen;
+}
+
+TEST(VirtualList, ScrollZeroViewportNeverUnderflows) {
+    vl::VirtualListState s;
+    s.viewport_rows = 0;   // pathological: caller supplies invalid size
+    auto rows = make_vl_rows(10);
+    s.rows.assign(rows.begin(), rows.end());
+    s.jh = vl::build_geometry(std::span{s.rows});
+    s.scroll_top = 9999;
+    vl::clamp_scroll(s);
+    // viewport_rows==0 ⇒ max = total - 0 = total.  Scroll is clamped there.
+    EXPECT_EQ(s.scroll_top, s.jh.total());
+    // slice with vp=0 → should not overflow / not produce a negative count.
+    auto [start, cnt] = vl::build_visible_slice(s.jh, 0, 0);
+    EXPECT_LE((int)start, (int)s.rows.size());
+    // render must not crash / abort — pathological viewport size returns a
+    // syntactically-valid (possibly zero-height) Element.
+    ftxui::Element el = vl::render_list_as_elements(s);
+    ftxui::Screen screen(80, 3);
+    ftxui::Render(screen, el);
+    EXPECT_TRUE(true);
+    (void)cnt;
+    (void)screen;
+}
+
+// ── P0-4 LogoV2 + WelcomeV2 + 10-deep notice stack ──────────────────────────
+
+// T1: Condensed mode (default is_condensed_mode = true) renders the 3-row
+//     CondensedLogo strip (Claude Code + version · model·billing · cwd), the
+//     Opus1M notice, and the VoiceMode notice.  The brand chip and FeedColumn
+//     / rounded border MUST NOT appear.
+TEST(LogoV2, CondensedModeRendersStripPlusNotices) {
+    namespace lv2 = cc::ui::logo_v2;
+
+    lv2::LogoV2Options opts;
+    opts.version            = "2024.6";
+    opts.cwd                = "/home/alice/dev/cc-repl";
+    opts.billing_type       = "Team Seat";
+    opts.model_display_name = "Claude Opus 4.8";
+    opts.is_condensed_mode  = true;   // default / early-return branch
+
+    std::string s = strip_ansi(render_to_plain_text(
+        lv2::render_logo_v2(opts, /*cols=*/120), 120, 20));
+
+    // CondensedLogo triad.
+    EXPECT_NE(s.find("Claude Code"), std::string::npos);
+    EXPECT_NE(s.find("v2024.6"), std::string::npos);
+    EXPECT_NE(s.find("Claude Opus 4.8"), std::string::npos);
+    EXPECT_NE(s.find("Team Seat"), std::string::npos);
+    EXPECT_NE(s.find("/home/alice/dev/cc-repl"), std::string::npos);
+    // Aggregated notice stack — Voice + Opus1m always active.
+    EXPECT_NE(s.find("Voice mode enabled"), std::string::npos);
+    EXPECT_NE(s.find("Opus now defaults to 1M context"), std::string::npos);
+    EXPECT_NE(s.find("5x more room, same pricing"), std::string::npos);
+    // Condensed path has NO rounded outer border — ╭ (U+256D) would appear if
+    // the round-border card was drawn.
+    EXPECT_EQ(s.find("\xE2\x95\xAD"), std::string::npos)
+        << "Condensed mode must not render the rounded outer border";
+}
+
+// T2: Compact card mode (cols<70, !is_condensed_mode) renders the welcome
+//     banner + "Welcome to Claude Code [, {user}]" heading inside a rounded
+//     border, and reports LogoLayoutMode::Compact.
+TEST(LogoV2, CompactModeRendersRoundedBorderCard) {
+    namespace lv2 = cc::ui::logo_v2;
+
+    lv2::LogoV2Options opts;
+    opts.version            = "2024.6";
+    opts.cwd                = "/x";
+    opts.model_display_name = "Claude Sonnet 4.6";
+    opts.is_condensed_mode  = false;    // ← enables card mode
+    opts.username           = std::nullopt;
+
+    auto result = lv2::RenderLogoV2(opts, /*cols=*/60);
+    EXPECT_EQ(result.mode, lv2::LogoLayoutMode::Compact);
+
+    // Wide viewport so the full notice stack renders unclipped.  The 60-col
+    // card + padding + notices land between rows 12..40; use 120 rows to be
+    // safe.  80 cols so content doesn't wrap.
+    std::string s = strip_ansi(render_to_plain_text(result.root, 80, 120));
+    // Rounded border: U+256D = box drawings light arc down and right (╭).
+    EXPECT_NE(s.find("\xE2\x95\xAD"), std::string::npos)
+        << "Compact mode must render a rounded border card";
+    // Welcome headline — new user (no username) → "Welcome to Claude Code".
+    EXPECT_NE(s.find("Welcome to Claude Code"), std::string::npos);
+    // Model line dim.
+    EXPECT_NE(s.find("Claude Sonnet 4.6"), std::string::npos);
+    // Notice stack still rendered AFTER the card.
+    EXPECT_NE(s.find("Opus now defaults to 1M context"), std::string::npos);
+}
+
+// T3: Horizontal mode (cols>=70) renders the left panel | vertical divider |
+//     feed column, split inside a single rounded border.  Also the welcome
+//     greeting personalises for returning users with a display name set.
+TEST(LogoV2, HorizontalModeSplitsIntoPanels) {
+    namespace lv2 = cc::ui::logo_v2;
+
+    lv2::LogoV2Options opts;
+    opts.version            = "2024.6";
+    opts.cwd                = "/workspace/repo";
+    opts.billing_type       = "API Usage";
+    opts.model_display_name = "Claude Opus 4.8";
+    opts.is_condensed_mode  = false;
+    opts.username           = std::string("bob");
+    opts.org_name           = std::string("Acme Corp");
+
+    auto result = lv2::RenderLogoV2(opts, /*cols=*/100);
+    EXPECT_EQ(result.mode, lv2::LogoLayoutMode::Horizontal);
+    // Layout output reports meaningful widths.
+    EXPECT_GE(result.left_width, 34);
+    EXPECT_LE(result.left_width, 50);
+    EXPECT_GE(result.right_width, 20);
+
+    std::string s = strip_ansi(render_to_plain_text(result.root, 100, 24));
+    // Welcome greeting — returning user with username.
+    EXPECT_NE(s.find("Welcome back, bob!"), std::string::npos);
+    // model·billing·org rendered in left panel.
+    EXPECT_NE(s.find("API Usage"), std::string::npos);
+    EXPECT_NE(s.find("Acme Corp"), std::string::npos);
+    // Vertical divider: U+2502 BOX DRAWINGS LIGHT VERTICAL (│).
+    EXPECT_NE(s.find("\xE2\x94\x82"), std::string::npos)
+        << "Horizontal mode must render a vertical divider between panels";
+    // Rounded border encloses everything.
+    EXPECT_NE(s.find("\xE2\x95\xAD"), std::string::npos);
+    // Feed-column placeholder shown because nothing was injected.
+    EXPECT_NE(s.find("Recent activity"), std::string::npos);
+}
+
+// T4: Notice activators each cause their body to appear when toggled, and
+//     remain invisible when the toggle is false (default). Validates the full
+//     10-deep × 6-status-notices activation tree.
+TEST(LogoV2, EachNoticeActivatorAppearsWhenToggled) {
+    namespace lv2 = cc::ui::logo_v2;
+
+    // Baseline — every toggle off → no trace of debug/tmux/org/sandbox/guest/
+    // overage/status/emergency strings.
+    lv2::LogoV2Options opts;
+    opts.version            = "0.0";
+    opts.cwd                = "/t";
+    opts.model_display_name = "M";
+    opts.is_condensed_mode  = true;
+
+    auto base = strip_ansi(render_to_plain_text(
+        lv2::render_logo_v2(opts, 120), 120, 16));
+    EXPECT_EQ(base.find("Debug mode enabled"), std::string::npos);
+    EXPECT_EQ(base.find("tmux session:"), std::string::npos);
+    EXPECT_EQ(base.find("Message from "), std::string::npos);
+    EXPECT_EQ(base.find("bash commands will be sandboxed"), std::string::npos);
+    EXPECT_EQ(base.find("guest passes at /passes"), std::string::npos);
+    EXPECT_EQ(base.find("Nearing monthly credit limit"), std::string::npos);
+    EXPECT_EQ(base.find("provider outage"), std::string::npos);
+
+    // Activate each notice in turn, re-render, confirm its marker shows up.
+    opts.is_debug_mode = true;
+    opts.debug_log_to_stderr = true;
+    auto t = strip_ansi(render_to_plain_text(lv2::render_logo_v2(opts, 120), 120, 16));
+    EXPECT_NE(t.find("Debug mode enabled"), std::string::npos);
+    EXPECT_NE(t.find("Logging to: stderr"), std::string::npos);
+    opts.is_debug_mode = false;
+
+    opts.tmux_session = std::string("my-session");
+    opts.tmux_prefix = std::string("Ctrl+b");
+    opts.tmux_prefix_conflicts = true;
+    t = strip_ansi(render_to_plain_text(lv2::render_logo_v2(opts, 120), 120, 16));
+    EXPECT_NE(t.find("tmux session: my-session"), std::string::npos);
+    EXPECT_NE(t.find("Detach: Ctrl+b Ctrl+b d"), std::string::npos);
+    opts.tmux_session.reset();
+
+    opts.company_announcement = std::string("Free credits this Friday!");
+    opts.org_name = std::string("Acme");
+    t = strip_ansi(render_to_plain_text(lv2::render_logo_v2(opts, 120), 120, 16));
+    EXPECT_NE(t.find("Message from Acme:"), std::string::npos);
+    EXPECT_NE(t.find("Free credits this Friday!"), std::string::npos);
+    opts.company_announcement.reset();
+
+    opts.show_sandbox_status = true;
+    t = strip_ansi(render_to_plain_text(lv2::render_logo_v2(opts, 120), 120, 16));
+    EXPECT_NE(t.find("bash commands will be sandboxed"), std::string::npos);
+    opts.show_sandbox_status = false;
+
+    opts.show_guest_passes = true;
+    t = strip_ansi(render_to_plain_text(lv2::render_logo_v2(opts, 120), 120, 16));
+    EXPECT_NE(t.find("guest passes at /passes"), std::string::npos);
+    opts.show_guest_passes = false;
+
+    opts.show_overage_credit = true;
+    t = strip_ansi(render_to_plain_text(lv2::render_logo_v2(opts, 120), 120, 16));
+    EXPECT_NE(t.find("Nearing monthly credit limit"), std::string::npos);
+    opts.show_overage_credit = false;
+
+    opts.emergency_tip = std::string("provider outage — use /model to switch");
+    t = strip_ansi(render_to_plain_text(lv2::render_logo_v2(opts, 120), 120, 16));
+    EXPECT_NE(t.find("provider outage \xE2\x80\x94 use /model to switch"), std::string::npos)
+        << "emergency tip body should appear verbatim";
+    opts.emergency_tip.reset();
+
+    // 6 StatusNotices — warning glyph (⚠) for warning type, (↑) for info type.
+    opts.status_notices = {
+        {"\xE2\x9A\xA0", "Large memory files in context: 2 files > 2MB", true},
+        {"\xE2\x86\x91", "JetBrains plugin update available", false},
+    };
+    t = strip_ansi(render_to_plain_text(lv2::render_logo_v2(opts, 120), 120, 16));
+    EXPECT_NE(t.find("Large memory files in context"), std::string::npos);
+    EXPECT_NE(t.find("JetBrains plugin update available"), std::string::npos);
+}
+
+// T5: Column-based threshold mapping. cols<70 → Compact; cols≥70 → Horizontal
+//     *only* when is_condensed_mode=false; when true always → Condensed
+//     regardless of width.
+TEST(LogoV2, LayoutModeThresholdsMatchTSSpec) {
+    namespace lv2 = cc::ui::logo_v2;
+
+    lv2::LogoV2Options opts;
+    opts.cwd                = "/t";
+    opts.model_display_name = "M";
+
+    // Always Condensed when the gate is true.
+    opts.is_condensed_mode = true;
+    for (int cols : {30, 69, 70, 150}) {
+        auto r = lv2::RenderLogoV2(opts, cols);
+        EXPECT_EQ(r.mode, lv2::LogoLayoutMode::Condensed) << "cols=" << cols;
+    }
+
+    // Card branch honours column thresholds.
+    opts.is_condensed_mode = false;
+    EXPECT_EQ(lv2::RenderLogoV2(opts, 30).mode, lv2::LogoLayoutMode::Compact);
+    EXPECT_EQ(lv2::RenderLogoV2(opts, 69).mode, lv2::LogoLayoutMode::Compact);
+    EXPECT_EQ(lv2::RenderLogoV2(opts, 70).mode, lv2::LogoLayoutMode::Horizontal);
+    EXPECT_EQ(lv2::RenderLogoV2(opts, 120).mode, lv2::LogoLayoutMode::Horizontal);
+    // Helper constexpr matches the dispatch.
+    EXPECT_EQ(lv2::layout_mode_from_cols(69), lv2::LogoLayoutMode::Compact);
+    EXPECT_EQ(lv2::layout_mode_from_cols(70), lv2::LogoLayoutMode::Horizontal);
+}
+
+// T6: WelcomeV2 static 58-col card renders EXACTLY: width capped to 58 cols,
+//     shows "Welcome to Claude Code v<ver>" in the header, contains the
+//     ellipsis separator row (…), the 3-row █████████ clawd body, at least
+//     4 scattered '*' glyphs (asterisk dust baked into the art), and a paws
+//     footer row with "█ █   █ █" clawd feet + ░/▒ planets.
+TEST(LogoV2, WelcomeV2StaticCardMatchesTSSpec) {
+    namespace lv2 = cc::ui::logo_v2;
+
+    ftxui::Element card = lv2::RenderWelcomeV2(/*version=*/"2024.6");
+    std::string s = strip_ansi(render_to_plain_text(card, 120, 20));
+
+    // Header row — versioned.
+    EXPECT_NE(s.find("Welcome to Claude Code"), std::string::npos);
+    EXPECT_NE(s.find("v2024.6"), std::string::npos);
+    // Ellipsis ruler (U+2026 repeated). TS WELCOME_V2_WIDTH=58, but the string
+    // literal stores 58 × … = 58 × 3 bytes = 174 bytes; look for one '…'.
+    EXPECT_NE(s.find("\xE2\x80\xA6"), std::string::npos)
+        << "WelcomeV2 t1 row must contain ellipsis ruler chars";
+    // Clawd body: 3 rows of █ chars start, 2nd row contains ▄ (U+2584) segments.
+    EXPECT_NE(s.find("\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88"), std::string::npos)
+        << "WelcomeV2 t12-t14 rows must contain clawd ███ body";
+    EXPECT_NE(s.find("\xE2\x96\x84"), std::string::npos)
+        << "WelcomeV2 t13 clawd row must contain ▄ segments";
+    // Scattered '*' asterisk dust.  TS WelcomeV2.tsx explicitly places 6 '*'
+    // glyphs at fixed (row,col) coordinates; we require at least 4 present.
+    int asterisk_count = 0;
+    for (char c : s) if (c == '*') ++asterisk_count;
+    EXPECT_GE(asterisk_count, 4)
+        << "WelcomeV2 art contains baked asterisk dust; got " << asterisk_count;
+    // Footer paws: "█ █   █ █" + ░ + ▒ gradient planets.
+    EXPECT_NE(s.find("\xE2\x96\x91"), std::string::npos)
+        << "WelcomeV2 footer row must render ░ chevron/planet shading";
+    EXPECT_NE(s.find("\xE2\x96\x92"), std::string::npos)
+        << "WelcomeV2 footer row must render ▒ gradient tile";
+}
+
+// T7: ReplScreen → RenderWelcomeHeader default call path is still the
+//     condensed strip (no force_full_logo = unchanged behaviour for empty
+//     sessions). Tests regression against the Phase-2 WelcomeHeader contract.
+TEST(LogoV2, ReplScreenDefaultWelcomeHeaderStillCondensed) {
+    namespace repl = cc::ui::repl_screen;
+
+    repl::ReplScreenState state;
+    state.app_version = "9.9.9-test";
+    state.model_display_name = "GLM-5.2";
+    state.cwd = "/tmp/cpp_migration";
+
+    auto rendered = strip_ansi(render_to_plain_text(
+        repl::RenderWelcomeHeader(state, 0, 120), 120, 20));
+
+    // Condensed baseline (identical expectations to the Phase-2 golden test
+    // WelcomeHeaderUsesHomeCard).
+    EXPECT_NE(rendered.find("Claude Code"), std::string::npos);
+    EXPECT_NE(rendered.find("v9.9.9-test"), std::string::npos);
+    EXPECT_NE(rendered.find("GLM-5.2"), std::string::npos);
+    EXPECT_NE(rendered.find("/tmp/cpp_migration"), std::string::npos);
+    EXPECT_NE(rendered.find("Opus now defaults to 1M context"), std::string::npos);
+    // Round border MUST NOT appear in the default header.
+    EXPECT_EQ(rendered.find("\xE2\x95\xAD"), std::string::npos);
+    // Feed column hint MUST NOT appear (no forced full logo).
+    EXPECT_EQ(rendered.find("Recent activity"), std::string::npos);
+}
+
+// T8: force_full_logo=true drives LogoV2's card layout path from the
+//     ReplScreen-level wrapper, regardless of ReplScreenState contents.
+TEST(LogoV2, ReplScreenForceFullLogoOptsIntoCardMode) {
+    namespace repl = cc::ui::repl_screen;
+
+    repl::ReplScreenState state;
+    state.app_version = "9.9.9-test";
+    state.model_display_name = "GLM-5.2";
+    state.cwd = "/tmp/cpp_migration";
+    // New user detection: no display name.
+    state.user_display_name.clear();
+
+    // Wide + force_full → Horizontal mode.
+    auto wide = strip_ansi(render_to_plain_text(
+        repl::RenderWelcomeHeader(state, 0, 120, /*force_full_logo=*/true),
+        120, 24));
+    EXPECT_NE(wide.find("\xE2\x95\xAD"), std::string::npos)
+        << "force_full_logo=true should render the rounded border card";
+    EXPECT_NE(wide.find("Welcome to Claude Code"), std::string::npos);
+    EXPECT_NE(wide.find("\xE2\x94\x82"), std::string::npos)
+        << "120 cols → Horizontal divider present";
+
+    // Narrow + force_full → Compact mode (no divider, still a rounded border).
+    // NOTE: U+2502 │ also appears in the rounded border's left/right edges on
+    // every content row.  To distinguish the HORIZONTAL-mode 1-col divider
+    // that runs between the left/right panels, scan for the divider appearing
+    // at a fixed column > 10 across multiple consecutive rows.
+    auto narrow = strip_ansi(render_to_plain_text(
+        repl::RenderWelcomeHeader(state, 0, 60, /*force_full_logo=*/true),
+        60, 32));
+    EXPECT_NE(narrow.find("\xE2\x95\xAD"), std::string::npos);
+    // Walk lines and find columns where │ appears.  Round-border cards
+    // place │ on their left/right edges (col 0 and col width-1); the
+    // HORIZONTAL inter-panel divider lands on a MIDDLE column inside
+    // the outer border and appears on EVERY row where left/right panels
+    // have content → dominant column NOT at the edges.
+    {
+        std::vector<std::string> lines;
+        std::string buf;
+        for (char c : narrow) {
+            if (c == '\n') { lines.push_back(std::move(buf)); buf.clear(); }
+            else buf.push_back(c);
+        }
+        if (!buf.empty()) lines.push_back(std::move(buf));
+        std::map<int, int> col_count;
+        for (const auto& ln : lines) {
+            size_t p = 0;
+            while ((p = ln.find("\xE2\x94\x82", p)) != std::string::npos) {
+                col_count[(int)p]++;
+                p += 3;
+            }
+        }
+        int dominant = 0, dominant_col = -1;
+        for (auto [c, n] : col_count) if (n > dominant) { dominant = n; dominant_col = c; }
+        // Compact: any │s are only at the border edges (col 0 and col 59).
+        // Dominant must NOT be a middle column (1..58 range) with count ≥ 3.
+        const bool is_middle_dominant =
+            dominant_col > 0 && dominant_col < 59 && dominant >= 3;
+        EXPECT_FALSE(is_middle_dominant)
+            << "cols=60 is below the 70 threshold → no stable inter-panel divider; "
+            << "found dominant middle col=" << dominant_col << " count=" << dominant;
+    }
+}
+

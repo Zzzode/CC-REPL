@@ -11,6 +11,7 @@ module;
 #include <functional>
 #include <chrono>
 #include <format>
+#include <fstream>
 #include <initializer_list>
 #include <deque>
 #include <map>
@@ -64,6 +65,10 @@ import cc.ui.repl_screen;
 import cc.ui.autocomplete_sources;
 import cc.ui.prompt.at_attachments;
 import cc.ui.prompt.file_index;
+// P0-1: unified glyph constants + prompt-mode helpers (bang routing).
+import cc.ui.design.figures;
+// P0-2: 7-stage message pipeline utilities (dedup / tag filter / tool augment).
+import cc.ui.messages.message_pipeline;
 import cc.ui.prompt.fuzzy_rank_nucleo;
 import cc.ui.agents.agent_cards;
 import cc.ui.agents.shared_widgets;
@@ -460,6 +465,9 @@ private:
     };
     std::map<std::uint32_t, StreamingToolPreview> streaming_tools_;
     std::map<std::uint32_t, StreamingThinkingPreview> streaming_thinking_;
+    // P0-2 Stage 1: per-turn dedup tracker for ContentBlock index transitions.
+    // One per App (one instantiation per repl lifetime; cleared on each turn start.
+    cc::ui::messages::pipeline::DedupTracker event_dedup_;
     std::atomic<ScreenInteractive*> screen_{nullptr};
 
     // Permission confirmation
@@ -503,6 +511,12 @@ private:
     std::mutex statusline_mutex_;
     std::condition_variable statusline_cv_;
     int statusline_debounce_ms_ = 300;  // TS: 300ms debounce
+    // Memo cache: skip re-exec when command + JSON input are identical and
+    // last run was < 30s ago.  Matches TS StatusLine.tsx memo dependency tuple
+    // (lastAssistantMessageId, permissionMode, vimMode, mainLoopModel).
+    std::string statusline_last_cmd_;
+    std::string statusline_last_input_json_;
+    std::chrono::steady_clock::time_point statusline_last_run_{};
 
     void StartUiAnimationTicker() {
         spinner_thread_ = std::jthread([this](std::stop_token st) {
@@ -1780,7 +1794,12 @@ public:
             }
             screen_state_->mode = repl::ReplMode::Normal;
         };
-        cbs.on_mode_change = [](repl::ReplMode) {};
+        cbs.on_mode_change = [this](repl::ReplMode) {
+            // ReplMode changed (e.g. SettingsView → Normal) → re-render
+            // statusline so its `mode` field reflects the new state promptly,
+            // instead of waiting up to 1s for the next periodic tick.
+            this->TriggerStatuslineUpdate();
+        };
         cbs.enqueue_slash_command = [this](const std::string& cmd) {
             this->HandleCommand(cmd);
         };
@@ -2016,12 +2035,32 @@ public:
 
                 // Build input payload from current engine state
                 auto input = this->BuildStatuslineInput();
+                namespace sl = cc::utils::statusline;
+                std::string new_json = sl::to_json(input);
+                const auto now = std::chrono::steady_clock::now();
+
+                // Memo skip: same command + same JSON input + last run < 30s
+                const bool memo_hit =
+                    (cmd == statusline_last_cmd_) &&
+                    (new_json == statusline_last_input_json_) &&
+                    (statusline_last_run_ !=
+                         std::chrono::steady_clock::time_point{} &&
+                     (now - statusline_last_run_) < std::chrono::seconds(30));
+
+                if (memo_hit) {
+                    statusline_running_.store(false);
+                    continue;
+                }
 
                 // Execute command
-                namespace sl = cc::utils::statusline;
                 auto result = sl::execute_statusline_command(cmd, input, 5000);
 
                 statusline_running_.store(false);
+
+                // Record attempt (both success and failure) for memo
+                statusline_last_cmd_ = cmd;
+                statusline_last_input_json_ = new_json;
+                statusline_last_run_ = now;
 
                 if (result.success && !result.output.empty()) {
                     screen_state_->status_line_text = std::move(result.output);
@@ -2130,6 +2169,9 @@ public:
                                 .tool_use_id = tool->id.value,
                                 .input_json = tool->input_json == "{}" ? std::string{} : tool->input_json,
                                 .result_preview = {},
+                                .compact_preview = {},
+                                .error_code = 0,
+                                .truncated = false,
                                 .complete = false,
                                 .is_error = false,
                             };
@@ -2143,6 +2185,8 @@ public:
                             screen_state_->spinner_mode = repl::SpinnerMode::Thinking;
                         }
                     } else if constexpr (std::is_same_v<T, core::ContentBlockDelta>) {
+                        apply_event = event_dedup_.should_accept_delta(e.index);
+                        if (!apply_event) return;
                         std::lock_guard lk(result_mutex_);
                         if (auto tool = streaming_tools_.find(e.index); tool != streaming_tools_.end()) {
                             tool->second.input_json += e.delta_text;
@@ -2154,16 +2198,18 @@ public:
                             screen_state_->spinner_verb = std::nullopt;
                         }
                     } else if constexpr (std::is_same_v<T, core::ContentBlockStop>) {
+                        apply_event = event_dedup_.should_accept_stop(e.index);
+                        if (!apply_event) return;
                         std::lock_guard lk(result_mutex_);
                         if (auto tool = streaming_tools_.find(e.index); tool != streaming_tools_.end())
                             tool->second.complete = true;
                         if (auto thinking = streaming_thinking_.find(e.index); thinking != streaming_thinking_.end())
                             thinking->second.complete = true;
                     } else if constexpr (std::is_same_v<T, core::ToolExecutionStart>) {
+                        apply_event = event_dedup_.should_accept_exec_start(e.tool_use_id);
+                        if (!apply_event) return;
                         // M6: Tool execution has started — populate result_preview
-                        // slot so the progress line can go live. Match the in-flight
-                        // streaming tool-use block by tool_use_id (set from the
-                        // ToolUseBlock id during ContentBlockStart).
+                        // slot so the progress line can go live.
                         std::lock_guard lk(result_mutex_);
                         for (auto& [idx, preview] : streaming_tools_) {
                             if (preview.tool_use_id == e.tool_use_id &&
@@ -2174,7 +2220,8 @@ public:
                             }
                         }
                     } else if constexpr (std::is_same_v<T, core::ToolExecutionProgress>) {
-                        // M6: Live tool execution progress update.
+                        // Progress events are never deduped because they are
+                        // monotonic updates (TS same: progress is always applied).
                         std::lock_guard lk(result_mutex_);
                         for (auto& [idx, preview] : streaming_tools_) {
                             if (preview.tool_use_id == e.tool_use_id && !preview.complete) {
@@ -2183,22 +2230,37 @@ public:
                             }
                         }
                     } else if constexpr (std::is_same_v<T, core::ToolExecutionEnd>) {
-                        // M6: Tool execution complete — store final result preview.
+                        apply_event = event_dedup_.should_accept_exec_end(e.tool_use_id);
+                        if (!apply_event) return;
+                        // ── M6 final result + P0-2 Stage 5 AUGMENT ──────
+                        // Stage 5 fills in truncated / error_code / compact_preview
+                        // fields so the transcript renderer never has to re-derive
+                        // them (avoids recomputing 4KB size checks per frame).
+                        namespace pl = cc::ui::messages::pipeline;
                         std::lock_guard lk(result_mutex_);
                         for (auto& [idx, preview] : streaming_tools_) {
                             if (preview.tool_use_id == e.tool_use_id) {
                                 preview.result_preview = e.result;
-                                preview.is_error = e.is_error;
+                                preview.is_error       = e.is_error;
+                                // Stage 5 augment: one-shot compute
+                                const auto aug = pl::augment_tool_result(
+                                    preview.result_preview, preview.is_error);
+                                preview.truncated       = aug.truncated;
+                                preview.error_code      = aug.error_code;
+                                preview.compact_preview = std::move(aug.preview);
                                 break;
                             }
                         }
                     } else if constexpr (std::is_same_v<T, core::StreamError>) {
+                        // StreamError is a terminal event; never deduped.
                         std::lock_guard lk(result_mutex_);
                         pending_error_ = e.message;
                     }
                 }, ev);
 
-                PostRenderEvent();
+                if (apply_event) {
+                    PostRenderEvent();
+                }
             };
 
             // AT-02: materialize @-mention file references into content blocks
@@ -2277,6 +2339,9 @@ public:
             }
             if (vim_enabled_) cc::vim::enable_vim_mode();
             else cc::vim::disable_vim_mode();
+            // vim mode toggle → refresh statusline promptly (BuildStatuslineInput
+            // reads engine state to populate the `vim` field).
+            this->TriggerStatuslineUpdate();
             return;
         }
 
@@ -2845,13 +2910,33 @@ public:
     }
 
     bool OnEvent(Event event) override {
+        // DIAGNOSTIC (clipboard paste): log the first ~50 events OnEvent
+        // receives (hex) to confirm the loop is calling us + what keystrokes
+        // arrive, especially ctrl+v (\x16).  Remove once paste is confirmed.
+        { static int diag_n = 0;
+          if (diag_n < 50) {
+            ++diag_n;
+            std::string hex;
+            for (unsigned char c : event.input()) hex += std::format("{:02x} ", c);
+            std::ofstream("/tmp/cc-imagepaste.log", std::ios::app)
+                << "evt#" << diag_n << " sz=" << event.input().size()
+                << " hex=" << hex << "\n";
+          }
+        }
         // Clipboard image paste (TS chat:imagePaste = ctrl+v).  Terminal raw
         // mode delivers ctrl+v as SYN (\x16); if the clipboard holds an image
         // we read it as PNG, base64 it, and stash it on pending_image_ for the
         // next HandleSubmit to attach.  No image → fall through so the text
         // input / terminal paste behaves normally.
-        if (event == Event::Character('\x16') && !query_running_.load()) {
-            if (cc::utils::clipboard::has_image()) {
+        if (event.input() == "\x16" && !query_running_.load()) {
+            // DIAGNOSTIC (clipboard paste): log ctrl+v delivery + detection so
+            // we can confirm whether the keystroke reaches the app and whether
+            // the clipboard image is detected.  Remove once paste is confirmed.
+            const bool clip_img = cc::utils::clipboard::has_image();
+            { std::ofstream("/tmp/cc-imagepaste.log", std::ios::app)
+                  << "ctrl+v received; has_image=" << (clip_img ? "true" : "false")
+                  << " query_running=" << query_running_.load() << "\n"; }
+            if (clip_img) {
                 auto png = cc::utils::clipboard::read_image_png();
                 if (png && !png->empty()) {
                     pending_image_ = ImageBlock{
@@ -2861,8 +2946,12 @@ public:
                     screen_state_->clipboard_image_hint =
                         "🖼️ Image attached (" + std::to_string(png->size()) +
                         " bytes) · Enter to send (Esc to discard)";
+                    { std::ofstream("/tmp/cc-imagepaste.log", std::ios::app)
+                          << "image attached, " << png->size() << " bytes\n"; }
                     return true;
                 }
+                { std::ofstream("/tmp/cc-imagepaste.log", std::ios::app)
+                      << "read_image_png returned empty/null\n"; }
             }
         }
         // Esc discards a pending pasted image.

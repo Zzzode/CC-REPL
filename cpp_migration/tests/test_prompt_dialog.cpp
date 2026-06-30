@@ -118,11 +118,27 @@ bool ShouldUpdateGoldens() {
     return v != nullptr && std::string_view{v} == "1";
 }
 
+/// Normalize both content and the on-disk golden to LF line endings so
+/// git autocrlf conversions never spurious-fail the comparison.
+[[nodiscard]] static std::string normalize_line_endings(std::string_view s) {
+    std::string out;
+    out.reserve(s.size());
+    for (std::size_t i = 0; i < s.size(); ++i) {
+        if (s[i] == '\r') {
+            // Skip '\r' — the following '\n' (if any) becomes a plain LF.
+            continue;
+        }
+        out.push_back(s[i]);
+    }
+    return out;
+}
+
 /// Run a golden snapshot check.  When UPDATE_GOLDENS=1 we write the
 /// content to disk and succeed; otherwise we compare and report diff.
 void ExpectGolden(std::string_view name, std::string_view content) {
     const auto path = GoldenDir() / (std::string{name} + ".txt");
-    const std::string normalized = std::string{content} + "\n";
+    const std::string normalized = normalize_line_endings(
+        std::string{content} + "\n");
 
     if (ShouldUpdateGoldens()) {
         fs::create_directories(path.parent_path());
@@ -139,9 +155,10 @@ void ExpectGolden(std::string_view name, std::string_view content) {
         << " (re-run with UPDATE_GOLDENS=1 to create)";
 
     std::ifstream in{path, std::ios::binary};
-    std::string expected(
+    std::string expected_raw(
         (std::istreambuf_iterator<char>(in)),
         std::istreambuf_iterator<char>());
+    const std::string expected = normalize_line_endings(expected_raw);
 
     EXPECT_EQ(normalized, expected)
         << "Golden mismatch for " << name << "\n"

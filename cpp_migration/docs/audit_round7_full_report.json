@@ -1,0 +1,1576 @@
+{
+  "summary": "Full-dimensional audit: CPP (cpp_migration faithful-port) vs TS original feature-by-feature and UI-by-UI alignment. Parallel readers on each subsystem -> each returns structured gaps -> synthesis",
+  "agentCount": 9,
+  "logs": [
+    "[stall] agent \"audit:messages\" stalled (no progress) after 689s — retrying (1/5)",
+    "Phase 1 done: 5/5 auditors returned",
+    "158 total gaps; 52 P0/P1 for cross-check",
+    "Cross-check done: 52 verdicts collected"
+  ],
+  "result": {
+    "scope": "CPP (cpp_migration master @ 952231e) full alignment audit vs TS original (Ink/React)",
+    "subsystemBreakdown": [
+      {
+        "subsystem": "UI-Audit-Report",
+        "total": 56,
+        "aligned": 21,
+        "gapsReported": 33,
+        "summary": "CPP-vs-TS SCREENS + top-level layout audit report. TS source-of-truth covered: FullscreenLayout.tsx (637), Messages.tsx (834), LogoV2/LogoV2.tsx (542), LogoV2/WelcomeV2.tsx (432). CPP audited: ui/screens/repl_screen.cppm (2829), ui/layout/fullscreen_layout.cppm (291), ui/layout/logo.cppm (424), ui/messages/messages_list.cppm (1728), ui/prompt/prompt_input_footer.cppm (603), ui/app.cppm thin adapter (2988). Totals: 21 features ALIGNED structurally / visually, 6 P0 BLOCKER, 13 P1 VISIBLE, 9 P2 MINOR, 7 P3 INFO. User-requested files BriefLayout/BriefSpinner/BriefPrompt/Home/Welcome/Welcomes/WelcomeNotice/Logo(TS legacy)/Toolbar do NOT exist in the TS repo tree (confirmed by find). Brief* features are guarded by feature(KAIROS_BRIEF) in Messages.tsx via conditional require; CPP side has no KAIROS pipeline so they correctly don't render — no misalignment attributable to migration. Top P0s: (1) 7-stage message grouping/collapse/lookup pipeline absent, (2) VirtualMessageList absent (last-N=80 only), (3) LogoV2 compact/full render modes + FeedColumn missing (only condensed), (4) WelcomeV2 58-col starfield + Clawd missing, (5) in-transcript unseen divider missing, (6) transcript/brief/truncation filter tiers missing."
+      },
+      {
+        "subsystem": "UI-Messages",
+        "total": 37,
+        "aligned": 15,
+        "gapsReported": 22,
+        "summary": "Full audit of 37 TS message renderer components vs 33 CPP modules. Inventory: TS has 35 rendering components (2 helpers excluded). CPP has 33 files: 27 rendering modules + 6 list-framework/shared modules. Faithful-port coverage: 15 components have parity via `Render*Faithful()` entry points. Gaps: 11 P2-level (missing module stubs), 4 P1 (faithful renderer data-flow not wired), 7 P3 (divergent-only). Key divergences: the divergent `Component` classes add chrome not in TS (borders, footers, emojis, timestamps) — these are kept for interactive UX but the faithful Element factories exist per M4. High-risk gaps: UserPromptMessage 10K-char truncation missing, UserLocalCommandOutput faithful wrapper absent from repl_screen, SystemAPIErrorMessage no retry hook, teamMemCollapsed module stub missing."
+      },
+      {
+        "subsystem": "UI-Prompt",
+        "total": 45,
+        "aligned": 7,
+        "gapsReported": 45,
+        "summary": "CPP-vs-TS Prompt/Input Widget full-dimension audit across: prompt prefix glyphs (❯/!), vim mode indicators, autocomplete sources (@file/@agent/@mcp/@history/@templates/skills), keyboard bindings (emacs/Ctrl+J/K/Shift+Enter/Ctrl+C/Esc), 4-tier placeholder cascade, clipboard paste (10K truncation + PNG/JPEG preview), combinedHighlights 8-tier painter's algorithm, and footer widgets (mode pills/exit double-tap/stable-height/narrow stack/help menu/notifications/proactive countdown/PR badge/sandbox/voice/todos). 45 findings total: P0-BLOCKER=3 (enum fragmentation, prefix glyph split, placeholder cascade missing), P1-VISIBLE=12 (vim impl conflict, 5 autocomplete sources absent, paste truncation, bash prefix leak, combined highlights absent, image paste missing, stash restore missing, mcp suggestions unwired, permission shift-tab unwired), P2-MINOR=20 (emacs bindings, Ctrl+J/K ac nav, Shift+Enter, Ctrl+C gates, Esc wire, slash arg hint, help menu placeholder, exit double-tap state, pasting indicator, queued edit hint, notifications stub, coordinator panel, bridge fullscreen gate, vim status bar duplicate, proactive countdown, history substring highlight, viewport windowing, voice indicator, sandbox hint, teammate prefix color), P3-INFO=3 (PR badge, selection copy hint, todos shortcut override), ALIGNED=7 (statusline ANSI parser, declared cursor, undo/redo stack, Ctrl+R overlay, Tab navigation, footer stable height fullscreen, narrow <80 col stack)."
+      },
+      {
+        "subsystem": "UI-Dialogs|UI-DesignTokens",
+        "total": 216,
+        "aligned": 78,
+        "gapsReported": 12,
+        "summary": "Audited 216 comparison points across 3 axes: DIALOG coverage (51 TS dialogs vs 39+16 CPP files), DESIGN TOKENS (4 palette variants × 27 tokens × rainbow = 108 color pairs), and FIGURES (3 constants sources × spinner frames × npm-figures glyph set = ~40 glyphs). Result: 78 ALIGNED (36%), 5 P2-MINOR, 6 P1-VISIBLE, 1 ALIGNED-in-spirit architectural note.\n\nDIALOGS: 51 TS dialogs catalogued — 39 (76%) have CPP equivalents; 12 are missing (low-impact: InvalidConfig/InvalidSettings/ChannelDowngrade/ApproveApiKey, higher-impact: TeamsDialog gated on AGENT_TRIGGERS feature flag, WorkflowMultiselectDialog, UltrareviewOverage, BypassPermissionsMode, AutoUpdater, DevChannels, ClaudeMdIncludes, ConfigurableShortcutHint). 16 CPP dialog-infrastructure modules have no direct TS 1:1 (DialogQueue, render pipeline aggregators, sub-views) — intentional FTXUI layout scaffolding, ALIGNED in spirit. One specific dialog (permission_dialog.cppm) remains string-rendered with hardcoded ANSI, unlike TS PermissionDialog.tsx which uses theme.resolve_color through Ink — P2, in-file DEFERRED comment present.\n\nCOLORS (dark theme): 10/20 base tokens correctly aligned byte-for-byte (success, warning, danger, muted, subtle, suggestion, text, user_message_background, message_actions_background, primary/CLAWDED). 11/20 P1-VISIBLE: info/permission is sky-blue (110,151,255) vs TS lavender (177,185,249), diff_added/diff_removed use bright greens/reds instead of TS saturated dark shades, inverse_text/app chrome = rgb(32,33,36) vs pure black, merged purple has small delta, both rate_limit_* tokens are visibly different, and CLAWDED_SHIM has minor 3/5/7 drift. Rainbow palette uses Chart.js defaults, not TS ultrathin rainbow — all 7 elements P1. Light palette: 17/20 P1-VISIBLE (only 3 aligned). Daltonized palettes: all 27 compared tokens P1 (values computed via matrix approximation instead of verbatim TS rgb literals). 42 TS Theme fields are absent from the CPP Palette struct: autoAccept, bashBorder, 8 subagent colors, 2 diff dimmed, promptBorder(+Shimmer), memoryBackgroundColor, selectionBg, userMessageBackgroundHover, professionalBlue, planMode, remember, fastMode, inactiveShimmer, permissionShimmer, warningShimmer, 7 rainbow shimmers, clawd_background, briefLabelClaude/You, chromeYellow, ide. 14 shimmer tokens — only 2 exist in Palette struct (primary_shimmer, rainbow_shimmer) so permissionShimmer / inactiveShimmer / warningShimmer / promptBorderShimmer / fastModeShimmer / claudeBlueShimmer / 7 rainbow shimmers are absent.\n\nFIGURES: cc.constants.figures.cppm is byte-perfect (platform-gated BLACK_CIRCLE, correct Unicode escapes, BRIDGE_SPINNER_FRAMES array, correct BRIDGE_READY_INDICATOR with variation selector). Second module ui.components/figures.cppm has 3 defects: no platform fallback for BLACK_CIRCLE, missing BRIDGE_SPINNER_FRAMES array, wrong checkmark glyph in BRIDGE_READY_INDICATOR. npm `figures` default-export glyph set (18 commonly-used keys: pointer '❯', cross '✘', tick '✔', warning '⚠', pointerSmall '›', info 'ℹ', circle '◯', ellipsis '…', checkboxOn '☒', checkboxOff '☐', hamburger '☰', bullet '●', etc.) has no centralized CPP constant file — glyphs exist ad-hoc with wrong bytes (e.g. '✓' U+2713 used throughout instead of figures.tick '✔' U+2714, '✗' U+2717 used instead of figures.cross '✘' U+2718, '>' used for pointer in MessageSelector instead of '❯' U+276F). Spinner frames: component_primitives 10-frame braille matches TS SpinnerGlyph, but tool_use_loader and thinking_message both truncate to 8 frames (dropping '⠇⠏'), and messages_list uses a distinct 10-frame asterisk-variant sweep for the envelope spinner — unclear if intentional divergence or mismatch.\n\nSCOPE DISTRIBUTION: 7 single-file fixes (design_tokens.cppm palette lines, ui/components/figures.cppm), 3 multi-file (spinner frame standardization, migrate ui.components.figures to cc.constants.figures, dialog coverage gaps), 2 requires-engine-wiring (npm-figures glyph constants + import sites, 42 missing Theme palette fields). All color P1-VISIBLE fixes are contained in cpp_migration/src/ui/design_system/design_tokens.cppm lines 138-277 (4 palette struct literal blocks)."
+      },
+      {
+        "subsystem": "CppMigrationAudit",
+        "total": 254,
+        "aligned": 169,
+        "gapsReported": 46,
+        "summary": "CPP-vs-TS audit: 254 items across Commands/Tools/MCP/API/LSP/Skills/Tasks/Hooks; 169 aligned; 46 gaps (1 P0 3P-auth, 9 P1, 27 P2, 3 P3, 6 ALIGNED markers). Top P0: Bedrock/Vertex/Azure/Foundry 3P auth absent. P1: 11 feature tools + cron delete/list + MCP channelPerm/Notif stubs + XAA OAuth + dynamic skills + task turn-grouping + LSP manager/diagnostic stubs."
+      }
+    ],
+    "totals": {
+      "featuresAudited": 608,
+      "reportedAligned": 290,
+      "alignmentPctRaw": 48,
+      "totalGapsReported": 158,
+      "confirmedP0": 5,
+      "confirmedP1": 29,
+      "confirmedP2": 15,
+      "falsePositives": 1,
+      "unvetted": 106,
+      "estimateLocRemaining": 15157
+    },
+    "confirmed": {
+      "P0Blockers": [
+        {
+          "id": "msg-pipeline-missing",
+          "subsystem": "UI-Messages",
+          "severity": "P0-BLOCKER",
+          "evidence": "TS Messages.tsx L486-529: normalize → getMessagesAfterCompactBoundary(includeSnipped=true) → drop progress → drop isNull",
+          "summary": "7-stage message pipeline in useMemo: compactAwareMessages → progress filter → null-attachment filter → brief 3-tier → applyGrouping → collap  =>  N/A — no KAIROS runtime flag, no applyGrouping / collapseHookSummaries / collapseReadSearchGroups / collapseBackgroundBashNotifications / co",
+          "user_visible": true,
+          "fix_scope": "multi-file",
+          "reproduction": "",
+          "ts_path": "src/components/Messages.tsx",
+          "cpp_path": "cpp_migration/src/ui/messages/messages_list.cppm",
+          "fixEstimateLines": 800,
+          "alreadyFixed": false,
+          "verdictReason": "Previous auditor correctly identified the absence of the full 7-stage message processing pipeline — CPP only implements filter+compact-boundary collapse, missing grouping, 4 collapsing passes, reordering, and message lookups that drive downstream rendering decisions."
+        },
+        {
+          "id": "virtual-message-list-missing",
+          "subsystem": "UI-Messages",
+          "severity": "P0-BLOCKER",
+          "evidence": "TS Messages.tsx L699-701: <InVirtualListContext.Provider value={true}><VirtualMessageList messages scrollRef columns ite",
+          "summary": "VirtualMessageList with scrollRef + height cache + extractSearchText hot indexing + 14 interactive props, guarded by virtualScrollRuntimeGat  =>  No VirtualMessageList, no InVirtualListContext, no scrollRef wiring, no height cache, no scanElement / setPositions, no cursorNavRef. MAX_ME",
+          "user_visible": true,
+          "fix_scope": "requires-new-module",
+          "reproduction": "",
+          "ts_path": "src/components/Messages.tsx",
+          "cpp_path": "cpp_migration/src/ui/messages/messages_list.cppm",
+          "fixEstimateLines": 1500,
+          "alreadyFixed": false,
+          "verdictReason": "CPP lacks virtualization entirely — users lose history above 80 rows, while TS has a full VirtualMessageList with height cache, search indexing, and cursor navigation refs."
+        },
+        {
+          "id": "logov2-render-modes-missing",
+          "subsystem": "UI-Layout",
+          "severity": "P0-BLOCKER",
+          "evidence": "TS LogoV2.tsx L46 LEFT_PANEL_MAX_WIDTH=50; L118-123 isCondensedMode gate; L249-421 layoutMode switch (compact L253, hori",
+          "summary": "isCondensedMode → CondensedLogo. Else layoutMode: 'compact' → centered round-border panel with borderTitle. Else horizontal/column: left pan  =>  LogoV2 has only CondensedLogo implemented. Layout modes 'compact' (single-column round-border panel, centered) and 'horizontal'/'column' (le",
+          "user_visible": true,
+          "fix_scope": "multi-file",
+          "reproduction": "",
+          "ts_path": "src/components/LogoV2/LogoV2.tsx",
+          "cpp_path": "cpp_migration/src/ui/layout/logo.cppm, cpp_migration/src/ui/screens/repl_screen.cppm",
+          "fixEstimateLines": 700,
+          "alreadyFixed": false,
+          "verdictReason": "CPP only implements CondensedLogo — the 'compact' centered round-border panel with borderTitle and 'horizontal/column' left-panel + vertical divider + FeedColumn modes are completely absent even though comments acknowledge they once existed."
+        },
+        {
+          "id": "prefix-glyph-no-unified-impl",
+          "subsystem": "UI-Prompt",
+          "severity": "P0-BLOCKER",
+          "evidence": "TS PromptInputModeIndicator.tsx lines 79-88 only emit figures.pointer (❯) or '!'; CPP never emits either glyph as prompt",
+          "summary": "3-way render: (1) non-bash + no teammate = ❯ default; (2) non-bash + teammate = ❯ with AGENT_COLOR_TO_THEME_COLOR[color]; (3) bash = '!' in   =>  Three competing prefix systems: (1) mode_indicator.cppm renders ● NORMAL / ◆ PLAN / ▶ VIM / ◎ SEARCH badge pills with raw ANSI - completely ",
+          "user_visible": true,
+          "fix_scope": "multi-file",
+          "reproduction": "",
+          "ts_path": "src/components/PromptInput/PromptInputModeIndicator.tsx",
+          "cpp_path": "cpp_migration/src/ui/prompt/mode_indicator.cppm + prompt_input_full.cppm + components/text_input.cppm",
+          "fixEstimateLines": 180,
+          "alreadyFixed": false,
+          "verdictReason": "Confirmed P0: the prompt glyph (first thing user sees on screen) is a completely wrong badge system instead of ❯/!; instantly visible on app launch."
+        },
+        {
+          "id": "api-client-3p-auth-missing",
+          "subsystem": "Services-API",
+          "severity": "P0-BLOCKER",
+          "evidence": "TS client.ts lines 3-64 header imports: GoogleAuth, getAWSRegion, getVertexRegionForModel; CPP grep for Bedrock/Vertex/A",
+          "summary": "TS supports 4 auth paths: (1) Anthropic API key x-api-key, (2) Claude AI OAuth Bearer, (3) AWS Bedrock: aws-sdk sigv4 + region, (4) Azure AD  =>  CPP only implements (1) x-api-key and (2) Bearer token (auth_token). No Bedrock sigv4, no Azure DefaultAzureCredential, no GCP google-auth-l",
+          "user_visible": true,
+          "fix_scope": "major-rewrite",
+          "reproduction": "",
+          "ts_path": "src/services/api/client.ts lines 3-205",
+          "cpp_path": "cpp_migration/src/services/api/client.cppm lines 911-977",
+          "fixEstimateLines": 2500,
+          "alreadyFixed": false,
+          "verdictReason": "Confirmed — only two of five TS auth paths exist (api-key + bearer), three enterprise/cloud provider paths (Bedrock sigv4, Azure DefaultAzureCredential/Foundry, GCP Vertex google-auth-library) are unimplemented despite env validation advertising them as supported."
+        }
+      ],
+      "P1Visible": [
+        {
+          "id": "welcome-v2-starfield-missing",
+          "subsystem": "UI-Components",
+          "severity": "P1-VISIBLE",
+          "evidence": "TS WelcomeV2.tsx: WELCOME_V2_WIDTH=58, useTheme() tri-branch (Apple_Terminal / light / dark), per-row hand-crafted starf",
+          "summary": "58-col ASCII starfield across 3 theme branches (Apple_Terminal / light / dark) with clawd body+background and randomized bold-star positions  =>  WelcomeV2.tsx 58-column starfield + Clawd character (clawd_body color over clawd_background) + Apple_Terminal narrow fallback + light-theme ",
+          "user_visible": true,
+          "fix_scope": "single-file",
+          "reproduction": "",
+          "ts_path": "src/components/LogoV2/WelcomeV2.tsx",
+          "cpp_path": "cpp_migration/src/ui/layout/logo.cppm",
+          "fixEstimateLines": 400,
+          "alreadyFixed": false,
+          "verdictReason": "Starfield/Clawd/Apple_Terminal/light-theme variants of WelcomeV2 are entirely missing — not just hidden behind a condensed gate but completely unimplemented."
+        },
+        {
+          "id": "unseen-divider-in-transcript-missing",
+          "subsystem": "UI-Messages",
+          "severity": "P1-VISIBLE",
+          "evidence": "TS Messages.tsx L549-553 dividerBeforeIndex compute + L631-635 render branch. grep messages_list.cppm for 'unseen' 'divi",
+          "summary": "useUnseenDivider returns dividerIndex + dividerYRef (ref-only to avoid REPL re-render); Messages flatMap inserts color=inactive Divider '{co  =>  No in-transcript UnseenDivider. dividerBeforeIndex (TS Messages.tsx L549-553: firstUnseenUuid 24-char prefix match over renderableMessages),",
+          "user_visible": true,
+          "fix_scope": "multi-file",
+          "reproduction": "",
+          "ts_path": "src/components/Messages.tsx, src/components/FullscreenLayout.tsx",
+          "cpp_path": "cpp_migration/src/ui/messages/messages_list.cppm",
+          "fixEstimateLines": 400,
+          "alreadyFixed": false,
+          "verdictReason": "In-transcript 'N new messages' divider is absent — CPP has no useUnseenDivider hook equivalent, no prefix-match anchor logic, and no divider insertion branch inside the visible-row loop."
+        },
+        {
+          "id": "transcript-brief-filter-missing",
+          "subsystem": "UI-Messages",
+          "severity": "P1-VISIBLE",
+          "evidence": "TS Messages.tsx L505-515: isTranscriptMode? unfiltered : briefToolNames ? filterForBriefTool||dropTextInBriefTurns : pas",
+          "summary": "Transcript/brief 3-tier: (1) transcript = full; (2) isBriefOnly = filter brief tool/result/user input + discard api_metrics; (3) dropTextInB  =>  Three-tier message filtering missing. Transcript mode (Ctrl+O) is not a real mode — no filter exists that unbypasses MAX_MESSAGES_TO_SHOW_IN",
+          "user_visible": true,
+          "fix_scope": "multi-file",
+          "reproduction": "",
+          "ts_path": "src/components/Messages.tsx",
+          "cpp_path": "cpp_migration/src/ui/messages/messages_list.cppm",
+          "fixEstimateLines": 350,
+          "alreadyFixed": false,
+          "verdictReason": "Transcript mode (full history) and brief-tool 3-tier filtering are completely unimplemented — users have no Ctrl+O / Ctrl+E toggles and no MAX_MESSAGES_TO_SHOW_IN_TRANSCRIPT_MODE=30 cap with divider indicators."
+        },
+        {
+          "id": "feed-priority-chain-missing",
+          "subsystem": "UI-Components",
+          "severity": "P1-VISIBLE",
+          "evidence": "TS LogoV2.tsx L421 (FeedColumn feeds= priority chain); L160-172 (renderModelSetting + getEffortSuffix + truncate(30)). C",
+          "summary": "4-branch feed priority chain + renderModelSetting with effort suffix truncated to LEFT_PANEL_MAX_WIDTH-20  =>  Feed priority chain completely missing: showOnboarding → [onboarding + recentActivity]; showGuestPasses → [recentActivity + createGuestPasse",
+          "user_visible": true,
+          "fix_scope": "multi-file",
+          "reproduction": "",
+          "ts_path": "src/components/LogoV2/LogoV2.tsx",
+          "cpp_path": "cpp_migration/src/ui/layout/logo.cppm",
+          "fixEstimateLines": 600,
+          "alreadyFixed": false,
+          "verdictReason": "Feed priority chain (onboarding / guest passes / overage credit / what's new) is unimplemented, and model display uses raw string instead of renderModelSetting + effortSuffix + truncation to 30 chars."
+        },
+        {
+          "id": "status-notices-stack-missing",
+          "subsystem": "UI-Components",
+          "severity": "P1-VISIBLE",
+          "evidence": "TS LogoV2.tsx imports: EmergencyTip L25, VoiceModeNotice L26, ChannelsNoticeModule conditional-require L36; renders in c",
+          "summary": "12-entry vertical notice stack under CondensedLogo (paddingLeft=2 column)  =>  Notice stack has only 1 of ~12 entries: RenderOpus1MNotice. Missing: VoiceModeNotice, ChannelsNotice (KAIROS conditional require), Debug mod",
+          "user_visible": true,
+          "fix_scope": "multi-file",
+          "reproduction": "",
+          "ts_path": "src/components/LogoV2/LogoV2.tsx",
+          "cpp_path": "cpp_migration/src/ui/layout/logo.cppm, cpp_migration/src/ui/screens/repl_screen.cppm",
+          "fixEstimateLines": 500,
+          "alreadyFixed": false,
+          "verdictReason": "~11 of 12 notice entries are missing — CPP only implements Opus1mMergeNotice. Users lose critical operational feedback (voice, channels, tmux, emergency, sandbox, debug, company announcement, etc.)."
+        },
+        {
+          "id": "message-click-expand-missing",
+          "subsystem": "UI-Messages",
+          "severity": "P1-VISIBLE",
+          "evidence": "TS Messages.tsx L563-594 expandedKeys/onItemClick/isItemExpanded/isItemClickable + L624 verbose || isItemExpanded(msg_8)",
+          "summary": "expandKey joins tool_use/tool_result; useState<Set<string>> tracks expanded; isItemClickable gates mouse-hover target by collapsed groups +   =>  Messages list has 'selected row' background change but no click-to-toggle verbose/expanded state. expandedKeys useState + expandKey (tool_us",
+          "user_visible": true,
+          "fix_scope": "multi-file",
+          "reproduction": "",
+          "ts_path": "src/components/Messages.tsx",
+          "cpp_path": "cpp_migration/src/ui/messages/messages_list.cppm",
+          "fixEstimateLines": 300,
+          "alreadyFixed": false,
+          "verdictReason": "No click-to-toggle expand/collapse state exists — selected row background is the only mouse feedback, truncated tool outputs / collapsed_read_search groups have no way to expand."
+        },
+        {
+          "id": "sticky-prompt-clicked-state-missing",
+          "subsystem": "UI-Layout",
+          "severity": "P1-VISIBLE",
+          "evidence": "TS FullscreenLayout.tsx: useState sticky three-way; L459 StickyPromptHeader click → setStickyPrompt('clicked'); L468-473",
+          "summary": "3-state stickyPrompt (null / {text,scrollTo} / 'clicked') + padCollapsed ScrollBox paddingTop toggle  =>  stickyPrompt three states (null → normal / {text,scrollTo} → show StickyPromptHeader / 'clicked' → padCollapsed=true + paddingTop=0 for Scro",
+          "user_visible": true,
+          "fix_scope": "single-file",
+          "reproduction": "",
+          "ts_path": "src/components/FullscreenLayout.tsx",
+          "cpp_path": "cpp_migration/src/ui/layout/fullscreen_layout.cppm",
+          "fixEstimateLines": 60,
+          "alreadyFixed": false,
+          "verdictReason": "3-state stickyPrompt (null / {text,scrollTo} / 'clicked') collapsed to 2-state — once the header appears during scroll-up, users cannot click it to dismiss and recover the padding row."
+        },
+        {
+          "id": "pill-absolute-overlay-vs-tail",
+          "subsystem": "UI-Layout",
+          "severity": "P1-VISIBLE",
+          "evidence": "TS FullscreenLayout.tsx L487-510: NewMessagesPill absolute position bottom-centre inside ScrollBox, onClick=jumpToNew. f",
+          "summary": "absolute bottom-centre overlay pill with onClick jumpToNew  =>  NewMessagesPill rendered at tail of scrollwrap vbox (L241 scroll_children.push_back). TS renders it as position:absolute bottom-centre overl",
+          "user_visible": true,
+          "fix_scope": "multi-file",
+          "reproduction": "",
+          "ts_path": "src/components/FullscreenLayout.tsx",
+          "cpp_path": "cpp_migration/src/ui/layout/fullscreen_layout.cppm",
+          "fixEstimateLines": 150,
+          "alreadyFixed": false,
+          "verdictReason": "Pill is pushed as a normal vbox sibling instead of being an absolute bottom-centre overlay (floats above content), and its click handler is an unwired sentinel bool."
+        },
+        {
+          "id": "hyperlink-click-open-missing",
+          "subsystem": "UI-Messages",
+          "severity": "P1-VISIBLE",
+          "evidence": "TS FullscreenLayout.tsx L630-667 useLayoutEffect onHyperlinkClick. CPP markdown.cppm L679-715 inline comment. app.cppm g",
+          "summary": "useLayoutEffect subscribes ink.onHyperlinkClick and dispatches file → openPath (shell) / http(s) → openBrowser via native APIs  =>  Markdown hyperlinks do not open system paths/browsers. TS FullscreenLayout L630-667 useLayoutEffect on ink.onHyperlinkClick dispatches file:",
+          "user_visible": true,
+          "fix_scope": "requires-engine-wiring",
+          "reproduction": "",
+          "ts_path": "src/components/FullscreenLayout.tsx",
+          "cpp_path": "cpp_migration/src/ui/markdown.cppm, cpp_migration/src/ui/app.cppm",
+          "fixEstimateLines": 200,
+          "alreadyFixed": false,
+          "verdictReason": "Markdown hyperlinks render underlined but are not clickable — neither OSC 8 emission nor Ink-level click callback with openPath/openBrowser dispatch is implemented."
+        },
+        {
+          "id": "streaming-tail-features-missing",
+          "subsystem": "UI-Messages",
+          "severity": "P1-VISIBLE",
+          "evidence": "TS Messages.tsx L703-719: streamingText BOX + isStreamingThinkingVisible BOX. L544-545 inProgress/streaming IDs; L595 ca",
+          "summary": "streaming-text circle + StreamingMarkdown, 30s-timeout thinking banner, lastThinkingBlockId adaptive, latestBashOutput highlight, OSC 9;4 te  =>  Several Messages rendering tail features missing: (1) streamingText BLACK_CIRCLE + StreamingMarkdown sibling — no such sibling row in CPP. (",
+          "user_visible": true,
+          "fix_scope": "multi-file",
+          "reproduction": "",
+          "ts_path": "src/components/Messages.tsx",
+          "cpp_path": "cpp_migration/src/ui/messages/messages_list.cppm",
+          "fixEstimateLines": 400,
+          "alreadyFixed": false,
+          "verdictReason": "All 5 streaming-tail UX markers (BLACK_CIRCLE + StreamingMarkdown sibling, 30s-timeout thinking banner, lastThinkingBlockId adaptive, latestBashOutput highlight, OSC 9;4 terminal progress) are absent — only basic inline text append exists."
+        },
+        {
+          "id": "search-indexing-toy-vs-tool-owned",
+          "subsystem": "UI-Messages",
+          "severity": "P1-VISIBLE",
+          "evidence": "TS Messages.tsx L649-676 extractSearchText + WeakMap cache. CPP build_visible_rows L448-461 naive single-pass lowered ne",
+          "summary": "extractSearchText 2-tier (tool.extractSearchText preferred, renderableSearchText fallback) + WeakMap lowered cache  =>  Search indexing uses simple lowered payload_preview() substring (messages_list.cppm L448-461). TS implements extractSearchText with two-tier",
+          "user_visible": true,
+          "fix_scope": "multi-file",
+          "reproduction": "",
+          "ts_path": "src/components/Messages.tsx",
+          "cpp_path": "cpp_migration/src/ui/messages/messages_list.cppm",
+          "fixEstimateLines": 350,
+          "alreadyFixed": false,
+          "verdictReason": "Confirmed real divergence: CPP lacks the 2-tier tool-owned dispatch and the WeakMap-per-message lowered-text cache, causing Ctrl-F to miss matches inside unrendered tool bodies."
+        },
+        {
+          "id": "footer-notifications-stub",
+          "subsystem": "UI-Components",
+          "severity": "P1-VISIBLE",
+          "evidence": "TS PromptInputFooter.tsx: Notifications + undercover + BridgeStatus + CoordinatorTaskPanel. CPP L550-554 empty stub.",
+          "summary": "Notifications (apiKeyStatus, autoUpdaterResult) + undercover pill + BridgeStatus + CoordinatorTaskPanel (ant-only)  =>  Footer Notifications component (non-fullscreen only, TS renders apiKeyStatus, autoUpdaterResult, pro-renewal banner, new-release pill) is st",
+          "user_visible": true,
+          "fix_scope": "requires-engine-wiring",
+          "reproduction": "",
+          "ts_path": "src/components/PromptInputFooter.tsx",
+          "cpp_path": "cpp_migration/src/ui/prompt/prompt_input_footer.cppm",
+          "fixEstimateLines": 400,
+          "alreadyFixed": false,
+          "verdictReason": "Confirmed: CPP right-column Notifications is an empty stub, undercover has no engine provider, CoordinatorTaskPanel is absent — all contrary to TS."
+        },
+        {
+          "id": "msg-user-prompt-truncation",
+          "subsystem": "UI-Messages",
+          "severity": "P1-VISIBLE",
+          "evidence": "TS MAX_DISPLAY_CHARS=10_000 / TRUNCATE_HEAD=2_500 / TRUNCATE_TAIL=2_500 at lines 28-30; CPP user_text_message.cppm line ",
+          "summary": "Hard-caps display text at 10_000 chars: head 2500 + '… +N lines …' + tail 2500, computed via useMemo before render. Critical for perf: pipin  =>  RenderUserPromptMessage takes `data.content` verbatim; no truncation, no head/tail split, no hidden-line count hint.",
+          "user_visible": true,
+          "fix_scope": "single-file",
+          "reproduction": "",
+          "ts_path": "/Users/bytedance/Develop/CC-REPL/src/components/messages/UserPromptMessage.tsx",
+          "cpp_path": "/Users/bytedance/Develop/CC-REPL/cpp_migration/src/ui/messages/user_text_message.cppm",
+          "fixEstimateLines": 40,
+          "alreadyFixed": false,
+          "verdictReason": "Confirmed: CPP has no 10_000-char hard cap, meaning piping a large file into cc-repl will cause severe fullscreen render lag as in TS before this fix was added."
+        },
+        {
+          "id": "msg-user-local-cmd-faithful-wired",
+          "subsystem": "UI-Messages",
+          "severity": "P1-VISIBLE",
+          "evidence": "CPP local_command_output_message.cppm: Renderer() at line 321 uses RenderLocalCommandOutput (divergent) by default; Fait",
+          "summary": "Uses `<MessageResponse>` envelope: `  ⎿  ` prefix + ANSI-aware Ansi component paragraphs. No line numbers, no headers, no fold markers. Heig  =>  LocalCommandOutput (divergent) renders a borderRounded box with line-number gutter, $ header, stderr red, 200-line head+tail fold, footer st",
+          "user_visible": true,
+          "fix_scope": "multi-file",
+          "reproduction": "",
+          "ts_path": "/Users/bytedance/Develop/CC-REPL/src/components/messages/UserLocalCommandOutputMessage.tsx",
+          "cpp_path": "/Users/bytedance/Develop/CC-REPL/cpp_migration/src/ui/messages/local_command_output_message.cppm",
+          "fixEstimateLines": 10,
+          "alreadyFixed": false,
+          "verdictReason": "Confirmed: the faithful renderer exists and matches TS layout exactly but message_row dispatch calls the divergent (gutter/box) variant by default."
+        },
+        {
+          "id": "prompt-mode-enum-fragmentation",
+          "subsystem": "UI-Prompt",
+          "severity": "P1-VISIBLE",
+          "evidence": "TS inputModes.ts line 16-21 only checks startsWith('!'); CPP has three enums across three modules with no shared include",
+          "summary": "PromptInputMode is a 2-value union {'prompt'|'bash'}, driven solely by leading '!' prefix. getModeFromInput/getValueFromInput/prependModeCha  =>  Three mutually-incompatible PromptInputMode enum fragments: (1) prompt_input_full.cppm has 8 values {Normal,HistorySearch,SlashCommand,PlanM",
+          "user_visible": true,
+          "fix_scope": "multi-file",
+          "reproduction": "",
+          "ts_path": "src/components/PromptInput/inputModes.ts",
+          "cpp_path": "cpp_migration/src/ui/prompt/prompt_input_full.cppm + ui/components/text_input.cppm + ui/prompt/prompt_input_footer.cppm",
+          "fixEstimateLines": 200,
+          "alreadyFixed": false,
+          "verdictReason": "Confirmed: three incompatible enum definitions across three modules with no shared header, all diverging from TS's simple '!' prefix-driven 2-value mode. Downgraded from P0 to P1 because users don't INSTANTLY see internal fragmentation — they see functional inconsistencies after specific interactions."
+        },
+        {
+          "id": "placeholder-cascade-logic-missing",
+          "subsystem": "UI-Prompt",
+          "severity": "P1-VISIBLE",
+          "evidence": "usePromptInputPlaceholder.ts lines 32-66 implement 4-tier memoized cascade; CPP TextInputOptions.placeholder is a plain ",
+          "summary": "4-tier cascade with guards: (1) viewingAgentName -> 'Message @{name}...' with 20-char truncation; (2) editable queued cmds + hintCount<3 ->   =>  Single static string field TextInputOptions.placeholder = 'Type your message here...'. No teammate-name gate, no queued-command hint counter",
+          "user_visible": true,
+          "fix_scope": "requires-engine-wiring",
+          "reproduction": "",
+          "ts_path": "src/components/PromptInput/usePromptInputPlaceholder.ts",
+          "cpp_path": "cpp_migration/src/ui/components/text_input.cppm",
+          "fixEstimateLines": 150,
+          "alreadyFixed": false,
+          "verdictReason": "Confirmed: static placeholder omits teammate greeting, queue hint, and example-command onboarding. Kept P1 (placeholder is visible but static value is not WRONG, just less informative)."
+        },
+        {
+          "id": "permission-cycle-shift-tab-unwired",
+          "subsystem": "UI-Prompt",
+          "severity": "P1-VISIBLE",
+          "evidence": "Footer RenderModeIndicator line 197-198 renders the hint; text_input.cppm HandleEvent TabReverse at line 620-624 cycles ",
+          "summary": "Permission mode is cycled via shift+tab at footer level; modes = {default, AcceptEdits, AcceptAll, Plan}; each has symbol + title + theme co  =>  prompt_input_footer.cppm implements symbol/title/color helpers and even renders the '(shift+tab to cycle)' hint text, but text_input.cppm Ha",
+          "user_visible": true,
+          "fix_scope": "requires-engine-wiring",
+          "reproduction": "",
+          "ts_path": "src/components/PromptInput/PromptInputFooterLeftSide.tsx",
+          "cpp_path": "cpp_migration/src/ui/prompt/prompt_input_footer.cppm + ui/components/text_input.cppm",
+          "fixEstimateLines": 120,
+          "alreadyFixed": false,
+          "verdictReason": "Confirmed: footer advertises shift+tab to cycle permission but actual Shift+Tab cycles history or suggestions, not permission."
+        },
+        {
+          "id": "autocomplete-at-file-source-missing",
+          "subsystem": "UI-Prompt",
+          "severity": "P1-VISIBLE",
+          "evidence": "autocomplete_sources.cppm public surface contains no file/dir source; Typeahead::append_path_suggestions in prompt_input",
+          "summary": "@<path> triggers live file-system fuzzy autocomplete with file/directory icons, ~ expansion, quoted path support, line-range :a-b suffix, de  =>  at_attachments.cppm only implements materialize_at_mentions (submit-time block injection) - the display/suggestion side is absent. autocompl",
+          "user_visible": true,
+          "fix_scope": "multi-file",
+          "reproduction": "",
+          "ts_path": "src/utils/attachments.ts + hooks",
+          "cpp_path": "cpp_migration/src/ui/autocomplete_sources.cppm + at_attachments.cppm",
+          "fixEstimateLines": 300,
+          "alreadyFixed": false,
+          "verdictReason": "Confirmed: @<path> file/directory fuzzy autocomplete has no data-source implementation despite the UI plumbing (SuggestionCategory entries) existing."
+        },
+        {
+          "id": "autocomplete-at-agent-source-missing",
+          "subsystem": "UI-Prompt",
+          "severity": "P1-VISIBLE",
+          "evidence": "autocomplete_sources.cppm lines 40-56 list all 3 exported collectors; agents absent.",
+          "summary": "@<agentname> autocomplete shows agent color dot + name + description; suggestions populated from useAvailableAgents() hook + getAgentsForMcp  =>  No collect_agent_suggestions() in autocomplete_sources facade. at_attachments_impl.cpp try_attach_agent() only runs at submit, with no pre-t",
+          "user_visible": true,
+          "fix_scope": "requires-engine-wiring",
+          "reproduction": "",
+          "ts_path": "src/tools/AgentTool + utils/teammate.ts",
+          "cpp_path": "cpp_migration/src/ui/autocomplete_sources.cppm",
+          "fixEstimateLines": 200,
+          "alreadyFixed": false,
+          "verdictReason": "Confirmed: @<agentname> autocomplete suggestions missing; requires engine wiring to expose available agents plus facade collector."
+        },
+        {
+          "id": "autocomplete-at-history-source-missing",
+          "subsystem": "UI-Prompt",
+          "severity": "P1-VISIBLE",
+          "evidence": "TextInputImpl history search is a completely separate mode that hijacks full render; no suggestion-category=History entr",
+          "summary": "Ctrl+R / @history provides substring match against persisted history with 50-entry cap, reverse order, failed-match highlighting, inline acc  =>  Two separate history search implementations: (1) TextInputImpl::HandleSearchEvent (Ctrl+R) with substring matching + bordered overlay; (2) H",
+          "user_visible": true,
+          "fix_scope": "multi-file",
+          "reproduction": "",
+          "ts_path": "src/history.js + hooks",
+          "cpp_path": "cpp_migration/src/ui/components/text_input.cppm + prompt_input.cppm",
+          "fixEstimateLines": 200,
+          "alreadyFixed": false,
+          "verdictReason": "Confirmed: history search is ghettoized into a full overlay instead of flowing through Suggestion dropdown as a History category; @history token trigger produces no suggestions."
+        },
+        {
+          "id": "clipboard-image-paste-preview-missing",
+          "subsystem": "UI-Prompt",
+          "severity": "P1-VISIBLE",
+          "evidence": "prompt_paste_handler.cppm PastePreview struct has no image fields; read_clipboard() returns ''; FooterOptions::clipboard",
+          "summary": "OSC 52 + iTerm2 inline-image detection on paste. Detected images call onImagePaste callback. Footer hint 'Image in clipboard - ctrl+v to pas  =>  Prompt paste handler only renders a line-count preview for text paste. No PNG/JPEG signature sniff on incoming paste buffer. FooterOptions h",
+          "user_visible": true,
+          "fix_scope": "requires-engine-wiring",
+          "reproduction": "",
+          "ts_path": "src/components/BaseTextInput.tsx usePasteHandler",
+          "cpp_path": "cpp_migration/src/ui/prompt/prompt_paste_handler.cppm",
+          "fixEstimateLines": 180,
+          "alreadyFixed": false,
+          "verdictReason": "Auditor correct: no PNG/JPEG magic-byte sniff, no image variant, no OS clipboard image integration, footer hint never populated despite struct field existing."
+        },
+        {
+          "id": "combined-highlights-priority-system-absent",
+          "subsystem": "UI-Prompt",
+          "severity": "P1-VISIBLE",
+          "evidence": "shimmer.cppm operates on width/frame integers not on input text content; TextInputImpl RenderInputArea segments are stru",
+          "summary": "combinedHighlights array with 8 priority tiers: imageRef > btw > slashCommandTrigger > tokenBudget > memberMention > rainbowShimmer(ultrathi  =>  shimmer.cppm only implements a loading-placeholder wave animation (░▒▓ gradient); has zero relation to TS rainbow-shimmer for ultra modes. t",
+          "user_visible": true,
+          "fix_scope": "major-rewrite",
+          "reproduction": "",
+          "ts_path": "src/components/PromptInput/PromptInput.tsx lines ~250-550",
+          "cpp_path": "cpp_migration/src/ui/prompt/shimmer.cppm + ui/components/text_input.cppm",
+          "fixEstimateLines": 900,
+          "alreadyFixed": false,
+          "verdictReason": "Auditor correct: 8-tier priority highlight system (imageRef/btw/slash/tokenBudget/memberMention/rainbowShimmer/voice/default) is completely absent from CPP rendering."
+        },
+        {
+          "id": "bash-mode-prefix-character-exclamation",
+          "subsystem": "UI-Prompt",
+          "severity": "P1-VISIBLE",
+          "evidence": "inputModes.ts getValueFromInput() strips prefix; text_input.cppm submit_internal() sends text_ directly (includes '!') t",
+          "summary": "bash mode triggers solely by leading '!' character. prefix glyph becomes '! ' in bashBorder theme color; input text visible after '!'; foote  =>  text_input.cppm PromptMode::Bash is set on '!' first character detection, but: (1) prefix glyph never changes (still '▶ '); (2) the '!' char",
+          "user_visible": true,
+          "fix_scope": "multi-file",
+          "reproduction": "",
+          "ts_path": "src/components/PromptInput/inputModes.ts + PromptInputModeIndicator.tsx",
+          "cpp_path": "cpp_migration/src/ui/components/text_input.cppm + ui/prompt/prompt_input_footer.cppm",
+          "fixEstimateLines": 25,
+          "alreadyFixed": false,
+          "verdictReason": "Auditor correct on all 3 counts: glyph duplicated visually, '!' not stripped at render time, not stripped on submit; only footer indicator level placement is correct."
+        },
+        {
+          "id": "clr-dark-palette-11-p1",
+          "subsystem": "UI-DesignTokens",
+          "severity": "P1-VISIBLE",
+          "evidence": "Computed max-channel deltas (dark theme): info ΔR=67, diff_added ΔG=68, diff_removed ΔR=126, rate_limit_fill ΔR=97, rain",
+          "summary": "TS darkTheme exposes 69 explicit rgb() fields. Key semantics: permission=rgb(177,185,249) (lavender), diffAdded=rgb(34,92,43) (dark forest g  =>  CPP dark Palette carries 27 fields. Field remapping is lossy: info=rgb(110,151,255) (sky blue vs TS lavender); diffs use bright greens/reds ",
+          "user_visible": true,
+          "fix_scope": "single-file",
+          "reproduction": "",
+          "ts_path": "src/utils/theme.ts (darkTheme const, lines 440-515)",
+          "cpp_path": "cpp_migration/src/ui/design_system/design_tokens.cppm (Palette dark, lines 138-179)",
+          "fixEstimateLines": 22,
+          "alreadyFixed": false,
+          "verdictReason": "Auditor correct; numeric deltas verified for 11 tokens. Note: TS dark.background 'rgb(0,204,204)' is suspicious (not actually rendered by Ink?) so background delta is possibly a TS false-value not user-visible."
+        },
+        {
+          "id": "clr-light-palette-17-p1",
+          "subsystem": "UI-DesignTokens",
+          "severity": "P1-VISIBLE",
+          "evidence": "Worst deltas: rate_limit_empty ΔR=186 ΔG=183 ΔB=129, diff_removed ΔG=118 ΔB=135, diff_added ΔG=89, suggestion ΔR=57 ΔB=6",
+          "summary": "TS lightTheme: text=rgb(0,0,0) pure black, diffAdded=rgb(105,219,124) bright lime, diffRemoved=rgb(255,168,180) soft pink, suggestion=rgb(87  =>  CPP light palette: all colors diverge significantly from TS. Only 3 tokens (user_message_background=240, message_actions_background=232,236,",
+          "user_visible": true,
+          "fix_scope": "single-file",
+          "reproduction": "",
+          "ts_path": "src/utils/theme.ts (lightTheme const, lines 115-191)",
+          "cpp_path": "cpp_migration/src/ui/design_system/design_tokens.cppm (Palette light, lines 181-210)",
+          "fixEstimateLines": 30,
+          "alreadyFixed": false,
+          "verdictReason": "Auditor correct; verified worst deltas for 17 tokens match or exceed auditor's numeric claims."
+        },
+        {
+          "id": "clr-daltonized-27-p1",
+          "subsystem": "UI-DesignTokens",
+          "severity": "P1-VISIBLE",
+          "evidence": "27/27 daltonized comparisons rated P1-VISIBLE (max delta ≥5). Worst: light-daltonized danger ΔG=90 ΔB=110, dark-daltoniz",
+          "summary": "TS daltonized variants use explicit RGB transforms: deuteranopia-safe color conversions — success/error use pure blue/pure red, claude becom  =>  CPP daltonized variants are 'derived from dark/light using standard daltonize matrices' per comment (line 213). Values are computed approxim",
+          "user_visible": true,
+          "fix_scope": "single-file",
+          "reproduction": "",
+          "ts_path": "src/utils/theme.ts (darkDaltonizedTheme lines 521-596 + lightDaltonizedTheme lines 359-434)",
+          "cpp_path": "cpp_migration/src/ui/design_system/design_tokens.cppm (Palette dark_daltonized 214-249 + light_daltonized 251-277)",
+          "fixEstimateLines": 60,
+          "alreadyFixed": false,
+          "verdictReason": "Auditor correct; CPP's 'derived via matrix' shortcut explicitly defeats TS's hand-picked CVD-safe values."
+        },
+        {
+          "id": "clr-rainbow-28-p1",
+          "subsystem": "UI-DesignTokens",
+          "severity": "P1-VISIBLE",
+          "evidence": "Dark theme rainbow deltas: [0]ΔB=45, [1]ΔG=20 ΔB=23, [2]ΔB=9, [3]ΔR=70 ΔB=62, [4]ΔR=76, [5]ΔG=28 ΔB=55, [6]ΔG=73. All 7 ",
+          "summary": "TS ultrathink keyword rainbow: 7 warm→cool gradient (red 235,95,87 → orange 245,139,87 → yellow 250,195,95 → green 145,200,130 → blue 130,17  =>  CPP rainbow uses what appears to be a Chart.js default palette: 255,99,132 (pink-red), 255,159,64, 255,205,86, 75,192,192 (teal), 54,162,235",
+          "user_visible": true,
+          "fix_scope": "single-file",
+          "reproduction": "",
+          "ts_path": "src/utils/theme.ts (rainbow_red..violet + shimmer, all 6 themes identical values lines 177-190)",
+          "cpp_path": "cpp_migration/src/ui/design_system/design_tokens.cppm (Pallete.rainbow[7] + rainbow_shimmer)",
+          "fixEstimateLines": 30,
+          "alreadyFixed": false,
+          "verdictReason": "Auditor correct; Chart.js default palette used instead of ultrathink/ultraplan warm→cool gradient, 7 shimmer tokens missing."
+        },
+        {
+          "id": "mcp-xaa-oauth-stubs",
+          "subsystem": "Services-MCP",
+          "severity": "P1-VISIBLE",
+          "evidence": "511+487 TS vs 55+101 CPP (roughly 6x difference).",
+          "summary": "TS xaa.ts implements full Claude AI / X.AI OAuth dance: auth URL generation, PKCE, redirect URI, token exchange, refresh token, logout, stor  =>  CPP xaa.cppm is 55 lines - skeleton types, no HTTP calls. xaa_idp_login 101 lines - partial flow with missing pieces. auth.cppm (separate) h",
+          "user_visible": true,
+          "fix_scope": "major-rewrite",
+          "reproduction": "",
+          "ts_path": "src/services/mcp/xaa.ts (511), xaaIdpLogin.ts (487)",
+          "cpp_path": "cpp_migration/src/services/mcp/xaa.cppm (55), xaa_idp_login.cppm (101)",
+          "fixEstimateLines": 1400,
+          "alreadyFixed": false,
+          "verdictReason": "Confirmed: both CPP files are substantially incomplete; xaa.cppm is a config-read stub and xaa_idp_login.cppm implements the wrong OAuth flow (device) vs TS (authorization_code+PKCE via SDK) with no secure-storage caching, no discovery, no PKCE."
+        },
+        {
+          "id": "skills-load-dir-richer-in-ts",
+          "subsystem": "Skills",
+          "severity": "P1-VISIBLE",
+          "evidence": "1086 vs 221 lines. grep dynamicSkills in CPP returns 0.",
+          "summary": "TS loads skills directory with: Zod schema validation of skill.md YAML frontmatter, MDX parsing, parameter extraction, error surface, 23 get  =>  CPP 221-line version. 55 keywords found vs TS 230. Missing Zod-like schema validation, dynamicSkills registry, cache invalidation. File cont",
+          "user_visible": true,
+          "fix_scope": "multi-file",
+          "reproduction": "",
+          "ts_path": "src/skills/loadSkillsDir.ts (1086 lines)",
+          "cpp_path": "cpp_migration/src/skills/load_skills_dir.cppm (221 lines)",
+          "fixEstimateLines": 1500,
+          "alreadyFixed": false,
+          "verdictReason": "Confirmed — CPP skill loading is a minimal JSON/manifest scanner missing YAML frontmatter parsing, hook/shell execution, parameter extraction, argument substitution, gitignore filtering, realpath dedupe, managed-settings policy gate, and MCP skill builder registration."
+        }
+      ],
+      "P2Minor": [
+        {
+          "id": "suggestions-dialog-overlay-portal-missing",
+          "subsystem": "UI-Layout",
+          "evidence": "TS FullscreenLayout.tsx L591-603: <SuggestionsOverlay bottom='100%' .../> and <DialogOverlay .../>. CPP repl_screen L181",
+          "ts_path": "src/components/FullscreenLayout.tsx",
+          "cpp_path": "cpp_migration/src/ui/screens/repl_screen.cppm",
+          "fixEstimateLines": 250,
+          "alreadyFixed": false
+        },
+        {
+          "id": "modal-context-missing",
+          "subsystem": "UI-Layout",
+          "evidence": "TS FullscreenLayout.tsx L409-415. CPP grep: 'ModalContext' returns 0 hits. Repl_screen passes width=120 height=40 hardco",
+          "ts_path": "src/components/FullscreenLayout.tsx",
+          "cpp_path": "cpp_migration/src/ui/layout/fullscreen_layout.cppm",
+          "fixEstimateLines": 180,
+          "alreadyFixed": false
+        },
+        {
+          "id": "msg-assistant-markdown-renderer",
+          "subsystem": "UI-Messages",
+          "evidence": "CPP assistant_text_message.cppm line 297 delegates to `::cc::ui::render_markdown(content)`. Audit caveat memory `ui-port",
+          "ts_path": "/Users/bytedance/Develop/CC-REPL/src/components/Markdown.tsx (via AssistantTextMessage.tsx)",
+          "cpp_path": "/Users/bytedance/Develop/CC-REPL/cpp_migration/src/ui/markdown.cppm",
+          "fixEstimateLines": 500,
+          "alreadyFixed": false
+        },
+        {
+          "id": "msg-system-api-error-retry",
+          "subsystem": "UI-Messages",
+          "evidence": "TS props include retryAfterMs, onRetry, onClearSession, sessionExpired. CPP module file exists but audit shows no engine",
+          "ts_path": "/Users/bytedance/Develop/CC-REPL/src/components/messages/SystemAPIErrorMessage.tsx",
+          "cpp_path": "/Users/bytedance/Develop/CC-REPL/cpp_migration/src/ui/messages/api_error_message.cppm",
+          "fixEstimateLines": 80,
+          "alreadyFixed": false
+        },
+        {
+          "id": "vim-dual-conflicting-impls",
+          "subsystem": "UI-Prompt",
+          "evidence": "vim_input.cppm VimMode enum has 6 values; prompt_input.cppm VimHandler has 3 values; text_input.cppm enable_vim bool is ",
+          "ts_path": "src/components/VimTextInput.tsx",
+          "cpp_path": "cpp_migration/src/ui/prompt/vim_input.cppm + ui/components/text_input.cppm + ui/prompt_input.cppm",
+          "fixEstimateLines": 450,
+          "alreadyFixed": false
+        },
+        {
+          "id": "autocomplete-mcp-resource-never-passed-to-dropdown",
+          "subsystem": "UI-Prompt",
+          "evidence": "No grep result for collect_mcp_resource_suggestions calls outside the module impl itself.",
+          "ts_path": "src/services/mcp + hooks/useMcpResourceAutocomplete",
+          "cpp_path": "cpp_migration/src/ui/autocomplete_sources.cppm",
+          "fixEstimateLines": 30,
+          "alreadyFixed": true
+        },
+        {
+          "id": "stashed-prompt-restore-logic-missing",
+          "subsystem": "UI-Prompt",
+          "evidence": "git grep -l 'stashed' in cpp_migration/src returns empty.",
+          "ts_path": "src/components/PromptInput/PromptInputStashNotice.tsx",
+          "cpp_path": "cpp_migration/src/ui/screens/repl_screen.cppm",
+          "fixEstimateLines": 200,
+          "alreadyFixed": false
+        },
+        {
+          "id": "paste-text-truncation-10k-threshold",
+          "subsystem": "UI-Prompt",
+          "evidence": "inputPaste.ts lines 20-59 implement truncate; paste_text() lines 841-859 has no size check.",
+          "ts_path": "src/components/PromptInput/useMaybeTruncateInput.ts + inputPaste.ts",
+          "cpp_path": "cpp_migration/src/ui/components/text_input.cppm paste_text()",
+          "fixEstimateLines": 90,
+          "alreadyFixed": false
+        },
+        {
+          "id": "clr-missing-42-tokens-struct",
+          "subsystem": "UI-DesignTokens",
+          "evidence": "Missing list in color-comparison script output: 42 TS dark-theme rgb fields not present as Palette struct fields. Total ",
+          "ts_path": "src/utils/theme.ts (Theme type: 89 fields including all variants; 69 rgb() per variant)",
+          "cpp_path": "cpp_migration/src/ui/design_system/design_tokens.cppm (Pallete struct, lines 96-127)",
+          "fixEstimateLines": 200,
+          "alreadyFixed": false
+        },
+        {
+          "id": "fig-npm-glyphs-no-cpp-module",
+          "subsystem": "UI-DesignTokens",
+          "evidence": "TS files referencing figures.pointer: CoordinatorAgentStatus.tsx (lines 100,185), FullscreenLayout.tsx (572), LanguagePi",
+          "ts_path": "node_modules/figures/index.js (default export `figures` object — consumed via `import figures from 'figures'` in 9+ TS UI files)",
+          "cpp_path": "cpp_migration/src/ (no file covers npm `figures` default-export keys)",
+          "fixEstimateLines": 60,
+          "alreadyFixed": false
+        },
+        {
+          "id": "tools-missing-feature-gated",
+          "subsystem": "Engine-ToolUse",
+          "evidence": "TS tools.ts lines 16-158 for conditionals. CPP runtime_registry lines 2187-2451. grep for PushNotification/Monitor/SendU",
+          "ts_path": "src/tools.ts",
+          "cpp_path": "cpp_migration/src/tools/runtime_registry.cppm",
+          "fixEstimateLines": 400,
+          "alreadyFixed": false
+        },
+        {
+          "id": "mcp-channel-permissions-stub",
+          "subsystem": "Services-MCP",
+          "evidence": "wc -l comparison: 240 TS vs 45 CPP. CPP file contains only module boilerplate and empty namespace.",
+          "ts_path": "src/services/mcp/channelPermissions.ts (240 lines)",
+          "cpp_path": "cpp_migration/src/services/mcp/channel_permissions.cppm (45 lines)",
+          "fixEstimateLines": 350,
+          "alreadyFixed": false
+        },
+        {
+          "id": "mcp-channel-notification-stub",
+          "subsystem": "Services-MCP",
+          "evidence": "316 TS vs 43 CPP; grep for notification dispatch in client.cppm finds no channel_notification.cppm calls.",
+          "ts_path": "src/services/mcp/channelNotification.ts (316 lines)",
+          "cpp_path": "cpp_migration/src/services/mcp/channel_notification.cppm (43 lines)",
+          "fixEstimateLines": 650,
+          "alreadyFixed": false
+        },
+        {
+          "id": "skills-dynamic-skills-missing",
+          "subsystem": "Skills",
+          "evidence": "CPP grep returns 0 results for dynamicSkills pattern.",
+          "ts_path": "src/skills/loadSkillsDir.ts (23 matches), src/commands.ts (9 matches)",
+          "cpp_path": "cpp_migration/src/skills/, cpp_migration/src/commands/",
+          "fixEstimateLines": 180,
+          "alreadyFixed": false
+        },
+        {
+          "id": "lsp-manager-stub",
+          "subsystem": "Services-LSP",
+          "evidence": "CPP manager.cppm lines 9-62 only expose start_server/stop_server with boolean map. LSPServerManager.cppm 878 lines is th",
+          "ts_path": "src/services/lsp/manager.ts (289 lines), LSPServerManager.ts (420 lines)",
+          "cpp_path": "cpp_migration/src/services/lsp/manager.cppm (62 lines), LSPServerManager.cppm (878 lines)",
+          "fixEstimateLines": 200,
+          "alreadyFixed": false
+        }
+      ],
+      "falsePositives": [
+        {
+          "id": "tasks-turn-grouping-missing",
+          "subsystem": "Tasks",
+          "reason": "False positive: TS Task/TaskSchema/useTasksV2/useTaskListWatcher do NOT contain createdTurnId/updatedTurnId. Auditor attributed turnId (from query engine's autoCompact tracking) to Tasks incorrectly. A separate real divergence exists (blocks/blockedBy/owner/activeForm missing from CPP Task) but the reported gap is fictional."
+        }
+      ]
+    },
+    "unvettedGaps": [
+      {
+        "id": "footer-leftside-items-missing",
+        "subsystem": "UI-Components",
+        "severity": "P2-MINOR",
+        "evidence": "TS PromptInputFooterLeftSide.tsx: ExitMsg + PastingIndicator + HistorySearchInput + VimInsertBadge + ModeIndicator. CPP "
+      },
+      {
+        "id": "turn-boundary-fine-grain-missing",
+        "subsystem": "UI-Messages",
+        "severity": "P2-MINOR",
+        "evidence": "TS Messages.tsx L614-625 isUserContinuation/hasContentAfter + L628 Provider. CPP L1239-1273 only uses is_assistant_block"
+      },
+      {
+        "id": "sticky-prompt-pointer-glyph-missing",
+        "subsystem": "UI-Layout",
+        "severity": "P2-MINOR",
+        "evidence": "TS StickyPromptHeader.tsx: prefix pointer glyph + wrap=truncate-end. CPP L137-146: text(' ') + body + text(' ') — no poi"
+      },
+      {
+        "id": "agent-name-prefix-not-exposed",
+        "subsystem": "UI-Layout",
+        "severity": "P2-MINOR",
+        "evidence": "repl_screen L1011-1018 comment + data.agent_name = std::nullopt;"
+      },
+      {
+        "id": "cwd-truncation-approximate",
+        "subsystem": "UI-Components",
+        "severity": "P2-MINOR",
+        "evidence": "logo.cppm L313-330 fallback branch; TS LogoV2/utils.ts truncatePath behavior described in L303 comment."
+      },
+      {
+        "id": "modal-divider-hardcoded-color",
+        "subsystem": "UI-Layout",
+        "severity": "P2-MINOR",
+        "evidence": "TS FullscreenLayout.tsx L560 color='permission'. fullscreen_layout.cppm L181 literal RGB(180, 130, 255)."
+      },
+      {
+        "id": "role-pill-palette-hardcoded",
+        "subsystem": "UI-Messages",
+        "severity": "P2-MINOR",
+        "evidence": "messages_list L154-180 hardcoded RGB. TS design_tokens.tsx exposes color-based design tokens; Message.tsx uses them."
+      },
+      {
+        "id": "render-cap-numeric-semantics-differ",
+        "subsystem": "UI-Messages",
+        "severity": "P2-MINOR",
+        "evidence": "messages_list.cppm L1209 kMaxRenderedLastN=80; L1229 start=visible.size()-80. TS Messages.tsx MAX_MESSAGES_TO_SHOW_IN_TR"
+      },
+      {
+        "id": "markdown-links-no-osc8",
+        "subsystem": "UI-Messages",
+        "severity": "P2-MINOR",
+        "evidence": "markdown.cppm L679-715 comment at L710 'FTXUI has no OSC 8 primitive'."
+      },
+      {
+        "id": "react-memo-has-no-ftxui-equivalent",
+        "subsystem": "UI-Messages",
+        "severity": "P3-INFO",
+        "evidence": "TS Messages.tsx L741-778 setsEqual React.memo custom."
+      },
+      {
+        "id": "seen-count-lifecycle-hooks-missing",
+        "subsystem": "UI-Components",
+        "severity": "P3-INFO",
+        "evidence": "TS LogoV2.tsx useEffect incrementReleaseNotesSeenCount + incrementOnboardingSeenCount."
+      },
+      {
+        "id": "scroll-chrome-context-replaced-by-field",
+        "subsystem": "UI-Layout",
+        "severity": "P3-INFO",
+        "evidence": "TS FullscreenLayout.tsx ScrollChromeContext.Provider setStickyPrompt."
+      },
+      {
+        "id": "scroll-external-store-subsys-missing",
+        "subsystem": "UI-Layout",
+        "severity": "P3-INFO",
+        "evidence": "TS FullscreenLayout.tsx useUnseenDivider → useSyncExternalStore. repl_screen.cppm L369 pill_visible=false default; no wr"
+      },
+      {
+        "id": "user-named-missing-files-are-absent-from-ts",
+        "subsystem": "State",
+        "severity": "P3-INFO",
+        "evidence": "find src/components -maxdepth 2 -name 'Brief*' yields 0 results. Messages.tsx line 30 (feature() requires). Meta finding"
+      },
+      {
+        "id": "should-render-statically-missing",
+        "subsystem": "UI-Messages",
+        "severity": "P2-MINOR",
+        "evidence": "TS Messages.tsx L779-834 full switch; sed output confirmed L805-834 content. CPP grep: no hits for 'shouldRenderStatical"
+      },
+      {
+        "id": "logo-header-memo-missing",
+        "subsystem": "UI-Components",
+        "severity": "P3-INFO",
+        "evidence": "TS Messages.tsx L677 comment before LogoHeader return + React.memo export; upstream internal comment about 2800-msg sess"
+      },
+      {
+        "id": "msg-team-mem-collapsed-missing",
+        "subsystem": "UI-Messages",
+        "severity": "P2-MINOR",
+        "evidence": "message_row.cppm line 59: `❌ teamMemCollapsed.tsx             (? loc) │ ❌ (TBD → UI5 follow-up)`"
+      },
+      {
+        "id": "msg-user-agent-notification",
+        "subsystem": "UI-Messages",
+        "severity": "P2-MINOR",
+        "evidence": "message_row.cppm line 42: `🧩 UserAgentNotification.tsx      (140 loc) │ 🧩 user_message (base)`"
+      },
+      {
+        "id": "msg-user-memory-input",
+        "subsystem": "UI-Messages",
+        "severity": "P2-MINOR",
+        "evidence": "message_row.cppm line 44: `🧩 UserMemoryInputMessage.tsx     (150 loc) │ 🧩 user_message (base)`"
+      },
+      {
+        "id": "msg-user-resource-update",
+        "subsystem": "UI-Messages",
+        "severity": "P2-MINOR",
+        "evidence": "message_row.cppm line 45: `🧩 UserResourceUpdateMessage.tsx  (290 loc) │ 🧩 user_message (base)`"
+      },
+      {
+        "id": "msg-user-teammate-message",
+        "subsystem": "UI-Messages",
+        "severity": "P2-MINOR",
+        "evidence": "message_row.cppm line 36: `🧩 UserTeammateMessage.tsx        (205 loc) │ 🧩 user_message (base)`"
+      },
+      {
+        "id": "msg-user-plan-message",
+        "subsystem": "UI-Messages",
+        "severity": "P2-MINOR",
+        "evidence": "message_row.cppm line 38: `🧩 UserPlanMessage.tsx            (~95 loc) │ 🧩 user_message (base)`"
+      },
+      {
+        "id": "msg-highlighted-thinking-ultra-think",
+        "subsystem": "UI-Messages",
+        "severity": "P2-MINOR",
+        "evidence": "TS HighlightedThinkingText.tsx lines 85-131: triggers loop + getRainbowColor. CPP user_text_message.cppm RenderUserPromp"
+      },
+      {
+        "id": "msg-tool-use-progress-queue",
+        "subsystem": "UI-Messages",
+        "severity": "P2-MINOR",
+        "evidence": "tool_use_message.cppm lines 678-679 declare the fields; 796-812 render them only if non-empty. No upstream population si"
+      },
+      {
+        "id": "msg-attachment-diagnostics",
+        "subsystem": "UI-Messages",
+        "severity": "P2-MINOR",
+        "evidence": "TS AttachmentMessage.tsx line 13: `import { DiagnosticsDisplay } from '../DiagnosticsDisplay.js';`. CPP attachment_messa"
+      },
+      {
+        "id": "msg-collapsed-read-table",
+        "subsystem": "UI-Messages",
+        "severity": "P2-MINOR",
+        "evidence": "1800 vs collapsed_content_message.cppm size (~600 loc). Size alone indicates the gap."
+      },
+      {
+        "id": "msg-hook-progress-live",
+        "subsystem": "UI-Messages",
+        "severity": "P2-MINOR",
+        "evidence": "No CPP context/subscription pattern for hook progress identified in hooks/ modules."
+      },
+      {
+        "id": "msg-assistant-textdot-unified",
+        "subsystem": "UI-Messages",
+        "severity": "P3-INFO",
+        "evidence": "Faithful renderer at lines 398-437 matches TS JSX exactly. Divergent component at lines 188-255 has all the extra chrome"
+      },
+      {
+        "id": "msg-user-cmd-margin-top",
+        "subsystem": "UI-Messages",
+        "severity": "P3-INFO",
+        "evidence": "CPP line 208 signature: RenderUserPromptMessage(..., is_selected) has no addMargin param but always adds text(\"\") margin"
+      },
+      {
+        "id": "msg-error-message-stubs",
+        "subsystem": "UI-Messages",
+        "severity": "P3-INFO",
+        "evidence": "error_message.cppm lines 65-67: `inline std::string get_severity_color(ErrorSeverity) { return \"\"; }` — always empty. Li"
+      },
+      {
+        "id": "msg-ansi-handler-osc-drop",
+        "subsystem": "UI-Messages",
+        "severity": "P3-INFO",
+        "evidence": "Lines 201-209: OSC handler just seeks to BEL/ST and skips. SGR-only support is documented in lines 25-27 comments."
+      },
+      {
+        "id": "msg-thinking-italic-unavailable",
+        "subsystem": "UI-Messages",
+        "severity": "ALIGNED",
+        "evidence": "Line 527: `// FTXUI has no true italic; dim+gray approximates the dimColor+italic look.` Structure matches TS 1:1 for bo"
+      },
+      {
+        "id": "msg-tool-result-dispatch",
+        "subsystem": "UI-Messages",
+        "severity": "ALIGNED",
+        "evidence": "CPP dispatch switch at lines 607-665 mirrors TS if-chain with same kind order. Line 484: kMaxRenderedLines = 10 matches "
+      },
+      {
+        "id": "msg-system-subtype-dispatcher",
+        "subsystem": "UI-Messages",
+        "severity": "ALIGNED",
+        "evidence": "Glyph definitions (lines 246-248) match TS constants/figures.ts: REFERENCE_MARK=※, TEARDROP_ASTERISK=✻, BLACK_CIRCLE=⏺. "
+      },
+      {
+        "id": "shift-enter-creates-newline",
+        "subsystem": "UI-Prompt",
+        "severity": "P2-MINOR",
+        "evidence": "matches_with_shift() patterns cover Arrows/Home/End/Page but no xterm-style Shift+Return pattern."
+      },
+      {
+        "id": "ctrl-e-move-to-line-end",
+        "subsystem": "UI-Prompt",
+        "severity": "P2-MINOR",
+        "evidence": "Ctrl+A mapped at line 563; no Ctrl+E/U/W/K handlers."
+      },
+      {
+        "id": "ctrlj-ctrll-autocomplete-navigation",
+        "subsystem": "UI-Prompt",
+        "severity": "P2-MINOR",
+        "evidence": "No '\\n' or Ctrl+K case in HandleEvent suggestion branch."
+      },
+      {
+        "id": "ctrl-c-cancel-vs-interrupt-ambiguity",
+        "subsystem": "UI-Prompt",
+        "severity": "P2-MINOR",
+        "evidence": "HandleEvent line 565-568 only contains comment 'Do not consume: let REPL screen handle interrupt'."
+      },
+      {
+        "id": "esc-cancel-behavior",
+        "subsystem": "UI-Prompt",
+        "severity": "P2-MINOR",
+        "evidence": "HandleEvent line 704 calls options_.on_escape(); TextInputOptions docs say 'Optional' but the actual screen never wires "
+      },
+      {
+        "id": "slash-command-argument-hint",
+        "subsystem": "UI-Prompt",
+        "severity": "P2-MINOR",
+        "evidence": "argument_hint is set only if caller explicitly assigns it; no schema->hint converter in commands module or repl_screen."
+      },
+      {
+        "id": "footer-help-menu-gate",
+        "subsystem": "UI-Prompt",
+        "severity": "P2-MINOR",
+        "evidence": "RenderPromptInputFooter lines 514-516: '// Help menu content would be injected here; for now show placeholder'."
+      },
+      {
+        "id": "footer-leftside-exit-message-double-tap",
+        "subsystem": "UI-Prompt",
+        "severity": "P2-MINOR",
+        "evidence": "LeftSideOptions has exit_message_show bool; app.cppm or repl_screen.cppm never toggles it."
+      },
+      {
+        "id": "footer-leftside-pasting-indicator",
+        "subsystem": "UI-Prompt",
+        "severity": "P2-MINOR",
+        "evidence": "paste_burst_in_progress_ set true at line 858 of text_input.cppm; grep shows 0 reads."
+      },
+      {
+        "id": "queued-commands-up-edit-hint",
+        "subsystem": "UI-Prompt",
+        "severity": "P2-MINOR",
+        "evidence": "Queued command logic in DialogQueue M7 docs but prompt_input_footer.cppm has no queued item concept."
+      },
+      {
+        "id": "footer-right-side-notifications",
+        "subsystem": "UI-Prompt",
+        "severity": "P2-MINOR",
+        "evidence": "Lines 551-554 only contain a comment; no actual render of any notification pill/badge."
+      },
+      {
+        "id": "footer-coordinator-task-panel-ant-only",
+        "subsystem": "UI-Prompt",
+        "severity": "P2-MINOR",
+        "evidence": "TS Footer has 'CoordinatorTaskPanel // ant-only' in structure comment; CPP footer has no such concept."
+      },
+      {
+        "id": "bridge-status-indicator-selection-state",
+        "subsystem": "UI-Prompt",
+        "severity": "P2-MINOR",
+        "evidence": "BridgeOptions has no is_fullscreen field; render doesn't consult fullscreen flag for visibility."
+      },
+      {
+        "id": "vim-insert-indicator-footer-inline",
+        "subsystem": "UI-Prompt",
+        "severity": "P2-MINOR",
+        "evidence": "vim_input.cppm RenderVimInput line 218-232 draws mode_badge (colored bg) + status_bar; footer draws '-- INSERT --' again"
+      },
+      {
+        "id": "proactive-countdown-timer-footer",
+        "subsystem": "UI-Prompt",
+        "severity": "P2-MINOR",
+        "evidence": "TS proactiveModule import in footer; CPP prompt_input_footer.cppm contains no countdown/proactive string."
+      },
+      {
+        "id": "history-search-inline-highlighting",
+        "subsystem": "UI-Prompt",
+        "severity": "P2-MINOR",
+        "evidence": "RenderSearchMode lines 1371-1376 renders match in plain Color::Green, no substring position injection."
+      },
+      {
+        "id": "text-viewport-windowing-for-long-lines",
+        "subsystem": "UI-Prompt",
+        "severity": "P2-MINOR",
+        "evidence": "BaseTextInput has viewportCharOffset/End; CPP RenderInputArea has no equivalent variable or windowing logic."
+      },
+      {
+        "id": "voice-indicator-footer-leftside",
+        "subsystem": "UI-Prompt",
+        "severity": "P2-MINOR",
+        "evidence": "No VoiceIndicator-equivalent file in CPP prompt directory."
+      },
+      {
+        "id": "sandbox-footer-hint",
+        "subsystem": "UI-Prompt",
+        "severity": "P2-MINOR",
+        "evidence": "show_sandbox_hint declared at line 96 of text_input.cppm; grep for 'sandbox' in footer returns 0 matches."
+      },
+      {
+        "id": "teammate-color-on-prefix-glyph",
+        "subsystem": "UI-Prompt",
+        "severity": "P2-MINOR",
+        "evidence": "No file references AGENT_COLOR_TO_THEME_COLOR or teammate palette in prompt modules."
+      },
+      {
+        "id": "pr-badge-footer-leftside",
+        "subsystem": "UI-Prompt",
+        "severity": "P3-INFO",
+        "evidence": "No 'PR' string in prompt_input_footer.cppm."
+      },
+      {
+        "id": "selection-copy-hint-footer",
+        "subsystem": "UI-Prompt",
+        "severity": "P3-INFO",
+        "evidence": "No 'copy' or 'selection' hint string in footer."
+      },
+      {
+        "id": "todos-shortcut-configurable",
+        "subsystem": "UI-Prompt",
+        "severity": "P3-INFO",
+        "evidence": "todos_shortcut defaults to 'ctrl+t'; no settings read wire."
+      },
+      {
+        "id": "statusline-ansi-parser",
+        "subsystem": "UI-Prompt",
+        "severity": "ALIGNED",
+        "evidence": "RenderStatusLine implementation mirrors TS structure exactly."
+      },
+      {
+        "id": "declared-cursor-terminal-support",
+        "subsystem": "UI-Prompt",
+        "severity": "ALIGNED",
+        "evidence": "declared_cursor.cppm structure comment directly references TS hook."
+      },
+      {
+        "id": "undo-redo-stack-operations",
+        "subsystem": "UI-Prompt",
+        "severity": "ALIGNED",
+        "evidence": "push_undo() method lines 902-911 contains same dedupe + clear-redo logic as TS."
+      },
+      {
+        "id": "ctrlr-history-search-overlay",
+        "subsystem": "UI-Prompt",
+        "severity": "ALIGNED",
+        "evidence": "HandleSearchEvent structure mirrors TS behavior."
+      },
+      {
+        "id": "tab-autocomplete-navigation",
+        "subsystem": "UI-Prompt",
+        "severity": "ALIGNED",
+        "evidence": "Exact same if/else split as TS."
+      },
+      {
+        "id": "footer-stable-height-in-fullscreen",
+        "subsystem": "UI-Prompt",
+        "severity": "ALIGNED",
+        "evidence": "Multiple size(HEIGHT, EQUAL, 1) calls + blank space fallback."
+      },
+      {
+        "id": "narrow-footer-layout-stack",
+        "subsystem": "UI-Prompt",
+        "severity": "ALIGNED",
+        "evidence": "Exact is_narrow branch with identical behavior."
+      },
+      {
+        "id": "dlg-coverage-missing-12",
+        "subsystem": "UI-Dialogs",
+        "severity": "P2-MINOR",
+        "evidence": "TS missing map: ApproveApiKey, AutoUpdater, BypassPermissionsModeDialog, ChannelDowngradeDialog, ClaudeMdExternalInclude"
+      },
+      {
+        "id": "dlg-coverage-extra-16",
+        "subsystem": "UI-Dialogs",
+        "severity": "ALIGNED",
+        "evidence": "DialogQueue spec in docs/M7-dialog-system-architecture.md: 4 queue slots with band-3 animation suppression, Standalone s"
+      },
+      {
+        "id": "dlg-permission-legacy",
+        "subsystem": "UI-Dialogs",
+        "severity": "P2-MINOR",
+        "evidence": "Cpp file line 58: `render_permission_dialog` builds strings directly. TS PermissionDialog line 62: `<Box borderStyle='ro"
+      },
+      {
+        "id": "clr-shimmer-tokens-missing",
+        "subsystem": "UI-DesignTokens",
+        "severity": "P2-MINOR",
+        "evidence": "Palette struct definition: .primary_shimmer (line 98), .rainbow_shimmer (line 120). Missing: permissionShimmer, inactive"
+      },
+      {
+        "id": "fig-cpp-components-legacy",
+        "subsystem": "UI-DesignTokens",
+        "severity": "P2-MINOR",
+        "evidence": "Cpp file lines 9-45: BLACK_CIRCLE string literal (no preprocessor), lines 43-45: BRIDGE_READY='·✓·' — grep for BRIDGE_SP"
+      },
+      {
+        "id": "fig-spinner-frame-inconsistency",
+        "subsystem": "UI-DesignTokens",
+        "severity": "P2-MINOR",
+        "evidence": "tool_use_loader line 25: 8 frames array; thinking_message line 217: 8 frames; messages_list line 742: different 10-frame"
+      },
+      {
+        "id": "commands-feature-gated-availability",
+        "subsystem": "Commands-Slash",
+        "severity": "P2-MINOR",
+        "evidence": "TS lines 49-122 feature() gates; lines 320-345 conditional spreads; lines 225-254 INTERNAL_ONLY_COMMANDS. CPP command_re"
+      },
+      {
+        "id": "commands-missing-feature-variants",
+        "subsystem": "Commands-Slash",
+        "severity": "P2-MINOR",
+        "evidence": "TS commands.ts lines 62-122. CPP ls commands/ shows no peer/proactive/assistant/remote-control-server/subscribe-pr/workf"
+      },
+      {
+        "id": "tools-exit-plan-mode-v2",
+        "subsystem": "Engine-ToolUse",
+        "severity": "P2-MINOR",
+        "evidence": "TS tools.ts line 57 import ExitPlanModeV2Tool; CPP runtime_registry line 2331. CPP built_in_agents.cppm lines 63, 644, 6"
+      },
+      {
+        "id": "tools-merged-tools-assemble",
+        "subsystem": "Engine-ToolUse",
+        "severity": "P2-MINOR",
+        "evidence": "TS tools.ts lines 181-406. CPP tool_registry.cppm lines 22-24 just return runtime_tool_names() without filtering."
+      },
+      {
+        "id": "tools-filter-deny-rules",
+        "subsystem": "Engine-ToolUse",
+        "severity": "P2-MINOR",
+        "evidence": "TS tools.ts lines 267-274, 316-320. CPP permission_resolver.cppm 533 lines."
+      },
+      {
+        "id": "mcp-client-depth",
+        "subsystem": "Services-MCP",
+        "severity": "P2-MINOR",
+        "evidence": "Line count: 3348 vs 1790. SseTransport class confirmed in client.cppm line 226."
+      },
+      {
+        "id": "mcp-use-manage-mcp-connections-missing",
+        "subsystem": "Services-MCP",
+        "severity": "P2-MINOR",
+        "evidence": "No useManageMCPConnections.cppm equivalent; connection_manager.cppm exists but is 757 lines vs tiny TS file (TS has larg"
+      },
+      {
+        "id": "api-with-retry-depth",
+        "subsystem": "Services-API",
+        "severity": "P2-MINOR",
+        "evidence": "query_engine.cppm lines 1643-1675 implements per-call retry loop matching policy."
+      },
+      {
+        "id": "query-engine-max-rounds",
+        "subsystem": "Engine-QueryLoop",
+        "severity": "ALIGNED",
+        "evidence": "CPP lines 528, 806-807, 1357, 1566, 1643-1675."
+      },
+      {
+        "id": "skills-bundled-missing-files",
+        "subsystem": "Skills",
+        "severity": "P2-MINOR",
+        "evidence": "Directory listing diff. Some skills appear to have been moved to top-level skills/ instead of bundled/ subdir."
+      },
+      {
+        "id": "skills-plugin-integration",
+        "subsystem": "Skills",
+        "severity": "P2-MINOR",
+        "evidence": "TS commands.ts lines 449-469 Promise.all of 7 sources. CPP registry_init has no skills plugin integration at load time."
+      },
+      {
+        "id": "tasks-tool-schema-parity",
+        "subsystem": "Tasks",
+        "severity": "ALIGNED",
+        "evidence": "6 task file matches, runtime_registry line 2434. Grep on 6 tool names in runtime_registry.cppm confirms registration."
+      },
+      {
+        "id": "lsp-diagnostic-registry-stub",
+        "subsystem": "Services-LSP",
+        "severity": "P2-MINOR",
+        "evidence": "386 TS vs 69 CPP lines."
+      },
+      {
+        "id": "lsp-passive-feedback-stub",
+        "subsystem": "Services-LSP",
+        "severity": "P2-MINOR",
+        "evidence": "328 TS vs 59 CPP lines."
+      },
+      {
+        "id": "hooks-permission-handler-depth",
+        "subsystem": "Hooks",
+        "severity": "P2-MINOR",
+        "evidence": "388+238+handlers TS vs 201+150+handler CPP. ui/permissions/ directory has 20 .cppm files matching TS tool-permission UI "
+      },
+      {
+        "id": "hooks-some-hooks-missing",
+        "subsystem": "Hooks",
+        "severity": "P2-MINOR",
+        "evidence": "TS 101 vs CPP 90 files; difference may be TS-exclusive .test.ts files and Chrome-only hooks."
+      },
+      {
+        "id": "hooks-use-chrome-notifications-missing",
+        "subsystem": "Hooks",
+        "severity": "P3-INFO",
+        "evidence": "Search in CPP hooks dir for chrome/extension/notif returns no equivalent."
+      },
+      {
+        "id": "hooks-use-prompts-from-chrome-missing",
+        "subsystem": "Hooks",
+        "severity": "P2-MINOR",
+        "evidence": "No such file in CPP hooks dir."
+      },
+      {
+        "id": "plugins-plugin-cli-commands",
+        "subsystem": "Services-MCP",
+        "severity": "P2-MINOR",
+        "evidence": "Both sides have 3 plugin service files with matching naming."
+      },
+      {
+        "id": "oauth-client-crypto-depth",
+        "subsystem": "Hooks",
+        "severity": "P2-MINOR",
+        "evidence": "Directory listing comparison."
+      },
+      {
+        "id": "commands-meets-availability-requirement",
+        "subsystem": "Commands-Slash",
+        "severity": "P2-MINOR",
+        "evidence": "TS commands.ts lines 417-443. CPP registry has no equivalent check in registration or dispatch path."
+      },
+      {
+        "id": "commands-context-non-interactive",
+        "subsystem": "Commands-Slash",
+        "severity": "P2-MINOR",
+        "evidence": "TS lines 17-18 import 2 variants. CPP register_command<ContextCommand> only once (line 135)."
+      },
+      {
+        "id": "commands-reset-limits-non-interactive",
+        "subsystem": "Commands-Slash",
+        "severity": "P2-MINOR",
+        "evidence": "Single ResetLimitsCommand registration."
+      },
+      {
+        "id": "services-mcp-connection-manager-tsx-vs-cpp",
+        "subsystem": "Services-MCP",
+        "severity": "ALIGNED",
+        "evidence": "Line counts: TS wrapper 72 vs CPP class 757; TS client.ts 3348 vs CPP client.cppm 1790."
+      },
+      {
+        "id": "hooks-notifs",
+        "subsystem": "Hooks",
+        "severity": "P2-MINOR",
+        "evidence": "notifs/ subdirs exist on both sides; auto_mode_unavailable.cppm references TS feature gate."
+      },
+      {
+        "id": "bridge-services-rpc",
+        "subsystem": "Bridge",
+        "severity": "P3-INFO",
+        "evidence": "Bridge command present. Several bridge hooks present."
+      },
+      {
+        "id": "api-bootstrap-session-ingress",
+        "subsystem": "Services-API",
+        "severity": "P3-INFO",
+        "evidence": "File listing: both sides have bootstrap and session_ingress/ingress files."
+      },
+      {
+        "id": "api-errors-usage-logging",
+        "subsystem": "Services-API",
+        "severity": "ALIGNED",
+        "evidence": "File listing match."
+      },
+      {
+        "id": "mcp-normalization-env-expansion",
+        "subsystem": "Services-MCP",
+        "severity": "ALIGNED",
+        "evidence": "File listing shows one-to-one mapping."
+      },
+      {
+        "id": "mcp-vscode-sdk-mcp-inprocess",
+        "subsystem": "Services-MCP",
+        "severity": "ALIGNED",
+        "evidence": "One-to-one file mapping."
+      },
+      {
+        "id": "mcp-connection-manager-depth",
+        "subsystem": "Services-MCP",
+        "severity": "P2-MINOR",
+        "evidence": "connection_manager.cppm lines 304, 334, 590 show capability formatting. at_mention_handler.cppm dispatches inbound."
+      },
+      {
+        "id": "commands-hyperlink-rendering-parity",
+        "subsystem": "Commands-Slash",
+        "severity": "P2-MINOR",
+        "evidence": "Approach is fundamentally different (Ink JSX vs FTXUI component tree); hard to enumerate per-command parity without visu"
+      },
+      {
+        "id": "commands-insights-3200-line-shim",
+        "subsystem": "Commands-Slash",
+        "severity": "P2-MINOR",
+        "evidence": "TS lines 188-202 comments explicitly mention 113KB and lazy-shim pattern. CPP has no equivalent lazy-load mechanism."
+      },
+      {
+        "id": "commands-workflows-create-workflow-command",
+        "subsystem": "Commands-Slash",
+        "severity": "P2-MINOR",
+        "evidence": "TS tools.ts lines 401-405 getWorkflowCommands -> WorkflowTool/createWorkflowCommand.js. CPP commands/ has no workflows s"
+      },
+      {
+        "id": "commands-dynamic-command-merge-ordering",
+        "subsystem": "Commands-Slash",
+        "severity": "P2-MINOR",
+        "evidence": "TS lines 449-517 explicit ordering. CPP order is 92-195 static call list, not matching TS 7-source layered order."
+      },
+      {
+        "id": "hooks-voice-integration-missing",
+        "subsystem": "Hooks",
+        "severity": "P2-MINOR",
+        "evidence": "TS 5 voice files vs CPP 1 voice_hooks + 1 services/voice directory."
+      }
+    ],
+    "recommendations": [
+      "Batch all 5 P0 blockers in one patch (est ~5680 LOC). Target subsystem order: UI-Layout/UI-Messages first (most visually obvious), then UI-Prompt, then Dialogs, then Services.",
+      "Then process 29 P1 visible items (est ~9477 LOC), grouped per subsystem to reduce BMI recompilation churn under -j 1 builds.",
+      "After each patch batch: 3-way verification (debug+release 143/143 test_ui + fresh screenshot delta vs TS binary).",
+      "1 reported gaps dismissed as false-positives — review their `verdictReason` in the falsePositives table so future audits don't re-report.",
+      "106 gaps lacked adversarial verification (verifier budget) — re-run cross-check on those before scoping."
+    ]
+  },
+  "workflowProgress": [
+    {
+      "type": "workflow_phase",
+      "index": 1,
+      "title": "Audit (parallel subsystem sweep)"
+    },
+    {
+      "type": "workflow_phase",
+      "index": 2,
+      "title": "Adversarial cross-check (each gap double-verified)"
+    },
+    {
+      "type": "workflow_phase",
+      "index": 3,
+      "title": "Synthesize master gap report + severity ranking"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 1,
+      "label": "audit:screens",
+      "phaseIndex": 1,
+      "phaseTitle": "Audit (parallel subsystem sweep)",
+      "agentId": "a4862cf121aea133e",
+      "model": "alwaysday1",
+      "state": "done",
+      "startedAt": 1782673240027,
+      "queuedAt": 1782673240018,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "lastToolSummary": "UI-Audit-Report",
+      "promptPreview": "You are a CPP-vs-TS UI alignment auditor. Focus ONLY on SCREENS + top-level layout.\n\nTS source-of-truth files to audit (READ FULLY):\n- src/components/BriefLayout.tsx\n- src/components/Messages.tsx\n- src/components/BriefSpinner.tsx\n- src/components/BriefPrompt.tsx\n- src/components/FullscreenLayout.tsx\n- src/components/Home.tsx\n- src/components/Welcome.tsx\n- src/components/Welcomes.tsx\n- src/componen…",
+      "lastProgressAt": 1782674234395,
+      "tokens": 99982,
+      "toolCalls": 54,
+      "durationMs": 994368,
+      "resultPreview": "{\"alignedCount\":21,\"gaps\":[{\"cpp_impl_summary\":\"N/A — no KAIROS runtime flag, no applyGrouping / collapseHookSummaries / collapseReadSearchGroups / collapseBackgroundBashNotifications / collapseTeammateShutdowns pipeline. Messages list only does compact-boundary group collapsing. No reorderMessagesInUI, no buildMessageLookups (toolUseByToolUseID, resolvedToolUseIDs) used anywhere in CPP messages_l…"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 2,
+      "label": "audit:messages (retry 1)",
+      "phaseIndex": 1,
+      "phaseTitle": "Audit (parallel subsystem sweep)",
+      "agentId": "ab7214bf29990b882",
+      "model": "alwaysday1",
+      "state": "done",
+      "startedAt": 1782673240027,
+      "queuedAt": 1782673240018,
+      "attempt": 2,
+      "lastAttemptReason": "stalled",
+      "lastToolName": "StructuredOutput",
+      "lastToolSummary": "UI-Messages",
+      "promptPreview": "You are a CPP-vs-TS auditor. Focus ONLY on INDIVIDUAL MESSAGE ROW renderers.\n\nTS source-of-truth files to audit (READ ALL):\n- src/components/messages/AssistantMessage.tsx\n- src/components/messages/AssistantTextMessage.tsx\n- src/components/messages/UserPromptMessage.tsx\n- src/components/messages/UserCommandMessage.tsx\n- src/components/messages/UserTextMessage.tsx\n- src/components/messages/ThinkingM…",
+      "lastProgressAt": 1782674321353,
+      "tokens": 116423,
+      "toolCalls": 88,
+      "durationMs": 1081325,
+      "resultPreview": "{\"subsystem\":\"UI-Messages\",\"totalAudited\":37,\"alignedCount\":15,\"summary\":\"Full audit of 37 TS message renderer components vs 33 CPP modules. Inventory: TS has 35 rendering components (2 helpers excluded). CPP has 33 files: 27 rendering modules + 6 list-framework/shared modules. Faithful-port coverage: 15 components have parity via `Render*Faithful()` entry points. Gaps: 11 P2-level (missing module…"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 3,
+      "label": "audit:prompt-components",
+      "phaseIndex": 1,
+      "phaseTitle": "Audit (parallel subsystem sweep)",
+      "agentId": "a200dc8d3e5e7510e",
+      "model": "alwaysday1",
+      "state": "done",
+      "startedAt": 1782673240028,
+      "queuedAt": 1782673240018,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "lastToolSummary": "UI-Prompt",
+      "promptPreview": "You are a CPP-vs-TS auditor. Focus on PROMPT, INPUT and auxiliary widgets.\n\nTS source-of-truth:\n- src/components/Prompt.tsx, src/components/BriefPrompt.tsx\n- src/components/prompt/Input.tsx\n- src/components/prompt/useDeclaredCursor.ts\n- src/components/prompt/usePromptHistory.ts\n- src/components/prompt/PromptSuggestions.tsx\n- src/components/prompt/SlashCommandSuggestions.tsx\n- src/components/prompt…",
+      "lastProgressAt": 1782674908282,
+      "tokens": 74885,
+      "toolCalls": 87,
+      "durationMs": 1668253,
+      "resultPreview": "{\"gaps\":[{\"cpp_impl_summary\":\"Three mutually-incompatible PromptInputMode enum fragments: (1) prompt_input_full.cppm has 8 values {Normal,HistorySearch,SlashCommand,PlanMode,FastMode,VimNormal,VimInsert,VimVisual}; (2) text_input.cppm PromptMode has 7 values {Normal,Bash,Command,FileRef,Agent,Search,BgRun}; (3) prompt_input_footer.cppm has 5 values {Prompt,Bash,SlashCommand,HistorySearch,PlanMode}…"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 4,
+      "label": "audit:dialogs-design-tokens",
+      "phaseIndex": 1,
+      "phaseTitle": "Audit (parallel subsystem sweep)",
+      "agentId": "aa3ff27405caef4d7",
+      "model": "alwaysday1",
+      "state": "done",
+      "startedAt": 1782673240028,
+      "queuedAt": 1782673240018,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "lastToolSummary": "UI-Dialogs|UI-DesignTokens",
+      "promptPreview": "You are a CPP-vs-TS auditor. Focus on DIALOGS and DESIGN TOKENS.\n\nTS source-of-truth:\n- All src/components/dialogs/* (Settings, Help, About, QuickOpen/CmdPalette, Models, MCP, Teams, Login, Permissions, Update, Account, Workspace, Confirm, FilePicker, etc)\n- src/components/PermissionPrompt.tsx\n- src/utils/theme.ts (#1 authoritative ALL colors - dark/light, every palette token)\n- src/utils/figures.…",
+      "lastProgressAt": 1782674210401,
+      "tokens": 133716,
+      "toolCalls": 65,
+      "durationMs": 970373,
+      "resultPreview": "{\"alignedCount\":78,\"gaps\":[{\"cpp_impl_summary\":\"CPP has 39 dialog .cppm files covering the major interactive ones. Settings/About/Help/QuickOpen/MCP/Permissions/Triggers are wired via dialog_system + DialogQueue 4-slot band-3 suppression (see M7 task124).\",\"cpp_path\":\"cpp_migration/src/ui/dialogs/ (all)\",\"evidence\":\"TS missing map: ApproveApiKey, AutoUpdater, BypassPermissionsModeDialog, ChannelDo…"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 5,
+      "label": "audit:commands-skills-services",
+      "phaseIndex": 1,
+      "phaseTitle": "Audit (parallel subsystem sweep)",
+      "agentId": "a0b8898588b7d8fd8",
+      "model": "alwaysday1",
+      "state": "done",
+      "startedAt": 1782673240028,
+      "queuedAt": 1782673240018,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "lastToolSummary": "CppMigrationAudit",
+      "promptPreview": "You are a CPP-vs-TS auditor. Focus on SLASH COMMANDS, SKILLS, TOOLS, SERVICES, TASKS, HOOKS.\n\nTS source-of-truth:\n- src/commands.ts (registry, ALL /commands)\n- src/commands/* (each command impl: commit, review, mcp, config, doctor, model, agents, teams, help, clear, skills, compact, rewrite, diff, etc)\n- src/tools.ts (tool registry, ALL tools)\n- src/tools/* (every tool: BashTool, FileRead/Write/Ed…",
+      "lastProgressAt": 1782674501716,
+      "tokens": 132549,
+      "toolCalls": 62,
+      "durationMs": 1261688,
+      "resultPreview": "{\"subsystem\":\"CppMigrationAudit\",\"summary\":\"CPP-vs-TS audit: 254 items across Commands/Tools/MCP/API/LSP/Skills/Tasks/Hooks; 169 aligned; 46 gaps (1 P0 3P-auth, 9 P1, 27 P2, 3 P3, 6 ALIGNED markers). Top P0: Bedrock/Vertex/Azure/Foundry 3P auth absent. P1: 11 feature tools + cron delete/list + MCP channelPerm/Notif stubs + XAA OAuth + dynamic skills + task turn-grouping + LSP manager/diagnostic st…"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 6,
+      "label": "verify:chunk1",
+      "phaseIndex": 2,
+      "phaseTitle": "Adversarial cross-check (each gap double-verified)",
+      "agentId": "a3b3d9cf13eef0394",
+      "isolation": "worktree",
+      "model": "alwaysday1",
+      "state": "done",
+      "startedAt": 1782674910568,
+      "queuedAt": 1782674908286,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "promptPreview": "You are an adversarial CPP-vs-TS auditor. Another auditor reported these P0/P1 gaps.\nFor EACH gap ID, independently RE-READ the TS source-of-truth file AND the CPP file (paths provided).\nDO NOT trust the previous auditor — re-derive your own conclusion from source code.\n\nGaps to verify (chunk 1/4):\n{\"cpp_impl_summary\":\"N/A — no KAIROS runtime flag, no applyGrouping / collapseHookSummaries / collap…",
+      "lastProgressAt": 1782675101003,
+      "tokens": 110662,
+      "toolCalls": 21,
+      "durationMs": 190435,
+      "resultPreview": "{\"verdicts\":[{\"adjustedSeverity\":\"P0-BLOCKER\",\"alreadyFixedInMaster\":false,\"evidence\":\"TS Messages.tsx L486-529: 7-stage pipeline (compactAware → progress filter → null-attachment filter → brief 3-tier → applyGrouping → collapseHookSummaries × 4 → reorderMessagesInUI → buildMessageLookups). CPP messages_list.cppm L445-558 build_visible_rows only does filter+search+compact-boundary-group collapsing…"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 7,
+      "label": "verify:chunk2",
+      "phaseIndex": 2,
+      "phaseTitle": "Adversarial cross-check (each gap double-verified)",
+      "agentId": "ab5801b29440baa7c",
+      "isolation": "worktree",
+      "model": "alwaysday1",
+      "state": "done",
+      "startedAt": 1782674912787,
+      "queuedAt": 1782674908286,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "promptPreview": "You are an adversarial CPP-vs-TS auditor. Another auditor reported these P0/P1 gaps.\nFor EACH gap ID, independently RE-READ the TS source-of-truth file AND the CPP file (paths provided).\nDO NOT trust the previous auditor — re-derive your own conclusion from source code.\n\nGaps to verify (chunk 2/4):\n{\"cpp_impl_summary\":\"Search indexing uses simple lowered payload_preview() substring (messages_list.…",
+      "lastProgressAt": 1782675148569,
+      "tokens": 98692,
+      "toolCalls": 51,
+      "durationMs": 235782,
+      "resultPreview": "{\"verdicts\":[{\"adjustedSeverity\":\"P1-VISIBLE\",\"alreadyFixedInMaster\":false,\"evidence\":\"TS Messages.tsx L649-676: WeakMap<RenderableMessage, string> cache + 2-tier dispatch (tool.extractSearchText? preferred, else renderableSearchText heuristic) + once-lowered cache value. CPP messages_list.cppm L448-461: detail::lowered(payload_preview(row)) single-pass substring with no tool-owned dispatch and no…"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 8,
+      "label": "verify:chunk3",
+      "phaseIndex": 2,
+      "phaseTitle": "Adversarial cross-check (each gap double-verified)",
+      "agentId": "a100f1577ebc47527",
+      "isolation": "worktree",
+      "model": "alwaysday1",
+      "state": "done",
+      "startedAt": 1782674915503,
+      "queuedAt": 1782674908286,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "promptPreview": "You are an adversarial CPP-vs-TS auditor. Another auditor reported these P0/P1 gaps.\nFor EACH gap ID, independently RE-READ the TS source-of-truth file AND the CPP file (paths provided).\nDO NOT trust the previous auditor — re-derive your own conclusion from source code.\n\nGaps to verify (chunk 3/4):\n{\"cpp_impl_summary\":\"collect_mcp_resource_suggestions() is declared but the declaration sits alone i…",
+      "lastProgressAt": 1782675310582,
+      "tokens": 71357,
+      "toolCalls": 65,
+      "durationMs": 395079,
+      "resultPreview": "{\"verdicts\":[{\"adjustedSeverity\":\"P2-MINOR\",\"alreadyFixedInMaster\":true,\"evidence\":\"app.cppm lines 1143, 1166 (collect_mcp_resource_suggestions invoked in @-token and #-token branches) — these call sites were added by 952231e. AutocompleteSuggestion struct (repl_screen.cppm:389) lacks a category field, so MCPResource/Agent/Command items all render with the same cyan styling (no category icon/color…"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 9,
+      "label": "verify:chunk4",
+      "phaseIndex": 2,
+      "phaseTitle": "Adversarial cross-check (each gap double-verified)",
+      "agentId": "a96ca7b12aac23e41",
+      "isolation": "worktree",
+      "model": "alwaysday1",
+      "state": "done",
+      "startedAt": 1782674918062,
+      "queuedAt": 1782674908286,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "promptPreview": "You are an adversarial CPP-vs-TS auditor. Another auditor reported these P0/P1 gaps.\nFor EACH gap ID, independently RE-READ the TS source-of-truth file AND the CPP file (paths provided).\nDO NOT trust the previous auditor — re-derive your own conclusion from source code.\n\nGaps to verify (chunk 4/4):\n{\"id\":\"mcp-channel-notification-stub\",\"subsystem\":\"Services-MCP\",\"severity\":\"P1-VISIBLE\",\"ts_path\":\"…",
+      "lastProgressAt": 1782675267121,
+      "tokens": 72889,
+      "toolCalls": 45,
+      "durationMs": 349058,
+      "resultPreview": "{\"verdicts\":[{\"adjustedSeverity\":\"P2-MINOR\",\"alreadyFixedInMaster\":false,\"evidence\":\"TS src/services/mcp/channelNotification.ts:316 lines with zod schemas (ChannelMessageNotificationSchema, ChannelPermissionNotificationSchema), wrapChannelMessage, getEffectiveChannelAllowlist, findChannelEntry, 7-layer gateChannelServer (capability→disabled→auth→policy→session→marketplace→allowlist). CPP src/servi…"
+    }
+  ],
+  "totalTokens": 911155,
+  "totalToolCalls": 538
+}
