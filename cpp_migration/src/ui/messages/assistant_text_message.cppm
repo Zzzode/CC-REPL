@@ -34,6 +34,12 @@ export module cc.ui.messages.assistant_text_message;
 import cc.ui.messages.message_components;
 import cc.ui.messages.message_timestamp;
 import cc.ui.markdown;
+// R7: BLACK_CIRCLE selection recoloring uses palette.suggestion +
+// message_actions_background tokens (not inline RGB) so light/daltonized
+// variants stay faithful.  Figures provides kBullet (U+25CF = TS BLACK_CIRCLE).
+import cc.ui.design.tokens;
+import cc.ui.design.theme;
+import cc.ui.design.figures;
 
 // ─── Prompt XML tag stripping (module-internal) ────────────────────────
 // Models sometimes emit prompt scaffolding XML blocks (<commit_analysis>,
@@ -396,28 +402,42 @@ class AssistantTextMessageComponent : public ComponentBase {
 // plain-text fallback).  This keeps M4 focused on framing; M5 swaps in the
 // real Markdown renderer.
 //
-// `is_selected` controls the BLACK_CIRCLE dot color:
-//   * true  → "suggestion" (rgb(177,185,249) lavender, matching TS dark theme)
-//   * false → "text"       (rgb(255,255,255) pure white)
+// `is_selected` controls the BLACK_CIRCLE dot color AND row background:
+//   * true  → BLACK_CIRCLE fg = palette.suggestion (rgb(177,185,249) lavender
+//              row bg  = palette.message_actions_background (rgb(44,50,62))
+//   * false → BLACK_CIRCLE fg = palette.text (default fg)
+//              row bg  = none / inherited
 [[nodiscard]] inline Element RenderAssistantTextMessageFaithful(
     const AssistantTextMessageData& data, Element body,
     bool add_margin = true,
     bool is_selected = false) {
-    // TS dark theme tokens (src/utils/theme.ts):
-    //   suggestion = rgb(177, 185, 249)  lavender
-    //   text       = rgb(255, 255, 255)  pure white
-    const Color dot_color = is_selected
-        ? Color::RGB(177, 185, 249)
-        : Color::RGB(255, 255, 255);
+    // R7: use palette tokens (not inline RGB) so theme variants (light/daltonized
+    // resolve correctly (TS dark default).
+    namespace thm = cc::ui::design::theme;
+    namespace figs = cc::ui::design::figures;
+    const auto& pal = *thm::current_theme().palette;
+    const Color dot_color = is_selected ? pal.suggestion : pal.text;
     Elements row;
     if (data.show_dot) {
-        // "⏺ " — BLACK_CIRCLE + space (minWidth=2 cell).
-        row.push_back(text("\xE2\x8F\xBA ") | color(dot_color));
+        // R7: kBullet = U+25CF (●) = TS BLACK_CIRCLE.
+        // Wrap in size(WIDTH, EQUAL, 2) so the container ALWAYS reserves
+        // exactly 2 cells (TS minWidth=2).  Previously used the wrong glyph
+        // (U+23FA record-circle) and relied on glyph+space content-width (fragile when
+        // the string was 2 columns wide — now we guard with an explicit size
+        // constraint.
+        Element glyph = text(std::string{figs::kBullet}) | color(dot_color)
+            | size(WIDTH, EQUAL, 2);
+        row.push_back(std::move(glyph));
     }
     row.push_back(std::move(body));
 
     Element content = hbox(std::move(row));
-    Element framed = hbox({content, filler()}) | flex;
+    // R7: when selected, wrap the entire row in message_actions_background
+    // (TS: AssistantTextMessage.tsx:229-238 — outer row
+    // backgroundColor = messageActionsBackground.
+    Element framed = is_selected
+        ? hbox({content | bgcolor(pal.message_actions_background) | flex})
+        : hbox({content, filler()}) | flex;
     if (add_margin) {
         return vbox({text(""), std::move(framed)});
     }
