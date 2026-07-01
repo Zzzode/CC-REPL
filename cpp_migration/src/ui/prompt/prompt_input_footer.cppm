@@ -492,14 +492,6 @@ struct FooterOptions {
     // Suggestions (when present, footer shows only suggestions)
     bool has_suggestions = false;
     Element suggestions_content;       // pre-rendered suggestions list
-
-    // M4 faithful: outer footer chrome.
-    //   - clipboard_image_hint: localized hint rendered in the right column, e.g.
-    //   "Image in clipboard · ctrl+v to paste" when an OS clipboard image is
-    //   detected by the engine.  std::nullopt = hide the hint.
-    // NOTE: Upstream TS does NOT carry a "CC-REPL brand pill" in the footer
-    // left column.  Branding lives only at the top header (CondensedLogo).
-    std::optional<std::string> clipboard_image_hint;
 };
 
 /// Render the full PromptInputFooter with left/right column layout.
@@ -548,12 +540,6 @@ struct FooterOptions {
     // ── Right column ───────────────────────────────────────────────────
     // TS: <Box flexShrink={1} gap={1}> — items in a row, right-aligned
     Elements right_row;
-
-    // M4 faithful: clipboard-image hint ("Image in clipboard · ctrl+v to paste").
-    if (opts.clipboard_image_hint.has_value() && !opts.clipboard_image_hint->empty()) {
-        if (!right_row.empty()) right_row.push_back(text("  ") | dim);
-        right_row.push_back(text(*opts.clipboard_image_hint) | dim | color(Color::GrayDark));
-    }
 
     // Notifications (non-fullscreen only, per TS)
     if (opts.show_notifications && !opts.is_fullscreen) {

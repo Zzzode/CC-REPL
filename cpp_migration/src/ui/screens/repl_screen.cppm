@@ -513,12 +513,6 @@ struct ReplScreenState {
     std::string status_line_command;        // Shell command for status line
     int status_line_padding = 0;            // Horizontal padding for status line
     std::string status_line_text;           // Cached output of the status line command (may contain ANSI)
-    // M4 faithful: rendered dimly in the footer right column when the OS
-    // clipboard has an image.  The engine detects the clipboard image and
-    // sets this to a localized hint such as "Image in clipboard · ctrl+v to
-    // paste".  std::nullopt = hide the hint entirely (default until the
-    // engine wires up platform clipboard detection).
-    std::optional<std::string> clipboard_image_hint;
     // Counts
     int background_task_count = 0, teammate_count = 0;
     bool teams_footer_selected = false;
@@ -2096,8 +2090,6 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
         // (PromptInputFooter.tsx has zero occurrences of "CC-REPL" /
         // "Claude Code" text).  Branding is rendered by CondensedLogo only
         // in the top header.
-        if (s.clipboard_image_hint.has_value())
-            footer_opts.clipboard_image_hint = s.clipboard_image_hint;
         L.push_back(pif::RenderPromptInputFooter(footer_opts));
 
         slots.bottom = vbox(std::move(L)) | flex_shrink;
