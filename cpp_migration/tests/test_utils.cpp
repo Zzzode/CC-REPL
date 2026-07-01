@@ -73,6 +73,7 @@ import cc.utils.proxy_utils;
 import cc.utils.github_utils;
 import cc.plugins.marketplace;
 import cc.utils.clipboard;
+import cc.utils.parse_references;
 import core.memdir;
 import core.screens;
 
@@ -2690,4 +2691,118 @@ TEST(ClipboardImage, OsascriptScriptsAreSyntacticallyValidOnMacOS) {
           EXPECT_EQ((*png)[3], 0x47);  // 'G'
       }
     });
+}
+
+// ── parse_references (TS history.ts L62-75 parity) ──────────────────────────
+
+TEST(ParseReferences, EmptyInput_ReturnsEmpty) {
+    auto refs = cc::utils::parse_references("");
+    EXPECT_TRUE(refs.empty());
+}
+
+TEST(ParseReferences, NoPlaceholders_ReturnsEmpty) {
+    auto refs = cc::utils::parse_references("hello world this is a prompt");
+    EXPECT_TRUE(refs.empty());
+}
+
+TEST(ParseReferences, SingleImageRef) {
+    auto refs = cc::utils::parse_references("look at this [Image #1] please");
+    ASSERT_EQ(refs.size(), 1u);
+    EXPECT_EQ(refs[0].id, 1);
+    EXPECT_EQ(refs[0].match, "[Image #1]");
+    EXPECT_EQ(refs[0].index, 13u);  // byte offset of '['
+}
+
+TEST(ParseReferences, MultipleImageRefs) {
+    auto refs = cc::utils::parse_references("[Image #1] and [Image #2] here");
+    ASSERT_EQ(refs.size(), 2u);
+    EXPECT_EQ(refs[0].id, 1);
+    EXPECT_EQ(refs[0].index, 0u);
+    EXPECT_EQ(refs[1].id, 2);
+    EXPECT_EQ(refs[1].match, "[Image #2]");
+}
+
+TEST(ParseReferences, PastedTextRef) {
+    auto refs = cc::utils::parse_references("see [Pasted text #5] for details");
+    ASSERT_EQ(refs.size(), 1u);
+    EXPECT_EQ(refs[0].id, 5);
+    EXPECT_EQ(refs[0].match, "[Pasted text #5]");
+}
+
+TEST(ParseReferences, PastedTextRefWithLineCount) {
+    auto refs = cc::utils::parse_references("[Pasted text #3 +10 lines]");
+    ASSERT_EQ(refs.size(), 1u);
+    EXPECT_EQ(refs[0].id, 3);
+    EXPECT_EQ(refs[0].match, "[Pasted text #3 +10 lines]");
+}
+
+TEST(ParseReferences, TruncatedTextRef) {
+    auto refs = cc::utils::parse_references("[...Truncated text #7]");
+    ASSERT_EQ(refs.size(), 1u);
+    EXPECT_EQ(refs[0].id, 7);
+    EXPECT_EQ(refs[0].match, "[...Truncated text #7]");
+}
+
+TEST(ParseReferences, ZeroIdFilteredOut) {
+    // TS L74: filter(match => match.id > 0)
+    auto refs = cc::utils::parse_references("[Image #0]");
+    EXPECT_TRUE(refs.empty());
+}
+
+TEST(ParseReferences, MixedRefTypes) {
+    auto refs = cc::utils::parse_references(
+        "[Image #1] then [Pasted text #2 +5 lines] and [...Truncated text #3]");
+    ASSERT_EQ(refs.size(), 3u);
+    EXPECT_EQ(refs[0].id, 1);
+    EXPECT_EQ(refs[0].match, "[Image #1]");
+    EXPECT_EQ(refs[1].id, 2);
+    EXPECT_EQ(refs[1].match, "[Pasted text #2 +5 lines]");
+    EXPECT_EQ(refs[2].id, 3);
+    EXPECT_EQ(refs[2].match, "[...Truncated text #3]");
+}
+
+TEST(ParseReferences, FormatImageRef) {
+    EXPECT_EQ(cc::utils::format_image_ref(1), "[Image #1]");
+    EXPECT_EQ(cc::utils::format_image_ref(42), "[Image #42]");
+}
+
+TEST(ParseReferences, FormatPastedTextRef_NoLines) {
+    EXPECT_EQ(cc::utils::format_pasted_text_ref(3, 0), "[Pasted text #3]");
+}
+
+TEST(ParseReferences, FormatPastedTextRef_WithLines) {
+    EXPECT_EQ(cc::utils::format_pasted_text_ref(7, 12), "[Pasted text #7 +12 lines]");
+}
+
+TEST(ParseReferences, ExpandPastedTextRefs_ReplacesTextRefs) {
+    // Simulate pasted_contents lookup: id=1 → "hello world", id=2 → no text (image)
+    std::string input = "before [Pasted text #1] after [Image #2]";
+    auto expanded = cc::utils::expand_pasted_text_refs(
+        input,
+        [](int id) -> std::optional<std::string> {
+            if (id == 1) return "hello world";
+            return std::nullopt;  // image or unknown
+        });
+    // [Pasted text #1] replaced; [Image #2] left alone
+    EXPECT_EQ(expanded, "before hello world after [Image #2]");
+}
+
+TEST(ParseReferences, ExpandPastedTextRefs_NoRefs) {
+    std::string input = "just normal text";
+    auto expanded = cc::utils::expand_pasted_text_refs(
+        input, [](int) -> std::optional<std::string> { return std::nullopt; });
+    EXPECT_EQ(expanded, input);
+}
+
+TEST(ParseReferences, ExpandPastedTextRefs_MultipleRefsReverseOrder) {
+    // Verify reverse-order splicing keeps offsets correct
+    std::string input = "[Pasted text #1] middle [Pasted text #2]";
+    auto expanded = cc::utils::expand_pasted_text_refs(
+        input,
+        [](int id) -> std::optional<std::string> {
+            if (id == 1) return "AAA";
+            if (id == 2) return "BBB";
+            return std::nullopt;
+        });
+    EXPECT_EQ(expanded, "AAA middle BBB");
 }

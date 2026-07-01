@@ -69,6 +69,7 @@ import cc.query.query_engine;
 import cc.tools.tool;
 import cc.utils.session_storage;
 import cc.utils.permissions_engine;
+import cc.utils.parse_references;
 import cc.constants.constants;
 import cc.ui.messages.messages_list;    // UnseenDivider, MessagesListInput, build_visible_rows
 import cc.ui.messages.message_row;          // MessageShape
@@ -6016,4 +6017,222 @@ TEST(ImagePaste, ClipboardCard_GoldenSnapshot) {
     auto el = RenderImageBubble(d);
     check_golden("clipboard_image_card",
                  render_ansi(std::move(el), 100, 15));
+}
+
+// ── Image paste: TS PromptInput.tsx onImagePaste + orphan cleanup parity ──
+
+namespace {
+
+/// Helper: create a minimal AppAdapter for paste-behavior tests.
+struct PasteTestHarness {
+    cc::core::ToolRegistry tools;
+    cc::core::QueryEngineConfig config;
+    std::unique_ptr<cc::core::QueryEngine> engine;
+    cc::commands::AppCommandRegistry commands;
+    std::filesystem::path storage_root;
+    std::unique_ptr<cc::utils::SessionStorage> storage;
+    ftxui::Component app;  // actually cc::ui::AppAdapter*
+
+    cc::ui::AppAdapter* adapter() {
+        return dynamic_cast<cc::ui::AppAdapter*>(app.get());
+    }
+
+    PasteTestHarness() {
+        config.context_window.auto_compact = false;
+        config.cwd = std::filesystem::temp_directory_path().string();
+        engine = std::make_unique<cc::core::QueryEngine>(
+            std::move(config), tools);
+        storage_root = std::filesystem::temp_directory_path() /
+            ("cc_repl_paste_test_" +
+             std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+        storage = std::make_unique<cc::utils::SessionStorage>(storage_root);
+        app = ftxui::Make<cc::ui::AppAdapter>(
+            engine.get(), nullptr, &commands, storage.get(), [] {});
+        adapter()->SyncState();
+    }
+
+    ~PasteTestHarness() {
+        std::filesystem::remove_all(storage_root);
+    }
+
+    /// Make a minimal ImageBlock for injection.
+    static cc::core::ImageBlock make_test_image(int seed = 1) {
+        cc::core::ImageBlock ib;
+        ib.media_type = "image/png";
+        ib.data = "iVBORw0KGgo=" + std::to_string(seed);  // fake base64
+        ib.size_bytes = 1024 * seed;
+        ib.file_name = "test_" + std::to_string(seed) + ".png";
+        ib.source = cc::core::ImageBlockSource::Clipboard;
+        return ib;
+    }
+};
+
+}  // anonymous namespace
+
+/// TS REF: PromptInput.tsx L1066-1068 — empty text + no images → submit is
+/// rejected (early return).  Verify HandleSubmit doesn't proceed.
+TEST(ImagePasteSubmit, EmptyTextNoImages_EarlyReturn) {
+    PasteTestHarness h;
+    auto* a = h.adapter();
+    EXPECT_FALSE(a->is_query_running_for_testing());
+    // Call HandleSubmit with empty text and no pasted images.
+    a->handle_submit_for_testing("");
+    // Should have returned early; query_running_ stays false.
+    EXPECT_FALSE(a->is_query_running_for_testing());
+}
+
+/// TS REF: PromptInput.tsx L1066-1068 + handlePromptSubmit.ts L180-187 —
+/// empty text but with a referenced image → submit is allowed (has_images=true).
+/// The placeholder "[Image #1]" in the text counts as having content.
+/// We verify that parse_references finds the ref and pasted_contents_ has it,
+/// which is exactly what HandleSubmit's has_images check does.
+TEST(ImagePasteSubmit, TextWithImageRef_HasImagesTrue) {
+    PasteTestHarness h;
+    auto* a = h.adapter();
+    a->inject_pasted_image_for_testing(1, h.make_test_image(1));
+    EXPECT_EQ(a->pasted_contents_size_for_testing(), 1u);
+
+    // Simulate what HandleSubmit does: parse refs from text and check overlap.
+    const std::string text = "[Image #1]";
+    auto refs = cc::utils::parse_references(text);
+    ASSERT_EQ(refs.size(), 1u);
+    EXPECT_EQ(refs[0].id, 1);
+
+    // has_images = any ref in text that also exists in pasted_contents_
+    bool has_images = false;
+    for (const auto& r : refs) {
+        if (a->has_pasted_content_for_testing(r.id)) { has_images = true; break; }
+    }
+    EXPECT_TRUE(has_images);
+    // → text.empty() guard would NOT trigger (text is not empty).
+    // → Even if text were empty "", has_images=true means submit proceeds.
+}
+
+/// TS REF: handlePromptSubmit.ts L180-185 — referenced-ids filter: only
+/// images whose [Image #N] ref is in the submit text are attached.  Orphaned
+/// images (not referenced) are excluded.
+TEST(ImagePasteSubmit, ReferencedIdsFilter_OnlyAttachedRefdImages) {
+    PasteTestHarness h;
+    auto* a = h.adapter();
+    a->inject_pasted_image_for_testing(1, h.make_test_image(1));
+    a->inject_pasted_image_for_testing(2, h.make_test_image(2));
+    ASSERT_EQ(a->pasted_contents_size_for_testing(), 2u);
+
+    // Submit text only references [Image #1]; [Image #2] is orphaned.
+    const std::string text = "explain [Image #1]";
+    auto refs = cc::utils::parse_references(text);
+    std::set<int> referenced_ids;
+    for (const auto& r : refs) {
+        if (a->has_pasted_content_for_testing(r.id)) referenced_ids.insert(r.id);
+    }
+    // Only image #1 should be in the referenced set.
+    EXPECT_EQ(referenced_ids.size(), 1u);
+    EXPECT_TRUE(referenced_ids.contains(1));
+    EXPECT_FALSE(referenced_ids.contains(2));
+}
+
+/// TS REF: PromptInput.tsx L1185-1200 — orphan cleanup: if the [Image #N]
+/// placeholder is no longer in input_text, the pasted_contents_ entry is pruned.
+TEST(ImagePasteOrphanCleanup, RefMissingFromInput_ImagePruned) {
+    PasteTestHarness h;
+    auto* a = h.adapter();
+    a->inject_pasted_image_for_testing(1, h.make_test_image(1));
+    ASSERT_EQ(a->pasted_contents_size_for_testing(), 1u);
+    EXPECT_TRUE(a->has_pasted_content_for_testing(1));
+
+    // Set input_text WITHOUT the [Image #1] ref — simulates user backspacing
+    // over the placeholder.
+    a->set_input_text_for_testing("hello world");
+    a->trigger_orphan_cleanup_for_testing();
+
+    // Image #1 should have been pruned.
+    EXPECT_EQ(a->pasted_contents_size_for_testing(), 0u);
+    EXPECT_FALSE(a->has_pasted_content_for_testing(1));
+}
+
+/// TS REF: PromptInput.tsx L1185-1200 — orphan cleanup: if the [Image #N]
+/// placeholder IS still in input_text, the entry is kept.
+TEST(ImagePasteOrphanCleanup, RefPresentInInput_ImageKept) {
+    PasteTestHarness h;
+    auto* a = h.adapter();
+    a->inject_pasted_image_for_testing(1, h.make_test_image(1));
+    ASSERT_EQ(a->pasted_contents_size_for_testing(), 1u);
+
+    // Set input_text WITH the ref — simulates user still having the placeholder.
+    a->set_input_text_for_testing("look at [Image #1] here");
+    a->trigger_orphan_cleanup_for_testing();
+
+    // Image #1 should still be there.
+    EXPECT_EQ(a->pasted_contents_size_for_testing(), 1u);
+    EXPECT_TRUE(a->has_pasted_content_for_testing(1));
+}
+
+/// Multi-image: two pasted images, one ref removed → only that one is pruned.
+TEST(ImagePasteOrphanCleanup, MultiImagePartialPrune) {
+    PasteTestHarness h;
+    auto* a = h.adapter();
+    a->inject_pasted_image_for_testing(1, h.make_test_image(1));
+    a->inject_pasted_image_for_testing(2, h.make_test_image(2));
+    ASSERT_EQ(a->pasted_contents_size_for_testing(), 2u);
+
+    // Only [Image #1] is referenced; #2 is orphaned.
+    a->set_input_text_for_testing("see [Image #1]");
+    a->trigger_orphan_cleanup_for_testing();
+
+    EXPECT_EQ(a->pasted_contents_size_for_testing(), 1u);
+    EXPECT_TRUE(a->has_pasted_content_for_testing(1));
+    EXPECT_FALSE(a->has_pasted_content_for_testing(2));
+}
+
+/// TS REF: handlePromptSubmit.ts L180-185 — submit filters: only images whose
+/// refs are STILL in the text at submit time are attached.  Orphaned images
+/// (already cleaned up by the useEffect / OnEvent handler) are not in
+/// pasted_contents_ at all, so they can't leak into attachments.
+TEST(ImagePasteSubmit, OrphanedImageNotInReferencedSet) {
+    PasteTestHarness h;
+    auto* a = h.adapter();
+    a->inject_pasted_image_for_testing(1, h.make_test_image(1));
+    a->inject_pasted_image_for_testing(2, h.make_test_image(2));
+
+    // User deletes [Image #2] placeholder → orphan cleanup removes it.
+    a->set_input_text_for_testing("[Image #1]");
+    a->trigger_orphan_cleanup_for_testing();
+    ASSERT_EQ(a->pasted_contents_size_for_testing(), 1u);
+    ASSERT_TRUE(a->has_pasted_content_for_testing(1));
+    ASSERT_FALSE(a->has_pasted_content_for_testing(2));
+
+    // Now compute referenced-ids from the submit text (same as HandleSubmit).
+    const std::string text = "[Image #1]";
+    auto refs = cc::utils::parse_references(text);
+    std::set<int> attached_ids;
+    for (const auto& r : refs) {
+        if (a->has_pasted_content_for_testing(r.id)) attached_ids.insert(r.id);
+    }
+    // Only image #1 would be attached; #2 was orphaned and removed.
+    EXPECT_EQ(attached_ids.size(), 1u);
+    EXPECT_TRUE(attached_ids.contains(1));
+    EXPECT_FALSE(attached_ids.contains(2));
+}
+
+/// TS REF: PromptInput.tsx L1181 insertTextAtCursor — the format_image_ref
+/// helper produces the exact placeholder string that gets inserted.
+TEST(ImagePasteFormat, FormatImageRefMatchesTS) {
+    // TS: formatImageRef(1) → "[Image #1]"
+    EXPECT_EQ(cc::utils::format_image_ref(1), "[Image #1]");
+    EXPECT_EQ(cc::utils::format_image_ref(99), "[Image #99]");
+}
+
+/// TS REF: history.ts L62-75 — parse_references correctly extracts image refs
+/// from mixed text (integration check that the regex works in the UI context).
+TEST(ImagePasteFormat, ParseReferencesFromPromptText) {
+    auto refs = cc::utils::parse_references(
+        "explain this screenshot [Image #1] and also [Image #2] thanks");
+    ASSERT_EQ(refs.size(), 2u);
+    EXPECT_EQ(refs[0].id, 1);
+    EXPECT_EQ(refs[0].match, "[Image #1]");
+    EXPECT_EQ(refs[1].id, 2);
+    EXPECT_EQ(refs[1].match, "[Image #2]");
+    // Verify byte offsets (ASCII placeholder = UTF-8 offset matches).
+    EXPECT_EQ(refs[0].index, 24u);  // "explain this screenshot " = 24 chars
+    EXPECT_EQ(refs[1].index, 44u);  // after "[Image #1] and also " = +20
 }
