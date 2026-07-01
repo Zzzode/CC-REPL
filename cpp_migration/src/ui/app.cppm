@@ -529,6 +529,13 @@ private:
     // longer in the text.  TS REF: PromptInput.tsx L144 + L1151-1200.
     std::unordered_map<int, ImageBlock> pasted_contents_;
     int next_paste_id_ = 1;
+    // Async paste: the placeholder "[Image #N]" is inserted into input_text
+    // immediately on Ctrl+v (instant UI feedback), and the actual clipboard
+    // read (osascript + PNG encode) runs on a background thread.  Results
+    // are posted back via these queues and drained on the next OnEvent.
+    std::mutex paste_mutex_;
+    std::unordered_map<int, ImageBlock> pending_paste_results_;  // bg→UI
+    std::unordered_set<int> pending_paste_failures_;             // bg→UI
     std::string streaming_text_;
     struct StreamingToolPreview {
         std::string tool_name;
@@ -3108,59 +3115,45 @@ public:
     }
 
     bool OnEvent(Event event) override {
+        // Drain any background-thread paste results that completed since the
+        // last event.  Must happen on the render thread (we mutate
+        // pasted_contents_ and possibly input_text).
+        this->ProcessCompletedPastes();
+
         // Clipboard image paste (TS chat:imagePaste = ctrl+v / cmd+v).  Terminal
-        // raw mode delivers ctrl+v as SYN (\x16); if the clipboard holds an
-        // image we read it as PNG, base64 it, store it in pasted_contents_
-        // keyed by a monotonically-increasing id, and insert "[Image #N]"
-        // into input_text at the cursor (TS insertTextAtCursor parity).
+        // raw mode delivers ctrl+v as SYN (\x16).
+        //
+        // PERFORMANCE NOTE: osascript clipboard reads are offloaded to a
+        // background thread because std::system() + osascript fork + PNG
+        // encoding can take 100-500ms and would block the FTXUI event loop
+        // if done synchronously.  The "[Image #N]" placeholder is inserted
+        // IMMEDIATELY so the user sees instant feedback; the actual image
+        // data fills in asynchronously via ProcessCompletedPastes().
         //
         // TS REF: src/utils/imagePaste.ts (clipboard read + size-cap)
         //         + PromptInput.tsx L1151-1183 (onImagePaste → state + placeholder).
         if (event.input() == "\x16" && !query_running_.load()) {
-            const bool clip_img = cc::utils::clipboard::has_image();
-            if (clip_img) {
-                auto png = cc::utils::clipboard::read_image_png();
-                if (png && !png->empty()) {
-                    const std::size_t raw_bytes = png->size();
-                    // Filename: "clipboard YYYYMMDD-HHMMSS.png" — same pattern
-                    // TS uses when persisting pastes.
-                    auto t = std::chrono::system_clock::to_time_t(
-                        std::chrono::system_clock::now());
-                    std::tm tm_buf{};
-                    localtime_r(&t, &tm_buf);
-                    char fname[48];
-                    std::strftime(fname, sizeof(fname),
-                                  "clipboard %Y%m%d-%H%M%S.png", &tm_buf);
-                    ImageBlock ib;
-                    ib.media_type = "image/png";
-                    ib.data = cc::utils::crypto::base64_encode(
-                        png->data(), png->size());
-                    ib.size_bytes = raw_bytes;
-                    ib.file_name  = std::string(fname);
-                    ib.source     = ImageBlockSource::Clipboard;
+            // TS REF: PromptInput.tsx L1154-1182
+            //   pasteId = nextPasteIdRef.current++
+            //   setPastedContents(prev => ({...prev, [pasteId]: newContent}))
+            //   insertTextAtCursor(prefix + formatImageRef(pasteId))
+            const int id = next_paste_id_++;
 
-                    // TS REF: PromptInput.tsx L1154-1182
-                    //   pasteId = nextPasteIdRef.current++
-                    //   setPastedContents(prev => ({...prev, [pasteId]: newContent}))
-                    //   insertTextAtCursor(prefix + formatImageRef(pasteId))
-                    const int id = next_paste_id_++;
-                    pasted_contents_[id] = std::move(ib);
-
-                    // Insert " [Image #N]" at cursor (space prefix if needed,
-                    // matching TS pendingSpaceAfterPillRef logic).
-                    const std::string placeholder = cc::utils::format_image_ref(id);
-                    const auto cursor = repl::input_cursor_or_end(*screen_state_);
-                    std::string to_insert;
-                    if (cursor > 0 && cursor <= screen_state_->input_text.size() &&
-                        screen_state_->input_text[cursor - 1] != ' ') {
-                        to_insert = " " + placeholder;
-                    } else {
-                        to_insert = placeholder;
-                    }
-                    repl::insert_prompt_text(screen_state_, to_insert);
-                    return true;
-                }
+            // Insert " [Image #N]" at cursor IMMEDIATELY (instant feedback).
+            const std::string placeholder = cc::utils::format_image_ref(id);
+            const auto cursor = repl::input_cursor_or_end(*screen_state_);
+            std::string to_insert;
+            if (cursor > 0 && cursor <= screen_state_->input_text.size() &&
+                screen_state_->input_text[cursor - 1] != ' ') {
+                to_insert = " " + placeholder;
+            } else {
+                to_insert = placeholder;
             }
+            repl::insert_prompt_text(screen_state_, to_insert);
+
+            // Offload the actual clipboard read to a background thread.
+            this->SpawnPasteWorker(id);
+            return true;
         }
         const bool handled = repl_component_->OnEvent(event);
         if (handled) {
@@ -3199,6 +3192,112 @@ public:
 
     void set_screen(ScreenInteractive* screen) {
         screen_.store(screen, std::memory_order_release);
+    }
+
+    // ── Async clipboard paste worker ──────────────────────────────────────
+    // Spawns a detached thread that reads the clipboard image.  On success
+    // the ImageBlock is posted to pending_paste_results_; on failure the id
+    // is posted to pending_paste_failures_.  ProcessCompletedPastes() drains
+    // both queues on the render/event thread.
+    //
+    // Why async?  std::system() + osascript fork + PNG-to-file + base64
+    // encode takes 100-500ms on macOS.  Doing that synchronously in OnEvent
+    // blocks the FTXUI render loop, causing visible UI freeze and (worse)
+    // terminal raw-mode state corruption that can take seconds to recover
+    // from.  The placeholder "[Image #N]" is inserted synchronously so the
+    // user gets instant feedback; the image data fills in shortly after.
+    void SpawnPasteWorker(int id) {
+        // Capture only what the thread needs by value.  `this` is safe
+        // because AppAdapter outlives any paste worker (the app object
+        // lives for the whole session).
+        std::thread([this, id]() {
+            bool has_img = false;
+            try {
+                has_img = cc::utils::clipboard::has_image();
+            } catch (...) {
+                has_img = false;
+            }
+            if (!has_img) {
+                std::lock_guard lk(this->paste_mutex_);
+                this->pending_paste_failures_.insert(id);
+                return;
+            }
+            auto png = cc::utils::clipboard::read_image_png();
+            if (!png || png->empty()) {
+                std::lock_guard lk(this->paste_mutex_);
+                this->pending_paste_failures_.insert(id);
+                return;
+            }
+            // Build the ImageBlock on the worker thread (base64 encode can
+            // be non-trivial for large screenshots).
+            const std::size_t raw_bytes = png->size();
+            auto t = std::chrono::system_clock::to_time_t(
+                std::chrono::system_clock::now());
+            std::tm tm_buf{};
+            localtime_r(&t, &tm_buf);
+            char fname[48];
+            std::strftime(fname, sizeof(fname),
+                          "clipboard %Y%m%d-%H%M%S.png", &tm_buf);
+            ImageBlock ib;
+            ib.media_type = "image/png";
+            ib.data = cc::utils::crypto::base64_encode(
+                png->data(), png->size());
+            ib.size_bytes = raw_bytes;
+            ib.file_name  = std::string(fname);
+            ib.source     = ImageBlockSource::Clipboard;
+
+            std::lock_guard lk(this->paste_mutex_);
+            this->pending_paste_results_[id] = std::move(ib);
+        }).detach();
+    }
+
+    /// Drain background paste results onto pasted_contents_ (render thread).
+    /// Called at the top of every OnEvent so results are picked up as soon as
+    /// possible without blocking.  Failed pastes have their "[Image #N]"
+    /// placeholder removed from input_text.
+    void ProcessCompletedPastes() {
+        std::unordered_map<int, ImageBlock> results;
+        std::unordered_set<int> failures;
+        {
+            std::lock_guard lk(paste_mutex_);
+            results.swap(pending_paste_results_);
+            failures.swap(pending_paste_failures_);
+        }
+        // Successful pastes: store in pasted_contents_.
+        for (auto& [id, ib] : results) {
+            pasted_contents_[id] = std::move(ib);
+        }
+        // Failed pastes: remove the "[Image #N]" placeholder from input_text
+        // so the user doesn't submit a dangling ref.  We search for the exact
+        // placeholder string and erase it (plus any leading space that was
+        // added by the insert logic).
+        if (!failures.empty()) {
+            for (int id : failures) {
+                const std::string placeholder = cc::utils::format_image_ref(id);
+                auto& input = screen_state_->input_text;
+                auto pos = input.find(placeholder);
+                if (pos != std::string::npos) {
+                    // Also eat a leading space if present (so we don't leave
+                    // a double-space where the placeholder was).
+                    std::size_t erase_start = pos;
+                    std::size_t erase_len = placeholder.size();
+                    if (pos > 0 && input[pos - 1] == ' ') {
+                        erase_start = pos - 1;
+                        erase_len += 1;
+                    }
+                    input.erase(erase_start, erase_len);
+                    // Adjust cursor if it was past the erased region.
+                    auto cursor = screen_state_->input_cursor;
+                    if (cursor != std::string::npos && cursor > erase_start) {
+                        cursor = (cursor >= erase_start + erase_len)
+                            ? cursor - erase_len
+                            : erase_start;
+                        screen_state_->input_cursor = cursor;
+                    }
+                }
+                pasted_contents_.erase(id);  // just in case
+            }
+        }
     }
 
     [[nodiscard]] std::function<bool(std::string_view, std::string_view)> get_permission_callback() {
