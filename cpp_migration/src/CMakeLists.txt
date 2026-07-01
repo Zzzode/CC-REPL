@@ -233,6 +233,7 @@ target_sources(cc_utils
         utils/path.cppm
         utils/path_utils.cppm
         utils/pdf.cppm
+        utils/parse_references.cppm
         utils/peer_address.cppm
         utils/permissions.cppm
         utils/permissions_engine.cppm
@@ -1086,7 +1087,6 @@ target_sources(cc_hooks
         hooks/blink.cppm
         hooks/cancel_request.cppm
         hooks/claude_code_hint_recommendation.cppm
-        hooks/clipboard_image_hint.cppm
         hooks/command_keybindings.cppm
         hooks/command_queue.cppm
         hooks/context.cppm
