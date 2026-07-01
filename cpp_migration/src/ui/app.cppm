@@ -17,6 +17,7 @@ module;
 #include <map>
 #include <set>
 #include <unordered_set>
+#include <unordered_map>
 #include <variant>
 #include <thread>
 #include <mutex>
@@ -47,6 +48,7 @@ import cc.commands.registry;
 import cc.utils.session_storage;
 import cc.utils.skill_usage;
 import cc.utils.clipboard;
+import cc.utils.parse_references;
 import cc.utils.crypto;
 import cc.ui.components;
 import cc.ui.components_extended;
@@ -520,10 +522,13 @@ private:
     std::atomic<std::uint64_t> ui_animation_tick_count_{0};
     std::mutex result_mutex_;
     std::optional<std::string> pending_error_;
-    // Pasted clipboard image awaiting attachment to the next submitted user
-    // message (ctrl+v with an image in the clipboard).  Attached via
-    // QueryOptions.attachments in HandleSubmit, then cleared.
-    std::optional<ImageBlock> pending_image_;
+    // Pasted clipboard images keyed by paste-id (TS pastedContents: Record).
+    // Each ctrl+v image paste assigns a monotonically-increasing id and
+    // inserts "[Image #N]" into input_text at the cursor.  Orphan cleanup
+    // (see OnEvent + HandleSubmit) prunes entries whose placeholder is no
+    // longer in the text.  TS REF: PromptInput.tsx L144 + L1151-1200.
+    std::unordered_map<int, ImageBlock> pasted_contents_;
+    int next_paste_id_ = 1;
     std::string streaming_text_;
     struct StreamingToolPreview {
         std::string tool_name;
@@ -2176,8 +2181,22 @@ public:
     }
 
     void HandleSubmit(const std::string& text) {
-        // Allow a paste-only submit (image, no text); otherwise require text.
-        if (text.empty() && !pending_image_) return;
+        // TS REF: PromptInput.tsx L1066-1068 + handlePromptSubmit.ts L180-187
+        // Allow submission if there are referenced images in pasted_contents_,
+        // even without text.  referenced_ids = parseReferences(text) ∩ keys of
+        // pasted_contents_ (orphan cleanup already ran in OnEvent, but we
+        // re-check here for the submit-time filter).
+        const auto refs = cc::utils::parse_references(text);
+        std::unordered_set<int> referenced_ids;
+        int n_images = 0;
+        for (const auto& r : refs) {
+            if (pasted_contents_.contains(r.id)) {
+                referenced_ids.insert(r.id);
+                ++n_images;
+            }
+        }
+        const bool has_images = n_images > 0;
+        if (text.empty() && !has_images) return;
 
         if (text.starts_with('/')) {
             this->HandleCommand(text);
@@ -2226,18 +2245,25 @@ public:
             event_dedup_.clear();
         }
 
-        // Capture the pasted clipboard image by value — the query runs on a
-        // worker thread, so we snapshot + clear pending_image_ here (main
-        // thread) to avoid a race.
-        std::optional<ImageBlock> attached_image = pending_image_;
-        pending_image_.reset();
-        screen_state_->clipboard_image_hint.reset();
+        // TS REF: handlePromptSubmit.ts L180-185
+        // Snapshot only still-referenced images for this submission.  The
+        // query runs on a worker thread, so we move into the lambda capture
+        // (main thread) to avoid a race.
+        std::vector<ImageBlock> attachments;
+        attachments.reserve(referenced_ids.size());
+        for (int id : referenced_ids) {
+            if (auto it = pasted_contents_.find(id); it != pasted_contents_.end()) {
+                attachments.push_back(std::move(it->second));
+            }
+        }
+        pasted_contents_.clear();
 
-        query_thread_ = std::jthread([this, text, attached_image](std::stop_token st) {
+        query_thread_ = std::jthread([this, text, attachments = std::move(attachments)](std::stop_token st) {
             core::QueryOptions opts;
-            // Attach the pasted image (ctrl+v) to this user message.
-            if (attached_image) {
-                opts.attachments.push_back(*attached_image);
+            // Attach pasted images (ctrl+v) whose [Image #N] refs were still
+            // in the input text at submit time.
+            for (const auto& img : attachments) {
+                opts.attachments.push_back(img);
             }
             opts.on_event = [this, &st](const core::StreamEvent& ev) {
                 if (st.stop_requested()) return;
@@ -3084,9 +3110,9 @@ public:
     bool OnEvent(Event event) override {
         // Clipboard image paste (TS chat:imagePaste = ctrl+v / cmd+v).  Terminal
         // raw mode delivers ctrl+v as SYN (\x16); if the clipboard holds an
-        // image we read it as PNG, base64 it, and stash it on pending_image_
-        // for the next HandleSubmit to attach.  No image → fall through so
-        // the text input / terminal paste behaves normally.
+        // image we read it as PNG, base64 it, store it in pasted_contents_
+        // keyed by a monotonically-increasing id, and insert "[Image #N]"
+        // into input_text at the cursor (TS insertTextAtCursor parity).
         //
         // TS REF: src/utils/imagePaste.ts (clipboard read + size-cap)
         //         + PromptInput.tsx L1151-1183 (onImagePaste → state + placeholder).
@@ -3095,16 +3121,7 @@ public:
             if (clip_img) {
                 auto png = cc::utils::clipboard::read_image_png();
                 if (png && !png->empty()) {
-                    // Approximate the base64 size to warn the user early about
-                    // API limits (Anthropic: 5 MB base64).  Better to show a
-                    // soft warning in the footer hint than to get a 400 from
-                    // the API after submit.  Hard downsampling (M6 in the
-                    // gap matrix) is still TODO: either integrate stb_image +
-                    // stb_image_resize, or shell out to macOS `sips` +
-                    // pngquant.
                     const std::size_t raw_bytes = png->size();
-                    const std::size_t approx_b64 = (raw_bytes + 2) / 3 * 4;
-                    const bool oversize = approx_b64 > 4'500'000;  // ~4.5 MB base64
                     // Filename: "clipboard YYYYMMDD-HHMMSS.png" — same pattern
                     // TS uses when persisting pastes.
                     auto t = std::chrono::system_clock::to_time_t(
@@ -3121,29 +3138,32 @@ public:
                     ib.size_bytes = raw_bytes;
                     ib.file_name  = std::string(fname);
                     ib.source     = ImageBlockSource::Clipboard;
-                    pending_image_ = std::move(ib);
-                    // Footer hint mirrors TS PromptInput placeholder style:
-                    // shows size + filename + oversize warning (if any).
-                    std::string hint("🖼️ Image attached (");
-                    hint += std::to_string(raw_bytes);
-                    hint += " bytes) · Enter to send (Esc to discard)";
-                    if (oversize) {
-                        hint.insert(0,
-                            "⚠️ Image may be too large for the API — ");
+
+                    // TS REF: PromptInput.tsx L1154-1182
+                    //   pasteId = nextPasteIdRef.current++
+                    //   setPastedContents(prev => ({...prev, [pasteId]: newContent}))
+                    //   insertTextAtCursor(prefix + formatImageRef(pasteId))
+                    const int id = next_paste_id_++;
+                    pasted_contents_[id] = std::move(ib);
+
+                    // Insert " [Image #N]" at cursor (space prefix if needed,
+                    // matching TS pendingSpaceAfterPillRef logic).
+                    const std::string placeholder = cc::utils::format_image_ref(id);
+                    const auto cursor = repl::input_cursor_or_end(*screen_state_);
+                    std::string to_insert;
+                    if (cursor > 0 && cursor <= screen_state_->input_text.size() &&
+                        screen_state_->input_text[cursor - 1] != ' ') {
+                        to_insert = " " + placeholder;
+                    } else {
+                        to_insert = placeholder;
                     }
-                    screen_state_->clipboard_image_hint = std::move(hint);
+                    repl::insert_prompt_text(screen_state_, to_insert);
                     return true;
                 }
             }
         }
-        // Esc discards a pending pasted image.
-        if (event == Event::Escape && pending_image_) {
-            pending_image_.reset();
-            screen_state_->clipboard_image_hint.reset();
-            return true;
-        }
         const bool handled = repl_component_->OnEvent(event);
-        if (handled && event != Event::Escape) {
+        if (handled) {
             // SL-11: any accepted keystroke that fills input retires the
             // next-action suggestion for this turn (RefreshAutocompleteSuggestions
             // also clears on non-empty input, but this is the unambiguous
@@ -3152,6 +3172,23 @@ public:
                 screen_state_->next_action_suggestion.reset();
             }
             RefreshAutocompleteSuggestions();
+
+            // TS REF: PromptInput.tsx L1185-1200 — orphan cleanup.
+            // Prune pasted_contents_ entries whose [Image #N] placeholder is
+            // no longer in the input text (covers backspace-over-pill, Ctrl+U,
+            // char-by-char deletion — any edit that drops the ref).
+            if (!pasted_contents_.empty()) {
+                const auto refs = cc::utils::parse_references(screen_state_->input_text);
+                std::unordered_set<int> referenced_ids;
+                for (const auto& r : refs) referenced_ids.insert(r.id);
+                for (auto it = pasted_contents_.begin(); it != pasted_contents_.end(); ) {
+                    if (!referenced_ids.contains(it->first)) {
+                        it = pasted_contents_.erase(it);
+                    } else {
+                        ++it;
+                    }
+                }
+            }
         }
         return handled;
     }
@@ -3281,6 +3318,52 @@ public:
 
     [[nodiscard]] std::string input_text_for_testing() const {
         return screen_state_->input_text;
+    }
+
+    /// Number of entries in pasted_contents_ (for testing orphan cleanup).
+    [[nodiscard]] std::size_t pasted_contents_size_for_testing() const noexcept {
+        return pasted_contents_.size();
+    }
+
+    /// Check if a specific paste-id is still in pasted_contents_ (for testing
+    /// orphan cleanup after placeholder deletion).
+    [[nodiscard]] bool has_pasted_content_for_testing(int id) const noexcept {
+        return pasted_contents_.contains(id);
+    }
+
+    /// Inject a pasted image directly (bypasses clipboard read — for testing
+    /// HandleSubmit's referenced-ids filter and empty-text+images guard).
+    void inject_pasted_image_for_testing(int id, ImageBlock ib) {
+        pasted_contents_[id] = std::move(ib);
+    }
+
+    /// Set input_text directly (for testing orphan cleanup and submit guards
+    /// without going through the text input component).
+    void set_input_text_for_testing(std::string text) {
+        screen_state_->input_text = std::move(text);
+        screen_state_->input_cursor = screen_state_->input_text.size();
+    }
+
+    /// Expose HandleSubmit for direct test invocation (the real submit path
+    /// goes through the text input component's on_submit callback).
+    void handle_submit_for_testing(std::string text) {
+        this->HandleSubmit(text);
+    }
+
+    /// Run the orphan-cleanup logic (TS PromptInput.tsx L1185-1200 useEffect)
+    /// against the current screen_state_->input_text.  For testing only.
+    void trigger_orphan_cleanup_for_testing() {
+        if (pasted_contents_.empty()) return;
+        const auto refs = cc::utils::parse_references(screen_state_->input_text);
+        std::unordered_set<int> referenced_ids;
+        for (const auto& r : refs) referenced_ids.insert(r.id);
+        for (auto it = pasted_contents_.begin(); it != pasted_contents_.end(); ) {
+            if (!referenced_ids.contains(it->first)) {
+                it = pasted_contents_.erase(it);
+            } else {
+                ++it;
+            }
+        }
     }
 
     [[nodiscard]] bool is_agents_view_for_testing() const noexcept {
