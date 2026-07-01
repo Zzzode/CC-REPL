@@ -45,9 +45,18 @@ export namespace cc::utils::clipboard {
     const std::string tmp_s = tmp.string();
     // AppleScript: write the clipboard's PNG data to the temp file.  `set eof
     // to 0` truncates first so a stale larger file can't leave trailing bytes.
+    //
+    // IMPORTANT: «class PNGf» is typed as literal UTF-8 characters in the C++
+    // source.  This is the EXACT same byte-sequence approach used in
+    // has_image() above, and mirrors TS saveImage's AppleScript.  DO NOT
+    // replace with `\xc2\xab` string escapes: double-backslash them and the
+    // shell sees literal ASCII backslashes; single-backslash and the preprocessor
+    // decodes to bytes, but inside an std::string concatenation chain it's
+    // easier/clearer to rely on UTF-8 source literals (the same pattern that
+    // has_image() uses above and TS imagePaste.ts's osascript uses).
     std::string script =
         "osascript "
-        "-e 'set png_data to (the clipboard as \\xc2\\xabclass PNGf\\xc2\\xbb)' "
+        "-e 'set png_data to (the clipboard as «class PNGf»)' "
         "-e 'set fp to open for access POSIX file \"" + tmp_s +
         "\" with write permission' "
         "-e 'set eof of fp to 0' "
