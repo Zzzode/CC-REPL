@@ -3111,6 +3111,9 @@ public:
         // This enables IME preedit text to appear inline at the insertion
         // point and lets screen readers / magnifiers follow the input.
         namespace dc = cc::ui::common::declared_cursor;
+        // Drain background paste results on every render frame so the user
+        // doesn't need to press another key to see the image data filled in.
+        this->ProcessCompletedPastes();
         return repl_component_->Render() | dc::cursor_reset();
     }
 
@@ -3120,19 +3123,24 @@ public:
         // pasted_contents_ and possibly input_text).
         this->ProcessCompletedPastes();
 
-        // Clipboard image paste (TS chat:imagePaste = ctrl+v / cmd+v).  Terminal
-        // raw mode delivers ctrl+v as SYN (\x16).
+        // Clipboard image paste (TS chat:imagePaste = ctrl+v / cmd+v).
+        //
+        // NOTE: We detect Ctrl+V via `Event::Character('\x16')` — the same
+        // pattern used by text_input.cppm L586.  `event.input() == "\x16"`
+        // is unreliable because FTXUI normalizes control-character input()
+        // to empty string in some code paths.
         //
         // PERFORMANCE NOTE: osascript clipboard reads are offloaded to a
         // background thread because std::system() + osascript fork + PNG
-        // encoding can take 100-500ms and would block the FTXUI event loop
+        // encoding can take 600ms+ and would block the FTXUI event loop
         // if done synchronously.  The "[Image #N]" placeholder is inserted
         // IMMEDIATELY so the user sees instant feedback; the actual image
-        // data fills in asynchronously via ProcessCompletedPastes().
+        // data fills in asynchronously via ProcessCompletedPastes() (drained
+        // on every OnEvent AND every Render() frame).
         //
         // TS REF: src/utils/imagePaste.ts (clipboard read + size-cap)
         //         + PromptInput.tsx L1151-1183 (onImagePaste → state + placeholder).
-        if (event.input() == "\x16" && !query_running_.load()) {
+        if (event == Event::Character('\x16') && !query_running_.load()) {
             // TS REF: PromptInput.tsx L1154-1182
             //   pasteId = nextPasteIdRef.current++
             //   setPastedContents(prev => ({...prev, [pasteId]: newContent}))
@@ -3211,21 +3219,19 @@ public:
         // because AppAdapter outlives any paste worker (the app object
         // lives for the whole session).
         std::thread([this, id]() {
-            bool has_img = false;
-            try {
-                has_img = cc::utils::clipboard::has_image();
-            } catch (...) {
-                has_img = false;
-            }
-            if (!has_img) {
-                std::lock_guard lk(this->paste_mutex_);
-                this->pending_paste_failures_.insert(id);
-                return;
-            }
+            // Skip has_image() — it costs an extra 600ms osascript call.
+            // Just try read_image_png() directly; it returns nullopt if
+            // there's no image in the clipboard.  This cuts total paste
+            // latency from ~1.3s (2 osascript calls) to ~650ms (1 call).
             auto png = cc::utils::clipboard::read_image_png();
             if (!png || png->empty()) {
-                std::lock_guard lk(this->paste_mutex_);
-                this->pending_paste_failures_.insert(id);
+                {
+                    std::lock_guard lk(this->paste_mutex_);
+                    this->pending_paste_failures_.insert(id);
+                }
+                // Wake the render thread so ProcessCompletedPastes() runs
+                // and removes the dangling placeholder.
+                this->PostRenderEvent();
                 return;
             }
             // Build the ImageBlock on the worker thread (base64 encode can
@@ -3246,8 +3252,12 @@ public:
             ib.file_name  = std::string(fname);
             ib.source     = ImageBlockSource::Clipboard;
 
-            std::lock_guard lk(this->paste_mutex_);
-            this->pending_paste_results_[id] = std::move(ib);
+            {
+                std::lock_guard lk(this->paste_mutex_);
+                this->pending_paste_results_[id] = std::move(ib);
+            }
+            // Wake the render thread to drain the result.
+            this->PostRenderEvent();
         }).detach();
     }
 
