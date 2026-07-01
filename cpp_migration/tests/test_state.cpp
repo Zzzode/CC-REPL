@@ -1015,13 +1015,16 @@ TEST(SessionHistory, LoadAllRestoresImageAndDocumentBlocks) {
     {
         cc::core::ConversationStore store(storage_path.string());
         auto* conversation = store.create_conversation();
+        cc::core::ImageBlock ib_rich_png;
+        ib_rich_png.media_type = "image/png";
+        ib_rich_png.data = "iVBORw0KGgo=";
         conversation->add_message(cc::core::UserMessage{
             cc::core::MessageBase{
                 cc::core::MessageId{"msg_user_rich"},
                 std::chrono::system_clock::now(),
                 {
                     cc::core::TextBlock{"rich content"},
-                    cc::core::ImageBlock{"image/png", "iVBORw0KGgo="},
+                    std::move(ib_rich_png),
                     cc::core::DocumentBlock{"application/pdf", "JVBERi0xLjQ="},
                 }
             }
