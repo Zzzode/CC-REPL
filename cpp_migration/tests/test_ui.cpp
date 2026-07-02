@@ -6236,3 +6236,95 @@ TEST(ImagePasteFormat, ParseReferencesFromPromptText) {
     EXPECT_EQ(refs[0].index, 24u);  // "explain this screenshot " = 24 chars
     EXPECT_EQ(refs[1].index, 44u);  // after "[Image #1] and also " = +20
 }
+
+// ── Ctrl+V event → placeholder insertion (the user-visible broken path) ──
+
+/// Directly exercise AppAdapter::OnEvent with a Ctrl+V event and verify that
+/// the "[Image #1]" placeholder lands in input_text.  This is the EXACT code
+/// path the user hits when they press ctrl+v after copying an image.
+///
+/// If this test passes but the user still sees no placeholder, the problem is
+/// either (a) the real terminal event doesn't match Event::Character('\x16')
+/// or (b) the event never reaches AppAdapter::OnEvent.
+TEST(ImagePasteCtrlV, OnEventCtrlV_InsertsPlaceholderImmediately) {
+    PasteTestHarness h;
+    auto* a = h.adapter();
+    // Don't spawn a real clipboard-reading thread (lifetime hazard in tests).
+    a->set_no_real_paste_worker_for_testing(true);
+    ASSERT_EQ(a->input_text_for_testing(), "");
+    ASSERT_EQ(a->pasted_contents_size_for_testing(), 0u);
+    ASSERT_FALSE(a->is_query_running_for_testing());
+
+    // Simulate pressing Ctrl+V.  This is what FTXUI delivers when the user
+    // presses ctrl+v in a terminal (terminal sends \x16, FTXUI parses it as
+    // Event::Special("\x16") — but operator== only compares input_, so
+    // Event::Character('\x16') matches it).
+    //
+    // We use Event::Special("\x16") here to faithfully simulate what the
+    // terminal input parser actually produces (see terminal_input_parser.cpp
+    // L179: `if (Current() < 32) return SPECIAL;`).
+    a->OnEvent(ftxui::Event::Special("\x16"));
+
+    // Placeholder should be in the input text NOW (synchronously inserted
+    // before the background paste worker even starts).
+    const std::string text = a->input_text_for_testing();
+    EXPECT_NE(text.find("[Image #1]"), std::string::npos)
+        << "Ctrl+V event should insert [Image #1] placeholder immediately. "
+        << "Got input_text='" << text << "'";
+}
+
+/// Same test but with Event::Character('\x16') — the comparison used in
+/// AppAdapter::OnEvent L3143 and text_input.cppm L586.  Both should work
+/// because operator== only compares input_.
+TEST(ImagePasteCtrlV, OnEventCtrlV_CharacterForm_AlsoInsertsPlaceholder) {
+    PasteTestHarness h;
+    auto* a = h.adapter();
+    a->set_no_real_paste_worker_for_testing(true);
+    a->OnEvent(ftxui::Event::Character('\x16'));
+
+    const std::string text = a->input_text_for_testing();
+    EXPECT_NE(text.find("[Image #1]"), std::string::npos)
+        << "Event::Character('\\x16') should also insert placeholder. "
+        << "Got input_text='" << text << "'";
+}
+
+/// Verify the in-flight paste drain: OnEvent(Ctrl+V) inserts the placeholder
+/// AND posts the (fake, in testing mode) PNG to pending_paste_results_. The
+/// NEXT OnEvent call drains it into pasted_contents_ via ProcessCompletedPastes.
+/// This is the pipeline HandleSubmit's WaitForInFlightPastes relies on.
+TEST(ImagePasteCtrlV, PasteResultDrainsIntoPastedContentsOnNextEvent) {
+    PasteTestHarness h;
+    auto* a = h.adapter();
+    a->set_no_real_paste_worker_for_testing(true);
+
+    // Ctrl+V → placeholder + pending result (not yet in pasted_contents_).
+    a->OnEvent(ftxui::Event::Special("\x16"));
+    ASSERT_NE(a->input_text_for_testing().find("[Image #1]"), std::string::npos);
+    ASSERT_EQ(a->pasted_contents_size_for_testing(), 0u)
+        << "result should still be pending, not drained, right after Ctrl+V";
+
+    // Any subsequent event triggers ProcessCompletedPastes at the top of
+    // OnEvent, draining the pending result into pasted_contents_.
+    a->OnEvent(ftxui::Event::Custom);
+    EXPECT_EQ(a->pasted_contents_size_for_testing(), 1u)
+        << "pending paste result should drain into pasted_contents_ on the "
+        << "next OnEvent tick — this is what HandleSubmit's wait relies on";
+    EXPECT_TRUE(a->has_pasted_content_for_testing(1));
+}
+
+/// Verify that Event::Special("\x16") == Event::Character('\x16') — this is
+/// the fundamental assumption that makes the Ctrl+V detection work.
+/// FTXUI operator== only compares input_ (event.hpp L80), so both forms
+/// with the same byte sequence should compare equal.
+TEST(ImagePasteCtrlV, EventSpecial16EqualsEventCharacter16) {
+    auto special = ftxui::Event::Special("\x16");
+    auto character = ftxui::Event::Character('\x16');
+    EXPECT_EQ(special.input().size(), 1u);
+    EXPECT_EQ(character.input().size(), 1u);
+    EXPECT_EQ(static_cast<unsigned char>(special.input()[0]), 0x16u);
+    EXPECT_EQ(static_cast<unsigned char>(character.input()[0]), 0x16u);
+    EXPECT_TRUE(special == character)
+        << "Event::Special(\"\\x16\") should == Event::Character('\\x16') "
+        << "because operator== only compares input_ strings.";
+}
+
