@@ -941,8 +941,9 @@ struct ReplScreenCallbacks {
     input.scroll_offset = std::max(0, offs);
     input.viewport_rows = std::max(1, vlines);
 
-    return ml::render_messages_list_view(std::move(input),
-                                         static_cast<std::size_t>(spinner_frame)) | flex;
+    return ml::render_messages_list_view(
+        std::move(input),
+        static_cast<std::size_t>(spinner_frame)) | flex;
 }
 
 [[nodiscard]] inline int CountTextLines(std::string_view text) {
@@ -1556,12 +1557,17 @@ inline void move_prompt_cursor_right(const std::shared_ptr<ReplScreenState>& sta
 
     auto content = vbox(std::move(box_body));
 
-    // TS: Box with borderStyle="round", borderLeft={false}, borderRight={false}.
-    // Ink renders this as TWO plain horizontal rules with no side borders and
-    // no corners.  Color = theme.promptBorder (TS dark: ansi:whiteBright ≈
-    // rgb(136,136,136); light: ansi:whiteBright ≈ rgb(153,153,153)).  Use the
-    // palette value we just added instead of the inline hardcoded 153,153,153
-    // so daltonized/monochrome/light variants get the correct frame color.
+    // TS PromptInput.tsx:2237/2268: <Box borderStyle="round" borderLeft={false}
+    // borderRight={false} borderBottom>.  Ink defaults borderTop to TRUE when
+    // borderStyle is set and borderTop isn't explicitly false
+    // (node_modules/ink/build/render-background.js:11 — `borderTop !== false
+    // ? 1 : 0`).  So the input is framed by TWO horizontal rules (top +
+    // bottom) with no side borders — a slot around the input row.  Match
+    // exactly: top_rule above content, bottom_rule below.  (A previous edit
+    // wrongly dropped top_rule by assuming borderTop defaults false — it
+    // does not; that left the input with only a bottom line.)  Color =
+    // theme.promptBorder (TS dark: ansi:whiteBright ≈ rgb(136,136,136);
+    // light: ≈ rgb(153,153,153)).
     const Color frame_color = pal.prompt_border;
 
     Element top_rule    = separator() | color(frame_color);
@@ -1983,18 +1989,12 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
     Elements L;
     Elements scroll_rows; scroll_rows.reserve(4);
     const auto visible_messages = BuildVisibleMessages(s);
-    // ── Pinned Logo header (R2 fix — TS Messages.tsx:679) ─────────────
-    // Faithful to TS Messages.tsx line 679: LogoHeader is rendered OUTSIDE
-    // the VirtualMessageList — scrolling messages never scroll it out of
-    // view (IMG#18 fix).  We therefore place it in the new `slots.header`
-    // pinned slot (drawn above scrollwrap) rather than inside scroll_rows.
-    //
-    // Height is pinned to HEIGHT EQUAL so nested yframe/flex never compresses
-    // the strip to 0 rows, and pinned width fills TERM_COLS so the strip has
-    // correct horizontal anchor.
-    slots.header = RenderWelcomeHeader(s, spinner_frame, term_cols)
-                 | size(HEIGHT, EQUAL, 4)
-                 | size(WIDTH,  EQUAL, term_cols);
+
+    // ── Messages yframe (fills scrollable area) ────────────────────────
+    // render_messages_list_view returns yframe | vscroll_indicator | flex
+    // which fills the scrollable slot.  The pin_to_bottom fix in
+    // messages_list.cppm ensures short content is top-aligned (no blank
+    // space above), while long content is correctly scrolled to bottom.
     scroll_rows.push_back(RenderMessages(visible_messages, s.selected_message_idx,
                                          s.viewport_height_lines, s.scroll_offset,
                                          s.scroll_pinned_to_bottom, spinner_frame,
@@ -2008,7 +2008,20 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
     // M7.5: Panel views (Tasks/Teams/Help/Settings/About/QuickOpen) are
     // now rendered as modal dialogs via DialogQueue — no longer inlined
     // in the scrollable slot.
+    (void)L;
     slots.scrollable = vbox(std::move(scroll_rows));
+
+    // ── Logo header (pinned, non-scroll) ───────────────────────────────
+    // Faithful to TS Messages.tsx:679 — Logo is in the header slot which
+    // ComposeFullscreen treats as a pinned flex_shrink header.  It stays
+    // at the top while messages scroll below it.
+    //
+    // Height is pinned to HEIGHT EQUAL so nested yframe/flex never compresses
+    // the strip to 0 rows, and pinned width fills TERM_COLS so the strip has
+    // correct horizontal anchor.
+    slots.header = RenderWelcomeHeader(s, spinner_frame, term_cols)
+                 | size(HEIGHT, EQUAL, 4)
+                 | size(WIDTH,  EQUAL, term_cols);
 
     if (!s.active_local_jsx_command) {
         // ── bottom slot (pinned, flexShrink=0) ──────────────────────────────
@@ -2059,6 +2072,8 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
             default: break;
         }
         // ── Assemble the bottom slot ──
+        // Chrome order: [spinner (marginTop=1)] → [suggestions overlay?] →
+        //               [prompt input] → [footer]
         L.reserve(4);
         if (s.spinner_mode != SpinnerMode::Hidden) {
             L.push_back(hbox({spinner_chrome, filler()}) | flex_shrink);

@@ -1392,6 +1392,38 @@ TEST(ReplScreen, FreshScreenDoesNotRenderLegacyEmptyState) {
     EXPECT_EQ(rendered.find("/help    -- list commands"), std::string::npos);
     EXPECT_EQ(rendered.find("/model   -- change model"), std::string::npos);
     EXPECT_EQ(rendered.find("/config  -- open settings"), std::string::npos);
+
+    // Regression guard (P0 layout): no blank row between the welcome header
+    // and the prompt.  TS LogoV2 has no trailing padding; the header slot
+    // height must stay dynamic.  Previously `size(HEIGHT, EQUAL, 4)` padded
+    // a 3-row condensed logo up to 4, leaving a visible blank line above the
+    // prompt input (the user-reported "blank line below logo").
+    {
+        std::vector<std::string> lines;
+        std::size_t pos = 0;
+        while (pos <= rendered.size()) {
+            const auto nl = rendered.find('\n', pos);
+            lines.emplace_back(rendered.substr(
+                pos, nl == std::string::npos ? std::string::npos : nl - pos));
+            if (nl == std::string::npos) break;
+            pos = nl + 1;
+        }
+        const auto is_blank = [](const std::string& l) {
+            return l.find_first_not_of(' ') == std::string::npos;
+        };
+        const auto header_it = std::find_if(lines.begin(), lines.end(),
+            [](const std::string& l) { return l.find("Claude Code") != std::string::npos; });
+        const auto prompt_it = std::find_if(lines.begin(), lines.end(),
+            [](const std::string& l) { return l.find("write a test") != std::string::npos; });
+        ASSERT_NE(header_it, lines.end());
+        ASSERT_NE(prompt_it, lines.end());
+        ASSERT_LT(header_it, prompt_it);
+        for (auto it = header_it + 1; it < prompt_it; ++it) {
+            EXPECT_FALSE(is_blank(*it))
+                << "blank row between welcome header and prompt at line "
+                << std::distance(lines.begin(), it);
+        }
+    }
 }
 
 TEST(ReplScreen, WelcomeHeaderAnimatesAsteriskColor) {
@@ -1433,6 +1465,11 @@ TEST(ReplScreen, WelcomeHeaderAnimatesAsteriskColor) {
 }
 
 TEST(ReplScreen, PromptInputRendersTopAndBottomBorders) {
+    // TS PromptInput.tsx:2237/2268: borderStyle="round" with borderBottom and
+    // borderLeft/Right={false}.  Ink defaults borderTop to TRUE when
+    // borderStyle is set and borderTop isn't explicitly false
+    // (render-background.js: `borderTop !== false ? 1 : 0`), so the input is
+    // framed by TWO horizontal rules (top + bottom) — not one.
     namespace repl = cc::ui::repl_screen;
 
     repl::ReplScreenState state;

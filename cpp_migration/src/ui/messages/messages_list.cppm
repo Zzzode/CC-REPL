@@ -687,9 +687,20 @@ namespace detail {
             break;
         case S::UserToolResult:
         case S::UserBashOutput:
-        case S::UserLocalCommandOutput:
             // Tallest content category — the full estimate.
             content_lines = estimate_content_lines(preview, term_cols, 4);
+            break;
+        case S::UserLocalCommandOutput:
+            // Command output (e.g. /help, /theme list) can be dozens of
+            // lines.  payload_preview returns just "local-command" for this
+            // variant, so we must count actual output lines from the payload.
+            if (auto* opts = std::get_if<local_cmd::LocalCommandOptions>(
+                    &input.rows[vr.row_idx])) {
+                // Each OutputLine is one display row; add header + footer.
+                content_lines = static_cast<int>(opts->data.lines.size()) + 3;
+            } else {
+                content_lines = estimate_content_lines(preview, term_cols, 4);
+            }
             break;
         case S::SystemText:
         case S::SystemRateLimit:
@@ -1409,10 +1420,11 @@ inline auto render_payload_row(const MessagesListInput& input,
             // spinner is rendered separately as the streaming-tail cursor
             // below the row), so we render the canonical TS shape.  When a
             // command_name chip is set, route through the slash-command shape.
+            // add_margin is threaded for TS faithfulness (marginTop={addMargin?1:0}).
             const UserTextMessageData fd = *d;
             Element el = (shape == S::UserCommand || fd.command_name)
-                ? RenderUserCommandMessage(fd, /*is_selected=*/is_selected)
-                : RenderUserPromptMessage(fd, /*is_selected=*/is_selected);
+                ? RenderUserCommandMessage(fd, /*is_selected=*/is_selected, /*add_margin=*/add_margin)
+                : RenderUserPromptMessage(fd, /*is_selected=*/is_selected, /*add_margin=*/add_margin);
             (void)frame_count; (void)is_streaming_tail;
             return el;
         }
@@ -1727,10 +1739,22 @@ inline auto render_empty_state(const std::string& search_query) -> Element {
 
 constexpr std::size_t kMaxRenderedLastN = 80;   // last-N render cap
 
+/// @param wrap_in_yframe When true (default), wraps the message rows in
+///        yframe | vscroll_indicator | flex.  When false, returns just the
+///        bare vbox of rows — the caller is responsible for wrapping in a
+///        yframe (used by RenderReplScreen which wraps Logo + messages +
+///        filler + Spinner in ONE yframe, matching TS ScrollBox).
+/// @param trailing_elements Optional elements to append after the message rows
+///        INSIDE the yframe.  Used by RenderReplScreen to inject the elastic
+///        filler (TS <Box flexGrow={1} />) so it absorbs remaining viewport
+///        space without competing with yframe|flex for parent allocation.
+///        Golden tests leave this empty.
 [[nodiscard]] inline auto render_messages_list_view(
     const MessagesListInput& input_const,
     std::size_t frame_count = 0,
-    std::size_t render_last_n = kMaxRenderedLastN) -> Element
+    std::size_t render_last_n = kMaxRenderedLastN,
+    Elements trailing_elements = {},
+    bool wrap_in_yframe = true) -> Element
 {
     // P0-3 virtual path: for *large* transcripts, delegate to the
     // windowed renderer so 100k+ messages cost O(viewport) per paint,
@@ -1744,6 +1768,12 @@ constexpr std::size_t kMaxRenderedLastN = 80;   // last-N render cap
         MessagesListInput probe = input_const;
         const std::size_t n_visible = build_visible_rows(probe).size();
         if (n_visible > kBigChatThreshold) {
+            // NOTE: virtual path doesn't support trailing_elements yet — the
+            // filler would need to be appended inside the virtual renderer's
+            // yframe.  For now, trailing elements are dropped on the virtual
+            // path (only relevant for 90+ messages where the filler is
+            // invisible anyway).
+            (void)trailing_elements;
             return render_messages_list_virtual(
                 input_const,
                 frame_count,
@@ -1758,9 +1788,11 @@ constexpr std::size_t kMaxRenderedLastN = 80;   // last-N render cap
     auto visible = build_visible_rows(input);
 
     if (visible.empty()) {
-        return vbox({
+        Element empty = vbox({
             detail::render_empty_state(input.search_query),
-        }) | yframe | vscroll_indicator;
+        });
+        if (!wrap_in_yframe) return empty;
+        return empty | yframe | vscroll_indicator;
     }
 
     // ---- Unseen divider anchor: compute BEFORE the last-N slice so the
@@ -1816,12 +1848,22 @@ constexpr std::size_t kMaxRenderedLastN = 80;   // last-N render cap
                 (shape == S::UserText ||
                  shape == S::UserPrompt ||
                  shape == S::UserCommand);
-            const bool row_add_margin = next_add_margin;
-            // Advance turn-state: user rows / system / tool-results are
-            // boundaries — next row gets its own margin.  An assistant block
-            // starts or continues a turn: next sibling assistant block has
-            // add_margin=false.  Any non-assistant row resets.
-            if (is_user_row || !is_assistant_block) {
+            // TS REF: MessageRow.tsx — addMargin = !hasMetadata.  hasMetadata
+            // requires type==="assistant" && isTranscriptMode && has-timestamp-
+            // or-model, so it is ALWAYS false for user/system/tool-result rows.
+            // Thus all non-assistant rows always get add_margin=true, regardless
+            // of what came before.
+            //
+            // For assistant blocks, the turn-boundary logic models TS where
+            // all content blocks of one API message share a single addMargin:
+            // the FIRST block after a non-assistant row gets true, subsequent
+            // same-turn blocks get false.
+            const bool is_non_assistant = is_user_row || !is_assistant_block;
+            const bool row_add_margin = is_non_assistant ? true : next_add_margin;
+            // Advance turn-state: non-assistant rows are boundaries — next
+            // assistant block gets its own margin.  Assistant blocks start or
+            // continue a turn: next sibling assistant block has add_margin=false.
+            if (is_non_assistant) {
                 next_add_margin = true;
             } else {
                 // assistant turn continues
@@ -1856,21 +1898,66 @@ constexpr std::size_t kMaxRenderedLastN = 80;   // last-N render cap
         }
     }
 
+    // Append caller-supplied trailing elements (e.g. elastic filler) INSIDE
+    // the yframe so they share the viewport and don't compete with yframe|flex
+    // for parent space.  Golden tests pass empty; RenderReplScreen passes the
+    // filler()|flex (TS <Box flexGrow={1} /> equivalent).
+    for (auto& el : trailing_elements) {
+        rows.push_back(std::move(el));
+    }
+
+    // NOTE: yframe wraps the message rows + trailing elements.  | flex makes
+    // the yframe fill available space in the parent vbox; without it the
+    // yframe would be content-sized and scrolling would break when messages
+    // exceed the viewport.
     Element list = vbox(std::move(rows));
+
+    // When wrap_in_yframe is false, the caller (RenderReplScreen) handles
+    // focusPosition + yframe wrapping at the outer level (unified ScrollBox
+    // wrapping Logo + messages + filler + Spinner).  We return just the bare
+    // vbox of rows so the caller can compose it with siblings.
+    if (!wrap_in_yframe) {
+        return list;
+    }
+
+    // ── Pin-to-bottom: only apply when content exceeds viewport ─────────
+    // TS REF: FullscreenLayout stickyScroll — when content fits in the
+    // viewport, the entire content is visible (no scrolling needed).  In
+    // FTXUI, applying focusPositionRelative(0,1) on a child that is SHORTER
+    // than the yframe viewport causes the child to be BOTTOM-ALIGNED in
+    // the viewport, leaving blank space above the content.  This is the
+    // root cause of the "large blank area below logo" bug: with 1-2
+    // messages and pin_to_bottom=true, the messages were pushed to the
+    // bottom of the yframe viewport.
+    //
+    // Fix: estimate total content height using the same row-height estimator
+    // that drives the virtual scroll (P0-3).  Only apply focusPositionRelative
+    // when the estimated content height exceeds viewport_rows.  When content
+    // fits, the yframe shows the content top-aligned by default — matching
+    // TS behavior where short content is top-aligned and no scrolling occurs.
+    const int vp = std::max(1, input.viewport_rows);
+    int estimated_total_lines = 0;
+    for (const auto& vr : visible) {
+        estimated_total_lines +=
+            detail::estimate_row_height(vr, input, /*term_cols=*/80);
+    }
+    const bool content_exceeds_viewport = estimated_total_lines > vp;
+
     if (input.scroll_offset > 0) {
-        const int viewport_rows = std::max(1, input.viewport_rows);
         list = std::move(list)
-             | focusPosition(0, input.scroll_offset + viewport_rows / 2);
-    } else if (input.pin_to_bottom && visible.size() > 1) {
+             | focusPosition(0, input.scroll_offset + vp / 2);
+    } else if (input.pin_to_bottom && visible.size() > 1 &&
+               content_exceeds_viewport) {
+        // Multiple messages AND content exceeds viewport — scroll to show the
+        // bottom (latest messages).  The `visible.size() > 1` guard preserves
+        // single-tall-message behavior (e.g. /help output) where showing the
+        // top is more useful.  The `content_exceeds_viewport` guard prevents
+        // the FTXUI bottom-alignment blank-space artifact when short content
+        // fits in the viewport (the "large blank area below logo" bug).
         list = std::move(list) | focusPositionRelative(0, 1);
     }
-    // NOTE: We used to apply yframe | vscroll_indicator here unconditionally,
-    // which caused a 0-row messages area (empty transcript) to EAT its sibling
-    // WelcomeHeader inside the outer flex vbox.  Only apply flex when the
-    // message list actually has content so the welcome strip keeps its
-    // natural 4 rows.
     if (visible.empty()) {
-        return std::move(list) | yframe | vscroll_indicator;
+        return std::move(list) | yframe | vscroll_indicator | flex;
     }
     return std::move(list) | yframe | vscroll_indicator | flex;
 }

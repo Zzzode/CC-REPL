@@ -210,8 +210,15 @@ class UserTextMessageComponent : public ComponentBase {
 /// HighlightedThinkingText non-brief path).  Full-width, left-aligned, with a
 /// `❯` (subtle) prefix followed by the prompt text.  is_selected swaps the
 /// prefix + bg color to the TS `messageActionsBackground` / `suggestion` tokens.
+///
+/// `add_margin` (TS REF: marginTop={addMargin ? 1 : 0}) controls the blank
+/// separator line above the message.  In TS this is `!hasMetadata`; since
+/// hasMetadata is always false for user messages (it requires type==="assistant"),
+/// add_margin is effectively always true in normal REPL use.  We still thread
+/// the parameter for faithfulness and transcript-mode correctness.
 [[nodiscard]] inline Element RenderUserPromptMessage(const UserTextMessageData& data,
-                                                     bool is_selected = false) {
+                                                     bool is_selected = false,
+                                                     bool add_margin = true) {
     // TS palette tokens (dark mode, from src/utils/theme.ts):
     //   subtle                      = rgb( 80, 80, 80)  — pointer glyph prefix
     //   suggestion                  = rgb(177,185,249)  — pointer glyph (selected)
@@ -246,13 +253,14 @@ class UserTextMessageComponent : public ComponentBase {
 
     Element inner = hbox(std::move(row));
     if (data.is_transcript_mode) {
-        return vbox({text(""), hbox({inner, filler()})});
+        Element content = hbox({inner, filler()});
+        if (add_margin) return vbox({text(""), std::move(content)});
+        return content;
     }
     const Color bg = is_selected ? kUserBgSel : kUserBg;
-    return vbox({
-        text(""),
-        hbox({inner | bgcolor(bg) | flex, text(" ") | bgcolor(bg)}),
-    });
+    Element content_row = hbox({inner | bgcolor(bg) | flex, text(" ") | bgcolor(bg)});
+    if (add_margin) return vbox({text(""), std::move(content_row)});
+    return content_row;
 }
 
 /// Faithful render of a slash-command user message (UserCommandMessage.tsx):
@@ -260,8 +268,13 @@ class UserTextMessageComponent : public ComponentBase {
 ///     <Text><Text color="subtle">{figures.pointer} </Text>
 ///           <Text color="text">/{command args}</Text></Text>
 ///   </Box>
+///
+/// `add_margin` (TS REF: marginTop={addMargin ? 1 : 0}) controls the blank
+/// separator line above the message.  Threaded for faithfulness; always true
+/// in normal REPL use for the same reason as RenderUserPromptMessage.
 [[nodiscard]] inline Element RenderUserCommandMessage(const UserTextMessageData& data,
-                                                      bool is_selected = false) {
+                                                      bool is_selected = false,
+                                                      bool add_margin = true) {
     (void)is_selected;  // TS: selection never affects the command chip tint.
     // TS palette tokens (dark mode, src/utils/theme.ts):
     //   subtle                      = rgb( 80, 80, 80)  — pointer glyph prefix
@@ -294,13 +307,15 @@ class UserTextMessageComponent : public ComponentBase {
         text(body) | color(kText),
         text(" ") | color(kText),  // paddingRight=1
     });
-    if (data.is_transcript_mode) return vbox({text(""), row});
+    if (data.is_transcript_mode) {
+        if (add_margin) return vbox({text(""), row});
+        return row;
+    }
     // Wrap row in a single bgcolor cell that is exactly row-width (no flex).
     Element chip = hbox({row}) | bgcolor(kUserBg);
-    return vbox({
-        text(""),
-        hbox({chip, filler()}),  // left-align the chip, filler to end of row
-    });
+    Element content = hbox({chip, filler()});
+    if (add_margin) return vbox({text(""), std::move(content)});
+    return content;
 }
 
 }  // namespace cc::ui::messages
