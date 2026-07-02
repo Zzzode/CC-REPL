@@ -2016,11 +2016,12 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
     // ComposeFullscreen treats as a pinned flex_shrink header.  It stays
     // at the top while messages scroll below it.
     //
-    // Height is pinned to HEIGHT EQUAL so nested yframe/flex never compresses
-    // the strip to 0 rows, and pinned width fills TERM_COLS so the strip has
-    // correct horizontal anchor.
+    // Width fills TERM_COLS for correct horizontal anchor.  Height is
+    // content-sized (no size(HEIGHT) constraint) — TS LogoV2 has no
+    // trailing padding.  A previous `size(HEIGHT, EQUAL, 4)` forced a
+    // 3-row logo+notices up to 4, leaving a visible blank bar below the
+    // last notice (user-reported "white bar below logo").
     slots.header = RenderWelcomeHeader(s, spinner_frame, term_cols)
-                 | size(HEIGHT, EQUAL, 4)
                  | size(WIDTH,  EQUAL, term_cols);
 
     if (!s.active_local_jsx_command) {
