@@ -1877,25 +1877,6 @@ constexpr std::size_t kMaxRenderedLastN = 80;   // last-N render cap
             rows.push_back(detail::render_compact_group_row(vr, is_selected));
             next_add_margin = true;
         }
-
-        // ---- Streaming tail: append after the row indicated by
-        //      streaming_tail_row.  If that row is at or beyond the end of
-        //      `rows` we append at the very bottom.
-        if (vr.kind == VisibleRow::Kind::Payload &&
-            vr.row_idx == input.streaming_tail_row &&
-            input.streaming_tail_row < input.rows.size())
-        {
-            const bool blink = (frame_count % 2) != 0;
-            const char* sg = detail::spinner_glyph(frame_count);
-            Element tail = hbox({
-                text("   "),
-                text(sg) | color(palette::streaming_fg()),
-                text(" generating…") | dim | color(palette::muted_fg()),
-                text(blink ? " ▌" : "  ") | color(palette::streaming_fg()) | bold,
-            });
-            rows.push_back(std::move(tail));
-            rows.push_back(separatorEmpty());
-        }
     }
 
     // Append caller-supplied trailing elements (e.g. elastic filler) INSIDE
@@ -2290,23 +2271,6 @@ class MessagesListComponent final : public ComponentBase {
                     rows.push_back(
                         detail::render_compact_group_row(vr, is_selected));
                     next_add_margin = true;
-                }
-
-                // Streaming tail
-                if (vr.kind == VisibleRow::Kind::Payload &&
-                    vr.row_idx == input_.streaming_tail_row &&
-                    input_.streaming_tail_row < input_.rows.size())
-                {
-                    const bool blink = (frame_count_ % 2) != 0;
-                    const char* sg = detail::spinner_glyph(frame_count_);
-                    rows.push_back(hbox({
-                        text("   "),
-                        text(sg) | color(palette::streaming_fg()),
-                        text(" generating…") | dim | color(palette::muted_fg()),
-                        text(blink ? " ▌" : "  ")
-                            | color(palette::streaming_fg()) | bold,
-                    }));
-                    rows.push_back(separatorEmpty());
                 }
             }
             list_body = vbox(std::move(rows)) | flex;

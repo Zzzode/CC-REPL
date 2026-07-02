@@ -430,6 +430,12 @@ class AssistantTextMessageComponent : public ComponentBase {
         row.push_back(std::move(glyph));
     }
     row.push_back(std::move(body));
+    // TS parity: streaming assistant message appends a blinking block cursor
+    // (▌) at the end of the text to indicate live generation.  The old
+    // "generating…" tail row was removed — the cursor lives inline here.
+    if (data.is_streaming) {
+        row.push_back(text(" \xe2\x96\x8c") | blink | color(pal.suggestion));
+    }
 
     Element content = hbox(std::move(row));
     // R7: when selected, wrap the entire row in message_actions_background
