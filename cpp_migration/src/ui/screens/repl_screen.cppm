@@ -1558,20 +1558,53 @@ inline void move_prompt_cursor_right(const std::shared_ptr<ReplScreenState>& sta
     auto content = vbox(std::move(box_body));
 
     // TS PromptInput.tsx:2237/2268: <Box borderStyle="round" borderLeft={false}
-    // borderRight={false} borderBottom>.  Ink technically defaults borderTop to
-    // TRUE when borderStyle is set (render-background.js: `borderTop !== false
-    // ? 1 : 0`), but the TS top border contains `borderText` (mode indicator /
-    // fast-icon text) embedded in the line, so it reads as a titled bar rather
-    // than a bare horizontal rule.  FTXUI separator() has no way to embed text,
-    // so a plain top_rule renders as an empty "白条" (user-reported).
+    // borderRight={false} borderBottom>.  Ink defaults borderTop to TRUE when
+    // borderStyle is set (render-background.js: `borderTop !== false ? 1 : 0`),
+    // and the top border carries `borderText` (mode indicator / fast-icon text)
+    // embedded in the line so it reads as a titled bar rather than a bare
+    // horizontal rule.
     //
-    // We therefore omit the top rule in CPP — the mode indicator in the content
-    // row already provides the visual anchor that TS gets from borderText, and
-    // the bottom_rule still separates the input from the footer.
+    // FTXUI separator() has no native borderText, so we emulate by composing
+    // a hbox: mode-label text on the left, then separator() fills the rest of
+    // the row.  This gives the visual separation users expect without the
+    // empty "白条" artifact of a plain separator().
     const Color frame_color = pal.prompt_border;
+
+    // Build borderText: mode label that appears embedded in the top rule.
+    // Mirrors TS buildBorderText() — shows the active input mode.
+    std::string border_text;
+    switch (s.input_mode) {
+        case InputMode::Bash:         border_text = " $ "; break;
+        case InputMode::SlashCommand: border_text = " / "; break;
+        case InputMode::HistorySearch:border_text = " ⌕ history "; break;
+        case InputMode::PlanMode:     border_text = " ◇ plan "; break;
+        case InputMode::VimInsert:    border_text = " -- INSERT -- "; break;
+        case InputMode::VimNormal:    border_text = " -- NORMAL -- "; break;
+        case InputMode::VimVisual:    border_text = " -- VISUAL -- "; break;
+        default: break;  // Prompt mode: no label (clean line)
+    }
+
+    Element top_rule;
+    if (!border_text.empty()) {
+        top_rule = hbox({
+            text(" ") | color(frame_color),
+            text(border_text) | color(frame_color) | dim,
+            separator() | color(frame_color) | flex,
+        });
+    } else {
+        // Prompt mode: embed a subtle "❯" glyph so the rule is not a bare
+        // horizontal line (which reads as a "白条").  Mirrors how TS's Ink
+        // borderStyle carries the prompt glyph context via borderText.
+        top_rule = hbox({
+            text(" ") | color(frame_color),
+            text(std::string(figs::kPointer)) | color(frame_color) | dim,
+            separator() | color(frame_color) | flex,
+        });
+    }
     Element bottom_rule = separator() | color(frame_color);
 
     return vbox({
+        std::move(top_rule),
         content,
         std::move(bottom_rule),
     }) | size(WIDTH, EQUAL, std::max(term_cols, 40));
