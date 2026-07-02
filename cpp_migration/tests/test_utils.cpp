@@ -2693,6 +2693,113 @@ TEST(ClipboardImage, OsascriptScriptsAreSyntacticallyValidOnMacOS) {
     });
 }
 
+// Regression (2026-07-01, user-reported): inside cc-repl the terminal runs in
+// raw mode (FTXUI termios ICANON off). std::system() forks a child that
+// INHERITS fd 0 = the raw-mode terminal. osascript, on detecting a TTY on
+// stdin, takes a code path that misbehaves under raw mode and exits non-zero
+// — read_image_png() always returned nullopt, [Image #N] placeholder erased.
+//
+// Fix: run osascript via run_detached() — fork()+setsid()+exec() with 0/1/2
+// redirected to /dev/null and all other inherited fds closed. setsid() puts
+// the child in a new session with no controlling terminal so osascript can't
+// see the raw-mode TTY. std::system()/sh can't setsid(), hence the manual
+// fork+setsid+exec.
+//
+// This is a source-level guard — there's no portable way to reproduce a
+// raw-mode controlling TTY inside a unit test (needs a PTY pair + live app).
+// We assert the source still calls setsid() and routes both osascript sites
+// through run_detached(). If someone "simplifies" back to std::system(), this
+// test fails and points them at the regression comment above.
+TEST(ClipboardImage, OsascriptUsesSetsidToDetachFromTty_RawModeGuard) {
+    namespace fs = std::filesystem;
+    fs::path src = fs::current_path();
+    for (int i = 0; i < 6; ++i) {
+        const fs::path candidate =
+            src / "cpp_migration" / "src" / "utils" / "clipboard.cppm";
+        if (fs::exists(candidate)) { src = candidate; break; }
+        src = src.parent_path();
+    }
+    if (!fs::exists(src)) {
+        GTEST_SKIP() << "clipboard.cppm source not found from "
+                     << fs::current_path()
+                     << " — skipping source-level raw-mode guard.";
+    }
+    std::ifstream f(src);
+    ASSERT_TRUE(f.good()) << "cannot open " << src;
+    std::string content((std::istreambuf_iterator<char>(f)),
+                        std::istreambuf_iterator<char>());
+
+    // setsid() is the load-bearing call — it detaches the osascript chain
+    // from cc-repl's controlling terminal.
+    EXPECT_NE(content.find("setsid()"), std::string::npos)
+        << "clipboard.cppm must call setsid() in run_detached() to detach the "
+        << "osascript child from cc-repl's raw-mode controlling terminal. "
+        << "Without it, osascript sees a raw-mode TTY on stdin and exits "
+        << "non-zero. See the regression comment above.";
+
+    // run_detached() helper must exist and be called from both sites. If
+    // someone reverts to std::system(), this count drops. (We can't grep for
+    // the absence of "std::system" because the regression comment above
+    // mentions it by name.)
+    long run_detached_calls = 0;
+    std::string::size_type pos = 0;
+    const std::string needle = "run_detached(";
+    while ((pos = content.find(needle, pos)) != std::string::npos) {
+        ++run_detached_calls;
+        pos += needle.size();
+    }
+    // 1 = the definition; >=2 more = the call sites (has_image + read_image_png).
+    EXPECT_GE(run_detached_calls, 3)
+        << "clipboard.cppm must call run_detached() from BOTH has_image() and "
+        << "read_image_png(). Found " << run_detached_calls
+        << " occurrences (expect >=3: 1 definition + 2 call sites).";
+}
+
+// Regression (2026-07-01, user-reported, strike 5): "Ctrl+V pressed 8×, only
+// ~4 register". Root cause: macOS/BSD line discipline processes VLNEXT (the
+// "literal-next" char, Ctrl+V by default) EVEN in non-canonical mode (ICANON
+// off). FTXUI's termios setup clears ICANON/ECHO but NOT c_cc[VLNEXT], so each
+// pair of \x16 bytes collapses into one literal \x16 via lnext semantics —
+// pressing Ctrl+V N times registers only floor(N/2). Verified empirically via
+// a PTY harness: sending N×\x16 delivers floor(N/2) bytes with VLNEXT at its
+// default, all N bytes with VLNEXT=0.
+//
+// Fix: RunApp (app.cppm) snapshots the original termios, clears
+// c_cc[VLNEXT]=0 before screen.Loop() (so FTXUI's Install reads & preserves
+// VLNEXT=0 for the session), and restores the original on exit. This test is
+// a source-level guard asserting app.cppm still does the VLNEXT clear — there
+// is no portable way to reproduce a raw-mode controlling TTY in a unit test.
+TEST(ClipboardImage, RunAppClearsVlnext_MacOSLineDisciplineGuard) {
+    namespace fs = std::filesystem;
+    fs::path src = fs::current_path();
+    for (int i = 0; i < 6; ++i) {
+        const fs::path candidate =
+            src / "cpp_migration" / "src" / "ui" / "app.cppm";
+        if (fs::exists(candidate)) { src = candidate; break; }
+        src = src.parent_path();
+    }
+    if (!fs::exists(src)) {
+        GTEST_SKIP() << "app.cppm source not found from "
+                     << fs::current_path()
+                     << " — skipping VLNEXT source-level guard.";
+    }
+    std::ifstream f(src);
+    ASSERT_TRUE(f.good()) << "cannot open " << src;
+    std::string content((std::istreambuf_iterator<char>(f)),
+                        std::istreambuf_iterator<char>());
+
+    // The load-bearing line: c_cc[VLNEXT] = 0 disables literal-next so Ctrl+V
+    // bytes are no longer collapsed in pairs by the line discipline.
+    EXPECT_NE(content.find("VLNEXT"), std::string::npos)
+        << "app.cppm must clear c_cc[VLNEXT] (in RunApp, before screen.Loop) "
+        << "to stop the macOS line discipline from eating every other Ctrl+V "
+        << "via literal-next semantics. Without this, pressing Ctrl+V N times "
+        << "registers only floor(N/2). See the regression comment above.";
+    EXPECT_NE(content.find("c_cc[VLNEXT] = 0"), std::string::npos)
+        << "app.cppm must set c_cc[VLNEXT] = 0 (disable). Found VLNEXT mention "
+        << "but not the disable assignment.";
+}
+
 // ── parse_references (TS history.ts L62-75 parity) ──────────────────────────
 
 TEST(ParseReferences, EmptyInput_ReturnsEmpty) {

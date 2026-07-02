@@ -31,6 +31,14 @@ module;
 #include <iterator>
 #include <filesystem>
 
+// Terminal control for VLNEXT disable (macOS line-discipline workaround —
+// see DisableVlnext RAII in RunApp). Plain C headers, kept in the global
+// module fragment so they don't leak into the module interface.
+#if defined(__APPLE__) || defined(__linux__)
+#include <termios.h>  // tcgetattr/tcsetattr/termios/VLNEXT
+#include <unistd.h>   // STDIN_FILENO
+#endif
+
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/screen/screen.hpp>
 #include <ftxui/component/component.hpp>
@@ -536,6 +544,11 @@ private:
     std::mutex paste_mutex_;
     std::unordered_map<int, ImageBlock> pending_paste_results_;  // bg→UI
     std::unordered_set<int> pending_paste_failures_;             // bg→UI
+    // Track ids whose SpawnPasteWorker thread is still in flight (read hasn't
+    // posted to pending_paste_results_/failures_ yet). HandleSubmit waits on
+    // these so a fast Ctrl+V→Enter doesn't submit before the image data lands
+    // (which would send a text-only message with [Image #N] refs but no PNG).
+    std::unordered_set<int> in_flight_pastes_;
     std::string streaming_text_;
     struct StreamingToolPreview {
         std::string tool_name;
@@ -2188,6 +2201,17 @@ public:
     }
 
     void HandleSubmit(const std::string& text) {
+        // ── Wait for in-flight image pastes before snapshotting ──────────
+        // The placeholder "[Image #N]" is inserted instantly on Ctrl+V, but
+        // the actual PNG read runs on a background thread (~0.6-1s). If the
+        // user hits Enter before those workers finish, pasted_contents_ won't
+        // yet hold the image and we'd submit a text-only message (the [Image
+        // #N] refs go through, but no PNG data) — the model replies "I didn't
+        // receive any image", and the user's own message bubble shows the bare
+        // text placeholder instead of an image card. Block here briefly while
+        // any referenced in-flight paste completes. Main thread only.
+        this->WaitForInFlightPastes(text);
+
         // TS REF: PromptInput.tsx L1066-1068 + handlePromptSubmit.ts L180-187
         // Allow submission if there are referenced images in pasted_contents_,
         // even without text.  referenced_ids = parseReferences(text) ∩ keys of
@@ -2392,8 +2416,16 @@ public:
 
             // AT-02: materialize @-mention file references into content blocks
             // so the model sees file contents, not the literal "@path" string.
+            // APPEND to opts.attachments — it already holds the Ctrl+V pasted
+            // images (set at the top of this lambda). The old code used
+            // `opts.attachments = std::move(materialized.blocks)` which is a
+            // REPLACING assignment and silently discarded every pasted image
+            // (the model then replied "I didn't receive any image" even though
+            // the [Image #N] placeholder was in the text).
             auto materialized = atatt::materialize_at_mentions(text, screen_state_->cwd);
-            opts.attachments = std::move(materialized.blocks);
+            for (auto& b : materialized.blocks) {
+                opts.attachments.push_back(std::move(b));
+            }
 
             engine_->stream_query(materialized.text, opts);
 
@@ -3215,6 +3247,28 @@ public:
     // from.  The placeholder "[Image #N]" is inserted synchronously so the
     // user gets instant feedback; the image data fills in shortly after.
     void SpawnPasteWorker(int id) {
+        // Mark this id as in-flight (main thread — only main thread touches
+        // in_flight_pastes_). Cleared by ProcessCompletedPastes when the
+        // result/failure lands. HandleSubmit consults this set to wait for
+        // images whose placeholder is in the text but whose PNG data hasn't
+        // arrived yet (fast Ctrl+V→Enter race).
+        in_flight_pastes_.insert(id);
+
+        // Testing short-circuit: inject a fake image synchronously, no thread.
+        if (no_real_paste_worker_for_testing_) {
+            ImageBlock ib;
+            ib.media_type = "image/png";
+            ib.data = "iVBORw0KGgo=";
+            ib.size_bytes = 100;
+            ib.file_name = "test_" + std::to_string(id) + ".png";
+            ib.source = ImageBlockSource::Clipboard;
+            {
+                std::lock_guard lk(this->paste_mutex_);
+                this->pending_paste_results_[id] = std::move(ib);
+            }
+            this->PostRenderEvent();
+            return;
+        }
         // Capture only what the thread needs by value.  `this` is safe
         // because AppAdapter outlives any paste worker (the app object
         // lives for the whole session).
@@ -3276,6 +3330,7 @@ public:
         // Successful pastes: store in pasted_contents_.
         for (auto& [id, ib] : results) {
             pasted_contents_[id] = std::move(ib);
+            in_flight_pastes_.erase(id);  // main thread
         }
         // Failed pastes: remove the "[Image #N]" placeholder from input_text
         // so the user doesn't submit a dangling ref.  We search for the exact
@@ -3306,8 +3361,43 @@ public:
                     }
                 }
                 pasted_contents_.erase(id);  // just in case
+                in_flight_pastes_.erase(id);  // main thread
             }
         }
+    }
+
+    /// Block (main thread, brief) until every [Image #N] referenced in `text`
+    /// that still has an in-flight paste worker has either landed in
+    /// pasted_contents_ / pending_paste_results_ / pending_paste_failures_.
+    /// This closes the Ctrl+V→Enter race where a fast submit would snapshot
+    /// pasted_contents_ before the PNG data arrived.
+    ///
+    /// Bounded wait (default ~3s) so a stuck/leaked worker never wedges the UI.
+    /// Drains completed results on each tick so pasted_contents_ is fresh when
+    /// HandleSubmit reads it immediately after this returns.
+    void WaitForInFlightPastes(const std::string& text) {
+        const auto refs = cc::utils::parse_references(text);
+        if (refs.empty()) return;  // no image refs → nothing to wait for
+        std::unordered_set<int> needed;
+        for (const auto& r : refs) needed.insert(r.id);
+
+        const auto deadline =
+            std::chrono::steady_clock::now() + std::chrono::seconds(3);
+        while (std::chrono::steady_clock::now() < deadline) {
+            // Pick up any results that landed since the last tick.
+            this->ProcessCompletedPastes();
+            bool still_waiting = false;
+            for (int id : needed) {
+                if (in_flight_pastes_.contains(id)) {
+                    still_waiting = true;
+                    break;
+                }
+            }
+            if (!still_waiting) break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+        // Final drain so HandleSubmit sees the freshest pasted_contents_.
+        this->ProcessCompletedPastes();
     }
 
     [[nodiscard]] std::function<bool(std::string_view, std::string_view)> get_permission_callback() {
@@ -3446,6 +3536,16 @@ public:
         pasted_contents_[id] = std::move(ib);
     }
 
+    /// When true, SpawnPasteWorker injects a tiny fake PNG synchronously into
+    /// pending_paste_results_ instead of spawning a detached thread that reads
+    /// the real clipboard. Lets tests exercise the Ctrl+V → placeholder →
+    /// submit path without the lifetime hazard of a detached thread outliving
+    /// the test's AppAdapter.
+    bool no_real_paste_worker_for_testing_ = false;
+    void set_no_real_paste_worker_for_testing(bool v) {
+        no_real_paste_worker_for_testing_ = v;
+    }
+
     /// Set input_text directly (for testing orphan cleanup and submit guards
     /// without going through the text input component).
     void set_input_text_for_testing(std::string text) {
@@ -3515,6 +3615,37 @@ public:
     // Use the alternate-screen fullscreen like TS (AlternateScreen) - the REPL owns the terminal.
     auto screen = ScreenInteractive::Fullscreen();
 
+    // ── macOS/BSD line-discipline workaround: disable VLNEXT ─────────────
+    // VLNEXT (the "literal-next" char, Ctrl+V by default) is processed by the
+    // terminal line discipline EVEN in non-canonical mode (ICANON off) on
+    // macOS/BSD. FTXUI puts the terminal in non-canonical mode (ICANON|ECHO
+    // off) but does NOT clear c_cc[VLNEXT], so every Ctrl+V the user presses
+    // gets consumed as an lnext escape: a pair of \x16 bytes collapses into a
+    // single literal \x16. Net effect: pressing Ctrl+V 8× registers only 4×
+    // (floor(N/2)) — half the image-paste keystrokes are silently dropped
+    // before FTXUI's event loop ever sees them.
+    //
+    // Fix: clear VLNEXT ourselves before entering the loop. We do this BEFORE
+    // screen.Loop() because FTXUI's Install() (called inside Loop) does
+    // tcgetattr()+save-then-restore: it will read our VLNEXT=0, preserve it
+    // for the session, and restore that same value on exit. To still give the
+    // parent shell back its original Ctrl+V lnext on exit, we snapshot the
+    // true original termios here and re-apply it after Loop() returns.
+    //
+    // Verified: sending N×\x16 through a pty with VLNEXT=0 delivers all N
+    // bytes; with VLNEXT at its default, only floor(N/2) arrive. This is
+    // independent of the osascript/clipboard path (setsid/closefrom there
+    // remain good hygiene but were NOT the cause of keystroke loss).
+#if defined(__APPLE__) || defined(__linux__)
+    struct termios orig_termios;
+    const bool have_orig = (tcgetattr(STDIN_FILENO, &orig_termios) == 0);
+    if (have_orig) {
+        struct termios t = orig_termios;
+        t.c_cc[VLNEXT] = 0;  // 0 == _POSIX_VDISABLE: disable literal-next
+        (void)tcsetattr(STDIN_FILENO, TCSANOW, &t);
+    }
+#endif
+
     bool should_exit = false;
 
     auto app = Make<AppAdapter>(
@@ -3544,6 +3675,15 @@ public:
     app->SyncState();
 
     screen.Loop(app);
+
+    // Restore the parent shell's original termios (FTXUI's on_exit restored
+    // what IT read, which carries VLNEXT=0; re-apply the true original so
+    // Ctrl+V lnext works again in the user's shell after cc-repl exits).
+#if defined(__APPLE__) || defined(__linux__)
+    if (have_orig) {
+        (void)tcsetattr(STDIN_FILENO, TCSANOW, &orig_termios);
+    }
+#endif
 
     return should_exit ? 0 : 1;
 }

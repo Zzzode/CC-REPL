@@ -1392,6 +1392,38 @@ TEST(ReplScreen, FreshScreenDoesNotRenderLegacyEmptyState) {
     EXPECT_EQ(rendered.find("/help    -- list commands"), std::string::npos);
     EXPECT_EQ(rendered.find("/model   -- change model"), std::string::npos);
     EXPECT_EQ(rendered.find("/config  -- open settings"), std::string::npos);
+
+    // Regression guard (P0 layout): no blank row between the welcome header
+    // and the prompt.  TS LogoV2 has no trailing padding; the header slot
+    // height must stay dynamic.  Previously `size(HEIGHT, EQUAL, 4)` padded
+    // a 3-row condensed logo up to 4, leaving a visible blank line above the
+    // prompt input (the user-reported "blank line below logo").
+    {
+        std::vector<std::string> lines;
+        std::size_t pos = 0;
+        while (pos <= rendered.size()) {
+            const auto nl = rendered.find('\n', pos);
+            lines.emplace_back(rendered.substr(
+                pos, nl == std::string::npos ? std::string::npos : nl - pos));
+            if (nl == std::string::npos) break;
+            pos = nl + 1;
+        }
+        const auto is_blank = [](const std::string& l) {
+            return l.find_first_not_of(' ') == std::string::npos;
+        };
+        const auto header_it = std::find_if(lines.begin(), lines.end(),
+            [](const std::string& l) { return l.find("Claude Code") != std::string::npos; });
+        const auto prompt_it = std::find_if(lines.begin(), lines.end(),
+            [](const std::string& l) { return l.find("write a test") != std::string::npos; });
+        ASSERT_NE(header_it, lines.end());
+        ASSERT_NE(prompt_it, lines.end());
+        ASSERT_LT(header_it, prompt_it);
+        for (auto it = header_it + 1; it < prompt_it; ++it) {
+            EXPECT_FALSE(is_blank(*it))
+                << "blank row between welcome header and prompt at line "
+                << std::distance(lines.begin(), it);
+        }
+    }
 }
 
 TEST(ReplScreen, WelcomeHeaderAnimatesAsteriskColor) {
@@ -1433,6 +1465,11 @@ TEST(ReplScreen, WelcomeHeaderAnimatesAsteriskColor) {
 }
 
 TEST(ReplScreen, PromptInputRendersTopAndBottomBorders) {
+    // TS PromptInput.tsx:2237/2268: borderStyle="round" with borderBottom and
+    // borderLeft/Right={false}.  Ink defaults borderTop to TRUE when
+    // borderStyle is set and borderTop isn't explicitly false
+    // (render-background.js: `borderTop !== false ? 1 : 0`), so the input is
+    // framed by TWO horizontal rules (top + bottom) — not one.
     namespace repl = cc::ui::repl_screen;
 
     repl::ReplScreenState state;
@@ -6236,3 +6273,146 @@ TEST(ImagePasteFormat, ParseReferencesFromPromptText) {
     EXPECT_EQ(refs[0].index, 24u);  // "explain this screenshot " = 24 chars
     EXPECT_EQ(refs[1].index, 44u);  // after "[Image #1] and also " = +20
 }
+
+// ── Ctrl+V event → placeholder insertion (the user-visible broken path) ──
+
+/// Directly exercise AppAdapter::OnEvent with a Ctrl+V event and verify that
+/// the "[Image #1]" placeholder lands in input_text.  This is the EXACT code
+/// path the user hits when they press ctrl+v after copying an image.
+///
+/// If this test passes but the user still sees no placeholder, the problem is
+/// either (a) the real terminal event doesn't match Event::Character('\x16')
+/// or (b) the event never reaches AppAdapter::OnEvent.
+TEST(ImagePasteCtrlV, OnEventCtrlV_InsertsPlaceholderImmediately) {
+    PasteTestHarness h;
+    auto* a = h.adapter();
+    // Don't spawn a real clipboard-reading thread (lifetime hazard in tests).
+    a->set_no_real_paste_worker_for_testing(true);
+    ASSERT_EQ(a->input_text_for_testing(), "");
+    ASSERT_EQ(a->pasted_contents_size_for_testing(), 0u);
+    ASSERT_FALSE(a->is_query_running_for_testing());
+
+    // Simulate pressing Ctrl+V.  This is what FTXUI delivers when the user
+    // presses ctrl+v in a terminal (terminal sends \x16, FTXUI parses it as
+    // Event::Special("\x16") — but operator== only compares input_, so
+    // Event::Character('\x16') matches it).
+    //
+    // We use Event::Special("\x16") here to faithfully simulate what the
+    // terminal input parser actually produces (see terminal_input_parser.cpp
+    // L179: `if (Current() < 32) return SPECIAL;`).
+    a->OnEvent(ftxui::Event::Special("\x16"));
+
+    // Placeholder should be in the input text NOW (synchronously inserted
+    // before the background paste worker even starts).
+    const std::string text = a->input_text_for_testing();
+    EXPECT_NE(text.find("[Image #1]"), std::string::npos)
+        << "Ctrl+V event should insert [Image #1] placeholder immediately. "
+        << "Got input_text='" << text << "'";
+}
+
+/// Same test but with Event::Character('\x16') — the comparison used in
+/// AppAdapter::OnEvent L3143 and text_input.cppm L586.  Both should work
+/// because operator== only compares input_.
+TEST(ImagePasteCtrlV, OnEventCtrlV_CharacterForm_AlsoInsertsPlaceholder) {
+    PasteTestHarness h;
+    auto* a = h.adapter();
+    a->set_no_real_paste_worker_for_testing(true);
+    a->OnEvent(ftxui::Event::Character('\x16'));
+
+    const std::string text = a->input_text_for_testing();
+    EXPECT_NE(text.find("[Image #1]"), std::string::npos)
+        << "Event::Character('\\x16') should also insert placeholder. "
+        << "Got input_text='" << text << "'";
+}
+
+/// Verify the in-flight paste drain: OnEvent(Ctrl+V) inserts the placeholder
+/// AND posts the (fake, in testing mode) PNG to pending_paste_results_. The
+/// NEXT OnEvent call drains it into pasted_contents_ via ProcessCompletedPastes.
+/// This is the pipeline HandleSubmit's WaitForInFlightPastes relies on.
+TEST(ImagePasteCtrlV, PasteResultDrainsIntoPastedContentsOnNextEvent) {
+    PasteTestHarness h;
+    auto* a = h.adapter();
+    a->set_no_real_paste_worker_for_testing(true);
+
+    // Ctrl+V → placeholder + pending result (not yet in pasted_contents_).
+    a->OnEvent(ftxui::Event::Special("\x16"));
+    ASSERT_NE(a->input_text_for_testing().find("[Image #1]"), std::string::npos);
+    ASSERT_EQ(a->pasted_contents_size_for_testing(), 0u)
+        << "result should still be pending, not drained, right after Ctrl+V";
+
+    // Any subsequent event triggers ProcessCompletedPastes at the top of
+    // OnEvent, draining the pending result into pasted_contents_.
+    a->OnEvent(ftxui::Event::Custom);
+    EXPECT_EQ(a->pasted_contents_size_for_testing(), 1u)
+        << "pending paste result should drain into pasted_contents_ on the "
+        << "next OnEvent tick — this is what HandleSubmit's wait relies on";
+    EXPECT_TRUE(a->has_pasted_content_for_testing(1));
+}
+
+/// Verify that Event::Special("\x16") == Event::Character('\x16') — this is
+/// the fundamental assumption that makes the Ctrl+V detection work.
+/// FTXUI operator== only compares input_ (event.hpp L80), so both forms
+/// with the same byte sequence should compare equal.
+TEST(ImagePasteCtrlV, EventSpecial16EqualsEventCharacter16) {
+    auto special = ftxui::Event::Special("\x16");
+    auto character = ftxui::Event::Character('\x16');
+    EXPECT_EQ(special.input().size(), 1u);
+    EXPECT_EQ(character.input().size(), 1u);
+    EXPECT_EQ(static_cast<unsigned char>(special.input()[0]), 0x16u);
+    EXPECT_EQ(static_cast<unsigned char>(character.input()[0]), 0x16u);
+    EXPECT_TRUE(special == character)
+        << "Event::Special(\"\\x16\") should == Event::Character('\\x16') "
+        << "because operator== only compares input_ strings.";
+}
+
+/// Verify the projection order for a user message built as
+/// [TextBlock, ImageBlock] (which is how query_engine.cppm assembles it:
+/// make_user_message pushes TextBlock first, then attachments are appended).
+/// project_messages must emit [UserText, UserImage] so the text bubble renders
+/// ABOVE the image card — NOT the other way around (which would leave a blank
+/// gap above the text where an empty image card slot sits).
+TEST(ImagePasteCtrlV, ProjectionOrder_TextAboveImage) {
+    using namespace cc::core;
+    UserMessage um;
+    um.content.push_back(TextBlock{"[Image #1] describe this"});
+    ImageBlock ib;
+    ib.media_type = "image/png";
+    ib.data = "iVBORw0KGgo=";
+    ib.size_bytes = 100;
+    ib.file_name = "test.png";
+    ib.source = ImageBlockSource::Clipboard;
+    um.content.push_back(ib);
+    Message msg{std::move(um)};
+
+    auto entries = cc::ui::project_messages(msg);
+    ASSERT_EQ(entries.size(), 2u)
+        << "text + 1 image should project to exactly 2 rows";
+    EXPECT_FALSE(entries[0].is_image)
+        << "first row (top) must be the TEXT bubble, not the image";
+    EXPECT_TRUE(entries[1].is_image)
+        << "second row (bottom) must be the IMAGE card";
+}
+
+/// Verify the image renderer actually paints the UserImage card (ASCII
+/// thumbnail + metadata), not an empty box. The virtual-list render_payload_row
+/// now routes UserImage through this same image::render (faithful path), so a
+/// non-empty card here means the transcript row will be non-empty too.
+TEST(ImagePasteCtrlV, MessageImageRender_CardNotEmpty) {
+    using namespace cc::ui::messages::image;
+    using namespace sticky_prompt_test;  // strip_ansi, render_ansi
+
+    ImageMessageData d;
+    d.media_type = "image/png";
+    d.file_name = "clipboard-vlist.png";
+    d.file_size = 2048;
+    d.source_type = ImageSource::Clipboard;
+    d.source = "clipboard-vlist.png";
+
+    Element el = render(d);
+    std::string snap = strip_ansi(render_ansi(std::move(el), /*w=*/80, /*h=*/30));
+    EXPECT_NE(snap.find("Image"), std::string::npos)
+        << "image::render must paint the card (contains '🖼 Image' title). "
+        << "Got empty output — the UserImage transcript row would show as a "
+        << "blank gap above the user text bubble.";
+}
+
