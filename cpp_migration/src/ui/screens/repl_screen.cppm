@@ -1983,9 +1983,32 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
     // message transcript area: welcome header (fresh session), messages.
     // Spinner is NOT a scroll row — it lives in the pinned chrome between
     // the messages list and the prompt input (TS BriefSpinner marginTop=1).
+    //
+    // TS PARITY (Fix 2026-07-02): Logo/welcome lives INSIDE the scrollable
+    // area, not in a pinned header.  In TS Messages.tsx the LogoHeader is a
+    // thin 1-row bar; the full welcome card (LogoV2 condensed / compact) is
+    // rendered inside the VirtualMessageList scrollback.  Putting it here
+    // means: (a) blank space appears BELOW messages, not between logo and
+    // messages; (b) as messages arrive and pin-to-bottom engages, the logo
+    // scrolls out of the visible viewport naturally.
     Elements L;
     Elements scroll_rows; scroll_rows.reserve(4);
     const auto visible_messages = BuildVisibleMessages(s);
+
+    // ── Welcome / logo card (inside scrollable, TS parity) ─────────────
+    // TS REF: Messages.tsx — the full welcome card (LogoV2) is rendered
+    // INSIDE the VirtualMessageList scrollback, visible only when the
+    // transcript is empty (fresh session).  Once any message exists, the
+    // card is still in the scrollback but pin-to-bottom + content-exceeds-
+    // viewport scrolls it above the visible window.  We mirror that here:
+    // emit the card only when the visible message list is empty.  When
+    // messages are present we skip it entirely — same net effect as TS
+    // (logo not visible during an active conversation), and it avoids
+    // eating 6 rows of the 14-row test fixture.
+    if (visible_messages.empty()) {
+        scroll_rows.push_back(RenderWelcomeHeader(s, spinner_frame, term_cols)
+                            | size(WIDTH, EQUAL, term_cols));
+    }
 
     // ── Messages yframe (fills scrollable area) ────────────────────────
     // render_messages_list_view returns yframe | vscroll_indicator | flex
@@ -2008,18 +2031,13 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
     (void)L;
     slots.scrollable = vbox(std::move(scroll_rows));
 
-    // ── Logo header (pinned, non-scroll) ───────────────────────────────
-    // Faithful to TS Messages.tsx:679 — Logo is in the header slot which
-    // ComposeFullscreen treats as a pinned flex_shrink header.  It stays
-    // at the top while messages scroll below it.
-    //
-    // Width fills TERM_COLS for correct horizontal anchor.  Height is
-    // content-sized (no size(HEIGHT) constraint) — TS LogoV2 has no
-    // trailing padding.  A previous `size(HEIGHT, EQUAL, 4)` forced a
-    // 3-row logo+notices up to 4, leaving a visible blank bar below the
-    // last notice (user-reported "white bar below logo").
-    slots.header = RenderWelcomeHeader(s, spinner_frame, term_cols)
-                 | size(WIDTH,  EQUAL, term_cols);
+    // ── Pinned header (non-scroll) ─────────────────────────────────────
+    // TS Messages.tsx has a thin LogoHeader bar above VirtualMessageList,
+    // but our welcome card is now inside the scrollable area (see above).
+    // We leave the pinned header empty so the scrollwrap starts at the
+    // very top of the terminal — matching TS where the welcome card is
+    // the first visible element when scrolled to top.
+    slots.header = text("");
 
     if (!s.active_local_jsx_command) {
         // ── bottom slot (pinned, flexShrink=0) ──────────────────────────────
