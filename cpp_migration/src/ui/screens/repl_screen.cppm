@@ -1559,48 +1559,15 @@ inline void move_prompt_cursor_right(const std::shared_ptr<ReplScreenState>& sta
 
     // TS PromptInput.tsx:2237/2268: <Box borderStyle="round" borderLeft={false}
     // borderRight={false} borderBottom>.  Ink defaults borderTop to TRUE when
-    // borderStyle is set (render-background.js: `borderTop !== false ? 1 : 0`),
-    // and the top border carries `borderText` (mode indicator / fast-icon text)
-    // embedded in the line so it reads as a titled bar rather than a bare
-    // horizontal rule.
+    // borderStyle is set (render-background.js: `borderTop !== false ? 1 : 0`).
+    // The top border may carry `borderText` (fast-mode cooldown), but normally
+    // it's just a plain horizontal rule — the prompt glyph `❯` lives INSIDE the
+    // input area as the TextInput prefix, NOT in the border.
     //
-    // FTXUI separator() has no native borderText, so we emulate by composing
-    // a hbox: mode-label text on the left, then separator() fills the rest of
-    // the row.  This gives the visual separation users expect without the
-    // empty "白条" artifact of a plain separator().
+    // FTXUI separator() renders as box-drawing characters, matching Ink's
+    // border lines.  Both top and bottom rules use palette.prompt_border.
     const Color frame_color = pal.prompt_border;
-
-    // Build borderText: mode label that appears embedded in the top rule.
-    // Mirrors TS buildBorderText() — shows the active input mode.
-    std::string border_text;
-    switch (s.input_mode) {
-        case InputMode::Bash:         border_text = " $ "; break;
-        case InputMode::SlashCommand: border_text = " / "; break;
-        case InputMode::HistorySearch:border_text = " ⌕ history "; break;
-        case InputMode::PlanMode:     border_text = " ◇ plan "; break;
-        case InputMode::VimInsert:    border_text = " -- INSERT -- "; break;
-        case InputMode::VimNormal:    border_text = " -- NORMAL -- "; break;
-        case InputMode::VimVisual:    border_text = " -- VISUAL -- "; break;
-        default: break;  // Prompt mode: no label (clean line)
-    }
-
-    Element top_rule;
-    if (!border_text.empty()) {
-        top_rule = hbox({
-            text(" ") | color(frame_color),
-            text(border_text) | color(frame_color) | dim,
-            separator() | color(frame_color) | flex,
-        });
-    } else {
-        // Prompt mode: embed a subtle "❯" glyph so the rule is not a bare
-        // horizontal line (which reads as a "白条").  Mirrors how TS's Ink
-        // borderStyle carries the prompt glyph context via borderText.
-        top_rule = hbox({
-            text(" ") | color(frame_color),
-            text(std::string(figs::kPointer)) | color(frame_color) | dim,
-            separator() | color(frame_color) | flex,
-        });
-    }
+    Element top_rule    = separator() | color(frame_color);
     Element bottom_rule = separator() | color(frame_color);
 
     return vbox({
@@ -2103,9 +2070,15 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
             default: break;
         }
         // ── Assemble the bottom slot ──
-        // Chrome order: [spinner (marginTop=1)] → [suggestions overlay?] →
-        //               [prompt input] → [footer]
-        L.reserve(4);
+        // Chrome order: [marginTop gap] → [spinner (marginTop=1)] →
+        //               [suggestions overlay?] → [prompt input] → [footer]
+        //
+        // TS REF: PromptInput.tsx:2244 — marginTop={briefOwnsGap ? 0 : 1} on the
+        // outermost container.  In non-brief mode this is a 1-row gap between the
+        // scrollback area and the top border of the input box.  We emulate with a
+        // leading text("") row.
+        L.reserve(5);
+        L.push_back(text(""));   // marginTop=1
         if (s.spinner_mode != SpinnerMode::Hidden) {
             L.push_back(hbox({spinner_chrome, filler()}) | flex_shrink);
         }
