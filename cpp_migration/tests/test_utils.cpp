@@ -2800,6 +2800,61 @@ TEST(ClipboardImage, RunAppClearsVlnext_MacOSLineDisciplineGuard) {
         << "but not the disable assignment.";
 }
 
+// Regression (2026-07-02, user-reported): copying an image from Lark/Feishu
+// (or any web app that embeds images as base64 data URLs in HTML) and pasting
+// into cc-repl showed the [Image #N] placeholder briefly, then it vanished.
+// Root cause: the clipboard held «class HTML» (365KB HTML with a JPEG data URL
+// in data-content="data:image/jpeg;base64,..."), NOT «class PNGf» raw image
+// data. read_image_png() only tried PNGf → always nullopt → ProcessCompletedPastes
+// erased the placeholder as a "failed paste".
+//
+// Fix: extract_png_from_html_clipboard() in clipboard.cppm reads «class HTML»,
+// scans for data:image/XXX;base64, patterns, decodes, and (if not PNG) converts
+// via sips. read_image_png() falls through to this when PNGf fails.
+//
+// This is a source-level guard (no portable way to inject HTML clipboard data
+// inside a unit test). We assert:
+//   1. extract_png_from_html_clipboard function exists in clipboard.cppm
+//   2. read_image_png() calls it as fallback (not just return nullopt)
+TEST(ClipboardImage, HtmlClipboardDataUrlFallback_SourceGuard) {
+    namespace fs = std::filesystem;
+    fs::path src = fs::current_path();
+    for (int i = 0; i < 6; ++i) {
+        const fs::path candidate =
+            src / "cpp_migration" / "src" / "utils" / "clipboard.cppm";
+        if (fs::exists(candidate)) { src = candidate; break; }
+        src = src.parent_path();
+    }
+    if (!fs::exists(src)) {
+        GTEST_SKIP() << "clipboard.cppm source not found from "
+                     << fs::current_path();
+    }
+    std::ifstream f(src);
+    ASSERT_TRUE(f.good()) << "cannot open " << src;
+    std::string content((std::istreambuf_iterator<char>(f)),
+                        std::istreambuf_iterator<char>());
+
+    // 1. The HTML extraction helper must exist.
+    EXPECT_NE(content.find("extract_png_from_html_clipboard"), std::string::npos)
+        << "clipboard.cppm must have extract_png_from_html_clipboard() — "
+        << "copying images from web apps (Lark, Google Docs) puts HTML with "
+        << "base64 data URLs on the clipboard, NOT raw PNGf. Without this "
+        << "fallback, [Image #N] vanishes ~700ms after paste.";
+
+    // 2. It must scan for data:image/ prefix (the data URL pattern).
+    EXPECT_NE(content.find("data:image/"), std::string::npos)
+        << "extract_png_from_html_clipboard() must search for 'data:image/' "
+        << "prefix to find embedded image data URLs.";
+
+    // 3. read_image_png() must call the fallback when PNGf fails
+    //    (not just 'return std::nullopt' after run_detached fails).
+    EXPECT_NE(content.find("return extract_png_from_html_clipboard()"),
+              std::string::npos)
+        << "read_image_png() must call extract_png_from_html_clipboard() as "
+        << "fallback when PNGf osascript fails — clipboard may hold HTML "
+        << "with embedded image instead of raw PNG.";
+}
+
 // ── parse_references (TS history.ts L62-75 parity) ──────────────────────────
 
 TEST(ParseReferences, EmptyInput_ReturnsEmpty) {

@@ -21,6 +21,8 @@ module;
 
 export module cc.utils.clipboard;
 
+import cc.utils.crypto;
+
 export namespace cc::utils::clipboard {
 
 // ── osascript invocation gotcha (macOS) ─────────────────────────────────
@@ -100,6 +102,137 @@ inline int run_detached(const std::string& cmd) noexcept {
 #endif
 }
 
+/// Fallback: extract an image from the clipboard when it only has HTML (no raw
+/// PNGf/TIFF pasteboard types).  This happens when copying images from web apps
+/// (Lark/Feishu, Google Docs, etc.) that embed the image as a base64 data URL
+/// inside an HTML fragment like `<meta charset='utf-8'><lark-sw
+/// data-content="data:image/jpeg;base64,/9j/4AAQ...">`.
+///
+/// Strategy:
+///   1. osascript reads `«class HTML»` into a temp file
+///   2. Scan raw bytes for `data:image/XXX;base64,` pattern
+///   3. Decode base64 → raw image bytes
+///   4. If not PNG, convert via `sips -s format png` (macOS built-in)
+///   5. Return PNG bytes, or nullopt on any failure
+///
+/// TS REF: src/utils/imagePaste.ts — the native NSPasteboard path handles
+/// arbitrary pasteboard types; this is our osascript-only equivalent for when
+/// `«class PNGf»` is absent but HTML with a data URL is present.
+[[nodiscard]] inline std::optional<std::vector<std::uint8_t>>
+extract_png_from_html_clipboard() {
+#if defined(__APPLE__)
+    namespace fs = std::filesystem;
+
+    // ── Step 1: read HTML from clipboard ────────────────────────────────
+    fs::path html_tmp = fs::temp_directory_path() / "cc-repl-clipboard.html";
+    const std::string html_tmp_s = html_tmp.string();
+    const std::string html_script =
+        "osascript "
+        "-e 'set html_data to (the clipboard as «class HTML»)' "
+        "-e 'set fp to open for access POSIX file \"" + html_tmp_s +
+        "\" with write permission' "
+        "-e 'set eof of fp to 0' "
+        "-e 'write html_data to fp' "
+        "-e 'close access fp'";
+    if (run_detached(html_script) != 0) {
+        std::error_code rc; fs::remove(html_tmp, rc);
+        return std::nullopt;
+    }
+
+    // ── Step 2: read HTML bytes ─────────────────────────────────────────
+    std::ifstream hf(html_tmp, std::ios::binary);
+    if (!hf) {
+        std::error_code rc; fs::remove(html_tmp, rc);
+        return std::nullopt;
+    }
+    std::vector<char> html_buf((std::istreambuf_iterator<char>(hf)),
+                               std::istreambuf_iterator<char>());
+    std::error_code rc; fs::remove(html_tmp, rc);
+    if (html_buf.empty()) return std::nullopt;
+
+    std::string_view html(html_buf.data(), html_buf.size());
+
+    // ── Step 3: find `data:image/XXX;base64,` ───────────────────────────
+    constexpr std::string_view kPrefix = "data:image/";
+    auto pos = html.find(kPrefix);
+    if (pos == std::string_view::npos) return std::nullopt;
+
+    // Extract image sub-type (e.g. "jpeg", "png", "gif", "webp")
+    auto type_start = pos + kPrefix.size();
+    auto semi = html.find(';', type_start);
+    if (semi == std::string_view::npos) return std::nullopt;
+    std::string_view image_type = html.substr(type_start, semi - type_start);
+
+    // Find "base64," after the semicolon
+    constexpr std::string_view kB64Marker = "base64,";
+    auto b64_pos = html.find(kB64Marker, semi);
+    if (b64_pos == std::string_view::npos) return std::nullopt;
+    auto data_start = b64_pos + kB64Marker.size();
+
+    // Find end of base64 data (delimited by quote, space, angle bracket, etc.)
+    auto data_end = data_start;
+    while (data_end < html.size()) {
+        char c = html[data_end];
+        if (c == '"' || c == '\'' || c == ' ' || c == '\n' ||
+            c == '\r' || c == '<' || c == '>' || c == '\\') break;
+        ++data_end;
+    }
+    if (data_end <= data_start) return std::nullopt;
+
+    std::string_view b64_str = html.substr(data_start, data_end - data_start);
+
+    // ── Step 4: decode base64 ───────────────────────────────────────────
+    auto decoded = cc::utils::crypto::base64_decode(b64_str);
+    if (!decoded.has_value() || decoded->empty()) return std::nullopt;
+
+    // ── Step 5: if already PNG, return directly ─────────────────────────
+    if (image_type == "png") {
+        return std::move(*decoded);
+    }
+
+    // Non-PNG: write to temp file and convert with sips
+    fs::path src_tmp = fs::temp_directory_path() /
+        ("cc-repl-src." + std::string(image_type));
+    fs::path dst_tmp = fs::temp_directory_path() / "cc-repl-dst.png";
+
+    {
+        std::ofstream sf(src_tmp, std::ios::binary);
+        if (!sf) return std::nullopt;
+        sf.write(reinterpret_cast<const char*>(decoded->data()),
+                 static_cast<std::streamsize>(decoded->size()));
+    }
+
+    const std::string sips_cmd =
+        "sips -s format png '" + src_tmp.string() +
+        "' --out '" + dst_tmp.string() + "' > /dev/null 2>&1";
+    if (run_detached(sips_cmd) != 0) {
+        std::error_code ec;
+        fs::remove(src_tmp, ec); fs::remove(dst_tmp, ec);
+        return std::nullopt;
+    }
+
+    // Read converted PNG
+    std::ifstream df(dst_tmp, std::ios::binary);
+    if (!df) {
+        std::error_code ec;
+        fs::remove(src_tmp, ec); fs::remove(dst_tmp, ec);
+        return std::nullopt;
+    }
+    std::vector<std::uint8_t> png_bytes(
+        (std::istreambuf_iterator<char>(df)),
+        std::istreambuf_iterator<char>());
+
+    {
+        std::error_code ec;
+        fs::remove(src_tmp, ec); fs::remove(dst_tmp, ec);
+    }
+    if (png_bytes.empty()) return std::nullopt;
+    return png_bytes;
+#else
+    return std::nullopt;
+#endif
+}
+
 /// Read the clipboard image as PNG bytes (macOS).  Returns nullopt if there is
 /// no image or the read fails.  Writes the clipboard PNG to a temp file via
 /// osascript (mirrors TS saveImage), then reads the bytes back.  Always returns
@@ -132,7 +265,10 @@ inline int run_detached(const std::string& cmd) noexcept {
         "-e 'close access fp'";
     if (run_detached(script) != 0) {
         std::error_code rc; fs::remove(tmp, rc);
-        return std::nullopt;
+        // PNGf failed — clipboard may have the image embedded in HTML (e.g.
+        // copying from Lark/Feishu, Google Docs).  Try the HTML data-URL
+        // fallback before giving up.
+        return extract_png_from_html_clipboard();
     }
     std::ifstream f(tmp, std::ios::binary);
     if (!f) {
