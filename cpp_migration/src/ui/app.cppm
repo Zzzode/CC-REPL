@@ -339,9 +339,27 @@ struct AutocompleteToken {
             e.role = "tool";
             e.is_tool_use = true;
             e.tool_status = m.is_error ? "error" : "success";
+            // TS parity: propagate the tool name from the result message so
+            // the renderer can show "Bash" / "Edit" instead of generic "tool".
+            // The old code left tool_name unset → BuildMessagesList fell back
+            // to "tool", making every tool result look anonymous.
+            if (!m.tool_name.empty()) {
+                e.tool_name = m.tool_name;
+            }
             for (const auto& block : m.content) {
-                if (const auto* tb = std::get_if<TextBlock>(&block))
+                if (const auto* tb = std::get_if<TextBlock>(&block)) {
                     e.content_preview += tb->text;
+                } else if (const auto* ib = std::get_if<ImageBlock>(&block)) {
+                    // Tool results may return images (e.g. analyze_image).
+                    // Append a [Image] marker so the row isn't empty.
+                    if (!e.content_preview.empty()) e.content_preview += '\n';
+                    e.content_preview += "[Image]";
+                    e.is_image = true;
+                    e.image_block = *ib;
+                } else if (const auto* db = std::get_if<DocumentBlock>(&block)) {
+                    if (!e.content_preview.empty()) e.content_preview += '\n';
+                    e.content_preview += "[Document]";
+                }
             }
         }
         if (e.content_preview.size() > 500)
