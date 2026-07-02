@@ -1466,10 +1466,16 @@ TEST(ReplScreen, WelcomeHeaderAnimatesAsteriskColor) {
 
 TEST(ReplScreen, PromptInputRendersTopAndBottomBorders) {
     // TS PromptInput.tsx:2237/2268: borderStyle="round" with borderBottom and
-    // borderLeft/Right={false}.  Ink defaults borderTop to TRUE when
-    // borderStyle is set and borderTop isn't explicitly false
-    // (render-background.js: `borderTop !== false ? 1 : 0`), so the input is
-    // framed by TWO horizontal rules (top + bottom) — not one.
+    // borderLeft/Right={false}.  Ink technically defaults borderTop to TRUE
+    // when borderStyle is set (render-background.js: `borderTop !== false ? 1
+    // : 0`), but the TS top border contains `borderText` (mode indicator /
+    // fast-icon text) embedded in the line, so it reads as a titled bar rather
+    // than a bare horizontal rule.  FTXUI separator() has no way to embed text,
+    // so a plain top_rule renders as an empty "白条" (user-reported).
+    //
+    // We therefore render only the bottom border in CPP; the mode indicator
+    // in the content row provides the visual anchor that TS gets from
+    // borderText.  This test verifies at least one border (bottom) is present.
     namespace repl = cc::ui::repl_screen;
 
     repl::ReplScreenState state;
@@ -1494,7 +1500,7 @@ TEST(ReplScreen, PromptInputRendersTopAndBottomBorders) {
         line_start = line_end + 1;
     }
 
-    EXPECT_GE(border_lines, 2u);
+    EXPECT_GE(border_lines, 1u);  // bottom border at minimum
     EXPECT_NE(rendered.find("❯ /"), std::string::npos);
 }
 

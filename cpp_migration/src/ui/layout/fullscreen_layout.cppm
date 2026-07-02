@@ -510,14 +510,13 @@ class StickyPromptHeaderComponent : public ComponentBase {
     // 2. ScrollBox paddingTop row.  TS ScrollBox wraps scrollable+overlay
     //    with paddingTop = padCollapsed ? 0 : 1 (line 361).  FTXUI vbox
     //    has no direct paddingTop, so we emulate with an explicit 1-row
-    //    separator() of background color OR a 0-row text("").
+    //    spacer.  No bgcolor — TS ScrollBox has no explicit background, so
+    //    the padding area shows the terminal/canvas default.  Applying
+    //    palette.background here created a subtly different-tinted row
+    //    (RGB 32,33,36 vs terminal black 0,0,0) that some users perceived
+    //    as a faint "白条" below the logo.
     if (padding_top > 0) {
-        // Render a 1-row pad styled as the background.  In the TS
-        // ScrollBox, paddingTop is drawn from the ScrollBox's own
-        // background (canvas colour); we match with palette.background.
-        const auto& pal = active_palette();
         scroll_children.push_back(text("")
-            | bgcolor(pal.background)
             | size(HEIGHT, EQUAL, padding_top));
     }
 

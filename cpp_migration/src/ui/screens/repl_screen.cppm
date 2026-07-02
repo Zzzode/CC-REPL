@@ -1558,23 +1558,20 @@ inline void move_prompt_cursor_right(const std::shared_ptr<ReplScreenState>& sta
     auto content = vbox(std::move(box_body));
 
     // TS PromptInput.tsx:2237/2268: <Box borderStyle="round" borderLeft={false}
-    // borderRight={false} borderBottom>.  Ink defaults borderTop to TRUE when
-    // borderStyle is set and borderTop isn't explicitly false
-    // (node_modules/ink/build/render-background.js:11 — `borderTop !== false
-    // ? 1 : 0`).  So the input is framed by TWO horizontal rules (top +
-    // bottom) with no side borders — a slot around the input row.  Match
-    // exactly: top_rule above content, bottom_rule below.  (A previous edit
-    // wrongly dropped top_rule by assuming borderTop defaults false — it
-    // does not; that left the input with only a bottom line.)  Color =
-    // theme.promptBorder (TS dark: ansi:whiteBright ≈ rgb(136,136,136);
-    // light: ≈ rgb(153,153,153)).
+    // borderRight={false} borderBottom>.  Ink technically defaults borderTop to
+    // TRUE when borderStyle is set (render-background.js: `borderTop !== false
+    // ? 1 : 0`), but the TS top border contains `borderText` (mode indicator /
+    // fast-icon text) embedded in the line, so it reads as a titled bar rather
+    // than a bare horizontal rule.  FTXUI separator() has no way to embed text,
+    // so a plain top_rule renders as an empty "白条" (user-reported).
+    //
+    // We therefore omit the top rule in CPP — the mode indicator in the content
+    // row already provides the visual anchor that TS gets from borderText, and
+    // the bottom_rule still separates the input from the footer.
     const Color frame_color = pal.prompt_border;
-
-    Element top_rule    = separator() | color(frame_color);
     Element bottom_rule = separator() | color(frame_color);
 
     return vbox({
-        std::move(top_rule),
         content,
         std::move(bottom_rule),
     }) | size(WIDTH, EQUAL, std::max(term_cols, 40));
