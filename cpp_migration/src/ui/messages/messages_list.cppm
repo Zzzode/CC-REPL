@@ -1644,6 +1644,18 @@ inline auto render_payload_row(const MessagesListInput& input,
             return el;
         }
     }
+    else if (shape == S::UserImage) {
+        // Faithful render: TS UserImageMessage — each user-attached image is
+        // its own transcript row (ASCII thumbnail + metadata card).  Render
+        // directly via message_image::render (stateless Element) instead of
+        // the divergent envelope+MakeImageMessage fallback, which rendered
+        // empty in the virtual-list context (user-visible symptom: image card
+        // missing, only the [Image #N] text placeholder showed).
+        auto* d = std::get_if<image::ImageMessageData>(&payload);
+        if (d) {
+            return image::render(*d);
+        }
+    }
 
     // ── DIVERGENT PATH (sub-types not yet ported to faithful) ───────────
     MessageRowCallbacks cb{};   // envelope callbacks come via the outer component

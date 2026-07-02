@@ -6328,3 +6328,54 @@ TEST(ImagePasteCtrlV, EventSpecial16EqualsEventCharacter16) {
         << "because operator== only compares input_ strings.";
 }
 
+/// Verify the projection order for a user message built as
+/// [TextBlock, ImageBlock] (which is how query_engine.cppm assembles it:
+/// make_user_message pushes TextBlock first, then attachments are appended).
+/// project_messages must emit [UserText, UserImage] so the text bubble renders
+/// ABOVE the image card — NOT the other way around (which would leave a blank
+/// gap above the text where an empty image card slot sits).
+TEST(ImagePasteCtrlV, ProjectionOrder_TextAboveImage) {
+    using namespace cc::core;
+    UserMessage um;
+    um.content.push_back(TextBlock{"[Image #1] describe this"});
+    ImageBlock ib;
+    ib.media_type = "image/png";
+    ib.data = "iVBORw0KGgo=";
+    ib.size_bytes = 100;
+    ib.file_name = "test.png";
+    ib.source = ImageBlockSource::Clipboard;
+    um.content.push_back(ib);
+    Message msg{std::move(um)};
+
+    auto entries = cc::ui::project_messages(msg);
+    ASSERT_EQ(entries.size(), 2u)
+        << "text + 1 image should project to exactly 2 rows";
+    EXPECT_FALSE(entries[0].is_image)
+        << "first row (top) must be the TEXT bubble, not the image";
+    EXPECT_TRUE(entries[1].is_image)
+        << "second row (bottom) must be the IMAGE card";
+}
+
+/// Verify the image renderer actually paints the UserImage card (ASCII
+/// thumbnail + metadata), not an empty box. The virtual-list render_payload_row
+/// now routes UserImage through this same image::render (faithful path), so a
+/// non-empty card here means the transcript row will be non-empty too.
+TEST(ImagePasteCtrlV, MessageImageRender_CardNotEmpty) {
+    using namespace cc::ui::messages::image;
+    using namespace sticky_prompt_test;  // strip_ansi, render_ansi
+
+    ImageMessageData d;
+    d.media_type = "image/png";
+    d.file_name = "clipboard-vlist.png";
+    d.file_size = 2048;
+    d.source_type = ImageSource::Clipboard;
+    d.source = "clipboard-vlist.png";
+
+    Element el = render(d);
+    std::string snap = strip_ansi(render_ansi(std::move(el), /*w=*/80, /*h=*/30));
+    EXPECT_NE(snap.find("Image"), std::string::npos)
+        << "image::render must paint the card (contains '🖼 Image' title). "
+        << "Got empty output — the UserImage transcript row would show as a "
+        << "blank gap above the user text bubble.";
+}
+

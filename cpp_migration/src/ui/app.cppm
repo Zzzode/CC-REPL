@@ -2416,8 +2416,16 @@ public:
 
             // AT-02: materialize @-mention file references into content blocks
             // so the model sees file contents, not the literal "@path" string.
+            // APPEND to opts.attachments — it already holds the Ctrl+V pasted
+            // images (set at the top of this lambda). The old code used
+            // `opts.attachments = std::move(materialized.blocks)` which is a
+            // REPLACING assignment and silently discarded every pasted image
+            // (the model then replied "I didn't receive any image" even though
+            // the [Image #N] placeholder was in the text).
             auto materialized = atatt::materialize_at_mentions(text, screen_state_->cwd);
-            opts.attachments = std::move(materialized.blocks);
+            for (auto& b : materialized.blocks) {
+                opts.attachments.push_back(std::move(b));
+            }
 
             engine_->stream_query(materialized.text, opts);
 
