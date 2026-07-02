@@ -642,6 +642,12 @@ constexpr int kMaxRenderedLines = 10;
             // UserToolSuccessMessage fallback (no tool-specific renderer yet)
             // TS renders tool output directly in the message body —
             // no MessageResponse wrapper, dim subdued ANSI-aware output.
+            //
+            // TS PARITY FIX (2026-07-02): always emit a header line with
+            // ✓ + tool_name so the result is visually identifiable in the
+            // transcript.  The old code returned bare `output | dim` for
+            // non-empty results, which blended invisibly into the assistant
+            // turn's text — making tool output appear "swallowed".
             if (!data.content || data.content->empty()) {
                 // Empty success: show tool name with checkmark
                 return hbox({
@@ -653,14 +659,19 @@ constexpr int kMaxRenderedLines = 10;
             Element output =
                 ansi_to_ftxui_elements(*data.content) | dim;
 
-            if (data.is_truncated) {
-                Elements elems;
-                elems.push_back(std::move(output));
-                elems.push_back(text("  (output truncated)") | dim);
-                return vbox(std::move(elems));
-            }
+            // Header: ✓ tool_name  (1-row, always visible)
+            Element header = hbox({
+                text("\xe2\x9c\x93 ") | color(Color::Green),
+                text(data.tool_name) | dim,
+            });
 
-            return output;
+            Elements elems;
+            elems.push_back(std::move(header));
+            elems.push_back(std::move(output));
+            if (data.is_truncated) {
+                elems.push_back(text("  (output truncated)") | dim);
+            }
+            return vbox(std::move(elems));
         }
     }
     return text("");
