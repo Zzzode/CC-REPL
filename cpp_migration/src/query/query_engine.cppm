@@ -2670,6 +2670,7 @@ private:
         result_msg.id.value = generate_id();
         result_msg.timestamp = std::chrono::system_clock::now();
         result_msg.tool_use_id = tool_use.id;
+        result_msg.tool_name = tool_use.name;
         result_msg.is_error = true;
         result_msg.content.push_back(TextBlock{std::move(message)});
         return result_msg;
@@ -2803,6 +2804,7 @@ private:
         result_msg.id.value = generate_id();
         result_msg.timestamp = std::chrono::system_clock::now();
         result_msg.tool_use_id = tool_use.id;
+        result_msg.tool_name = tool_use.name;
 
         if (exec_result) {
             // In-loop skill dispatch tracking: record each invoked skill so the

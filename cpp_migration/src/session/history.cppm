@@ -450,6 +450,7 @@ private:
                 obj.add("tool_input_json", doc.string(value.tool_input_json));
             } else if constexpr (std::is_same_v<T, ToolResultMessage>) {
                 obj.add("tool_use_id", doc.string(value.tool_use_id.value));
+                obj.add("tool_name", doc.string(value.tool_name));
                 obj.add("is_error", doc.boolean(value.is_error));
             }
         }, message);
@@ -618,6 +619,7 @@ private:
             return ToolResultMessage{
                 std::move(base),
                 ToolUseId{value.get_string("tool_use_id")},
+                value.get_string("tool_name"),
                 value.get("is_error").is_bool() && value.get("is_error").as_bool()};
         }
 

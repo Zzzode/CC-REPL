@@ -197,6 +197,7 @@ struct ToolUseMessage : MessageBase {
 struct ToolResultMessage : MessageBase {
     static constexpr Role role = Role::Tool;
     ToolUseId tool_use_id;
+    std::string tool_name;   ///< Name of the tool that produced this result
     bool is_error = false;
 };
 
