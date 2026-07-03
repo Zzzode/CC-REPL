@@ -1754,7 +1754,8 @@ constexpr std::size_t kMaxRenderedLastN = 80;   // last-N render cap
     std::size_t frame_count = 0,
     std::size_t render_last_n = kMaxRenderedLastN,
     Elements trailing_elements = {},
-    bool wrap_in_yframe = true) -> Element
+    bool wrap_in_yframe = true,
+    Elements leading_elements = {}) -> Element
 {
     // P0-3 virtual path: for *large* transcripts, delegate to the
     // windowed renderer so 100k+ messages cost O(viewport) per paint,
@@ -1788,6 +1789,15 @@ constexpr std::size_t kMaxRenderedLastN = 80;   // last-N render cap
     auto visible = build_visible_rows(input);
 
     if (visible.empty()) {
+        // No messages: show leading elements (e.g. welcome/logo card) if
+        // provided, otherwise the empty-state placeholder.
+        if (!leading_elements.empty()) {
+            Elements all_leading = leading_elements;  // copy
+            all_leading.push_back(detail::render_empty_state(input.search_query));
+            Element content = vbox(std::move(all_leading));
+            if (!wrap_in_yframe) return content;
+            return content | yframe | vscroll_indicator;
+        }
         Element empty = vbox({
             detail::render_empty_state(input.search_query),
         });
@@ -1811,7 +1821,13 @@ constexpr std::size_t kMaxRenderedLastN = 80;   // last-N render cap
     }
 
     Elements rows;
-    rows.reserve(visible.size() - start + 3);   // +3 = (maybe divider + tail spinner + blank)
+    rows.reserve(visible.size() - start + 3 + leading_elements.size());
+    // Prepend caller-supplied leading elements (e.g. welcome/logo card) INSIDE
+    // the yframe so they scroll naturally with message content.  TS parity:
+    // LogoV2 is the first child of VirtualMessageList scrollback.
+    for (auto& el : leading_elements) {
+        rows.push_back(std::move(el));
+    }
     // TS semantics: each MESSAGE (API level) owns one marginTop=1 blank line.
     // Blocks inside the same assistant message (thinking/text/tool_use) share
     // that margin — only the FIRST assistant block of a turn emits it.  User

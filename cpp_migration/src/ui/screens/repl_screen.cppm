@@ -720,14 +720,12 @@ struct ReplScreenCallbacks {
     int offs = 0, bool pinned = true,
     int spinner_frame = 0,
     std::optional<cc::ui::messages_list::UnseenDivider> unseen_divider =
-        std::nullopt) {
-    if (entries.empty()) {
-        // Empty transcript: reserve zero height (do NOT return filler()/flex).
-        // Returning a flex filler here caused the sibling WelcomeHeader above
-        // to be compressed to 0 rows inside the outer scroll_rows vbox under a
-        // nested flex distribution (see repl_screen.cppm Compose call site).
-        return text("");
-    }
+        std::nullopt,
+    Elements leading_elements = {}) {
+    // NOTE: We no longer early-return on empty entries.  The leading_element
+    // (welcome/logo card) must always be rendered inside the yframe so it
+    // scrolls with messages.  The messages_list handles empty rows gracefully
+    // via its own visible.empty() path which prepends leading elements.
 
     namespace ml = cc::ui::messages_list;
     namespace image = cc::ui::messages::image;
@@ -941,9 +939,14 @@ struct ReplScreenCallbacks {
     input.scroll_offset = std::max(0, offs);
     input.viewport_rows = std::max(1, vlines);
 
+    namespace ml = cc::ui::messages_list;
     return ml::render_messages_list_view(
         std::move(input),
-        static_cast<std::size_t>(spinner_frame)) | flex;
+        static_cast<std::size_t>(spinner_frame),
+        ml::kMaxRenderedLastN,
+        {},        // trailing_elements
+        true,      // wrap_in_yframe
+        std::move(leading_elements)) | flex;
 }
 
 [[nodiscard]] inline int CountTextLines(std::string_view text) {
@@ -1992,33 +1995,41 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
     // messages; (b) as messages arrive and pin-to-bottom engages, the logo
     // scrolls out of the visible viewport naturally.
     Elements L;
-    Elements scroll_rows; scroll_rows.reserve(4);
+    Elements scroll_rows; scroll_rows.reserve(2);
     const auto visible_messages = BuildVisibleMessages(s);
 
-    // ── Welcome / logo card (inside scrollable, TS parity) ─────────────
-    // TS REF: Messages.tsx — the full welcome card (LogoV2) is rendered
-    // INSIDE the VirtualMessageList scrollback, visible only when the
-    // transcript is empty (fresh session).  Once any message exists, the
-    // card is still in the scrollback but pin-to-bottom + content-exceeds-
-    // viewport scrolls it above the visible window.  We mirror that here:
-    // emit the card only when the visible message list is empty.  When
-    // messages are present we skip it entirely — same net effect as TS
-    // (logo not visible during an active conversation), and it avoids
-    // eating 6 rows of the 14-row test fixture.
-    if (visible_messages.empty()) {
-        scroll_rows.push_back(RenderWelcomeHeader(s, spinner_frame, term_cols)
-                            | size(WIDTH, EQUAL, term_cols));
+    // ── Welcome / logo card (passed as leading element inside yframe) ───
+    // TS PARITY (2026-07-03 fix): LogoV2 welcome card is the first element
+    // inside the VirtualMessageList scrollback.  It is ALWAYS present in
+    // the scroll content — when messages overflow the viewport and
+    // pin-to-bottom engages, the logo scrolls above the visible window but
+    // is reachable by scrolling up.
+    //
+    // EXCEPTION: when a local command overlay (/skills, /help, etc.) is
+    // active with no real conversation messages (s.messages empty), we
+    // skip the logo so the command output has full viewport space.  This
+    // matches TS where command overlays are not "real" transcript entries.
+    Elements logo_leading;
+    const bool has_real_messages = !s.messages.empty();
+    const bool has_command_overlay = s.active_local_jsx_command;
+    if (has_real_messages || !has_command_overlay) {
+        logo_leading.push_back(
+            RenderWelcomeHeader(s, spinner_frame, term_cols)
+            | size(WIDTH, EQUAL, term_cols));
     }
 
-    // ── Messages yframe (fills scrollable area) ────────────────────────
+    // ── Messages yframe (logo prepended INSIDE, fills scrollable) ───────
     // render_messages_list_view returns yframe | vscroll_indicator | flex
-    // which fills the scrollable slot.  The pin_to_bottom fix in
-    // messages_list.cppm ensures short content is top-aligned (no blank
-    // space above), while long content is correctly scrolled to bottom.
-    scroll_rows.push_back(RenderMessages(visible_messages, s.selected_message_idx,
-                                         s.viewport_height_lines, s.scroll_offset,
-                                         s.scroll_pinned_to_bottom, spinner_frame,
-                                         s.unseen_divider));
+    // with the logo card as its first scroll child.  Pin-to-bottom logic
+    // in messages_list.cppm keeps short content top-aligned (no blank
+    // space above messages), and scrolls to bottom only when content
+    // exceeds viewport.
+    scroll_rows.push_back(RenderMessages(
+        visible_messages, s.selected_message_idx,
+        s.viewport_height_lines, s.scroll_offset,
+        s.scroll_pinned_to_bottom, spinner_frame,
+        s.unseen_divider,
+        std::move(logo_leading)));
     // Spinner lives in the chrome BETWEEN messages list and prompt input
     // (TS BriefSpinner marginTop=1, NOT a message row inside scroll content).
     Element spinner_chrome = text("");
