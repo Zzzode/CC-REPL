@@ -1938,6 +1938,13 @@ constexpr std::size_t kMaxRenderedLastN = 80;   // last-N render cap
         estimated_total_lines +=
             detail::estimate_row_height(vr, input, /*term_cols=*/80);
     }
+    // Account for leading elements (logo card etc.) — they are INSIDE the
+    // yframe and contribute to content height.  The welcome/logo card is
+    // typically 8-12 lines in condensed mode; use a conservative estimate.
+    // Without this, pin-to-bottom doesn't kick in when messages alone fit
+    // the viewport but messages+logo exceed it — the latest message gets
+    // cut off at the bottom and appears to "disappear".
+    estimated_total_lines += static_cast<int>(leading_elements.size()) * 10;
     const bool content_exceeds_viewport = estimated_total_lines > vp;
 
     if (input.scroll_offset > 0) {

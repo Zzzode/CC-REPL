@@ -2,15 +2,18 @@
 /// @brief Image message component — displays image attachments in user messages.
 ///
 /// Visual layout (user-side, right-aligned):
-///   ┌──────────────────────────────┐
-///   │  ▓▓▓▓▓▓▓▓▓▓  🖼 Image #42    │
-///   │  ▓░▒▓█▓▒░▓▓  1024x768 PNG   │
-///   │  ▓▓█▓▒▓░█▓▓  256 KB          │
-///   │  ▓░▒▓▓█▓▒░▓  file: photo.png │
-///   └──────────────────────────────┘
+///   ┌──────────────────────────────────────┐
+///   │  🖼 [Image #42]                      │
+///   │  1024×768  PNG · 256 KB              │
+///   │  📁 photo.png                        │
+///   └──────────────────────────────────────┘
+///
+/// TS REF: src/components/messages/UserImageMessage.tsx
+///   TS renders just `[Image #N]` as a clickable hyperlink.  The CPP port
+///   adds supplementary metadata (dimensions, file size, source) below the
+///   label for better UX — the label itself is TS-faithful.
 ///
 /// Features:
-///   - ASCII ▓-art thumbnail (deterministic from image id)
 ///   - Terminal hyperlinks (OSC 8) when supported → click to open file
 ///   - Source type indicators: file / URL / base64 / clipboard
 ///   - Dimensions, file size, and MIME type display
@@ -87,37 +90,6 @@ struct ImageMessageData {
     return std::to_string(bytes / (1024 * 1024)) + " MB";
 }
 
-/// Generate deterministic ASCII ▓-art thumbnail rows from a seed string.
-/// Produces W x H "pixels" using block characters of varying shades.
-[[nodiscard]] inline std::vector<std::string> generate_ascii_thumbnail(
-    std::string_view seed, int rows = 4, int cols = 20) {
-
-    // FNV-1a hash for deterministic PRNG seed
-    std::uint32_t h = 2166136261u;
-    for (char c : seed) {
-        h ^= static_cast<std::uint32_t>(static_cast<unsigned char>(c));
-        h *= 16777619u;
-    }
-
-    static constexpr std::array<std::string_view, 6> shades = {
-        " ", "░", "▒", "▓", "█", "▓"
-    };
-
-    std::vector<std::string> out(rows);
-    for (int y = 0; y < rows; ++y) {
-        out[y].reserve(cols);
-        for (int x = 0; x < cols; ++x) {
-            // LCG PRNG
-            h = h * 1103515245u + 12345u;
-            int s = (h >> 12) & 0x7;
-            // Bias toward mid-tones for a more "image-like" look
-            s = std::min<int>(5, (s & 3) + 2);
-            out[y] += std::string{shades[s % shades.size()]};
-        }
-    }
-    return out;
-}
-
 /// Source type icon
 [[nodiscard]] inline const char* source_icon(ImageSource s) {
     switch (s) {
@@ -155,63 +127,63 @@ inline void resolve_from_store(ImageMessageData& data) {
 // ============================================================
 
 /// Render a stateless image message element (for list previews etc.)
+/// TS REF: src/components/messages/UserImageMessage.tsx
+///   TS: `const label = imageId ? \`[Image #${imageId}]\` : "[Image]"`
+///   rendered as <Text>{label}</Text> optionally wrapped in <Link url={...}>.
 [[nodiscard]] inline Element render(const ImageMessageData& data) {
-    // --- Thumbnail ---
-    auto thumb_rows = generate_ascii_thumbnail(
-        data.image_id.value_or(data.source), 4, 20);
-
-    Elements thumb_elements;
-    for (const auto& row : thumb_rows) {
-        thumb_elements.push_back(text(row) | color(Color::BlueLight));
-    }
-    auto thumbnail = vbox(thumb_elements) | border | color(Color::Blue);
-
-    // --- Info block ---
-    Elements info_parts;
-
-    // Title line: icon + "Image" + optional number
-    std::string title = "🖼  Image";
+    // --- Primary label: [Image #N] (TS-faithful) ---
+    // TS REF: UserImageMessage.tsx L26
+    std::string label = "[Image";
     if (data.image_id) {
-        title += " #" + *data.image_id;
+        label += " #" + *data.image_id;
     }
-    info_parts.push_back(text(title) | bold | color(Color::BlueLight));
+    label += "]";
 
-    // Dimensions
-    if (data.width && data.height && *data.width > 0 && *data.height > 0) {
-        info_parts.push_back(
-            text(std::format("  {}×{}", *data.width, *data.height)) | dim);
+    Element label_el;
+    if ((data.source_type == ImageSource::File ||
+         data.source_type == ImageSource::StoreId) &&
+        !data.source.empty() && supports_hyperlinks()) {
+        // TS REF: UserImageMessage.tsx L30 — clickable Link when supported
+        std::string file_url = "file://" + data.source;
+        label_el = hbox({
+            text("🖼 ") | color(Color::BlueLight),
+            text(label) | bold | color(Color::Cyan) | hyperlink(file_url),
+        });
     } else {
-        info_parts.push_back(text("  —×—") | dim);
+        label_el = hbox({
+            text("🖼 ") | color(Color::BlueLight),
+            text(label) | bold | color(Color::BlueLight),
+        });
     }
 
-    // Media type + file size
+    // --- Info block (metadata below label) ---
+    Elements info_parts;
+    info_parts.push_back(std::move(label_el));
+
+    // Dimensions + media type + file size (one line)
     {
-        std::string meta;
+        std::string meta_line;
+        if (data.width && data.height && *data.width > 0 && *data.height > 0) {
+            meta_line += std::format("{}×{}", *data.width, *data.height);
+        }
         if (!data.media_type.empty()) {
-            // Strip "image/" prefix for brevity
+            if (!meta_line.empty()) meta_line += "  ";
             auto mt = data.media_type;
             if (mt.starts_with("image/")) mt = mt.substr(6);
-            meta += mt;
+            meta_line += mt;
         }
         if (data.file_size) {
-            if (!meta.empty()) meta += " · ";
-            meta += format_size(*data.file_size);
+            if (!meta_line.empty()) meta_line += " · ";
+            meta_line += format_size(*data.file_size);
         }
-        if (!meta.empty()) {
-            info_parts.push_back(text("  " + meta) | dim | color(Color::GrayLight));
+        if (!meta_line.empty()) {
+            info_parts.push_back(text("  " + meta_line) | dim | color(Color::GrayLight));
         }
     }
 
     // Source line
     {
-        std::string src_line;
-        src_line += source_icon(data.source_type);
-        src_line += " ";
-
         std::string display_source = data.source;
-        // Fallback: clipboard pastes (and other sources without an on-disk
-        // path) may only carry a display filename — show it in the source
-        // line so the user has a human-readable anchor.
         if (display_source.empty() && !data.file_name.empty()) {
             display_source = data.file_name;
         }
@@ -219,20 +191,22 @@ inline void resolve_from_store(ImageMessageData& data) {
             display_source = "…" + display_source.substr(display_source.size() - 39);
         }
 
-        if (data.source_type == ImageSource::File ||
-            data.source_type == ImageSource::StoreId) {
-            // Render as clickable hyperlink when supported
-            std::string file_url = "file://" + data.source;
-            info_parts.push_back(
-                hbox({
-                    text(std::string(source_icon(data.source_type)) + " ") | dim,
-                    text(display_source) | color(Color::Cyan) |
-                        (supports_hyperlinks() ? hyperlink(file_url) : nothing),
-                })
-            );
-        } else {
-            info_parts.push_back(
-                text(src_line + display_source) | dim | color(Color::Cyan));
+        if (!display_source.empty()) {
+            if (data.source_type == ImageSource::File ||
+                data.source_type == ImageSource::StoreId) {
+                std::string file_url = "file://" + data.source;
+                info_parts.push_back(
+                    hbox({
+                        text(std::string("  ") + source_icon(data.source_type) + " ") | dim,
+                        text(display_source) | color(Color::Cyan) |
+                            (supports_hyperlinks() ? hyperlink(file_url) : nothing),
+                    })
+                );
+            } else {
+                info_parts.push_back(
+                    text(std::string("  ") + source_icon(data.source_type) + " " + display_source)
+                        | dim | color(Color::Cyan));
+            }
         }
     }
 
@@ -245,16 +219,7 @@ inline void resolve_from_store(ImageMessageData& data) {
         info_parts.push_back(text("  Alt: " + alt) | dim | color(Color::GrayDark));
     }
 
-    auto info = vbox(info_parts);
-
-    // --- Combine thumbnail + info horizontally ---
-    auto body = hbox({
-        thumbnail,
-        text(" ") | size(WIDTH, EQUAL, 1),
-        info | flex,
-    });
-
-    return body;
+    return vbox(std::move(info_parts));
 }
 
 // ============================================================

@@ -180,6 +180,13 @@ class DedupTracker {
         return inserted;
     }
 
+    /// Reset per-index dedup state (for a new API call within the same query
+    /// tool-loop).  Preserves per-tool-use-id state so tool execution events
+    /// that span the boundary aren't double-processed.
+    void clear_indices() noexcept {
+        index_states_.clear();
+    }
+
     /// Expose state for tests.
     [[nodiscard]] IndexState state_of(std::size_t idx) const {
         auto it = index_states_.find(idx);

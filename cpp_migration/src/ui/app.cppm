@@ -2328,6 +2328,33 @@ public:
                 std::visit([this, &apply_event](const auto& e) {
                     using T = std::decay_t<decltype(e)>;
 
+                    // ── StreamStart: new API call within the same query ──
+                    // The tool-loop in stream_query() calls stream_single_api_call()
+                    // multiple times (once per round: model → tools → model → …).
+                    // Each round emits its own StreamStart.  Without this handler,
+                    // stale streaming state from the previous round survives:
+                    //   1. streaming_tools_[0] still holds the old tool_use entry
+                    //   2. event_dedup_ has index 0 in kStopped state
+                    // So when the new round sends ContentBlockStart(index=0) for
+                    // a TEXT block, the dedup rejects it (already stopped) AND
+                    // even if it didn't, the stale tool entry would intercept
+                    // text deltas into input_json.  Result: model's text reply
+                    // after a tool call never appears in the streaming view.
+                    // TS REF: handlePromptSubmit.ts resets per-message streaming
+                    // accumulators on each message_start event from the API.
+                    if constexpr (std::is_same_v<T, core::StreamStart>) {
+                        std::lock_guard lk(result_mutex_);
+                        streaming_text_.clear();
+                        streaming_tools_.clear();
+                        streaming_thinking_.clear();
+                        // Reset per-index dedup for the new API call's content
+                        // blocks.  Preserve seen_tool_use_ids_ so tool execution
+                        // events that span the boundary aren't double-processed.
+                        event_dedup_.clear_indices();
+                        apply_event = false;  // no PostRenderEvent needed
+                        return;
+                    }
+
                     if constexpr (std::is_same_v<T, core::ContentBlockStart>) {
                         apply_event = event_dedup_.should_accept_start(e.index);
                         if (!apply_event) return;
