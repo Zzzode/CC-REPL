@@ -940,12 +940,19 @@ struct ReplScreenCallbacks {
     input.viewport_rows = std::max(1, vlines);
 
     namespace ml = cc::ui::messages_list;
+    // TS REF: FullscreenLayout <Box flexGrow={1} /> at the bottom of the
+    // message list — absorbs remaining viewport space so short content stays
+    // compact at the top (logo + messages adjacent, no blank gap between).
+    // Without this filler, the yframe viewport is full-height but the inner
+    // vbox is content-sized; when pin-to-bottom is off, FTXUI top-aligns the
+    // inner vbox which is correct, but the filler ensures the scroll
+    // indicator reflects "content fits" rather than "content is short".
     return ml::render_messages_list_view(
         std::move(input),
         static_cast<std::size_t>(spinner_frame),
         ml::kMaxRenderedLastN,
-        {},        // trailing_elements
-        true,      // wrap_in_yframe
+        {filler()},  // trailing_elements — elastic spacer (TS flexGrow={1})
+        true,        // wrap_in_yframe
         std::move(leading_elements)) | flex;
 }
 

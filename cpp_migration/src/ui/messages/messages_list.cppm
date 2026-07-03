@@ -719,7 +719,7 @@ namespace detail {
             content_lines = 2;
             break;
         case S::UserImage:
-            content_lines = 8;   // thumbnail placeholder
+            content_lines = 4;   // label + metadata + source (no fake thumbnail)
             break;
         case S::UserAttachments:
             content_lines = 3;   // grid header + 1 row of thumbs
@@ -1938,13 +1938,15 @@ constexpr std::size_t kMaxRenderedLastN = 80;   // last-N render cap
         estimated_total_lines +=
             detail::estimate_row_height(vr, input, /*term_cols=*/80);
     }
-    // Account for leading elements (logo card etc.) — they are INSIDE the
-    // yframe and contribute to content height.  The welcome/logo card is
-    // typically 8-12 lines in condensed mode; use a conservative estimate.
-    // Without this, pin-to-bottom doesn't kick in when messages alone fit
-    // the viewport but messages+logo exceed it — the latest message gets
-    // cut off at the bottom and appears to "disappear".
-    estimated_total_lines += static_cast<int>(leading_elements.size()) * 10;
+    // NOTE: leading elements (logo card) are intentionally NOT included in
+    // the pin-to-bottom estimate.  Pin-to-bottom should engage when MESSAGES
+    // overflow the viewport, ensuring the latest message is visible.  The
+    // logo is a decorative leading element that scrolls naturally — when
+    // messages alone fit, the user sees logo + all messages top-aligned.
+    // When messages overflow, pin-to-bottom engages and the logo scrolls
+    // off-screen (reachable by scrolling up).  Adding logo height would
+    // cause premature pin-to-bottom with just 1-2 messages, pushing content
+    // to the bottom and creating a large blank area below the logo.
     const bool content_exceeds_viewport = estimated_total_lines > vp;
 
     if (input.scroll_offset > 0) {
