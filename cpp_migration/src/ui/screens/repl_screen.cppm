@@ -388,6 +388,14 @@ struct ReplScreenState {
     int scroll_offset = 0, selected_message_idx = -1;
     int viewport_height_lines = 40;
     bool scroll_pinned_to_bottom = true;
+    /// Index into messages[] where the unseen divider anchor sits.
+    /// Set on FIRST scroll-away from bottom (TS REF: useUnseenDivider
+    /// dividerIndex).  nullopt = pinned to bottom (no divider).  Cleared
+    /// on repin (scroll-to-bottom, submit, or /clear).
+    std::optional<std::size_t> divider_index;
+    /// Snapshot of messages.size() at the time of first scroll-away.
+    /// Used to detect when new messages arrive past the divider.
+    std::size_t message_count_at_scroll_away = 0;
     // P0-3 VirtualMessageList — the imperative handle exposed by the windowed
     // renderer when the current visible count crosses kVirtualThreshold.
     // `virtual_list_active` is set per-frame by RenderMessages; when true,
@@ -557,6 +565,9 @@ struct ReplScreenState {
     // Counts
     int background_task_count = 0, teammate_count = 0;
     bool teams_footer_selected = false;
+    // Permission mode (cycled via shift+tab; TS REF: getNextPermissionMode.ts)
+    cc::ui::prompt::footer::PermissionMode permission_mode =
+        cc::ui::prompt::footer::PermissionMode::Default;
     // Dialog-suppression flag (typing -> suppress interrupt dialogs)
     bool is_prompt_input_active = false;
     // M7: True when a JSX tool result is currently rendering an animation in
@@ -617,6 +628,9 @@ struct ReplScreenCallbacks {
     std::function<void(const cc::ui::agents::wizard::WizardDraft& draft)> save_agent_from_wizard;
     std::function<void()> on_local_jsx_cancel;
     std::function<bool(Event)> on_local_jsx_event;
+    /// Called when user cycles permission mode (shift+tab).  TS REF:
+    /// PromptInput.tsx:1409 handleCycleMode → cyclePermissionMode().
+    std::function<void(cc::ui::prompt::footer::PermissionMode)> on_permission_cycle;
 };
 
 // =========================================================
@@ -717,6 +731,85 @@ struct ReplScreenCallbacks {
     std::string out;
     for (int i = 0; i < count; ++i) out += text;
     return out;
+}
+
+// ── UnseenDivider helpers ──────────────────────────────────────────────
+// TS REF: FullscreenLayout.tsx countUnseenAssistantTurns (L200-216) +
+//         computeUnseenDivider (L239-256).  Counts new assistant turns
+//         that arrived after the user scrolled away from bottom, and
+//         builds the UnseenDivider struct passed to RenderMessages.
+
+namespace unseen_detail {
+
+/// Whether an assistant entry has visible text content (TS:
+/// assistantHasVisibleText L217-223).  Tool-use-only and thinking-only
+/// entries don't count as "new messages" to the user.
+[[nodiscard]] inline bool assistant_has_visible_text(
+    const MessageDisplayEntry& e) {
+    if (e.role != "assistant") return false;
+    // Tool-use entries: never have visible text content to the user.
+    // TS: tool_use blocks are not 'text' type, so they fail the check.
+    if (e.is_tool_use) return false;
+    // Thinking entries: TS checks for b.type === 'text', not 'thinking'.
+    // Thinking blocks don't count as visible text for turn counting.
+    if (e.is_thinking) return false;
+    // If we reach here, it's an assistant text entry with content.
+    return !e.content_preview.empty();
+}
+
+/// Count assistant turns in entries[start_idx..end).  A "turn" is a
+/// non-assistant→assistant transition, skipping system/progress rows
+/// and tool-use-only entries (TS REF: countUnseenAssistantTurns L200).
+[[nodiscard]] inline std::size_t count_unseen_assistant_turns(
+    const std::vector<MessageDisplayEntry>& entries,
+    std::size_t start_idx) {
+    std::size_t count = 0;
+    bool prev_was_assistant = false;
+    for (std::size_t i = start_idx; i < entries.size(); ++i) {
+        const auto& e = entries[i];
+        // Skip system rows (TS: progress type)
+        if (e.role == "system") continue;
+        // Skip tool-use-only assistant entries
+        if (e.role == "assistant" && !assistant_has_visible_text(e)) {
+            continue;  // don't update prev_was_assistant
+        }
+        const bool is_assistant = (e.role == "assistant");
+        if (is_assistant && !prev_was_assistant) ++count;
+        prev_was_assistant = is_assistant;
+    }
+    return count;
+}
+
+}  // namespace unseen_detail
+
+/// Compute the UnseenDivider from state.divider_index + messages.
+/// Returns nullopt when divider_index is unset, out of range, or no
+/// messages have arrived past the divider.  TS REF: computeUnseenDivider
+/// (FullscreenLayout.tsx L239-256).
+[[nodiscard]] inline std::optional<::cc::ui::messages_list::UnseenDivider>
+ComputeUnseenDivider(const ReplScreenState& s) {
+    if (!s.divider_index.has_value()) return std::nullopt;
+    const auto idx = *s.divider_index;
+    if (idx >= s.messages.size()) return std::nullopt;
+
+    // Find first non-system entry at or after divider_index (TS: anchorIdx
+    // skips progress + null attachments).
+    std::size_t anchor_idx = idx;
+    while (anchor_idx < s.messages.size() &&
+           s.messages[anchor_idx].role == "system") {
+        ++anchor_idx;
+    }
+    if (anchor_idx >= s.messages.size()) return std::nullopt;
+
+    const auto& anchor = s.messages[anchor_idx];
+    const std::size_t count = std::max(
+        std::size_t{1},
+        unseen_detail::count_unseen_assistant_turns(s.messages, idx));
+
+    ::cc::ui::messages_list::UnseenDivider ud;
+    ud.first_unseen_uuid_prefix = anchor.id;
+    ud.count = count;
+    return ud;
 }
 
 [[nodiscard]] inline std::vector<MessageDisplayEntry> BuildVisibleMessages(
@@ -1090,7 +1183,20 @@ inline bool ScrollTranscript(const std::shared_ptr<ReplScreenState>& state,
         if (target == old_top) return false;
 
         state->scroll_offset = target;
+        const bool was_pinned = state->scroll_pinned_to_bottom;
         state->scroll_pinned_to_bottom = (target >= max_top);
+
+        // TS REF: useUnseenDivider onScrollAway — on FIRST scroll-away from
+        // bottom, snapshot message count as divider_index.  On repin, clear.
+        if (was_pinned && !state->scroll_pinned_to_bottom) {
+            state->divider_index = state->messages.size();
+            state->message_count_at_scroll_away = state->messages.size();
+        } else if (!was_pinned && state->scroll_pinned_to_bottom) {
+            state->divider_index.reset();
+            state->unseen_divider.reset();
+            state->unseen_message_count = 0;
+            state->pill_visible = false;
+        }
 
         // If we are maintaining a live VirtualListState (Component-mode
         // wiring), also update its scroll_top so Render() reuses it.
@@ -1111,7 +1217,18 @@ inline bool ScrollTranscript(const std::shared_ptr<ReplScreenState>& state,
     const int next =
         std::clamp(state->scroll_offset + delta, 0, max_offset);
     state->scroll_offset = next;
+    const bool was_pinned = state->scroll_pinned_to_bottom;
     state->scroll_pinned_to_bottom = next >= max_offset;
+    // TS REF: useUnseenDivider onScrollAway/onRepin.
+    if (was_pinned && !state->scroll_pinned_to_bottom) {
+        state->divider_index = state->messages.size();
+        state->message_count_at_scroll_away = state->messages.size();
+    } else if (!was_pinned && state->scroll_pinned_to_bottom) {
+        state->divider_index.reset();
+        state->unseen_divider.reset();
+        state->unseen_message_count = 0;
+        state->pill_visible = false;
+    }
     return true;
 }
 
@@ -2242,6 +2359,20 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
     static int spinner_frame = 0;
     ++spinner_frame;
 
+    // ── UnseenDivider computation (TS: useUnseenDivider) ────────────────
+    // When the user has scrolled away from bottom, compute the in-transcript
+    // "N new messages" divider anchor + count.  Cleared on repin by
+    // ScrollTranscript / on_pill_click (divider_index.reset()).
+    if (s.divider_index.has_value()) {
+        s.unseen_divider = ComputeUnseenDivider(s);
+        if (s.unseen_divider.has_value()) {
+            s.unseen_message_count = static_cast<int>(s.unseen_divider->count);
+            s.pill_visible = true;
+        }
+    } else {
+        s.unseen_divider.reset();
+    }
+
     namespace fl = cc::ui::layout::fullscreen;
     fl::FullscreenLayoutSlots slots;
     slots.term_cols = term_cols;
@@ -2429,6 +2560,7 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
         // ModeIndicatorOptions; StatusLine is its own nested struct.
         pif::LeftSideOptions left_opts;
         left_opts.mode_indicator.mode                 = footer_mode;
+        left_opts.mode_indicator.permission_mode      = s.permission_mode;
         left_opts.mode_indicator.background_task_count = s.background_task_count;
         left_opts.mode_indicator.teammate_count        = s.teammate_count;
         left_opts.mode_indicator.teams_selected        = s.teams_footer_selected;
@@ -2561,6 +2693,8 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
             // pill_visible=true AND a divider snapshot exists.)
             s.pill_visible = false;
             s.unseen_message_count = 0;
+            s.divider_index.reset();
+            s.unseen_divider.reset();
         }
     };
 
@@ -3436,6 +3570,18 @@ inline bool forward_trust_dialog(
         if (ev.input() == "\x1B[Z" && asn > 0) {
             state->autocomplete_index = state->autocomplete_index < 0 ? asn - 1
                 : (state->autocomplete_index - 1 + asn) % asn; return true; }
+        // Shift+Tab without suggestions → cycle permission mode.
+        // TS REF: PromptInput.tsx:1667 'chat:cycleMode' shortcut → handleCycleMode
+        // → cyclePermissionMode().  The footer renders "(shift+tab to cycle)"
+        // when a non-default permission mode is active; this makes it actually work.
+        if ((ev.input() == "\x1B[Z" || ev == Event::TabReverse) && asn == 0) {
+            namespace pif = cc::ui::prompt::footer;
+            state->permission_mode = pif::GetNextPermissionMode(state->permission_mode);
+            if (cb->on_permission_cycle) {
+                cb->on_permission_cycle(state->permission_mode);
+            }
+            return true;
+        }
         // Up / Down navigate visible autocomplete suggestions before history.
         if (ev == Event::ArrowUp && asn > 0) {
             state->autocomplete_index = state->autocomplete_index <= 0 ? asn - 1

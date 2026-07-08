@@ -169,6 +169,12 @@ struct TextInputOptions {
     /// Optional: character-level input filter. Return true to allow the char.
     /// Applied before insertion; multi-byte UTF-8 sequences pass the first byte.
     std::function<bool(char)> input_filter;
+    /// Optional: called when the user presses Shift+Tab to cycle permission
+    /// modes.  When set, TabReverse (shift+tab) is consumed by this callback
+    /// instead of navigating history.  TS REF:
+    /// src/components/PromptInput/PromptInput.tsx:1667 — 'chat:cycleMode'
+    /// shortcut bound to shift+tab calls handleCycleMode().
+    std::function<void()> on_permission_cycle;
 
     /// Maximum number of visible suggestions in the dropdown.
     size_t max_visible_suggestions = 8;
@@ -636,6 +642,14 @@ public:
                 return true;
             }
             if (event == Event::TabReverse) {
+                // TS REF: PromptInput.tsx:1667 — shift+tab ('chat:cycleMode') cycles
+                // permission modes, not history.  When the caller provides an
+                // on_permission_cycle callback, prefer it over history navigation.
+                // This makes the footer's "(shift+tab to cycle)" hint truthful.
+                if (options_.on_permission_cycle) {
+                    options_.on_permission_cycle();
+                    return true;
+                }
                 if (history_.empty()) return false;
                 navigate_history_down();
                 return true;

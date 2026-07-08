@@ -133,6 +133,20 @@ enum class PermissionMode {
     return Color::GrayLight;
 }
 
+/// Cycle to the next permission mode (TS REF: getNextPermissionMode.ts).
+/// Order for non-ant users: Default → AcceptEdits → Plan → Default.
+/// AcceptAll is reachable only from Plan when bypass is available (not yet
+/// wired in CPP — included for forward compatibility).
+[[nodiscard]] inline PermissionMode GetNextPermissionMode(PermissionMode current) {
+    switch (current) {
+        case PermissionMode::Default:     return PermissionMode::AcceptEdits;
+        case PermissionMode::AcceptEdits: return PermissionMode::Plan;
+        case PermissionMode::Plan:        return PermissionMode::Default;
+        case PermissionMode::AcceptAll:   return PermissionMode::Default;
+    }
+    return PermissionMode::Default;
+}
+
 // ============================================================
 // ModeIndicator
 // ============================================================

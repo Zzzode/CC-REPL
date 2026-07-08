@@ -78,6 +78,7 @@ import cc.tools.agent_display;
 import cc.ui.repl_screen;
 import cc.ui.autocomplete_sources;
 import cc.ui.prompt.at_attachments;
+import cc.ui.prompt.prompt_input_footer;
 import cc.ui.prompt.file_index;
 // P0-1: unified glyph constants + prompt-mode helpers (bang routing).
 import cc.ui.design.figures;
@@ -2236,6 +2237,12 @@ public:
         cbs.on_local_jsx_event = [this](const Event& ev) {
             return this->HandleLocalJsxEvent(ev);
         };
+        cbs.on_permission_cycle = [](cc::ui::prompt::footer::PermissionMode mode) {
+            // TS REF: PromptInput.tsx:1518-1537 — cyclePermissionMode sets
+            // toolPermissionContext.mode via setAppState.  We just log for now;
+            // full engine-side permission mode wiring is a larger effort.
+            (void)mode;
+        };
 
         repl_component_ = repl::ReplScreen(screen_state_, std::move(cbs));
 
@@ -2818,6 +2825,12 @@ public:
         if (normalized == "/clear") {
             engine_->clear_conversation();
             local_command_messages_.clear();
+            screen_state_->divider_index.reset();
+            screen_state_->unseen_divider.reset();
+            screen_state_->unseen_message_count = 0;
+            screen_state_->pill_visible = false;
+            screen_state_->scroll_offset = 0;
+            screen_state_->scroll_pinned_to_bottom = true;
             this->SyncState();
             return;
         }
@@ -3654,6 +3667,11 @@ public:
                 }
 
                 screen_state_->scroll_pinned_to_bottom = true;
+                // Clear unseen divider on repin (TS: onRepin → setDividerIndex(null))
+                screen_state_->divider_index.reset();
+                screen_state_->unseen_divider.reset();
+                screen_state_->unseen_message_count = 0;
+                screen_state_->pill_visible = false;
             }
         }
 

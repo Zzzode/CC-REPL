@@ -134,8 +134,8 @@ struct Palette {
     //              transcript bash-input message frames.  Named for semantic
     //              role even though the REPL prompt no longer uses a full
     //              rectangular "border" around the input area.
-    //              TS dark:   rgb(255,   0, 135)  hot pink / magenta
-    //              TS light:  rgb(255,   0, 135)  same (always saturated pink)
+    //              TS dark:   rgb(253,  93, 177)  bright pink
+    //              TS light:  rgb(255,   0, 135)  vibrant pink (more saturated)
     // promptBorder — outer frame of the brief prompt (separator top/bottom
     //                lines rendered around input).  TS variants:
     //                dark/light: ansi:whiteBright ≈ rgb(136,136,136) mid-gray
@@ -154,8 +154,9 @@ struct Palette {
 namespace palette {
 
 // rgb(215,119,87) — Claude's canonical "clawd" orange
+// TS darkTheme.claudeShimmer = rgb(235,159,127) — lighter orange for shimmer
 inline const auto CLAWDED      = ftxui::Color::RGB(215, 119,  87);
-inline const auto CLAWDED_SHIM = ftxui::Color::RGB(232, 164, 134);
+inline const auto CLAWDED_SHIM = ftxui::Color::RGB(235, 159, 127);
 
 inline const Palette dark = {
     .primary             = CLAWDED,
@@ -191,9 +192,9 @@ inline const Palette dark = {
     // TS dark message-chrome tokens:
     //   userMessageBackground      = rgb(55, 55, 55)      (dark slate bubble)
     //   messageActionsBackground   = rgb(44, 50, 62)      (cool-gray selection)
-    //   userMessageBackgroundHover = rgb(70, 70, 75)      (slightly lighter slate)
+    //   userMessageBackgroundHover = rgb(70, 70, 70)      (slightly lighter slate)
     .user_message_background        = ftxui::Color::RGB( 55,  55,  55),
-    .user_message_background_hover  = ftxui::Color::RGB( 70,  70,  75),
+    .user_message_background_hover  = ftxui::Color::RGB( 70,  70,  70),
     .message_actions_background     = ftxui::Color::RGB( 44,  50,  62),
     // TS ultrathink keyword rainbow (theme.ts:177-183 — identical across all
     // themes).  Corrected from the Chart.js default palette to the TS
@@ -219,9 +220,9 @@ inline const Palette dark = {
     // TS dark merged = rgb(175,135,255) (electric violet, == autoAccept).
     .merged              = ftxui::Color::RGB(175, 135, 255),
     // Prompt chrome (TS theme tokens — verbatim):
-    //   dark bashBorder            = rgb(255,  0, 135)
+    //   dark bashBorder            = rgb(253, 93, 177)   bright pink
     //   dark promptBorder          = rgb(136,136, 136)  ansi:whiteBright
-    .bash_border         = ftxui::Color::RGB(255,   0, 135),
+    .bash_border         = ftxui::Color::RGB(253,  93, 177),
     .prompt_border       = ftxui::Color::RGB(136, 136, 136),
     // TS dark permission = rgb(177, 185, 249) — identical to suggestion.
     .permission          = ftxui::Color::RGB(177, 185, 249),
@@ -229,7 +230,8 @@ inline const Palette dark = {
 
 inline const Palette light = {
     .primary             = CLAWDED,
-    .primary_shimmer     = CLAWDED_SHIM,
+    // TS lightTheme.claudeShimmer = rgb(245,149,117) — differs from dark (235,159,127)
+    .primary_shimmer     = ftxui::Color::RGB(245, 149, 117),
     // TS lightTheme (src/utils/theme.ts:115-191) — exact rgb() values
     // (clr-light-palette-17-p1).  `info` carries TS permission/suggestion
     // accent = rgb(87,105,247) medium blue.
@@ -252,9 +254,9 @@ inline const Palette light = {
     // Light-mode equivalents of the TS message chrome tokens:
     //   userMessageBackground      = rgb(240, 240, 240)  near-white bubble
     //   messageActionsBackground   = rgb(232, 236, 244)  cool gray
-    //   userMessageBackgroundHover = rgb(220, 220, 228)  slightly darker shade
+    //   userMessageBackgroundHover = rgb(252, 252, 252)  near-white (barely visible on light bg)
     .user_message_background        = ftxui::Color::RGB(240, 240, 240),
-    .user_message_background_hover  = ftxui::Color::RGB(220, 220, 228),
+    .user_message_background_hover  = ftxui::Color::RGB(252, 252, 252),
     .message_actions_background     = ftxui::Color::RGB(232, 236, 244),
     .rainbow              = dark.rainbow,
     .rainbow_shimmer     = ftxui::Color::RGB(120,  80, 200),

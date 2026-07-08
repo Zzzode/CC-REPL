@@ -37,6 +37,7 @@ module;
 export module cc.ui.markdown;
 
 import cc.ui.code_highlight;
+import cc.utils.hyperlink;
 
 export namespace cc::ui {
 
@@ -776,13 +777,25 @@ namespace detail {
                 // permission = rgb(87,105,247). No background inversion.
                 el = el | color(Color::RGB(87, 105, 247));
                 break;
-            case InlineTokenKind::Link:
-                // TS wraps links as OSC 8 hyperlinks (createHyperlink). The
-                // visible text is the link text, underlined in supporting
-                // terminals. We render underlined text; the href is not
-                // emitted (FTXUI has no OSC 8 primitive).
-                el = el | underlined;
+            case InlineTokenKind::Link: {
+                // TS REF: FullscreenLayout.tsx L630-667 + utils/markdown.ts
+                // createHyperlink.  TS wraps link text in OSC 8 hyperlinks so
+                // modern terminals (iTerm2, WezTerm, VS Code, GNOME Terminal)
+                // render them as clickable → openBrowser/openPath.
+                //
+                // The cc::utils::make_hyperlink helper (utils/hyperlink.cppm)
+                // emits the OSC 8 sequence \e]8;;url\e\\text\e]8;;\e\\
+                // when the terminal advertises support (TERM_PROGRAM,
+                // WT_SESSION, VTE_VERSION >= 5000).  On unsupported terminals
+                // it falls back to plain text + underline (no garbage chars).
+                //
+                // FTXUI text() passes through embedded ANSI/OSC sequences —
+                // confirmed by prompt_input_full.cppm mode badges using
+                // \033[33m etc.  So the OSC 8 bytes reach the terminal intact.
+                std::string linked = cc::utils::make_hyperlink(tok.url, tok.text);
+                el = text(std::move(linked)) | underlined;
                 break;
+            }
             case InlineTokenKind::Escape:
                 break;
             case InlineTokenKind::Math:
