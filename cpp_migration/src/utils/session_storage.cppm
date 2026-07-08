@@ -23,6 +23,7 @@ export module cc.utils.session_storage;
 
 import cc.utils.json;
 import cc.utils.error;
+import cc.utils.crypto;
 
 export namespace cc::utils {
 
@@ -297,10 +298,9 @@ public:
 
     /// Generate a new unique session ID
     [[nodiscard]] static std::string generate_session_id() {
-        auto now = std::chrono::system_clock::now();
-        auto epoch = now.time_since_epoch();
-        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(epoch).count();
-        return std::format("session_{}", ms);
+        // TS parity: randomUUID() (v4 UUID, e.g. "a1b2c3d4-e5f6-...").
+        // User statusline scripts take the first 6 hex chars as a #hashtag.
+        return cc::utils::crypto::generate_uuid();
     }
 
 private:
