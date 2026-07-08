@@ -291,7 +291,8 @@ struct AutocompleteToken {
     return std::visit([](const auto& m) -> repl::MessageDisplayEntry {
         using T = std::decay_t<decltype(m)>;
         repl::MessageDisplayEntry e;
-        e.timestamp = std::chrono::system_clock::now();
+        e.timestamp = (m.timestamp == std::chrono::system_clock::time_point{})
+            ? std::chrono::system_clock::now() : m.timestamp;
 
         if constexpr (std::is_same_v<T, UserMessage>) {
             e.role = "user";
@@ -431,7 +432,15 @@ struct AutocompleteToken {
 [[nodiscard]] inline std::vector<repl::MessageDisplayEntry>
 project_messages(const Message& msg) {
     std::vector<repl::MessageDisplayEntry> out;
-    const auto now = std::chrono::system_clock::now();
+    // Use the message's own timestamp (set when the engine appended it) so
+    // chronological sorting against local-command rows is correct.  Fallback
+    // to now() for messages with epoch-zero timestamps (shouldn't happen but
+    // guards against uninitialized fields).
+    const auto msg_ts = std::visit([](const auto& m) {
+        return m.timestamp;
+    }, msg);
+    const auto now = (msg_ts == std::chrono::system_clock::time_point{})
+        ? std::chrono::system_clock::now() : msg_ts;
 
     std::visit([&](const auto& m) {
         using T = std::decay_t<decltype(m)>;
