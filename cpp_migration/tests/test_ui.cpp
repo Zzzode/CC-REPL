@@ -1866,6 +1866,7 @@ TEST(StatusLine, AppliesGlobalDimAndStripsOuterBgcolor) {
         pif::RenderStatusLine(pif::StatusLineOptions{
             .content = "\033[38;5;44mbright-status\033[0m",
             .should_display = true,
+            .builtin = std::nullopt,
         }),
         120,
         1);
@@ -1875,6 +1876,122 @@ TEST(StatusLine, AppliesGlobalDimAndStripsOuterBgcolor) {
     EXPECT_NE(rendered.find("\033[2m"), std::string::npos);
 }
 
+// P0-6: Builtin statusline shows when user command returns empty (or no
+// statusLine configured).  Provides folder/git/model/token info for
+// standalone CPP mode.
+TEST(StatusLine, BuiltinShowsFolderGitModelTokens) {
+    namespace pif = cc::ui::prompt::footer;
+
+    pif::BuiltinStatusLineData data;
+    data.cwd = "/Users/dev/CC-REPL/cpp_migration";
+    data.git_branch = "master";
+    data.model_name = "GLM-5.2";
+    data.input_tokens = 25000;
+    data.output_tokens = 3000;
+    data.context_token_count = 28000;
+    data.cost_usd = 0.1234;
+    data.context_window_size = 200000;
+
+    // No content (user command returned empty) → builtin kicks in.
+    auto rendered = render_to_plain_text(
+        pif::RenderStatusLine(pif::StatusLineOptions{
+            .content = "",
+            .should_display = true,
+            .is_fullscreen = true,
+            .builtin = data,
+        }),
+        120,
+        1);
+
+    // Folder (last 2 path components)
+    EXPECT_NE(rendered.find("cpp_migration"), std::string::npos);
+    // Git branch
+    EXPECT_NE(rendered.find("master"), std::string::npos);
+    // Model name
+    EXPECT_NE(rendered.find("GLM-5.2"), std::string::npos);
+    // Token count formatted as K
+    EXPECT_NE(rendered.find("28.0K"), std::string::npos);
+    EXPECT_NE(rendered.find("200.0K"), std::string::npos);
+    // Percentage
+    EXPECT_NE(rendered.find("14%"), std::string::npos);
+    // Cost
+    EXPECT_NE(rendered.find("$0.1234"), std::string::npos);
+}
+
+TEST(StatusLine, BuiltinNoGitBranchOmitsBranch) {
+    namespace pif = cc::ui::prompt::footer;
+
+    pif::BuiltinStatusLineData data;
+    data.cwd = "/tmp/some_project";
+    data.git_branch = "";   // not a git repo
+    data.model_name = "claude-sonnet-5";
+    data.context_token_count = 0;
+    data.context_window_size = 200000;
+
+    auto rendered = render_to_plain_text(
+        pif::RenderStatusLine(pif::StatusLineOptions{
+            .content = "",
+            .should_display = true,
+            .is_fullscreen = true,
+            .builtin = data,
+        }),
+        120,
+        1);
+
+    // Folder shown
+    EXPECT_NE(rendered.find("some_project"), std::string::npos);
+    // Model shown
+    EXPECT_NE(rendered.find("claude-sonnet-5"), std::string::npos);
+    // No branch glyph (🌿) since git_branch is empty
+    EXPECT_EQ(rendered.find("\xf0\x9f\x8c\xbf"), std::string::npos);  // 🌿
+}
+
+TEST(StatusLine, UserContentTakesPriorityOverBuiltin) {
+    namespace pif = cc::ui::prompt::footer;
+
+    pif::BuiltinStatusLineData data;
+    data.cwd = "/tmp/proj";
+    data.model_name = "test-model";
+
+    // User command produced output → it wins over builtin.
+    auto rendered = render_to_plain_text(
+        pif::RenderStatusLine(pif::StatusLineOptions{
+            .content = "MY CUSTOM STATUSLINE",
+            .should_display = true,
+            .is_fullscreen = true,
+            .builtin = data,
+        }),
+        120,
+        1);
+
+    // User content is shown
+    EXPECT_NE(rendered.find("MY CUSTOM STATUSLINE"), std::string::npos);
+}
+
+TEST(StatusLine, BuiltinShowsWithoutConfiguredCommand) {
+    namespace pif = cc::ui::prompt::footer;
+
+    pif::BuiltinStatusLineData data;
+    data.cwd = "/home/user/myrepo";
+    data.git_branch = "feature/xyz";
+    data.model_name = "opus-4.8";
+
+    // Simulates: no statusLine in settings, but builtin data available.
+    auto rendered = render_to_plain_text(
+        pif::RenderStatusLine(pif::StatusLineOptions{
+            .content = "",
+            .should_display = true,
+            .is_fullscreen = true,
+            .builtin = data,
+        }),
+        120,
+        1);
+
+    EXPECT_NE(rendered.find("myrepo"), std::string::npos);
+    EXPECT_NE(rendered.find("feature/xyz"), std::string::npos);
+    EXPECT_NE(rendered.find("opus-4.8"), std::string::npos);
+}
+
 TEST(PromptInputFooter, AlignsRightColumnWithStatusLineRow) {
     namespace pif = cc::ui::prompt::footer;
 
@@ -1882,6 +1999,7 @@ TEST(PromptInputFooter, AlignsRightColumnWithStatusLineRow) {
     opts.status_line = pif::StatusLineOptions{
         .content = "custom status",
         .should_display = true,
+        .builtin = std::nullopt,
     };
     opts.bridge = pif::BridgeOptions{
         .status = pif::BridgeStatus::Connected,
