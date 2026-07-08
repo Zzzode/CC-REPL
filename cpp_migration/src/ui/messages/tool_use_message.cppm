@@ -28,6 +28,9 @@ import cc.ui.code_highlight;
 // Import the shared spinner via its module-interface name.  The file exports
 // `ui::components` so we alias at the bottom of this file for convenience.
 import ui.components.spinner;
+// For unescape_literal_newlines() + ansi_to_ftxui_elements() used by the
+// Output: section to decode JSON-escaped newlines and render ANSI SGR codes.
+import cc.ui.messages.message_tool_result;
 
 export namespace cc::ui::messages::tool_use_message {
 using namespace ftxui;
@@ -677,12 +680,15 @@ struct FaithfulToolUseData {
     std::string tag;                 // tool.renderToolUseTag?.(input) — optional
     std::string progress_text;       // progress line text when Running
     std::string queued_text;         // progress line text when Queued
+    std::string input_json;          // MCP tools only: raw JSON shown as "Input:"
+    std::string output_text;         // MCP tools only: server response preview
     FaithfulToolStatus status{FaithfulToolStatus::Queued};
     bool should_show_dot = true;     // shouldShowDot prop
     bool add_margin = true;          // add marginTop=1
     bool is_transparent_wrapper = false;  // tool.isTransparentWrapper
     int spinner_frame = 0;           // drive blink animation
     bool should_animate = true;      // shouldAnimate prop
+    bool is_mcp_tool = false;        // only MCP tools show Input:/Output: sections
 };
 
 /// Render a single tool-use header line: [dot] [BoldName] (message) [tag]
@@ -759,9 +765,19 @@ struct FaithfulToolUseData {
 }
 
 /// Render the full faithful tool-use message.  Mirrors the complete
-/// AssistantToolUseMessage.tsx output including header + progress/queued
-/// line below.  Returns a full-width Element (justifyContent: space-between
-/// on the outer row, per TS).
+/// AssistantToolUseMessage.tsx output including header + Input/Output
+/// sections + progress/queued line below.
+///
+/// TS VISUAL STRUCTURE (from user screenshot):
+///   ● Z.ai Built-in Tool: analyze_image
+///     Input:
+///     {"imageSource":"...","prompt":"..."}
+///     Output:
+///     Executing on server...
+///     analyze_image_result_summary: [{"text":"..."}]
+///
+/// Returns a full-width Element (justifyContent: space-between on the
+/// outer row, per TS).
 [[nodiscard]] inline Element RenderFaithfulToolUseMessage(const FaithfulToolUseData& data) {
     // Transparent wrapper tools (e.g. TungstenTool, certain agent wrappers)
     // only show progress — no header.  TS: if (isTransparentWrapper) { ... }
@@ -790,24 +806,60 @@ struct FaithfulToolUseData {
     Elements column;
     column.push_back(RenderFaithfulToolHeader(data));
 
-    // Progress / queued line below header
-    // TS: shown only when !isResolved && !isQueued (running state)
-    //     or when !isResolved && isQueued (queued state)
     const bool is_resolved =
         (data.status == FaithfulToolStatus::Success ||
          data.status == FaithfulToolStatus::Error);
 
-    if (!is_resolved && data.status == FaithfulToolStatus::Running) {
-        if (!data.progress_text.empty()) {
-            column.push_back(hbox({
-                text(data.progress_text) | dim,
-            }));
+    // ── Input section (MCP tools only) ────────────────────────────────
+    // TS built-in tools (Bash, Read, Write, Edit, Glob, Grep) NEVER show
+    // an "Input:" section — the command is already in the header parens.
+    // Only MCP/custom tools show their raw JSON parameters here.
+    if (data.is_mcp_tool && !data.input_json.empty() && data.input_json != "{}") {
+        column.push_back(hbox({
+            text("  "),
+            text("Input:") | dim | bold,
+        }));
+        std::string input_display = data.input_json;
+        constexpr std::size_t kMaxInputLen = 2000;
+        if (input_display.size() > kMaxInputLen) {
+            input_display = input_display.substr(0, kMaxInputLen) + "\xE2\x80\xA6";
         }
-    } else if (!is_resolved && data.status == FaithfulToolStatus::Queued) {
-        if (!data.queued_text.empty()) {
+        std::size_t line_start = 0;
+        while (line_start < input_display.size()) {
+            auto nl = input_display.find('\n', line_start);
+            std::string_view line = (nl == std::string::npos)
+                ? std::string_view(input_display).substr(line_start)
+                : std::string_view(input_display).substr(line_start, nl - line_start);
             column.push_back(hbox({
-                text(data.queued_text) | dim,
-            }));
+                text("  "),
+                text(std::string(line)) | dim,
+                filler(),
+            }) | flex);
+            if (nl == std::string::npos) break;
+            line_start = nl + 1;
+        }
+    }
+
+    // ── Progress / queued text (only while unresolved) ─────────────────
+    // TS: resolved tools show ONLY the header (green/red dot).  The actual
+    // tool output appears as a separate tool_result row below (rendered via
+    // message_tool_result.cppm with the ⎿ MessageResponse connector).
+    // Unresolved tools show progress text below the header.
+    if (!is_resolved) {
+        if (data.status == FaithfulToolStatus::Running) {
+            if (!data.progress_text.empty()) {
+                column.push_back(hbox({
+                    text("  \xe2\x8e\xbf  ") | dim,
+                    text(data.progress_text) | dim,
+                }));
+            }
+        } else if (data.status == FaithfulToolStatus::Queued) {
+            if (!data.queued_text.empty()) {
+                column.push_back(hbox({
+                    text("  \xe2\x8e\xbf  ") | dim,
+                    text(data.queued_text) | dim,
+                }));
+            }
         }
     }
 

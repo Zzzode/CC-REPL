@@ -1774,6 +1774,29 @@ constexpr auto try_start_native_agent_resume = &runtime_message_delivery::try_st
             .arguments_json = arguments,
         });
         if (!result) return ToolResult::error(std::string(format_error(result.error())));
+
+        // TS PARITY (2026-07-04): if the MCP result has structured content_items,
+        // preserve them as separate ToolOutputContent blocks so images and
+        // multi-text results survive to the UI renderer.
+        if (!result->content_items.empty()) {
+            std::vector<ToolOutputContent> items;
+            for (const auto& ci : result->content_items) {
+                if (ci.type == "text") {
+                    items.push_back(ToolOutputContent::text_output(ci.text));
+                } else if (ci.type == "image") {
+                    items.push_back(ToolOutputContent::image_output(
+                        ci.media_type.value_or("image/png"),
+                        ci.data.value_or("")));
+                }
+            }
+            if (items.empty()) {
+                // All items were non-text/non-image types; fall back to flattened
+                items.push_back(ToolOutputContent::text_output(result->content));
+            }
+            auto tool_result = ToolResult::success_multi(std::move(items));
+            tool_result.is_error = result->is_error;
+            return tool_result;
+        }
         return ToolResult::success(result->content);
     }
     if (name == "mcp_auth") {
@@ -2336,8 +2359,12 @@ void register_runtime_tools(cc::core::ToolRegistry& registry, RuntimeToolOptions
         ToolPermission::Execute, {prop("path", "string", "Worktree path", false)}, "git"));
     registry.register_tool(simple("lsp", "Fallback language intelligence for definitions, references, symbols, hover, and diagnostics",
         ToolPermission::ReadOnly, {prop("file_path", "string", "File path", true)}, "code"));
-    registry.register_tool(simple("mcp", "Invoke a tool exposed by an MCP server",
-        ToolPermission::Network, {prop("server_name", "string", "MCP server name", true)}, "mcp"));
+    registry.register_tool(simple("mcp", "Invoke a tool exposed by an MCP server. Specify the server name (e.g. 'zai-builtin', 'computer-use') and the tool name to call on that server.",
+        ToolPermission::Network, {
+            prop("server_name", "string", "Name of the MCP server to invoke (e.g. 'zai-builtin')", true),
+            prop("tool_name", "string", "Name of the tool on the MCP server (e.g. 'analyze_image')", true),
+            prop("arguments", "object", "Arguments to pass to the MCP tool", false),
+        }, "mcp"));
     registry.register_tool(simple("list_mcp_resources", "List local MCP-style resources",
         ToolPermission::ReadOnly, {}, "mcp"));
     registry.register_tool(simple("read_mcp_resource", "Read a local MCP-style resource",
@@ -2461,6 +2488,38 @@ void register_runtime_tools(cc::core::ToolRegistry& registry, RuntimeToolOptions
 
 void register_runtime_tools(cc::core::ToolRegistry& registry) {
     register_runtime_tools(registry, RuntimeToolOptions{});
+}
+
+// ── MCP tool pool for config.tools ────────────────────────────────────────
+// TS PARITY: assembleToolPool() merges built-in tools with per-server MCP
+// tools so the model can call them directly by name.  In CPP, individual MCP
+// tools are NOT registered in ToolRegistry (only the generic "mcp" wrapper
+// is).  This helper collects tool definitions from all known MCP servers so
+// they can be appended to config.tools and sent to the API.
+//
+// Each MCP tool gets a generic "object" input schema (the model infers
+// parameters from the description).  Execution is routed via
+// ToolRegistry::set_missing_tool_handler() → NativeMcpRuntime::call_tool().
+[[nodiscard]] std::vector<cc::core::ToolDefinition> collect_mcp_tool_definitions() {
+    std::vector<cc::core::ToolDefinition> defs;
+    auto& runtime = NativeMcpRuntime::instance();
+    for (const auto& server : runtime.all_statuses()) {
+        for (const auto& tool : server.tools) {
+            // Skip tools that might collide with built-in names.
+            if (tool.name.empty()) continue;
+            cc::core::ToolDefinition def;
+            def.name = tool.name;
+            def.description = tool.description;
+            // Generic input schema: accepts any JSON object.  The model
+            // infers specific parameters from the tool description.
+            def.input_schema = cc::core::InputSchema{};
+            def.permission = cc::core::ToolPermission::Network;
+            def.is_hidden = false;
+            def.category = std::format("mcp:{}", server.name);
+            defs.push_back(std::move(def));
+        }
+    }
+    return defs;
 }
 
 } // namespace cc::tools

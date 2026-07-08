@@ -190,7 +190,7 @@ inline const Color kMuted       (153, 153, 153);   // theme.inactive / dimColor 
 template <bool KAIROS = false, bool KAIROS_CHANNELS = false>
 [[nodiscard]] inline auto RenderChannelsNotice() -> Element {
   if constexpr (!(KAIROS || KAIROS_CHANNELS)) {
-    return text("");
+    return Element();  // 0-height: FTXUI default-constructed Element has no renderer
   } else {
     using namespace detail;
     return pad2(hbox({
@@ -206,7 +206,7 @@ template <bool KAIROS = false, bool KAIROS_CHANNELS = false>
 //       <Text dimColor>Logging to: {stderr | path}</Text>
 //     </Box>
 [[nodiscard]] inline auto RenderDebugNotice(const LogoV2Options& o) -> Element {
-  if (!o.is_debug_mode) return text("");
+  if (!o.is_debug_mode) return Element();
   using namespace detail;
   Elements lines;
   lines.push_back(hbox({
@@ -227,7 +227,7 @@ template <bool KAIROS = false, bool KAIROS_CHANNELS = false>
 //         <Text dimColor>{emergencyTipText}</Text>
 //       </Box>
 [[nodiscard]] inline auto RenderEmergencyTip(const LogoV2Options& o) -> Element {
-  if (!o.emergency_tip.has_value()) return text("");
+  if (!o.emergency_tip.has_value()) return Element();
   using namespace detail;
   return pad2(hbox({
     text("\xE2\x9A\xA0 ") | color(kWarningColor),                 // ⚠
@@ -237,7 +237,7 @@ template <bool KAIROS = false, bool KAIROS_CHANNELS = false>
 
 // --- 3f. Tmux session notice (L194-197 TS LogoV2.tsx).
 [[nodiscard]] inline auto RenderTmuxNotice(const LogoV2Options& o) -> Element {
-  if (!o.tmux_session.has_value()) return text("");
+  if (!o.tmux_session.has_value()) return Element();
   using namespace detail;
   Elements lines;
   lines.push_back(hbox({
@@ -262,7 +262,7 @@ template <bool KAIROS = false, bool KAIROS_CHANNELS = false>
 //       <Text>{announcement}</Text>
 //     </Box>
 [[nodiscard]] inline auto RenderOrgAnnouncement(const LogoV2Options& o) -> Element {
-  if (!o.company_announcement.has_value()) return text("");
+  if (!o.company_announcement.has_value()) return Element();
   using namespace detail;
   Elements lines;
   if (o.org_name.has_value() && !o.org_name->empty()) {
@@ -280,7 +280,7 @@ template <bool KAIROS = false, bool KAIROS_CHANNELS = false>
 //     <Text color="warning">Your bash commands will be sandboxed.
 //                            Disable with /sandbox.</Text>
 [[nodiscard]] inline auto RenderSandboxNotice(const LogoV2Options& o) -> Element {
-  if (!o.show_sandbox_status) return text("");
+  if (!o.show_sandbox_status) return Element();
   using namespace detail;
   return pad2(hbox({
     text("\xE2\x9A\xA0 ") | color(kWarningColor),
@@ -293,7 +293,7 @@ template <bool KAIROS = false, bool KAIROS_CHANNELS = false>
 //     Structure (TS): three [✻] glyphs + "N guest passes at /passes" dimText.
 [[nodiscard]] inline auto RenderGuestPassesUpsell(const LogoV2Options& o,
                                                  int count = 3) -> Element {
-  if (!o.show_guest_passes) return text("");
+  if (!o.show_guest_passes) return Element();
   using namespace detail;
   Elements brackets;
   brackets.reserve(static_cast<std::size_t>(count * 3));
@@ -316,7 +316,7 @@ template <bool KAIROS = false, bool KAIROS_CHANNELS = false>
 //     faithful fallback: orange ⚠ + dimText "You have used 90% of your
 //     credit this period · see /billing for details".
 [[nodiscard]] inline auto RenderOverageCreditUpsell(const LogoV2Options& o) -> Element {
-  if (!o.show_overage_credit) return text("");
+  if (!o.show_overage_credit) return Element();
   using namespace detail;
   return pad2(vbox({
     hbox({
@@ -367,11 +367,11 @@ template <bool KAIROS = false, bool KAIROS_CHANNELS = false>
   Elements out;
   out.reserve(6 + o.status_notices.size() + 3);
   auto push = [&](Element&& e) {
-    // Element has no empty() — but a default-constructed Element (no
-    // renderer installed) still produces 0 lines when rendered.  We skip
-    // nothing here; each renderer returns text("") when inactive which
-    // contributes a 0-height box to the vbox (no visible padding-gaps).
-    out.push_back(std::move(e));
+    // Only push if the element is non-null (has a renderer installed).
+    // Inactive notice renderers return Element() (default-constructed,
+    // null shared_ptr<Node>) — these MUST be filtered out because vbox
+    // dereferences child pointers and null → UB / black screen.
+    if (e) out.push_back(std::move(e));
   };
   push(RenderVoiceModeNotice(false));
   push(RenderOpus1MNotice());
@@ -1213,6 +1213,30 @@ struct LogoV2Result {
                                           std::vector<FeedConfig> feeds = {})
     -> Element {
   return RenderLogoV2(o, term_cols, std::move(feeds)).root;
+}
+
+/// Thin sticky logo header bar (1 line).  Mirrors TS Messages.tsx
+/// LogoHeader which sits ABOVE VirtualMessageList and stays visible
+/// even when the welcome card scrolls off due to pin-to-bottom.
+///
+/// Visual: "◆ Claude Code  v0.0.0  ·  ModelName"  (left-aligned, dim)
+[[nodiscard]] inline Element render_logo_header_bar(
+    std::string_view version,
+    std::string_view model_display_name,
+    int /*term_cols*/ = 120)
+{
+    using namespace ftxui;
+    Elements parts;
+    parts.push_back(text("\xe2\x97\x86 ") | color(Color::Cyan));  // ◆ diamond
+    parts.push_back(text("Claude Code") | bold);
+    if (!version.empty()) {
+        parts.push_back(text("  v" + std::string(version)) | dim);
+    }
+    if (!model_display_name.empty()) {
+        parts.push_back(text("  \xc2\xb7 ") | dim);  // · separator
+        parts.push_back(text(std::string(model_display_name)) | dim);
+    }
+    return hbox(std::move(parts)) | size(HEIGHT, EQUAL, 1);
 }
 
 } // namespace cc::ui::logo_v2

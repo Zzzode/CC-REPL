@@ -51,6 +51,93 @@ struct UserTextMessageData {
     std::optional<std::string> command_name;   ///< "/commit" etc. shown as chip
 };
 
+// ─── User-prompt text truncation ────────────────────────────────────────
+// TS REF: src/components/messages/UserPromptMessage.tsx lines 28-70.
+// Hard-caps display text at 10_000 chars: head 2500 + separator + tail 2500.
+// Critical for perf: pasting a 100 KB file into the prompt would otherwise
+// force FTXUI to lay out thousands of lines on every keystroke.
+namespace truncate_detail {
+inline constexpr std::size_t kMaxDisplayChars = 10'000;
+inline constexpr std::size_t kTruncateHeadChars = 2'500;
+inline constexpr std::size_t kTruncateTailChars = 2'500;
+
+/// Count occurrences of `ch` in `text` starting at byte position `start`.
+/// TS REF: src/utils/stringUtils.ts countCharInString (lines 54-66).
+[[nodiscard]] inline std::size_t CountCharFrom(std::string_view text,
+                                                char ch,
+                                                std::size_t start) {
+    std::size_t count = 0;
+    std::size_t pos = start;
+    while ((pos = text.find(ch, pos)) != std::string_view::npos) {
+        ++count;
+        ++pos;
+    }
+    return count;
+}
+}  // namespace truncate_detail
+
+/// Truncate long user prompt text for display.  Returns the original text
+/// unchanged if <= 10_000 chars.  Otherwise returns head 2500 + separator +
+/// tail 2500, where the separator shows the count of hidden lines:
+///   "\n… +N lines …\n"
+/// (U+2026 HORIZONTAL ELLIPSIS, UTF-8 \xe2\x80\xa6).
+///
+/// TS REF: UserPromptMessage.tsx lines 64-70 (useMemo displayText).
+[[nodiscard]] inline std::string TruncateUserPromptText(std::string_view text) {
+    using namespace truncate_detail;
+    if (text.size() <= kMaxDisplayChars) return std::string(text);
+
+    std::string_view head = text.substr(0, kTruncateHeadChars);
+    std::string_view tail = text.substr(text.size() - kTruncateTailChars);
+
+    // Newlines in the hidden region (from head end to text end), minus
+    // newlines already visible in the tail slice.
+    const std::size_t hidden_lines =
+        truncate_detail::CountCharFrom(text, '\n', truncate_detail::kTruncateHeadChars) -
+        truncate_detail::CountCharFrom(tail, '\n', 0);
+
+    std::string result;
+    result.reserve(truncate_detail::kTruncateHeadChars + truncate_detail::kTruncateTailChars + 40);
+    result.append(head);
+    result += "\n\xe2\x80\xa6 +";       // "\n… +"
+    result += std::to_string(hidden_lines);
+    result += " lines \xe2\x80\xa6\n";  // " lines …\n"
+    result.append(tail);
+    return result;
+}
+
+// ─── Text wrapping for FTXUI ───────────────────────────────────────────
+// FTXUI's text() does NOT auto-wrap, and paragraphAlignLeft only wraps at
+// word boundaries.  For long unbroken strings (base64, minified code, or
+// the truncation head/tail of a paste with no spaces), we need manual
+// character-level wrapping.
+namespace wrap_detail {
+inline constexpr std::size_t kPromptWrapWidth = 78;  // 80 - 2 for "❯ " prefix
+
+/// Wrap `text` to at most `width` display columns, breaking mid-codepoint
+/// if necessary (with UTF-8 safety).  Returns individual wrapped lines.
+[[nodiscard]] inline std::vector<std::string> WrapToWidth(std::string_view text,
+                                                           std::size_t width) {
+    std::vector<std::string> lines;
+    if (width == 0) width = 1;
+    std::size_t pos = 0;
+    while (pos < text.size()) {
+        std::size_t end = std::min(pos + width, text.size());
+        // UTF-8 safety: don't split a multi-byte sequence.
+        // Continuation bytes are 0x80..0xBF.
+        while (end < text.size() &&
+               (static_cast<unsigned char>(text[end]) & 0xC0) == 0x80 &&
+               end > pos) {
+            --end;
+        }
+        lines.emplace_back(text.substr(pos, end - pos));
+        pos = end;
+    }
+    if (lines.empty()) lines.emplace_back("");
+    return lines;
+}
+}  // namespace wrap_detail
+
 // ─── Component ─────────────────────────────────────────────────────────
 
 class UserTextMessageComponent : public ComponentBase {
@@ -135,8 +222,11 @@ class UserTextMessageComponent : public ComponentBase {
             }));
         }
 
-        // Main body
-        auto lines = SplitLines(data_.content);
+        // Main body — truncated for long pastes (TS REF: UserPromptMessage.tsx
+        // lines 64-70).  SplitLines handles both natural \n in user input and
+        // the truncation separator "\n… +N lines …\n".
+        std::string display_body = TruncateUserPromptText(data_.content);
+        auto lines = SplitLines(display_body);
         for (auto& line : lines) {
             out.push_back(text(std::move(line))
                               | color(Color::White)
@@ -178,7 +268,7 @@ class UserTextMessageComponent : public ComponentBase {
 /// Convenience stateless element renderer (for transcript / no-interaction).
 [[nodiscard]] inline Element RenderUserTextMessageBubble(const UserTextMessageData& data) {
     Elements body;
-    body.push_back(text(data.content));
+    body.push_back(text(TruncateUserPromptText(data.content)));
     return vbox({
         hbox({
             filler(),
@@ -216,6 +306,13 @@ class UserTextMessageComponent : public ComponentBase {
 /// hasMetadata is always false for user messages (it requires type==="assistant"),
 /// add_margin is effectively always true in normal REPL use.  We still thread
 /// the parameter for faithfulness and transcript-mode correctness.
+///
+/// FTXUI NOTES:
+///   - `text()` does NOT auto-wrap (unlike Ink <Text>).
+///   - `paragraphAlignLeft()` only wraps at word boundaries; long unbroken
+///     strings (base64, minified code) would overflow the screen.
+///   - We use manual character-level wrapping via WrapToWidth() to guarantee
+///     all content is visible within the terminal width.
 [[nodiscard]] inline Element RenderUserPromptMessage(const UserTextMessageData& data,
                                                      bool is_selected = false,
                                                      bool add_margin = true) {
@@ -231,36 +328,85 @@ class UserTextMessageComponent : public ComponentBase {
     const Color kSubtle      = Color::RGB( 80,  80,  80);
     const Color kSuggestion  = Color::RGB(177, 185, 249);
 
-    Elements row;
-    // Prefix "❯ " — subtle unless selected (suggestion/lavender).
     const Color prefix_color  = is_selected ? kSuggestion : kSubtle;
+    const Color bg            = is_selected ? kUserBgSel : kUserBg;
+    const Decorator body_style =
+        data.is_transcript_mode ? (dim | color(kText)) : color(kText);
     const Decorator prefix_style =
-        data.is_transcript_mode ? (dim | color(prefix_color))
-                                : color(prefix_color);
-    row.push_back(text(std::string(cc::ui::design::figures::kPointer)) | prefix_style);
-    row.push_back(text(" ") | prefix_style);
-    // Body text — "text" color (EXPLICIT: FTXUI does not auto-inherit
-    // theme.text from Ink; wrapping a hbox in bgcolor() leaves default
-    // terminal fg which some terminals render as a washed-out blue/grey
-    // instead of the pure white TS uses).
-    Decorator body_style = data.is_transcript_mode
-        ? (dim | color(kText))
-        : color(kText);
-    row.push_back(text(data.content) | body_style);
-    // paddingRight={1} → trailing space column, painted with bg so the tint
-    // reaches the right edge.
-    row.push_back(text(" ") | color(kText));
+        data.is_transcript_mode ? (dim | color(prefix_color)) : color(prefix_color);
 
-    Element inner = hbox(std::move(row));
+    // Truncate long text (TS REF: UserPromptMessage.tsx lines 64-70).
+    // Result may contain \n separators from the truncation or natural user
+    // input newlines.
+    std::string display_text = TruncateUserPromptText(data.content);
+
+    // Split by \n to get logical lines (handles truncation separator + any
+    // natural newlines in user input).
+    std::vector<std::string_view> logical_lines;
+    {
+        std::size_t start = 0;
+        while (start < display_text.size()) {
+            auto nl = display_text.find('\n', start);
+            if (nl == std::string::npos) {
+                logical_lines.emplace_back(display_text.data() + start,
+                                           display_text.size() - start);
+                break;
+            }
+            logical_lines.emplace_back(display_text.data() + start, nl - start);
+            start = nl + 1;
+        }
+        if (logical_lines.empty()) logical_lines.emplace_back("");
+    }
+
+    // Wrap each logical line and build visual line elements.
+    // Available width = terminal - prefix(2) - paddingRight(1) - 1 safety = 76.
+    // But we use kPromptWrapWidth=78 and let the trailing space handle overflow.
+    const std::size_t wrap_w = wrap_detail::kPromptWrapWidth - 2;  // -2 for "❯ "
+
+    Elements visual_lines;
+    bool first_line = true;
+    for (auto logical_line : logical_lines) {
+        auto wrapped = wrap_detail::WrapToWidth(logical_line, wrap_w);
+        for (auto& wline : wrapped) {
+            Elements row;
+            if (first_line) {
+                row.push_back(text(std::string(cc::ui::design::figures::kPointer))
+                              | prefix_style);
+                row.push_back(text(" ") | prefix_style);
+            } else {
+                // Indent continuation lines to align with the prefix column.
+                row.push_back(text("  ") | prefix_style);
+            }
+            row.push_back(text(std::move(wline)) | body_style);
+            // paddingRight={1} — trailing space so bg reaches the right edge.
+            row.push_back(text(" ") | color(kText));
+
+            Element line_el = hbox(std::move(row));
+            if (!data.is_transcript_mode) {
+                // Full-width background: flex on content + trailing bg spacer.
+                line_el = hbox({line_el | bgcolor(bg) | flex,
+                                text(" ") | bgcolor(bg)});
+            }
+            visual_lines.push_back(std::move(line_el));
+            first_line = false;
+        }
+    }
+
+    Element body = vbox(std::move(visual_lines));
+
     if (data.is_transcript_mode) {
-        Element content = hbox({inner, filler()});
+        Element content = hbox({std::move(body), filler()});
         if (add_margin) return vbox({text(""), std::move(content)});
         return content;
     }
-    const Color bg = is_selected ? kUserBgSel : kUserBg;
-    Element content_row = hbox({inner | bgcolor(bg) | flex, text(" ") | bgcolor(bg)});
-    if (add_margin) return vbox({text(""), std::move(content_row)});
-    return content_row;
+
+    if (add_margin) return vbox({text(""), std::move(body)});
+    // TS PARITY: continuation within same user turn (e.g. after an image),
+    // <MessageResponse> prepends "  ⎿  " (U+23BF connector).
+    return hbox({
+        text("  \xe2\x8e\xbf  ") | dim,
+        std::move(body),
+    });
 }
 
 /// Faithful render of a slash-command user message (UserCommandMessage.tsx):

@@ -269,6 +269,11 @@ struct MessageDisplayEntry {
     /// display rows (TS parity: each <UserImageMessage/> is its own row).
     bool is_image = false;
     std::optional<::cc::core::ImageBlock> image_block;
+    /// Display ID for user-attached images (shown as "[Image #N]").
+    /// Populated by project_messages when splitting a UserMessage with
+    /// image content blocks into individual display rows (TS parity:
+    /// Message.tsx assigns imageIds from message.imagePasteIds).
+    std::optional<int> image_display_id;
     std::optional<std::string> tool_name, tool_status;
     /// Parsed tool input JSON for tool-use entries.  Threaded into
     /// ToolUseRenderOptions.raw_parameters (shared G1/G2 contract) instead of
@@ -280,6 +285,11 @@ struct MessageDisplayEntry {
     /// BuildMessagesList to drive ToolUIRegistry.progress() and the
     /// result-preview block in faithful tool-use renderers.
     std::optional<std::string> tool_result_preview;
+    /// TS PARITY (2026-07-04): structured content items from tool results
+    /// (e.g. MCP tools returning mixed text+image).  When present, the
+    /// faithful tool-result renderer iterates these instead of the
+    /// flattened content_preview string.
+    std::optional<std::vector<::cc::core::ToolResultContentItem>> tool_result_content_items;
     std::optional<std::string> agent_display_name, agent_color_name;
     std::chrono::system_clock::time_point timestamp;
     int estimated_height_lines = 3;
@@ -425,7 +435,33 @@ struct ReplScreenState {
     // Input
     std::string input_text;
     // TS-style contextual placeholder rather than a generic default.
+    // NOTE: This is the FALLBACK only.  The actual displayed placeholder is
+    // computed dynamically by ComputePlaceholder() at render time from the
+    // cascade (teammate hint > queue hint > onboarding example > AI suggestion
+    // override).  This string is used only when all cascade conditions fail
+    // AND the caller explicitly wants a static default (e.g. standalone
+    // TextInputImpl usage outside the REPL).
     std::string input_placeholder = "Try \"write a test\", \"/help\", or ask anything...";
+    // ── TS usePromptInputPlaceholder cascade state ──────────────────────
+    // Viewing agent/teammate name.  When set and input is empty, the
+    // placeholder becomes "Message @{name}..." (TS REF: usePromptInputPlaceholder.ts
+    // viewingAgentName branch).  Truncated to 20 chars in ComputePlaceholder().
+    std::optional<std::string> viewing_agent_name;
+    // Number of user submissions (messages sent).  Drives the onboarding
+    // example placeholder: shown only when submit_count < 1 (TS REF:
+    // usePromptInputPlaceholder.ts submitCount < 1 guard).
+    int submit_count = 0;
+    // How many times the "Press up to edit queued messages" hint has been
+    // shown.  Capped at 3 (NUM_TIMES_QUEUE_HINT_SHOWN in TS).  Incremented
+    // by the renderer each time the hint is displayed.
+    int queued_command_hint_shown_count = 0;
+    // Whether prompt suggestions (AI next-action hints) are enabled.
+    // Maps to TS AppState.promptSuggestionEnabled.
+    bool prompt_suggestion_enabled = true;
+    // True when the command queue holds user-editable pending commands
+    // (TS REF: isQueuedCommandEditable check).  Populated by the engine
+    // from the command queue state.
+    bool has_editable_queued_commands = false;
     // TS AGENT_COLOR_TO_THEME_COLOR teammate prefix color.  Empty = use
     // palette.text (the default prompt prefix color).  Populated from the
     // engine's active-teammate lookup.  Rendered as the prefix glyph's
@@ -792,6 +828,12 @@ struct ReplScreenCallbacks {
                 const auto& ib = *m.image_block;
                 d.timestamp = m.timestamp;
                 d.media_type = ib.media_type;
+                // TS parity: [Image #N] label — use the display id assigned
+                // by project_messages from content-block order (matches
+                // user's paste order shown in the input placeholder).
+                if (m.image_display_id) {
+                    d.image_id = std::to_string(*m.image_display_id);
+                }
                 if (ib.file_name)        d.file_name = *ib.file_name;
                 if (ib.source_path)      d.source = *ib.source_path;
                 if (ib.width)            d.width = *ib.width;
@@ -811,13 +853,10 @@ struct ReplScreenCallbacks {
                             : ImageSource::File;
                         break;
                 }
-                // Pass the raw base64 payload through via the alt_text field
-                // so the renderer can generate a deterministic ASCII-art
-                // thumbnail from the data (without the need for a full PNG
-                // decoder).  The renderer falls back to the filename if
-                // alt_text is unset.
-                if (!ib.data.empty())
-                    d.alt_text = ib.data.substr(0, 256);
+                // NOTE: deliberately do NOT stuff ib.data into alt_text.
+                // The base64 PNG prefix "iVBORw0KGgo..." rendered as "Alt: ..."
+                // is worse than useless — wastes a line and confuses users.
+                // Removed 2026-07-04 per spacing bug report.
                 input.shapes.push_back(messages::MessageShape::UserImage);
                 input.rows.push_back(std::move(d));
             } else {
@@ -879,7 +918,9 @@ struct ReplScreenCallbacks {
                     : messages::ToolResultStatus::Success,
                 .output = m.content_preview,
                 .error_message = std::nullopt,
-                .duration_ms = std::nullopt});
+                .duration_ms = std::nullopt,
+                .is_truncated = false,
+                .content_items = m.tool_result_content_items});
         } else {
             input.shapes.push_back(messages::MessageShape::SystemText);
             // Bridge the system-row subtype so the LIVE faithful renderer
@@ -965,8 +1006,48 @@ struct ReplScreenCallbacks {
     const std::vector<MessageDisplayEntry>& entries) {
     int rows = 0;
     for (const auto& entry : entries) {
-        rows += CountTextLines(entry.content_preview);
-        // Message list inserts one empty separator after each rendered row.
+        // TS PARITY (2026-07-05): content_preview for tool entries is often
+        // just a short label ("Bash", "tool-use") while actual rendered
+        // content can be dozens of lines.  Extract real content for accurate
+        // scroll bounds (fixes "can't scroll to latest message" bug).
+        int content_lines = 0;
+        if (entry.is_tool_use) {
+            // Tool-use card: header + input JSON + optional result preview.
+            std::string combined;
+            if (entry.tool_input_json && !entry.tool_input_json->empty()) {
+                combined += *entry.tool_input_json;
+            }
+            if (entry.tool_result_preview && !entry.tool_result_preview->empty()) {
+                if (!combined.empty()) combined += '\n';
+                combined += *entry.tool_result_preview;
+            }
+            if (combined.empty()) combined = entry.content_preview;
+            content_lines = CountTextLines(combined);
+            // Cap input lines at 8 (collapsed args show first few) + 2 for chrome
+            content_lines = std::min(content_lines, 8) + 3;
+        } else if (entry.tool_result_content_items &&
+                   !entry.tool_result_content_items->empty()) {
+            // Structured tool result (MCP): concatenate text items.
+            std::string full;
+            for (const auto& item : *entry.tool_result_content_items) {
+                if (item.type == "text") {
+                    if (!full.empty()) full += '\n';
+                    full += item.text;
+                } else if (item.type == "image") {
+                    if (!full.empty()) full += '\n';
+                    full += "[Image]";
+                }
+            }
+            content_lines = CountTextLines(full);
+            content_lines += 2;  // header + status row
+        } else if (entry.is_image) {
+            content_lines = 4;  // label + metadata rows (no fake thumbnail)
+        } else {
+            content_lines = CountTextLines(entry.content_preview);
+        }
+        rows += content_lines;
+        // Message list inserts one empty separator after each rendered row
+        // (marginTop from addMargin=true).  Tool results skip this (flush).
         rows += 1;
     }
     return rows;
@@ -1380,6 +1461,28 @@ inline bool backspace_prompt_text(const std::shared_ptr<ReplScreenState>& state)
     return true;
 }
 
+// TS REF: src/components/PromptInput/PromptInput.tsx:1904-1908 —
+//   `if (cursorOffset === 0 && (key.escape || key.backspace || key.delete ||
+//        (key.ctrl && char === 'u'))) { onModeChange('prompt'); }`
+//
+// When the caret is at the very start of the buffer, Backspace/Escape/Delete/
+// Ctrl+U exit any special input mode (Bash) back to Prompt.  This is what lets
+// the user leave bash mode after typing a bare '!' into an empty prompt — the
+// '!' is swallowed as a mode trigger (see the char handler below), so without
+// this the buffer stays empty and Backspace would otherwise be a no-op,
+// trapping the user in bash mode.  Returns true iff a mode reset occurred.
+inline bool exit_input_mode_if_at_start(const std::shared_ptr<ReplScreenState>& state) {
+    if (input_cursor_or_end(*state) != 0) return false;
+    if (state->input_mode == InputMode::Prompt) return false;
+    state->input_mode = InputMode::Prompt;
+    state->is_prompt_input_active = true;
+    state->last_keystroke = std::chrono::steady_clock::now();
+    // Mode change alters the autocomplete provider context (TS parity with the
+    // char-handler mode toggle) — drop any dismissed-suggestion memory.
+    state->dismissed_autocomplete_for_input.clear();
+    return true;
+}
+
 inline bool delete_prompt_text(const std::shared_ptr<ReplScreenState>& state) {
     auto cursor = input_cursor_or_end(*state);
     if (cursor >= state->input_text.size()) return false;
@@ -1403,6 +1506,120 @@ inline void move_prompt_cursor_right(const std::shared_ptr<ReplScreenState>& sta
         input_cursor_or_end(*state));
     state->is_prompt_input_active = true;
     state->last_keystroke = std::chrono::steady_clock::now();
+}
+
+// ─── Effective bash-mode detection (TS getInputMode equivalent) ──────────
+//
+// TS PromptInput.tsx computes `inputMode = getInputMode(value)` on every
+// render, where getInputMode checks the first character of the text value.
+// This means the mode is TEXT-DERIVED: pasting "!ls" or typing '!' into
+// non-empty input immediately flips the effective mode to Bash, even though
+// the user never pressed bare-'!' to toggle.  The state-mode toggle
+// (s.input_mode) only matters when the input buffer is empty — it persists
+// the visual "! " prefix after a bare-'!' keystroke that was swallowed.
+//
+// Use this helper for ALL behavioural gates (autocomplete, @-mention
+// suppression, shell-command $PATH scan) and for the prefix/border
+// rendering to stay faithful to TS semantics.
+[[nodiscard]] inline bool effective_is_bash(const ReplScreenState& s) {
+    if (!s.input_text.empty() && s.input_text.front() == '!') return true;
+    return s.input_mode == InputMode::Bash;
+}
+
+// ─── Placeholder cascade (TS REF: usePromptInputPlaceholder.ts + PromptInput.tsx) ──
+//
+// Faithful port of the TS contextual placeholder system.  Priority order:
+//
+//   1. Input non-empty          → std::nullopt (no placeholder)
+//   2. AI prompt suggestion     → next_action_suggestion (override layer from
+//                                  PromptInput.tsx line 2014)
+//   3. Viewing teammate         → "Message @{name}..."
+//   4. Queued commands hint     → "Press up to edit queued messages"
+//                                  (shown ≤3 times, only if editable queued cmds exist)
+//   5. Onboarding example       → "Try \"{example command}\""
+//                                  (only before first submit, with suggestions enabled)
+//   6. Fallback                 → std::nullopt (no placeholder shown)
+//
+// The AI suggestion override (layer 2) only applies when:
+//   - mode is Prompt (TS: mode === 'prompt')
+//   - no autocomplete suggestions are active
+//   - not viewing a teammate task
+// This mirrors TS showPromptSuggestion = mode === 'prompt' &&
+//   suggestions.length === 0 && promptSuggestion && !viewingAgentTaskId.
+
+namespace placeholder_detail {
+
+/// Example commands for the onboarding placeholder (TS REF: exampleCommands.ts
+/// getExampleCommandFromCache).  We use a fixed list here — the full TS version
+/// samples from git history for a frequentFile token, but a static list is
+/// sufficient for the placeholder UX without requiring git access at render time.
+inline constexpr std::array<std::string_view, 6> kExampleCommands = {
+    "fix lint errors",
+    "how do I log an error?",
+    "write a test for main",
+    "refactor main.cpp",
+    "explain this code",
+    "/help",
+};
+
+/// Pick a random example command.  Uses a simple LCG seeded from the address
+/// of the state object for per-session stability (same idea as TS's
+/// getExampleCommandFromCache which caches per session).
+[[nodiscard]] inline std::string GetExamplePlaceholder(const ReplScreenState& s) {
+    // Deterministic pick based on submit_count so the example changes
+    // occasionally but doesn't flicker on every re-render.
+    const std::size_t idx = static_cast<std::size_t>(s.submit_count) % kExampleCommands.size();
+    return std::string("Try \"") + std::string(kExampleCommands[idx]) + "\"";
+}
+
+}  // namespace placeholder_detail
+
+[[nodiscard]] inline std::optional<std::string> ComputePlaceholder(
+    const ReplScreenState& s) {
+    using namespace placeholder_detail;
+
+    // Layer 1: input non-empty → no placeholder.
+    if (!s.input_text.empty()) return std::nullopt;
+
+    // Layer 2: AI prompt suggestion override (TS REF: PromptInput.tsx line 2014).
+    // Applies only in Prompt mode, no autocomplete showing, not viewing agent.
+    // NOTE: next_action_suggestion starting with '/' is a slash-command suggestion
+    // which the autocomplete system handles separately — don't use it as placeholder.
+    if (s.input_mode == InputMode::Prompt &&
+        s.next_action_suggestion.has_value() &&
+        !s.next_action_suggestion->empty() &&
+        s.next_action_suggestion->front() != '/' &&
+        s.autocomplete_suggestions.empty() &&
+        !s.viewing_agent_name.has_value()) {
+        return s.next_action_suggestion;
+    }
+
+    // Layer 3: viewing teammate → "Message @{name}..."
+    // (TS REF: usePromptInputPlaceholder.ts viewingAgentName branch).
+    if (s.viewing_agent_name.has_value() && !s.viewing_agent_name->empty()) {
+        constexpr int kMaxNameLen = 20;
+        std::string display_name = *s.viewing_agent_name;
+        if (static_cast<int>(display_name.size()) > kMaxNameLen) {
+            display_name = display_name.substr(0, kMaxNameLen - 3) + "...";
+        }
+        return "Message @" + display_name + "...";
+    }
+
+    // Layer 4: queued commands hint (TS REF: NUM_TIMES_QUEUE_HINT_SHOWN = 3).
+    // Only shown if there are user-editable queued commands and the hint has
+    // been shown fewer than 3 times.
+    if (s.has_editable_queued_commands &&
+        s.queued_command_hint_shown_count < 3) {
+        return "Press up to edit queued messages";
+    }
+
+    // Layer 5: onboarding example (TS REF: submitCount < 1 guard).
+    if (s.submit_count < 1 && s.prompt_suggestion_enabled) {
+        return GetExamplePlaceholder(s);
+    }
+
+    // Layer 6: fallback — no placeholder.
+    return std::nullopt;
 }
 
 [[nodiscard]] inline Element RenderPromptInput(const ReplScreenState& s,
@@ -1447,7 +1664,9 @@ inline void move_prompt_cursor_right(const std::shared_ptr<ReplScreenState>& sta
     namespace thm = cc::ui::design::theme;
     namespace tok = cc::ui::design::tokens;
     const tok::Palette& pal = *thm::current_theme().palette;
-    const bool is_bash_mode = (s.input_mode == InputMode::Bash);
+    // TS getInputMode(value) equivalent: text-derived when text is present,
+    // state-toggle when empty.  See effective_is_bash() for rationale.
+    const bool is_bash_mode = effective_is_bash(s);
     std::string prefix_str;     // passed into TextInputOptions.prefix;
     Color       prefix_color;   // applied to the prefix inside renderInputArea.
 
@@ -1477,7 +1696,15 @@ inline void move_prompt_cursor_right(const std::shared_ptr<ReplScreenState>& sta
 
     // --- 2. Sync a TextInputImpl from the projection --------------------
     uic::TextInputOptions opts;
-    opts.placeholder  = s.input_placeholder;
+    // Compute contextual placeholder via the TS-faithful cascade.
+    // If the cascade returns nullopt (no condition matched), fall back to
+    // the static input_placeholder string for backward compatibility with
+    // standalone TextInputImpl usage.
+    if (auto computed = ComputePlaceholder(s); computed.has_value()) {
+        opts.placeholder = *std::move(computed);
+    } else {
+        opts.placeholder = s.input_placeholder;
+    }
     opts.prefix       = std::move(prefix_str);   // ← RENDERED INSIDE now (BUG-2 fix)
     opts.prefix_color = prefix_color;            // ← new field: explicit color for prefix
     opts.multiline    = true;
@@ -1575,16 +1802,43 @@ inline void move_prompt_cursor_right(const std::shared_ptr<ReplScreenState>& sta
     // input area as the TextInput prefix, NOT in the border.
     //
     // FTXUI separator() renders as box-drawing characters, matching Ink's
-    // border lines.  Both top and bottom rules use palette.prompt_border.
-    const Color frame_color = pal.prompt_border;
+    // border lines.  Both top and bottom rules use the mode-appropriate
+    // border colour: bashBorder in Bash mode (TS: rgb(255,0,135) pink),
+    // promptBorder otherwise (TS: grey).
+    const Color frame_color = is_bash_mode ? pal.bash_border : pal.prompt_border;
     Element top_rule    = separator() | color(frame_color);
     Element bottom_rule = separator() | color(frame_color);
 
-    return vbox({
+    // ── Declared cursor (IME / accessibility) ──────────────────────────────
+    // Faithful port of TS useDeclaredCursor: park the real terminal cursor at
+    // the insertion point so IME preedit renders inline and screen readers /
+    // magnifiers can follow the input.
+    //
+    // Cursor position relative to the returned vbox:
+    //   rel_y = 1 (top_rule) + (vim_badge ? 1 : 0)
+    //   rel_x = 1 (leading space in hbox) + prefix_width + cursor_display_col()
+    //
+    // NOTE: cursor_display_col() returns width of text up to caret (NOT
+    // including prefix), so we add prefix_width manually.
+    namespace dc = cc::ui::common::declared_cursor;
+    const int prefix_width = ftxui::string_width(opts.prefix);
+    const int caret_col = impl->cursor_display_col();
+    const int rel_y = 1 + (vim_badge ? 1 : 0);
+    const int rel_x = 1 + prefix_width + caret_col;
+
+    auto result = vbox({
         std::move(top_rule),
         content,
         std::move(bottom_rule),
     }) | size(WIDTH, EQUAL, std::max(term_cols, 40));
+
+    // Apply declared_cursor so the hidden native cursor parks at the caret
+    // position (TS: useDeclaredCursor).  This overrides cursor_reset()'s
+    // bottom-right parking.  Shape=Hidden because the visible caret is drawn
+    // by TextInputImpl itself (inverted glyph), not the terminal cursor.
+    return std::move(result) | dc::declared_cursor(
+        /*active=*/true, rel_x, rel_y,
+        ftxui::Screen::Cursor::Shape::Hidden);
 }
 
 [[nodiscard]] inline std::string pad_to_columns(std::string text, int width) {
@@ -2050,12 +2304,23 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
     slots.scrollable = vbox(std::move(scroll_rows));
 
     // ── Pinned header (non-scroll) ─────────────────────────────────────
-    // TS Messages.tsx has a thin LogoHeader bar above VirtualMessageList,
-    // but our welcome card is now inside the scrollable area (see above).
-    // We leave the pinned header empty so the scrollwrap starts at the
-    // very top of the terminal — matching TS where the welcome card is
-    // the first visible element when scrolled to top.
-    slots.header = text("");
+    // TS Messages.tsx has a thin LogoHeader bar above VirtualMessageList
+    // that stays visible even when the welcome card scrolls off.  Without
+    // this, pin-to-bottom scrolls the full welcome card out of view and
+    // the user sees "logo 也没了" (user report 2026-07-04).
+    //
+    // We render a compact 1-line logo bar here so the app identity is
+    // always visible at the top of the terminal.  The full welcome card
+    // still lives inside the scrollable area (first child of yframe).
+    {
+        namespace lv2 = cc::ui::logo_v2;
+        const std::string version = s.app_version.empty()
+            ? std::string("0.0.0") : s.app_version;
+        const std::string model_line = !s.model_display_name.empty()
+            ? s.model_display_name
+            : s.settings_model;
+        slots.header = lv2::render_logo_header_bar(version, model_line, term_cols);
+    }
 
     if (!s.active_local_jsx_command) {
         // ── bottom slot (pinned, flexShrink=0) ──────────────────────────────
@@ -2091,19 +2356,26 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
         status_line_opts.should_display =
             status_line_configured &&
             s.input_mode == InputMode::Prompt &&
+            !effective_is_bash(s) &&   // text-derived bash hides status line (TS parity)
             !is_short;
         status_line_opts.is_fullscreen = is_fullscreen;
         status_line_opts.padding_x = s.status_line_padding;
 
-        // Map InputMode to footer PromptInputMode
+        // Map InputMode to footer PromptInputMode.  Text-derived mode takes
+        // precedence over state-toggle (TS getInputMode semantics — see
+        // effective_is_bash()).
         pif::PromptInputMode footer_mode = pif::PromptInputMode::Prompt;
-        switch (s.input_mode) {
-            case InputMode::Prompt:       footer_mode = pif::PromptInputMode::Prompt; break;
-            case InputMode::Bash:         footer_mode = pif::PromptInputMode::Bash; break;
-            case InputMode::SlashCommand: footer_mode = pif::PromptInputMode::SlashCommand; break;
-            case InputMode::HistorySearch:footer_mode = pif::PromptInputMode::HistorySearch; break;
-            case InputMode::PlanMode:     footer_mode = pif::PromptInputMode::PlanMode; break;
-            default: break;
+        if (effective_is_bash(s)) {
+            footer_mode = pif::PromptInputMode::Bash;
+        } else {
+            switch (s.input_mode) {
+                case InputMode::Prompt:       footer_mode = pif::PromptInputMode::Prompt; break;
+                case InputMode::Bash:         footer_mode = pif::PromptInputMode::Bash; break;
+                case InputMode::SlashCommand: footer_mode = pif::PromptInputMode::SlashCommand; break;
+                case InputMode::HistorySearch:footer_mode = pif::PromptInputMode::HistorySearch; break;
+                case InputMode::PlanMode:     footer_mode = pif::PromptInputMode::PlanMode; break;
+                default: break;
+            }
         }
         // ── Assemble the bottom slot ──
         // Chrome order: [marginTop gap] → [spinner (marginTop=1)] →
@@ -3164,6 +3436,11 @@ inline bool forward_trust_dialog(
             state->last_keystroke = std::chrono::steady_clock::now(); return true; }
         // Esc
         if (ev == Event::Escape) {
+            // TS REF: PromptInput.tsx:1904 — Escape at cursor 0 exits any
+            // special (bash) mode.  Runs first and does NOT itself consume the
+            // event, so the existing autocomplete/selection/clear-text
+            // priorities below still apply exactly as before.
+            const bool mode_exited = exit_input_mode_if_at_start(state);
             if (!state->autocomplete_suggestions.empty()) {
                 // INF-05: remember the dismissed input so a later non-mutating
                 // keystroke (e.g. arrow keys) doesn't reopen the popup.
@@ -3175,7 +3452,10 @@ inline bool forward_trust_dialog(
             if (!state->input_text.empty()) {
                 state->input_text.clear();
                 state->input_cursor = std::string::npos;
-                state->history_index = std::string::npos; return true; } }
+                state->history_index = std::string::npos; return true; }
+            // Only the mode-exit happened (empty input, no popup/selection):
+            // still consume the event so the reset is reflected.
+            if (mode_exited) return true; }
         if (ev == Event::ArrowLeft) {
             move_prompt_cursor_left(state);
             return true;
@@ -3198,6 +3478,22 @@ inline bool forward_trust_dialog(
         }
         if (ev == Event::Delete) {
             if (delete_prompt_text(state)) return true;
+            // At cursor 0 with nothing to delete: exit bash/special mode
+            // (TS parity, PromptInput.tsx:1904 lists key.delete).
+            if (exit_input_mode_if_at_start(state)) return true;
+        }
+        // Ctrl+U (\x15): kill from cursor to start of line.  When the cursor is
+        // already at position 0 (nothing to kill) this exits bash/special mode
+        // instead (TS parity, PromptInput.tsx:1904 lists `key.ctrl && char==='u'`).
+        if (ev == Event::Character("\x15")) {
+            const auto cursor = input_cursor_or_end(*state);
+            if (cursor > 0) {
+                state->input_text.erase(0, cursor);
+                set_prompt_input_text(state, std::move(state->input_text), 0);
+                return true;
+            }
+            if (exit_input_mode_if_at_start(state)) return true;
+            return true;  // consume Ctrl+U even when it's a no-op
         }
         // Printable chars — accepts both ASCII and multi-byte UTF-8 (CJK).
         // FTXUI delivers composed IME characters as a single character event
@@ -3254,9 +3550,12 @@ inline bool forward_trust_dialog(
         // Backspace — handle multi-byte UTF-8 correctly by erasing a full
         // codepoint, not just the last byte.  CJK characters are 3 bytes in
         // UTF-8, so a plain pop_back() would leave a partial/invalid sequence.
-        if (ev == Event::Backspace && !state->input_text.empty()) {
-            (void)backspace_prompt_text(state);
-            return true;
+        if (ev == Event::Backspace) {
+            if (backspace_prompt_text(state)) return true;
+            // At cursor 0 (nothing to erase): exit bash/special mode (TS parity,
+            // PromptInput.tsx:1904).  This is the fix for being unable to leave
+            // bash mode after a bare '!' left the buffer empty.
+            if (exit_input_mode_if_at_start(state)) return true;
         }
     }
     return false; });

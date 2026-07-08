@@ -45,7 +45,7 @@ public:
     }
 
     /// Connect to the store and start listening for changes
-    void connect(std::shared_ptr<Store<AppState, decltype(&app_reducer)>> store) {
+    virtual void connect(std::shared_ptr<Store<AppState, decltype(&app_reducer)>> store) {
         unsubscribe();
         store_ = store;
         if (auto s = store_.lock()) {
@@ -107,7 +107,19 @@ public:
         std::function<SelectorResult(const AppState&)> selector,
         std::function<void(const SelectorResult&)> on_change = nullptr
     ) : selector_(std::move(selector)),
+        last_selector_result_{},   // value-init (T{} for bool = false, etc.)
         on_change_(std::move(on_change)) {}
+
+    /// Override connect to compute initial selector result immediately,
+    /// so get_selector_result() is valid before any state change occurs.
+    /// This prevents UB from reading uninitialized last_selector_result_
+    /// in release builds (stack memory not zeroed).
+    void connect(std::shared_ptr<Store<AppState, decltype(&app_reducer)>> store) override {
+        ReactiveComponentBase::connect(store);
+        if (auto s = store_.lock()) {
+            last_selector_result_ = selector_(s->get_state());
+        }
+    }
 
     /// Set the change callback
     void set_on_change(std::function<void(const SelectorResult&)> callback) {

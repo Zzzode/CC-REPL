@@ -113,10 +113,19 @@ struct ToolUseBlock {
     std::string input_json;  // JSON-encoded input
 };
 
-/// A tool result content block
+/// A tool result content item (TS parity: ContentBlockParam for tool_result)
+struct ToolResultContentItem {
+    std::string type;        ///< "text" or "image"
+    std::string text;        ///< text content (for type="text")
+    std::string media_type;  ///< e.g. "image/png" (for type="image")
+    std::string data;        ///< base64 data (for type="image")
+};
+
+/// A tool result content block.
+/// TS PARITY: content may be string or array of content items.
 struct ToolResultBlock {
     std::string tool_use_id;
-    std::string content;
+    std::variant<std::string, std::vector<ToolResultContentItem>> content;
     bool is_error = false;
 };
 

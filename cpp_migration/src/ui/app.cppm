@@ -5,6 +5,8 @@ module;
 
 #include <string>
 #include <vector>
+#include <array>
+#include <cstdio>
 #include <memory>
 #include <optional>
 #include <expected>
@@ -56,8 +58,10 @@ import cc.commands.registry;
 import cc.utils.session_storage;
 import cc.utils.skill_usage;
 import cc.utils.clipboard;
+import cc.utils.debug;
 import cc.utils.parse_references;
 import cc.utils.crypto;
+import cc.utils.bash_execution;   // popen_spawn/pclose_spawn for local '!' bash commands
 import cc.ui.components;
 import cc.ui.components_extended;
 import cc.ui.markdown;
@@ -79,6 +83,8 @@ import cc.ui.prompt.file_index;
 import cc.ui.design.figures;
 // P0-2: 7-stage message pipeline utilities (dedup / tag filter / tool augment).
 import cc.ui.messages.message_pipeline;
+// P0-2: message collapse passes (TS Messages.tsx:520 chain).
+import cc.ui.messages.collapse_background_bash;
 import cc.ui.prompt.fuzzy_rank_nucleo;
 import cc.ui.agents.agent_cards;
 import cc.ui.agents.shared_widgets;
@@ -302,6 +308,7 @@ struct AutocompleteToken {
                     if (e.content_preview.empty() && m.content.size() == 1) {
                         e.is_image = true;
                         e.image_block = *ib;
+                        e.image_display_id = 1;  // single image = #1
                     }
                     e.content_preview += e.content_preview.empty() ? "" : "\n";
                     e.content_preview += "[Image";
@@ -312,6 +319,26 @@ struct AutocompleteToken {
                         e.content_preview += buf;
                     }
                     e.content_preview += "]";
+                } else if (const auto* trb =
+                               std::get_if<ToolResultBlock>(&block)) {
+                    // Single-entry fallback for ToolResultBlock in user
+                    // message.  project_messages handles this properly
+                    // (emits role="tool" entry); this ensures the
+                    // legacy one-entry path doesn't render blank.
+                    //
+                    // TS PARITY FIX (2026-07-05): is_tool_use must be
+                    // false for tool results.  The repl_screen dispatcher
+                    // checks is_tool_use FIRST (line 858), so a tool_result
+                    // with is_tool_use=true gets routed to AssistantToolUse
+                    // rendering instead of UserToolResult — the committed
+                    // result card never appears as a separate block.
+                    if (e.content_preview.empty() && m.content.size() == 1) {
+                        e.role = "tool";
+                        e.is_tool_use = false;
+                        e.tool_status = trb->is_error ? "error" : "success";
+                    }
+                    e.content_preview += e.content_preview.empty() ? "" : "\n";
+                    e.content_preview += tool_result_content_text(*trb);
                 }
             }
         } else if constexpr (std::is_same_v<T, AssistantMessage>) {
@@ -337,7 +364,12 @@ struct AutocompleteToken {
             }
         } else if constexpr (std::is_same_v<T, ToolResultMessage>) {
             e.role = "tool";
-            e.is_tool_use = true;
+            // TS PARITY FIX (2026-07-05): is_tool_use=false for tool results.
+            // ToolResultMessage is the committed result (role="tool"), NOT
+            // the tool_use request (role="assistant").  Setting this true
+            // routes the entry to AssistantToolUse rendering in repl_screen,
+            // so the result never appears as its own transcript card.
+            e.is_tool_use = false;
             e.tool_status = m.is_error ? "error" : "success";
             // TS parity: propagate the tool name from the result message so
             // the renderer can show "Bash" / "Edit" instead of generic "tool".
@@ -346,9 +378,15 @@ struct AutocompleteToken {
             if (!m.tool_name.empty()) {
                 e.tool_name = m.tool_name;
             }
+            // TS PARITY (2026-07-04): collect structured content items so the
+            // faithful renderer can iterate them (text + image separately),
+            // matching TS renderToolResultMessage's Array.isArray branch.
+            std::vector<cc::core::ToolResultContentItem> content_items;
             for (const auto& block : m.content) {
                 if (const auto* tb = std::get_if<TextBlock>(&block)) {
                     e.content_preview += tb->text;
+                    content_items.push_back(cc::core::ToolResultContentItem{
+                        .type = "text", .text = tb->text, .media_type = {}, .data = {}});
                 } else if (const auto* ib = std::get_if<ImageBlock>(&block)) {
                     // Tool results may return images (e.g. analyze_image).
                     // Append a [Image] marker so the row isn't empty.
@@ -356,14 +394,24 @@ struct AutocompleteToken {
                     e.content_preview += "[Image]";
                     e.is_image = true;
                     e.image_block = *ib;
+                    content_items.push_back(cc::core::ToolResultContentItem{
+                        .type = "image", .text = {}, .media_type = ib->media_type, .data = ib->data});
                 } else if (const auto* db = std::get_if<DocumentBlock>(&block)) {
                     if (!e.content_preview.empty()) e.content_preview += '\n';
                     e.content_preview += "[Document]";
                 }
             }
+            if (!content_items.empty()) {
+                e.tool_result_content_items = std::move(content_items);
+            }
         }
-        if (e.content_preview.size() > 500)
-            e.content_preview.resize(500);
+        // NOTE: content_preview IS the rendered message body, not a
+        // "preview".  Do NOT truncate here — VirtualMessageList handles
+        // display clipping.  Truncating caused "text vanishes after
+        // streaming": the live stream showed the tail (last 500 chars)
+        // but the committed view showed only the head (first 500 chars),
+        // so for >500-char responses the content the user was reading
+        // disappeared on completion.
         return e;
     }, msg);
 }
@@ -389,60 +437,75 @@ project_messages(const Message& msg) {
         using T = std::decay_t<decltype(m)>;
 
         if constexpr (std::is_same_v<T, AssistantMessage>) {
-            // Pass 1: collect block kinds present.
+            // TS PARITY FIX (2026-07-04): iterate content blocks in
+            // ORIGINAL ORDER instead of grouping by kind.  TS renders
+            // each block as a separate sibling component via
+            // message.message.content.map((block, i) =>
+            //   <AssistantMessageBlock key={i} block={block} .../>).
+            //
+            // The old code grouped all text into one accumulator and
+            // all tools into a separate vector, then emitted [thinking,
+            // merged_text, tool1, tool2, ...].  For [text1, tool_use,
+            // text2] this produced [text1+text2, tool_use] — text was
+            // merged and the order was wrong, so the model's final
+            // response text (text2) appeared glued to the pre-tool
+            // announcement (text1) instead of being a separate block.
+            //
+            // Consecutive text blocks ARE merged (TS also does this
+            // implicitly since adjacent <Text> nodes render inline),
+            // but any non-text block (thinking, tool_use) flushes the
+            // text accumulator and emits its own row.
             std::string text_acc;
-            std::string thinking_acc;
-            std::vector<const ToolUseBlock*> tools;
-            for (const auto& block : m.content) {
-                if (const auto* tb = std::get_if<TextBlock>(&block)) {
-                    text_acc += tb->text;
-                } else if (const auto* thk = std::get_if<ThinkingBlock>(&block)) {
-                    if (!thinking_acc.empty()) thinking_acc.push_back('\n');
-                    thinking_acc += thk->thinking;
-                } else if (const auto* tool = std::get_if<ToolUseBlock>(&block)) {
-                    tools.push_back(tool);
-                }
-            }
 
-            const bool has_thinking = !thinking_acc.empty();
-            const bool has_text     = !text_acc.empty();
-            const bool mixed        = has_thinking && (has_text || !tools.empty());
-
-            if (!mixed) {
-                // Single-kind assistant message → one entry, identical to
-                // project_message semantics.
-                out.push_back(project_message(msg));
-                return;
-            }
-
-            // Mixed → emit thinking row, then text row, then tool rows, in
-            // TS block order (thinking precedes the visible answer; the
-            // upstream stream already orders them this way).
-            if (has_thinking) {
-                repl::MessageDisplayEntry t;
-                t.role = "assistant";
-                t.is_thinking = true;
-                t.content_preview = thinking_acc.substr(0, 200);
-                t.timestamp = now;
-                out.push_back(std::move(t));
-            }
-            if (has_text) {
+            auto flush_text = [&] {
+                if (text_acc.empty()) return;
                 repl::MessageDisplayEntry a;
                 a.role = "assistant";
                 a.content_preview = text_acc;
-                if (a.content_preview.size() > 500) a.content_preview.resize(500);
                 a.timestamp = now;
                 out.push_back(std::move(a));
+                text_acc.clear();
+            };
+
+            for (const auto& block : m.content) {
+                if (const auto* tb = std::get_if<TextBlock>(&block)) {
+                    // Consecutive text blocks merge (TS sibling <Text>
+                    // nodes render inline without separation).
+                    if (!text_acc.empty() && !tb->text.empty() &&
+                        tb->text.front() != '\n') {
+                        text_acc += '\n';
+                    }
+                    text_acc += tb->text;
+                } else if (const auto* thk =
+                               std::get_if<ThinkingBlock>(&block)) {
+                    flush_text();
+                    repl::MessageDisplayEntry t;
+                    t.role = "assistant";
+                    t.is_thinking = true;
+                    t.content_preview = thk->thinking.substr(0, 200);
+                    t.timestamp = now;
+                    out.push_back(std::move(t));
+                } else if (const auto* tool =
+                               std::get_if<ToolUseBlock>(&block)) {
+                    flush_text();
+                    repl::MessageDisplayEntry tu;
+                    tu.role = "assistant";
+                    tu.is_tool_use = true;
+                    tu.tool_name = tool->name;
+                    tu.tool_input_json = tool->input_json;
+                    // Committed tool-use blocks always have a matching result
+                    // in the conversation (they only commit after execution).
+                    // TS resolvedToolUseIDs.has(id) is always true here.
+                    tu.tool_status = "success";
+                    tu.timestamp = now;
+                    out.push_back(std::move(tu));
+                }
+                // ToolResultBlock in assistant messages: shouldn't
+                // happen (API invariant), but if it does we skip it
+                // — tool results are projected from ToolResultMessage
+                // or UserMessage with ToolResultBlock below.
             }
-            for (const auto* tool : tools) {
-                repl::MessageDisplayEntry tu;
-                tu.role = "assistant";
-                tu.is_tool_use = true;
-                tu.tool_name = tool->name;
-                tu.tool_input_json = tool->input_json;
-                tu.timestamp = now;
-                out.push_back(std::move(tu));
-            }
+            flush_text();  // emit any trailing text
         } else if constexpr (std::is_same_v<T, UserMessage>) {
             // ── TS parity: each ImageBlock in the user message becomes its
             //    own transcript row (UserImageMessage), interleaved with text
@@ -450,12 +513,13 @@ project_messages(const Message& msg) {
             //    maps every user-pasted attachment to an <UserImageMessage/>
             //    sibling followed/followed by text rows.
             std::string text_acc;
+            int img_id_counter = 0;  // TS parity: imageIds assigned per content block order
             auto flush_text = [&] {
                 if (text_acc.empty()) return;
                 repl::MessageDisplayEntry u;
                 u.role = "user";
                 u.content_preview = text_acc;
-                if (u.content_preview.size() > 500) u.content_preview.resize(500);
+                // Do NOT truncate — user needs to see their full message
                 u.timestamp = now;
                 out.push_back(std::move(u));
                 text_acc.clear();
@@ -471,6 +535,7 @@ project_messages(const Message& msg) {
                     img.role = "user";
                     img.is_image = true;
                     img.image_block = *ib;
+                    img.image_display_id = ++img_id_counter;  // TS: imageIds from paste order
                     img.timestamp = now;
                     // Human-readable preview for list views / debugger tools.
                     // Mirrors TS format "[Image W×H]" shown in history previews.
@@ -487,8 +552,55 @@ project_messages(const Message& msg) {
                     }
                     preview += "]";
                     img.content_preview = std::move(preview);
-                    img.estimated_height_lines = 7; // ASCII thumbnail (4 rows) + metadata + margin
+                    img.estimated_height_lines = 2; // compact card: label + optional source (TS parity)
                     out.push_back(std::move(img));
+                } else if (const auto* trb =
+                               std::get_if<ToolResultBlock>(&block)) {
+                    // TS PARITY FIX (2026-07-04): handle ToolResultBlock
+                    // in user messages.  The API returns tool results as
+                    // role=user messages with tool_result content blocks.
+                    // The old code ignored these, so committed tool
+                    // results vanished from the transcript after
+                    // streaming ended (streaming_tools_ was cleared but
+                    // the committed UserMessage with ToolResultBlock
+                    // was never projected).
+                    flush_text();
+                    repl::MessageDisplayEntry tr;
+                    tr.role = "tool";
+                    // TS PARITY FIX (2026-07-05): is_tool_use=false.
+                    // This is a committed tool result (role="tool"), not
+                    // the assistant's tool_use request.  repl_screen checks
+                    // is_tool_use before role, so true here would swallow
+                    // the result into the tool_use card's Output section
+                    // instead of rendering it as a separate card.
+                    tr.is_tool_use = false;
+                    tr.tool_status = trb->is_error ? "error" : "success";
+                    // tool_name not available from ToolResultBlock (it
+                    // only has tool_use_id); renderer falls back to
+                    // "tool" via m.tool_name.value_or("tool").
+                    //
+                    // TS PARITY (2026-07-04): content may be string or
+                    // array of content items.
+                    if (std::holds_alternative<std::string>(trb->content)) {
+                        tr.content_preview = std::get<std::string>(trb->content);
+                    } else {
+                        const auto& items = std::get<std::vector<cc::core::ToolResultContentItem>>(trb->content);
+                        std::vector<cc::core::ToolResultContentItem> ci_copy;
+                        for (const auto& item : items) {
+                            if (item.type == "text") {
+                                if (!tr.content_preview.empty()) tr.content_preview += '\n';
+                                tr.content_preview += item.text;
+                            } else if (item.type == "image") {
+                                if (!tr.content_preview.empty()) tr.content_preview += '\n';
+                                tr.content_preview += "[Image]";
+                                tr.is_image = true;
+                            }
+                            ci_copy.push_back(item);
+                        }
+                        tr.tool_result_content_items = std::move(ci_copy);
+                    }
+                    tr.timestamp = now;
+                    out.push_back(std::move(tr));
                 }
                 // ThinkingBlock/ToolUseBlock in a user message are API
                 // invariants; ignore if present (project_message doesn't
@@ -544,7 +656,16 @@ private:
     // Async query state
     std::jthread query_thread_;
     std::jthread spinner_thread_;
+    // Local '!' bash command worker (TS processBashCommand.tsx). Runs the
+    // command outside the LLM turn (shouldQuery:false), so it uses its own
+    // thread rather than query_thread_ and never sets query_running_.
+    std::jthread bash_thread_;
+    std::atomic<bool> bash_running_{false};
     std::atomic<bool> query_running_{false};
+    // Cached autocomplete data (loaded once at startup to avoid repeated disk I/O
+    // on every keystroke — TS memoizes these in useTypeahead).
+    std::vector<acsrc::SkillSuggestionData> cached_skills_;
+    std::vector<acsrc::PluginCommandSuggestionData> cached_plugin_commands_;
     std::atomic<std::uint64_t> ui_animation_tick_count_{0};
     std::mutex result_mutex_;
     std::optional<std::string> pending_error_;
@@ -567,6 +688,16 @@ private:
     // these so a fast Ctrl+V→Enter doesn't submit before the image data lands
     // (which would send a text-only message with [Image #N] refs but no PNG).
     std::unordered_set<int> in_flight_pastes_;
+    // Local '!' bash command output posted back from bash_thread_ (bg→UI),
+    // drained on the render thread in ConsumePendingResult().  Mirrors the
+    // pending_paste_results_ handoff pattern so local_command_messages_ /
+    // SyncState are only ever mutated on the render thread.
+    std::mutex bash_result_mutex_;
+    struct PendingBashResult {
+        std::string output;   // combined stdout+stderr (already trimmed)
+        bool is_error = false;
+    };
+    std::optional<PendingBashResult> pending_bash_result_;  // bg→UI
     std::string streaming_text_;
     struct StreamingToolPreview {
         std::string tool_name;
@@ -578,7 +709,8 @@ private:
         std::string compact_preview;   /// 200-char one-liner
         int         error_code      = 0;  /// 0=none, >0 shell exit/HTTP code
         bool        truncated       = false;/// result > 4 KiB threshold
-        bool complete = false;
+        bool complete = false;       ///< ContentBlockStop: input_json fully streamed
+        bool exec_done = false;      ///< ToolExecutionEnd: tool has finished executing
         bool is_error = false;
     };
     struct StreamingThinkingPreview {
@@ -744,6 +876,86 @@ private:
         AppendLocalCommandMessage(
             result.message,
             !result.ok || result.status == CommandStatus::Failed);
+    }
+
+    // TS REF: src/utils/processUserInput/processBashCommand.tsx
+    //
+    // Run a user-initiated `!` command LOCALLY (never an LLM turn).  TS does
+    // BashTool.call({command, dangerouslyDisableSandbox:true}) with
+    // shouldQuery:false, renders a <bash-input> user row plus a <bash-stdout>/
+    // <bash-stderr> output row, and NEVER sends the command to the model.
+    //
+    // We mirror that: append the input row immediately (like TS's initial
+    // setToolJSX(<BashModeProgress>)), then run `/bin/sh -c` on a worker thread
+    // (combined stdout+stderr via popen_spawn, run in the session cwd) and post
+    // the output back to the render thread via pending_bash_result_.  The
+    // engine / query path is never touched, so no Bash *tool-use* card and no
+    // assistant summary are produced — matching the TS transcript exactly.
+    void RunLocalBashCommand(std::string command) {
+        command = trim_ascii_copy(command);
+        if (command.empty()) return;
+
+        // Show the command row immediately (render thread — HandleSubmit runs
+        // here).  Mirrors TS createUserMessage(`<bash-input>…`).
+        AppendLocalCommandInputMessage(command);
+        this->SyncState();
+        PostRenderEvent();
+
+        // If a previous bash command is still running, join it first so we
+        // don't overlap workers (local `!` commands are strictly sequential in
+        // TS too — the prompt is blocked on the single BashTool.call).
+        if (bash_thread_.joinable()) bash_thread_.join();
+
+        bash_running_.store(true);
+        const std::string cwd = engine_ ? engine_->working_directory() : std::string{};
+        bash_thread_ = std::jthread(
+            [this, command, cwd](std::stop_token st) {
+                // Run in the session cwd; combine stdout+stderr like TS BashTool
+                // output formatting.  `cd … &&` keeps popen_spawn's /bin/sh -c
+                // contract intact (popen_spawn has no cwd argument).
+                // POSIX single-quote the cwd: wrap in '…' and replace embedded
+                // ' with '\'' so paths with spaces/quotes can't break the shell.
+                auto sq = [](std::string_view s) {
+                    std::string out = "'";
+                    for (char c : s) {
+                        if (c == '\'') out += "'\\''";
+                        else out += c;
+                    }
+                    out += "'";
+                    return out;
+                };
+                std::string full = command + " 2>&1";
+                if (!cwd.empty()) {
+                    full = "cd " + sq(cwd) + " && " + command + " 2>&1";
+                }
+                std::string output;
+                bool is_error = false;
+                if (FILE* pipe = cc::utils::bash::popen_spawn(full)) {
+                    std::array<char, 4096> buf{};
+                    while (!st.stop_requested() &&
+                           std::fgets(buf.data(), static_cast<int>(buf.size()), pipe)
+                               != nullptr) {
+                        output += buf.data();
+                    }
+                    const int status = cc::utils::bash::pclose_spawn(pipe);
+                    is_error = status != 0;
+                } else {
+                    output = "Command failed: could not spawn /bin/sh";
+                    is_error = true;
+                }
+                // Trim a single trailing newline for a tidy transcript row.
+                while (!output.empty() &&
+                       (output.back() == '\n' || output.back() == '\r')) {
+                    output.pop_back();
+                }
+                {
+                    std::lock_guard lk(bash_result_mutex_);
+                    pending_bash_result_ = PendingBashResult{
+                        .output = std::move(output), .is_error = is_error};
+                }
+                bash_running_.store(false);
+                PostRenderEvent();
+            });
     }
 
     void ClearActiveLocalJsxCommand() {
@@ -1078,7 +1290,7 @@ private:
                 }
             }
 
-            for (const auto& skill : acsrc::collect_skill_suggestions(screen_state_->cwd)) {
+            for (const auto& skill : cached_skills_) {
                 // SL-02: name match outranks a description-word match (Fuse
                 // keeps descriptionKey at lower weight; cpp matched name only).
                 int skill_rank = -1;
@@ -1108,7 +1320,7 @@ private:
                 });
             }
 
-            for (const auto& plugin_command : acsrc::collect_plugin_commands(screen_state_->cwd)) {
+            for (const auto& plugin_command : cached_plugin_commands_) {
                 int plugin_rank = -1;
                 if (frn::fuzzy_match_nucleo(plugin_command.command, query)) {
                     plugin_rank = frn::fuzzy_rank_nucleo(plugin_command.command, query) + 6;
@@ -1178,7 +1390,7 @@ private:
         // useTypeahead (the @DM/@file branches are gated on mode !== 'bash');
         // in bash mode we fall through to the $PATH shell-command scan below.
         if (token.text.starts_with('@') &&
-            screen_state_->input_mode != repl::InputMode::Bash) {
+            !repl::effective_is_bash(*screen_state_)) {
             const auto query = std::string_view(token.text).substr(1);
             std::filesystem::path base = screen_state_->cwd.empty()
                 ? std::filesystem::current_path()
@@ -1344,7 +1556,7 @@ private:
         // useTypeahead (the #slack branch is gated on mode === 'prompt'); in
         // bash mode we fall through to the $PATH shell-command scan below.
         if (token.text.starts_with('#') &&
-            screen_state_->input_mode != repl::InputMode::Bash) {
+            !repl::effective_is_bash(*screen_state_)) {
             const auto query = std::string_view(token.text).substr(1);
             for (const auto& resource : acsrc::collect_mcp_resource_suggestions()) {
                 if (!resource.channel_like) continue;
@@ -1367,7 +1579,7 @@ private:
             return;
         }
 
-        if (screen_state_->input_mode == repl::InputMode::Bash && !token.text.empty()) {
+        if (repl::effective_is_bash(*screen_state_) && !token.text.empty()) {
             std::unordered_set<std::string> seen;
             if (const char* path_env = std::getenv("PATH")) {
                 std::string_view paths(path_env);
@@ -1767,7 +1979,7 @@ private:
     }
 
     void OpenSkillsMenu() {
-        auto skills = acsrc::collect_skill_suggestions(screen_state_->cwd);
+        const auto& skills = cached_skills_;
         screen_state_->mode = repl::ReplMode::Normal;
         screen_state_->active_local_jsx_command = true;
         screen_state_->active_local_jsx_command_name = "skills";
@@ -1787,6 +1999,7 @@ public:
         if (query_thread_.joinable()) query_thread_.request_stop();
         if (spinner_thread_.joinable()) spinner_thread_.request_stop();
         if (statusline_thread_.joinable()) statusline_thread_.request_stop();
+        if (bash_thread_.joinable()) bash_thread_.request_stop();
         {
             std::lock_guard lk(statusline_mutex_);
             statusline_dirty_.store(true);
@@ -1837,6 +2050,21 @@ public:
         current_session_id_ = utils::SessionStorage::generate_session_id();
         session_start_time_ = std::chrono::steady_clock::now();
 
+        // TS REF: sessionStorage.ts recordTranscript + dumpPrompts.ts
+        // Enable engine-level transcript persistence: every Message appended
+        // to the conversation is written as JSONL to
+        //   ~/.cc-repl/sessions/<session_id>/messages.jsonl
+        // This captures the full conversation structure (ToolUseBlocks,
+        // ToolResultBlocks, TextBlocks, ThinkingBlocks) for debugging tool-call
+        // rendering issues, session resume, and transcript inspection.
+        if (engine_) {
+            if (storage_) {
+                engine_->set_session_storage(storage_->storage_dir());
+                auto dump_dir = storage_->storage_dir().parent_path() / "dump-prompts";
+                engine_->set_dump_prompts_dir(std::move(dump_dir));
+            }
+        }
+
         // Register all built-in tool UI renderers in the global registry.
         // Must happen before any message rendering so tool-use rows get
         // faithful per-tool summaries (userFacingName, message, tag, etc.).
@@ -1874,6 +2102,11 @@ public:
         this->ProjectSettingsToScreenState();
         this->ProjectRuntimeMetadataToScreenState();
 
+        // Cache autocomplete suggestions at startup (skills + plugin commands
+        // involve directory scanning + YAML parsing — too slow for per-keystroke).
+        cached_skills_ = acsrc::collect_skill_suggestions(screen_state_->cwd);
+        cached_plugin_commands_ = acsrc::collect_plugin_commands(screen_state_->cwd);
+
         // Re-project settings whenever they change on disk (e.g. user edits
         // settings.json from another terminal, or the /config command saves).
         settings_unsubscribe_ = settings_manager_->on_change(
@@ -1885,8 +2118,8 @@ public:
             });
 
         repl::ReplScreenCallbacks cbs;
-        cbs.on_submit = [this](const std::string& text, repl::InputMode) {
-            this->HandleSubmit(text);
+        cbs.on_submit = [this](const std::string& text, repl::InputMode mode) {
+            this->HandleSubmit(text, mode);
         };
         cbs.on_interrupt = [this]() {
             if (query_running_.load()) {
@@ -2218,7 +2451,8 @@ public:
         StartUiAnimationTicker();
     }
 
-    void HandleSubmit(const std::string& text) {
+    void HandleSubmit(const std::string& text,
+                      repl::InputMode submit_mode = repl::InputMode::Prompt) {
         // ── Wait for in-flight image pastes before snapshotting ──────────
         // The placeholder "[Image #N]" is inserted instantly on Ctrl+V, but
         // the actual PNG read runs on a background thread (~0.6-1s). If the
@@ -2263,16 +2497,32 @@ public:
         //     the rest as bash.
         //   - The stripped suffix (possibly empty) is submitted as a local
         //     bash command instead of an LLM query.  Empty → no-op.
-        if (text.starts_with('!')) {
+        // TS REF: PromptInput.tsx getInputMode + processBashCommand.tsx.
+        // A `!` command runs LOCALLY (never an LLM turn).  Bash mode is
+        // determined two ways, matching TS:
+        //   (1) submit_mode == Bash — the user typed a bare '!' which was
+        //       swallowed as a mode toggle, so input_text has NO '!' prefix
+        //       but the mode state says bash.  This is the common path.
+        //   (2) text starts with '!' — a history-restored / teammate-
+        //       synthesized entry that still carries the literal prefix.
+        // In both cases strip any leading '!' and run the remainder locally.
+        const bool bash_by_mode   = submit_mode == repl::InputMode::Bash;
+        const bool bash_by_prefix = text.starts_with('!');
+        if (bash_by_mode || bash_by_prefix) {
             namespace figs = cc::ui::design::figures;
-            const std::string stripped(figs::strip_mode_prefix(text));
+            const std::string stripped(
+                bash_by_prefix ? std::string(figs::strip_mode_prefix(text))
+                               : text);
             if (!stripped.empty()) {
-                // Strip then route as a bash command.
-                this->HandleCommand(stripped);  // TODO: replace with actual bash tool dispatch when wired.
-                // For now, set input_mode back to Bash so the prefix stays
-                // consistent with what the user typed.  (InputMode enum lives
-                // in repl_screen.cppm; the wire-up below does a best-effort
-                // assignment via the projection callback.)
+                // Run LOCALLY as a bash command (TS processBashCommand.tsx:
+                // BashTool.call with shouldQuery:false) — NOT an LLM query and
+                // NOT a slash command.  Produces <bash-input>/<bash-stdout>
+                // local-command rows, never a Bash tool-use card.
+                this->RunLocalBashCommand(stripped);
+                // Persist Bash mode so the empty-input prefix shows '!' after
+                // submit (TS parity: inputMode stays 'bash' after a '!cmd'
+                // submission, so the next empty input displays the bash glyph).
+                screen_state_->input_mode = repl::InputMode::Bash;
             }
             // Bare '!' with no trailing text is a no-op (mode-change only,
             // handled by the single-char interceptor in OnTextEvent).
@@ -2280,6 +2530,12 @@ public:
         }
 
         if (query_running_.load()) return;
+
+        // TS REF: usePromptInputPlaceholder.ts submitCount < 1 guard.
+        // Increment on each successful user-message submit (not slash commands
+        // or bash — those returned above).  Drives the onboarding example
+        // placeholder which only shows before the first real submission.
+        screen_state_->submit_count++;
 
         query_running_.store(true);
         screen_state_->spinner_mode = repl::SpinnerMode::Requesting;
@@ -2344,6 +2600,12 @@ public:
                     // accumulators on each message_start event from the API.
                     if constexpr (std::is_same_v<T, core::StreamStart>) {
                         std::lock_guard lk(result_mutex_);
+                        cc::utils::debug("app.stream",
+                            "StreamStart fired — clearing stale streaming state "
+                            "(tools={}, thinking={}, text_len={})",
+                            streaming_tools_.size(),
+                            streaming_thinking_.size(),
+                            streaming_text_.size());
                         streaming_text_.clear();
                         streaming_tools_.clear();
                         streaming_thinking_.clear();
@@ -2382,7 +2644,12 @@ public:
                         }
                     } else if constexpr (std::is_same_v<T, core::ContentBlockDelta>) {
                         apply_event = event_dedup_.should_accept_delta(e.index);
-                        if (!apply_event) return;
+                        if (!apply_event) {
+                            cc::utils::debug("app.stream",
+                                "ContentBlockDelta idx={} REJECTED by dedup (delta_len={})",
+                                e.index, e.delta_text.size());
+                            return;
+                        }
                         std::lock_guard lk(result_mutex_);
                         if (auto tool = streaming_tools_.find(e.index); tool != streaming_tools_.end()) {
                             tool->second.input_json += e.delta_text;
@@ -2390,6 +2657,9 @@ public:
                             thinking->second.text += e.delta_text;
                         } else {
                             streaming_text_ += e.delta_text;
+                            cc::utils::debug("app.stream",
+                                "ContentBlockDelta idx={} text appended, total_len={}",
+                                e.index, streaming_text_.size());
                             screen_state_->spinner_mode = repl::SpinnerMode::Responding;
                             screen_state_->spinner_verb = std::nullopt;
                         }
@@ -2406,10 +2676,13 @@ public:
                         if (!apply_event) return;
                         // M6: Tool execution has started — populate result_preview
                         // slot so the progress line can go live.
+                        // NOTE: do NOT check preview.complete — that's set by
+                        // ContentBlockStop (input fully streamed) which happens
+                        // BEFORE execution starts.  We need exec_done instead.
                         std::lock_guard lk(result_mutex_);
                         for (auto& [idx, preview] : streaming_tools_) {
                             if (preview.tool_use_id == e.tool_use_id &&
-                                !preview.complete &&
+                                !preview.exec_done &&
                                 preview.result_preview.empty()) {
                                 preview.result_preview = "Starting…";
                                 break;
@@ -2418,9 +2691,10 @@ public:
                     } else if constexpr (std::is_same_v<T, core::ToolExecutionProgress>) {
                         // Progress events are never deduped because they are
                         // monotonic updates (TS same: progress is always applied).
+                        // NOTE: do NOT check preview.complete (see above).
                         std::lock_guard lk(result_mutex_);
                         for (auto& [idx, preview] : streaming_tools_) {
-                            if (preview.tool_use_id == e.tool_use_id && !preview.complete) {
+                            if (preview.tool_use_id == e.tool_use_id && !preview.exec_done) {
                                 preview.result_preview = e.partial_result;
                                 break;
                             }
@@ -2438,6 +2712,7 @@ public:
                             if (preview.tool_use_id == e.tool_use_id) {
                                 preview.result_preview = e.result;
                                 preview.is_error       = e.is_error;
+                                preview.exec_done      = true;
                                 // Stage 5 augment: one-shot compute
                                 const auto aug = pl::augment_tool_result(
                                     preview.result_preview, preview.is_error);
@@ -2893,8 +3168,38 @@ public:
         return input;
     }
 
+    // TS REF: src/components/Messages.tsx L519-520 — the render `useMemo`
+    // applies a chain of collapse passes to the message list before projecting
+    // rows:
+    //   collapseBackgroundBashNotifications(collapseHookSummaries(
+    //     collapseTeammateShutdowns(collapseReadSearchGroups(grouped, tools))))
+    //
+    // We run the same chain here, on the raw conversation, before the
+    // per-message projection loop in SyncState()/Render().  Only the passes
+    // that have a faithful CPP port are wired so far:
+    //   * collapseBackgroundBashNotifications — DONE (this call).
+    //   * collapseHookSummaries / collapseTeammateShutdowns / collapseReadSearch
+    //     — pending (need richer SystemMessage / AttachmentMessage types).
+    // As each pass lands it slots in here, preserving the TS ordering.
+    //
+    // `fullscreen=true`: the CPP transcript is always the fullscreen-equivalent
+    // view (TS gates collapse on isFullscreenEnvEnabled()).  `verbose=false`:
+    // there is no ctrl+O verbose transcript toggle at this layer yet, so we use
+    // the default collapsed presentation (TS shows each item only in verbose).
+    [[nodiscard]] std::vector<Message> ApplyMessageCollapsePipeline(
+        std::vector<Message> messages) const {
+        namespace collapse = cc::ui::messages::collapse;
+        messages = collapse::collapse_background_bash_notifications(
+            messages, /*fullscreen=*/true, /*verbose=*/false);
+        return messages;
+    }
+
     void SyncState() {
         auto messages = engine_->get_conversation();
+        // TS Messages.tsx:520 collapse chain (background-bash so far).
+        messages = ApplyMessageCollapsePipeline(std::move(messages));
+        cc::utils::debug("app.sync",
+            "SyncState: engine has {} messages", messages.size());
         screen_state_->messages.clear();
         screen_state_->messages.reserve(messages.size());
         // Assign a 24-char prefix per source Message; all projected entries
@@ -2963,6 +3268,34 @@ public:
                 return a.timestamp < b.timestamp;
             });
 
+        // Debug: log projected message summary
+        {
+            std::size_t n_user = 0, n_asst = 0, n_sys = 0, n_tool = 0;
+            for (const auto& e : screen_state_->messages) {
+                if (e.role == "user") ++n_user;
+                else if (e.role == "assistant") {
+                    ++n_asst;
+                    if (e.is_tool_use) ++n_tool;
+                }
+                else if (e.role == "system") ++n_sys;
+            }
+            cc::utils::debug("app.sync",
+                "SyncState done: {} projected entries "
+                "(user={}, asst={}, tool_use={}, sys={})",
+                screen_state_->messages.size(),
+                n_user, n_asst, n_tool, n_sys);
+            // Log each assistant entry's content preview length
+            for (std::size_t i = 0; i < screen_state_->messages.size(); ++i) {
+                const auto& e = screen_state_->messages[i];
+                if (e.role == "assistant" && !e.is_tool_use && !e.is_thinking) {
+                    cc::utils::debug("app.sync",
+                        "  msg[{}] assistant text: len={}, streaming={}, preview='{}'",
+                        i, e.content_preview.size(), e.is_streaming,
+                        e.content_preview.substr(0, 80));
+                }
+            }
+        }
+
         this->ProjectRuntimeMetadataToScreenState();
 
         // Notify cost hook subscribers (drives CostThreshold dialog, etc.).
@@ -2975,8 +3308,32 @@ public:
     }
 
     void ConsumePendingResult() {
+        // Drain a completed local '!' bash command first (TS processBashCommand
+        // output row).  This runs regardless of the query spinner state below,
+        // because local commands never set query_running_ / the spinner.
+        {
+            std::optional<PendingBashResult> bash_res;
+            {
+                std::lock_guard lk(bash_result_mutex_);
+                bash_res.swap(pending_bash_result_);
+            }
+            if (bash_res.has_value()) {
+                // Empty stdout+stderr → still emit a row so the user sees the
+                // command completed (TS shows an empty <bash-stdout> block).
+                AppendLocalCommandMessage(
+                    bash_res->output.empty()
+                        ? std::string("(no output)")
+                        : std::move(bash_res->output),
+                    bash_res->is_error);
+            }
+        }
+
         if (query_running_.load()) return;
         if (screen_state_->spinner_mode == repl::SpinnerMode::Hidden) return;
+
+        cc::utils::debug("app.consume",
+            "ConsumePendingResult firing — spinner_mode={}, calling SyncState",
+            static_cast<int>(screen_state_->spinner_mode));
 
         std::lock_guard lk(result_mutex_);
 
@@ -3031,11 +3388,19 @@ public:
         // the last frame (drained on the render thread for input_text safety).
         repl::DrainPendingAtMentionInserts(screen_state_);
 
-        if (query_running_.load()) {
+        const bool qr = query_running_.load();
+        cc::utils::debug("app.render",
+            "Render: query_running={}, messages={}, spinner_mode={}",
+            qr, screen_state_->messages.size(),
+            static_cast<int>(screen_state_->spinner_mode));
+
+        if (qr) {
             std::lock_guard lk(result_mutex_);
 
             const auto now = std::chrono::system_clock::now();
             auto messages = engine_->get_conversation();
+            // TS Messages.tsx:520 collapse chain (background-bash so far).
+            messages = ApplyMessageCollapsePipeline(std::move(messages));
             screen_state_->messages.clear();
             screen_state_->messages.reserve(
                 messages.size() + streaming_tools_.size() +
@@ -3100,6 +3465,26 @@ public:
                                  !streaming_tools_.empty() ||
                                  !streaming_thinking_.empty();
 
+            // If any streaming tool has complete=true (ContentBlockStop received),
+            // the AssistantMessage for this turn was already committed to the
+            // conversation (append_message fires after all blocks finish streaming).
+            // All streaming blocks (text + thinking + tool-use) from this turn
+            // are now duplicates of what the committed path already projected.
+            if (has_in_flight) {
+                bool all_tools_complete = !streaming_tools_.empty() &&
+                    std::ranges::all_of(streaming_tools_, [](const auto& p) {
+                        return p.second.complete;
+                    });
+                if (all_tools_complete) has_in_flight = false;
+            }
+
+            cc::utils::debug("app.render",
+                "  streaming-path: committed_msgs={}, in_flight={} "
+                "(text_len={}, tools={}, thinking={})",
+                screen_state_->messages.size(), has_in_flight,
+                streaming_text_.size(), streaming_tools_.size(),
+                streaming_thinking_.size());
+
             if (has_in_flight) {
                 // Gather block indices (keys of all streaming maps) to sort.
                 std::vector<std::uint32_t> block_indices;
@@ -3143,19 +3528,44 @@ public:
                     // Tool-use block
                     auto tlu = streaming_tools_.find(idx);
                     if (tlu != streaming_tools_.end()) {
+                        // Once exec_done, the committed conversation already
+                        // contains this tool_use (AssistantMessage was appended
+                        // before execute_pending_tools ran).  Skip it here to
+                        // avoid a duplicate green-dot row in the transcript.
+                        if (tlu->second.exec_done) continue;
+
                         repl::MessageDisplayEntry e;
                         e.role = "assistant";
                         e.is_tool_use = true;
                         e.tool_name = tlu->second.tool_name;
                         e.tool_input_json = tlu->second.input_json;
-                        // In-flight tool-use → "running" status so the
-                        // faithful renderer shows the animated dot + progress.
-                        e.tool_status = "running";
+                        // Status: if tool execution has completed
+                        // (ToolExecutionEnd received), show resolved status
+                        // so the faithful renderer paints a green/red dot
+                        // instead of the animated spinner.  The actual result
+                        // lives in the separate UserToolResult card (committed
+                        // ToolResultMessage), NOT in the tool_use card's
+                        // Output section — TS parity.
+                        //
+                        // We check exec_done (set by ToolExecutionEnd), NOT
+                        // complete (set by ContentBlockStop when input_json
+                        // finishes streaming — happens before execution).
+                        if (tlu->second.exec_done) {
+                            e.tool_status = tlu->second.is_error
+                                ? "error" : "success";
+                        } else {
+                            e.tool_status = "running";
+                        }
                         e.content_preview = tlu->second.input_json;
-                        // M6 result_preview: live streaming result text.
-                        // Populated by ToolExecutionProgress events from the
-                        // engine's tool execution pipeline.
-                        if (!tlu->second.result_preview.empty())
+                        // result_preview: ONLY forward while the tool is
+                        // still executing (progress output).  Once exec_done,
+                        // suppress it — the committed ✓ card shows the final
+                        // result, and showing it here too would duplicate
+                        // the output and defeat the "separate result card"
+                        // UX that TS uses (AssistantToolUseMessage +
+                        // UserToolSuccessMessage).
+                        if (!tlu->second.exec_done &&
+                            !tlu->second.result_preview.empty())
                             e.tool_result_preview = tlu->second.result_preview;
                         e.is_error = tlu->second.is_error;
                         e.timestamp = now;
@@ -3167,9 +3577,7 @@ public:
                     if (!streaming_text_.empty() && idx == text_idx) {
                         repl::MessageDisplayEntry e;
                         e.role = "assistant";
-                        e.content_preview = streaming_text_.size() > 500
-                            ? streaming_text_.substr(streaming_text_.size() - 500)
-                            : streaming_text_;
+                        e.content_preview = streaming_text_;
                         e.is_streaming = true;
                         e.timestamp = now;
                         e.id = streaming_uuid24;
@@ -3496,6 +3904,24 @@ public:
 
     [[nodiscard]] bool is_query_running_for_testing() const noexcept {
         return query_running_.load();
+    }
+
+    // Drive a prompt submission through the full HandleSubmit path (slash /
+    // bash / LLM routing) exactly as the Enter key would.
+    void submit_for_testing(const std::string& text) {
+        this->HandleSubmit(text);
+    }
+
+    // True while a local '!' bash command worker is still running.
+    [[nodiscard]] bool is_local_bash_running_for_testing() const noexcept {
+        return bash_running_.load();
+    }
+
+    // Block until the local '!' bash worker finishes, then drain its output
+    // into the transcript (mirrors what the render loop does each frame).
+    void wait_for_local_bash_for_testing() {
+        if (bash_thread_.joinable()) bash_thread_.join();
+        this->ConsumePendingResult();
     }
 
     [[nodiscard]] bool is_loading_for_testing() const noexcept {

@@ -597,9 +597,30 @@ private:
                     b.id.str(), escape_json(b.name),
                     b.input_json.empty() ? "{}" : b.input_json);
             } else if constexpr (std::is_same_v<T, ToolResultBlock>) {
-                return std::format(R"({{"type":"tool_result","tool_use_id":"{}","content":"{}","is_error":{}}})",
-                    b.tool_use_id.str(), escape_json(b.content),
-                    b.is_error ? "true" : "false");
+                // TS PARITY: content may be string or array of content items
+                if (std::holds_alternative<std::string>(b.content)) {
+                    return std::format(
+                        R"({{"type":"tool_result","tool_use_id":"{}","content":"{}","is_error":{}}})",
+                        b.tool_use_id.str(),
+                        escape_json(std::get<std::string>(b.content)),
+                        b.is_error ? "true" : "false");
+                }
+                // Array content: build JSON manually
+                const auto& items = std::get<std::vector<ToolResultContentItem>>(b.content);
+                std::string arr;
+                for (const auto& item : items) {
+                    if (!arr.empty()) arr += ",";
+                    if (item.type == "text") {
+                        arr += std::format(R"({{"type":"text","text":"{}"}})", escape_json(item.text));
+                    } else if (item.type == "image") {
+                        arr += std::format(
+                            R"({{"type":"image","media_type":"{}","data":"{}"}})",
+                            escape_json(item.media_type), escape_json(item.data));
+                    }
+                }
+                return std::format(
+                    R"({{"type":"tool_result","tool_use_id":"{}","content":[{}],"is_error":{}}})",
+                    b.tool_use_id.str(), arr, b.is_error ? "true" : "false");
             } else if constexpr (std::is_same_v<T, ImageBlock>) {
                 return std::format(R"({{"type":"image","media_type":"{}","data":"{}"}})",
                     escape_json(b.media_type), escape_json(b.data));

@@ -617,7 +617,7 @@ inline Element status_badge_decor(ConnectionStatus s) {
 
         auto result = state->props.on_call_tool
             ? state->props.on_call_tool(t.name, json)
-            : ToolCallResult{.is_error = true, .content = {ContentItem{"text", "no handler"}}};
+            : ToolCallResult{.is_error = true, .content = {ContentItem{"text", "no handler", std::nullopt, std::nullopt}}};
         state->call_state.stage = ToolCallFormState::Stage::Done;
         state->call_state.last_ok = !result.is_error;
         std::string out;

@@ -130,6 +130,11 @@ inline void resolve_from_store(ImageMessageData& data) {
 /// TS REF: src/components/messages/UserImageMessage.tsx
 ///   TS: `const label = imageId ? \`[Image #${imageId}]\` : "[Image]"`
 ///   rendered as <Text>{label}</Text> optionally wrapped in <Link url={...}>.
+///
+/// TS VISUAL PARITY (2026-07-04): TS renders just 1 line for image attachments.
+/// The CPP port previously added 3 extra lines (meta, source, alt/base64) which
+/// made the card too tall and caused "间距很大" (user report).  We now keep
+/// the card compact: label + inline meta on one line, source only for files.
 [[nodiscard]] inline Element render(const ImageMessageData& data) {
     // --- Primary label: [Image #N] (TS-faithful) ---
     // TS REF: UserImageMessage.tsx L26
@@ -139,6 +144,25 @@ inline void resolve_from_store(ImageMessageData& data) {
     }
     label += "]";
 
+    // Build inline meta suffix: "png · 1024×768 · 17 KB" (dim, same line)
+    std::string meta_suffix;
+    {
+        if (!data.media_type.empty()) {
+            auto mt = data.media_type;
+            if (mt.starts_with("image/")) mt = mt.substr(6);
+            meta_suffix += mt;
+        }
+        if (data.width && data.height) {
+            if (!meta_suffix.empty()) meta_suffix += " · ";
+            meta_suffix += std::to_string(*data.width) + "\xC3\x97" +
+                           std::to_string(*data.height);
+        }
+        if (data.file_size) {
+            if (!meta_suffix.empty()) meta_suffix += " · ";
+            meta_suffix += format_size(*data.file_size);
+        }
+    }
+
     Element label_el;
     if ((data.source_type == ImageSource::File ||
          data.source_type == ImageSource::StoreId) &&
@@ -146,80 +170,62 @@ inline void resolve_from_store(ImageMessageData& data) {
         // TS REF: UserImageMessage.tsx L30 — clickable Link when supported
         std::string file_url = "file://" + data.source;
         label_el = hbox({
-            text("🖼 ") | color(Color::BlueLight),
+            text("\xf0\x9f\x96\xbc ") | color(Color::BlueLight),
             text(label) | bold | color(Color::Cyan) | hyperlink(file_url),
+            meta_suffix.empty() ? text("")
+                : text("  " + meta_suffix) | dim | color(Color::GrayLight),
         });
     } else {
         label_el = hbox({
-            text("🖼 ") | color(Color::BlueLight),
+            text("\xf0\x9f\x96\xbc ") | color(Color::BlueLight),
             text(label) | bold | color(Color::BlueLight),
+            meta_suffix.empty() ? text("")
+                : text("  " + meta_suffix) | dim | color(Color::GrayLight),
         });
     }
 
-    // --- Info block (metadata below label) ---
-    Elements info_parts;
-    info_parts.push_back(std::move(label_el));
+    // Build the card: always starts with the label line (1 row).
+    Elements card_parts;
+    card_parts.push_back(std::move(label_el));
 
-    // Dimensions + media type + file size (one line)
-    {
-        std::string meta_line;
-        if (data.width && data.height && *data.width > 0 && *data.height > 0) {
-            meta_line += std::format("{}×{}", *data.width, *data.height);
-        }
-        if (!data.media_type.empty()) {
-            if (!meta_line.empty()) meta_line += "  ";
-            auto mt = data.media_type;
-            if (mt.starts_with("image/")) mt = mt.substr(6);
-            meta_line += mt;
-        }
-        if (data.file_size) {
-            if (!meta_line.empty()) meta_line += " · ";
-            meta_line += format_size(*data.file_size);
-        }
-        if (!meta_line.empty()) {
-            info_parts.push_back(text("  " + meta_line) | dim | color(Color::GrayLight));
-        }
-    }
-
-    // Source line
-    {
-        std::string display_source = data.source;
-        if (display_source.empty() && !data.file_name.empty()) {
+    // Source line: show filename/path for all source types except Base64.
+    // Clipboard pastes show 📎 + filename so users know which paste it is.
+    // File images show 📁 + path.
+    if (data.source_type != ImageSource::Base64) {
+        std::string display_source;
+        if (data.source_type == ImageSource::Clipboard) {
+            // For clipboard, prefer file_name over source (source is a
+            // temp path the user doesn't care about).
             display_source = data.file_name;
-        }
-        if (display_source.size() > 40) {
-            display_source = "…" + display_source.substr(display_source.size() - 39);
-        }
-
-        if (!display_source.empty()) {
-            if (data.source_type == ImageSource::File ||
-                data.source_type == ImageSource::StoreId) {
-                std::string file_url = "file://" + data.source;
-                info_parts.push_back(
-                    hbox({
-                        text(std::string("  ") + source_icon(data.source_type) + " ") | dim,
-                        text(display_source) | color(Color::Cyan) |
-                            (supports_hyperlinks() ? hyperlink(file_url) : nothing),
-                    })
-                );
-            } else {
-                info_parts.push_back(
-                    text(std::string("  ") + source_icon(data.source_type) + " " + display_source)
-                        | dim | color(Color::Cyan));
+        } else {
+            display_source = data.source;
+            if (display_source.empty() && !data.file_name.empty()) {
+                display_source = data.file_name;
             }
         }
-    }
-
-    // Alt text
-    if (data.alt_text && !data.alt_text->empty()) {
-        std::string alt = *data.alt_text;
-        if (alt.size() > 50) {
-            alt = alt.substr(0, 47) + "…";
+        if (display_source.size() > 50) {
+            display_source = "\xe2\x80\xa6" + display_source.substr(display_source.size() - 49);
         }
-        info_parts.push_back(text("  Alt: " + alt) | dim | color(Color::GrayDark));
+        if (!display_source.empty()) {
+            std::string file_url = "file://" + data.source;
+            card_parts.push_back(
+                hbox({
+                    text("  ") | dim,
+                    text(std::string(source_icon(data.source_type)) + " ") | dim,
+                    text(display_source) | color(Color::Cyan) |
+                        (supports_hyperlinks() ? hyperlink(file_url) : nothing),
+                })
+            );
+        }
     }
 
-    return vbox(std::move(info_parts));
+    // NOTE: deliberately NO "Alt:" line.  The alt_text field was being abused
+    // to stuff base64 PNG data (repl_screen.cppm L825-831) for a planned
+    // "ASCII-art thumbnail" feature that was never implemented.  Showing raw
+    // base64 prefix "Alt: iVBORw0KGgo..." is worse than useless — it wastes a
+    // line and confuses users.  Removed 2026-07-04 per spacing bug report.
+
+    return vbox(std::move(card_parts));
 }
 
 // ============================================================

@@ -127,6 +127,78 @@ constexpr std::string_view kStrippedPromptTags[] = {
 
 } // namespace cc::ui::messages::detail
 
+// ─── Literal \n unescape (module-internal) ─────────────────────────────
+// Some models (e.g. GLM-5.2 / ByteDance) emit text with JSON-escaped
+// newlines ("\n" as two characters) that survive into the UI layer.
+// Worse, some models DOUBLE-escape ("\\n" as three chars: backslash-
+// backslash-n) which the simple \n→newline pass leaves as a visible
+// trailing backslash + a real newline — the "行尾 \\" bug.
+//
+// This decoder handles all practical escape levels:
+//   \n    → real newline  (single-escaped)
+//   \\n   → real newline  (double-escaped: model escaped the escape)
+//   \\\n  → \ + newline   (literal backslash then single-escaped newline)
+//   \r\n  → real newline  (Windows CRLF)
+//   \r    → real newline  (bare CR, old Mac)
+//   \"    → "             (JSON-escaped quote)
+//   \\    → \             (JSON-escaped backslash, when not \\n)
+//   \t    → tab           (JSON-escaped tab)
+//   \/    → /             (JSON-escaped forward slash)
+//
+// The \\n→newline rule is pragmatic: a model emitting \\n almost certainly
+// means "I want a line break here" rather than "I want a literal backslash
+// followed by the letter n".  Standard escape semantics would give us
+// backslash-n, but that produces visible garbage in the terminal.
+//
+// JSON escapes (\" \\ \t \/) handle cases where the model returns text
+// with JSON-encoded string content that wasn't fully decoded by the
+// transport layer.
+namespace cc::ui::messages::detail {
+
+[[nodiscard]] inline std::string unescape_literal_newlines(std::string_view s) {
+    std::string out;
+    out.reserve(s.size());
+    for (size_t i = 0; i < s.size(); ++i) {
+        const char c = s[i];
+
+        // Windows / old-Mac line endings → real newline
+        if (c == '\r') {
+            out += '\n';
+            if (i + 1 < s.size() && s[i + 1] == '\n') ++i;  // skip \n of \r\n
+            continue;
+        }
+
+        if (c != '\\' || i + 1 >= s.size()) {
+            out += c;
+            continue;
+        }
+
+        // We have a backslash.  Check what follows.
+        // Order matters: check \\n before \n so double-escaped is caught
+        // before the single-escape rule fires on the second backslash.
+        const char next = s[i + 1];
+        if (next == '\\' && i + 2 < s.size() && s[i + 2] == 'n') {
+            // Double-escaped: \\n → newline
+            out += '\n';
+            i += 2;  // skip second '\\' and 'n'
+            continue;
+        }
+
+        // Single-char escapes
+        switch (next) {
+            case 'n':  out += '\n'; ++i; break;   // \n → newline
+            case 't':  out += '\t'; ++i; break;   // \t → tab
+            case '"':  out += '"';  ++i; break;   // \" → quote
+            case '\\': out += '\\'; ++i; break;   // \\ → backslash (JSON)
+            case '/':  out += '/';  ++i; break;   // \/ → forward slash (JSON)
+            default:   out += '\\'; break;        // unknown escape: keep backslash
+        }
+    }
+    return out;
+}
+
+} // namespace cc::ui::messages::detail
+
 export namespace cc::ui::messages {
 
 using namespace ftxui;
@@ -287,6 +359,12 @@ class AssistantTextMessageComponent : public ComponentBase {
             // Strip prompt-scaffolding XML before rendering, mirroring TS
             // (marked.lexer(stripPromptXMLTags(content))).
             std::string content = detail::strip_prompt_xml_tags(data_.content);
+
+            // Unescape literal "\n" (two-char backslash-n) into real newlines.
+            // Some models (e.g. GLM-5.2) send text with JSON-escaped newlines
+            // that survive into the UI layer, causing one very long clipped line.
+            content = detail::unescape_literal_newlines(content);
+
             bool truncated = false;
             if (!expanded_) {
                 auto lines = SplitLines(content);
@@ -372,13 +450,15 @@ class AssistantTextMessageComponent : public ComponentBase {
 
 /// Stateless element renderer (no interactions).
 [[nodiscard]] inline Element RenderAssistantTextMessageBubble(const AssistantTextMessageData& data) {
+    std::string cleaned = detail::unescape_literal_newlines(
+        detail::strip_prompt_xml_tags(data.content));
     return vbox({
         hbox({
             text("🤖") | color(Color::Purple4),
             text(" Assistant  "),
             text(render_timestamp(data.timestamp)) | dim,
         }),
-        ::cc::ui::render_markdown(detail::strip_prompt_xml_tags(data.content)),
+        ::cc::ui::render_markdown(cleaned),
     });
 }
 
@@ -458,7 +538,12 @@ class AssistantTextMessageComponent : public ComponentBase {
     const AssistantTextMessageData& data,
     bool add_margin = true,
     bool is_selected = false) {
-    auto body = ::cc::ui::render_markdown(detail::strip_prompt_xml_tags(data.content));
+    // Unescape literal "\n" before markdown rendering — same fix as BuildBody().
+    // Without this, models that emit JSON-escaped newlines produce one long
+    // clipped line and markdown line-boundary patterns (* list, headings) fail.
+    std::string cleaned = detail::unescape_literal_newlines(
+        detail::strip_prompt_xml_tags(data.content));
+    auto body = ::cc::ui::render_markdown(cleaned);
     return RenderAssistantTextMessageFaithful(data, std::move(body), add_margin, is_selected);
 }
 

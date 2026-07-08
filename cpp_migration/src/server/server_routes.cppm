@@ -27,6 +27,7 @@ import cc.hooks.tool_permissions;
 import cc.query.query_engine;
 import cc.services.api.session_ingress;
 import cc.session.storage;
+import cc.tools.mcp;
 import cc.tools.runtime_registry;
 import cc.tools.tool;
 import cc.types.types;
@@ -793,7 +794,47 @@ namespace detail {
                 : cc::tools::AgentLivePermissionCheckFn{},
             .permission_hook_valid_for_background = false,
         });
+
+        // TS PARITY FALLBACK: route unregistered tool names (e.g. MCP server
+        // tools like "analyze_image") to connected MCP servers.  In TS,
+        // `assembleToolPool` merges built-in tools with per-server MCP tools
+        // so the model can call them directly by short name.
+        registry.set_missing_tool_handler(
+            [](std::string_view tool_name,
+               const cc::core::ToolInput& input) -> cc::core::Result<cc::core::ToolResult> {
+                namespace mcp = cc::tools;
+                auto& runtime = mcp::NativeMcpRuntime::instance();
+                std::string last_error;
+                auto statuses = runtime.all_statuses();
+                for (const auto& s : statuses) {
+                    auto result = runtime.call_tool(
+                        s.name, tool_name, std::string{input.json()});
+                    if (result) {
+                        std::vector<cc::core::ToolOutputContent> contents;
+                        contents.push_back(
+                            cc::core::ToolOutputContent::text_output(result->content));
+                        return cc::core::ToolResult{
+                            .content = std::move(contents),
+                            .is_error = result->is_error,
+                        };
+                    }
+                    last_error = std::string{mcp::format_error(result.error())};
+                }
+                return std::unexpected(cc::core::Error::make(
+                    cc::core::ErrorCode::ToolNotFound,
+                    std::format("Tool '{}' not found in registry or on any "
+                                "configured MCP server{}",
+                                tool_name,
+                                last_error.empty() ? "" : " (" + last_error + ")")));
+            });
+
         config.tools = registry.get_visible_definitions();
+        // TS PARITY: MCP tools discovered dynamically after server connection.
+        // Provider callback ensures build_request_body() picks up newly
+        // connected MCP servers' tools on every API call.
+        config.dynamic_tools_provider = []() -> std::vector<cc::core::ToolDefinition> {
+            return cc::tools::collect_mcp_tool_definitions();
+        };
 
         cc::core::QueryEngine engine(std::move(config), registry);
         if (request.cancel_flag) {

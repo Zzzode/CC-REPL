@@ -70,6 +70,7 @@ enum class InlineTokenKind : std::uint8_t {
     Code,
     Link,
     Escape,
+    Math,       ///< Inline math: $...$ (LaTeX math expression)
 };
 
 /// An inline formatting token
@@ -89,6 +90,7 @@ enum class BlockTokenKind : std::uint8_t {
     Blockquote,
     Table,
     HorizontalRule,
+    MathBlock,   ///< Block math: $$...$$ (LaTeX display math)
 };
 
 /// A block-level markdown token
@@ -108,6 +110,8 @@ struct BlockToken {
     std::vector<InlineToken> inlines;
     // Blockquote depth
     int quote_depth = 0;
+    // Math block content (LaTeX source for $$...$$ display math)
+    std::string math_content;
 };
 
 // ============================================================
@@ -125,7 +129,7 @@ namespace detail {
         char c = s[i];
         if (c == '#' || c == '*' || c == '`' || c == '|' ||
             c == '[' || c == '>' || c == '-' || c == '_' ||
-            c == '~') {
+            c == '~' || c == '$') {
             return true;
         }
         if (c == '\n' && i + 1 < sample_len) {
@@ -175,7 +179,8 @@ namespace detail {
                 next == '[' || next == ']' || next == '(' ||
                 next == ')' || next == '#' || next == '+' ||
                 next == '-' || next == '.' || next == '!' ||
-                next == '>' || next == '~' || next == '|') {
+                next == '>' || next == '~' || next == '|' ||
+                next == '$') {
                 buffer += next;
                 i += 1;
                 continue;
@@ -239,6 +244,25 @@ namespace detail {
                     i = end;
                     continue;
                 }
+            }
+        }
+
+        // Inline math: $...$ (LaTeX math expression)
+        // Opening $ must not be followed by whitespace or another $ (to
+        // avoid matching $$...$$ block math inline — that's handled in
+        // lex_blocks).  Closing $ must not be preceded by whitespace.
+        // Mirrors marked-katex-extension / marked-math behavior.
+        if (c == '$' && i + 1 < text.size() && text[i + 1] != '$' &&
+            text[i + 1] != ' ' && text[i + 1] != '\t') {
+            flush_buffer();
+            auto end = text.find('$', i + 1);
+            if (end != std::string_view::npos && end > i + 1 &&
+                text[end - 1] != ' ' && text[end - 1] != '\t') {
+                auto math = text.substr(i + 1, end - i - 1);
+                tokens.push_back({InlineTokenKind::Math,
+                                  std::string(math), {}});
+                i = end;
+                continue;
             }
         }
 
@@ -463,6 +487,52 @@ namespace detail {
             tok.kind = BlockTokenKind::CodeBlock;
             tok.code_lang = std::string(lang_str);
             tok.code_content = std::move(code);
+            tokens.push_back(std::move(tok));
+            continue;
+        }
+
+        // Block math: $...$ (LaTeX display math)
+        // Mirrors marked-math extension: $$ on its own line starts a display
+        // math block; closing $$ on its own line ends it.  Content between
+        // is captured verbatim (no inline processing).
+        if (line.starts_with("$")) {
+            flush_paragraph();
+            flush_list();
+            flush_quote();
+
+            std::string math;
+            // Check if content is on the same line: $...$
+            auto rest = line.substr(2);
+            auto close_pos = rest.find("$");
+            if (close_pos != std::string::npos) {
+                // Single-line block math: $formula$
+                math = rest.substr(0, close_pos);
+            } else {
+                // Multi-line: $ on opening line, content on subsequent lines,
+                // $ on closing line.
+                if (!rest.empty()) {
+                    math = rest;
+                }
+                ++i;
+                while (i < lines.size() && !lines[i].starts_with("$")) {
+                    if (!math.empty()) math += '\n';
+                    math += lines[i];
+                    ++i;
+                }
+                // If we found the closing $ line, also grab any trailing
+                // content after it on the same line (usually empty).
+                if (i < lines.size()) {
+                    auto tail = lines[i].substr(2);
+                    if (!tail.empty()) {
+                        if (!math.empty()) math += '\n';
+                        math += tail;
+                    }
+                }
+            }
+
+            BlockToken tok;
+            tok.kind = BlockTokenKind::MathBlock;
+            tok.math_content = std::move(math);
             tokens.push_back(std::move(tok));
             continue;
         }
@@ -714,6 +784,13 @@ namespace detail {
                 el = el | underlined;
                 break;
             case InlineTokenKind::Escape:
+                break;
+            case InlineTokenKind::Math:
+                // Inline LaTeX math ($...$).  TS renders via KaTeX → HTML;
+                // in a terminal we approximate with a distinct cyan color
+                // so the user can tell it's been recognized as math rather
+                // than plain text with visible $ delimiters.
+                el = el | color(Color::CyanLight);
                 break;
         }
 
@@ -1116,6 +1193,16 @@ namespace detail {
             case BlockTokenKind::HorizontalRule:
                 elements.push_back(detail::render_hr(opts));
                 break;
+            case BlockTokenKind::MathBlock: {
+                // Display math ($...$).  TS renders via KaTeX → HTML; in a
+                // terminal we show the raw LaTeX centered and in a distinct
+                // cyan color so it's visually recognized as a formula block.
+                Element math_el = text(tok.math_content) |
+                                  color(Color::CyanLight);
+                elements.push_back(
+                    hbox({filler(), std::move(math_el), filler()}));
+                break;
+            }
         }
     }
 

@@ -37,6 +37,7 @@ import cc.types.types;
 import cc.tools.tool;
 import cc.tools.agent_runtime;
 import cc.tools.runtime_registry;
+import cc.tools.mcp;
 import cc.hooks.tool_permissions;
 import cc.hooks.lifecycle_hooks;
 import cc.types.command;
@@ -622,6 +623,27 @@ int run_runtime_tool_once(const CliOptions& opts) {
     cc::tools::register_runtime_tools(tool_registry, cc::tools::RuntimeToolOptions{
         .parent_permission_mode = parent_permission_mode_from_options(opts),
     });
+    // TS PARITY FALLBACK: route unregistered tool names to MCP servers.
+    tool_registry.set_missing_tool_handler(
+        [](std::string_view tool_name,
+           const cc::core::ToolInput& input) -> cc::core::Result<cc::core::ToolResult> {
+            namespace mcp = cc::tools;
+            auto& runtime = mcp::NativeMcpRuntime::instance();
+            std::string last_error;
+            auto statuses = runtime.all_statuses();
+            for (const auto& s : statuses) {
+                auto result = runtime.call_tool(s.name, tool_name, std::string{input.json()});
+                if (result) {
+                    std::vector<cc::core::ToolOutputContent> contents;
+                    contents.push_back(cc::core::ToolOutputContent::text_output(result->content));
+                    return cc::core::ToolResult{.content = std::move(contents), .is_error = result->is_error};
+                }
+                last_error = std::string{mcp::format_error(result.error())};
+            }
+            return std::unexpected(cc::core::Error::make(cc::core::ErrorCode::ToolNotFound,
+                std::format("Tool '{}' not found in registry or on any configured MCP server{}", tool_name,
+                    last_error.empty() ? "" : " (" + last_error + ")")));
+        });
     auto result = tool_registry.execute(
         *opts.runtime_tool_name,
         cc::core::ToolInput::from_json(opts.runtime_tool_input_json.value_or("{}")));
@@ -1823,8 +1845,91 @@ int main(int argc, const char* argv[]) {
         .permission_hook_valid_for_background = true,
     });
 
+    // ── MCP tool fallback handler ────────────────────────────────────
+    // TS PARITY: In TS, each MCP server's tools are registered as
+    // individual tools in the tool pool (assembleToolPool merges
+    // built-in + mcp.tools).  The model can then call them directly
+    // (e.g. "analyze_image" instead of the generic "mcp" wrapper).
+    //
+    // In CPP, only the generic "mcp" tool is registered.  When the
+    // model calls a tool by its short name (e.g. "analyze_image"),
+    // ToolRegistry::execute returns ToolNotFound.  This fallback
+    // handler tries to route the call to a connected MCP server that
+    // exposes a tool with the same name.
+    //
+    // The handler iterates all known MCP servers and attempts the
+    // call on each; NativeMcpRuntime::call_tool auto-connects if
+    // needed.  The first successful result is returned.  If no server
+    // has the tool, the original ToolNotFound error is preserved.
+    tool_registry.set_missing_tool_handler(
+        [](std::string_view tool_name,
+           const cc::core::ToolInput& input) -> cc::core::Result<cc::core::ToolResult> {
+            namespace mcp = cc::tools;
+            auto& runtime = mcp::NativeMcpRuntime::instance();
+
+            // Collect all server names to try.  Start with servers
+            // whose status we know (from all_statuses), then add any
+            // configured servers we haven't snapshotted yet.
+            std::vector<std::string> server_names;
+            {
+                auto statuses = runtime.all_statuses();
+                for (const auto& s : statuses) {
+                    server_names.push_back(s.name);
+                }
+            }
+            // Also try servers that are configured but might not yet
+            // be in the status list (lazy connection).
+            // NativeMcpRuntime::call_tool will auto-connect them.
+            // We discover these by trying the configured-server lookup
+            // for common server names, or by relying on all_statuses
+            // which already includes all configured servers.
+
+            std::string last_error;
+            for (const auto& server_name : server_names) {
+                auto result = runtime.call_tool(
+                    server_name, tool_name, std::string{input.json()});
+                if (result) {
+                    // Convert McpToolResult → ToolResult
+                    std::vector<cc::core::ToolOutputContent> contents;
+                    contents.push_back(cc::core::ToolOutputContent::text_output(
+                        result->content));
+                    return cc::core::ToolResult{
+                        .content = std::move(contents),
+                        .is_error = result->is_error,
+                    };
+                }
+                auto ec = result.error();
+                last_error = std::string{mcp::format_error(ec)};
+                // If the error is ToolNotFound, try the next server.
+                // For any other error (auth, connection, etc.) we also
+                // try the next server — the tool might live on a
+                // different one.  ServerNotFound also means "keep
+                // trying".
+                if (ec != mcp::McpError::ToolNotFound &&
+                    ec != mcp::McpError::ServerNotFound) {
+                    // Non-routing error: still try other servers,
+                    // but remember this one's error for the final
+                    // message if all fail.
+                }
+            }
+
+            // No MCP server has this tool — return the original
+            // ToolNotFound error.
+            return std::unexpected(cc::core::Error::make(
+                cc::core::ErrorCode::ToolNotFound,
+                std::format("Tool '{}' not found in registry or on any configured MCP server{}",
+                    tool_name,
+                    last_error.empty() ? "" : " (" + last_error + ")")));
+        });
+
     // Populate config.tools with definitions for the API request body
     config.tools = tool_registry.get_visible_definitions();
+    // TS PARITY: MCP tools are discovered dynamically (after server
+    // connection).  Set a provider callback so build_request_body()
+    // picks up newly-connected MCP servers' tools on every API call.
+    config.dynamic_tools_provider = []() -> std::vector<cc::core::ToolDefinition> {
+        return cc::tools::collect_mcp_tool_definitions();
+    };
 
     // Initialize command registry with all migrated commands
     auto cmd_registry = cc::commands::AppCommandRegistry{};

@@ -1475,6 +1475,7 @@ target_sources(cc_ui
         ui/messages/messages_list.cppm            # UI21 — Messages.tsx + Message.tsx (834+626 → 1308 loc)
         ui/messages/messages_interactions.cppm    # UI25 — MessageSelector + messageActions
         ui/messages/message_pipeline.cppm         # P0-2 — 7-stage message pipeline (dedup/tag-filter/augment/hide/index)
+        ui/messages/collapse_background_bash.cppm  # P0-2 — collapseBackgroundBashNotifications pass (Messages.tsx:520)
         ui/messages/scroll_keybindings.cppm       # UI22 — ScrollKeybindingHandler (1011 → 752 loc)
         ui/messages/virtual_message_list.cppm     # UI22 — VirtualScroll (1081 → 857 loc)
         ui/panels.cppm

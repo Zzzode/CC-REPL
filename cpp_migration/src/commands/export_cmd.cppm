@@ -199,7 +199,7 @@ struct ExportOptions {
             } else if (std::holds_alternative<ToolResultBlock>(block)) {
                 if (!out.empty()) out += "\n";
                 const auto& tr = std::get<ToolResultBlock>(block);
-                out += std::format("[Tool result: {}]", tr.content);
+                out += std::format("[Tool result: {}]", tool_result_content_text(tr));
             } else if (std::holds_alternative<ThinkingBlock>(block) && include_thinking) {
                 if (!out.empty()) out += "\n";
                 out += std::format("[Thinking]: {}",

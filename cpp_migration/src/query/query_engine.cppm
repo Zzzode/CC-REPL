@@ -286,6 +286,13 @@ struct QueryEngineConfig {
     };
     std::optional<ResponseSchema> response_schema;   // API-side output_config.format.json_schema
     std::vector<ToolDefinition> tools;              // Available tools for the model
+    /// Optional callback that provides dynamically-discovered tools
+    /// (e.g. MCP server tools) to be merged with config_.tools when
+    /// building the API request body.  Called on every request so
+    /// newly-connected MCP servers' tools are picked up immediately.
+    /// TS PARITY: assembleToolPool() merges built-in + mcp.tools; this
+    /// callback is the CPP equivalent of the dynamic MCP portion.
+    std::function<std::vector<ToolDefinition>()> dynamic_tools_provider;
     std::vector<std::string> agent_definitions;     // Agent definitions
     std::vector<std::string> fallback_models;       // Fallback models for capacity errors
 };
@@ -953,6 +960,21 @@ public:
         (void)cc::session::save_session_metadata(*sessions_dir_, meta);
     }
 
+    // TS REF: src/services/api/dumpPrompts.ts
+    // Enable full API request/response dump.  Every API call writes:
+    //   {"type":"request","timestamp":...,"body":<full request JSON>}
+    //   {"type":"response","timestamp":...,"events":[<parsed SSE events>]}
+    // to <dump_dir>/<session_id>.jsonl.
+    void set_dump_prompts_dir(std::filesystem::path dump_dir) {
+        dump_prompts_dir_ = std::move(dump_dir);
+        std::filesystem::create_directories(*dump_prompts_dir_);
+    }
+
+    [[nodiscard]] std::optional<std::filesystem::path> dump_prompts_path() const {
+        if (!dump_prompts_dir_) return std::nullopt;
+        return *dump_prompts_dir_ / (session_id_.str() + ".jsonl");
+    }
+
     /// Refresh session metadata on disk. Message bodies are appended
     /// incrementally in append_message(), so this only rewrites metadata.json
     /// with the current message count and last-active timestamp.
@@ -1435,7 +1457,7 @@ private:
                 return std::format("[tool_result:{} error={}] {}",
                     b.tool_use_id.value,
                     b.is_error ? "true" : "false",
-                    b.content);
+                    tool_result_content_text(b));
             } else if constexpr (std::same_as<T, ImageBlock>) {
                 return std::format("[image:{} {} bytes]", b.media_type, b.data.size());
             } else if constexpr (std::same_as<T, DocumentBlock>) {
@@ -1943,27 +1965,43 @@ private:
 
         root.add("messages", messages_arr);
 
-        // Build tools array with input_schema as JSON object
-        if (!config_.tools.empty()) {
+        // Build tools array with input_schema as JSON object.
+        // Merge static config_.tools with any dynamically-discovered tools
+        // (e.g. MCP server tools from dynamic_tools_provider).
+        {
             auto tools_arr = doc.array();
             std::size_t enabled_tool_count = 0;
-            for (const auto& tool : config_.tools) {
-                if (!is_tool_enabled_for_query(tool.name, options)) continue;
+            std::unordered_set<std::string> seen_names;  // dedup: built-ins win
+
+            auto add_tool = [&](const ToolDefinition& tool) {
+                if (!seen_names.insert(tool.name).second) return;  // duplicate
+                if (!is_tool_enabled_for_query(tool.name, options)) return;
                 ++enabled_tool_count;
                 auto tool_obj = doc.object();
                 tool_obj.add("name", doc.string(tool.name));
                 tool_obj.add("description", doc.string(tool.description));
-                // Parse input_schema JSON string into a proper JSON object
                 auto schema_json = tool.input_schema.to_json();
                 auto schema_doc = cc::utils::json::parse(schema_json);
                 if (schema_doc) {
                     tool_obj.add("input_schema", doc.copy_val(schema_doc->root()));
                 } else {
-                    // Fallback: embed as raw object string
                     tool_obj.add("input_schema", doc.raw_json(schema_json));
                 }
                 tools_arr.append(tool_obj);
+            };
+
+            // Built-in tools first (they win dedup)
+            for (const auto& tool : config_.tools) {
+                add_tool(tool);
             }
+            // Dynamic tools (MCP server tools, etc.)
+            if (config_.dynamic_tools_provider) {
+                auto dyn_tools = config_.dynamic_tools_provider();
+                for (const auto& tool : dyn_tools) {
+                    add_tool(tool);
+                }
+            }
+
             if (enabled_tool_count > 0) {
                 root.add("tools", tools_arr);
             }
@@ -2336,6 +2374,20 @@ private:
         // Build streaming request body
         std::string body = build_request_body(options, /*stream=*/true);
 
+        // ── Dump Prompts: log API request ──
+        if (dump_prompts_dir_) {
+            auto dp = dump_prompts_path();
+            if (dp) {
+                std::ofstream ofs(*dp, std::ios::app);
+                if (ofs.is_open()) {
+                    auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::system_clock::now().time_since_epoch()).count();
+                    ofs << "{\"type\":\"request\",\"timestamp\":" << now_ms
+                        << ",\"body\":" << body << "}\n";
+                }
+            }
+        }
+
         auto endpoint = api_messages_endpoint(api_config_.base_url);
         if (!endpoint) {
             result.failed = true;
@@ -2604,6 +2656,26 @@ private:
             end_event.stop_reason = result.message.stop_reason;
             end_event.usage = result.usage;
             (*options.on_event)(end_event);
+        }
+
+        // ── Dump Prompts: log API response ──
+        if (dump_prompts_dir_) {
+            auto dp = dump_prompts_path();
+            if (dp) {
+                std::ofstream ofs(*dp, std::ios::app);
+                if (ofs.is_open()) {
+                    auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::system_clock::now().time_since_epoch()).count();
+                    // Serialize the assembled response message as JSONL
+                    std::string resp_json = message_to_jsonl_(Message{result.message});
+                    ofs << "{\"type\":\"response\",\"timestamp\":" << now_ms
+                        << ",\"stop_reason\":\""
+                        << result.message.stop_reason.value_or("") << "\""
+                        << ",\"has_tool_use\":" << (result.has_tool_use ? "true" : "false")
+                        << ",\"failed\":" << (result.failed ? "true" : "false")
+                        << ",\"message\":" << resp_json << "}\n";
+                }
+            }
         }
 
         return result;
@@ -3022,6 +3094,7 @@ private:
     // Additional state tracking
     SessionId session_id_;                     // Unique session identifier
     std::optional<std::filesystem::path> sessions_dir_;  // transcript dir (nullopt = no persistence)
+    std::optional<std::filesystem::path> dump_prompts_dir_;  // API req/resp dump dir
     std::vector<PermissionDenial> permission_denials_;  // Record of permission denials
     std::unordered_set<std::string> discovered_skills_;  // Skills discovered this session
     std::unordered_set<std::string> loaded_nested_memory_paths_;

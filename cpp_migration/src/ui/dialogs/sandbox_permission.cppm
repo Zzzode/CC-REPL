@@ -153,6 +153,39 @@ requires requires (PayloadT& x) {
     x.host_pattern; x.on_response;
 } && (!requires (PayloadT& x) { x.initial_sandbox_toggle; })
 {
+    // ── Focus navigation (ArrowUp/Down, j/k) ──────────────────────────────
+    // TS parity: the bottom-slot SandboxPermission dialog has selectable
+    // options (Yes / YesAlways / No) navigable via arrow keys and Vim
+    // hjkl.  focused_index tracks which option is highlighted; Enter
+    // confirms the focused option.
+    auto option_count = [&]() -> std::int8_t {
+        bool managed_only = false;
+        if constexpr (requires { p.managed_domains_only; }) {
+            managed_only = p.managed_domains_only.value_or(false);
+        }
+        // managed_only → 2 options (Yes, No); else → 3 (Yes, YesAlways, No)
+        return managed_only ? 2 : 3;
+    };
+
+    auto move_focus = [&](int delta) -> bool {
+        if constexpr (!requires { p.focused_index; }) return false;
+        const std::int8_t n = option_count();
+        if (n <= 0) return false;
+        std::int8_t cur = p.focused_index.value_or(0);
+        // Wrap: (cur + delta + n) % n — handles both forward and backward
+        int next = (static_cast<int>(cur) + delta + n) % n;
+        p.focused_index = static_cast<std::int8_t>(next);
+        return true;
+    };
+
+    if (event == Event::ArrowDown || event == Event::Character('j')) {
+        return move_focus(+1);
+    }
+    if (event == Event::ArrowUp || event == Event::Character('k')) {
+        return move_focus(-1);
+    }
+
+    // ── Confirmation keys ─────────────────────────────────────────────────
     // canonical field access helpers — host_pattern → origin alias for renderer
     if (event == Event::Character('y') || event == Event::Character('Y') ||
         event == Event::Return) {

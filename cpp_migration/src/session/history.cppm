@@ -365,7 +365,25 @@ private:
             } else if constexpr (std::is_same_v<T, ToolResultBlock>) {
                 obj.add("type", doc.string("tool_result"));
                 obj.add("tool_use_id", doc.string(value.tool_use_id.value));
-                obj.add("content", doc.string(value.content));
+                // TS PARITY: content may be string or array of content items
+                if (std::holds_alternative<std::string>(value.content)) {
+                    obj.add("content", doc.string(std::get<std::string>(value.content)));
+                } else {
+                    const auto& items = std::get<std::vector<ToolResultContentItem>>(value.content);
+                    auto arr = doc.array();
+                    for (const auto& item : items) {
+                        auto item_obj = doc.object();
+                        item_obj.add("type", doc.string(item.type));
+                        if (item.type == "text") {
+                            item_obj.add("text", doc.string(item.text));
+                        } else if (item.type == "image") {
+                            item_obj.add("media_type", doc.string(item.media_type));
+                            item_obj.add("data", doc.string(item.data));
+                        }
+                        arr.append(item_obj);
+                    }
+                    obj.add("content", std::move(arr));
+                }
                 obj.add("is_error", doc.boolean(value.is_error));
             } else if constexpr (std::is_same_v<T, ImageBlock>) {
                 obj.add("type", doc.string("image"));
@@ -491,10 +509,31 @@ private:
                 block.get_string("input_json")};
         }
         if (type == "tool_result") {
-            return ToolResultBlock{
-                ToolUseId{block.get_string("tool_use_id")},
-                block.get_string("content"),
-                block.get("is_error").is_bool() && block.get("is_error").as_bool()};
+            // TS PARITY: content may be string or array of content items
+            ToolResultBlock trb;
+            trb.tool_use_id = ToolUseId{block.get_string("tool_use_id")};
+            trb.is_error = block.get("is_error").is_bool() && block.get("is_error").as_bool();
+            auto content_val = block.get("content");
+            if (content_val.is_str()) {
+                trb.content = std::string(content_val.as_str());
+            } else if (content_val.is_arr()) {
+                std::vector<ToolResultContentItem> items;
+                content_val.iter([&items](cc::utils::json::JsonVal elem) {
+                    if (!elem.is_obj()) return;
+                    ToolResultContentItem ci;
+                    if (auto t = elem.get("type"); t.is_str()) ci.type = t.as_str();
+                    if (ci.type == "text") {
+                        if (auto tx = elem.get("text"); tx.is_str()) ci.text = tx.as_str();
+                    } else if (ci.type == "image") {
+                        if (auto mt = elem.get("media_type"); mt.is_str()) ci.media_type = mt.as_str();
+                        else if (auto mt = elem.get("mimeType"); mt.is_str()) ci.media_type = mt.as_str();
+                        if (auto d = elem.get("data"); d.is_str()) ci.data = d.as_str();
+                    }
+                    if (!ci.type.empty()) items.push_back(std::move(ci));
+                });
+                trb.content = std::move(items);
+            }
+            return trb;
         }
         if (type == "image") {
             ImageBlock ib;

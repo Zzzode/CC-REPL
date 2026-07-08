@@ -313,6 +313,12 @@ public:
     [[nodiscard]] Result<ToolResult> execute(std::string_view name, const ToolInput& input) {
         auto* tool = get(name);
         if (!tool) {
+            // TS PARITY FALLBACK: if the tool is not registered (e.g. an
+            // MCP server tool like "analyze_image"), try the missing-tool
+            // handler which can route it to a connected MCP server.
+            if (missing_tool_handler_) {
+                return missing_tool_handler_(name, input);
+            }
             return std::unexpected(Error::make(
                 ErrorCode::ToolNotFound,
                 std::format("Tool '{}' not found in registry", name)
@@ -358,6 +364,30 @@ public:
 
     /// Number of registered tools
     [[nodiscard]] std::size_t size() const noexcept { return tools_.size(); }
+
+    /// Callback for handling unregistered tool lookups.
+    /// When `execute()` is called for a tool not in the registry,
+    /// this handler is invoked as a fallback.  Returns a valid
+    /// `Result<ToolResult>` if the fallback could execute the tool,
+    /// or `std::unexpected` with a `ToolNotFound` error otherwise.
+    ///
+    /// TS PARITY: In TS, `assembleToolPool` merges built-in tools with
+    /// `mcp.tools` (dynamically registered per-server tools).  When the
+    /// model calls an MCP tool by its short name (e.g. "analyze_image"),
+    /// `findToolByName` locates it in the merged pool.  In CPP, MCP
+    /// server tools are NOT individually registered — only the generic
+    /// "mcp" wrapper is.  This fallback bridges the gap: if a tool is
+    /// not found, we try to route it to a connected MCP server that
+    /// exposes a tool with the same name.
+    using MissingToolHandler = std::function<Result<ToolResult>(
+        std::string_view tool_name, const ToolInput& input)>;
+
+    void set_missing_tool_handler(MissingToolHandler handler) {
+        missing_tool_handler_ = std::move(handler);
+    }
+
+private:
+    MissingToolHandler missing_tool_handler_;
 };
 
 } // namespace cc::core

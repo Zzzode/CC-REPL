@@ -86,7 +86,8 @@ struct McpToolRequest {
 
 
 struct McpToolResult {
-    std::string content;
+    std::string content;                          ///< flattened text (backward compat)
+    std::vector<cc::services::mcp::ContentItem> content_items;  ///< structured content (TS parity)
     std::string content_type;  // "text", "image", "resource"
     bool is_error{false};
     // migrated: integrate collapse decision
@@ -940,6 +941,19 @@ public:
         config_signature_ = signature(servers);
         configured_servers_ = std::move(servers);
         manager_->set_configuration(make_native_config(configured_servers_));
+        // TS PARITY: MCP servers auto-connect on startup so their tools
+        // are available for assembleToolPool / config.tools.  Fire in a
+        // DETACHED background thread so we don't block the main thread
+        // (each connect_server has a 30s timeout — synchronous would
+        // freeze the UI on startup).  The dynamic_tools_provider in
+        // QueryEngine picks up tools as they become available.
+        auto servers_to_connect = configured_servers_;  // copy for bg thread
+        auto* mgr = manager_.get();
+        std::thread([mgr, servers_to_connect] {
+            for (const auto& s : servers_to_connect) {
+                (void)mgr->connect_server(s.name);
+            }
+        }).detach();
 	loaded_ = true;
 	return {};
     }
@@ -1032,17 +1046,26 @@ public:
         auto result = manager_->call_tool(std::string(server_name), request);
         if (!result) return std::unexpected(map_native_error(result.error()));
 
-        std::string content;
+        // TS PARITY (2026-07-04): preserve the structured ContentItem
+        // array instead of flattening to a single string.  MCP servers may
+        // return mixed text+image content blocks; flattening loses images
+        // and concatenates text blocks with "\n" which then needs the
+        // try_extract_result_summary_text workaround.
+        McpToolResult result_out;
+        result_out.content_items = result->content;  // preserve full array
+        result_out.content_type = "text";
+        result_out.is_error = result->is_error;
+
+        // Also build flattened text for backward-compat access
         for (const auto& item : result->content) {
-            if (!content.empty()) content += "\n";
-            content += item.text;
+            if (item.type == "text") {
+                if (!result_out.content.empty()) result_out.content += "\n";
+                result_out.content += item.text;
+            }
         }
-        if (content.empty()) content = "MCP tool returned no content.";
-        McpToolResult result_out{
-            .content = std::move(content),
-            .content_type = "text",
-            .is_error = result->is_error,
-        };
+        if (result_out.content.empty() && result->content.empty()) {
+            result_out.content = "MCP tool returned no content.";
+        }
         // migrated: integrate collapse decision
         McpToolCallRef call_ref{
             .server_name = server_name,
@@ -1107,7 +1130,7 @@ public:
         if (server_name == "filesystem" || server_name == "local" || uri.starts_with("file://")) {
             auto local = read_local_resource(uri);
             if (!local) return std::unexpected(McpError::ResourceNotFound);
-            return McpToolResult{.content = *local, .content_type = "text"};
+            return McpToolResult{.content = *local, .content_items = {}, .content_type = "text"};
         }
 
         if (auto loaded = ensure_loaded_from_config(); !loaded) {
@@ -1131,6 +1154,7 @@ public:
         }
         return McpToolResult{
             .content = content.empty() ? "MCP resource returned no content." : std::move(content),
+            .content_items = {},
             .content_type = "text",
         };
     }
@@ -1144,7 +1168,7 @@ private:
             svc_mcp::ConnectionManagerConfig{
                 .config_directory = fs::current_path(),
                 .connection_timeout = std::chrono::milliseconds{30000},
-                .auto_connect_on_start = false,
+                .auto_connect_on_start = true,
             });
     }
 

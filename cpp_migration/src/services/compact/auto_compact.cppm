@@ -39,6 +39,7 @@ using cc::core::ContentBlock;
 using cc::core::TextBlock;
 using cc::core::ToolUseBlock;
 using cc::core::ToolResultBlock;
+using cc::core::tool_result_content_text;
 using cc::core::ThinkingBlock;
 using cc::core::Role;
 using cc::core::TokenUsage;
@@ -228,7 +229,7 @@ struct AutoCompactTrackingState {
         } else if constexpr (std::is_same_v<T, ToolUseBlock>) {
             return estimate_tokens_for_text(b.name) + estimate_tokens_for_text(b.input_json);
         } else if constexpr (std::is_same_v<T, ToolResultBlock>) {
-            return estimate_tokens_for_text(b.content);
+            return estimate_tokens_for_text(tool_result_content_text(b));
         } else if constexpr (std::is_same_v<T, ThinkingBlock>) {
             return estimate_tokens_for_text(b.thinking);
         }
@@ -386,7 +387,7 @@ struct MicroCompactResult {
                     for (auto& block : trm.content) {
                         if (std::holds_alternative<ToolResultBlock>(block)) {
                             auto& trb = std::get<ToolResultBlock>(block);
-                            if (trb.content.size() > 100) {
+                            if (tool_result_content_text(trb).size() > 100) {
                                 result.tokens_saved += original_tokens - estimate_tokens_for_text("[Old tool result cleared]");
                                 trb.content = "[Old tool result cleared]";
                                 modified = true;
@@ -836,8 +837,9 @@ private:
             for (auto& block : result.content) {
                 if (std::holds_alternative<ToolResultBlock>(block)) {
                     auto& trb = std::get<ToolResultBlock>(block);
-                    if (trb.content.size() > 500) {
-                        trb.content = trb.content.substr(0, 500) + "\n... [truncated]";
+                    auto text = tool_result_content_text(trb);
+                    if (text.size() > 500) {
+                        trb.content = text.substr(0, 500) + "\n... [truncated]";
                     }
                 }
             }

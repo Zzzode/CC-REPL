@@ -576,7 +576,27 @@ inline auto build_visible_rows(MessagesListInput& input) -> std::vector<VisibleR
         }
         // 2) rows inside an active group are skipped
         if (consumed_by_group[i]) continue;
-        // 3) regular payload row
+        // 3) skip hidden thinking rows entirely (TS returns null → zero height;
+        //    FTXUI vbox always allocates 1 line per child, so we must not emit them).
+        //    Keep them visible if selected (user expanded) or streaming tail.
+        if (i < input.shapes.size()) {
+            const auto shape = input.shapes[i];
+            if (shape == MessageShape::AssistantThinking ||
+                shape == MessageShape::AssistantRedactedThinking) {
+                const bool is_selected_row = input.selected_row_idx.has_value() &&
+                    *input.selected_row_idx == i;
+                const bool is_streaming = (i == input.streaming_tail_row &&
+                    input.streaming_tail_row < input.rows.size());
+                if (!is_selected_row && !is_streaming) {
+                    if (auto* opts = std::get_if<thinking_message::ThinkingMessageOptions>(
+                            &input.rows[i])) {
+                        using TM = thinking_message::ThinkingState;
+                        if (opts->data.state == TM::Complete) continue;
+                    }
+                }
+            }
+        }
+        // 4) regular payload row
         if (!row_passes[i]) continue;
         out.push_back(VisibleRow{
             .kind    = VisibleRow::Kind::Payload,
@@ -680,16 +700,71 @@ namespace detail {
             content_lines = 2;
             break;
         case S::AssistantToolUse:
-        case S::AssistantGroupedTools:
-            // "• tool_name arg1=…" rows typically 2-4; capped low because
-            // grouped tools render their own inner grid.
-            content_lines = 2 + estimate_content_lines(preview, term_cols, 40) / 2;
+        case S::AssistantGroupedTools: {
+            if (auto* topts = std::get_if<tool_use_message::ToolUseRenderOptions>(
+                    &input.rows[vr.row_idx])) {
+                const auto& call = topts->call;
+                // Resolved built-in tools render as just a 1-line header
+                // (● ToolName (command)) — no Input/Output sections.
+                const bool is_resolved =
+                    (call.status == tool_use_message::ToolStatus::Success ||
+                     call.status == tool_use_message::ToolStatus::Error ||
+                     call.status == tool_use_message::ToolStatus::Cancelled);
+                if (is_resolved) {
+                    content_lines = 1;
+                } else {
+                    // Running/Pending: header + progress line
+                    content_lines = 2;
+                }
+            } else if (auto* gopts = std::get_if<tool_use_message::GroupedToolsOptions>(
+                           &input.rows[vr.row_idx])) {
+                int visible = std::min(
+                    static_cast<int>(gopts->calls.size()),
+                    gopts->max_visible_preview);
+                content_lines = 2 + visible;
+            } else {
+                content_lines = 2;
+            }
             break;
+        }
         case S::UserToolResult:
-        case S::UserBashOutput:
-            // Tallest content category — the full estimate.
-            content_lines = estimate_content_lines(preview, term_cols, 4);
+        case S::UserBashOutput: {
+            // TS PARITY (2026-07-05): payload_preview returns just tool_name
+            // (e.g. "Bash") — 1 line.  Actual tool result output can be
+            // dozens of lines.  Extract real output from ToolResultOptions.
+            if (auto* ropts = std::get_if<ToolResultOptions>(
+                    &input.rows[vr.row_idx])) {
+                std::string full_text;
+                if (ropts->content_items && !ropts->content_items->empty()) {
+                    // Structured content items (MCP tools): concatenate text.
+                    for (const auto& item : *ropts->content_items) {
+                        if (item.type == "text") {
+                            if (!full_text.empty()) full_text += '\n';
+                            full_text += item.text;
+                        } else if (item.type == "image") {
+                            if (!full_text.empty()) full_text += '\n';
+                            full_text += "[Image]";
+                        }
+                    }
+                } else if (ropts->output && !ropts->output->empty()) {
+                    full_text = *ropts->output;
+                } else if (ropts->error_message && !ropts->error_message->empty()) {
+                    full_text = *ropts->error_message;
+                }
+                if (!full_text.empty()) {
+                    content_lines = estimate_content_lines(full_text, term_cols, 4);
+                } else {
+                    content_lines = 2;  // minimal: header + "(no output)"
+                }
+                // +1 for header row (status icon + tool name + duration)
+                content_lines += 1;
+                if (ropts->is_truncated) content_lines += 1;  // "(output truncated)"
+            } else {
+                // Fallback for UserBashOutput (BashIOEntry variant)
+                content_lines = estimate_content_lines(preview, term_cols, 4);
+            }
             break;
+        }
         case S::UserLocalCommandOutput:
             // Command output (e.g. /help, /theme list) can be dozens of
             // lines.  payload_preview returns just "local-command" for this
@@ -887,9 +962,63 @@ inline constexpr std::size_t kVirtualThreshold = 80;
         state.scroll_top = std::max(0, scroll_top_lines);
     }
 
+    // ── Pre-compute add_margin for each visible row using the same
+    //    turn-state machine as the static path (TS visual parity). ──
+    std::vector<bool> add_margin_for_vi(visible.size(), true);
+    {
+        bool next_add_margin = true;
+        bool prev_was_user = false;
+        for (std::size_t vi = 0; vi < visible.size(); ++vi) {
+            const auto& vr = visible[vi];
+            if (vr.kind == VisibleRow::Kind::Payload) {
+                const MessageShape shape =
+                    (vr.row_idx < input.shapes.size())
+                        ? input.shapes[vr.row_idx]
+                        : MessageShape::SystemTaskAssignment;
+                using S = MessageShape;
+                const bool is_assistant_block =
+                    (shape == S::AssistantText ||
+                     shape == S::AssistantThinking ||
+                     shape == S::AssistantRedactedThinking ||
+                     shape == S::AssistantToolUse ||
+                     shape == S::AssistantGroupedTools);
+                const bool is_user_row =
+                    (shape == S::UserText ||
+                     shape == S::UserPrompt ||
+                     shape == S::UserCommand ||
+                     shape == S::UserImage);
+                const bool is_tool_result = (shape == S::UserToolResult);
+                const bool is_same_turn_as_assistant =
+                    is_assistant_block || is_tool_result;
+                const bool is_turn_boundary = is_user_row ||
+                    (!is_same_turn_as_assistant && !is_tool_result);
+
+                add_margin_for_vi[vi] = is_user_row
+                    ? !prev_was_user
+                    : (is_turn_boundary ? true : next_add_margin);
+                prev_was_user = is_user_row;
+
+                if (is_turn_boundary) {
+                    next_add_margin = !is_user_row;
+                } else if (is_tool_result) {
+                    // TS: after a tool result, the next assistant response
+                    // starts a new visual group with marginTop=1.
+                    next_add_margin = true;
+                } else {
+                    next_add_margin = false;
+                }
+            } else {
+                add_margin_for_vi[vi] = true;
+                next_add_margin = true;
+                prev_was_user = false;
+            }
+        }
+    }
+
     // ── render_row callback: translate virtual back to messages_list VR
     state.callbacks.render_row =
-        [frame_count, &input, divider_before_vi, has_divider]
+        [frame_count, &input, divider_before_vi, has_divider,
+         &add_margin_for_vi]
         (size_t row_index, const vl::VisibleRow& vr)
             -> ftxui::Element
         {
@@ -905,13 +1034,12 @@ inline constexpr std::size_t kVirtualThreshold = 80;
             {
                 is_selected = (ml_row.row_idx == *input.selected_row_idx);
             }
-            // turn-margin state is not restored in the virtual path (the
-            // per-row renderer still works, but turn boundaries across the
-            // slice gap are not tracked by this stateless callback).  For
-            // the virtual path we always pass add_margin = true to give
-            // consistent breathing room.  The turn SM is preserved in the
-            // non-virtual short-path.
-            const bool add_margin = true;
+            // Use pre-computed add_margin from the turn-state machine above.
+            // row_index maps 1:1 to visible[] index because visible_rows_to_virtual
+            // preserves order with no dropping.
+            const bool add_margin = (row_index < add_margin_for_vi.size())
+                ? add_margin_for_vi[row_index]
+                : true;
 
             Element row_el;
             if (ml_row.kind == VisibleRow::Kind::CompactGroup) {
@@ -1517,6 +1645,8 @@ inline auto render_payload_row(const MessagesListInput& input,
             const bool selected_or_active = is_selected || is_streaming_tail;
             if (is_complete && !selected_or_active) {
                 (void)add_margin; (void)frame_count;
+                // Should not reach here — build_visible_rows filters these out.
+                // Defensive fallback if it somehow does.
                 return text("");
             }
             // NOTE: `is_selected` (row navigation highlight) does NOT mean
@@ -1564,6 +1694,7 @@ inline auto render_payload_row(const MessagesListInput& input,
                 case DS::Success:
                     fd.kind = FK::Success;
                     fd.content = opts->output;
+                    fd.content_items = opts->content_items;
                     break;
                 case DS::Error:
                     fd.kind = FK::Error;
@@ -1586,7 +1717,7 @@ inline auto render_payload_row(const MessagesListInput& input,
                     break;
             }
 
-            Element el = RenderToolResultMessageFaithful(fd);
+            Element el = RenderToolResultMessageFaithful(fd, add_margin);
             (void)frame_count; (void)is_streaming_tail;
             return el;
         }
@@ -1601,6 +1732,8 @@ inline auto render_payload_row(const MessagesListInput& input,
             //
             // Falls back to the generic renderer for unregistered tools.
             using namespace cc::ui::tools;
+            const bool is_registered_builtin =
+                global_tool_ui_registry().find(opts->call.tool_name) != nullptr;
             const ToolUIFunctions& ui =
                 get_tool_ui_or_generic(opts->call.tool_name);
 
@@ -1652,20 +1785,60 @@ inline auto render_payload_row(const MessagesListInput& input,
             fd.spinner_frame = static_cast<int>(frame_count);
             fd.should_animate = (opts->call.status == TS::Running);
 
+            // ── MCP-only Input/Output sections ──
+            // TS built-in tools (Bash, Read, Write, Edit, Glob, Grep) NEVER
+            // show Input:/Output: sections — the command is in the header
+            // parens and the result appears as a separate tool_result row.
+            // Only MCP/unregistered tools show raw JSON parameters inline.
+            fd.is_mcp_tool = !is_registered_builtin;
+            if (!is_registered_builtin) {
+                fd.input_json = opts->call.raw_parameters;
+                if (opts->call.result_preview && !opts->call.result_preview->empty()) {
+                    fd.output_text = *opts->call.result_preview;
+                }
+            }
+
             Element el = tool_use_message::RenderFaithfulToolUseMessage(fd);
             return el;
         }
     }
     else if (shape == S::UserImage) {
         // Faithful render: TS UserImageMessage — each user-attached image is
-        // its own transcript row (ASCII thumbnail + metadata card).  Render
-        // directly via message_image::render (stateless Element) instead of
-        // the divergent envelope+MakeImageMessage fallback, which rendered
-        // empty in the virtual-list context (user-visible symptom: image card
-        // missing, only the [Image #N] text placeholder showed).
+        // its own transcript row.  Render directly via message_image::render
+        // (stateless Element) wrapped in user-message chrome for visual
+        // consistency with RenderUserPromptMessage: full-width,
+        // userMessageBackground tint, marginTop={addMargin?1:0}.
+        //
+        // TS REF: UserImageMessage.tsx — the [Image #N] label lives inside
+        // the user message bubble; in CPP we project images as separate rows
+        // (one per attachment) so each gets its own user-styled card.
         auto* d = std::get_if<image::ImageMessageData>(&payload);
         if (d) {
-            return image::render(*d);
+            // TS dark: userMessageBackground = rgb(55, 55, 55)
+            // (matches RenderUserPromptMessage kUserBg).
+            const Color kUserBg = Color::RGB(55, 55, 55);
+
+            Element body = image::render(*d);
+
+            if (add_margin) {
+                // First user block in turn: wrap in user-message chrome with
+                // full-width bg tint (matches RenderUserPromptMessage).
+                Element content = hbox({
+                    text(" ") | bgcolor(kUserBg),
+                    std::move(body) | bgcolor(kUserBg) | flex,
+                    text(" ") | bgcolor(kUserBg),
+                });
+                return vbox({text(""), std::move(content)});
+            }
+            // TS PARITY: UserImageMessage.tsx — when addMargin is false (image
+            // is a continuation within the same user turn), wrap in
+            // <MessageResponse> which prepends "  ⎿  " (U+23BF connector).
+            // NO background tint — only the primary user text bubble gets
+            // userMessageBackground; continuation blocks are plain.
+            return hbox({
+                text("  \xe2\x8e\xbf  ") | dim,
+                std::move(body),
+            });
         }
     }
 
@@ -1828,11 +2001,25 @@ constexpr std::size_t kMaxRenderedLastN = 80;   // last-N render cap
     for (auto& el : leading_elements) {
         rows.push_back(std::move(el));
     }
-    // TS semantics: each MESSAGE (API level) owns one marginTop=1 blank line.
-    // Blocks inside the same assistant message (thinking/text/tool_use) share
-    // that margin — only the FIRST assistant block of a turn emits it.  User
-    // messages are always treated as turn boundaries.
-    bool next_add_margin = true;   // true = row is "first after turn boundary"
+    // ── TS PARITY (2026-07-05): Per-message addMargin ──────────────────────
+    // TS REF: MessageRow.tsx  addMargin = !hasMetadata.
+    //   hasMetadata = isTranscriptMode && type==="assistant" && has-text &&
+    //                 (timestamp || model)
+    // In REPL mode (isTranscriptMode=false), hasMetadata is ALWAYS false →
+    // addMargin=true for every message.  Each leaf component applies
+    // marginTop={addMargin ? 1 : 0}.
+    //
+    // EXCEPTIONS (matching TS):
+    //   1. UserToolResultMessage — does NOT receive addMargin prop, 0 marginTop.
+    //      Tool results sit flush against the preceding tool_use message.
+    //   2. User continuations (isUserContinuation in TS) — user images
+    //      following another user block suppress marginTop (⎿ connector).
+    //
+    // This replaces the previous "turn-boundary" model which incorrectly
+    // suppressed margins on ALL assistant blocks after a user row, causing:
+    //   - User→assistant text gap = 0 (too small)
+    //   - Inconsistent spacing when tool results were present vs absent.
+    bool prev_was_user = false;    // for user-turn continuation ⎿ connector (TS parity)
     for (std::size_t vi = start; vi < visible.size(); ++vi) {
         // TS REF: Messages.tsx L631-635  if (index === dividerBeforeIndex)
         //   insert <Box marginTop={1}><Divider title="N new messages" color="inactive"/></Box>
@@ -1854,44 +2041,32 @@ constexpr std::size_t kMaxRenderedLastN = 80;   // last-N render cap
                     ? input.shapes[vr.row_idx]
                     : MessageShape::SystemTaskAssignment;   // = max enum; treated as "not user/assistant"
             using S = MessageShape;
-            const bool is_assistant_block =
-                (shape == S::AssistantText ||
-                 shape == S::AssistantThinking ||
-                 shape == S::AssistantRedactedThinking ||
-                 shape == S::AssistantToolUse ||
-                 shape == S::AssistantGroupedTools);
             const bool is_user_row =
                 (shape == S::UserText ||
                  shape == S::UserPrompt ||
-                 shape == S::UserCommand);
-            // TS REF: MessageRow.tsx — addMargin = !hasMetadata.  hasMetadata
-            // requires type==="assistant" && isTranscriptMode && has-timestamp-
-            // or-model, so it is ALWAYS false for user/system/tool-result rows.
-            // Thus all non-assistant rows always get add_margin=true, regardless
-            // of what came before.
-            //
-            // For assistant blocks, the turn-boundary logic models TS where
-            // all content blocks of one API message share a single addMargin:
-            // the FIRST block after a non-assistant row gets true, subsequent
-            // same-turn blocks get false.
-            const bool is_non_assistant = is_user_row || !is_assistant_block;
-            const bool row_add_margin = is_non_assistant ? true : next_add_margin;
-            // Advance turn-state: non-assistant rows are boundaries — next
-            // assistant block gets its own margin.  Assistant blocks start or
-            // continue a turn: next sibling assistant block has add_margin=false.
-            if (is_non_assistant) {
-                next_add_margin = true;
-            } else {
-                // assistant turn continues
-                next_add_margin = false;
-            }
+                 shape == S::UserCommand ||
+                 shape == S::UserImage);
+            // TS: UserToolResultMessage has 0 marginTop (no addMargin prop).
+            // Also include UserBashOutput and UserLocalCommandOutput as
+            // tool-result-like rows that sit flush.
+            const bool is_tool_result =
+                (shape == S::UserToolResult ||
+                 shape == S::UserBashOutput);
+
+            // TS PARITY: compute addMargin per-row, not per-turn.
+            //   - User rows: first user in turn → true, continuation → false (⎿)
+            //   - Tool result rows: false (flush against preceding tool_use)
+            //   - All other rows: true (TS: !hasMetadata = true in REPL mode)
+            const bool row_add_margin = is_user_row
+                ? !prev_was_user
+                : (is_tool_result ? false : true);
+            prev_was_user = is_user_row;
 
             rows.push_back(detail::render_payload_row(
                 input, vr.row_idx, is_selected, frame_count, row_add_margin));
         } else {
-            // compact group row — always treated as a boundary
+            // compact group row — renders its own header/spacing
             rows.push_back(detail::render_compact_group_row(vr, is_selected));
-            next_add_margin = true;
         }
     }
 
@@ -2254,6 +2429,7 @@ class MessagesListComponent final : public ComponentBase {
             // the FIRST row of a user/assistant turn owns its marginTop;
             // sibling assistant blocks share it.
             bool next_add_margin = true;
+            bool prev_was_user = false;
             for (std::size_t vi = start; vi < visible_rows_.size(); ++vi) {
                 // TS REF: Messages.tsx L631-635  insert divider BEFORE row.
                 if (has_divider && vi == divider_before_vi) {
@@ -2267,7 +2443,6 @@ class MessagesListComponent final : public ComponentBase {
                     selected_visible_index_.has_value() &&
                     *selected_visible_index_ == vi;
 
-                bool row_add_margin = next_add_margin;
                 if (vr.kind == VisibleRow::Kind::Payload) {
                     const MessageShape shape =
                         (vr.row_idx < input_.shapes.size())
@@ -2283,9 +2458,25 @@ class MessagesListComponent final : public ComponentBase {
                     const bool is_user_row =
                         (shape == S::UserText ||
                          shape == S::UserPrompt ||
-                         shape == S::UserCommand);
-                    if (is_user_row || !is_assistant_block) {
-                        next_add_margin = true;
+                         shape == S::UserCommand ||
+                         shape == S::UserImage);
+                    // TS VISUAL PARITY (2026-07-04): tool results are part of
+                    // the assistant's visual turn — same as static path above.
+                    const bool is_tool_result = (shape == S::UserToolResult);
+                    const bool is_same_turn_as_assistant =
+                        is_assistant_block || is_tool_result;
+                    const bool is_turn_boundary = is_user_row ||
+                        (!is_same_turn_as_assistant && !is_tool_result);
+
+                    // Match static path: user rows use prev_was_user for ⎿,
+                    // turn boundaries get true, same-turn blocks use next_add_margin.
+                    const bool row_add_margin = is_user_row
+                        ? !prev_was_user
+                        : (is_turn_boundary ? true : next_add_margin);
+                    prev_was_user = is_user_row;
+
+                    if (is_turn_boundary) {
+                        next_add_margin = !is_user_row;
                     } else {
                         next_add_margin = false;
                     }

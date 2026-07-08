@@ -16,6 +16,7 @@ export module cc.ui.messages.message_tool_result;
 import cc.types.types;
 import cc.ui.terminal_io;
 import cc.ui.messages.message_components;  // for padding() Decorator
+import cc.ui.markdown;                     // render_markdown() for natural-language tool results
 
 export namespace cc::ui::messages {
 
@@ -221,6 +222,240 @@ inline void apply_sgr_run(std::string_view params, cc::ui::termio::SgrAttr& attr
     return vbox(std::move(lines));
 }
 
+/// Unescape literal backslash escape sequences into real characters.
+/// Handles JSON-style string escapes plus all practical escape levels:
+///   \n    → real newline  (single-escaped)
+///   \\n   → real newline  (double-escaped)
+///   \\\n  → \ + newline   (literal backslash + escaped newline)
+///   \r\n  → real newline  (Windows CRLF)
+///   \r    → real newline  (bare CR)
+///   \"    → "             (JSON-escaped quote)
+///   \\    → \             (JSON-escaped backslash, when not \\n)
+///   \t    → tab           (JSON-escaped tab)
+///
+/// Some tool results (especially from natural-language tools like
+/// analyze_image) carry JSON-escaped or double-escaped newlines that
+/// never got decoded, so a multi-line result renders as one huge
+/// clipped line AND markdown block patterns (---, - list) fail to match.
+/// JSON-escaped quotes and backslashes also leak through as literal
+/// \" and \\ sequences that confuse readers.
+[[nodiscard]] inline std::string unescape_literal_newlines(std::string_view s) {
+    std::string out;
+    out.reserve(s.size());
+    for (size_t i = 0; i < s.size(); ++i) {
+        const char c = s[i];
+
+        // Windows / old-Mac line endings → real newline
+        if (c == '\r') {
+            out += '\n';
+            if (i + 1 < s.size() && s[i + 1] == '\n') ++i;
+            continue;
+        }
+
+        if (c != '\\' || i + 1 >= s.size()) {
+            out += c;
+            continue;
+        }
+
+        const char next = s[i + 1];
+
+        // Check double-escaped first: \\n → newline
+        // (3 bytes: backslash, backslash, n → represents literal \n in source)
+        if (next == '\\' && i + 2 < s.size() && s[i + 2] == 'n') {
+            out += '\n';
+            i += 2;
+            continue;
+        }
+
+        // Single-char escapes
+        switch (next) {
+            case 'n':  out += '\n'; ++i; break;   // \n → newline
+            case 't':  out += '\t'; ++i; break;   // \t → tab
+            case '"':  out += '"';  ++i; break;   // \" → quote
+            case '\\': out += '\\'; ++i; break;   // \\ → backslash (JSON)
+            case '/':  out += '/';  ++i; break;   // \/ → forward slash (JSON)
+            default:   out += '\\'; break;        // unknown escape: keep backslash
+        }
+    }
+    return out;
+}
+
+// ─── JSON text-payload unwrapper ────────────────────────────────────────
+// TS REF: src/tools/MCPTool/UI.tsx tryUnwrapTextPayload (line 327)
+//
+// MCP tools sometimes return results as a JSON object like:
+//   {"analysis":"The image shows...\\n\\n---\\n\\nDetails..."}
+//   {"text":"The image shows...","confidence":"high"}
+//
+// TS behavior: only processes content that STARTS with '{' (JSON object),
+// max 4 keys at top level, finds one "dominant" string value (>200 chars
+// or contains \n and >50 chars).  Returns the dominant string for display
+// via OutputLine (NOT markdown — tool output is always plain/ANSI).
+//
+// IMPORTANT: content like "analyze_image_result_summary: [{\"text\":\"...\"}]"
+// does NOT start with '{', so this function returns nullopt and the raw
+// content is displayed (matches TS screenshot behavior).
+namespace detail {
+
+/// Extract a JSON-escaped string value starting at position `pos` in `s`.
+/// The opening quote has already been consumed.  Returns the unescaped
+/// string and advances `pos` past the closing quote.
+[[nodiscard]] std::string extract_json_string(std::string_view s, std::size_t& pos) {
+    std::string result;
+    bool escape = false;
+    while (pos < s.size()) {
+        char c = s[pos++];
+        if (escape) {
+            switch (c) {
+                case 'n':  result += '\n'; break;
+                case 't':  result += '\t'; break;
+                case 'r':  result += '\r'; break;
+                case '"':  result += '"';  break;
+                case '\\': result += '\\'; break;
+                case '/':  result += '/';  break;
+                default:   result += c;    break;
+            }
+            escape = false;
+        } else if (c == '\\') {
+            escape = true;
+        } else if (c == '"') {
+            return result;  // closing quote found
+        } else {
+            result += c;
+        }
+    }
+    return result;  // unterminated string — return what we have
+}
+
+/// TS-faithful tryUnwrapTextPayload: only matches '{' at start, max 4 keys,
+/// finds dominant string value.  Returns the extracted text or nullopt.
+[[nodiscard]] std::optional<std::string> try_unwrap_text_payload(std::string_view s) {
+    // Trim leading whitespace
+    auto start = s.find_first_not_of(" \t\n\r");
+    if (start == std::string_view::npos) return std::nullopt;
+
+    // TS: only processes JSON objects starting with '{'
+    // Arrays like [{"text":"..."}] or prefixes like "result: [{...}]" are
+    // NOT unwrapped — raw content is shown instead.
+    if (s[start] != '{') return std::nullopt;
+
+    // Known keys that typically hold natural-language text payloads.
+    // TS looks for ANY string value that is "dominant" (large enough),
+    // not just specific key names — but we prioritize known text keys.
+    static constexpr std::string_view kTextKeys[] = {
+        "text", "messages", "content", "analysis",
+        "result", "summary", "output", "description",
+        "caption", "body",
+    };
+
+    // Scan for key-value patterns: "key":"value"  inside the JSON object.
+    // We try each known key; if none match, we also try a generic scan for
+    // any large string value (TS: "dominant string" detection).
+    std::string best_value;
+    for (auto key : kTextKeys) {
+        std::string pat = "\"";
+        pat += key;
+        pat += "\":";
+
+        std::size_t search_pos = start;
+        while ((search_pos = s.find(pat, search_pos)) != std::string_view::npos) {
+            std::size_t after_key = search_pos + pat.size();
+            // Skip whitespace after colon
+            while (after_key < s.size() && s[after_key] == ' ') ++after_key;
+
+            // Expect a string value starting with "
+            if (after_key < s.size() && s[after_key] == '"') {
+                ++after_key;  // skip opening quote
+                std::size_t extract_pos = after_key;
+                std::string extracted = extract_json_string(s, extract_pos);
+
+                // TS: dominant string = >200 chars OR (contains \n AND >50 chars)
+                if (extracted.size() > best_value.size() &&
+                    (extracted.size() > 200 ||
+                     (extracted.find('\n') != std::string::npos && extracted.size() > 50))) {
+                    best_value = std::move(extracted);
+                }
+            }
+            search_pos = after_key;
+        }
+    }
+
+    if (best_value.empty()) return std::nullopt;
+    return best_value;
+}
+
+/// Extract text from MCP result summary format:
+///   "tool_name_result_summary: [{\"text\":\"...\"}]"
+///
+/// Many MCP tools (especially natural-language ones like analyze_image)
+/// return their results in this structured format: a descriptive prefix
+/// followed by a JSON array containing one object with a "text" key.
+/// The inner text is a JSON-encoded string with \n, \", \\ escapes.
+///
+/// TS has no explicit handler for this format (it falls through to
+/// OutputLine raw display), but the TS MCP SDK's JSON-RPC parser already
+/// decodes the outer transport layer, so the escapes may be partially
+/// decoded before reaching the UI.  Our CPP MCP client preserves the raw
+/// text, so we need this extraction step.
+///
+/// Returns the decoded text string, or nullopt if the pattern doesn't match.
+[[nodiscard]] std::optional<std::string> try_extract_result_summary_text(
+    std::string_view s) {
+    // Look for "_result_summary" or "result_summary" anywhere in the string.
+    // Common patterns: "analyze_image_result_summary:", "tool_result_summary:"
+    auto summary_pos = s.find("result_summary");
+    if (summary_pos == std::string_view::npos) return std::nullopt;
+
+    // Find the first '[' after the summary keyword
+    auto bracket_pos = s.find('[', summary_pos);
+    if (bracket_pos == std::string_view::npos) return std::nullopt;
+
+    // Find the first '{' inside the array (start of first object)
+    auto brace_pos = s.find('{', bracket_pos);
+    if (brace_pos == std::string_view::npos) return std::nullopt;
+
+    // Look for "text":"..." key-value pair in the object.
+    // We search for the pattern '"text":' then extract the string value.
+    static constexpr std::string_view kTextKey = "\"text\":";
+    auto key_pos = s.find(kTextKey, brace_pos);
+    if (key_pos == std::string_view::npos) return std::nullopt;
+
+    // Skip whitespace after the colon
+    std::size_t after_key = key_pos + kTextKey.size();
+    while (after_key < s.size() && s[after_key] == ' ') ++after_key;
+
+    // Expect a string value starting with "
+    if (after_key >= s.size() || s[after_key] != '"') return std::nullopt;
+    ++after_key;  // skip opening quote
+
+    // extract_json_string handles all JSON escapes (\n, \", \\, \t, etc.)
+    std::size_t extract_pos = after_key;
+    std::string extracted = extract_json_string(s, extract_pos);
+
+    if (extracted.empty()) return std::nullopt;
+    return extracted;
+}
+
+} // namespace detail
+
+/// Tools whose results are LLM-generated natural language (not raw structured
+/// output).  TS REF: src/components/ToolResult.tsx — AgentTool, BriefTool,
+/// ExitPlanModeTool all use <Markdown> for their results.  NOTE: MCP tools
+/// (like analyze_image) do NOT get markdown — they use MCPTextOutput →
+/// OutputLine (plain ANSI text only).
+[[nodiscard]] inline bool tool_produces_natural_language(std::string_view tool_name) {
+    using namespace std::string_view_literals;
+    static constexpr std::string_view kNL[] = {
+        "Agent"sv,
+        "Brief"sv,
+        "ExitPlanMode"sv,
+    };
+    for (auto nl : kNL) {
+        if (tool_name == nl) return true;
+    }
+    return false;
+}
+
 /// Tool result status
 enum class ToolResultStatus {
     Success,
@@ -237,6 +472,10 @@ struct ToolResultOptions {
     std::optional<std::string> error_message;
     std::optional<double> duration_ms;
     bool is_truncated{false};
+    /// TS PARITY (2026-07-04): structured content items from MCP results.
+    /// When present, the faithful renderer iterates these instead of the
+    /// flattened `output` string.
+    std::optional<std::vector<cc::core::ToolResultContentItem>> content_items;
 };
 
 /// Render tool result message
@@ -320,6 +559,11 @@ struct ToolResultFaithfulData {
     ///   other kinds    → unused (text is fixed per kind)
     std::optional<std::string> content;
 
+    /// TS PARITY (2026-07-04): structured content items from MCP results.
+    /// When present, the Success renderer iterates these instead of using
+    /// the flattened `content` string.  Each item may be "text" or "image".
+    std::optional<std::vector<cc::core::ToolResultContentItem>> content_items;
+
     // --- Flags ---
     bool verbose{false};
     bool is_transcript_mode{false};
@@ -336,7 +580,7 @@ namespace detail {
 [[nodiscard]] inline Element message_response_prefix() {
     // "  ⎿  " — two spaces + hook symbol + space = 5 columns total,
     // matching TS {"  "}⎿&nbsp; rendered width.
-    return text("  \xe2\x8f\xbf  ") | dim;
+    return text("  \xe2\x8e\xbf  ") | dim;
 }
 
 /// Wrap content in a MessageResponse-style envelope.
@@ -600,81 +844,132 @@ constexpr int kMaxRenderedLines = 10;
 ///
 /// Each branch renders the same visual chrome as its TS counterpart using
 /// the fallback components (tool-specific renderers are not yet ported).
+///
+/// `add_margin` (TS REF: UserToolResultMessage → MessageRow marginTop=1)
+/// controls the blank separator line above tool result rows.  TS always
+/// gives tool results marginTop=1 (they never have metadata), so this
+/// defaults true; the caller threads the turn-boundary-computed value.
 [[nodiscard]] inline Element RenderToolResultMessageFaithful(
-    const ToolResultFaithfulData& data) {
+    const ToolResultFaithfulData& data, bool add_margin = true) {
     using K = ToolResultKind;
+    Element result;
 
     switch (data.kind) {
         case K::Canceled:
             // UserToolCanceledMessage → MessageResponse + InterruptedByUser
-            return detail::wrap_message_response(
+            result = detail::wrap_message_response(
                 detail::render_interrupted_by_user());
+            break;
 
         case K::Interrupted:
             // UserToolErrorMessage: includes INTERRUPT_MESSAGE
             // → MessageResponse + InterruptedByUser
-            return detail::wrap_message_response(
+            result = detail::wrap_message_response(
                 detail::render_interrupted_by_user());
+            break;
 
         case K::Rejected:
             // UserToolRejectMessage → fallback path
-            return detail::render_fallback_rejected();
+            result = detail::render_fallback_rejected();
+            break;
 
         case K::PlanRejected:
             // UserToolErrorMessage: PLAN_REJECTION_PREFIX
-            return detail::render_rejected_plan(
+            result = detail::render_rejected_plan(
                 data.content.value_or(""));
+            break;
 
         case K::ClassifierDenied: {
             // UserToolErrorMessage: isClassifierDenial
             std::string msg =
                 "Denied by auto mode classifier \xc2\xb7 /feedback if incorrect";
-            return detail::wrap_message_response(text(msg) | dim);
+            result = detail::wrap_message_response(text(msg) | dim);
+            break;
         }
 
         case K::Error: {
             // UserToolErrorMessage fallback path
             std::string content = data.content.value_or("Tool execution failed");
-            return detail::render_fallback_error(content, data.verbose);
+            result = detail::render_fallback_error(content, data.verbose);
+            break;
         }
 
         case K::Success: {
-            // UserToolSuccessMessage fallback (no tool-specific renderer yet)
-            // TS renders tool output directly in the message body —
-            // no MessageResponse wrapper, dim subdued ANSI-aware output.
-            //
-            // TS PARITY FIX (2026-07-02): always emit a header line with
-            // ✓ + tool_name so the result is visually identifiable in the
-            // transcript.  The old code returned bare `output | dim` for
-            // non-empty results, which blended invisibly into the assistant
-            // turn's text — making tool output appear "swallowed".
-            if (!data.content || data.content->empty()) {
-                // Empty success: show tool name with checkmark
-                return hbox({
-                    text("\xe2\x9c\x93 ") | color(Color::Green),
-                    text(data.tool_name) | dim,
-                });
+            // TS: UserToolSuccessMessage renders tool.renderToolResultMessage()
+            // directly — NO "✓ tool_name" header.  The result body is wrapped in
+            // <MessageResponse> (⎿ connector) by the tool's own renderer.
+            // For BashTool: stdout wrapped in MessageResponse.
+
+            bool has_content_items = data.content_items && !data.content_items->empty();
+            bool has_flat_content = data.content && !data.content->empty();
+
+            if (!has_content_items && !has_flat_content) {
+                // Empty success: "(No output)" in MessageResponse style
+                result = detail::wrap_message_response(
+                    text("(No output)") | dim);
+                break;
             }
-
-            Element output =
-                ansi_to_ftxui_elements(*data.content) | dim;
-
-            // Header: ✓ tool_name  (1-row, always visible)
-            Element header = hbox({
-                text("\xe2\x9c\x93 ") | color(Color::Green),
-                text(data.tool_name) | dim,
-            });
 
             Elements elems;
-            elems.push_back(std::move(header));
-            elems.push_back(std::move(output));
-            if (data.is_truncated) {
-                elems.push_back(text("  (output truncated)") | dim);
+
+            if (has_content_items) {
+                for (const auto& item : *data.content_items) {
+                    if (item.type == "text") {
+                        std::string text_content = item.text;
+                        if (auto unwrapped = detail::try_unwrap_text_payload(text_content)) {
+                            text_content = std::move(*unwrapped);
+                        }
+                        // Trim trailing newlines — shell output typically ends
+                        // with \n which would produce an extra blank ⎿ line.
+                        while (!text_content.empty() &&
+                               (text_content.back() == '\n' || text_content.back() == '\r'))
+                            text_content.pop_back();
+                        if (text_content.empty()) continue;
+                        elems.push_back(detail::wrap_message_response(
+                            ansi_to_ftxui_elements(text_content)));
+                    } else if (item.type == "image") {
+                        elems.push_back(detail::wrap_message_response(
+                            text("[Image]") | dim));
+                    }
+                }
+            } else {
+                std::string output = *data.content;
+                if (auto unwrapped = detail::try_unwrap_text_payload(output)) {
+                    output = std::move(*unwrapped);
+                }
+                constexpr std::size_t kMaxLen = 4000;
+                if (output.size() > kMaxLen) {
+                    output = output.substr(0, kMaxLen) + "\xE2\x80\xA6";
+                }
+                // Render each line with ⎿ prefix (MessageResponse style)
+                std::size_t line_start = 0;
+                while (line_start < output.size()) {
+                    auto nl = output.find('\n', line_start);
+                    std::string_view line = (nl == std::string::npos)
+                        ? std::string_view(output).substr(line_start)
+                        : std::string_view(output).substr(line_start, nl - line_start);
+                    elems.push_back(detail::wrap_message_response(
+                        ansi_to_ftxui_elements(line)));
+                    if (nl == std::string::npos) break;
+                    line_start = nl + 1;
+                }
             }
-            return vbox(std::move(elems));
+
+            if (data.is_truncated) {
+                elems.push_back(detail::wrap_message_response(
+                    text("(output truncated)") | dim));
+            }
+
+            result = vbox(std::move(elems));
+            break;
         }
     }
-    return text("");
+
+    if (!result) result = text("");
+    if (add_margin) {
+        return vbox({text(""), std::move(result)});
+    }
+    return result;
 }
 
 } // namespace cc::ui::messages

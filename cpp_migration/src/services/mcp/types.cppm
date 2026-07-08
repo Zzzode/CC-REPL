@@ -224,6 +224,8 @@ struct ToolCallRequest {
 struct ContentItem {
     std::string type = "text";
     std::string text;
+    std::optional<std::string> media_type;  ///< for type="image" (TS: source.media_type)
+    std::optional<std::string> data;        ///< base64 for type="image" (TS: source.data)
 };
 
 struct ToolCallResult {
@@ -384,12 +386,37 @@ inline std::optional<ToolCallResult> parse_tool_call_result(const std::string& j
     auto content_node = result_node.get("content");
     if (content_node.is_arr()) {
         content_node.iter([&result](JsonVal item) {
-            if (item.is_obj() && item.get("type").as_str() == "text") {
+            if (!item.is_obj()) return;
+            std::string type_str;
+            if (auto t = item.get("type"); t.is_str()) type_str = t.as_str();
+
+            if (type_str == "text") {
                 ContentItem ci;
                 ci.type = "text";
                 ci.text = std::string(item.get("text").as_str());
                 result.content.push_back(std::move(ci));
+            } else if (type_str == "image") {
+                // TS REF: transformResultContent for image — extracts
+                // source.media_type and source.data from the block.
+                ContentItem ci;
+                ci.type = "image";
+                // Try direct fields first (some MCP servers use flat format)
+                if (auto mt = item.get("mimeType"); mt.is_str()) ci.media_type = mt.as_str();
+                else if (auto mt = item.get("mediaType"); mt.is_str()) ci.media_type = mt.as_str();
+                else if (auto mt = item.get("media_type"); mt.is_str()) ci.media_type = mt.as_str();
+                if (auto d = item.get("data"); d.is_str()) ci.data = d.as_str();
+                // Try nested "source" object (Anthropic API format)
+                if (!ci.data) {
+                    if (auto src = item.get("source"); src.is_obj()) {
+                        if (auto mt = src.get("media_type"); mt.is_str()) ci.media_type = mt.as_str();
+                        if (auto d = src.get("data"); d.is_str()) ci.data = d.as_str();
+                    }
+                }
+                if (!ci.media_type) ci.media_type = "image/png";
+                if (!ci.data) ci.data = "";
+                result.content.push_back(std::move(ci));
             }
+            // Other types (audio, resource, resource_link) are ignored for now
         });
     }
     

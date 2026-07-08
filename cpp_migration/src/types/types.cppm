@@ -91,12 +91,46 @@ struct ToolUseBlock {
     std::string input_json;     // JSON-encoded tool input parameters
 };
 
-/// Represents the result of a tool execution
+/// A single content item within a tool result.
+/// TS REF: ContentBlockParam for tool_result content arrays — supports
+/// {type:"text", text} and {type:"image", source:{media_type, data, type:"base64"}}.
+struct ToolResultContentItem {
+    std::string type;        ///< "text" or "image"
+    std::string text;        ///< text content (for type="text")
+    std::string media_type;  ///< e.g. "image/png" (for type="image")
+    std::string data;        ///< base64 data (for type="image")
+};
+
+/// Represents the result of a tool execution.
+/// TS REF: ToolResultBlockParam — content is `string | ContentBlockParam[]`.
+/// We support both: a plain string for simple results, or a vector of
+/// ToolResultContentItem for structured MCP results with mixed text+image.
 struct ToolResultBlock {
     ToolUseId tool_use_id;
-    std::string content;        // Result content (text or JSON)
+    std::variant<std::string, std::vector<ToolResultContentItem>> content;
     bool is_error = false;      // Whether the tool execution failed
 };
+
+/// Flatten a ToolResultBlock's content to a single string for backward-compat
+/// access (e.g. content_preview, budget calculation).  Text items are joined
+/// with "\n"; image items contribute a "[Image]" marker.
+[[nodiscard]] inline std::string tool_result_content_text(const ToolResultBlock& trb) {
+    if (std::holds_alternative<std::string>(trb.content)) {
+        return std::get<std::string>(trb.content);
+    }
+    const auto& items = std::get<std::vector<ToolResultContentItem>>(trb.content);
+    std::string out;
+    for (const auto& item : items) {
+        if (item.type == "text") {
+            if (!out.empty()) out += '\n';
+            out += item.text;
+        } else if (item.type == "image") {
+            if (!out.empty()) out += '\n';
+            out += "[Image]";
+        }
+    }
+    return out;
+}
 
 /// Where an ImageBlock came from — used by the user-facing renderer to
 /// pick the correct leading icon (TS: clipboard pastes show 📎; file paths

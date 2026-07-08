@@ -235,7 +235,7 @@ private:
                     if constexpr (std::is_same_v<T, TextBlock>) {
                         tokens += static_cast<std::uint32_t>(b.text.size()) / 4;
                     } else if constexpr (std::is_same_v<T, ToolResultBlock>) {
-                        tokens += static_cast<std::uint32_t>(b.content.size()) / 4;
+                        tokens += static_cast<std::uint32_t>(tool_result_content_text(b).size()) / 4;
                     } else if constexpr (std::is_same_v<T, ToolUseBlock>) {
                         tokens += static_cast<std::uint32_t>(b.input_json.size()) / 4;
                     } else if constexpr (std::is_same_v<T, ThinkingBlock>) {

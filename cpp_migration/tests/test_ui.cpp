@@ -18,6 +18,7 @@
 #include <utility>
 #include <vector>
 
+#include <expected>
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/dom/node.hpp>
 #include <ftxui/screen/screen.hpp>
@@ -53,6 +54,8 @@ import cc.ui.design.theme;
 import cc.ui.design.tokens;     // Palette, Role, token_by_role
 // P0-2: 7-stage message pipeline (dedup + tag filter + tool augment + hide/index).
 import cc.ui.messages.message_pipeline;
+// P0-2: collapseBackgroundBashNotifications pass (Messages.tsx:520 chain).
+import cc.ui.messages.collapse_background_bash;
 // P0-3: VirtualMessageList — O(viewport) windowed renderer for >80-row chats.
 import cc.ui.messages.virtual_list;
 // P0-1/P0-2: glyph + palette constants for preview-truncate ellipsis check.
@@ -1109,6 +1112,45 @@ TEST(Components, TextInputPasteText) {
     EXPECT_NE(rendered.find("pasted text"), std::string::npos);
 }
 
+// TS REF: src/components/PromptInput/inputPaste.ts — pastes over the 10 000-char
+// TRUNCATION_THRESHOLD collapse to head 500 + "[...Truncated text +N lines...]"
+// + tail 500 (PREVIEW_LENGTH=1000).  Guards the fullscreen layout pass against
+// huge pastes.
+TEST(Components, TextInputPasteTruncatesOver10k) {
+    auto impl = cc::ui::components::MakeTextInputCore({});
+
+    // Short paste (<= 10 000) is stored verbatim.
+    impl->PasteText(std::string(9000, 'a'));
+    EXPECT_EQ(impl->text().size(), 9000u);
+    EXPECT_EQ(impl->text().find("Truncated text"), std::string::npos);
+
+    // Large single-line paste (> 10 000) collapses to head + placeholder + tail.
+    auto impl2 = cc::ui::components::MakeTextInputCore({});
+    impl2->PasteText(std::string(25000, 'x'));
+    const auto& t = impl2->text();
+    EXPECT_LT(t.size(), 25000u) << "over-threshold paste must be truncated";
+    EXPECT_NE(t.find("[...Truncated text +"), std::string::npos);
+    EXPECT_NE(t.find("lines...]"), std::string::npos);
+    // Head 500 + tail 500 + placeholder ≈ ~1040 chars, well under the original.
+    EXPECT_LT(t.size(), 1200u);
+    // Single-line input → 1 elided line reported.
+    EXPECT_NE(t.find("+1 lines...]"), std::string::npos);
+}
+
+TEST(Components, TextInputPasteTruncationCountsElidedLines) {
+    auto impl = cc::ui::components::MakeTextInputCore({});
+    // Build a >10k multi-line paste: 700 lines of 20 chars each (~14 700 chars).
+    std::string big;
+    for (int i = 0; i < 700; ++i) big += std::string(19, 'y') + "\n";
+    ASSERT_GT(big.size(), 10000u);
+    impl->PasteText(big);
+    const auto& t = impl->text();
+    EXPECT_NE(t.find("[...Truncated text +"), std::string::npos);
+    // The elided middle drops many lines — the reported count must be > 1.
+    EXPECT_EQ(t.find("+1 lines...]"), std::string::npos)
+        << "multi-line paste should report many elided lines, not 1";
+}
+
 TEST(Components, TextInputDeleteChar) {
     auto impl = cc::ui::components::MakeTextInputCore({});
 
@@ -1414,7 +1456,7 @@ TEST(ReplScreen, FreshScreenDoesNotRenderLegacyEmptyState) {
         const auto header_it = std::find_if(lines.begin(), lines.end(),
             [](const std::string& l) { return l.find("Claude Code") != std::string::npos; });
         const auto prompt_it = std::find_if(lines.begin(), lines.end(),
-            [](const std::string& l) { return l.find("write a test") != std::string::npos; });
+            [](const std::string& l) { return l.find("\xE2\x9D\xAF") != std::string::npos; });  // ❯ glyph
         ASSERT_NE(header_it, lines.end());
         ASSERT_NE(prompt_it, lines.end());
         ASSERT_LT(header_it, prompt_it);
@@ -1499,6 +1541,126 @@ TEST(ReplScreen, PromptInputRendersTopAndBottomBorders) {
 
     EXPECT_GE(border_lines, 2u);  // top (with embedded ❯) + bottom
     EXPECT_NE(rendered.find("❯ /"), std::string::npos);
+}
+
+// Audit round7 P0 prefix-glyph-no-unified-impl: the prompt prefix — the first
+// glyph the user sees on every render — must be TS-faithful.  TS
+// PromptInputModeIndicator.tsx emits exactly two variants: '!' in bash mode
+// and figures.pointer ('❯') otherwise.  This test locks that contract at the
+// live render site AND at the shared TextInputOptions default (which used to
+// carry a CPP-only "▶ " invention that contradicted its own doc comment).
+TEST(ReplScreen, PromptPrefixGlyphIsTsFaithfulPointerOrBang) {
+    namespace repl = cc::ui::repl_screen;
+    namespace figs = cc::ui::design::figures;
+
+    // Sanity: the shared figures constants are the single source of truth.
+    EXPECT_EQ(std::string(figs::kPointer), "\xE2\x9D\xAF");  // ❯ U+276F
+    EXPECT_EQ(std::string(figs::kBashGlyph), "!");
+    // The '▶' (U+25B6) CPP-only glyph must NOT be the pointer.
+    EXPECT_NE(std::string(figs::kPointer), "\xE2\x96\xB6");
+
+    // Non-bash prompt renders '❯ ' and never the old '▶' glyph.
+    {
+        repl::ReplScreenState state;
+        state.input_text = "hello";
+        auto rendered = strip_ansi(render_to_plain_text(
+            repl::RenderPromptInput(state, 80), 80, 4));
+        EXPECT_NE(rendered.find("❯ hello"), std::string::npos);
+        EXPECT_EQ(rendered.find("\xE2\x96\xB6"), std::string::npos);  // no ▶
+        // The retired CPP-only badge pills must not appear as a prefix.
+        EXPECT_EQ(rendered.find("NORMAL"), std::string::npos);
+        EXPECT_EQ(rendered.find("PLAN"), std::string::npos);
+    }
+
+    // Bash mode (leading '!') renders the '!' prefix, not '❯'.
+    {
+        repl::ReplScreenState state;
+        state.input_text = "!ls";
+        auto rendered = strip_ansi(render_to_plain_text(
+            repl::RenderPromptInput(state, 80), 80, 4));
+        // The rendered line begins with the bash bang prefix.
+        EXPECT_NE(rendered.find("! "), std::string::npos);
+    }
+
+    // The standalone TextInputOptions default prefix must be '❯ ' (TS
+    // figures.pointer), guarding against regression to the '▶ ' invention.
+    {
+        cc::ui::components::TextInputOptions opts;
+        EXPECT_EQ(opts.prefix, "\xE2\x9D\xAF ");  // "❯ "
+    }
+}
+
+// Bug: "输入感叹号之后就没法退出这个 bash mode" — after typing '!' to enter bash
+// mode (empty input), Backspace/Escape/Delete/Ctrl+U at cursor position 0 must
+// exit back to Prompt mode.
+// TS REF: src/components/PromptInput/PromptInput.tsx:1904-1908 —
+//   `if (cursorOffset === 0 && (key.escape || key.backspace || key.delete ||
+//        (key.ctrl && char === 'u'))) { onModeChange('prompt'); }`
+TEST(ReplScreen, BashModeExitsOnBackspaceAtStart) {
+    namespace repl = cc::ui::repl_screen;
+
+    auto state = std::make_shared<repl::ReplScreenState>();
+    auto component = repl::ReplScreen(state, repl::ReplScreenCallbacks{});
+
+    // Type '!' into empty input → swallowed, flips to Bash mode (TS parity).
+    ASSERT_TRUE(component->OnEvent(ftxui::Event::Character("!")));
+    EXPECT_EQ(state->input_mode, repl::InputMode::Bash);
+    EXPECT_TRUE(state->input_text.empty());  // '!' is a mode trigger, not stored
+
+    // Backspace at cursor 0 must exit bash mode back to Prompt.
+    EXPECT_TRUE(component->OnEvent(ftxui::Event::Backspace));
+    EXPECT_EQ(state->input_mode, repl::InputMode::Prompt);
+}
+
+TEST(ReplScreen, BashModeExitsOnEscapeAndDeleteAndCtrlUAtStart) {
+    namespace repl = cc::ui::repl_screen;
+
+    // Escape exits bash mode.
+    {
+        auto state = std::make_shared<repl::ReplScreenState>();
+        auto component = repl::ReplScreen(state, repl::ReplScreenCallbacks{});
+        ASSERT_TRUE(component->OnEvent(ftxui::Event::Character("!")));
+        ASSERT_EQ(state->input_mode, repl::InputMode::Bash);
+        component->OnEvent(ftxui::Event::Escape);
+        EXPECT_EQ(state->input_mode, repl::InputMode::Prompt);
+    }
+    // Delete exits bash mode.
+    {
+        auto state = std::make_shared<repl::ReplScreenState>();
+        auto component = repl::ReplScreen(state, repl::ReplScreenCallbacks{});
+        ASSERT_TRUE(component->OnEvent(ftxui::Event::Character("!")));
+        ASSERT_EQ(state->input_mode, repl::InputMode::Bash);
+        component->OnEvent(ftxui::Event::Delete);
+        EXPECT_EQ(state->input_mode, repl::InputMode::Prompt);
+    }
+    // Ctrl+U (\x15) exits bash mode.
+    {
+        auto state = std::make_shared<repl::ReplScreenState>();
+        auto component = repl::ReplScreen(state, repl::ReplScreenCallbacks{});
+        ASSERT_TRUE(component->OnEvent(ftxui::Event::Character("!")));
+        ASSERT_EQ(state->input_mode, repl::InputMode::Bash);
+        component->OnEvent(ftxui::Event::Character("\x15"));
+        EXPECT_EQ(state->input_mode, repl::InputMode::Prompt);
+    }
+}
+
+TEST(ReplScreen, BashModeBackspaceMidTextDoesNotExitMode) {
+    namespace repl = cc::ui::repl_screen;
+
+    auto state = std::make_shared<repl::ReplScreenState>();
+    auto component = repl::ReplScreen(state, repl::ReplScreenCallbacks{});
+
+    // Enter bash mode, then type a command so cursor is NOT at 0.
+    ASSERT_TRUE(component->OnEvent(ftxui::Event::Character("!")));
+    ASSERT_EQ(state->input_mode, repl::InputMode::Bash);
+    component->OnEvent(ftxui::Event::Character("l"));
+    component->OnEvent(ftxui::Event::Character("s"));
+    ASSERT_EQ(state->input_text, "ls");
+
+    // Backspace mid-text deletes a char and stays in bash mode (cursor != 0).
+    EXPECT_TRUE(component->OnEvent(ftxui::Event::Backspace));
+    EXPECT_EQ(state->input_text, "l");
+    EXPECT_EQ(state->input_mode, repl::InputMode::Bash);
 }
 
 TEST(ReplScreen, TranscriptScrollOffsetMovesLongLocalCommandOutput) {
@@ -1967,6 +2129,68 @@ TEST(AppRuntime, CommandResultMessagesRenderInTranscript) {
     app->HandleCommand("/clear");
     rendered = strip_ansi(render_to_plain_text(app->Render(), 160, 40));
     EXPECT_EQ(rendered.find("Available commands"), std::string::npos);
+
+    fs::remove_all(storage_root);
+}
+
+// TS REF: src/utils/processUserInput/processBashCommand.tsx — a `!`-prefixed
+// command runs LOCALLY (BashTool.call, shouldQuery:false) and renders
+// <bash-input>/<bash-stdout> local-command rows.  It must NOT be sent to the
+// LLM (no Bash tool-use card, no assistant summary).  This is the fix for the
+// reported bug where `!ls -la` rendered as an LLM Bash tool call.
+TEST(AppRuntime, BangCommandRunsLocallyNotThroughLLM) {
+    cc::core::ToolRegistry tools;
+    cc::core::QueryEngineConfig config;
+    config.context_window.auto_compact = false;
+    config.cwd = fs::temp_directory_path().string();
+    cc::core::QueryEngine engine(std::move(config), tools);
+
+    cc::commands::AppCommandRegistry commands;
+    const auto storage_root = fs::temp_directory_path() /
+        ("cc_repl_ui_bang_local_test_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    cc::utils::SessionStorage storage(storage_root);
+
+    auto app = ftxui::Make<cc::ui::AppAdapter>(
+        &engine, nullptr, &commands, &storage, [] {});
+
+    // Type "!" (enters bash mode) then the command, then Enter.
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::Character("!")));
+    for (char c : std::string("echo cpp_port_marker")) {
+        EXPECT_TRUE(app->OnEvent(ftxui::Event::Character(std::string(1, c))));
+    }
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::Return));
+
+    // No LLM query must be started for a local bash command.
+    EXPECT_FALSE(app->is_query_running_for_testing());
+
+    // Wait for the local bash worker and drain its output row.
+    app->wait_for_local_bash_for_testing();
+    (void)strip_ansi(render_to_plain_text(app->Render(), 120, 32));
+
+    const auto msgs = app->messages_for_testing();
+    int lc_input_pos = -1, lc_output_pos = -1;
+    bool saw_assistant_or_tool = false;
+    std::string output_row;
+    for (int i = 0; i < static_cast<int>(msgs.size()); ++i) {
+        if (msgs[i].rfind("lc-input", 0) == 0 && lc_input_pos < 0) lc_input_pos = i;
+        if (msgs[i].rfind("lc-output", 0) == 0) {
+            if (lc_output_pos < 0) lc_output_pos = i;
+            output_row = msgs[i];
+        }
+        // A real LLM turn would project "assistant:" / tool-use rows.
+        if (msgs[i].rfind("assistant", 0) == 0) saw_assistant_or_tool = true;
+    }
+
+    ASSERT_GE(lc_input_pos, 0) << "expected an lc-input row for the '!' command";
+    ASSERT_GE(lc_output_pos, 0) << "expected an lc-output row with command output";
+    EXPECT_LT(lc_input_pos, lc_output_pos) << "input row must precede output row";
+    EXPECT_FALSE(saw_assistant_or_tool)
+        << "a local '!' command must not produce an assistant/LLM turn";
+    // The echoed marker should appear in the output row (preview is truncated
+    // to 30 chars, but the marker fits).
+    EXPECT_NE(output_row.find("cpp_port_marker"), std::string::npos)
+        << "output row: " << output_row;
 
     fs::remove_all(storage_root);
 }
@@ -4508,6 +4732,251 @@ TEST(MessagePipeline, VisibleIndex_ClampViewport) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// P0-2 collapseBackgroundBashNotifications tests
+// TS REF: src/utils/collapseBackgroundBashNotifications.ts
+// ═══════════════════════════════════════════════════════════════════════════
+
+namespace cbb = cc::ui::messages::collapse;
+
+namespace {
+/// Build a user Message carrying a task-notification with the given status
+/// and summary, matching the CPP wire format (underscored tags).
+inline cc::core::Message make_notification(std::string_view status,
+                                           std::string_view summary) {
+    cc::core::UserMessage m{};
+    std::string text = "<task_notification><status>";
+    text += status;
+    text += "</status><summary>";
+    text += summary;
+    text += "</summary></task_notification>";
+    m.content.push_back(cc::core::TextBlock{std::move(text)});
+    return m;
+}
+
+/// A completed background-bash notification (collapsible).
+inline cc::core::Message make_completed_bash(std::string_view name = "\"foo\"") {
+    return make_notification("completed",
+                             std::string("Background command ") + std::string(name) + " completed");
+}
+
+/// Plain user text (never collapses).
+inline cc::core::Message make_plain_user(std::string text) {
+    cc::core::UserMessage m{};
+    m.content.push_back(cc::core::TextBlock{std::move(text)});
+    return m;
+}
+
+/// Read the first text block of a message (test helper).
+inline std::string first_text(const cc::core::Message& msg) {
+    const auto* u = std::get_if<cc::core::UserMessage>(&msg);
+    if (!u || u->content.empty()) return {};
+    const auto* t = std::get_if<cc::core::TextBlock>(&u->content.front());
+    return t ? t->text : std::string{};
+}
+}  // namespace
+
+TEST(CollapseBackgroundBash, SingleCompletionLeftUnchanged) {
+    std::vector<cc::core::Message> in;
+    in.push_back(make_completed_bash());
+    auto out = cbb::collapse_background_bash_notifications(in, /*fullscreen=*/true, /*verbose=*/false);
+    ASSERT_EQ(out.size(), 1u);
+    // Not synthesized — original text preserved.
+    EXPECT_NE(first_text(out[0]).find("Background command"), std::string::npos);
+    EXPECT_EQ(first_text(out[0]).find("background commands completed"), std::string::npos);
+}
+
+TEST(CollapseBackgroundBash, MultipleConsecutiveCollapseIntoSynthetic) {
+    std::vector<cc::core::Message> in;
+    in.push_back(make_completed_bash("\"a\""));
+    in.push_back(make_completed_bash("\"b\""));
+    in.push_back(make_completed_bash("\"c\""));
+    auto out = cbb::collapse_background_bash_notifications(in, true, false);
+    ASSERT_EQ(out.size(), 1u);
+    // TS: `<summary>3 background commands completed</summary>`
+    EXPECT_NE(first_text(out[0]).find("3 background commands completed"), std::string::npos);
+    EXPECT_NE(first_text(out[0]).find("<status>completed</status>"), std::string::npos);
+}
+
+TEST(CollapseBackgroundBash, FailedAndKilledStayVisible) {
+    std::vector<cc::core::Message> in;
+    in.push_back(make_notification("failed",  "Background command \"x\" failed with exit code 1"));
+    in.push_back(make_notification("killed",  "Background command \"y\" was stopped"));
+    auto out = cbb::collapse_background_bash_notifications(in, true, false);
+    // Neither is a completed-bash, so both pass through untouched.
+    EXPECT_EQ(out.size(), 2u);
+}
+
+TEST(CollapseBackgroundBash, NonBashSummaryNotCollapsed) {
+    // Same 'completed' status but a summary that does NOT start with the
+    // BACKGROUND_BASH_SUMMARY_PREFIX (e.g. an agent/workflow notification).
+    std::vector<cc::core::Message> in;
+    in.push_back(make_notification("completed", "Agent \"planner\" finished"));
+    in.push_back(make_notification("completed", "Agent \"builder\" finished"));
+    auto out = cbb::collapse_background_bash_notifications(in, true, false);
+    EXPECT_EQ(out.size(), 2u);  // untouched
+}
+
+TEST(CollapseBackgroundBash, InterleavedRunsPreserveOrderAndCollapseOnlyRuns) {
+    std::vector<cc::core::Message> in;
+    in.push_back(make_plain_user("hello"));
+    in.push_back(make_completed_bash("\"a\""));   // run of 2 → collapses
+    in.push_back(make_completed_bash("\"b\""));
+    in.push_back(make_plain_user("world"));
+    in.push_back(make_completed_bash("\"c\""));   // run of 1 → stays
+    auto out = cbb::collapse_background_bash_notifications(in, true, false);
+    ASSERT_EQ(out.size(), 4u);
+    EXPECT_EQ(first_text(out[0]), "hello");
+    EXPECT_NE(first_text(out[1]).find("2 background commands completed"), std::string::npos);
+    EXPECT_EQ(first_text(out[2]), "world");
+    EXPECT_NE(first_text(out[3]).find("Background command"), std::string::npos);  // single, unchanged
+}
+
+TEST(CollapseBackgroundBash, VerbosePassThrough) {
+    std::vector<cc::core::Message> in;
+    in.push_back(make_completed_bash("\"a\""));
+    in.push_back(make_completed_bash("\"b\""));
+    // TS: `if (verbose) return messages;`
+    auto out = cbb::collapse_background_bash_notifications(in, /*fullscreen=*/true, /*verbose=*/true);
+    EXPECT_EQ(out.size(), 2u);
+}
+
+TEST(CollapseBackgroundBash, NonFullscreenPassThrough) {
+    std::vector<cc::core::Message> in;
+    in.push_back(make_completed_bash("\"a\""));
+    in.push_back(make_completed_bash("\"b\""));
+    // TS: `if (!isFullscreenEnvEnabled()) return messages;`
+    auto out = cbb::collapse_background_bash_notifications(in, /*fullscreen=*/false, /*verbose=*/false);
+    EXPECT_EQ(out.size(), 2u);
+}
+
+// Integration: the collapse pass must be WIRED into the live AppAdapter
+// message-projection path (TS Messages.tsx:520), not just unit-tested in
+// isolation.  Append 3 consecutive completed-background-bash notifications to
+// the engine conversation, run SyncState, and verify the transcript shows a
+// single collapsed row instead of 3.
+TEST(AppRuntime, CollapseBackgroundBashWiredIntoLiveTranscript) {
+    cc::core::ToolRegistry tools;
+    cc::core::QueryEngineConfig config;
+    config.context_window.auto_compact = false;
+    config.cwd = fs::temp_directory_path().string();
+    cc::core::QueryEngine engine(std::move(config), tools);
+
+    cc::commands::AppCommandRegistry commands;
+    const auto storage_root = fs::temp_directory_path() /
+        ("cc_repl_ui_collapse_wire_test_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    cc::utils::SessionStorage storage(storage_root);
+
+    // Append 3 consecutive completed background-bash notifications (CPP wire
+    // format: underscored tags) directly to the engine conversation.
+    auto make_bash_notif = [](std::string_view name) {
+        cc::core::UserMessage m{};
+        std::string text =
+            "<task_notification><status>completed</status><summary>"
+            "Background command " + std::string(name) + " completed"
+            "</summary></task_notification>";
+        m.content.push_back(cc::core::TextBlock{std::move(text)});
+        return cc::core::Message{std::move(m)};
+    };
+    engine.append_message_for_testing(make_bash_notif("\"a\""));
+    engine.append_message_for_testing(make_bash_notif("\"b\""));
+    engine.append_message_for_testing(make_bash_notif("\"c\""));
+
+    auto app = ftxui::Make<cc::ui::AppAdapter>(
+        &engine, nullptr, &commands, &storage, [] {});
+    app->SyncState();
+
+    // Count how many user rows carry a task-notification.  Before the fix this
+    // would be 3 (one per notification); wired collapse merges them into 1.
+    const auto msgs = app->messages_for_testing();
+    int user_rows = 0;
+    for (const auto& row : msgs) {
+        if (row.rfind("user", 0) == 0) ++user_rows;
+    }
+    EXPECT_EQ(user_rows, 1)
+        << "3 consecutive background-bash notifications must collapse to 1 row";
+
+    fs::remove_all(storage_root);
+}
+
+// Diagnostic: verify exactly 1 blank line between tool_result and assistant text
+TEST(AppRuntime, ToolResultToAssistantTextSpacingIsOneLine) {
+    cc::core::ToolRegistry tools;
+    cc::core::QueryEngineConfig config;
+    config.context_window.auto_compact = false;
+    config.cwd = fs::temp_directory_path().string();
+    cc::core::QueryEngine engine(std::move(config), tools);
+
+    // Match the real flow: user → assistant(thinking+tool) → result → assistant(thinking+text)
+    cc::core::UserMessage u;
+    u.content.push_back(cc::core::TextBlock{"what day is it"});
+    engine.append_message_for_testing(cc::core::Message{std::move(u)});
+
+    cc::core::AssistantMessage a1;
+    a1.content.push_back(cc::core::ThinkingBlock{.thinking = "let me check", .signature = ""});
+    a1.content.push_back(cc::core::ToolUseBlock{
+        .id = cc::core::ToolUseId{"tu1"}, .name = "Bash",
+        .input_json = R"({"command":"date"})"});
+    engine.append_message_for_testing(cc::core::Message{std::move(a1)});
+
+    cc::core::ToolResultMessage tr;
+    tr.tool_use_id = cc::core::ToolUseId{"tu1"};
+    tr.tool_name = "Bash";
+    tr.content.push_back(cc::core::TextBlock{"2026-07-08 Wednesday\n"});
+    engine.append_message_for_testing(cc::core::Message{std::move(tr)});
+
+    cc::core::AssistantMessage a2;
+    a2.content.push_back(cc::core::ThinkingBlock{.thinking = "got the date", .signature = ""});
+    a2.content.push_back(cc::core::TextBlock{"Today is Wednesday."});
+    engine.append_message_for_testing(cc::core::Message{std::move(a2)});
+
+    cc::commands::AppCommandRegistry commands;
+    const auto storage_root2 = fs::temp_directory_path() /
+        ("cc_spacing_test_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    cc::utils::SessionStorage storage(storage_root2);
+
+    auto app = ftxui::Make<cc::ui::AppAdapter>(
+        &engine, nullptr, &commands, &storage, [] {});
+    app->SyncState();
+
+    auto rendered = strip_ansi(render_to_plain_text(app->Render(), 120, 40));
+
+    auto lines = std::vector<std::string>{};
+    std::size_t pos = 0;
+    while (pos <= rendered.size()) {
+        auto nl = rendered.find('\n', pos);
+        lines.push_back(nl == std::string::npos
+            ? rendered.substr(pos) : rendered.substr(pos, nl - pos));
+        if (nl == std::string::npos) break;
+        pos = nl + 1;
+    }
+
+    int result_line = -1, text_line = -1;
+    for (int i = 0; i < static_cast<int>(lines.size()); ++i) {
+        if (lines[i].find("2026-07-08") != std::string::npos) result_line = i;
+        if (lines[i].find("Today is Wednesday") != std::string::npos) text_line = i;
+    }
+
+    ASSERT_GE(result_line, 0) << "tool result not found\n" << rendered;
+    ASSERT_GE(text_line, 0) << "assistant text not found\n" << rendered;
+    ASSERT_GT(text_line, result_line);
+
+    int gap = text_line - result_line - 1;
+    // Print ALL lines for debugging
+    for (int i = 0; i < static_cast<int>(lines.size()); ++i) {
+        if (!lines[i].empty() && lines[i].find_first_not_of(' ') != std::string::npos)
+            std::cerr << "  L" << i << ": \"" << lines[i].substr(0, 60) << "\"\n";
+        else if (i >= result_line - 3 && i <= text_line + 1)
+            std::cerr << "  L" << i << ": (blank)\n";
+    }
+    EXPECT_EQ(gap, 1)
+        << "Expected 1 blank line between tool_result and assistant text, got " << gap;
+
+    fs::remove_all(storage_root2);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // P0-3 VirtualMessageList tests
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -6417,5 +6886,1125 @@ TEST(ImagePasteCtrlV, MessageImageRender_CardNotEmpty) {
         << "image::render must paint the card (contains '🖼 Image' title). "
         << "Got empty output — the UserImage transcript row would show as a "
         << "blank gap above the user text bubble.";
+}
+
+// ============================================================
+// E2E UI GATE — regression guard for critical user-visible scenarios
+//
+// These tests exercise the full AppAdapter → Render() pipeline in the
+// scenarios that have historically broken during UI migration:
+//   1. Startup screen (logo + statusline + prompt)
+//   2. User message with image attachment (⎿ connector, no bg on continuation)
+//   3. Tool use block with Input/Output sections
+//   4. Full conversation flow (user → tool → result → assistant)
+//   5. Statusline always visible in every state
+// ============================================================
+
+namespace e2e_gate {
+
+/// Mock server that returns a tool_use block for an "analyze_image" MCP tool,
+/// then on the second round returns the assistant text response.
+/// Simulates the exact flow: user sends image → model calls MCP tool → result
+/// → model generates text reply.
+class McpToolFlowServer {
+public:
+    McpToolFlowServer() {
+        server_.Post("/v1/messages", [&](const httplib::Request& req, httplib::Response& res) {
+            std::size_t request_number = 0;
+            {
+                std::lock_guard lock(mutex_);
+                request_number = ++request_count_;
+                last_body_ = req.body;
+            }
+            cv_.notify_all();
+
+            res.set_header("x-usage-input-tokens", "42");
+            if (request_number == 1) {
+                // First round: model calls analyze_image tool
+                res.set_chunked_content_provider(
+                    "text/event-stream",
+                    [this](size_t, httplib::DataSink& sink) {
+                        if (phase_++ > 0) return false;
+                        sink.os <<
+                            "event: message_start\n"
+                            "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_e2e_1\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-test\",\"content\":[]}}\n\n"
+                            "event: content_block_start\n"
+                            "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_e2e_1\",\"name\":\"analyze_image\",\"input\":{}}}\n\n"
+                            "event: content_block_delta\n"
+                            "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"imageSource\\\":\\\"https://example.com/img.png\\\",\\\"prompt\\\":\\\"Describe this image in detail\\\"}\"}}\n\n"
+                            "event: content_block_stop\n"
+                            "data: {\"type\":\"content_block_stop\",\"index\":0}\n\n"
+                            "event: message_delta\n"
+                            "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":15}}\n\n"
+                            "event: message_stop\n"
+                            "data: {\"type\":\"message_stop\"}\n\n";
+                        sink.done();
+                        {
+                            std::lock_guard lock(mutex_);
+                            tool_sent_ = true;
+                        }
+                        cv_.notify_all();
+                        return true;
+                    });
+            } else {
+                // Second round: model generates text reply after seeing tool result
+                res.set_chunked_content_provider(
+                    "text/event-stream",
+                    [this](size_t, httplib::DataSink& sink) {
+                        if (phase2_++ > 0) return false;
+                        sink.os <<
+                            "event: message_start\n"
+                            "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_e2e_2\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-test\",\"content\":[]}}\n\n"
+                            "event: content_block_start\n"
+                            "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n"
+                            "event: content_block_delta\n"
+                            "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"This is a screenshot of a dark-themed terminal UI showing a code review platform with bullet points and comment sections.\"}}\n\n"
+                            "event: content_block_stop\n"
+                            "data: {\"type\":\"content_block_stop\",\"index\":0}\n\n"
+                            "event: message_delta\n"
+                            "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":25}}\n\n"
+                            "event: message_stop\n"
+                            "data: {\"type\":\"message_stop\"}\n\n";
+                        sink.done();
+                        {
+                            std::lock_guard lock(mutex_);
+                            reply_sent_ = true;
+                        }
+                        cv_.notify_all();
+                        return true;
+                    });
+            }
+        });
+        port_ = server_.bind_to_any_port("127.0.0.1");
+        thread_ = std::thread([this] {
+            server_.listen_after_bind();
+        });
+        server_.wait_until_ready();
+    }
+
+    ~McpToolFlowServer() {
+        server_.stop();
+        if (thread_.joinable()) thread_.join();
+    }
+
+    bool valid() const { return port_ > 0; }
+    std::string base_url() const { return "http://127.0.0.1:" + std::to_string(port_); }
+
+    bool wait_for_tool(std::chrono::milliseconds timeout = std::chrono::seconds(3)) {
+        std::unique_lock lock(mutex_);
+        return cv_.wait_for(lock, timeout, [this] { return tool_sent_; });
+    }
+
+    bool wait_for_reply(std::chrono::milliseconds timeout = std::chrono::seconds(3)) {
+        std::unique_lock lock(mutex_);
+        return cv_.wait_for(lock, timeout, [this] { return reply_sent_; });
+    }
+
+    std::string last_body() {
+        std::lock_guard lock(mutex_);
+        return last_body_;
+    }
+
+    /// Check if the tools array in the request body contains a specific tool name.
+    bool request_contains_tool(std::string_view tool_name) {
+        std::lock_guard lock(mutex_);
+        return last_body_.find(tool_name) != std::string::npos;
+    }
+
+private:
+    httplib::Server server_;
+    int port_ = 0;
+    std::thread thread_;
+    std::mutex mutex_;
+    std::condition_variable cv_;
+    std::size_t request_count_ = 0;
+    std::string last_body_;
+    bool tool_sent_ = false;
+    bool reply_sent_ = false;
+    int phase_ = 0;
+    int phase2_ = 0;
+};
+
+/// Helper: render app to plain text and check for required substrings.
+/// Returns vector of missing strings for diagnostic output.
+std::vector<std::string> check_required_strings(
+    const std::string& rendered,
+    const std::vector<std::string>& required) {
+    std::vector<std::string> missing;
+    for (const auto& s : required) {
+        if (rendered.find(s) == std::string::npos) {
+            missing.push_back(s);
+        }
+    }
+    return missing;
+}
+
+} // namespace e2e_gate
+
+/// E2E Gate #1: Startup screen must show logo, statusline, and prompt.
+/// Regression guard for "statusline disappeared" bug.
+TEST(E2E_Gate, StartupScreenHasAllElements) {
+    using namespace e2e_gate;
+
+    cc::core::ToolRegistry tools;
+    cc::core::QueryEngineConfig config;
+    config.context_window.auto_compact = false;
+    config.cwd = fs::temp_directory_path().string();
+    cc::core::QueryEngine engine(std::move(config), tools);
+
+    cc::commands::AppCommandRegistry commands;
+    const auto storage_root = fs::temp_directory_path() /
+        ("cc_e2e_gate_startup_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    cc::utils::SessionStorage storage(storage_root);
+
+    auto app = ftxui::Make<cc::ui::AppAdapter>(
+        &engine, nullptr, &commands, &storage, [] {});
+
+    // Render at a realistic terminal size
+    auto rendered = strip_ansi(render_to_plain_text(app->Render(), 120, 36));
+
+    // Critical elements that must always be visible on startup
+    auto missing = check_required_strings(rendered, {
+        "Claude Code",   // Logo / app name
+        "v",             // Version string
+        "Try ",          // Prompt placeholder hint
+    });
+
+    EXPECT_TRUE(missing.empty())
+        << "E2E GATE FAIL: Startup screen missing critical elements:\n"
+        << "  Missing: " << [&] {
+            std::string s;
+            for (const auto& m : missing) s += "[" + m + "] ";
+            return s;
+        }()
+        << "\n  Rendered output (first 2000 chars):\n"
+        << rendered.substr(0, 2000);
+
+    fs::remove_all(storage_root);
+}
+
+/// E2E Gate #2: After submitting a user message, the statusline must still
+/// be visible. Regression guard for "statusline vanished after MCP connect".
+TEST(E2E_Gate, StatuslineVisibleAfterSubmit) {
+    using namespace e2e_gate;
+
+    McpToolFlowServer server;
+    ASSERT_TRUE(server.valid());
+
+    cc::core::ToolRegistry tools;
+    cc::core::QueryEngineConfig config;
+    config.api_key = "test-key";
+    config.base_url = server.base_url();
+    config.context_window.auto_compact = false;
+    config.cwd = fs::temp_directory_path().string();
+    cc::core::QueryEngine engine(std::move(config), tools);
+
+    cc::commands::AppCommandRegistry commands;
+    const auto storage_root = fs::temp_directory_path() /
+        ("cc_e2e_gate_statusline_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    cc::utils::SessionStorage storage(storage_root);
+
+    auto app = ftxui::Make<cc::ui::AppAdapter>(
+        &engine, nullptr, &commands, &storage, [] {});
+
+    // Submit a message (triggers query)
+    app->HandleSubmit("hello");
+
+    // Wait for query to finish
+    ASSERT_TRUE(wait_until([&] {
+        (void)app->Render();
+        return !app->is_query_running_for_testing();
+    }, std::chrono::seconds(5)));
+
+    // Render and check statusline is still present
+    auto rendered = strip_ansi(render_to_plain_text(app->Render(), 120, 36));
+
+    // Statusline indicators: model name, cost/tokens, or branch info
+    bool has_statusline_indicator =
+        rendered.find("master") != std::string::npos ||
+        rendered.find("GLM") != std::string::npos ||
+        rendered.find("tokens") != std::string::npos ||
+        rendered.find("0.0") != std::string::npos;
+
+    EXPECT_TRUE(has_statusline_indicator)
+        << "E2E GATE FAIL: Statusline not visible after submit.\n"
+        << "  Rendered output (last 1500 chars):\n"
+        << rendered.substr(std::max(0, (int)rendered.size() - 1500));
+
+    fs::remove_all(storage_root);
+}
+
+/// E2E Gate #3: MCP tool_use block must render with tool name and Input section.
+/// Regression guard for "MCP tool blocks disappeared" bug.
+TEST(E2E_Gate, McpToolUseBlockRendersWithNameAndInput) {
+    using namespace e2e_gate;
+
+    McpToolFlowServer server;
+    ASSERT_TRUE(server.valid());
+
+    // Register a dummy "mcp" tool and set up missing-tool handler so the
+    // engine can "execute" analyze_image.
+    cc::core::ToolRegistry tools;
+    tools.set_missing_tool_handler(
+        [](std::string_view /*name*/,
+           const cc::core::ToolInput&) -> cc::core::Result<cc::core::ToolResult> {
+            // Simulate MCP tool returning a result
+            std::vector<cc::core::ToolOutputContent> contents;
+            contents.push_back(cc::core::ToolOutputContent::text_output(
+                "The image shows a dark-themed terminal interface."));
+            return cc::core::ToolResult{.content = std::move(contents), .is_error = false};
+        });
+
+    cc::core::QueryEngineConfig config;
+    config.api_key = "test-key";
+    config.base_url = server.base_url();
+    config.context_window.auto_compact = false;
+    config.cwd = fs::temp_directory_path().string();
+    cc::core::QueryEngine engine(std::move(config), tools);
+
+    cc::commands::AppCommandRegistry commands;
+    const auto storage_root = fs::temp_directory_path() /
+        ("cc_e2e_gate_tooluse_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    cc::utils::SessionStorage storage(storage_root);
+
+    auto app = ftxui::Make<cc::ui::AppAdapter>(
+        &engine, nullptr, &commands, &storage, [] {});
+
+    app->HandleSubmit("describe this image");
+
+    // Wait for the full flow to complete (tool → result → reply)
+    ASSERT_TRUE(wait_until([&] {
+        (void)app->Render();
+        return !app->is_query_running_for_testing();
+    }, std::chrono::seconds(8)));
+
+    auto rendered = strip_ansi(render_to_plain_text(app->Render(), 140, 40));
+
+    // The tool_use block must show the tool name (generic UI humanizes to title case)
+    EXPECT_NE(rendered.find("Analyze Image"), std::string::npos)
+        << "E2E GATE FAIL: MCP tool_use block missing tool name 'Analyze Image'.\n"
+        << "  The tool call block should show which tool was invoked.\n"
+        << "  Rendered output:\n" << rendered.substr(0, 3000);
+
+    // The assistant text reply must be visible
+    EXPECT_NE(rendered.find("screenshot"), std::string::npos)
+        << "E2E GATE FAIL: Assistant text reply not visible after MCP tool result.\n"
+        << "  Should contain 'screenshot' from the mock reply.\n"
+        << "  Rendered output:\n" << rendered.substr(0, 3000);
+
+    fs::remove_all(storage_root);
+}
+
+/// E2E Gate #3b: MCP tool result must render as SEPARATE card, not just
+/// inside the tool_use card's Output section.
+///
+/// Regression guard for the bug where role="tool" messages had
+/// is_tool_use=true, causing them to be swallowed into the AssistantToolUse
+/// renderer instead of appearing as their own UserToolResult card.
+///
+/// TS parity: after a tool completes, the transcript shows:
+///   1. AssistantToolUse card (● Built-in Tool: analyze_image + Input + Output)
+///   2. UserToolResult card (✓ analyze_image + result content)  ← SEPARATE
+///   3. AssistantTextMessage (the model's reply after seeing the result)
+TEST(E2E_Gate, McpToolResultRendersAsSeparateCard) {
+    using namespace e2e_gate;
+
+    // Use a server that returns analyze_image tool_use + text reply
+    McpToolFlowServer server;
+    ASSERT_TRUE(server.valid());
+
+    // The exact MCP result format from user's screenshot:
+    // "analyze_image_result_summary: [{\"text\": \"The image is a solid black square...\"}]"
+    // This is what Z.ai / MCP analyze_image returns.
+    static constexpr const char* kMcpResult =
+        "analyze_image_result_summary: "
+        "[{\"text\": \"The image is a solid black square with no visible "
+        "content, text, UI elements, or distinct visual features.\"}]";
+
+    cc::core::ToolRegistry tools;
+    tools.set_missing_tool_handler(
+        [](std::string_view /*name*/,
+           const cc::core::ToolInput&) -> cc::core::Result<cc::core::ToolResult> {
+            std::vector<cc::core::ToolOutputContent> contents;
+            contents.push_back(cc::core::ToolOutputContent::text_output(kMcpResult));
+            return cc::core::ToolResult{.content = std::move(contents), .is_error = false};
+        });
+
+    cc::core::QueryEngineConfig config;
+    config.api_key = "test-key";
+    config.base_url = server.base_url();
+    config.context_window.auto_compact = false;
+    config.cwd = fs::temp_directory_path().string();
+    cc::core::QueryEngine engine(std::move(config), tools);
+
+    cc::commands::AppCommandRegistry commands;
+    const auto storage_root = fs::temp_directory_path() /
+        ("cc_e2e_gate_toolresult_separate_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    cc::utils::SessionStorage storage(storage_root);
+
+    auto app = ftxui::Make<cc::ui::AppAdapter>(
+        &engine, nullptr, &commands, &storage, [] {});
+
+    app->HandleSubmit("what is this image?");
+
+    // Wait for full flow to complete
+    ASSERT_TRUE(wait_until([&] {
+        (void)app->Render();
+        return !app->is_query_running_for_testing();
+    }, std::chrono::seconds(8)));
+
+    auto rendered = strip_ansi(render_to_plain_text(app->Render(), 140, 50));
+
+    // ── Assertion 1: tool_use card must show the tool name ──────────────
+    EXPECT_NE(rendered.find("Analyze Image"), std::string::npos)
+        << "FAIL: tool_use block missing 'Analyze Image'.\n"
+        << "Rendered:\n" << rendered.substr(0, 4000);
+
+    // ── Assertion 2: the MCP result text must be visible ───────────────
+    EXPECT_NE(rendered.find("solid black square"), std::string::npos)
+        << "FAIL: MCP tool result content not visible in transcript.\n"
+        << "The result text 'solid black square' should appear somewhere.\n"
+        << "Rendered:\n" << rendered.substr(0, 4000);
+
+    // ── Assertion 3: the ⎿ connector must appear (tool_result MessageResponse)
+    //   TS renders tool results via <MessageResponse> (⎿ prefix).  If the
+    //   result was swallowed into the tool_use card, no ⎿ would appear for it.
+    const std::string connector = "\xe2\x8e\xbf";  // ⎿ U+23BF
+    std::size_t connector_pos = rendered.find(connector);
+    EXPECT_NE(connector_pos, std::string::npos)
+        << "FAIL: No ⎿ connector found in transcript.\n"
+        << "This means the tool_result is NOT rendering as a separate card.\n"
+        << "It is probably swallowed into the tool_use card's Output section.\n"
+        << "Rendered:\n" << rendered.substr(0, 4000);
+
+    if (connector_pos != std::string::npos) {
+        // ── Assertion 4: after ⎿, the result content must appear
+        std::size_t after_conn = connector_pos + connector.size();
+        std::size_t content_after = rendered.find("solid black square", after_conn);
+        EXPECT_NE(content_after, std::string::npos)
+            << "FAIL: ⎿ found but result content not after it.\n"
+            << "The tool_result should show the MCP result text.\n"
+            << "Rendered around ⎿:\n"
+            << rendered.substr(std::max(0, (int)connector_pos - 20), 100);
+    }
+
+    // ── Assertion 5: the model's text reply must be visible (proves the
+    //   full round-trip worked — tool result was sent back to model)
+    EXPECT_NE(rendered.find("screenshot"), std::string::npos)
+        << "FAIL: Assistant text reply not visible after tool result.\n"
+        << "The mock model replies with 'screenshot' after seeing the result.\n"
+        << "Rendered:\n" << rendered.substr(0, 4000);
+
+    fs::remove_all(storage_root);
+}
+
+/// E2E Gate #3c: MCP tool result with _result_summary format shows raw text
+/// (TS parity — TS does NOT unwrap _result_summary or [{"text":...}] arrays).
+///
+/// Verifies that CPP does NOT do "extra translation work" that TS doesn't.
+/// The raw format like:
+///   analyze_image_result_summary: [{"text": "..."}]
+/// is shown to the user as-is (TS screenshot confirms this).
+TEST(E2E_Gate, McpResultSummaryFormatShownRaw) {
+    using namespace e2e_gate;
+
+    McpToolFlowServer server;
+    ASSERT_TRUE(server.valid());
+
+    static constexpr const char* kMcpResult =
+        "analyze_image_result_summary: "
+        "[{\"text\": \"The image shows a dark terminal.\"}]";
+
+    cc::core::ToolRegistry tools;
+    tools.set_missing_tool_handler(
+        [](std::string_view /*name*/,
+           const cc::core::ToolInput&) -> cc::core::Result<cc::core::ToolResult> {
+            std::vector<cc::core::ToolOutputContent> contents;
+            contents.push_back(cc::core::ToolOutputContent::text_output(kMcpResult));
+            return cc::core::ToolResult{.content = std::move(contents), .is_error = false};
+        });
+
+    cc::core::QueryEngineConfig config;
+    config.api_key = "test-key";
+    config.base_url = server.base_url();
+    config.context_window.auto_compact = false;
+    config.cwd = fs::temp_directory_path().string();
+    cc::core::QueryEngine engine(std::move(config), tools);
+
+    cc::commands::AppCommandRegistry commands;
+    const auto storage_root = fs::temp_directory_path() /
+        ("cc_e2e_gate_result_raw_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    cc::utils::SessionStorage storage(storage_root);
+
+    auto app = ftxui::Make<cc::ui::AppAdapter>(
+        &engine, nullptr, &commands, &storage, [] {});
+
+    app->HandleSubmit("what is this?");
+
+    ASSERT_TRUE(wait_until([&] {
+        (void)app->Render();
+        return !app->is_query_running_for_testing();
+    }, std::chrono::seconds(8)));
+
+    auto rendered = strip_ansi(render_to_plain_text(app->Render(), 140, 50));
+
+    // The _result_summary prefix must be VISIBLE (TS parity — not unwrapped)
+    EXPECT_NE(rendered.find("result_summary"), std::string::npos)
+        << "FAIL: 'result_summary' prefix was stripped/extracted.\n"
+        << "TS shows this raw — CPP must NOT do extra unwrapping.\n"
+        << "Rendered:\n" << rendered.substr(0, 4000);
+
+    // The [{\"text\": ... array wrapper must also be visible (not unwrapped)
+    // Note: after strip_ansi the quotes may be plain " not \"
+    EXPECT_NE(rendered.find("[{\"text\""), std::string::npos)
+        << "FAIL: JSON array wrapper [{\"text\": was stripped.\n"
+        << "TS shows this raw — CPP must NOT unwrap bare arrays.\n"
+        << "Rendered:\n" << rendered.substr(0, 4000);
+
+    // The actual content text must be visible
+    EXPECT_NE(rendered.find("dark terminal"), std::string::npos)
+        << "FAIL: actual result content 'dark terminal' not visible.\n"
+        << "Rendered:\n" << rendered.substr(0, 4000);
+
+    fs::remove_all(storage_root);
+}
+
+/// E2E Gate #3d: After full MCP tool flow, the tool_use card must NOT show
+/// the result in its Output section.  The result should only appear in the
+/// separate ✓ UserToolResult card.
+///
+/// This is the exact bug the user reported: "Z.ai 返回值的 Output 没有作为
+/// 单独的对话块渲染" — the result was showing inside the tool_use card's
+/// Output section instead of the separate ✓ card.
+///
+/// Root cause fixed: streaming_tools_ entry had result_preview forwarded
+/// even after ToolExecutionEnd (exec_done=true), causing the tool_use card
+/// to render an "Output:" section with the result.  Fix: when exec_done,
+/// suppress tool_result_preview in the projection.
+TEST(E2E_Gate, McpToolResultSuppressedInToolUseCardDuringStreaming) {
+    using namespace e2e_gate;
+
+    // Use the standard two-round server (tool_use → text reply)
+    McpToolFlowServer server;
+    ASSERT_TRUE(server.valid());
+
+    // The exact MCP result from user's screenshot (Image #9):
+    // "analyze_image_result_summary: [{\"text\": \"The image is a completely
+    //   black square with no visible content, text, diagrams, UI elements...\"}]"
+    static constexpr const char* kMcpResult =
+        "analyze_image_result_summary: "
+        "[{\"text\": \"The image is a completely black square with no visible "
+        "content, text, diagrams, UI elements, or any other visual details.\"}]";
+
+    cc::core::ToolRegistry tools;
+    tools.set_missing_tool_handler(
+        [](std::string_view,
+           const cc::core::ToolInput&) -> cc::core::Result<cc::core::ToolResult> {
+            std::vector<cc::core::ToolOutputContent> contents;
+            contents.push_back(cc::core::ToolOutputContent::text_output(kMcpResult));
+            return cc::core::ToolResult{.content = std::move(contents), .is_error = false};
+        });
+
+    cc::core::QueryEngineConfig config;
+    config.api_key = "test-key";
+    config.base_url = server.base_url();
+    config.context_window.auto_compact = false;
+    config.cwd = fs::temp_directory_path().string();
+    cc::core::QueryEngine engine(std::move(config), tools);
+
+    cc::commands::AppCommandRegistry commands;
+    const auto storage_root = fs::temp_directory_path() /
+        ("cc_e2e_gate_no_output_in_tooluse_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    cc::utils::SessionStorage storage(storage_root);
+
+    auto app = ftxui::Make<cc::ui::AppAdapter>(
+        &engine, nullptr, &commands, &storage, [] {});
+
+    app->HandleSubmit("what is this image?");
+
+    // Wait for full flow to complete (both API rounds)
+    ASSERT_TRUE(wait_until([&] {
+        (void)app->Render();
+        return !app->is_query_running_for_testing();
+    }, std::chrono::seconds(8)));
+
+    auto rendered = strip_ansi(render_to_plain_text(app->Render(), 140, 50));
+
+    // ── Assertion 1: tool_use card must show the tool name ──────────────
+    EXPECT_NE(rendered.find("Analyze Image"), std::string::npos)
+        << "FAIL: 'Analyze Image' not visible.\n"
+        << "Rendered:\n" << rendered.substr(0, 4000);
+
+    // ── Assertion 2: ⎿ connector must be visible (separate result row) ─
+    const std::string connector = "\xe2\x8e\xbf";
+    std::size_t connector_pos = rendered.find(connector);
+    EXPECT_NE(connector_pos, std::string::npos)
+        << "FAIL: No ⎿ connector found.\n"
+        << "The tool_result is NOT rendering as a separate card.\n"
+        << "Rendered:\n" << rendered.substr(0, 4000);
+
+    // ── Assertion 3: the result text must be visible (in ⎿ row) ────────
+    EXPECT_NE(rendered.find("completely black square"), std::string::npos)
+        << "FAIL: result content 'completely black square' not visible.\n"
+        << "It should appear in the separate ⎿ result row.\n"
+        << "Rendered:\n" << rendered.substr(0, 4000);
+
+    // ── Assertion 4 (CRITICAL): "Output:" must NOT appear near the
+    //    tool_use card header.  Before the fix, the streaming tool_use entry
+    //    forwarded result_preview even after ToolExecutionEnd, causing the
+    //    tool_use card to show an "Output:" section with the MCP result text.
+    //    After the fix (exec_done suppresses tool_result_preview), the
+    //    tool_use card shows only Input, no Output.
+    //
+    //    We find the first "Analyze Image" occurrence (tool_use header) and
+    //    check that "Output:" doesn't appear within 300 chars after it.
+    std::size_t first_tool = rendered.find("Analyze Image");
+    if (first_tool != std::string::npos) {
+        std::size_t search_end = std::min(first_tool + 300, rendered.size());
+        std::string after_tool = rendered.substr(first_tool, search_end - first_tool);
+        std::size_t output_in_tool = after_tool.find("Output:");
+        EXPECT_EQ(output_in_tool, std::string::npos)
+            << "FAIL: 'Output:' found inside the tool_use card area.\n"
+            << "This means the tool_use card is showing the result in its\n"
+            << "Output section — should only be in the separate ⎿ row.\n"
+            << "Context around tool_use header:\n"
+            << after_tool.substr(0, 400);
+    }
+
+    // ── Assertion 5: the _result_summary prefix must be visible (raw) ───
+    //    TS shows the raw format including the prefix.  CPP must NOT unwrap.
+    EXPECT_NE(rendered.find("_result_summary"), std::string::npos)
+        << "FAIL: '_result_summary' prefix not visible.\n"
+        << "TS shows this raw — CPP must not unwrap.\n"
+        << "Rendered:\n" << rendered.substr(0, 4000);
+
+    // ── Assertion 6: model text reply must be visible (full round-trip) ─
+    EXPECT_NE(rendered.find("screenshot"), std::string::npos)
+        << "FAIL: assistant text reply not visible.\n"
+        << "Rendered:\n" << rendered.substr(0, 4000);
+
+    fs::remove_all(storage_root);
+}
+
+/// E2E Gate #4: API request body must include MCP tools in the tools array.
+/// Regression guard for "MCP tools not sent to API" bug.
+TEST(E2E_Gate, McpToolsIncludedInApiRequestBody) {
+    using namespace e2e_gate;
+
+    McpToolFlowServer server;
+    ASSERT_TRUE(server.valid());
+
+    cc::core::ToolRegistry tools;
+    // Register built-in tools so the request has something
+    tools.set_missing_tool_handler(
+        [](std::string_view tool_name,
+           const cc::core::ToolInput&) -> cc::core::Result<cc::core::ToolResult> {
+            return std::unexpected(cc::core::Error::make(
+                cc::core::ErrorCode::ToolNotFound,
+                std::format("Tool '{}' not found", tool_name)));
+        });
+
+    cc::core::QueryEngineConfig config;
+    config.api_key = "test-key";
+    config.base_url = server.base_url();
+    config.context_window.auto_compact = false;
+    config.cwd = fs::temp_directory_path().string();
+
+    // Add a dynamic tools provider (simulating MCP tool discovery)
+    config.dynamic_tools_provider = []() -> std::vector<cc::core::ToolDefinition> {
+        std::vector<cc::core::ToolDefinition> defs;
+        cc::core::ToolDefinition d;
+        d.name = "analyze_image";
+        d.description = "Analyze an image and return a detailed description";
+        d.permission = cc::core::ToolPermission::Network;
+        d.category = "mcp:zai-builtin";
+        defs.push_back(d);
+        return defs;
+    };
+
+    cc::core::QueryEngine engine(std::move(config), tools);
+
+    cc::commands::AppCommandRegistry commands;
+    const auto storage_root = fs::temp_directory_path() /
+        ("cc_e2e_gate_apibody_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    cc::utils::SessionStorage storage(storage_root);
+
+    auto app = ftxui::Make<cc::ui::AppAdapter>(
+        &engine, nullptr, &commands, &storage, [] {});
+
+    app->HandleSubmit("test");
+
+    // Wait for query to finish
+    ASSERT_TRUE(wait_until([&] {
+        (void)app->Render();
+        return !app->is_query_running_for_testing();
+    }, std::chrono::seconds(5)));
+
+    // The request body sent to the API should include the MCP tool name
+    EXPECT_TRUE(server.request_contains_tool("analyze_image"))
+        << "E2E GATE FAIL: API request body does not include MCP tool 'analyze_image'.\n"
+        << "  The dynamic_tools_provider should ensure MCP tools are in the\n"
+        << "  tools array sent to the API.\n"
+        << "  Last request body:\n" << server.last_body().substr(0, 2000);
+
+    fs::remove_all(storage_root);
+}
+
+/// E2E Gate #5: Image placeholder must show [Image #N] format, not just [Image].
+/// Regression guard for "image ID missing" bug.
+TEST(E2E_Gate, ImagePlaceholderShowsNumberedId) {
+    using namespace cc::ui::messages::image;
+
+    ImageMessageData d;
+    d.media_type = "image/png";
+    d.image_id = "1";  // This is the key: display id must be set
+    d.file_name = "clipboard.png";
+    d.source_type = ImageSource::Clipboard;
+
+    Element el = render(d);
+    std::string snap = strip_ansi(render_to_plain_text(std::move(el), 80, 10));
+
+    EXPECT_NE(snap.find("[Image #1]"), std::string::npos)
+        << "E2E GATE FAIL: Image placeholder shows '[Image]' instead of '[Image #1]'.\n"
+        << "  The image_id field must be populated from the paste order.\n"
+        << "  Got: " << snap;
+}
+
+/// E2E Gate #6: ⎿ connector character (U+23BF) must be used for continuation
+/// blocks, NOT ⏿ (U+23FF). Regression guard for wrong Unicode codepoint.
+/// This test verifies the source files contain the correct UTF-8 bytes,
+/// since the rendering functions live in a `detail` namespace that cannot
+/// be directly imported without causing ambiguity.
+TEST(E2E_Gate, ConnectorCharacterIsCorrectCodepoint) {
+    // The correct connector is U+23BF = ⎿ = \xe2\x8e\xbf in UTF-8
+    // The WRONG connector would be U+23FF = ⏿ = \xe2\x8f\xbf
+    const std::string correct_connector = "\xe2\x8e\xbf";  // U+23BF ⎿
+    const std::string wrong_connector = "\xe2\x8f\xbf";    // U+23FF ⏿
+
+    // Resolve project root relative to this test file (tests/test_ui.cpp)
+    const std::string test_file = __FILE__;
+    const auto test_dir = test_file.substr(0, test_file.find_last_of('/'));
+    const auto project_root = test_dir.substr(0, test_dir.find_last_of('/'));
+
+    // Check all message rendering source files for the correct connector bytes
+    const std::vector<std::string> source_files = {
+        "src/ui/messages/message_tool_result.cppm",
+        "src/ui/messages/user_text_message.cppm",
+        "src/ui/messages/messages_list.cppm",
+    };
+
+    for (const auto& rel_path : source_files) {
+        const auto full_path = project_root + "/" + rel_path;
+        std::ifstream file(full_path);
+        if (!file.is_open()) continue;  // Skip if file not found
+
+        std::string content((std::istreambuf_iterator<char>(file)),
+                            std::istreambuf_iterator<char>());
+
+        // Every file that renders connectors should use the correct U+23BF
+        EXPECT_NE(content.find(correct_connector), std::string::npos)
+            << "E2E GATE FAIL: " << rel_path << " does not contain correct "
+            << "connector U+23BF (⎿ = \\xe2\\x8e\\xbf).\n"
+            << "  Expected the 'NOT-CURVE ARCH EXTENDING LEFT AND DOWNWARDS' character.";
+
+        // No file should contain the wrong U+23FF
+        EXPECT_EQ(content.find(wrong_connector), std::string::npos)
+            << "E2E GATE FAIL: " << rel_path << " contains WRONG connector "
+            << "U+23FF (⏿ = \\xe2\\x8f\\bf black floppy disk).\n"
+            << "  This should be U+23BF (⎿). Fix the hex bytes in the source.";
+    }
+}
+
+/// E2E Gate #7: Full conversation snapshot golden test.
+/// Renders the entire REPL screen after a complete interaction and compares
+/// against a stored golden baseline. Catches ANY visual regression.
+TEST(E2E_Gate, FullConversationGoldenSnapshot) {
+    using namespace e2e_gate;
+
+    McpToolFlowServer server;
+    ASSERT_TRUE(server.valid());
+
+    cc::core::ToolRegistry tools;
+    tools.set_missing_tool_handler(
+        [](std::string_view /*name*/,
+           const cc::core::ToolInput&) -> cc::core::Result<cc::core::ToolResult> {
+            std::vector<cc::core::ToolOutputContent> contents;
+            contents.push_back(cc::core::ToolOutputContent::text_output(
+                "The image shows a dark-themed terminal interface."));
+            return cc::core::ToolResult{.content = std::move(contents), .is_error = false};
+        });
+
+    cc::core::QueryEngineConfig config;
+    config.api_key = "test-key";
+    config.base_url = server.base_url();
+    config.context_window.auto_compact = false;
+    config.cwd = fs::temp_directory_path().string();
+    cc::core::QueryEngine engine(std::move(config), tools);
+
+    cc::commands::AppCommandRegistry commands;
+    const auto storage_root = fs::temp_directory_path() /
+        ("cc_e2e_gate_golden_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    cc::utils::SessionStorage storage(storage_root);
+
+    auto app = ftxui::Make<cc::ui::AppAdapter>(
+        &engine, nullptr, &commands, &storage, [] {});
+
+    app->HandleSubmit("describe this image");
+
+    // Wait for full flow
+    ASSERT_TRUE(wait_until([&] {
+        (void)app->Render();
+        return !app->is_query_running_for_testing();
+    }, std::chrono::seconds(8)));
+
+    // Final render
+    auto rendered = render_to_plain_text(app->Render(), 120, 36);
+    auto plain = strip_ansi(rendered);
+
+    // Structural assertions: every major section must be present
+    auto missing = check_required_strings(plain, {
+        "Claude Code",       // Logo/header
+        "describe this",     // User message
+        "analyze_image",     // Tool use block
+        "terminal",          // Assistant reply (from mock)
+    });
+
+    fs::remove_all(storage_root);
+}
+
+// ─── Placeholder cascade tests (TS REF: usePromptInputPlaceholder.ts) ──────
+
+TEST(ReplScreen, PlaceholderEmptyInputShowsExampleOnFirstSubmit) {
+    namespace repl = cc::ui::repl_screen;
+
+    repl::ReplScreenState state;
+    state.input_text = "";
+    state.submit_count = 0;
+    state.prompt_suggestion_enabled = true;
+
+    auto placeholder = repl::ComputePlaceholder(state);
+    ASSERT_TRUE(placeholder.has_value());
+    // First example command is "fix lint errors" (index 0 of kExampleCommands).
+    EXPECT_NE(placeholder->find("fix lint errors"), std::string::npos);
+    EXPECT_NE(placeholder->find("Try"), std::string::npos);
+}
+
+TEST(ReplScreen, PlaceholderNonEmptyInputReturnsNullopt) {
+    namespace repl = cc::ui::repl_screen;
+
+    repl::ReplScreenState state;
+    state.input_text = "hello";
+    state.submit_count = 0;
+
+    auto placeholder = repl::ComputePlaceholder(state);
+    EXPECT_FALSE(placeholder.has_value());
+}
+
+TEST(ReplScreen, PlaceholderAfterSubmitNoExample) {
+    namespace repl = cc::ui::repl_screen;
+
+    repl::ReplScreenState state;
+    state.input_text = "";
+    state.submit_count = 1;  // Already submitted once
+    state.prompt_suggestion_enabled = true;
+
+    auto placeholder = repl::ComputePlaceholder(state);
+    // After first submit, the onboarding example is no longer shown.
+    // Without other conditions matching, returns nullopt.
+    EXPECT_FALSE(placeholder.has_value());
+}
+
+TEST(ReplScreen, PlaceholderViewingAgentShowsMessageHint) {
+    namespace repl = cc::ui::repl_screen;
+
+    repl::ReplScreenState state;
+    state.input_text = "";
+    state.submit_count = 5;  // Past onboarding
+    state.viewing_agent_name = "researcher";
+
+    auto placeholder = repl::ComputePlaceholder(state);
+    ASSERT_TRUE(placeholder.has_value());
+    EXPECT_NE(placeholder->find("Message @researcher..."), std::string::npos);
+}
+
+TEST(ReplScreen, PlaceholderViewingAgentLongNameTruncated) {
+    namespace repl = cc::ui::repl_screen;
+
+    repl::ReplScreenState state;
+    state.input_text = "";
+    state.submit_count = 5;
+    // 25 characters — exceeds the 20-char limit.
+    state.viewing_agent_name = "very-long-agent-name-here";
+
+    auto placeholder = repl::ComputePlaceholder(state);
+    ASSERT_TRUE(placeholder.has_value());
+    // Should be truncated to "very-long-agent-n..." (17 chars + "..." = 20).
+    EXPECT_NE(placeholder->find("Message @very-long-agent-n..."), std::string::npos);
+}
+
+TEST(ReplScreen, PlaceholderQueuedCommandsHint) {
+    namespace repl = cc::ui::repl_screen;
+
+    repl::ReplScreenState state;
+    state.input_text = "";
+    state.submit_count = 5;  // Past onboarding
+    state.has_editable_queued_commands = true;
+    state.queued_command_hint_shown_count = 0;
+
+    auto placeholder = repl::ComputePlaceholder(state);
+    ASSERT_TRUE(placeholder.has_value());
+    EXPECT_EQ(*placeholder, "Press up to edit queued messages");
+}
+
+TEST(ReplScreen, PlaceholderQueuedCommandsHintCappedAt3) {
+    namespace repl = cc::ui::repl_screen;
+
+    repl::ReplScreenState state;
+    state.input_text = "";
+    state.submit_count = 5;
+    state.has_editable_queued_commands = true;
+    state.queued_command_hint_shown_count = 3;  // Already shown 3 times
+
+    auto placeholder = repl::ComputePlaceholder(state);
+    // Should NOT show the hint anymore (capped at 3).
+    EXPECT_FALSE(placeholder.has_value());
+}
+
+TEST(ReplScreen, PlaceholderAiSuggestionOverridesExample) {
+    namespace repl = cc::ui::repl_screen;
+
+    repl::ReplScreenState state;
+    state.input_text = "";
+    state.submit_count = 0;
+    state.input_mode = repl::InputMode::Prompt;
+    state.next_action_suggestion = "explain the error above";
+    state.prompt_suggestion_enabled = true;
+
+    auto placeholder = repl::ComputePlaceholder(state);
+    ASSERT_TRUE(placeholder.has_value());
+    // AI suggestion takes priority over the onboarding example.
+    EXPECT_EQ(*placeholder, "explain the error above");
+}
+
+TEST(ReplScreen, PlaceholderAiSuggestionIgnoredInBashMode) {
+    namespace repl = cc::ui::repl_screen;
+
+    repl::ReplScreenState state;
+    state.input_text = "";
+    state.submit_count = 0;
+    state.input_mode = repl::InputMode::Bash;
+    state.next_action_suggestion = "explain the error above";
+    state.prompt_suggestion_enabled = true;
+
+    auto placeholder = repl::ComputePlaceholder(state);
+    ASSERT_TRUE(placeholder.has_value());
+    // In bash mode, AI suggestion is ignored. Falls through to example.
+    EXPECT_NE(placeholder->find("Try"), std::string::npos);
+    EXPECT_NE(placeholder->find("fix lint errors"), std::string::npos);
+}
+
+TEST(ReplScreen, PlaceholderAiSuggestionIgnoredWhenViewingAgent) {
+    namespace repl = cc::ui::repl_screen;
+
+    repl::ReplScreenState state;
+    state.input_text = "";
+    state.submit_count = 5;
+    state.input_mode = repl::InputMode::Prompt;
+    state.next_action_suggestion = "explain the error above";
+    state.viewing_agent_name = "helper";
+
+    auto placeholder = repl::ComputePlaceholder(state);
+    ASSERT_TRUE(placeholder.has_value());
+    // When viewing agent, teammate hint takes priority over AI suggestion.
+    EXPECT_EQ(*placeholder, "Message @helper...");
+}
+
+TEST(ReplScreen, PlaceholderAiSuggestionIgnoredWhenSlashCommand) {
+    namespace repl = cc::ui::repl_screen;
+
+    repl::ReplScreenState state;
+    state.input_text = "";
+    state.submit_count = 5;
+    state.input_mode = repl::InputMode::Prompt;
+    // Slash-command suggestions start with '/' — should not be used as placeholder.
+    state.next_action_suggestion = "/commit";
+
+    auto placeholder = repl::ComputePlaceholder(state);
+    // The '/' suggestion is ignored; no other conditions match.
+    EXPECT_FALSE(placeholder.has_value());
+}
+
+TEST(ReplScreen, PlaceholderPriorityOrder) {
+    // Verify the full priority cascade (TS REF: PromptInput.tsx line 2014 +
+    // usePromptInputPlaceholder.ts).
+    //
+    // Priority when NOT viewing agent:
+    //   AI suggestion > queue hint > example > none
+    // Priority when viewing agent:
+    //   viewing agent hint > queue hint > example > none  (AI suggestion is
+    //     suppressed by !viewingAgentTaskId in TS showPromptSuggestion)
+    namespace repl = cc::ui::repl_screen;
+
+    repl::ReplScreenState state;
+    state.input_text = "";
+    state.submit_count = 0;
+    state.input_mode = repl::InputMode::Prompt;
+    state.prompt_suggestion_enabled = true;
+    state.has_editable_queued_commands = true;
+    state.queued_command_hint_shown_count = 0;
+    state.next_action_suggestion = "do something";
+
+    // ── Case 1: not viewing agent, all other conditions set ──
+    // AI suggestion wins (highest priority when !viewingAgent).
+    auto p1 = repl::ComputePlaceholder(state);
+    EXPECT_EQ(*p1, "do something");
+
+    // ── Case 2: viewing agent, all conditions set ──
+    // Viewing agent hint wins (AI suggestion suppressed by !viewingAgentTaskId).
+    state.viewing_agent_name = "agent1";
+    auto p2 = repl::ComputePlaceholder(state);
+    EXPECT_EQ(*p2, "Message @agent1...");
+
+    // ── Case 3: viewing agent, no AI suggestion ──
+    // Viewing agent still wins.
+    state.next_action_suggestion.reset();
+    auto p3 = repl::ComputePlaceholder(state);
+    EXPECT_EQ(*p3, "Message @agent1...");
+
+    // ── Case 4: not viewing agent, no AI suggestion, has queue hint ──
+    // Queue hint wins.
+    state.viewing_agent_name.reset();
+    auto p4 = repl::ComputePlaceholder(state);
+    EXPECT_EQ(*p4, "Press up to edit queued messages");
+
+    // ── Case 5: not viewing agent, no AI suggestion, no queue hint ──
+    // Example wins (submit_count == 0).
+    state.has_editable_queued_commands = false;
+    auto p5 = repl::ComputePlaceholder(state);
+    EXPECT_NE(p5->find("Try"), std::string::npos);
+
+    // ── Case 6: after submit, no other conditions ──
+    // No placeholder.
+    state.submit_count = 1;
+    auto p6 = repl::ComputePlaceholder(state);
+    EXPECT_FALSE(p6.has_value());
+}
+
+TEST(ReplScreen, PlaceholderRenderedInPromptInput) {
+    // End-to-end: verify the computed placeholder actually appears in the
+    // rendered prompt input element.
+    namespace repl = cc::ui::repl_screen;
+
+    repl::ReplScreenState state;
+    state.input_text = "";
+    state.submit_count = 0;
+    state.prompt_suggestion_enabled = true;
+
+    auto rendered = strip_ansi(render_to_plain_text(
+        repl::RenderPromptInput(state, 80),
+        80,
+        6));
+
+    // The placeholder "Try \"fix lint errors\"" should appear in the rendered output.
+    EXPECT_NE(rendered.find("fix lint errors"), std::string::npos);
+    EXPECT_NE(rendered.find("Try"), std::string::npos);
+    // And the ❯ prefix glyph should be there.
+    EXPECT_NE(rendered.find("\xE2\x9D\xAF"), std::string::npos);  // ❯
+}
+
+// ─── User prompt truncation (TS REF: UserPromptMessage.tsx lines 28-70) ─
+
+TEST(ReplScreen, UserPromptTruncationShortTextUnchanged) {
+    // Messages <= 10_000 chars pass through unmodified.
+    namespace msgs = cc::ui::messages;
+    std::string short_text = "hello world";
+    auto result = msgs::TruncateUserPromptText(short_text);
+    EXPECT_EQ(result, short_text);
+}
+
+TEST(ReplScreen, UserPromptTruncationExactLimitUnchanged) {
+    // Exactly at the 10_000 char limit — no truncation.
+    namespace msgs = cc::ui::messages;
+    std::string exact(10'000, 'x');
+    auto result = msgs::TruncateUserPromptText(exact);
+    EXPECT_EQ(result.size(), 10'000u);
+    EXPECT_EQ(result, exact);
+}
+
+TEST(ReplScreen, UserPromptTruncationLongTextHeadTailSplit) {
+    // > 10_000 chars: head 2500 + separator + tail 2500.
+    namespace msgs = cc::ui::messages;
+    std::string long_text(15'000, 'a');
+    // Mark head and tail boundaries for verification.
+    long_text.replace(0, 5, "HEAD!");
+    long_text.replace(14'995, 5, "TAIL!");
+    auto result = msgs::TruncateUserPromptText(long_text);
+    // Head preserved.
+    EXPECT_NE(result.find("HEAD!"), std::string::npos);
+    // Tail preserved.
+    EXPECT_NE(result.find("TAIL!"), std::string::npos);
+    // Separator present (ellipsis U+2026 = \xe2\x80\xa6).
+    EXPECT_NE(result.find("\xe2\x80\xa6 +"), std::string::npos);  // "… +"
+    EXPECT_NE(result.find(" lines \xe2\x80\xa6"), std::string::npos);  // " lines …"
+    // Result is much shorter than original.
+    EXPECT_LT(result.size(), 6'000u);  // 2500 + ~40 sep + 2500
+}
+
+TEST(ReplScreen, UserPromptTruncationHiddenLineCount) {
+    // Verify hidden line count in the separator.
+    namespace msgs = cc::ui::messages;
+    // Build text: 2500 chars of "head\n" repeated (to get many newlines
+    // in the hidden region), then filler.
+    std::string text;
+    text.reserve(12'000);
+    // Head region (first 2500 chars): few newlines.
+    text += std::string(2'400, 'x');
+    text += "\n";
+    text += std::string(99, 'x');
+    // Hidden region: 50 newlines spread across ~2000 chars.
+    for (int i = 0; i < 50; ++i) text += "line\n";
+    // Fill to exceed 10K.
+    while (text.size() < 10'500) text += 'y';
+    // Tail region: last 2500 chars, with 2 newlines.
+    text += "\ntail1\ntail2";
+    auto result = msgs::TruncateUserPromptText(text);
+    // The separator should show hidden line count.
+    // Newlines from head-end to text-end: 50 (hidden region) + 2 (tail) = 52.
+    // Minus newlines in tail: 2.
+    // So hidden_lines = 52 - 2 = 50.
+    EXPECT_NE(result.find("+50 lines"), std::string::npos);
+}
+
+TEST(ReplScreen, UserPromptTruncationNoNewlinesShowsZero) {
+    // Single long line with no newlines — hidden count = 0.
+    namespace msgs = cc::ui::messages;
+    std::string long_line(12'000, 'z');
+    auto result = msgs::TruncateUserPromptText(long_line);
+    EXPECT_NE(result.find("+0 lines"), std::string::npos);
+}
+
+TEST(ReplScreen, UserPromptTruncationRenderedInMessage) {
+    // End-to-end: RenderUserPromptMessage uses truncated text.
+    namespace msgs = cc::ui::messages;
+    msgs::UserTextMessageData data;
+    data.content = std::string(11'000, 'q');
+    data.content.replace(0, 8, "MARKER_H");
+    data.content.replace(10'992, 8, "MARKER_T");
+    auto el = msgs::RenderUserPromptMessage(data, false, true);
+    auto rendered = strip_ansi(render_to_plain_text(el, 80, 100));
+    // Head marker visible.
+    EXPECT_NE(rendered.find("MARKER_H"), std::string::npos);
+    // Tail marker visible.
+    EXPECT_NE(rendered.find("MARKER_T"), std::string::npos);
+    // Truncation separator visible.
+    EXPECT_NE(rendered.find("lines \xe2\x80\xa6"), std::string::npos);
 }
 

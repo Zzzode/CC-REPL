@@ -114,7 +114,14 @@ struct PromptContext {
 /// Configurable options for the Prompt TextInput component
 struct TextInputOptions {
     std::string placeholder = "Type your message here...";
-    std::string prefix = "▶ ";
+    // TS REF: src/components/PromptInput/PromptInputModeIndicator.tsx:54 —
+    // the default prompt prefix is `figures.pointer` ('❯' U+276F) + space, NOT
+    // the CPP-only "▶ " (U+25B6) invention.  See the glyph-unification note at
+    // the render site (~line 1033) and the shared constant
+    // cc::ui::design::figures::kPointerPrefix.  The faithful REPL path in
+    // repl_screen.cppm overrides this per-mode, but standalone TextInputImpl
+    // callers (dialogs, widgets) inherit this default, so it MUST match TS.
+    std::string prefix = "❯ ";
     bool multiline = true;
     bool show_line_numbers = true;
     bool enable_vim = false;
@@ -863,10 +870,44 @@ private:
                 normalized.push_back(paste[i]);
             }
         }
+        // TS REF: src/components/PromptInput/inputPaste.ts
+        //   maybeTruncateMessageForInput — pastes longer than TRUNCATION_THRESHOLD
+        //   (10 000 chars) are collapsed to head 500 + placeholder + tail 500,
+        //   where the placeholder reports the number of elided lines.  Critical
+        //   for perf: pasting a large file otherwise blows up the fullscreen
+        //   layout pass.  (TS stashes the middle as a referenceable PastedContent;
+        //   this text_input layer has no paste stash, so the middle is dropped and
+        //   the placeholder is id-less — faithful in spirit / char budget.)
+        normalized = maybe_truncate_paste(std::move(normalized));
         text_.insert(text_.begin() + cursor_, normalized.begin(), normalized.end());
         cursor_ += (int)normalized.size();
         sel_start_ = sel_end_ = -1;
         paste_burst_in_progress_ = true;
+    }
+
+    // TS REF: inputPaste.ts TRUNCATION_THRESHOLD=10000, PREVIEW_LENGTH=1000.
+    static std::string maybe_truncate_paste(std::string text) {
+        constexpr std::size_t kTruncationThreshold = 10000;  // chars before truncating
+        constexpr std::size_t kPreviewLength       = 1000;   // total kept (head+tail)
+        if (text.size() <= kTruncationThreshold) return text;
+
+        const std::size_t start_len = kPreviewLength / 2;  // 500
+        const std::size_t end_len   = kPreviewLength / 2;  // 500
+        const std::string head = text.substr(0, start_len);
+        const std::string tail = text.substr(text.size() - end_len);
+        // Count lines elided from the middle (TS getPastedTextRefNumLines: the
+        // number of '\n' + 1 in the removed slice).
+        const std::string middle =
+            text.substr(start_len, text.size() - start_len - end_len);
+        std::size_t elided_lines = middle.empty() ? 0 : 1;
+        for (char c : middle) if (c == '\n') ++elided_lines;
+
+        std::string out;
+        out.reserve(start_len + end_len + 40);
+        out += head;
+        out += "[...Truncated text +" + std::to_string(elided_lines) + " lines...]";
+        out += tail;
+        return out;
     }
     void insert_suggestion(const Suggestion& s) {
         push_undo();

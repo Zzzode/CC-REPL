@@ -160,7 +160,7 @@ inline const auto CLAWDED_SHIM = ftxui::Color::RGB(232, 164, 134);
 inline const Palette dark = {
     .primary             = CLAWDED,
     .primary_shimmer     = CLAWDED_SHIM,
-    .info                = ftxui::Color::RGB(110, 151, 255),
+    .info                = ftxui::Color::RGB(177, 185, 249),
     .success             = ftxui::Color::RGB( 78, 186, 101),
     .warning             = ftxui::Color::RGB(255, 193,   7),
     .danger              = ftxui::Color::RGB(255, 107, 128),
@@ -169,14 +169,24 @@ inline const Palette dark = {
     //   subtle                   = rgb(80, 80, 80)
     //   suggestion               = rgb(177, 185, 249)  (lavender, NOT sky blue)
     //   text                     = rgb(255, 255, 255)  (pure white)
+    // NOTE (clr-dark-palette-11-p1): CPP `info` carries TS's info/permission
+    // accent — corrected sky-blue rgb(110,151,255) → TS lavender
+    // rgb(177,185,249) (== permission/suggestion) so dialog/info accents match.
     .subtle              = ftxui::Color::RGB( 80,  80,  80),
     .suggestion          = ftxui::Color::RGB(177, 185, 249),
     .text                = ftxui::Color::RGB(255, 255, 255),
-    .inverse_text        = ftxui::Color::RGB( 32,  33,  36),
+    // TS dark inverseText = rgb(0,0,0) (pure black), used as fg on light
+    // accent chips.  (Distinct from `background`, which stays app-chrome dark.)
+    .inverse_text        = ftxui::Color::RGB(  0,   0,   0),
+    // TS dark background = rgb(0,204,204) is a KNOWN non-rendered TS artifact
+    // (Ink never paints it; the audit flags it as a likely false value).  CPP
+    // keeps the real app-chrome dark rgb(32,33,36) rather than paint the UI
+    // bright cyan — faithful-in-spirit, avoids a destructive visual change.
     .background          = ftxui::Color::RGB( 32,  33,  36),
     .chrome              = ftxui::Color::RGB( 55,  57,  61),
-    .rate_limit_fill     = ftxui::Color::RGB( 80, 140, 255),
-    .rate_limit_empty    = ftxui::Color::RGB( 60,  60,  80),
+    // TS dark rate_limit_fill = rgb(177,185,249), rate_limit_empty = rgb(80,83,112).
+    .rate_limit_fill     = ftxui::Color::RGB(177, 185, 249),
+    .rate_limit_empty    = ftxui::Color::RGB( 80,  83, 112),
     .brief_label         = CLAWDED,
     // TS dark message-chrome tokens:
     //   userMessageBackground      = rgb(55, 55, 55)      (dark slate bubble)
@@ -185,21 +195,29 @@ inline const Palette dark = {
     .user_message_background        = ftxui::Color::RGB( 55,  55,  55),
     .user_message_background_hover  = ftxui::Color::RGB( 70,  70,  75),
     .message_actions_background     = ftxui::Color::RGB( 44,  50,  62),
+    // TS ultrathink keyword rainbow (theme.ts:177-183 — identical across all
+    // themes).  Corrected from the Chart.js default palette to the TS
+    // warm→cool 7-stop gradient (clr-rainbow-28-p1).
     .rainbow = {{
-        ftxui::Color::RGB(255,  99, 132),
-        ftxui::Color::RGB(255, 159,  64),
-        ftxui::Color::RGB(255, 205,  86),
-        ftxui::Color::RGB( 75, 192, 192),
-        ftxui::Color::RGB( 54, 162, 235),
-        ftxui::Color::RGB(153, 102, 255),
-        ftxui::Color::RGB(201, 203, 207),
+        ftxui::Color::RGB(235,  95,  87),   // rainbow_red
+        ftxui::Color::RGB(245, 139,  87),   // rainbow_orange
+        ftxui::Color::RGB(250, 195,  95),   // rainbow_yellow
+        ftxui::Color::RGB(145, 200, 130),   // rainbow_green
+        ftxui::Color::RGB(130, 170, 220),   // rainbow_blue
+        ftxui::Color::RGB(155, 130, 200),   // rainbow_indigo
+        ftxui::Color::RGB(200, 130, 180),   // rainbow_violet
     }},
     .rainbow_shimmer     = ftxui::Color::RGB(230, 230, 250),
-    .diff_added          = ftxui::Color::RGB( 46, 160,  67),
-    .diff_removed        = ftxui::Color::RGB(248,  81,  73),
-    .diff_added_word     = ftxui::Color::RGB( 63, 185,  80),
-    .diff_removed_word   = ftxui::Color::RGB(250, 109,  93),
-    .merged              = ftxui::Color::RGB(163, 113, 247),
+    // TS dark diff tokens (src/utils/theme.ts, verbatim) — corrected from the
+    // GitHub-bright greens/reds to TS's saturated dark shades (clr-dark-11):
+    //   diffAdded=rgb(34,92,43)  diffRemoved=rgb(122,41,54)
+    //   diffAddedWord=rgb(56,166,96)  diffRemovedWord=rgb(179,89,107)
+    .diff_added          = ftxui::Color::RGB( 34,  92,  43),
+    .diff_removed        = ftxui::Color::RGB(122,  41,  54),
+    .diff_added_word     = ftxui::Color::RGB( 56, 166,  96),
+    .diff_removed_word   = ftxui::Color::RGB(179,  89, 107),
+    // TS dark merged = rgb(175,135,255) (electric violet, == autoAccept).
+    .merged              = ftxui::Color::RGB(175, 135, 255),
     // Prompt chrome (TS theme tokens — verbatim):
     //   dark bashBorder            = rgb(255,  0, 135)
     //   dark promptBorder          = rgb(136,136, 136)  ansi:whiteBright
@@ -212,19 +230,24 @@ inline const Palette dark = {
 inline const Palette light = {
     .primary             = CLAWDED,
     .primary_shimmer     = CLAWDED_SHIM,
-    .info                = ftxui::Color::RGB( 53, 113, 232),
-    .success             = ftxui::Color::RGB( 40, 150,  70),
-    .warning             = ftxui::Color::RGB(200, 140,  10),
-    .danger              = ftxui::Color::RGB(210,  60,  80),
-    .muted               = ftxui::Color::RGB(120, 120, 120),
-    .subtle              = ftxui::Color::RGB(190, 190, 190),
-    .suggestion          = ftxui::Color::RGB( 30,  90, 180),
-    .text                = ftxui::Color::RGB( 32,  33,  36),
-    .inverse_text        = ftxui::Color::RGB(245, 245, 245),
+    // TS lightTheme (src/utils/theme.ts:115-191) — exact rgb() values
+    // (clr-light-palette-17-p1).  `info` carries TS permission/suggestion
+    // accent = rgb(87,105,247) medium blue.
+    .info                = ftxui::Color::RGB( 87, 105, 247),
+    .success             = ftxui::Color::RGB( 44, 122,  57),
+    .warning             = ftxui::Color::RGB(150, 108,  30),
+    .danger              = ftxui::Color::RGB(171,  43,  63),
+    .muted               = ftxui::Color::RGB(102, 102, 102),
+    .subtle              = ftxui::Color::RGB(175, 175, 175),
+    .suggestion          = ftxui::Color::RGB( 87, 105, 247),
+    .text                = ftxui::Color::RGB(  0,   0,   0),
+    .inverse_text        = ftxui::Color::RGB(255, 255, 255),
+    // TS light background = rgb(0,153,153) is the same non-rendered TS artifact
+    // as dark; keep CPP's real light app-chrome rather than paint the UI cyan.
     .background          = ftxui::Color::RGB(245, 245, 245),
     .chrome              = ftxui::Color::RGB(220, 220, 220),
-    .rate_limit_fill     = ftxui::Color::RGB( 53, 113, 232),
-    .rate_limit_empty    = ftxui::Color::RGB(225, 230, 240),
+    .rate_limit_fill     = ftxui::Color::RGB( 87, 105, 247),
+    .rate_limit_empty    = ftxui::Color::RGB( 39,  47, 111),
     .brief_label         = CLAWDED,
     // Light-mode equivalents of the TS message chrome tokens:
     //   userMessageBackground      = rgb(240, 240, 240)  near-white bubble
@@ -235,11 +258,15 @@ inline const Palette light = {
     .message_actions_background     = ftxui::Color::RGB(232, 236, 244),
     .rainbow              = dark.rainbow,
     .rainbow_shimmer     = ftxui::Color::RGB(120,  80, 200),
-    .diff_added          = ftxui::Color::RGB( 38, 130,  60),
-    .diff_removed        = ftxui::Color::RGB(210,  50,  45),
-    .diff_added_word     = ftxui::Color::RGB( 50, 160,  75),
-    .diff_removed_word   = ftxui::Color::RGB(230,  80,  70),
-    .merged              = ftxui::Color::RGB(120,  60, 210),
+    // TS light diff tokens (theme.ts:141-146, verbatim):
+    //   diffAdded=rgb(105,219,124)  diffRemoved=rgb(255,168,180)
+    //   diffAddedWord=rgb(47,157,68)  diffRemovedWord=rgb(209,69,75)
+    .diff_added          = ftxui::Color::RGB(105, 219, 124),
+    .diff_removed        = ftxui::Color::RGB(255, 168, 180),
+    .diff_added_word     = ftxui::Color::RGB( 47, 157,  68),
+    .diff_removed_word   = ftxui::Color::RGB(209,  69,  75),
+    // TS light merged = rgb(135,0,255) (electric violet, == autoAccept).
+    .merged              = ftxui::Color::RGB(135,   0, 255),
     // Prompt chrome (TS light theme tokens — verbatim):
     //   light bashBorder            = rgb(255,  0, 135)   same saturated pink
     //   light promptBorder        = rgb(153,153, 153)   ansi:whiteBright
@@ -249,44 +276,46 @@ inline const Palette light = {
     .permission          = ftxui::Color::RGB( 87, 105, 247),
 };
 
-// Daltonized variants: desaturated, contrast-boosted for CVD users.
-// Values are derived from dark/light above using standard daltonize matrices.
+// Daltonized variants (deuteranopia-safe).  TS uses EXPLICIT rgb() literals
+// (theme.ts darkDaltonizedTheme 521-596 / lightDaltonizedTheme 359-434), NOT a
+// matrix approximation — ported verbatim here (clr-daltonized-27-p1).
 inline const Palette dark_daltonized = {
-    .primary             = ftxui::Color::RGB(198, 128,  80),
-    .primary_shimmer     = ftxui::Color::RGB(225, 170, 130),
-    .info                = ftxui::Color::RGB(100, 140, 230),
-    .success             = ftxui::Color::RGB( 90, 150, 200), // blue-ish green
-    .warning             = ftxui::Color::RGB(210, 170,  40),
-    .danger              = ftxui::Color::RGB(200, 120, 140),
-    .muted               = dark.muted,
-    .subtle              = dark.subtle,
-    .suggestion          = dark.suggestion,
-    .text                = dark.text,
-    .inverse_text        = dark.inverse_text,
+    // TS claude (daltonized) = rgb(255,153,51) orange adjusted for deuteranopia.
+    .primary             = ftxui::Color::RGB(255, 153,  51),
+    .primary_shimmer     = ftxui::Color::RGB(255, 183, 101),  // claudeShimmer
+    // info/suggestion/permission all = TS rgb(153,204,255) light blue.
+    .info                = ftxui::Color::RGB(153, 204, 255),
+    .success             = ftxui::Color::RGB( 51, 153, 255),  // blue, not green
+    .warning             = ftxui::Color::RGB(255, 204,   0),  // yellow-orange
+    .danger              = ftxui::Color::RGB(255, 102, 102),  // error
+    .muted               = ftxui::Color::RGB(153, 153, 153),  // inactive
+    .subtle              = ftxui::Color::RGB( 80,  80,  80),
+    .suggestion          = ftxui::Color::RGB(153, 204, 255),
+    .text                = ftxui::Color::RGB(255, 255, 255),
+    .inverse_text        = ftxui::Color::RGB(  0,   0,   0),
+    // TS background rgb(0,204,204) is the non-rendered artifact — keep chrome.
     .background          = dark.background,
     .chrome              = dark.chrome,
-    .rate_limit_fill     = dark.rate_limit_fill,
-    .rate_limit_empty    = dark.rate_limit_empty,
-    .brief_label         = ftxui::Color::RGB(198, 128,  80),
-    // Daltonized: reuse dark-daltonized base bubble chromes
+    .rate_limit_fill     = ftxui::Color::RGB(153, 204, 255),
+    .rate_limit_empty    = ftxui::Color::RGB( 69,  92, 115),
+    .brief_label         = ftxui::Color::RGB(255, 153,  51),
+    // Daltonized: reuse dark-daltonized base bubble chromes (TS uses the same
+    // userMessageBackground/messageActionsBackground as dark).
     .user_message_background        = dark.user_message_background,
     .user_message_background_hover  = dark.user_message_background_hover,
     .message_actions_background     = dark.message_actions_background,
-    .rainbow = {{
-        ftxui::Color::RGB(190, 130, 140),
-        ftxui::Color::RGB(205, 160,  90),
-        ftxui::Color::RGB(210, 190,  90),
-        ftxui::Color::RGB(110, 170, 180),
-        ftxui::Color::RGB( 90, 140, 200),
-        ftxui::Color::RGB(140, 120, 220),
-        ftxui::Color::RGB(201, 203, 207),
-    }},
+    // TS rainbow is identical across all themes (theme.ts:177-183), including
+    // daltonized — alias the corrected dark gradient (clr-rainbow-28-p1).
+    .rainbow = dark.rainbow,
     .rainbow_shimmer     = dark.rainbow_shimmer,
-    .diff_added          = ftxui::Color::RGB( 90, 130, 180),
-    .diff_removed        = ftxui::Color::RGB(180, 110, 120),
-    .diff_added_word     = ftxui::Color::RGB(110, 160, 200),
-    .diff_removed_word   = ftxui::Color::RGB(200, 130, 140),
-    .merged              = ftxui::Color::RGB(150, 120, 220),
+    // TS daltonized diffs: dark blue / dark red (deuteranopia-safe).
+    //   diffAdded=rgb(0,68,102)  diffRemoved=rgb(102,0,0)
+    //   diffAddedWord=rgb(0,119,179)  diffRemovedWord=rgb(179,0,0)
+    .diff_added          = ftxui::Color::RGB(  0,  68, 102),
+    .diff_removed        = ftxui::Color::RGB(102,   0,   0),
+    .diff_added_word     = ftxui::Color::RGB(  0, 119, 179),
+    .diff_removed_word   = ftxui::Color::RGB(179,   0,   0),
+    .merged              = ftxui::Color::RGB(175, 135, 255),  // == autoAccept
     // Prompt chrome — dark daltonized: bashBorder per TS darkDaltonizedTheme
     //   = rgb(51,153,255) bright blue (not pink — CVD-safe). promptBorder = dark gray.
     .bash_border         = ftxui::Color::RGB( 51, 153, 255),
@@ -296,38 +325,43 @@ inline const Palette dark_daltonized = {
 };
 
 inline const Palette light_daltonized = {
-    .primary             = dark_daltonized.primary,
-    .primary_shimmer     = dark_daltonized.primary_shimmer,
-    .info                = ftxui::Color::RGB( 50, 100, 200),
-    .success             = ftxui::Color::RGB( 60, 120, 170),
-    .warning             = ftxui::Color::RGB(180, 140,  20),
-    .danger              = ftxui::Color::RGB(180,  90, 110),
-    .muted               = light.muted,
-    .subtle              = light.subtle,
-    .suggestion          = light.suggestion,
-    .text                = light.text,
-    .inverse_text        = light.inverse_text,
+    // TS lightDaltonizedTheme (theme.ts:359-434) — explicit rgb() literals.
+    .primary             = ftxui::Color::RGB(255, 153,  51),  // claude (deuteranopia)
+    .primary_shimmer     = ftxui::Color::RGB(255, 183, 101),  // claudeShimmer
+    .info                = ftxui::Color::RGB( 51, 102, 255),  // permission/suggestion
+    .success             = ftxui::Color::RGB(  0, 102, 153),  // blue, not green
+    .warning             = ftxui::Color::RGB(255, 153,   0),  // orange
+    .danger              = ftxui::Color::RGB(204,   0,   0),  // pure red (error)
+    .muted               = ftxui::Color::RGB(102, 102, 102),  // inactive
+    .subtle              = ftxui::Color::RGB(175, 175, 175),
+    .suggestion          = ftxui::Color::RGB( 51, 102, 255),
+    .text                = ftxui::Color::RGB(  0,   0,   0),
+    .inverse_text        = ftxui::Color::RGB(255, 255, 255),
+    // TS background rgb(0,153,153) is the non-rendered artifact — keep chrome.
     .background          = light.background,
     .chrome              = light.chrome,
-    .rate_limit_fill     = light.rate_limit_fill,
-    .rate_limit_empty    = light.rate_limit_empty,
-    .brief_label         = dark_daltonized.primary,
+    .rate_limit_fill     = ftxui::Color::RGB( 51, 102, 255),
+    .rate_limit_empty    = ftxui::Color::RGB( 23,  46, 114),
+    .brief_label         = ftxui::Color::RGB(255, 153,  51),
     .user_message_background        = light.user_message_background,
     .user_message_background_hover  = light.user_message_background_hover,
     .message_actions_background     = light.message_actions_background,
-    .rainbow             = dark_daltonized.rainbow,
+    .rainbow             = dark.rainbow,   // identical across all themes
     .rainbow_shimmer     = light.rainbow_shimmer,
-    .diff_added          = ftxui::Color::RGB( 70, 120, 170),
-    .diff_removed        = ftxui::Color::RGB(170,  80,  95),
-    .diff_added_word     = ftxui::Color::RGB( 90, 140, 190),
-    .diff_removed_word   = ftxui::Color::RGB(190, 100, 115),
-    .merged              = ftxui::Color::RGB(120, 100, 200),
+    // TS light-daltonized diffs: light blue / light red (deuteranopia-safe).
+    //   diffAdded=rgb(153,204,255)  diffRemoved=rgb(255,204,204)
+    //   diffAddedWord=rgb(51,102,204)  diffRemovedWord=rgb(153,51,51)
+    .diff_added          = ftxui::Color::RGB(153, 204, 255),
+    .diff_removed        = ftxui::Color::RGB(255, 204, 204),
+    .diff_added_word     = ftxui::Color::RGB( 51, 102, 204),
+    .diff_removed_word   = ftxui::Color::RGB(153,  51,  51),
+    .merged              = ftxui::Color::RGB(135,   0, 255),  // == autoAccept
     // Prompt chrome — light daltonized: bashBorder = TS lightDaltonizedTheme
     //   rgb(0,102,204) medium blue. promptBorder = light mid-gray.
     .bash_border         = ftxui::Color::RGB(  0, 102, 204),
     .prompt_border       = ftxui::Color::RGB(153, 153, 153),
-    // TS lightDaltonizedTheme permission = rgb(0, 51, 153).
-    .permission          = ftxui::Color::RGB(  0,  51, 153),
+    // TS lightDaltonizedTheme permission = rgb(51, 102, 255).
+    .permission          = ftxui::Color::RGB( 51, 102, 255),
 };
 
 // Monochrome palette: for reduced-color / braille-only terminals.

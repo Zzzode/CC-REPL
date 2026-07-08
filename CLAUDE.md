@@ -103,3 +103,20 @@ Reusable workflows in `src/skills/` executed through `SkillTool`. Users can add 
 ## Language Requirements
 
 - All project documentation and all code comments must be written in English only. Do not use any other language in docs/comments.
+
+## CPP Migration: Debug Traces
+
+The C++ build (`cpp_migration/`) automatically persists debug traces for every session:
+
+- **Session Transcript**: `~/.cc-repl/sessions/<session_id>/messages.jsonl`
+  Complete conversation (all Message variants with ToolUseBlock/ToolResultBlock/TextBlock/ThinkingBlock).
+  
+- **API Dump**: `~/.cc-repl/dump-prompts/<session_id>.jsonl`
+  Full API request body (messages array sent to model) + parsed response (AssistantMessage with all blocks, stop_reason, has_tool_use).
+
+Use these to diagnose:
+- Duplicate tool-call rows (check if model produced redundant ToolUseBlocks across API rounds)
+- Missing tool output (check ToolResultMessage content)
+- Wrong tool status rendering (check conversation message ordering)
+
+See `.agents/skills/debug-session/SKILL.md` for detailed inspection commands.
