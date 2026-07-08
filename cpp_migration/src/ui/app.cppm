@@ -933,9 +933,9 @@ private:
                     out += "'";
                     return out;
                 };
-                std::string full = command + " 2>&1";
+                std::string full = command + " 2>&1; echo $'\\x1F'; pwd -P";
                 if (!cwd.empty()) {
-                    full = "cd " + sq(cwd) + " && " + command + " 2>&1";
+                    full = "cd " + sq(cwd) + " && " + command + " 2>&1; echo $'\\x1F'; pwd -P";
                 }
                 std::string output;
                 bool is_error = false;
@@ -952,10 +952,32 @@ private:
                     output = "Command failed: could not spawn /bin/sh";
                     is_error = true;
                 }
-                // Trim a single trailing newline for a tidy transcript row.
+                // Extract the final cwd from after the \x1F delimiter.
+                // Format: "<command output>\x1F\n<pwd -P result>\n"
+                std::string new_cwd;
+                if (auto sep = output.find('\x1F'); sep != std::string::npos) {
+                    auto pwd_start = sep + 1;
+                    while (pwd_start < output.size() &&
+                           (output[pwd_start] == '\n' || output[pwd_start] == '\r'))
+                        ++pwd_start;
+                    new_cwd = output.substr(pwd_start);
+                    while (!new_cwd.empty() &&
+                           (new_cwd.back() == '\n' || new_cwd.back() == '\r'))
+                        new_cwd.pop_back();
+                    output = output.substr(0, sep);
+                }
+                // Trim trailing newlines from the visible output.
                 while (!output.empty() &&
                        (output.back() == '\n' || output.back() == '\r')) {
                     output.pop_back();
+                }
+                // Update process cwd if the command changed it (e.g. cd ..).
+                if (!new_cwd.empty() && new_cwd != cwd) {
+                    std::error_code ec;
+                    std::filesystem::current_path(new_cwd, ec);
+                    if (!ec) {
+                        screen_state_->cwd = new_cwd;
+                    }
                 }
                 {
                     std::lock_guard lk(bash_result_mutex_);
