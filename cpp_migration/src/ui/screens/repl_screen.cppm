@@ -475,6 +475,11 @@ struct ReplScreenState {
     // shows only the model name without " · <billing>" suffix.
     std::string billing_type;
     std::string cwd;
+    // P0-6 builtin statusline: detected git branch for cwd (empty = not a git
+    // repo or detection failed).  Populated by AppAdapter from
+    // cc::utils::git::get_branch(), cached per-cwd-change to avoid spawning
+    // `git` on every render tick.
+    std::string git_branch;
     // M2: oauthAccount.displayName analogue — drives formatWelcomeMessage
     // ("Welcome back {user}!" vs "Welcome back!").  Empty for new users.
     std::string user_display_name;
@@ -2351,13 +2356,39 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
         const bool is_short = is_fullscreen && term_rows < 24;
         const bool status_line_configured =
             s.status_line_enabled && !s.status_line_command.empty();
+
+        // P0-6 builtin statusline: populate fallback data from screen state.
+        // When the user's command returns empty (or no command configured),
+        // RenderStatusLine() uses this to show folder/git/model/token info.
+        pif::BuiltinStatusLineData builtin_data;
+        builtin_data.cwd = s.cwd;
+        builtin_data.git_branch = s.git_branch;
+        // Prefer model_display_name (human-friendly), fall back to model_name.
+        builtin_data.model_name = !s.model_display_name.empty()
+            ? s.model_display_name
+            : s.status_bar.model_name;
+        builtin_data.input_tokens = s.status_bar.input_tokens;
+        builtin_data.output_tokens = s.status_bar.output_tokens;
+        builtin_data.context_token_count = s.status_bar.context_token_count;
+        builtin_data.cost_usd = s.status_bar.cost_usd;
+        // Context window size: use 200k default; model-specific overrides
+        // could be added later from model metadata.
+        builtin_data.context_window_size = 200000;
+
         pif::StatusLineOptions status_line_opts;
         status_line_opts.content = s.status_line_text;
-        status_line_opts.should_display =
-            status_line_configured &&
+        status_line_opts.builtin = std::move(builtin_data);
+        // Show statusline when:
+        //   (a) user has a configured statusLine command, OR
+        //   (b) builtin data is available (always, since cwd is set)
+        // Same mode guards apply: prompt mode, not bash, not short terminal.
+        const bool in_prompt_mode =
             s.input_mode == InputMode::Prompt &&
-            !effective_is_bash(s) &&   // text-derived bash hides status line (TS parity)
+            !effective_is_bash(s) &&
             !is_short;
+        status_line_opts.should_display = in_prompt_mode &&
+            (status_line_configured || !status_line_opts.content.empty() ||
+             status_line_opts.builtin.has_value());
         status_line_opts.is_fullscreen = is_fullscreen;
         status_line_opts.padding_x = s.status_line_padding;
 
@@ -2401,7 +2432,7 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
         left_opts.mode_indicator.background_task_count = s.background_task_count;
         left_opts.mode_indicator.teammate_count        = s.teammate_count;
         left_opts.mode_indicator.teams_selected        = s.teams_footer_selected;
-        if (status_line_configured) {
+        if (status_line_opts.should_display) {
             left_opts.mode_indicator.show_hint = false;
         }
         pif::FooterOptions footer_opts;

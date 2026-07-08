@@ -40,7 +40,11 @@ module;
 #include <string>
 #include <vector>
 #include <optional>
+#include <filesystem>
+#include <algorithm>
 #include <format>
+#include <cmath>
+#include <cstdio>
 
 #include <ftxui/dom/elements.hpp>
 
@@ -358,12 +362,48 @@ struct LeftSideOptions {
 // TS StatusLine executes a user-defined shell command and renders ANSI output
 // in the footer's left column.  For the C++ port we provide a minimal
 // placeholder that can be populated by the engine with pre-formatted text.
+//
+// P0-6: When the user's command returns empty (or no statusLine is
+// configured), a built-in statusline shows folder/git/model/token info.
+// See BuiltinStatusLineData below.
+
+namespace fs = std::filesystem;
+
+// P0-6 builtin statusline data.  Defined early so StatusLineOptions can
+// hold a std::optional<BuiltinStatusLineData>.
+struct BuiltinStatusLineData {
+    std::string cwd;                ///< Current working directory (full path)
+    std::string git_branch;         ///< Git branch name (empty if not a repo)
+    std::string model_name;         ///< Model display name
+    int input_tokens = 0;           ///< Input tokens used this session
+    int output_tokens = 0;          ///< Output tokens used this session
+    int context_token_count = 0;    ///< Total context tokens (in+out)
+    std::optional<double> cost_usd; ///< Session cost in USD
+    int context_window_size = 200000; ///< Context window size (default 200k)
+};
+
+/// Extract the last N path components for display.
+/// e.g. "/a/b/c/d" with n=2 → "c/d"
+[[nodiscard]] inline std::string GetLastPathComponents(
+    const std::string& cwd, int n = 2);
+
+/// Format token count as "K" string (e.g. 28000 → "28.0K")
+[[nodiscard]] inline std::string FormatTokensK(int tokens);
+
+/// Render the built-in statusline (defined after RenderStatusLine).
+[[nodiscard]] inline Element RenderBuiltinStatusLine(
+    const BuiltinStatusLineData& data);
 
 struct StatusLineOptions {
     std::string content;     // Status line output text (may contain ANSI codes)
     bool should_display = false;  // True when statusLine is configured in settings
     bool is_fullscreen = true;    // In fullscreen, reserve row even while loading
     int padding_x = 0;            // Horizontal padding (mirrors TS paddingX)
+    // P0-6 builtin statusline: fallback data when content is empty (e.g. user's
+    // command returns nothing, or no statusLine configured).  When set and
+    // content is empty, RenderBuiltinStatusLine() is used instead of blank
+    // placeholder.  Provides folder/git/model/token info for standalone mode.
+    std::optional<BuiltinStatusLineData> builtin;
 };
 
 /// Render the user-configurable StatusLine.
@@ -381,9 +421,15 @@ struct StatusLineOptions {
         return text("");
     }
 
-    // Fullscreen + no content yet → reserve a blank row for stable height.
+    // Fullscreen + no content yet → try builtin statusline, then blank row.
     // Mirrors TS: isFullscreenEnvEnabled() ? <Text> </Text> : null
+    // P0-6: When user's command returns empty (or no command configured),
+    // show the built-in statusline with folder/git/model/token info.
     if (opts.content.empty()) {
+        if (opts.builtin) {
+            return RenderBuiltinStatusLine(*opts.builtin)
+                 | size(HEIGHT, EQUAL, 1);
+        }
         if (opts.is_fullscreen) {
             return text(" ") | size(HEIGHT, EQUAL, 1);
         }
@@ -417,6 +463,150 @@ struct StatusLineOptions {
     }
 
     return hbox({ std::move(content) }) | size(HEIGHT, EQUAL, 1);
+}
+
+// ============================================================
+// BuiltinStatusLine (P0-6: default statusline for standalone mode)
+// ============================================================
+// When the user's statusLine.command returns empty output (e.g. Flux Island
+// wrapper without Flux running), this built-in statusline provides useful
+// info: folder, git branch, model, context usage, and cost.
+//
+// TS REFERENCE: There is no TS equivalent — this is a CPP-only enhancement
+// for standalone usability.  The visual style is inspired by the user's
+// Flux Island statusline:
+//   📁 CC-REPL/cpp_migration  🌿 master  🤖 GLM-5.2 ▮  14% 28.0K/200.0K  $0.12
+//
+// The user's configured command output takes priority when available.
+//
+// The BuiltinStatusLineData struct and helper prototypes are declared above
+// (before StatusLineOptions) so the options struct can hold the fallback data.
+
+/// Extract the last N path components for display.
+/// e.g. "/a/b/c/d" with n=2 → "c/d"
+[[nodiscard]] inline std::string GetLastPathComponents(
+    const std::string& cwd, int n)
+{
+    if (cwd.empty()) return "";
+    fs::path p(cwd);
+    std::vector<std::string> parts;
+    for (const auto& comp : p) {
+        if (!comp.empty() && comp != "/") {
+            parts.push_back(comp.string());
+        }
+    }
+    if (parts.empty()) return cwd;
+    int start = std::max(0, static_cast<int>(parts.size()) - n);
+    std::string result;
+    for (int i = start; i < static_cast<int>(parts.size()); ++i) {
+        if (!result.empty()) result += "/";
+        result += parts[i];
+    }
+    return result;
+}
+
+/// Format token count as "K" string (e.g. 28000 → "28.0K", 1500 → "1.5K")
+[[nodiscard]] inline std::string FormatTokensK(int tokens) {
+    if (tokens <= 0) return "0K";
+    if (tokens < 1000) return std::to_string(tokens);
+    double k = tokens / 1000.0;
+    // Show 1 decimal for thousands
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "%.1fK", k);
+    return std::string(buf);
+}
+
+/// Render the built-in statusline.
+/// Produces a single-row element with colored pills.
+[[nodiscard]] inline Element RenderBuiltinStatusLine(
+    const BuiltinStatusLineData& data)
+{
+    using ftxui::text;
+    using ftxui::Element;
+    using ftxui::Elements;
+    using ftxui::hbox;
+    using ftxui::color;
+    using ftxui::bgcolor;
+    using ftxui::bold;
+    using ftxui::dim;
+
+    // Resolve colors from active theme palette.
+    // Uses real Palette fields (see design_system/design_tokens.cppm).
+    namespace theme_ns = cc::ui::design::theme;
+    auto theme = theme_ns::current_theme();
+    const auto& pal = *theme.palette;
+
+    const Color kClaudeGold = pal.primary;          // clawd orange/amber
+    const Color kFolderColor = pal.muted;            // dim text
+    const Color kBranchColor = pal.success;          // green
+    const Color kModelColor = pal.info;              // blue/cyan
+    const Color kCostColor = pal.success;            // green
+    const Color kBgColor = Color::RGB(20, 20, 22);
+
+    Elements parts;
+
+    // ── 📁 Folder pill ──────────────────────────────────────
+    std::string folder_display = GetLastPathComponents(data.cwd, 2);
+    if (folder_display.empty()) folder_display = "~";
+    parts.push_back(text("📁 ") | dim | color(kFolderColor));
+    parts.push_back(text(folder_display) | dim | color(kFolderColor));
+
+    // ── 🌿 Git branch pill ──────────────────────────────────
+    if (!data.git_branch.empty()) {
+        parts.push_back(text("  🌿 ") | dim | color(kBranchColor));
+        parts.push_back(text(data.git_branch) | dim | color(kBranchColor));
+    }
+
+    // ── 🤖 Model pill ───────────────────────────────────────
+    if (!data.model_name.empty()) {
+        parts.push_back(text("  🤖 ") | dim | color(kModelColor));
+        parts.push_back(text(data.model_name) | bold | color(kModelColor));
+    }
+
+    // ── ▮ Context usage bar ─────────────────────────────────
+    // Calculate usage percentage
+    double pct = 0.0;
+    if (data.context_window_size > 0) {
+        pct = 100.0 * data.context_token_count /
+              static_cast<double>(data.context_window_size);
+    }
+    int pct_int = static_cast<int>(std::round(pct));
+
+    // Build a mini progress bar: ▮▮▮▮▯▯▯▯ (10 segments)
+    constexpr int kBarSegments = 10;
+    int filled = static_cast<int>(std::round(
+        pct / 100.0 * kBarSegments));
+    filled = std::clamp(filled, 0, kBarSegments);
+    std::string bar;
+    for (int i = 0; i < filled; ++i) bar += "▮";
+    for (int i = filled; i < kBarSegments; ++i) bar += "▯";
+
+    // Color: green < 50%, amber 50-80%, red > 80%
+    Color bar_color = Color::RGB(120, 200, 120);  // green
+    if (pct >= 80.0) bar_color = Color::RGB(220, 80, 80);   // red
+    else if (pct >= 50.0) bar_color = kClaudeGold;           // amber
+
+    parts.push_back(text("  ") | dim);
+    parts.push_back(text(bar) | color(bar_color));
+
+    // Percentage + token counts
+    std::string ctx_str = FormatTokensK(data.context_token_count);
+    std::string win_str = FormatTokensK(data.context_window_size);
+    parts.push_back(text(std::format(" {}% {}/{}",
+                      pct_int, ctx_str, win_str))
+                    | dim);
+
+    // ── $ Cost ──────────────────────────────────────────────
+    if (data.cost_usd && *data.cost_usd > 0.0) {
+        char cost_buf[32];
+        std::snprintf(cost_buf, sizeof(cost_buf), "$%.4f", *data.cost_usd);
+        parts.push_back(text("  ") | dim);
+        parts.push_back(text(cost_buf) | dim | color(kCostColor));
+    }
+
+    return hbox({ text(" "), hbox(std::move(parts)), text(" ") })
+         | bgcolor(kBgColor)
+         | size(HEIGHT, EQUAL, 1);
 }
 
 // ============================================================
@@ -526,8 +716,11 @@ struct FooterOptions {
     // footer height never shifts (stable height — same trick as LeftSide).
     // Exit message / pasting / history search affect only LeftSide (below),
     // not StatusLine — they are separate rows in the left column.
+    // P0-6: Also show when builtin fallback data is available (standalone mode
+    // where user's command returns empty or no statusLine configured).
+    const bool has_builtin = opts.status_line.builtin.has_value();
     bool show_status_line = opts.status_line.should_display
-        && (opts.is_fullscreen || !opts.status_line.content.empty());
+        && (opts.is_fullscreen || !opts.status_line.content.empty() || has_builtin);
     if (show_status_line) {
         left_col.push_back(RenderStatusLine(opts.status_line));
     }

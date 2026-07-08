@@ -124,6 +124,7 @@ struct StatusLineRateLimits {
 struct StatusLineCommandInput {
     // Base hook input fields (TS: createBaseHookInput)
     std::optional<std::string> session_name;
+    std::optional<std::string> session_id;  ///< TS: session_id (6-digit hashtag in statusline)
 
     // Model info
     StatusLineModelInfo model;
@@ -176,6 +177,11 @@ struct StatusLineCommandInput {
     // session_name (optional)
     if (input.session_name && !input.session_name->empty()) {
         root.add("session_name", doc.string(*input.session_name));
+    }
+
+    // session_id (optional — TS uses this for the #hashtag display)
+    if (input.session_id && !input.session_id->empty()) {
+        root.add("session_id", doc.string(*input.session_id));
     }
 
     // model

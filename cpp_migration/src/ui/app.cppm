@@ -96,6 +96,7 @@ import cc.ui.app_dialog_registration;
 import cc.ui.tools.init;
 import cc.utils.settings_manager;
 import cc.utils.statusline_runner;
+import cc.utils.git;
 import cc.constants.constants;
 import cc.utils.model.model;
 import cc.hooks.lifecycle_hooks;
@@ -780,6 +781,11 @@ private:
     std::string statusline_last_cmd_;
     std::string statusline_last_input_json_;
     std::chrono::steady_clock::time_point statusline_last_run_{};
+    // P0-6 builtin statusline: git branch detection cache.  We only re-run
+    // `git rev-parse --abbrev-ref HEAD` when the cwd changes (cd events are
+    // rare).  This avoids spawning a subprocess on every render tick.
+    std::string last_branch_cwd_;
+    std::string cached_git_branch_;
 
     void StartUiAnimationTicker() {
         spinner_thread_ = std::jthread([this](std::stop_token st) {
@@ -3002,6 +3008,18 @@ public:
             static_cast<int>(usage.input_tokens + usage.output_tokens);
 
         screen_state_->cwd = engine_->working_directory();
+        screen_state_->status_bar.current_path = screen_state_->cwd;
+
+        // P0-6 builtin statusline: detect git branch for the current cwd.
+        // Cached per-cwd-change to avoid spawning `git` on every render tick
+        // (ProjectRuntimeMetadataToScreenState is called from SyncState on
+        // every render event).
+        if (screen_state_->cwd != last_branch_cwd_) {
+            last_branch_cwd_ = screen_state_->cwd;
+            cached_git_branch_ = cc::utils::git::get_branch(
+                last_branch_cwd_.empty() ? "." : last_branch_cwd_);
+        }
+        screen_state_->git_branch = cached_git_branch_;
     }
 
     /// Project settings from SettingsManager into screen_state_.
@@ -3191,6 +3209,9 @@ public:
         // Session name: use session id as identifier (TS uses getCurrentSessionTitle
         // which derives from first user message; session id is always available)
         input.session_name = current_session_id_;
+        // session_id: TS StatusLineCommandInput.session_id — used by user scripts
+        // for the #hashtag display (e.g. #a1b2c3). Same value as session_name.
+        input.session_id = current_session_id_;
 
         // Vim mode (optional — only populated if vim enabled)
         if (vim_enabled_) {
