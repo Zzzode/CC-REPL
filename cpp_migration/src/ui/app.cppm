@@ -919,11 +919,7 @@ private:
         const std::string cwd = engine_ ? engine_->working_directory() : std::string{};
         bash_thread_ = std::jthread(
             [this, command, cwd](std::stop_token st) {
-                // Run in the session cwd; combine stdout+stderr like TS BashTool
-                // output formatting.  `cd … &&` keeps popen_spawn's /bin/sh -c
-                // contract intact (popen_spawn has no cwd argument).
-                // POSIX single-quote the cwd: wrap in '…' and replace embedded
-                // ' with '\'' so paths with spaces/quotes can't break the shell.
+                // POSIX single-quote helper for paths with spaces/quotes.
                 auto sq = [](std::string_view s) {
                     std::string out = "'";
                     for (char c : s) {
@@ -933,10 +929,23 @@ private:
                     out += "'";
                     return out;
                 };
-                std::string full = command + " 2>&1; echo $'\\x1F'; pwd -P";
+
+                // TS REF: src/utils/shell/bashProvider.ts:186
+                // Write final cwd to a tempfile (not stdout) so command output
+                // can't collide with the cwd data.  Use && so pwd -P only runs
+                // on success (failed commands shouldn't change cwd).
+                const auto cwd_file = std::filesystem::temp_directory_path() /
+                    ("cc-repl-cwd-" + current_session_id_);
+                const std::string cwd_file_str = cwd_file.string();
+
+                std::string full;
                 if (!cwd.empty()) {
-                    full = "cd " + sq(cwd) + " && " + command + " 2>&1; echo $'\\x1F'; pwd -P";
+                    full = "cd " + sq(cwd) + " && " + command +
+                           " 2>&1 && pwd -P > " + sq(cwd_file_str);
+                } else {
+                    full = command + " 2>&1 && pwd -P > " + sq(cwd_file_str);
                 }
+
                 std::string output;
                 bool is_error = false;
                 if (FILE* pipe = cc::utils::bash::popen_spawn(full)) {
@@ -952,31 +961,37 @@ private:
                     output = "Command failed: could not spawn /bin/sh";
                     is_error = true;
                 }
-                // Extract the final cwd from after the \x1F delimiter.
-                // Format: "<command output>\x1F\n<pwd -P result>\n"
-                std::string new_cwd;
-                if (auto sep = output.find('\x1F'); sep != std::string::npos) {
-                    auto pwd_start = sep + 1;
-                    while (pwd_start < output.size() &&
-                           (output[pwd_start] == '\n' || output[pwd_start] == '\r'))
-                        ++pwd_start;
-                    new_cwd = output.substr(pwd_start);
-                    while (!new_cwd.empty() &&
-                           (new_cwd.back() == '\n' || new_cwd.back() == '\r'))
-                        new_cwd.pop_back();
-                    output = output.substr(0, sep);
-                }
+
                 // Trim trailing newlines from the visible output.
                 while (!output.empty() &&
                        (output.back() == '\n' || output.back() == '\r')) {
                     output.pop_back();
                 }
-                // Update process cwd if the command changed it (e.g. cd ..).
+
+                // Read the cwd file (only exists if command succeeded).
+                std::string new_cwd;
+                {
+                    std::ifstream ifs(cwd_file_str);
+                    if (ifs.is_open()) {
+                        std::getline(ifs, new_cwd);
+                        // Trim trailing whitespace
+                        while (!new_cwd.empty() &&
+                               (new_cwd.back() == '\n' || new_cwd.back() == '\r' ||
+                                new_cwd.back() == ' '))
+                            new_cwd.pop_back();
+                    }
+                    // Clean up tempfile
+                    std::error_code ec;
+                    std::filesystem::remove(cwd_file, ec);
+                }
+
+                // Update process cwd if the command changed it.
                 if (!new_cwd.empty() && new_cwd != cwd) {
                     std::error_code ec;
                     std::filesystem::current_path(new_cwd, ec);
                     if (!ec) {
                         screen_state_->cwd = new_cwd;
+                        if (engine_) engine_->set_working_directory(new_cwd);
                     }
                 }
                 {

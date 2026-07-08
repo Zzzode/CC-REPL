@@ -771,6 +771,11 @@ public:
         return config_.cwd.value_or(std::filesystem::current_path().string());
     }
 
+    /// Update the engine's working directory (e.g. after a user !cd command).
+    void set_working_directory(std::string path) {
+        config_.cwd = std::move(path);
+    }
+
     /// Get session ID
     [[nodiscard]] const SessionId& session_id() const noexcept { return session_id_; }
 
