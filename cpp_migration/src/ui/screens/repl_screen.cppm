@@ -522,6 +522,23 @@ struct ReplScreenState {
     // TS REF: LogoV2.tsx L71 useShowOverageCreditUpsell() — when true and no
     // onboarding/guest-passes, feed shows [RecentActivity, OverageCredit].
     bool show_overage_credit_upsell = false;
+
+    // ── P1 Footer notifications ──────────────────────────────────────
+    // TS REF: src/components/PromptInput/Notifications.tsx
+    // These fields drive the right-column notification area.
+    // RenderNotifications() picks the highest-priority active item.
+    cc::ui::prompt::footer::ApiKeyStatus api_key_status =
+        cc::ui::prompt::footer::ApiKeyStatus::Unknown;
+    bool is_remote_session = false;   // CLAUDE_CODE_REMOTE → changes error text
+    bool debug_mode = false;          // "Debug mode" pill
+    bool verbose = false;             // show token count when valid + verbose
+    // IDE selection indicator (TS IdeStatusIndicator.tsx)
+    bool ide_connected = false;
+    std::optional<std::string> ide_file_path;
+    std::optional<int> ide_selected_lines;
+    // Dynamic notification (env-hook, external-editor hint, etc.)
+    std::optional<std::string> footer_dynamic_text;
+    std::optional<std::string> footer_dynamic_color;  // "error" / "warning" / empty=dim
     // Stable per-session welcome-tip index (seeded once from the session id in
     // app.cppm). The renderer mods this by kWelcomeTips.size(). Previously the
     // tip used spinner_frame, which cycled the tip on every mouse-move re-render.
@@ -2613,6 +2630,24 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
         footer_opts.left_side   = std::move(left_opts);
         footer_opts.is_fullscreen = is_fullscreen;
         footer_opts.is_narrow = term_cols < 80;
+
+        // P1 Footer notifications — populate from ReplScreenState
+        // TS REF: src/components/PromptInput/Notifications.tsx
+        {
+            auto& nd = footer_opts.notification;
+            nd.api_key_status = s.api_key_status;
+            nd.is_remote = s.is_remote_session;
+            nd.debug_mode = s.debug_mode;
+            nd.verbose = s.verbose;
+            nd.token_usage = s.status_bar.context_token_count;
+            nd.is_overage_mode = s.show_overage_credit_upsell;
+            nd.ide.connected = s.ide_connected;
+            nd.ide.file_path = s.ide_file_path;
+            nd.ide.selected_lines = s.ide_selected_lines;
+            nd.dynamic_text = s.footer_dynamic_text;
+            nd.dynamic_color = s.footer_dynamic_color;
+        }
+
         // M4 faithful: outer chrome.
         //   * Clipboard image hint — stays nullopt until the engine wires up
         //     platform clipboard-image detection; no visual regression while

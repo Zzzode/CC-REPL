@@ -675,6 +675,185 @@ struct BridgeOptions {
 }
 
 // ============================================================
+// Notifications (right column, non-fullscreen only)
+// ============================================================
+// TS REFERENCE: src/components/PromptInput/Notifications.tsx (331 lines)
+//
+// The Notifications component renders ONE notification at a time, chosen by
+// priority.  In TS the full priority chain is:
+//   voice indicator (highest, VOICE_MODE only)
+//   > IdeStatusIndicator
+//   > notifications.current (dynamic: env-hook, external-editor-hint, etc.)
+//   > overage mode
+//   > apiKeyHelper slow
+//   > apiKeyStatus invalid/missing
+//   > debug mode
+//   > verbose token count
+//   > TokenWarning (context limit approaching)
+//   > AutoUpdater
+//   > voice error
+//   > MemoryUsageIndicator
+//   > SandboxPromptFooterHint (lowest)
+//
+// For the CPP faithful-port we implement the top user-visible items that
+// have data available.  Items requiring engine wiring (autoUpdater, voice,
+// memory, sandbox) are stubs that render nothing until data is provided.
+
+/// API key verification status.  Mirrors TS VerificationStatus (useApiKeyVerification.ts).
+enum class ApiKeyStatus {
+    Valid,       // verified and working
+    Invalid,     // rejected by API
+    Missing,     // no key configured
+    Unknown,     // not yet checked
+};
+
+/// IDE selection info.  Mirrors TS IDESelection (useIdeSelection.ts).
+struct IdeSelectionInfo {
+    bool connected = false;
+    std::optional<std::string> file_path;     // basename shown in indicator
+    std::optional<int> selected_lines;        // when text is selected in IDE
+};
+
+/// Notification data fed into the footer.
+///
+/// Each field corresponds to one notification type from TS Notifications.tsx.
+/// The RenderNotifications() function picks the highest-priority active item.
+struct NotificationData {
+    // Auth
+    ApiKeyStatus api_key_status = ApiKeyStatus::Unknown;
+    bool is_remote = false;   // CLAUDE_CODE_REMOTE — changes error text
+
+    // Mode indicators
+    bool debug_mode = false;
+    bool verbose = false;
+    int token_usage = 0;      // used when verbose + apiKey valid
+
+    // Overage
+    bool is_overage_mode = false;
+
+    // IDE
+    IdeSelectionInfo ide;
+
+    // Dynamic notification (e.g. env-hook feedback, external-editor hint)
+    // When set, takes priority over most static notifications.
+    std::optional<std::string> dynamic_text;
+    std::optional<std::string> dynamic_color;  // "error", "warning", or empty=dim
+};
+
+/// IDE status indicator color — matches TS theme.ide rgb(71,130,200).
+/// TS REF: src/utils/theme.ts L125
+const Color kIdeColor = Color::RGB(71, 130, 200);
+
+/// Render the IdeStatusIndicator.
+/// TS REF: src/components/IdeStatusIndicator.tsx
+/// Shows "⧉ In <basename>" or "⧉ N lines selected" when IDE is connected
+/// and has a selection.  Returns empty element when nothing to show.
+[[nodiscard]] inline Element RenderIdeStatusIndicator(const IdeSelectionInfo& ide) {
+    using ftxui::text;
+    if (!ide.connected) return text("");
+
+    // TS: shouldShowIdeSelection = ideStatus === "connected" &&
+    //   (ideSelection?.filePath || (ideSelection?.text && ideSelection.lineCount > 0))
+    const bool has_file = ide.file_path.has_value() && !ide.file_path->empty();
+    const bool has_text_sel = ide.selected_lines.has_value() && *ide.selected_lines > 0;
+
+    if (!has_file && !has_text_sel) return text("");
+
+    if (has_text_sel) {
+        const int n = *ide.selected_lines;
+        const std::string unit = (n == 1) ? "line" : "lines";
+        // TS: "⧉ {lineCount} {unit} selected" — color="ide"
+        return hbox({
+            text("\xE2\xA7\x89 ") | color(kIdeColor),   // ⧉
+            text(std::to_string(n) + " " + unit + " selected") | color(kIdeColor),
+        });
+    }
+
+    if (has_file) {
+        // TS: basename(ideSelection.filePath)
+        const std::string& path = *ide.file_path;
+        auto pos = path.find_last_of("/\\");
+        std::string basename = (pos != std::string::npos)
+            ? path.substr(pos + 1) : path;
+        // TS: "⧉ In {basename}" — color="ide"
+        return hbox({
+            text("\xE2\xA7\x89 In ") | color(kIdeColor),   // ⧉ In
+            text(basename) | color(kIdeColor),
+        });
+    }
+
+    return text("");
+}
+
+/// Render the highest-priority active notification.
+/// TS REF: src/components/PromptInput/Notifications.tsx NotificationContent()
+///
+/// Returns an element (possibly empty text("") if nothing active).
+/// The element is always exactly 1 row high for stable footer height.
+[[nodiscard]] inline Element RenderNotifications(const NotificationData& data) {
+    using ftxui::text;
+    using ftxui::dim;
+    using ftxui::color;
+    using ftxui::hbox;
+
+    // Priority chain (highest first):
+
+    // 1. Dynamic notification (env-hook, external-editor hint, etc.)
+    //    TS: notifications.current with text/color
+    if (data.dynamic_text && !data.dynamic_text->empty()) {
+        Color c = Color::GrayLight;   // default dim
+        if (data.dynamic_color == "error")   c = Color::Red;
+        else if (data.dynamic_color == "warning") c = Color::Yellow;
+        return hbox({ text(*data.dynamic_text) | color(c) })
+             | size(HEIGHT, EQUAL, 1);
+    }
+
+    // 2. IDE status indicator
+    Element ide_el = RenderIdeStatusIndicator(data.ide);
+    if (ide_el) {
+        return hbox({ std::move(ide_el) }) | size(HEIGHT, EQUAL, 1);
+    }
+
+    // 3. Overage mode — "Now using extra usage" (dim)
+    //    TS REF: Notifications.tsx L293-297
+    if (data.is_overage_mode) {
+        return hbox({ text("Now using extra usage") | dim })
+             | size(HEIGHT, EQUAL, 1);
+    }
+
+    // 4. API key invalid/missing — "Not logged in · Run /login" (error)
+    //    TS REF: Notifications.tsx L306-310
+    if (data.api_key_status == ApiKeyStatus::Invalid
+        || data.api_key_status == ApiKeyStatus::Missing)
+    {
+        std::string msg = data.is_remote
+            ? "Authentication error \xC2\xB7 Try again"   // ·
+            : "Not logged in \xC2\xB7 Run /login";       // ·
+        return hbox({ text(msg) | color(Color::Red) })
+             | size(HEIGHT, EQUAL, 1);
+    }
+
+    // 5. Debug mode — "Debug mode" (warning)
+    //    TS REF: Notifications.tsx L311-315
+    if (data.debug_mode) {
+        return hbox({ text("Debug mode") | color(Color::Yellow) })
+             | size(HEIGHT, EQUAL, 1);
+    }
+
+    // 6. Verbose token count — "{tokenUsage} tokens" (dim, only when apiKey valid)
+    //    TS REF: Notifications.tsx L316-320
+    if (data.verbose && data.api_key_status == ApiKeyStatus::Valid
+        && data.token_usage > 0)
+    {
+        return hbox({ text(std::to_string(data.token_usage) + " tokens") | dim })
+             | size(HEIGHT, EQUAL, 1);
+    }
+
+    // Nothing active — return empty placeholder row for stable height
+    return text(" ") | size(HEIGHT, EQUAL, 1);
+}
+
+// ============================================================
 // Full PromptInputFooter (left + right columns)
 // ============================================================
 
@@ -685,8 +864,9 @@ struct FooterOptions {
 
     // Right column
     BridgeOptions bridge;
-    bool show_notifications = false;   // non-fullscreen only
-    bool is_undercover = false;        // ant-only
+    NotificationData notification;        // P1: footer notifications
+    bool show_notifications = false;      // non-fullscreen only
+    bool is_undercover = false;           // ant-only
 
     // Layout
     bool is_fullscreen = true;
@@ -745,19 +925,45 @@ struct FooterOptions {
     Element left_el = vbox(std::move(left_col)) | flex;
 
     // ── Right column ───────────────────────────────────────────────────
-    // TS: <Box flexShrink={1} gap={1}> — items in a row, right-aligned
-    Elements right_row;
+    // TS: <Box flexDirection="column" alignItems={isNarrow ? 'flex-start' : 'flex-end'}>
+    // Right side is a vertical column: notifications stack on top,
+    // undercover + bridge status form a bottom row.
+    Elements right_col;
 
-    // Notifications (non-fullscreen only, per TS)
-    if (opts.show_notifications && !opts.is_fullscreen) {
-        // Notifications rendered by caller and passed in?  For now stub.
-        // TS: <Notifications apiKeyStatus autoUpdaterResult ... />
+    // Notifications (shown in both fullscreen and non-fullscreen in CPP
+    // since we reserve stable height; TS hides in fullscreen to save scroll
+    // rows, but our BuiltinStatusLine already covers the info need).
+    // TS REF: Notifications.tsx — renders NotificationContent as a column.
+    {
+        Element notif_el = RenderNotifications(opts.notification);
+        // Check if the notification element has actual content (not just
+        // a blank placeholder row).  We detect this by checking if the
+        // notification data has any active field.
+        const auto& nd = opts.notification;
+        const bool has_active =
+            (nd.dynamic_text && !nd.dynamic_text->empty()) ||
+            nd.ide.connected ||
+            nd.is_overage_mode ||
+            nd.api_key_status == ApiKeyStatus::Invalid ||
+            nd.api_key_status == ApiKeyStatus::Missing ||
+            nd.debug_mode ||
+            (nd.verbose && nd.api_key_status == ApiKeyStatus::Valid && nd.token_usage > 0);
+
+        if (has_active) {
+            right_col.push_back(hbox({
+                filler(),   // right-align (TS: alignItems="flex-end")
+                std::move(notif_el),
+            }));
+        }
     }
+
+    // Bottom row: undercover + bridge status (inline items)
+    Elements bottom_row;
 
     // Undercover (ant-only)
     if (opts.is_undercover) {
-        if (!right_row.empty()) right_row.push_back(text(" ") | dim);
-        right_row.push_back(text("undercover") | dim);
+        if (!bottom_row.empty()) bottom_row.push_back(text(" ") | dim);
+        bottom_row.push_back(text("undercover") | dim);
     }
 
     // Bridge status indicator
@@ -765,12 +971,19 @@ struct FooterOptions {
         && (opts.bridge.explicit_remote
             || opts.bridge.status == BridgeStatus::Reconnecting))
     {
-        if (!right_row.empty()) right_row.push_back(text(" ") | dim);
-        right_row.push_back(RenderBridgeStatus(opts.bridge));
+        if (!bottom_row.empty()) bottom_row.push_back(text(" ") | dim);
+        bottom_row.push_back(RenderBridgeStatus(opts.bridge));
     }
 
-    const bool has_right = !right_row.empty();
-    Element right_el = has_right ? hbox(std::move(right_row)) : text("");
+    if (!bottom_row.empty()) {
+        right_col.push_back(hbox({
+            filler(),
+            hbox(std::move(bottom_row)),
+        }));
+    }
+
+    const bool has_right = !right_col.empty();
+    Element right_el = has_right ? vbox(std::move(right_col)) : text("");
 
     // TS: outer Box switches row -> column at narrow widths.  The StatusLine
     // remains inside the left column, so right-column content top-aligns with
