@@ -1602,6 +1602,51 @@ private:
                     token.end,
                     false);
             }
+
+            // AT-10: @-history session autocomplete — search past sessions by
+            // title/ID. Faithful to TS searchSessionsByCustomTitle
+            // (src/utils/sessionStorage.ts:3066-3107) exposed as an @-mention
+            // source alongside files/agents/MCP. Sessions are sorted by
+            // recency (newest first) per SessionStorage::list_sessions.
+            if (storage_) {
+                auto sessions = storage_->list_sessions(30);
+                if (sessions) {
+                    for (const auto& session : *sessions) {
+                        const auto& id = session.metadata.id;
+                        const auto& title = session.metadata.title;
+                        const std::string short_id =
+                            id.substr(0, std::min<std::size_t>(id.size(), 8));
+                        const std::string display_label =
+                            title.empty() ? short_id : title;
+
+                        if (!frn::fuzzy_match_nucleo(display_label, query) &&
+                            !frn::fuzzy_match_nucleo(id, query) &&
+                            !frn::fuzzy_match_nucleo(short_id, query)) {
+                            continue;
+                        }
+
+                        // Build description: "Session" + short-ID hint + msg count
+                        std::string desc = "Session";
+                        if (!title.empty() && title != short_id) {
+                            desc += " · " + short_id;
+                        }
+                        if (session.metadata.message_count > 0) {
+                            desc += std::format(
+                                " ({} msgs)", session.metadata.message_count);
+                        }
+
+                        add_suggestion(
+                            "@" + display_label,
+                            std::move(desc),
+                            "@" + id,
+                            token.start,
+                            token.end,
+                            /*submit_on_return=*/false,
+                            /*id=*/"session:" + id);
+                    }
+                }
+            }
+
             restore_index();
             return;
         }

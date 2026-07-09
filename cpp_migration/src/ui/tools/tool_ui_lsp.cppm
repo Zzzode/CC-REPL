@@ -127,6 +127,16 @@ namespace detail {
 
     fns.is_transparent_wrapper = false;
 
+    // TS REF: LSPTool — renderToolResultMessage shows LSP response content
+    // (diagnostics, definitions, etc.).  Output IS visible on screen;
+    // index it so users can search for symbol names and file paths.
+    fns.extract_search_text = [](
+        std::string_view output_text,
+        std::string_view /*error_text*/) -> std::optional<std::string>
+    {
+        return std::string{output_text};
+    };
+
     return fns;
 }
 

@@ -45,6 +45,7 @@ module;
 #include <format>
 #include <cmath>
 #include <cstdio>
+#include <chrono>
 
 #include <ftxui/dom/elements.hpp>
 
@@ -714,6 +715,68 @@ struct IdeSelectionInfo {
     std::optional<int> selected_lines;        // when text is selected in IDE
 };
 
+// ============================================================
+// Notification Queue — priority-based rotating carousel
+// ============================================================
+// TS REFERENCE: src/context/notifications.tsx (the useNotifications hook)
+// TS REFERENCE: src/components/PromptInput/Notifications.tsx L288-292
+//
+// Implements a priority queue of up to 12 notification items that rotate
+// through the "current" slot on a timeout basis.  Faithful to TS:
+//   - Priority ordering: immediate > high > medium > low
+//   - Each item has a timeout (default 8000ms, same as TS DEFAULT_TIMEOUT_MS)
+//   - When current expires, highest-priority item from the queue becomes current
+//   - Queue capped at 12 items; oldest lowest-priority evicted when full
+//   - Items can invalidate others (via invalidates key list)
+//   - Duplicate keys are prevented (dedup, same as TS queuedKeys Set)
+//   - "immediate" priority items replace current right away (TS L80-116)
+//
+// The queue is advanced by QueueAdvance() which should be called from the
+// engine's event-driven update phase (not a constant ticker — ground rule 5).
+// RenderNotifications() reads queue.current if set and shows it as the
+// highest-priority display item.
+
+/// Notification priority levels.
+/// TS REF: src/context/notifications.tsx L5 (Priority type) + L230-235 (PRIORITIES record)
+enum class NotificationPriority {
+    Immediate = 0,  ///< Shown immediately, replaces current
+    High      = 1,  ///< Next-highest after immediate
+    Medium    = 2,  ///< Default for most notifications
+    Low       = 3,  ///< Lowest priority
+};
+
+/// A single queued notification item.
+/// TS REF: src/context/notifications.tsx L6-33 (BaseNotification + TextNotification)
+struct NotificationItem {
+    std::string key;                              ///< Unique key for dedup/invalidation
+    std::string text;                             ///< Display text (plain string, no JSX)
+    std::string color;                            ///< "error", "warning", "success", "info", or empty=dim
+    NotificationPriority priority = NotificationPriority::Low;  ///< Display priority
+    int timeout_ms = 8000;                        ///< TS DEFAULT_TIMEOUT_MS = 8000
+    std::vector<std::string> invalidates;         ///< Keys this notification invalidates
+};
+
+/// The notification queue state.
+/// Holds the currently-displayed item + up to 12 pending items.
+struct NotificationQueue {
+    /// Currently displayed item (nullopt if nothing shown).
+    std::optional<NotificationItem> current;
+
+    /// Pending items waiting to be shown (capped at kMaxItems).
+    std::vector<NotificationItem> queue;
+
+    /// Maximum items in the queue (carousel size = "up to 12").
+    static constexpr std::size_t kMaxItems = 12;
+
+    /// Wall-clock time when current was activated (for timeout check).
+    /// Stored as seconds since steady_clock epoch for simple comparison.
+    double current_activated_at_sec = 0.0;
+};
+
+// ============================================================
+// Notification data fed into the footer
+// ============================================================
+
 /// Notification data fed into the footer.
 ///
 /// Each field corresponds to one notification type from TS Notifications.tsx.
@@ -736,8 +799,13 @@ struct NotificationData {
 
     // Dynamic notification (e.g. env-hook feedback, external-editor hint)
     // When set, takes priority over most static notifications.
+    // DEPRECATED: prefer using `queue` instead (NotificationQueue carousel).
     std::optional<std::string> dynamic_text;
     std::optional<std::string> dynamic_color;  // "error", "warning", or empty=dim
+
+    // Notification queue — priority-based rotating carousel of up to 12 items.
+    // When queue.current is set, it takes highest priority in RenderNotifications.
+    NotificationQueue queue;
 };
 
 /// IDE status indicator color — matches TS theme.ide rgb(71,130,200).
@@ -798,8 +866,24 @@ const Color kIdeColor = Color::RGB(71, 130, 200);
 
     // Priority chain (highest first):
 
+    // 0. Notification queue — current item (rotating carousel)
+    //    TS REF: Notifications.tsx L288-292 (notifications.current render)
+    //    The queue's current item has the highest display priority because
+    //    it represents time-sensitive dynamic feedback (env-hook, etc.).
+    if (data.queue.current && !data.queue.current->text.empty()) {
+        const auto& item = *data.queue.current;
+        Color c = Color::GrayLight;   // default dim
+        if (item.color == "error")        c = Color::Red;
+        else if (item.color == "warning") c = Color::Yellow;
+        else if (item.color == "success") c = Color::Green;
+        else if (item.color == "info")    c = kIdeColor;
+        return hbox({ text(item.text) | color(c) })
+             | size(HEIGHT, EQUAL, 1);
+    }
+
     // 1. Dynamic notification (env-hook, external-editor hint, etc.)
     //    TS: notifications.current with text/color
+    //    Kept for backward compatibility; prefer using the queue API.
     if (data.dynamic_text && !data.dynamic_text->empty()) {
         Color c = Color::GrayLight;   // default dim
         if (data.dynamic_color == "error")   c = Color::Red;
@@ -851,6 +935,217 @@ const Color kIdeColor = Color::RGB(71, 130, 200);
 
     // Nothing active — return empty placeholder row for stable height
     return text(" ") | size(HEIGHT, EQUAL, 1);
+}
+
+// ============================================================
+// Notification Queue operations
+// ============================================================
+// These free functions implement the carousel rotation logic.
+// They should be called from the engine's event-driven update phase,
+// not from a constant-rate ticker (ground rule 5).
+
+namespace detail {
+
+/// Get current steady_clock time as seconds (floating point).
+[[nodiscard]] inline double NowSeconds() {
+    using clock = std::chrono::steady_clock;
+    auto now = clock::now().time_since_epoch();
+    return std::chrono::duration<double>(now).count();
+}
+
+/// Priority value for sorting (lower = higher priority).
+/// TS REF: src/context/notifications.tsx L230-235 (PRIORITIES record)
+[[nodiscard]] inline int PriorityValue(NotificationPriority p) {
+    switch (p) {
+        case NotificationPriority::Immediate: return 0;
+        case NotificationPriority::High:      return 1;
+        case NotificationPriority::Medium:    return 2;
+        case NotificationPriority::Low:       return 3;
+    }
+    return 3;
+}
+
+/// Find the highest-priority item in the queue (lowest PriorityValue).
+/// TS REF: src/context/notifications.tsx L236-239 (getNext function)
+[[nodiscard]] inline std::size_t FindHighestPriorityIndex(
+    const std::vector<NotificationItem>& queue)
+{
+    if (queue.empty()) return 0;
+    std::size_t best = 0;
+    for (std::size_t i = 1; i < queue.size(); ++i) {
+        if (PriorityValue(queue[i].priority) < PriorityValue(queue[best].priority)) {
+            best = i;
+        }
+    }
+    return best;
+}
+
+} // namespace detail
+
+/// Add a notification to the queue.
+///
+/// Faithful to TS addNotification() in notifications.tsx:
+///   - "immediate" priority → replaces current right away, re-queues previous
+///   - Other priorities → added to queue (deduped by key)
+///   - Queue is capped at kMaxItems (12); oldest lowest-priority evicted
+///   - If item.invalidates is set, matching keys are removed from queue/current
+///
+/// TS REF: src/context/notifications.tsx L78-192
+inline void QueueAddNotification(NotificationQueue& nq,
+                                  const NotificationItem& item)
+{
+    // Prevent duplicates — TS uses queuedKeys Set (L173)
+    const bool already_in_queue = [&]() {
+        for (const auto& q : nq.queue) {
+            if (q.key == item.key) return true;
+        }
+        return false;
+    }();
+    const bool already_current = nq.current && nq.current->key == item.key;
+    if (already_in_queue || already_current) return;
+
+    // Handle invalidation — remove matching keys from queue and current
+    // TS REF: notifications.tsx L176-186 (invalidatesCurrent + queue filter)
+    if (!item.invalidates.empty()) {
+        // Check if current is invalidated
+        if (nq.current) {
+            for (const auto& inv_key : item.invalidates) {
+                if (nq.current->key == inv_key) {
+                    nq.current.reset();
+                    break;
+                }
+            }
+        }
+        // Remove invalidated items from queue
+        nq.queue.erase(
+            std::remove_if(nq.queue.begin(), nq.queue.end(),
+                [&](const NotificationItem& q) {
+                    for (const auto& inv_key : item.invalidates) {
+                        if (q.key == inv_key) return true;
+                    }
+                    return false;
+                }),
+            nq.queue.end());
+    }
+
+    // "immediate" priority → show right now
+    // TS REF: notifications.tsx L80-116
+    if (item.priority == NotificationPriority::Immediate) {
+        // Re-queue the current item if it's not immediate
+        if (nq.current && nq.current->priority != NotificationPriority::Immediate) {
+            // Cap queue: if full, evict oldest lowest-priority
+            if (nq.queue.size() >= NotificationQueue::kMaxItems) {
+                // Find lowest-priority item, prefer older ones
+                std::size_t worst = 0;
+                for (std::size_t i = 1; i < nq.queue.size(); ++i) {
+                    if (detail::PriorityValue(nq.queue[i].priority) >
+                        detail::PriorityValue(nq.queue[worst].priority)) {
+                        worst = i;
+                    }
+                }
+                nq.queue.erase(nq.queue.begin() + static_cast<std::ptrdiff_t>(worst));
+            }
+            nq.queue.push_back(*nq.current);
+        }
+        nq.current = item;
+        nq.current_activated_at_sec = detail::NowSeconds();
+        return;
+    }
+
+    // Non-immediate → add to queue (capped at kMaxItems)
+    if (nq.queue.size() >= NotificationQueue::kMaxItems) {
+        // Evict the oldest lowest-priority item to make room
+        std::size_t worst = 0;
+        for (std::size_t i = 1; i < nq.queue.size(); ++i) {
+            if (detail::PriorityValue(nq.queue[i].priority) >
+                detail::PriorityValue(nq.queue[worst].priority)) {
+                worst = i;
+            }
+        }
+        nq.queue.erase(nq.queue.begin() + static_cast<std::ptrdiff_t>(worst));
+    }
+    nq.queue.push_back(item);
+}
+
+/// Remove a notification by key (from both current and queue).
+/// TS REF: src/context/notifications.tsx L193-213 (removeNotification)
+inline void QueueRemoveNotification(NotificationQueue& nq,
+                                     const std::string& key)
+{
+    // Remove from current
+    if (nq.current && nq.current->key == key) {
+        nq.current.reset();
+    }
+    // Remove from queue
+    nq.queue.erase(
+        std::remove_if(nq.queue.begin(), nq.queue.end(),
+            [&](const NotificationItem& q) { return q.key == key; }),
+        nq.queue.end());
+}
+
+/// Advance the queue: if current has expired, clear it and pull the next
+/// highest-priority item from the queue.
+///
+/// Returns true if the display changed (current was advanced or cleared).
+///
+/// This should be called from the engine's event-driven update loop — NOT
+/// from a constant-rate ticker (ground rule 5).  The engine drives repaints
+/// on user input, API responses, etc., which is frequent enough that
+/// timeout expiry will be detected within reasonable accuracy.
+///
+/// TS REF: src/context/notifications.tsx L46-77 (processQueue callback)
+/// TS REF: src/context/notifications.tsx L52-68 (setTimeout expiry handler)
+[[nodiscard]] inline bool QueueAdvance(NotificationQueue& nq, double now_sec)
+{
+    // If nothing is current, try to pull from queue
+    if (!nq.current) {
+        if (nq.queue.empty()) return false;
+        // Get highest-priority item from queue
+        std::size_t idx = detail::FindHighestPriorityIndex(nq.queue);
+        nq.current = nq.queue[idx];
+        nq.queue.erase(nq.queue.begin() + static_cast<std::ptrdiff_t>(idx));
+        nq.current_activated_at_sec = now_sec;
+        return true;
+    }
+
+    // Check if current has expired
+    const double elapsed_sec = now_sec - nq.current_activated_at_sec;
+    const double timeout_sec = nq.current->timeout_ms / 1000.0;
+    if (elapsed_sec < timeout_sec) {
+        return false;  // Not yet expired
+    }
+
+    // Current has expired — clear it
+    nq.current.reset();
+
+    // Try to pull next from queue
+    if (!nq.queue.empty()) {
+        std::size_t idx = detail::FindHighestPriorityIndex(nq.queue);
+        nq.current = nq.queue[idx];
+        nq.queue.erase(nq.queue.begin() + static_cast<std::ptrdiff_t>(idx));
+        nq.current_activated_at_sec = now_sec;
+    }
+    return true;
+}
+
+/// Convenience overload that uses the current steady_clock time.
+[[nodiscard]] inline bool QueueAdvance(NotificationQueue& nq) {
+    return QueueAdvance(nq, detail::NowSeconds());
+}
+
+/// Get the text and color of the currently-displayed notification.
+/// Returns nullopt if nothing is current (queue is idle).
+/// This is a const read — it does NOT advance the queue.
+[[nodiscard]] inline std::optional<std::pair<std::string, std::string>>
+QueueGetCurrentDisplay(const NotificationQueue& nq)
+{
+    if (!nq.current) return std::nullopt;
+    return std::make_pair(nq.current->text, nq.current->color);
+}
+
+/// Check if the queue has any items (either current or pending).
+[[nodiscard]] inline bool QueueHasItems(const NotificationQueue& nq) {
+    return nq.current.has_value() || !nq.queue.empty();
 }
 
 // ============================================================
@@ -941,6 +1236,7 @@ struct FooterOptions {
         // notification data has any active field.
         const auto& nd = opts.notification;
         const bool has_active =
+            QueueHasItems(nd.queue) ||
             (nd.dynamic_text && !nd.dynamic_text->empty()) ||
             nd.ide.connected ||
             nd.is_overage_mode ||

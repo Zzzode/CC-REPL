@@ -104,6 +104,19 @@ namespace detail {
 
     fns.is_transparent_wrapper = false;
 
+    // TS REF: FileWriteTool.ts L146  extractSearchText()
+    //   return ''
+    // Transcript render shows either content (create, via HighlightedCode)
+    // or a structured diff (update). The heuristic's 'content' allowlist key
+    // would index the raw content string even in update mode where it's NOT
+    // shown — phantom. Under-count: tool_use already indexes file_path.
+    fns.extract_search_text = [](
+        std::string_view /*output_text*/,
+        std::string_view /*error_text*/) -> std::optional<std::string>
+    {
+        return std::string{};
+    };
+
     return fns;
 }
 

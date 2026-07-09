@@ -587,6 +587,270 @@ inline auto payload_preview(const MessageRowPayload& p) -> std::string {
     }, p);
 }
 
+// =========================================================================
+// 2b)  extract_search_text — RICH searchable text for indexing (Tier 2)
+// =========================================================================
+// TS REF: src/utils/transcriptSearch.ts  renderableSearchText() + toolUseSearchText()
+//       + src/Tool.ts L599  extractSearchText?(out: Output): string
+//       + src/components/Messages.tsx L650-676  2-tier extractSearchText callback
+//
+// Two-tier search text extraction:
+//   Tier 1 (toy):    payload_preview() — short display-friendly summaries
+//                    used for compact-group labels, quick previews.
+//   Tier 2 (rich):   extract_search_text() — detailed text from tool results
+//                    (file contents, bash output, grep matches) used for
+//                    search indexing.  Falls back to payload_preview() for
+//                    non-tool message types.
+//
+// For tool-result messages, the per-tool registry lookup provides precise
+// tool-owned extraction (matching what renderToolResultMessage shows).
+// Tools that don't show content on screen (FileRead, FileWrite, WebSearch)
+// return "" to avoid phantom matches.
+
+namespace search_detail {
+
+/// Extract a string field value from a JSON object string.
+/// Lightweight — no full JSON parser needed for known field names.
+/// TS REF: transcriptSearch.ts toolUseSearchText() — extracts known input fields.
+[[nodiscard]] inline std::string extract_json_field(
+    std::string_view json, std::string_view field_name)
+{
+    auto pos = json.find(field_name);
+    if (pos == std::string_view::npos) return {};
+    // Find the colon after the field name
+    auto colon = json.find(':', pos + field_name.size());
+    if (colon == std::string_view::npos) return {};
+    // Find the opening quote of the value
+    auto quote = json.find('"', colon + 1);
+    if (quote == std::string_view::npos) return {};
+    // Find the closing quote (handle escaped quotes)
+    std::size_t end = quote + 1;
+    while (end < json.size() && json[end] != '"') {
+        if (json[end] == '\\' && end + 1 < json.size()) {
+            end += 2;  // skip escaped char
+        } else {
+            ++end;
+        }
+    }
+    if (end >= json.size()) return {};
+    return std::string(json.substr(quote + 1, end - quote - 1));
+}
+
+/// Extract searchable text from a tool-use input JSON string.
+/// Mirrors TS toolUseSearchText() — known field names that renderToolUseMessage
+/// shows as the primary argument (command, pattern, file_path, etc.).
+/// TS REF: src/utils/transcriptSearch.ts L134-164  toolUseSearchText(input)
+[[nodiscard]] inline std::string tool_use_search_text(std::string_view input_json) {
+    if (input_json.empty()) return {};
+    const std::string_view known_fields[] = {
+        "\"command\"",   // Bash, Shell
+        "\"pattern\"",   // Grep, Glob
+        "\"file_path\"", // Read, Write, Edit
+        "\"path\"",      // fallback for file_path
+        "\"prompt\"",    // Agent
+        "\"description\"",// Agent, Task
+        "\"query\"",     // WebSearch, Grep
+        "\"url\"",       // WebFetch
+        "\"skill\"",     // SkillTool
+    };
+    std::string result;
+    for (auto field : known_fields) {
+        auto val = extract_json_field(input_json, field);
+        if (!val.empty()) {
+            if (!result.empty()) result += '\n';
+            result += val;
+        }
+    }
+    // Also try to extract arrays (args[], files[]) — TS joins with space.
+    const std::string_view array_fields[] = {
+        "\"args\"",   // Tmux, Tungsten
+        "\"files\"",  // SendUserFile
+    };
+    for (auto field : array_fields) {
+        auto pos = input_json.find(field);
+        if (pos == std::string_view::npos) continue;
+        auto bracket = input_json.find('[', pos);
+        if (bracket == std::string_view::npos) continue;
+        auto close_bracket = input_json.find(']', bracket);
+        if (close_bracket == std::string_view::npos) continue;
+        // Extract quoted strings inside the array
+        std::string arr_text;
+        std::size_t i = bracket + 1;
+        while (i < close_bracket) {
+            if (input_json[i] == '"') {
+                auto end = input_json.find('"', i + 1);
+                if (end == std::string_view::npos || end >= close_bracket) break;
+                if (!arr_text.empty()) arr_text += ' ';
+                arr_text += std::string(input_json.substr(i + 1, end - i - 1));
+                i = end + 1;
+            } else {
+                ++i;
+            }
+        }
+        if (!arr_text.empty()) {
+            if (!result.empty()) result += '\n';
+            result += arr_text;
+        }
+    }
+    return result;
+}
+
+} // namespace search_detail
+
+/// Rich searchable text for indexing.  Returns detailed content from tool
+/// results (file contents, bash output, grep matches) for search matching.
+/// Falls back to payload_preview() for non-tool message types.
+///
+/// TS REF: src/components/Messages.tsx L650-676
+///   2-tier: renderableSearchText(msg) then tool.extractSearchText?(out)
+///
+/// @param p       The message row payload variant.
+/// @param shape   The message shape (for dispatch optimization).
+/// @return Lowercase-rich searchable text (NOT lowered — caller lowers).
+[[nodiscard]] inline auto extract_search_text(
+    const MessageRowPayload& p,
+    MessageShape shape) -> std::string
+{
+    using S = MessageShape;
+
+    // ── Tool RESULT messages (UserToolResult) ──────────────────────────
+    // TS: if msg.type === 'user' && msg.toolUseResult, look up tool by name
+    // and call tool.extractSearchText(out).  Prefer that over the heuristic.
+    if (shape == S::UserToolResult) {
+        if (auto* opts = std::get_if<::cc::ui::messages::ToolResultOptions>(&p)) {
+            // Build the rich output text from ToolResultOptions fields.
+            std::string rich_output;
+            if (opts->content_items && !opts->content_items->empty()) {
+                // Structured content items (MCP tools): concatenate text.
+                for (const auto& item : *opts->content_items) {
+                    if (item.type == "text" && !item.text.empty()) {
+                        if (!rich_output.empty()) rich_output += '\n';
+                        rich_output += item.text;
+                    } else if (item.type == "image") {
+                        if (!rich_output.empty()) rich_output += '\n';
+                        rich_output += "[Image]";
+                    }
+                }
+            } else if (opts->output && !opts->output->empty()) {
+                rich_output = *opts->output;
+            }
+            std::string_view error_text =
+                (opts->error_message && !opts->error_message->empty())
+                    ? std::string_view{*opts->error_message}
+                    : std::string_view{};
+
+            // Tier 2: try tool-owned extractSearchText from registry.
+            // TS REF: Messages.tsx L660-666  findRenderableToolByName + extractSearchText
+            const auto& reg = cc::ui::tools::global_tool_ui_registry();
+            const auto* ui = reg.find(opts->tool_name);
+            if (ui && ui->extract_search_text) {
+                auto extracted = ui->extract_search_text(rich_output, error_text);
+                if (extracted.has_value()) {
+                    // Tool returned explicit result (may be "" for "nothing to index").
+                    return *extracted;
+                }
+            }
+
+            // Fallback: use the rich output text directly.
+            // This covers tools whose output IS visible but have no specific
+            // UI registered (e.g. custom MCP tools).
+            if (!error_text.empty()) {
+                if (!rich_output.empty()) rich_output += '\n';
+                rich_output += error_text;
+            }
+            if (!rich_output.empty()) return rich_output;
+
+            // Last resort: fall back to toy payload_preview (just tool_name).
+            return payload_preview(p);
+        }
+    }
+
+    // ── Tool USE messages (AssistantToolUse, AssistantGroupedTools) ────
+    // TS: toolUseSearchText(b.input) — extracts command/pattern/path from
+    // the tool's input JSON so users can search for "grep" or "file_path".
+    if (shape == S::AssistantToolUse) {
+        if (auto* opts = std::get_if<::cc::ui::messages::tool_use_message::ToolUseRenderOptions>(&p)) {
+            std::string result = search_detail::tool_use_search_text(
+                opts->call.raw_parameters);
+            // Also include result_preview if available (partial output during streaming).
+            if (opts->call.result_preview && !opts->call.result_preview->empty()) {
+                if (!result.empty()) result += '\n';
+                result += *opts->call.result_preview;
+            }
+            if (!result.empty()) return result;
+        }
+        return payload_preview(p);
+    }
+    if (shape == S::AssistantGroupedTools) {
+        if (auto* grp = std::get_if<::cc::ui::messages::tool_use_message::GroupedToolsOptions>(&p)) {
+            std::string result;
+            for (const auto& call : grp->calls) {
+                auto t = search_detail::tool_use_search_text(call.raw_parameters);
+                if (!t.empty()) {
+                    if (!result.empty()) result += '\n';
+                    result += t;
+                }
+            }
+            if (!result.empty()) return result;
+        }
+        return payload_preview(p);
+    }
+
+    // ── Bash I/O (UserBashInput, UserBashOutput) ───────────────────────
+    // TS: user message content blocks include bash stdin/stdout as text.
+    if (shape == S::UserBashInput || shape == S::UserBashOutput) {
+        if (auto* entry = std::get_if<BashIOEntry>(&p)) {
+            return entry->content;
+        }
+    }
+
+    // ── Local command output ───────────────────────────────────────────
+    if (shape == S::UserLocalCommandOutput) {
+        if (auto* opts = std::get_if<local_cmd::LocalCommandOptions>(&p)) {
+            std::string result;
+            // Include the command line so users can search for "/help", etc.
+            if (!opts->data.command_line.empty()) {
+                result = opts->data.command_line;
+            }
+            for (const auto& line : opts->data.lines) {
+                if (!result.empty()) result += '\n';
+                result += line.text;
+            }
+            if (!result.empty()) return result;
+        }
+    }
+
+    // ── Thinking messages ──────────────────────────────────────────────
+    // TS: thinking blocks are hidden by hidePastThinking in transcript mount.
+    // Only index thinking when it's the active streaming tail (not past).
+    if (shape == S::AssistantThinking || shape == S::AssistantRedactedThinking) {
+        if (auto* opts = std::get_if<thinking_message::ThinkingMessageOptions>(&p)) {
+            using TM = thinking_message::ThinkingState;
+            if (opts->data.state == TM::Complete) {
+                // Completed thinking is hidden in transcript — don't index it
+                // (TS: hidePastThinking = true for completed blocks).
+                return {};
+            }
+            // Active thinking: index the thinking text so users can search
+            // for what the model is currently thinking about.
+            // TS: thinking blocks contain text content that users may want to find.
+            std::string thinking_text = opts->data.raw_text;
+            for (const auto& section : opts->data.sections) {
+                if (!section.content.empty()) {
+                    if (!thinking_text.empty()) thinking_text += '\n';
+                    thinking_text += section.content;
+                }
+            }
+            return thinking_text;
+        }
+    }
+
+    // ── Fallback: toy payload_preview for all other types ──────────────
+    // AssistantText, UserText, SystemText, etc. already return rich content
+    // via payload_preview (their `content` fields).
+    return payload_preview(p);
+}
+
 /// Returns true for message SHAPEs that belong to each filter category.
 /// Mirrors the TS Messages.tsx category switches (system / tool_use /
 /// tool_result / thinking / compacted).
@@ -684,7 +948,12 @@ inline auto build_visible_rows(MessagesListInput& input) -> std::vector<VisibleR
             if (!passes_brief_filter(input.shapes[i], input.rows[i])) continue;
         }
         if (do_search) {
-            const std::string hay = detail::lowered(detail::payload_preview(input.rows[i]));
+            // TS REF: Messages.tsx L650-676  2-tier search text extraction.
+            // Use rich extract_search_text() for indexing (Tier 2), not the
+            // toy payload_preview() (Tier 1).  This lets users search for
+            // file contents, bash output, grep matches — not just tool names.
+            const std::string hay = detail::lowered(
+                detail::extract_search_text(input.rows[i], input.shapes[i]));
             if (hay.find(needle) == std::string::npos) continue;
         }
         row_passes[i] = true;
@@ -1067,10 +1336,17 @@ namespace detail {
             .backend_index          = backend,
         };
         if (row.type_hint == 0 && vr.row_idx < input.rows.size()) {
-            // Populate search_key lazily for payload rows (compact-group
-            // rows use a static "collapsed" label).
+            // Populate search_key with rich extract_search_text (Tier 2)
+            // instead of toy payload_preview (Tier 1).  This lets the
+            // VirtualMessageList's scroll_search find file contents, bash
+            // output, etc. — not just tool names.
+            // TS REF: Messages.tsx L700  extractSearchText passed to VirtualMessageList
+            const MessageShape shape =
+                vr.row_idx < input.shapes.size()
+                    ? input.shapes[vr.row_idx]
+                    : MessageShape::SystemTaskAssignment;
             row.search_key = detail::lowered(
-                detail::payload_preview(input.rows[vr.row_idx]));
+                detail::extract_search_text(input.rows[vr.row_idx], shape));
         }
         out.push_back(std::move(row));
     }

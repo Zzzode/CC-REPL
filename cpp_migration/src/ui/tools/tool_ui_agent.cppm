@@ -126,6 +126,17 @@ namespace detail {
 
     fns.is_transparent_wrapper = true;
 
+    // TS REF: AgentTool — renderToolResultMessage shows the agent's final
+    // output text (natural-language summary + tool results).  The output IS
+    // visible on screen, so we index it.  AgentTool produces natural-language
+    // results that users want to search.
+    fns.extract_search_text = [](
+        std::string_view output_text,
+        std::string_view /*error_text*/) -> std::optional<std::string>
+    {
+        return std::string{output_text};
+    };
+
     return fns;
 }
 

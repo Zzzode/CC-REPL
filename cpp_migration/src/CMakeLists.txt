@@ -377,6 +377,7 @@ target_link_libraries(cc_utils
         yyjson
         uv_a
         httplib::httplib
+        ftxui::screen
 )
 if(CC_ENABLE_TREE_SITTER)
     target_link_libraries(cc_utils PUBLIC tree-sitter tree-sitter-bash)

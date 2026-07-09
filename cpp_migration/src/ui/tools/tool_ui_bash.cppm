@@ -181,6 +181,18 @@ namespace detail {
 
     fns.is_transparent_wrapper = false;
 
+    // TS REF: BashTool.tsx L549  extractSearchText({stdout, stderr})
+    //   return stderr ? `${stdout}\n${stderr}` : stdout;
+    // BashToolResultMessage shows <OutputLine content={stdout}> + stderr.
+    // UI never shows persistedOutputPath, backgroundInfo — model-facing.
+    fns.extract_search_text = [](
+        std::string_view output_text,
+        std::string_view error_text) -> std::optional<std::string>
+    {
+        if (error_text.empty()) return std::string{output_text};
+        return std::string{output_text} + "\n" + std::string{error_text};
+    };
+
     return fns;
 }
 

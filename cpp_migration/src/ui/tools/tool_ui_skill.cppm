@@ -101,6 +101,16 @@ namespace detail {
 
     fns.is_transparent_wrapper = false;
 
+    // TS REF: SkillTool — renderToolResultMessage shows the skill's output
+    // (workflow results, generated text).  The output IS visible on screen,
+    // so we index it for search.
+    fns.extract_search_text = [](
+        std::string_view output_text,
+        std::string_view /*error_text*/) -> std::optional<std::string>
+    {
+        return std::string{output_text};
+    };
+
     return fns;
 }
 

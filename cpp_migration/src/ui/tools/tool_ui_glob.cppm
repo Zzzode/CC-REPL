@@ -114,6 +114,17 @@ namespace detail {
 
     fns.is_transparent_wrapper = false;
 
+    // TS REF: GlobTool.ts L151  extractSearchText({filenames})
+    //   return filenames.join('\n')
+    // Reuses Grep's render — shows filenames.join. durationMs/numFiles
+    // are "Found 3 files in 12ms" chrome (under-count, fine).
+    fns.extract_search_text = [](
+        std::string_view output_text,
+        std::string_view /*error_text*/) -> std::optional<std::string>
+    {
+        return std::string{output_text};
+    };
+
     return fns;
 }
 

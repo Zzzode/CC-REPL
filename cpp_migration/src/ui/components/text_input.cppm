@@ -28,6 +28,8 @@ module;
 
 export module ui.components.text_input;
 
+import cc.utils.parse_references;
+
 export namespace ui::components {
 using namespace ftxui;
 
@@ -1077,6 +1079,17 @@ private:
         int cursor_line = 0, cursor_col = 0;
         compute_cursor_position(cursor_line, cursor_col);
 
+        // TS REF: PromptInput.tsx L581-584 imageRefPositions — parse [Image #N]
+        // refs from the displayed value so we can invert the chip when the
+        // cursor parks at its start (the "selected" state; backspace-delete
+        // is visually obvious because the whole chip is highlighted).
+        const auto all_refs = cc::utils::parse_references(text_);
+        std::vector<cc::utils::ReferenceMatch> image_refs;
+        image_refs.reserve(all_refs.size());
+        for (const auto& r : all_refs) {
+            if (r.match.starts_with("[Image")) image_refs.push_back(r);
+        }
+
         for (int li = 0; li < total_lines; ++li) {
             Elements line_parts;
 
@@ -1167,7 +1180,35 @@ private:
                         std::string before = seg_text.substr(0, cur_rel_start);
                         std::string after = seg_text.substr(cur_rel_start);
                         if (!before.empty()) line_parts.push_back(ftxui::text(before));
-                        if (!after.empty() && blink_visible_) {
+
+                        // TS REF: PromptInput.tsx L604-616 — invert the entire
+                        // [Image #N] chip when the cursor is parked at its
+                        // start (chip.start is the "selected" state).  This
+                        // makes backspace-to-delete visually obvious because
+                        // the whole chip is highlighted, not just the first
+                        // character.  The cursor_ absolute byte offset is
+                        // compared against ref.index (also absolute bytes).
+                        const cc::utils::ReferenceMatch* chip_at_cursor = nullptr;
+                        for (const auto& ref : image_refs) {
+                            if (static_cast<int>(ref.index) == cursor_) {
+                                chip_at_cursor = &ref;
+                                break;
+                            }
+                        }
+
+                        if (chip_at_cursor && after.starts_with(chip_at_cursor->match)) {
+                            // Cursor at start of an [Image #N] chip — invert
+                            // the ENTIRE chip text (not just the first char).
+                            // Always visible (no blink) because the inverted
+                            // chip itself serves as the cursor indicator.
+                            const std::size_t chip_len = chip_at_cursor->match.size();
+                            std::string chip_text = after.substr(0, chip_len);
+                            std::string after_chip = after.substr(chip_len);
+                            line_parts.push_back(ftxui::text(chip_text) | inverted |
+                                                 color(Color::White));
+                            if (!after_chip.empty())
+                                line_parts.push_back(ftxui::text(after_chip));
+                        } else if (!after.empty() && blink_visible_) {
                             std::string cursor_ch{after[0]};
                             // Keep rest UTF-8 valid by appending continuations
                             size_t cc = 1;

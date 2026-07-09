@@ -123,6 +123,16 @@ namespace detail {
 
     fns.is_transparent_wrapper = is_transparent_wrapper;
 
+    // TS REF: Simple tools (SendUserMessage, SendUserFile, etc.) — their
+    // output IS visible on screen (renderToolResultMessage shows the result
+    // body).  Index the output for search so users can find what they sent.
+    fns.extract_search_text = [](
+        std::string_view output_text,
+        std::string_view /*error_text*/) -> std::optional<std::string>
+    {
+        return std::string{output_text};
+    };
+
     return fns;
 }
 
@@ -144,6 +154,12 @@ namespace detail {
     fns.progress = [](std::string_view, std::string_view) { return std::string{"Running…"}; };
     fns.queued = [](std::string_view) { return std::string{"Waiting to run…"}; };
     fns.is_transparent_wrapper = false;
+    // TS REF: ComputerUse — renderToolResultMessage shows action descriptions
+    // and screenshot metadata.  Output IS visible; index it.
+    fns.extract_search_text = [](
+        std::string_view output_text,
+        std::string_view /*error_text*/) -> std::optional<std::string>
+    { return std::string{output_text}; };
     return fns;
 }
 
@@ -168,6 +184,11 @@ namespace detail {
     fns.progress = [](std::string_view, std::string_view) { return std::string{"Running…"}; };
     fns.queued = [](std::string_view) { return std::string{"Waiting to run…"}; };
     fns.is_transparent_wrapper = false;
+    // TS REF: WebBrowser — renders page content/actions. Output IS visible.
+    fns.extract_search_text = [](
+        std::string_view output_text,
+        std::string_view /*error_text*/) -> std::optional<std::string>
+    { return std::string{output_text}; };
     return fns;
 }
 
@@ -187,6 +208,11 @@ namespace detail {
     fns.progress = [](std::string_view, std::string_view) { return std::string{"Waiting for user…"}; };
     fns.queued = [](std::string_view) { return std::string{"Waiting to ask…"}; };
     fns.is_transparent_wrapper = false;
+    // TS REF: AskUserQuestion — renders user's answer. Output IS visible.
+    fns.extract_search_text = [](
+        std::string_view output_text,
+        std::string_view /*error_text*/) -> std::optional<std::string>
+    { return std::string{output_text}; };
     return fns;
 }
 

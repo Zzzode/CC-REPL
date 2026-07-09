@@ -120,6 +120,16 @@ namespace detail {
 
     fns.is_transparent_wrapper = false;
 
+    // TS REF: TaskCreateTool — renderToolResultMessage shows the created
+    // task's ID and subject.  Output IS visible on screen; index it so
+    // users can search for task subjects.
+    fns.extract_search_text = [](
+        std::string_view output_text,
+        std::string_view /*error_text*/) -> std::optional<std::string>
+    {
+        return std::string{output_text};
+    };
+
     return fns;
 }
 
@@ -184,6 +194,16 @@ namespace detail {
     };
 
     fns.is_transparent_wrapper = false;
+
+    // TS REF: TaskUpdateTool — renderToolResultMessage shows the updated
+    // task status and subject.  Output IS visible on screen; index it so
+    // users can search for task subjects and status changes.
+    fns.extract_search_text = [](
+        std::string_view output_text,
+        std::string_view /*error_text*/) -> std::optional<std::string>
+    {
+        return std::string{output_text};
+    };
 
     return fns;
 }

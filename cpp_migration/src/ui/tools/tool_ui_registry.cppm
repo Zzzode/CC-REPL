@@ -20,6 +20,7 @@
 ///     tool.renderToolUseProgressMessage?.(input, partialResult?)
 ///     tool.renderToolUseQueuedMessage?.(input)
 ///     tool.isTransparentWrapper        -> bool
+///     tool.extractSearchText?(output)  -> string (rich searchable text)
 module;
 
 #include <functional>
@@ -73,6 +74,27 @@ struct ToolUIFunctions {
     ///
     /// TS: tool.isTransparentWrapper
     bool is_transparent_wrapper = false;
+
+    /// extractSearchText(output_text, content_items_text) — rich searchable text
+    /// from tool result.  Returns nullopt when not implemented (caller falls
+    /// back to field-name heuristic).  Returns "" when tool explicitly says
+    /// "nothing to index" (e.g. FileRead — content not shown on screen).
+    ///
+    /// TS REF: src/Tool.ts L599  extractSearchText?(out: Output): string
+    ///   Per-tool implementations:
+    ///     BashTool.tsx L549    → stdout + "\n" + stderr
+    ///     GrepTool.ts L250     → content (mode=content) or filenames.join
+    ///     GlobTool.ts L151     → filenames.join
+    ///     FileReadTool.ts L414 → "" (UI shows metadata, not file content)
+    ///     FileWriteTool.ts L146→ "" (update mode hides content → phantom)
+    ///     WebSearchTool.ts L229→ "" (results not shown on screen)
+    ///
+    /// Arguments:
+    ///   output_text   — flattened output string (ToolResultOptions.output)
+    ///   error_text    — error message if any (ToolResultOptions.error_message)
+    std::function<std::optional<std::string>(
+        std::string_view output_text,
+        std::string_view error_text)> extract_search_text;
 };
 
 // ============================================================

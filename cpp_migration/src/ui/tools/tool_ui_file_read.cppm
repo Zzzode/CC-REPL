@@ -166,6 +166,19 @@ namespace detail {
 
     fns.is_transparent_wrapper = false;
 
+    // TS REF: FileReadTool.ts L414  extractSearchText()
+    //   return ''
+    // Transcript render shows only metadata: "Read foo.ts" or
+    // "Read image (42KB)". Never the content itself. The model-facing
+    // serialization sends content + CYBER_RISK_MITIGATION_REMINDER + line
+    // prefixes; UI shows none of it. Nothing to index.
+    fns.extract_search_text = [](
+        std::string_view /*output_text*/,
+        std::string_view /*error_text*/) -> std::optional<std::string>
+    {
+        return std::string{};
+    };
+
     return fns;
 }
 

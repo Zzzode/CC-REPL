@@ -126,6 +126,18 @@ namespace detail {
 
     fns.is_transparent_wrapper = false;
 
+    // TS REF: GrepTool.ts L250  extractSearchText({mode, content, filenames})
+    //   if (mode === 'content' && content) return content
+    //   return filenames.join('\n')
+    // SearchResultSummary shows content (mode=content) or filenames.join.
+    // numFiles/numLines/numMatches are chrome — fine to skip.
+    fns.extract_search_text = [](
+        std::string_view output_text,
+        std::string_view /*error_text*/) -> std::optional<std::string>
+    {
+        return std::string{output_text};
+    };
+
     return fns;
 }
 

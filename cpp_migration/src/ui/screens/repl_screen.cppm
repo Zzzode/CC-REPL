@@ -539,6 +539,11 @@ struct ReplScreenState {
     // Dynamic notification (env-hook, external-editor hint, etc.)
     std::optional<std::string> footer_dynamic_text;
     std::optional<std::string> footer_dynamic_color;  // "error" / "warning" / empty=dim
+    // P1: Notification queue — rotating carousel of up to 12 status notices.
+    // TS REF: src/context/notifications.tsx (useNotifications hook)
+    // Items are added via hooks (env-hook, rate-limit warnings, etc.) and
+    // rotate through the footer's notification slot on a timeout basis.
+    cc::ui::prompt::footer::NotificationQueue footer_notification_queue;
     // Stable per-session welcome-tip index (seeded once from the session id in
     // app.cppm). The renderer mods this by kWelcomeTips.size(). Previously the
     // tip used spinner_frame, which cycled the tip on every mouse-move re-render.
@@ -2646,6 +2651,14 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
             nd.ide.selected_lines = s.ide_selected_lines;
             nd.dynamic_text = s.footer_dynamic_text;
             nd.dynamic_color = s.footer_dynamic_color;
+
+            // P1: Advance the notification queue carousel — this is the
+            // timer-based rotation through queued items.  Called here
+            // (event-driven, on each render) rather than a constant ticker.
+            // TS REF: src/context/notifications.tsx processQueue()
+            namespace pif = cc::ui::prompt::footer;
+            (void)pif::QueueAdvance(s.footer_notification_queue);
+            nd.queue = s.footer_notification_queue;
         }
 
         // M4 faithful: outer chrome.

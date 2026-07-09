@@ -97,6 +97,18 @@ namespace detail {
 
     fns.is_transparent_wrapper = false;
 
+    // TS REF: WebSearchTool.ts L229  extractSearchText()
+    //   return ''
+    // renderToolResultMessage shows only "Did N searches in Xs" chrome —
+    // the results[] content never appears on screen. Heuristic would index
+    // string entries in results[] (phantom match). Nothing to search.
+    fns.extract_search_text = [](
+        std::string_view /*output_text*/,
+        std::string_view /*error_text*/) -> std::optional<std::string>
+    {
+        return std::string{};
+    };
+
     return fns;
 }
 

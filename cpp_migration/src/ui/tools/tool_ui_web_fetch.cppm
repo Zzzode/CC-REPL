@@ -121,6 +121,17 @@ namespace detail {
 
     fns.is_transparent_wrapper = false;
 
+    // TS REF: WebFetchTool — renderToolResultMessage shows the fetched page
+    // content (markdown-converted HTML).  The output IS visible on screen,
+    // so we index it for search.  No explicit extractSearchText in TS; this
+    // is the faithful default for tools that render their output body.
+    fns.extract_search_text = [](
+        std::string_view output_text,
+        std::string_view /*error_text*/) -> std::optional<std::string>
+    {
+        return std::string{output_text};
+    };
+
     return fns;
 }
 

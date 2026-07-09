@@ -1,7 +1,11 @@
 /// @file text_input_widget.cppm
 /// @brief Full-featured text input with multi-line editing, vim mode,
-/// placeholder, history, and voice waveform cursor. Migrated from
-/// TextInput.tsx, BaseTextInput.tsx, VimTextInput.tsx.
+/// placeholder, history, voice waveform cursor, and priority-based
+/// combined highlights.  Migrated from:
+///   src/components/TextInput.tsx          – cursor invert, voice waveform
+///   src/components/BaseTextInput.tsx      – cursor filtering, viewport adjust
+///   src/components/PromptInput/ShimmeredInput.tsx – HighlightedInput segment render
+///   src/utils/textHighlighting.ts         – TextHighlight, segmentTextByHighlights
 module;
 
 #include <string>
@@ -11,6 +15,7 @@ module;
 #include <optional>
 #include <format>
 #include <cstdint>
+#include <cstddef>
 #include <deque>
 #include <algorithm>
 #include <cmath>
@@ -24,9 +29,19 @@ module;
 export module cc.ui.text_input_widget;
 
 import cc.types.types;
+import cc.utils.text_highlighting;
 
 export namespace cc::ui::text_input_widget {
 using namespace ftxui;
+
+// Re-export the canonical TextHighlight type from the highlighting module.
+// TS REF: src/utils/textHighlighting.ts:11-19
+using cc::utils::TextHighlight;
+using cc::utils::TextSegment;
+using cc::utils::segment_text_by_highlights;
+using cc::utils::filter_highlights_at_cursor;
+using cc::utils::adjust_highlights_for_viewport;
+using namespace cc::utils::highlight_priority;
 
 // ============================================================
 // Types
@@ -54,15 +69,6 @@ struct CursorPos {
     int col = 0;
 };
 
-/// Text highlight annotation
-struct TextHighlight {
-    int start_line;
-    int start_col;
-    int end_line;
-    int end_col;
-    Color highlight_color;
-};
-
 /// Props for the text input widget
 struct TextInputWidgetOptions {
     std::string placeholder = "Type your message...";
@@ -73,7 +79,18 @@ struct TextInputWidgetOptions {
     bool show_history = true;
     bool reduced_motion = false;
     size_t max_history = 1000;
+    /// Highlights from multiple sources (image chips, @-mentions, slash
+    /// commands, btw triggers, etc.).  Combined via priority system —
+    /// TS REF: src/components/PromptInput/PromptInput.tsx:601-741
     std::vector<TextHighlight> highlights;
+    /// Flat character offset of the cursor in the full text buffer.
+    /// Used for cursor-based highlight filtering.
+    /// TS REF: src/components/BaseTextInput.tsx:93
+    std::size_t cursor_offset = 0;
+    /// Viewport horizontal scroll offset (for long single-line inputs).
+    /// TS REF: src/components/BaseTextInput.tsx:98
+    std::size_t viewport_char_offset = 0;
+    std::size_t viewport_char_end = 0;  ///< End of viewport window (0 = full)
 
     std::function<void(const std::string&)> on_submit;
     std::function<void(const std::string&)> on_change;
@@ -122,13 +139,25 @@ public:
         return result;
     }
 
+    /// Compute flat character offset of the cursor in the full text.
+    /// Used for highlight cursor filtering.
+    /// TS REF: src/components/BaseTextInput.tsx:93 (cursorOffset)
+    [[nodiscard]] std::size_t cursor_flat_offset() const {
+        std::size_t offset = 0;
+        for (int i = 0; i < cursor_.line; ++i) {
+            offset += lines_[static_cast<size_t>(i)].size() + 1;  // +1 for '\n'
+        }
+        offset += static_cast<std::size_t>(cursor_.col);
+        return offset;
+    }
+
     [[nodiscard]] bool empty() const {
         return lines_.size() == 1 && lines_[0].empty();
     }
 
     [[nodiscard]] CursorPos cursor() const { return cursor_; }
     [[nodiscard]] int line_count() const { return static_cast<int>(lines_.size()); }
-    [[nodiscard]] const std::string& line(int idx) const { return lines_[idx]; }
+    [[nodiscard]] const std::string& line(int idx) const { return lines_[static_cast<size_t>(idx)]; }
     [[nodiscard]] const std::vector<std::string>& lines() const { return lines_; }
 
     void insert_char(char c) {
@@ -255,10 +284,126 @@ private:
 }
 
 // ============================================================
+// Highlighted Line Rendering
+// ============================================================
+
+/// A single part of a line after splitting segments by newlines.
+/// Mirrors TS LinePart in ShimmeredInput.tsx:10-14.
+struct LinePart {
+    std::string text;
+    std::optional<TextHighlight> highlight;
+    std::size_t start = 0;  ///< Flat offset within the full text
+};
+
+/// Split segments into per-line parts by breaking on '\n'.
+/// Mirrors TS HighlightedInput segment→lines split logic.
+/// TS REF: src/components/PromptInput/ShimmeredInput.tsx:23-43
+[[nodiscard]] inline std::vector<std::vector<LinePart>> split_segments_into_lines(
+    const std::vector<TextSegment>& segments) {
+
+    std::vector<std::vector<LinePart>> lines = {{}};
+    std::size_t pos = 0;
+
+    for (const auto& seg : segments) {
+        // Split the segment text by newlines
+        std::size_t seg_start = 0;
+        while (seg_start <= seg.text.size()) {
+            auto nl = seg.text.find('\n', seg_start);
+            std::string part_text;
+            if (nl == std::string::npos) {
+                part_text = seg.text.substr(seg_start);
+            } else {
+                part_text = seg.text.substr(seg_start, nl - seg_start);
+            }
+
+            if (!part_text.empty()) {
+                lines.back().push_back(LinePart{
+                    part_text,
+                    seg.highlight,
+                    pos + seg_start
+                });
+            }
+
+            if (nl == std::string::npos) {
+                pos += seg.text.size() - seg_start;
+                break;
+            }
+
+            // Move past the newline
+            pos += nl - seg_start + 1;
+            seg_start = nl + 1;
+            lines.push_back({});  // start new line
+        }
+    }
+
+    // Ensure at least one empty part per line (so empty lines render a space)
+    for (auto& line : lines) {
+        if (line.empty()) {
+            line.push_back(LinePart{ " ", std::nullopt, 0 });
+        }
+    }
+
+    return lines;
+}
+
+/// Apply FTXUI decorators to a line part element based on its highlight.
+/// TS REF: ShimmeredInput.tsx:111-116 (per-part rendering)
+[[nodiscard]] inline Element decorate_line_part(
+    const LinePart& part,
+    [[maybe_unused]] bool has_shimmer_active = false) {
+
+    Element el = text(part.text);
+
+    if (part.highlight) {
+        const auto& hl = *part.highlight;
+
+        // Apply foreground color if specified
+        // TS REF: ShimmeredInput.tsx:115 color={part.highlight?.color}
+        if (hl.color) {
+            el = el | color(*hl.color);
+        }
+
+        // Apply dim if set
+        // TS REF: ShimmeredInput.tsx:115 dimColor={part.highlight?.dimColor}
+        if (hl.dim) {
+            el = el | dim;
+        }
+
+        // Apply inverse if set (e.g. cursor on [Image #N] chip)
+        // TS REF: ShimmeredInput.tsx:115 inverse={part.highlight?.inverse}
+        if (hl.inverse) {
+            el = el | inverted;
+        }
+
+        // Shimmer: if the highlight has shimmer_color, we render with the
+        // base color.  Full per-character shimmer animation requires a
+        // 50ms ticker (TS useAnimationFrame); event-driven repaint rule
+        // means we show the static base color here.  The shimmer sweep is
+        // purely cosmetic and the static color is still readable.
+        // TS REF: ShimmeredInput.tsx:112-114 (ShimmerChar per-char loop)
+        if (hl.shimmer_color && !hl.color) {
+            el = el | color(*hl.shimmer_color);
+        }
+    }
+
+    return el;
+}
+
+// ============================================================
 // Element Rendering
 // ============================================================
 
-/// Render the text input widget
+/// Render the text input widget with priority-based highlight support.
+///
+/// When highlights are present, uses segment_text_by_highlights() to
+/// build non-overlapping styled segments (matching TS HighlightedInput).
+/// When no highlights are present, falls back to plain text rendering.
+///
+/// TS REF:
+///   - Cursor filtering:  src/components/BaseTextInput.tsx:93
+///   - Viewport adjust:   src/components/BaseTextInput.tsx:98-102
+///   - Segment rendering: src/components/PromptInput/ShimmeredInput.tsx
+///   - Combined builder:  src/components/PromptInput/PromptInput.tsx:601-741
 [[nodiscard]] inline Element RenderTextInputWidget(
     const TextInputWidgetOptions& opts,
     const TextBuffer& buffer,
@@ -268,7 +413,6 @@ private:
     Elements all_lines;
 
     if (buffer.empty() && !focused) {
-        // Placeholder
         auto line = hbox({
             text(opts.prefix) | color(Color::Green) | bold,
             text(opts.placeholder) | dim,
@@ -277,7 +421,34 @@ private:
     }
 
     auto cursor_pos = buffer.cursor();
+    std::string full_text = buffer.get_text();
 
+    // ── Build filtered & adjusted highlights ──────────────────────────────
+    // TS REF: BaseTextInput.tsx:93 (cursorFiltered)
+    auto cursor_off = buffer.cursor_flat_offset();
+    auto cursor_filtered = filter_highlights_at_cursor(
+        opts.highlights, cursor_off, focused);
+
+    // TS REF: BaseTextInput.tsx:98-102 (viewport adjustment)
+    std::size_t vp_end = opts.viewport_char_end > 0
+        ? opts.viewport_char_end
+        : full_text.size();
+    auto adjusted = adjust_highlights_for_viewport(
+        cursor_filtered, opts.viewport_char_offset, vp_end);
+
+    // Determine viewport text
+    std::string_view viewport_text = full_text;
+    std::size_t vp_off = opts.viewport_char_offset;
+    if (vp_off > 0 && vp_off < full_text.size()) {
+        viewport_text = std::string_view(full_text).substr(vp_off);
+    }
+
+    // ── Build segments ────────────────────────────────────────────────────
+    // TS REF: ShimmeredInput.tsx:23 (segmentTextByHighlights)
+    auto segments = segment_text_by_highlights(viewport_text, adjusted);
+    auto line_parts = split_segments_into_lines(segments);
+
+    // ── Render each line ──────────────────────────────────────────────────
     for (int i = 0; i < buffer.line_count(); ++i) {
         Elements parts;
 
@@ -294,27 +465,73 @@ private:
                 text(std::format("{:3} ", i + 1)) | dim | color(Color::GrayDark));
         }
 
-        const auto& line_text = buffer.line(i);
+        // Render line content
+        if (i < static_cast<int>(line_parts.size())) {
+            const auto& line = line_parts[static_cast<std::size_t>(i)];
 
-        // Render line content with cursor
-        if (i == cursor_pos.line && focused) {
-            std::string before = line_text.substr(0, cursor_pos.col);
-            if (!before.empty()) {
-                parts.push_back(text(before));
-            }
+            if (i == cursor_pos.line && focused) {
+                // Find the cursor position within this line's parts and
+                // invert the character under the cursor.
+                // TS REF: BaseTextInput.tsx uses useDeclaredCursor for
+                // terminal cursor positioning; we invert the char here
+                // to match the visual cursor behavior.
+                int col_in_line = cursor_pos.col;
+                bool cursor_rendered = false;
 
-            // Cursor character
-            if (cursor_pos.col < static_cast<int>(line_text.size())) {
-                std::string cursor_ch(1, line_text[cursor_pos.col]);
-                parts.push_back(text(cursor_ch) | inverted);
-                std::string after = line_text.substr(cursor_pos.col + 1);
-                if (!after.empty()) {
-                    parts.push_back(text(after));
+                for (std::size_t p = 0; p < line.size(); ++p) {
+                    const auto& part = line[p];
+                    int part_len = static_cast<int>(part.text.size());
+
+                    if (cursor_rendered) {
+                        parts.push_back(decorate_line_part(part));
+                        continue;
+                    }
+
+                    if (col_in_line >= part_len) {
+                        // Cursor is past this part
+                        parts.push_back(decorate_line_part(part));
+                        col_in_line -= part_len;
+                        continue;
+                    }
+
+                    // Cursor is inside this part — split around it
+                    std::string before = part.text.substr(0, col_in_line);
+                    if (!before.empty()) {
+                        LinePart before_part{ before, part.highlight, part.start };
+                        parts.push_back(decorate_line_part(before_part));
+                    }
+
+                    // Cursor character — inverted
+                    std::string cursor_ch(1, part.text[col_in_line]);
+                    // Cursor takes priority over highlight styling
+                    parts.push_back(text(cursor_ch) | inverted);
+
+                    // Rest after cursor
+                    std::string after = part.text.substr(col_in_line + 1);
+                    if (!after.empty()) {
+                        LinePart after_part{
+                            after, part.highlight,
+                            part.start + static_cast<std::size_t>(col_in_line) + 1
+                        };
+                        parts.push_back(decorate_line_part(after_part));
+                    }
+
+                    cursor_rendered = true;
+                }
+
+                // Cursor at end of line (past all parts)
+                if (!cursor_rendered) {
+                    parts.push_back(text(" ") | inverted);
                 }
             } else {
-                parts.push_back(text(" ") | inverted);
+                // Non-cursor line: just render all parts with their decorators
+                for (const auto& part : line) {
+                    parts.push_back(decorate_line_part(part));
+                }
             }
         } else {
+            // Line beyond our segment split (shouldn't happen normally)
+            const auto& line_text = buffer.line(i);
             if (line_text.empty()) {
                 parts.push_back(text(" "));
             } else {
@@ -371,6 +588,9 @@ private:
     state->start_time = std::chrono::steady_clock::now();
 
     return Renderer([state] {
+        // Update cursor_offset in opts for cursor-based highlight filtering.
+        // TS REF: BaseTextInput.tsx:93 (cursorOffset prop passed to TextInput)
+        state->opts.cursor_offset = state->buffer.cursor_flat_offset();
         return RenderTextInputWidget(
             state->opts, state->buffer, state->vim_mode, state->focused);
     }) | CatchEvent([state](Event event) -> bool {
@@ -428,7 +648,6 @@ private:
                 return true;
             }
             if (event == Event::Character('d')) {
-                // Simplified: dd deletes line (full vim would need pending state)
                 buf.clear();
                 if (opts.on_change) opts.on_change(buf.get_text());
                 return true;
@@ -458,13 +677,10 @@ private:
 
         if (event == Event::Return) {
             if (opts.multiline && event == Event::Return) {
-                // Shift+Enter or multiline => newline
-                // Simple heuristic: submit on Enter when buffer is single-line
                 if (buf.line_count() == 1 || !opts.multiline) {
                     if (opts.on_submit) {
                         std::string text = buf.get_text();
                         if (!text.empty()) {
-                            // Add to history
                             state->history.push_back(text);
                             if (state->history.size() > opts.max_history) {
                                 state->history.pop_front();
@@ -498,7 +714,6 @@ private:
         if (event == Event::ArrowUp) {
             if (buf.cursor().line == 0 && opts.show_history &&
                 !state->history.empty()) {
-                // Navigate history
                 if (state->history_index == std::string::npos) {
                     state->history_index = state->history.size() - 1;
                 } else if (state->history_index > 0) {

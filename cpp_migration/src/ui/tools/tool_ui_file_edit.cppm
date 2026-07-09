@@ -175,6 +175,18 @@ namespace detail {
 
     fns.is_transparent_wrapper = false;
 
+    // TS REF: FileEditTool — same rationale as FileWriteTool.ts L146.
+    // Transcript render shows a structured diff (update) or HighlightedCode
+    // (create).  The output field carries the raw new content which is NOT
+    // shown in update mode — indexing it would produce phantom matches.
+    // Under-count: tool_use already indexes file_path.
+    fns.extract_search_text = [](
+        std::string_view /*output_text*/,
+        std::string_view /*error_text*/) -> std::optional<std::string>
+    {
+        return std::string{};
+    };
+
     return fns;
 }
 
