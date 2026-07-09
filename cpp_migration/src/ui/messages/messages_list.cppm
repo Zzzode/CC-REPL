@@ -95,6 +95,7 @@ module;
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <unordered_set>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -206,6 +207,168 @@ struct Filters {
     bool show_compact  = true;   // if false, collapsed groups render as rows
 };
 
+// ---------------------------------------------------------------------------
+// Brief-mode filter (TS REF: Messages.tsx filterForBriefTool + dropTextInBriefTurns)
+//
+// When is_brief_mode is true, only show:
+//   1. System messages (except api_metrics subtype — not available in CPP so
+//      we keep all system rows)
+//   2. Assistant tool_use rows whose tool_name is in the brief-tool set
+//      (Brief, SendUserMessage)
+//   3. User tool_result rows (paired with brief tool uses above)
+//   4. Real user text input (not meta/tick messages — not tagged in CPP so
+//      we keep all UserText/UserPrompt rows)
+//
+// Hidden: assistant text, non-brief tool uses, thinking blocks, attachments.
+// ---------------------------------------------------------------------------
+namespace brief_detail {
+
+/// Tool names that constitute the "brief" tool chain.  Matches TS
+/// briefToolNames = [BRIEF_TOOL_NAME, SEND_USER_FILE_TOOL_NAME].
+inline constexpr std::string_view kBriefToolNames[] = {
+    "Brief", "SendUserMessage", "SendUserFile"
+};
+
+[[nodiscard]] inline bool is_brief_tool_name(std::string_view name) {
+    for (auto tn : kBriefToolNames) {
+        if (name == tn) return true;
+    }
+    return false;
+}
+
+/// Extract tool_name from a MessageRowPayload if it is a tool_use or
+/// tool_result variant.  Returns empty string otherwise.
+[[nodiscard]] inline std::string_view extract_tool_name(const MessageRowPayload& p) {
+    if (auto* opts = std::get_if<::cc::ui::messages::tool_use_message::ToolUseRenderOptions>(&p)) {
+        return opts->call.tool_name;
+    }
+    if (auto* grp = std::get_if<::cc::ui::messages::tool_use_message::GroupedToolsOptions>(&p)) {
+        if (!grp->calls.empty()) return grp->calls[0].tool_name;
+    }
+    if (auto* tro = std::get_if<::cc::ui::messages::ToolResultOptions>(&p)) {
+        return tro->tool_name;
+    }
+    return {};
+}
+
+}  // namespace brief_detail
+
+/// Returns true if the row at index `i` should be VISIBLE in brief mode.
+/// TS REF: Messages.tsx filterForBriefTool (lines 93-158).
+inline auto passes_brief_filter(
+    MessageShape shape,
+    const MessageRowPayload& payload) -> bool {
+    using S = MessageShape;
+    namespace bd = brief_detail;
+
+    switch (shape) {
+        // System rows: always visible (TS: system messages must stay visible
+        // for user feedback; api_metrics subtype dropped but not tagged in CPP)
+        case S::SystemText:
+        case S::SystemRateLimit:
+        case S::SystemPlanApproval:
+        case S::SystemHookProgress:
+        case S::SystemShutdown:
+        case S::SystemCompactBoundary:
+        case S::SystemAdvisor:
+        case S::SystemTaskAssignment:
+        case S::SystemCollapsedContent:
+        case S::SystemAPIError:
+            return true;
+
+        // Assistant rows: only brief tool uses are visible
+        case S::AssistantToolUse:
+        case S::AssistantGroupedTools:
+            return bd::is_brief_tool_name(bd::extract_tool_name(payload));
+
+        // Assistant text + thinking: hidden in brief mode
+        case S::AssistantText:
+        case S::AssistantThinking:
+        case S::AssistantRedactedThinking:
+            return false;
+
+        // User input: always visible (real user text + command chips)
+        case S::UserText:
+        case S::UserPrompt:
+        case S::UserCommand:
+        case S::UserBashInput:
+        case S::UserBashOutput:
+        case S::UserLocalCommandOutput:
+        case S::UserLocalJsxOutput:
+        case S::UserImage:
+        case S::UserTeammate:
+        case S::UserChannel:
+        case S::UserAgentNotification:
+        case S::UserMemoryInput:
+        case S::UserPlan:
+        case S::UserResourceUpdate:
+        case S::UserAttachments:
+            return true;
+
+        // Tool results: only brief-tool results visible
+        case S::UserToolResult:
+            return bd::is_brief_tool_name(bd::extract_tool_name(payload));
+
+        default:
+            return true;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Expand-key computation (TS REF: Messages.tsx expandKey L725-727)
+//
+// For tool_use and tool_result rows, returns the tool_name so a tool_use
+// and its corresponding tool_result share the same key and expand together.
+// For other rows, returns the uuid (or empty string if not available).
+// ---------------------------------------------------------------------------
+[[nodiscard]] inline std::string compute_expand_key(
+    MessageShape shape,
+    const MessageRowPayload& payload,
+    std::string_view uuid) {
+    using S = MessageShape;
+    namespace bd = brief_detail;
+
+    if (shape == S::AssistantToolUse || shape == S::AssistantGroupedTools ||
+        shape == S::UserToolResult) {
+        auto name = bd::extract_tool_name(payload);
+        if (!name.empty()) return std::string(name);
+    }
+    // Fallback: use uuid (first 24 chars to match TS deriveUUID prefix)
+    if (!uuid.empty()) return std::string(uuid.substr(0, 24));
+    return {};
+}
+
+/// TS REF: Messages.tsx isItemClickable (L582-594).
+/// Returns true if the row supports click-to-expand: tool results that are
+/// truncated, collapsed read/search groups, or advisor tool results.
+[[nodiscard]] inline bool is_row_clickable(
+    MessageShape shape,
+    const MessageRowPayload& payload) {
+    using S = MessageShape;
+    namespace bd = brief_detail;
+
+    // Collapsed content groups: always clickable
+    if (shape == S::SystemCollapsedContent) return true;
+
+    // Tool results: clickable if the result is marked truncated
+    if (shape == S::UserToolResult) {
+        if (auto* opts = std::get_if<::cc::ui::messages::ToolResultOptions>(&payload)) {
+            return opts->is_truncated;
+        }
+    }
+
+    // Tool uses: clickable if they have a result preview (means they have content
+    // that could be expanded)
+    if (shape == S::AssistantToolUse) {
+        if (auto* opts = std::get_if<::cc::ui::messages::tool_use_message::ToolUseRenderOptions>(&payload)) {
+            return opts->call.result_preview.has_value() &&
+                   !opts->call.result_preview->empty();
+        }
+    }
+
+    return false;
+}
+
 /// TS REF: src/components/FullscreenLayout.tsx L224-227
 ///   export type UnseenDivider = {
 ///     firstUnseenUuid: Message['uuid'];
@@ -251,6 +414,18 @@ struct MessagesListInput {
     int                             scroll_offset = 0;
     int                             viewport_rows = 40;
 
+    /// TS REF: Messages.tsx isBriefOnly prop (L236, L510-514).
+    /// When true, only brief-tool calls + their results + real user input
+    /// are shown; assistant text, thinking, and non-brief tools are hidden.
+    bool                            is_brief_mode = false;
+
+    /// TS REF: Messages.tsx expandedKeys (L563) + expandKey (L725-727).
+    /// Set of "expand keys" that the user has clicked/pressed-Enter on to
+    /// reveal full content.  Keys are tool_name strings for tool_use/tool_result
+    /// rows (so a tool_use and its tool_result expand together), or uuid
+    /// prefixes for other row types.  Empty = nothing expanded.
+    std::unordered_set<std::string> expanded_keys;
+
     /// TS REF: Messages.tsx L240 (unseenDivider prop) + L549-553 (prefix match).
     /// When set, a colored divider line is inserted before the matching row.
     std::optional<UnseenDivider>    unseen_divider;
@@ -264,7 +439,27 @@ struct MessagesListCallbacks {
     std::function<void(std::size_t)>                       on_toggle_compact_group;
     std::function<void(std::size_t, std::size_t)>          on_click_attachment;
     std::function<void(const std::string&)>                on_search_changed;
+    /// TS REF: Messages.tsx onItemClick (L564-571).
+    /// Called when the user presses Enter/Space on a clickable row to toggle
+    /// its expanded state.  The key is the expandKey (tool_name for tool rows,
+    /// uuid for others) so tool_use + tool_result expand together.
+    std::function<void(const std::string& expand_key)>     on_toggle_expand;
 };
+
+/// Returns true if the row at index `i` is currently "expanded" (user has
+/// toggled it open via Enter/Space).  Expanded rows render with verbose=true
+/// showing full content instead of truncated summaries.
+[[nodiscard]] inline bool is_row_expanded(
+    const MessagesListInput& input,
+    std::size_t row_idx) {
+    if (input.expanded_keys.empty()) return false;
+    if (row_idx >= input.shapes.size() || row_idx >= input.rows.size()) return false;
+    std::string_view uuid = (row_idx < input.uuids.size())
+        ? std::string_view(input.uuids[row_idx]) : std::string_view{};
+    auto key = compute_expand_key(input.shapes[row_idx], input.rows[row_idx], uuid);
+    if (key.empty()) return false;
+    return input.expanded_keys.count(key) > 0;
+}
 
 // =========================================================================
 // 2)  Preview-text extractor (works on every MessageRowPayload alternative)
@@ -477,12 +672,17 @@ inline auto build_visible_rows(MessagesListInput& input) -> std::vector<VisibleR
     const std::string needle = detail::lowered(input.search_query);
     const bool do_search     = !needle.empty();
 
-    // ---- Step 1 : mark rows that pass (filters AND search).  Separately
-    //              build a "row visible" bitmask so Step 2 can use it.
+    // ---- Step 1 : mark rows that pass (filters AND search AND brief-mode).
+    //              Separately build a "row visible" bitmask so Step 2 can use it.
     std::vector<bool> row_passes(N, false);
     for (std::size_t i = 0; i < N; ++i) {
         if (i >= input.shapes.size()) break;   // malformed input → safe stop
         if (!detail::passes_filters(input.shapes[i], input.filters)) continue;
+        // Brief mode: only show brief tool chain + real user input + system msgs.
+        // TS REF: Messages.tsx L510-514 (briefFiltered = filterForBriefTool || dropTextInBriefTurns)
+        if (input.is_brief_mode && i < input.rows.size()) {
+            if (!passes_brief_filter(input.shapes[i], input.rows[i])) continue;
+        }
         if (do_search) {
             const std::string hay = detail::lowered(detail::payload_preview(input.rows[i]));
             if (hay.find(needle) == std::string::npos) continue;
@@ -1659,7 +1859,7 @@ inline auto render_payload_row(const MessagesListInput& input,
             Element el = thinking_message::RenderThinkingMessageFaithful(
                 o->data,
                 /*is_transcript_mode=*/false,
-                /*verbose=*/false,
+                /*verbose=*/is_row_expanded(input, row_idx),
                 /*add_margin=*/add_margin);
             (void)frame_count;
             return el;
@@ -1685,7 +1885,8 @@ inline auto render_payload_row(const MessagesListInput& input,
             fd.tool_name = opts->tool_name;
             fd.duration_ms = opts->duration_ms;
             fd.is_truncated = opts->is_truncated;
-            fd.verbose = false;
+            // TS REF: Messages.tsx L624 verbose={verbose || isItemExpanded(msg)}
+            fd.verbose = is_row_expanded(input, row_idx);
 
             using DS = ToolResultStatus;   // divergent status
             using FK = ToolResultKind;     // faithful kind
@@ -2240,18 +2441,39 @@ class MessagesListComponent final : public ComponentBase {
             return true;
         }
 
-        // ------ Toggle compact group expand ---------------------------
+        // ------ Toggle compact group expand OR toggle row expansion ------
         if (event == Event::Character(' ')) {
             auto* vr = current_visible_row();
-            if (vr && vr->kind == VisibleRow::Kind::CompactGroup) {
+            if (!vr) return false;
+            if (vr->kind == VisibleRow::Kind::CompactGroup) {
                 if (cbs_.on_toggle_compact_group)
                     cbs_.on_toggle_compact_group(vr->group_idx);
                 return true;
             }
+            // TS REF: Messages.tsx onItemClick (L564-571)
+            // Space on a clickable/expanded payload row toggles verbose expansion.
+            if (vr->kind == VisibleRow::Kind::Payload) {
+                auto idx = vr->row_idx;
+                if (idx < input_.shapes.size() && idx < input_.rows.size()) {
+                    std::string_view uuid = (idx < input_.uuids.size())
+                        ? std::string_view(input_.uuids[idx]) : std::string_view{};
+                    auto key = compute_expand_key(
+                        input_.shapes[idx], input_.rows[idx], uuid);
+                    bool clickable = is_row_clickable(
+                        input_.shapes[idx], input_.rows[idx]);
+                    bool expanded = !key.empty() &&
+                        input_.expanded_keys.count(key) > 0;
+                    if (clickable || expanded) {
+                        if (cbs_.on_toggle_expand && !key.empty())
+                            cbs_.on_toggle_expand(key);
+                        return true;
+                    }
+                }
+            }
             return false;   // fall through: space is not a hotkey elsewhere
         }
 
-        // ------ Enter  →  default action (copy) OR toggle group -------
+        // ------ Enter  →  default action (copy) OR toggle group OR expand -------
         if (event == Event::Return) {
             auto* vr = current_visible_row();
             if (!vr) return false;
@@ -2259,6 +2481,27 @@ class MessagesListComponent final : public ComponentBase {
                 if (cbs_.on_toggle_compact_group)
                     cbs_.on_toggle_compact_group(vr->group_idx);
                 return true;
+            }
+            // TS REF: Messages.tsx cursor.expanded (L624)
+            // Enter on a clickable/expanded payload row toggles verbose expansion
+            // (takes priority over copy for tool rows with truncated output).
+            if (vr->kind == VisibleRow::Kind::Payload) {
+                auto idx = vr->row_idx;
+                if (idx < input_.shapes.size() && idx < input_.rows.size()) {
+                    std::string_view uuid = (idx < input_.uuids.size())
+                        ? std::string_view(input_.uuids[idx]) : std::string_view{};
+                    auto key = compute_expand_key(
+                        input_.shapes[idx], input_.rows[idx], uuid);
+                    bool clickable = is_row_clickable(
+                        input_.shapes[idx], input_.rows[idx]);
+                    bool expanded = !key.empty() &&
+                        input_.expanded_keys.count(key) > 0;
+                    if (clickable || expanded) {
+                        if (cbs_.on_toggle_expand && !key.empty())
+                            cbs_.on_toggle_expand(key);
+                        return true;
+                    }
+                }
             }
             if (cbs_.on_action)
                 cbs_.on_action(vr->row_idx, ActionKind::Copy);

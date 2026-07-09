@@ -32,6 +32,7 @@ module;
 #include <functional>
 #include <mutex>
 #include <optional>
+#include <unordered_set>
 #include <variant>
 #include <format>
 #include <cstdint>
@@ -440,6 +441,19 @@ struct ReplScreenState {
     // attachments (CC-724).  `count` is Math.max(1, countUnseenAssistantTurns(…)).
     // nullopt = no divider (pinned to bottom, dividerIndex=null, empty session).
     std::optional<::cc::ui::messages_list::UnseenDivider> unseen_divider;
+
+    // TS REF: Messages.tsx expandedKeys (L563) — Set of expand keys the user
+    // has toggled open via Enter/Space on clickable rows.  Tool results and
+    // thinking blocks render with verbose=true when their expand key is in
+    // this set, showing full content instead of truncated summary.
+    std::unordered_set<std::string> expanded_keys;
+
+    /// TS REF: Messages.tsx isBriefOnly prop (L236, L510-514).
+    /// When true, only brief-tool calls + their results + real user input
+    /// are shown; assistant text, thinking, and non-brief tools are hidden.
+    /// Toggled by the user (e.g., via /brief command or status bar click).
+    bool is_brief_mode = false;
+
     // Input
     std::string input_text;
     // TS-style contextual placeholder rather than a generic default.
@@ -855,7 +869,9 @@ ComputeUnseenDivider(const ReplScreenState& s) {
     int spinner_frame = 0,
     std::optional<cc::ui::messages_list::UnseenDivider> unseen_divider =
         std::nullopt,
-    Elements leading_elements = {}) {
+    Elements leading_elements = {},
+    bool is_brief_mode = false,
+    const std::unordered_set<std::string>& expanded_keys = {}) {
     // NOTE: We no longer early-return on empty entries.  The leading_element
     // (welcome/logo card) must always be rendered inside the yframe so it
     // scrolls with messages.  The messages_list handles empty rows gracefully
@@ -1077,7 +1093,10 @@ ComputeUnseenDivider(const ReplScreenState& s) {
     input.pin_to_bottom = pinned;
     input.scroll_offset = std::max(0, offs);
     input.viewport_rows = std::max(1, vlines);
-
+    input.is_brief_mode = is_brief_mode;
+    // TS REF: Messages.tsx expandedKeys (L563) — user-expanded rows show
+    // verbose full content.  Passed by copy (cheap for small sets).
+    input.expanded_keys = expanded_keys;
     namespace ml = cc::ui::messages_list;
     // TS REF: FullscreenLayout <Box flexGrow={1} /> at the bottom of the
     // message list — absorbs remaining viewport space so short content stays
@@ -2426,7 +2445,9 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
         s.viewport_height_lines, s.scroll_offset,
         s.scroll_pinned_to_bottom, spinner_frame,
         s.unseen_divider,
-        std::move(logo_leading)));
+        std::move(logo_leading),
+        s.is_brief_mode,
+        s.expanded_keys));
     // Spinner lives in the chrome BETWEEN messages list and prompt input
     // (TS BriefSpinner marginTop=1, NOT a message row inside scroll content).
     Element spinner_chrome = text("");
@@ -3456,6 +3477,28 @@ inline bool forward_trust_dialog(
         state->autocomplete_suggestions.clear();
         state->autocomplete_index = -1; return true; }
     if (ev == Event::Character('\x0F')) return true;  // Ctrl+O transcript
+
+    // Ctrl+E: toggle expand/collapse of all tool rows in the visible
+    // transcript.  TS REF: Messages.tsx expandedKeys (L563) — user can
+    // expand tool results to see full output.  This shortcut toggles
+    // ALL tool rows at once (practical for terminal where per-row click
+    // expansion is not available).
+    if (!in_dialog && ev == Event::Character('\x05')) {
+        namespace ml = cc::ui::messages_list;
+        namespace msg = cc::ui::messages;
+        if (state->expanded_keys.empty()) {
+            // Expand: collect all tool names from visible tool rows.
+            for (const auto& m : state->messages) {
+                if (m.tool_name && !m.tool_name->empty()) {
+                    state->expanded_keys.insert(*m.tool_name);
+                }
+            }
+        } else {
+            // Collapse all.
+            state->expanded_keys.clear();
+        }
+        return true;
+    }
 
     if (!in_dialog &&
         state->active_local_jsx_command &&
