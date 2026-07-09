@@ -62,6 +62,7 @@ import cc.utils.debug;
 import cc.utils.parse_references;
 import cc.utils.crypto;
 import cc.utils.bash_execution;   // popen_spawn/pclose_spawn for local '!' bash commands
+import cc.utils.hyperlink;       // try_open_hyperlink for markdown link click-to-open
 import cc.ui.components;
 import cc.ui.components_extended;
 import cc.ui.markdown;
@@ -3733,6 +3734,59 @@ public:
             this->SpawnPasteWorker(id);
             return true;
         }
+
+        // ── Markdown hyperlink click-to-open ─────────────────────────────
+        // TS REF: FullscreenLayout.tsx L630-667
+        //   useLayoutEffect(() => {
+        //     ink.onHyperlinkClick = url => {
+        //       if (url.startsWith('file:')) openPath(fileURLToPath(url))
+        //       else openBrowser(url)
+        //     }
+        //   })
+        //
+        // In fullscreen / alternate-screen mode, mouse tracking intercepts
+        // all clicks before the terminal can natively open OSC 8 hyperlinks.
+        // We compensate by detecting left-button releases at pixels that
+        // carry a hyperlink ID (set by FTXUI's `hyperlink(url)` decorator
+        // in markdown.cppm render_inlines → InlineTokenKind::Link).
+        //
+        // The Screen stores hyperlink URLs in hyperlinks_[], indexed by
+        // the uint8_t ID written to Pixel.hyperlink during Render().  We
+        // look up the URL via screen.Hyperlink(id) and route it through
+        // cc::utils::try_open_hyperlink() (file: → open_file_path,
+        // http(s): → open_browser).
+        if (event.is_mouse()) {
+            const auto& mouse = event.mouse();
+            // Left-button release = "click".  Using release (not press)
+            // lets the user cancel by dragging the cursor off the link
+            // before releasing — standard web/desktop link behavior.
+            if (mouse.button == Mouse::Left &&
+                mouse.motion == Mouse::Released) {
+                if (auto* screen = screen_.load(std::memory_order_acquire)) {
+                    const int x = mouse.x;
+                    const int y = mouse.y;
+                    // Bounds check — screen dims may change between render
+                    // and event delivery (terminal resize race).
+                    if (x >= 0 && x < screen->dimx() &&
+                        y >= 0 && y < screen->dimy()) {
+                        const uint8_t link_id = screen->PixelAt(x, y).hyperlink;
+                        if (link_id != 0) {
+                            // id 0 = no hyperlink (Screen default).
+                            const std::string& url = screen->Hyperlink(link_id);
+                            if (!url.empty()) {
+                                // Fire-and-forget: open the link.  The
+                                // system call (open / xdg-open) returns
+                                // quickly; we don't block on browser
+                                // launch completion.
+                                (void)cc::utils::try_open_hyperlink(url);
+                                return true;  // event consumed
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         const bool handled = repl_component_->OnEvent(event);
         if (handled) {
             // SL-11: any accepted keystroke that fills input retires the

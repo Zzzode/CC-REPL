@@ -783,17 +783,24 @@ namespace detail {
                 // modern terminals (iTerm2, WezTerm, VS Code, GNOME Terminal)
                 // render them as clickable → openBrowser/openPath.
                 //
-                // The cc::utils::make_hyperlink helper (utils/hyperlink.cppm)
-                // emits the OSC 8 sequence \e]8;;url\e\\text\e]8;;\e\\
-                // when the terminal advertises support (TERM_PROGRAM,
-                // WT_SESSION, VTE_VERSION >= 5000).  On unsupported terminals
-                // it falls back to plain text + underline (no garbage chars).
+                // We use FTXUI's `hyperlink(url)` decorator instead of raw
+                // OSC 8 text (cc::utils::make_hyperlink).  The decorator:
+                //   1. Registers the URL with the Screen via
+                //      RegisterHyperlink(), storing it in hyperlinks_[].
+                //   2. Sets pixel.hyperlink = id for every pixel the link
+                //      text occupies — so AppAdapter::OnEvent can detect
+                //      clicks on hyperlinked text by calling
+                //      screen.PixelAt(x,y).hyperlink and screen.Hyperlink(id).
+                //   3. Emits the OSC 8 escape sequence \e]8;;url\e\\ in
+                //      Print() so terminal-native OSC 8 handling works when
+                //      mouse tracking is NOT intercepting clicks.
                 //
-                // FTXUI text() passes through embedded ANSI/OSC sequences —
-                // confirmed by prompt_input_full.cppm mode badges using
-                // \033[33m etc.  So the OSC 8 bytes reach the terminal intact.
-                std::string linked = cc::utils::make_hyperlink(tok.url, tok.text);
-                el = text(std::move(linked)) | underlined;
+                // When fullscreen mouse tracking IS active (the common case
+                // for cc-repl), AppAdapter::OnEvent detects left-button
+                // releases at pixels with hyperlink != 0 and calls
+                // cc::utils::try_open_hyperlink(url) — mirroring TS Ink's
+                // ink.onHyperlinkClick callback.
+                el = text(tok.text) | hyperlink(tok.url) | underlined;
                 break;
             }
             case InlineTokenKind::Escape:

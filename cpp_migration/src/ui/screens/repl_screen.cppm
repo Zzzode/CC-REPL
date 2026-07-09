@@ -511,6 +511,17 @@ struct ReplScreenState {
     // new). Empty vectors fall back to placeholders defined in RenderWelcomeHeader.
     std::vector<std::string> recent_activity_lines;
     std::vector<std::string> changelog_lines;
+    // TS REF: LogoV2.tsx L56 shouldShowProjectOnboarding() — when true, the
+    // horizontal-layout feed column shows [ProjectOnboarding, RecentActivity]
+    // instead of [RecentActivity, What'sNew].  Also prevents condensed mode
+    // (TS isCondensedMode = !hasReleaseNotes && !showOnboarding && !forceFull).
+    bool show_onboarding = false;
+    // TS REF: LogoV2.tsx L70 useShowGuestPassesUpsell() — when true and no
+    // onboarding, feed shows [RecentActivity, GuestPasses] instead of default.
+    bool show_guest_passes_upsell = false;
+    // TS REF: LogoV2.tsx L71 useShowOverageCreditUpsell() — when true and no
+    // onboarding/guest-passes, feed shows [RecentActivity, OverageCredit].
+    bool show_overage_credit_upsell = false;
     // Stable per-session welcome-tip index (seeded once from the session id in
     // app.cppm). The renderer mods this by kWelcomeTips.size(). Previously the
     // tip used spinner_frame, which cycled the tip on every mouse-move re-render.
@@ -1415,10 +1426,14 @@ inline bool ScrollTranscript(const std::shared_ptr<ReplScreenState>& state,
         ? std::nullopt
         : std::make_optional(s.user_display_name);
     opts.org_name             = std::nullopt;
-    opts.is_condensed_mode    = !force_full_logo;   // TS early-return gate
-    opts.show_sandbox_status  = false;               // TODO(engine-wire)
-    opts.show_guest_passes    = false;               // TODO(engine-wire)
-    opts.show_overage_credit  = false;               // TODO(engine-wire)
+    opts.is_condensed_mode    = !force_full_logo && !s.show_onboarding;
+                                                                          // TS early-return gate (L123):
+                                                                          // isCondensedMode = !hasReleaseNotes
+                                                                          //   && !showOnboarding && !forceFullLogo
+    opts.show_onboarding     = s.show_onboarding;        // TS L56
+    opts.show_sandbox_status  = false;                    // TODO(engine-wire)
+    opts.show_guest_passes    = s.show_guest_passes_upsell;  // TS L70
+    opts.show_overage_credit  = s.show_overage_credit_upsell; // TS L71
     opts.is_debug_mode        = false;               // TODO(engine-wire)
     opts.tmux_session         = std::nullopt;        // TODO(engine-wire)
     opts.company_announcement = std::nullopt;        // TODO(engine-wire)
@@ -1428,12 +1443,17 @@ inline bool ScrollTranscript(const std::shared_ptr<ReplScreenState>& state,
     opts.status_notices       = {};
 
     // When force_full_logo is set and term_cols >= 70 (horizontal threshold),
-    // build the default [RecentActivity, What'sNew] feed pair (matches the TS
-    // default branch of the 4-armed ternary in LogoV2.tsx L421). Callers that
-    // wire real engine data (session storage / changelog parser) can override
-    // by passing pre-populated FeedConfigs.
+    // build feeds for the right column.  The 4-branch feed priority chain
+    // (TS LogoV2.tsx L421) is resolved inside the logo_v2 module when feeds
+    // is empty.  We only build explicit feeds for the DEFAULT branch (no
+    // onboarding / no guest / no overage) so we can inject real data from
+    // s.recent_activity_lines and s.changelog_lines.  For the other branches,
+    // the module builds placeholder feeds until engine wiring provides real
+    // onboarding steps / guest pass counts / overage data.
     std::vector<lv2::FeedConfig> feeds;
-    if (force_full_logo) {
+    const bool priority_branch_active = s.show_onboarding
+        || s.show_guest_passes_upsell || s.show_overage_credit_upsell;
+    if (force_full_logo && !priority_branch_active) {
       {
         lv2::FeedConfig recent;
         recent.title = "Recent activity";

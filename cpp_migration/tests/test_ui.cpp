@@ -5594,11 +5594,14 @@ TEST(LogoV2, WelcomeV2StaticCardMatchesTSSpec) {
     for (char c : s) if (c == '*') ++asterisk_count;
     EXPECT_GE(asterisk_count, 4)
         << "WelcomeV2 art contains baked asterisk dust; got " << asterisk_count;
-    // Footer paws: "█ █   █ █" + ░ + ▒ gradient planets.
+    // Footer paws: "█ █   █ █" + ░ + ▓ gradient planets.
+    // Dark theme uses ░ (light shade) + ▓ (dark shade) + █ (full block)
+    // for the planet gradient (TS WelcomeV2.tsx L119-149 dark branch).
+    // ▒ (medium shade) only appears in the Light theme (TS L70-101).
     EXPECT_NE(s.find("\xE2\x96\x91"), std::string::npos)
-        << "WelcomeV2 footer row must render ░ chevron/planet shading";
-    EXPECT_NE(s.find("\xE2\x96\x92"), std::string::npos)
-        << "WelcomeV2 footer row must render ▒ gradient tile";
+        << "WelcomeV2 must render ░ chevron/planet shading (dark theme)";
+    EXPECT_NE(s.find("\xE2\x96\x93"), std::string::npos)
+        << "WelcomeV2 must render ▓ dark-shade planet gradient (dark theme)";
 }
 
 // T7: ReplScreen → RenderWelcomeHeader default call path is still the

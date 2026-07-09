@@ -40,6 +40,7 @@ import cc.ui.logo;  // LogoDisplayData + RenderCondensedLogoElement +
 export namespace cc::ui::logo_v2 {
 
 using ftxui::bold;
+using ftxui::bgcolor;
 using ftxui::color;
 using ftxui::dim;
 using ftxui::Element;
@@ -108,6 +109,7 @@ struct LogoV2Options {
 
   // --- Feature gating ---
   bool is_condensed_mode = true;          // TS: no onboarding & no release notes
+  bool show_onboarding = false;           // TS REF: LogoV2.tsx L56 shouldShowProjectOnboarding()
   bool show_sandbox_status = false;       // SandboxManager.isSandboxingEnabled
   bool show_guest_passes = false;         // GuestPassesUpsell visible
   bool show_overage_credit = false;       // OverageCreditUpsell visible
@@ -149,6 +151,7 @@ inline const Color kWarningColor(255, 193,   7);   // theme.warning #FFC107
 inline const Color kIdeColor    ( 71, 130, 200);   // theme.ide     #4782C8
 inline const Color kClaude      (215, 119,  87);   // theme.claude / clawd_body #D77757
 inline const Color kClawdBody   (215, 119,  87);   // theme.clawd_body (== claude in dark)
+inline const Color kClawdBackground(0, 0, 0);      // theme.clawd_background #000000 (TS L162)
 inline const Color kMuted       (153, 153, 153);   // theme.inactive / dimColor #999999
 
 // Padding-left 2 columns (TS <Box paddingLeft={2}>).
@@ -388,6 +391,26 @@ template <bool KAIROS = false, bool KAIROS_CHANNELS = false>
 }
 
 // --------------------------------------------------------------------
+// §4b  WelcomeV2 theme selector
+// --------------------------------------------------------------------
+// TS WelcomeV2.tsx dispatch (L9-19):
+//   1. env.terminal === "Apple_Terminal" → AppleTerminalWelcomeV2
+//      which internally branches on isLightTheme (L209).
+//   2. ["light", "light-daltonized", "light-ansi"].includes(theme) → light variant
+//   3. else → dark variant
+//
+// We expose all 4 combinations as a single enum so callers can dispatch
+// in one step.  AppleTerminal variants use ▗/▖ + backgroundColor for the
+// clawd (negative-style) instead of solid █ foreground blocks.
+// TS REF: src/components/LogoV2/WelcomeV2.tsx::WelcomeV2 + AppleTerminalWelcomeV2
+enum class WelcomeV2Theme {
+  Dark,               // Normal terminal + dark/non-light theme
+  Light,              // Normal terminal + light theme
+  AppleTerminalDark,  // Apple Terminal + dark theme
+  AppleTerminalLight, // Apple Terminal + light theme
+};
+
+// --------------------------------------------------------------------
 // §5  WelcomeV2 58-col fixed-width static ASCII clawd card
 // --------------------------------------------------------------------
 // TS WelcomeV2.tsx builds the dark-themed variant as a completely
@@ -470,77 +493,498 @@ inline constexpr std::array<std::string_view, 15> kWelcomeV2DarkRows = {{
   "\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88"
   "     *                                   ",
 }};
+
+// Light-theme WelcomeV2 rows.  TS REF: WelcomeV2.tsx L20-106 (light branch).
+// The light variant has a cloud-shape in the upper-left (6 ░ + 10 ░ + 19 ░)
+// and a smaller moon/planet in the upper-right (██, ██▒▒██, ▒▒ patterns).
+// Clawd sits at rows 12-14 in the lower-left, same as dark but with a
+// different ground/horizon line (▒▒░░▒▒ etc.).
+//
+// Row layout (15 rows, indexed 0..14):
+//   [0]  header (built dynamically — "Welcome to Claude Code vX.X.X")
+//   [1]  58 × … ellipsis separator (same as dark, reused from dark array)
+//   [2]  58 spaces  (blank)
+//   [3]  58 spaces  (blank)
+//   [4]  58 spaces  (blank)
+//   [5]  12 spaces + 6 ░ + 40 spaces
+//   [6]  4 spaces + 3 ░ + 3 spaces + 10 ░ + 38 spaces
+//   [7]  3 spaces + 19 ░ + 36 spaces
+//   [8]  58 spaces  (blank)
+//   [9]  dim-segment: 27 spaces + 4 ░  +  normal-segment: 21 spaces + 2 ██ + 4 spaces
+//   [10] dim-segment: 25 spaces + 10 ░ +  normal-segment: 15 spaces + ██▒▒██ + 2 spaces
+//   [11] 44 spaces + 2 ▒▒ + 6 spaces + 2 ██ + 3 spaces + 1 ▒
+//   [12] clawd row 1: 6 spaces + " █████████ " + 25 spaces + ▒▒░░▒▒ + 6 spaces + ▒ + space + ▒▒
+//   [13] clawd row 2: 6 spaces + "██▄█████▄██" (bg) + 27 spaces + 2 ▒▒ + 9 spaces + 2 ▒▒ + space
+//   [14] clawd row 3: 6 spaces + " █████████ " + 26 spaces + 1 ░ + 10 spaces + 1 ▒ + 3 spaces
+//
+// For rows [9] and [10], the leading ░ segment is dimColor in TS; we
+// store the full-row strings here and colourise them at render time.
+// For rows [12]-[14], the clawd body segment is colourised with
+// clawd_body (and clawd_background bg for row 13) at render time.
+inline constexpr std::array<std::string_view, 15> kWelcomeV2LightRows = {{
+  // [0] header placeholder
+  "",
+  // [1] ellipsis separator (reused from dark array at render time)
+  "",
+  // [2] 58 spaces
+  "                                                          ",
+  // [3] 58 spaces
+  "                                                          ",
+  // [4] 58 spaces
+  "                                                          ",
+  // [5] 12 spaces + 6 ░ (U+2591) + 40 spaces
+  "            \xE2\x96\x91\xE2\x96\x91\xE2\x96\x91\xE2\x96\x91"
+  "\xE2\x96\x91\xE2\x96\x91                                        ",
+  // [6] 4 spaces + 3 ░ + 3 spaces + 10 ░ + 38 spaces
+  "    \xE2\x96\x91\xE2\x96\x91\xE2\x96\x91   \xE2\x96\x91\xE2\x96"
+  "\x91\xE2\x96\x91\xE2\x96\x91\xE2\x96\x91\xE2\x96\x91\xE2\x96\x91"
+  "\xE2\x96\x91\xE2\x96\x91\xE2\x96\x91                                      ",
+  // [7] 3 spaces + 19 ░ + 36 spaces
+  "   \xE2\x96\x91\xE2\x96\x91\xE2\x96\x91\xE2\x96\x91\xE2\x96\x91\xE2"
+  "\x96\x91\xE2\x96\x91\xE2\x96\x91\xE2\x96\x91\xE2\x96\x91\xE2\x96\x91"
+  "\xE2\x96\x91\xE2\x96\x91\xE2\x96\x91\xE2\x96\x91\xE2\x96\x91\xE2\x96"
+  "\x91\xE2\x96\x91\xE2\x96\x91                                    ",
+  // [8] 58 spaces
+  "                                                          ",
+  // [9] 27 spaces + 4 ░ + 21 spaces + 2 █ (U+2588) + 4 spaces
+  //     (first 31 chars = dim segment, rest = normal)
+  "                           \xE2\x96\x91\xE2\x96\x91\xE2\x96\x91"
+  "\xE2\x96\x91                     \xE2\x96\x88\xE2\x96\x88    ",
+  // [10] 25 spaces + 10 ░ + 15 spaces + ██▒▒ (U+2588 U+2588 U+2592 U+2592) ██ + 2 spaces
+  //      (first 35 chars = dim segment, rest = normal)
+  "                         \xE2\x96\x91\xE2\x96\x91\xE2\x96\x91\xE2"
+  "\x96\x91\xE2\x96\x91\xE2\x96\x91\xE2\x96\x91\xE2\x96\x91\xE2\x96\x91"
+  "\xE2\x96\x91               \xE2\x96\x88\xE2\x96\x88\xE2\x96\x92\xE2"
+  "\x96\x92\xE2\x96\x88\xE2\x96\x88  ",
+  // [11] 44 spaces + 2 ▒ (U+2592) + 6 spaces + 2 █ + 3 spaces + 1 ▒
+  "                                            \xE2\x96\x92\xE2\x96"
+  "\x92      \xE2\x96\x88\xE2\x96\x88   \xE2\x96\x92",
+  // [12] clawd row 1 placeholder (built from segments at render)
+  "",
+  // [13] clawd row 2 placeholder (built from segments at render)
+  "",
+  // [14] clawd row 3 placeholder (built from segments at render)
+  "",
+}};
+
+// ------------------------------------------------------------------
+// Apple Terminal clawd helpers.
+// TS AppleTerminalWelcomeV2 renders the clawd using ▗/▖ (U+2597/U+2596)
+// quadrant characters with backgroundColor="clawd_body" — a "negative"
+// or "reverse-video" style that works around Apple Terminal's block-
+// character rendering quirks.  Faithful structure:
+//
+//   Top row:  ▗(clawd_body) + [space+▗+5 spaces+▖+space] (fg=clawd_bg, bg=clawd_body) + ▖(clawd_body)
+//   Mid row:  9 spaces with bg=clawd_body (solid orange bar)
+//   Footer:   … + [bg-space] + [space] + [bg-space] + "   " + [bg-space] + [space] + [bg-space] + …
+//
+// TS REF: src/components/LogoV2/WelcomeV2.tsx::AppleTerminalWelcomeV2 L293-307 (light) + L404-418 (dark)
+// ------------------------------------------------------------------
+
+// Apple Terminal clawd — top row (▗/▖ style).
+//   leading_spaces: number of space chars before the ▗ glyph
+//   suffix:         trailing art string appended after the ▖ glyph
+//   suffix_bold_star_col: column position (0-indexed) of a bold '*' within
+//                         the suffix (used by dark variant; std::nullopt for light)
+[[nodiscard]] inline auto BuildAppleClawdTopRow(
+    int leading_spaces,
+    std::string_view suffix,
+    std::optional<int> suffix_bold_star_col = std::nullopt) -> Element {
+  using ftxui::bgcolor;
+
+  Elements parts;
+  // Leading spaces.
+  parts.push_back(text(std::string(static_cast<std::size_t>(leading_spaces), ' ')));
+  // Left shoulder: ▗ in clawd_body foreground, no bg.
+  parts.push_back(text("\xE2\x96\x97") | color(kClawdBody));  // ▗ U+2597
+  // Body cavity: fg = clawd_background, bg = clawd_body.
+  //   Content: " " + "▗" + "     " + "▖" + " "
+  //   TS: <Text color="clawd_background" backgroundColor="clawd_body">{" "}▗{"     "}▖{" "}</Text>
+  parts.push_back(text(" \xE2\x96\x97     \xE2\x96\x96 ")
+                  | color(kClawdBackground) | bgcolor(kClawdBody));
+  // Right shoulder: ▖ in clawd_body foreground, no bg.
+  parts.push_back(text("\xE2\x96\x96") | color(kClawdBody));  // ▖ U+2596
+
+  // Suffix: optionally with a bold '*' at a given column.
+  if (suffix_bold_star_col.has_value() && *suffix_bold_star_col >= 0
+      && static_cast<std::size_t>(*suffix_bold_star_col) < suffix.size()) {
+    const int col = *suffix_bold_star_col;
+    // Build suffix parts: before_star + bold_star + after_star.
+    // We work in byte offsets since suffix is UTF-8.
+    // Approximate: each '*' is 1 byte, each space is 1 byte.
+    // For the dark variant suffix "                       *                "
+    // the star is at byte position 23 (0-indexed from suffix start).
+    if (col < static_cast<int>(suffix.size())) {
+      parts.push_back(text(std::string(suffix.substr(0, static_cast<std::size_t>(col)))));
+      parts.push_back(text(std::string(suffix.substr(static_cast<std::size_t>(col), 1))) | bold);
+      parts.push_back(text(std::string(suffix.substr(static_cast<std::size_t>(col + 1)))));
+    } else {
+      parts.push_back(text(std::string(suffix)));
+    }
+  } else {
+    parts.push_back(text(std::string(suffix)));
+  }
+
+  return hbox(std::move(parts));
+}
+
+// Apple Terminal clawd — middle bar row (9 bg-colored spaces).
+//   leading_spaces: spaces before the bar
+//   suffix:         trailing art after the bar
+//   suffix_dim_star_col: column of a dim '*' in suffix (std::nullopt if none)
+[[nodiscard]] inline auto BuildAppleClawdBarRow(
+    int leading_spaces,
+    std::string_view suffix,
+    std::optional<int> suffix_dim_star_col = std::nullopt) -> Element {
+  using ftxui::bgcolor;
+
+  Elements parts;
+  parts.push_back(text(std::string(static_cast<std::size_t>(leading_spaces), ' ')));
+  // 9 spaces with backgroundColor=clawd_body — solid orange bar.
+  // TS: <Text backgroundColor="clawd_body">{" ".repeat(9)}</Text>
+  parts.push_back(text("         ") | bgcolor(kClawdBody));
+
+  if (suffix_dim_star_col.has_value() && *suffix_dim_star_col >= 0) {
+    const int col = *suffix_dim_star_col;
+    if (col < static_cast<int>(suffix.size())) {
+      parts.push_back(text(std::string(suffix.substr(0, static_cast<std::size_t>(col)))));
+      parts.push_back(text(std::string(suffix.substr(static_cast<std::size_t>(col), 1)))
+                      | dim | color(kMuted));
+      parts.push_back(text(std::string(suffix.substr(static_cast<std::size_t>(col + 1)))));
+    } else {
+      parts.push_back(text(std::string(suffix)));
+    }
+  } else {
+    parts.push_back(text(std::string(suffix)));
+  }
+
+  return hbox(std::move(parts));
+}
+
+// Apple Terminal footer — paws rendered as bg-colored spaces.
+// TS AppleTerminalWelcomeV2 footer (L307 light, L418 dark):
+//   "………" + <bg=clawd_body> </> + <> </> + <bg=clawd_body> </> + <>"   "</> +
+//   <bg=clawd_body> </> + <> </> + <bg=clawd_body> </> + "………(░…▒…)"
+// The trailing part is "………" for dark, "………░…▒…" for light.
+[[nodiscard]] inline auto BuildAppleFooter(bool is_light) -> Element {
+  using ftxui::bgcolor;
+
+  // Build 7 × … (21 bytes).
+  std::string e7;
+  e7.reserve(21);
+  for (int i = 0; i < 7; ++i) e7 += "\xE2\x80\xA6";
+
+  // Build trailing … string.
+  // Dark: 42 × … = 126 bytes
+  // Light: 27 × … + ░ + 4 × … + ▒ + 4 × … = 27*3 + 3 + 4*3 + 3 + 4*3 = 81+3+12+3+12 = 111 bytes
+  std::string trail;
+  if (is_light) {
+    for (int i = 0; i < 27; ++i) trail += "\xE2\x80\xA6";
+    trail += "\xE2\x96\x91";  // ░
+    for (int i = 0; i < 4; ++i) trail += "\xE2\x80\xA6";
+    trail += "\xE2\x96\x92";  // ▒
+    for (int i = 0; i < 4; ++i) trail += "\xE2\x80\xA6";
+  } else {
+    for (int i = 0; i < 42; ++i) trail += "\xE2\x80\xA6";
+  }
+
+  return hbox({
+    text(e7),                                           // 7 × …
+    text(" ") | bgcolor(kClawdBody),                    // paw 1 (bg)
+    text(" "),                                          // gap
+    text(" ") | bgcolor(kClawdBody),                    // paw 2 (bg)
+    text("   "),                                        // 3-space inter-paw gap
+    text(" ") | bgcolor(kClawdBody),                    // paw 3 (bg)
+    text(" "),                                          // gap
+    text(" ") | bgcolor(kClawdBody),                    // paw 4 (bg)
+    text(std::move(trail)),                             // trailing …
+  });
+}
+
+// Regular (non-Apple) footer — paws rendered as clawd_body foreground █ chars.
+// TS: "………" + <color=clawd_body>"█ █   █ █"</> + "………(░…▒…)"
+[[nodiscard]] inline auto BuildRegularFooter(bool is_light) -> Element {
+  std::string e7;
+  e7.reserve(21);
+  for (int i = 0; i < 7; ++i) e7 += "\xE2\x80\xA6";
+
+  std::string trail;
+  if (is_light) {
+    // 27 × … + ░ + 4 × … + ▒ + 4 × …
+    for (int i = 0; i < 27; ++i) trail += "\xE2\x80\xA6";
+    trail += "\xE2\x96\x91";
+    for (int i = 0; i < 4; ++i) trail += "\xE2\x80\xA6";
+    trail += "\xE2\x96\x92";
+    for (int i = 0; i < 4; ++i) trail += "\xE2\x80\xA6";
+  } else {
+    // 42 × …
+    for (int i = 0; i < 42; ++i) trail += "\xE2\x80\xA6";
+  }
+
+  // "█ █   █ █" in clawd_body color.
+  const std::string paws = "\xE2\x96\x88 \xE2\x96\x88   \xE2\x96\x88 \xE2\x96\x88";
+
+  return hbox({
+    text(e7),
+    text(paws) | color(kClawdBody),
+    text(std::move(trail)),
+  });
+}
+
 } // namespace detail
 
 // Produce the 58-col fixed-width WelcomeV2 card. Version fills the
 // header line as "Welcome to Claude Code vX.X.X " (TS t0). Returns a
 // single Element; caller is responsible for wrapping in `flex` or
 // `center` if the terminal is wider than 58 cols.
-[[nodiscard]] inline auto RenderWelcomeV2(std::string_view version) -> Element {
+//
+// Theme dispatch (faithful to TS WelcomeV2.tsx L9-19 + AppleTerminalWelcomeV2):
+//   Dark              — starfield + solid █ clawd + moon/planet gradient
+//   Light             — cloud shape (░) + small planet (██▒▒██) + solid clawd + ground (▒▒░░)
+//   AppleTerminalDark — starfield + ▗/▖ negative clawd (bg-color workaround)
+//   AppleTerminalLight— cloud + ▗/▖ negative clawd
+//
+// TS REF: src/components/LogoV2/WelcomeV2.tsx::WelcomeV2
+// TS REF: src/components/LogoV2/WelcomeV2.tsx::AppleTerminalWelcomeV2
+[[nodiscard]] inline auto RenderWelcomeV2(
+    std::string_view version,
+    WelcomeV2Theme theme = WelcomeV2Theme::Dark) -> Element {
   using namespace detail;
-  const std::string v = version.empty() ? "0.0.0" : std::string(version);
+  using ftxui::bgcolor;
 
-  // t0 header: color="claude" "Welcome to Claude Code" + dim "vX.X.X "
+  const std::string v = version.empty() ? "0.0.0" : std::string(version);
+  const bool is_light = (theme == WelcomeV2Theme::Light ||
+                         theme == WelcomeV2Theme::AppleTerminalLight);
+  const bool is_apple = (theme == WelcomeV2Theme::AppleTerminalDark ||
+                         theme == WelcomeV2Theme::AppleTerminalLight);
+
+  // --- Common header (all themes): TS t0 ---
   Element header = hbox({
     text("Welcome to Claude Code ") | color(kClaude),
     text("v" + v + " ") | dim | color(kMuted),
   });
 
   Elements art;
-  art.reserve(15);
+  art.reserve(18);
   art.push_back(std::move(header));
 
-  // t1 ellipsis row — no color in TS (inherits Text default).
+  // --- Ellipsis separator (TS t1, same for all themes) ---
   art.push_back(text(std::string(kWelcomeV2DarkRows[1])));
 
-  // t2-t11: raw art rows. Dim "*" glyphs are baked into the strings as
-  // plain '*' characters in TS; we apply default fg. No per-row tinting.
-  for (std::size_t i = 2; i <= 11; ++i) {
-    art.push_back(text(std::string(kWelcomeV2DarkRows[i])));
+  if (is_light) {
+    // ================================================================
+    // LIGHT THEME  (TS WelcomeV2.tsx L20-106)
+    // ================================================================
+    // t2-t8: simple rows (blank + cloud shape + blank)
+    for (std::size_t i = 2; i <= 8; ++i) {
+      art.push_back(text(std::string(kWelcomeV2LightRows[i])));
+    }
+
+    // t9: dim ░░░░ segment + normal ██ segment
+    // TS: <Text dimColor>{"                           ░░░░"}</Text>
+    //     <Text>{"                     ██    "}</Text>
+    // Dim part: 27 spaces + 4 ░ = 31 terminal chars = 27 + 12 = 39 bytes
+    {
+      std::string_view row = kWelcomeV2LightRows[9];
+      constexpr std::size_t kDimBytes = 39;
+      art.push_back(hbox({
+        text(std::string(row.substr(0, kDimBytes))) | dim | color(kMuted),
+        text(std::string(row.substr(kDimBytes))),
+      }));
+    }
+
+    // t10: dim ░░░░░░░░░░ segment + normal ██▒▒██ segment
+    // TS: <Text dimColor>{"                         ░░░░░░░░░░"}</Text>
+    //     <Text>{"               ██▒▒██  "}</Text>
+    // Dim part: 25 spaces + 10 ░ = 35 terminal chars = 25 + 30 = 55 bytes
+    {
+      std::string_view row = kWelcomeV2LightRows[10];
+      constexpr std::size_t kDimBytes = 55;
+      art.push_back(hbox({
+        text(std::string(row.substr(0, kDimBytes))) | dim | color(kMuted),
+        text(std::string(row.substr(kDimBytes))),
+      }));
+    }
+
+    // t11: simple row — ▒▒ + ██ art (no color segmentation)
+    art.push_back(text(std::string(kWelcomeV2LightRows[11])));
+
+    // --- Clawd rows (t12-t14) ---
+    if (is_apple) {
+      // Apple Terminal Light: 2 clawd rows (top ▗/▖ + middle bar)
+      // TS AppleTerminalWelcomeV2 L293-300
+
+      // t12: 6 spaces + ▗(clawd) + [body cavity] + ▖(clawd) + ▒▒ art
+      // TS: {"      "} + ▗(color=clawd_body) +
+      //     {" "}▗{"     "}▖{" "}(color=clawd_background, bg=clawd_body) +
+      //     ▖(color=clawd_body) + {"                           ▒▒         ▒▒ "}
+      const std::string suffix12 =
+          "                           \xE2\x96\x92\xE2\x96\x92"
+          "         \xE2\x96\x92\xE2\x96\x92 ";
+      art.push_back(BuildAppleClawdTopRow(/*leading=*/6, suffix12));
+
+      // t13: 7 spaces + 9 bg-spaces bar + ░/▒ art
+      // TS: {"       "} + {" ".repeat(9)}(bg=clawd_body) +
+      //     {"                           ░          ▒   "}
+      const std::string suffix13 =
+          "                           \xE2\x96\x91"
+          "          \xE2\x96\x92   ";
+      art.push_back(BuildAppleClawdBarRow(/*leading=*/7, suffix13));
+
+      // Note: Apple Terminal light has only 2 clawd rows (not 3).
+      // TS AppleTerminalWelcomeV2 L293-307 shows t16 (top) + t17 (bar),
+      // no separate t18 clawd row before the footer.
+
+    } else {
+      // Regular Light: 3 solid clawd rows
+      // TS WelcomeV2.tsx L80-94
+
+      // t12: 6 spaces + " █████████ " (clawd_body) + ▒▒░░▒▒ + ▒ ▒▒
+      // TS: {"      "}<Text color="clawd_body"> █████████ </Text>
+      //     {"                         ▒▒░░▒▒      ▒ ▒▒"}
+      const std::string clawd_top =
+          " \xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88"
+          "\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88 ";
+      const std::string light_suffix12 =
+          "                         \xE2\x96\x92\xE2\x96\x92"
+          "\xE2\x96\x91\xE2\x96\x91\xE2\x96\x92\xE2\x96\x92"
+          "      \xE2\x96\x92 \xE2\x96\x92\xE2\x96\x92";
+      art.push_back(hbox({
+        text("      "),
+        text(clawd_top) | color(kClawdBody),
+        text(light_suffix12),
+      }));
+
+      // t13: 6 spaces + "██▄█████▄██" (clawd_body + clawd_background bg) + ▒▒
+      // TS: {"      "}
+      //     <Text color="clawd_body" backgroundColor="clawd_background">
+      //       ██▄█████▄██
+      //     </Text>
+      //     {"                           ▒▒         ▒▒ "}
+      const std::string clawd_mid =
+          "\xE2\x96\x88\xE2\x96\x88\xE2\x96\x84\xE2\x96\x88\xE2\x96\x88"
+          "\xE2\x96\x88\xE2\x96\x88\xE2\x96\x84\xE2\x96\x88\xE2\x96\x88";
+      const std::string light_suffix13 =
+          "                           \xE2\x96\x92\xE2\x96\x92"
+          "         \xE2\x96\x92\xE2\x96\x92 ";
+      art.push_back(hbox({
+        text("      "),
+        text(clawd_mid) | color(kClawdBody) | bgcolor(kClawdBackground),
+        text(light_suffix13),
+      }));
+
+      // t14: 6 spaces + " █████████ " (clawd_body) + ░ + ▒
+      // TS: {"      "}<Text color="clawd_body"> █████████ </Text>
+      //     {"                          ░          ▒   "}
+      const std::string light_suffix14 =
+          "                          \xE2\x96\x91"
+          "          \xE2\x96\x92   ";
+      art.push_back(hbox({
+        text("      "),
+        text(clawd_top) | color(kClawdBody),
+        text(light_suffix14),
+      }));
+    }
+
+  } else {
+    // ================================================================
+    // DARK THEME  (TS WelcomeV2.tsx L108-197)
+    // ================================================================
+    // t2-t11: raw starfield + moon/planet art rows
+    for (std::size_t i = 2; i <= 11; ++i) {
+      art.push_back(text(std::string(kWelcomeV2DarkRows[i])));
+    }
+
+    if (is_apple) {
+      // Apple Terminal Dark: repositioned clawd (TS L397-411)
+      //
+      // In Apple Terminal dark, the clawd shifts down by one row
+      // compared to regular dark:
+      //   t12 (was solid clawd row 1) → scattered * only
+      //   t13 (was solid clawd row 2) → Apple ▗/▖ top
+      //   t14 (was solid clawd row 3) → Apple bg-color bar
+
+      // t12: 54 spaces + dim '*' + "  "
+      // TS AppleTerminalWelcomeV2 L397:
+      //   <Text>{"                                                      "}</Text>
+      //   <Text dimColor={true}>*</Text><Text> </Text>
+      art.push_back(hbox({
+        text("                                                      "),
+        text("*") | dim | color(kMuted),
+        text(" "),
+      }));
+
+      // t13: 8 spaces + Apple ▗/▖ top + 23 spaces + bold '*' + 16 spaces
+      // TS L404: {"        "} + ▗ + body_cavity + ▖ +
+      //          {"                       "} + bold * + {"                "}
+      const std::string suffix13 =
+          "                       *                ";
+      // Bold '*' is at byte position 23 within suffix (0-indexed).
+      art.push_back(BuildAppleClawdTopRow(
+          /*leading=*/8, suffix13, /*bold_star_col=*/23));
+
+      // t14: 8 spaces + 9 bg-spaces bar + 5 spaces + dim '*' + 35 spaces
+      // TS L411: {"        "} + {" ".repeat(9)}(bg=clawd_body) +
+      //          {"      *                                   "}
+      const std::string suffix14 =
+          "      *                                   ";
+      // Dim '*' at byte position 6 within suffix.
+      art.push_back(BuildAppleClawdBarRow(
+          /*leading=*/8, suffix14, /*dim_star_col=*/6));
+
+    } else {
+      // Regular Dark: 3 solid clawd rows at position 6 (TS L163-189)
+      auto split_clawd_row = [](std::string_view row) -> Elements {
+        // Row format: 6 spaces + 9 body chars (3 bytes each = 27 bytes) + rest
+        if (row.size() < 6 + 27) {
+          return { text(std::string(row)) };
+        }
+        return {
+          text(std::string(row.substr(0, 6))),
+          text(std::string(row.substr(6, 27))) | color(kClawdBody),
+          text(std::string(row.substr(33))) | dim | color(kMuted),
+        };
+      };
+      art.push_back(hbox(split_clawd_row(kWelcomeV2DarkRows[12])));
+      art.push_back(hbox(split_clawd_row(kWelcomeV2DarkRows[13])));
+      art.push_back(hbox(split_clawd_row(kWelcomeV2DarkRows[14])));
+    }
   }
 
-  // t12-t14: clawd body — TS color=clawd_body for the ████████ segments.
-  // Our kWelcomeV2DarkRows stores them as contiguous 9-char blocks; we
-  // detect the clawd_body substring position (col 6..15, 9 × 3 bytes = 27
-  // bytes per row) and colourise it separately.
-  auto split_clawd_row = [](std::string_view row) -> Elements {
-    // Row format: 6 spaces + 9 body chars (3 bytes each = 27 bytes) + rest
-    if (row.size() < 6 + 27) {
-      return { text(std::string(row)) };
-    }
-    return {
-      text(std::string(row.substr(0, 6))),
-      text(std::string(row.substr(6, 27))) | color(kClawdBody),
-      text(std::string(row.substr(33))) | dim | color(kMuted), // trailing '*'s dim
-    };
-  };
-  art.push_back(hbox(split_clawd_row(kWelcomeV2DarkRows[12])));
-  art.push_back(hbox(split_clawd_row(kWelcomeV2DarkRows[13])));
-  art.push_back(hbox(split_clawd_row(kWelcomeV2DarkRows[14])));
-
-  // Footer separator: 7 × … +  clawd_body "█ █   █ █" (paws) + 24 × … +
-  // 4 × ░ + 1 × … + 4 × ▒ + 4 × … — simplified from the TS t16 footer
-  // string literal (we replicate exactly char-for-char via the literal
-  // below, same byte-for-byte content used in TS WelcomeV2.tsx L192).
-  const std::string_view footer_lit =
-      "\xE2\x80\xA6\xE2\x80\xA6\xE2\x80\xA6\xE2\x80\xA6\xE2\x80\xA6\xE2\x80\xA6"
-      "\xE2\x80\xA6"
-      "\xE2\x96\x88 \xE2\x96\x88   \xE2\x96\x88 \xE2\x96\x88"
-      "\xE2\x80\xA6\xE2\x80\xA6\xE2\x80\xA6\xE2\x80\xA6\xE2\x80\xA6\xE2\x80\xA6"
-      "\xE2\x80\xA6\xE2\x80\xA6\xE2\x80\xA6\xE2\x80\xA6\xE2\x80\xA6\xE2\x80\xA6"
-      "\xE2\x80\xA6\xE2\x80\xA6\xE2\x80\xA6\xE2\x80\xA6\xE2\x80\xA6\xE2\x80\xA6"
-      "\xE2\x80\xA6\xE2\x80\xA6\xE2\x80\xA6\xE2\x80\xA6\xE2\x80\xA6\xE2\x80\xA6"
-      "\xE2\x80\xA6\xE2\x80\xA6\xE2\x80\xA6\xE2\x80\xA6\xE2\x80\xA6\xE2\x80\xA6"
-      "\xE2\x80\xA6\xE2\x96\x91\xE2\x80\xA6\xE2\x80\xA6\xE2\x80\xA6\xE2\x80\xA6"
-      "\xE2\x96\x92\xE2\x80\xA6\xE2\x80\xA6\xE2\x80\xA6\xE2\x80\xA6";
-  Element footer = hbox({
-    text(std::string(footer_lit.substr(0, 21))),  // 7 × … (21 bytes)
-    text(std::string(footer_lit.substr(21, 11))) | color(kClawdBody), // paws
-    text(std::string(footer_lit.substr(32))),     // remaining … ░ … ▒ …
-  });
-  art.push_back(std::move(footer));
+  // --- Footer (TS t15 / t16 / t18) ---
+  art.push_back(is_apple ? BuildAppleFooter(is_light)
+                         : BuildRegularFooter(is_light));
 
   return vbox(std::move(art)) | size(WIDTH, EQUAL, kWelcomeV2FixedWidth);
+}
+
+// --------------------------------------------------------------------
+// Convenience: resolve WelcomeV2Theme from TS theme string + terminal type.
+// Mirrors TS WelcomeV2.tsx dispatch (L9-19):
+//   env.terminal === "Apple_Terminal" → AppleTerminal variant
+//   ["light", "light-daltonized", "light-ansi"].includes(theme) → Light
+//   else → Dark
+// TS REF: src/components/LogoV2/WelcomeV2.tsx::WelcomeV2
+[[nodiscard]] inline auto ResolveWelcomeV2Theme(
+    std::string_view theme_name,
+    bool is_apple_terminal) -> WelcomeV2Theme {
+  const bool is_light =
+      (theme_name == "light" || theme_name == "light-daltonized" ||
+       theme_name == "light-ansi");
+  if (is_apple_terminal) {
+    return is_light ? WelcomeV2Theme::AppleTerminalLight
+                    : WelcomeV2Theme::AppleTerminalDark;
+  }
+  return is_light ? WelcomeV2Theme::Light : WelcomeV2Theme::Dark;
+}
+
+// Convenience: render with a TS theme string + Apple Terminal flag.
+[[nodiscard]] inline auto RenderWelcomeV2(
+    std::string_view version,
+    std::string_view theme_name,
+    bool is_apple_terminal) -> Element {
+  return RenderWelcomeV2(version,
+                         ResolveWelcomeV2Theme(theme_name, is_apple_terminal));
 }
 
 // --------------------------------------------------------------------
@@ -849,9 +1293,14 @@ inline constexpr int kContentPadding  = 2;
   // "paddingX={1}" on outer Box → content starts 2 cols in.
   const int content_budget = inner_width;
 
-  const std::string model_display = !o.model_display_name.empty()
-      ? truncate_str(o.model_display_name, content_budget)
-      : truncate_str(std::string("Claude"), content_budget);
+  // TS REF: LogoV2.tsx L169-178 — modelDisplayName = truncate(
+  //   fullModelDisplayName + effortSuffix, LEFT_PANEL_MAX_WIDTH - 20)
+  // Pre-truncate to kMaxLeftWidth - 20 = 30 before layout-specific clipping.
+  const std::string model_raw = !o.model_display_name.empty()
+      ? o.model_display_name : std::string("Claude");
+  const int model_trunc_width =
+      std::min(kMaxLeftWidth - 20, content_budget);
+  const std::string model_display = truncate_str(model_raw, model_trunc_width);
   const std::string billing_display =
       truncate_str(o.billing_type, content_budget);
 
@@ -960,9 +1409,18 @@ inline constexpr int kContentPadding  = 2;
 
   // modelLine: org ? `${model} · ${billing} · ${orgName}` : `${model} · ${billing}`
   // (TS LogoV2.tsx L332-333 — NOT the compact 3-separate-lines variant).
+  //
+  // TS REF: LogoV2.tsx L169-178 — modelDisplayName is pre-truncated to
+  //   LEFT_PANEL_MAX_WIDTH - 20 (= 30) before being composed into modelLine.
+  //   "-20 to account for the max length of subscription name
+  //    '· Claude Enterprise'." (TS comment).
+  const std::string model_raw = o.model_display_name.empty()
+      ? std::string("Claude") : o.model_display_name;
+  const std::string model_for_line =
+      truncate_str(model_raw, kMaxLeftWidth - 20);
+
   std::string model_line_full = [&]() {
-    std::string m = o.model_display_name.empty()
-        ? std::string("Claude") : o.model_display_name;
+    std::string m = model_for_line;
     if (!o.billing_type.empty()) {
       m += " \xC2\xB7 " + o.billing_type;
     }
@@ -1087,17 +1545,83 @@ inline constexpr int kContentPadding  = 2;
     auto [fc, _aw] = detail::RenderFeedColumn(std::move(feeds), right_width);
     feed = std::move(fc);
   } else {
-    // Default two-feed placeholder layout matching the TS default branch
-    // ([createRecentActivityFeed(activities), createWhatsNewFeed(changelog)]
-    // when no upsells / onboarding are active).
-    std::vector<FeedConfig> default_feeds;
-    {
+    // TS REF: LogoV2.tsx L421 — 4-branch feed priority chain:
+    //   showOnboarding       → [ProjectOnboarding, RecentActivity]
+    //   showGuestPassesUpsell → [RecentActivity, GuestPasses]
+    //   showOverageCreditUpsell → [RecentActivity, OverageCredit]
+    //   (default)            → [RecentActivity, What'sNew]
+    //
+    // Priority order: onboarding > guest passes > overage credit > default.
+    // When the caller provides explicit `feeds`, those are used as-is (the
+    // !feeds.empty() branch above). This else-branch fires only when no
+    // feeds were supplied, and we resolve the priority chain from the
+    // option flags.
+    std::vector<FeedConfig> resolved_feeds;
+
+    if (o.show_onboarding) {
+      // Branch 1: Project onboarding takes highest priority.
+      // TS createProjectOnboardingFeed(getSteps()) + createRecentActivityFeed().
+      FeedConfig onboarding;
+      onboarding.title = "Getting started";
+      onboarding.lines = {
+        FeedLine{ .text = "Ask Claude a question to start a conversation",
+                  .timestamp = std::nullopt },
+        FeedLine{ .text = "Use /help to see available commands",
+                  .timestamp = std::nullopt },
+        FeedLine{ .text = "Paste images into the prompt with Ctrl+V",
+                  .timestamp = std::nullopt },
+      };
+      onboarding.footer = "Dismissed automatically after first message";
+      resolved_feeds.push_back(std::move(onboarding));
+
       FeedConfig recent;
       recent.title = "Recent activity";
       recent.empty_message = "(no recent activity yet — engine wiring pending)";
-      default_feeds.push_back(std::move(recent));
-    }
-    {
+      resolved_feeds.push_back(std::move(recent));
+    } else if (o.show_guest_passes) {
+      // Branch 2: Guest passes upsell.
+      // TS createRecentActivityFeed(activities) + createGuestPassesFeed().
+      FeedConfig recent;
+      recent.title = "Recent activity";
+      recent.empty_message = "(no recent activity yet — engine wiring pending)";
+      resolved_feeds.push_back(std::move(recent));
+
+      FeedConfig guest;
+      guest.title = "Guest passes";
+      guest.lines = {
+        FeedLine{ .text = "You have 3 guest passes available",
+                  .timestamp = std::nullopt },
+        FeedLine{ .text = "Share Claude with teammates at /passes",
+                  .timestamp = std::nullopt },
+      };
+      guest.footer = "Use /passes to manage invitations";
+      resolved_feeds.push_back(std::move(guest));
+    } else if (o.show_overage_credit) {
+      // Branch 3: Overage credit upsell.
+      // TS createRecentActivityFeed(activities) + createOverageCreditFeed().
+      FeedConfig recent;
+      recent.title = "Recent activity";
+      recent.empty_message = "(no recent activity yet — engine wiring pending)";
+      resolved_feeds.push_back(std::move(recent));
+
+      FeedConfig overage;
+      overage.title = "Usage alert";
+      overage.lines = {
+        FeedLine{ .text = "Nearing monthly credit limit",
+                  .timestamp = std::nullopt },
+        FeedLine{ .text = "Visit /billing to see usage details",
+                  .timestamp = std::nullopt },
+      };
+      overage.footer = "Upgrades available at /billing";
+      resolved_feeds.push_back(std::move(overage));
+    } else {
+      // Branch 4 (default): Recent activity + What's new.
+      // TS createRecentActivityFeed(activities) + createWhatsNewFeed(changelog).
+      FeedConfig recent;
+      recent.title = "Recent activity";
+      recent.empty_message = "(no recent activity yet — engine wiring pending)";
+      resolved_feeds.push_back(std::move(recent));
+
       FeedConfig whats_new;
       whats_new.title = "What's new";
       whats_new.lines = {
@@ -1110,9 +1634,10 @@ inline constexpr int kContentPadding  = 2;
                   .timestamp = std::nullopt },
       };
       whats_new.footer = "See full changelog at /changelog";
-      default_feeds.push_back(std::move(whats_new));
+      resolved_feeds.push_back(std::move(whats_new));
     }
-    auto [fc, _aw] = detail::RenderFeedColumn(std::move(default_feeds), right_width);
+
+    auto [fc, _aw] = detail::RenderFeedColumn(std::move(resolved_feeds), right_width);
     feed = std::move(fc);
   }
   feed = std::move(feed)

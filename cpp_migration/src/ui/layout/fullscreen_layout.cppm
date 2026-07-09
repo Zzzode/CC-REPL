@@ -339,9 +339,13 @@ class StickyPromptHeaderComponent : public ComponentBase {
 }
 
 /// "N new messages ↓" pill — centred at the bottom of the scrollwrap.
-/// Slack-style: floats over the last content row.  In FTXUI we compose it
-/// as the last child of the scrollwrap vbox (a 1-row centred element), so
-/// it overlays visually via dbox when stacked against the scroll content.
+/// Slack-style: floats over the last content row.  TS REF:
+/// FullscreenLayout.tsx lines 461-537 — `NewMessagesPill` uses
+/// position="absolute" bottom={0} left={0} right={0} justifyContent="center"
+/// so it stays anchored to the bottom-centre of the visible scroll region
+/// regardless of scroll position (NOT at the scroll tail).  In FTXUI the
+/// caller wraps this element in vbox({filler(), pill}) inside a dbox to
+/// achieve the same overlay anchoring (see ComposeFullscreen).
 [[nodiscard]] inline Element NewMessagesPill(int count, bool actionable,
                                              std::function<void()> on_click) {
     // count > 0 → "N new message(s)"; 0 → "Jump to bottom".
@@ -454,13 +458,16 @@ class StickyPromptHeaderComponent : public ComponentBase {
 ///     modal_overlay                      //   absolute bottom-anchored
 ///   )
 ///
-/// where scrollwrap = vbox:
-///     { stickyHeader?,                   //   1 row (optional; 3-state)
+/// where scrollwrap = dbox overlay stack:
+///     base = vbox({
+///       stickyHeader?,                   //   1 row (optional; 3-state)
 ///       paddingTop,                      //   0 or 1 row (padCollapsed)
 ///       scrollable_flex,                 //   flexGrow region
-///       overlay?,                        //   painted inside scroll region
-///       pill?                            //   centred bottom row
-///       bottom_float? }                  //   bottom-right companion
+///       overlay?                         //   painted inside scroll region
+///     })
+///     + bottomFloat_overlay?            //   vbox{filler, hbox{filler, float}}
+///     + pill_overlay?                   //   vbox{filler, pill}
+///                                      //   both anchored to bottom via dbox
 ///
 /// Sticky 3-state logic (TS REF: FullscreenLayout.tsx lines 339-351):
 ///   const sticky       = hideSticky ? null : stickyPrompt
@@ -534,21 +541,60 @@ class StickyPromptHeaderComponent : public ComponentBase {
         scroll_children.push_back(std::move(*s.overlay));
     }
 
-    // 5. New-messages pill (centred, 1 row).  TS REF: lines 371-381.
-    if (!s.hide_pill && s.pill_visible && !overlay_present) {
-        scroll_children.push_back(NewMessagesPill(
-            s.new_message_count,
-            /*actionable=*/static_cast<bool>(s.on_pill_click),
-            std::move(s.on_pill_click)));
+    // Build the base scroll content (normal-flow children only).
+    Element scroll_content = vbox(std::move(scroll_children));
+
+    // ── Floating overlays (absolute-positioned in TS) ─────────────────────
+    // TS REF: FullscreenLayout.tsx lines 370-400 — the parent Box wraps
+    //   {header, ScrollBox, pill (absolute), bottomFloat (absolute)}
+    // Both pill and bottomFloat use position="absolute" bottom={0}, so they
+    // float OVER the scroll content anchored to the bottom of the scrollwrap
+    // region, NOT at the scroll tail.  In FTXUI we express this with dbox:
+    // the base scroll_content shares its box with overlay layers that use
+    // vbox({filler(), element}) to push the element to the bottom.
+    //
+    // Overlay z-order: later in the vector paints on top.  TS DOM order is
+    // pill (t12) before bottomFloat (t13); since both are absolute and
+    // non-overlapping the order is cosmetic, but we keep the TS ordering for
+    // faithfulness (bottomFloat on top).
+
+    const bool pill_should_show =
+        !s.hide_pill && s.pill_visible && !overlay_present;
+    const bool float_should_show =
+        s.bottom_float.has_value() && *s.bottom_float;
+
+    if (pill_should_show || float_should_show) {
+        Elements overlay_layers;
+        overlay_layers.reserve(3);
+        overlay_layers.push_back(std::move(scroll_content));
+
+        // TS REF: line 384 — bottomFloat absolute bottom={0} right={0}.
+        if (float_should_show) {
+            overlay_layers.push_back(vbox({
+                filler(),
+                hbox({ filler(), std::move(*s.bottom_float) }),
+            }));
+        }
+
+        // TS REF: lines 372, 529 — NewMessagesPill absolute bottom={0}
+        //   left={0} right={0} justifyContent="center".
+        //   The pill Element itself is already centred (hbox{filler, text,
+        //   filler}) and 1-row tall; vbox{filler, pill} anchors it to the
+        //   bottom of the shared dbox allocation.
+        if (pill_should_show) {
+            overlay_layers.push_back(vbox({
+                filler(),
+                NewMessagesPill(
+                    s.new_message_count,
+                    /*actionable=*/static_cast<bool>(s.on_pill_click),
+                    std::move(s.on_pill_click)),
+            }));
+        }
+
+        scroll_content = dbox(std::move(overlay_layers));
     }
 
-    // 6. bottomFloat companion (absolute bottom-right in TS).
-    if (s.bottom_float && *s.bottom_float) {
-        scroll_children.push_back(hbox({ filler(),
-                                         std::move(*s.bottom_float) }));
-    }
-
-    Element scrollwrap = vbox(std::move(scroll_children)) | flex;
+    Element scrollwrap = std::move(scroll_content) | flex;
 
     // ── bottom slot (flexShrink=0, maxHeight ≈ 50%) ─────────────────────
     //    TS wraps {SuggestionsOverlay, DialogOverlay, bottom} in a column
