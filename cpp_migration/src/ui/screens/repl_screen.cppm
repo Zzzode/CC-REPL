@@ -67,6 +67,7 @@ import cc.ui.messages.thinking_message;
 import cc.ui.messages.tool_use_message;
 import cc.ui.messages.message_tool_result;
 import cc.ui.messages.local_command_output_message;
+import cc.ui.messages.api_error_message;  // GAP 3: SystemAPIError rich card + retry
 import cc.ui.dialogs.permission_dialog;
 import cc.ui.dialogs.system;
 import cc.ui.dialogs.cost_threshold_dialog;
@@ -128,6 +129,7 @@ import cc.ui.prompt.vim_input;
 // PromptInputFooterLeftSide.tsx.  Renders the area below the prompt input
 // with left/right columns: ModeIndicator, tasks, teams, hints, bridge status.
 import cc.ui.prompt.prompt_input_footer;
+import cc.ui.prompt.prompt_stash_notice;  // GAP 2: stashed prompt restore notice
 // M7: Core dialog framework — DialogQueue, DialogRendererRegistry, DialogFrame.
 // Faithful port of TS dialog system architecture (DialogType, DialogSlot, priority bands).
 import cc.ui.dialogs.system;
@@ -152,6 +154,8 @@ import cc.ui.permissions.permission_bash;
 import cc.ui.permissions.permission_file_edit;
 import cc.ui.permissions.permission_file_write;
 import cc.ui.permissions.single_prompt;
+// Unified canonical PromptInputMode enum (replaces local InputMode definition).
+import cc.ui.common.types;
 
 // Forward imports (implement bodies in owning agent modules):
 //   cc.ui.dialogs.{permission_prompts,mcp_dialogs,trust_dialog,
@@ -216,12 +220,15 @@ enum class ReplMode : std::uint8_t {
     TrustDialog,        // 'trust-dialog'
 };
 
-/// Input modes.  TS PromptInputMode (textInputTypes.ts:265) + VimMode (tI:222).
-enum class InputMode : std::uint8_t {
-    Prompt, Bash, SlashCommand, HistorySearch, PlanMode,
-    VimInsert, VimNormal, VimVisual,
-    OrphanedPermission, TaskNotification,
-};
+/// Input modes — unified canonical enum from cc::ui::common.
+/// Previously this file defined a local 10-value InputMode:
+///   {Prompt, Bash, SlashCommand, HistorySearch, PlanMode,
+///    VimInsert, VimNormal, VimVisual, OrphanedPermission, TaskNotification}
+/// Old→new mapping:
+///   InputMode::Prompt → PromptInputMode::Normal  (TS: 'prompt')
+/// All other values retain their names in the unified enum.
+/// TS REF: src/types/textInputTypes.ts:265 (PromptInputMode type)
+using InputMode = cc::ui::common::PromptInputMode;
 
 /// Spinner modes.  TS SpinnerMode (SpinnerAnimationRow.tsx switch cases +
 /// SpinnerWithVerb usage in REPL.tsx): requesting/thinking/responding/
@@ -377,7 +384,7 @@ struct DialogContext {
 /// engine writes computed projections into this struct between frames.
 struct ReplScreenState {
     ReplMode mode = ReplMode::Normal;
-    InputMode input_mode = InputMode::Prompt;
+    InputMode input_mode = InputMode::Normal;
     SpinnerMode spinner_mode = SpinnerMode::Hidden;
     // Messages
     std::vector<MessageDisplayEntry> messages;
@@ -454,8 +461,38 @@ struct ReplScreenState {
     /// Toggled by the user (e.g., via /brief command or status bar click).
     bool is_brief_mode = false;
 
+    /// TS REF: Messages.tsx isTranscriptMode (L459, screen === 'transcript').
+    /// When true, the message list shows the FULL transcript (all message
+    /// types visible, bypassing brief/dropText filters).  Capped at last 30
+    /// messages unless show_all_in_transcript is also true.
+    /// Toggled by Ctrl+O (TS: app:toggleTranscript global shortcut).
+    bool is_transcript_mode = false;
+
+    /// TS REF: Messages.tsx showAllInTranscript prop (L223, L467, L515-516).
+    /// When true AND is_transcript_mode is true, the 30-message cap is lifted
+    /// and ALL messages are rendered.  Toggled by Ctrl+E while in transcript
+    /// mode (TS: transcript:toggleShowAll shortcut, Transcript context).
+    bool show_all_in_transcript = false;
+
     // Input
     std::string input_text;
+    // GAP 2: stashed-prompt-restore-logic-missing
+    // TS REF: src/screens/REPL.tsx L1373-1377 — stashedPrompt state:
+    //   {text, cursorOffset, pastedContents}.  When the user sends a message
+    //   while a background agent is running (or when permission interrupts),
+    //   the current input is stashed and can be restored after the request
+    //   completes.  Restore at:
+    //     - TS L3251-3255 (after local-jsx result returns)
+    //     - TS L3344-3348 (on submit when not slash-command)
+    //     - TS L3527-3531 (after handlePromptSubmit for slash/loading)
+    //   The stash notice (PromptInputStashNotice.tsx) renders
+    //   "{figures.pointerSmall} Stashed (auto-restores after submit)" when
+    //   hasStash is true.
+    struct StashedPrompt {
+        std::string text;
+        std::size_t cursor_offset = std::string::npos;
+    };
+    std::optional<StashedPrompt> stashed_prompt;
     // TS-style contextual placeholder rather than a generic default.
     // NOTE: This is the FALLBACK only.  The actual displayed placeholder is
     // computed dynamically by ComputePlaceholder() at render time from the
@@ -678,6 +715,11 @@ struct ReplScreenCallbacks {
     /// Called when user cycles permission mode (shift+tab).  TS REF:
     /// PromptInput.tsx:1409 handleCycleMode → cyclePermissionMode().
     std::function<void(cc::ui::prompt::footer::PermissionMode)> on_permission_cycle;
+    /// GAP 3: msg-system-api-error-retry — called when user clicks "Retry"
+    /// on an API error message.  Re-sends the last user message.
+    /// TS REF: src/components/messages/SystemAPIErrorMessage.tsx — the
+    ///   retry button re-triggers the last user submission.
+    std::function<void()> on_retry;
 };
 
 // =========================================================
@@ -904,7 +946,13 @@ ComputeUnseenDivider(const ReplScreenState& s) {
         std::nullopt,
     Elements leading_elements = {},
     bool is_brief_mode = false,
-    const std::unordered_set<std::string>& expanded_keys = {}) {
+    const std::unordered_set<std::string>& expanded_keys = {},
+    bool is_transcript_mode = false,
+    bool show_all_in_transcript = false,
+    // GAP 3: msg-system-api-error-retry — callback for the Retry button on
+    // SystemAPIError rich cards.  When set, the API error card renders a
+    // clickable Retry pill that invokes this to re-send the last user message.
+    std::function<void()> on_retry = nullptr) {
     // NOTE: We no longer early-return on empty entries.  The leading_element
     // (welcome/logo card) must always be rendered inside the yframe so it
     // scrolls with messages.  The messages_list handles empty rows gracefully
@@ -929,7 +977,7 @@ ComputeUnseenDivider(const ReplScreenState& s) {
                 .content = m.content_preview,
                 .timestamp = m.timestamp,
                 .quoted_reply = std::nullopt,
-                .is_transcript_mode = false,
+                .is_transcript_mode = is_transcript_mode,
                 .command_name = std::nullopt});
         } else if (m.is_local_jsx_output) {
             input.shapes.push_back(messages::MessageShape::UserLocalJsxOutput);
@@ -937,7 +985,7 @@ ComputeUnseenDivider(const ReplScreenState& s) {
                 .content = m.content_preview,
                 .timestamp = m.timestamp,
                 .quoted_reply = std::nullopt,
-                .is_transcript_mode = false,
+                .is_transcript_mode = is_transcript_mode,
                 .command_name = std::nullopt});
         } else if (m.is_local_command_output) {
             input.shapes.push_back(messages::MessageShape::UserLocalCommandOutput);
@@ -1012,6 +1060,7 @@ ComputeUnseenDivider(const ReplScreenState& s) {
                     .content = m.content_preview,
                     .timestamp = m.timestamp,
                     .quoted_reply = std::nullopt,
+                    .is_transcript_mode = is_transcript_mode,
                     .command_name = std::nullopt});
             }
         } else if (m.role == "assistant") {
@@ -1067,7 +1116,25 @@ ComputeUnseenDivider(const ReplScreenState& s) {
                 .error_message = std::nullopt,
                 .duration_ms = std::nullopt,
                 .is_truncated = false,
+                .is_transcript_mode = is_transcript_mode,
                 .content_items = m.tool_result_content_items});
+        } else if (m.is_error) {
+            // GAP 3: msg-system-api-error-retry — route system error messages
+            // through the rich SystemAPIError card (severity borders + pills)
+            // instead of the plain SystemText glyph.  The Retry button calls
+            // on_retry to re-send the last user message.
+            // TS REF: SystemAPIErrorMessage.tsx — rich error card with retry.
+            namespace aem = cc::ui::messages::api_error_message;
+            aem::APIErrorData err_data;
+            err_data.message = m.content_preview;
+            err_data.provider = "API";
+            err_data.severity = aem::ErrorSeverity::Error;
+            aem::APIErrorOptions err_opts;
+            err_opts.error = std::move(err_data);
+            err_opts.on_retry = on_retry;
+            err_opts.show_buttons = true;
+            input.shapes.push_back(messages::MessageShape::SystemAPIError);
+            input.rows.push_back(std::move(err_opts));
         } else {
             input.shapes.push_back(messages::MessageShape::SystemText);
             // Bridge the system-row subtype so the LIVE faithful renderer
@@ -1113,7 +1180,8 @@ ComputeUnseenDivider(const ReplScreenState& s) {
                 .subtype = derive_subtype(m.content_preview, m.system_subtype),
                 .summary = m.content_preview,
                 .detail = {},
-                .timestamp = m.timestamp});
+                .timestamp = m.timestamp,
+                .is_transcript_mode = is_transcript_mode});
         }
     }
 
@@ -1127,9 +1195,17 @@ ComputeUnseenDivider(const ReplScreenState& s) {
     input.scroll_offset = std::max(0, offs);
     input.viewport_rows = std::max(1, vlines);
     input.is_brief_mode = is_brief_mode;
+    // TS REF: Messages.tsx L459 (isTranscriptMode) + L223 (showAllInTranscript).
+    // In transcript mode the 3-tier filter shows all message types; cap at
+    // 30 unless show_all_in_transcript lifts it.
+    input.is_transcript_mode     = is_transcript_mode;
+    input.show_all_in_transcript = show_all_in_transcript;
     // TS REF: Messages.tsx expandedKeys (L563) — user-expanded rows show
     // verbose full content.  Passed by copy (cheap for small sets).
     input.expanded_keys = expanded_keys;
+    // GAP 3: thread on_retry through to the messages list so SystemAPIError
+    // rows can render a working Retry button.
+    input.on_retry = on_retry;
     namespace ml = cc::ui::messages_list;
     // TS REF: FullscreenLayout <Box flexGrow={1} /> at the bottom of the
     // message list — absorbs remaining viewport space so short content stays
@@ -1635,6 +1711,51 @@ inline std::size_t DrainPendingAtMentionInserts(
     return batch.size();
 }
 
+// ── Stashed prompt restore (GAP 2) ──────────────────────────────────────
+// TS REF: src/screens/REPL.tsx L1373-1377 — stashedPrompt state:
+//   {text, cursorOffset, pastedContents}.  When the user has typed input
+//   and a background agent finishes or a permission request interrupts, the
+//   current input is stashed so it can be restored after the request
+//   completes.  Restore at:
+//     - TS L3251-3255 (after local-jsx result returns)
+//     - TS L3344-3348 (on submit when not slash-command)
+//     - TS L3527-3531 (after handlePromptSubmit for slash/loading)
+//   The stash notice (PromptInputStashNotice.tsx) renders
+//   "{figures.pointerSmall} Stashed (auto-restores after submit)" when
+//   hasStash is true.
+
+/// Stash the current input text and cursor position.  Called when a
+/// background agent finishes or a permission request interrupts the user's
+/// typing flow.  Returns true if something was actually stashed (input was
+/// non-empty).
+inline bool StashCurrentPrompt(const std::shared_ptr<ReplScreenState>& state) {
+    if (state->input_text.empty()) return false;
+    state->stashed_prompt = ReplScreenState::StashedPrompt{
+        .text = state->input_text,
+        .cursor_offset = state->input_cursor,
+    };
+    return true;
+}
+
+/// Restore the stashed prompt into the input area.  Called after a submit
+/// completes or when the user explicitly requests restore.  Returns true if
+/// a stash was restored.
+inline bool RestoreStashedPrompt(const std::shared_ptr<ReplScreenState>& state) {
+    if (!state->stashed_prompt.has_value()) return false;
+    auto stash = std::move(*state->stashed_prompt);
+    state->stashed_prompt.reset();
+    set_prompt_input_text(state, std::move(stash.text),
+        stash.cursor_offset == std::string::npos
+            ? std::string::npos
+            : stash.cursor_offset);
+    return true;
+}
+
+/// True when a stashed prompt exists (for UI notice rendering).
+inline bool HasStashedPrompt(const std::shared_ptr<ReplScreenState>& state) {
+    return state->stashed_prompt.has_value();
+}
+
 inline bool backspace_prompt_text(const std::shared_ptr<ReplScreenState>& state) {
     auto cursor = input_cursor_or_end(*state);
     if (cursor == 0) return false;
@@ -1656,8 +1777,8 @@ inline bool backspace_prompt_text(const std::shared_ptr<ReplScreenState>& state)
 // trapping the user in bash mode.  Returns true iff a mode reset occurred.
 inline bool exit_input_mode_if_at_start(const std::shared_ptr<ReplScreenState>& state) {
     if (input_cursor_or_end(*state) != 0) return false;
-    if (state->input_mode == InputMode::Prompt) return false;
-    state->input_mode = InputMode::Prompt;
+    if (state->input_mode == InputMode::Normal) return false;
+    state->input_mode = InputMode::Normal;
     state->is_prompt_input_active = true;
     state->last_keystroke = std::chrono::steady_clock::now();
     // Mode change alters the autocomplete provider context (TS parity with the
@@ -1768,7 +1889,7 @@ inline constexpr std::array<std::string_view, 6> kExampleCommands = {
     // Applies only in Prompt mode, no autocomplete showing, not viewing agent.
     // NOTE: next_action_suggestion starting with '/' is a slash-command suggestion
     // which the autocomplete system handles separately — don't use it as placeholder.
-    if (s.input_mode == InputMode::Prompt &&
+    if (s.input_mode == InputMode::Normal &&
         s.next_action_suggestion.has_value() &&
         !s.next_action_suggestion->empty() &&
         s.next_action_suggestion->front() != '/' &&
@@ -1963,6 +2084,22 @@ inline constexpr std::array<std::string_view, 6> kExampleCommands = {
             text("  "),
             text(vim_badge->first) | color(vim_badge->second) | bold | dim,
         }));
+    }
+
+    // --- 4b. Stash notice (GAP 2: stashed-prompt-restore-logic-missing) ---
+    // TS REF: PromptInputStashNotice.tsx — renders
+    //   "{figures.pointerSmall} Stashed (auto-restores after submit)"
+    //   when hasStash is true.  Shown above the input area so the user knows
+    //   their typed input was saved and will be restored after the current
+    //   request completes.
+    if (s.stashed_prompt.has_value()) {
+        namespace psn = cc::ui::prompt;
+        psn::StashNotice notice;
+        notice.stashed_text = s.stashed_prompt->text;
+        notice.char_count = s.stashed_prompt->text.size();
+        // TS REF: <Box paddingLeft={2}> — render_stash_notice handles the
+        // 2-space left padding internally, matching TS paddingLeft={2}.
+        box_body.push_back(psn::render_stash_notice(notice));
     }
 
     // --- 5. Compose -----------------------------------------------------
@@ -2406,7 +2543,10 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
 /// Fix #1: welcome header atop the list on a fresh session.
     /// Fix #7: StatusLine lives inside the prompt footer, matching TS.
 /// Fix #11: terminal size probed once per frame for adaptive clamping.
-[[nodiscard]] inline Element RenderReplScreen(ReplScreenState& s) {
+[[nodiscard]] inline Element RenderReplScreen(ReplScreenState& s,
+    // GAP 3: msg-system-api-error-retry — retry callback threaded through
+    // to RenderMessages so SystemAPIError rows can render a working Retry pill.
+    std::function<void()> on_retry = nullptr) {
     // Probe terminal size once per frame for adaptive layout (fix #11).
     auto [term_cols, term_rows] = cc::ui::ink_utils::query_terminal_size();
     if (term_cols <= 0) term_cols = 80;
@@ -2489,7 +2629,10 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
         s.unseen_divider,
         std::move(logo_leading),
         s.is_brief_mode,
-        s.expanded_keys));
+        s.expanded_keys,
+        s.is_transcript_mode,
+        s.show_all_in_transcript,
+        on_retry));
     // Spinner lives in the chrome BETWEEN messages list and prompt input
     // (TS BriefSpinner marginTop=1, NOT a message row inside scroll content).
     Element spinner_chrome = text("");
@@ -2577,7 +2720,7 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
         //   (b) builtin data is available (always, since cwd is set)
         // Same mode guards apply: prompt mode, not bash, not short terminal.
         const bool in_prompt_mode =
-            s.input_mode == InputMode::Prompt &&
+            s.input_mode == InputMode::Normal &&
             !effective_is_bash(s) &&
             !is_short;
         status_line_opts.should_display = in_prompt_mode &&
@@ -2589,18 +2732,17 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
         // Map InputMode to footer PromptInputMode.  Text-derived mode takes
         // precedence over state-toggle (TS getInputMode semantics — see
         // effective_is_bash()).
-        pif::PromptInputMode footer_mode = pif::PromptInputMode::Prompt;
+        // NOTE: Both InputMode and pif::PromptInputMode are now the same
+        // unified type (cc::ui::common::PromptInputMode), so this is a
+        // direct assignment with bash-detection override.
+        pif::PromptInputMode footer_mode =
+            static_cast<pif::PromptInputMode>(s.input_mode);
         if (effective_is_bash(s)) {
             footer_mode = pif::PromptInputMode::Bash;
-        } else {
-            switch (s.input_mode) {
-                case InputMode::Prompt:       footer_mode = pif::PromptInputMode::Prompt; break;
-                case InputMode::Bash:         footer_mode = pif::PromptInputMode::Bash; break;
-                case InputMode::SlashCommand: footer_mode = pif::PromptInputMode::SlashCommand; break;
-                case InputMode::HistorySearch:footer_mode = pif::PromptInputMode::HistorySearch; break;
-                case InputMode::PlanMode:     footer_mode = pif::PromptInputMode::PlanMode; break;
-                default: break;
-            }
+        } else if (footer_mode == pif::PromptInputMode::Bash) {
+            // State says bash but text doesn't start with '!' — normalize
+            // to Normal (consistent with old switch default behavior).
+            footer_mode = pif::PromptInputMode::Normal;
         }
         // ── Assemble the bottom slot ──
         // Chrome order: [marginTop gap] → [spinner (marginTop=1)] →
@@ -2627,6 +2769,9 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
         left_opts.mode_indicator.background_task_count = s.background_task_count;
         left_opts.mode_indicator.teammate_count        = s.teammate_count;
         left_opts.mode_indicator.teams_selected        = s.teams_footer_selected;
+        // Transcript/brief mode pills (TS REF: Messages.tsx isTranscriptMode + isBriefOnly).
+        left_opts.mode_indicator.is_transcript_mode    = s.is_transcript_mode;
+        left_opts.mode_indicator.is_brief_mode         = s.is_brief_mode;
         if (status_line_opts.should_display) {
             left_opts.mode_indicator.show_hint = false;
         }
@@ -3357,7 +3502,7 @@ inline bool forward_trust_dialog(
                           : state->permission_request->risk_labels.front();
             if (state->permission_request->file_path)
                 r.affected_paths.push_back(*state->permission_request->file_path);
-            Element base = RenderReplScreen(*state);
+            Element base = RenderReplScreen(*state, cb->on_retry);
             Element panel = paragraph(
                 cc::ui::dialogs::render_permission_dialog(std::move(r), 80));
             return dbox({
@@ -3370,7 +3515,7 @@ inline bool forward_trust_dialog(
         // UI3: SettingsView modal — render the tabbed settings dialog
         // over the dimmed REPL background.
         if (state->mode == ReplMode::SettingsView) {
-            Element base = RenderReplScreen(*state);
+            Element base = RenderReplScreen(*state, cb->on_retry);
             Element settings_content = dialog_router::render_settings(state, cb);
             return dbox({
                 base | dim,
@@ -3398,7 +3543,7 @@ inline bool forward_trust_dialog(
                        filler() }) | flex_shrink,
                 filler() }) | flex;
         }
-        return RenderReplScreen(*state);
+        return RenderReplScreen(*state, cb->on_retry);
     })
          | CatchEvent([state, cb](Event ev) -> bool {
     // --- M7: dialog_queue event dispatch (priority 0) ---
@@ -3544,27 +3689,72 @@ inline bool forward_trust_dialog(
         state->input_cursor = std::string::npos;
         state->autocomplete_suggestions.clear();
         state->autocomplete_index = -1; return true; }
-    if (ev == Event::Character('\x0F')) return true;  // Ctrl+O transcript
-
-    // Ctrl+E: toggle expand/collapse of all tool rows in the visible
-    // transcript.  TS REF: Messages.tsx expandedKeys (L563) — user can
-    // expand tool results to see full output.  This shortcut toggles
-    // ALL tool rows at once (practical for terminal where per-row click
-    // expansion is not available).
-    if (!in_dialog && ev == Event::Character('\x05')) {
-        namespace ml = cc::ui::messages_list;
-        namespace msg = cc::ui::messages;
-        if (state->expanded_keys.empty()) {
-            // Expand: collect all tool names from visible tool rows.
-            for (const auto& m : state->messages) {
-                if (m.tool_name && !m.tool_name->empty()) {
-                    state->expanded_keys.insert(*m.tool_name);
-                }
-            }
-        } else {
-            // Collapse all.
-            state->expanded_keys.clear();
+    // Ctrl+O: toggle transcript mode (TS: app:toggleTranscript, global context).
+    // In transcript mode the message list shows ALL message types (bypassing
+    // brief/dropText filters), capped at last 30 unless show_all_in_transcript.
+    // TS REF: Messages.tsx L459 (isTranscriptMode = screen === 'transcript')
+    //         + REPL.tsx Ctrl+O → setScreen('transcript') toggle.
+    if (!in_dialog && ev == Event::Character('\x0F')) {
+        state->is_transcript_mode = !state->is_transcript_mode;
+        // When exiting transcript mode, also reset show_all_in_transcript
+        // so re-entering starts from the capped default (TS: showAllInTranscript
+        // defaults false — user must press Ctrl+E each session to lift the cap).
+        if (!state->is_transcript_mode) {
+            state->show_all_in_transcript = false;
         }
+        return true;
+    }
+
+    // Ctrl+E: dual behavior depending on mode.
+    //   - In transcript mode: toggle show_all_in_transcript (lift/restore 30-msg cap).
+    //     TS: transcript:toggleShowAll (Transcript context, defaultBindings L163).
+    //   - Otherwise: toggle expand/collapse of all tool rows in visible transcript.
+    //     TS REF: Messages.tsx expandedKeys (L563) — user can expand tool results
+    //     to see full output.  This shortcut toggles ALL tool rows at once.
+    if (!in_dialog && ev == Event::Character('\x05')) {
+        if (state->is_transcript_mode) {
+            // Transcript mode: lift or restore the 30-message cap.
+            state->show_all_in_transcript = !state->show_all_in_transcript;
+        } else {
+            // Normal mode: expand or collapse all tool rows.
+            namespace ml = cc::ui::messages_list;
+            namespace msg = cc::ui::messages;
+            if (state->expanded_keys.empty()) {
+                for (const auto& m : state->messages) {
+                    if (m.tool_name && !m.tool_name->empty()) {
+                        state->expanded_keys.insert(*m.tool_name);
+                    }
+                }
+            } else {
+                state->expanded_keys.clear();
+            }
+        }
+        return true;
+    }
+
+    // Ctrl+S: stash / restore prompt (TS: 'chat:stash' action, defaultBindings L85).
+    // TS REF: src/components/PromptInput/PromptInput.tsx:1356-1383 — handleStash():
+    //   - If input is empty and stashedPrompt exists → pop stash (restore)
+    //   - If input is non-empty → push stash (save text + cursorOffset + pastedContents),
+    //     clear input, clear pastedContents.
+    // The stash notice (prompt_stash_notice.cppm) renders above the input area
+    // when HasStashedPrompt() is true, so the user knows their typed text was saved.
+    // Auto-restore happens on the next non-slash-command submit (RestoreStashedPrompt
+    // called at lines 3804 and 3828 below).
+    if (!in_dialog && ev == Event::Character('\x13')) {
+        if (state->input_text.empty() && HasStashedPrompt(state)) {
+            // Input empty + stash exists → restore (pop stash into input)
+            RestoreStashedPrompt(state);
+        } else if (!state->input_text.empty()) {
+            // Input non-empty → stash current input, then clear it
+            StashCurrentPrompt(state);
+            state->input_text.clear();
+            state->input_cursor = std::string::npos;
+            state->autocomplete_suggestions.clear();
+            state->autocomplete_index = -1;
+        }
+        state->last_keystroke = std::chrono::steady_clock::now();
+        state->is_prompt_input_active = true;
         return true;
     }
 
@@ -3620,18 +3810,35 @@ inline bool forward_trust_dialog(
                     .submit_on_return;
             auto accepted = accept_selected_prompt_suggestion(state);
             if (submit && accepted && cb->on_submit) {
-                cb->on_submit(*accepted, state->input_mode);
+                // TS REF: src/components/PromptInput/inputModes.ts:23-29
+                //   (getValueFromInput)
+                // Strip '!' mode prefix from accepted value before engine.
+                namespace figs = cc::ui::design::figures;
+                std::string submit_text =
+                    std::string(figs::strip_mode_prefix(*accepted));
+                cb->on_submit(submit_text, state->input_mode);
                 state->input_history.push_back(*accepted);
                 if (state->input_history.size() > 1000) state->input_history.pop_front();
                 state->history_index = std::string::npos;
                 state->input_text.clear();
                 state->input_cursor = std::string::npos;
                 state->is_prompt_input_active = false;
+                // GAP 2: auto-restore stashed prompt after submit completes.
+                // TS REF: REPL.tsx L3344-3348 — restore stashedPrompt when
+                // the input is cleared by a non-slash-command submit.
+                RestoreStashedPrompt(state);
             }
             return true;
         }
         if (ev == Event::Return && !state->input_text.empty()) {
-            if (cb->on_submit) cb->on_submit(state->input_text, state->input_mode);
+            // TS REF: src/components/PromptInput/inputModes.ts:23-29 (getValueFromInput)
+            // Strip the '!' mode prefix before passing to engine.
+            // History keeps the prefix for round-tripping
+            // (prependModeCharacterToInput semantics in inputModes.ts:4-14).
+            namespace figs = cc::ui::design::figures;
+            std::string submit_text =
+                std::string(figs::strip_mode_prefix(state->input_text));
+            if (cb->on_submit) cb->on_submit(submit_text, state->input_mode);
             state->input_history.push_back(state->input_text);
             if (state->input_history.size() > 1000) state->input_history.pop_front();
             state->history_index = std::string::npos;
@@ -3639,7 +3846,12 @@ inline bool forward_trust_dialog(
             state->input_cursor = std::string::npos;
             state->autocomplete_suggestions.clear();
             state->autocomplete_index = -1;
-            state->is_prompt_input_active = false; return true; }
+            state->is_prompt_input_active = false;
+            // GAP 2: auto-restore stashed prompt after submit.
+            // TS REF: REPL.tsx L3344-3348 — restore stashedPrompt when
+            // the input is cleared by a non-slash-command submit.
+            RestoreStashedPrompt(state);
+            return true; }
         // Ctrl+Enter -> newline (Ctrl+J in terminals)
         if (ev == Event::Character('\x0A')) {
             insert_prompt_text(state, "\n");
@@ -3708,6 +3920,18 @@ inline bool forward_trust_dialog(
                 ? state->input_history.size() - 1
                 : std::max<std::size_t>(0, state->history_index - 1);
             state->input_text = state->input_history[state->history_index];
+            // TS REF: src/components/PromptInput/inputModes.ts:16-21
+            //   (getModeFromInput)
+            // Sync input_mode from the recalled entry's leading char so that
+            // the prefix glyph stays correct after the user clears the text.
+            {
+                namespace figs = cc::ui::design::figures;
+                state->input_mode =
+                    (figs::get_mode_from_input(state->input_text) ==
+                     figs::PromptMode::kBash)
+                        ? InputMode::Bash
+                        : InputMode::Normal;
+            }
             state->input_cursor = state->input_text.size();
             state->is_prompt_input_active = true;
             state->last_keystroke = std::chrono::steady_clock::now(); return true; }
@@ -3719,6 +3943,16 @@ inline bool forward_trust_dialog(
                 state->input_cursor = std::string::npos;
             } else {
                 state->input_text = state->input_history[++state->history_index];
+                // TS REF: inputModes.ts:16-21 (getModeFromInput) — sync mode
+                // from the recalled entry's leading prefix character.
+                {
+                    namespace figs = cc::ui::design::figures;
+                    state->input_mode =
+                        (figs::get_mode_from_input(state->input_text) ==
+                         figs::PromptMode::kBash)
+                            ? InputMode::Bash
+                            : InputMode::Normal;
+                }
                 state->input_cursor = state->input_text.size(); }
             state->is_prompt_input_active = true;
             state->last_keystroke = std::chrono::steady_clock::now(); return true; }
@@ -3816,10 +4050,10 @@ inline bool forward_trust_dialog(
                     if (state->input_text.empty() && cursor_at_zero &&
                         figs::is_mode_character(ch) &&
                         ch.size() == 1) {
-                        // Swallow the char, flip mode.  Toggle Prompt↔Bash.
+                        // Swallow the char, flip mode.  Toggle Normal↔Bash.
                         state->input_mode =
                             (state->input_mode == InputMode::Bash)
-                                ? InputMode::Prompt
+                                ? InputMode::Normal
                                 : InputMode::Bash;
                         state->is_prompt_input_active = true;
                         state->last_keystroke =

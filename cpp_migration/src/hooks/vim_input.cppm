@@ -19,6 +19,7 @@ module;
 
 export module cc.hooks.vim_input;
 
+import cc.vim.vim_types;  // canonical VimMode (cc_vim target, no circular deps)
 
 export namespace cc::hooks {
 
@@ -26,25 +27,18 @@ export namespace cc::hooks {
 // Vim mode definitions
 // ============================================================
 
-/// Vim editing modes
-enum class VimMode : std::uint8_t {
-    Normal,
-    Insert,
-    Visual,
-    VisualLine,
-    Command,
-};
+// Canonical VimMode — imported from cc::vim (vim/vim_types.cppm).
+// Lives in cc_vim to avoid circular deps (cc_hooks can't depend on cc_ui).
+// TS REF: src/types/textInputTypes.ts:222 (public type = 'INSERT'|'NORMAL')
+//          src/hooks/useVimInput.ts (internal state machine tracks more)
+// This replaces the previous local 5-value enum { Normal,Insert,Visual,
+// VisualLine,Command } that was missing VisualBlock and Replace.
+using cc::vim::VimMode;
 
 /// Convert VimMode to display string
+/// TS REF: cc::vim::vim_mode_short_label (vim_types.cppm)
 [[nodiscard]] constexpr auto vim_mode_to_string(VimMode mode) noexcept -> std::string_view {
-    switch (mode) {
-        case VimMode::Normal:     return "NORMAL";
-        case VimMode::Insert:     return "INSERT";
-        case VimMode::Visual:     return "VISUAL";
-        case VimMode::VisualLine: return "V-LINE";
-        case VimMode::Command:    return "COMMAND";
-    }
-    return "UNKNOWN";
+    return cc::vim::vim_mode_short_label(mode);
 }
 
 // ============================================================
@@ -170,11 +164,13 @@ public:
     /// Process a key event in current Vim mode; returns true if consumed
     [[nodiscard]] auto handle_key(const VimKeyEvent& event) -> bool {
         switch (state_.mode) {
-            case VimMode::Normal:     return handle_normal(event);
-            case VimMode::Insert:     return handle_insert(event);
-            case VimMode::Visual:     return handle_visual(event);
-            case VimMode::VisualLine: return handle_visual(event);
-            case VimMode::Command:    return handle_command(event);
+            case VimMode::Normal:      return handle_normal(event);
+            case VimMode::Insert:      return handle_insert(event);
+            case VimMode::Replace:     return handle_insert(event);
+            case VimMode::Visual:      return handle_visual(event);
+            case VimMode::VisualLine:  return handle_visual(event);
+            case VimMode::VisualBlock: return handle_visual(event);
+            case VimMode::Command:     return handle_command(event);
         }
         return false;
     }
@@ -321,8 +317,11 @@ private:
         if (k == "a") { execute_motion(Motion::Right); set_mode(VimMode::Insert); return true; }
         if (k == "I") { execute_motion(Motion::LineStart); set_mode(VimMode::Insert); return true; }
         if (k == "A") { execute_motion(Motion::LineEnd); set_mode(VimMode::Insert); return true; }
+        if (k == "R") { set_mode(VimMode::Replace); return true; }
         if (k == "v") { set_mode(VimMode::Visual); return true; }
         if (k == "V") { set_mode(VimMode::VisualLine); return true; }
+        // Ctrl+V = VisualBlock (block-wise selection)
+        if (event.ctrl && k == "v") { set_mode(VimMode::VisualBlock); return true; }
         if (k == ":") { set_mode(VimMode::Command); return true; }
 
 

@@ -30,6 +30,8 @@ export module cc.ui.text_input_widget;
 
 import cc.types.types;
 import cc.utils.text_highlighting;
+import cc.ui.prompt.combined_highlights;
+import cc.ui.common.types;  // canonical VimMode
 
 export namespace cc::ui::text_input_widget {
 using namespace ftxui;
@@ -43,18 +45,21 @@ using cc::utils::filter_highlights_at_cursor;
 using cc::utils::adjust_highlights_for_viewport;
 using namespace cc::utils::highlight_priority;
 
+// Re-export the combined highlights context and builder from the new module.
+// TS REF: src/components/PromptInput/PromptInput.tsx:601-741
+using cc::ui::prompt::CombinedHighlightContext;
+using cc::ui::prompt::build_combined_highlights;
+
 // ============================================================
 // Types
 // ============================================================
 
-/// Vim mode state
-enum class VimMode : std::uint8_t {
-    Disabled,   // Standard editing (no vim)
-    Normal,     // Vim normal mode
-    Insert,     // Vim insert mode
-    Visual,     // Vim visual mode
-    Command,    // Vim : command mode
-};
+// Canonical VimMode — imported from cc::ui::common (ui_types.cppm).
+// TS REF: src/types/textInputTypes.ts:222 (public type = 'INSERT'|'NORMAL')
+// This replaces the previous local 5-value enum { Disabled, Normal, Insert,
+// Visual, Command } that conflicted with other implementations.
+// "Disabled" is now expressed as std::optional<VimMode>{nullopt}.
+using cc::ui::common::VimMode;
 
 /// Voice input state
 enum class VoiceState : std::uint8_t {
@@ -75,7 +80,11 @@ struct TextInputWidgetOptions {
     std::string prefix = "❯ ";
     bool multiline = true;
     bool show_line_numbers = false;
-    bool enable_vim = false;
+    /// Vim mode — nullopt = vim disabled (standard editing).
+    /// Replaces the previous `bool enable_vim` flag.  When set, the value
+    /// indicates the *initial* mode (typically Insert or Normal).
+    /// TS REF: src/types/textInputTypes.ts:222 — VimMode public type.
+    std::optional<VimMode> vim_mode;
     bool show_history = true;
     bool reduced_motion = false;
     size_t max_history = 1000;
@@ -96,6 +105,13 @@ struct TextInputWidgetOptions {
     std::function<void(const std::string&)> on_change;
     std::function<void()> on_cancel;
     std::function<void()> on_escape;
+
+    /// Combined highlights context — when set, build_combined_highlights()
+    /// is called to produce the full 8-tier highlight vector.  The result
+    /// is merged with any manually-provided `highlights` (manual highlights
+    /// take priority on overlap via the segmenter's priority resolution).
+    /// TS REF: src/components/PromptInput/PromptInput.tsx:601-741
+    std::optional<CombinedHighlightContext> combined_ctx;
 };
 
 /// Audio level data for voice waveform cursor
@@ -239,6 +255,33 @@ public:
         lines_.push_back("");
         cursor_ = {0, 0};
     }
+
+    /// Delete the entire current logical line (for dd vim command).
+    /// TS REF: operators.ts executeLineOp('delete', ...)
+    void delete_line() {
+        if (lines_.size() == 1) {
+            // Single line: just clear content
+            lines_[0].clear();
+            cursor_ = {0, 0};
+        } else {
+            int cur = cursor_.line;
+            lines_.erase(lines_.begin() + cur);
+            if (cur >= static_cast<int>(lines_.size())) {
+                cursor_.line = static_cast<int>(lines_.size()) - 1;
+            }
+            cursor_.col = 0;
+            clamp_cursor();
+        }
+    }
+
+    /// Set cursor to explicit line/col.
+    void set_cursor(int line, int col) {
+        cursor_.line = std::clamp(line, 0, static_cast<int>(lines_.size()) - 1);
+        cursor_.col = std::clamp(col, 0, static_cast<int>(lines_[cursor_.line].size()));
+    }
+
+    /// Mutable access to a line's content (for vim D/C commands).
+    std::string& mutable_line(int idx) { return lines_[static_cast<size_t>(idx)]; }
 
 private:
     void clamp_cursor() {
@@ -407,7 +450,7 @@ struct LinePart {
 [[nodiscard]] inline Element RenderTextInputWidget(
     const TextInputWidgetOptions& opts,
     const TextBuffer& buffer,
-    VimMode vim_mode,
+    std::optional<VimMode> vim_mode,
     bool focused) {
 
     Elements all_lines;
@@ -423,11 +466,27 @@ struct LinePart {
     auto cursor_pos = buffer.cursor();
     std::string full_text = buffer.get_text();
 
+    // ── Build combined highlights from 8+ sources ────────────────────────
+    // TS REF: PromptInput.tsx:601-741 combinedHighlights useMemo
+    std::vector<TextHighlight> effective_highlights = opts.highlights;
+    if (opts.combined_ctx) {
+        // Ensure the context's text and cursor reflect the current buffer state.
+        CombinedHighlightContext ctx = *opts.combined_ctx;
+        ctx.text = full_text;
+        ctx.cursor_offset = buffer.cursor_flat_offset();
+        auto built = build_combined_highlights(ctx);
+        // Merge: append built highlights to any manually-provided ones.
+        // The segmenter's priority-resolution handles overlaps.
+        effective_highlights.insert(
+            effective_highlights.end(),
+            built.begin(), built.end());
+    }
+
     // ── Build filtered & adjusted highlights ──────────────────────────────
     // TS REF: BaseTextInput.tsx:93 (cursorFiltered)
     auto cursor_off = buffer.cursor_flat_offset();
     auto cursor_filtered = filter_highlights_at_cursor(
-        opts.highlights, cursor_off, focused);
+        effective_highlights, cursor_off, focused);
 
     // TS REF: BaseTextInput.tsx:98-102 (viewport adjustment)
     std::size_t vp_end = opts.viewport_char_end > 0
@@ -543,20 +602,25 @@ struct LinePart {
     }
 
     // Vim mode indicator
-    if (opts.enable_vim && vim_mode != VimMode::Disabled) {
+    // TS REF: src/hooks/useVimInput.ts — mode label shown in statusline/footer.
+    if (vim_mode.has_value()) {
         std::string mode_str;
         Color mode_color;
-        switch (vim_mode) {
+        switch (*vim_mode) {
             case VimMode::Normal:
                 mode_str = "NORMAL"; mode_color = Color::Blue; break;
             case VimMode::Insert:
                 mode_str = "INSERT"; mode_color = Color::Green; break;
             case VimMode::Visual:
                 mode_str = "VISUAL"; mode_color = Color::Magenta; break;
+            case VimMode::VisualLine:
+                mode_str = "VISUAL LINE"; mode_color = Color::Magenta; break;
+            case VimMode::VisualBlock:
+                mode_str = "VISUAL BLOCK"; mode_color = Color::Magenta; break;
+            case VimMode::Replace:
+                mode_str = "REPLACE"; mode_color = Color::Red; break;
             case VimMode::Command:
                 mode_str = "COMMAND"; mode_color = Color::Yellow; break;
-            default:
-                mode_str = ""; mode_color = Color::White; break;
         }
         if (!mode_str.empty()) {
             all_lines.push_back(
@@ -576,29 +640,40 @@ struct LinePart {
     struct State {
         TextInputWidgetOptions opts;
         TextBuffer buffer;
-        VimMode vim_mode;
+        std::optional<VimMode> vim_mode;  // nullopt = vim disabled
         bool focused = true;
         std::deque<std::string> history;
         size_t history_index = std::string::npos;
         std::chrono::steady_clock::time_point start_time;
+        // Vim operator-pending state (TS REF: src/vim/types.ts CommandState)
+        bool d_pending = false;
+        bool y_pending = false;
+        bool r_pending = false;
     };
     auto state = std::make_shared<State>();
     state->opts = std::move(options);
-    state->vim_mode = state->opts.enable_vim ? VimMode::Normal : VimMode::Disabled;
+    state->vim_mode = state->opts.vim_mode;  // propagate initial mode (nullopt = off)
     state->start_time = std::chrono::steady_clock::now();
 
     return Renderer([state] {
         // Update cursor_offset in opts for cursor-based highlight filtering.
         // TS REF: BaseTextInput.tsx:93 (cursorOffset prop passed to TextInput)
         state->opts.cursor_offset = state->buffer.cursor_flat_offset();
+
+        // NOTE: combined_ctx.text/cursor are synced inside RenderTextInputWidget
+        // from the live buffer — do NOT cache them here because get_text()
+        // returns a temporary std::string that would dangle the string_view.
+
         return RenderTextInputWidget(
             state->opts, state->buffer, state->vim_mode, state->focused);
     }) | CatchEvent([state](Event event) -> bool {
         auto& buf = state->buffer;
         auto& opts = state->opts;
+        const bool vim_active = state->vim_mode.has_value();
 
-        // Vim normal mode handling
-        if (state->vim_mode == VimMode::Normal) {
+        // ── Vim Normal mode ────────────────────────────────────────────────
+        if (vim_active && *state->vim_mode == VimMode::Normal) {
+            // Enter Insert mode
             if (event == Event::Character('i')) {
                 state->vim_mode = VimMode::Insert;
                 return true;
@@ -624,6 +699,39 @@ struct LinePart {
                 buf.insert_newline();
                 return true;
             }
+            if (event == Event::Character('O')) {
+                state->vim_mode = VimMode::Insert;
+                buf.move_home();
+                // Insert newline above current line
+                auto cur_line = buf.line(buf.cursor().line);
+                buf.move_home();
+                buf.insert_newline();
+                buf.move_up();
+                return true;
+            }
+
+            // Enter Visual modes
+            if (event == Event::Character('v')) {
+                state->vim_mode = VimMode::Visual;
+                return true;
+            }
+            if (event == Event::Character('V')) {
+                state->vim_mode = VimMode::VisualLine;
+                return true;
+            }
+            // Ctrl+V = VisualBlock  (TS REF: useVimInput.ts visual-block toggle)
+            if (event == Event::Special({'\x16'})) {
+                state->vim_mode = VimMode::VisualBlock;
+                return true;
+            }
+
+            // Enter Replace mode
+            if (event == Event::Character('R')) {
+                state->vim_mode = VimMode::Replace;
+                return true;
+            }
+
+            // Navigation
             if (event == Event::Character('h') || event == Event::ArrowLeft) {
                 buf.move_left(); return true;
             }
@@ -642,22 +750,229 @@ struct LinePart {
             if (event == Event::Character('$') || event == Event::End) {
                 buf.move_end(); return true;
             }
+            if (event == Event::Character('w')) {
+                // Word forward: jump to start of next word (TS REF: motions.ts 'w')
+                int line = buf.cursor().line;
+                int col = buf.cursor().col;
+                auto& cur_line = buf.mutable_line(line);
+                int n = static_cast<int>(cur_line.size());
+                if (col < n) {
+                    if (!std::isspace(static_cast<unsigned char>(cur_line[col]))) {
+                        while (col < n && !std::isspace(static_cast<unsigned char>(cur_line[col]))) ++col;
+                    }
+                    while (col < n && std::isspace(static_cast<unsigned char>(cur_line[col]))) ++col;
+                    if (col >= n && line + 1 < buf.line_count()) {
+                        buf.set_cursor(line + 1, 0);
+                    } else {
+                        buf.set_cursor(line, col);
+                    }
+                }
+                return true;
+            }
+            if (event == Event::Character('b')) {
+                // Word backward: jump to start of previous word (TS REF: motions.ts 'b')
+                int line = buf.cursor().line;
+                int col = buf.cursor().col;
+                if (col > 0) {
+                    auto& cur_line = buf.mutable_line(line);
+                    --col;
+                    while (col > 0 && std::isspace(static_cast<unsigned char>(cur_line[col]))) --col;
+                    while (col > 0 && !std::isspace(static_cast<unsigned char>(cur_line[col - 1]))) --col;
+                    buf.set_cursor(line, col);
+                } else if (line > 0) {
+                    int prev_line = line - 1;
+                    int prev_end = static_cast<int>(buf.mutable_line(prev_line).size());
+                    buf.set_cursor(prev_line, prev_end);
+                }
+                return true;
+            }
+            if (event == Event::Character('e')) {
+                // Word end: jump to end of current/next word (TS REF: motions.ts 'e')
+                int line = buf.cursor().line;
+                int col = buf.cursor().col;
+                auto& cur_line = buf.mutable_line(line);
+                int n = static_cast<int>(cur_line.size());
+                if (col < n - 1 || (col == n - 1 && std::isspace(static_cast<unsigned char>(cur_line[col])))) {
+                    if (std::isspace(static_cast<unsigned char>(cur_line[col]))) {
+                        while (col < n && std::isspace(static_cast<unsigned char>(cur_line[col]))) ++col;
+                    }
+                    while (col < n - 1 && !std::isspace(static_cast<unsigned char>(cur_line[col + 1]))) ++col;
+                    buf.set_cursor(line, std::min(col, n - 1));
+                }
+                return true;
+            }
+
+            // Editing
             if (event == Event::Character('x')) {
                 buf.delete_char();
                 if (opts.on_change) opts.on_change(buf.get_text());
                 return true;
             }
+            // d = operator-pending (dd = delete current line)
+            // TS REF: transitions.ts — first 'd' enters operator state, second 'd' executes line op
             if (event == Event::Character('d')) {
-                buf.clear();
+                if (state->d_pending) {
+                    buf.delete_line();
+                    state->d_pending = false;
+                    if (opts.on_change) opts.on_change(buf.get_text());
+                } else {
+                    state->d_pending = true;
+                }
+                return true;
+            }
+            // y = yank (yy = yank line, conceptually yanked — no register in widget)
+            if (event == Event::Character('y')) {
+                if (state->y_pending) {
+                    state->y_pending = false;
+                } else {
+                    state->y_pending = true;
+                }
+                return true;
+            }
+            // p / P = paste (simplified: no register in widget, no-op)
+            if (event == Event::Character('p') || event == Event::Character('P')) {
+                return true;
+            }
+
+            // Undo (TS REF: useVimInput.ts u → onUndo)
+            // Widget has no undo stack: u is a no-op (don't clear buffer!)
+            if (event == Event::Character('u')) {
+                return true;
+            }
+            // Ctrl+R = redo (also no-op without undo stack)
+            if (event == Event::Special({'\x12'})) {
+                return true;
+            }
+
+            // G = last line (TS REF: transitions.ts 'G')
+            if (event == Event::Character('G')) {
+                buf.move_bottom();
+                return true;
+            }
+
+            // J = join lines (TS REF: transitions.ts 'J')
+            if (event == Event::Character('J')) {
+                int cur_line = buf.cursor().line;
+                if (cur_line + 1 < buf.line_count()) {
+                    int old_col = buf.cursor().col;
+                    // Get next line content, trim leading whitespace
+                    auto& next = buf.mutable_line(cur_line + 1);
+                    size_t start = 0;
+                    while (start < next.size() && (next[start] == ' ' || next[start] == '\t'))
+                        ++start;
+                    std::string trimmed_next = next.substr(start);
+                    // Delete the next line by moving cursor there and calling delete_line
+                    buf.set_cursor(cur_line + 1, 0);
+                    buf.delete_line();
+                    // Now append " " + trimmed to current line
+                    auto& cur = buf.mutable_line(cur_line);
+                    cur += " " + trimmed_next;
+                    buf.set_cursor(cur_line, old_col);  // restore cursor position
+                    if (opts.on_change) opts.on_change(buf.get_text());
+                }
+                return true;
+            }
+
+            // D = delete to end of line (TS REF: transitions.ts 'D')
+            if (event == Event::Character('D')) {
+                int line = buf.cursor().line;
+                int col = buf.cursor().col;
+                auto& cur = buf.mutable_line(line);
+                if (col < static_cast<int>(cur.size())) {
+                    cur.erase(col);
+                    if (opts.on_change) opts.on_change(buf.get_text());
+                }
+                return true;
+            }
+
+            // C = change to end (delete + insert mode) (TS REF: transitions.ts 'C')
+            if (event == Event::Character('C')) {
+                int line = buf.cursor().line;
+                int col = buf.cursor().col;
+                auto& cur = buf.mutable_line(line);
+                if (col < static_cast<int>(cur.size())) {
+                    cur.erase(col);
+                }
+                state->vim_mode = VimMode::Insert;
                 if (opts.on_change) opts.on_change(buf.get_text());
+                return true;
+            }
+
+            // r = replace char (TS REF: transitions.ts 'r' → fromReplace)
+            if (event == Event::Character('r')) {
+                state->r_pending = true;
+                return true;
+            }
+
+            return false;
+        }
+
+        // ── Vim Visual / VisualLine / VisualBlock modes ────────────────────
+        if (vim_active && (*state->vim_mode == VimMode::Visual ||
+                           *state->vim_mode == VimMode::VisualLine ||
+                           *state->vim_mode == VimMode::VisualBlock)) {
+            // Escape exits visual mode
+            if (event == Event::Escape) {
+                state->vim_mode = VimMode::Normal;
+                return true;
+            }
+            // Movement extends selection (visual feedback is handled by
+            // the renderer's highlight system; here we just move cursor).
+            if (event == Event::Character('h') || event == Event::ArrowLeft) {
+                buf.move_left(); return true;
+            }
+            if (event == Event::Character('l') || event == Event::ArrowRight) {
+                buf.move_right(); return true;
+            }
+            if (event == Event::Character('j') || event == Event::ArrowDown) {
+                buf.move_down(); return true;
+            }
+            if (event == Event::Character('k') || event == Event::ArrowUp) {
+                buf.move_up(); return true;
+            }
+            if (event == Event::Character('0') || event == Event::Home) {
+                buf.move_home(); return true;
+            }
+            if (event == Event::Character('$') || event == Event::End) {
+                buf.move_end(); return true;
+            }
+            // d = delete selection, y = yank selection
+            // TS REF: transitions.ts — visual d/y operate on selected range.
+            // Widget has no explicit selection anchor; just exit visual mode.
+            if (event == Event::Character('d') || event == Event::Character('y')) {
+                state->vim_mode = VimMode::Normal;
                 return true;
             }
             return false;
         }
 
-        // Escape returns to normal mode or cancels
+        // ── Vim Replace mode ───────────────────────────────────────────────
+        if (vim_active && *state->vim_mode == VimMode::Replace) {
+            if (event == Event::Escape) {
+                state->vim_mode = VimMode::Normal;
+                return true;
+            }
+            if (event.is_character()) {
+                char c = event.character()[0];
+                if (c >= 32 && c < 127) {
+                    // Replace: overwrite one char then return to Normal
+                    buf.delete_char();
+                    buf.insert_char(c);
+                    state->vim_mode = VimMode::Normal;
+                    if (opts.on_change) opts.on_change(buf.get_text());
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // ── Escape (Insert mode or disabled) ───────────────────────────────
         if (event == Event::Escape) {
-            if (state->vim_mode == VimMode::Insert) {
+            // Clear any operator-pending state (TS REF: transitions.ts Escape cancels)
+            state->d_pending = false;
+            state->y_pending = false;
+            state->r_pending = false;
+            if (vim_active && *state->vim_mode == VimMode::Insert) {
                 state->vim_mode = VimMode::Normal;
                 return true;
             }
@@ -665,7 +980,23 @@ struct LinePart {
             return true;
         }
 
-        // Insert mode / non-vim handling
+        // ── r-pending: replace char under cursor (TS REF: transitions.ts fromReplace) ──
+        if (state->r_pending && event.is_character()) {
+            char replacement = event.character()[0];
+            if (replacement >= 32 && replacement < 127) {
+                int line = buf.cursor().line;
+                int col = buf.cursor().col;
+                auto& cur = buf.mutable_line(line);
+                if (col < static_cast<int>(cur.size())) {
+                    cur[static_cast<size_t>(col)] = replacement;
+                    if (opts.on_change) opts.on_change(buf.get_text());
+                }
+                state->r_pending = false;
+                return true;
+            }
+        }
+
+        // ── Insert mode / non-vim character input ──────────────────────────
         if (event.is_character()) {
             char c = event.character()[0];
             if (c >= 32 && c < 127) {

@@ -5,10 +5,16 @@ module;
 
 export module cc.vim.vim_mode;
 
+import cc.vim.vim_types;  // canonical VimMode (lives in cc_vim to avoid circular deps)
+
 export namespace cc::vim {
 
-// Vim editing modes
-enum class VimMode { Normal, Insert, Visual, VisualLine, Command, Replace };
+// Canonical VimMode — defined in cc.vim.vim_types (same cc::vim namespace).
+// TS REF: src/types/textInputTypes.ts:222 (public type = 'INSERT'|'NORMAL')
+//          src/hooks/useVimInput.ts (internal state machine tracks more)
+// This replaces the previous local 6-value enum { Normal,Insert,Visual,
+// VisualLine,Command,Replace } that was missing VisualBlock.
+using cc::vim::VimMode;  // re-export for external consumers
 
 // State machine for vim mode transitions and key processing
 class VimStateMachine {
@@ -27,6 +33,7 @@ public:
                 return process_insert(key);
             case VimMode::Visual:
             case VimMode::VisualLine:
+            case VimMode::VisualBlock:
                 return process_visual(key);
             case VimMode::Command:
                 return process_command(key);
@@ -37,14 +44,16 @@ public:
     }
 
     // Get the status line text for current mode
+    // TS REF: vim mode indicator shown in footer / statusline.
     [[nodiscard]] auto get_status_line() const -> std::string {
         switch (mode_) {
-            case VimMode::Normal:     return "-- NORMAL --";
-            case VimMode::Insert:     return "-- INSERT --";
-            case VimMode::Visual:     return "-- VISUAL --";
-            case VimMode::VisualLine: return "-- VISUAL LINE --";
-            case VimMode::Command:    return ":" + command_buffer_;
-            case VimMode::Replace:    return "-- REPLACE --";
+            case VimMode::Normal:      return "-- NORMAL --";
+            case VimMode::Insert:      return "-- INSERT --";
+            case VimMode::Visual:      return "-- VISUAL --";
+            case VimMode::VisualLine:  return "-- VISUAL LINE --";
+            case VimMode::VisualBlock: return "-- VISUAL BLOCK --";
+            case VimMode::Command:     return ":" + command_buffer_;
+            case VimMode::Replace:     return "-- REPLACE --";
         }
         return "";
     }
@@ -71,6 +80,9 @@ private:
                 return std::nullopt;
             case 'V':
                 mode_ = VimMode::VisualLine;
+                return std::nullopt;
+            case '\x16':  // Ctrl+V = VisualBlock
+                mode_ = VimMode::VisualBlock;
                 return std::nullopt;
             case ':':
                 mode_ = VimMode::Command;

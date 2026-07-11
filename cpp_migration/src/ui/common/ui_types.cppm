@@ -21,6 +21,10 @@ module;
 
 export module cc.ui.common.types;
 
+// Canonical VimMode lives in cc_vim (low-level target) to avoid circular
+// deps: cc_hooks needs VimMode but cc_ui depends on cc_hooks.
+import cc.vim.vim_types;
+
 export namespace cc::ui::common {
 
 // ============================================================
@@ -72,11 +76,41 @@ struct AgentValidationResult {
 
 // ============================================================
 // From: src/components/PromptInput/inputModes.ts
+// Also: src/types/textInputTypes.ts (PromptInputMode type)
+//
+// UNIFIED CANONICAL ENUM — replaces 6 incompatible definitions scattered
+// across the codebase (text_input.cppm, prompt_input_full.cppm,
+// prompt_input_footer.cppm, repl_screen.cppm, mode_indicator.cppm,
+// and the previous 3-value stub here).
+//
+// TS REF: src/types/textInputTypes.ts:265 — TS PromptInputMode is only
+//   'bash' | 'prompt' | 'orphaned-permission' | 'task-notification' (4 values).
+// The CPP port historically mixed orthogonal concepts (vim mode, plan mode,
+// history search, prefix-triggered modes) into the same enum.  This unified
+// definition preserves the full union so existing switch statements compile,
+// but callers should treat vim/plan/search as LAYERED state (TS parity:
+// VimMode is a separate type, plan mode is a separate flag).
 // ============================================================
 enum class PromptInputMode {
-    Normal,
-    Bash,
-    MCP,
+    Normal,             ///< Default prompt (TS: 'prompt').  Also used by
+                        ///  modules that historically called this 'Prompt'.
+    Bash,               ///< Shell-first (leading '!').  TS: 'bash'.
+    SlashCommand,       ///< Slash-command mode (leading '/').  text_input
+                        ///  called this 'Command'.
+    HistorySearch,      ///< Ctrl+R reverse history search.
+    PlanMode,           ///< Plan-only mode.
+    FileRef,            ///< File-reference (leading '@').
+    Agent,              ///< Agent mention (leading '*').
+    BgRun,              ///< '&' background run.
+    MCP,                ///< MCP resource mode.
+    VimNormal,          ///< Vim normal mode.
+    VimInsert,          ///< Vim insert mode.
+    VimVisual,          ///< Vim visual mode.
+    OrphanedPermission, ///< Orphaned permission prompt.  TS: 'orphaned-permission'.
+    TaskNotification,   ///< Task notification overlay.  TS: 'task-notification'.
+    FastMode,           ///< Fast mode (CPP extension).
+    Search,             ///< Generic search mode (text_input.cppm used this
+                        ///  separately from HistorySearch).
 };
 
 enum class HistoryMode {
@@ -85,6 +119,9 @@ enum class HistoryMode {
 };
 
 /// Prepends the mode-specific character prefix to raw input.
+/// Only Bash mode prepends '!'; all other modes from the unified
+/// PromptInputMode enum fall through to returning the raw input.
+/// TS REF: src/components/PromptInput/inputModes.ts:4-14
 [[nodiscard]] inline std::string prepend_mode_char(std::string_view input,
                                                    PromptInputMode mode) {
     switch (mode) {
@@ -179,5 +216,28 @@ constexpr std::array<std::string_view, 49> kNullRenderingTypes = {{
 }
 
 } // namespace attachment_filter
+
+// ============================================================
+// Canonical VimMode enum — re-exported from cc.vim.vim_types
+//
+// Canonical definition lives in cc_vim (vim/vim_types.cppm) to avoid
+// circular deps (cc_hooks needs VimMode but cc_ui depends on cc_hooks).
+//
+// UNIFIED: replaces 5 incompatible VimMode definitions scattered across
+//   - src/ui/prompt/vim_input.cppm (6 values)
+//   - src/ui/prompt_input.cppm (3 values)
+//   - src/vim/vim_mode.cppm (6 values)
+//   - src/hooks/vim_input.cppm (5 values)
+//   - src/ui/components/text_input.cppm (bool enable_vim)
+//
+// TS REF: src/types/textInputTypes.ts:222 — public VimMode type is
+//   'INSERT' | 'NORMAL'.  Internal state machine tracks richer modes.
+// TS REF: src/hooks/useVimInput.ts:36 — mode starts at 'INSERT'.
+// ============================================================
+using cc::vim::VimMode;
+using cc::vim::is_editing_mode;
+using cc::vim::is_navigation_mode;
+using cc::vim::vim_mode_label;
+using cc::vim::vim_mode_short_label;
 
 } // namespace cc::ui::common

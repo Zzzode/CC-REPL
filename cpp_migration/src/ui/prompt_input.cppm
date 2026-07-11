@@ -14,20 +14,19 @@ module;
 #include <utility>
 #include <vector>
 #include <filesystem>
+#include <ftxui/dom/elements.hpp>
 
 export module cc.ui.prompt_input;
 
-
-// Forward declarations for FTXUI
-namespace ftxui {
-    class Element;
-    class Node;
-}
+import cc.ui.common.types;  // canonical VimMode
 
 export namespace cc::ui {
 
-// Vim editing mode states
-enum class VimMode { Normal, Insert, Visual };
+// Canonical VimMode — imported from cc::ui::common (ui_types.cppm).
+// TS REF: src/types/textInputTypes.ts:222 (public type = 'INSERT'|'NORMAL')
+// This replaces the previous local 3-value enum { Normal, Insert, Visual }
+// that conflicted with the 6-value version in vim_input.cppm.
+using cc::ui::common::VimMode;
 
 // Vim motion types
 enum class VimMotion { Left, Right, Up, Down, WordForward, WordBack, LineStart, LineEnd };
@@ -441,57 +440,10 @@ private:
     std::size_t rapid_count_{0};
 };
 
-// VimHandler: processes vim-mode key input
-class VimHandler {
-public:
-    [[nodiscard]] auto mode() const -> VimMode { return mode_; }
-    auto set_mode(VimMode m) -> void { mode_ = m; pending_.clear(); }
-
-    // Process a key in vim mode, returns true if consumed
-    auto process_key(char key, InputBuffer& buffer) -> bool {
-        if (mode_ == VimMode::Insert) {
-            if (key == '\x1b') { buffer.adjust_for_insert_to_normal(); set_mode(VimMode::Normal); return true; } // Escape
-            return false; // Let normal insert handle it
-        }
-        // Normal mode motions
-        switch (key) {
-            case 'h': buffer.move_cursor(VimMotion::Left); return true;
-            case 'j': buffer.move_cursor(VimMotion::Down); return true;
-            case 'k': buffer.move_cursor(VimMotion::Up); return true;
-            case 'l': buffer.move_cursor(VimMotion::Right); return true;
-            case 'w': buffer.move_cursor(VimMotion::WordForward); return true;
-            case 'b': buffer.move_cursor(VimMotion::WordBack); return true;
-            case '0': buffer.move_cursor(VimMotion::LineStart); return true;
-            case '$': buffer.move_cursor(VimMotion::LineEnd); return true;
-            case 'i': set_mode(VimMode::Insert); return true;
-            case 'a': buffer.move_cursor(VimMotion::Right); set_mode(VimMode::Insert); return true;
-            case 'v': set_mode(VimMode::Visual); return true;
-            case 'x': buffer.delete_char(); return true;
-            case 'd':
-                if (pending_ == "d") { yank_reg_ = buffer.delete_line() + '\n'; yank_reg_linewise_ = true; pending_.clear(); return true; }
-                pending_ = "d"; return true;
-            case 'y':
-                if (pending_ == "y") { yank_reg_ = buffer.yank_line(); yank_reg_linewise_ = true; pending_.clear(); return true; }
-                pending_ = "y"; return true;
-            case 'p':
-                if (yank_reg_linewise_) buffer.paste_line_after(yank_reg_);
-                else buffer.paste(yank_reg_);
-                return true;
-            default: pending_.clear(); return false;
-        }
-    }
-
-private:
-    VimMode mode_{VimMode::Insert};
-    std::string pending_;
-    std::string yank_reg_;
-    bool yank_reg_linewise_{false};
-};
-
-// Main render function for the prompt input component
-// Returns an FTXUI Element representing the full prompt input area
-auto render_prompt_input(const InputBuffer& buffer, const HistoryManager& history,
-                         const Typeahead& typeahead, const VimHandler& vim,
-                         std::size_t terminal_width) -> ftxui::Element;
+// NOTE: VimHandler removed — vim mode handling is now consolidated in
+//   - cc::ui::common::VimMode (canonical enum, ui_types.cppm)
+//   - cc::ui::prompt::vim_input (standalone VimInput component)
+//   - ui::components::TextInputImpl with optional<VimMode> (text_input.cppm)
+// TS REF: src/hooks/useVimInput.ts — single vim state machine wrapping text input.
 
 } // namespace cc::ui

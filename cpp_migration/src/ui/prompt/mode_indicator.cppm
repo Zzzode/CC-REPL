@@ -4,6 +4,7 @@ module;
 export module cc.ui.prompt.mode_indicator;
 
 import cc.ui.design.figures;
+import cc.ui.common.types;  // unified PromptInputMode canonical enum
 
 // TS REF: src/components/PromptInput/PromptInputModeIndicator.tsx
 //
@@ -26,11 +27,11 @@ export namespace cc::ui::prompt {
 
 namespace figs = cc::ui::design::figures;
 
-// Prompt input mode.  Mirrors TS PromptInputMode's two *rendered* prefix
-// variants.  (The full TS union also has 'orphaned-permission' /
-// 'task-notification', but both fall through to the pointer glyph, so they
-// are represented by Normal here.)
-enum class InputMode { Normal, Bash };
+// Prompt input mode — unified canonical enum from cc::ui::common.
+// Previously this file defined a local 2-value InputMode {Normal, Bash}.
+// Old→new mapping: both values retain their names in the unified enum.
+// TS REF: src/types/textInputTypes.ts:265 (PromptInputMode type)
+using InputMode = cc::ui::common::PromptInputMode;
 
 // Map the CPP prompt-prefix InputMode to the shared figures PromptMode enum.
 // TS REF: inputModes.ts getModeFromInput — bash is the only glyph-changing mode.

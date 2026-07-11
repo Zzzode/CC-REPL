@@ -16,6 +16,7 @@ export module cc.ui.prompt_input_full;
 import cc.ui.layout;
 import cc.ui.prompt_input;
 import cc.ui.design.figures;
+import cc.ui.common.types;  // unified PromptInputMode canonical enum
 
 export namespace cc::ui::prompt {
 
@@ -52,17 +53,12 @@ using ContextAttachment = std::variant<
     IdeSelection
 >;
 
-// --- Prompt mode ---
-enum class PromptInputMode {
-    Normal,
-    HistorySearch,
-    SlashCommand,
-    PlanMode,
-    FastMode,
-    VimNormal,
-    VimInsert,
-    VimVisual
-};
+// --- Prompt mode (unified canonical enum from ui_types.cppm) ---
+// Previously this file defined a local 8-value PromptInputMode:
+//   {Normal, HistorySearch, SlashCommand, PlanMode, FastMode,
+//    VimNormal, VimInsert, VimVisual}
+// All values are now in cc::ui::common::PromptInputMode.
+using cc::ui::common::PromptInputMode;
 
 // --- Model selector state ---
 struct ModelSelectorState {
@@ -144,7 +140,10 @@ struct PromptInputFullProps {
     cc::ui::InputBuffer* buffer;
     cc::ui::HistoryManager* history;
     cc::ui::Typeahead* typeahead;
-    cc::ui::VimHandler* vim;
+    // Canonical vim mode (replaces cc::ui::VimHandler* pointer).
+    // TS REF: src/types/textInputTypes.ts:222 — VimMode type.
+    // vim_mode = Insert is the default (matches TS useVimInput initial state).
+    cc::ui::common::VimMode vim_mode = cc::ui::common::VimMode::Insert;
 
     // Context
     std::vector<ContextAttachment> context_items;
@@ -226,10 +225,11 @@ struct PromptInputFullProps {
 // the caller (bashBorder for bash, teammate/theme.text otherwise), mirroring
 // how TS supplies it via Ink's <Text color=…> rather than embedding ANSI.
 //
-// NOTE: this file's PromptInputMode enum has no dedicated Bash value — bash
-// is detected from the leading '!' via figures::get_mode_from_input, so every
-// enum value maps to the pointer glyph per TS fall-through semantics.  Callers
-// with a known-bash input should use figures::kBashPrefix directly.
+// NOTE: bash mode is detected from the leading '!' via figures::get_mode_from_input.
+// The unified PromptInputMode enum does include Bash, but this function intentionally
+// returns the pointer glyph for ALL modes — bash prefix is rendered separately by
+// the caller (repl_screen) using figures::kBashPrefix.  TS PromptInputModeIndicator
+// only ever emits '❯' or '!' at the prefix position.
 [[nodiscard]] inline auto render_prompt_prefix(PromptInputMode /*mode*/)
     -> std::string {
     return std::string(cc::ui::design::figures::kPointerPrefix);
@@ -271,6 +271,12 @@ struct PromptInputFullProps {
         case PromptInputMode::VimVisual:
             result = "\033[33m[V]\033[0m ";
             break;
+        // Unified enum fallthrough — modes that don't render a badge here:
+        // Bash (rendered as '!' prefix glyph, not a badge),
+        // FileRef / Agent / BgRun / MCP (prefix-triggered, surfaced elsewhere),
+        // OrphanedPermission / TaskNotification (TS: fall through to pointer),
+        // Search (handled by HistorySearch above), Normal (no badge).
+        default: break;
     }
 
     switch (perm_mode) {
@@ -343,7 +349,7 @@ struct PromptInputFullProps {
 // Render the complete prompt input area with all indicators
 [[nodiscard]] inline auto render_prompt_input_full(const PromptInputFullProps& props)
     -> std::expected<std::string, std::string> {
-    if (!props.buffer || !props.history || !props.typeahead || !props.vim) {
+    if (!props.buffer || !props.history || !props.typeahead) {
         return std::unexpected(std::string("PromptInputFull: null pointer in props"));
     }
 

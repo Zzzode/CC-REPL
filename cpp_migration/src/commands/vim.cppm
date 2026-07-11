@@ -18,18 +18,19 @@ export module cc.commands.vim;
 
 import cc.types.types;
 import cc.commands.command;
+import cc.vim.vim_types;  // canonical VimMode (cc_vim target)
 
 export namespace cc::commands {
 
 using namespace cc::core;
 
-/// Vim mode state tracking
-enum class VimModeState : std::uint8_t {
-    Normal,
-    Insert,
-    Visual,
-    Command,
-};
+// Canonical VimMode — imported from cc::vim (vim/vim_types.cppm).
+// Lives in cc_vim to avoid circular deps.
+// TS REF: src/types/textInputTypes.ts:222 (public type = 'INSERT'|'NORMAL')
+// This replaces the previous local VimModeState enum { Normal, Insert, Visual,
+// Command } that conflicted with other implementations.
+// "Disabled" is tracked by the separate enabled_ bool below.
+using cc::vim::VimMode;
 
 /// VimCommand implements the /vim slash command.
 /// Toggles vim-style keybindings for the input line editor.
@@ -72,7 +73,7 @@ public:
 
         if (action == "on") {
             enabled_ = true;
-            mode_ = VimModeState::Normal;
+            mode_ = VimMode::Normal;
             return CommandResult::success("Vim mode enabled. Press 'i' to enter insert mode.");
         }
         if (action == "off") {
@@ -100,21 +101,24 @@ public:
     [[nodiscard]] bool is_enabled() const noexcept { return enabled_; }
 
     /// Get current vim mode state
-    [[nodiscard]] VimModeState current_mode() const noexcept { return mode_; }
+    [[nodiscard]] VimMode current_mode() const noexcept { return mode_; }
 
     /// Set vim mode state (called by the input handler)
-    void set_mode(VimModeState mode) { mode_ = mode; }
+    void set_mode(VimMode mode) { mode_ = mode; }
 
 private:
     bool enabled_ = false;
-    VimModeState mode_ = VimModeState::Normal;
+    VimMode mode_ = VimMode::Normal;
 
-    [[nodiscard]] static constexpr std::string_view mode_to_str(VimModeState mode) noexcept {
+    [[nodiscard]] static constexpr std::string_view mode_to_str(VimMode mode) noexcept {
         switch (mode) {
-            case VimModeState::Normal:  return "NORMAL";
-            case VimModeState::Insert:  return "INSERT";
-            case VimModeState::Visual:  return "VISUAL";
-            case VimModeState::Command: return "COMMAND";
+            case VimMode::Normal:      return "NORMAL";
+            case VimMode::Insert:      return "INSERT";
+            case VimMode::Visual:      return "VISUAL";
+            case VimMode::VisualLine:  return "VISUAL LINE";
+            case VimMode::VisualBlock: return "VISUAL BLOCK";
+            case VimMode::Replace:     return "REPLACE";
+            case VimMode::Command:     return "COMMAND";
         }
         return "UNKNOWN";
     }

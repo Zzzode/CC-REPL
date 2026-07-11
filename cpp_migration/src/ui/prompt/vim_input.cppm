@@ -19,23 +19,38 @@ module;
 export module cc.ui.prompt.vim_input;
 
 import cc.types.types;
+import cc.ui.common.types;  // TS REF: canonical VimMode lives here
 
 export namespace cc::ui::prompt::vim_input {
 using namespace ftxui;
 
 // ============================================================
+// ARCHITECTURE NOTE (2026-07-10, P2 "vim-dual-conflicting-impls")
+// ============================================================
+// This module provides a standalone VimInput component with its own VimState.
+// It is primarily used for:
+//   1. `mode_display()` utility — returns {label, color} pairs consumed by
+//      repl_screen.cppm and prompt_input_footer.cppm for the "-- NORMAL --"
+//      / "-- INSERT --" indicator.
+//   2. Legacy standalone usage in screens that do not use TextInputImpl.
+//
+// The CANONICAL vim editing implementation lives in:
+//   cc::ui::components::TextInputImpl  (text_input.cppm)
+// which uses `std::optional<VimMode> vim_mode` in TextInputOptions and has
+// the full HandleVimEvent() state machine matching TS useVimInput.ts.
+//
+// Do NOT add new text-editing logic here.  Extend TextInputImpl instead.
+// ============================================================
+
+// ============================================================
 // Types
 // ============================================================
 
-/// Vim editing mode
-enum class VimMode : std::uint8_t {
-    Normal,     // Navigation mode (default)
-    Insert,     // Text insertion mode
-    Visual,     // Visual selection mode
-    VisualLine, // Line-wise visual selection
-    Command,    // Ex command-line mode (:)
-    Replace,    // Single-character replace mode
-};
+// Canonical VimMode — imported from cc::ui::common (ui_types.cppm).
+// TS REF: src/types/textInputTypes.ts:222 (public type = 'INSERT'|'NORMAL')
+//          src/hooks/useVimInput.ts:36 (internal state machine tracks more)
+// This replaces the previous local 6-value enum that was missing VisualBlock.
+using cc::ui::common::VimMode;
 
 /// Vim register for yank/paste
 struct VimRegister {
@@ -134,27 +149,33 @@ struct VimInputOptions {
 // ============================================================
 
 /// Get the cursor shape for the current mode
+/// TS REF: useVimInput.ts — cursor style changes per mode (block for normal,
+/// bar for insert, underline for replace).
 [[nodiscard]] inline CursorShape cursor_for_mode(VimMode mode) {
     switch (mode) {
-        case VimMode::Normal:     return CursorShape::Block;
-        case VimMode::Insert:     return CursorShape::Bar;
-        case VimMode::Visual:     return CursorShape::Block;
-        case VimMode::VisualLine: return CursorShape::Block;
-        case VimMode::Replace:    return CursorShape::Underline;
-        case VimMode::Command:    return CursorShape::Bar;
+        case VimMode::Normal:      return CursorShape::Block;
+        case VimMode::Insert:      return CursorShape::Bar;
+        case VimMode::Visual:      return CursorShape::Block;
+        case VimMode::VisualLine:  return CursorShape::Block;
+        case VimMode::VisualBlock: return CursorShape::Block;
+        case VimMode::Replace:     return CursorShape::Underline;
+        case VimMode::Command:     return CursorShape::Bar;
     }
     return CursorShape::Block;
 }
 
-/// Get mode display label and color
+/// Get mode display label and color.
+/// TS REF: vim mode indicator color coding — green=normal, blue=insert,
+/// magenta=visual, red=replace, yellow=command.
 [[nodiscard]] inline std::pair<std::string, Color> mode_display(VimMode mode) {
     switch (mode) {
-        case VimMode::Normal:     return {"NORMAL",  Color::Green};
-        case VimMode::Insert:     return {"INSERT",  Color::Blue};
-        case VimMode::Visual:     return {"VISUAL",  Color::Magenta};
-        case VimMode::VisualLine: return {"V-LINE",  Color::Magenta};
-        case VimMode::Replace:    return {"REPLACE", Color::Red};
-        case VimMode::Command:    return {"COMMAND", Color::Yellow};
+        case VimMode::Normal:      return {"NORMAL",      Color::Green};
+        case VimMode::Insert:      return {"INSERT",      Color::Blue};
+        case VimMode::Visual:      return {"VISUAL",      Color::Magenta};
+        case VimMode::VisualLine:  return {"V-LINE",      Color::Magenta};
+        case VimMode::VisualBlock: return {"V-BLOCK",     Color::Magenta};
+        case VimMode::Replace:     return {"REPLACE",     Color::Red};
+        case VimMode::Command:     return {"COMMAND",     Color::Yellow};
     }
     return {"???", Color::White};
 }
@@ -173,7 +194,10 @@ struct VimInputOptions {
 
     // Visual selection range
     int sel_start = -1, sel_end = -1;
-    if (state.mode == VimMode::Visual && state.visual_start >= 0) {
+    bool is_visual = (state.mode == VimMode::Visual ||
+                      state.mode == VimMode::VisualLine ||
+                      state.mode == VimMode::VisualBlock);
+    if (is_visual && state.visual_start >= 0) {
         sel_start = std::min(state.visual_start, state.cursor_pos);
         sel_end = std::max(state.visual_start, state.cursor_pos);
     }
@@ -183,7 +207,7 @@ struct VimInputOptions {
             // Cursor position
             if (i < len) {
                 std::string ch(1, state.text[i]);
-                if (state.mode == VimMode::Normal || state.mode == VimMode::Visual) {
+                if (state.mode == VimMode::Normal || is_visual) {
                     text_parts.push_back(text(ch) | inverted | bold);
                 } else {
                     text_parts.push_back(text("|") | color(Color::Cyan) | blink);
@@ -191,7 +215,7 @@ struct VimInputOptions {
                 }
             } else {
                 // Cursor at end
-                if (state.mode == VimMode::Normal) {
+                if (state.mode == VimMode::Normal || is_visual) {
                     text_parts.push_back(text(" ") | inverted);
                 } else {
                     text_parts.push_back(text("|") | color(Color::Cyan) | blink);
@@ -352,38 +376,107 @@ struct VimInputOptions {
             return false;
         }
 
-        // --- NORMAL MODE ---
-        if (state->mode == VimMode::Normal || state->mode == VimMode::Visual) {
-            // Mode transitions
-            if (event == Event::Character('i')) {
-                set_mode(VimMode::Insert);
+        // --- REPLACE MODE ---
+        // TS REF: useVimInput.ts — Replace mode (R) replaces characters at cursor
+        // until Escape exits back to Normal.
+        if (state->mode == VimMode::Replace) {
+            if (event == Event::Escape) {
+                set_mode(VimMode::Normal);
+                if (state->cursor_pos > 0) state->cursor_pos--;
                 return true;
             }
-            if (event == Event::Character('a')) {
-                set_mode(VimMode::Insert);
-                if (state->cursor_pos < len) state->cursor_pos++;
+            if (event == Event::Return) {
+                if (opts->on_submit) opts->on_submit(state->text);
                 return true;
             }
-            if (event == Event::Character('I')) {
-                set_mode(VimMode::Insert);
-                state->cursor_pos = 0;
+            if (event.is_character()) {
+                // Replace character at cursor position
+                if (state->cursor_pos < len) {
+                    state->unnamed_reg.content = state->text.substr(state->cursor_pos, 1);
+                    state->text[state->cursor_pos] = event.character()[0];
+                    state->cursor_pos++;
+                    save_undo();
+                    notify_change();
+                } else {
+                    // At end: behave like insert
+                    state->text.insert(state->cursor_pos, event.character());
+                    state->cursor_pos += static_cast<int>(event.character().size());
+                    notify_change();
+                }
                 return true;
             }
-            if (event == Event::Character('A')) {
-                set_mode(VimMode::Insert);
-                state->cursor_pos = len;
+            return false;
+        }
+
+        // --- NORMAL / VISUAL MODE ---
+        // TS REF: useVimInput.ts:231 — NORMAL mode handles all vim commands.
+        // Visual modes share motion keys with Normal; Escape exits back to Normal.
+        bool is_any_visual = (state->mode == VimMode::Visual ||
+                              state->mode == VimMode::VisualLine ||
+                              state->mode == VimMode::VisualBlock);
+        if (state->mode == VimMode::Normal || is_any_visual) {
+            // Mode transitions from Normal
+            if (state->mode == VimMode::Normal) {
+                if (event == Event::Character('i')) {
+                    set_mode(VimMode::Insert);
+                    return true;
+                }
+                if (event == Event::Character('a')) {
+                    set_mode(VimMode::Insert);
+                    if (state->cursor_pos < len) state->cursor_pos++;
+                    return true;
+                }
+                if (event == Event::Character('I')) {
+                    set_mode(VimMode::Insert);
+                    state->cursor_pos = 0;
+                    return true;
+                }
+                if (event == Event::Character('A')) {
+                    set_mode(VimMode::Insert);
+                    state->cursor_pos = len;
+                    return true;
+                }
+                if (event == Event::Character('R')) {
+                    set_mode(VimMode::Replace);
+                    return true;
+                }
+            }
+
+            // Visual mode entry (works from Normal mode)
+            if (event == Event::Character('v') && state->mode == VimMode::Normal) {
+                set_mode(VimMode::Visual);
+                state->visual_start = state->cursor_pos;
                 return true;
             }
-            if (event == Event::Character('v')) {
-                if (state->mode == VimMode::Visual) {
+            // Toggle off visual when pressing 'v' again in Visual mode
+            if (event == Event::Character('v') && state->mode == VimMode::Visual) {
+                set_mode(VimMode::Normal);
+                state->visual_start = -1;
+                return true;
+            }
+            // V = VisualLine (line-wise selection)
+            if (event == Event::Character('V')) {
+                if (state->mode == VimMode::VisualLine) {
                     set_mode(VimMode::Normal);
                     state->visual_start = -1;
                 } else {
-                    set_mode(VimMode::Visual);
+                    set_mode(VimMode::VisualLine);
                     state->visual_start = state->cursor_pos;
                 }
                 return true;
             }
+            // Ctrl+V = VisualBlock (block-wise selection)
+            if (event == Event::Character('\x16')) {
+                if (state->mode == VimMode::VisualBlock) {
+                    set_mode(VimMode::Normal);
+                    state->visual_start = -1;
+                } else {
+                    set_mode(VimMode::VisualBlock);
+                    state->visual_start = state->cursor_pos;
+                }
+                return true;
+            }
+
             if (event == Event::Character(':')) {
                 set_mode(VimMode::Command);
                 state->command_line.clear();
@@ -417,6 +510,50 @@ struct VimInputOptions {
                 return true;
             }
 
+            // Operators: dd (delete line), yy (yank line)
+            // TS REF: useVimInput.ts:257 — operator pending state tracks
+            // the first 'd' or 'y' waiting for a motion or second key.
+            if (event == Event::Character('d')) {
+                if (state->pending_keys == "d") {
+                    // dd = delete current line
+                    int line_start = state->cursor_pos;
+                    while (line_start > 0 && state->text[line_start - 1] != '\n')
+                        --line_start;
+                    int line_end = state->cursor_pos;
+                    while (line_end < len && state->text[line_end] != '\n')
+                        ++line_end;
+                    if (line_end < len) ++line_end; // include '\n'
+                    state->unnamed_reg.content = state->text.substr(line_start, line_end - line_start);
+                    state->unnamed_reg.is_linewise = true;
+                    state->text.erase(line_start, line_end - line_start);
+                    state->cursor_pos = std::min(line_start, static_cast<int>(state->text.size()));
+                    state->pending_keys.clear();
+                    save_undo();
+                    notify_change();
+                } else {
+                    state->pending_keys = "d";
+                }
+                return true;
+            }
+            if (event == Event::Character('y')) {
+                if (state->pending_keys == "y") {
+                    // yy = yank current line
+                    int line_start = state->cursor_pos;
+                    while (line_start > 0 && state->text[line_start - 1] != '\n')
+                        --line_start;
+                    int line_end = state->cursor_pos;
+                    while (line_end < len && state->text[line_end] != '\n')
+                        ++line_end;
+                    if (line_end < len) ++line_end;
+                    state->unnamed_reg.content = state->text.substr(line_start, line_end - line_start);
+                    state->unnamed_reg.is_linewise = true;
+                    state->pending_keys.clear();
+                } else {
+                    state->pending_keys = "y";
+                }
+                return true;
+            }
+
             // Editing
             if (event == Event::Character('x')) {
                 if (state->cursor_pos < len) {
@@ -434,6 +571,17 @@ struct VimInputOptions {
                 // Undo
                 if (state->undo_index > 0) {
                     state->undo_index--;
+                    state->text = state->undo_stack[state->undo_index];
+                    state->cursor_pos = std::min(state->cursor_pos,
+                        std::max(0, static_cast<int>(state->text.size()) - 1));
+                    notify_change();
+                }
+                return true;
+            }
+            // Ctrl+R = redo
+            if (event == Event::Character('\x12')) {
+                if (state->undo_index < static_cast<int>(state->undo_stack.size()) - 1) {
+                    state->undo_index++;
                     state->text = state->undo_stack[state->undo_index];
                     state->cursor_pos = std::min(state->cursor_pos,
                         std::max(0, static_cast<int>(state->text.size()) - 1));
@@ -461,7 +609,7 @@ struct VimInputOptions {
             }
 
             if (event == Event::Escape) {
-                if (state->mode == VimMode::Visual) {
+                if (is_any_visual) {
                     set_mode(VimMode::Normal);
                     state->visual_start = -1;
                 }
