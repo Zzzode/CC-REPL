@@ -8,6 +8,8 @@ module;
 
 export module cc.ui.design.progress_bar;
 
+import cc.ui.design.figures;  // kSpinnerFrames canonical set (GAP 4)
+
 export namespace cc::ui::design {
 
 [[nodiscard]] inline std::string repeat_progress_segment(std::string_view text, int count) {
@@ -66,16 +68,16 @@ inline auto render_progress_bar(ProgressConfig config) -> std::string {
     return out.str();
 }
 
-// Render a spinner animation frame with optional label
+// Render a spinner animation frame with optional label.
+// TS REF: SpinnerGlyph.tsx — canonical 10-frame braille spinner from
+//   cc::ui::design::figures::kSpinnerFrames (GAP 4: fig-spinner-frame-inconsistency).
+//   Previously 8 frames, now unified to 10.
 inline auto render_spinner(int frame, std::string_view label = "") -> std::string {
-    // Braille spinner pattern (8 frames)
-    static constexpr std::array<const char*, 8> frames = {
-        "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧"
-    };
+    namespace figs = cc::ui::design::figures;
+    const auto glyph = figs::spinner_frame_glyph(frame);
 
-    int idx = ((frame % 8) + 8) % 8;
     std::ostringstream out;
-    out << frames[idx];
+    out << glyph;
     if (!label.empty()) {
         out << " " << label;
     }

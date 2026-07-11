@@ -26,9 +26,19 @@ module;
 export module cc.ui.messages.thinking_message;
 
 import cc.types.types;
+import cc.ui.design.figures;  // kSpinnerFrames canonical set (GAP 4)
 
 export namespace cc::ui::messages::thinking_message {
 using namespace ftxui;
+
+// ============================================================
+// Constants
+// ============================================================
+
+/// Threshold (seconds) after which active thinking shows a "still thinking"
+/// banner.  TS REF: Messages.tsx — streaming thinking stays visible for
+/// 30s after streaming ends (isStreamingThinkingVisible).
+inline constexpr int kThinkingTimeoutSeconds = 30;
 
 // ============================================================
 // Types
@@ -74,6 +84,11 @@ struct ThinkingMessageData {
     bool is_collapsed = true;               // Default collapsed
     int budget_remaining_pct = 100;         // Extended thinking budget
     std::size_t total_chars = 0;            // Total chars (used for size badge)
+
+    /// Wall-clock time when thinking started (for live "still thinking"
+    /// banner).  If zero-duration, the static `duration` field is used.
+    /// TS REF: Messages.tsx streamingThinking visibility 30s timeout.
+    std::chrono::steady_clock::time_point thinking_start_time{};
 };
 
 /// Options for the thinking message component
@@ -209,15 +224,56 @@ inline std::size_t count_lines(const std::string& s) {
 } // namespace detail
 
 // ============================================================
+// Thinking timeout detection
+// ============================================================
+
+/// Return the effective thinking duration in milliseconds.
+/// Prefers live elapsed time from `thinking_start_time`; falls back to
+/// the static `duration` field if start_time is not set.
+[[nodiscard]] inline std::chrono::milliseconds effective_duration(
+    const ThinkingMessageData& data) {
+    if (data.thinking_start_time.time_since_epoch().count() != 0) {
+        auto now = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            now - data.thinking_start_time);
+        // Use max(static, live) to avoid going backwards
+        return std::max(elapsed, data.duration);
+    }
+    return data.duration;
+}
+
+/// Return true if thinking has exceeded the 30s timeout threshold.
+/// TS REF: Messages.tsx isStreamingThinkingVisible 30s window.
+[[nodiscard]] inline bool is_thinking_timed_out(const ThinkingMessageData& data) {
+    if (data.state != ThinkingState::Active) return false;
+    auto dur = effective_duration(data);
+    return dur.count() >= static_cast<long long>(kThinkingTimeoutSeconds) * 1000;
+}
+
+/// Render the "Still thinking... (30s+)" timeout banner.
+/// Returns an empty element if thinking has not exceeded the threshold.
+/// TS REF: ThinkingMessage.tsx — subtle indicator when thinking runs long.
+[[nodiscard]] inline Element RenderThinkingTimeoutBanner(
+    const ThinkingMessageData& data) {
+    if (!is_thinking_timed_out(data)) return text("");
+    auto dur_sec = static_cast<double>(effective_duration(data).count()) / 1000.0;
+    std::string label = std::format("Still thinking... ({:.0f}s+)", dur_sec);
+    return hbox({
+        text("  ⚠ ") | color(Color::Yellow) | dim,
+        text(label) | color(Color::Yellow) | dim,
+    });
+}
+
+// ============================================================
 // Rendering — header (shared)
 // ============================================================
 
-/// Spinner frames for active thinking
+/// Spinner frames for active thinking.
+/// TS REF: SpinnerGlyph.tsx — canonical 10-frame braille spinner from
+///   cc::ui::design::figures::kSpinnerFrames (GAP 4: fig-spinner-frame-inconsistency).
+///   Previously this had only 8 frames (dropping '⠇⠏'), now unified to 10.
 [[nodiscard]] inline std::string thinking_spinner(int frame) {
-    static constexpr const char* frames[] = {
-        "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧"
-    };
-    return frames[((frame % 8) + 8) % 8];
+    return std::string(cc::ui::design::figures::spinner_frame_glyph(frame));
 }
 
 /// Byte formatting
@@ -460,6 +516,11 @@ inline std::size_t count_lines(const std::string& s) {
         }));
     }
 
+    // "Still thinking... (30s+)" timeout banner
+    if (data.mode == ThinkingMode::Plain && is_thinking_timed_out(data)) {
+        content.push_back(RenderThinkingTimeoutBanner(data));
+    }
+
     Element body = (data.mode == ThinkingMode::Redacted)
         ? RenderRedactedBody(data)
         : RenderThinkingBody(data, opts.max_visible_lines, opts.keyword_highlight);
@@ -516,11 +577,22 @@ inline constexpr std::string_view kCtrlOHint = " (ctrl+o to expand)";
 /// Faithful collapsed-state render:  `∴ Thinking (ctrl+o to expand)` dim italic.
 /// Matches TS exactly — there is NO inline preview of the thinking content in
 /// collapsed mode; the body only appears in expanded (transcript/verbose) mode.
+///
+/// When `show_timeout` is true (thinking > 30s), the label becomes
+/// `∴ Thinking (30s+) (ctrl+o to expand)` with a dim yellow tint.
+/// TS REF: Messages.tsx isStreamingThinkingVisible 30s timeout window.
 [[nodiscard]] inline Element RenderThinkingMessageCollapsed(
-    std::string_view /*thinking*/, bool add_margin) {
+    std::string_view /*thinking*/, bool add_margin,
+    bool show_timeout = false, int timeout_seconds = 0) {
     Elements line_parts;
     line_parts.push_back(text(std::string(kThinkingLabel)));
-    line_parts.push_back(text(" Thinking"));
+    if (show_timeout) {
+        line_parts.push_back(text(" Thinking"));
+        line_parts.push_back(text(std::format(" ({}s+)", timeout_seconds))
+                             | color(Color::Yellow));
+    } else {
+        line_parts.push_back(text(" Thinking"));
+    }
     line_parts.push_back(text(std::string(kCtrlOHint)));
     Element label = hbox(std::move(line_parts))
         | dim | color(Color::GrayLight);
@@ -581,7 +653,12 @@ inline constexpr std::string_view kCtrlOHint = " (ctrl+o to expand)";
     }
     const bool show_full = is_transcript_mode || verbose;
     if (!show_full) {
-        return RenderThinkingMessageCollapsed(thinking, add_margin);
+        // Pass 30s+ timeout info for the collapsed label.
+        bool timed_out = is_thinking_timed_out(data);
+        int secs = timed_out ? static_cast<int>(
+            effective_duration(data).count() / 1000) : 0;
+        return RenderThinkingMessageCollapsed(thinking, add_margin,
+                                              timed_out, secs);
     }
     return RenderThinkingMessageExpanded(thinking, add_margin);
 }

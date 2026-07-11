@@ -90,6 +90,12 @@ inline constexpr std::string_view kCheckboxOff = "\xE2\x98\x90";  // ☐ U+2610 
 inline constexpr std::string_view kHamburger   = "\xE2\x98\xB0";  // ☰ U+2630 (figures.hamburger — three bars)
 inline constexpr std::string_view kBullet      = "\xE2\x97\x8F";  // ● U+25CF (figures.bullet)
 inline constexpr std::string_view kArrowDown   = "\xE2\x86\x93";  // ↓ U+2193 (figures.arrowDown — new-messages pill caret)
+// TS REF: src/utils/figures.ts — additional npm-figures glyphs used
+// throughout the UI for status indicators (GAP 5: fig-npm-glyphs-no-cpp-module).
+inline constexpr std::string_view kSquare      = "\xE2\x96\xA0";  // ■ U+25A0 (figures.square — solid square)
+inline constexpr std::string_view kDiamond     = "\xE2\x97\x86";  // ◆ U+25C6 (figures.diamond — filled diamond, alias kLozenge)
+inline constexpr std::string_view kLozenge     = "\xE2\x97\x86";  // ◆ U+25C6 (alias for kDiamond)
+inline constexpr std::string_view kArrowRight  = "\xE2\x86\x92";  // → U+2192 (figures.arrowRight — cross-session injected indicator)
 
 // ─── Message connector / separator glyphs ──────────────────────────────
 // TS components/messages/Connector.tsx: ⌐ U+2310 "REVERSED NOT SIGN"
@@ -117,6 +123,28 @@ inline constexpr std::array<std::string_view, 10> kSpinnerFramesBraille = {{
     "\xE2\xA0\x87",  // ⠇ frame 8 (U+2807 — previously dropped by tool_use_loader)
     "\xE2\xA0\x8F",  // ⠏ frame 9 (U+280F)
 }};
+
+/// Canonical spinner frame set — 10 braille frames matching TS exactly.
+/// TS REF: src/components/Spinner/SpinnerGlyph.tsx — DEFAULT_CHARACTERS
+///   (['·','✢','✳','✶','✻','✽']) forward + reversed = 12 frames for the
+///   asterisk spinner; the braille set below is the CPP unified spinner
+///   used by thinking_message, tool_use_loader, progress_bar, and
+///   messages_list (GAP 4: fig-spinner-frame-inconsistency).
+///
+/// All modules MUST import this instead of defining local frame arrays,
+/// so that the animation speed and visual style are consistent everywhere.
+inline constexpr auto& kSpinnerFrames = kSpinnerFramesBraille;
+inline constexpr std::size_t kSpinnerFrameCount = kSpinnerFramesBraille.size();
+
+/// Get the spinner glyph for a given frame index (wraps modulo frame count).
+/// TS REF: SpinnerGlyph.tsx L49 — SPINNER_FRAMES[frame % SPINNER_FRAMES.length]
+[[nodiscard]] inline std::string_view spinner_frame_glyph(int frame) noexcept {
+    const auto idx = static_cast<std::size_t>(
+        ((frame % static_cast<int>(kSpinnerFrameCount)) +
+         static_cast<int>(kSpinnerFrameCount)) %
+        static_cast<int>(kSpinnerFrameCount));
+    return kSpinnerFrames[idx];
+}
 
 // TS src/services/bridge/types.ts: BRIDGE_READY_INDICATOR + variation
 // selector-15 for text-style. Used as a passive "OK" glyph in the footer.

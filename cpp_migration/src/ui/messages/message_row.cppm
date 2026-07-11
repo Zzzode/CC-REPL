@@ -395,11 +395,15 @@ struct MessageRowCallbacks {
         return ftxui::Renderer([d = *data] { return render_bash_io(d); });
     }
 
-    // UI5: UserLocalCommandOutput — dedicated full viewer with gutter/fold/stderr-red
+    // Faithful: UserLocalCommandOutput — ⎿ prefix + ANSI passthrough, no line numbers, no borders.
+    // TS REF: src/components/messages/UserLocalCommandOutputMessage.tsx:12-54
     if (shape == S::UserLocalCommandOutput) {
         auto data = std::get_if<local_cmd::LocalCommandOptions>(&payload);
         if (!data) return ftxui::Renderer([=] { return text("⚠ message_row: bad payload for LocalCmd"); });
-        return local_cmd::LocalCommandOutput(*data);
+        auto d = *data;
+        return ftxui::Renderer([d] {
+            return local_cmd::RenderLocalCommandOutputFaithful(d);
+        });
     }
 
     // UI5: UserAttachments — card grid with pagination + ASCII thumbnails

@@ -13,12 +13,16 @@ module;
 #include <vector>
 #include <format>
 #include <cstddef>
+#include <cstdint>
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
 
 export module cc.ui.prompt.prompt_paste_handler;
 
 import cc.utils.parse_references;
+// OS clipboard image read (macOS osascript «class PNGf»).
+// TS REF: src/utils/imagePaste.ts getImageFromClipboard / hasImageInClipboard
+import cc.utils.clipboard;
 
 export namespace cc::ui::prompt {
 using namespace ftxui;
@@ -163,6 +167,170 @@ enum class PasteKind {
 
     return ext_lower == "png" || ext_lower == "jpg" || ext_lower == "jpeg" ||
            ext_lower == "gif" || ext_lower == "webp";
+}
+
+// ── Image magic-byte detection ──────────────────────────────────────────
+
+/// Image format detected from magic-byte signature.
+/// Mirrors TS ImageMediaType from imageResizer.ts L22.
+enum class ImageFormat {
+    PNG,   ///< \x89\x50\x4e\x47 (89 50 4E 47)
+    JPEG,  ///< \xff\xd8\xff      (FF D8 FF)
+    GIF,   ///< \x47\x49\x46      ("GIF8")
+    WebP,  ///< RIFF....WEBP      (bytes 0-3="RIFF", 8-11="WEBP")
+};
+
+/// Detect image format from the first bytes of a buffer using magic bytes.
+/// Returns nullopt if the buffer is too short (< 4 bytes) or no known
+/// signature matches.
+///
+/// Signature table (TS REF: imageResizer.ts detectImageFormatFromBuffer
+/// L769-812 — character-for-character port):
+///   PNG:  bytes[0..3] == 0x89 0x50 0x4E 0x47
+///   JPEG: bytes[0..2] == 0xFF 0xD8 0xFF
+///   GIF:  bytes[0..2] == 0x47 0x49 0x46  ("GIF8" prefix)
+///   WebP: bytes[0..3] == "RIFF" && bytes[8..11] == "WEBP"
+///
+/// NOTE: JPEG check requires only 3 bytes but we guard with size >= 4 so
+/// every branch can safely index bytes[3] for the PNG/WebP checks.
+[[nodiscard]] inline std::optional<ImageFormat>
+detect_image_magic_bytes(std::string_view buffer) {
+    if (buffer.size() < 4) return std::nullopt;
+
+    const auto* bytes = reinterpret_cast<const std::uint8_t*>(buffer.data());
+    const auto size   = buffer.size();
+
+    // PNG: 89 50 4E 47 — TS REF L773-779
+    if (bytes[0] == 0x89 && bytes[1] == 0x50 &&
+        bytes[2] == 0x4E && bytes[3] == 0x47) {
+        return ImageFormat::PNG;
+    }
+    // JPEG: FF D8 FF — TS REF L783-785
+    if (bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF) {
+        return ImageFormat::JPEG;
+    }
+    // GIF: 47 49 46 ("GIF87a" / "GIF89a") — TS REF L788-790
+    if (bytes[0] == 0x47 && bytes[1] == 0x49 && bytes[2] == 0x46) {
+        return ImageFormat::GIF;
+    }
+    // WebP: "RIFF" at offset 0, "WEBP" at offset 8 — TS REF L793-808
+    if (size >= 12 &&
+        bytes[0] == 0x52 && bytes[1] == 0x49 &&
+        bytes[2] == 0x46 && bytes[3] == 0x46 &&
+        bytes[8] == 0x57 && bytes[9] == 0x45 &&
+        bytes[10] == 0x42 && bytes[11] == 0x50) {
+        return ImageFormat::WebP;
+    }
+    return std::nullopt;
+}
+
+// ── Paste classification ────────────────────────────────────────────────
+
+/// Classify a paste buffer into a PasteKind.
+///
+/// Decision priority (highest first):
+///   1. has_image_data — system clipboard reports raw image (PNGf etc.)
+///   2. detect_image_magic_bytes — pasted text starts with image signature
+///      (rare edge case: binary paste delivered as text)
+///   3. is_image_file_path — pasted text looks like /path/to/photo.png
+///   4. Text — plain text paste (possibly multi-line)
+///   5. Empty — nothing usable
+///
+/// TS REF: imagePaste.ts isImageFilePath() + PromptInput.tsx onPaste
+/// dispatch logic — the TS side checks hasImageInClipboard() before the
+/// text paste path, which maps to has_image_data here.
+[[nodiscard]] inline PasteKind classify_paste_kind(
+    std::string_view text_buffer,
+    bool has_image_data) {
+    // Raw clipboard image wins over text content.
+    if (has_image_data) return PasteKind::Image;
+
+    // Empty clipboard — nothing to paste.
+    if (text_buffer.empty()) return PasteKind::Empty;
+
+    // Edge case: raw binary image bytes somehow arrived as a text paste.
+    // Detecting this prevents a garbled text injection from a PNG/JPEG.
+    if (detect_image_magic_bytes(text_buffer).has_value()) {
+        return PasteKind::Image;
+    }
+
+    // File-path heuristic: dragged-in image from Finder/Explorer.
+    if (is_image_file_path(text_buffer)) return PasteKind::ImageFilePath;
+
+    return PasteKind::Text;
+}
+
+// ── Clipboard image read helpers ────────────────────────────────────────
+
+/// Read PNG image bytes from the system clipboard (macOS only).
+/// Thin wrapper around cc::utils::clipboard::read_image_png().  Returns
+/// nullopt off-macOS or on failure.
+///
+/// Implementation (TS REF: imagePaste.ts getImageFromClipboard L124-242):
+///   - Runs osascript to extract «class PNGf» from NSPasteboard into a
+///     temp file via run_detached() (fork+setsid+exec isolates osascript
+///     from cc-repl's raw-mode terminal — see clipboard.cppm gotcha).
+///   - Falls back to HTML data-URL extraction for web-app clipboard
+///     images (Lark/Feishu, Google Docs embed base64 in «class HTML»).
+///   - Non-PNG HTML-embedded images are converted via `sips -s format png`.
+[[nodiscard]] inline std::optional<std::vector<std::uint8_t>>
+read_clipboard_image_png() {
+    return cc::utils::clipboard::read_image_png();
+}
+
+/// Read JPEG image bytes from the system clipboard.
+///
+/// macOS osascript «class PNGf» always returns PNG, so this attempts a
+/// PNG read first and inspects the result's magic bytes.  If the data is
+/// actually JPEG (FF D8 FF — can happen via the HTML fallback when a web
+/// app pastes raw JPEG without converting), the bytes are returned.
+/// Returns nullopt when no JPEG is available.
+///
+/// TS REF parity: imagePaste.ts getImageFromClipboard() — TS always
+/// returns PNG from osascript; JPEG handling is only via the HTML
+/// fallback (which also converts to PNG via sips on the TS side).  This
+/// helper exists for API completeness and future cross-platform support
+/// (Linux xclip can return image/jpeg directly).
+[[nodiscard]] inline std::optional<std::vector<std::uint8_t>>
+read_clipboard_image_jpeg() {
+    auto bytes = cc::utils::clipboard::read_image_png();
+    if (!bytes || bytes->size() < 3) return std::nullopt;
+    // Inspect magic bytes: FF D8 FF = JPEG.
+    const auto& b = *bytes;
+    if (static_cast<std::uint8_t>(b[0]) == 0xFF &&
+        static_cast<std::uint8_t>(b[1]) == 0xD8 &&
+        static_cast<std::uint8_t>(b[2]) == 0xFF) {
+        return bytes;
+    }
+    return std::nullopt;
+}
+
+// ── Footer hint rendering ───────────────────────────────────────────────
+
+/// Render a "Image in clipboard · Ctrl+V to paste" footer hint.
+///
+/// Shown when the terminal regains focus and the system clipboard holds
+/// an image (detected via cc::utils::clipboard::has_image()).  The hint
+/// tells the user they can press the paste keybinding to attach the
+/// image as an [Image #N] reference.
+///
+/// TS REF: useClipboardImageHint.ts L56-61
+///   addNotification({
+///     key: 'clipboard-image-hint',
+///     text: `Image in clipboard · ${getShortcutDisplay(
+///             'chat:imagePaste', 'Chat', 'ctrl+v')} to paste`,
+///     priority: 'immediate',
+///     timeoutMs: 8000,
+///   })
+///
+/// @param shortcut  Keybinding display string (default "Ctrl+V").  Pass
+///                  the platform-appropriate string from the keybinding
+///                  system (e.g. "⌘V" on macOS when resolved).
+[[nodiscard]] inline Element render_clipboard_image_hint(
+    std::string_view shortcut = "Ctrl+V") {
+    // \xC2\xB7 = UTF-8 middle dot (·), matching the TS separator.
+    auto hint = std::format("Image in clipboard \xC2\xB7 {} to paste", shortcut);
+    return text(hint) | dim;
 }
 
 /// @brief State for tracking an in-flight async image paste (clipboard read

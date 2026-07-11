@@ -222,6 +222,74 @@ inline void set_theme(Theme t) noexcept {
     if (color == "diffRemoved") return p.diff_removed;
     if (color == "diffAddedWord") return p.diff_added_word;
     if (color == "diffRemovedWord") return p.diff_removed_word;
+    // ── New tokens (GAP: clr-missing-42-tokens-struct + clr-shimmer-tokens-missing)
+    // TS REF: src/utils/theme.ts Theme type full field list
+    if (color == "permissionShimmer" || color == "permission_shimmer")
+        return p.permission_shimmer;
+    if (color == "inactiveShimmer" || color == "inactive_shimmer")
+        return p.inactive_shimmer;
+    if (color == "warningShimmer" || color == "warning_shimmer")
+        return p.warning_shimmer;
+    if (color == "promptBorderShimmer" || color == "prompt_border_shimmer")
+        return p.prompt_border_shimmer;
+    if (color == "fastModeShimmer" || color == "fast_mode_shimmer")
+        return p.fast_mode_shimmer;
+    if (color == "claudeBlueShimmer_FOR_SYSTEM_SPINNER" || color == "claude_blue_shimmer")
+        return p.claude_blue_shimmer;
+    if (color == "claudeBlue_FOR_SYSTEM_SPINNER" || color == "claude_blue")
+        return p.claude_blue;
+    if (color == "planMode" || color == "plan_mode")
+        return p.plan_mode;
+    if (color == "ide")
+        return p.ide;
+    if (color == "remember")
+        return p.remember;
+    if (color == "fastMode" || color == "fast_mode")
+        return p.fast_mode;
+    if (color == "diffAddedDimmed" || color == "diff_added_dimmed")
+        return p.diff_added_dimmed;
+    if (color == "diffRemovedDimmed" || color == "diff_removed_dimmed")
+        return p.diff_removed_dimmed;
+    if (color == "red_FOR_SUBAGENTS_ONLY" || color == "subagent_red")
+        return p.subagent_red;
+    if (color == "blue_FOR_SUBAGENTS_ONLY" || color == "subagent_blue")
+        return p.subagent_blue;
+    if (color == "green_FOR_SUBAGENTS_ONLY" || color == "subagent_green")
+        return p.subagent_green;
+    if (color == "yellow_FOR_SUBAGENTS_ONLY" || color == "subagent_yellow")
+        return p.subagent_yellow;
+    if (color == "purple_FOR_SUBAGENTS_ONLY" || color == "subagent_purple")
+        return p.subagent_purple;
+    if (color == "orange_FOR_SUBAGENTS_ONLY" || color == "subagent_orange")
+        return p.subagent_orange;
+    if (color == "pink_FOR_SUBAGENTS_ONLY" || color == "subagent_pink")
+        return p.subagent_pink;
+    if (color == "cyan_FOR_SUBAGENTS_ONLY" || color == "subagent_cyan")
+        return p.subagent_cyan;
+    if (color == "professionalBlue" || color == "professional_blue")
+        return p.professional_blue;
+    if (color == "chromeYellow" || color == "chrome_yellow")
+        return p.chrome_yellow;
+    if (color == "clawd_background")
+        return p.clawd_background;
+    if (color == "selectionBg" || color == "selection_bg")
+        return p.selection_bg;
+    if (color == "bashMessageBackgroundColor" || color == "bash_message_background")
+        return p.bash_message_background;
+    if (color == "memoryBackgroundColor" || color == "memory_background")
+        return p.memory_background;
+    if (color == "briefLabelYou" || color == "brief_label_you")
+        return p.brief_label_you;
+    if (color == "briefLabelClaude" || color == "brief_label_claude")
+        return p.brief_label_claude;
+    // Rainbow per-stop shimmers
+    if (color == "rainbow_red_shimmer")    return p.rainbow_shimmer_stops[0];
+    if (color == "rainbow_orange_shimmer") return p.rainbow_shimmer_stops[1];
+    if (color == "rainbow_yellow_shimmer") return p.rainbow_shimmer_stops[2];
+    if (color == "rainbow_green_shimmer")  return p.rainbow_shimmer_stops[3];
+    if (color == "rainbow_blue_shimmer")   return p.rainbow_shimmer_stops[4];
+    if (color == "rainbow_indigo_shimmer") return p.rainbow_shimmer_stops[5];
+    if (color == "rainbow_violet_shimmer") return p.rainbow_shimmer_stops[6];
 
     return p.text;
 }

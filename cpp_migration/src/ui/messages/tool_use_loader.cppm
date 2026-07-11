@@ -7,6 +7,8 @@ module;
 
 export module cc.ui.messages.tool_use_loader;
 
+import cc.ui.design.figures;  // kSpinnerFrames canonical set (GAP 4)
+
 export namespace cc::ui::messages {
 
 // Display state for an in-progress tool invocation
@@ -21,14 +23,14 @@ struct ToolUseDisplay {
 inline auto render_tool_use_loader(ToolUseDisplay display, int width) -> std::string {
     std::ostringstream out;
 
-    // Spinner animation
-    static constexpr std::array<const char*, 8> spinner = {
-        "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧"
-    };
-    int idx = ((display.frame % 8) + 8) % 8;
+    // Spinner animation — canonical 10-frame braille set
+    // TS REF: SpinnerGlyph.tsx (GAP 4: fig-spinner-frame-inconsistency)
+    // Previously 8 frames, now unified to 10 via cc.ui.design.figures.
+    namespace figs = cc::ui::design::figures;
+    const auto glyph = figs::spinner_frame_glyph(display.frame);
 
     // Tool name with icon
-    out << "\033[36m" << spinner[idx] << " ⚡ " << display.tool_name << "\033[0m";
+    out << "\033[36m" << glyph << " ⚡ " << display.tool_name << "\033[0m";
 
     // Status text
     if (!display.status.empty()) {

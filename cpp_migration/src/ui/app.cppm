@@ -2557,7 +2557,7 @@ public:
     }
 
     void HandleSubmit(const std::string& text,
-                      repl::InputMode submit_mode = repl::InputMode::Prompt) {
+                      repl::InputMode submit_mode = repl::InputMode::Normal) {
         // ── Wait for in-flight image pastes before snapshotting ──────────
         // The placeholder "[Image #N]" is inserted instantly on Ctrl+V, but
         // the actual PNG read runs on a background thread (~0.6-1s). If the

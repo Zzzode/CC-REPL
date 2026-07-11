@@ -472,6 +472,7 @@ struct ToolResultOptions {
     std::optional<std::string> error_message;
     std::optional<double> duration_ms;
     bool is_truncated{false};
+    bool is_transcript_mode{false};
     /// TS PARITY (2026-07-04): structured content items from MCP results.
     /// When present, the faithful renderer iterates these instead of the
     /// flattened `output` string.

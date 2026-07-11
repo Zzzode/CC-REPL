@@ -20,6 +20,8 @@ export import ui.components.stats;
 export import cc.ui.components.tag_tabs;
 export import ui.components.text_input;
 export import cc.ui.components.feature_dialogs;
+// Unified canonical PromptInputMode enum — all modules import this from here.
+export import cc.ui.common.types;
 
 export namespace cc::ui::components {
 
@@ -56,7 +58,7 @@ using cc::ui::components::TagTabsComponent;
 using ::ui::components::Suggestion;
 using ::ui::components::SuggestionCategory;
 using ::ui::components::PromptContext;
-using ::ui::components::PromptMode;
+using ::ui::components::PromptInputMode;  // unified canonical enum from ui_types.cppm
 using ::ui::components::PermissionMode;
 using ::ui::components::TextInputOptions;
 using ::ui::components::TextInput;

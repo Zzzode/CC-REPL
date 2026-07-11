@@ -58,6 +58,8 @@ import cc.ui.messages.message_tool_result;
 import cc.ui.design.tokens;
 // P0-1: active theme provider for bash-border consistency (BUG-3 fix).
 import cc.ui.design.theme;
+// Unified canonical PromptInputMode enum (replaces local 5-value definition).
+import cc.ui.common.types;
 
 export namespace cc::ui::prompt::footer {
 
@@ -67,22 +69,22 @@ using namespace ftxui;
 // Enums (1:1 with TS types)
 // ============================================================
 
-/// Prompt input mode.  Mirrors TS PromptInputMode (textInputTypes.ts).
-enum class PromptInputMode {
-    Prompt,
-    Bash,
-    SlashCommand,
-    HistorySearch,
-    PlanMode,
-};
+/// Prompt input mode — unified canonical enum from cc::ui::common.
+/// Previously this file defined a local 5-value PromptInputMode:
+///   {Prompt, Bash, SlashCommand, HistorySearch, PlanMode}
+/// Old→new mapping:
+///   PromptInputMode::Prompt → PromptInputMode::Normal  (TS: 'prompt')
+/// All other values (Bash, SlashCommand, HistorySearch, PlanMode)
+/// are identical in the unified definition.
+/// TS REF: src/types/textInputTypes.ts:265 (PromptInputMode type)
+using cc::ui::common::PromptInputMode;
 
-/// Vim mode.  Mirrors TS VimMode (textInputTypes.ts).
-enum class VimMode {
-    Normal,
-    Insert,
-    Visual,
-    None,   // vim disabled
-};
+/// Vim mode — canonical enum from cc::ui::common (ui_types.cppm).
+/// Previously this file defined a local 4-value enum { Normal, Insert, Visual, None }.
+/// "None" (vim disabled) is now expressed as std::optional<VimMode>{nullopt}.
+/// TS REF: src/types/textInputTypes.ts:222 (public VimMode = 'INSERT'|'NORMAL')
+///          src/hooks/useVimInput.ts (internal state machine with Visual/Replace/etc.)
+using cc::ui::common::VimMode;
 
 /// Permission mode.  Mirrors TS ToolPermissionContext.mode (Tool.ts).
 enum class PermissionMode {
@@ -156,7 +158,7 @@ enum class PermissionMode {
 // and keyboard hints.
 
 struct ModeIndicatorOptions {
-    PromptInputMode mode = PromptInputMode::Prompt;
+    PromptInputMode mode = PromptInputMode::Normal;
     PermissionMode permission_mode = PermissionMode::Default;
     bool show_hint = true;
     bool is_loading = false;
@@ -176,6 +178,12 @@ struct ModeIndicatorOptions {
 
     // Remote / session
     bool is_remote_mode = false;
+
+    // Transcript / brief view modes (TS REF: Messages.tsx isTranscriptMode + isBriefOnly).
+    // Shown as pills in the mode indicator row so the user knows which filter
+    // is currently active on the message list.
+    bool is_transcript_mode = false;
+    bool is_brief_mode = false;
 };
 
 /// Render the ModeIndicator — permission mode + tasks pill + teams + hints.
@@ -259,6 +267,28 @@ struct ModeIndicatorOptions {
         left_parts.push_back(std::move(pill));
     }
 
+    // ── Transcript mode pill (TS REF: Messages.tsx isTranscriptMode L459)
+    //    Shown when user pressed Ctrl+O to enter detailed transcript view.
+    if (opts.is_transcript_mode) {
+        using namespace cc::ui::design;
+        const auto& pal = *theme::current_theme().palette;
+        Element pill = hbox({
+            text("TRANSCRIPT") | color(pal.info) | bold,
+        });
+        left_parts.push_back(std::move(pill));
+    }
+
+    // ── Brief mode pill (TS REF: Messages.tsx isBriefOnly L236)
+    //    Shown when user enabled brief-only filter (e.g. via /brief).
+    if (opts.is_brief_mode) {
+        using namespace cc::ui::design;
+        const auto& pal = *theme::current_theme().palette;
+        Element pill = hbox({
+            text("BRIEF") | color(pal.brief_label) | bold,
+        });
+        left_parts.push_back(std::move(pill));
+    }
+
     // ── Hint parts ──────────────────────────────────────────────────────
     if (opts.show_hint) {
         if (opts.is_loading) {
@@ -312,9 +342,8 @@ struct LeftSideOptions {
     // Pasting
     bool is_pasting = false;
 
-    // Vim
-    VimMode vim_mode = VimMode::None;
-    bool vim_enabled = false;
+    // Vim — nullopt = vim disabled (replaces vim_mode=None + vim_enabled=false)
+    std::optional<VimMode> vim_mode;
 
     // History search
     bool is_searching = false;
@@ -358,7 +387,9 @@ struct LeftSideOptions {
     }
 
     // 4. Vim INSERT badge + mode indicator (both inline in TS)
-    bool show_vim = opts.vim_enabled && opts.vim_mode == VimMode::Insert;
+    //    TS REF: PromptInputFooterLeftSide.tsx — shows "-- INSERT --" only in
+    //    insert mode (normal/visual show nothing extra in the footer).
+    bool show_vim = opts.vim_mode == VimMode::Insert;
     if (show_vim) {
         return hbox({
             text("-- INSERT --") | dim,
@@ -716,6 +747,76 @@ struct IdeSelectionInfo {
 };
 
 // ============================================================
+// Typed notification pill variants (P1: footer-notifications-stub)
+// ============================================================
+// TS REFERENCE:
+//   src/components/AutoUpdater.tsx       – auto-updater status pills
+//   src/hooks/useApiKeyVerification.ts   – apiKeyStatus pill colors
+//   src/components/PromptInput/Notifications.tsx L306-322 – apiKey + verbose
+//
+// These typed pill variants provide structured data for the most common
+// footer notifications.  They are rendered as styled pills (icon + text
+// with colored border/background) via RenderNotificationPill().
+//
+// To add a typed notification to the queue, use the convenience helpers:
+//   AddApiKeyNotification(), AddAutoUpdaterNotification(),
+//   AddProRenewalNotification(), AddNewReleaseNotification().
+
+/// Auto-updater install status.
+/// TS REF: src/utils/autoUpdater.ts (InstallStatus type)
+/// TS REF: src/components/AutoUpdater.tsx L176-196 (render logic)
+enum class AutoUpdaterStatus {
+    Available,      ///< New version found, not yet installed
+    Downloading,    ///< Currently downloading/installing
+    Installed,      ///< Successfully installed, restart needed
+    Error,          ///< Install failed (install_failed or no_permissions)
+};
+
+/// Auto-updater notification data.
+/// TS REF: src/components/AutoUpdater.tsx (Props.autoUpdaterResult)
+struct AutoUpdaterData {
+    AutoUpdaterStatus status = AutoUpdaterStatus::Available;
+    std::string version;          ///< Target version string (e.g. "2.1.57")
+    std::string error_detail;     ///< Optional error message for Error status
+};
+
+/// Pro/Team subscription renewal reminder.
+/// TS REF: No direct TS equivalent — CPP enhancement for subscription UX.
+/// Shows a renewal reminder pill when days_remaining < threshold (default 7).
+struct ProRenewalData {
+    int days_remaining = 0;       ///< Days until subscription expires
+    std::string plan_name;        ///< Plan display name (e.g. "Pro")
+};
+
+/// New release announcement pill.
+/// TS REF: useUpdateNotification() in src/hooks/useUpdateNotification.ts
+/// Shows "New: vX.Y.Z" gift pill when a new version is announced.
+struct NewReleaseData {
+    std::string version;          ///< New version string (e.g. "2.2.0")
+};
+
+/// Tagged union of typed pill variants for NotificationItem.
+/// When set, RenderNotificationPill() uses this to produce a styled pill
+/// element instead of the plain text+color path.
+enum class PillVariant {
+    None,             ///< Plain text notification (default)
+    ApiKey,           ///< API key status pill (key icon + status)
+    AutoUpdater,      ///< Auto-updater status pill (download icon)
+    ProRenewal,       ///< Pro renewal reminder pill (clock icon)
+    NewRelease,       ///< New release announcement pill (gift icon)
+};
+
+/// Typed pill payload stored in NotificationItem.
+struct PillPayload {
+    PillVariant variant = PillVariant::None;
+    // Only one of these is valid depending on variant:
+    ApiKeyStatus       api_key_status = ApiKeyStatus::Unknown;
+    AutoUpdaterData    auto_updater;
+    ProRenewalData     pro_renewal;
+    NewReleaseData     new_release;
+};
+
+// ============================================================
 // Notification Queue — priority-based rotating carousel
 // ============================================================
 // TS REFERENCE: src/context/notifications.tsx (the useNotifications hook)
@@ -754,6 +855,7 @@ struct NotificationItem {
     NotificationPriority priority = NotificationPriority::Low;  ///< Display priority
     int timeout_ms = 8000;                        ///< TS DEFAULT_TIMEOUT_MS = 8000
     std::vector<std::string> invalidates;         ///< Keys this notification invalidates
+    PillPayload pill;                             ///< P1: typed pill variant (for styled rendering)
 };
 
 /// The notification queue state.
@@ -796,6 +898,12 @@ struct NotificationData {
 
     // IDE
     IdeSelectionInfo ide;
+
+    // P1: typed notification pills (footer-notifications-stub)
+    // When populated, these render as styled pills in the right column.
+    std::optional<AutoUpdaterData> auto_updater;
+    std::optional<ProRenewalData> pro_renewal;
+    std::optional<NewReleaseData> new_release;
 
     // Dynamic notification (e.g. env-hook feedback, external-editor hint)
     // When set, takes priority over most static notifications.
@@ -853,6 +961,172 @@ const Color kIdeColor = Color::RGB(71, 130, 200);
     return text("");
 }
 
+// ============================================================
+// Notification Pill rendering (P1: footer-notifications-stub)
+// ============================================================
+// TS REFERENCE:
+//   src/components/AutoUpdater.tsx L176-196 – pill text + color for each status
+//   src/components/PromptInput/Notifications.tsx L306-322 – apiKey + verbose
+//   src/hooks/useUpdateNotification.ts – new release announcement
+//
+// Each pill: small icon + text, with a colored border or background tint.
+// Faithful to TS: uses the same semantic color tokens (success/warning/error)
+// and emoji icons that render well in modern terminals.
+
+namespace detail {
+
+/// Resolve a semantic color name ("error", "warning", "success", "info")
+/// to an FTXUI Color, using the active theme palette where possible.
+/// TS REF: src/components/design-system/ThemedText.tsx (resolveColor)
+[[nodiscard]] inline Color ResolveSemanticColor(std::string_view color_name) {
+    using namespace cc::ui::design;
+    const auto& pal = *theme::current_theme().palette;
+    if (color_name == "error")   return pal.danger;
+    if (color_name == "warning") return pal.warning;
+    if (color_name == "success") return pal.success;
+    if (color_name == "info")    return pal.info;
+    return pal.muted;   // default dim
+}
+
+} // namespace detail
+
+/// Render a styled notification pill from a PillPayload.
+///
+/// Each pill variant produces a compact 1-row element:
+///   ApiKey:    [🔑 ✓] green  /  [🔑 ✗] red  /  [🔑 !] yellow
+///   AutoUpdater: [⬇ Update available] blue / [⟳ Updating…] dim / [✓ Installed] green / [✗ Failed] red
+///   ProRenewal: [⏱ N days left] orange (only when < 7 days)
+///   NewRelease: [🎁 New: vX.Y.Z] purple
+///
+/// Returns empty text("") for PillVariant::None or empty data.
+/// TS REF: src/components/AutoUpdater.tsx L176-196 (auto-updater pills)
+/// TS REF: src/components/PromptInput/Notifications.tsx L306-310 (apiKey error)
+[[nodiscard]] inline Element RenderNotificationPill(const NotificationItem& item) {
+    using ftxui::text;
+    using ftxui::color;
+    using ftxui::bgcolor;
+    using ftxui::bold;
+    using ftxui::dim;
+    using ftxui::hbox;
+
+    using namespace cc::ui::design;
+    const auto& pal = *theme::current_theme().palette;
+
+    const auto& pill = item.pill;
+
+    switch (pill.variant) {
+        case PillVariant::None:
+            // Fallback: plain text+color (backward compatible)
+            if (item.text.empty()) return text("");
+            {
+                Color c = detail::ResolveSemanticColor(item.color);
+                return hbox({ text(item.text) | color(c) })
+                     | size(HEIGHT, EQUAL, 1);
+            }
+
+        case PillVariant::ApiKey: {
+            // TS REF: Notifications.tsx L306-310 — "Not logged in · Run /login" (error)
+            //          useApiKeyVerification.ts — VerificationStatus type
+            // Icon: 🔑 U+1F511
+            const char* kKeyIcon = "\xF0\x9F\x94\x91";   // 🔑
+            switch (pill.api_key_status) {
+                case ApiKeyStatus::Valid: {
+                    // ✓ green — key is working
+                    const std::string label = std::string(kKeyIcon) + " \xE2\x9C\x93 API key OK";
+                    return hbox({ text(label) | color(pal.success) | dim })
+                         | size(HEIGHT, EQUAL, 1);
+                }
+                case ApiKeyStatus::Invalid: {
+                    // ✗ red — key rejected
+                    const std::string label = std::string(kKeyIcon) + " \xE2\x9C\x97 Invalid key";
+                    return hbox({ text(label) | color(pal.danger) })
+                         | size(HEIGHT, EQUAL, 1);
+                }
+                case ApiKeyStatus::Missing: {
+                    // ! yellow — no key configured
+                    const std::string label = std::string(kKeyIcon) + " ! Not logged in";
+                    return hbox({ text(label) | color(pal.warning) })
+                         | size(HEIGHT, EQUAL, 1);
+                }
+                case ApiKeyStatus::Unknown:
+                    return text("");
+            }
+            return text("");
+        }
+
+        case PillVariant::AutoUpdater: {
+            // TS REF: src/components/AutoUpdater.tsx L176-196
+            //   Downloading: "Auto-updating…" (dim text)
+            //   Installed:   "✓ Update installed · Restart to apply" (success)
+            //   Error:       "✗ Auto-update failed" (error)
+            //   Available:   "New version vX.Y.Z available" (info, not shown in TS
+            //                but useful for CPP standalone mode)
+            const auto& au = pill.auto_updater;
+            switch (au.status) {
+                case AutoUpdaterStatus::Downloading: {
+                    // ⟳ U+27F3 — "updating"
+                    const std::string label =
+                        std::string("\xE2\x9F\xB3 ") + "Auto-updating…";
+                    return hbox({ text(label) | color(pal.muted) | dim })
+                         | size(HEIGHT, EQUAL, 1);
+                }
+                case AutoUpdaterStatus::Installed: {
+                    // ✓ U+2713 — "installed"
+                    const std::string label =
+                        std::string("\xE2\x9C\x93 Update installed \xC2\xB7 Restart to apply");
+                    return hbox({ text(label) | color(pal.success) })
+                         | size(HEIGHT, EQUAL, 1);
+                }
+                case AutoUpdaterStatus::Error: {
+                    // ✗ U+2717 — "failed"
+                    std::string label = "\xE2\x9C\x97 Auto-update failed";
+                    if (!au.error_detail.empty()) {
+                        label += " \xC2\xB7 " + au.error_detail;
+                    }
+                    return hbox({ text(label) | color(pal.danger) })
+                         | size(HEIGHT, EQUAL, 1);
+                }
+                case AutoUpdaterStatus::Available: {
+                    // ⬇ U+2B07 — "available" (blue download arrow)
+                    std::string label = "\xE2\xAC\x87 New: v" + au.version;
+                    return hbox({ text(label) | color(pal.info) })
+                         | size(HEIGHT, EQUAL, 1);
+                }
+            }
+            return text("");
+        }
+
+        case PillVariant::ProRenewal: {
+            // TS REF: No direct TS equivalent — CPP enhancement.
+            // Shows renewal reminder only when days_remaining < 7.
+            // ⏱ U+23F1 — "timer clock"
+            const auto& pr = pill.pro_renewal;
+            if (pr.days_remaining >= 7) return text("");
+            const std::string plan = pr.plan_name.empty() ? "Pro" : pr.plan_name;
+            std::string label = "\xE2\x8F\xB1 " + plan + " renews in "
+                              + std::to_string(pr.days_remaining)
+                              + (pr.days_remaining == 1 ? " day" : " days");
+            // Color: orange/amber for urgency (use warning for < 3 days, info otherwise)
+            Color c = (pr.days_remaining <= 3) ? pal.warning : pal.info;
+            return hbox({ text(label) | color(c) })
+                 | size(HEIGHT, EQUAL, 1);
+        }
+
+        case PillVariant::NewRelease: {
+            // TS REF: src/hooks/useUpdateNotification.ts — updateSemver
+            // 🎁 U+1F381 — "gift" for new release announcement
+            const auto& nr = pill.new_release;
+            if (nr.version.empty()) return text("");
+            const std::string label =
+                std::string("\xF0\x9F\x8E\x81 New: v") + nr.version;
+            // Purple/magenta for gift pill (closest ANSI to purple)
+            return hbox({ text(label) | color(Color::Magenta) })
+                 | size(HEIGHT, EQUAL, 1);
+        }
+    }
+    return text("");
+}
+
 /// Render the highest-priority active notification.
 /// TS REF: src/components/PromptInput/Notifications.tsx NotificationContent()
 ///
@@ -870,15 +1144,32 @@ const Color kIdeColor = Color::RGB(71, 130, 200);
     //    TS REF: Notifications.tsx L288-292 (notifications.current render)
     //    The queue's current item has the highest display priority because
     //    it represents time-sensitive dynamic feedback (env-hook, etc.).
-    if (data.queue.current && !data.queue.current->text.empty()) {
+    //    P1: When item.pill.variant != None, render as a styled pill via
+    //    RenderNotificationPill() — icon + text with themed colors.
+    if (data.queue.current) {
         const auto& item = *data.queue.current;
-        Color c = Color::GrayLight;   // default dim
-        if (item.color == "error")        c = Color::Red;
-        else if (item.color == "warning") c = Color::Yellow;
-        else if (item.color == "success") c = Color::Green;
-        else if (item.color == "info")    c = kIdeColor;
-        return hbox({ text(item.text) | color(c) })
-             | size(HEIGHT, EQUAL, 1);
+        const bool has_pill = item.pill.variant != PillVariant::None;
+        const bool has_text = !item.text.empty();
+        if (has_pill || has_text) {
+            if (has_pill) {
+                // Styled pill rendering (P1: footer-notifications-stub)
+                Element pill_el = RenderNotificationPill(item);
+                if (pill_el) {
+                    return hbox({ std::move(pill_el) })
+                         | size(HEIGHT, EQUAL, 1);
+                }
+            }
+            // Fallback: plain text+color
+            if (has_text) {
+                Color c = Color::GrayLight;   // default dim
+                if (item.color == "error")        c = Color::Red;
+                else if (item.color == "warning") c = Color::Yellow;
+                else if (item.color == "success") c = Color::Green;
+                else if (item.color == "info")    c = kIdeColor;
+                return hbox({ text(item.text) | color(c) })
+                     | size(HEIGHT, EQUAL, 1);
+            }
+        }
     }
 
     // 1. Dynamic notification (env-hook, external-editor hint, etc.)
@@ -931,6 +1222,64 @@ const Color kIdeColor = Color::RGB(71, 130, 200);
     {
         return hbox({ text(std::to_string(data.token_usage) + " tokens") | dim })
              | size(HEIGHT, EQUAL, 1);
+    }
+
+    // 7. Auto-updater — styled pill (P1: footer-notifications-stub)
+    //    TS REF: src/components/AutoUpdater.tsx L176-196
+    //    Shows download/install status.  Rendered via NotificationItem with
+    //    PillVariant::AutoUpdater so it gets the proper icon + color.
+    if (data.auto_updater) {
+        NotificationItem au_item;
+        au_item.pill.variant = PillVariant::AutoUpdater;
+        au_item.pill.auto_updater = *data.auto_updater;
+        // Also populate text for accessibility / fallback
+        switch (data.auto_updater->status) {
+            case AutoUpdaterStatus::Available:
+                au_item.text = "New: v" + data.auto_updater->version;
+                au_item.color = "info"; break;
+            case AutoUpdaterStatus::Downloading:
+                au_item.text = "Auto-updating…"; break;
+            case AutoUpdaterStatus::Installed:
+                au_item.text = "✓ Update installed · Restart to apply";
+                au_item.color = "success"; break;
+            case AutoUpdaterStatus::Error:
+                au_item.text = "✗ Auto-update failed";
+                au_item.color = "error"; break;
+        }
+        Element pill_el = RenderNotificationPill(au_item);
+        if (pill_el) {
+            return hbox({ std::move(pill_el) }) | size(HEIGHT, EQUAL, 1);
+        }
+    }
+
+    // 8. New release announcement — purple gift pill (P1: footer-notifications-stub)
+    //    TS REF: src/hooks/useUpdateNotification.ts (updateSemver)
+    if (data.new_release && !data.new_release->version.empty()) {
+        NotificationItem nr_item;
+        nr_item.pill.variant = PillVariant::NewRelease;
+        nr_item.pill.new_release = *data.new_release;
+        nr_item.text = "New: v" + data.new_release->version;
+        Element pill_el = RenderNotificationPill(nr_item);
+        if (pill_el) {
+            return hbox({ std::move(pill_el) }) | size(HEIGHT, EQUAL, 1);
+        }
+    }
+
+    // 9. Pro renewal reminder — orange clock pill (P1: footer-notifications-stub)
+    //    CPP enhancement — no direct TS equivalent.  Shows only when
+    //    days_remaining < 7.
+    if (data.pro_renewal && data.pro_renewal->days_remaining > 0
+        && data.pro_renewal->days_remaining < 7)
+    {
+        NotificationItem pr_item;
+        pr_item.pill.variant = PillVariant::ProRenewal;
+        pr_item.pill.pro_renewal = *data.pro_renewal;
+        pr_item.text = data.pro_renewal->plan_name + " renews in "
+                     + std::to_string(data.pro_renewal->days_remaining) + "d";
+        Element pill_el = RenderNotificationPill(pr_item);
+        if (pill_el) {
+            return hbox({ std::move(pill_el) }) | size(HEIGHT, EQUAL, 1);
+        }
     }
 
     // Nothing active — return empty placeholder row for stable height
@@ -1149,6 +1498,181 @@ QueueGetCurrentDisplay(const NotificationQueue& nq)
 }
 
 // ============================================================
+// Typed notification convenience helpers (P1: footer-notifications-stub)
+// ============================================================
+// These helpers construct properly-configured NotificationItems for the
+// most common notification types and add them to the queue.
+//
+// TS REFERENCE:
+//   src/context/notifications.tsx L78-192 (addNotification function)
+//   src/components/AutoUpdater.tsx (auto-updater result → notification)
+//   src/hooks/useUpdateNotification.ts (new version → notification)
+//
+// Each helper:
+//   - Sets a unique key for dedup
+//   - Configures the pill variant with typed data
+//   - Sets appropriate priority and timeout
+//   - Calls QueueAddNotification to enqueue
+
+/// Add an API key status notification pill to the queue.
+///
+/// TS REF: src/components/PromptInput/Notifications.tsx L306-310
+///   - Valid:   green check pill (low priority, informational)
+///   - Invalid: red X pill (immediate priority — user needs to act)
+///   - Missing: yellow ! pill (immediate priority)
+///   - Unknown: no-op (nothing to show)
+///
+/// Invalidates any existing "api-key" notification.
+inline void AddApiKeyNotification(NotificationQueue& nq, ApiKeyStatus status) {
+    if (status == ApiKeyStatus::Unknown) return;
+
+    NotificationItem item;
+    item.key = "api-key-status";
+    item.pill.variant = PillVariant::ApiKey;
+    item.pill.api_key_status = status;
+    item.invalidates = { "api-key-status" };   // replace existing
+
+    switch (status) {
+        case ApiKeyStatus::Valid:
+            item.text = "\xF0\x9F\x94\x91 \xE2\x9C\x93 API key OK";   // 🔑 ✓
+            item.color = "success";
+            item.priority = NotificationPriority::Low;
+            item.timeout_ms = 5000;   // brief confirmation
+            break;
+        case ApiKeyStatus::Invalid:
+            item.text = "\xF0\x9F\x94\x91 \xE2\x9C\x97 Invalid key";   // 🔑 ✗
+            item.color = "error";
+            item.priority = NotificationPriority::Immediate;
+            item.timeout_ms = 15000;  // stays visible longer
+            break;
+        case ApiKeyStatus::Missing:
+            item.text = "\xF0\x9F\x94\x91 ! Not logged in";   // 🔑 !
+            item.color = "warning";
+            item.priority = NotificationPriority::Immediate;
+            item.timeout_ms = 15000;
+            break;
+        case ApiKeyStatus::Unknown:
+            return;
+    }
+
+    QueueAddNotification(nq, item);
+}
+
+/// Add an auto-updater status notification pill to the queue.
+///
+/// TS REF: src/components/AutoUpdater.tsx L176-196
+///   - Available:   blue "⬇ New: vX.Y.Z" (medium priority)
+///   - Downloading: dim "⟳ Auto-updating…" (immediate — user is waiting)
+///   - Installed:   green "✓ Update installed · Restart to apply" (immediate)
+///   - Error:       red "✗ Auto-update failed" (immediate)
+///
+/// Invalidates any existing "auto-updater" notification.
+inline void AddAutoUpdaterNotification(NotificationQueue& nq,
+                                        const AutoUpdaterData& data)
+{
+    NotificationItem item;
+    item.key = "auto-updater";
+    item.pill.variant = PillVariant::AutoUpdater;
+    item.pill.auto_updater = data;
+    item.invalidates = { "auto-updater" };   // replace existing
+
+    switch (data.status) {
+        case AutoUpdaterStatus::Available:
+            item.text = "\xE2\xAC\x87 New: v" + data.version;   // ⬇
+            item.color = "info";
+            item.priority = NotificationPriority::Medium;
+            item.timeout_ms = 10000;
+            break;
+        case AutoUpdaterStatus::Downloading:
+            item.text = "\xE2\x9F\xB3 Auto-updating…";   // ⟳
+            item.color = "";   // dim
+            item.priority = NotificationPriority::Immediate;
+            item.timeout_ms = 30000;  // downloading takes a while
+            break;
+        case AutoUpdaterStatus::Installed:
+            item.text = "\xE2\x9C\x93 Update installed \xC2\xB7 Restart to apply";   // ✓ ·
+            item.color = "success";
+            item.priority = NotificationPriority::Immediate;
+            item.timeout_ms = 20000;
+            break;
+        case AutoUpdaterStatus::Error:
+            item.text = "\xE2\x9C\x97 Auto-update failed";   // ✗
+            if (!data.error_detail.empty()) {
+                item.text += " \xC2\xB7 " + data.error_detail;
+            }
+            item.color = "error";
+            item.priority = NotificationPriority::Immediate;
+            item.timeout_ms = 20000;
+            break;
+    }
+
+    QueueAddNotification(nq, item);
+}
+
+/// Add a Pro/Team subscription renewal reminder pill.
+///
+/// CPP enhancement — no direct TS equivalent.  Shows only when
+/// days_remaining < 7 (configurable urgency threshold).
+///
+///   - days <= 3:  orange warning (high priority)
+///   - days 4-6:   blue info (medium priority)
+///   - days >= 7:  no-op (not urgent enough)
+///
+/// Invalidates any existing "pro-renewal" notification.
+inline void AddProRenewalNotification(NotificationQueue& nq,
+                                       const ProRenewalData& data,
+                                       int urgency_threshold_days = 7)
+{
+    if (data.days_remaining >= urgency_threshold_days) return;
+    if (data.days_remaining <= 0) return;   // already expired
+
+    NotificationItem item;
+    item.key = "pro-renewal";
+    item.pill.variant = PillVariant::ProRenewal;
+    item.pill.pro_renewal = data;
+    item.invalidates = { "pro-renewal" };
+
+    const std::string plan = data.plan_name.empty() ? "Pro" : data.plan_name;
+    item.text = "\xE2\x8F\xB1 " + plan + " renews in "
+              + std::to_string(data.days_remaining) + "d";   // ⏱
+
+    if (data.days_remaining <= 3) {
+        item.color = "warning";
+        item.priority = NotificationPriority::High;
+    } else {
+        item.color = "info";
+        item.priority = NotificationPriority::Medium;
+    }
+    item.timeout_ms = 12000;
+
+    QueueAddNotification(nq, item);
+}
+
+/// Add a new release announcement pill.
+///
+/// TS REF: src/hooks/useUpdateNotification.ts (updateSemver)
+/// Shows "🎁 New: vX.Y.Z" in purple/magenta.
+///
+/// Invalidates any existing "new-release" notification.
+inline void AddNewReleaseNotification(NotificationQueue& nq,
+                                       const NewReleaseData& data)
+{
+    if (data.version.empty()) return;
+
+    NotificationItem item;
+    item.key = "new-release";
+    item.pill.variant = PillVariant::NewRelease;
+    item.pill.new_release = data;
+    item.text = "\xF0\x9F\x8E\x81 New: v" + data.version;   // 🎁
+    item.color = "info";   // purple pill uses custom color in renderer
+    item.priority = NotificationPriority::Medium;
+    item.timeout_ms = 12000;
+    item.invalidates = { "new-release", "auto-updater" };   // new release supersedes available update
+
+    QueueAddNotification(nq, item);
+}
+
+// ============================================================
 // Full PromptInputFooter (left + right columns)
 // ============================================================
 
@@ -1243,7 +1767,13 @@ struct FooterOptions {
             nd.api_key_status == ApiKeyStatus::Invalid ||
             nd.api_key_status == ApiKeyStatus::Missing ||
             nd.debug_mode ||
-            (nd.verbose && nd.api_key_status == ApiKeyStatus::Valid && nd.token_usage > 0);
+            (nd.verbose && nd.api_key_status == ApiKeyStatus::Valid && nd.token_usage > 0) ||
+            // P1: typed notification pills (footer-notifications-stub)
+            nd.auto_updater.has_value() ||
+            nd.new_release.has_value() ||
+            (nd.pro_renewal.has_value()
+             && nd.pro_renewal->days_remaining > 0
+             && nd.pro_renewal->days_remaining < 7);
 
         if (has_active) {
             right_col.push_back(hbox({

@@ -103,10 +103,12 @@ module;
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_base.hpp>
 #include <ftxui/component/event.hpp>
+#include <ftxui/component/mouse.hpp>
 // NOTE: ftxui/component/input.hpp is not a standalone header in upstream
 // FTXUI; Input() is exported via ftxui/component/component.hpp.
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/dom/table.hpp>
+#include <ftxui/screen/box.hpp>
 #include <ftxui/screen/color.hpp>
 
 export module cc.ui.messages.messages_list;
@@ -146,6 +148,7 @@ import cc.ui.tools.generic;
 import cc.ui.design.themed_text;
 import cc.ui.design.themed_box;
 import cc.ui.design.tokens;         // Role + Palette for divider color
+import cc.ui.design.figures;        // kSpinnerFrames canonical set (GAP 4)
 import ui.components.spinner;
 
 // =========================================================================
@@ -229,8 +232,25 @@ inline constexpr std::string_view kBriefToolNames[] = {
     "Brief", "SendUserMessage", "SendUserFile"
 };
 
+/// TS REF: Messages.tsx L513  dropTextToolNames = [BRIEF_TOOL_NAME].
+/// For dropTextInBriefTurns (default mode, not brief-only), only turns that
+/// called Brief or SendUserMessage should have their assistant text dropped.
+/// SendUserFile delivers a file without replacement text, so dropping text
+/// for file-only turns would leave the user with no context.
+inline constexpr std::string_view kDropTextToolNames[] = {
+    "Brief", "SendUserMessage"
+};
+
 [[nodiscard]] inline bool is_brief_tool_name(std::string_view name) {
     for (auto tn : kBriefToolNames) {
+        if (name == tn) return true;
+    }
+    return false;
+}
+
+/// Returns true if the tool name triggers dropTextInBriefTurns (TS: dropTextToolNames).
+[[nodiscard]] inline bool is_drop_text_tool_name(std::string_view name) {
+    for (auto tn : kDropTextToolNames) {
         if (name == tn) return true;
     }
     return false;
@@ -312,6 +332,74 @@ inline auto passes_brief_filter(
         default:
             return true;
     }
+}
+
+// ---------------------------------------------------------------------------
+// dropTextInBriefTurns (TS REF: Messages.tsx L169-206).
+//
+// In default mode (neither transcript nor brief-only), drops assistant TEXT
+// rows in turns that called a Brief/SendUserMessage/SendUserFile tool.  The
+// model's text output is redundant with the SendUserMessage content it wrote
+// right after — dropping it keeps the transcript focused on tool output.
+//
+// Per-turn: only drops text in turns that actually called a Brief tool.  If
+// the model forgets to call Brief, text still shows — otherwise the user
+// would see nothing for that turn.
+//
+// Returns a vector<bool> mask (true = KEEP the row, false = DROP it).
+// ---------------------------------------------------------------------------
+[[nodiscard]] inline std::vector<bool> compute_drop_text_mask(
+    const std::vector<MessageShape>& shapes,
+    const std::vector<MessageRowPayload>& payloads)
+{
+    using S = MessageShape;
+    namespace bd = brief_detail;
+
+    const auto N = shapes.size();
+    std::vector<bool> keep(N, true);   // default: keep everything
+
+    // First pass: find which turns contain a Brief tool_use.
+    std::set<std::size_t> turns_with_brief;
+    // text_index_to_turn[i] = turn number for assistant text at index i.
+    std::vector<std::optional<std::size_t>> text_index_to_turn(N, std::nullopt);
+
+    std::size_t turn = 0;
+    for (std::size_t i = 0; i < N; ++i) {
+        const auto sh = shapes[i];
+        // Real user message (non-tool_result) → advance turn counter.
+        // TS REF: L188  msg.type === 'user' && block?.type !== 'tool_result' && !msg.isMeta
+        const bool is_real_user =
+            (sh == S::UserText || sh == S::UserPrompt || sh == S::UserCommand ||
+             sh == S::UserBashInput || sh == S::UserBashOutput ||
+             sh == S::UserLocalCommandOutput || sh == S::UserLocalJsxOutput ||
+             sh == S::UserImage || sh == S::UserPlan || sh == S::UserResourceUpdate ||
+             sh == S::UserMemoryInput || sh == S::UserChannel ||
+             sh == S::UserAgentNotification || sh == S::UserTeammate ||
+             sh == S::UserAttachments);
+        if (is_real_user) {
+            ++turn;
+            continue;
+        }
+        if (sh == S::AssistantText) {
+            text_index_to_turn[i] = turn;
+        } else if ((sh == S::AssistantToolUse || sh == S::AssistantGroupedTools) &&
+                   i < payloads.size()) {
+            if (bd::is_drop_text_tool_name(bd::extract_tool_name(payloads[i]))) {
+                turns_with_brief.insert(turn);
+            }
+        }
+    }
+
+    if (turns_with_brief.empty()) return keep;   // no brief turns → keep all
+
+    // Second pass: mark assistant text rows for dropping if their turn had Brief.
+    for (std::size_t i = 0; i < N; ++i) {
+        if (text_index_to_turn[i].has_value() &&
+            turns_with_brief.count(*text_index_to_turn[i]) > 0) {
+            keep[i] = false;
+        }
+    }
+    return keep;
 }
 
 // ---------------------------------------------------------------------------
@@ -419,6 +507,16 @@ struct MessagesListInput {
     /// are shown; assistant text, thinking, and non-brief tools are hidden.
     bool                            is_brief_mode = false;
 
+    /// TS REF: Messages.tsx isTranscriptMode (L459, screen === 'transcript').
+    /// When true, bypass brief/dropText filters and show ALL message types.
+    /// Capped at last 30 messages unless show_all_in_transcript is also true.
+    bool                            is_transcript_mode = false;
+
+    /// TS REF: Messages.tsx showAllInTranscript prop (L223, L467, L515-516).
+    /// When true AND is_transcript_mode, lifts the 30-message cap so ALL
+    /// messages are rendered.  Toggled by user (Ctrl+E in transcript mode).
+    bool                            show_all_in_transcript = false;
+
     /// TS REF: Messages.tsx expandedKeys (L563) + expandKey (L725-727).
     /// Set of "expand keys" that the user has clicked/pressed-Enter on to
     /// reveal full content.  Keys are tool_name strings for tool_use/tool_result
@@ -429,6 +527,25 @@ struct MessagesListInput {
     /// TS REF: Messages.tsx L240 (unseenDivider prop) + L549-553 (prefix match).
     /// When set, a colored divider line is inserted before the matching row.
     std::optional<UnseenDivider>    unseen_divider;
+
+    /// TS REF: Messages.tsx L649  searchTextCache = useRef(new WeakMap<RenderableMessage, string>())
+    ///
+    /// Per-row cache of lowered searchable text.  Indexed by row_idx (parallel
+    /// to rows[]).  `mutable` so the cache can be populated through const-ref
+    /// accessors (visible_rows_to_virtual takes `const MessagesListInput&`).
+    ///
+    /// Cache invalidation: messages are append-only and immutable (TS:
+    /// RenderableMessage WeakMap keys GC with the message object).  In CPP
+    /// the cache vector grows to match rows.size() on first access; entries
+    /// are never invalidated because row content never changes after
+    /// projection.
+    mutable std::vector<std::optional<std::string>> lowered_search_cache;
+
+    /// GAP 3: msg-system-api-error-retry — callback for the "Retry" button
+    /// on SystemAPIError rows.  When set, the API error card renders a
+    /// clickable Retry pill that invokes this to re-send the last user
+    /// message.  TS REF: SystemAPIErrorMessage.tsx — retry button re-sends.
+    std::function<void()> on_retry;
 };
 
 enum class ActionKind { Copy, Regenerate, Delete };
@@ -851,6 +968,54 @@ namespace search_detail {
     return payload_preview(p);
 }
 
+// =========================================================================
+// 2c)  Cached lowered search text accessor
+// =========================================================================
+// TS REF: Messages.tsx L649-676
+//   const searchTextCache = useRef(new WeakMap<RenderableMessage, string>());
+//   const extractSearchText = useCallback((msg) => {
+//     const cached = searchTextCache.current.get(msg);
+//     if (cached !== undefined) return cached;
+//     let text = renderableSearchText(msg);
+//     // ... tool.extractSearchText override ...
+//     const lowered = text.toLowerCase();
+//     searchTextCache.current.set(msg, lowered);
+//     return lowered;
+//   }, [...]);
+//
+// Returns the LOWERED rich searchable text for row_idx, using the per-row
+// cache on MessagesListInput.  First call computes + caches; subsequent
+// calls (build_visible_rows then visible_rows_to_virtual) hit the cache
+// with zero alloc.
+//
+// Cache is keyed by row_idx (parallel to input.rows) — messages are
+// append-only and immutable, so a cached entry is always valid.
+[[nodiscard]] inline auto get_cached_lowered_search_text(
+    const MessagesListInput& input,
+    std::size_t row_idx,
+    MessageShape shape) -> std::string
+{
+    if (row_idx >= input.rows.size()) return {};
+
+    // Grow cache to match rows size on first access.
+    if (input.lowered_search_cache.size() <= row_idx) {
+        input.lowered_search_cache.resize(input.rows.size());
+    }
+
+    auto& slot = input.lowered_search_cache[row_idx];
+    if (slot.has_value()) {
+        return *slot;   // cache hit — zero alloc
+    }
+
+    // Cache miss: compute + store.  extract_search_text does the 2-tier
+    // lookup (tool.extractSearchText preferred, renderableSearchText
+    // fallback); we lower once here and cache the result.
+    std::string lowered_text = detail::lowered(
+        detail::extract_search_text(input.rows[row_idx], shape));
+    slot = lowered_text;
+    return lowered_text;
+}
+
 /// Returns true for message SHAPEs that belong to each filter category.
 /// Mirrors the TS Messages.tsx category switches (system / tool_use /
 /// tool_result / thinking / compacted).
@@ -902,10 +1067,17 @@ inline auto passes_filters(MessageShape s, const Filters& f) -> bool {
 // 3)  Visible-row representation
 // =========================================================================
 
+/// TS REF: Messages.tsx L276  MAX_MESSAGES_TO_SHOW_IN_TRANSCRIPT_MODE = 30.
+/// When is_transcript_mode=true and show_all_in_transcript=false, only the
+/// last this-many visible rows are rendered.  A divider row shows how many
+/// older messages were hidden.
+constexpr std::size_t kMaxMessagesInTranscriptMode = 30;
+
 /// A single row that render_messages_list_view / the Component will emit.
-/// Either a real payload row OR a compact-group synthetic row.
+/// Either a real payload row, a compact-group synthetic row, or a transcript-
+/// cap divider ("N older messages hidden — Ctrl+E to show all").
 struct VisibleRow {
-    enum class Kind { Payload, CompactGroup };
+    enum class Kind { Payload, CompactGroup, TranscriptCapDivider };
 
     Kind kind = Kind::Payload;
 
@@ -918,6 +1090,9 @@ struct VisibleRow {
     std::size_t tool_turns      = 0;
     std::size_t additions       = 0;
     std::size_t deletions       = 0;
+
+    // For Kind::TranscriptCapDivider — number of messages hidden by the cap.
+    std::size_t hidden_count    = 0;
 };
 
 // =========================================================================
@@ -936,24 +1111,52 @@ inline auto build_visible_rows(MessagesListInput& input) -> std::vector<VisibleR
     const std::string needle = detail::lowered(input.search_query);
     const bool do_search     = !needle.empty();
 
-    // ---- Step 1 : mark rows that pass (filters AND search AND brief-mode).
+    // ---- Step 0b : pre-compute dropTextInBriefTurns mask for default mode.
+    //              Only needed when NOT in transcript mode AND NOT in brief mode.
+    //              TS REF: Messages.tsx L510-514 (3-tier briefFiltered logic).
+    std::vector<bool> drop_text_keep_mask;
+    const bool apply_drop_text = !input.is_transcript_mode && !input.is_brief_mode;
+    if (apply_drop_text && N > 0) {
+        drop_text_keep_mask = compute_drop_text_mask(input.shapes, input.rows);
+    }
+
+    // ---- Step 1 : mark rows that pass (filters AND search AND 3-tier filter).
     //              Separately build a "row visible" bitmask so Step 2 can use it.
+    //
+    // 3-tier filter (TS REF: Messages.tsx L505-514):
+    //   Tier 1 (transcript mode): show ALL message types — bypass brief/dropText.
+    //   Tier 2 (brief-only):     only brief tool chain + user input + system.
+    //   Tier 3 (default):        drop assistant text in turns that called Brief
+    //                            (dropTextInBriefTurns), keep everything else.
     std::vector<bool> row_passes(N, false);
     for (std::size_t i = 0; i < N; ++i) {
         if (i >= input.shapes.size()) break;   // malformed input → safe stop
         if (!detail::passes_filters(input.shapes[i], input.filters)) continue;
-        // Brief mode: only show brief tool chain + real user input + system msgs.
-        // TS REF: Messages.tsx L510-514 (briefFiltered = filterForBriefTool || dropTextInBriefTurns)
-        if (input.is_brief_mode && i < input.rows.size()) {
-            if (!passes_brief_filter(input.shapes[i], input.rows[i])) continue;
+
+        // Tier 1: transcript mode — skip brief/dropText filters entirely.
+        // TS REF: L514  !isTranscriptMode ? ... : messagesToShowNotTruncated
+        if (!input.is_transcript_mode) {
+            if (input.is_brief_mode) {
+                // Tier 2: brief-only — filterForBriefTool.
+                // TS REF: L514  isBriefOnly ? filterForBriefTool(...)
+                if (i < input.rows.size() &&
+                    !passes_brief_filter(input.shapes[i], input.rows[i])) {
+                    continue;
+                }
+            } else if (apply_drop_text && i < drop_text_keep_mask.size()) {
+                // Tier 3: default — dropTextInBriefTurns.
+                // TS REF: L514  dropTextInBriefTurns(messagesToShowNotTruncated, ...)
+                if (!drop_text_keep_mask[i]) continue;
+            }
         }
+
         if (do_search) {
-            // TS REF: Messages.tsx L650-676  2-tier search text extraction.
-            // Use rich extract_search_text() for indexing (Tier 2), not the
-            // toy payload_preview() (Tier 1).  This lets users search for
-            // file contents, bash output, grep matches — not just tool names.
-            const std::string hay = detail::lowered(
-                detail::extract_search_text(input.rows[i], input.shapes[i]));
+            // TS REF: Messages.tsx L650-676  2-tier search text extraction
+            //   with WeakMap cache.  Use cached accessor: first call computes
+            //   + caches lowered rich text; subsequent calls (visible_rows_to_virtual
+            //   scroll_search) hit the cache with zero alloc.
+            const std::string hay = detail::get_cached_lowered_search_text(
+                input, i, input.shapes[i]);
             if (hay.find(needle) == std::string::npos) continue;
         }
         row_passes[i] = true;
@@ -1072,6 +1275,27 @@ inline auto build_visible_rows(MessagesListInput& input) -> std::vector<VisibleR
             .row_idx = i,
         });
     }
+
+    // ---- Step 4 : transcript-mode cap (TS REF: Messages.tsx L515-516, L276).
+    //              When is_transcript_mode and NOT show_all_in_transcript, cap
+    //              visible rows to last kMaxMessagesInTranscriptMode (30).
+    //              Prepend a TranscriptCapDivider showing how many were hidden.
+    if (input.is_transcript_mode && !input.show_all_in_transcript &&
+        out.size() > kMaxMessagesInTranscriptMode)
+    {
+        const std::size_t hidden = out.size() - kMaxMessagesInTranscriptMode;
+        std::vector<VisibleRow> capped;
+        capped.reserve(kMaxMessagesInTranscriptMode + 1);
+        capped.push_back(VisibleRow{
+            .kind         = VisibleRow::Kind::TranscriptCapDivider,
+            .hidden_count = hidden,
+        });
+        // Copy last kMax rows from the full output.
+        const auto start = out.end() - static_cast<std::ptrdiff_t>(kMaxMessagesInTranscriptMode);
+        capped.insert(capped.end(), start, out.end());
+        out = std::move(capped);
+    }
+
     return out;
 }
 
@@ -1083,6 +1307,7 @@ inline auto build_visible_rows(MessagesListInput& input) -> std::vector<VisibleR
 namespace detail {
     inline auto render_empty_state(const std::string& search_query) -> Element;
     inline auto render_compact_group_row(const VisibleRow& vr, bool is_selected) -> Element;
+    inline auto render_transcript_cap_divider(std::size_t hidden_count) -> Element;
     inline auto render_payload_row(const MessagesListInput& input,
                                    std::size_t row_idx,
                                    bool is_selected,
@@ -1147,6 +1372,10 @@ namespace detail {
     using K = VisibleRow::Kind;
     if (vr.kind == K::CompactGroup) {
         // Collapsed "📦 27 messages collapsed (📦 8 tool turns, +++12 ---7)"
+        return 1;
+    }
+    if (vr.kind == K::TranscriptCapDivider) {
+        // "─── N older messages hidden · Ctrl+E to show all ───"
         return 1;
     }
     // Payload rows — dispatch by MessageShape content length.
@@ -1322,31 +1551,48 @@ namespace detail {
     for (std::size_t i = 0; i < visible.size(); ++i) {
         const auto& vr = visible[i];
         const int est = detail::estimate_row_height(vr, input, term_cols);
-        const std::uint64_t backend =
-            (vr.kind == VisibleRow::Kind::CompactGroup)
-                // Use MSB sentinel ~group_idx; cast safely via ull.
-                ? (std::uint64_t(1) << 63) | static_cast<std::uint64_t>(vr.group_idx)
-                : static_cast<std::uint64_t>(vr.row_idx);
+
+        // Encode kind into backend_index MSBs for round-trip via
+        // decode_virtual_backend_index.  Bit 63 = CompactGroup,
+        // bit 62 = TranscriptCapDivider, neither = Payload.
+        constexpr std::uint64_t kGroupBit  = std::uint64_t(1) << 63;
+        constexpr std::uint64_t kCapBit    = std::uint64_t(1) << 62;
+        std::uint64_t backend;
+        int type_hint;
+
+        if (vr.kind == VisibleRow::Kind::CompactGroup) {
+            backend   = kGroupBit | static_cast<std::uint64_t>(vr.group_idx);
+            type_hint = 1;
+        } else if (vr.kind == VisibleRow::Kind::TranscriptCapDivider) {
+            backend   = kCapBit | static_cast<std::uint64_t>(vr.hidden_count);
+            type_hint = 2;
+        } else {
+            backend   = static_cast<std::uint64_t>(vr.row_idx);
+            type_hint = 0;
+        }
+
         vl::VisibleRow row{
             .row_id                 = static_cast<std::uint64_t>(i) + 1,
             .estimated_height_lines = est,
             .height_measured        = false,
             .search_key             = {},
-            .type_hint              = (vr.kind == VisibleRow::Kind::CompactGroup) ? 1 : 0,
+            .type_hint              = type_hint,
             .backend_index          = backend,
         };
         if (row.type_hint == 0 && vr.row_idx < input.rows.size()) {
-            // Populate search_key with rich extract_search_text (Tier 2)
-            // instead of toy payload_preview (Tier 1).  This lets the
-            // VirtualMessageList's scroll_search find file contents, bash
-            // output, etc. — not just tool names.
+            // Populate search_key using the cached lowered rich text.
+            // If build_visible_rows already warmed the cache (search was
+            // active), this is a zero-alloc cache hit.  Otherwise this
+            // call computes + caches for future use.
+            //
             // TS REF: Messages.tsx L700  extractSearchText passed to VirtualMessageList
+            //   (the same callback used by build_visible_rows search filter).
             const MessageShape shape =
                 vr.row_idx < input.shapes.size()
                     ? input.shapes[vr.row_idx]
                     : MessageShape::SystemTaskAssignment;
-            row.search_key = detail::lowered(
-                detail::extract_search_text(input.rows[vr.row_idx], shape));
+            row.search_key = detail::get_cached_lowered_search_text(
+                input, vr.row_idx, shape);
         }
         out.push_back(std::move(row));
     }
@@ -1362,10 +1608,18 @@ namespace detail {
     VisibleRow& out) noexcept
 {
     constexpr std::uint64_t kGroupBit = std::uint64_t(1) << 63;
+    constexpr std::uint64_t kCapBit   = std::uint64_t(1) << 62;
     if ((backend_index & kGroupBit) != 0) {
         out.kind      = VisibleRow::Kind::CompactGroup;
         out.group_idx = backend_index & (~kGroupBit);
         out.row_idx   = 0;
+        return true;
+    }
+    if ((backend_index & kCapBit) != 0) {
+        out.kind         = VisibleRow::Kind::TranscriptCapDivider;
+        out.hidden_count = backend_index & (~kCapBit);
+        out.row_idx      = 0;
+        out.group_idx    = 0;
         return true;
     }
     out.kind    = VisibleRow::Kind::Payload;
@@ -1520,6 +1774,8 @@ inline constexpr std::size_t kVirtualThreshold = 80;
             Element row_el;
             if (ml_row.kind == VisibleRow::Kind::CompactGroup) {
                 row_el = detail::render_compact_group_row(ml_row, is_selected);
+            } else if (ml_row.kind == VisibleRow::Kind::TranscriptCapDivider) {
+                row_el = detail::render_transcript_cap_divider(ml_row.hidden_count);
             } else {
                 row_el = detail::render_payload_row(
                     input, ml_row.row_idx, is_selected, frame_count,
@@ -1723,13 +1979,17 @@ inline auto accent_top_color(const RenderEnvelopeOptions& o) -> Color {
     }
 }
 
-/// Spinner glyph — cycles through 6 characters on frame_count.
-/// Mirrors TS spinner animations; same frames as ui.components.spinner.
+/// Spinner glyph — canonical 10-frame braille spinner.
+/// TS REF: SpinnerGlyph.tsx (GAP 4: fig-spinner-frame-inconsistency)
+///   Previously used 10 asterisk-based frames; now unified to the canonical
+///   braille set from cc::ui::design::figures::kSpinnerFrames so all spinners
+///   in the app animate consistently.
 inline auto spinner_glyph(std::size_t frame) -> const char* {
-    static constexpr const char* frames[] = {
-        "·", "✢", "*", "✶", "✻", "✽", "✻", "✶", "*", "✢",
-    };
-    return frames[frame % (sizeof(frames) / sizeof(frames[0]))];
+    namespace figs = cc::ui::design::figures;
+    // spinner_frame_glyph returns a string_view pointing into the inline
+    // constexpr kSpinnerFrames array (static storage duration), so .data()
+    // is safe to return as a raw const char*.
+    return figs::spinner_frame_glyph(static_cast<int>(frame)).data();
 }
 
 } // namespace detail
@@ -1962,6 +2222,38 @@ namespace detail {
     });
 }
 
+/// TS REF: Messages.tsx L682
+///   <Divider title={`${toggleShowAllShortcut} to show ${chalk.bold(hiddenMessageCount_0)} previous messages`} />
+///
+/// Renders a muted separator: "─── N older messages hidden · Ctrl+E to show all ───"
+/// Inserted at the top of the visible list when transcript mode caps at 30.
+[[nodiscard]] inline auto render_transcript_cap_divider(std::size_t hidden_count) -> Element {
+    using namespace palette;
+    using namespace ftxui;
+
+    const std::string title = std::to_string(hidden_count) +
+        " older message" + (hidden_count == 1 ? "" : "s") +
+        " hidden · Ctrl+E to show all";
+    const Color line_color = muted_fg();
+
+    const std::string dash = "─";
+    std::string long_line;
+    long_line.reserve(160 * dash.size());
+    for (int i = 0; i < 160; ++i) long_line += dash;
+    Elements parts;
+    parts.push_back(text("───") | color(line_color));
+    parts.push_back(hbox({
+        text(" "),
+        text(title) | color(line_color),
+        text(" "),
+    }));
+    parts.push_back(text(long_line) | xflex | color(line_color));
+    return vbox({
+        separatorEmpty(),
+        hbox(std::move(parts)) | color(line_color),
+    });
+}
+
 /// Decide the envelope status badge purely from MessageShape + stream state.
 inline auto derive_status_badge(MessageShape s, std::size_t row_idx,
                                 std::size_t streaming_tail)
@@ -2131,10 +2423,10 @@ inline auto render_payload_row(const MessagesListInput& input,
             // path.  On this plain-Element render path, selected merely
             // lifts the "hide on complete" guard so the collapsed label is
             // visible.  `is_transcript_mode` (full thinking content) is
-            // therefore always false here.
+            // driven by the user's Ctrl+O transcript toggle.
             Element el = thinking_message::RenderThinkingMessageFaithful(
                 o->data,
-                /*is_transcript_mode=*/false,
+                /*is_transcript_mode=*/input.is_transcript_mode,
                 /*verbose=*/is_row_expanded(input, row_idx),
                 /*add_margin=*/add_margin);
             (void)frame_count;
@@ -2320,7 +2612,10 @@ inline auto render_payload_row(const MessagesListInput& input,
     }
 
     // ── DIVERGENT PATH (sub-types not yet ported to faithful) ───────────
-    MessageRowCallbacks cb{};   // envelope callbacks come via the outer component
+    // GAP 3: thread on_retry from MessagesListInput so SystemAPIError rows
+    // can render a working Retry pill that re-sends the last user message.
+    MessageRowCallbacks cb;
+    cb.on_retry = input.on_retry;
     Component inner = RenderMessageRowByType(shape, payload, std::move(cb));
 
     RenderEnvelopeOptions env_opts{
@@ -2541,6 +2836,9 @@ constexpr std::size_t kMaxRenderedLastN = 80;   // last-N render cap
 
             rows.push_back(detail::render_payload_row(
                 input, vr.row_idx, is_selected, frame_count, row_add_margin));
+        } else if (vr.kind == VisibleRow::Kind::TranscriptCapDivider) {
+            // "─── N older messages hidden · Ctrl+E to show all ───"
+            rows.push_back(detail::render_transcript_cap_divider(vr.hidden_count));
         } else {
             // compact group row — renders its own header/spacing
             rows.push_back(detail::render_compact_group_row(vr, is_selected));
@@ -2683,7 +2981,11 @@ class MessagesListComponent final : public ComponentBase {
         }
 
         // ------ When the search Input owns focus, let it handle events --
-        if (search_focused) {
+        // ------ When the search Input owns focus, let it handle events --
+        // Mouse events bypass the search-focus gate: clicking a message row
+        // should work even when the search box has keyboard focus.  TS REF:
+        //   VirtualMessageList.tsx onClickK fires regardless of search state.
+        if (search_focused && !event.is_mouse()) {
             bool handled = search_input_->OnEvent(event);
             // Sync the (possibly-changed) query to the filter layer
             if (input_.search_query != live_search_query_) {
@@ -2789,12 +3091,122 @@ class MessagesListComponent final : public ComponentBase {
         if (event == Event::Character('r')) return fire_action(ActionKind::Regenerate);
         if (event == Event::Character('d')) return fire_action(ActionKind::Delete);
 
+        // ------ Mouse: click to expand / select row -------------------
+        // TS REF: Messages.tsx onItemClick (L564-571) +
+        //   VirtualMessageList.tsx onClickK (L847-850) + onEnterK/onLeaveK
+        //   (L851-856).  Each message row is a "clickable cell"; left-click
+        //   toggles verbose expansion for truncated tool outputs / collapsed
+        //   groups, and moves the keyboard cursor to that row.
+        if (event.is_mouse()) {
+            const auto& m = event.mouse();
+            const int mx = m.x;
+            const int my = m.y;
+
+            // Find which tracked row (if any) contains the mouse cursor.
+            // Linear scan: typical viewport shows ≤60 rows after overscan,
+            // so this is sub-millisecond.
+            std::optional<std::size_t> hit_vi;
+            for (std::size_t i = 0; i < tracked_boxes_.size(); ++i) {
+                if (tracked_boxes_[i] && tracked_boxes_[i]->Contain(mx, my)) {
+                    if (i < tracked_vi_.size()) {
+                        hit_vi = tracked_vi_[i];
+                    }
+                    break;
+                }
+            }
+
+            // Hover tracking: update hovered_vi_ on every mouse event so
+            // visual feedback (underline / cursor hint) follows the cursor.
+            // TS REF: VirtualMessageList.tsx onEnterK/onLeaveK hover state.
+            if (hovered_vi_ != hit_vi) {
+                hovered_vi_ = hit_vi;
+                // Returning true would consume the event and prevent the
+                // underlying component from receiving it.  We only consume
+                // on actual clicks; hover changes are side-effects.
+            }
+
+            // Left-click released: toggle expansion AND move selection.
+            if (m.button == Mouse::Left && m.motion == Mouse::Released) {
+                if (!hit_vi.has_value()) return false;
+                const std::size_t vi = *hit_vi;
+                if (vi >= visible_rows_.size()) return false;
+
+                const auto& vr = visible_rows_[vi];
+
+                // Compact group: toggle group expand/collapse.
+                if (vr.kind == VisibleRow::Kind::CompactGroup) {
+                    // Also select the group row so keyboard cursor follows.
+                    commit_selection(vi);
+                    if (cbs_.on_toggle_compact_group)
+                        cbs_.on_toggle_compact_group(vr.group_idx);
+                    return true;
+                }
+
+                // Payload row: if clickable or already expanded, toggle.
+                if (vr.kind == VisibleRow::Kind::Payload) {
+                    const auto idx = vr.row_idx;
+                    // Always move selection to the clicked row first.
+                    commit_selection(vi);
+
+                    if (idx < input_.shapes.size() && idx < input_.rows.size()) {
+                        std::string_view uuid = (idx < input_.uuids.size())
+                            ? std::string_view(input_.uuids[idx]) : std::string_view{};
+                        auto key = compute_expand_key(
+                            input_.shapes[idx], input_.rows[idx], uuid);
+                        bool clickable = is_row_clickable(
+                            input_.shapes[idx], input_.rows[idx]);
+                        bool expanded = !key.empty() &&
+                            input_.expanded_keys.count(key) > 0;
+                        if (clickable || expanded) {
+                            if (cbs_.on_toggle_expand && !key.empty())
+                                cbs_.on_toggle_expand(key);
+                            return true;
+                        }
+                    }
+                    return true;  // click consumed (selection moved)
+                }
+            }
+            // Non-click mouse events: don't consume; let parent components
+            // (e.g. scroll wheel) handle them.
+        }
+
         return ComponentBase::OnEvent(event);
     }
 
     // ── Rendering ------------------------------------------------------
     Element Render() override {
         ++frame_count_;
+
+        // Reset the row-tracking cursor.  We REUSE existing Box objects in
+        // tracked_boxes_ rather than clearing them, because the previous
+        // frame's element tree still holds Box& references via reflect().
+        // Destroying those Boxes before the old tree is replaced would be a
+        // use-after-free.  Instead: overwrite in place, then trim excess at
+        // the end of Render() after the new tree is fully built.
+        std::size_t track_pos = 0;
+        auto push_tracked = [this, &track_pos](std::size_t vi) -> Box& {
+            if (track_pos < tracked_boxes_.size()) {
+                // Reuse existing Box (old tree's reflect ref will be
+                // overwritten by new tree's layout pass).
+                tracked_vi_[track_pos] = vi;
+                Box& b = *tracked_boxes_[track_pos];
+                ++track_pos;
+                return b;
+            }
+            tracked_vi_.push_back(vi);
+            tracked_boxes_.push_back(std::make_unique<Box>());
+            Box& b = *tracked_boxes_.back();
+            ++track_pos;
+            return b;
+        };
+        auto trim_tracked = [this, &track_pos]() {
+            if (track_pos < tracked_vi_.size()) {
+                tracked_vi_.erase(tracked_vi_.begin() + track_pos,
+                                  tracked_vi_.end());
+                tracked_boxes_.erase(tracked_boxes_.begin() + track_pos,
+                                     tracked_boxes_.end());
+            }
+        };
 
         // Rebuild visible rows whenever the caller replaced input_
         // (callers write via the public setters below; here we also guard
@@ -2820,6 +3232,7 @@ class MessagesListComponent final : public ComponentBase {
         Element list_body;
         if (visible_rows_.empty()) {
             list_body = detail::render_empty_state(input_.search_query);
+            trim_tracked();  // no rows → clear all tracked entries
         } else if (visible_rows_.size() > kVirtualThreshold) {
             // ── P0-3 VIRTUAL PATH ──────────────────────────────────
             // Build virtual rows from cached visible_rows_.  Use
@@ -2865,7 +3278,7 @@ class MessagesListComponent final : public ComponentBase {
             const MessagesListInput& in_ref = input_;
             (void)vis_rows_copy;  // unused when render_row cb is trivial
             state.callbacks.render_row =
-                [fc, &in_ref, &vis_rows_copy, sel_copy,
+                [&push_tracked, fc, &in_ref, &vis_rows_copy, sel_copy,
                  divider_before_vi, has_divider]
                 (size_t row_index, const vl::VisibleRow& vr) -> Element
                 {
@@ -2900,11 +3313,20 @@ class MessagesListComponent final : public ComponentBase {
                     if (ml_row.kind == VisibleRow::Kind::CompactGroup) {
                         row_el = detail::render_compact_group_row(ml_row,
                                                                   is_selected);
+                    } else if (ml_row.kind == VisibleRow::Kind::TranscriptCapDivider) {
+                        row_el = detail::render_transcript_cap_divider(
+                            ml_row.hidden_count);
                     } else {
                         row_el = detail::render_payload_row(
                             in_ref, ml_row.row_idx, is_selected, fc,
                             /*add_margin=*/true);
                     }
+
+                    // Track this virtual row's screen box for mouse
+                    // click-to-expand.  TS REF: VirtualMessageList.tsx
+                    //   measureRef + onClickK hit-testing.
+                    Box& vbox_ref = push_tracked(row_index);
+
                     // TS REF: Messages.tsx L631-635  insert divider BEFORE
                     // the target row.  row_index is 0..rows.size()-1, which
                     // maps 1:1 to visible_rows_[] order.
@@ -2913,12 +3335,13 @@ class MessagesListComponent final : public ComponentBase {
                             detail::render_unseen_divider(
                                 in_ref.unseen_divider->count),
                             std::move(row_el),
-                        });
+                        }) | reflect(vbox_ref);
                     }
-                    return row_el;
+                    return row_el | reflect(vbox_ref);
                 };
 
             list_body = vl::render_list_as_elements(state) | flex;
+            trim_tracked();
         } else {
             // ---- Last-N window (non-virtualized path, ≤kVirtualThreshold)
             std::size_t start = 0;
@@ -2962,6 +3385,11 @@ class MessagesListComponent final : public ComponentBase {
                     selected_visible_index_.has_value() &&
                     *selected_visible_index_ == vi;
 
+                // Track this row's screen box for mouse click-to-expand.
+                // TS REF: VirtualMessageList.tsx VirtualItem — each item has
+                //   a measured Box used for onClick hit-testing.
+                Box& row_box = push_tracked(vi);
+
                 if (vr.kind == VisibleRow::Kind::Payload) {
                     const MessageShape shape =
                         (vr.row_idx < input_.shapes.size())
@@ -3001,13 +3429,21 @@ class MessagesListComponent final : public ComponentBase {
                     }
 
                     rows.push_back(detail::render_payload_row(
-                        input_, vr.row_idx, is_selected, frame_count_, row_add_margin));
+                        input_, vr.row_idx, is_selected, frame_count_, row_add_margin)
+                        | reflect(row_box));
+                } else if (vr.kind == VisibleRow::Kind::TranscriptCapDivider) {
+                    rows.push_back(
+                        detail::render_transcript_cap_divider(vr.hidden_count)
+                        | reflect(row_box));
+                    next_add_margin = true;
                 } else {
                     rows.push_back(
-                        detail::render_compact_group_row(vr, is_selected));
+                        detail::render_compact_group_row(vr, is_selected)
+                        | reflect(row_box));
                     next_add_margin = true;
                 }
             }
+            trim_tracked();
             list_body = vbox(std::move(rows)) | flex;
         }
 
@@ -3144,6 +3580,20 @@ class MessagesListComponent final : public ComponentBase {
     std::size_t          last_rows_size_   = std::size_t(-1);
     std::string          last_search_;
     std::uint64_t        last_filter_hash_ = std::uint64_t(-1);
+
+    // ── Mouse click-to-expand tracking ──────────────────────────────────
+    // TS REF: Messages.tsx onItemClick (L564-571) + VirtualMessageList.tsx
+    //   onClickK/onEnterK/onLeaveK (L847-856).
+    // Each frame, Render() records the screen box of every visible row via
+    // reflect().  OnEvent() uses these to map a mouse click → visible row,
+    // then toggles its expansion (same logic as Space/Enter keys).
+    //
+    // tracked_boxes_ uses unique_ptr<Box> because reflect() takes a Box&
+    // and vector<Box> reallocation would invalidate references during the
+    // row-building loop (push_back may grow the vector).
+    std::vector<std::size_t>        tracked_vi_;       // visible index per row
+    std::vector<std::unique_ptr<Box>> tracked_boxes_;  // screen boxes (parallel)
+    std::optional<std::size_t>      hovered_vi_;       // mouse-hovered row index
 };
 
 [[nodiscard]] inline auto MakeMessagesList(

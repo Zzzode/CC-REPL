@@ -284,25 +284,150 @@ struct LocalCommandOptions {
     return vbox(parts) | borderRounded | color(border);
 }
 
-[[nodiscard]] inline Element RenderLocalCommandOutputFaithful(
-    const LocalCommandOptions& opts) {
-    Elements content;
-    content.reserve(opts.data.lines.size());
+// ============================================================
+// Faithful renderer — matches TS UserLocalCommandOutputMessage.tsx
+// ============================================================
 
-    for (const auto& line : opts.data.lines) {
-        Decorator colorize = line.kind == StreamKind::Stderr
-            ? color(Color::Red)
-            : dim;
-        content.push_back(paragraph(line.text.empty() ? " " : line.text)
-                          | colorize);
+// Render cloud-launch content (diamond-prefixed: ◇ or ◆).
+// TS REF: src/components/messages/UserLocalCommandOutputMessage.tsx:88-166 (CloudLaunchContent)
+// TS structure:
+//   <Text color="background">{diamond} </Text>   // hidden diamond
+//   <Text bold>{label}</Text>                     // bold command name
+//   {suffix && <Text dimColor>{suffix}</Text>}    // dim " · extra"
+//   {rest && (                                    // body after \n
+//     <Box flexDirection="row">
+//       <Text dimColor>{"  ⎿  "}</Text>
+//       <Text dimColor>{rest}</Text>
+//     </Box>)}
+[[nodiscard]] inline Element RenderCloudLaunchFaithful(
+    const std::vector<OutputLine>& lines) {
+    if (lines.empty()) return text("") | dim;
+
+    // Parse first line: "◆ label · suffix" possibly followed by "\nrest..."
+    const std::string& first_text = lines[0].text;
+
+    // Extract diamond (first UTF-8 char, ◇=U+25C7 or ◆=U+25C6, both 3 bytes in UTF-8).
+    // Diamond is hidden in TS (color="background"), so we only skip its bytes.
+    std::string after_diamond;
+    if (first_text.size() >= 3 &&
+        (static_cast<unsigned char>(first_text[0]) == 0xE2)) {
+        // Valid 3-byte UTF-8 for ◇ (E2 97 87) or ◆ (E2 97 86)
+        // Skip past diamond + space if present
+        std::size_t pos = 3;
+        if (pos < first_text.size() && first_text[pos] == ' ') ++pos;
+        after_diamond = first_text.substr(pos);
+    } else {
+        after_diamond = first_text;
     }
 
-    if (content.empty()) {
-        content.push_back(text("(no content)") | dim);
+    // Split header from rest (after first newline)
+    std::string header_part = after_diamond;
+    std::string rest_part;
+    auto nl_pos = after_diamond.find('\n');
+    if (nl_pos != std::string::npos) {
+        header_part = after_diamond.substr(0, nl_pos);
+        rest_part = after_diamond.substr(nl_pos + 1);
+    }
+
+    // Also collect rest from subsequent lines
+    for (std::size_t i = 1; i < lines.size(); ++i) {
+        if (!rest_part.empty()) rest_part += '\n';
+        rest_part += lines[i].text;
+    }
+
+    // Parse label and suffix (separator: " · " middle dot = UTF-8 C2 B7 + space)
+    std::string label = header_part;
+    std::string suffix;
+    // TS: header.indexOf(" \xB7 ") — middle dot U+00B7 = UTF-8 "\xC2\xB7"
+    const std::string mid_dot = " \xC2\xB7 ";  // " · "
+    auto sep_pos = header_part.find(mid_dot);
+    if (sep_pos != std::string::npos) {
+        label = header_part.substr(0, sep_pos);
+        suffix = header_part.substr(sep_pos);
+    }
+
+    // Build header line
+    Elements header_parts;
+    // TS: <Text color="background">{diamond} </Text> — diamond is hidden (background color).
+    // FTXUI has no Color::Background; the diamond is intentionally invisible, so omit it.
+    // TS: <Text bold>{label}</Text>
+    header_parts.push_back(text(label) | bold);
+    if (!suffix.empty()) {
+        // TS: <Text dimColor>{suffix}</Text>
+        header_parts.push_back(text(suffix) | dim);
+    }
+
+    Element header = hbox(std::move(header_parts));
+
+    // Build body rest
+    if (!rest_part.empty()) {
+        // Trim trailing whitespace per TS: children.slice(nl + 1).trim()
+        // Simple trim
+        auto start = rest_part.find_first_not_of(" \t\n\r");
+        auto end = rest_part.find_last_not_of(" \t\n\r");
+        if (start != std::string::npos) {
+            rest_part = rest_part.substr(start, end - start + 1);
+        } else {
+            rest_part.clear();
+        }
+    }
+
+    if (!rest_part.empty()) {
+        Element rest_line = hbox({
+            text("  ⎿  ") | dim,                          // ⎿ prefix dim
+            paragraph(rest_part) | dim,                        // rest dim
+        });
+        return vbox({header, rest_line});
+    }
+
+    return header;
+}
+
+[[nodiscard]] inline Element RenderLocalCommandOutputFaithful(
+    const LocalCommandOptions& opts) {
+    // TS REF: src/components/messages/UserLocalCommandOutputMessage.tsx:12-54
+    // Faithful variant: no line numbers, no borders, just ⎿ prefix + ANSI passthrough.
+    // TS extracts <local-command-stdout> / <local-command-stderr> blocks; each
+    // non-empty trimmed block renders as IndentedContent.
+    //
+    // TS IndentedContent (normal path):
+    //   <Text dimColor>{"  ⎿  "}</Text>          ← dim prefix only
+    //   <Markdown>{children}</Markdown>          ← ANSI passthrough, NOT dim
+    //
+    // TS does NOT dim content body and does NOT color stderr red in normal path.
+
+    const auto& lines = opts.data.lines;
+
+    // TS REF: src/components/messages/UserLocalCommandOutputMessage.tsx:24-33
+    // If neither stdout nor stderr, show NO_CONTENT_MESSAGE = "(no content)" dimColor.
+    if (lines.empty()) {
+        return text("(no content)") | dim;
+    }
+
+    // Check for cloud-launch diamond prefix on first output line.
+    // TS REF: src/components/messages/UserLocalCommandOutputMessage.tsx:60-70
+    // (IndentedContent startsWith DIAMOND_OPEN / DIAMOND_FILLED check)
+    if (!lines.empty()) {
+        const auto& t = lines[0].text;
+        if (t.size() >= 3 && static_cast<unsigned char>(t[0]) == 0xE2 &&
+            (static_cast<unsigned char>(t[1]) == 0x97)) {
+            // E2 97 86 = ◆ (U+25C6), E2 97 87 = ◇ (U+25C7)
+            return RenderCloudLaunchFaithful(lines);
+        }
+    }
+
+    // Normal path: build content lines, each rendered via paragraph (ANSI passthrough).
+    // TS REF: src/components/messages/UserLocalCommandOutputMessage.tsx:71-87
+    Elements content;
+    content.reserve(lines.size());
+    for (const auto& line : lines) {
+        // TS does NOT dim content and does NOT color stderr.
+        // paragraph() = ANSI passthrough, equivalent to TS <Markdown>.
+        content.push_back(paragraph(line.text.empty() ? " " : line.text));
     }
 
     return hbox({
-        text("  ⎿  ") | dim,
+        text("  ⎿  ") | dim,                          // ⎿ prefix — dim only
         vbox(std::move(content)) | flex,
     });
 }
