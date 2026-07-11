@@ -71,16 +71,6 @@ struct OAuthServerMetadata {
 
 namespace detail {
 
-inline std::optional<std::vector<std::string>> parse_string_array(JsonVal value) {
-    if (!value.valid() || !value.is_arr()) return std::nullopt;
-
-    std::vector<std::string> strings;
-    value.iter([&](JsonVal item) {
-        if (item.is_str()) strings.emplace_back(item.as_str());
-    });
-    return strings;
-}
-
 inline Result<OAuthServerMetadata> parse_oauth_server_metadata(JsonVal root) {
     if (!root.is_obj()) {
         return std::unexpected(cc::utils::Error(
@@ -187,21 +177,6 @@ inline std::string sanitize_key(std::string_view key) {
 
 inline std::filesystem::path token_path_for_key(std::string_view key) {
     return token_storage_dir() / (sanitize_key(key) + ".json");
-}
-
-inline std::string url_encode(std::string_view value) {
-    static constexpr char hex[] = "0123456789ABCDEF";
-    std::string encoded;
-    for (unsigned char ch : value) {
-        if (std::isalnum(ch) || ch == '-' || ch == '_' || ch == '.' || ch == '~') {
-            encoded.push_back(static_cast<char>(ch));
-        } else {
-            encoded.push_back('%');
-            encoded.push_back(hex[ch >> 4]);
-            encoded.push_back(hex[ch & 0x0F]);
-        }
-    }
-    return encoded;
 }
 
 inline std::string base64_encode(std::string_view value) {
@@ -813,6 +788,8 @@ Result<void> perform_mcp_oauth_flow(
                 "XAA server requires an AS client_id. Re-add the MCP server with --client-id."));
         }
 
+        // TS REF: xaa.ts performCrossAppAccess() + xaaIdpLogin.ts acquireIdpIdToken()
+        // Get XAA config (IdP + AS credentials from ~/.cc-repl/xaa-idp.txt)
         auto xaa_config = get_xaa_config(server_name);
         if (!xaa_config) {
             return std::unexpected(cc::utils::Error(
@@ -820,34 +797,39 @@ Result<void> perform_mcp_oauth_flow(
                 "XAA requires a configured IdP connection before MCP OAuth can continue."));
         }
 
-        auto xaa_scope = xaa_config->scope
-            ? std::optional<std::string_view>{std::string_view(*xaa_config->scope)}
-            : std::nullopt;
-        auto login = perform_xaa_login(
-            xaa_config->idp_url,
-            xaa_config->client_id,
-            xaa_scope);
-        if (!login) {
+        // Run full XAA flow: acquire_idp_id_token (auth_code+PKCE) →
+        //   discoverProtectedResource → discoverAuthorizationServer →
+        //   requestJwtAuthorizationGrant (id_token→ID-JAG) →
+        //   exchangeJwtAuthGrant (ID-JAG→access_token)
+        auto xaa_result = authenticate_xaa(
+            *xaa_config,
+            server_config.url,
+            on_authorization_url,
+            skip_browser_open);
+        if (!xaa_result) {
             return std::unexpected(cc::utils::Error(
                 cc::utils::ErrorCode::permission_denied,
-                "XAA IdP login failed: " + login.error()));
+                "XAA flow failed: " + xaa_result.error().message()));
         }
 
         McpOAuthTokenData token;
         token.server_name = server_name;
         token.server_url = server_config.url;
-        token.access_token = login->access_token;
-        token.refresh_token = login->refresh_token;
-        token.expires_at = detail::current_epoch_seconds() + 3600;
-        token.scope = xaa_config->scope.value_or("openid profile");
+        token.access_token = xaa_result->access_token;
+        token.refresh_token = xaa_result->refresh_token.value_or("");
+        token.expires_at = detail::current_epoch_seconds()
+            + (xaa_result->expires_in.value_or(3600));
+        token.scope = xaa_result->scope.value_or(
+            xaa_config->scope.value_or("openid profile"));
         token.client_id = xaa_config->client_id;
+        token.client_secret = xaa_config->client_secret;
+        token.discovery_state.authorization_server_url =
+            xaa_result->authorization_server_url;
         token.discovery_state.resource_metadata_url =
             server_config.oauth ? server_config.oauth->auth_server_metadata_url : std::nullopt;
         if (auto stored = detail::store_token_data(get_server_key(server_name, server_config), token); !stored) {
             return std::unexpected(stored.error());
         }
-        (void)on_authorization_url;
-        (void)skip_browser_open;
         return {};
     }
 

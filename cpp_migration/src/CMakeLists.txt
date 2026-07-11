@@ -230,6 +230,7 @@ target_sources(cc_utils
         utils/native_utils.cppm
         utils/outputs_scanner.cppm
         utils/object_group_by.cppm
+        utils/osc_9_4.cppm
         utils/path.cppm
         utils/path_utils.cppm
         utils/pdf.cppm
@@ -893,6 +894,7 @@ target_link_libraries(cc_commands
         cc_types
         cc_config
         cc_tools
+        cc_vim
 )
 
 # ─── cc_services: Services Layer ──────────────────────────────────────────────
@@ -1072,6 +1074,7 @@ target_link_libraries(cc_commands
         cc_skills_core
         cc_skills
         cc_tasks
+        cc_vim
 )
 
 # ─── cc_hooks: Hooks System ───────────────────────────────────────────────────
@@ -1186,7 +1189,9 @@ target_link_libraries(cc_hooks
         cc_types
         cc_config
         cc_state
+        cc_context
         cc_services
+        cc_vim
         uv_a
 )
 
@@ -1397,6 +1402,7 @@ target_sources(cc_ui
         ui/dialogs/prompt_dialog.cppm
         ui/dialogs/quick_open.cppm
         ui/dialogs/sandbox_dialog.cppm
+        ui/dialogs/sandbox_settings.cppm        # new: SandboxSettings faithful port (tabs + doctor)
         ui/dialogs/settings_dialog.cppm
         ui/dialogs/settings_status_page.cppm
         ui/dialogs/usage_dialog.cppm
@@ -1514,6 +1520,7 @@ target_sources(cc_ui
         ui/prompt/prompt_queued_commands.cppm
         ui/prompt/prompt_stash_notice.cppm
         ui/prompt/shimmer.cppm
+        ui/prompt/combined_highlights.cppm  # P1: 8-tier combined highlights builder
         ui/prompt/vim_input.cppm
         ui/prompt/voice_indicator.cppm
         ui/prompt_input.cppm
@@ -1667,6 +1674,7 @@ target_link_libraries(cc_all
 add_library(cc_vim)
 target_sources(cc_vim
     PUBLIC FILE_SET CXX_MODULES FILES
+        vim/vim_types.cppm
         vim/vim_commands.cppm
         vim/vim_mode.cppm
         vim/vim_motions.cppm

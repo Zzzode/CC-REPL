@@ -56,6 +56,21 @@ struct SkillDefinition {
 };
 
 // ============================================================
+// SkillManifest - lightweight discovery descriptor
+// ============================================================
+
+/// Lightweight manifest returned by directory-based skill discovery.
+/// Used by /skills list, /skills import, and skillify rescan to report
+/// discovered skills without requiring full SkillCommand loading.
+struct SkillManifest {
+    std::string name;
+    std::string description;
+    std::optional<std::string> version;
+    std::vector<std::string> triggers;
+    std::filesystem::path directory;
+};
+
+// ============================================================
 // Skill Concept - contract for skill implementations
 // ============================================================
 

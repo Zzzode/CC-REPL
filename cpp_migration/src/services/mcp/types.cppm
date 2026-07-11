@@ -185,6 +185,12 @@ struct ServerCapabilities {
     bool prompts = false;
     bool prompts_list_changed = false;
     bool logging = false;
+    // TS REF: src/services/mcp/channelPermissions.ts:191-192
+    // Servers declare experimental capabilities like 'claude/channel' and
+    // 'claude/channel/permission' to opt into notification relay paths.
+    // Value is the raw JSON string (usually "{}" or "true") — presence in
+    // the map is what matters, matching TS `!== undefined` semantics.
+    std::unordered_map<std::string, std::string> experimental;
 };
 
 enum class ServerState {
@@ -342,6 +348,17 @@ inline std::optional<InitializeResult> parse_initialize_result(const std::string
             result.capabilities.prompts_list_changed = prompts_node.get("listChanged").as_bool();
         }
         result.capabilities.logging = caps_node.get("logging").valid();
+
+        // TS REF: src/services/mcp/channelPermissions.ts:191-192
+        // Parse experimental capabilities map — presence = opt-in.
+        auto exp_node = caps_node.get("experimental");
+        if (exp_node.is_obj()) {
+            exp_node.iter_obj([&](cc::utils::json::JsonVal key, cc::utils::json::JsonVal val) {
+                auto key_str = std::string(key.as_str());
+                auto val_str = val.is_str() ? std::string(val.as_str()) : "true";
+                result.capabilities.experimental[key_str] = val_str;
+            });
+        }
     }
     
     return result;
