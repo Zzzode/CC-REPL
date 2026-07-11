@@ -1221,7 +1221,7 @@ TEST(ReplScreen, SubmitsUtf8PromptOnReturn) {
     repl::ReplScreenCallbacks callbacks;
     callbacks.on_submit = [&](const std::string& text, repl::InputMode mode) {
         submitted = text;
-        EXPECT_EQ(mode, repl::InputMode::Prompt);
+        EXPECT_EQ(mode, repl::InputMode::Normal);
     };
 
     auto component = repl::ReplScreen(state, std::move(callbacks));
@@ -1277,7 +1277,7 @@ TEST(ReplScreen, ReturnSubmitsSelectedSlashSuggestion) {
     repl::ReplScreenCallbacks callbacks;
     callbacks.on_submit = [&](const std::string& text, repl::InputMode mode) {
         submitted = text;
-        EXPECT_EQ(mode, repl::InputMode::Prompt);
+        EXPECT_EQ(mode, repl::InputMode::Normal);
     };
 
     auto component = repl::ReplScreen(state, std::move(callbacks));
@@ -1609,7 +1609,7 @@ TEST(ReplScreen, BashModeExitsOnBackspaceAtStart) {
 
     // Backspace at cursor 0 must exit bash mode back to Prompt.
     EXPECT_TRUE(component->OnEvent(ftxui::Event::Backspace));
-    EXPECT_EQ(state->input_mode, repl::InputMode::Prompt);
+    EXPECT_EQ(state->input_mode, repl::InputMode::Normal);
 }
 
 TEST(ReplScreen, BashModeExitsOnEscapeAndDeleteAndCtrlUAtStart) {
@@ -1622,7 +1622,7 @@ TEST(ReplScreen, BashModeExitsOnEscapeAndDeleteAndCtrlUAtStart) {
         ASSERT_TRUE(component->OnEvent(ftxui::Event::Character("!")));
         ASSERT_EQ(state->input_mode, repl::InputMode::Bash);
         component->OnEvent(ftxui::Event::Escape);
-        EXPECT_EQ(state->input_mode, repl::InputMode::Prompt);
+        EXPECT_EQ(state->input_mode, repl::InputMode::Normal);
     }
     // Delete exits bash mode.
     {
@@ -1631,7 +1631,7 @@ TEST(ReplScreen, BashModeExitsOnEscapeAndDeleteAndCtrlUAtStart) {
         ASSERT_TRUE(component->OnEvent(ftxui::Event::Character("!")));
         ASSERT_EQ(state->input_mode, repl::InputMode::Bash);
         component->OnEvent(ftxui::Event::Delete);
-        EXPECT_EQ(state->input_mode, repl::InputMode::Prompt);
+        EXPECT_EQ(state->input_mode, repl::InputMode::Normal);
     }
     // Ctrl+U (\x15) exits bash mode.
     {
@@ -1640,7 +1640,7 @@ TEST(ReplScreen, BashModeExitsOnEscapeAndDeleteAndCtrlUAtStart) {
         ASSERT_TRUE(component->OnEvent(ftxui::Event::Character("!")));
         ASSERT_EQ(state->input_mode, repl::InputMode::Bash);
         component->OnEvent(ftxui::Event::Character("\x15"));
-        EXPECT_EQ(state->input_mode, repl::InputMode::Prompt);
+        EXPECT_EQ(state->input_mode, repl::InputMode::Normal);
     }
 }
 
@@ -7905,7 +7905,7 @@ TEST(ReplScreen, PlaceholderAiSuggestionOverridesExample) {
     repl::ReplScreenState state;
     state.input_text = "";
     state.submit_count = 0;
-    state.input_mode = repl::InputMode::Prompt;
+    state.input_mode = repl::InputMode::Normal;
     state.next_action_suggestion = "explain the error above";
     state.prompt_suggestion_enabled = true;
 
@@ -7938,7 +7938,7 @@ TEST(ReplScreen, PlaceholderAiSuggestionIgnoredWhenViewingAgent) {
     repl::ReplScreenState state;
     state.input_text = "";
     state.submit_count = 5;
-    state.input_mode = repl::InputMode::Prompt;
+    state.input_mode = repl::InputMode::Normal;
     state.next_action_suggestion = "explain the error above";
     state.viewing_agent_name = "helper";
 
@@ -7954,7 +7954,7 @@ TEST(ReplScreen, PlaceholderAiSuggestionIgnoredWhenSlashCommand) {
     repl::ReplScreenState state;
     state.input_text = "";
     state.submit_count = 5;
-    state.input_mode = repl::InputMode::Prompt;
+    state.input_mode = repl::InputMode::Normal;
     // Slash-command suggestions start with '/' — should not be used as placeholder.
     state.next_action_suggestion = "/commit";
 
@@ -7977,7 +7977,7 @@ TEST(ReplScreen, PlaceholderPriorityOrder) {
     repl::ReplScreenState state;
     state.input_text = "";
     state.submit_count = 0;
-    state.input_mode = repl::InputMode::Prompt;
+    state.input_mode = repl::InputMode::Normal;
     state.prompt_suggestion_enabled = true;
     state.has_editable_queued_commands = true;
     state.queued_command_hint_shown_count = 0;
