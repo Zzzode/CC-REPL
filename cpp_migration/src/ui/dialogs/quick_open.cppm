@@ -107,8 +107,13 @@ using QuickOpenItem = dsys::QuickOpenItem;
     if (selected >= count) selected = std::max(0, count - 1);
     if (selected < 0) selected = 0;
 
-    // Max visible items (leave room for search input + divider + padding)
-    int max_visible = std::max(3, ctx.term_rows - 10);
+    // Max visible items (leave room for search input + divider + padding).
+    // TS REF: FullscreenLayout.tsx L422-426 — use ModalContext dimensions when
+    // available (modal slot).  Fall back to term_rows - 10 for bottom/overlay.
+    const int visible_rows = ctx.modal_available_rows > 0
+        ? ctx.modal_available_rows
+        : ctx.term_rows;
+    int max_visible = std::max(3, visible_rows - 10);
 
     // Calculate scroll window
     int start = 0;
@@ -240,9 +245,16 @@ using QuickOpenItem = dsys::QuickOpenItem;
     props.rounded = true;
     props.pane_variant = dframe::PaneVariant::ModalMinimal;
 
+    // TS REF: FullscreenLayout.tsx L422-426 — prefer ModalContext dimensions.
+    const int avail_cols = ctx.modal_available_cols > 0
+        ? ctx.modal_available_cols
+        : ctx.term_cols - 4;
+    const int avail_rows = ctx.modal_available_rows > 0
+        ? ctx.modal_available_rows
+        : ctx.term_rows - 4;
     return dframe::DialogFrame(props, ctx.theme)
-        | size(WIDTH, EQUAL, std::min(60, ctx.term_cols - 4))
-        | size(HEIGHT, EQUAL, std::min(20, ctx.term_rows - 4));
+        | size(WIDTH, EQUAL, std::min(60, avail_cols))
+        | size(HEIGHT, EQUAL, std::min(20, avail_rows));
 }
 
 // ============================================================

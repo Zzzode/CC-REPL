@@ -991,6 +991,21 @@ using DialogPayloadVariant = std::variant<
 
 /// Environmental data passed to every dialog renderer.
 /// Carries theme, terminal size, and optional REPL state.
+///
+/// P2 gap "modal-context": `modal_available_cols` / `modal_available_rows`
+/// mirror TS `ModalContext` (FullscreenLayout.tsx L422-426) — the actual
+/// available width/height INSIDE the modal pane after subtracting the
+/// transcript peek rows + ▔ divider + horizontal padding.  Modal-slot
+/// renderers should prefer these over `term_cols`/`term_rows` when sizing
+/// content.  Bottom/overlay/standalone renderers leave these at 0 and use
+/// `term_cols`/`term_rows` directly.
+///
+/// TS REF: src/components/FullscreenLayout.tsx L422-426
+///   <ModalContext value={{
+///     rows: terminalRows - MODAL_TRANSCRIPT_PEEK - 1,
+///     columns: columns - 4,
+///     scrollRef: modalScrollRef ?? null
+///   }}>
 struct DialogRenderContext {
     int term_cols = 80;
     int term_rows = 24;
@@ -999,6 +1014,16 @@ struct DialogRenderContext {
     /// Optional — pointer to REPL screen state for dialogs that need it.
     /// Typed as `void*` to avoid a dependency cycle with repl_screen.
     const void* repl_state = nullptr;
+
+    // ── ModalContext (TS REF: FullscreenLayout.tsx L422-426) ──────────
+    // Actual available content area for modal-slot dialogs.
+    // Computed as:
+    //   modal_available_cols = term_cols - 4   (2px padding each side)
+    //   modal_available_rows = term_rows - kModalTranscriptPeek - 1
+    //                                                    (peek + ▔ divider)
+    // 0 when not applicable (bottom/overlay/standalone slots).
+    int modal_available_cols = 0;
+    int modal_available_rows = 0;
 };
 
 // ============================================================

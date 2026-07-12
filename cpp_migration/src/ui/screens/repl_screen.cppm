@@ -2345,16 +2345,35 @@ namespace dialog_queue_render {
 namespace dsys = dsys_fw;
 
 /// Build the render-time width/height context for the registry.
+/// TS REF: FullscreenLayout.tsx L422-426 — ModalContext provides
+///   rows = terminalRows - MODAL_TRANSCRIPT_PEEK - 1
+///   cols = columns - 4
+/// When `is_modal` is true, the context's `modal_available_cols/rows`
+/// are populated using the same formula so modal renderers can size
+/// content to the actual available pane area.
 [[nodiscard]] inline dsys::DialogRenderContext MakeContext(
-    int term_w = 120, int term_h = 40)
+    int term_w = 120, int term_h = 40, bool is_modal = false)
 {
     dsys::DialogRenderContext c;
     c.term_cols  = term_w;
     c.term_rows  = term_h;
+    if (is_modal) {
+        // TS REF: FullscreenLayout.tsx L423-424
+        //   rows: terminalRows - MODAL_TRANSCRIPT_PEEK - 1
+        //   columns: columns - 4
+        // MODAL_TRANSCRIPT_PEEK = 2 (fullscreen_layout.cppm kModalTranscriptPeek)
+        // The -1 accounts for the ▔ divider row.
+        constexpr int kModalTranscriptPeek =
+            cc::ui::layout::fullscreen::kModalTranscriptPeek;
+        c.modal_available_cols = std::max(10, term_w - 4);
+        c.modal_available_rows = std::max(4, term_h - kModalTranscriptPeek - 1);
+    }
     return c;
 }
 
 /// Standalone dialog: full-takeover render (no chrome).
+/// Passes full terminal dimensions (no modal adjustments) since standalone
+/// dialogs own the entire screen.
 [[nodiscard]] inline Element RenderStandaloneDialog(ReplScreenState& s,
                                                     int w = 120, int h = 40) {
     auto peek = s.dialog_queue.peek_standalone_mut();
@@ -2365,14 +2384,25 @@ namespace dsys = dsys_fw;
 }
 
 /// Modal dialog (stack top): rendered full-width dbox above the rest.
+/// TS REF: FullscreenLayout.tsx L422-426 — wraps modal content in
+///   <ModalContext value={{rows: ..., columns: ..., scrollRef: ...}}>
+/// Computes modal-available dimensions (cols-4, rows-PEEK-1) and passes
+/// them via DialogRenderContext.modal_available_cols/rows so renderers
+/// can use actual pane geometry instead of hardcoded fallbacks.
 [[nodiscard]] inline Element RenderModalDialog(ReplScreenState& s,
                                                int w = 120, int h = 40) {
     auto peek = s.dialog_queue.peek_modal_mut();
     if (!peek) return Element{};
     dsys::DialogPayloadVariant& payload = peek->get();
     if (std::holds_alternative<std::monostate>(payload)) return Element{};
-    auto el = s.dialog_renderers.render(payload, MakeContext(w, h));
+    // is_modal=true → populate modal_available_cols/rows from TS formula.
+    auto ctx = MakeContext(w, h, /*is_modal=*/true);
+    auto el = s.dialog_renderers.render(payload, ctx);
     if (!el) return Element{};
+    // Clamp modal content to its available height (TS maxHeight enforcement).
+    if (ctx.modal_available_rows > 0) {
+        el = std::move(el) | size(HEIGHT, LESS_THAN, ctx.modal_available_rows);
+    }
     return dbox({
         vbox({ filler(),
                hbox({ filler(), el, filler() }) | flex_shrink,
@@ -2413,13 +2443,14 @@ namespace dsys = dsys_fw;
 }
 
 /// Bottom slot: banner-style dialogs pushed to the bottom of the screen.
+/// TS REF: FullscreenLayout.tsx L414 — bottom slot wraps content in
+///   maxHeight="50%" (half the terminal rows).  Pass actual dimensions.
 [[nodiscard]] inline Element RenderBottomDialog(
     ReplScreenState& s,
     bool is_prompt_input_active,
     bool allow_dialogs_with_animation,
-    int w = 120)
+    int w = 120, int h = 40)
 {
-    (void)w;
     auto peek = s.dialog_queue.peek_bottom_mut(is_prompt_input_active,
                                                allow_dialogs_with_animation);
     if (!peek) return Element{};
@@ -2429,7 +2460,7 @@ namespace dsys = dsys_fw;
                                    allow_dialogs_with_animation)) {
         return Element{};
     }
-    auto el = s.dialog_renderers.render(payload, MakeContext(w, 40));
+    auto el = s.dialog_renderers.render(payload, MakeContext(w, h));
     if (!el) return Element{};
     return std::move(el) | size(WIDTH, EQUAL, w);
 }
@@ -2505,6 +2536,7 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
 /// Convenience: combine Overlay + Modal + Bottom into a single dbox
 /// that callers can overlay onto the base chrome.  Standalone is handled
 /// separately (full-takeover, replaces the entire render).
+/// TS REF: FullscreenLayout.tsx L422-426 — passes actual terminal dims.
 [[nodiscard]] inline Element LayerAllDialogs(
     Element base_chrome,
     ReplScreenState& s,
@@ -2515,7 +2547,7 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
     Elements layers;
     layers.push_back(std::move(base_chrome));
     Element bottom = RenderBottomDialog(
-        s, is_prompt_input_active, allow_dialogs_with_animation, w);
+        s, is_prompt_input_active, allow_dialogs_with_animation, w, h);
     if (bottom) {
         layers.push_back(vbox({
             filler(),
@@ -2867,8 +2899,11 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
 
     // M7: Standalone slot (trust dialog, first-run onboarding) takes over
     // the entire terminal — no chrome, no prompt, no messages rendered.
+    // TS REF: FullscreenLayout.tsx L422-426 — ModalContext provides actual
+    // terminal dimensions to dialogs.  Pass real term_cols/term_rows instead
+    // of the old hardcoded 120x40.
     if (s.dialog_queue.has_standalone()) {
-        return dialog_queue_render::RenderStandaloneDialog(s, 120, 40);
+        return dialog_queue_render::RenderStandaloneDialog(s, term_cols, term_rows);
     }
 
     // Legacy RouteDialog path — only used when dialog_queue has no
@@ -2987,10 +3022,14 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
                | flex_shrink, filler() }) | flex });
 
     // M7: Layer Bottom + Overlay + Modal dialogs from the dialog_queue.
+    // TS REF: FullscreenLayout.tsx L422-426 — ModalContext provides actual
+    // terminal dimensions (cols-4, rows-PEEK-1) to modal dialogs.  Pass real
+    // term_cols/term_rows here instead of the old hardcoded 120x40 so dialog
+    // renderers get accurate viewport geometry.
     bool tool_animating = s.spinner_mode != SpinnerMode::Hidden;
     return dialog_queue_render::LayerAllDialogs(
         std::move(base), s, s.is_prompt_input_active,
-        /*allow_dialogs_with_animation=*/!tool_animating, 120, 40);
+        /*allow_dialogs_with_animation=*/!tool_animating, term_cols, term_rows);
 }
 
 // =========================================================
