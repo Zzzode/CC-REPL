@@ -107,6 +107,11 @@ struct BlockToken {
     std::vector<std::vector<std::string>> table_rows;
     // Lists: each item is a vector of inline tokens
     std::vector<std::vector<InlineToken>> list_items;
+    // Per-item nesting depth (0 = top-level, 1 = first indent, ...).
+    // Mirrors TS marked's list tokenizer which tracks `item.depth` based on
+    // leading spaces.  Used by render_olist() for depth-based numbering
+    // (Arabic / letters / Roman) and render_ulist() for indentation.
+    std::vector<int> list_depths;
     // Paragraph / Heading / Blockquote: inline tokens
     std::vector<InlineToken> inlines;
     // Blockquote depth
@@ -351,12 +356,33 @@ namespace detail {
 
 namespace detail {
 
+/// Count leading whitespace characters (spaces + tabs) in a line.
+/// Each 2 spaces or 1 tab counts as one indentation level, matching
+/// the TS marked tokenizer's `indent` calculation.
+[[nodiscard]] int count_list_indent(std::string_view line) {
+    std::size_t pos = 0;
+    while (pos < line.size() && (line[pos] == ' ' || line[pos] == '\t')) {
+        ++pos;
+    }
+    // TS marked: each 2 spaces = 1 depth level. Tabs count as 2 spaces.
+    int spaces = 0;
+    for (std::size_t i = 0; i < pos; ++i) {
+        spaces += (line[i] == '\t') ? 2 : 1;
+    }
+    return spaces / 2;  // 0, 1, 2, ... depth levels
+}
+
 [[nodiscard]] std::optional<std::pair<int, std::string>>
 parse_ordered_list(std::string_view line) {
+    // Skip leading whitespace to support indented (nested) list items.
     std::size_t pos = 0;
     while (pos < line.size() &&
+           (line[pos] == ' ' || line[pos] == '\t')) ++pos;
+
+    std::size_t num_start = pos;
+    while (pos < line.size() &&
            std::isdigit(static_cast<unsigned char>(line[pos]))) ++pos;
-    if (pos == 0 || pos >= line.size() || line[pos] != '.') return std::nullopt;
+    if (pos == num_start || pos >= line.size() || line[pos] != '.') return std::nullopt;
     if (pos + 1 >= line.size() ||
         !std::isspace(static_cast<unsigned char>(line[pos + 1]))) {
         return std::nullopt;
@@ -367,7 +393,7 @@ parse_ordered_list(std::string_view line) {
         ++text_start;
     }
     int num = 0;
-    auto num_str = line.substr(0, pos);
+    auto num_str = line.substr(num_start, pos - num_start);
     for (char ch : num_str) {
         num = num * 10 + (ch - '0');
     }
@@ -420,6 +446,7 @@ namespace detail {
     bool in_ulist = false;
     bool in_olist = false;
     std::vector<std::vector<InlineToken>> list_items;
+    std::vector<int> list_depths;
 
     auto flush_list = [&]() {
         if (!list_items.empty()) {
@@ -427,8 +454,10 @@ namespace detail {
             tok.kind = in_ulist ? BlockTokenKind::UnorderedList
                                 : BlockTokenKind::OrderedList;
             tok.list_items = std::move(list_items);
+            tok.list_depths = std::move(list_depths);
             tokens.push_back(std::move(tok));
             list_items.clear();
+            list_depths.clear();
             in_ulist = false;
             in_olist = false;
         }
@@ -606,22 +635,32 @@ namespace detail {
             }
         }
 
-        // Unordered list item
-        if ((line.starts_with("- ") || line.starts_with("* ") ||
-             line.starts_with("+ ")) &&
-            line.size() >= 2) {
-            flush_paragraph();
-            flush_quote();
-            if (!in_ulist) {
-                flush_list();
-                in_ulist = true;
-                in_olist = false;
+        // Unordered list item (supports indented/nested items).
+        // TS marked tokenizer: detects `- `, `* `, `+ ` at any indent level,
+        // with `item.depth` = floor(leading_spaces / 2).
+        {
+            std::size_t ul_pos = 0;
+            while (ul_pos < line.size() &&
+                   (line[ul_pos] == ' ' || line[ul_pos] == '\t')) ++ul_pos;
+            std::string_view line_sv(line);
+            std::string_view stripped = line_sv.substr(ul_pos);
+            int ul_depth = count_list_indent(line);
+            if ((stripped.starts_with("- ") || stripped.starts_with("* ") ||
+                 stripped.starts_with("+ ")) && stripped.size() >= 2) {
+                flush_paragraph();
+                flush_quote();
+                if (!in_ulist) {
+                    flush_list();
+                    in_ulist = true;
+                    in_olist = false;
+                }
+                list_items.push_back(tokenize_inline(stripped.substr(2)));
+                list_depths.push_back(ul_depth);
+                continue;
             }
-            list_items.push_back(tokenize_inline(line.substr(2)));
-            continue;
         }
 
-        // Ordered list item
+        // Ordered list item (supports indented/nested items).
         if (auto item = parse_ordered_list(line)) {
             flush_paragraph();
             flush_quote();
@@ -631,6 +670,7 @@ namespace detail {
                 in_ulist = false;
             }
             list_items.push_back(tokenize_inline(item->second));
+            list_depths.push_back(count_list_indent(line));
             continue;
         }
 
@@ -736,6 +776,190 @@ inline TokenCache& global_token_cache() {
 } // namespace detail
 
 // ============================================================
+// GitHub Issue Reference Linkification
+// ============================================================
+
+namespace detail {
+
+/// TS REF: src/utils/markdown.ts ISSUE_REF_PATTERN and linkifyIssueReferences()
+///
+/// Pattern: owner/repo#123  →  clickable OSC 8 link to GitHub issues page.
+///
+/// Regex equivalent:  /(^|[^\w.\/-])([A-Za-z0-9][\w-]*\/[A-Za-z0-9][\w.-]*)#(\d+)\b/g
+///
+/// We use manual scanning instead of std::regex for performance (markdown
+/// rendering is on the hot path for streaming updates).
+///
+/// @param text  Plain text to scan for issue references.
+/// @param opts  Current markdown options (for dim_color propagation).
+/// @return      Elements vector with plain text segments interspersed with
+///              hyperlinked issue references.
+[[nodiscard]] Elements linkify_issue_references(
+    std::string_view text,
+    const MarkdownOptions& opts) {
+
+    Elements result;
+    std::string buffer;
+    buffer.reserve(text.size());
+
+    auto flush_buffer = [&]() {
+        if (!buffer.empty()) {
+            Element el = ftxui::text(std::move(buffer));
+            if (opts.dim_color) el = el | dim;
+            result.push_back(std::move(el));
+            buffer.clear();
+        }
+    };
+
+    std::size_t i = 0;
+    while (i < text.size()) {
+        // Look for '#' that could start an issue ref.
+        auto hash_pos = text.find('#', i);
+        if (hash_pos == std::string_view::npos) {
+            buffer.append(text.substr(i));
+            break;
+        }
+
+        // Everything up to the '#' goes into the buffer.
+        buffer.append(text.substr(i, hash_pos - i));
+
+        // Try to parse owner/repo#NNN starting from the '#'.
+        // Walk backwards to find the repo segment.
+        // The pattern requires: [prefix_not_word_dot_slash_dash] [A-Za-z0-9][\w-]* / [A-Za-z0-9][\w.-]* # digits
+        //
+        // Since we're at '#', scan forward for the digits first, then
+        // backward for the repo.
+        std::size_t num_start = hash_pos + 1;
+        std::size_t num_end = num_start;
+        while (num_end < text.size() &&
+               std::isdigit(static_cast<unsigned char>(text[num_end]))) {
+            ++num_end;
+        }
+        std::size_t num_len = num_end - num_start;
+        // Must have at least one digit, and the char after must be a word
+        // boundary (non-alnum, non-underscore, or end of string).
+        if (num_len == 0) {
+            buffer += '#';
+            i = hash_pos + 1;
+            continue;
+        }
+        bool word_boundary = (num_end == text.size()) ||
+            (!std::isalnum(static_cast<unsigned char>(text[num_end])) &&
+             text[num_end] != '_');
+        if (!word_boundary) {
+            buffer += '#';
+            i = hash_pos + 1;
+            continue;
+        }
+
+        // Now scan backwards from hash_pos to find the owner/repo segment.
+        // We need: [A-Za-z0-9][\w.-]* / [A-Za-z0-9][\w-]*
+        // preceded by a non-(word, dot, slash, dash) character or start of string.
+        std::size_t repo_end = hash_pos;
+        // Walk back through the repo name (alnum, dot, dash, underscore).
+        std::size_t p = repo_end;
+        while (p > 0) {
+            char c = text[p - 1];
+            if (std::isalnum(static_cast<unsigned char>(c)) ||
+                c == '.' || c == '-' || c == '_') {
+                --p;
+            } else {
+                break;
+            }
+        }
+        // p now points to the start of the repo segment (after '/').
+        // But we need at least one alphanumeric start char for the repo.
+        if (p == repo_end ||
+            !std::isalnum(static_cast<unsigned char>(text[p]))) {
+            buffer += '#';
+            i = hash_pos + 1;
+            continue;
+        }
+
+        // Check for '/' separating owner and repo.
+        if (p == 0 || text[p - 1] != '/') {
+            buffer += '#';
+            i = hash_pos + 1;
+            continue;
+        }
+        std::size_t slash_pos = p - 1;
+
+        // Walk back through the owner segment (alnum, dash, underscore).
+        std::size_t owner_end = slash_pos;
+        std::size_t o = owner_end;
+        while (o > 0) {
+            char c = text[o - 1];
+            if (std::isalnum(static_cast<unsigned char>(c)) ||
+                c == '-' || c == '_') {
+                --o;
+            } else {
+                break;
+            }
+        }
+        // Owner must start with alphanumeric.
+        if (o == owner_end ||
+            !std::isalnum(static_cast<unsigned char>(text[o]))) {
+            buffer += '#';
+            i = hash_pos + 1;
+            continue;
+        }
+
+        // Check prefix boundary: character before owner must not be a word char,
+        // dot, slash, or dash. (Or start of string.)
+        bool prefix_ok = (o == 0);
+        if (!prefix_ok) {
+            char prev = text[o - 1];
+            prefix_ok = !std::isalnum(static_cast<unsigned char>(prev)) &&
+                        prev != '_' && prev != '.' &&
+                        prev != '/' && prev != '-';
+        }
+        if (!prefix_ok) {
+            buffer += '#';
+            i = hash_pos + 1;
+            continue;
+        }
+
+        // We have a valid match: text[o..num_end] = "owner/repo#NNN"
+        // Flush any accumulated text before the owner.
+        // The buffer already contains text up to hash_pos.  We need to remove
+        // the "owner/repo" part from the buffer (it was appended above) and
+        // emit it as a hyperlink instead.
+        //
+        // Actually, the buffer has text[i..hash_pos].  The owner/repo part
+        // starts at o which is >= i (since we scanned from hash_pos backward).
+        // So the buffer contains: text[i..o] + text[o..hash_pos] = text[i..o] + "owner/repo"
+        //
+        // We need to split the buffer: keep text[i..o] in buffer, flush it,
+        // then emit the hyperlink for "owner/repo#NNN".
+
+        // Remove the "owner/repo" suffix from the buffer.
+        std::size_t owner_repo_len = hash_pos - o;
+        if (buffer.size() >= owner_repo_len) {
+            buffer.resize(buffer.size() - owner_repo_len);
+        }
+        flush_buffer();
+
+        // Build the hyperlink.
+        std::string repo_str(text.substr(o, num_end - o));
+        std::string url = "https://github.com/" +
+                          std::string(text.substr(o, slash_pos - o)) +
+                          "/issues/" +
+                          std::string(text.substr(num_start, num_len));
+
+        Element link_el = ftxui::text(repo_str) | hyperlink(url) | underlined;
+        if (opts.dim_color) link_el = link_el | dim;
+        result.push_back(std::move(link_el));
+
+        i = num_end;
+    }
+
+    flush_buffer();
+    return result;
+}
+
+} // namespace detail
+
+// ============================================================
 // Inline Rendering
 // ============================================================
 
@@ -748,7 +972,7 @@ namespace detail {
 ///   - em (italic)    -> chalk.italic
 ///   - codespan       -> color('permission', theme)  (rgb(87,105,247) on dark)
 ///   - link           -> OSC 8 hyperlink (rendered as underlined text here)
-///   - text           -> linkifyIssueReferences(text) (plain text here)
+///   - text           -> linkifyIssueReferences(text)
 /// Strikethrough (del) is intentionally disabled (TS configureMarked disables
 /// the `del` tokenizer).
 [[nodiscard]] Element render_inlines(
@@ -757,26 +981,39 @@ namespace detail {
 
     Elements elements;
     for (const auto& tok : tokens) {
-        Element el = text(tok.text);
-
         switch (tok.kind) {
-            case InlineTokenKind::Text:
+            case InlineTokenKind::Text: {
+                // TS REF: utils/markdown.ts linkifyIssueReferences — applied
+                // to plain text tokens so owner/repo#NNN becomes clickable.
+                auto linked = linkify_issue_references(tok.text, opts);
+                for (auto& el : linked) {
+                    elements.push_back(std::move(el));
+                }
                 break;
-            case InlineTokenKind::Bold:
-                el = el | bold;
+            }
+            case InlineTokenKind::Bold: {
+                Element el = text(tok.text) | bold;
+                if (opts.dim_color) el = el | dim;
+                elements.push_back(std::move(el));
                 break;
-            case InlineTokenKind::Italic:
+            }
+            case InlineTokenKind::Italic: {
                 // chalk.italic. FTXUI has no italic Screen style, so we use
                 // dim as the closest visual proxy (italic on dark terminals
                 // is itself low-contrast; dim is a reasonable approximation).
-                // Residual: true ANSI italic not emitted.
-                el = el | dim;
+                Element el = text(tok.text) | dim;
+                if (opts.dim_color) el = el | dim;
+                elements.push_back(std::move(el));
                 break;
-            case InlineTokenKind::Code:
+            }
+            case InlineTokenKind::Code: {
                 // codespan -> color('permission', theme). Dark theme
                 // permission = rgb(87,105,247). No background inversion.
-                el = el | color(Color::RGB(87, 105, 247));
+                Element el = text(tok.text) | color(Color::RGB(87, 105, 247));
+                if (opts.dim_color) el = el | dim;
+                elements.push_back(std::move(el));
                 break;
+            }
             case InlineTokenKind::Link: {
                 // TS REF: FullscreenLayout.tsx L630-667 + utils/markdown.ts
                 // createHyperlink.  TS wraps link text in OSC 8 hyperlinks so
@@ -800,25 +1037,28 @@ namespace detail {
                 // releases at pixels with hyperlink != 0 and calls
                 // cc::utils::try_open_hyperlink(url) — mirroring TS Ink's
                 // ink.onHyperlinkClick callback.
-                el = text(tok.text) | hyperlink(tok.url) | underlined;
+                Element el = text(tok.text) | hyperlink(tok.url) | underlined;
+                if (opts.dim_color) el = el | dim;
+                elements.push_back(std::move(el));
                 break;
             }
-            case InlineTokenKind::Escape:
+            case InlineTokenKind::Escape: {
+                Element el = text(tok.text);
+                if (opts.dim_color) el = el | dim;
+                elements.push_back(std::move(el));
                 break;
-            case InlineTokenKind::Math:
+            }
+            case InlineTokenKind::Math: {
                 // Inline LaTeX math ($...$).  TS renders via KaTeX → HTML;
                 // in a terminal we approximate with a distinct cyan color
                 // so the user can tell it's been recognized as math rather
                 // than plain text with visible $ delimiters.
-                el = el | color(Color::CyanLight);
+                Element el = text(tok.text) | color(Color::CyanLight);
+                if (opts.dim_color) el = el | dim;
+                elements.push_back(std::move(el));
                 break;
+            }
         }
-
-        if (opts.dim_color) {
-            el = el | dim;
-        }
-
-        elements.push_back(el);
     }
     return elements.empty() ? text("") : hbox(std::move(elements));
 }
@@ -931,20 +1171,103 @@ namespace detail {
     return vbox(std::move(out));
 }
 
+// ============================================================
+// List Numbering Helpers
+// ============================================================
+
+namespace detail {
+
+/// Convert a positive integer to its lowercase alphabetic representation.
+/// Mirrors TS utils/markdown.ts numberToLetter(): 1→"a", 2→"b", ..., 26→"z",
+/// 27→"aa", 28→"ab", etc.
+[[nodiscard]] std::string number_to_letter(int n) {
+    if (n <= 0) return "a";
+    std::string result;
+    while (n > 0) {
+        --n;  // 0-indexed: 0→'a', 25→'z'
+        result = static_cast<char>('a' + (n % 26)) + result;
+        n /= 26;
+    }
+    return result;
+}
+
+/// Convert a positive integer to its lowercase Roman numeral representation.
+/// Mirrors TS utils/markdown.ts numberToRoman(): 1→"i", 4→"iv", 9→"ix", etc.
+/// Returns the Arabic string for values outside the classical range (1–3999).
+[[nodiscard]] std::string number_to_roman(int n) {
+    if (n <= 0 || n > 3999) return std::to_string(n);
+
+    struct RomanPair { int value; const char* symbol; };
+    static constexpr RomanPair roman_map[] = {
+        {1000, "m"}, {900, "cm"}, {500, "d"}, {400, "cd"},
+        {100, "c"},  {90, "xc"},  {50, "l"},  {40, "xl"},
+        {10, "x"},   {9, "ix"},   {5, "v"},   {4, "iv"},
+        {1, "i"}
+    };
+
+    std::string result;
+    for (const auto& [value, symbol] : roman_map) {
+        while (n >= value) {
+            result += symbol;
+            n -= value;
+        }
+    }
+    return result;
+}
+
+/// Select the ordered-list number label based on nesting depth.
+///
+/// Mirrors TS utils/markdown.ts getListNumber(listDepth, orderedListNumber):
+///   depth 0,1 → Arabic numeral
+///   depth 2   → lowercase letter
+///   depth 3   → lowercase Roman numeral
+///   depth ≥4  → Arabic (wraps back)
+///
+/// @param depth  List nesting level (0 = top-level).
+/// @param n      1-based item number within its depth group.
+/// @return       Label string without the trailing ". " (caller appends it).
+[[nodiscard]] std::string get_list_number(int depth, int n) {
+    switch (depth) {
+        case 0:
+        case 1:
+            return std::to_string(n);
+        case 2:
+            return number_to_letter(n);
+        case 3:
+            return number_to_roman(n);
+        default:
+            // Depth 4+ wraps back to Arabic, matching TS default case.
+            return std::to_string(n);
+    }
+}
+
+} // namespace detail
+
 /// Render an unordered list.
 ///
 /// Mirrors src/utils/markdown.ts: a list_item's text token renders as
 ///   `${'  '.repeat(listDepth)}- ${content}${EOL}`
-/// Top-level (listDepth 0) items use `- ` with no leading indent. The prior
-/// divergent renderer used a cyan `•` bullet and 2-space indent — neither
-/// appears in TS output.
+/// Top-level (listDepth 0) items use `- ` with no leading indent. Nested
+/// items get `'  '.repeat(depth)` indentation prefix. The prior divergent
+/// renderer used a cyan `•` bullet and 2-space indent — neither appears in TS.
 [[nodiscard]] Element render_ulist(const BlockToken& tok,
                                    const MarkdownOptions& opts) {
     Elements items;
-    for (const auto& item_inlines : tok.list_items) {
-        auto bullet = text("- ");
+    for (std::size_t i = 0; i < tok.list_items.size(); ++i) {
+        int depth = i < tok.list_depths.size() ? tok.list_depths[i] : 0;
+        // Indent prefix: '  ' × depth
+        std::string indent(static_cast<std::size_t>(depth) * 2, ' ');
+        Element indent_el = text(indent);
+        if (opts.dim_color) indent_el = indent_el | dim;
+
+        Element bullet = text("- ");
         if (opts.dim_color) bullet = bullet | dim;
-        items.push_back(hbox({bullet, render_inlines(item_inlines, opts)}));
+
+        items.push_back(hbox({
+            std::move(indent_el),
+            std::move(bullet),
+            render_inlines(tok.list_items[i], opts)
+        }));
     }
     return vbox(std::move(items));
 }
@@ -952,21 +1275,55 @@ namespace detail {
 /// Render an ordered list.
 ///
 /// Mirrors src/utils/markdown.ts getListNumber(listDepth, n):
-///   depth 0,1 -> "n"
-///   depth 2   -> letter (a, b, …)
-///   depth 3   -> roman (i, ii, …)
-///   default   -> "n"
-/// followed by `. `. The lexer stores flat items at depth 0, so top-level
-/// lists render `1. `, `2. `, …. The TS `list` token carries `start`; we use
-/// 1-based indexing (the lexer parses the numeric prefix but does not store
-/// the start, so we render from 1 — matching the common case).
+///   depth 0,1 → Arabic numeral  ("1.", "2.")
+///   depth 2   → lowercase letter ("a.", "b.")
+///   depth 3   → lowercase Roman  ("i.", "ii.")
+///   depth 4+  → Arabic (wraps)
+///
+/// Numbering resets per depth level: each time a deeper depth appears,
+/// numbering starts from 1 for that depth. This mirrors how TS marked
+/// produces nested `list` tokens each with their own item counter.
+///
+/// Each item also gets `'  '.repeat(depth)` indentation prefix.
 [[nodiscard]] Element render_olist(const BlockToken& tok,
                                    const MarkdownOptions& opts) {
     Elements items;
+
+    // Track per-depth counters so numbering resets correctly when nesting
+    // changes (e.g., depth-0 item #3 followed by depth-1 item #1).
+    std::unordered_map<int, int> depth_counters;
+
     for (std::size_t i = 0; i < tok.list_items.size(); ++i) {
-        auto num = text(std::format("{}. ", i + 1));
-        if (opts.dim_color) num = num | dim;
-        items.push_back(hbox({num, render_inlines(tok.list_items[i], opts)}));
+        int depth = i < tok.list_depths.size() ? tok.list_depths[i] : 0;
+        int& counter = depth_counters[depth];
+        ++counter;
+
+        // Clear counters for deeper levels when returning to a shallower depth.
+        // E.g., going depth 1 → depth 0 should reset depth 1's counter for
+        // the next time it appears.
+        for (auto it = depth_counters.begin(); it != depth_counters.end(); ) {
+            if (it->first > depth) {
+                it = depth_counters.erase(it);
+            } else {
+                ++it;
+            }
+        }
+
+        std::string label = detail::get_list_number(depth, counter) + ". ";
+        // Indent prefix: '  ' × depth
+        std::string indent(static_cast<std::size_t>(depth) * 2, ' ');
+
+        Element indent_el = text(indent);
+        if (opts.dim_color) indent_el = indent_el | dim;
+
+        Element num_el = text(label);
+        if (opts.dim_color) num_el = num_el | dim;
+
+        items.push_back(hbox({
+            std::move(indent_el),
+            std::move(num_el),
+            render_inlines(tok.list_items[i], opts)
+        }));
     }
     return vbox(std::move(items));
 }
