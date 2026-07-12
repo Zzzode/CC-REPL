@@ -53,6 +53,7 @@ import cc.tools.runtime_computer_use;
 import cc.tools.runtime_message_delivery;
 import cc.tools.runtime_team_shared;
 import cc.tools.runtime_shared_utils;
+import cc.tools.feature_flags;
 import cc.tools.file_edit;
 import cc.tools.file_read;
 import cc.tools.file_write;
@@ -1109,15 +1110,13 @@ constexpr auto collect_team_native_agents = &runtime_team_shared::collect_team_n
 }
 
 [[nodiscard]] std::vector<std::string> runtime_tool_names_impl() {
-    return {
+    namespace features = cc::tools::features;
+
+    std::vector<std::string> names = {
         "Agent",
-        "Bash",
         "computer_use",
         "Edit",
-        "Glob",
-        "Grep",
         "Read",
-        "web_browser",
         "WebFetch",
         "WebSearch",
         "Write",
@@ -1125,39 +1124,105 @@ constexpr auto collect_team_native_agents = &runtime_team_shared::collect_team_n
         "brief",
         "config",
         "enter_plan_mode",
-        "enter_worktree",
         "exit_plan_mode",
-        "exit_worktree",
         "list_mcp_resources",
-        "lsp",
         "mcp",
         "mcp_auth",
         "notebook_edit",
-        "powershell",
         "read_mcp_resource",
-        "remote_trigger",
-        "repl",
-        "schedule_cron",
-        "script",
         "send_message",
         "shared",
         "skill",
-        "sleep",
         "synthetic_output",
-        "task_create",
-        "task_get",
-        "task_list",
-        "task_output",
-        "task_stop",
-        "task_update",
-        "team_create",
-        "team_delete",
-        "testing",
         "todo_write",
-        "tool_search",
-        "tungsten",
-        "workflow",
     };
+    // TS REF: src/tools.ts:199 (isBashToolDisabled)
+    if constexpr (features::kBashToolEnabled) {
+        names.push_back("Bash");
+    }
+    // TS REF: src/tools.ts:203 (hasEmbeddedSearchTools)
+    if constexpr (!features::kEmbeddedSearchTools) {
+        names.push_back("Glob");
+        names.push_back("Grep");
+    }
+    // TS REF: src/tools.ts:227 (isWorktreeModeEnabled)
+    if constexpr (features::kWorktreeMode) {
+        names.push_back("enter_worktree");
+        names.push_back("exit_worktree");
+    }
+    // TS REF: src/tools.ts:226 (ENABLE_LSP_TOOL)
+    if constexpr (features::kEnableLspTool) {
+        names.push_back("lsp");
+    }
+    // TS REF: src/tools.ts:152-157 (PowerShell)
+    if constexpr (features::kPowerShellTool) {
+        names.push_back("powershell");
+    }
+    // TS REF: src/tools.ts:36-38 (AGENT_TRIGGERS_REMOTE)
+    // In CPP, remote_trigger has a working implementation (cc.tools.remote_trigger),
+    // so it is registered unconditionally.  Runtime behavior is controlled by
+    // CC_REPL_REMOTE_TRIGGER_COMMAND env var.
+    names.push_back("remote_trigger");
+    // TS REF: src/tools.ts:16-19 (USER_TYPE==='ant' — REPLTool)
+    // In CPP, "repl" delegates to execute_script() which has a working
+    // implementation, so it is registered unconditionally (not ant-only).
+    names.push_back("repl");
+    // TS REF: src/tools.ts:29-34 (AGENT_TRIGGERS)
+    // In CPP, schedule_cron has a working implementation (cc.tools.cron),
+    // so it is registered unconditionally.
+    names.push_back("schedule_cron");
+    // TS REF: src/tools.ts:252-254 (isScriptToolEnabled)
+    if constexpr (features::kScriptToolEnabled) {
+        names.push_back("script");
+    }
+    // TS REF: src/tools.ts:25-28 (SleepTool)
+    if constexpr (features::kEnableSleepTool) {
+        names.push_back("sleep");
+    }
+    // TS REF: src/tools.ts:220-222 (isTodoV2Enabled)
+    if constexpr (features::kTodoV2) {
+        for (const auto* t : {"task_create", "task_get", "task_list", "task_output", "task_stop", "task_update"}) {
+            names.push_back(t);
+        }
+    }
+    // TS REF: src/tools.ts:230-232 (isAgentSwarmsEnabled)
+    if constexpr (features::kAgentSwarmsEnabled) {
+        names.push_back("team_create");
+        names.push_back("team_delete");
+    }
+    // TS REF: src/tools.ts:246 (NODE_ENV==='test')
+    if constexpr (features::kTestingPermissionTool) {
+        names.push_back("testing");
+    }
+    // TS REF: src/tools.ts:251 (isToolSearchEnabledOptimistic)
+    if constexpr (features::kToolSearch) {
+        names.push_back("tool_search");
+    }
+    // TS REF: src/tools.ts:217 (USER_TYPE==='ant' — TungstenTool)
+    if constexpr (features::kUserTypeAnt) {
+        names.push_back("tungsten");
+    }
+    // TS REF: src/tools.ts:117-119 (WEB_BROWSER_TOOL)
+    if constexpr (features::kWebBrowserTool) {
+        names.push_back("web_browser");
+    }
+    // TS REF: src/tools.ts:129-134 (WORKFLOW_SCRIPTS)
+    if constexpr (features::kWorkflowScripts) {
+        names.push_back("workflow");
+    }
+    // Feature-gated stub tools
+    if constexpr (features::kPushNotificationTool) names.push_back("push_notification");
+    if constexpr (features::kMonitorTool) names.push_back("monitor");
+    if constexpr (features::kSendUserFileTool) names.push_back("send_user_file");
+    if constexpr (features::kSubscribePRTool) names.push_back("subscribe_pr");
+    if constexpr (features::kUserTypeAnt) names.push_back("suggest_background_pr");
+    if constexpr (features::kOverflowTestTool) names.push_back("overflow_test");
+    if constexpr (features::kContextCollapse) names.push_back("ctx_inspect");
+    if constexpr (features::kTerminalPanel) names.push_back("terminal_capture");
+    if constexpr (features::kHistorySnip) names.push_back("snip");
+    if constexpr (features::kUdsInbox) names.push_back("list_peers");
+    if constexpr (features::kVerifyPlanExecution) names.push_back("verify_plan_execution");
+    return names;
 }
 
 [[nodiscard]] Result<ToolResult> execute_tool_search(const ToolInput& input) {
@@ -2162,6 +2227,76 @@ constexpr auto try_start_native_agent_resume = &runtime_message_delivery::try_st
         return result->success ? ToolResult::success(output) : ToolResult::error(output);
     }
     if (name == "web_browser") return execute_web_browser(input);
+
+    // ── Feature-gated stub tools ──────────────────────────────────────────────
+    // These tools exist in TS (src/tools.ts L16-158) but are gated behind Bun
+    // feature() flags.  In CPP we provide minimal stubs so that when a feature
+    // flag is enabled, the tool is registered and returns a meaningful "not yet
+    // implemented" message rather than crashing.  TS REF: src/tools.ts:195-256
+
+    if (name == "push_notification") {
+        // TS REF: src/tools.ts:45-49 (PushNotificationTool)
+        auto title = json_string(json, "title").value_or("Notification");
+        auto body = json_string(json, "body").value_or("");
+        return ToolResult::error(std::format(
+            "push_notification stub: title=\"{}\", body=\"{}\" — not yet implemented in CPP migration",
+            title, body));
+    }
+    if (name == "monitor") {
+        // TS REF: src/tools.ts:39-41 (MonitorTool)
+        return ToolResult::error(
+            "monitor stub: MonitorTool is not yet implemented in CPP migration");
+    }
+    if (name == "send_user_file") {
+        // TS REF: src/tools.ts:42-44 (SendUserFileTool)
+        auto file_path = json_string(json, "file_path").value_or("");
+        return ToolResult::error(std::format(
+            "send_user_file stub: file_path=\"{}\" — not yet implemented in CPP migration",
+            file_path));
+    }
+    if (name == "subscribe_pr") {
+        // TS REF: src/tools.ts:50-52 (SubscribePRTool)
+        auto pr_url = json_string(json, "pr_url").value_or("");
+        return ToolResult::error(std::format(
+            "subscribe_pr stub: pr_url=\"{}\" — not yet implemented in CPP migration",
+            pr_url));
+    }
+    if (name == "suggest_background_pr") {
+        // TS REF: src/tools.ts:20-24 (SuggestBackgroundPRTool — USER_TYPE==='ant')
+        return ToolResult::error(
+            "suggest_background_pr stub: not yet implemented in CPP migration");
+    }
+    if (name == "overflow_test") {
+        // TS REF: src/tools.ts:107-109 (OverflowTestTool)
+        return ToolResult::error(
+            "overflow_test stub: OverflowTestTool is not yet implemented in CPP migration");
+    }
+    if (name == "ctx_inspect") {
+        // TS REF: src/tools.ts:110-112 (CtxInspectTool)
+        return ToolResult::error(
+            "ctx_inspect stub: CtxInspectTool is not yet implemented in CPP migration");
+    }
+    if (name == "terminal_capture") {
+        // TS REF: src/tools.ts:113-116 (TerminalCaptureTool)
+        return ToolResult::error(
+            "terminal_capture stub: TerminalCaptureTool is not yet implemented in CPP migration");
+    }
+    if (name == "snip") {
+        // TS REF: src/tools.ts:123-125 (SnipTool)
+        return ToolResult::error(
+            "snip stub: SnipTool (history snippet) is not yet implemented in CPP migration");
+    }
+    if (name == "list_peers") {
+        // TS REF: src/tools.ts:126-128 (ListPeersTool)
+        return ToolResult::error(
+            "list_peers stub: ListPeersTool is not yet implemented in CPP migration");
+    }
+    if (name == "verify_plan_execution") {
+        // TS REF: src/tools.ts:91-96 (VerifyPlanExecutionTool)
+        return ToolResult::error(
+            "verify_plan_execution stub: VerifyPlanExecutionTool is not yet implemented in CPP migration");
+    }
+
     return ToolResult::error(std::format("Runtime tool '{}' has no runtime handler", name));
 }
 
@@ -2204,6 +2339,8 @@ get_built_in_agent_definitions() {
 }
 
 void register_runtime_tools(cc::core::ToolRegistry& registry, RuntimeToolOptions options) {
+    namespace features = cc::tools::features;
+
     auto permission_check = std::move(options.permission_check);
     AgentConfig agent_config;
     agent_config.parent_permission_mode = std::move(options.parent_permission_mode);
@@ -2213,7 +2350,11 @@ void register_runtime_tools(cc::core::ToolRegistry& registry, RuntimeToolOptions
         &registry,
         permission_check,
         options.permission_hook_valid_for_background));
-    registry.register_tool(make_bash_tool());
+
+    // TS REF: src/tools.ts:199 (isBashToolDisabled runtime check)
+    if constexpr (features::kBashToolEnabled) {
+        registry.register_tool(make_bash_tool());
+    }
     // Wire Edit + Read tools to share ReadFileState so that a successful Read
     // through the registry satisfies Edit's "file must be read first" check.
     auto shared_read_state = std::make_shared<cc::tools::file_edit::ReadFileState>();
@@ -2304,8 +2445,12 @@ void register_runtime_tools(cc::core::ToolRegistry& registry, RuntimeToolOptions
         registry.register_tool(std::make_unique<ReadAdapter>(shared_read_state));
     }
     registry.register_tool(make_file_write_tool());
-    registry.register_tool(make_glob_tool());
-    registry.register_tool(make_grep_tool());
+    // TS REF: src/tools.ts:203 (hasEmbeddedSearchTools — ant-native bfs/ugrep
+    // suppresses dedicated Glob/Grep tools when embedded search is available)
+    if constexpr (!features::kEmbeddedSearchTools) {
+        registry.register_tool(make_glob_tool());
+        registry.register_tool(make_grep_tool());
+    }
     registry.register_tool(make_todo_write_tool());
     registry.register_tool(make_web_fetch_tool());
     registry.register_tool(make_web_search_tool());
@@ -2353,12 +2498,18 @@ void register_runtime_tools(cc::core::ToolRegistry& registry, RuntimeToolOptions
         ToolPermission::Write, {}, "planning"));
     registry.register_tool(simple("exit_plan_mode", "Exit plan mode",
         ToolPermission::Write, {}, "planning"));
-    registry.register_tool(simple("enter_worktree", "Create and enter a git worktree",
-        ToolPermission::Execute, {prop("branch", "string", "Branch name", true)}, "git"));
-    registry.register_tool(simple("exit_worktree", "Remove a git worktree",
-        ToolPermission::Execute, {prop("path", "string", "Worktree path", false)}, "git"));
-    registry.register_tool(simple("lsp", "Fallback language intelligence for definitions, references, symbols, hover, and diagnostics",
-        ToolPermission::ReadOnly, {prop("file_path", "string", "File path", true)}, "code"));
+    // TS REF: src/tools.ts:227 (isWorktreeModeEnabled — Enter/ExitWorktree)
+    if constexpr (features::kWorktreeMode) {
+        registry.register_tool(simple("enter_worktree", "Create and enter a git worktree",
+            ToolPermission::Execute, {prop("branch", "string", "Branch name", true)}, "git"));
+        registry.register_tool(simple("exit_worktree", "Remove a git worktree",
+            ToolPermission::Execute, {prop("path", "string", "Worktree path", false)}, "git"));
+    }
+    // TS REF: src/tools.ts:226 (ENABLE_LSP_TOOL env var)
+    if constexpr (features::kEnableLspTool) {
+        registry.register_tool(simple("lsp", "Fallback language intelligence for definitions, references, symbols, hover, and diagnostics",
+            ToolPermission::ReadOnly, {prop("file_path", "string", "File path", true)}, "code"));
+    }
     registry.register_tool(simple("mcp", "Invoke a tool exposed by an MCP server. Specify the server name (e.g. 'zai-builtin', 'computer-use') and the tool name to call on that server.",
         ToolPermission::Network, {
             prop("server_name", "string", "Name of the MCP server to invoke (e.g. 'zai-builtin')", true),
@@ -2380,41 +2531,57 @@ void register_runtime_tools(cc::core::ToolRegistry& registry, RuntimeToolOptions
             prop("cell_type", "string", "code, markdown, or raw", false),
             prop("edit_mode", "string", "replace, insert, or delete", false),
         }, "filesystem"));
-    registry.register_tool(simple("powershell", "Execute a PowerShell command on Windows",
-        ToolPermission::Execute, {
-            SchemaProperty{
-                .name = "command",
-                .type = "string",
-                .description = "Command",
-                .required = true,
-                .default_value = std::nullopt,
-                .enum_values = std::nullopt,
-            },
-            SchemaProperty{
-                .name = "cwd",
-                .type = "string",
-                .description = "Working directory",
-                .required = false,
-                .default_value = std::nullopt,
-                .enum_values = std::nullopt,
-            },
-            SchemaProperty{
-                .name = "timeout",
-                .type = "integer",
-                .description = "Timeout in seconds",
-                .required = false,
-                .default_value = std::nullopt,
-                .enum_values = std::nullopt,
-            },
-        }, "shell"));
+    // TS REF: src/tools.ts:152-157, 244 (getPowerShellTool — runtime check)
+    if constexpr (features::kPowerShellTool) {
+        registry.register_tool(simple("powershell", "Execute a PowerShell command on Windows",
+            ToolPermission::Execute, {
+                SchemaProperty{
+                    .name = "command",
+                    .type = "string",
+                    .description = "Command",
+                    .required = true,
+                    .default_value = std::nullopt,
+                    .enum_values = std::nullopt,
+                },
+                SchemaProperty{
+                    .name = "cwd",
+                    .type = "string",
+                    .description = "Working directory",
+                    .required = false,
+                    .default_value = std::nullopt,
+                    .enum_values = std::nullopt,
+                },
+                SchemaProperty{
+                    .name = "timeout",
+                    .type = "integer",
+                    .description = "Timeout in seconds",
+                    .required = false,
+                    .default_value = std::nullopt,
+                    .enum_values = std::nullopt,
+                },
+            }, "shell"));
+    }
+    // TS REF: src/tools.ts:36-38, 238 (RemoteTriggerTool — AGENT_TRIGGERS_REMOTE)
+    // In CPP, remote_trigger has a working implementation (cc.tools.remote_trigger),
+    // so it is registered unconditionally.  Runtime behavior is controlled by
+    // CC_REPL_REMOTE_TRIGGER_COMMAND env var.
     registry.register_tool(simple("remote_trigger", "Invoke a configured remote trigger command",
         ToolPermission::Execute, {prop("payload", "string", "Trigger payload", false)}, "remote"));
+    // TS REF: src/tools.ts:16-19, 234 (REPLTool — USER_TYPE==='ant')
+    // In CPP, "repl" delegates to execute_script() which has a working
+    // implementation, so it is registered unconditionally (not ant-only).
     registry.register_tool(simple("repl", "Run a one-shot REPL snippet",
         ToolPermission::Execute, {prop("code", "string", "Code to execute", true)}, "execution"));
+    // TS REF: src/tools.ts:29-34, 237 (Cron tools — AGENT_TRIGGERS)
+    // In CPP, schedule_cron has a working implementation (cc.tools.cron),
+    // so it is registered unconditionally.
     registry.register_tool(simple("schedule_cron", "Schedule a cron-style reminder for this process",
         ToolPermission::Write, {prop("message", "string", "Scheduled message", true)}, "tasks"));
-    registry.register_tool(simple("script", "Execute a bounded script",
-        ToolPermission::Execute, {prop("code", "string", "Script code", true)}, "execution"));
+    // TS REF: src/tools.ts:252-254 (ScriptTool — isScriptToolEnabled)
+    if constexpr (features::kScriptToolEnabled) {
+        registry.register_tool(simple("script", "Execute a bounded script",
+            ToolPermission::Execute, {prop("code", "string", "Script code", true)}, "execution"));
+    }
     registry.register_tool(simple("send_message", "Queue a message for an agent or team",
         ToolPermission::Write, {
             prop("to", "string", "Recipient teammate, '*' broadcast, or compatible target", false),
@@ -2452,31 +2619,118 @@ void register_runtime_tools(cc::core::ToolRegistry& registry, RuntimeToolOptions
             prop("session_id", "string", "Session identifier for ${CLAUDE_SESSION_ID}", false),
             prop("name", "string", "Alias for skill_path", false),
         }, "skills"));
-    registry.register_tool(simple("sleep", "Sleep for a bounded number of seconds",
-        ToolPermission::Execute, {prop("duration", "number", "Duration in seconds", true)}, "execution"));
+    // TS REF: src/tools.ts:25-28, 236 (SleepTool — PROACTIVE || KAIROS)
+    if constexpr (features::kEnableSleepTool) {
+        registry.register_tool(simple("sleep", "Sleep for a bounded number of seconds",
+            ToolPermission::Execute, {prop("duration", "number", "Duration in seconds", true)}, "execution"));
+    }
     registry.register_tool(simple("synthetic_output", "Return provided synthetic output content",
         ToolPermission::ReadOnly, {prop("content", "string", "Content", true)}, "testing"));
 
-    for (const auto& name : {"task_create", "task_get", "task_list", "task_output", "task_stop", "task_update"}) {
-        registry.register_tool(simple(name, std::format("Runtime task operation {}", name), ToolPermission::Write,
-            {
-                prop("task_id", "string", "Task ID", false),
-                prop("pid", "number", "Background process PID", false),
-            }, "tasks"));
+    // TS REF: src/tools.ts:220-222 (isTodoV2Enabled — TaskCreate/Get/Update/List)
+    if constexpr (features::kTodoV2) {
+        for (const auto& name : {"task_create", "task_get", "task_list", "task_output", "task_stop", "task_update"}) {
+            registry.register_tool(simple(name, std::format("Runtime task operation {}", name), ToolPermission::Write,
+                {
+                    prop("task_id", "string", "Task ID", false),
+                    prop("pid", "number", "Background process PID", false),
+                }, "tasks"));
+        }
     }
-    registry.register_tool(simple("team_create", "Create a runtime team record", ToolPermission::Write,
-        {prop("team_name", "string", "Team name", false)}, "agents"));
-    registry.register_tool(simple("team_delete", "Delete a runtime team record", ToolPermission::Write,
-        {prop("team_name", "string", "Team name", true)}, "agents"));
-    registry.register_tool(simple("testing", "Run a test command", ToolPermission::Execute,
-        {prop("command", "string", "Test command", false)}, "testing"));
-    registry.register_tool(simple("tool_search", "Search registered runtime tools", ToolPermission::ReadOnly,
-        {prop("query", "string", "Search query", false)}, "tools"));
-    registry.register_tool(simple("tungsten", "Use the Tungsten integration when configured", ToolPermission::Network, {}, "integrations"));
-    registry.register_tool(simple("web_browser", "Automate browser navigation, extraction, form fill, and screenshots",
-        ToolPermission::Network, {prop("action", "string", "Browser action", true)}, "browser"));
-    registry.register_tool(simple("workflow", "Read and execute workflow definitions", ToolPermission::ReadOnly,
-        {prop("file", "string", "Workflow file", true)}, "workflow"));
+    // TS REF: src/tools.ts:230-232 (isAgentSwarmsEnabled — TeamCreate/Delete)
+    if constexpr (features::kAgentSwarmsEnabled) {
+        registry.register_tool(simple("team_create", "Create a runtime team record", ToolPermission::Write,
+            {prop("team_name", "string", "Team name", false)}, "agents"));
+        registry.register_tool(simple("team_delete", "Delete a runtime team record", ToolPermission::Write,
+            {prop("team_name", "string", "Team name", true)}, "agents"));
+    }
+    // TS REF: src/tools.ts:246 (NODE_ENV==='test' — TestingPermissionTool)
+    if constexpr (features::kTestingPermissionTool) {
+        registry.register_tool(simple("testing", "Run a test command", ToolPermission::Execute,
+            {prop("command", "string", "Test command", false)}, "testing"));
+    }
+    // TS REF: src/tools.ts:251 (isToolSearchEnabledOptimistic — ToolSearchTool)
+    if constexpr (features::kToolSearch) {
+        registry.register_tool(simple("tool_search", "Search registered runtime tools", ToolPermission::ReadOnly,
+            {prop("query", "string", "Search query", false)}, "tools"));
+    }
+    // TS REF: src/tools.ts:217 (TungstenTool — USER_TYPE==='ant')
+    if constexpr (features::kUserTypeAnt) {
+        registry.register_tool(simple("tungsten", "Use the Tungsten integration when configured", ToolPermission::Network, {}, "integrations"));
+    }
+    // TS REF: src/tools.ts:117-119, 219 (WebBrowserTool — WEB_BROWSER_TOOL)
+    if constexpr (features::kWebBrowserTool) {
+        registry.register_tool(simple("web_browser", "Automate browser navigation, extraction, form fill, and screenshots",
+            ToolPermission::Network, {prop("action", "string", "Browser action", true)}, "browser"));
+    }
+    // TS REF: src/tools.ts:129-134, 235 (WorkflowTool — WORKFLOW_SCRIPTS)
+    if constexpr (features::kWorkflowScripts) {
+        registry.register_tool(simple("workflow", "Read and execute workflow definitions", ToolPermission::ReadOnly,
+            {prop("file", "string", "Workflow file", true)}, "workflow"));
+    }
+
+    // ── Feature-gated stub tools (registered only when their flag is on) ────
+    // TS REF: src/tools.ts:45-49, 242 (PushNotificationTool — KAIROS || KAIROS_PUSH_NOTIFICATION)
+    if constexpr (features::kPushNotificationTool) {
+        registry.register_tool(simple("push_notification", "Send a push notification to the user",
+            ToolPermission::Write, {
+                prop("title", "string", "Notification title", true),
+                prop("body", "string", "Notification body", false),
+            }, "notifications"));
+    }
+    // TS REF: src/tools.ts:39-41, 239 (MonitorTool — MONITOR_TOOL)
+    if constexpr (features::kMonitorTool) {
+        registry.register_tool(simple("monitor", "Monitor a background process or file for changes",
+            ToolPermission::ReadOnly, {
+                prop("command", "string", "Command or pattern to monitor", true),
+                prop("pattern", "string", "Regex pattern to watch for", false),
+            }, "monitoring"));
+    }
+    // TS REF: src/tools.ts:42-44, 241 (SendUserFileTool — KAIROS)
+    if constexpr (features::kSendUserFileTool) {
+        registry.register_tool(simple("send_user_file", "Send a file to the user",
+            ToolPermission::Write, {prop("file_path", "string", "Path to the file", true)}, "delivery"));
+    }
+    // TS REF: src/tools.ts:50-52, 243 (SubscribePRTool — KAIROS_GITHUB_WEBHOOKS)
+    if constexpr (features::kSubscribePRTool) {
+        registry.register_tool(simple("subscribe_pr", "Subscribe to a GitHub PR for updates",
+            ToolPermission::Network, {prop("pr_url", "string", "PR URL to subscribe to", true)}, "github"));
+    }
+    // TS REF: src/tools.ts:20-24, 218 (SuggestBackgroundPRTool — USER_TYPE==='ant')
+    if constexpr (features::kUserTypeAnt) {
+        registry.register_tool(simple("suggest_background_pr", "Suggest creating a background PR for the current changes",
+            ToolPermission::ReadOnly, {}, "ant-internal"));
+    }
+    // TS REF: src/tools.ts:107-109, 223 (OverflowTestTool)
+    if constexpr (features::kOverflowTestTool) {
+        registry.register_tool(simple("overflow_test", "Test tool for context overflow scenarios",
+            ToolPermission::ReadOnly, {prop("size", "number", "Size in tokens", false)}, "testing"));
+    }
+    // TS REF: src/tools.ts:110-112, 224 (CtxInspectTool — CONTEXT_COLLAPSE)
+    if constexpr (features::kContextCollapse) {
+        registry.register_tool(simple("ctx_inspect", "Inspect the current context window usage",
+            ToolPermission::ReadOnly, {}, "context"));
+    }
+    // TS REF: src/tools.ts:113-116, 225 (TerminalCaptureTool — TERMINAL_PANEL)
+    if constexpr (features::kTerminalPanel) {
+        registry.register_tool(simple("terminal_capture", "Capture the current terminal screen content",
+            ToolPermission::ReadOnly, {}, "terminal"));
+    }
+    // TS REF: src/tools.ts:123-125, 245 (SnipTool — HISTORY_SNIP)
+    if constexpr (features::kHistorySnip) {
+        registry.register_tool(simple("snip", "Create a snippet from conversation history",
+            ToolPermission::Write, {prop("query", "string", "Snippet query", false)}, "history"));
+    }
+    // TS REF: src/tools.ts:126-128, 229 (ListPeersTool — UDS_INBOX)
+    if constexpr (features::kUdsInbox) {
+        registry.register_tool(simple("list_peers", "List connected peer sessions",
+            ToolPermission::ReadOnly, {}, "peers"));
+    }
+    // TS REF: src/tools.ts:91-96, 233 (VerifyPlanExecutionTool — CLAUDE_CODE_VERIFY_PLAN)
+    if constexpr (features::kVerifyPlanExecution) {
+        registry.register_tool(simple("verify_plan_execution", "Verify that a plan execution matches expectations",
+            ToolPermission::ReadOnly, {prop("plan", "string", "Plan to verify", true)}, "planning"));
+    }
 
     (void)agent_runtime::restore_remote_agent_poll_loops();
 
