@@ -30,10 +30,15 @@ import cc.types.types;
 import cc.commands.command;
 import cc.services.oauth.client;
 import cc.constants.oauth;
+import cc.state.app_state;
 
 export namespace cc::commands {
 
 using namespace cc::core;
+
+/// Ordinal of ActionType::IncrementAuthVersion in cc::state::ActionType enum.
+/// Keep in sync with store.cppm enum ordering.
+constexpr int ACTION_INCREMENT_AUTH_VERSION = 78;
 
 using ApiKeyReader = std::function<std::expected<std::string, std::string>()>;
 
@@ -98,14 +103,14 @@ public:
             if (state_.authenticated) {
                 return CommandResult::success(format_status());
             }
-            return start_oauth();
+            return start_oauth(ctx);
         }
 
         auto method = std::string(ctx.args[0]);
 
         if (method == "status") return CommandResult::success(format_status());
-        if (method == "oauth") return start_oauth();
-        if (method == "apikey") return start_apikey_flow();
+        if (method == "oauth") return start_oauth(ctx);
+        if (method == "apikey") return start_apikey_flow(ctx);
 
         return CommandResult::success(format_status());
     }
@@ -244,7 +249,8 @@ private:
     [[nodiscard]] static Result<CommandResult> persist_api_key(
         std::string_view key,
         std::string_view success_message,
-        AuthState& state
+        AuthState& state,
+        const CommandContext& ctx
     ) {
         if (key.empty()) {
             return std::unexpected(Error::make(
@@ -260,6 +266,10 @@ private:
         if (!saved) return saved;
         state.authenticated = true;
         state.method = AuthMethod::ApiKey;
+        // Notify app that auth state changed — triggers MCP server re-fetch in QueryEngine
+        if (ctx.dispatch_fn) {
+            ctx.dispatch_action(ACTION_INCREMENT_AUTH_VERSION);
+        }
         return CommandResult::success(std::string(success_message));
     }
 
@@ -309,7 +319,7 @@ private:
         return out;
     }
 
-    [[nodiscard]] Result<CommandResult> start_oauth() {
+    [[nodiscard]] Result<CommandResult> start_oauth(const CommandContext& ctx) {
         if (const char* token = std::getenv("ANTHROPIC_AUTH_TOKEN")) {
             if (*token == '\0') {
                 return std::unexpected(Error::make(ErrorCode::AuthenticationFailed,
@@ -327,6 +337,10 @@ private:
             if (!saved) return saved;
             state_.authenticated = true;
             state_.method = AuthMethod::OAuth;
+            // Notify app that auth state changed — triggers MCP server re-fetch in QueryEngine
+            if (ctx.dispatch_fn) {
+                ctx.dispatch_action(ACTION_INCREMENT_AUTH_VERSION);
+            }
             return CommandResult::success("Authenticated with ANTHROPIC_AUTH_TOKEN.");
         }
         cc::services::oauth::OAuthConfig config{
@@ -354,13 +368,17 @@ private:
         if (!saved) return saved;
         state_.authenticated = true;
         state_.method = AuthMethod::OAuth;
+        // Notify app that auth state changed — triggers MCP server re-fetch in QueryEngine
+        if (ctx.dispatch_fn) {
+            ctx.dispatch_action(ACTION_INCREMENT_AUTH_VERSION);
+        }
         return CommandResult::success("Authenticated with OAuth.");
     }
 
-    [[nodiscard]] Result<CommandResult> start_apikey_flow() {
+    [[nodiscard]] Result<CommandResult> start_apikey_flow(const CommandContext& ctx) {
         if (const char* key = std::getenv("ANTHROPIC_API_KEY")) {
             std::string_view key_view(key);
-            return persist_api_key(key_view, "Authenticated with ANTHROPIC_API_KEY.", state_);
+            return persist_api_key(key_view, "Authenticated with ANTHROPIC_API_KEY.", state_, ctx);
         }
 
         auto reader = detail::api_key_reader_override.value_or(ApiKeyReader{read_api_key_interactive});
@@ -370,7 +388,7 @@ private:
                 ErrorCode::AuthenticationFailed,
                 key.error()));
         }
-        return persist_api_key(*key, "Authenticated with API key.", state_);
+        return persist_api_key(*key, "Authenticated with API key.", state_, ctx);
     }
 };
 

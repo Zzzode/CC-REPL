@@ -190,4 +190,16 @@ public:
     }
 };
 
+// ============================================================
+// Global Cost Tracker Singleton
+// ============================================================
+
+/// Access the process-wide global CostTracker instance.
+/// QueryEngine and other subsystems record usage here; /cost
+/// reads from this singleton when no AppState bridge is available.
+[[nodiscard]] inline CostTracker& global_cost_tracker() {
+    static CostTracker instance;
+    return instance;
+}
+
 } // namespace cc::core

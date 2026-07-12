@@ -19,10 +19,15 @@ export module cc.commands.plan;
 
 import cc.types.types;
 import cc.commands.command;
+import cc.state.app_state;
 
 export namespace cc::commands {
 
 using namespace cc::core;
+
+/// Ordinal of ActionType::SetPermissionMode in the cc::state::ActionType enum.
+/// Keep in sync with store.cppm enum ordering.
+constexpr int ACTION_SET_PERMISSION_MODE = 12;
 
 /// Represents a step in the generated plan
 struct PlanStep {
@@ -40,9 +45,9 @@ public:
             .name = "plan",
             .description = "Enter plan mode (read-only) or show current plan",
             .args = {
-                CommandArg{.name = "action", .description = "on | off | show | clear",
+                CommandArg{.name = "action", .description = "on | plan | off | auto | show | clear",
                            .type = ArgType::Choice, .required = false,
-                           .choices = {"on", "off", "show", "clear"}},
+                           .choices = {"on", "plan", "off", "auto", "show", "clear"}},
             },
             .category = "session",
             .aliases = {},
@@ -53,33 +58,59 @@ public:
     [[nodiscard]] VoidResult validate(const CommandContext& ctx) {
         if (ctx.args.empty()) return {};
         auto action = ctx.args[0];
-        static constexpr std::array valid = {"on", "off", "show", "clear"};
+        static constexpr std::array valid = {"on", "plan", "off", "auto", "show", "clear"};
         if (std::ranges::find(valid, action) == valid.end()) {
             return std::unexpected(Error::make(ErrorCode::InvalidRequest,
-                std::format("Invalid action: '{}'. Use: on|off|show|clear", action)));
+                std::format("Invalid action: '{}'. Use: on|plan|off|auto|show|clear", action)));
         }
         return {};
     }
 
     [[nodiscard]] Result<CommandResult> execute(const CommandContext& ctx) {
-        if (ctx.args.empty()) {
-            // Toggle or show status depending on state
-            return CommandResult::success(format_status());
+        // Try the AppState bridge first (set by app.cppm).
+        if (const void* raw_state = ctx.get_app_state(); raw_state != nullptr) {
+            const auto* state = static_cast<const cc::state::AppState*>(raw_state);
+
+            if (ctx.args.empty()) {
+                // No arg: read current mode from AppState
+                return format_status_from_state(*state);
+            }
+
+            auto action = std::string(ctx.args[0]);
+
+            if (action == "on" || action == "plan") {
+                auto mode = cc::state::PermissionMode::Plan;
+                ctx.dispatch_action(ACTION_SET_PERMISSION_MODE, &mode);
+                auto result = CommandResult::success(
+                    "Plan mode activated. The model will generate plans without executing tools.\n"
+                    "Use /plan off to exit and execute the plan.");
+                result.metadata = "UI:plan";
+                return result;
+            }
+            if (action == "off") {
+                auto mode = cc::state::PermissionMode::Default;
+                ctx.dispatch_action(ACTION_SET_PERMISSION_MODE, &mode);
+                return CommandResult::success(
+                    "Plan mode deactivated. You can now execute normally.");
+            }
+            if (action == "auto") {
+                auto mode = cc::state::PermissionMode::Auto;
+                ctx.dispatch_action(ACTION_SET_PERMISSION_MODE, &mode);
+                return CommandResult::success("Auto mode activated. Tools will run automatically.");
+            }
+            if (action == "show") return show_plan();
+            if (action == "clear") return clear_plan();
+
+            return format_status_from_state(*state);
         }
 
-        auto action = std::string(ctx.args[0]);
-
-        if (action == "on") return enter_plan_mode();
-        if (action == "off") return exit_plan_mode();
-        if (action == "show") return show_plan();
-        if (action == "clear") return clear_plan();
-
-        return CommandResult::success(format_status());
+        // Fallback: static local when no AppState bridge is wired (e.g. unit tests).
+        return execute_fallback(ctx);
     }
 
     [[nodiscard]] std::vector<std::string> complete(std::string_view partial) {
         std::vector<std::string> suggestions;
-        for (auto s : {"on", "off", "show", "clear"}) {
+        for (auto s : {"on", "plan", "off", "auto", "show", "clear"}) {
             if (std::string_view(s).starts_with(partial)) {
                 suggestions.emplace_back(s);
             }
@@ -108,6 +139,50 @@ private:
     std::vector<PlanStep> steps_;
     std::chrono::system_clock::time_point started_at_;
 
+    [[nodiscard]] Result<CommandResult> format_status_from_state(
+        const cc::state::AppState& state) const {
+        auto mode = state.tool_permission_context.mode;
+        auto mode_str = cc::state::permission_mode_to_string(mode);
+
+        std::string out = std::format("Permission mode: {}\n", mode_str);
+
+        if (mode == cc::state::PermissionMode::Plan) {
+            out += "Plan mode is active. The model generates plans without executing tools.\n";
+            out += "Use /plan off to exit and execute the plan.";
+        } else if (mode == cc::state::PermissionMode::Auto) {
+            out += "Auto mode is active. Tools run automatically without prompting.";
+        } else {
+            out += "Use /plan on to enter read-only planning mode.";
+        }
+
+        if (!steps_.empty()) {
+            auto completed = std::ranges::count_if(steps_, [](const auto& s) { return s.completed; });
+            out += std::format("\n\nPlan steps: {}/{} completed", completed, steps_.size());
+        }
+
+        auto result = CommandResult::success(std::move(out));
+        if (mode == cc::state::PermissionMode::Plan) {
+            result.metadata = "UI:plan";
+        }
+        return result;
+    }
+
+    [[nodiscard]] Result<CommandResult> execute_fallback(const CommandContext& ctx) {
+        if (ctx.args.empty()) {
+            return CommandResult::success(format_status());
+        }
+
+        auto action = std::string(ctx.args[0]);
+
+        if (action == "on" || action == "plan") return enter_plan_mode();
+        if (action == "off") return exit_plan_mode();
+        if (action == "auto") return enter_auto_mode();
+        if (action == "show") return show_plan();
+        if (action == "clear") return clear_plan();
+
+        return CommandResult::success(format_status());
+    }
+
     [[nodiscard]] std::string format_status() const {
         if (!active_) {
             return "Plan mode: OFF\nUse /plan on to enter read-only planning mode.";
@@ -125,9 +200,17 @@ private:
         active_ = true;
         started_at_ = std::chrono::system_clock::now();
         steps_.clear();
-        return CommandResult::success(
+        auto result = CommandResult::success(
             "Plan mode activated. The model will generate plans without executing tools.\n"
             "Use /plan off to exit and execute the plan.");
+        result.metadata = "UI:plan";
+        return result;
+    }
+
+    [[nodiscard]] Result<CommandResult> enter_auto_mode() {
+        active_ = false;
+        return CommandResult::success(
+            "Auto mode activated. Tools will run automatically.");
     }
 
     [[nodiscard]] Result<CommandResult> exit_plan_mode() {

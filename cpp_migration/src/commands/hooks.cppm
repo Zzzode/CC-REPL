@@ -43,7 +43,14 @@ public:
         if (!ctx.args.empty() && ctx.args.front() == "list") {
             return CommandResult::success("Hook events: PreToolUse, PostToolUse, Notification, Stop, SubagentStop");
         }
-        return CommandResult::success("Hook configuration viewer opened. Use /hooks list for supported hook events.");
+        // Return "UI:hooks" metadata so the app shell opens the HooksConfig
+        // modal dialog via PushFromCommandMetadata.
+        return CommandResult{
+            true,
+            "Hook configuration viewer opened.",
+            "UI:hooks",
+            CommandStatus::Succeeded,
+        };
     }
 
     [[nodiscard]] std::vector<std::string> complete(std::string_view partial) {

@@ -638,6 +638,21 @@ public:
             }
         }
 
+        // --- No flags: inject an analysis prompt ---
+        if (!apply && !generate_all && !explicit_target) {
+            return CommandResult::inject(
+                "Analyze this project and determine what verification infrastructure would be most valuable.\n"
+                "Consider: testing framework, CI/CD pipeline, linting, type checking.\n"
+                "Look at the project structure to identify:\n"
+                "- What language/framework is used\n"
+                "- Existing test files\n"
+                "- Build system\n"
+                "- Package manager\n\n"
+                "Then recommend and optionally create appropriate verifier configurations.\n"
+                "Use the Bash tool to inspect the project (e.g. ls, find, cat package.json, etc.)."
+            );
+        }
+
         // --- Detect repo root and context ---
         auto root_res = cc::utils::exec_sync("git rev-parse --show-toplevel");
         fs::path repo_root;

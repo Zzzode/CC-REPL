@@ -124,6 +124,13 @@ validate_state(const AppState& state) {
         root.add("is_brief_only", doc.boolean(state.is_brief_only));
         root.add("show_teammate_message_preview", doc.boolean(state.show_teammate_message_preview));
         root.add("working_directory", doc.string(state.working_directory));
+        if (!state.allowed_directories.empty()) {
+            auto arr = doc.array();
+            for (const auto& d : state.allowed_directories) {
+                arr.append(doc.string(d));
+            }
+            root.add("allowed_directories", arr);
+        }
         root.add("view_selection_mode", doc.string(state.view_selection_mode));
         root.add("selected_ip_agent_index", doc.number(static_cast<int64_t>(state.selected_ip_agent_index)));
         root.add("coordinator_task_index", doc.number(static_cast<int64_t>(state.coordinator_task_index)));
@@ -169,6 +176,11 @@ validate_state(const AppState& state) {
         if (auto v = root.get("is_brief_only"); v && v.is_bool()) state.is_brief_only = v.as_bool();
         if (auto v = root.get("show_teammate_message_preview"); v && v.is_bool()) state.show_teammate_message_preview = v.as_bool();
         if (auto v = root.get("working_directory"); v && v.is_str()) state.working_directory = std::string(v.as_str());
+        if (auto v = root.get("allowed_directories"); v.is_arr()) {
+            v.iter([&](auto item) {
+                if (item.is_str()) state.allowed_directories.push_back(std::string(item.as_str()));
+            });
+        }
         if (auto v = root.get("view_selection_mode"); v && v.is_str()) state.view_selection_mode = std::string(v.as_str());
         if (auto v = root.get("selected_ip_agent_index"); v && v.is_num()) state.selected_ip_agent_index = static_cast<std::int32_t>(v.as_int());
         if (auto v = root.get("coordinator_task_index"); v && v.is_num()) state.coordinator_task_index = static_cast<std::int32_t>(v.as_int());

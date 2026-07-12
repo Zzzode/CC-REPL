@@ -14,6 +14,7 @@ module;
 export module cc.ui.messages.message_components;
 
 import cc.ui.layout;
+import cc.ui.design.figures;  // kBlackCircleFallback (● U+25CF) — single source of truth
 
 export namespace cc::ui::messages {
 
@@ -28,7 +29,9 @@ inline constexpr std::string_view kTokenRevokedError = "Your API token has been 
 inline constexpr std::string_view kUserAbortError = "[interrupted by user]";
 inline constexpr std::string_view kNoResponseRequested = "[no response requested]";
 inline constexpr int kMaxApiErrorChars = 1000;
-inline constexpr std::string_view kBlackCircle = "\xE2\x97\x8F";
+// kBlackCircle (● U+25CF) — formerly defined locally, now imported from
+// cc::ui::design::figures::kBlackCircleFallback.  See figures.cppm for the
+// Darwin-correct kBlackCircle (⏺ U+23FA) and platform fallback rationale.
 
 // --- Message block types ---
 enum class BlockType {
@@ -254,7 +257,7 @@ enum class MessageRenderError {
     // Check for empty message
     if (is_empty_message_text(text)) {
         if (props.should_show_dot) {
-            return std::string(kBlackCircle);
+            return std::string(cc::ui::design::figures::kBlackCircleFallback);
         }
         return std::string{};
     }

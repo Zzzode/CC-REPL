@@ -130,6 +130,7 @@ import cc.ui.prompt.vim_input;
 // with left/right columns: ModeIndicator, tasks, teams, hints, bridge status.
 import cc.ui.prompt.prompt_input_footer;
 import cc.ui.prompt.prompt_stash_notice;  // GAP 2: stashed prompt restore notice
+import cc.ui.prompt.placeholder_cascade;  // P1: 4-tier contextual placeholder cascade
 // M7: Core dialog framework — DialogQueue, DialogRendererRegistry, DialogFrame.
 // Faithful port of TS dialog system architecture (DialogType, DialogSlot, priority bands).
 import cc.ui.dialogs.system;
@@ -461,6 +462,12 @@ struct ReplScreenState {
     /// Toggled by the user (e.g., via /brief command or status bar click).
     bool is_brief_mode = false;
 
+    /// TS REF: Messages.tsx L382-389 + L395-419  isStreamingThinkingVisible.
+    /// When true, ALL completed thinking blocks are hidden (TS:
+    /// lastThinkingBlockId = 'streaming').  Set by app.cppm when any streaming
+    /// thinking entry is active or within its 30s grace period.
+    bool streaming_thinking_globally_visible = false;
+
     /// TS REF: Messages.tsx isTranscriptMode (L459, screen === 'transcript').
     /// When true, the message list shows the FULL transcript (all message
     /// types visible, bypassing brief/dropText filters).  Capped at last 30
@@ -679,6 +686,10 @@ struct ReplScreenState {
     // reads/writes against this engine-owned instance; otherwise it uses a
     // thread-local fallback (snapshot-only).
     void* settings_config = nullptr;
+    // Initial tab when the settings dialog is opened.  Defaults to General;
+    // commands like /permissions may set this to Permissions before opening.
+    // Typed as int to keep ReplScreenState free of settings_dialog type deps.
+    int settings_initial_tab = 0;  // matches SettingsTabId::General = 0
 
     // M7 Dialog Framework (Task #124): dialog queue (4 slots) +
     // renderer/event-handler registry.  The engine pushes payloads into
@@ -949,6 +960,11 @@ ComputeUnseenDivider(const ReplScreenState& s) {
     const std::unordered_set<std::string>& expanded_keys = {},
     bool is_transcript_mode = false,
     bool show_all_in_transcript = false,
+    // TS REF: Messages.tsx L382-389 + L395-419  isStreamingThinkingVisible.
+    // When true, build_visible_rows hides ALL completed thinking rows so
+    // only the streaming-thinking tail is visible (TS lastThinkingBlockId
+    // = 'streaming').
+    bool streaming_thinking_globally_visible = false,
     // GAP 3: msg-system-api-error-retry — callback for the Retry button on
     // SystemAPIError rich cards.  When set, the API error card renders a
     // clickable Retry pill that invokes this to re-send the last user message.
@@ -1189,12 +1205,23 @@ ComputeUnseenDivider(const ReplScreenState& s) {
         input.selected_row_idx = static_cast<std::size_t>(sel);
 
     const auto N = entries.size();
-    bool has_streaming = !entries.empty() && entries.back().is_streaming;
+    // TS REF: Messages.tsx L703-719 — streaming text + streaming thinking
+    // tails are rendered after all committed messages.  The tail row is
+    // whichever comes last: a streaming text entry (is_streaming) or an
+    // active thinking entry (thinking_active, set while streaming or
+    // within 30s grace).  The tail row drives the "Running" status badge
+    // and keeps thinking rows visible in build_visible_rows.
+    bool has_streaming = !entries.empty() &&
+        (entries.back().is_streaming || entries.back().thinking_active);
     input.streaming_tail_row = has_streaming ? N - 1 : N;
     input.pin_to_bottom = pinned;
     input.scroll_offset = std::max(0, offs);
     input.viewport_rows = std::max(1, vlines);
     input.is_brief_mode = is_brief_mode;
+    // TS REF: Messages.tsx L382-389 + L395-419 — thread isStreamingThinkingVisible
+    // to the messages list so it can hide ALL completed thinking rows when
+    // the streaming-thinking tail is on screen.
+    input.streaming_thinking_globally_visible = streaming_thinking_globally_visible;
     // TS REF: Messages.tsx L459 (isTranscriptMode) + L223 (showAllInTranscript).
     // In transcript mode the 3-tier filter shows all message types; cap at
     // 30 unless show_all_in_transcript lifts it.
@@ -1844,86 +1871,31 @@ inline void move_prompt_cursor_right(const std::shared_ptr<ReplScreenState>& sta
 //                                  (only before first submit, with suggestions enabled)
 //   6. Fallback                 → std::nullopt (no placeholder shown)
 //
-// The AI suggestion override (layer 2) only applies when:
-//   - mode is Prompt (TS: mode === 'prompt')
-//   - no autocomplete suggestions are active
-//   - not viewing a teammate task
-// This mirrors TS showPromptSuggestion = mode === 'prompt' &&
-//   suggestions.length === 0 && promptSuggestion && !viewingAgentTaskId.
-
-namespace placeholder_detail {
-
-/// Example commands for the onboarding placeholder (TS REF: exampleCommands.ts
-/// getExampleCommandFromCache).  We use a fixed list here — the full TS version
-/// samples from git history for a frequentFile token, but a static list is
-/// sufficient for the placeholder UX without requiring git access at render time.
-inline constexpr std::array<std::string_view, 6> kExampleCommands = {
-    "fix lint errors",
-    "how do I log an error?",
-    "write a test for main",
-    "refactor main.cpp",
-    "explain this code",
-    "/help",
-};
-
-/// Pick a random example command.  Uses a simple LCG seeded from the address
-/// of the state object for per-session stability (same idea as TS's
-/// getExampleCommandFromCache which caches per session).
-[[nodiscard]] inline std::string GetExamplePlaceholder(const ReplScreenState& s) {
-    // Deterministic pick based on submit_count so the example changes
-    // occasionally but doesn't flicker on every re-render.
-    const std::size_t idx = static_cast<std::size_t>(s.submit_count) % kExampleCommands.size();
-    return std::string("Try \"") + std::string(kExampleCommands[idx]) + "\"";
-}
-
-}  // namespace placeholder_detail
+// Implementation lives in cc.ui.prompt.placeholder_cascade module for
+// reusability by standalone TextInputImpl and dialog widgets.  This thin
+// adapter projects ReplScreenState onto PlaceholderContext.
 
 [[nodiscard]] inline std::optional<std::string> ComputePlaceholder(
     const ReplScreenState& s) {
-    using namespace placeholder_detail;
+    namespace ph = cc::ui::placeholder;
 
-    // Layer 1: input non-empty → no placeholder.
-    if (!s.input_text.empty()) return std::nullopt;
+    ph::PlaceholderContext ctx;
+    ctx.input_text                    = s.input_text;
+    ctx.input_mode                    = s.input_mode;
+    ctx.submit_count                  = s.submit_count;
+    ctx.queued_hint_shown_count       = s.queued_command_hint_shown_count;
+    ctx.has_editable_queued           = s.has_editable_queued_commands;
+    ctx.prompt_suggestion_enabled     = s.prompt_suggestion_enabled;
+    ctx.autocomplete_suggestions_empty = s.autocomplete_suggestions.empty();
 
-    // Layer 2: AI prompt suggestion override (TS REF: PromptInput.tsx line 2014).
-    // Applies only in Prompt mode, no autocomplete showing, not viewing agent.
-    // NOTE: next_action_suggestion starting with '/' is a slash-command suggestion
-    // which the autocomplete system handles separately — don't use it as placeholder.
-    if (s.input_mode == InputMode::Normal &&
-        s.next_action_suggestion.has_value() &&
-        !s.next_action_suggestion->empty() &&
-        s.next_action_suggestion->front() != '/' &&
-        s.autocomplete_suggestions.empty() &&
-        !s.viewing_agent_name.has_value()) {
-        return s.next_action_suggestion;
+    if (s.viewing_agent_name.has_value()) {
+        ctx.viewing_agent_name = std::string_view(*s.viewing_agent_name);
+    }
+    if (s.next_action_suggestion.has_value()) {
+        ctx.next_action_suggestion = std::string_view(*s.next_action_suggestion);
     }
 
-    // Layer 3: viewing teammate → "Message @{name}..."
-    // (TS REF: usePromptInputPlaceholder.ts viewingAgentName branch).
-    if (s.viewing_agent_name.has_value() && !s.viewing_agent_name->empty()) {
-        constexpr int kMaxNameLen = 20;
-        std::string display_name = *s.viewing_agent_name;
-        if (static_cast<int>(display_name.size()) > kMaxNameLen) {
-            display_name = display_name.substr(0, kMaxNameLen - 3) + "...";
-        }
-        return "Message @" + display_name + "...";
-    }
-
-    // Layer 4: queued commands hint (TS REF: NUM_TIMES_QUEUE_HINT_SHOWN = 3).
-    // Only shown if there are user-editable queued commands and the hint has
-    // been shown fewer than 3 times.
-    if (s.has_editable_queued_commands &&
-        s.queued_command_hint_shown_count < 3) {
-        return "Press up to edit queued messages";
-    }
-
-    // Layer 5: onboarding example (TS REF: submitCount < 1 guard).
-    if (s.submit_count < 1 && s.prompt_suggestion_enabled) {
-        return GetExamplePlaceholder(s);
-    }
-
-    // Layer 6: fallback — no placeholder.
-    return std::nullopt;
+    return ph::ComputePlaceholder(ctx);
 }
 
 [[nodiscard]] inline Element RenderPromptInput(const ReplScreenState& s,
@@ -2632,6 +2604,9 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
         s.expanded_keys,
         s.is_transcript_mode,
         s.show_all_in_transcript,
+        // TS REF: Messages.tsx L382-389  isStreamingThinkingVisible.
+        // Threaded from app.cppm's is_streaming_thinking_visible() helper.
+        s.streaming_thinking_globally_visible,
         on_retry));
     // Spinner lives in the chrome BETWEEN messages list and prompt input
     // (TS BriefSpinner marginTop=1, NOT a message row inside scroll content).
@@ -3368,10 +3343,11 @@ using settings_ns::MakeSettingsDialog;
                                                   s->settings_config)
                                             : &fallback_config;
         SettingsDialogOptions opts;
-        opts.initial_tab = SettingsTabId::General;
+        opts.initial_tab = static_cast<SettingsTabId>(s->settings_initial_tab);
         opts.on_close = [s, cb](std::optional<std::string>, CommandResultDisplay) {
             s->mode = ReplMode::Normal;
             s->settings_component.reset();
+            s->settings_initial_tab = 0;  // reset to General for next open
             if (cb->on_mode_change) cb->on_mode_change(ReplMode::Normal);
         };
         s->settings_component = std::make_shared<Component>(
@@ -3384,6 +3360,7 @@ using settings_ns::MakeSettingsDialog;
 /// (empty dirty flag, pristine snapshot, tab=General).
 inline void reset_settings_component(const std::shared_ptr<ReplScreenState>& s) {
     s->settings_component.reset();
+    s->settings_initial_tab = 0;  // General
 }
 
 /// Render the settings dialog content as an Element.
@@ -3817,7 +3794,28 @@ inline bool forward_trust_dialog(
                 std::string submit_text =
                     std::string(figs::strip_mode_prefix(*accepted));
                 cb->on_submit(submit_text, state->input_mode);
-                state->input_history.push_back(*accepted);
+                // TS REF: src/components/PromptInput/inputModes.ts:4-14
+                //   (prependModeCharacterToInput) + REPL.tsx:3318
+                // History stores the mode-prefixed form for round-trip
+                // mode detection on recall.  If the user toggled bash via
+                // bare '!' (input_text has NO '!'), prepend it.  If the
+                // text already carries '!' (direct "!cmd" typing), keep
+                // it as-is to avoid double-prefix.
+                {
+                    namespace figs = cc::ui::design::figures;
+                    const bool text_has_prefix =
+                        !accepted->empty() &&
+                        (*accepted)[0] == figs::kBashModeChar;
+                    const bool is_bash =
+                        state->input_mode == InputMode::Bash;
+                    const std::string hist_entry =
+                        (is_bash && !text_has_prefix)
+                            ? figs::prepend_mode_char(
+                                  *accepted,
+                                  figs::PromptMode::kBash)
+                            : std::string(*accepted);
+                    state->input_history.push_back(hist_entry);
+                }
                 if (state->input_history.size() > 1000) state->input_history.pop_front();
                 state->history_index = std::string::npos;
                 state->input_text.clear();
@@ -3839,7 +3837,28 @@ inline bool forward_trust_dialog(
             std::string submit_text =
                 std::string(figs::strip_mode_prefix(state->input_text));
             if (cb->on_submit) cb->on_submit(submit_text, state->input_mode);
-            state->input_history.push_back(state->input_text);
+            // TS REF: src/components/PromptInput/inputModes.ts:4-14
+            //   (prependModeCharacterToInput) + REPL.tsx:3318
+            // History stores the mode-prefixed form for round-trip
+            // mode detection on arrow-up recall.  If the user toggled
+            // bash via bare '!' (input_text has NO '!'), prepend it.
+            // If the text already carries '!' (direct "!cmd" typing),
+            // keep it as-is to avoid double-prefix.
+            {
+                namespace figs = cc::ui::design::figures;
+                const bool text_has_prefix =
+                    !state->input_text.empty() &&
+                    state->input_text[0] == figs::kBashModeChar;
+                const bool is_bash =
+                    state->input_mode == InputMode::Bash;
+                const std::string hist_entry =
+                    (is_bash && !text_has_prefix)
+                        ? figs::prepend_mode_char(
+                              state->input_text,
+                              figs::PromptMode::kBash)
+                        : std::string(state->input_text);
+                state->input_history.push_back(hist_entry);
+            }
             if (state->input_history.size() > 1000) state->input_history.pop_front();
             state->history_index = std::string::npos;
             state->input_text.clear();
@@ -4062,6 +4081,32 @@ inline bool forward_trust_dialog(
                         // mode change implicitly changes the autocomplete
                         // provider context.
                         state->dismissed_autocomplete_for_input.clear();
+                        return true;
+                    }
+                    // ── P0-1: TS-equivalent multi-char "!cmd" interception ──
+                    //
+                    // TS PromptInput.tsx lines 878-886: when "!cmd" lands as a
+                    // single multi-char insertion at cursor-0 into an EMPTY
+                    // input (IME composition, bracketed paste, or any path
+                    // that bypasses the single-char-by-single-char typing
+                    // flow), the '!' is stripped, inputMode flips to 'bash',
+                    // and the clean "cmd" text is stored — NOT "!cmd".
+                    //
+                    // Without this, the user sees "! !cmd" visually (prefix
+                    // glyph + text both carrying '!') because the single-char
+                    // interceptor only fires for ch.size()==1.
+                    if (state->input_text.empty() && cursor_at_zero &&
+                        figs::get_mode_from_input(ch) ==
+                            figs::PromptMode::kBash &&
+                        ch.size() > 1) {
+                        // Strip '!', enter bash mode, insert clean text.
+                        state->input_mode = InputMode::Bash;
+                        state->is_prompt_input_active = true;
+                        state->last_keystroke =
+                            std::chrono::steady_clock::now();
+                        state->dismissed_autocomplete_for_input.clear();
+                        std::string clean(figs::strip_mode_prefix(ch));
+                        insert_prompt_text(state, clean);
                         return true;
                     }
                     insert_prompt_text(state, ch);

@@ -94,10 +94,12 @@ public:
     }
 
     [[nodiscard]] Result<CommandResult> execute(const CommandContext& ctx) {
-        // Default action: list
-        auto action = ctx.args.empty()
-            ? ConfigAction::List
-            : parse_action(ctx.args[0]).value_or(ConfigAction::List);
+        // Bare /config or /config open → trigger ConfigDialog via metadata tag
+        if (ctx.args.empty() || ctx.args[0] == "open" || ctx.args[0] == "edit") {
+            return CommandResult{true, "Opening settings...", "UI:config", CommandStatus::Succeeded};
+        }
+
+        auto action = parse_action(ctx.args[0]).value_or(ConfigAction::List);
 
         switch (action) {
             case ConfigAction::List: return execute_list();

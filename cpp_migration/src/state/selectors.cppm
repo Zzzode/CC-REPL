@@ -612,6 +612,11 @@ public:
     return state.working_directory;
 }
 
+/// Get allowed directories (paths added via /add-dir)
+[[nodiscard]] inline const std::vector<std::string>& get_allowed_directories(const AppState& state) noexcept {
+    return state.allowed_directories;
+}
+
 // ============================================================
 // Prompt Suggestion Selectors
 // ============================================================

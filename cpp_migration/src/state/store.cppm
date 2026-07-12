@@ -88,6 +88,7 @@ enum class ActionType : std::uint16_t {
     ResetSession,
     UpdateActivity,
     SetWorkingDirectory,
+    AddAllowedDirectory,
 
     // Settings
     UpdateSettings,
@@ -453,6 +454,7 @@ concept Reducer = std::invocable<F, const State&, const Action&> &&
             next.available_models = state.available_models;
             next.tool_permission_context = state.tool_permission_context;
             next.working_directory = state.working_directory;
+            next.allowed_directories = state.allowed_directories;
             next.settings = state.settings;
             break;
         }
@@ -463,6 +465,20 @@ concept Reducer = std::invocable<F, const State&, const Action&> &&
         case ActionType::SetWorkingDirectory: {
             if (auto dir = action.get_payload<std::string>()) {
                 next.working_directory = std::move(*dir);
+            }
+            break;
+        }
+        case ActionType::AddAllowedDirectory: {
+            if (auto dir = action.get_payload<std::string>()) {
+                // Avoid duplicates
+                const auto& new_dir = *dir;
+                bool found = false;
+                for (const auto& d : next.allowed_directories) {
+                    if (d == new_dir) { found = true; break; }
+                }
+                if (!found) {
+                    next.allowed_directories.push_back(new_dir);
+                }
             }
             break;
         }

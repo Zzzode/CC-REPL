@@ -51,6 +51,7 @@ import cc.utils.hooks_execution;
 import cc.tools.agent_runtime;
 import cc.services.compact.api_microcompact;
 import cc.utils.bash_execution;
+import cc.constants.cost_tracker;
 
 export namespace cc::core {
 
@@ -559,6 +560,10 @@ public:
 
             budget_tracker_.add_usage(round_usage, config_.model_params.model, model_cost_);
             cumulative_usage_ += round_usage;
+
+            // Sync to global CostTracker so /cost reads real values
+            global_cost_tracker().record(config_.model_params.model, round_usage,
+                std::format("round_{}", round));
 
             append_message(Message{assistant_msg});
 
@@ -1612,6 +1617,9 @@ private:
 
             // Track budget
             budget_tracker_.add_usage(usage, config_.model_params.model, model_cost_);
+            // Sync to global CostTracker so /cost reads real values
+            global_cost_tracker().record(config_.model_params.model, usage,
+                std::format("round_{}", round));
             if (budget_tracker_.budget_exceeded) {
                 return std::unexpected(Error::make(
                     ErrorCode::ContextWindowExceeded,

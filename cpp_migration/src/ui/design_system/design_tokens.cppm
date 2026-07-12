@@ -614,6 +614,178 @@ inline const Palette light_daltonized = {
     .brief_label_claude    = ftxui::Color::RGB(255, 153,  51),  // TS: briefLabelClaude (== claude daltonized)
 };
 
+// ── Light ANSI palette (TS REF: src/utils/theme.ts lightAnsiTheme 197-272) ──
+// Uses only the 16 standard ANSI palette16 colors for terminals without
+// true-color support.  TS ansi:* names mapped to ftxui::Color::Palette16.
+inline const Palette light_ansi = {
+    .primary             = ftxui::Color{ftxui::Color::Palette16::RedLight},    // TS: ansi:redBright (claude)
+    .primary_shimmer     = ftxui::Color{ftxui::Color::Palette16::YellowLight}, // TS: ansi:yellowBright (claudeShimmer)
+    .info                = ftxui::Color{ftxui::Color::Palette16::Blue},         // TS: ansi:blue (permission/suggestion)
+    .success             = ftxui::Color{ftxui::Color::Palette16::Green},        // TS: ansi:green
+    .warning             = ftxui::Color{ftxui::Color::Palette16::Yellow},       // TS: ansi:yellow
+    .danger              = ftxui::Color{ftxui::Color::Palette16::Red},          // TS: ansi:red (error)
+    .muted               = ftxui::Color{ftxui::Color::Palette16::GrayDark},     // TS: ansi:blackBright (inactive)
+    .subtle              = ftxui::Color{ftxui::Color::Palette16::GrayDark},     // TS: ansi:blackBright
+    .suggestion          = ftxui::Color{ftxui::Color::Palette16::Blue},         // TS: ansi:blue
+    .text                = ftxui::Color{ftxui::Color::Palette16::Black},        // TS: ansi:black
+    .inverse_text        = ftxui::Color{ftxui::Color::Palette16::GrayLight},        // TS: ansi:white
+    .background          = ftxui::Color{ftxui::Color::Palette16::Cyan},         // TS: ansi:cyan
+    .chrome              = ftxui::Color{ftxui::Color::Palette16::GrayLight},        // TS: ansi:white (promptBorder)
+    .rate_limit_fill     = ftxui::Color{ftxui::Color::Palette16::Yellow},       // TS: ansi:yellow
+    .rate_limit_empty    = ftxui::Color{ftxui::Color::Palette16::Black},        // TS: ansi:black
+    .brief_label         = ftxui::Color{ftxui::Color::Palette16::RedLight},    // TS: briefLabelClaude
+    .user_message_background        = ftxui::Color{ftxui::Color::Palette16::GrayLight},       // TS: ansi:white
+    .user_message_background_hover  = ftxui::Color{ftxui::Color::Palette16::White},   // TS: ansi:whiteBright
+    .message_actions_background     = ftxui::Color{ftxui::Color::Palette16::GrayLight},       // TS: ansi:white
+    .rainbow = {{
+        ftxui::Color{ftxui::Color::Palette16::Red},           // TS: ansi:red    (rainbow_red)
+        ftxui::Color{ftxui::Color::Palette16::RedLight},     // TS: ansi:redBright (rainbow_orange)
+        ftxui::Color{ftxui::Color::Palette16::Yellow},        // TS: ansi:yellow (rainbow_yellow)
+        ftxui::Color{ftxui::Color::Palette16::Green},         // TS: ansi:green  (rainbow_green)
+        ftxui::Color{ftxui::Color::Palette16::Cyan},          // TS: ansi:cyan   (rainbow_blue)
+        ftxui::Color{ftxui::Color::Palette16::Blue},          // TS: ansi:blue   (rainbow_indigo)
+        ftxui::Color{ftxui::Color::Palette16::Magenta},       // TS: ansi:magenta (rainbow_violet)
+    }},
+    .rainbow_shimmer     = ftxui::Color{ftxui::Color::Palette16::White},   // TS: ansi:whiteBright (composite shimmer)
+    .diff_added          = ftxui::Color{ftxui::Color::Palette16::Green},        // TS: ansi:green
+    .diff_removed        = ftxui::Color{ftxui::Color::Palette16::Red},          // TS: ansi:red
+    .diff_added_word     = ftxui::Color{ftxui::Color::Palette16::GreenLight},  // TS: ansi:greenBright
+    .diff_removed_word   = ftxui::Color{ftxui::Color::Palette16::RedLight},    // TS: ansi:redBright
+    .merged              = ftxui::Color{ftxui::Color::Palette16::Magenta},      // TS: ansi:magenta (== autoAccept)
+    .bash_border         = ftxui::Color{ftxui::Color::Palette16::Magenta},      // TS: ansi:magenta (bashBorder)
+    .prompt_border       = ftxui::Color{ftxui::Color::Palette16::GrayLight},        // TS: ansi:white
+    .permission          = ftxui::Color{ftxui::Color::Palette16::Blue},         // TS: ansi:blue
+    .auto_accept         = ftxui::Color{ftxui::Color::Palette16::Magenta},      // TS: ansi:magenta
+    .clawd_body          = ftxui::Color{ftxui::Color::Palette16::RedLight},    // TS: ansi:redBright
+    // ── Shimmer tokens ──
+    .permission_shimmer     = ftxui::Color{ftxui::Color::Palette16::BlueLight},    // TS: ansi:blueBright
+    .inactive_shimmer       = ftxui::Color{ftxui::Color::Palette16::GrayLight},         // TS: ansi:white
+    .warning_shimmer        = ftxui::Color{ftxui::Color::Palette16::YellowLight},  // TS: ansi:yellowBright
+    .prompt_border_shimmer  = ftxui::Color{ftxui::Color::Palette16::White},     // TS: ansi:whiteBright
+    .fast_mode_shimmer      = ftxui::Color{ftxui::Color::Palette16::RedLight},     // TS: ansi:redBright
+    .claude_blue_shimmer    = ftxui::Color{ftxui::Color::Palette16::BlueLight},    // TS: ansi:blueBright
+    .rainbow_shimmer_stops = {{
+        ftxui::Color{ftxui::Color::Palette16::RedLight},     // TS: ansi:redBright (rainbow_red_shimmer)
+        ftxui::Color{ftxui::Color::Palette16::Yellow},        // TS: ansi:yellow (rainbow_orange_shimmer)
+        ftxui::Color{ftxui::Color::Palette16::YellowLight},  // TS: ansi:yellowBright (rainbow_yellow_shimmer)
+        ftxui::Color{ftxui::Color::Palette16::GreenLight},   // TS: ansi:greenBright (rainbow_green_shimmer)
+        ftxui::Color{ftxui::Color::Palette16::CyanLight},    // TS: ansi:cyanBright (rainbow_blue_shimmer)
+        ftxui::Color{ftxui::Color::Palette16::BlueLight},    // TS: ansi:blueBright (rainbow_indigo_shimmer)
+        ftxui::Color{ftxui::Color::Palette16::MagentaLight}, // TS: ansi:magentaBright (rainbow_violet_shimmer)
+    }},
+    .claude_blue           = ftxui::Color{ftxui::Color::Palette16::Blue},         // TS: ansi:blue
+    .plan_mode             = ftxui::Color{ftxui::Color::Palette16::Cyan},         // TS: ansi:cyan
+    .ide                   = ftxui::Color{ftxui::Color::Palette16::BlueLight},   // TS: ansi:blueBright
+    .remember              = ftxui::Color{ftxui::Color::Palette16::Blue},         // TS: ansi:blue
+    .fast_mode             = ftxui::Color{ftxui::Color::Palette16::Red},          // TS: ansi:red
+    .diff_added_dimmed     = ftxui::Color{ftxui::Color::Palette16::Green},        // TS: ansi:green
+    .diff_removed_dimmed   = ftxui::Color{ftxui::Color::Palette16::Red},          // TS: ansi:red
+    // ── Subagent colors (TS lightAnsiTheme 230-237) ──
+    .subagent_red          = ftxui::Color{ftxui::Color::Palette16::Red},
+    .subagent_blue         = ftxui::Color{ftxui::Color::Palette16::Blue},
+    .subagent_green        = ftxui::Color{ftxui::Color::Palette16::Green},
+    .subagent_yellow       = ftxui::Color{ftxui::Color::Palette16::Yellow},
+    .subagent_purple       = ftxui::Color{ftxui::Color::Palette16::Magenta},
+    .subagent_orange       = ftxui::Color{ftxui::Color::Palette16::RedLight},
+    .subagent_pink         = ftxui::Color{ftxui::Color::Palette16::MagentaLight},
+    .subagent_cyan         = ftxui::Color{ftxui::Color::Palette16::Cyan},
+    // ── Misc ──
+    .professional_blue     = ftxui::Color{ftxui::Color::Palette16::BlueLight},   // TS: ansi:blueBright
+    .chrome_yellow         = ftxui::Color{ftxui::Color::Palette16::Yellow},       // TS: ansi:yellow
+    .clawd_background      = ftxui::Color{ftxui::Color::Palette16::Black},        // TS: ansi:black
+    .selection_bg          = ftxui::Color{ftxui::Color::Palette16::Cyan},         // TS: ansi:cyan
+    .bash_message_background = ftxui::Color{ftxui::Color::Palette16::White},  // TS: ansi:whiteBright
+    .memory_background     = ftxui::Color{ftxui::Color::Palette16::GrayLight},        // TS: ansi:white
+    .brief_label_you       = ftxui::Color{ftxui::Color::Palette16::Blue},         // TS: ansi:blue
+    .brief_label_claude    = ftxui::Color{ftxui::Color::Palette16::RedLight},    // TS: ansi:redBright
+};
+
+// ── Dark ANSI palette (TS REF: src/utils/theme.ts darkAnsiTheme 278-353) ──
+// Uses only the 16 standard ANSI palette16 colors.
+inline const Palette dark_ansi = {
+    .primary             = ftxui::Color{ftxui::Color::Palette16::RedLight},     // TS: ansi:redBright (claude)
+    .primary_shimmer     = ftxui::Color{ftxui::Color::Palette16::YellowLight},  // TS: ansi:yellowBright (claudeShimmer)
+    .info                = ftxui::Color{ftxui::Color::Palette16::BlueLight},    // TS: ansi:blueBright (permission/suggestion)
+    .success             = ftxui::Color{ftxui::Color::Palette16::GreenLight},   // TS: ansi:greenBright
+    .warning             = ftxui::Color{ftxui::Color::Palette16::YellowLight},  // TS: ansi:yellowBright
+    .danger              = ftxui::Color{ftxui::Color::Palette16::RedLight},     // TS: ansi:redBright (error)
+    .muted               = ftxui::Color{ftxui::Color::Palette16::GrayLight},         // TS: ansi:white (inactive)
+    .subtle              = ftxui::Color{ftxui::Color::Palette16::GrayLight},         // TS: ansi:white
+    .suggestion          = ftxui::Color{ftxui::Color::Palette16::BlueLight},    // TS: ansi:blueBright
+    .text                = ftxui::Color{ftxui::Color::Palette16::White},     // TS: ansi:whiteBright
+    .inverse_text        = ftxui::Color{ftxui::Color::Palette16::Black},         // TS: ansi:black
+    .background          = ftxui::Color{ftxui::Color::Palette16::CyanLight},    // TS: ansi:cyanBright
+    .chrome              = ftxui::Color{ftxui::Color::Palette16::GrayLight},         // TS: ansi:white (promptBorder)
+    .rate_limit_fill     = ftxui::Color{ftxui::Color::Palette16::Yellow},        // TS: ansi:yellow
+    .rate_limit_empty    = ftxui::Color{ftxui::Color::Palette16::GrayLight},         // TS: ansi:white
+    .brief_label         = ftxui::Color{ftxui::Color::Palette16::RedLight},     // TS: briefLabelClaude
+    .user_message_background        = ftxui::Color{ftxui::Color::Palette16::GrayDark},    // TS: ansi:blackBright
+    .user_message_background_hover  = ftxui::Color{ftxui::Color::Palette16::GrayLight},       // TS: ansi:white
+    .message_actions_background     = ftxui::Color{ftxui::Color::Palette16::GrayDark},    // TS: ansi:blackBright
+    .rainbow = {{
+        ftxui::Color{ftxui::Color::Palette16::Red},           // TS: ansi:red    (rainbow_red)
+        ftxui::Color{ftxui::Color::Palette16::RedLight},     // TS: ansi:redBright (rainbow_orange)
+        ftxui::Color{ftxui::Color::Palette16::Yellow},        // TS: ansi:yellow (rainbow_yellow)
+        ftxui::Color{ftxui::Color::Palette16::Green},         // TS: ansi:green  (rainbow_green)
+        ftxui::Color{ftxui::Color::Palette16::Cyan},          // TS: ansi:cyan   (rainbow_blue)
+        ftxui::Color{ftxui::Color::Palette16::Blue},          // TS: ansi:blue   (rainbow_indigo)
+        ftxui::Color{ftxui::Color::Palette16::Magenta},       // TS: ansi:magenta (rainbow_violet)
+    }},
+    .rainbow_shimmer     = ftxui::Color{ftxui::Color::Palette16::White},    // TS: ansi:whiteBright (composite shimmer)
+    .diff_added          = ftxui::Color{ftxui::Color::Palette16::Green},         // TS: ansi:green
+    .diff_removed        = ftxui::Color{ftxui::Color::Palette16::Red},           // TS: ansi:red
+    .diff_added_word     = ftxui::Color{ftxui::Color::Palette16::GreenLight},   // TS: ansi:greenBright
+    .diff_removed_word   = ftxui::Color{ftxui::Color::Palette16::RedLight},     // TS: ansi:redBright
+    .merged              = ftxui::Color{ftxui::Color::Palette16::MagentaLight}, // TS: ansi:magentaBright (== autoAccept)
+    .bash_border         = ftxui::Color{ftxui::Color::Palette16::MagentaLight}, // TS: ansi:magentaBright (bashBorder)
+    .prompt_border       = ftxui::Color{ftxui::Color::Palette16::GrayLight},         // TS: ansi:white
+    .permission          = ftxui::Color{ftxui::Color::Palette16::BlueLight},    // TS: ansi:blueBright
+    .auto_accept         = ftxui::Color{ftxui::Color::Palette16::MagentaLight}, // TS: ansi:magentaBright
+    .clawd_body          = ftxui::Color{ftxui::Color::Palette16::RedLight},     // TS: ansi:redBright
+    // ── Shimmer tokens ──
+    .permission_shimmer     = ftxui::Color{ftxui::Color::Palette16::BlueLight},    // TS: ansi:blueBright
+    .inactive_shimmer       = ftxui::Color{ftxui::Color::Palette16::White},     // TS: ansi:whiteBright
+    .warning_shimmer        = ftxui::Color{ftxui::Color::Palette16::YellowLight},  // TS: ansi:yellowBright
+    .prompt_border_shimmer  = ftxui::Color{ftxui::Color::Palette16::White},     // TS: ansi:whiteBright
+    .fast_mode_shimmer      = ftxui::Color{ftxui::Color::Palette16::RedLight},     // TS: ansi:redBright
+    .claude_blue_shimmer    = ftxui::Color{ftxui::Color::Palette16::BlueLight},    // TS: ansi:blueBright
+    .rainbow_shimmer_stops = {{
+        ftxui::Color{ftxui::Color::Palette16::RedLight},     // TS: ansi:redBright (rainbow_red_shimmer)
+        ftxui::Color{ftxui::Color::Palette16::Yellow},        // TS: ansi:yellow (rainbow_orange_shimmer)
+        ftxui::Color{ftxui::Color::Palette16::YellowLight},  // TS: ansi:yellowBright (rainbow_yellow_shimmer)
+        ftxui::Color{ftxui::Color::Palette16::GreenLight},   // TS: ansi:greenBright (rainbow_green_shimmer)
+        ftxui::Color{ftxui::Color::Palette16::CyanLight},    // TS: ansi:cyanBright (rainbow_blue_shimmer)
+        ftxui::Color{ftxui::Color::Palette16::BlueLight},    // TS: ansi:blueBright (rainbow_indigo_shimmer)
+        ftxui::Color{ftxui::Color::Palette16::MagentaLight}, // TS: ansi:magentaBright (rainbow_violet_shimmer)
+    }},
+    .claude_blue           = ftxui::Color{ftxui::Color::Palette16::BlueLight},   // TS: ansi:blueBright
+    .plan_mode             = ftxui::Color{ftxui::Color::Palette16::CyanLight},   // TS: ansi:cyanBright
+    .ide                   = ftxui::Color{ftxui::Color::Palette16::Blue},         // TS: ansi:blue
+    .remember              = ftxui::Color{ftxui::Color::Palette16::BlueLight},   // TS: ansi:blueBright
+    .fast_mode             = ftxui::Color{ftxui::Color::Palette16::RedLight},    // TS: ansi:redBright
+    .diff_added_dimmed     = ftxui::Color{ftxui::Color::Palette16::Green},        // TS: ansi:green
+    .diff_removed_dimmed   = ftxui::Color{ftxui::Color::Palette16::Red},          // TS: ansi:red
+    // ── Subagent colors (TS darkAnsiTheme 311-318) ──
+    .subagent_red          = ftxui::Color{ftxui::Color::Palette16::RedLight},
+    .subagent_blue         = ftxui::Color{ftxui::Color::Palette16::BlueLight},
+    .subagent_green        = ftxui::Color{ftxui::Color::Palette16::GreenLight},
+    .subagent_yellow       = ftxui::Color{ftxui::Color::Palette16::YellowLight},
+    .subagent_purple       = ftxui::Color{ftxui::Color::Palette16::MagentaLight},
+    .subagent_orange       = ftxui::Color{ftxui::Color::Palette16::RedLight},
+    .subagent_pink         = ftxui::Color{ftxui::Color::Palette16::MagentaLight},
+    .subagent_cyan         = ftxui::Color{ftxui::Color::Palette16::CyanLight},
+    // ── Misc ──
+    // TS darkAnsiTheme.professionalBlue = 'rgb(106,155,204)' — explicit RGB (not ANSI)
+    .professional_blue     = ftxui::Color::RGB(106, 155, 204),
+    .chrome_yellow         = ftxui::Color{ftxui::Color::Palette16::YellowLight}, // TS: ansi:yellowBright
+    .clawd_background      = ftxui::Color{ftxui::Color::Palette16::Black},        // TS: ansi:black
+    .selection_bg          = ftxui::Color{ftxui::Color::Palette16::Blue},         // TS: ansi:blue
+    .bash_message_background = ftxui::Color{ftxui::Color::Palette16::Black},      // TS: ansi:black
+    .memory_background     = ftxui::Color{ftxui::Color::Palette16::GrayDark},     // TS: ansi:blackBright
+    .brief_label_you       = ftxui::Color{ftxui::Color::Palette16::BlueLight},   // TS: ansi:blueBright
+    .brief_label_claude    = ftxui::Color{ftxui::Color::Palette16::RedLight},    // TS: ansi:redBright
+};
+
 // Monochrome palette: for reduced-color / braille-only terminals.
 inline const Palette monochrome = {
     .primary             = ftxui::Color::White,

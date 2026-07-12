@@ -21,10 +21,15 @@ export module cc.commands.logout;
 
 import cc.types.types;
 import cc.commands.command;
+import cc.services.oauth.client;
 
 export namespace cc::commands {
 
 using namespace cc::core;
+
+/// Ordinal of ActionType::IncrementAuthVersion in cc::state::ActionType enum.
+/// Keep in sync with store.cppm enum ordering.
+constexpr int ACTION_INCREMENT_AUTH_VERSION = 78;
 
 /// LogoutCommand implements the /logout slash command.
 /// Clears stored authentication credentials with confirmation.
@@ -62,10 +67,10 @@ public:
         }
 
         if (!force) {
-            return request_confirmation();
+            return request_confirmation(ctx);
         }
 
-        return perform_logout();
+        return perform_logout(ctx);
     }
 
     [[nodiscard]] std::vector<std::string> complete(std::string_view partial) {
@@ -101,16 +106,16 @@ private:
         return authenticated_ || std::filesystem::exists(credentials_path());
     }
 
-    [[nodiscard]] Result<CommandResult> request_confirmation() {
+    [[nodiscard]] Result<CommandResult> request_confirmation(const CommandContext& ctx) {
         if (confirm_fn_ && confirm_fn_()) {
-            return perform_logout();
+            return perform_logout(ctx);
         }
         return CommandResult::success(
             "Are you sure you want to logout? This will clear stored credentials.\n"
             "Use /logout --force to confirm, or respond 'yes'.");
     }
 
-    [[nodiscard]] Result<CommandResult> perform_logout() {
+    [[nodiscard]] Result<CommandResult> perform_logout(const CommandContext& ctx) {
         // Clear OAuth tokens from keychain
         auto token_result = clear_oauth_tokens();
         if (!token_result) return std::unexpected(token_result.error());
@@ -120,10 +125,27 @@ private:
         if (!key_result) return std::unexpected(key_result.error());
 
         authenticated_ = false;
+
+        // Notify app that auth state changed so UI can refresh (e.g. status indicator)
+        ctx.dispatch_action(ACTION_INCREMENT_AUTH_VERSION);
+
         return CommandResult::success("Logged out successfully. Credentials cleared from keychain.");
     }
 
     [[nodiscard]] static VoidResult clear_oauth_tokens() {
+        // Best-effort: clear OAuth token from the system keychain.
+        // The OAuthClient stores tokens under service "cc-repl-oauth" keyed by
+        // the OAuth client_id. We also try the literal "oauth_token" account in
+        // case a different storage path was used. Failures here are non-fatal.
+        try {
+            cc::services::oauth::KeychainStore oauth_store("cc-repl-oauth");
+            (void)oauth_store.remove("9d1c250a-e61b-44d9-88ed-5944d1962f5e");
+            (void)oauth_store.remove("oauth_token");
+        } catch (...) {
+            // Keychain access may throw if the Security framework is unavailable;
+            // the credentials-file removal below is the canonical cleanup.
+        }
+
         std::error_code ec;
         std::filesystem::remove(credentials_path(), ec);
         if (ec) {
@@ -135,6 +157,16 @@ private:
     }
 
     [[nodiscard]] static VoidResult clear_api_key() {
+        // Best-effort: clear API key from the system keychain.
+        // Try the "cc-repl" service with the "api_key" account.
+        // Failures here are non-fatal.
+        try {
+            cc::services::oauth::KeychainStore api_store("cc-repl");
+            (void)api_store.remove("api_key");
+        } catch (...) {
+            // Keychain access may throw if the Security framework is unavailable;
+            // the credentials-file removal is the canonical cleanup.
+        }
         return {};
     }
 };

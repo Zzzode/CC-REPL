@@ -30,6 +30,14 @@ using namespace cc::core;
 /// Registers all built-in commands into the given registry.
 void register_default_commands(CommandRegistry& registry);
 
+/// Per-group registration helpers (defined in command_registry_init_{a-e}.cpp).
+/// Split across five TUs to stay under clang's 31-bit SourceLocation budget.
+void register_group_a_commands(CommandRegistry& registry);
+void register_group_b_commands(CommandRegistry& registry);
+void register_group_c_commands(CommandRegistry& registry);
+void register_group_d_commands(CommandRegistry& registry);
+void register_group_e_commands(CommandRegistry& registry);
+
 /// Record of a previously executed command
 struct CommandHistoryEntry {
     std::string input;                                // Raw input string
@@ -124,7 +132,10 @@ public:
         ctx.raw_input = parsed->raw;
 
         if (parsed->name == "help" && ctx.args.empty()) {
+            // TS REF: commands.ts help handler — must return "UI:help" metadata
+            // so the app shell opens the HelpView dialog.
             auto help = CommandResult::success(registry_.generate_help());
+            help.metadata = "UI:help";
             record_history(parsed->raw, help.status);
             return help;
         }

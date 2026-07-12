@@ -178,7 +178,7 @@ struct ErrorPalette {
             body += std::format("… ({} chars hidden, press Enter to expand)",
                                 e.message.size() - e.max_chars_collapsed);
         }
-        rows.push_back(text(" " + body) | color(Color::GrayLight));
+        rows.push_back(paragraph(" " + body) | color(Color::GrayLight));
 
         if (e.truncated || e.response_bytes) {
             Elements warn;

@@ -78,8 +78,13 @@ public:
             return show_command_help(ctx.args[0]);
         }
 
-        // Default: list all commands
-        return CommandResult::success(format_command_list());
+        // Default: trigger HelpView dialog
+        return CommandResult{
+            true,
+            "Opening help view...\nUI:help",
+            std::string{"UI:help"},
+            CommandStatus::Succeeded,
+        };
     }
 
     [[nodiscard]] std::vector<std::string> complete(std::string_view partial) {

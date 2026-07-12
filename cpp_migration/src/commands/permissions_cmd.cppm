@@ -206,7 +206,12 @@ public:
     }
 
     [[nodiscard]] Result<CommandResult> execute(const CommandContext& ctx) {
-        if (ctx.args.empty()) return CommandResult::success(format_status_summary());
+        if (ctx.args.empty()) {
+            // No args → return metadata tag so the UI opens the interactive
+            // Permissions dialog (SettingsView with Permissions tab pre-selected).
+            return CommandResult{true, format_status_summary(), "UI:permissions",
+                                 CommandStatus::Succeeded};
+        }
 
         const auto& action = ctx.args[0];
         if (action == "list") {

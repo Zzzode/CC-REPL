@@ -192,14 +192,32 @@ target_link_libraries(test_mcp_stdio
 )
 gtest_discover_tests(test_mcp_stdio DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
 
-add_executable(test_ui test_ui.cpp)
-target_link_libraries(test_ui
+# ── test_ui split into 4 TUs to stay under clang's 31-bit SourceLocation budget ──
+# (2.14GB hard limit; original 43 imports in one TU overflowed at 99%).
+# Each TU imports only the cc.* modules its tests actually need.
+
+set(_ui_test_libs
     PRIVATE
         cc_core
         cc_ui           # defense-in-depth: UI modules must be discoverable
         GTest::gtest_main
 )
-gtest_discover_tests(test_ui DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+
+add_executable(test_ui_light test_ui_light.cpp test_ui_helpers.h)
+target_link_libraries(test_ui_light ${_ui_test_libs})
+gtest_discover_tests(test_ui_light DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+
+add_executable(test_ui_messages test_ui_messages.cpp test_ui_helpers.h)
+target_link_libraries(test_ui_messages ${_ui_test_libs})
+gtest_discover_tests(test_ui_messages DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+
+add_executable(test_ui_runtime test_ui_runtime.cpp test_ui_helpers.h)
+target_link_libraries(test_ui_runtime ${_ui_test_libs})
+gtest_discover_tests(test_ui_runtime DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+
+add_executable(test_ui_dialogs test_ui_dialogs.cpp test_ui_helpers.h)
+target_link_libraries(test_ui_dialogs ${_ui_test_libs})
+gtest_discover_tests(test_ui_dialogs DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
 
 # ---------------------------------------------------------------------------
 # M7 Dialog #1 (ToolPermission) renderer + event handler regression suite.
@@ -583,7 +601,10 @@ foreach(_cc_test IN ITEMS
     test_with_retry
     test_enterprise_auth
     test_mcp_stdio
-    test_ui
+    test_ui_light
+    test_ui_messages
+    test_ui_runtime
+    test_ui_dialogs
     test_dialog_system
     test_tasks
     test_commands

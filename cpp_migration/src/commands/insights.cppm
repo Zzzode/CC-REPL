@@ -12,18 +12,22 @@
 ///   - File-based facet caching (JSON round-trip via cc.utils.json) with the
 ///     same validity predicate as the TS source
 ///   - HTML report rendering from aggregated data (pure string building)
+///   - LLM narrative fallback: when no cached facets exist, the command
+///     injects a structured 6-section analysis prompt into the query engine
+///     (Project Areas / Interaction Style / What Works / Friction Analysis /
+///     Suggestions / On the Horizon) so the model produces a data-driven
+///     insight report from raw session statistics.
 ///   - LLM facet extraction wired through an injectable std::function seam
 ///     (llm_extract_fn) so the call site is testable with a stub without
 ///     hitting the network. The default implementation calls the existing
 ///     AnthropicClient::create_message completion API.
 ///
 /// Deferred (reported as residual): remote homespace collection (requires
-/// ssh/scp/coder subprocesses — environment-specific), parallel narrative
-/// insights generation (6 LLM sections), S3 upload, multi-clauding overlap
-/// detection (needs ISO timestamp parsing from transcript parsing, which the
-/// C++ session store does not yet expose), and the full TS HTML/CSS/JS surface
-/// (the port renders a structurally-faithful summary report rather than the
-/// 1300-line interactive page).
+/// ssh/scp/coder subprocesses — environment-specific), S3 upload, multi-clauding
+/// overlap detection (needs ISO timestamp parsing from transcript parsing, which
+/// the C++ session store does not yet expose), and the full TS HTML/CSS/JS
+/// surface (the port renders a structurally-faithful summary report rather than
+/// the 1300-line interactive page).
 
 module;
 
@@ -605,7 +609,7 @@ public:
         return {};
     }
 
-    [[nodiscard]] static Result<CommandResult> execute(const CommandContext&) {
+    [[nodiscard]] static Result<CommandResult> execute(const CommandContext& ctx) {
         auto sessions = cc::utils::list_sessions(std::nullopt);
 
         if (sessions.empty()) {
@@ -659,6 +663,43 @@ public:
             out += ")\n";
         }
 
+        // Build a structured stats text for the LLM narrative fallback.
+        std::string stats_text = std::format(
+            "Total sessions: {}\n"
+            "Total messages: {}\n"
+            "Average messages per session: {:.1f}\n"
+            "Sessions with a recorded model: {} of {}\n",
+            sessions.size(), total_messages,
+            sessions.empty() ? 0.0 :
+                static_cast<double>(total_messages) /
+                    static_cast<double>(sessions.size()),
+            with_model, sessions.size());
+
+        if (!by_model.empty()) {
+            stats_text += "\nModel distribution (sessions per model):\n";
+            std::vector<std::pair<std::string, std::size_t>> sorted_models(
+                by_model.begin(), by_model.end());
+            std::ranges::sort(sorted_models,
+                              [](const auto& a, const auto& b) {
+                                  return a.second > b.second;
+                              });
+            for (const auto& [model, count] : sorted_models) {
+                stats_text += std::format("  - {}: {} sessions\n",
+                                          model, count);
+            }
+        }
+
+        stats_text += "\nMost recent sessions (id, message count, model):\n";
+        std::size_t recent_shown = 0;
+        for (const auto& s : sessions) {
+            if (recent_shown++ >= 10) break;
+            stats_text += std::format("  - {} | {} messages",
+                                      s.id, s.message_count);
+            if (!s.model.empty())
+                stats_text += std::format(" | model: {}", s.model);
+            stats_text += "\n";
+        }
+
         // Load any cached facets for the known sessions and render the
         // aggregate facet breakdown + HTML report when facets exist. This is
         // the deterministic half of the TS pipeline; live extraction is the
@@ -696,14 +737,54 @@ public:
                                    report_path.string());
             }
         } else {
-            out += "\nNote: no cached session facets found. The TS CLI "
-                   "additionally runs LLM facet extraction "
-                   "(goal/outcome/satisfaction) per session via the Claude "
-                   "API and renders an HTML report. In this build extraction "
-                   "is exposed through an injectable LlmExtractFn seam "
-                   "(cc::commands::extract_facets_with_seam); wire a "
-                   "client-backed seam to populate the facet cache, then "
-                   "re-run /insights to render the report.\n";
+            // No cached facets — fall back to LLM narrative analysis.
+            // Inject a structured prompt into the query engine so the
+            // model produces a 6-section narrative insight report from
+            // the raw session statistics.
+            constexpr int ACTION_ADD_NOTIFICATION = 18;
+            std::string note = std::format(
+                "Analyzing {} sessions ({} messages) for insights…",
+                sessions.size(), total_messages);
+            ctx.dispatch_action(ACTION_ADD_NOTIFICATION, &note);
+
+            std::string narrative_prompt = std::format(
+                "Analyze my Claude Code usage patterns based on the "
+                "following session statistics. These are local session "
+                "scans — no rich facet extraction (goal categories, "
+                "outcomes, friction tags) is available, so work from "
+                "the aggregate signals below.\n\n"
+                "## Session Statistics\n\n"
+                "{}\n\n"
+                "## Analysis Request\n\n"
+                "Please provide a narrative insight report in these "
+                "six sections:\n\n"
+                "1. **Project Areas**: What types of work appear to "
+                "dominate my sessions? Consider model choices, message "
+                "volumes, and session recency patterns to infer the "
+                "kinds of projects and tasks I engage with most.\n\n"
+                "2. **Interaction Style**: How do I engage with Claude "
+                "Code? Look at session length, message frequency, and "
+                "model preferences to characterize my interaction "
+                "patterns — e.g., deep work sessions vs. quick queries.\n\n"
+                "3. **What Works Well**: Productive patterns you can "
+                "observe. Which models do I prefer, and what might "
+                "that say about the tasks where Claude is most helpful?\n\n"
+                "4. **Friction Analysis**: Where might I be struggling "
+                "or encountering inefficiencies? Consider unusually "
+                "long sessions, high message counts per session, or "
+                "model switching patterns.\n\n"
+                "5. **Suggestions for Improvement**: Concrete, "
+                "actionable suggestions based on the data. Be specific "
+                "about what I could do differently.\n\n"
+                "6. **On the Horizon**: Emerging patterns or trends "
+                "visible in recent sessions compared to older ones.\n\n"
+                "Be data-driven. Where statistics are limited or "
+                "ambiguous, note that clearly rather than speculating. "
+                "Format each section with a bold heading and 2-4 "
+                "sentences of analysis.",
+                stats_text);
+
+            return CommandResult::inject(std::move(narrative_prompt));
         }
         return CommandResult::success(std::move(out));
     }

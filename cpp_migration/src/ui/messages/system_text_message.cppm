@@ -30,6 +30,7 @@ export module cc.ui.messages.system_text_message;
 
 import cc.ui.messages.message_components;
 import cc.ui.messages.message_timestamp;
+import cc.ui.design.figures;  // kReferenceMark, kTeardropAsterisk, kBlackCircle (single source of truth)
 
 export namespace cc::ui::messages {
 
@@ -240,12 +241,12 @@ class SystemTextMessageComponent : public ComponentBase {
 // NOTE: TS filters out the LLM system prompt upstream (isMeta / filtering);
 // these renderers handle only the app-event subtypes that survive.
 
-/// Glyphs used by TS system subtypes (constants/figures.ts).  (Darwin
-/// BLACK_CIRCLE is "⏺" U+23FA; message_components.cppm already defines a
-/// kBlackCircle using a different glyph, so we name ours distinctly.)
-inline constexpr std::string_view kReferenceMark        = "\xE2\x80\xBB";  // ※ away_summary
-inline constexpr std::string_view kTeardropAsterisk     = "\xE2\x9C\xBB";  // ✻ scheduled_task_fire / permission_retry
-inline constexpr std::string_view kSystemBlackCircle    = "\xE2\x8F\xBA";  // ⏺ agents_killed / generic dot
+/// Glyphs used by TS system subtypes — now imported from cc::ui::design::figures
+/// (single source of truth).  Historical names mapped as:
+///   kReferenceMark     → figures::kReferenceMark     (※ U+203B)
+///   kTeardropAsterisk  → figures::kTeardropAsterisk  (✻ U+273B)
+///   kSystemBlackCircle → figures::kBlackCircle       (⏺ U+23FA, Darwin)
+/// See figures.cppm §"CC-local figures" for TS REF breadcrumbs.
 
 /// Helper: build the canonical system row `[glyph(minWidth=2)] content` with
 /// the TS margin + width semantics.  `glyph_cell` is rendered into a 2-wide
@@ -267,7 +268,7 @@ inline constexpr std::string_view kSystemBlackCircle    = "\xE2\x8F\xBA";  // �
 /// away_summary subtype:  `※ <content>` dimColor.
 [[nodiscard]] inline Element RenderSystemAwaySummary(
     const SystemTextMessageData& data, bool add_margin = true) {
-    auto glyph = hbox({text(std::string(kReferenceMark)),
+    auto glyph = hbox({text(std::string(cc::ui::design::figures::kReferenceMark)),
                        text(" ")}) | dim | size(WIDTH, EQUAL, 2);
     auto content = text(data.summary.empty() ? data.detail : data.summary) | dim;
     return RenderSystemEventRow(std::move(glyph), std::move(content), add_margin);
@@ -276,7 +277,7 @@ inline constexpr std::string_view kSystemBlackCircle    = "\xE2\x8F\xBA";  // �
 /// scheduled_task_fire / permission_retry subtype:  `✻ <content>` dimColor.
 [[nodiscard]] inline Element RenderSystemTeardropEvent(
     const SystemTextMessageData& data, bool add_margin = true) {
-    auto glyph = hbox({text(std::string(kTeardropAsterisk)),
+    auto glyph = hbox({text(std::string(cc::ui::design::figures::kTeardropAsterisk)),
                        text(" ")}) | dim | size(WIDTH, EQUAL, 2);
     auto content = text(data.summary.empty() ? data.detail : data.summary) | dim;
     return RenderSystemEventRow(std::move(glyph), std::move(content), add_margin);
@@ -285,7 +286,7 @@ inline constexpr std::string_view kSystemBlackCircle    = "\xE2\x8F\xBA";  // �
 /// agents_killed subtype:  `⏺ All background agents stopped` (dot in error,
 /// text dim).
 [[nodiscard]] inline Element RenderSystemAgentsKilled(bool add_margin = true) {
-    auto glyph = hbox({text(std::string(kSystemBlackCircle)),
+    auto glyph = hbox({text(std::string(cc::ui::design::figures::kBlackCircle)),
                        text(" ")}) | color(Color::Red) | size(WIDTH, EQUAL, 2);
     auto content = text("All background agents stopped") | dim;
     return RenderSystemEventRow(std::move(glyph), std::move(content), add_margin);
@@ -299,7 +300,7 @@ inline constexpr std::string_view kSystemBlackCircle    = "\xE2\x8F\xBA";  // �
     int columns = 80) {
     const bool is_warning = false;  // info path by default
     const bool is_info = true;
-    auto glyph = hbox({text(std::string(kSystemBlackCircle)),
+    auto glyph = hbox({text(std::string(cc::ui::design::figures::kBlackCircle)),
                        text(" ")}) | dim | size(WIDTH, EQUAL, 2);
     std::string content = data.summary.empty() ? data.detail : data.summary;
     // trim leading/trailing whitespace (TS content.trim())

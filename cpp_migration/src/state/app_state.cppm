@@ -369,6 +369,7 @@ struct AppState {
     std::chrono::system_clock::time_point created_at;
     std::chrono::system_clock::time_point last_activity;
     std::string working_directory;
+    std::vector<std::string> allowed_directories;  ///< paths added via /add-dir
 
     // ========================================
     // Additional State Fields

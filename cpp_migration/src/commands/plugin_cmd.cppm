@@ -166,14 +166,29 @@ public:
             case SubcommandType::Help:
                 return CommandResult::success(std::string{k_plugin_help_text});
 
-            case SubcommandType::Menu:
-                return CommandResult::success(menu_text());
+            case SubcommandType::Menu: {
+                // Return metadata so the REPL spawns the plugin dialog
+                // (Discover tab — default landing view).
+                auto text = menu_text();
+                return CommandResult{
+                    true,
+                    std::move(text),
+                    std::string{"UI:plugins:discover-plugins"},
+                    CommandStatus::Succeeded,
+                };
+            }
 
             case SubcommandType::Install:
                 return cmd_install(cmd);
 
-            case SubcommandType::Manage:
-                return cmd_manage_list(/*verbose=*/true);
+            case SubcommandType::Manage: {
+                auto r = cmd_manage_list(/*verbose=*/true);
+                if (!r) return r;
+                // Tag with metadata so the REPL opens the plugin dialog on
+                // the Installed (manage-plugins) tab.
+                r->metadata = std::string{"UI:plugins:manage-plugins"};
+                return r;
+            }
 
             case SubcommandType::Uninstall:
                 return cmd_uninstall(cmd);

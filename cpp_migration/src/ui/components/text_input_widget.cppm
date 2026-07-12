@@ -31,6 +31,7 @@ export module cc.ui.text_input_widget;
 import cc.types.types;
 import cc.utils.text_highlighting;
 import cc.ui.prompt.combined_highlights;
+import cc.ui.prompt.placeholder_cascade;  // P1: RenderPlaceholder helper
 import cc.ui.common.types;  // canonical VimMode
 
 export namespace cc::ui::text_input_widget {
@@ -455,12 +456,34 @@ struct LinePart {
 
     Elements all_lines;
 
-    if (buffer.empty() && !focused) {
-        auto line = hbox({
-            text(opts.prefix) | color(Color::Green) | bold,
-            text(opts.placeholder) | dim,
-        });
-        return line;
+    if (buffer.empty()) {
+        namespace ph = cc::ui::placeholder;
+
+        std::optional<std::string_view> placeholder_sv;
+        if (!opts.placeholder.empty()) {
+            placeholder_sv = std::string_view(opts.placeholder);
+        }
+
+        // Use shared RenderPlaceholder for consistent cursor-invert behavior
+        // when focused + empty (TS renderPlaceholder.ts).
+        auto rendered = ph::RenderPlaceholder(
+            placeholder_sv,
+            /*value=*/"",
+            /*show_cursor=*/focused,
+            /*focused=*/focused,
+            /*terminal_focus=*/true,
+            /*hide_text=*/false,
+            /*prefix=*/opts.prefix,
+            /*prefix_color=*/Color::Green);
+
+        if (rendered.element.has_value()) {
+            // NOTE: widget historically uses Green + bold for prefix; we
+            // pass Color::Green above.  If the caller wants a different
+            // prefix color, opts should be extended.
+            return *std::move(rendered.element);
+        }
+        // Fallback: prefix only.
+        return text(opts.prefix) | color(Color::Green) | bold;
     }
 
     auto cursor_pos = buffer.cursor();

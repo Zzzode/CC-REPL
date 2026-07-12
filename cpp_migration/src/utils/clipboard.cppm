@@ -285,4 +285,38 @@ extract_png_from_html_clipboard() {
 #endif
 }
 
+/// Read plain text from the system clipboard (macOS: `pbpaste`).
+/// Returns the clipboard text or "" if empty / unavailable.  Uses
+/// run_detached() to isolate from cc-repl's raw-mode terminal.
+///
+/// TS REF: src/utils/imagePaste.ts — the TS side reads text via the same
+/// NSPasteboard APIs; on macOS `pbpaste` is the shell equivalent.
+/// Off-macOS: returns "" (TS parity — text paste only supported on macOS
+/// via the native clipboard bridge).
+[[nodiscard]] inline std::string read_text() {
+#if defined(__APPLE__)
+    namespace fs = std::filesystem;
+    fs::path tmp = fs::temp_directory_path() / "cc-repl-clipboard-text.txt";
+    const std::string tmp_s = tmp.string();
+    // Write pbpaste output to a temp file, then read it back.
+    // run_detached() isolates pbpaste from cc-repl's raw-mode terminal.
+    const std::string script = "pbpaste > '" + tmp_s + "'";
+    if (run_detached(script) != 0) {
+        std::error_code rc; fs::remove(tmp, rc);
+        return "";
+    }
+    std::ifstream f(tmp);
+    if (!f) {
+        std::error_code rc; fs::remove(tmp, rc);
+        return "";
+    }
+    std::string content((std::istreambuf_iterator<char>(f)),
+                        std::istreambuf_iterator<char>());
+    std::error_code rc; fs::remove(tmp, rc);
+    return content;
+#else
+    return "";
+#endif
+}
+
 }  // namespace cc::utils::clipboard

@@ -813,6 +813,8 @@ namespace detail {
             config.idp_client_id = value;
         } else if (key == "idp_client_secret") {
             config.idp_client_secret = value;
+        } else if (key == "idp_id_token") {
+            config.idp_id_token = value;
         } else if (key == "scope") {
             config.scope = value;
         }

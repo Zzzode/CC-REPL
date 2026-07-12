@@ -19,10 +19,25 @@ export module cc.commands.compact;
 
 import cc.types.types;
 import cc.commands.command;
+import cc.state.app_state;
+import cc.state.store;
 
 export namespace cc::commands {
 
 using namespace cc::core;
+
+// ============================================================
+// Action type ordinals (keep in sync with cc::state::ActionType
+// enum ordering in store.cppm)
+// ============================================================
+
+/// Ordinal of ActionType::AddNotification in cc::state::ActionType.
+/// Pushes a notification string into the notifications list.
+constexpr int ACTION_ADD_NOTIFICATION = 18;
+
+/// Ordinal of ActionType::UpdateUsage in cc::state::ActionType.
+/// Updates total_usage in AppState.
+constexpr int ACTION_UPDATE_USAGE = 7;
 
 /// Token budget configuration for compaction
 struct TokenBudget {
@@ -104,9 +119,24 @@ public:
     [[nodiscard]] Result<CommandResult> execute(const CommandContext& ctx) {
         auto opts = parse_options(ctx.args);
         auto active_messages = conversation_messages_;
+
+        // Source 1: member cache (set by session manager via set_messages)
+        // Source 2: QueryEngine provider callback (set by app.cppm)
         if (active_messages.empty() && ctx.compact_message_provider) {
             active_messages = ctx.compact_message_provider(ctx.runtime_state);
         }
+
+        // Source 3: AppState.messages — the reactive UI state populated by
+        // QueryEngine's AddMessage dispatches. If the provider callback is
+        // unavailable or returns empty but the UI has messages, use those.
+        if (active_messages.empty()) {
+            if (const auto* state = static_cast<const cc::state::AppState*>(ctx.get_app_state())) {
+                if (!state->messages.empty()) {
+                    active_messages = state->messages;
+                }
+            }
+        }
+
         if (active_messages.empty()) {
             return CommandResult::fail("No active conversation to compact.");
         }
@@ -117,11 +147,13 @@ public:
         // Step 1: Analyze current conversation state
         auto analysis = analyze_conversation(active_messages);
         if (analysis.tokens_before <= budget.effective_target()) {
-            return CommandResult::success(std::format(
+            auto msg = std::format(
                 "Context is already within budget (~{} tokens, target: {}).\n"
                 "No compaction needed.",
                 analysis.tokens_before, budget.effective_target()
-            ));
+            );
+            ctx.dispatch_action(ACTION_ADD_NOTIFICATION, &msg);
+            return CommandResult::success(std::move(msg));
         }
 
         // Step 2: Build compaction plan
@@ -139,17 +171,43 @@ public:
             auto after_messages = ctx.compact_message_provider
                 ? ctx.compact_message_provider(ctx.runtime_state)
                 : active_messages;
+
+            // Also refresh from AppState if the provider returned nothing
+            if (after_messages.empty()) {
+                if (const auto* state = static_cast<const cc::state::AppState*>(ctx.get_app_state())) {
+                    after_messages = state->messages;
+                }
+            }
+
             analysis.messages_after = static_cast<std::uint32_t>(after_messages.size());
             analysis.tokens_after = estimate_messages_tokens(after_messages);
             analysis.compression_ratio = analysis.tokens_before == 0
                 ? 1.0
                 : static_cast<double>(analysis.tokens_after) / static_cast<double>(analysis.tokens_before);
+
+            // Notify the user that compaction completed and sync AppState awareness
+            auto note = std::format(
+                "Compacted: {} -> {} messages, ~{}% token reduction",
+                analysis.messages_before, analysis.messages_after,
+                static_cast<int>((1.0 - analysis.compression_ratio) * 100.0)
+            );
+            ctx.dispatch_action(ACTION_ADD_NOTIFICATION, &note);
+
             return CommandResult::success(analysis.format());
         }
 
-        // Step 4: Generate summary via LLM for content that will be compressed
+        // Step 4: Generate summary via LLM for content that will be compressed.
+        // Cache the messages for build_summary_prompt to reference.
         conversation_messages_ = active_messages;
         auto summary_prompt = build_summary_prompt(plan);
+
+        // Notify the user that an LLM-driven compaction is in progress
+        auto note = std::format(
+            "Compacting {} messages (~{} tokens) via model summary…",
+            analysis.messages_before, analysis.tokens_before
+        );
+        ctx.dispatch_action(ACTION_ADD_NOTIFICATION, &note);
+
         return CommandResult::inject(std::move(summary_prompt));
     }
 
@@ -322,7 +380,11 @@ private:
         return output;
     }
 
-    /// Build a prompt for the LLM to summarize compressible content
+    /// Build a prompt for the LLM to summarize compressible content.
+    /// The summary becomes the new context for subsequent turns, so it
+    /// must faithfully preserve all load-bearing information the model
+    /// needs to keep working (decisions already made, files touched,
+    /// error states, user requirements).
     [[nodiscard]] std::string build_summary_prompt(const std::vector<PlanEntry>& plan) const {
         std::string content_to_summarize;
         for (const auto& entry : plan) {
@@ -339,10 +401,24 @@ private:
         }
 
         return std::format(
-            "Summarize the following conversation segments into a concise summary.\n"
-            "Preserve: key decisions, code snippets, file paths, requirements, errors.\n"
-            "Remove: verbose explanations, repeated information, intermediate steps.\n"
-            "Target: reduce to ~30%% of original length.\n\n"
+            "You are performing a context-window compaction. The conversation above will be "
+            "replaced by your summary, which becomes the ONLY record of what happened so far. "
+            "Produce a structured summary that preserves the following with high fidelity:\n"
+            "\n"
+            "  1. User requirements and explicit constraints (\"do X\", \"avoid Y\")\n"
+            "  2. Key decisions already made or agreed upon\n"
+            "  3. File paths, symbols, and code snippets that are load-bearing for the current task\n"
+            "  4. Error states, warnings, or unresolved issues\n"
+            "  5. Tool results that materially changed the plan (not raw output — just the conclusion)\n"
+            "\n"
+            "Collapse aggressively: remove verbose explanations, repeated reasoning, "
+            "intermediate exploration that did not bear fruit, and raw tool output dumps. "
+            "Target ~30%% of original length.\n"
+            "\n"
+            "IMPORTANT: Your summary replaces the entire prior conversation. The model will "
+            "see ONLY this summary going forward. Do NOT lose any information the user would "
+            "expect you to remember.\n"
+            "\n"
             "Content to summarize:\n{}", content_to_summarize
         );
     }

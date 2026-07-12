@@ -77,6 +77,9 @@ namespace detail {
 
 template <typename Response>
 [[nodiscard]] CommandResult from_response(Response response) {
+    if constexpr (requires { response.inject; }) {
+        if (response.inject) return CommandResult::inject(std::move(response.message));
+    }
     return response.ok ? CommandResult::success(std::move(response.message))
                        : CommandResult::fail(std::move(response.message));
 }

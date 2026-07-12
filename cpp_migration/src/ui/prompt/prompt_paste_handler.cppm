@@ -31,9 +31,11 @@ using namespace ftxui;
 
 /// @brief State for a multi-line text paste confirmation overlay.
 struct PastePreview {
-    std::string content;
-    std::size_t line_count{0};
-    bool is_large{false};
+    std::string content;          ///< Truncated display text (head + ref + tail)
+    std::size_t line_count{0};    ///< Line count of the FULL paste
+    bool is_large{false};         ///< True when >10K chars (truncation applied)
+    int paste_id{0};              ///< Unique id for [...Truncated text #N] ref
+    std::string placeholder_content;  ///< The truncated middle text (for storage on confirm)
 };
 
 /// Render a text paste confirmation preview box.

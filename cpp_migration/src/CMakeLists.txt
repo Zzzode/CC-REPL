@@ -887,12 +887,18 @@ target_sources(cc_commands
 )
 target_sources(cc_commands PRIVATE
     commands/command_registry_init.cpp
+    commands/command_registry_init_a.cpp
+    commands/command_registry_init_b.cpp
+    commands/command_registry_init_c.cpp
+    commands/command_registry_init_d.cpp
+    commands/command_registry_init_e.cpp
 )
 target_link_libraries(cc_commands
     PUBLIC
         cc_utils
         cc_types
         cc_config
+        cc_state
         cc_tools
         cc_vim
 )
@@ -1378,6 +1384,7 @@ target_sources(cc_ui
         ui/dialogs/dialog_frame.cppm
         ui/dialogs/dialog_launchers.cppm
         ui/dialogs/dialog_default_renderers.cppm
+        ui/dialogs/hooks_dialog_renderer.cppm
         ui/dialogs/config_dialog.cppm
         ui/dialogs/desktop_upsell.cppm
         ui/dialogs/diff_dialog.cppm
@@ -1510,7 +1517,6 @@ target_sources(cc_ui
         ui/prompt/file_index.cppm
         ui/prompt/fuzzy_rank_nucleo.cppm
         ui/prompt/footer.cppm
-        ui/prompt/mode_indicator.cppm
         ui/prompt/notifications.cppm
         ui/prompt/prompt_input_footer.cppm  # M5 — faithful TS PromptInputFooter port
         ui/prompt/prompt_input_full.cppm
@@ -1521,6 +1527,7 @@ target_sources(cc_ui
         ui/prompt/prompt_stash_notice.cppm
         ui/prompt/shimmer.cppm
         ui/prompt/combined_highlights.cppm  # P1: 8-tier combined highlights builder
+        ui/prompt/placeholder_cascade.cppm  # P1: 4-tier memoized placeholder cascade
         ui/prompt/vim_input.cppm
         ui/prompt/voice_indicator.cppm
         ui/prompt_input.cppm
@@ -1597,6 +1604,8 @@ target_sources(cc_ui PRIVATE
     ui/app_dialog_registration_modal.cpp
     ui/app_dialog_registration_bottom.cpp
     ui/app_dialog_registration_all.cpp
+    ui/app_dialog_registration_hooks.cpp
+    ui/dialogs/hooks_dialog_renderer_impl.cpp
 )
 target_link_libraries(cc_ui
     PUBLIC

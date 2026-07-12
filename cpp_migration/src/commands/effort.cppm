@@ -15,10 +15,16 @@ export module cc.commands.effort;
 
 import cc.types.types;
 import cc.commands.command;
+import cc.state.app_state;
+import cc.state.store;
 
 export namespace cc::commands {
 
 using namespace cc::core;
+
+/// Action type ordinal for SetEffortValue (from cc::state::ActionType in store.cppm).
+inline constexpr int ACTION_SET_EFFORT_VALUE =
+    static_cast<int>(cc::state::ActionType::SetEffortValue);
 
 /// EffortCommand implements the /effort slash command.
 /// Sets the effort level for the model.
@@ -27,7 +33,7 @@ public:
     [[nodiscard]] static CommandDefinition definition() {
         return CommandDefinition{
             .name = "effort",
-            .description = "Set the effort level (low/medium/high/max/auto)",
+            .description = "Set or show the effort level (low/medium/high/max/auto). Run without arguments to see current level.",
             .args = {
                 CommandArg{.name = "level", .description = "Effort level: low, medium, high, max, auto",
                            .type = ArgType::Choice, .required = false,
@@ -54,30 +60,30 @@ public:
 
     [[nodiscard]] Result<CommandResult> execute(const CommandContext& ctx) {
         if (ctx.args.empty()) {
-            return show_current_effort();
+            return show_current_effort(ctx);
         }
 
         const auto& level = ctx.args[0];
         if (level == "auto") {
-            return unset_effort();
+            return unset_effort(ctx);
         }
 
-        return set_effort(level);
+        return set_effort(ctx, level);
     }
 
     [[nodiscard]] std::vector<std::string> complete(std::string_view partial) {
         std::vector<std::string> suggestions;
-        
+
         static constexpr std::array levels = {
             "low", "medium", "high", "max", "auto"
         };
-        
+
         for (const auto& level : levels) {
             if (std::string_view(level).starts_with(partial)) {
                 suggestions.emplace_back(level);
             }
         }
-        
+
         return suggestions;
     }
 
@@ -99,16 +105,28 @@ private:
         return "Unknown effort level";
     }
 
-    [[nodiscard]] static Result<CommandResult> show_current_effort() {
-        return CommandResult::success(
-            "Effort level: auto (currently medium)");
+    [[nodiscard]] static Result<CommandResult> show_current_effort(const CommandContext& ctx) {
+        using cc::state::AppState;
+        const auto* state = static_cast<const AppState*>(ctx.get_app_state());
+
+        if (state && state->effort_value.has_value()) {
+            const auto& val = *state->effort_value;
+            return CommandResult::success(
+                std::format("Current effort level: {} ({})", val, get_effort_description(val)));
+        }
+        return CommandResult::success("Effort level: auto");
     }
 
-    [[nodiscard]] static Result<CommandResult> unset_effort() {
+    [[nodiscard]] static Result<CommandResult> unset_effort(const CommandContext& ctx) {
+        // Dispatch with nullptr payload => reducer receives empty optional.
+        ctx.dispatch_action(ACTION_SET_EFFORT_VALUE, nullptr);
         return CommandResult::success("Effort level set to auto");
     }
 
-    [[nodiscard]] static Result<CommandResult> set_effort(std::string_view level) {
+    [[nodiscard]] static Result<CommandResult> set_effort(const CommandContext& ctx,
+                                                           std::string_view level) {
+        std::string level_str{level};
+        ctx.dispatch_action(ACTION_SET_EFFORT_VALUE, &level_str);
         const auto description = get_effort_description(level);
         return CommandResult::success(
             std::format("Set effort level to {}: {}", level, description));

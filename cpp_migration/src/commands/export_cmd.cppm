@@ -422,6 +422,16 @@ public:
     }
 
     [[nodiscard]] Result<CommandResult> execute(const CommandContext& ctx) {
+        if (ctx.args.empty()) {
+            // No arguments: trigger interactive export dialog via metadata.
+            return CommandResult{
+                true,
+                "Opening export dialog...\nUI:export",
+                std::string{"UI:export"},
+                CommandStatus::Succeeded,
+            };
+        }
+
         auto opts = parse_options(ctx.args);
         if (messages_.empty()) {
             return CommandResult::success("No messages to export.");

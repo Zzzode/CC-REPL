@@ -287,7 +287,33 @@ inline void write_idp_client_secret(
 
     auto secret = entry.get("clientSecret");
     if (!secret.is_str()) return std::nullopt;
-    return std::string(secret.as_str());
+    std::string val(secret.as_str());
+    if (val.empty()) return std::nullopt;
+    return val;
+}
+
+/// TS REF: xaaIdpLogin.ts — clear client secret entry for an issuer.
+inline void remove_idp_client_secret(std::string_view idp_issuer) {
+    auto path = idp_token_storage_path();
+    if (!fs::exists(path)) return;
+
+    auto existing = cc::utils::json::parse_file(path);
+    if (!existing || !existing->root().is_obj()) return;
+
+    JsonMutDoc doc;
+    auto root = doc.copy_val(existing->root());
+    doc.set_root(root);
+
+    auto config = root.get("mcpXaaIdpConfig");
+    if (!config.is_obj()) return;
+
+    auto key = issuer_key(idp_issuer);
+    (void)config.remove(key);
+
+    std::ofstream file(path);
+    if (file.is_open()) {
+        file << doc.to_string();
+    }
 }
 
 } // namespace detail
@@ -321,6 +347,24 @@ inline int64_t save_idp_id_token_from_jwt(
 /// TS REF: xaaIdpLogin.ts:143-150
 inline void clear_idp_id_token(std::string_view idp_issuer) {
     detail::remove_cached_idp_token(idp_issuer);
+}
+
+/// TS REF: xaaIdpLogin.ts:177-181 getIdpClientSecret()
+[[nodiscard]] inline std::optional<std::string> get_idp_client_secret(
+    std::string_view idp_issuer) {
+    return detail::read_idp_client_secret(idp_issuer);
+}
+
+/// TS REF: xaaIdpLogin.ts:159-172 saveIdpClientSecret()
+inline void save_idp_client_secret(
+    std::string_view idp_issuer,
+    std::string_view client_secret) {
+    detail::write_idp_client_secret(idp_issuer, client_secret);
+}
+
+/// Clear the client secret for an issuer.
+inline void clear_idp_client_secret(std::string_view idp_issuer) {
+    detail::remove_idp_client_secret(idp_issuer);
 }
 
 // ─── JWT Utilities ────────────────────────────────────────────────────────

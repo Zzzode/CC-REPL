@@ -97,6 +97,7 @@ enum class DialogType : std::uint16_t {
     ConfirmationDialog,     ///< generic yes/no confirmation
     FeedbackSurvey,         ///< feedback survey
     ManagedSettingsSecurity,///< managed settings security page
+    HooksConfig,            ///< /hooks configuration menu
 
     // -- Standalone / full-screen (not in REPL layout) --
     TrustDialog,            ///< first-run trust dialog
@@ -107,6 +108,7 @@ enum class DialogType : std::uint16_t {
     InstallSlackAppWizard,  ///< Slack app install
     CreateAgentWizard,      ///< new agent wizard
     EditAgentWizard,        ///< edit agent wizard
+    Doctor,                 ///< /doctor diagnostics screen
 
     _COUNT,                 ///< sentinel
 };
@@ -152,12 +154,14 @@ enum class DialogType : std::uint16_t {
         case DialogType::ConfirmationDialog:   return "confirmation-dialog";
         case DialogType::FeedbackSurvey:           return "feedback-survey";
         case DialogType::ManagedSettingsSecurity:  return "managed-settings-security";
+        case DialogType::HooksConfig:              return "hooks-config";
         case DialogType::TrustDialog:              return "trust-dialog";
         case DialogType::Onboarding:               return "onboarding";
         case DialogType::InstallGitHubAppWizard:   return "install-github-app-wizard";
         case DialogType::InstallSlackAppWizard:    return "install-slack-app-wizard";
         case DialogType::CreateAgentWizard:        return "create-agent-wizard";
         case DialogType::EditAgentWizard:          return "edit-agent-wizard";
+        case DialogType::Doctor:                   return "doctor";
         case DialogType::_COUNT:                   return "(count)";
     }
     return "unknown";
@@ -221,6 +225,7 @@ enum class DialogSlot : std::uint8_t {
         case DialogType::ConfirmationDialog:
         case DialogType::FeedbackSurvey:
         case DialogType::ManagedSettingsSecurity:
+        case DialogType::HooksConfig:
             return DialogSlot::Modal;
 
         case DialogType::TrustDialog:
@@ -231,6 +236,7 @@ enum class DialogSlot : std::uint8_t {
         case DialogType::InstallSlackAppWizard:
         case DialogType::CreateAgentWizard:
         case DialogType::EditAgentWizard:
+        case DialogType::Doctor:
             return DialogSlot::Standalone;
 
         case DialogType::_COUNT:
@@ -773,6 +779,30 @@ struct EditAgentWizardPayload {
     std::function<void(bool complete)> on_complete;
 };
 
+/// Payload for Hooks configuration menu (modal).
+///
+/// Holds a type-erased component handle so the dialog-system module does
+/// not depend on the full hooks_ui implementation.  Renderers cast the
+/// opaque pointer back to the FTXUI Component via
+/// `std::static_pointer_cast<Component>`.
+struct HooksDialogPayload {
+    std::string id;
+    std::shared_ptr<void> component;  ///< Opaque HooksConfigMenu component
+    std::function<void()> on_close;
+};
+
+/// Payload for Doctor diagnostics screen (standalone).
+///
+/// Holds a type-erased component handle so the dialog-system module does
+/// not depend on the full doctor_screen implementation.  Renderers cast
+/// the opaque pointer back to the FTXUI Component via
+/// `std::static_pointer_cast<Component>`.
+struct DoctorDialogPayload {
+    std::string id;
+    std::shared_ptr<void> component; ///< Opaque DoctorScreen component
+    std::function<void(std::string result)> on_done;
+};
+
 /// Tagged union of all dialog payload types.
 /// Use std::visit to dispatch on the active type.
 using DialogPayloadVariant = std::variant<
@@ -821,7 +851,9 @@ using DialogPayloadVariant = std::variant<
     InstallGitHubAppWizardPayload,
     InstallSlackAppWizardPayload,
     CreateAgentWizardPayload,
-    EditAgentWizardPayload
+    EditAgentWizardPayload,
+    HooksDialogPayload,
+    DoctorDialogPayload
 >;
 
 /// Get the DialogType from a payload variant.
@@ -922,6 +954,10 @@ using DialogPayloadVariant = std::variant<
             return DialogType::CreateAgentWizard;
         } else if constexpr (std::is_same_v<T, EditAgentWizardPayload>) {
             return DialogType::EditAgentWizard;
+        } else if constexpr (std::is_same_v<T, HooksDialogPayload>) {
+            return DialogType::HooksConfig;
+        } else if constexpr (std::is_same_v<T, DoctorDialogPayload>) {
+            return DialogType::Doctor;
         }
         return DialogType::_COUNT;
     }, payload);

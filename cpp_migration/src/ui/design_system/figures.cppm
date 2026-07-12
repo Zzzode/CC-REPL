@@ -97,6 +97,102 @@ inline constexpr std::string_view kDiamond     = "\xE2\x97\x86";  // ◆ U+25C6 
 inline constexpr std::string_view kLozenge     = "\xE2\x97\x86";  // ◆ U+25C6 (alias for kDiamond)
 inline constexpr std::string_view kArrowRight  = "\xE2\x86\x92";  // → U+2192 (figures.arrowRight — cross-session injected indicator)
 
+// ─── Additional npm::figures glyphs (used in MCP dialogs, settings, task lists) ─
+// TS REF: node_modules/figures/index.js — mainSymbols set (isUnicodeSupported).
+// These were missing from the CPP port; used by MCP server list (radio buttons),
+// settings carousel (triangles), task list (squares), companion UI (heart),
+// issue banner (star), and tree-drawing connectors.
+inline constexpr std::string_view kArrowUp             = "\xE2\x86\x91";  // ↑ U+2191 (figures.arrowUp — opus 1m merge notice)
+inline constexpr std::string_view kArrowLeft           = "\xE2\x86\x90";  // ← U+2190 (figures.arrowLeft — inbound channel indicator)
+inline constexpr std::string_view kRadioOn             = "\xE2\x97\x89";  // ◉ U+25C9 (figures.radioOn — selected radio button, alias kCircleFilled)
+inline constexpr std::string_view kRadioOff            = "\xE2\x97\xAF";  // ◯ U+25EF (figures.radioOff — unselected radio, alias kCircle)
+inline constexpr std::string_view kTriangleUpOutline   = "\xE2\x96\xB3";  // △ U+25B3 (figures.triangleUpOutline — warning triangle)
+inline constexpr std::string_view kTriangleRightSmall  = "\xE2\x96\xB8";  // ▸ U+25B8 (figures.triangleRightSmall — expand caret)
+inline constexpr std::string_view kTriangleDownSmall   = "\xE2\x96\xBE";  // ▾ U+25BE (figures.triangleDownSmall — collapse caret)
+inline constexpr std::string_view kStar                = "\xE2\x98\x85";  // ★ U+2605 (figures.star — favorite / diagnostic hint)
+inline constexpr std::string_view kHeart               = "\xE2\x99\xA5";  // ♥ U+2665 (figures.heart — companion pet)
+inline constexpr std::string_view kSquareSmall         = "\xE2\x97\xBB";  // ◻ U+25FB (figures.squareSmall — task todo)
+inline constexpr std::string_view kSquareSmallFilled   = "\xE2\x97\xBC";  // ◼ U+25FC (figures.squareSmallFilled — task done)
+inline constexpr std::string_view kCircleFilled        = "\xE2\x97\x89";  // ◉ U+25C9 (figures.circleFilled — checked circle, alias kRadioOn)
+inline constexpr std::string_view kCircleDouble        = "\xE2\x97\x8E";  // ◎ U+25CE (figures.circleDouble — remote indicator)
+inline constexpr std::string_view kPlay                = "\xE2\x96\xB6";  // ▶ U+25B6 (figures.play — play icon)
+inline constexpr std::string_view kQuestionMarkPrefix  = "(?)";             // (?) (figures.questionMarkPrefix — awaiting approval)
+
+// Tree-drawing chars (TS REF: figures.lineVertical / lineUpRight / lineUpDownRight).
+// Used by treeify.cppm and any hierarchical list rendering.  The "── " / "   "
+// suffixes are ASCII and appended by callers; only the box-drawing glyph itself
+// lives here so the byte sequence is defined once.
+inline constexpr std::string_view kLineVertical        = "\xE2\x94\x82";  // │ U+2502 (figures.lineVertical — tree vertical connector)
+inline constexpr std::string_view kLineUpRight         = "\xE2\x94\x94";  // └ U+2514 (figures.lineUpRight — tree last-child connector)
+inline constexpr std::string_view kLineUpDownRight     = "\xE2\x94\x9C";  // ├ U+251C (figures.lineUpDownRight — tree mid-child connector)
+
+// ─── CC-local figures (src/constants/figures.ts port) ───────────────────
+// TS REF: src/constants/figures.ts (46 lines).  Platform-aware + app-specific
+// glyphs that don't come from npm::figures.  Every scattered local definition
+// of these across message_components.cppm / system_text_message.cppm must be
+// replaced with imports from this module (single source of truth).
+
+// BLACK_CIRCLE: platform-aware.  Darwin = ⏺ U+23FA, others = ● U+25CF.
+// We expose BOTH so callers can choose; kBlackCircle is the Darwin default
+// (cc-repl targets macOS), kBlackCircleFallback is the non-Darwin ●.
+// TS REF: constants/figures.ts L4 — `env.platform === 'darwin' ? '⏺' : '●'`
+inline constexpr std::string_view kBlackCircle         = "\xE2\x8F\xBA";  // ⏺ U+23FA (Darwin — message row prefix, system event dot)
+inline constexpr std::string_view kBlackCircleFallback = "\xE2\x97\x8F";  // ● U+25CF (non-Darwin, same as kBullet)
+
+inline constexpr std::string_view kDiamondOpen         = "\xE2\x97\x87";  // ◇ U+25C7 (DIAMOND_OPEN — ultraplan running)
+inline constexpr std::string_view kTeardropAsterisk    = "\xE2\x9C\xBB";  // ✻ U+273B (TEARDROP_ASTERISK — scheduled_task / permission_retry)
+inline constexpr std::string_view kLightningBolt       = "\xE2\x86\xAF";  // ↯ U+21AF (LIGHTNING_BOLT — fast mode indicator)
+inline constexpr std::string_view kPauseIcon           = "\xE2\x8F\xB8";  // ⏸ U+23F8 (PAUSE_ICON — paused state)
+inline constexpr std::string_view kBulletOperator      = "\xE2\x88\x99";  // ∙ U+2219 (BULLET_OPERATOR — tool error prefix)
+inline constexpr std::string_view kRefreshArrow        = "\xE2\x86\xBB";  // ↻ U+21BB (REFRESH_ARROW — resource update indicator)
+inline constexpr std::string_view kChannelArrow        = "\xE2\x86\x90";  // ← U+2190 (CHANNEL_ARROW — inbound channel, alias kArrowLeft)
+inline constexpr std::string_view kInjectedArrow       = "\xE2\x86\x92";  // → U+2192 (INJECTED_ARROW — cross-session, alias kArrowRight)
+inline constexpr std::string_view kReferenceMark       = "\xE2\x80\xBB";  // ※ U+203B (REFERENCE_MARK — komejirushi, away-summary recap marker)
+inline constexpr std::string_view kBlockquoteBar       = "\xE2\x96\x8E";  // ▎ U+258E (BLOCKQUOTE_BAR — left one-quarter block)
+inline constexpr std::string_view kHeavyHorizontal     = "\xE2\x94\x81";  // ━ U+2501 (HEAVY_HORIZONTAL — heavy box-drawing separator)
+inline constexpr std::string_view kFlagIcon            = "\xE2\x9A\x91";  // ⚑ U+2691 (FLAG_ICON — issue banner)
+inline constexpr std::string_view kForkGlyph           = "\xE2\x91\x82";  // ⑂ U+2442 (FORK_GLYPH — fork directive indicator)
+
+// Effort level indicators (TS REF: constants/figures.ts L10-13).
+inline constexpr std::string_view kEffortLow           = "\xE2\x97\x8B";  // ○ U+25CB (EFFORT_LOW)
+inline constexpr std::string_view kEffortMedium        = "\xE2\x97\x90";  // ◐ U+25D0 (EFFORT_MEDIUM)
+inline constexpr std::string_view kEffortHigh          = "\xE2\x97\x8F";  // ● U+25CF (EFFORT_HIGH, alias kBullet/kBlackCircleFallback)
+inline constexpr std::string_view kEffortMax           = "\xE2\x97\x89";  // ◉ U+25C9 (EFFORT_MAX — Opus 4.6 only, alias kRadioOn)
+
+// Bridge status indicators (TS REF: constants/figures.ts L38-45).
+// TS BRIDGE_SPINNER_FRAMES = ['·|·', '·/·', '·—·', '·\\·'] (4 frames).
+// Distinct from the 10-frame braille kSpinnerFrames used for general loading
+// spinners — bridge/MCP connection indicators use this compact middot+line set.
+inline constexpr std::array<std::string_view, 4> kBridgeSpinnerFrames = {{
+    "\xC2\xB7\x7C\xC2\xB7",          // ·|· frame 0 (middot + pipe + middot)
+    "\xC2\xB7\x2F\xC2\xB7",          // ·/· frame 1 (middot + slash + middot)
+    "\xC2\xB7\xE2\x80\x94\xC2\xB7",  // ·—· frame 2 (middot + U+2014 em dash + middot)
+    "\xC2\xB7\x5C\xC2\xB7",          // ·\· frame 3 (middot + backslash + middot)
+}};
+
+/// Bridge spinner frame count (4).  Distinct from kSpinnerFrameCount (10).
+inline constexpr std::size_t kBridgeSpinnerFrameCount = kBridgeSpinnerFrames.size();
+
+/// Get the bridge spinner glyph for a given frame index (wraps modulo count).
+[[nodiscard]] inline std::string_view bridge_spinner_frame_glyph(int frame) noexcept {
+    const auto idx = static_cast<std::size_t>(
+        ((frame % static_cast<int>(kBridgeSpinnerFrameCount)) +
+         static_cast<int>(kBridgeSpinnerFrameCount)) %
+        static_cast<int>(kBridgeSpinnerFrameCount));
+    return kBridgeSpinnerFrames[idx];
+}
+
+// TS BRIDGE_READY_INDICATOR = '·✔︎·' = '·✔︎·'
+//   (middot U+00B7 + heavy check U+2714 + VS15 U+FE0E + middot U+00B7).
+// NOTE: previous CPP value was wrong — emoji ✅︎ (U+2705 + VS15).  Corrected
+// below to match TS exactly.  kBridgeReadyIndicatorLegacy kept for one release
+// so callers that already imported the old symbol don't break.
+inline constexpr std::string_view kBridgeReadyIndicator = "\xC2\xB7\xE2\x9C\x94\xEF\xB8\x8E\xC2\xB7";  // ·✔︎· (TS-faithful)
+inline constexpr std::string_view kBridgeReadyIndicatorLegacy = "\xE2\x9C\x85\xEF\xB8\x8F";  // ✅︎ (old emoji, deprecated)
+
+// TS BRIDGE_FAILED_INDICATOR = '×' = '×' U+00D7.
+inline constexpr std::string_view kBridgeFailedIndicator = "\xC3\x97";  // × U+00D7
+
 // ─── Message connector / separator glyphs ──────────────────────────────
 // TS components/messages/Connector.tsx: ⌐ U+2310 "REVERSED NOT SIGN"
 //     Rendered vertically aligned between tool-use row and tool-result row.
@@ -145,10 +241,6 @@ inline constexpr std::size_t kSpinnerFrameCount = kSpinnerFramesBraille.size();
         static_cast<int>(kSpinnerFrameCount));
     return kSpinnerFrames[idx];
 }
-
-// TS src/services/bridge/types.ts: BRIDGE_READY_INDICATOR + variation
-// selector-15 for text-style. Used as a passive "OK" glyph in the footer.
-inline constexpr std::string_view kBridgeReadyIndicator = "\xE2\x9C\x85\xEF\xB8\x8F";  // ✅︎
 
 // ─── Prompt-input mode helpers (inputModes.ts port) ────────────────────
 // TS equivalent: type PromptInputMode = 'bash' | 'prompt' |

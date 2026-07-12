@@ -192,8 +192,8 @@ TEST(AppCommandRegistry, DispatchesMigratedRuntimeCommands) {
     auto help = registry.execute("/help", ctx());
     ASSERT_TRUE(help.has_value());
     EXPECT_TRUE(help->ok);
-    EXPECT_NE(help->message.find("/commit"), std::string::npos);
-    EXPECT_NE(help->message.find("/mcp"), std::string::npos);
+    ASSERT_TRUE(help->metadata.has_value());
+    EXPECT_EQ(*help->metadata, "UI:help");
 
     auto mcp = registry.execute("/mcp list", ctx());
     ASSERT_TRUE(mcp.has_value());
@@ -340,7 +340,8 @@ TEST(HelpCommand, FormatsDefaultShortcutsExamplesAndSpecificHelp) {
 
     auto all = help.execute(ctx());
     ASSERT_TRUE(all.has_value());
-    EXPECT_NE(all->message.find("Available Commands"), std::string::npos);
+    ASSERT_TRUE(all->metadata.has_value());
+    EXPECT_EQ(*all->metadata, "UI:help");
 
     auto shortcuts = help.execute(ctx({"--shortcuts"}));
     ASSERT_TRUE(shortcuts.has_value());

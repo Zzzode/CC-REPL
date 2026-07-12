@@ -2968,3 +2968,130 @@ TEST(ParseReferences, ExpandPastedTextRefs_MultipleRefsReverseOrder) {
         });
     EXPECT_EQ(expanded, "AAA middle BBB");
 }
+
+// ── paste-truncation (TS inputPaste.ts parity) ────────────────────────────
+
+TEST(ParseReferences, FormatTruncatedTextRef) {
+    // TS REF: inputPaste.ts L57 formatTruncatedTextRef
+    EXPECT_EQ(cc::utils::format_truncated_text_ref(1, 0),
+              "[...Truncated text #1 +0 lines...]");
+    EXPECT_EQ(cc::utils::format_truncated_text_ref(3, 42),
+              "[...Truncated text #3 +42 lines...]");
+    EXPECT_EQ(cc::utils::format_truncated_text_ref(7, 100),
+              "[...Truncated text #7 +100 lines...]");
+}
+
+TEST(ParseReferences, GetPastedTextRefNumLines_NoNewlines) {
+    // TS REF: history.ts L47 getPastedTextRefNumLines — "abc" → 0
+    EXPECT_EQ(cc::utils::get_pasted_text_ref_num_lines(""), 0);
+    EXPECT_EQ(cc::utils::get_pasted_text_ref_num_lines("hello world"), 0);
+    EXPECT_EQ(cc::utils::get_pasted_text_ref_num_lines(std::string(1000, 'x')), 0);
+}
+
+TEST(ParseReferences, GetPastedTextRefNumLines_LF) {
+    // "a\nb\nc" → 2 (TS: newline match count, NOT line count)
+    EXPECT_EQ(cc::utils::get_pasted_text_ref_num_lines("a\nb\nc"), 2);
+    EXPECT_EQ(cc::utils::get_pasted_text_ref_num_lines("\n"), 1);
+    EXPECT_EQ(cc::utils::get_pasted_text_ref_num_lines("line1\nline2"), 1);
+}
+
+TEST(ParseReferences, GetPastedTextRefNumLines_CRLF) {
+    // "a\r\nb" → 1 (CRLF counted as one break)
+    EXPECT_EQ(cc::utils::get_pasted_text_ref_num_lines("a\r\nb"), 1);
+    // "a\r\nb\r\nc" → 2
+    EXPECT_EQ(cc::utils::get_pasted_text_ref_num_lines("a\r\nb\r\nc"), 2);
+}
+
+TEST(ParseReferences, GetPastedTextRefNumLines_CR) {
+    // "a\rb" → 1 (standalone CR)
+    EXPECT_EQ(cc::utils::get_pasted_text_ref_num_lines("a\rb"), 1);
+    // Mixed: "a\nb\rc\r\nd" → LF + CR + CRLF = 3
+    EXPECT_EQ(cc::utils::get_pasted_text_ref_num_lines("a\nb\rc\r\nd"), 3);
+}
+
+TEST(ParseReferences, MaybeTruncatePaste_ShortText) {
+    // TS REF: inputPaste.ts L25 — text <= 10000 chars → returned as-is
+    auto result = cc::utils::maybe_truncate_paste("hello world", 1);
+    EXPECT_EQ(result.truncated_text, "hello world");
+    EXPECT_TRUE(result.placeholder_content.empty());
+}
+
+TEST(ParseReferences, MaybeTruncatePaste_AtThreshold) {
+    // Exactly 10000 chars → no truncation
+    std::string text(10000, 'a');
+    auto result = cc::utils::maybe_truncate_paste(text, 5);
+    EXPECT_EQ(result.truncated_text.size(), 10000u);
+    EXPECT_TRUE(result.placeholder_content.empty());
+}
+
+TEST(ParseReferences, MaybeTruncatePaste_OverThreshold_SingleLine) {
+    // >10000 chars single-line → head(500) + ref + tail(500)
+    std::string text(25000, 'x');
+    auto result = cc::utils::maybe_truncate_paste(text, 3);
+    // Should be much shorter than original
+    EXPECT_LT(result.truncated_text.size(), 1200u);
+    // Should contain the truncated text ref with paste id
+    EXPECT_NE(result.truncated_text.find("[...Truncated text #3 +0 lines...]"),
+              std::string::npos);
+    // Head should be first 500 chars
+    EXPECT_EQ(result.truncated_text.substr(0, 500), std::string(500, 'x'));
+    // Tail should be last 500 chars
+    EXPECT_EQ(result.truncated_text.substr(result.truncated_text.size() - 500),
+              std::string(500, 'x'));
+    // Placeholder content = middle = text.substr(500, 24000)
+    EXPECT_EQ(result.placeholder_content.size(), 24000u);
+    EXPECT_EQ(result.placeholder_content, std::string(24000, 'x'));
+}
+
+TEST(ParseReferences, MaybeTruncatePaste_OverThreshold_MultiLine) {
+    // >10000 chars multi-line → elided line count > 0
+    std::string big;
+    for (int i = 0; i < 700; ++i) big += std::string(19, 'y') + "\n";
+    ASSERT_GT(big.size(), 10000u);
+    auto result = cc::utils::maybe_truncate_paste(big, 1);
+    EXPECT_NE(result.truncated_text.find("[...Truncated text #1 +"),
+              std::string::npos);
+    // Should NOT report "+0 lines..." (multi-line paste has many newlines)
+    EXPECT_EQ(result.truncated_text.find("+0 lines...]"), std::string::npos);
+    // Placeholder content should be non-empty (the truncated middle)
+    EXPECT_FALSE(result.placeholder_content.empty());
+    // Verify head + ref + tail structure
+    EXPECT_TRUE(result.truncated_text.starts_with(std::string(19, 'y') + "\n"));
+}
+
+TEST(ParseReferences, ExpandPastedTextRefs_TruncatedTextRefs) {
+    // [...Truncated text #N] refs should also be expanded
+    std::string input = "head [...Truncated text #1 +42 lines...] tail";
+    auto expanded = cc::utils::expand_pasted_text_refs(
+        input,
+        [](int id) -> std::optional<std::string> {
+            if (id == 1) return "MIDDLE_CONTENT";
+            return std::nullopt;
+        });
+    EXPECT_EQ(expanded, "head MIDDLE_CONTENT tail");
+}
+
+TEST(ParseReferences, ExpandPastedTextRefs_MixedPastedAndTruncated) {
+    // Mix of [Pasted text #N] and [...Truncated text #N] refs
+    std::string input = "[Pasted text #1] and [...Truncated text #2 +5 lines...]";
+    auto expanded = cc::utils::expand_pasted_text_refs(
+        input,
+        [](int id) -> std::optional<std::string> {
+            if (id == 1) return "FIRST";
+            if (id == 2) return "SECOND";
+            return std::nullopt;
+        });
+    EXPECT_EQ(expanded, "FIRST and SECOND");
+}
+
+TEST(ParseReferences, ExpandPastedTextRefs_ImageLeftAlone) {
+    // [Image #N] refs should NOT be expanded
+    std::string input = "[Image #1] [...Truncated text #2 +3 lines...]";
+    auto expanded = cc::utils::expand_pasted_text_refs(
+        input,
+        [](int id) -> std::optional<std::string> {
+            if (id == 2) return "EXPANDED";
+            return std::nullopt;
+        });
+    EXPECT_EQ(expanded, "[Image #1] EXPANDED");
+}

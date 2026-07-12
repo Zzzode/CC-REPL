@@ -129,10 +129,10 @@ public:
             .args = {
                 CommandArg{
                     .name = "action",
-                    .description = "Subcommand: list | add | remove | show | restart | enable | disable | reconnect | xaa",
+                    .description = "Subcommand: manage | list | add | remove | show | restart | enable | disable | reconnect | xaa",
                     .type = ArgType::Choice,
                     .required = false,
-                    .choices = {"list", "add", "remove", "show", "restart",
+                    .choices = {"manage", "list", "add", "remove", "show", "restart",
                                 "enable", "disable", "reconnect", "xaa"},
                 },
                 CommandArg{
@@ -149,7 +149,10 @@ public:
     }
 
     [[nodiscard]] VoidResult validate(const CommandContext& ctx) {
-        if (ctx.args.empty()) return {};  // Default to 'list'
+        if (ctx.args.empty()) return {};  // Default: trigger MCP management dialog
+
+        // "manage" triggers the MCP management dialog — always valid.
+        if (ctx.args[0] == "manage") return {};
 
         // Resolve the full action (including xaa subcommand if applicable)
         std::optional<std::string_view> second;
@@ -158,7 +161,7 @@ public:
         if (!action) {
             return std::unexpected(Error::make(
                 ErrorCode::InvalidRequest,
-                std::format("Unknown MCP action: '{}'. Use: list, add, remove, show, restart, enable, disable, reconnect, xaa",
+                std::format("Unknown MCP action: '{}'. Use: manage, list, add, remove, show, restart, enable, disable, reconnect, xaa",
                            ctx.args[0])
             ));
         }
@@ -180,10 +183,13 @@ public:
     }
 
     [[nodiscard]] Result<CommandResult> execute(const CommandContext& ctx) {
+        // No args or "manage" → trigger the MCP management dialog.
+        if (ctx.args.empty() || ctx.args[0] == "manage") {
+            return CommandResult{true, "", "UI:mcp", CommandStatus::Succeeded};
+        }
+
         McpAction action = McpAction::List;
-        if (ctx.args.empty()) {
-            action = McpAction::List;
-        } else {
+        {
             std::optional<std::string_view> second;
             if (ctx.args.size() >= 2) second = ctx.args[1];
             action = parse_action(ctx.args[0], second).value_or(McpAction::List);
@@ -208,7 +214,7 @@ public:
 
     [[nodiscard]] std::vector<std::string> complete(std::string_view partial) {
         static constexpr std::array actions = {
-            "list", "add", "remove", "show", "restart",
+            "manage", "list", "add", "remove", "show", "restart",
             "enable", "disable", "reconnect", "xaa",
         };
         std::vector<std::string> suggestions;
@@ -419,7 +425,7 @@ private:
         return rows;
     }
 
-    /// Read XAA IdP connection status (from settings + env-based keychain stubs).
+    /// Read XAA IdP connection status (from settings + file-based secure storage).
     [[nodiscard]] XaaIdpStatus read_xaa_idp_status() const {
         XaaIdpStatus s;
         if (!const_cast<McpCommand*>(this)->ensure_config_loaded()) return s;
@@ -429,13 +435,15 @@ private:
         s.issuer = xaa.issuer;
         s.client_id = xaa.client_id;
         s.callback_port = xaa.callback_port;
-        if (const char* secret = std::getenv("MCP_XAA_IDP_CLIENT_SECRET");
-            secret && secret[0] != '\0') {
-            s.has_client_secret = true;
-        }
-        if (const char* token = std::getenv("MCP_XAA_IDP_ID_TOKEN");
-            token && token[0] != '\0') {
+        // Read client_secret from file-based secure storage (~/.config/cc-repl/xaa/idp_tokens.json)
+        auto secret = cc::services::mcp::get_idp_client_secret(xaa.issuer);
+        s.has_client_secret = secret.has_value();
+        // Read cached id_token from file-based secure storage
+        auto token = cc::services::mcp::get_cached_idp_id_token(xaa.issuer);
+        if (token && !token->empty()) {
             s.has_id_token = true;
+            auto exp = cc::services::mcp::jwt_exp(*token);
+            if (exp) s.id_token_expires_epoch = static_cast<std::uint64_t>(*exp);
         }
         return s;
     }
@@ -667,8 +675,19 @@ private:
         config.config_scope = scope;
 
         if (request_client_secret && config.oauth && config.oauth->client_id) {
-            // Persist through the auth layer keychain entry (stub path).
-            (void)std::getenv("MCP_CLIENT_SECRET");
+            // Persist client_secret to file-based secure storage.
+            // For XAA IdP servers, store under the IdP issuer key.
+            if (const char* secret_env = std::getenv("MCP_CLIENT_SECRET");
+                secret_env && secret_env[0] != '\0') {
+                if (config.oauth->xaa) {
+                    // Use the XAA IdP issuer as the storage key
+                    auto xaa_cfg = read_xaa_idp_status();
+                    if (xaa_cfg.configured) {
+                        cc::services::mcp::save_idp_client_secret(
+                            xaa_cfg.issuer, secret_env);
+                    }
+                }
+            }
         }
 
         auto& servers = config_manager_.settings_mut().mcp_servers;
@@ -1035,7 +1054,11 @@ private:
 
         auto old = read_xaa_idp_status();
         std::string old_issuer = std::move(old.issuer);
-        (void)old_issuer;  // used by keychain clear path in auth module
+
+        // If the issuer is changing, clear cached tokens for the old issuer
+        if (!old_issuer.empty() && old_issuer != *issuer) {
+            cc::services::mcp::clear_idp_id_token(old_issuer);
+        }
 
         auto& xaa = config_manager_.settings_mut().xaa_idp;
         xaa.issuer = *issuer;
@@ -1048,8 +1071,8 @@ private:
         cached_xaa_status_.reset();
 
         if (secret) {
-            // services/mcp/auth.cppm keychain save — delegated to auth module.
-            (void)secret;
+            // Save client_secret to file-based secure storage
+            cc::services::mcp::save_idp_client_secret(*issuer, *secret);
         }
         return CommandResult::success(
             std::format("XAA IdP connection configured for {}", *issuer));
@@ -1083,16 +1106,22 @@ private:
         }
 
         if (inject_token) {
-            std::uint64_t approx_exp = std::chrono::duration_cast<std::chrono::seconds>(
-                (std::chrono::system_clock::now() + std::chrono::hours(1)).time_since_epoch()
-            ).count();
+            // Cache the injected id_token to file-based secure storage.
+            // save_idp_id_token_from_jwt parses the JWT exp claim for real TTL.
+            auto expires_at_ms = cc::services::mcp::save_idp_id_token_from_jwt(
+                status.issuer, *inject_token);
+            cached_xaa_status_.reset();
+            std::uint64_t approx_exp = static_cast<std::uint64_t>(
+                expires_at_ms / 1000);
             return CommandResult::success(std::format(
                 "id_token cached for {} (expires {})",
                 status.issuer, approx_exp));
         }
 
         if (force) {
-            // Clear cached id_token via auth module
+            // Clear cached id_token so the login flow re-acquires from the IdP
+            cc::services::mcp::clear_idp_id_token(status.issuer);
+            cached_xaa_status_.reset();
         }
 
         if (status.has_id_token && !force) {
@@ -1138,7 +1167,12 @@ private:
 
         auto old = read_xaa_idp_status();
         std::string old_issuer = std::move(old.issuer);
-        (void)old_issuer;  // used by auth module for keychain clear
+
+        // Clear cached id_token and client_secret for the old issuer
+        if (!old_issuer.empty()) {
+            cc::services::mcp::clear_idp_id_token(old_issuer);
+            cc::services::mcp::clear_idp_client_secret(old_issuer);
+        }
 
         auto& xaa = config_manager_.settings_mut().xaa_idp;
         xaa = {};

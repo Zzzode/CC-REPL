@@ -517,6 +517,12 @@ struct MessagesListInput {
     /// messages are rendered.  Toggled by user (Ctrl+E in transcript mode).
     bool                            show_all_in_transcript = false;
 
+    /// TS REF: Messages.tsx L382-389 + L395-419  isStreamingThinkingVisible.
+    /// When true, build_visible_rows hides ALL completed thinking rows —
+    /// only the streaming-thinking tail stays visible (TS: lastThinkingBlockId
+    /// = 'streaming' → every completed thinking block fails the match).
+    bool                            streaming_thinking_globally_visible = false;
+
     /// TS REF: Messages.tsx expandedKeys (L563) + expandKey (L725-727).
     /// Set of "expand keys" that the user has clicked/pressed-Enter on to
     /// reveal full content.  Keys are tool_name strings for tool_use/tool_result
@@ -1260,6 +1266,11 @@ inline auto build_visible_rows(MessagesListInput& input) -> std::vector<VisibleR
                 const bool is_streaming = (i == input.streaming_tail_row &&
                     input.streaming_tail_row < input.rows.size());
                 if (!is_selected_row && !is_streaming) {
+                    // TS REF: Messages.tsx L395-419 — when streaming thinking
+                    // is globally visible, hide ALL completed thinking rows
+                    // (TS: lastThinkingBlockId = 'streaming' means no
+                    // completed thinking block matches → all are hidden).
+                    if (input.streaming_thinking_globally_visible) continue;
                     if (auto* opts = std::get_if<thinking_message::ThinkingMessageOptions>(
                             &input.rows[i])) {
                         using TM = thinking_message::ThinkingState;
@@ -1727,6 +1738,16 @@ inline constexpr std::size_t kVirtualThreshold = 80;
                     ? !prev_was_user
                     : (is_turn_boundary ? true : next_add_margin);
                 prev_was_user = is_user_row;
+
+                // TS REF: Messages.tsx L714-719 — streaming thinking tail has
+                // addMargin={false}.  When this is the last visible row and
+                // it's a thinking block while streaming thinking is globally
+                // visible, force 0 top margin (flush against preceding row).
+                if (shape == S::AssistantThinking &&
+                    vi == visible.size() - 1 &&
+                    input.streaming_thinking_globally_visible) {
+                    add_margin_for_vi[vi] = false;
+                }
 
                 if (is_turn_boundary) {
                     next_add_margin = !is_user_row;
@@ -2424,9 +2445,18 @@ inline auto render_payload_row(const MessagesListInput& input,
             // lifts the "hide on complete" guard so the collapsed label is
             // visible.  `is_transcript_mode` (full thinking content) is
             // driven by the user's Ctrl+O transcript toggle.
+            //
+            // TS REF: Messages.tsx L714-719 — streaming thinking tail is
+            // ALWAYS expanded (isTranscriptMode={true}).  When this row is
+            // the streaming tail OR thinking is globally visible (meaning
+            // a streaming-thinking tail exists somewhere), force transcript
+            // mode so the full body is shown rather than the collapsed
+            // "∴ Thinking (ctrl+o to expand)" label.
+            const bool thinking_force_expanded = is_streaming_tail ||
+                input.streaming_thinking_globally_visible;
             Element el = thinking_message::RenderThinkingMessageFaithful(
                 o->data,
-                /*is_transcript_mode=*/input.is_transcript_mode,
+                /*is_transcript_mode=*/input.is_transcript_mode || thinking_force_expanded,
                 /*verbose=*/is_row_expanded(input, row_idx),
                 /*add_margin=*/add_margin);
             (void)frame_count;
@@ -2829,9 +2859,18 @@ constexpr std::size_t kMaxRenderedLastN = 80;   // last-N render cap
             //   - User rows: first user in turn → true, continuation → false (⎿)
             //   - Tool result rows: false (flush against preceding tool_use)
             //   - All other rows: true (TS: !hasMetadata = true in REPL mode)
-            const bool row_add_margin = is_user_row
+            bool row_add_margin = is_user_row
                 ? !prev_was_user
                 : (is_tool_result ? false : true);
+            // TS REF: Messages.tsx L714-719 — streaming thinking tail has
+            // addMargin={false} (sits flush against preceding row).  When
+            // this is the last visible row and it's a thinking block while
+            // streaming thinking is globally visible, force 0 top margin.
+            if (shape == S::AssistantThinking &&
+                vi == visible.size() - 1 &&
+                input.streaming_thinking_globally_visible) {
+                row_add_margin = false;
+            }
             prev_was_user = is_user_row;
 
             rows.push_back(detail::render_payload_row(

@@ -2144,25 +2144,92 @@ private:
 class LocalXaaIdpServer {
 public:
     LocalXaaIdpServer() {
-        server_.Post("/device/code", [this](const httplib::Request& req, httplib::Response& res) {
+        // PRM discovery (RFC 9728): GET /mcp/.well-known/oauth-protected-resource
+        server_.Get("/mcp/.well-known/oauth-protected-resource",
+            [this](const httplib::Request& req, httplib::Response& res) {
+            (void)req;
             {
                 std::lock_guard lock(mutex_);
-                device_code_request_body_ = req.body;
-                ++device_code_request_count_;
+                ++prm_request_count_;
             }
             cv_.notify_all();
+            auto base = base_url();
+            auto body = std::format(R"({{
+                "resource": "{}/mcp",
+                "authorization_servers": ["{}"]
+            }})", base, base);
+            res.set_content(body, "application/json");
+        });
 
-            if (req.body.find(R"("client_id":"idp-client-1")") == std::string::npos ||
-                req.body.find(R"("scope":"openid profile mcp")") == std::string::npos) {
-                res.status = 400;
-                res.set_content(R"({"error":"invalid_request"})", "application/json");
-                return;
+        // AS metadata (RFC 8414): GET /.well-known/oauth-authorization-server
+        server_.Get("/.well-known/oauth-authorization-server",
+            [this](const httplib::Request& req, httplib::Response& res) {
+            (void)req;
+            {
+                std::lock_guard lock(mutex_);
+                ++as_metadata_request_count_;
             }
-            res.set_content(R"({
-              "access_token": "xaa-access",
-              "refresh_token": "xaa-refresh",
-              "org_id": "org-1"
-            })", "application/json");
+            cv_.notify_all();
+            auto base = base_url();
+            auto body = std::format(R"({{
+                "issuer": "{}",
+                "token_endpoint": "{}/token",
+                "grant_types_supported": [
+                    "urn:ietf:params:oauth:grant-type:jwt-bearer",
+                    "urn:ietf:params:oauth:grant-type:token-exchange"
+                ],
+                "token_endpoint_auth_methods_supported": ["client_secret_basic"]
+            }})", base, base);
+            res.set_content(body, "application/json");
+        });
+
+        // Token endpoint: handles both RFC 8693 (token-exchange) and RFC 7523 (jwt-bearer)
+        server_.Post("/token",
+            [this](const httplib::Request& req, httplib::Response& res) {
+            auto body = req.body;
+            {
+                std::lock_guard lock(mutex_);
+                if (body.find("grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Atoken-exchange")
+                    != std::string::npos) {
+                    // RFC 8693 Token Exchange (id_token → ID-JAG)
+                    ++token_exchange_count_;
+                    token_exchange_body_ = body;
+                    cv_.notify_all();
+
+                    // Verify expected fields
+                    if (body.find("subject_token=fake-id-token-for-testing") == std::string::npos ||
+                        body.find("client_id=idp-client-1") == std::string::npos) {
+                        res.status = 400;
+                        res.set_content(R"({"error":"invalid_request"})", "application/json");
+                        return;
+                    }
+
+                    res.set_content(R"({
+                        "access_token": "fake-id-jag-for-testing",
+                        "issued_token_type": "urn:ietf:params:oauth:token-type:id-jag",
+                        "expires_in": 3600,
+                        "scope": "openid profile mcp"
+                    })", "application/json");
+                } else if (body.find("grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer")
+                    != std::string::npos) {
+                    // RFC 7523 JWT Bearer Grant (ID-JAG → access_token)
+                    ++jwt_bearer_count_;
+                    jwt_bearer_body_ = body;
+                    jwt_bearer_auth_header_ = req.get_header_value("Authorization");
+                    cv_.notify_all();
+
+                    res.set_content(R"({
+                        "access_token": "xaa-access",
+                        "refresh_token": "xaa-refresh",
+                        "token_type": "Bearer",
+                        "expires_in": 3600,
+                        "scope": "openid profile mcp"
+                    })", "application/json");
+                } else {
+                    res.status = 400;
+                    res.set_content(R"({"error":"unsupported_grant_type"})", "application/json");
+                }
+            }
         });
 
         port_ = server_.bind_to_any_port("127.0.0.1");
@@ -2185,15 +2252,47 @@ public:
         return std::format("http://127.0.0.1:{}", port_);
     }
 
-    [[nodiscard]] std::string device_code_request_body() const {
+    // ── Request counters and bodies for test assertions ──────────────────
+
+    [[nodiscard]] int prm_request_count() const {
         std::lock_guard lock(mutex_);
-        return device_code_request_body_;
+        return prm_request_count_;
     }
 
-    [[nodiscard]] bool wait_for_device_code_request(std::chrono::milliseconds timeout = std::chrono::seconds(3)) {
+    [[nodiscard]] int as_metadata_request_count() const {
+        std::lock_guard lock(mutex_);
+        return as_metadata_request_count_;
+    }
+
+    [[nodiscard]] int token_exchange_count() const {
+        std::lock_guard lock(mutex_);
+        return token_exchange_count_;
+    }
+
+    [[nodiscard]] int jwt_bearer_count() const {
+        std::lock_guard lock(mutex_);
+        return jwt_bearer_count_;
+    }
+
+    [[nodiscard]] std::string token_exchange_body() const {
+        std::lock_guard lock(mutex_);
+        return token_exchange_body_;
+    }
+
+    [[nodiscard]] std::string jwt_bearer_body() const {
+        std::lock_guard lock(mutex_);
+        return jwt_bearer_body_;
+    }
+
+    [[nodiscard]] std::string jwt_bearer_auth_header() const {
+        std::lock_guard lock(mutex_);
+        return jwt_bearer_auth_header_;
+    }
+
+    [[nodiscard]] bool wait_for_jwt_bearer(std::chrono::milliseconds timeout = std::chrono::seconds(3)) {
         std::unique_lock lock(mutex_);
         return cv_.wait_for(lock, timeout, [this] {
-            return device_code_request_count_ > 0;
+            return jwt_bearer_count_ > 0;
         });
     }
 
@@ -2203,8 +2302,14 @@ private:
     std::thread thread_;
     mutable std::mutex mutex_;
     std::condition_variable cv_;
-    int device_code_request_count_{0};
-    std::string device_code_request_body_;
+
+    int prm_request_count_{0};
+    int as_metadata_request_count_{0};
+    int token_exchange_count_{0};
+    int jwt_bearer_count_{0};
+    std::string token_exchange_body_;
+    std::string jwt_bearer_body_;
+    std::string jwt_bearer_auth_header_;
 };
 
 } // namespace
@@ -5200,13 +5305,19 @@ TEST(McpAuth, PerformsXaaIdpLoginAndStoresTokens) {
     {
         std::ofstream idp_config(root / ".cc-repl" / "xaa-idp.txt");
         idp_config << "idp_url=" << server.base_url() << "\n";
+        idp_config << "idp_issuer=" << server.base_url() << "\n";
+        idp_config << "idp_token_endpoint=" << server.base_url() << "/token\n";
+        idp_config << "idp_id_token=fake-id-token-for-testing\n";
         idp_config << "client_id=idp-client-1\n";
+        idp_config << "client_secret=as-secret-1\n";
+        idp_config << "idp_client_id=idp-client-1\n";
         idp_config << "scope=openid profile mcp\n";
     }
 
     cc::services::mcp::McpServerConfig auth_config;
     auth_config.type = "http";
-    auth_config.url = "https://mcp.example.test/mcp";
+    // Point to mock server so PRM discovery succeeds
+    auth_config.url = server.base_url() + "/mcp";
     auth_config.oauth = cc::services::mcp::McpOAuthConfig{
         .client_id = "as-client-1",
         .xaa = true,
@@ -5222,12 +5333,34 @@ TEST(McpAuth, PerformsXaaIdpLoginAndStoresTokens) {
         std::nullopt,
         true);
     ASSERT_TRUE(result.has_value()) << result.error().message();
-    EXPECT_FALSE(authorization_url_called);
-    ASSERT_TRUE(server.wait_for_device_code_request());
-    const auto request_body = server.device_code_request_body();
-    EXPECT_NE(request_body.find(R"("client_id":"idp-client-1")"), std::string::npos) << request_body;
-    EXPECT_NE(request_body.find(R"("scope":"openid profile mcp")"), std::string::npos) << request_body;
 
+    // No browser consent screen should have been shown — id_token was provided
+    EXPECT_FALSE(authorization_url_called);
+
+    // Verify the full XAA pipeline executed
+    EXPECT_GE(server.prm_request_count(), 1)
+        << "PRM discovery should have been called";
+    EXPECT_GE(server.as_metadata_request_count(), 1)
+        << "AS metadata discovery should have been called";
+    EXPECT_GE(server.token_exchange_count(), 1)
+        << "IdP token exchange (RFC 8693) should have been called";
+    EXPECT_GE(server.jwt_bearer_count(), 1)
+        << "AS jwt-bearer grant (RFC 7523) should have been called";
+
+    // Verify the token exchange sent our fake id_token and correct client_id
+    const auto exchange_body = server.token_exchange_body();
+    EXPECT_NE(exchange_body.find("subject_token=fake-id-token-for-testing"), std::string::npos)
+        << exchange_body;
+    EXPECT_NE(exchange_body.find("client_id=idp-client-1"), std::string::npos)
+        << exchange_body;
+    EXPECT_NE(exchange_body.find("requested_token_type=urn%3Aietf%3Aparams%3Aoauth%3Atoken-type%3Aid-jag"),
+        std::string::npos) << exchange_body;
+
+    // Verify the jwt-bearer grant used HTTP Basic auth with AS credentials
+    const auto auth_header = server.jwt_bearer_auth_header();
+    EXPECT_NE(auth_header.find("Basic "), std::string::npos) << auth_header;
+
+    // Verify token persistence
     const auto server_key = cc::services::mcp::get_server_key("xaa-fixture", auth_config);
     auto sanitize_key = [](std::string_view key) {
         std::string sanitized;

@@ -88,6 +88,22 @@ struct CommandContext {
     void* runtime_state = nullptr;
     RuntimeMessageProvider compact_message_provider = nullptr;
     RuntimeCompactApplier compact_applier = nullptr;
+
+    // AppState access bridge (set by app.cppm)
+    void* app_store = nullptr;  // opaque: cc::state::AppStore*
+    using StateDispatchFn = void(*)(void* store, int action_type, const void* payload);
+    StateDispatchFn dispatch_fn = nullptr;
+    using StateGetFn = const void*(*)(void* store);
+    StateGetFn get_state_fn = nullptr;
+
+    // Convenience helpers
+    void dispatch_action(int action_type, const void* payload = nullptr) const {
+        if (dispatch_fn && app_store) dispatch_fn(app_store, action_type, payload);
+    }
+    const void* get_app_state() const {
+        if (get_state_fn && app_store) return get_state_fn(app_store);
+        return nullptr;
+    }
 };
 
 // ============================================================

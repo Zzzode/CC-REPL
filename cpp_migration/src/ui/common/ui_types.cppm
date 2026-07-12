@@ -78,9 +78,9 @@ struct AgentValidationResult {
 // From: src/components/PromptInput/inputModes.ts
 // Also: src/types/textInputTypes.ts (PromptInputMode type)
 //
-// UNIFIED CANONICAL ENUM — replaces 6 incompatible definitions scattered
+// UNIFIED CANONICAL ENUM — replaces incompatible definitions scattered
 // across the codebase (text_input.cppm, prompt_input_full.cppm,
-// prompt_input_footer.cppm, repl_screen.cppm, mode_indicator.cppm,
+// prompt_input_footer.cppm, repl_screen.cppm,
 // and the previous 3-value stub here).
 //
 // TS REF: src/types/textInputTypes.ts:265 — TS PromptInputMode is only
@@ -113,39 +113,10 @@ enum class PromptInputMode {
                         ///  separately from HistorySearch).
 };
 
-enum class HistoryMode {
-    Prompt,
-    Bash,
-};
-
-/// Prepends the mode-specific character prefix to raw input.
-/// Only Bash mode prepends '!'; all other modes from the unified
-/// PromptInputMode enum fall through to returning the raw input.
-/// TS REF: src/components/PromptInput/inputModes.ts:4-14
-[[nodiscard]] inline std::string prepend_mode_char(std::string_view input,
-                                                   PromptInputMode mode) {
-    switch (mode) {
-        case PromptInputMode::Bash: return std::string("!") + std::string(input);
-        default: return std::string(input);
-    }
-}
-
-/// Deduces the history mode from the leading prefix of user input.
-[[nodiscard]] inline HistoryMode get_mode_from_input(std::string_view input) {
-    if (!input.empty() && input.front() == '!') return HistoryMode::Bash;
-    return HistoryMode::Prompt;
-}
-
-/// Strips the mode prefix from input when present, otherwise returns input as-is.
-[[nodiscard]] inline std::string get_value_from_input(std::string_view input) {
-    if (get_mode_from_input(input) == HistoryMode::Prompt) return std::string(input);
-    return std::string(input.substr(1));
-}
-
-/// Returns true when `input` consists of exactly one mode-prefix character.
-[[nodiscard]] inline bool is_input_mode_char(std::string_view input) {
-    return input == "!";
-}
+// NOTE: inputModes.ts helpers (prependModeCharacterToInput, getModeFromInput,
+// getValueFromInput, isInputModeCharacter) live in cc::ui::design::figures —
+// that module is the single source of truth for prompt-prefix glyphs and
+// mode-detection utilities.  See figures.cppm PromptMode enum + 4 functions.
 
 // ============================================================
 // From: src/components/messages/nullRenderingAttachments.ts

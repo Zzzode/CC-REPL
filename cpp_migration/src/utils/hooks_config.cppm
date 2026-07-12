@@ -126,6 +126,26 @@ private:
     mutable std::optional<std::vector<IndividualHookConfig>> cached_hooks_;
 };
 
+// ── HooksConfigManager implementation ──────────────────────────────────────
+
+inline std::vector<IndividualHookConfig>
+HooksConfigManager::get_all_hooks() const {
+    // TS REF: hooksConfigManager.ts getHooks()
+    // Returns all hooks from all sources (user settings, project settings,
+    // skill hooks, plugin hooks).  The full loading pipeline (settings file
+    // parsing, skill frontmatter scanning, plugin hook registration) is not
+    // yet ported, so this returns the cached set which is empty until
+    // hooks are loaded.  The UI handles an empty list gracefully.
+    std::shared_lock lock(mutex_);
+    if (cached_hooks_) return *cached_hooks_;
+    return {};
+}
+
+inline void HooksConfigManager::invalidate_cache() {
+    std::unique_lock lock(mutex_);
+    cached_hooks_.reset();
+}
+
 // =========================================================================
 // FileWatcher (from fileChangedWatcher.ts)
 // Watches files for changes and dispatches FileChanged/CwdChanged hooks

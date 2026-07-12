@@ -103,6 +103,8 @@ import cc.constants.constants;
 import cc.utils.model.model;
 import cc.hooks.lifecycle_hooks;
 import cc.ui.common.declared_cursor;
+import cc.state.store;
+import cc.state.app_state;
 
 export namespace cc::ui {
 
@@ -272,8 +274,118 @@ struct AutocompleteToken {
     return VoidResult{};
 }
 
+// ============================================================
+// AppStore bridge for CommandContext
+// ============================================================
+
+/// dispatch_fn implementation: casts void* back to AppStore*, int back to
+/// ActionType, and dispatches.  Payload types are inferred from the action
+/// type (the common bool / optional-string / enum cases); anything
+/// unrecognised falls back to a payload-less dispatch.
+inline void app_store_dispatch(void* store_ptr, int action_type_int,
+                               const void* payload) {
+    using cc::state::ActionType;
+    auto* store = static_cast<cc::state::AppStore*>(store_ptr);
+    if (!store) return;
+    const auto at = static_cast<ActionType>(action_type_int);
+
+    using cc::state::Action;
+    switch (at) {
+        // ── Bool-payload actions ──────────────────────────────────
+        case ActionType::SetLoading:
+        case ActionType::SetStreaming:
+        case ActionType::SetVerbose:
+        case ActionType::SetBriefOnly:
+        case ActionType::SetFastMode:
+        case ActionType::ToggleCompactMode:
+        case ActionType::ToggleThinking:
+            if (payload) {
+                store->dispatch(Action{at, *static_cast<const bool*>(payload)});
+            } else {
+                store->dispatch(Action{at});
+            }
+            break;
+
+        // ── String-payload actions ────────────────────────────────
+        // Reducer expects std::string directly (not optional).
+        case ActionType::SetError:
+        case ActionType::GrantPermission:
+        case ActionType::RevokePermission:
+        case ActionType::SetWorkingDirectory:
+        case ActionType::SetOutputStyle:
+        case ActionType::AddNotification:
+        case ActionType::DismissNotification:
+            if (payload) {
+                store->dispatch(Action{at,
+                    *static_cast<const std::string*>(payload)});
+            } else {
+                store->dispatch(Action{at});
+            }
+            break;
+
+        // ── Optional-string-payload actions ───────────────────────
+        // Reducer expects std::optional<std::string>; caller passes a
+        // std::string* which we wrap.
+        case ActionType::SetStatusLineText:
+        case ActionType::SetSpinnerTip:
+        case ActionType::SetSlashCommand:
+        case ActionType::SetMainLoopModel:
+        case ActionType::SetAdvisorModel:
+        case ActionType::SetEffortValue:
+            if (payload) {
+                store->dispatch(Action{at,
+                    std::optional<std::string>{*static_cast<const std::string*>(payload)}});
+            } else {
+                store->dispatch(Action{at, std::optional<std::string>{}});
+            }
+            break;
+
+        // ── ExpandedView enum payload ─────────────────────────────
+        case ActionType::SetExpandedView:
+            if (payload) {
+                store->dispatch(Action{at,
+                    *static_cast<const cc::state::ExpandedView*>(payload)});
+            } else {
+                store->dispatch(Action{at, cc::state::ExpandedView::None});
+            }
+            break;
+
+        // ── PermissionMode enum payload ──────────────────────────
+        case ActionType::SetPermissionMode:
+            if (payload) {
+                store->dispatch(Action{at,
+                    *static_cast<const cc::state::PermissionMode*>(payload)});
+            } else {
+                store->dispatch(Action{at, cc::state::PermissionMode::Default});
+            }
+            break;
+
+        // ── Payload-less actions ──────────────────────────────────
+        case ActionType::ClearMessages:
+        case ActionType::ResetSession:
+        case ActionType::ClearError:
+        case ActionType::SaveState:
+        case ActionType::LoadState:
+        case ActionType::ClearSavedState:
+        default:
+            store->dispatch(Action{at});
+            break;
+    }
+}
+
+/// get_state_fn implementation: returns a thread-local snapshot of AppState
+/// so the returned pointer stays valid until the next call on this thread.
+inline const void* app_store_get_state(void* store_ptr) {
+    auto* store = static_cast<cc::state::AppStore*>(store_ptr);
+    if (!store) return nullptr;
+    thread_local static cc::state::AppState snapshot;
+    snapshot = store->get_state();
+    return &snapshot;
+}
+
 [[nodiscard]] inline CommandContext command_context_for_engine(
     core::QueryEngine* engine,
+    cc::state::AppStore* app_store = nullptr,
     std::string cwd = {}) {
     if (cwd.empty() && engine) cwd = engine->working_directory();
     return CommandContext{
@@ -283,6 +395,9 @@ struct AutocompleteToken {
         .runtime_state = engine,
         .compact_message_provider = compact_runtime_messages,
         .compact_applier = compact_runtime_apply,
+        .app_store = static_cast<void*>(app_store),
+        .dispatch_fn = app_store ? app_store_dispatch : nullptr,
+        .get_state_fn = app_store ? app_store_get_state : nullptr,
     };
 }
 
@@ -687,6 +802,13 @@ private:
     // (see OnEvent + HandleSubmit) prunes entries whose placeholder is no
     // longer in the text.  TS REF: PromptInput.tsx L144 + L1151-1200.
     std::unordered_map<int, ImageBlock> pasted_contents_;
+    // Pasted clipboard TEXT content keyed by paste-id.  When a >10K char
+    // text paste is truncated, the middle (elided) content is stored here
+    // so that HandleSubmit can expand [...Truncated text #N] refs back to
+    // the full text before sending to the model.
+    // TS REF: inputPaste.ts maybeTruncateInput — stores {id, type: 'text',
+    //   content: placeholderContent} in pastedContents.
+    std::unordered_map<int, std::string> pasted_text_contents_;
     int next_paste_id_ = 1;
     // Async paste: the placeholder "[Image #N]" is inserted into input_text
     // immediately on Ctrl+v (instant UI feedback), and the actual clipboard
@@ -695,6 +817,11 @@ private:
     std::mutex paste_mutex_;
     std::unordered_map<int, ImageBlock> pending_paste_results_;  // bg→UI
     std::unordered_set<int> pending_paste_failures_;             // bg→UI
+    // Async text paste results: raw clipboard text keyed by paste-id.
+    // Posted by SpawnPasteWorker when the clipboard has no image but does
+    // have text.  ProcessCompletedPastes replaces the "[Image #N]"
+    // placeholder with the text (truncating if >10K).
+    std::unordered_map<int, std::string> pending_paste_text_results_;  // bg→UI
     // Track ids whose SpawnPasteWorker thread is still in flight (read hasn't
     // posted to pending_paste_results_/failures_ yet). HandleSubmit waits on
     // these so a fast Ctrl+V→Enter doesn't submit before the image data lands
@@ -725,12 +852,35 @@ private:
         bool exec_done = false;      ///< ToolExecutionEnd: tool has finished executing
         bool is_error = false;
     };
+    // TS REF: src/utils/messages.ts L2921-2925  StreamingThinking type
+    //   { thinking, isStreaming, streamingEndedAt }
+    // streaming_ended_at enables the 30s grace period after thinking stops
+    // (TS REF: Messages.tsx L382-389  isStreamingThinkingVisible).
     struct StreamingThinkingPreview {
         std::string text;
         bool complete = false;
+        std::optional<std::chrono::steady_clock::time_point> streaming_ended_at;
     };
     std::map<std::uint32_t, StreamingToolPreview> streaming_tools_;
     std::map<std::uint32_t, StreamingThinkingPreview> streaming_thinking_;
+
+    // TS REF: Messages.tsx L382-389  isStreamingThinkingVisible useMemo.
+    // Returns true when any streaming thinking block is still being streamed,
+    // OR when a recently-completed thinking block is within the 30-second
+    // grace period (TS: Date.now() - streamingEndedAt < 30000).
+    // Drives G3 (hide all completed thinking when streaming visible) and
+    // keeps the tail visible after ContentBlockStop fires.
+    bool is_streaming_thinking_visible() const {
+        auto now = std::chrono::steady_clock::now();
+        for (const auto& [idx, stp] : streaming_thinking_) {
+            if (!stp.complete) return true;
+            if (stp.streaming_ended_at &&
+                std::chrono::duration_cast<std::chrono::seconds>(
+                    now - *stp.streaming_ended_at).count() < 30)
+                return true;
+        }
+        return false;
+    }
     // P0-2 Stage 1: per-turn dedup tracker for ContentBlock index transitions.
     // One per App (one instantiation per repl lifetime; cleared on each turn start.
     cc::ui::messages::pipeline::DedupTracker event_dedup_;
@@ -767,6 +917,10 @@ private:
     // Cost threshold hook — listener ID + shown guard to avoid re-prompting.
     int cost_listener_id_ = -1;
     bool cost_threshold_shown_ = false;
+
+    // Redux-like AppState store (commands dispatch actions / read state via
+    // CommandContext.app_store bridge). Created in constructor.
+    std::shared_ptr<cc::state::AppStore> app_store_;
 
     // Statusline runner — async execution of user-configurable shell command.
     // Triggered on mount, after messages change, and when settings change.
@@ -1852,14 +2006,9 @@ private:
 
     void OpenAgentsMenu() {
         LoadAgentCardsForMenu();
-        screen_state_->mode = repl::ReplMode::Normal;
-        screen_state_->active_local_jsx_command = true;
-        screen_state_->active_local_jsx_command_name = "agents";
-        screen_state_->active_local_jsx_command_args.clear();
-        screen_state_->active_agents_selection_position = 0;
-        RefreshAgentsMenuOutput();
-        screen_state_->scroll_offset = 0;
-        screen_state_->scroll_pinned_to_bottom = false;
+        screen_state_->mode = repl::ReplMode::AgentsView;
+        screen_state_->agents_component.reset();
+        this->TriggerStatuslineUpdate();
         PostRenderEvent();
     }
 
@@ -2131,7 +2280,8 @@ public:
           cmd_registry_(cmd_registry),
           storage_(storage),
           on_exit_(std::move(on_exit)),
-          screen_state_(std::make_shared<repl::ReplScreenState>()) {
+          screen_state_(std::make_shared<repl::ReplScreenState>()),
+          app_store_(cc::state::create_app_store()) {
 
         // ── M7: Register default dialog renderers in the registry ────
         // Overlay (ToolPermission), plus any future default slots.
@@ -2181,6 +2331,8 @@ public:
         cc::ui::app_dialogs::register_bottom_dialog_renderers(
             screen_state_->dialog_renderers);
         cc::ui::app_dialogs::register_all_dialog_renderers(
+            screen_state_->dialog_renderers);
+        cc::ui::app_dialogs::register_hooks_dialog_renderer(
             screen_state_->dialog_renderers);
 
         // Seed a stable per-session welcome-tip index (deterministic hash of the
@@ -2624,10 +2776,13 @@ public:
                 // NOT a slash command.  Produces <bash-input>/<bash-stdout>
                 // local-command rows, never a Bash tool-use card.
                 this->RunLocalBashCommand(stripped);
-                // Persist Bash mode so the empty-input prefix shows '!' after
-                // submit (TS parity: inputMode stays 'bash' after a '!cmd'
-                // submission, so the next empty input displays the bash glyph).
-                screen_state_->input_mode = repl::InputMode::Bash;
+                // TS REF: REPL.tsx:3359 — setInputMode('prompt') after EVERY
+                // submit (including bash).  The empty-input prefix resets to
+                // '❯' so the user must explicitly type '!' again to enter
+                // bash mode.  Previous CPP code persisted Bash mode, which
+                // was a deliberate divergence incorrectly labeled as
+                // "TS parity".  Corrected to match TS exactly.
+                screen_state_->input_mode = repl::InputMode::Normal;
             }
             // Bare '!' with no trailing text is a no-op (mode-change only,
             // handled by the single-char interceptor in OnTextEvent).
@@ -2668,7 +2823,23 @@ public:
         }
         pasted_contents_.clear();
 
-        query_thread_ = std::jthread([this, text, attachments = std::move(attachments)](std::stop_token st) {
+        // TS REF: history.ts L81 expandPastedTextRefs + inputPaste.ts L61
+        //   maybeTruncateInput — before sending the user message to the model,
+        //   expand any [...Truncated text #N] / [Pasted text #N] refs back to
+        //   their full stored content.  Image refs (#N in pasted_contents_) are
+        //   left alone — they become content blocks, not inline text.
+        //
+        // The expansion uses reverse-order splice so placeholder-like strings
+        // inside pasted content are never confused for real refs.
+        std::string expanded_text = cc::utils::expand_pasted_text_refs(
+            text, [this](int id) -> std::optional<std::string> {
+                auto it = pasted_text_contents_.find(id);
+                if (it != pasted_text_contents_.end()) return it->second;
+                return std::nullopt;  // image or unknown id
+            });
+        pasted_text_contents_.clear();
+
+        query_thread_ = std::jthread([this, text = std::move(expanded_text), attachments = std::move(attachments)](std::stop_token st) {
             core::QueryOptions opts;
             // Attach pasted images (ctrl+v) whose [Image #N] refs were still
             // in the input text at submit time.
@@ -2744,6 +2915,7 @@ public:
                             streaming_thinking_[e.index] = StreamingThinkingPreview{
                                 .text = thinking->thinking,
                                 .complete = false,
+                                .streaming_ended_at = std::nullopt,
                             };
                             screen_state_->spinner_mode = repl::SpinnerMode::Thinking;
                         }
@@ -2774,8 +2946,14 @@ public:
                         std::lock_guard lk(result_mutex_);
                         if (auto tool = streaming_tools_.find(e.index); tool != streaming_tools_.end())
                             tool->second.complete = true;
-                        if (auto thinking = streaming_thinking_.find(e.index); thinking != streaming_thinking_.end())
+                        if (auto thinking = streaming_thinking_.find(e.index); thinking != streaming_thinking_.end()) {
                             thinking->second.complete = true;
+                            // TS REF: Messages.tsx L382-389 — record when
+                            // thinking stopped streaming so the 30s grace
+                            // period can keep it visible after completion.
+                            thinking->second.streaming_ended_at =
+                                std::chrono::steady_clock::now();
+                        }
                     } else if constexpr (std::is_same_v<T, core::ToolExecutionStart>) {
                         apply_event = event_dedup_.should_accept_exec_start(e.tool_use_id);
                         if (!apply_event) return;
@@ -2943,7 +3121,7 @@ public:
             return;
         }
 
-        if (normalized == "/agents") {
+        if (normalized == "/agents" || normalized == "/agents list") {
             this->OpenAgentsMenu();
             return;
         }
@@ -3009,7 +3187,7 @@ public:
         if (cmd_registry_) {
             auto result = cmd_registry_->execute(
                 command,
-                command_context_for_engine(engine_, screen_state_->cwd));
+                command_context_for_engine(engine_, app_store_.get(), screen_state_->cwd));
             if (result) {
                 if (result->status == CommandStatus::Injected) {
                     this->HandleSubmit(result->message);
@@ -3023,6 +3201,16 @@ public:
                 // Commands produce metadata strings (e.g. "CREATE_AGENT",
                 // "UI:plugins:manage-plugins") and we map them to queue pushes.
                 if (result->metadata && !result->metadata->empty()) {
+                    // /permissions with no args → open SettingsView on Permissions tab.
+                    if (*result->metadata == "UI:permissions") {
+                        // 3 = SettingsTabId::Permissions (see settings_dialog.cppm:60)
+                        screen_state_->settings_initial_tab = 3;
+                        screen_state_->settings_component.reset();
+                        screen_state_->mode = repl::ReplMode::SettingsView;
+                        this->TriggerStatuslineUpdate();
+                        PostRenderEvent();
+                        return;
+                    }
                     namespace dtrig = cc::ui::dialogs::triggers;
                     auto enqueue_fn = [this](std::string_view c) {
                         if (c.starts_with('/')) {
@@ -3034,6 +3222,11 @@ public:
                             *result->metadata,
                             enqueue_fn))
                     {
+                        // Also append the command's text output to the transcript
+                        // so the user sees what /help (etc.) produced, matching
+                        // TS where command results appear in the message list
+                        // alongside any triggered overlay.
+                        AppendCommandResult(*result);
                         PostRenderEvent();
                         return;
                     }
@@ -3482,7 +3675,12 @@ public:
         screen_state_->spinner_tip = std::nullopt;
         streaming_text_.clear();
         streaming_tools_.clear();
-        streaming_thinking_.clear();
+        // TS REF: Messages.tsx L382-389 — keep streaming_thinking_ entries
+        // after query end so the 30s grace period keeps the thinking tail
+        // visible.  They are cleared on next user submit (L2770) or
+        // StreamStart (L2833).  Entries past 30s are filtered out by
+        // is_streaming_thinking_visible() → has_in_flight becomes false.
+        // streaming_thinking_.clear();  // intentionally NOT cleared
 
         if (storage_) {
             std::vector<cc::utils::Message> storage_msgs;
@@ -3596,12 +3794,32 @@ public:
             // conversation (append_message fires after all blocks finish streaming).
             // All streaming blocks (text + thinking + tool-use) from this turn
             // are now duplicates of what the committed path already projected.
+
+            // TS REF: Messages.tsx L382-389 — prune thinking entries whose
+            // 30-second grace period has expired.  Done before has_in_flight
+            // so stale entries don't keep the projection path alive.
+            {
+                auto now = std::chrono::steady_clock::now();
+                std::erase_if(streaming_thinking_,
+                    [&now](const auto& p) {
+                        return p.second.complete &&
+                               p.second.streaming_ended_at &&
+                               std::chrono::duration_cast<std::chrono::seconds>(
+                                   now - *p.second.streaming_ended_at).count() >= 30;
+                    });
+            }
+
             if (has_in_flight) {
                 bool all_tools_complete = !streaming_tools_.empty() &&
                     std::ranges::all_of(streaming_tools_, [](const auto& p) {
                         return p.second.complete;
                     });
-                if (all_tools_complete) has_in_flight = false;
+                // TS REF: Messages.tsx L382-389 + L714-719 — streaming thinking
+                // tail stays visible for 30s after completion.  Keep projecting
+                // in-flight blocks when thinking is still within the grace
+                // period, even if all tools have completed.
+                bool thinking_visible = is_streaming_thinking_visible();
+                if (all_tools_complete && !thinking_visible) has_in_flight = false;
             }
 
             cc::utils::debug("app.render",
@@ -3645,6 +3863,19 @@ public:
                         repl::MessageDisplayEntry e;
                         e.role = "assistant";
                         e.is_thinking = true;
+                        // TS REF: Messages.tsx L382-389 — active while streaming
+                        // (not complete) or within 30s grace period after
+                        // completion.  thinking_active=true makes the
+                        // faithful renderer show the expanded body rather
+                        // than the collapsed label, and prevents the
+                        // build_visible_rows filter from hiding this row.
+                        {
+                            auto now = std::chrono::steady_clock::now();
+                            bool within_grace = thk->second.streaming_ended_at &&
+                                std::chrono::duration_cast<std::chrono::seconds>(
+                                    now - *thk->second.streaming_ended_at).count() < 30;
+                            e.thinking_active = !thk->second.complete || within_grace;
+                        }
                         e.content_preview = thk->second.text.substr(0, 200);
                         e.timestamp = now;
                         e.id = streaming_uuid24;
@@ -3730,6 +3961,12 @@ public:
         // Drain background paste results on every render frame so the user
         // doesn't need to press another key to see the image data filled in.
         this->ProcessCompletedPastes();
+        // TS REF: Messages.tsx L382-389 + L395-419 — thread the streaming-
+        // thinking-visible flag to the messages list so it can hide ALL
+        // completed thinking rows when the streaming-thinking tail is on
+        // screen (TS: lastThinkingBlockId = 'streaming').
+        screen_state_->streaming_thinking_globally_visible =
+            is_streaming_thinking_visible();
         return repl_component_->Render() | dc::cursor_reset();
     }
 
@@ -3847,13 +4084,22 @@ public:
             // Prune pasted_contents_ entries whose [Image #N] placeholder is
             // no longer in the input text (covers backspace-over-pill, Ctrl+U,
             // char-by-char deletion — any edit that drops the ref).
-            if (!pasted_contents_.empty()) {
+            // Also prune pasted_text_contents_ entries whose [...Truncated text #N]
+            // ref is no longer in the input (same orphan scenarios for text pastes).
+            if (!pasted_contents_.empty() || !pasted_text_contents_.empty()) {
                 const auto refs = cc::utils::parse_references(screen_state_->input_text);
                 std::unordered_set<int> referenced_ids;
                 for (const auto& r : refs) referenced_ids.insert(r.id);
                 for (auto it = pasted_contents_.begin(); it != pasted_contents_.end(); ) {
                     if (!referenced_ids.contains(it->first)) {
                         it = pasted_contents_.erase(it);
+                    } else {
+                        ++it;
+                    }
+                }
+                for (auto it = pasted_text_contents_.begin(); it != pasted_text_contents_.end(); ) {
+                    if (!referenced_ids.contains(it->first)) {
+                        it = pasted_text_contents_.erase(it);
                     } else {
                         ++it;
                     }
@@ -3916,12 +4162,19 @@ public:
             // latency from ~1.3s (2 osascript calls) to ~650ms (1 call).
             auto png = cc::utils::clipboard::read_image_png();
             if (!png || png->empty()) {
-                {
+                // No image in clipboard — try reading plain text instead.
+                // TS REF: PromptInput.tsx onPaste — when the clipboard has
+                // text (not an image), it's inserted as text content.
+                std::string clip_text = cc::utils::clipboard::read_text();
+                if (!clip_text.empty()) {
+                    std::lock_guard lk(this->paste_mutex_);
+                    this->pending_paste_text_results_[id] = std::move(clip_text);
+                } else {
                     std::lock_guard lk(this->paste_mutex_);
                     this->pending_paste_failures_.insert(id);
                 }
                 // Wake the render thread so ProcessCompletedPastes() runs
-                // and removes the dangling placeholder.
+                // and replaces/removes the placeholder.
                 this->PostRenderEvent();
                 return;
             }
@@ -3955,19 +4208,80 @@ public:
     /// Drain background paste results onto pasted_contents_ (render thread).
     /// Called at the top of every OnEvent so results are picked up as soon as
     /// possible without blocking.  Failed pastes have their "[Image #N]"
-    /// placeholder removed from input_text.
+    /// placeholder removed from input_text.  Text pastes replace "[Image #N]"
+    /// with the actual text (truncating if >10K chars).
     void ProcessCompletedPastes() {
         std::unordered_map<int, ImageBlock> results;
         std::unordered_set<int> failures;
+        std::unordered_map<int, std::string> text_results;
         {
             std::lock_guard lk(paste_mutex_);
             results.swap(pending_paste_results_);
             failures.swap(pending_paste_failures_);
+            text_results.swap(pending_paste_text_results_);
         }
-        // Successful pastes: store in pasted_contents_.
+        // Successful image pastes: store in pasted_contents_.
         for (auto& [id, ib] : results) {
             pasted_contents_[id] = std::move(ib);
             in_flight_pastes_.erase(id);  // main thread
+        }
+        // Text pastes (clipboard had text, not an image): replace the
+        // "[Image #N]" placeholder with the actual text.  If >10K chars,
+        // apply truncation (head + [...Truncated text #N] + tail) and store
+        // the middle content in pasted_text_contents_ for submit-time
+        // expansion.
+        // TS REF: inputPaste.ts maybeTruncateInput
+        for (auto& [id, raw_text] : text_results) {
+            const std::string placeholder = cc::utils::format_image_ref(id);
+            auto& input = screen_state_->input_text;
+            auto pos = input.find(placeholder);
+            if (pos == std::string::npos) {
+                in_flight_pastes_.erase(id);
+                continue;
+            }
+
+            // Determine replacement text and optional truncated middle content.
+            std::string replacement;
+            std::string placeholder_content;
+            constexpr std::size_t kTruncationThreshold = 10000;
+            if (raw_text.size() > kTruncationThreshold) {
+                // TS REF: inputPaste.ts L20-55 maybeTruncateMessageForInput
+                const auto trunc_result = cc::utils::maybe_truncate_paste(raw_text, id);
+                replacement = trunc_result.truncated_text;
+                placeholder_content = trunc_result.placeholder_content;
+            } else {
+                replacement = std::move(raw_text);
+            }
+
+            // Replace "[Image #N]" with the text (possibly truncated).
+            // Also eat a leading space if present.
+            std::size_t replace_start = pos;
+            std::size_t replace_len = placeholder.size();
+            if (pos > 0 && input[pos - 1] == ' ') {
+                replace_start = pos - 1;
+                replace_len += 1;
+            }
+            input.replace(replace_start, replace_len, replacement);
+
+            // Adjust cursor if it was past the replaced region.
+            auto cursor = screen_state_->input_cursor;
+            if (cursor != std::string::npos && cursor > replace_start) {
+                const std::size_t old_end = replace_start + replace_len;
+                const std::size_t new_end = replace_start + replacement.size();
+                if (cursor >= old_end) {
+                    cursor = cursor - old_end + new_end;
+                } else {
+                    cursor = replace_start + replacement.size();
+                }
+                screen_state_->input_cursor = cursor;
+            }
+
+            // Store truncated middle content for later expansion.
+            if (!placeholder_content.empty()) {
+                pasted_text_contents_[id] = std::move(placeholder_content);
+            }
+
+            in_flight_pastes_.erase(id);
         }
         // Failed pastes: remove the "[Image #N]" placeholder from input_text
         // so the user doesn't submit a dangling ref.  We search for the exact

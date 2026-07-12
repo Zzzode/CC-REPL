@@ -215,36 +215,17 @@ struct PromptInputFullProps {
     return std::visit(Visitor{}, item);
 }
 
-// Render the TS-faithful prompt PREFIX glyph (glyph + trailing space).
-//
-// TS REF: src/components/PromptInput/PromptInputModeIndicator.tsx:82 — the
-// prompt line begins with exactly ONE of two glyphs: '!' in bash mode,
-// otherwise `figures.pointer` ('❯').  This is the first thing the user sees
-// on every render, so it MUST match TS byte-for-byte.  The glyph bytes live
-// in cc::ui::design::figures (single source of truth); colour is applied by
-// the caller (bashBorder for bash, teammate/theme.text otherwise), mirroring
-// how TS supplies it via Ink's <Text color=…> rather than embedding ANSI.
-//
-// NOTE: bash mode is detected from the leading '!' via figures::get_mode_from_input.
-// The unified PromptInputMode enum does include Bash, but this function intentionally
-// returns the pointer glyph for ALL modes — bash prefix is rendered separately by
-// the caller (repl_screen) using figures::kBashPrefix.  TS PromptInputModeIndicator
-// only ever emits '❯' or '!' at the prefix position.
-[[nodiscard]] inline auto render_prompt_prefix(PromptInputMode /*mode*/)
-    -> std::string {
-    return std::string(cc::ui::design::figures::kPointerPrefix);
-}
-
-// Render the mode indicator (plan mode, fast mode, vim mode, etc.).
+// Render the mode indicator BADGES (plan mode, fast mode, vim mode, etc.).
 //
 // NOTE (glyph unification, audit round7 prefix-glyph-no-unified-impl):
 //   This is a CPP-ONLY status BADGE row ("[PLAN]/[FAST]/[N]" + permission
 //   lock emoji).  It is NOT the prompt PREFIX glyph — TS's
 //   PromptInputModeIndicator only ever emits '❯' or '!' at the prefix
-//   position (see render_prompt_prefix above / cc::ui::design::figures).
+//   position (the prefix glyph is rendered by repl_screen using
+//   cc::ui::design::figures::kPointerPrefix / kBashPrefix).
 //   These badges are supplementary chrome retained for the interactive UX;
 //   they must never be used as a replacement for the '❯'/'!' prefix.
-[[nodiscard]] inline auto render_mode_indicator(PromptInputMode mode,
+[[nodiscard]] inline auto render_mode_badges(PromptInputMode mode,
                                                  PermissionMode perm_mode)
     -> std::string {
     std::string result;
@@ -370,8 +351,8 @@ struct PromptInputFullProps {
         }
     }
 
-    // Mode indicator + prompt prefix
-    result += render_mode_indicator(props.mode, props.permission_mode);
+    // Mode indicator badges + prompt prefix
+    result += render_mode_badges(props.mode, props.permission_mode);
 
     // Agent indicator
     if (props.active_agent.has_value()) {

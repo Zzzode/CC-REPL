@@ -18,6 +18,7 @@ module;
 #include <string_view>
 #include <utility>
 #include <mutex>
+#include <array>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component_base.hpp>
@@ -37,6 +38,8 @@ enum class ThemeVariant : std::uint8_t {
     DarkDaltonized,
     LightDaltonized,
     Monochrome,
+    LightAnsi,
+    DarkAnsi,
     // auto mode uses terminal OSC-11 detection; for now equivalent to Dark.
     Auto = Dark,
 };
@@ -70,6 +73,8 @@ struct Theme {
         case ThemeVariant::DarkDaltonized:  return &palette::dark_daltonized;
         case ThemeVariant::LightDaltonized: return &palette::light_daltonized;
         case ThemeVariant::Monochrome:      return &palette::monochrome;
+        case ThemeVariant::LightAnsi:       return &palette::light_ansi;
+        case ThemeVariant::DarkAnsi:        return &palette::dark_ansi;
     }
     return &palette::dark;
 }
@@ -82,6 +87,8 @@ struct Theme {
     if (name == "dark-daltonized")          return ThemeVariant::DarkDaltonized;
     if (name == "light-daltonized")         return ThemeVariant::LightDaltonized;
     if (name == "monochrome" || name == "ansi") return ThemeVariant::Monochrome;
+    if (name == "light-ansi")               return ThemeVariant::LightAnsi;   // TS REF: src/utils/theme.ts THEME_NAMES
+    if (name == "dark-ansi")                return ThemeVariant::DarkAnsi;    // TS REF: src/utils/theme.ts THEME_NAMES
     if (name == "auto")                     return ThemeVariant::Auto;
     return ThemeVariant::Dark;
 }
@@ -93,8 +100,26 @@ struct Theme {
         case ThemeVariant::DarkDaltonized:  return "dark-daltonized";
         case ThemeVariant::LightDaltonized: return "light-daltonized";
         case ThemeVariant::Monochrome:      return "monochrome";
+        case ThemeVariant::LightAnsi:       return "light-ansi";
+        case ThemeVariant::DarkAnsi:        return "dark-ansi";
     }
     return "dark";
+}
+
+/// Enumerate all concrete theme variant names (TS REF: src/utils/theme.ts
+/// THEME_NAMES = ['dark','light','light-daltonized','dark-daltonized',
+/// 'light-ansi','dark-ansi'] + THEME_SETTINGS adds 'auto').
+/// Returns a sorted array of all user-selectable theme setting strings.
+[[nodiscard]] inline std::array<std::string_view, 7> all_theme_names() noexcept {
+    return {{
+        "auto",
+        "dark",
+        "dark-ansi",
+        "dark-daltonized",
+        "light",
+        "light-ansi",
+        "light-daltonized",
+    }};
 }
 
 // ─── Global mutable provider (replaces React Context) ────────────────────────
@@ -185,11 +210,36 @@ inline void set_theme(Theme t) noexcept {
     }
     if (color.size() >= 5 && color.substr(0, 5) == "ansi:") {
         // ansi:N  —  palette16 index (0..15)
-        int n = 0;
-        for (std::size_t i = 5; i < color.size(); ++i) {
-            if (color[i] >= '0' && color[i] <= '9') n = n*10 + (color[i]-'0');
+        // ansi:<name>  —  named palette16 color (TS REF: src/utils/theme.ts ansi:* forms)
+        auto rest = color.substr(5);
+        if (!rest.empty() && rest.front() >= '0' && rest.front() <= '9') {
+            int n = 0;
+            for (char c : rest) {
+                if (c >= '0' && c <= '9') n = n*10 + (c-'0');
+            }
+            return ftxui::Color{static_cast<ftxui::Color::Palette16>(n & 0xf)};
         }
-        return ftxui::Color{static_cast<ftxui::Color::Palette16>(n & 0xf)};
+        // Named ANSI colors (TS: ansi:black, ansi:redBright, etc.)
+        // FTXUI naming: idx 7 = GrayLight (TS calls "ansi:white"),
+        //               idx 15 = White (TS calls "ansi:whiteBright"),
+        //               *Bright TS names → FTXUI *Light enum values.
+        if (rest == "black")       return ftxui::Color{ftxui::Color::Palette16::Black};
+        if (rest == "red")         return ftxui::Color{ftxui::Color::Palette16::Red};
+        if (rest == "green")       return ftxui::Color{ftxui::Color::Palette16::Green};
+        if (rest == "yellow")      return ftxui::Color{ftxui::Color::Palette16::Yellow};
+        if (rest == "blue")        return ftxui::Color{ftxui::Color::Palette16::Blue};
+        if (rest == "magenta")     return ftxui::Color{ftxui::Color::Palette16::Magenta};
+        if (rest == "cyan")        return ftxui::Color{ftxui::Color::Palette16::Cyan};
+        if (rest == "white")       return ftxui::Color{ftxui::Color::Palette16::GrayLight};  // TS ansi:white = idx 7
+        if (rest == "blackBright") return ftxui::Color{ftxui::Color::Palette16::GrayDark};
+        if (rest == "redBright")   return ftxui::Color{ftxui::Color::Palette16::RedLight};
+        if (rest == "greenBright") return ftxui::Color{ftxui::Color::Palette16::GreenLight};
+        if (rest == "yellowBright")return ftxui::Color{ftxui::Color::Palette16::YellowLight};
+        if (rest == "blueBright")  return ftxui::Color{ftxui::Color::Palette16::BlueLight};
+        if (rest == "magentaBright")return ftxui::Color{ftxui::Color::Palette16::MagentaLight};
+        if (rest == "cyanBright")  return ftxui::Color{ftxui::Color::Palette16::CyanLight};
+        if (rest == "whiteBright") return ftxui::Color{ftxui::Color::Palette16::White};      // TS ansi:whiteBright = idx 15
+        return ftxui::Color{ftxui::Color::Palette16::GrayLight};  // fallback
     }
     if (color.size() >= 8 && color.substr(0, 7) == "ansi256") {
         int n = 0;
@@ -291,6 +341,38 @@ inline void set_theme(Theme t) noexcept {
     if (color == "rainbow_indigo_shimmer") return p.rainbow_shimmer_stops[5];
     if (color == "rainbow_violet_shimmer") return p.rainbow_shimmer_stops[6];
 
+    // ── Missing TS theme field names (GAP: palette-tokens) ─────────────────
+    // TS REF: src/utils/theme.ts Theme type — 69 fields; these 17 were not
+    // handled above and silently fell through to p.text.
+    if (color == "autoAccept" || color == "auto_accept")
+        return p.auto_accept;
+    if (color == "bashBorder" || color == "bash_border")
+        return p.bash_border;
+    if (color == "promptBorder" || color == "prompt_border")
+        return p.prompt_border;
+    if (color == "userMessageBackground" || color == "user_message_background")
+        return p.user_message_background;
+    if (color == "userMessageBackgroundHover" || color == "user_message_background_hover")
+        return p.user_message_background_hover;
+    if (color == "messageActionsBackground" || color == "message_actions_background")
+        return p.message_actions_background;
+    if (color == "rate_limit_fill" || color == "rateLimitFill")
+        return p.rate_limit_fill;
+    if (color == "rate_limit_empty" || color == "rateLimitEmpty")
+        return p.rate_limit_empty;
+    if (color == "briefLabel" || color == "brief_label")
+        return p.brief_label;
+    // Rainbow per-stop base colors (TS: rainbow_red, rainbow_orange, ...)
+    if (color == "rainbow_red")    return p.rainbow[0];
+    if (color == "rainbow_orange") return p.rainbow[1];
+    if (color == "rainbow_yellow") return p.rainbow[2];
+    if (color == "rainbow_green")  return p.rainbow[3];
+    if (color == "rainbow_blue")   return p.rainbow[4];
+    if (color == "rainbow_indigo") return p.rainbow[5];
+    if (color == "rainbow_violet") return p.rainbow[6];
+    if (color == "rainbow_shimmer")
+        return p.rainbow_shimmer;
+
     return p.text;
 }
 
@@ -353,6 +435,8 @@ inline std::string demo_theme_names() {
     add(ThemeVariant::DarkDaltonized);
     add(ThemeVariant::LightDaltonized);
     add(ThemeVariant::Monochrome);
+    add(ThemeVariant::LightAnsi);
+    add(ThemeVariant::DarkAnsi);
     return out;
 }
 }

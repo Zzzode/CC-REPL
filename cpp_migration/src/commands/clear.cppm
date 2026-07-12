@@ -1,6 +1,7 @@
 /// @file clear.cppm
 /// @brief ClearCommand implementing the /clear slash command.
 /// Clears the terminal screen, optionally resets conversation state, and clears caches.
+/// Dispatches ClearMessages and ResetSession actions to properly reset AppState.
 module;
 
 #include <cstdint>
@@ -21,10 +22,28 @@ export module cc.commands.clear;
 
 import cc.types.types;
 import cc.commands.command;
+import cc.state.app_state;
 
 export namespace cc::commands {
 
 using namespace cc::core;
+
+// ============================================================
+// Action type ordinals (keep in sync with cc::state::ActionType
+// enum ordering in store.cppm)
+// ============================================================
+
+/// Ordinal of ActionType::ClearMessages in cc::state::ActionType.
+/// Clears the messages vector in AppState.
+constexpr int ACTION_CLEAR_MESSAGES = 1;
+
+/// Ordinal of ActionType::ResetSession in cc::state::ActionType.
+/// Resets AppState to defaults, preserving model/config fields.
+constexpr int ACTION_RESET_SESSION = 29;
+
+/// Ordinal of ActionType::AddNotification in cc::state::ActionType.
+/// Pushes a notification string into the notifications list.
+constexpr int ACTION_ADD_NOTIFICATION = 18;
 
 /// What to clear when executing the command
 enum class ClearScope : std::uint8_t {
@@ -36,6 +55,8 @@ enum class ClearScope : std::uint8_t {
 
 /// ClearCommand implements the /clear slash command.
 /// Clears screen, optionally resets conversation and caches.
+/// Dispatches AppState actions (ClearMessages / ResetSession) via
+/// the CommandContext bridge so the reactive UI picks up the change.
 class ClearCommand {
 public:
     [[nodiscard]] static CommandDefinition definition() {
@@ -63,27 +84,21 @@ public:
     [[nodiscard]] Result<CommandResult> execute(const CommandContext& ctx) {
         auto scope = parse_scope(ctx.args);
 
-        std::string output;
+        switch (scope) {
+            case ClearScope::Screen:
+                return execute_screen_clear(ctx);
 
-        // Step 1: Always clear the screen
-        clear_screen();
-        output = "Screen cleared.";
+            case ClearScope::Cache:
+                return execute_cache_clear(ctx);
 
-        // Step 2: Reset conversation if requested
-        if (scope == ClearScope::Conversation || scope == ClearScope::All) {
-            auto result = reset_conversation();
-            if (!result) return std::unexpected(result.error());
-            output += " Conversation reset.";
+            case ClearScope::Conversation:
+                return execute_conversation_reset(ctx);
+
+            case ClearScope::All:
+                return execute_full_reset(ctx);
         }
 
-        // Step 3: Clear cache if requested
-        if (scope == ClearScope::Cache || scope == ClearScope::All) {
-            auto result = clear_cache();
-            if (!result) return std::unexpected(result.error());
-            output += std::format(" Cache cleared ({} entries removed).", *result);
-        }
-
-        return CommandResult::success(std::move(output));
+        return CommandResult::fail("Unknown clear scope");
     }
 
     [[nodiscard]] std::vector<std::string> complete(std::string_view partial) {
@@ -109,6 +124,89 @@ private:
     ScreenClearFn screen_clear_fn_;
     ConversationResetFn conversation_reset_fn_;
 
+    // ── Scope-specific execution ────────────────────────────────────────
+
+    /// Default /clear: dispatch ClearMessages, call conversation reset
+    /// callback, clear the screen.
+    [[nodiscard]] Result<CommandResult> execute_screen_clear(const CommandContext& ctx) {
+        // 1. Dispatch ClearMessages so the AppState messages vector is cleared
+        //    and the reactive UI re-renders with an empty message list.
+        ctx.dispatch_action(ACTION_CLEAR_MESSAGES, nullptr);
+
+        // 2. If a session-manager reset callback is registered, invoke it so
+        //    the engine-level conversation state is also reset.
+        if (conversation_reset_fn_) {
+            auto result = conversation_reset_fn_();
+            if (!result) return std::unexpected(result.error());
+        }
+
+        // 3. Clear the terminal display.
+        clear_screen();
+
+        return CommandResult::success("Screen cleared.");
+    }
+
+    /// /clear --cache: clear static caches (completions, tool results,
+    /// responses) and push a cache-cleared notification.
+    [[nodiscard]] Result<CommandResult> execute_cache_clear(const CommandContext& ctx) {
+        auto result = clear_cache();
+        if (!result) return std::unexpected(result.error());
+
+        // Dispatch a notification so the user sees confirmation in the UI.
+        std::string note = std::format("Cache cleared ({} entries removed).", *result);
+        ctx.dispatch_action(ACTION_ADD_NOTIFICATION, &note);
+
+        return CommandResult::success(std::move(note));
+    }
+
+    /// /clear --reset: dispatch ResetSession action, clear screen.
+    [[nodiscard]] Result<CommandResult> execute_conversation_reset(const CommandContext& ctx) {
+        // 1. Dispatch ResetSession — resets AppState to defaults, preserving
+        //    model config, permissions, working directory, and settings.
+        ctx.dispatch_action(ACTION_RESET_SESSION, nullptr);
+
+        // 2. Also invoke the engine-level reset callback if set.
+        if (conversation_reset_fn_) {
+            auto result = conversation_reset_fn_();
+            if (!result) return std::unexpected(result.error());
+        }
+
+        // 3. Clear static caches as well (session-level caches).
+        (void)clear_cache();
+
+        // 4. Clear the terminal display.
+        clear_screen();
+
+        return CommandResult::success("Session reset. Screen cleared. Conversation cleared.");
+    }
+
+    /// /clear --all: full reset — ResetSession + all caches + clear screen.
+    [[nodiscard]] Result<CommandResult> execute_full_reset(const CommandContext& ctx) {
+        // 1. Dispatch ResetSession action.
+        ctx.dispatch_action(ACTION_RESET_SESSION, nullptr);
+
+        // 2. Invoke engine-level reset callback.
+        if (conversation_reset_fn_) {
+            auto result = conversation_reset_fn_();
+            if (!result) return std::unexpected(result.error());
+        }
+
+        // 3. Clear all static caches.
+        auto cache_result = clear_cache();
+        std::uint32_t cache_entries = cache_result ? *cache_result : 0;
+
+        // 4. Clear the terminal display.
+        clear_screen();
+
+        std::string msg = "Screen cleared. Conversation reset.";
+        if (cache_entries > 0) {
+            msg += std::format(" {} cache entries removed.", cache_entries);
+        }
+        return CommandResult::success(std::move(msg));
+    }
+
+    // ── Helpers ─────────────────────────────────────────────────────────
+
     /// Parse the scope from command arguments
     [[nodiscard]] static ClearScope parse_scope(std::span<const std::string> args) {
         for (const auto& arg : args) {
@@ -129,15 +227,6 @@ private:
             std::fputs("\033[2J\033[H", stdout);
             std::fflush(stdout);
         }
-    }
-
-    /// Reset conversation state
-    [[nodiscard]] VoidResult reset_conversation() {
-        if (conversation_reset_fn_) {
-            return conversation_reset_fn_();
-        }
-        // If no callback is set, just succeed (the session manager handles it)
-        return {};
     }
 
     /// Clear cached data and return number of entries removed

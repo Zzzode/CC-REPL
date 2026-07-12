@@ -80,6 +80,8 @@ public:
                            .type = ArgType::None, .required = false},
                 CommandArg{.name = "--fix", .description = "Attempt to fix common issues",
                            .type = ArgType::None, .required = false},
+                CommandArg{.name = "--interactive", .description = "Open doctor screen (default when no args)",
+                           .type = ArgType::None, .required = false},
             },
             .category = "session",
             .aliases = {"diag"},
@@ -95,6 +97,20 @@ public:
         bool verbose = std::ranges::any_of(ctx.args, [](const auto& a) {
             return a == "--verbose" || a == "-v";
         });
+        bool fix = std::ranges::any_of(ctx.args, [](const auto& a) {
+            return a == "--fix";
+        });
+        bool interactive = ctx.args.empty() ||
+            std::ranges::any_of(ctx.args, [](const auto& a) {
+                return a == "--interactive" || a == "-i";
+            });
+
+        // When called with no args or --interactive, trigger the interactive
+        // doctor screen/dialog instead of text output.
+        if (interactive && !fix && !verbose) {
+            return CommandResult{
+                true, "Opening doctor...", "UI:doctor", CommandStatus::Succeeded};
+        }
 
         std::vector<DiagnosticCheck> results;
         results.reserve(8);
@@ -115,7 +131,7 @@ public:
 
     [[nodiscard]] std::vector<std::string> complete(std::string_view partial) {
         std::vector<std::string> suggestions;
-        static constexpr std::array flags = {"--verbose", "--fix"};
+        static constexpr std::array flags = {"--verbose", "--fix", "--interactive"};
         for (auto flag : flags) {
             if (std::string_view(flag).starts_with(partial)) {
                 suggestions.emplace_back(flag);

@@ -32,6 +32,7 @@ import cc.utils.parse_references;
 import cc.ui.design.figures;
 import cc.ui.common.types;  // unified PromptInputMode canonical enum
 import cc.ui.prompt.prompt_paste_handler;  // PastePreview struct (GAP 1)
+import cc.ui.prompt.placeholder_cascade;  // P1: contextual placeholder cascade + render
 
 export namespace ui::components {
 using namespace ftxui;
@@ -166,6 +167,17 @@ struct TextInputOptions {
     /// terminals to swap pure white for bright-green/cyan.
     bool prefix_bold = true;
 
+    /// When true, hide the placeholder text and show only the cursor block.
+    /// TS REF: src/hooks/renderPlaceholder.ts hidePlaceholderText prop.
+    /// Used by voice recording mode to show a solid cursor without text.
+    bool hide_placeholder_text = false;
+
+    /// Whether the terminal itself has focus (not just the widget).
+    /// TS REF: src/hooks/renderPlaceholder.ts terminalFocus prop.
+    /// Controls whether the first-character cursor inversion is applied.
+    /// FTXUI cannot detect terminal focus natively, so this defaults true.
+    bool terminal_focus = true;
+
     std::function<void(const std::string&, const PromptContext&)> on_submit;
     /// Called on Enter submit when Ctrl+Enter modifier is used
     std::function<void(const std::string&, const PromptContext&)> on_soft_submit;
@@ -178,6 +190,12 @@ struct TextInputOptions {
         get_suggestions;
     /// Optional: external paste callback. If null falls back to a simple insert.
     std::function<void(const std::string&)> on_paste;
+    /// Optional: called when a large paste (>10K chars) is confirmed and
+    /// truncated.  Receives the paste-id and the truncated middle content
+    /// so the caller can store it for later expansion (e.g. expand_pasted_text_refs
+    /// at submit time).  TS REF: inputPaste.ts maybeTruncateInput — stores
+    /// {id, type: 'text', content: placeholderContent} in pastedContents.
+    std::function<void(int id, const std::string& placeholder_content)> on_paste_truncated;
     /// Optional: character-level input filter. Return true to allow the char.
     /// Applied before insertion; multi-byte UTF-8 sequences pass the first byte.
     std::function<bool(char)> input_filter;
@@ -389,10 +407,18 @@ public:
             // Without guard (b), recalling "!cmd" would prepend again →
             // "!!cmd" and the second recall would show "!!cmd".
             std::string hist_entry = entry;
-            using cc::ui::design::figures::kBashModeChar;
+            namespace figs = cc::ui::design::figures;
+            // TS REF: src/components/PromptInput/inputModes.ts:4-14
+            //   (prependModeCharacterToInput)
+            // Only prepend '!' when (a) prompt_mode says the user intended
+            // bash AND (b) the entry doesn't already carry a '!' prefix
+            // (which happens when text_ was populated by insert_char /
+            // paste / set_text from REPL state that already includes it).
+            // Without guard (b), recalling "!cmd" would prepend again →
+            // "!!cmd" and the second recall would show "!!cmd".
             if (options_.context.prompt_mode == PromptInputMode::Bash &&
-                (hist_entry.empty() || hist_entry.front() != kBashModeChar)) {
-                hist_entry.insert(hist_entry.begin(), kBashModeChar);
+                (hist_entry.empty() || hist_entry.front() != figs::kBashModeChar)) {
+                hist_entry = figs::prepend_mode_char(hist_entry, figs::PromptMode::kBash);
             }
             auto it = std::find(history_.begin(), history_.end(), hist_entry);
             if (it != history_.end()) history_.erase(it);
@@ -857,6 +883,9 @@ public:
     /// Confirm the pending paste preview: insert the truncated content.
     /// TS REF: inputPaste.ts — confirmed large pastes are truncated to
     ///   head 500 + placeholder + tail 500 before insertion.
+    /// If the preview carries placeholder_content (truncated middle), emit
+    /// it via on_paste_truncated so the caller can store it for later
+    /// expansion at submit time (expand_pasted_text_refs).
     void ConfirmPaste() {
         if (!paste_preview_) return;
         push_undo();
@@ -865,6 +894,17 @@ public:
         text_.insert(text_.begin() + cursor_, content.begin(), content.end());
         cursor_ += static_cast<int>(content.size());
         sel_start_ = sel_end_ = -1;
+
+        // If this was a truncated paste, notify the caller with the
+        // paste-id and the middle content that was elided.
+        if (paste_preview_->is_large && !paste_preview_->placeholder_content.empty()) {
+            if (options_.on_paste_truncated) {
+                options_.on_paste_truncated(
+                    paste_preview_->paste_id,
+                    paste_preview_->placeholder_content);
+            }
+        }
+
         paste_burst_in_progress_ = true;
         paste_preview_.reset();
         recompute_derived();
@@ -1022,18 +1062,22 @@ private:
         //   Enter to confirm (truncated insert) or Esc to cancel.
         constexpr std::size_t kTruncationThreshold = 10000;
         if (normalized.size() > kTruncationThreshold) {
-            // Count lines in the full paste
+            // Count lines in the full paste (for preview display)
             std::size_t line_count = 1;
             for (char c : normalized) if (c == '\n') ++line_count;
 
-            // Build the truncated version (head 500 + placeholder + tail 500)
-            // that will be inserted on confirmation.
-            const std::string truncated = maybe_truncate_paste(normalized);
+            // Build the truncated version (head 500 + placeholder ref + tail 500)
+            // that will be inserted on confirmation.  Also capture the truncated
+            // middle content so the caller can store it for submit-time expansion.
+            const int paste_id = next_paste_id_++;
+            const auto result = maybe_truncate_paste(normalized, paste_id);
 
             paste_preview_ = cc::ui::prompt::PastePreview{
-                .content    = truncated,
-                .line_count = line_count,
-                .is_large   = true,
+                .content             = result.truncated_text,
+                .line_count          = line_count,
+                .is_large            = true,
+                .paste_id            = paste_id,
+                .placeholder_content = result.placeholder_content,
             };
             return;  // Don't insert yet — wait for confirmation
         }
@@ -1048,28 +1092,11 @@ private:
     }
 
     // TS REF: inputPaste.ts TRUNCATION_THRESHOLD=10000, PREVIEW_LENGTH=1000.
-    static std::string maybe_truncate_paste(std::string text) {
-        constexpr std::size_t kTruncationThreshold = 10000;  // chars before truncating
-        constexpr std::size_t kPreviewLength       = 1000;   // total kept (head+tail)
-        if (text.size() <= kTruncationThreshold) return text;
-
-        const std::size_t start_len = kPreviewLength / 2;  // 500
-        const std::size_t end_len   = kPreviewLength / 2;  // 500
-        const std::string head = text.substr(0, start_len);
-        const std::string tail = text.substr(text.size() - end_len);
-        // Count lines elided from the middle (TS getPastedTextRefNumLines: the
-        // number of '\n' + 1 in the removed slice).
-        const std::string middle =
-            text.substr(start_len, text.size() - start_len - end_len);
-        std::size_t elided_lines = middle.empty() ? 0 : 1;
-        for (char c : middle) if (c == '\n') ++elided_lines;
-
-        std::string out;
-        out.reserve(start_len + end_len + 40);
-        out += head;
-        out += "[...Truncated text +" + std::to_string(elided_lines) + " lines...]";
-        out += tail;
-        return out;
+    // Delegates to cc::utils::maybe_truncate_paste for the actual truncation
+    // logic (shared with app.cppm's ProcessCompletedPastes text-paste path).
+    using TruncatedPasteResult = cc::utils::TruncatedPasteResult;
+    TruncatedPasteResult maybe_truncate_paste(std::string_view text, int paste_id) {
+        return cc::utils::maybe_truncate_paste(text, paste_id);
     }
     void insert_suggestion(const Suggestion& s) {
         push_undo();
@@ -1430,40 +1457,40 @@ private:
         }
 
         // --- Placeholder rendering for empty input ---
-        // TS renderPlaceholder.ts + BaseTextInput.tsx lines 91-112:
-        //   * When cursor is visible and placeholder is non-empty:
-        //       chalk.inverse(placeholder[0]) + chalk.dim(placeholder.slice(1))
-        //   * When cursor is visible and placeholder is EMPTY:
-        //       chalk.inverse(' ')   (solid block cursor, no text visible)
-        //   * When not showing cursor (blink hidden, unfocused):
-        //       chalk.dim(full placeholder)
-        // Prefix (options_.prefix) is not colored per-mode here, because in
-        // the faithful prompt_input flow the prefix ("❯" / "!") is rendered
-        // OUTSIDE of TextInputImpl (by repl_screen::RenderPromptInput), so
-        // this prefix is typically empty.  Color = theme.text (not green).
+        // Delegated to cc::ui::placeholder::RenderPlaceholder which faithfully
+        // ports TS renderPlaceholder.ts + BaseTextInput.tsx lines 91-112:
+        //   * hide_text + cursor+focus+terminalFocus → invert(' ') only
+        //   * cursor+focus+terminalFocus → invert(placeholder[0]) + dim(rest)
+        //   * no cursor / no focus     → dim(full placeholder)
+        //   * value empty + has text   → showPlaceholder = true
+        // Prefix (options_.prefix) is passed through for visual consistency.
         if (lines_elements.size() == 1 && lines[0].empty()) {
-            Elements ph_parts;
-            ph_parts.push_back(ftxui::text(options_.prefix) | color(Color::White));
-            if (blink_visible_ && !options_.placeholder.empty()) {
-                std::string cursor_ch{options_.placeholder[0]};
-                size_t cc = 1;
-                while (cc < options_.placeholder.size() &&
-                       detail::is_utf8_continuation(
-                           static_cast<unsigned char>(options_.placeholder[cc]))) {
-                    cursor_ch.push_back(options_.placeholder[cc]);
-                    ++cc;
-                }
-                ph_parts.push_back(ftxui::text(cursor_ch) | inverted |
-                                   color(Color::White));
-                const std::string rest = options_.placeholder.substr(cc);
-                if (!rest.empty()) ph_parts.push_back(ftxui::text(rest) | dim | color(Color::GrayLight));
-            } else if (options_.placeholder.empty()) {
-                ph_parts.push_back(ftxui::text(blink_visible_ ? " " : "") | inverted |
-                                   color(Color::White));
-            } else {
-                ph_parts.push_back(ftxui::text(options_.placeholder) | dim);
+            namespace ph = cc::ui::placeholder;
+
+            std::optional<std::string_view> placeholder_sv;
+            if (!options_.placeholder.empty()) {
+                placeholder_sv = std::string_view(options_.placeholder);
             }
-            return hbox(ph_parts);
+
+            // blink_visible_ serves as proxy for both "show cursor" and "focused"
+            // in the TextInputImpl context — blink is only active when the widget
+            // has focus and the cursor timer is in the visible phase.
+            auto rendered = ph::RenderPlaceholder(
+                placeholder_sv,
+                /*value=*/"",           // empty because lines[0].empty()
+                /*show_cursor=*/blink_visible_,
+                /*focused=*/blink_visible_,
+                /*terminal_focus=*/options_.terminal_focus,
+                /*hide_text=*/options_.hide_placeholder_text,
+                /*prefix=*/options_.prefix,
+                /*prefix_color=*/options_.prefix_color);
+
+            if (rendered.element.has_value()) {
+                return *std::move(rendered.element);
+            }
+            // Fallback: if nothing rendered (e.g. hide_text without cursor),
+            // show an empty prefix line to maintain layout.
+            return ftxui::text(options_.prefix);
         }
 
         return vbox(lines_elements);
@@ -2281,19 +2308,27 @@ private:
         // (repl_screen via effective_is_bash + figures::kBashGlyph), NOT
         // by hiding text_[0] here.
         if (!text_.empty()) {
-            switch (text_[0]) {
-                case cc::ui::design::figures::kBashModeChar:
-                    ctx.prompt_mode = PromptInputMode::Bash;
-                    // TS REF: src/components/PromptInput/PromptInput.tsx:874
-                    //   onModeChange('bash') — caller (repl_screen) reads
-                    //   ctx.prompt_mode via effective_is_bash() to pick the
-                    //   kBashGlyph "!" prefix with bashBorder color.
-                    break;
-                case '/': ctx.prompt_mode = PromptInputMode::SlashCommand; break;
-                case '@': ctx.prompt_mode = PromptInputMode::FileRef; break;
-                case '*': ctx.prompt_mode = PromptInputMode::Agent; break;
-                case '&': ctx.prompt_mode = PromptInputMode::BgRun; break;
-                default:  ctx.prompt_mode = PromptInputMode::Normal; break;
+            namespace figs = cc::ui::design::figures;
+            // TS REF: src/components/PromptInput/inputModes.ts:16-21 (getModeFromInput)
+            // Use canonical figures::get_mode_from_input for bash detection (the
+            // only mode that changes the prompt-prefix glyph per TS).  All other
+            // prefix-triggered modes (/ @ * &) remain in the switch below since
+            // they map to the extended CPP PromptInputMode enum values that don't
+            // exist in the narrow TS PromptMode enum.
+            if (figs::get_mode_from_input(text_) == figs::PromptMode::kBash) {
+                ctx.prompt_mode = PromptInputMode::Bash;
+                // TS REF: src/components/PromptInput/PromptInput.tsx:874
+                //   onModeChange('bash') — caller (repl_screen) reads
+                //   ctx.prompt_mode via effective_is_bash() to pick the
+                //   kBashGlyph "!" prefix with bashBorder color.
+            } else {
+                switch (text_[0]) {
+                    case '/': ctx.prompt_mode = PromptInputMode::SlashCommand; break;
+                    case '@': ctx.prompt_mode = PromptInputMode::FileRef; break;
+                    case '*': ctx.prompt_mode = PromptInputMode::Agent; break;
+                    case '&': ctx.prompt_mode = PromptInputMode::BgRun; break;
+                    default:  ctx.prompt_mode = PromptInputMode::Normal; break;
+                }
             }
         } else {
             ctx.prompt_mode = PromptInputMode::Normal;
@@ -2324,6 +2359,7 @@ private:
     std::vector<std::string> search_matches_;
     size_t search_selected_;
     bool paste_burst_in_progress_;
+    int next_paste_id_{1};  ///< Monotonic counter for [...Truncated text #N] refs
 
     // ============================================================
     // Paste preview (GAP 1: paste-text-truncation-10k-threshold)

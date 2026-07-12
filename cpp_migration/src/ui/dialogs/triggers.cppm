@@ -320,13 +320,25 @@ inline void PushManagedSettingsSecurity(dsys::DialogQueue& queue,
 // ---------------------------------------------------------------------------
 // PluginDialog
 // ---------------------------------------------------------------------------
+// Full form — accepts initial menu_selected card index and an id_suffix that
+// encodes the originating metadata view (e.g. "discover-plugins",
+// "manage-plugins?action=uninstall").  The renderer parses id_suffix to
+// pre-select a row or auto-open an action panel.
 inline void PushPluginDialog(dsys::DialogQueue& queue,
+                             int menu_selected,
+                             std::string id_suffix,
                              std::function<void()> on_close) {
     dsys::PluginDialogPayload p;
-    p.id = "plugins-dialog";
-    p.menu_selected = 0;
+    p.id = "plugins-dialog" + (id_suffix.empty() ? "" : ":" + std::move(id_suffix));
+    p.menu_selected = menu_selected;
     p.on_close = std::move(on_close);
     queue.push_modal(std::move(p));
+}
+
+// Legacy 2-arg form — defaults to Installed card (index 0).
+inline void PushPluginDialog(dsys::DialogQueue& queue,
+                             std::function<void()> on_close) {
+    PushPluginDialog(queue, 0, "", std::move(on_close));
 }
 
 // ---------------------------------------------------------------------------
@@ -375,6 +387,15 @@ inline bool PushFromCommandMetadata(dsys::DialogQueue& queue,
     }
     if (metadata == "UI:settings") {
         PushSettingsPanel(queue, "general", [](){});
+        return true;
+    }
+    if (metadata == "UI:permissions") {
+        // Opens the SettingsView with the Permissions tab pre-selected.
+        // NOTE: the primary handler for this tag lives in app.cppm which
+        // sets screen_state_->settings_initial_tab and switches mode to
+        // SettingsView directly.  This queue-push form is provided for
+        // callers that route exclusively through PushFromCommandMetadata.
+        PushSettingsPanel(queue, "Permissions", [](){});
         return true;
     }
     if (metadata == "UI:help") {
@@ -435,8 +456,81 @@ inline bool PushFromCommandMetadata(dsys::DialogQueue& queue,
         PushManagedSettingsSecurity(queue, [](){});
         return true;
     }
+    if (metadata == "UI:model-picker") {
+        // Model picker: push a ModelSwitchPayload with an empty target so
+        // the renderer shows the full model list instead of a single
+        // confirmation banner.  The on_response callback is a no-op because
+        // the actual model switch is performed by the command handler when
+        // the user selects a model (which dispatches SwitchModel via the
+        // AppState action system — see cc.commands.model).
+        PushModelSwitch(queue, "", "", [](bool){});
+        return true;
+    }
+    // ── Plugin dialog — all "UI:plugins:*" variants map to the same   ──
+    //    PluginDialog modal, just with different initial menu cards.    ──
+    //    menu_selected indexes k_menu_cards in plugin_dialog.cppm:
+    //      0 = Installed (ManagePlugins), 1 = Marketplace (BrowseMarketplace),
+    //      2 = Discover (DiscoverPlugins), 3 = Settings (ManageMarketplaces),
+    //      4 = Validate
+    if (metadata == "UI:plugins:discover-plugins") {
+        // Menu card 2 = Discover (trending & recommended plugins)
+        PushPluginDialog(queue, 2, "discover-plugins", [](){});
+        return true;
+    }
     if (metadata == "UI:plugins:manage-plugins") {
-        PushPluginDialog(queue, [](){});
+        // Menu card 0 = Installed (manage installed: enable/disable/uninstall)
+        PushPluginDialog(queue, 0, "manage-plugins", [](){});
+        return true;
+    }
+    if (metadata == "UI:plugins:manage-marketplaces") {
+        // Menu card 3 = Settings (marketplace CRUD: add/remove/update)
+        PushPluginDialog(queue, 3, "manage-marketplaces", [](){});
+        return true;
+    }
+    if (metadata == "UI:plugins:add-marketplace") {
+        // Menu card 3 = Settings, pre-open the add-input form
+        PushPluginDialog(queue, 3, "add-marketplace", [](){});
+        return true;
+    }
+    if (metadata.starts_with("UI:plugins:browse-marketplace:")) {
+        // Menu card 1 = Marketplace, scoped to a single marketplace
+        constexpr auto kPrefixLen = sizeof("UI:plugins:") - 1;  // skip "UI:plugins:"
+        PushPluginDialog(queue, 1,
+            std::string{metadata.substr(kPrefixLen)}, [](){});
+        return true;
+    }
+    if (metadata.starts_with("UI:plugins:manage-plugins?")) {
+        // Menu card 0 = Installed, with action query (e.g. ?action=uninstall)
+        constexpr auto kPrefixLen = sizeof("UI:plugins:") - 1;
+        PushPluginDialog(queue, 0,
+            std::string{metadata.substr(kPrefixLen)}, [](){});
+        return true;
+    }
+    if (metadata.starts_with("UI:plugins:manage-marketplaces?")) {
+        // Menu card 3 = Settings, with action query (e.g. ?action=remove)
+        constexpr auto kPrefixLen = sizeof("UI:plugins:") - 1;
+        PushPluginDialog(queue, 3,
+            std::string{metadata.substr(kPrefixLen)}, [](){});
+        return true;
+    }
+    // ── Doctor — standalone fullscreen diagnostics ──
+    if (metadata == "UI:doctor") {
+        dsys::DoctorDialogPayload p;
+        p.id = "doctor-dialog";
+        p.on_done = [&queue](std::string /*result*/) {
+            queue.pop_standalone();
+        };
+        queue.push_standalone(std::move(p));
+        return true;
+    }
+    // ── Hooks — modal hooks configuration menu ──
+    if (metadata == "UI:hooks") {
+        dsys::HooksDialogPayload p;
+        p.id = "hooks-config";
+        p.on_close = [&queue]() {
+            queue.pop_modal();
+        };
+        queue.push_modal(std::move(p));
         return true;
     }
     // Callouts — bottom-slot chrome, each with their own payload struct.

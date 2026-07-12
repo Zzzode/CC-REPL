@@ -211,7 +211,8 @@ private:
             "- Types: feat, fix, docs, style, refactor, perf, test, build, ci, chore\n"
             "- Keep the first line under 72 characters\n"
             "- Add body if the change is complex\n"
-            "- Reply ONLY with the commit message, no other text.",
+            "- Reply ONLY with the commit message, no other text.\n\n"
+            "Note: Git commands (git diff, git log, git status, etc.) are allowed via the Bash tool if you need more context.",
             state.status, state.diff, state.recent_log
         );
     }

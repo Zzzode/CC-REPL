@@ -43,6 +43,37 @@ struct ReferenceMatch {
     return std::format("[Pasted text #{} +{} lines]", id, num_lines);
 }
 
+/// TS REF: src/components/PromptInput/inputPaste.ts L57 formatTruncatedTextRef
+/// Produces "[...Truncated text #N +M lines...]" — the placeholder inserted
+/// between head(500) and tail(500) when a >10K char paste is truncated.
+[[nodiscard]] inline std::string format_truncated_text_ref(int id, int num_lines) {
+    return std::format("[...Truncated text #{} +{} lines...]", id, num_lines);
+}
+
+/// TS REF: src/history.ts L47 getPastedTextRefNumLines
+/// Counts newline matches using /\r\n|\r|\n/g semantics — equivalent to the
+/// number of line-BREAK sequences in the text.  For "a\nb\nc" this returns 2
+/// (NOT 3), matching TS's "newline count, not line count" convention.
+///
+/// Algorithm: walk the string once, counting each \r\n pair as 1 break, each
+/// standalone \r or \n as 1 break.
+[[nodiscard]] inline int get_pasted_text_ref_num_lines(std::string_view text) {
+    int count = 0;
+    const std::size_t n = text.size();
+    for (std::size_t i = 0; i < n; ++i) {
+        char c = text[i];
+        if (c == '\r') {
+            ++count;
+            if (i + 1 < n && text[i + 1] == '\n') {
+                ++i;  // \r\n counted as one break
+            }
+        } else if (c == '\n') {
+            ++count;
+        }
+    }
+    return count;
+}
+
 /// TS REF: src/history.ts L62 parseReferences
 /// Pattern (ECMAScript, g):
 ///   /\[(Pasted text|Image|\.\.\.Truncated text) #(\d+)(?: \+\d+ lines)?(\.)*\]/g
@@ -84,6 +115,43 @@ struct ReferenceMatch {
         });
     }
     return out;
+}
+
+/// TS REF: src/components/PromptInput/inputPaste.ts L20-55 maybeTruncateMessageForInput
+///
+/// If `text.size() > 10000`, truncates to head(500) + [...Truncated text #N +M lines...] +
+/// tail(500).  Returns the display text and the truncated middle content (empty if
+/// no truncation was applied).  `paste_id` is used in the placeholder ref.
+///
+/// Constants (TS REF: inputPaste.ts L4-5):
+///   TRUNCATION_THRESHOLD = 10000  (chars before truncation kicks in)
+///   PREVIEW_LENGTH       = 1000   (total chars preserved: 500 head + 500 tail)
+struct TruncatedPasteResult {
+    std::string truncated_text;       ///< head + [...Truncated text #N +M lines...] + tail
+    std::string placeholder_content;  ///< the truncated middle text (empty if not truncated)
+};
+[[nodiscard]] inline TruncatedPasteResult maybe_truncate_paste(
+    std::string_view text, int paste_id) {
+    constexpr std::size_t kTruncationThreshold = 10000;
+    constexpr std::size_t kPreviewLength       = 1000;
+    if (text.size() <= kTruncationThreshold) {
+        return TruncatedPasteResult{std::string(text), ""};
+    }
+    const std::size_t start_len = kPreviewLength / 2;  // 500
+    const std::size_t end_len   = kPreviewLength / 2;  // 500
+    const std::string head(text.substr(0, start_len));
+    const std::string tail(text.substr(text.size() - end_len));
+    const std::string middle(
+        text.substr(start_len, text.size() - start_len - end_len));
+    const int elided_lines = get_pasted_text_ref_num_lines(middle);
+    const std::string placeholder_ref =
+        format_truncated_text_ref(paste_id, elided_lines);
+    std::string out;
+    out.reserve(start_len + end_len + placeholder_ref.size());
+    out += head;
+    out += placeholder_ref;
+    out += tail;
+    return TruncatedPasteResult{std::move(out), std::move(middle)};
 }
 
 /// TS REF: src/history.ts L81 expandPastedTextRefs

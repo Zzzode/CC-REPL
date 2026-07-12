@@ -8,6 +8,13 @@ module;
 
 export module cc.ui.user_message;
 
+// P0 user-prompt truncation: share the head/tail splitter used by
+// RenderUserPromptMessage so the divergent-envelope path (UserMessageData
+// payloads — teammate / plan / agent-notify / memory / resource) also caps
+// displayed text at 10_000 chars.
+// TS REF: src/components/messages/UserPromptMessage.tsx lines 28-70.
+import cc.ui.messages.user_text_message;
+
 export namespace cc::ui::messages {
 
 // ─── Attachment types ────────────────────────────────────────────────
@@ -76,7 +83,10 @@ inline std::string render_attachments(const std::vector<MessageAttachment>& atta
 // ─── Rendering functions ─────────────────────────────────────────────
 
 inline std::string render_user_message(const UserMessageData& data) {
-    std::string result = data.content;
+    // Truncate long pastes for display (TS REF: UserPromptMessage.tsx lines 64-70).
+    // The divergent-envelope path (UserMessageData) must apply the same 10K cap
+    // as the faithful RenderUserPromptMessage path.
+    std::string result = TruncateUserPromptText(data.content);
     if (!data.attachments.empty()) {
         result += "\n" + render_attachments(data.attachments);
     }
