@@ -26,6 +26,7 @@ import cc.services.mcp.config;
 import cc.services.mcp.headers_helper;
 import cc.services.mcp.auth;
 import cc.services.mcp.at_mention_handler;
+import cc.services.mcp.channel_notification;
 import cc.utils.json;
 
 export namespace cc::services::mcp {
@@ -664,6 +665,32 @@ private:
             // the JSON-RPC inbound dispatch point that useIdeAtMentioned.ts
             // hooks via client.setNotificationHandler on the TS side.
             dispatch_at_mention(server_name, notification.params_json);
+        } else if (notification.method == "notifications/claude/channel") {
+            // TS REF: src/services/mcp/channelNotification.ts:37-47
+            // Channel server pushed an inbound message (e.g. user typed in
+            // Slack). Parse params, wrap in <channel> tag, emit to the
+            // channel notification bus so subscribers (query engine, UI)
+            // can enqueue the message.
+            auto params = parse_channel_message_params(
+                notification.params_json.value_or("{}")
+            );
+            if (params) {
+                emit_channel_message(server_name, params->content, params->meta);
+            }
+        } else if (notification.method == "notifications/claude/channel/permission") {
+            // TS REF: src/services/mcp/channelNotification.ts:62-72
+            // Channel server sent a structured permission reply (the human
+            // approved/denied a tool call via the channel). Parse and emit
+            // to the bus — subscribers match request_id against pending
+            // permission maps.
+            auto params = parse_channel_permission_params(
+                notification.params_json.value_or("{}")
+            );
+            if (params) {
+                emit_channel_permission(
+                    server_name, params->request_id, params->behavior
+                );
+            }
         }
     }
 

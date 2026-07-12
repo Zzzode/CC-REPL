@@ -913,6 +913,70 @@ inline auto emit_prompt_list_changed(std::string_view server_name) -> void {
 }
 
 // =========================================================================
+// Channel-specific emitters (inbound notifications from channel servers)
+// =========================================================================
+
+// TS REF: src/services/mcp/channelNotification.ts:106-116 + dispatch in
+// src/services/mcp/connectionManager.ts — when a notifications/claude/channel
+// notification arrives, the content is wrapped in a <channel> tag and the
+// whole thing is emitted to the bus. Subscribers (e.g. the query engine)
+// read `wrapped` to enqueue the message and `content`/`meta` for detail.
+inline auto emit_channel_message(
+    std::string_view server_name,
+    std::string_view content,
+    const std::optional<std::map<std::string, std::string>>& meta = std::nullopt
+) -> void {
+    auto wrapped = wrap_channel_message(server_name, content, meta);
+
+    // Build JSON payload: { content, wrapped, meta? }
+    cc::utils::json::JsonMutDoc doc;
+    auto root = doc.object();
+    root.add("content", doc.string(content));
+    root.add("wrapped", doc.string(wrapped));
+    if (meta && !meta->empty()) {
+        auto meta_obj = doc.object();
+        for (const auto& [k, v] : *meta) {
+            meta_obj.add(k, doc.string(v));
+        }
+        root.add("meta", meta_obj);
+    }
+    doc.set_root(root);
+
+    ChannelNotification notif{
+        .type = ChannelNotificationType::ChannelMessage,
+        .server_name = std::string(server_name),
+        .timestamp = std::chrono::system_clock::now(),
+        .data_json = doc.to_string()
+    };
+    emit_channel_notification(server_name, notif);
+}
+
+// TS REF: src/services/mcp/channelNotification.ts:62-72 + dispatch in
+// src/services/mcp/connectionManager.ts — when a
+// notifications/claude/channel/permission notification arrives, the
+// structured permission reply is emitted to the bus. Subscribers match
+// request_id against their pending permission map.
+inline auto emit_channel_permission(
+    std::string_view server_name,
+    std::string_view request_id,
+    std::string_view behavior
+) -> void {
+    cc::utils::json::JsonMutDoc doc;
+    auto root = doc.object();
+    root.add("request_id", doc.string(request_id));
+    root.add("behavior", doc.string(behavior));
+    doc.set_root(root);
+
+    ChannelNotification notif{
+        .type = ChannelNotificationType::ChannelPermission,
+        .server_name = std::string(server_name),
+        .timestamp = std::chrono::system_clock::now(),
+        .data_json = doc.to_string()
+    };
+    emit_channel_notification(server_name, notif);
+}
+
+// =========================================================================
 // Server health monitoring
 // =========================================================================
 
