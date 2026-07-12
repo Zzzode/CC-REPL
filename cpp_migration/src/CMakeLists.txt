@@ -733,6 +733,7 @@ target_sources(cc_tools
         tools/script_primitives.cppm
         tools/brief_attachments.cppm
         tools/file_read_helpers.cppm
+        tools/feature_flags.cppm
         tools/lsp_schemas.cppm
         # Phase 3-B/C real tool primitives: bash exec + file I/O + glob/grep
         tools/bash/impl_bash.cppm
@@ -1684,6 +1685,7 @@ add_library(cc_vim)
 target_sources(cc_vim
     PUBLIC FILE_SET CXX_MODULES FILES
         vim/vim_types.cppm
+        vim/vim_controller.cppm
         vim/vim_commands.cppm
         vim/vim_mode.cppm
         vim/vim_motions.cppm
