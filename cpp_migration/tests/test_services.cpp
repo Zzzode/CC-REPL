@@ -7249,8 +7249,8 @@ TEST(ChannelPermission, TruncateForPreviewLong) {
     using namespace cc::services::mcp;
     std::string long_str(300, 'x');
     auto result = truncate_for_preview(long_str);
-    EXPECT_EQ(result.size(), 201u);  // 200 chars + "…"
-    EXPECT_EQ(result.back(), char(0xE2));  // first byte of UTF-8 ellipsis …
+    EXPECT_EQ(result.size(), 203u);  // 200 chars + "…" (3 UTF-8 bytes: E2 80 A6)
+    EXPECT_EQ(static_cast<unsigned char>(result[200]), 0xE2u);  // first byte of UTF-8 ellipsis …
 }
 
 TEST(ChannelPermission, TruncateForPreviewEmpty) {
