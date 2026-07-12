@@ -349,6 +349,7 @@ struct MessageRowCallbacks {
     std::function<void(std::string_view text)>       on_copy;
     std::function<void()>                            on_click;
     std::function<void()>                            on_retry;          // RL
+    std::function<void()>                            on_clear_session;  // P2 api-error-retry
     std::function<void()>                            on_rate_limit_opts; // RL
     std::function<void()>                            on_regenerate;     // Asst
     std::function<void(bool expanded)>               on_toggle;         // System

@@ -63,7 +63,7 @@ constexpr std::string_view ID_ALPHABET = "abcdefghijkmnopqrstuvwxyz";
 // TS REF: src/services/mcp/channelPermissions.ts:85-110
 // Substring blocklist — 5 random letters can spell things. Non-exhaustive,
 // covers the send-to-your-boss-by-accident tier.
-constexpr std::array<std::string_view, 27> ID_AVOID_SUBSTRINGS = {
+constexpr std::array<std::string_view, 24> ID_AVOID_SUBSTRINGS = {
     "fuck",  "shit",  "cunt",  "cock",  "dick",  "twat",  "piss",
     "crap",  "bitch", "whore", "ass",   "tit",   "cum",   "fag",
     "dyke",  "nig",   "kike",  "rape",  "nazi",  "damn",  "poo",

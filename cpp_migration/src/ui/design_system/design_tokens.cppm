@@ -102,6 +102,21 @@ enum class Role : std::uint8_t {
     BriefLabelYou,         // TS: briefLabelYou — "You" in brief mode
     BriefLabelClaude,      // TS: briefLabelClaude — "Claude" in brief mode
     AutoAccept,            // TS: autoAccept — auto-accept indicator accent
+    // ── Semantic derived roles (GAP: clr-missing-42-tokens-struct) ────────
+    TextMuted,             // secondary text (TS inactive)
+    TextLink,              // link text (TS suggestion)
+    TextAccent,            // accent-colored text (TS claude)
+    BorderSubtle,          // subtle divider borders
+    BorderDefault,         // default frame borders (TS promptBorder)
+    BorderAccent,          // accent-colored border (TS permission)
+    BorderError,           // error-state border (TS error)
+    SurfaceHover,          // hover-state surface (TS userMessageBackgroundHover)
+    SurfaceSelected,       // selected/active surface (TS messageActionsBackground)
+    SurfaceBash,           // bash message surface (TS bashMessageBackgroundColor)
+    SurfaceMemory,         // memory surface (TS memoryBackgroundColor)
+    IconDefault,           // default icon color (TS text)
+    IconMuted,             // muted icon color (TS inactive)
+    IconAccent,            // accent icon color (TS claude)
 };
 
 // ─── Palette ─────────────────────────────────────────────────────────────────
@@ -224,6 +239,45 @@ struct Palette {
     ftxui::Color memory_background;       // TS: memoryBackgroundColor — memory bubble bg
     ftxui::Color brief_label_you;         // TS: briefLabelYou — "You" label in brief mode
     ftxui::Color brief_label_claude;      // TS: briefLabelClaude — "Claude" label in brief mode
+
+    // ─── Individual rainbow fields (GAP: clr-missing-42-tokens-struct) ──────
+    // TS REF: src/utils/theme.ts:75-88 — 7 base + 7 shimmer = 14 individual fields.
+    // Previously only accessible via rainbow[] / rainbow_shimmer_stops[] arrays;
+    // now exposed as individually-named members for direct TS field parity.
+    ftxui::Color rainbow_red;             // TS: rainbow_red
+    ftxui::Color rainbow_orange;          // TS: rainbow_orange
+    ftxui::Color rainbow_yellow;          // TS: rainbow_yellow
+    ftxui::Color rainbow_green;           // TS: rainbow_green
+    ftxui::Color rainbow_blue;            // TS: rainbow_blue
+    ftxui::Color rainbow_indigo;          // TS: rainbow_indigo
+    ftxui::Color rainbow_violet;          // TS: rainbow_violet
+    ftxui::Color rainbow_red_shimmer;     // TS: rainbow_red_shimmer
+    ftxui::Color rainbow_orange_shimmer;  // TS: rainbow_orange_shimmer
+    ftxui::Color rainbow_yellow_shimmer;  // TS: rainbow_yellow_shimmer
+    ftxui::Color rainbow_green_shimmer;   // TS: rainbow_green_shimmer
+    ftxui::Color rainbow_blue_shimmer;    // TS: rainbow_blue_shimmer
+    ftxui::Color rainbow_indigo_shimmer;  // TS: rainbow_indigo_shimmer
+    ftxui::Color rainbow_violet_shimmer;  // TS: rainbow_violet_shimmer
+
+    // ─── Semantic derived tokens (GAP: clr-missing-42-tokens-struct) ────────
+    // Higher-level UI semantic roles not present as explicit TS Theme fields
+    // but commonly needed by components.  Resolved from base palette at
+    // construction time so each theme variant can override independently.
+    // TS REF: usage patterns across src/ui/** (ThemedText, MessageBubble, etc.)
+    ftxui::Color text_muted;              // secondary text — alias for muted (TS inactive)
+    ftxui::Color text_link;               // link text — alias for suggestion (TS suggestion)
+    ftxui::Color text_accent;             // accent-colored text — alias for primary (TS claude)
+    ftxui::Color border_subtle;           // subtle divider borders — derived from subtle
+    ftxui::Color border_default;          // default frame borders — alias for prompt_border (TS promptBorder)
+    ftxui::Color border_accent;           // accent-colored border — alias for permission (TS permission)
+    ftxui::Color border_error;            // error-state border — alias for danger (TS error)
+    ftxui::Color surface_hover;           // hover-state surface — alias for user_message_background_hover
+    ftxui::Color surface_selected;        // selected/active surface — alias for message_actions_background
+    ftxui::Color surface_bash;            // bash message surface — alias for bash_message_background
+    ftxui::Color surface_memory;          // memory surface — alias for memory_background
+    ftxui::Color icon_default;            // default icon color — alias for text
+    ftxui::Color icon_muted;              // muted icon color — alias for muted
+    ftxui::Color icon_accent;             // accent icon color — alias for primary
 };
 
 // ─── Concrete palettes (copied verbatim from src/utils/theme.ts rgb() values)
@@ -352,6 +406,36 @@ inline const Palette dark = {
     .memory_background     = ftxui::Color::RGB( 55,  65,  70),  // TS: memoryBackgroundColor
     .brief_label_you       = ftxui::Color::RGB(122, 180, 232),  // TS: briefLabelYou (light blue)
     .brief_label_claude    = CLAWDED,                            // TS: briefLabelClaude (== claude)
+    // ── Individual rainbow fields (TS REF: src/utils/theme.ts:501-514) ──
+    .rainbow_red           = ftxui::Color::RGB(235,  95,  87),  // TS: rainbow_red
+    .rainbow_orange        = ftxui::Color::RGB(245, 139,  87),  // TS: rainbow_orange
+    .rainbow_yellow        = ftxui::Color::RGB(250, 195,  95),  // TS: rainbow_yellow
+    .rainbow_green         = ftxui::Color::RGB(145, 200, 130),  // TS: rainbow_green
+    .rainbow_blue          = ftxui::Color::RGB(130, 170, 220),  // TS: rainbow_blue
+    .rainbow_indigo        = ftxui::Color::RGB(155, 130, 200),  // TS: rainbow_indigo
+    .rainbow_violet        = ftxui::Color::RGB(200, 130, 180),  // TS: rainbow_violet
+    .rainbow_red_shimmer   = ftxui::Color::RGB(250, 155, 147),  // TS: rainbow_red_shimmer
+    .rainbow_orange_shimmer= ftxui::Color::RGB(255, 185, 137),  // TS: rainbow_orange_shimmer
+    .rainbow_yellow_shimmer= ftxui::Color::RGB(255, 225, 155),  // TS: rainbow_yellow_shimmer
+    .rainbow_green_shimmer = ftxui::Color::RGB(185, 230, 180),  // TS: rainbow_green_shimmer
+    .rainbow_blue_shimmer  = ftxui::Color::RGB(180, 205, 240),  // TS: rainbow_blue_shimmer
+    .rainbow_indigo_shimmer= ftxui::Color::RGB(195, 180, 230),  // TS: rainbow_indigo_shimmer
+    .rainbow_violet_shimmer= ftxui::Color::RGB(230, 180, 210),  // TS: rainbow_violet_shimmer
+    // ── Semantic derived tokens (dark theme) ──
+    .text_muted            = ftxui::Color::RGB(153, 153, 153),  // = muted (TS inactive)
+    .text_link             = ftxui::Color::RGB(177, 185, 249),  // = suggestion (TS suggestion)
+    .text_accent           = CLAWDED,                            // = primary (TS claude)
+    .border_subtle         = ftxui::Color::RGB( 55,  57,  61),  // = chrome (TS subtle → dark bg border)
+    .border_default        = ftxui::Color::RGB(136, 136, 136),  // = prompt_border (TS promptBorder)
+    .border_accent         = ftxui::Color::RGB(177, 185, 249),  // = permission (TS permission)
+    .border_error          = ftxui::Color::RGB(255, 107, 128),  // = danger (TS error)
+    .surface_hover         = ftxui::Color::RGB( 70,  70,  70),  // = user_message_background_hover
+    .surface_selected      = ftxui::Color::RGB( 44,  50,  62),  // = message_actions_background
+    .surface_bash          = ftxui::Color::RGB( 65,  60,  65),  // = bash_message_background
+    .surface_memory        = ftxui::Color::RGB( 55,  65,  70),  // = memory_background
+    .icon_default          = ftxui::Color::RGB(255, 255, 255),  // = text (white on dark)
+    .icon_muted            = ftxui::Color::RGB(153, 153, 153),  // = muted
+    .icon_accent           = CLAWDED,                            // = primary
 };
 
 inline const Palette light = {
@@ -442,6 +526,36 @@ inline const Palette light = {
     .memory_background     = ftxui::Color::RGB(230, 245, 250),  // TS: memoryBackgroundColor
     .brief_label_you       = ftxui::Color::RGB( 37,  99, 235),  // TS: briefLabelYou (blue)
     .brief_label_claude    = CLAWDED,                            // TS: briefLabelClaude (== claude)
+    // ── Individual rainbow fields (TS REF: src/utils/theme.ts:177-190) ──
+    .rainbow_red           = ftxui::Color::RGB(235,  95,  87),  // TS: rainbow_red (identical across themes)
+    .rainbow_orange        = ftxui::Color::RGB(245, 139,  87),  // TS: rainbow_orange
+    .rainbow_yellow        = ftxui::Color::RGB(250, 195,  95),  // TS: rainbow_yellow
+    .rainbow_green         = ftxui::Color::RGB(145, 200, 130),  // TS: rainbow_green
+    .rainbow_blue          = ftxui::Color::RGB(130, 170, 220),  // TS: rainbow_blue
+    .rainbow_indigo        = ftxui::Color::RGB(155, 130, 200),  // TS: rainbow_indigo
+    .rainbow_violet        = ftxui::Color::RGB(200, 130, 180),  // TS: rainbow_violet
+    .rainbow_red_shimmer   = ftxui::Color::RGB(250, 155, 147),  // TS: rainbow_red_shimmer
+    .rainbow_orange_shimmer= ftxui::Color::RGB(255, 185, 137),  // TS: rainbow_orange_shimmer
+    .rainbow_yellow_shimmer= ftxui::Color::RGB(255, 225, 155),  // TS: rainbow_yellow_shimmer
+    .rainbow_green_shimmer = ftxui::Color::RGB(185, 230, 180),  // TS: rainbow_green_shimmer
+    .rainbow_blue_shimmer  = ftxui::Color::RGB(180, 205, 240),  // TS: rainbow_blue_shimmer
+    .rainbow_indigo_shimmer= ftxui::Color::RGB(195, 180, 230),  // TS: rainbow_indigo_shimmer
+    .rainbow_violet_shimmer= ftxui::Color::RGB(230, 180, 210),  // TS: rainbow_violet_shimmer
+    // ── Semantic derived tokens (light theme) ──
+    .text_muted            = ftxui::Color::RGB(102, 102, 102),  // = muted (TS inactive light)
+    .text_link             = ftxui::Color::RGB( 87, 105, 247),  // = suggestion (TS suggestion light)
+    .text_accent           = CLAWDED,                            // = primary (TS claude)
+    .border_subtle         = ftxui::Color::RGB(175, 175, 175),  // = subtle (TS subtle light)
+    .border_default        = ftxui::Color::RGB(153, 153, 153),  // = prompt_border (TS promptBorder light)
+    .border_accent         = ftxui::Color::RGB( 87, 105, 247),  // = permission (TS permission light)
+    .border_error          = ftxui::Color::RGB(171,  43,  63),  // = danger (TS error light)
+    .surface_hover         = ftxui::Color::RGB(252, 252, 252),  // = user_message_background_hover
+    .surface_selected      = ftxui::Color::RGB(232, 236, 244),  // = message_actions_background
+    .surface_bash          = ftxui::Color::RGB(250, 245, 250),  // = bash_message_background
+    .surface_memory        = ftxui::Color::RGB(230, 245, 250),  // = memory_background
+    .icon_default          = ftxui::Color::RGB(  0,   0,   0),  // = text (black on light)
+    .icon_muted            = ftxui::Color::RGB(102, 102, 102),  // = muted
+    .icon_accent           = CLAWDED,                            // = primary
 };
 
 // Daltonized variants (deuteranopia-safe).  TS uses EXPLICIT rgb() literals
@@ -531,6 +645,36 @@ inline const Palette dark_daltonized = {
     .memory_background     = ftxui::Color::RGB( 55,  65,  70),  // TS: memoryBackgroundColor
     .brief_label_you       = ftxui::Color::RGB(122, 180, 232),  // TS: briefLabelYou (light blue)
     .brief_label_claude    = ftxui::Color::RGB(255, 153,  51),  // TS: briefLabelClaude (== claude daltonized)
+    // ── Individual rainbow fields (TS REF: src/utils/theme.ts:582-595) ──
+    .rainbow_red           = ftxui::Color::RGB(235,  95,  87),  // TS: rainbow_red (identical across themes)
+    .rainbow_orange        = ftxui::Color::RGB(245, 139,  87),  // TS: rainbow_orange
+    .rainbow_yellow        = ftxui::Color::RGB(250, 195,  95),  // TS: rainbow_yellow
+    .rainbow_green         = ftxui::Color::RGB(145, 200, 130),  // TS: rainbow_green
+    .rainbow_blue          = ftxui::Color::RGB(130, 170, 220),  // TS: rainbow_blue
+    .rainbow_indigo        = ftxui::Color::RGB(155, 130, 200),  // TS: rainbow_indigo
+    .rainbow_violet        = ftxui::Color::RGB(200, 130, 180),  // TS: rainbow_violet
+    .rainbow_red_shimmer   = ftxui::Color::RGB(250, 155, 147),  // TS: rainbow_red_shimmer
+    .rainbow_orange_shimmer= ftxui::Color::RGB(255, 185, 137),  // TS: rainbow_orange_shimmer
+    .rainbow_yellow_shimmer= ftxui::Color::RGB(255, 225, 155),  // TS: rainbow_yellow_shimmer
+    .rainbow_green_shimmer = ftxui::Color::RGB(185, 230, 180),  // TS: rainbow_green_shimmer
+    .rainbow_blue_shimmer  = ftxui::Color::RGB(180, 205, 240),  // TS: rainbow_blue_shimmer
+    .rainbow_indigo_shimmer= ftxui::Color::RGB(195, 180, 230),  // TS: rainbow_indigo_shimmer
+    .rainbow_violet_shimmer= ftxui::Color::RGB(230, 180, 210),  // TS: rainbow_violet_shimmer
+    // ── Semantic derived tokens (dark daltonized) ──
+    .text_muted            = ftxui::Color::RGB(153, 153, 153),  // = muted (TS inactive daltonized)
+    .text_link             = ftxui::Color::RGB(153, 204, 255),  // = suggestion (TS suggestion daltonized)
+    .text_accent           = ftxui::Color::RGB(255, 153,  51),  // = primary (TS claude daltonized)
+    .border_subtle         = ftxui::Color::RGB( 55,  57,  61),  // = chrome
+    .border_default        = ftxui::Color::RGB(136, 136, 136),  // = prompt_border
+    .border_accent         = ftxui::Color::RGB(153, 204, 255),  // = permission
+    .border_error          = ftxui::Color::RGB(255, 102, 102),  // = danger (TS error daltonized)
+    .surface_hover         = ftxui::Color::RGB( 70,  70,  70),  // = user_message_background_hover
+    .surface_selected      = ftxui::Color::RGB( 44,  50,  62),  // = message_actions_background
+    .surface_bash          = ftxui::Color::RGB( 65,  60,  65),  // = bash_message_background
+    .surface_memory        = ftxui::Color::RGB( 55,  65,  70),  // = memory_background
+    .icon_default          = ftxui::Color::RGB(255, 255, 255),  // = text (white on dark)
+    .icon_muted            = ftxui::Color::RGB(153, 153, 153),  // = muted
+    .icon_accent           = ftxui::Color::RGB(255, 153,  51),  // = primary (claude daltonized)
 };
 
 inline const Palette light_daltonized = {
@@ -612,6 +756,36 @@ inline const Palette light_daltonized = {
     .memory_background     = ftxui::Color::RGB(230, 245, 250),  // TS: memoryBackgroundColor
     .brief_label_you       = ftxui::Color::RGB( 37,  99, 235),  // TS: briefLabelYou (blue)
     .brief_label_claude    = ftxui::Color::RGB(255, 153,  51),  // TS: briefLabelClaude (== claude daltonized)
+    // ── Individual rainbow fields (TS REF: src/utils/theme.ts:420-433) ──
+    .rainbow_red           = ftxui::Color::RGB(235,  95,  87),  // TS: rainbow_red (identical across themes)
+    .rainbow_orange        = ftxui::Color::RGB(245, 139,  87),  // TS: rainbow_orange
+    .rainbow_yellow        = ftxui::Color::RGB(250, 195,  95),  // TS: rainbow_yellow
+    .rainbow_green         = ftxui::Color::RGB(145, 200, 130),  // TS: rainbow_green
+    .rainbow_blue          = ftxui::Color::RGB(130, 170, 220),  // TS: rainbow_blue
+    .rainbow_indigo        = ftxui::Color::RGB(155, 130, 200),  // TS: rainbow_indigo
+    .rainbow_violet        = ftxui::Color::RGB(200, 130, 180),  // TS: rainbow_violet
+    .rainbow_red_shimmer   = ftxui::Color::RGB(250, 155, 147),  // TS: rainbow_red_shimmer
+    .rainbow_orange_shimmer= ftxui::Color::RGB(255, 185, 137),  // TS: rainbow_orange_shimmer
+    .rainbow_yellow_shimmer= ftxui::Color::RGB(255, 225, 155),  // TS: rainbow_yellow_shimmer
+    .rainbow_green_shimmer = ftxui::Color::RGB(185, 230, 180),  // TS: rainbow_green_shimmer
+    .rainbow_blue_shimmer  = ftxui::Color::RGB(180, 205, 240),  // TS: rainbow_blue_shimmer
+    .rainbow_indigo_shimmer= ftxui::Color::RGB(195, 180, 230),  // TS: rainbow_indigo_shimmer
+    .rainbow_violet_shimmer= ftxui::Color::RGB(230, 180, 210),  // TS: rainbow_violet_shimmer
+    // ── Semantic derived tokens (light daltonized) ──
+    .text_muted            = ftxui::Color::RGB(102, 102, 102),  // = muted (TS inactive light daltonized)
+    .text_link             = ftxui::Color::RGB( 51, 102, 255),  // = suggestion (TS suggestion daltonized)
+    .text_accent           = ftxui::Color::RGB(255, 153,  51),  // = primary (TS claude daltonized)
+    .border_subtle         = ftxui::Color::RGB(175, 175, 175),  // = subtle
+    .border_default        = ftxui::Color::RGB(153, 153, 153),  // = prompt_border
+    .border_accent         = ftxui::Color::RGB( 51, 102, 255),  // = permission
+    .border_error          = ftxui::Color::RGB(204,   0,   0),  // = danger (TS error light daltonized)
+    .surface_hover         = light.surface_hover,               // = user_message_background_hover
+    .surface_selected      = light.surface_selected,            // = message_actions_background
+    .surface_bash          = ftxui::Color::RGB(250, 245, 250),  // = bash_message_background
+    .surface_memory        = ftxui::Color::RGB(230, 245, 250),  // = memory_background
+    .icon_default          = ftxui::Color::RGB(  0,   0,   0),  // = text (black on light)
+    .icon_muted            = ftxui::Color::RGB(102, 102, 102),  // = muted
+    .icon_accent           = ftxui::Color::RGB(255, 153,  51),  // = primary (claude daltonized)
 };
 
 // ── Light ANSI palette (TS REF: src/utils/theme.ts lightAnsiTheme 197-272) ──
@@ -698,6 +872,36 @@ inline const Palette light_ansi = {
     .memory_background     = ftxui::Color{ftxui::Color::Palette16::GrayLight},        // TS: ansi:white
     .brief_label_you       = ftxui::Color{ftxui::Color::Palette16::Blue},         // TS: ansi:blue
     .brief_label_claude    = ftxui::Color{ftxui::Color::Palette16::RedLight},    // TS: ansi:redBright
+    // ── Individual rainbow fields (TS REF: src/utils/theme.ts lightAnsiTheme 258-271) ──
+    .rainbow_red           = ftxui::Color{ftxui::Color::Palette16::Red},           // TS: ansi:red (rainbow_red)
+    .rainbow_orange        = ftxui::Color{ftxui::Color::Palette16::RedLight},     // TS: ansi:redBright (rainbow_orange)
+    .rainbow_yellow        = ftxui::Color{ftxui::Color::Palette16::Yellow},        // TS: ansi:yellow (rainbow_yellow)
+    .rainbow_green         = ftxui::Color{ftxui::Color::Palette16::Green},         // TS: ansi:green (rainbow_green)
+    .rainbow_blue          = ftxui::Color{ftxui::Color::Palette16::Cyan},          // TS: ansi:cyan (rainbow_blue)
+    .rainbow_indigo        = ftxui::Color{ftxui::Color::Palette16::Blue},          // TS: ansi:blue (rainbow_indigo)
+    .rainbow_violet        = ftxui::Color{ftxui::Color::Palette16::Magenta},       // TS: ansi:magenta (rainbow_violet)
+    .rainbow_red_shimmer   = ftxui::Color{ftxui::Color::Palette16::RedLight},     // TS: ansi:redBright (rainbow_red_shimmer)
+    .rainbow_orange_shimmer= ftxui::Color{ftxui::Color::Palette16::Yellow},        // TS: ansi:yellow (rainbow_orange_shimmer)
+    .rainbow_yellow_shimmer= ftxui::Color{ftxui::Color::Palette16::YellowLight},  // TS: ansi:yellowBright (rainbow_yellow_shimmer)
+    .rainbow_green_shimmer = ftxui::Color{ftxui::Color::Palette16::GreenLight},   // TS: ansi:greenBright (rainbow_green_shimmer)
+    .rainbow_blue_shimmer  = ftxui::Color{ftxui::Color::Palette16::CyanLight},    // TS: ansi:cyanBright (rainbow_blue_shimmer)
+    .rainbow_indigo_shimmer= ftxui::Color{ftxui::Color::Palette16::BlueLight},    // TS: ansi:blueBright (rainbow_indigo_shimmer)
+    .rainbow_violet_shimmer= ftxui::Color{ftxui::Color::Palette16::MagentaLight}, // TS: ansi:magentaBright (rainbow_violet_shimmer)
+    // ── Semantic derived tokens (light ANSI) ──
+    .text_muted            = ftxui::Color{ftxui::Color::Palette16::GrayDark},     // = muted (TS inactive ansi:blackBright)
+    .text_link             = ftxui::Color{ftxui::Color::Palette16::Blue},         // = suggestion (TS suggestion ansi:blue)
+    .text_accent           = ftxui::Color{ftxui::Color::Palette16::RedLight},    // = primary (TS claude ansi:redBright)
+    .border_subtle         = ftxui::Color{ftxui::Color::Palette16::GrayDark},     // = subtle
+    .border_default        = ftxui::Color{ftxui::Color::Palette16::GrayLight},        // = prompt_border (TS promptBorder ansi:white)
+    .border_accent         = ftxui::Color{ftxui::Color::Palette16::Blue},         // = permission (TS permission ansi:blue)
+    .border_error          = ftxui::Color{ftxui::Color::Palette16::Red},          // = danger (TS error ansi:red)
+    .surface_hover         = ftxui::Color{ftxui::Color::Palette16::White},    // = user_message_background_hover
+    .surface_selected      = ftxui::Color{ftxui::Color::Palette16::GrayLight},        // = message_actions_background
+    .surface_bash          = ftxui::Color{ftxui::Color::Palette16::White},    // = bash_message_background
+    .surface_memory        = ftxui::Color{ftxui::Color::Palette16::GrayLight},        // = memory_background
+    .icon_default          = ftxui::Color{ftxui::Color::Palette16::Black},        // = text (black on light)
+    .icon_muted            = ftxui::Color{ftxui::Color::Palette16::GrayDark},     // = muted
+    .icon_accent           = ftxui::Color{ftxui::Color::Palette16::RedLight},    // = primary
 };
 
 // ── Dark ANSI palette (TS REF: src/utils/theme.ts darkAnsiTheme 278-353) ──
@@ -784,6 +988,36 @@ inline const Palette dark_ansi = {
     .memory_background     = ftxui::Color{ftxui::Color::Palette16::GrayDark},     // TS: ansi:blackBright
     .brief_label_you       = ftxui::Color{ftxui::Color::Palette16::BlueLight},   // TS: ansi:blueBright
     .brief_label_claude    = ftxui::Color{ftxui::Color::Palette16::RedLight},    // TS: ansi:redBright
+    // ── Individual rainbow fields (TS REF: src/utils/theme.ts darkAnsiTheme 339-352) ──
+    .rainbow_red           = ftxui::Color{ftxui::Color::Palette16::Red},           // TS: ansi:red (rainbow_red)
+    .rainbow_orange        = ftxui::Color{ftxui::Color::Palette16::RedLight},     // TS: ansi:redBright (rainbow_orange)
+    .rainbow_yellow        = ftxui::Color{ftxui::Color::Palette16::Yellow},        // TS: ansi:yellow (rainbow_yellow)
+    .rainbow_green         = ftxui::Color{ftxui::Color::Palette16::Green},         // TS: ansi:green (rainbow_green)
+    .rainbow_blue          = ftxui::Color{ftxui::Color::Palette16::Cyan},          // TS: ansi:cyan (rainbow_blue)
+    .rainbow_indigo        = ftxui::Color{ftxui::Color::Palette16::Blue},          // TS: ansi:blue (rainbow_indigo)
+    .rainbow_violet        = ftxui::Color{ftxui::Color::Palette16::Magenta},       // TS: ansi:magenta (rainbow_violet)
+    .rainbow_red_shimmer   = ftxui::Color{ftxui::Color::Palette16::RedLight},     // TS: ansi:redBright (rainbow_red_shimmer)
+    .rainbow_orange_shimmer= ftxui::Color{ftxui::Color::Palette16::Yellow},        // TS: ansi:yellow (rainbow_orange_shimmer)
+    .rainbow_yellow_shimmer= ftxui::Color{ftxui::Color::Palette16::YellowLight},  // TS: ansi:yellowBright (rainbow_yellow_shimmer)
+    .rainbow_green_shimmer = ftxui::Color{ftxui::Color::Palette16::GreenLight},   // TS: ansi:greenBright (rainbow_green_shimmer)
+    .rainbow_blue_shimmer  = ftxui::Color{ftxui::Color::Palette16::CyanLight},    // TS: ansi:cyanBright (rainbow_blue_shimmer)
+    .rainbow_indigo_shimmer= ftxui::Color{ftxui::Color::Palette16::BlueLight},    // TS: ansi:blueBright (rainbow_indigo_shimmer)
+    .rainbow_violet_shimmer= ftxui::Color{ftxui::Color::Palette16::MagentaLight}, // TS: ansi:magentaBright (rainbow_violet_shimmer)
+    // ── Semantic derived tokens (dark ANSI) ──
+    .text_muted            = ftxui::Color{ftxui::Color::Palette16::GrayLight},         // = muted (TS inactive ansi:white)
+    .text_link             = ftxui::Color{ftxui::Color::Palette16::BlueLight},    // = suggestion (TS suggestion ansi:blueBright)
+    .text_accent           = ftxui::Color{ftxui::Color::Palette16::RedLight},    // = primary (TS claude ansi:redBright)
+    .border_subtle         = ftxui::Color{ftxui::Color::Palette16::GrayLight},         // = subtle
+    .border_default        = ftxui::Color{ftxui::Color::Palette16::GrayLight},         // = prompt_border (TS promptBorder ansi:white)
+    .border_accent         = ftxui::Color{ftxui::Color::Palette16::BlueLight},    // = permission (TS permission ansi:blueBright)
+    .border_error          = ftxui::Color{ftxui::Color::Palette16::RedLight},    // = danger (TS error ansi:redBright)
+    .surface_hover         = ftxui::Color{ftxui::Color::Palette16::GrayLight},       // = user_message_background_hover
+    .surface_selected      = ftxui::Color{ftxui::Color::Palette16::GrayDark},    // = message_actions_background
+    .surface_bash          = ftxui::Color{ftxui::Color::Palette16::Black},      // = bash_message_background
+    .surface_memory        = ftxui::Color{ftxui::Color::Palette16::GrayDark},     // = memory_background
+    .icon_default          = ftxui::Color{ftxui::Color::Palette16::White},     // = text (white on dark)
+    .icon_muted            = ftxui::Color{ftxui::Color::Palette16::GrayLight},         // = muted
+    .icon_accent           = ftxui::Color{ftxui::Color::Palette16::RedLight},    // = primary
 };
 
 // Monochrome palette: for reduced-color / braille-only terminals.
@@ -863,6 +1097,36 @@ inline const Palette monochrome = {
     .memory_background     = ftxui::Color::GrayDark,
     .brief_label_you       = ftxui::Color::White,
     .brief_label_claude    = ftxui::Color::White,
+    // ── Individual rainbow fields (monochrome: all White) ──
+    .rainbow_red           = ftxui::Color::White,
+    .rainbow_orange        = ftxui::Color::White,
+    .rainbow_yellow        = ftxui::Color::White,
+    .rainbow_green         = ftxui::Color::White,
+    .rainbow_blue          = ftxui::Color::White,
+    .rainbow_indigo        = ftxui::Color::White,
+    .rainbow_violet        = ftxui::Color::White,
+    .rainbow_red_shimmer   = ftxui::Color::GrayLight,
+    .rainbow_orange_shimmer= ftxui::Color::GrayLight,
+    .rainbow_yellow_shimmer= ftxui::Color::GrayLight,
+    .rainbow_green_shimmer = ftxui::Color::GrayLight,
+    .rainbow_blue_shimmer  = ftxui::Color::GrayLight,
+    .rainbow_indigo_shimmer= ftxui::Color::GrayLight,
+    .rainbow_violet_shimmer= ftxui::Color::GrayLight,
+    // ── Semantic derived tokens (monochrome) ──
+    .text_muted            = ftxui::Color::GrayDark,
+    .text_link             = ftxui::Color::GrayLight,
+    .text_accent           = ftxui::Color::White,
+    .border_subtle         = ftxui::Color::GrayDark,
+    .border_default        = ftxui::Color::GrayDark,
+    .border_accent         = ftxui::Color::White,
+    .border_error          = ftxui::Color::White,
+    .surface_hover         = ftxui::Color::GrayLight,
+    .surface_selected      = ftxui::Color::GrayDark,
+    .surface_bash          = ftxui::Color::GrayDark,
+    .surface_memory        = ftxui::Color::GrayDark,
+    .icon_default          = ftxui::Color::White,
+    .icon_muted            = ftxui::Color::GrayDark,
+    .icon_accent           = ftxui::Color::White,
 };
 
 } // namespace palette
@@ -897,6 +1161,21 @@ inline const Palette monochrome = {
         case Role::BriefLabelYou:         return pal.brief_label_you;
         case Role::BriefLabelClaude:      return pal.brief_label_claude;
         case Role::AutoAccept:            return pal.auto_accept;
+        // Semantic derived roles (clr-missing-42-tokens-struct)
+        case Role::TextMuted:             return pal.text_muted;
+        case Role::TextLink:              return pal.text_link;
+        case Role::TextAccent:            return pal.text_accent;
+        case Role::BorderSubtle:          return pal.border_subtle;
+        case Role::BorderDefault:         return pal.border_default;
+        case Role::BorderAccent:          return pal.border_accent;
+        case Role::BorderError:           return pal.border_error;
+        case Role::SurfaceHover:          return pal.surface_hover;
+        case Role::SurfaceSelected:       return pal.surface_selected;
+        case Role::SurfaceBash:           return pal.surface_bash;
+        case Role::SurfaceMemory:         return pal.surface_memory;
+        case Role::IconDefault:           return pal.icon_default;
+        case Role::IconMuted:             return pal.icon_muted;
+        case Role::IconAccent:            return pal.icon_accent;
     }
     return pal.text;
 }

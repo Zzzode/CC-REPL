@@ -789,6 +789,10 @@ private:
     std::jthread bash_thread_;
     std::atomic<bool> bash_running_{false};
     std::atomic<bool> query_running_{false};
+    /// P2 gap api-error-retry: last user-submitted message text.  Used by
+    /// the Retry button on SystemAPIError cards to re-send the same query.
+    /// TS REF: SystemAPIErrorMessage.tsx onRetry → re-submits last prompt.
+    std::string last_submitted_text_;
     // Cached autocomplete data (loaded once at startup to avoid repeated disk I/O
     // on every keystroke — TS memoizes these in useTypeahead).
     std::vector<acsrc::SkillSuggestionData> cached_skills_;
@@ -2442,6 +2446,29 @@ public:
             (void)mode;
         };
 
+        // P2 gap api-error-retry: wire Retry button on SystemAPIError cards
+        // to re-send the last user message.  TS REF: SystemAPIErrorMessage.tsx
+        //   onRetry → parent re-triggers the last prompt submission.
+        cbs.on_retry = [this]() {
+            if (query_running_.load()) return;
+            if (last_submitted_text_.empty()) return;
+            this->HandleSubmit(last_submitted_text_);
+        };
+
+        // P2 gap api-error-retry: wire Clear-session button on expired-auth
+        // error cards to reset the conversation.  TS REF: onClearSession.
+        cbs.on_clear_session = [this]() {
+            engine_->clear_conversation();
+            local_command_messages_.clear();
+            screen_state_->divider_index.reset();
+            screen_state_->unseen_divider.reset();
+            screen_state_->unseen_message_count = 0;
+            screen_state_->pill_visible = false;
+            screen_state_->scroll_offset = 0;
+            screen_state_->scroll_pinned_to_bottom = true;
+            this->SyncState();
+        };
+
         repl_component_ = repl::ReplScreen(screen_state_, std::move(cbs));
 
         // ── Cost threshold hook wiring (M7.5) ────────────────────────────
@@ -2798,6 +2825,10 @@ public:
         screen_state_->submit_count++;
 
         query_running_.store(true);
+        // P2 gap api-error-retry: capture the submitted text so the Retry
+        // button on SystemAPIError cards can re-send the same query.
+        // TS REF: SystemAPIErrorMessage.tsx onRetry → last prompt re-submission.
+        last_submitted_text_ = text;
         screen_state_->spinner_mode = repl::SpinnerMode::Requesting;
         screen_state_->spinner_verb = "Thinking";
         {
@@ -3059,8 +3090,43 @@ public:
             return;
         }
         if (normalized == "/compact") {
+            // P2 gap stashed-prompt: stash current input before compact so
+            // the user's typed text survives the context compression.
+            // TS REF: REPL.tsx — stashedPrompt preserves input across
+            //   operations that would otherwise lose it (compact, tool-use).
+            namespace repl = cc::ui::repl_screen;
+            const auto& input = screen_state_->input_text;
+            if (!input.empty()) {
+                const auto refs = cc::utils::parse_references(input);
+                std::unordered_map<int, ::cc::core::ImageBlock> ref_images;
+                std::unordered_map<int, std::string> ref_texts;
+                for (const auto& r : refs) {
+                    if (auto it = pasted_contents_.find(r.id);
+                        it != pasted_contents_.end()) {
+                        ref_images[r.id] = it->second;
+                    }
+                    if (auto it = pasted_text_contents_.find(r.id);
+                        it != pasted_text_contents_.end()) {
+                        ref_texts[r.id] = it->second;
+                    }
+                }
+                repl::StashCurrentPrompt(screen_state_,
+                    std::move(ref_images), std::move(ref_texts));
+                repl::set_prompt_input_text(screen_state_, {}, 0);
+            }
             auto result = engine_->compact_conversation();
-            if (result) this->SyncState();
+            if (result) {
+                this->SyncState();
+                // Restore stash after compact completes (TS: restore after
+                // operation that triggered stash finishes).
+                if (repl::HasStashedPrompt(screen_state_)) {
+                    std::unordered_map<int, ::cc::core::ImageBlock> ri;
+                    std::unordered_map<int, std::string> rt;
+                    repl::RestoreStashedPrompt(screen_state_, &ri, &rt);
+                    for (auto& [id, img] : ri) pasted_contents_[id] = std::move(img);
+                    for (auto& [id, txt] : rt) pasted_text_contents_[id] = std::move(txt);
+                }
+            }
             return;
         }
         if (normalized == "/cost") {
@@ -3668,6 +3734,23 @@ public:
             error_entry.timestamp = std::chrono::system_clock::now();
             // TS: system prompt errors also get a synthetic uuid.
             error_entry.id = "err_00000000000000000000";
+            // P2 gap api-error-retry: populate retry metadata so the
+            // SystemAPIError card shows a live countdown + attempt counter.
+            // TS REF: createSystemAPIErrorMessage(error, retryInMs,
+            //   retryAttempt, maxRetries).
+            error_entry.retry_after_ms = 3000.0;  // 3s default backoff
+            error_entry.retry_attempt  = 1;
+            error_entry.max_retries    = 3;
+            // Detect session-expired errors (401 / invalid session token).
+            // TS REF: sessionExpired prop — set when error indicates auth
+            //   failure that requires clearing the session.
+            const auto& err = *pending_error;
+            if (err.find("401") != std::string::npos ||
+                err.find("unauthorized") != std::string::npos ||
+                err.find("session") != std::string::npos ||
+                err.find("expired") != std::string::npos) {
+                error_entry.session_expired = true;
+            }
             screen_state_->messages.push_back(std::move(error_entry));
         }
         screen_state_->spinner_mode = repl::SpinnerMode::Hidden;
@@ -4015,6 +4098,69 @@ public:
             // Offload the actual clipboard read to a background thread.
             this->SpawnPasteWorker(id);
             return true;
+        }
+
+        // ── Ctrl+S: manual stash/unstash (TS chat:stash) ─────────────────
+        // TS REF: PromptInput.tsx L1357-1383 handleStash —
+        //   If input is empty AND stash exists → pop stash (restore text).
+        //   If input is non-empty → stash input and clear input.
+        //   This lets users temporarily put aside a long prompt to run a
+        //   quick command, then restore it.
+        if (event == Event::Character('\x13') && !query_running_.load()) {
+            namespace repl = cc::ui::repl_screen;
+            const auto& input = screen_state_->input_text;
+
+            // Trim check: TS does `input.trim() === ''` to decide pop-vs-push.
+            // An input of only whitespace is treated as "empty" for stash pop.
+            const bool input_has_content = [&] {
+                for (char c : input) {
+                    if (!std::isspace(static_cast<unsigned char>(c))) return true;
+                }
+                return false;
+            }();
+
+            if (!input_has_content && repl::HasStashedPrompt(screen_state_)) {
+                // Pop stash: restore stashed text + pasted contents.
+                std::unordered_map<int, ::cc::core::ImageBlock> restored_images;
+                std::unordered_map<int, std::string> restored_texts;
+                repl::RestoreStashedPrompt(screen_state_, &restored_images, &restored_texts);
+                // Merge restored pasted contents back into engine maps.
+                for (auto& [id, img] : restored_images) {
+                    pasted_contents_[id] = std::move(img);
+                }
+                for (auto& [id, txt] : restored_texts) {
+                    pasted_text_contents_[id] = std::move(txt);
+                }
+                PostRenderEvent();
+                return true;
+            }
+            if (input_has_content) {
+                // Push stash: save current input + referenced pasted contents,
+                // then clear input.
+                const auto refs = cc::utils::parse_references(input);
+                std::unordered_map<int, ::cc::core::ImageBlock> ref_images;
+                std::unordered_map<int, std::string> ref_texts;
+                for (const auto& r : refs) {
+                    if (auto it = pasted_contents_.find(r.id);
+                        it != pasted_contents_.end()) {
+                        ref_images[r.id] = it->second;
+                    }
+                    if (auto it = pasted_text_contents_.find(r.id);
+                        it != pasted_text_contents_.end()) {
+                        ref_texts[r.id] = it->second;
+                    }
+                }
+                repl::StashCurrentPrompt(screen_state_,
+                    std::move(ref_images), std::move(ref_texts));
+                // Clear input (TS: trackAndSetInput('') + setCursorOffset(0)).
+                repl::set_prompt_input_text(screen_state_, {}, 0);
+                // Clear pasted contents that were only referenced by the
+                // stashed text (orphan cleanup will handle this naturally).
+                PostRenderEvent();
+                return true;
+            }
+            // Empty input with no stash → nothing to do.
+            return false;
         }
 
         // ── Markdown hyperlink click-to-open ─────────────────────────────

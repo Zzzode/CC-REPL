@@ -19,6 +19,7 @@ module;
 module cc.ui.autocomplete_sources;
 
 import cc.skills.skill;
+import cc.skills.load_skills_dir;
 import cc.skills.bundled;
 import cc.tools.agent_runtime;
 import cc.tools.mcp;
@@ -58,25 +59,32 @@ std::vector<SkillSuggestionData> collect_skill_suggestions(std::string_view cwd)
     std::vector<SkillSuggestionData> rows;
     std::unordered_set<std::string> seen;
 
+    // Use the unified SkillRegistry which merges bundled + statically-loaded
+    // (managed/user/project/additional-dir/legacy-commands) + dynamically-
+    // discovered skills from get_skill_dir_commands() + get_dynamic_skills().
+    // TS REF: src/ui/components/Autocomplete.tsx uses getSkillDirCommands()
+    //          + bundled skills for the unified skill picker.
+    auto& registry = cc::skills::SkillRegistry::instance();
+    auto all_skills = registry.all_skills(fs::path(std::string(cwd)));
+
+    // Determine source label per skill
+    for (const auto& def : all_skills) {
+        std::string source = def.is_builtin ? "bundled" : "project";
+        std::string detail;
+        if (def.is_builtin) {
+            detail = "bundled";
+        } else {
+            // Heuristic: if the skill has no author, it's likely from a
+            // project/user directory.  The exact source is tracked in
+            // SkillCommand.source but we lost that in the conversion.
+            detail = "discovered";
+        }
+        add_unique_skill(rows, seen, def, source, detail);
+    }
+
+    // Also load plugin skills with prefix (SkillRegistry doesn't yet
+    // handle plugin-prefixed skills, so we keep the direct loader path).
     cc::skills::SkillLoader loader;
-    if (!cwd.empty()) {
-        const auto project_skills = fs::path(std::string(cwd)) / ".claude" / "skills";
-        if (auto project = loader.load_from_directory(project_skills); project) {
-            for (const auto& def : *project) {
-                add_unique_skill(rows, seen, def, "project", project_skills.string());
-            }
-        }
-    }
-
-    if (const char* home = std::getenv("HOME")) {
-        const auto user_skills = fs::path(home) / ".claude" / "skills";
-        if (auto user = loader.load_from_directory(user_skills); user) {
-            for (const auto& def : *user) {
-                add_unique_skill(rows, seen, def, "user", user_skills.string());
-            }
-        }
-    }
-
     for (const auto& plugin : agent_runtime::discover_plugin_component_paths()) {
         for (const auto& path : plugin.skills_paths) {
             if (auto plugin_skills =
@@ -87,11 +95,6 @@ std::vector<SkillSuggestionData> collect_skill_suggestions(std::string_view cwd)
                 }
             }
         }
-    }
-
-    cc::skills::BundledSkills bundled;
-    for (const auto& def : bundled.all()) {
-        add_unique_skill(rows, seen, def, "bundled");
     }
 
     std::ranges::sort(rows, [](const auto& a, const auto& b) {

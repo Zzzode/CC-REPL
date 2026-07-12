@@ -49,6 +49,7 @@ import cc.services.lsp.LSPServerManager;
 import cc.services.lsp.client;
 import cc.services.mcp.client;
 import cc.services.mcp.auth;
+import cc.services.mcp.channel_permissions;
 import cc.services.mcp.config;
 import cc.services.mcp.connection_manager;
 import cc.services.mcp.elicitation_handler;
@@ -7179,6 +7180,500 @@ TEST(SpeculationSuggestion, QualityFilterRejectsEmpty) {
     using cc::services::prompt_suggestion::should_filter_suggestion;
     EXPECT_TRUE(should_filter_suggestion(""));
     EXPECT_TRUE(should_filter_suggestion("   "));
+}
+
+// ============================================================================
+// ChannelPermission — short request ID generation
+// ============================================================================
+// TS REF: src/services/mcp/channelPermissions.ts:140-152
+
+TEST(ChannelPermission, ShortRequestIdIsFiveLetters) {
+    using namespace cc::services::mcp;
+    auto id = short_request_id("toolu_01ABC123def456GHI789jkl");
+    EXPECT_EQ(id.size(), 5u);
+    for (char c : id) {
+        EXPECT_GE(c, 'a');
+        EXPECT_LE(c, 'z');
+        EXPECT_NE(c, 'l');  // 'l' excluded from alphabet
+    }
+}
+
+TEST(ChannelPermission, ShortRequestIdIsDeterministic) {
+    using namespace cc::services::mcp;
+    auto id1 = short_request_id("toolu_01ABC123def456GHI789jkl");
+    auto id2 = short_request_id("toolu_01ABC123def456GHI789jkl");
+    EXPECT_EQ(id1, id2);
+}
+
+TEST(ChannelPermission, ShortRequestIdDifferentInputsDiffer) {
+    using namespace cc::services::mcp;
+    auto id1 = short_request_id("toolu_01ABC123def456GHI789jkl");
+    auto id2 = short_request_id("toolu_99XYZ999xyz999ABC999mno");
+    EXPECT_NE(id1, id2);
+}
+
+TEST(ChannelPermission, ShortRequestIdAvoidsBlockedSubstrings) {
+    using namespace cc::services::mcp;
+    // The re-hash with salt should avoid producing IDs containing
+    // blocklisted substrings. We test a few inputs that might hash to
+    // problematic outputs.
+    for (int i = 0; i < 100; ++i) {
+        std::string tool_use_id = "toolu_test_" + std::to_string(i);
+        auto id = short_request_id(tool_use_id);
+        // Verify no blocked substring is present
+        constexpr std::array<std::string_view, 24> blocked = {
+            "fuck",  "shit",  "cunt",  "cock",  "dick",  "twat",  "piss",
+            "crap",  "bitch", "whore", "ass",   "tit",   "cum",   "fag",
+            "dyke",  "nig",   "kike",  "rape",  "nazi",  "damn",  "poo",
+            "pee",   "wank",  "anus",
+        };
+        for (auto bad : blocked) {
+            EXPECT_EQ(id.find(bad), std::string::npos)
+                << "ID '" << id << "' contains blocked substring '" << bad << "'";
+        }
+    }
+}
+
+// ============================================================================
+// ChannelPermission — truncate_for_preview
+// ============================================================================
+// TS REF: src/services/mcp/channelPermissions.ts:160-167
+
+TEST(ChannelPermission, TruncateForPreviewShort) {
+    using namespace cc::services::mcp;
+    auto result = truncate_for_preview(R"({"cmd":"ls"})");
+    EXPECT_EQ(result, R"({"cmd":"ls"})");
+}
+
+TEST(ChannelPermission, TruncateForPreviewLong) {
+    using namespace cc::services::mcp;
+    std::string long_str(300, 'x');
+    auto result = truncate_for_preview(long_str);
+    EXPECT_EQ(result.size(), 201u);  // 200 chars + "…"
+    EXPECT_EQ(result.back(), char(0xE2));  // first byte of UTF-8 ellipsis …
+}
+
+TEST(ChannelPermission, TruncateForPreviewEmpty) {
+    using namespace cc::services::mcp;
+    auto result = truncate_for_preview("");
+    EXPECT_EQ(result, "(unserializable)");
+}
+
+// ============================================================================
+// ChannelPermission — parse_permission_reply
+// ============================================================================
+// TS REF: src/services/mcp/channelPermissions.ts:75
+
+TEST(ChannelPermission, ParseReplyYesLowercase) {
+    using namespace cc::services::mcp;
+    auto parsed = parse_permission_reply("yes tbxkq");
+    ASSERT_TRUE(parsed.has_value());
+    EXPECT_EQ(parsed->request_id, "tbxkq");
+    EXPECT_EQ(parsed->behavior, ChannelPermissionBehavior::Allow);
+}
+
+TEST(ChannelPermission, ParseReplyNoLowercase) {
+    using namespace cc::services::mcp;
+    auto parsed = parse_permission_reply("no tbxkq");
+    ASSERT_TRUE(parsed.has_value());
+    EXPECT_EQ(parsed->request_id, "tbxkq");
+    EXPECT_EQ(parsed->behavior, ChannelPermissionBehavior::Deny);
+}
+
+TEST(ChannelPermission, ParseReplyYShortForm) {
+    using namespace cc::services::mcp;
+    auto parsed = parse_permission_reply("y tbxkq");
+    ASSERT_TRUE(parsed.has_value());
+    EXPECT_EQ(parsed->behavior, ChannelPermissionBehavior::Allow);
+}
+
+TEST(ChannelPermission, ParseReplyNShortForm) {
+    using namespace cc::services::mcp;
+    auto parsed = parse_permission_reply("n tbxkq");
+    ASSERT_TRUE(parsed.has_value());
+    EXPECT_EQ(parsed->behavior, ChannelPermissionBehavior::Deny);
+}
+
+TEST(ChannelPermission, ParseReplyCaseInsensitive) {
+    using namespace cc::services::mcp;
+    auto parsed = parse_permission_reply("YES TBXKQ");
+    ASSERT_TRUE(parsed.has_value());
+    EXPECT_EQ(parsed->request_id, "tbxkq");  // lowercased
+    EXPECT_EQ(parsed->behavior, ChannelPermissionBehavior::Allow);
+}
+
+TEST(ChannelPermission, ParseReplyWithWhitespacePadding) {
+    using namespace cc::services::mcp;
+    auto parsed = parse_permission_reply("  yes   tbxkq  ");
+    ASSERT_TRUE(parsed.has_value());
+    EXPECT_EQ(parsed->request_id, "tbxkq");
+}
+
+TEST(ChannelPermission, ParseReplyRejectsBareYes) {
+    using namespace cc::services::mcp;
+    EXPECT_FALSE(parse_permission_reply("yes").has_value());
+}
+
+TEST(ChannelPermission, ParseReplyRejectsIdWithL) {
+    using namespace cc::services::mcp;
+    // 'l' is excluded from the alphabet (looks like 1/I)
+    EXPECT_FALSE(parse_permission_reply("yes tblkq").has_value());
+}
+
+TEST(ChannelPermission, ParseReplyRejectsExtraText) {
+    using namespace cc::services::mcp;
+    EXPECT_FALSE(parse_permission_reply("yes tbxkq please").has_value());
+}
+
+TEST(ChannelPermission, ParseReplyRejectsWrongIdLength) {
+    using namespace cc::services::mcp;
+    EXPECT_FALSE(parse_permission_reply("yes tbxk").has_value());   // 4 chars
+    EXPECT_FALSE(parse_permission_reply("yes tbxkqq").has_value()); // 6 chars
+}
+
+// ============================================================================
+// ChannelPermission — ChannelPermissionCallbacks
+// ============================================================================
+// TS REF: src/services/mcp/channelPermissions.ts:46-61, 209-240
+
+TEST(ChannelPermission, CallbacksResolveAllow) {
+    using namespace cc::services::mcp;
+    auto cbs = create_channel_permission_callbacks();
+    bool called = false;
+    ChannelPermissionBehavior received_behavior{};
+    std::string received_server;
+
+    auto unsub = cbs->on_response("tbxkq", [&](const ChannelPermissionResponse& resp) {
+        called = true;
+        received_behavior = resp.behavior;
+        received_server = resp.from_server;
+    });
+
+    bool resolved = cbs->resolve("tbxkq", ChannelPermissionBehavior::Allow, "plugin:telegram:tg");
+    EXPECT_TRUE(resolved);
+    EXPECT_TRUE(called);
+    EXPECT_EQ(received_behavior, ChannelPermissionBehavior::Allow);
+    EXPECT_EQ(received_server, "plugin:telegram:tg");
+}
+
+TEST(ChannelPermission, CallbacksResolveDeny) {
+    using namespace cc::services::mcp;
+    auto cbs = create_channel_permission_callbacks();
+    ChannelPermissionBehavior received{};
+    cbs->on_response("abcde", [&](const ChannelPermissionResponse& resp) {
+        received = resp.behavior;
+    });
+    cbs->resolve("abcde", ChannelPermissionBehavior::Deny, "test");
+    EXPECT_EQ(received, ChannelPermissionBehavior::Deny);
+}
+
+TEST(ChannelPermission, CallbacksResolveReturnsFalseForUnknown) {
+    using namespace cc::services::mcp;
+    auto cbs = create_channel_permission_callbacks();
+    EXPECT_FALSE(cbs->resolve("zzzzz", ChannelPermissionBehavior::Allow, "test"));
+}
+
+TEST(ChannelPermission, CallbacksUnsubscribePreventsResolve) {
+    using namespace cc::services::mcp;
+    auto cbs = create_channel_permission_callbacks();
+    bool called = false;
+    auto unsub = cbs->on_response("tbxkq", [&](const ChannelPermissionResponse&) {
+        called = true;
+    });
+    unsub();  // unsubscribe
+    EXPECT_FALSE(cbs->resolve("tbxkq", ChannelPermissionBehavior::Allow, "test"));
+    EXPECT_FALSE(called);
+}
+
+TEST(ChannelPermission, CallbacksCaseInsensitiveMatching) {
+    using namespace cc::services::mcp;
+    auto cbs = create_channel_permission_callbacks();
+    bool called = false;
+    cbs->on_response("TBXKQ", [&](const ChannelPermissionResponse&) {
+        called = true;
+    });
+    // Resolve with different case
+    EXPECT_TRUE(cbs->resolve("tbxkq", ChannelPermissionBehavior::Allow, "test"));
+    EXPECT_TRUE(called);
+}
+
+TEST(ChannelPermission, CallbacksResolveDeletesBeforeCalling) {
+    using namespace cc::services::mcp;
+    auto cbs = create_channel_permission_callbacks();
+    int call_count = 0;
+    cbs->on_response("tbxkq", [&](const ChannelPermissionResponse&) {
+        ++call_count;
+    });
+    // First resolve succeeds
+    EXPECT_TRUE(cbs->resolve("tbxkq", ChannelPermissionBehavior::Allow, "test"));
+    // Second resolve on same ID fails (already consumed)
+    EXPECT_FALSE(cbs->resolve("tbxkq", ChannelPermissionBehavior::Allow, "test"));
+    EXPECT_EQ(call_count, 1);
+}
+
+TEST(ChannelPermission, CallbacksPendingCount) {
+    using namespace cc::services::mcp;
+    auto cbs = create_channel_permission_callbacks();
+    EXPECT_EQ(cbs->pending_count(), 0u);
+    auto u1 = cbs->on_response("aaaaa", [](auto){});
+    EXPECT_EQ(cbs->pending_count(), 1u);
+    auto u2 = cbs->on_response("bbbbb", [](auto){});
+    EXPECT_EQ(cbs->pending_count(), 2u);
+    u1();
+    EXPECT_EQ(cbs->pending_count(), 1u);
+    cbs->resolve("bbbbb", ChannelPermissionBehavior::Allow, "test");
+    EXPECT_EQ(cbs->pending_count(), 0u);
+}
+
+// ============================================================================
+// ChannelPermission — filter_permission_relay_clients
+// ============================================================================
+// TS REF: src/services/mcp/channelPermissions.ts:177-194
+
+namespace {
+struct TestMcpClient {
+    std::string name;
+    cc::services::mcp::ServerState state = cc::services::mcp::ServerState::Ready;
+    cc::services::mcp::ServerCapabilities capabilities;
+};
+} // anonymous namespace
+
+TEST(ChannelPermission, FilterRelayRequiresConnected) {
+    using namespace cc::services::mcp;
+    std::vector<TestMcpClient> clients = {
+        {"telegram", ServerState::Ready, {}},
+        {"discord", ServerState::Error, {}},
+    };
+    clients[0].capabilities.experimental["claude/channel"] = "true";
+    clients[0].capabilities.experimental["claude/channel/permission"] = "true";
+    clients[1].capabilities.experimental["claude/channel"] = "true";
+    clients[1].capabilities.experimental["claude/channel/permission"] = "true";
+
+    auto filtered = filter_permission_relay_clients<TestMcpClient>(
+        clients, [](auto) { return true; });
+    ASSERT_EQ(filtered.size(), 1u);
+    EXPECT_EQ(filtered[0].name, "telegram");
+}
+
+TEST(ChannelPermission, FilterRelayRequiresAllowlist) {
+    using namespace cc::services::mcp;
+    std::vector<TestMcpClient> clients = {
+        {"telegram", ServerState::Ready, {}},
+        {"discord", ServerState::Ready, {}},
+    };
+    for (auto& c : clients) {
+        c.capabilities.experimental["claude/channel"] = "true";
+        c.capabilities.experimental["claude/channel/permission"] = "true";
+    }
+
+    auto filtered = filter_permission_relay_clients<TestMcpClient>(
+        clients, [](auto name) { return name == "telegram"; });
+    ASSERT_EQ(filtered.size(), 1u);
+    EXPECT_EQ(filtered[0].name, "telegram");
+}
+
+TEST(ChannelPermission, FilterRelayRequiresBothCapabilities) {
+    using namespace cc::services::mcp;
+    std::vector<TestMcpClient> clients = {
+        {"both", ServerState::Ready, {}},
+        {"channel_only", ServerState::Ready, {}},
+        {"permission_only", ServerState::Ready, {}},
+        {"neither", ServerState::Ready, {}},
+    };
+    clients[0].capabilities.experimental["claude/channel"] = "true";
+    clients[0].capabilities.experimental["claude/channel/permission"] = "true";
+    clients[1].capabilities.experimental["claude/channel"] = "true";
+    clients[2].capabilities.experimental["claude/channel/permission"] = "true";
+
+    auto filtered = filter_permission_relay_clients<TestMcpClient>(
+        clients, [](auto) { return true; });
+    ASSERT_EQ(filtered.size(), 1u);
+    EXPECT_EQ(filtered[0].name, "both");
+}
+
+TEST(ChannelPermission, FilterRelayEmptyInput) {
+    using namespace cc::services::mcp;
+    std::vector<TestMcpClient> clients;
+    auto filtered = filter_permission_relay_clients<TestMcpClient>(
+        clients, [](auto) { return true; });
+    EXPECT_TRUE(filtered.empty());
+}
+
+// ============================================================================
+// ChannelPermission — ChannelPermissionStore
+// ============================================================================
+// TS REF: conceptual extension (persistent permission rules)
+
+TEST(ChannelPermission, StoreDefaultIsPrompt) {
+    using namespace cc::services::mcp;
+    ChannelPermissionStore store;
+    // No rules loaded → default to Prompt
+    EXPECT_EQ(store.check_permission("any_server", "any_tool"),
+              ChannelPermission::Prompt);
+}
+
+TEST(ChannelPermission, StoreGlobalRuleApplies) {
+    using namespace cc::services::mcp;
+    ChannelPermissionStore store;
+    store.set_permission(ChannelPermissionStore::make_global_rule(
+        ChannelPermission::Allowed));
+    EXPECT_EQ(store.check_permission("server_a", "tool_x"),
+              ChannelPermission::Allowed);
+    EXPECT_EQ(store.check_permission("server_b", "tool_y"),
+              ChannelPermission::Allowed);
+}
+
+TEST(ChannelPermission, StoreServerRuleOverridesGlobal) {
+    using namespace cc::services::mcp;
+    ChannelPermissionStore store;
+    store.set_permission(ChannelPermissionStore::make_global_rule(
+        ChannelPermission::Prompt));
+    store.set_permission(ChannelPermissionStore::make_server_rule(
+        "trusted_server", ChannelPermission::Allowed));
+    EXPECT_EQ(store.check_permission("trusted_server", "any_tool"),
+              ChannelPermission::Allowed);
+    EXPECT_EQ(store.check_permission("other_server", "any_tool"),
+              ChannelPermission::Prompt);
+}
+
+TEST(ChannelPermission, StoreToolRuleOverridesServer) {
+    using namespace cc::services::mcp;
+    ChannelPermissionStore store;
+    store.set_permission(ChannelPermissionStore::make_server_rule(
+        "my_server", ChannelPermission::Allowed));
+    store.set_permission(ChannelPermissionStore::make_tool_rule(
+        "my_server", "dangerous_tool", ChannelPermission::Denied));
+    EXPECT_EQ(store.check_permission("my_server", "safe_tool"),
+              ChannelPermission::Allowed);
+    EXPECT_EQ(store.check_permission("my_server", "dangerous_tool"),
+              ChannelPermission::Denied);
+}
+
+TEST(ChannelPermission, StoreMostSpecificWins) {
+    using namespace cc::services::mcp;
+    ChannelPermissionStore store;
+    store.set_permission(ChannelPermissionStore::make_global_rule(
+        ChannelPermission::Prompt));
+    store.set_permission(ChannelPermissionStore::make_server_rule(
+        "srv", ChannelPermission::Allowed));
+    store.set_permission(ChannelPermissionStore::make_tool_rule(
+        "srv", "tool", ChannelPermission::Denied));
+    // Tool rule (score 3) > Server rule (score 2) > Global rule (score 1)
+    EXPECT_EQ(store.check_permission("srv", "tool"),
+              ChannelPermission::Denied);
+}
+
+TEST(ChannelPermission, StoreRemoveRule) {
+    using namespace cc::services::mcp;
+    ChannelPermissionStore store;
+    store.set_permission(ChannelPermissionStore::make_server_rule(
+        "srv", ChannelPermission::Allowed));
+    EXPECT_EQ(store.check_permission("srv", "tool"),
+              ChannelPermission::Allowed);
+    bool removed = store.remove_rule(ChannelPermissionScope::Server, "srv", "");
+    EXPECT_TRUE(removed);
+    EXPECT_EQ(store.check_permission("srv", "tool"),
+              ChannelPermission::Prompt);
+}
+
+TEST(ChannelPermission, StoreRemoveNonexistentReturnsFalse) {
+    using namespace cc::services::mcp;
+    ChannelPermissionStore store;
+    EXPECT_FALSE(store.remove_rule(ChannelPermissionScope::Server, "nope", ""));
+}
+
+TEST(ChannelPermission, StoreUpsertSameIdentity) {
+    using namespace cc::services::mcp;
+    ChannelPermissionStore store;
+    store.set_permission(ChannelPermissionStore::make_server_rule(
+        "srv", ChannelPermission::Allowed));
+    // Setting same identity again should update, not duplicate
+    store.set_permission(ChannelPermissionStore::make_server_rule(
+        "srv", ChannelPermission::Denied));
+    EXPECT_EQ(store.rule_count(), 1u);
+    EXPECT_EQ(store.check_permission("srv", "tool"),
+              ChannelPermission::Denied);
+}
+
+TEST(ChannelPermission, StoreGetAllRules) {
+    using namespace cc::services::mcp;
+    ChannelPermissionStore store;
+    store.set_permission(ChannelPermissionStore::make_global_rule(
+        ChannelPermission::Prompt));
+    store.set_permission(ChannelPermissionStore::make_server_rule(
+        "srv", ChannelPermission::Allowed));
+    auto rules = store.get_all_rules();
+    EXPECT_EQ(rules.size(), 2u);
+}
+
+TEST(ChannelPermission, StorePersistenceRoundtrip) {
+    using namespace cc::services::mcp;
+    // Use a temp file path for testing
+    auto original_path = ChannelPermissionStore::file_path();
+    // Create a store, set rules, save
+    {
+        ChannelPermissionStore store;
+        store.set_permission(ChannelPermissionStore::make_server_rule(
+            "test_server", ChannelPermission::Allowed));
+        store.set_permission(ChannelPermissionStore::make_tool_rule(
+            "test_server", "dangerous", ChannelPermission::Denied));
+        store.save();
+    }
+    // Load into a new store and verify
+    {
+        ChannelPermissionStore store;
+        store.load();
+        EXPECT_EQ(store.check_permission("test_server", "safe"),
+                  ChannelPermission::Allowed);
+        EXPECT_EQ(store.check_permission("test_server", "dangerous"),
+                  ChannelPermission::Denied);
+    }
+    // Cleanup: remove the test file
+    std::error_code ec;
+    fs::remove(original_path, ec);
+}
+
+TEST(ChannelPermission, StoreFactoryCreatesLoaded) {
+    using namespace cc::services::mcp;
+    // Clean slate
+    auto path = ChannelPermissionStore::file_path();
+    std::error_code ec;
+    fs::remove(path, ec);
+
+    auto store = create_channel_permission_store();
+    ASSERT_NE(store, nullptr);
+    // Should have loaded from disk (empty rules → default Prompt)
+    EXPECT_EQ(store->check_permission("any", "tool"),
+              ChannelPermission::Prompt);
+    EXPECT_EQ(store->rule_count(), 0u);
+}
+
+// ============================================================================
+// ChannelPermission — string conversion utilities
+// ============================================================================
+
+TEST(ChannelPermission, PermissionToString) {
+    using namespace cc::services::mcp;
+    EXPECT_EQ(channel_permission_to_string(ChannelPermission::Allowed), "Allowed");
+    EXPECT_EQ(channel_permission_to_string(ChannelPermission::Denied), "Denied");
+    EXPECT_EQ(channel_permission_to_string(ChannelPermission::Prompt), "Prompt");
+}
+
+TEST(ChannelPermission, ScopeToString) {
+    using namespace cc::services::mcp;
+    EXPECT_EQ(channel_permission_scope_to_string(ChannelPermissionScope::Global), "Global");
+    EXPECT_EQ(channel_permission_scope_to_string(ChannelPermissionScope::Server), "Server");
+    EXPECT_EQ(channel_permission_scope_to_string(ChannelPermissionScope::Tool), "Tool");
+}
+
+// ============================================================================
+// ChannelPermission — feature gate
+// ============================================================================
+
+TEST(ChannelPermission, FeatureGateDefaultsToFalse) {
+    using namespace cc::services::mcp;
+    // Stub returns false until GrowthBook integration exists
+    EXPECT_FALSE(is_channel_permission_relay_enabled());
 }
 
 }  // namespace

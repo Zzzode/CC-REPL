@@ -33,6 +33,7 @@ module;
 #include <mutex>
 #include <optional>
 #include <unordered_set>
+#include <unordered_map>
 #include <variant>
 #include <format>
 #include <cstdint>
@@ -309,6 +310,19 @@ struct MessageDisplayEntry {
     /// derived from content_preview (see RenderMessages).  The engine / G2
     /// app.cppm may populate this from the upstream SystemMessage tag later.
     std::optional<std::string> system_subtype;
+
+    // ── P2 gap api-error-retry: retry metadata for SystemAPIError cards ──
+    /// TS REF: SystemAPIErrorMessage.tsx — retryInMs.  Backoff duration in
+    /// milliseconds before the next auto-retry.  Used for the live countdown.
+    std::optional<double> retry_after_ms;
+    /// TS REF: SystemAPIErrorMessage.tsx — retryAttempt.  Current attempt
+    /// number (1-based, shown as "attempt N/M").
+    std::optional<int> retry_attempt;
+    /// TS REF: SystemAPIErrorMessage.tsx — maxRetries.  Total allowed attempts.
+    std::optional<int> max_retries;
+    /// TS REF: SystemAPIErrorMessage.tsx — sessionExpired.  When true, the
+    /// auth session has expired; show "Clear session" button instead of Retry.
+    bool session_expired{false};
 };
 
 /// Tool kind for permission prompt dispatch.
@@ -495,9 +509,18 @@ struct ReplScreenState {
     //   The stash notice (PromptInputStashNotice.tsx) renders
     //   "{figures.pointerSmall} Stashed (auto-restores after submit)" when
     //   hasStash is true.
+    // TS REF: src/screens/REPL.tsx L1373-1377 — stashedPrompt state:
+    //   {text, cursorOffset, pastedContents}.  pastedContents carries the
+    //   image/text paste records so that [Image #N] / [...Truncated text #N]
+    //   refs in the stashed text resolve correctly after restore.
     struct StashedPrompt {
         std::string text;
         std::size_t cursor_offset = std::string::npos;
+        // TS REF: pastedContents: Record<number, PastedContent> — image pastes.
+        std::unordered_map<int, ::cc::core::ImageBlock> pasted_images;
+        // TS REF: pastedContents also holds text-type entries for truncated
+        // text pastes (inputPaste.ts maybeTruncateInput → type:'text').
+        std::unordered_map<int, std::string> pasted_texts;
     };
     std::optional<StashedPrompt> stashed_prompt;
     // TS-style contextual placeholder rather than a generic default.
@@ -731,6 +754,11 @@ struct ReplScreenCallbacks {
     /// TS REF: src/components/messages/SystemAPIErrorMessage.tsx — the
     ///   retry button re-triggers the last user submission.
     std::function<void()> on_retry;
+    /// P2 gap api-error-retry: called when user clicks "Clear session"
+    /// on a session-expired API error card.  Resets the conversation so
+    /// the user can re-authenticate.
+    /// TS REF: SystemAPIErrorMessage.tsx — onClearSession prop.
+    std::function<void()> on_clear_session;
 };
 
 // =========================================================
@@ -968,7 +996,12 @@ ComputeUnseenDivider(const ReplScreenState& s) {
     // GAP 3: msg-system-api-error-retry — callback for the Retry button on
     // SystemAPIError rich cards.  When set, the API error card renders a
     // clickable Retry pill that invokes this to re-send the last user message.
-    std::function<void()> on_retry = nullptr) {
+    std::function<void()> on_retry = nullptr,
+    // P2 gap api-error-retry: callback for "Clear session" button on
+    // session-expired error cards.  TS REF: SystemAPIErrorMessage.tsx
+    //   onClearSession prop — invoked when auth has expired and user
+    //   chooses to clear the session to re-authenticate.
+    std::function<void()> on_clear_session = nullptr) {
     // NOTE: We no longer early-return on empty entries.  The leading_element
     // (welcome/logo card) must always be rendered inside the yframe so it
     // scrolls with messages.  The messages_list handles empty rows gracefully
@@ -1145,9 +1178,19 @@ ComputeUnseenDivider(const ReplScreenState& s) {
             err_data.message = m.content_preview;
             err_data.provider = "API";
             err_data.severity = aem::ErrorSeverity::Error;
+            // P2 gap api-error-retry: thread retry metadata from the entry.
+            // TS REF: SystemAPIErrorMessage.tsx — retryInMs, retryAttempt,
+            //   maxRetries, sessionExpired destructured from message prop.
+            err_data.retry_after_ms   = m.retry_after_ms;
+            err_data.current_attempt  = m.retry_attempt;
+            err_data.max_attempts     = m.max_retries;
+            err_data.session_expired  = m.session_expired;
             aem::APIErrorOptions err_opts;
             err_opts.error = std::move(err_data);
             err_opts.on_retry = on_retry;
+            // P2 gap: clear-session callback for expired auth sessions.
+            // Wired through ReplScreenCallbacks.on_clear_session below.
+            err_opts.on_clear_session = on_clear_session;
             err_opts.show_buttons = true;
             input.shapes.push_back(messages::MessageShape::SystemAPIError);
             input.rows.push_back(std::move(err_opts));
@@ -1233,6 +1276,9 @@ ComputeUnseenDivider(const ReplScreenState& s) {
     // GAP 3: thread on_retry through to the messages list so SystemAPIError
     // rows can render a working Retry button.
     input.on_retry = on_retry;
+    // P2 gap api-error-retry: thread on_clear_session for session-expired
+    // error cards.
+    input.on_clear_session = on_clear_session;
     namespace ml = cc::ui::messages_list;
     // TS REF: FullscreenLayout <Box flexGrow={1} /> at the bottom of the
     // message list — absorbs remaining viewport space so short content stays
@@ -1753,24 +1799,42 @@ inline std::size_t DrainPendingAtMentionInserts(
 
 /// Stash the current input text and cursor position.  Called when a
 /// background agent finishes or a permission request interrupts the user's
-/// typing flow.  Returns true if something was actually stashed (input was
-/// non-empty).
-inline bool StashCurrentPrompt(const std::shared_ptr<ReplScreenState>& state) {
-    if (state->input_text.empty()) return false;
-    state->stashed_prompt = ReplScreenState::StashedPrompt{
-        .text = state->input_text,
-        .cursor_offset = state->input_cursor,
-    };
+/// typing flow, or when the user presses Ctrl+S (chat:stash).
+/// `pasted_images` and `pasted_texts` are the pasted-content maps from the
+/// engine layer (app.cppm) so image/text refs in the stashed text survive
+/// the stash/restore cycle.
+/// Returns true if something was actually stashed (input was non-empty or
+/// pasted contents were provided).
+inline bool StashCurrentPrompt(
+    const std::shared_ptr<ReplScreenState>& state,
+    std::unordered_map<int, ::cc::core::ImageBlock> pasted_images = {},
+    std::unordered_map<int, std::string> pasted_texts = {}) {
+    if (state->input_text.empty() && pasted_images.empty() && pasted_texts.empty())
+        return false;
+    ReplScreenState::StashedPrompt sp;
+    sp.text = state->input_text;
+    sp.cursor_offset = state->input_cursor;
+    sp.pasted_images = std::move(pasted_images);
+    sp.pasted_texts = std::move(pasted_texts);
+    state->stashed_prompt = std::move(sp);
     return true;
 }
 
 /// Restore the stashed prompt into the input area.  Called after a submit
-/// completes or when the user explicitly requests restore.  Returns true if
-/// a stash was restored.
-inline bool RestoreStashedPrompt(const std::shared_ptr<ReplScreenState>& state) {
+/// completes or when the user explicitly requests restore (Ctrl+S on empty
+/// input).  Also returns the stashed pasted-contents maps via out-params so
+/// the engine layer can restore [Image #N] / [...Truncated text #N] refs.
+/// Returns true if a stash was restored.
+inline bool RestoreStashedPrompt(
+    const std::shared_ptr<ReplScreenState>& state,
+    std::unordered_map<int, ::cc::core::ImageBlock>* out_images = nullptr,
+    std::unordered_map<int, std::string>* out_texts = nullptr) {
     if (!state->stashed_prompt.has_value()) return false;
     auto stash = std::move(*state->stashed_prompt);
     state->stashed_prompt.reset();
+    // Return pasted contents to the caller (engine layer).
+    if (out_images) *out_images = std::move(stash.pasted_images);
+    if (out_texts)  *out_texts  = std::move(stash.pasted_texts);
     set_prompt_input_text(state, std::move(stash.text),
         stash.cursor_offset == std::string::npos
             ? std::string::npos
@@ -2518,7 +2582,11 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
 [[nodiscard]] inline Element RenderReplScreen(ReplScreenState& s,
     // GAP 3: msg-system-api-error-retry — retry callback threaded through
     // to RenderMessages so SystemAPIError rows can render a working Retry pill.
-    std::function<void()> on_retry = nullptr) {
+    std::function<void()> on_retry = nullptr,
+    // P2 gap api-error-retry: clear-session callback threaded through to
+    // RenderMessages for session-expired error cards.
+    // TS REF: SystemAPIErrorMessage.tsx onClearSession.
+    std::function<void()> on_clear_session = nullptr) {
     // Probe terminal size once per frame for adaptive layout (fix #11).
     auto [term_cols, term_rows] = cc::ui::ink_utils::query_terminal_size();
     if (term_cols <= 0) term_cols = 80;
@@ -2607,7 +2675,10 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
         // TS REF: Messages.tsx L382-389  isStreamingThinkingVisible.
         // Threaded from app.cppm's is_streaming_thinking_visible() helper.
         s.streaming_thinking_globally_visible,
-        on_retry));
+        on_retry,
+        // P2 gap api-error-retry: thread on_clear_session for session-expired
+        // error cards.
+        on_clear_session));
     // Spinner lives in the chrome BETWEEN messages list and prompt input
     // (TS BriefSpinner marginTop=1, NOT a message row inside scroll content).
     Element spinner_chrome = text("");
@@ -3479,7 +3550,7 @@ inline bool forward_trust_dialog(
                           : state->permission_request->risk_labels.front();
             if (state->permission_request->file_path)
                 r.affected_paths.push_back(*state->permission_request->file_path);
-            Element base = RenderReplScreen(*state, cb->on_retry);
+            Element base = RenderReplScreen(*state, cb->on_retry, cb->on_clear_session);
             Element panel = paragraph(
                 cc::ui::dialogs::render_permission_dialog(std::move(r), 80));
             return dbox({
@@ -3492,7 +3563,7 @@ inline bool forward_trust_dialog(
         // UI3: SettingsView modal — render the tabbed settings dialog
         // over the dimmed REPL background.
         if (state->mode == ReplMode::SettingsView) {
-            Element base = RenderReplScreen(*state, cb->on_retry);
+            Element base = RenderReplScreen(*state, cb->on_retry, cb->on_clear_session);
             Element settings_content = dialog_router::render_settings(state, cb);
             return dbox({
                 base | dim,
@@ -3520,7 +3591,7 @@ inline bool forward_trust_dialog(
                        filler() }) | flex_shrink,
                 filler() }) | flex;
         }
-        return RenderReplScreen(*state, cb->on_retry);
+        return RenderReplScreen(*state, cb->on_retry, cb->on_clear_session);
     })
          | CatchEvent([state, cb](Event ev) -> bool {
     // --- M7: dialog_queue event dispatch (priority 0) ---

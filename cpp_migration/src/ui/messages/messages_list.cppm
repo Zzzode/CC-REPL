@@ -552,6 +552,10 @@ struct MessagesListInput {
     /// clickable Retry pill that invokes this to re-send the last user
     /// message.  TS REF: SystemAPIErrorMessage.tsx — retry button re-sends.
     std::function<void()> on_retry;
+    /// P2 gap api-error-retry: callback for "Clear session" button on
+    /// session-expired SystemAPIError rows.
+    /// TS REF: SystemAPIErrorMessage.tsx onClearSession prop.
+    std::function<void()> on_clear_session;
 };
 
 enum class ActionKind { Copy, Regenerate, Delete };
@@ -2646,6 +2650,9 @@ inline auto render_payload_row(const MessagesListInput& input,
     // can render a working Retry pill that re-sends the last user message.
     MessageRowCallbacks cb;
     cb.on_retry = input.on_retry;
+    // P2 gap api-error-retry: thread on_clear_session for session-expired
+    // error cards.
+    cb.on_clear_session = input.on_clear_session;
     Component inner = RenderMessageRowByType(shape, payload, std::move(cb));
 
     RenderEnvelopeOptions env_opts{

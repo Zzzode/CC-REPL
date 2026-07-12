@@ -68,6 +68,7 @@ module;
 export module cc.skills.bundled;
 
 import cc.skills.skill;
+import cc.skills.load_skills_dir;
 
 // ---------------------------------------------------------------------------
 // Root-level skill modules (imported + re-registered in BundledSkills)
@@ -548,5 +549,32 @@ inline std::size_t register_all_bundled_skills(SkillExecutor& executor) {
     registry.register_all(executor);
     return registry.size();
 }
+
+// =========================================================================
+// SkillRegistry integration — register bundled skills at static-init time
+// TS REF: Bundled skills are registered alongside dynamically-loaded skills
+//          in the unified command/skill system.
+// =========================================================================
+
+namespace detail {
+
+/// Static initializer that registers all bundled skills with the
+/// SkillRegistry singleton.  This ensures bundled skills are available
+/// through the same all_skills() API as dynamic/project skills.
+struct BundledSkillRegistrar {
+    BundledSkillRegistrar() {
+        static const BundledSkills registry;
+        std::vector<SkillDefinition> defs;
+        defs.reserve(registry.size());
+        for (const auto& def : registry.all()) {
+            defs.push_back(def);
+        }
+        SkillRegistry::instance().register_bundled(std::move(defs));
+    }
+};
+
+inline BundledSkillRegistrar g_bundled_registrar;
+
+} // namespace detail
 
 } // namespace cc::skills

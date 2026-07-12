@@ -2283,7 +2283,64 @@ private:
         return vbox(std::move(rows)) | border | color(Color::Yellow);
     }
 
+    // TS REF: src/components/PromptInput/useMaybeTruncateInput.ts — the hook
+    //   that watches the entire input value and truncates it when it exceeds
+    //   TRUNCATION_THRESHOLD (10 000 chars), regardless of how it got there
+    //   (paste, set_text, accumulated typing, etc.).
+    //
+    //   Only applies once per "input session" (has_applied_truncation_ guard).
+    //   The guard is reset when the input is cleared (submit / clear),
+    //   matching the TS useEffect that resets hasAppliedTruncationToInput
+    //   when input === ''.
+    //
+    //   Returns true if truncation was applied (text_ was modified).
+    //   On truncation: stores the elided middle content via on_paste_truncated
+    //   so the caller can expand [...Truncated text #N] refs at submit time
+    //   (expand_pasted_text_refs).
+    bool maybe_apply_input_truncation() {
+        if (has_applied_truncation_) return false;
+        constexpr std::size_t kTruncationThreshold = 10000;
+        if (text_.size() <= kTruncationThreshold) return false;
+
+        // Use the shared truncation utility (same logic as paste_text path)
+        const int paste_id = next_paste_id_++;
+        const auto result = cc::utils::maybe_truncate_paste(text_, paste_id);
+        if (result.placeholder_content.empty()) return false;  // no truncation
+
+        // Replace text with the truncated version (head 500 + ref + tail 500)
+        text_ = result.truncated_text;
+        cursor_ = static_cast<int>(text_.size());
+        sel_start_ = sel_end_ = -1;
+
+        // Store the elided content for later expansion (expand_pasted_text_refs).
+        // TS REF: useMaybeTruncateInput.ts L34-41 — setPastedContents stores
+        //   {id, type: 'text', content: placeholderContent}.
+        if (options_.on_paste_truncated) {
+            options_.on_paste_truncated(paste_id, result.placeholder_content);
+        }
+
+        has_applied_truncation_ = true;
+        return true;
+    }
+
     void recompute_derived() {
+        // TS REF: src/components/PromptInput/useMaybeTruncateInput.ts L24-50
+        //   General safety net: if the total input exceeds 10k chars (regardless
+        //   of how — paste, set_text, accumulated edits), truncate to head 500
+        //   + placeholder ref + tail 500, store elided content for submit-time
+        //   expansion.  Only applies once per input session (guard resets on
+        //   clear).  Callers that reach `after_change` fire on_change with the
+        //   already-truncated text; external set_text() callers can read back
+        //   via text().
+        (void)maybe_apply_input_truncation();
+
+        // TS REF: useMaybeTruncateInput.ts L53-57 — reset the truncation guard
+        //   when input is cleared (e.g. after submit), so the next session can
+        //   be truncated independently.
+        if (text_.empty()) {
+            has_applied_truncation_ = false;
+        }
+
         PromptContext& ctx = options_.context;
         ctx.char_count = text_.size();
         ctx.line_count = count_lines();
@@ -2360,6 +2417,10 @@ private:
     size_t search_selected_;
     bool paste_burst_in_progress_;
     int next_paste_id_{1};  ///< Monotonic counter for [...Truncated text #N] refs
+    // TS REF: src/components/PromptInput/useMaybeTruncateInput.ts L21-22
+    //   hasAppliedTruncationToInput — guards against re-truncating the same
+    //   input session.  Reset when text is cleared (submit / clear()).
+    bool has_applied_truncation_{false};
 
     // ============================================================
     // Paste preview (GAP 1: paste-text-truncation-10k-threshold)

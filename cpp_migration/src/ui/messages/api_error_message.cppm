@@ -12,6 +12,8 @@ module;
 #include <format>
 #include <cstdint>
 #include <chrono>
+#include <cmath>
+#include <algorithm>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
@@ -49,7 +51,11 @@ struct APIErrorData {
     // Retry info
     std::optional<int> current_attempt;       // N of M
     std::optional<int> max_attempts;
-    std::optional<double> retry_after_ms;     // Live countdown (display seconds)
+    std::optional<double> retry_after_ms;     // Total backoff duration (ms)
+    /// TS REF: SystemAPIErrorMessage.tsx — sessionExpired prop.  When true,
+    /// the authentication session has expired and the user must clear /
+    /// re-authenticate rather than just retry.
+    bool session_expired{false};
 
     // Oversized-body warning
     std::optional<std::size_t> response_bytes;
@@ -68,10 +74,17 @@ struct APIErrorOptions {
     bool dismissible{true};
     bool copyable_trace{true};
 
-    std::function<void()> on_retry;       // Retry button
-    std::function<void()> on_diagnose;    // Diagnose button
-    std::function<void()> on_dismiss;     // Dismiss button
+    std::function<void()> on_retry;         // Retry button — re-send last user message
+    std::function<void()> on_diagnose;      // Diagnose button
+    std::function<void()> on_dismiss;       // Dismiss button
     std::function<void(const std::string&)> on_copy_trace;   // Copy trace id
+    /// TS REF: SystemAPIErrorMessage.tsx — onClearSession prop.  Called when
+    /// the user clicks "Clear session" on a session-expired error card.
+    std::function<void()> on_clear_session;
+    /// When the error was first displayed (for live countdown).  Set by the
+    /// interactive component at construction time; static renders may leave
+    /// it unset (shows raw retry_after_ms value instead).
+    std::optional<std::chrono::steady_clock::time_point> error_start_time;
 };
 
 // ============================================================
@@ -158,10 +171,6 @@ struct ErrorPalette {
                                              *e.current_attempt, *e.max_attempts))
                             | dim | color(p.title));
         }
-        if (e.retry_after_ms) {
-            parts.push_back(text(std::format("  in {:.1f}s", *e.retry_after_ms / 1000.0))
-                            | color(Color::Yellow));
-        }
         rows.push_back(hbox(parts));
     }
 
@@ -195,7 +204,31 @@ struct ErrorPalette {
         }
     }
 
-    // --- Row 4: trace-id / request-id row (monospace, copyable) ---
+    // --- Row 3b: retry countdown text (TS REF: SystemAPIErrorMessage.tsx L106) ---
+    // Shows "Retrying in X seconds… (attempt N/M)" when retry_after_ms is set.
+    // The live countdown is computed from error_start_time + retry_after_ms.
+    if (e.retry_after_ms && e.current_attempt && e.max_attempts) {
+        // Compute remaining seconds from the start time stored in error data.
+        // When start_time is not set (static render path), show raw retry_after_ms.
+        // TS REF: SystemAPIErrorMessage.tsx L43-50  retryInSecondsLive = max(0, round((retryInMs - countdownMs) / 1000))
+        double remaining_sec = 0.0;
+        if (opts.error_start_time) {
+            auto now = std::chrono::steady_clock::now();
+            double elapsed_ms = std::chrono::duration<double, std::milli>(
+                now - *opts.error_start_time).count();
+            remaining_sec = std::max(0.0,
+                (*e.retry_after_ms - elapsed_ms) / 1000.0);
+        } else {
+            remaining_sec = *e.retry_after_ms / 1000.0;
+        }
+        int secs_int = static_cast<int>(std::round(remaining_sec));
+        // TS REF: L103  retryInSecondsLive === 1 ? "second" : "seconds"
+        std::string unit = (secs_int == 1) ? "second" : "seconds";
+        std::string countdown_text = std::format(
+            " Retrying in {} {}… (attempt {}/{})",
+            secs_int, unit, *e.current_attempt, *e.max_attempts);
+        rows.push_back(text(countdown_text) | dim | color(Color::GrayLight));
+    }
     if (opts.show_trace_ids) {
         Elements ids;
         auto add_id = [&](const char* label, const std::string& val) {
@@ -216,12 +249,17 @@ struct ErrorPalette {
         }
     }
 
-    // --- Row 5: Retry / Diagnose / Dismiss action buttons ---
+    // --- Row 5: Retry / Diagnose / Dismiss / Clear session action buttons ---
     if (opts.show_buttons) {
         Elements bts;
         bts.push_back(text(" "));
-        if (opts.on_retry) {
+        if (opts.on_retry && !e.session_expired) {
             bts.push_back(pill_button("r", "Retry", Color::Green));
+            bts.push_back(text("  "));
+        }
+        if (opts.on_clear_session && e.session_expired) {
+            // TS REF: sessionExpired → show "Clear session" instead of plain Retry
+            bts.push_back(pill_button("c", "Clear session", Color::Yellow));
             bts.push_back(text("  "));
         }
         if (opts.on_diagnose) {
@@ -252,17 +290,34 @@ struct ErrorPalette {
     };
     auto s = std::make_shared<State>();
     s->opts = std::move(options);
+    // TS REF: SystemAPIErrorMessage.tsx L28  useState(0) for countdownMs.
+    // We capture the start time so the renderer can compute live remaining
+    // seconds (remaining = retry_after_ms - (now - error_start_time)).
+    if (!s->opts.error_start_time) {
+        s->opts.error_start_time = std::chrono::steady_clock::now();
+    }
 
     return Renderer([s] { return RenderAPIError(s->opts); })
         | CatchEvent([s](Event event) -> bool {
               auto& o = s->opts;
+              auto& e = o.error;
 
               if (event == Event::Return || event == Event::Character(' ')) {
-                  o.error.collapsed = !o.error.collapsed;
+                  e.collapsed = !e.collapsed;
                   return true;
               }
               if (event == Event::Character('r') || event == Event::Character('R')) {
-                  if (o.on_retry) { o.on_retry(); return true; }
+                  if (o.on_retry && !e.session_expired) {
+                      o.on_retry();
+                      return true;
+                  }
+              }
+              // TS REF: onClearSession — session-expired errors show "Clear session"
+              if (event == Event::Character('c') || event == Event::Character('C')) {
+                  if (o.on_clear_session && e.session_expired) {
+                      o.on_clear_session();
+                      return true;
+                  }
               }
               if (event == Event::Character('d') || event == Event::Character('D')) {
                   if (o.on_diagnose) { o.on_diagnose(); return true; }
@@ -277,10 +332,10 @@ struct ErrorPalette {
               if (event == Event::Character('t') || event == Event::Character('T')) {
                   if (o.copyable_trace && o.on_copy_trace) {
                       std::string joined;
-                      if (!o.error.trace_id.empty())   joined += "trace-id=" + o.error.trace_id;
-                      if (!o.error.request_id.empty()) {
+                      if (!e.trace_id.empty())   joined += "trace-id=" + e.trace_id;
+                      if (!e.request_id.empty()) {
                           if (!joined.empty()) joined += ", ";
-                          joined += "request-id=" + o.error.request_id;
+                          joined += "request-id=" + e.request_id;
                       }
                       o.on_copy_trace(joined);
                       return true;

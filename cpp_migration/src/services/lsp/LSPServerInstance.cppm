@@ -38,11 +38,22 @@ using cc::services::lsp::ScopedLspServerConfig;
 // Forward declarations
 struct LSPServerInstance;
 
+/// Server lifecycle state.
+/// TS REF: src/services/lsp/LSPServerInstance.ts (server.state field)
+enum class ServerInstanceState {
+    Starting,  ///< Server process launched, initialize in progress
+    Ready,     ///< Initialize handshake completed, ready for requests
+    Stopping,  ///< Shutdown initiated
+    Error,     ///< Server process or initialize failed
+};
+
 // LSP Server Instance
 struct LSPServerInstance {
     std::string name;
     ScopedLspServerConfig config;
+    ServerInstanceState state = ServerInstanceState::Starting;
     bool is_running = false;
+    std::string server_info;  ///< "name version" from initialize response
     pid_t pid = -1;
     int stdin_fd = -1;
     int stdout_fd = -1;
@@ -149,18 +160,38 @@ Result<void> LSPServerInstance::start() {
     stdout_fd = stdout_pipe[0];
     fcntl(stdout_fd, F_SETFL, O_NONBLOCK);
     is_running = true;
+    state = ServerInstanceState::Starting;
     auto initialized = send_request<std::string>("initialize", build_initialize_params());
     if (!initialized) {
+        state = ServerInstanceState::Error;
         auto error = initialized.error();
         (void)stop();
         return std::unexpected(error);
     }
+    // Parse serverInfo from initialize response
+    auto init_parsed = cc::utils::json::parse(*initialized);
+    if (init_parsed) {
+        auto info = init_parsed->root().get("serverInfo");
+        if (info.is_obj()) {
+            std::string info_str;
+            auto name_node = info.get("name");
+            if (name_node.is_str()) info_str = std::string(name_node.as_str());
+            auto ver_node = info.get("version");
+            if (ver_node.is_str()) {
+                if (!info_str.empty()) info_str += " ";
+                info_str += std::string(ver_node.as_str());
+            }
+            if (!info_str.empty()) server_info = std::move(info_str);
+        }
+    }
     auto notified = send_notification("initialized", "{}");
     if (!notified) {
+        state = ServerInstanceState::Error;
         auto error = notified.error();
         (void)stop();
         return std::unexpected(error);
     }
+    state = ServerInstanceState::Ready;
     return {};
 }
 
@@ -169,6 +200,8 @@ Result<void> LSPServerInstance::stop() {
     if (!is_running) {
         return {};
     }
+
+    state = ServerInstanceState::Stopping;
     
     (void)send_notification("exit", std::string{"null"});
     if (stdin_fd >= 0) {

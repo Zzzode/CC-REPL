@@ -22,6 +22,8 @@
 module;
 
 #include <array>
+#include <cstdlib>      // for std::getenv (is_unicode_supported)
+#include <string>       // for std::string (replace_symbols)
 #include <string_view>
 
 // FTXUI Color.hpp: not used here (figures module is glyphs-only, no colors).
@@ -306,5 +308,262 @@ enum class PromptMode : int {
 // build-time macro; callers that want the fallback behaviour should branch
 // on `#ifdef _WIN32` themselves.
 inline constexpr std::string_view kCircleBlack = "\xE2\x97\x8F";  // ● U+25CF (same as kBullet — alias for grep clarity)
+
+// ─── Unicode support detection (TS REF: is-unicode-supported/index.js) ──
+// TS REF: node_modules/is-unicode-supported/index.js L1-25.
+// Determines whether the terminal supports Unicode glyphs. On non-Windows,
+// returns true unless TERM == "linux" (kernel console lacks Unicode).
+// On Windows, checks various terminal emulator environment variables.
+[[nodiscard]] inline bool is_unicode_supported() noexcept {
+#ifdef _WIN32
+    if (const char* wt = std::getenv("WT_SESSION"); wt && *wt) return true;
+    if (const char* terminus = std::getenv("TERMINUS_SUBLIME"); terminus && *terminus) return true;
+    if (const char* conemu = std::getenv("ConEmuTask");
+        conemu && std::string_view(conemu) == "{cmd::Cmder}") return true;
+    if (const char* tp = std::getenv("TERM_PROGRAM"); tp) {
+        const std::string_view tpv(tp);
+        if (tpv == "Terminus-Sublime" || tpv == "vscode") return true;
+    }
+    if (const char* term = std::getenv("TERM"); term) {
+        const std::string_view tv(term);
+        if (tv == "xterm-256color" || tv == "alacritty" ||
+            tv == "rxvt-unicode" || tv == "rxvt-unicode-256color") return true;
+    }
+    if (const char* te = std::getenv("TERMINAL_EMULATOR");
+        te && std::string_view(te) == "JetBrains-JediTerm") return true;
+    return false;
+#else
+    // Non-Windows: only the Linux kernel console (TERM=linux) lacks Unicode.
+    if (const char* term = std::getenv("TERM");
+        term && std::string_view(term) == "linux") return false;
+    return true;
+#endif
+}
+
+// ─── Fallback special symbols (TS REF: figures/index.js L237-272) ───────
+// TS REF: node_modules/figures/index.js specialFallbackSymbols.
+// ASCII/limited-Unicode alternatives used when is_unicode_supported() is false.
+// Only "special" glyphs differ; "common" glyphs (arrows, lines, bullet, etc.)
+// are identical in both main and fallback sets.
+namespace fallback {
+    inline constexpr std::string_view kTick        = "\xE2\x88\x9A";  // √ U+221A SQUARE ROOT
+    inline constexpr std::string_view kInfo        = "i";              // lowercase i
+    inline constexpr std::string_view kWarning     = "\xE2\x80\xBC";  // ‼ U+203C DOUBLE EXCLAMATION
+    inline constexpr std::string_view kCross       = "\xC3\x97";      // × U+00D7 MULTIPLICATION SIGN
+    inline constexpr std::string_view kSquareSmall = "\xE2\x96\xA1";  // □ U+25A1 WHITE SQUARE
+    inline constexpr std::string_view kSquareSmallFilled = "\xE2\x96\xA0";  // ■ U+25A0 BLACK SQUARE
+    inline constexpr std::string_view kCircle      = "( )";            // ASCII ( )
+    inline constexpr std::string_view kCircleFilled = "(*)";           // ASCII (*)
+    inline constexpr std::string_view kCircleDotted = "( )";           // ASCII ( )
+    inline constexpr std::string_view kCircleDouble = "( )";           // ASCII ( )
+    inline constexpr std::string_view kCircleCircle = "\xE2\x97\x8B";  // ○ U+25CB (TS: '(○)')
+    inline constexpr std::string_view kCircleCross = "\xC3\x97";      // × U+00D7 (TS: '(×)')
+    inline constexpr std::string_view kCirclePipe  = "\xE2\x94\x82";  // │ U+2502 (TS: '(│)')
+    inline constexpr std::string_view kRadioOn     = "(*)";           // alias kCircleFilled
+    inline constexpr std::string_view kRadioOff    = "( )";           // alias kCircle
+    inline constexpr std::string_view kCheckboxOn  = "[\xC3\x97]";    // [×] ASCII brackets + ×
+    inline constexpr std::string_view kCheckboxOff = "[ ]";            // ASCII [ ]
+    inline constexpr std::string_view kCheckboxCircleOn = "\xC3\x97"; // × (TS: '(×)')
+    inline constexpr std::string_view kCheckboxCircleOff = "( )";     // ASCII ( )
+    inline constexpr std::string_view kPointer     = ">";              // ASCII greater-than
+    inline constexpr std::string_view kTriangleUpOutline = "\xE2\x88\x86";  // ∆ U+2206 INCREMENT
+    inline constexpr std::string_view kTriangleLeft = "\xE2\x97\x84";  // ◄ U+25C4 BLACK LEFT-POINTING POINTER
+    inline constexpr std::string_view kTriangleRight = "\xE2\x96\xBA"; // ► U+25BA BLACK RIGHT-POINTING POINTER
+    inline constexpr std::string_view kLozenge     = "\xE2\x99\xA6";  // ♦ U+2666 BLACK DIAMOND SUIT
+    inline constexpr std::string_view kLozengeOutline = "\xE2\x97\x8A"; // ◊ U+25CA LOZENGE
+    inline constexpr std::string_view kHamburger   = "\xE2\x89\xA1";  // ≡ U+2261 IDENTICAL TO
+    inline constexpr std::string_view kSmiley      = "\xE2\x98\xBA";  // ☺ U+263A WHITE SMILING FACE
+    inline constexpr std::string_view kMustache    = "\xE2\x94\x8C\xE2\x94\x80\xE2\x94\x90";  // ┌─┐
+    inline constexpr std::string_view kStar        = "\xE2\x9C\xB6";  // ✶ U+2736 SIX POINTED BLACK STAR
+    inline constexpr std::string_view kPlay        = "\xE2\x96\xBA";  // ► U+25BA (alias kTriangleRight)
+    inline constexpr std::string_view kNodejs      = "\xE2\x99\xA6";  // ♦ U+2666 (alias kLozenge)
+    inline constexpr std::string_view kOneSeventh  = "1/7";            // ASCII fraction
+    inline constexpr std::string_view kOneNinth    = "1/9";            // ASCII fraction
+    inline constexpr std::string_view kOneTenth    = "1/10";           // ASCII fraction
+}  // namespace fallback
+
+// ─── Figures glyph set accessor (TS REF: figures/index.js L274-279) ────
+// TS REF: node_modules/figures/index.js — `export default figures`.
+// Provides a struct with all commonly-used glyphs, automatically selecting
+// between main (Unicode) and fallback (ASCII) sets via is_unicode_supported().
+//
+// Usage:
+//   const auto& fig = cc::ui::design::figures::figures();
+//   render(fig.pointer);   // '❯' on Unicode terminals, '>' on fallback
+//   render(fig.tick);      // '✔' on Unicode, '√' on fallback
+//
+// Individual kXxx constants (kPointer, kTick, etc.) always return the Unicode
+// main-set values. Use figures() when you want automatic fallback selection.
+struct Figures {
+    std::string_view tick;
+    std::string_view info;
+    std::string_view warning;
+    std::string_view cross;
+    std::string_view pointer;
+    std::string_view pointerSmall;
+    std::string_view arrowUp;          // common — same in both sets
+    std::string_view arrowDown;        // common — same in both sets
+    std::string_view arrowLeft;        // common — same in both sets
+    std::string_view arrowRight;       // common — same in both sets
+    std::string_view bullet;           // common — same in both sets
+    std::string_view ellipsis;         // common — same in both sets
+    std::string_view square;           // common — same in both sets (U+25A0 solid)
+    std::string_view squareSmall;
+    std::string_view squareSmallFilled;
+    std::string_view circle;
+    std::string_view circleFilled;
+    std::string_view circleDouble;
+    std::string_view radioOn;
+    std::string_view radioOff;
+    std::string_view checkboxOn;
+    std::string_view checkboxOff;
+    std::string_view triangleUpOutline;
+    std::string_view triangleDownSmall;  // common — same in both sets
+    std::string_view triangleRightSmall; // common — same in both sets
+    std::string_view star;
+    std::string_view heart;            // common — same in both sets
+    std::string_view play;
+    std::string_view questionMarkPrefix; // common — "(?)"
+    std::string_view lineVertical;     // common — tree drawing
+    std::string_view lineUpRight;      // common — tree drawing
+    std::string_view lineUpDownRight;  // common — tree drawing
+};
+
+/// TS: `export const mainSymbols = {...common, ...specialMainSymbols}` (L274).
+/// Full Unicode glyph set — used when is_unicode_supported() == true.
+inline constexpr Figures kMainFigures = {
+    /*.tick           =*/ kTick,                    // ✔ U+2714
+    /*.info           =*/ kInfo,                    // ℹ U+2139
+    /*.warning        =*/ kWarning,                 // ⚠ U+26A0
+    /*.cross          =*/ kCross,                   // ✘ U+2718
+    /*.pointer        =*/ kPointer,                 // ❯ U+276F
+    /*.pointerSmall   =*/ kPointerSmall,            // › U+203A (common)
+    /*.arrowUp        =*/ kArrowUp,                 // ↑ U+2191 (common)
+    /*.arrowDown      =*/ kArrowDown,               // ↓ U+2193 (common)
+    /*.arrowLeft      =*/ kArrowLeft,               // ← U+2190 (common)
+    /*.arrowRight     =*/ kArrowRight,              // → U+2192 (common)
+    /*.bullet         =*/ kBullet,                  // ● U+25CF (common)
+    /*.ellipsis       =*/ kEllipsis,                // … U+2026 (common)
+    /*.square         =*/ kSquare,                  // ■ U+25A0 (common)
+    /*.squareSmall    =*/ kSquareSmall,             // ◻ U+25FB
+    /*.squareSmallFilled =*/ kSquareSmallFilled,    // ◼ U+25FC
+    /*.circle         =*/ kCircle,                  // ◯ U+25EF
+    /*.circleFilled   =*/ kCircleFilled,            // ◉ U+25C9
+    /*.circleDouble   =*/ kCircleDouble,            // ◎ U+25CE
+    /*.radioOn        =*/ kRadioOn,                 // ◉ U+25C9 (alias kCircleFilled)
+    /*.radioOff       =*/ kRadioOff,                // ◯ U+25EF (alias kCircle)
+    /*.checkboxOn     =*/ kCheckboxOn,              // ☒ U+2612
+    /*.checkboxOff    =*/ kCheckboxOff,             // ☐ U+2610
+    /*.triangleUpOutline =*/ kTriangleUpOutline,    // △ U+25B3
+    /*.triangleDownSmall =*/ kTriangleDownSmall,    // ▾ U+25BE (common)
+    /*.triangleRightSmall =*/ kTriangleRightSmall,  // ▸ U+25B8 (common)
+    /*.star           =*/ kStar,                    // ★ U+2605
+    /*.heart          =*/ kHeart,                   // ♥ U+2665 (common)
+    /*.play           =*/ kPlay,                    // ▶ U+25B6
+    /*.questionMarkPrefix =*/ kQuestionMarkPrefix,  // "(?)" (common)
+    /*.lineVertical   =*/ kLineVertical,            // │ U+2502 (common)
+    /*.lineUpRight    =*/ kLineUpRight,             // └ U+2514 (common)
+    /*.lineUpDownRight =*/ kLineUpDownRight,        // ├ U+251C (common)
+};
+
+/// TS: `export const fallbackSymbols = {...common, ...specialFallbackSymbols}` (L275).
+/// Fallback glyph set — used when is_unicode_supported() == false.
+/// Common glyphs (arrows, lines, bullet, ellipsis, etc.) are identical to main.
+inline constexpr Figures kFallbackFigures = {
+    /*.tick           =*/ fallback::kTick,                 // √
+    /*.info           =*/ fallback::kInfo,                 // i
+    /*.warning        =*/ fallback::kWarning,              // ‼
+    /*.cross          =*/ fallback::kCross,                // ×
+    /*.pointer        =*/ fallback::kPointer,              // >
+    /*.pointerSmall   =*/ kPointerSmall,                   // › (common)
+    /*.arrowUp        =*/ kArrowUp,                       // ↑ (common)
+    /*.arrowDown      =*/ kArrowDown,                     // ↓ (common)
+    /*.arrowLeft      =*/ kArrowLeft,                     // ← (common)
+    /*.arrowRight     =*/ kArrowRight,                    // → (common)
+    /*.bullet         =*/ kBullet,                        // ● (common)
+    /*.ellipsis       =*/ kEllipsis,                      // … (common)
+    /*.square         =*/ kSquare,                        // ■ (common)
+    /*.squareSmall    =*/ fallback::kSquareSmall,         // □
+    /*.squareSmallFilled =*/ fallback::kSquareSmallFilled,// ■
+    /*.circle         =*/ fallback::kCircle,              // "( )"
+    /*.circleFilled   =*/ fallback::kCircleFilled,        // "(*)"
+    /*.circleDouble   =*/ fallback::kCircleDouble,        // "( )"
+    /*.radioOn        =*/ fallback::kRadioOn,             // "(*)"
+    /*.radioOff       =*/ fallback::kRadioOff,            // "( )"
+    /*.checkboxOn     =*/ fallback::kCheckboxOn,          // "[×]"
+    /*.checkboxOff    =*/ fallback::kCheckboxOff,         // "[ ]"
+    /*.triangleUpOutline =*/ fallback::kTriangleUpOutline,// ∆
+    /*.triangleDownSmall =*/ kTriangleDownSmall,          // ▾ (common)
+    /*.triangleRightSmall =*/ kTriangleRightSmall,        // ▸ (common)
+    /*.star           =*/ fallback::kStar,                // ✶
+    /*.heart          =*/ kHeart,                         // ♥ (common)
+    /*.play           =*/ fallback::kPlay,                // ►
+    /*.questionMarkPrefix =*/ kQuestionMarkPrefix,        // "(?)" (common)
+    /*.lineVertical   =*/ kLineVertical,                  // │ (common)
+    /*.lineUpRight    =*/ kLineUpRight,                   // └ (common)
+    /*.lineUpDownRight =*/ kLineUpDownRight,              // ├ (common)
+};
+
+/// TS: `const figures = shouldUseMain ? mainSymbols : fallbackSymbols;`
+/// `export default figures;` (L278-279).
+///
+/// Returns a const reference to the active glyph set, determined once per
+/// process by is_unicode_supported(). Individual kXxx constants always return
+/// Unicode glyphs; use this when you want automatic fallback to ASCII on
+/// terminals that don't support Unicode.
+[[nodiscard]] inline const Figures& figures() noexcept {
+    static const bool use_main = is_unicode_supported();
+    return use_main ? kMainFigures : kFallbackFigures;
+}
+
+// ─── replace_symbols (TS REF: figures/index.js L281-292) ───────────────
+// TS REF: node_modules/figures/index.js `export const replaceSymbols`.
+// Replaces main special symbols with their fallback equivalents in a string.
+// By default only replaces when !is_unicode_supported(); pass use_fallback=true
+// to force replacement regardless of terminal capability.
+//
+// TS: for (const [key, mainSymbol] of Object.entries(specialMainSymbols))
+//       string = string.replaceAll(mainSymbol, fallbackSymbols[key]);
+namespace detail {
+    /// Replace all occurrences of `from` with `to` in string `s`.
+    inline void replace_all(std::string& s, std::string_view from,
+                            std::string_view to) noexcept {
+        if (from.empty()) return;
+        std::size_t pos = 0;
+        while ((pos = s.find(from, pos)) != std::string::npos) {
+            s.replace(pos, from.length(), to);
+            pos += to.length();
+        }
+    }
+}  // namespace detail
+
+/// TS REF: replaceSymbols(string, {useFallback = !shouldUseMain}) (L284-292).
+/// Iterates over all specialMainSymbols entries and replaces each with its
+/// fallbackSymbols counterpart in the input string.
+[[nodiscard]] inline std::string replace_symbols(
+    std::string_view input,
+    bool use_fallback = !is_unicode_supported()) {
+    if (!use_fallback) return std::string(input);
+    std::string result(input);
+    // Only "special" symbols have fallbacks; common glyphs are identical.
+    detail::replace_all(result, kTick,                fallback::kTick);
+    detail::replace_all(result, kInfo,                fallback::kInfo);
+    detail::replace_all(result, kWarning,             fallback::kWarning);
+    detail::replace_all(result, kCross,               fallback::kCross);
+    detail::replace_all(result, kSquareSmall,         fallback::kSquareSmall);
+    detail::replace_all(result, kSquareSmallFilled,   fallback::kSquareSmallFilled);
+    detail::replace_all(result, kCircle,              fallback::kCircle);
+    detail::replace_all(result, kCircleFilled,        fallback::kCircleFilled);
+    detail::replace_all(result, kCircleDouble,        fallback::kCircleDouble);
+    detail::replace_all(result, kRadioOn,             fallback::kRadioOn);
+    detail::replace_all(result, kRadioOff,            fallback::kRadioOff);
+    detail::replace_all(result, kCheckboxOn,          fallback::kCheckboxOn);
+    detail::replace_all(result, kCheckboxOff,         fallback::kCheckboxOff);
+    detail::replace_all(result, kPointer,             fallback::kPointer);
+    detail::replace_all(result, kTriangleUpOutline,   fallback::kTriangleUpOutline);
+    detail::replace_all(result, kStar,                fallback::kStar);
+    detail::replace_all(result, kPlay,                fallback::kPlay);
+    return result;
+}
 
 }  // namespace cc::ui::design::figures

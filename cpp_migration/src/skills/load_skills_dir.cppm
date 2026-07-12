@@ -2063,4 +2063,201 @@ std::optional<SkillManifest> find_skill_by_name(std::string_view name) {
     return std::nullopt;
 }
 
+// =========================================================================
+// SkillCommand → SkillDefinition converter
+// TS REF: Bridges the rich SkillCommand (from load_skills_dir) into the
+//          simpler SkillDefinition used by SkillExecutor, autocomplete,
+//          and the /skills slash command.
+// =========================================================================
+
+/// Convert a rich SkillCommand (from directory scanning) into a
+/// SkillDefinition for registration in the legacy skill system.
+/// TS REF: The TS code registers skills as Command objects which flow
+///          into the prompt builder; CPP has two parallel types — this
+///          converter lets the rich parser feed the simpler consumers.
+SkillDefinition skill_command_to_definition(const SkillCommand& cmd) {
+    SkillDefinition def;
+    def.name = cmd.name;
+    def.description = cmd.description;
+    def.content = cmd.markdown_content;
+    def.is_builtin = false;
+    def.author = std::nullopt;
+    def.version = cmd.version;
+    def.kind = "workflow";  // Dynamically loaded skills are workflow-type
+    def.user_invocable = cmd.user_invocable;
+
+    // Use when_to_use as a trigger hint (not a regex pattern, but helps
+    // the skill system understand when this skill is relevant).
+    if (cmd.when_to_use.has_value() && !cmd.when_to_use->empty()) {
+        def.trigger_patterns.push_back(*cmd.when_to_use);
+    }
+
+    return def;
+}
+
+// =========================================================================
+// SkillRegistry — unified skill registry (bundled + static + dynamic)
+// TS REF: src/skills/loadSkillsDir.ts (getSkillDirCommands memoized cache
+//          + dynamicSkills map + conditionalSkills map)
+//
+// This is the single entry point for all skill consumers.  It merges:
+//   1. Bundled skills (static built-ins from bundled.cppm)
+//   2. Statically-loaded skills from get_skill_dir_commands() (managed,
+//      user, project, additional-dir, legacy-commands dirs)
+//   3. Dynamically-discovered skills from get_dynamic_skills()
+//      (found during session via discover_skill_dirs_for_paths +
+//       add_skill_directories)
+//   4. Activated conditional skills (from activate_conditional_skills_for_paths)
+// =========================================================================
+
+/// Unified registry providing a single view of all available skills.
+/// Thread-safe — all mutations are guarded by the dynamic_state mutex.
+class SkillRegistry {
+public:
+    /// Get the singleton instance
+    static SkillRegistry& instance() {
+        static SkillRegistry reg;
+        return reg;
+    }
+
+    /// Get all available skills (bundled + statically loaded + dynamic).
+    /// Results are cached; call invalidate() after directory changes.
+    std::vector<SkillDefinition> all_skills(const fs::path& cwd = fs::current_path()) {
+        auto& state = detail::dynamic_state();
+        std::lock_guard lock(state.mutex);
+
+        // Rebuild if cwd changed or cache invalidated
+        std::string cwd_str = fs::absolute(cwd).string();
+        if (!cached_all_.has_value() || cached_cwd_ != cwd_str) {
+            rebuild_cache_locked(cwd);
+            cached_cwd_ = cwd_str;
+        }
+        return *cached_all_;
+    }
+
+    /// Find a skill by name across all sources.
+    /// Returns nullopt if not found.
+    std::optional<SkillDefinition> find_skill(
+        std::string_view name,
+        const fs::path& cwd = fs::current_path())
+    {
+        auto skills = all_skills(cwd);
+        auto it = std::ranges::find_if(skills,
+            [name](const SkillDefinition& s) { return s.name == name; });
+        if (it != skills.end()) return *it;
+        return std::nullopt;
+    }
+
+    /// Discover skill directories for the given file paths and load any
+    /// new skills found.  Calls discover_skill_dirs_for_paths() +
+    /// add_skill_directories() internally.
+    /// TS REF: Called by file-operation hooks (Read/Write/Edit) in TS.
+    void discover_for_paths(
+        const std::vector<fs::path>& file_paths,
+        const fs::path& cwd = fs::current_path())
+    {
+        if (file_paths.empty()) return;
+
+        auto new_dirs = discover_skill_dirs_for_paths(file_paths, cwd);
+        if (!new_dirs.empty()) {
+            add_skill_directories(new_dirs);
+        }
+
+        // Also activate any conditional skills matching these paths
+        auto activated = activate_conditional_skills_for_paths(file_paths, cwd);
+        if (!activated.empty()) {
+            invalidate();
+        }
+
+        if (!new_dirs.empty() || !activated.empty()) {
+            invalidate();
+        }
+    }
+
+    /// Invalidate the cached skill list (call after skill dir changes).
+    void invalidate() {
+        auto& state = detail::dynamic_state();
+        std::lock_guard lock(state.mutex);
+        cached_all_.reset();
+    }
+
+    /// Register a callback for when skills change (dynamic discovery,
+    /// conditional activation, or cache invalidation).
+    /// Returns an unsubscribe function.
+    std::function<void()> on_skills_changed(std::function<void()> callback) {
+        return on_dynamic_skills_loaded(std::move(callback));
+    }
+
+    /// Get the number of dynamically-discovered skills (for diagnostics).
+    std::size_t dynamic_skill_count() {
+        return get_dynamic_skills().size();
+    }
+
+    /// Get the number of pending conditional skills (for diagnostics).
+    std::size_t conditional_skill_count() {
+        return get_conditional_skill_count();
+    }
+
+    /// Register bundled skill definitions (called once at init).
+    /// Public so bundled.cppm can populate the registry at startup.
+    void register_bundled(std::vector<SkillDefinition> skills) {
+        auto& state = detail::dynamic_state();
+        std::lock_guard lock(state.mutex);
+        bundled_skills_ = std::move(skills);
+        cached_all_.reset();
+    }
+
+private:
+    SkillRegistry() = default;
+
+    /// Rebuild the cached skill list.  Must hold state.mutex.
+    void rebuild_cache_locked(const fs::path& cwd) {
+        std::vector<SkillDefinition> result;
+        std::unordered_set<std::string> seen_names;
+
+        auto add_unique = [&](SkillDefinition def) {
+            if (def.name.empty() || seen_names.contains(def.name)) return;
+            seen_names.insert(def.name);
+            result.push_back(std::move(def));
+        };
+
+        // 1. Bundled skills (static built-ins)
+        for (const auto& def : bundled_skills_) {
+            add_unique(def);
+        }
+
+        // 2. Statically-loaded skills from get_skill_dir_commands()
+        //    (managed/user/project/additional-dir/legacy-commands dirs)
+        auto static_skills = get_skill_dir_commands(cwd);
+        for (const auto& cmd : static_skills) {
+            add_unique(skill_command_to_definition(cmd));
+        }
+
+        // 3. Dynamically-discovered skills from get_dynamic_skills()
+        auto dynamic_skills = get_dynamic_skills();
+        for (const auto& cmd : dynamic_skills) {
+            add_unique(skill_command_to_definition(cmd));
+        }
+
+        // Sort: bundled first, then alphabetical within groups
+        std::sort(result.begin(), result.end(),
+            [](const SkillDefinition& a, const SkillDefinition& b) {
+                auto order = [](const SkillDefinition& s) {
+                    if (s.is_builtin) return 3;
+                    return 0;
+                };
+                int ao = order(a);
+                int bo = order(b);
+                if (ao != bo) return ao < bo;
+                return a.name < b.name;
+            });
+
+        cached_all_ = std::move(result);
+    }
+
+    std::vector<SkillDefinition> bundled_skills_;
+    std::optional<std::vector<SkillDefinition>> cached_all_;
+    std::string cached_cwd_;
+};
+
 } // namespace cc::skills
