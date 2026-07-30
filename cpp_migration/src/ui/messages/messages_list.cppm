@@ -130,6 +130,7 @@ import cc.ui.messages.message_tool_result;
 import cc.ui.messages.local_command_output_message;
 import cc.ui.messages.attachment_message;
 import cc.ui.messages.assistant_text_message;
+import cc.ui.markdown;   // StreamingMarkdown for streaming-tail body
 import cc.ui.messages.tool_use_message;
 import cc.ui.messages.thinking_message;
 import cc.ui.messages.system_text_message;
@@ -522,6 +523,14 @@ struct MessagesListInput {
     /// only the streaming-thinking tail stays visible (TS: lastThinkingBlockId
     /// = 'streaming' → every completed thinking block fails the match).
     bool                            streaming_thinking_globally_visible = false;
+
+    /// TS REF: Messages.tsx L703-712 + Markdown.tsx L186-235  StreamingMarkdown.
+    /// Optional pointer to a shared StreamingMarkdown instance used for the
+    /// streaming-text tail row.  When set and the row's is_streaming=true,
+    /// render_payload_row passes this to RenderAssistantTextMessageFaithful
+    /// so the body uses stable-prefix caching instead of full re-parse.
+    /// Nullptr = not streaming / use plain render_markdown.
+    ::cc::ui::StreamingMarkdown*    streaming_md = nullptr;
 
     /// TS REF: Messages.tsx expandedKeys (L563) + expandKey (L725-727).
     /// Set of "expand keys" that the user has clicked/pressed-Enter on to
@@ -1822,6 +1831,34 @@ inline constexpr std::size_t kVirtualThreshold = 80;
             return row_el;
         };
 
+    // ── Wire 2-tier search engine into virtual list state ──────────────
+    // TS REF: Messages.tsx L700  extractSearchText passed to VirtualMessageList
+    //   (the same callback used by build_visible_rows search filter).
+    //
+    // When input.search_query is non-empty, run the search engine over the
+    // virtual rows.  This populates state.search_matches + prefixSum so
+    // that scroll_keys n/N navigation can jump between matches.
+    //
+    // Note: build_visible_rows already FILTERED the visible set by query.
+    // The virtual list search engine is for NAVIGATION within that set
+    // (finding which row contains the query, jumping to nearest match).
+    if (!input.search_query.empty()) {
+        std::string lowered_query = detail::lowered(input.search_query);
+        vl::run_search(state, lowered_query);
+    }
+
+    // Wire search_step callback so scroll_keys FSM n/N keys can navigate
+    // between search matches.  TS REF: VirtualMessageList.tsx L762 search_step
+    state.callbacks.search_step =
+        [&state](int delta) -> int {
+            if (state.search_matches.empty()) return -1;
+            size_t n = state.search_matches.size();
+            size_t target_ptr = (static_cast<int>(state.search_ptr) + delta +
+                                 static_cast<int>(n)) % static_cast<int>(n);
+            size_t target_row = state.search_matches[target_ptr];
+            return state.jh.find_visual_top_for_row(target_row);
+        };
+
     Element body = vl::render_list_as_elements(state);
     return body | yframe | vscroll_indicator | flex;
 }
@@ -2415,8 +2452,13 @@ inline auto render_payload_row(const MessagesListInput& input,
             // own show_dot field (defaulted true in AssistantTextMessageData)
             // now governs. Selection recolors the dot via is_selected below.
             const AssistantTextMessageData& fd = *d;
+            // TS REF: Messages.tsx L703-712 — streaming text row uses
+            // StreamingMarkdown (stable-prefix cache).  Thread the shared
+            // instance from the input so RenderAssistantTextMessageFaithful
+            // can call streaming_md->update() instead of full render_markdown.
             Element el = RenderAssistantTextMessageFaithful(
-                fd, add_margin, /*is_selected=*/is_selected);
+                fd, add_margin, /*is_selected=*/is_selected,
+                /*streaming_md=*/input.streaming_md);
             (void)frame_count;
             return el;
         }

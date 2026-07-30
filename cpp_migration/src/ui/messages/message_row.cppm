@@ -568,15 +568,40 @@ struct MessageRowCallbacks {
         auto data = std::get_if<ErrorMessageData>(&payload);
         if (!data) return ftxui::Renderer([=] { return text("⚠ message_row: bad payload for API error"); });
         // Core rendering lives in error_message.cppm (FTXUI upgrade → UI5)
+        // TS REF: SystemAPIErrorMessage.tsx — Retry / Clear session / Dismiss
+        //          action buttons.  This fallback path passes on_retry +
+        //          on_clear_session to render_error_message() so the plain
+        //          string includes "[r] Retry" / "[c] Clear session" hints,
+        //          and wraps the card in CatchEvent to dispatch keyboard
+        //          shortcuts when the callbacks are available.
         auto d = *data;
-        return ftxui::Renderer([d] {
+        auto retry_cb = callbacks.on_retry;
+        auto clear_cb = callbacks.on_clear_session;
+        auto base = ftxui::Renderer([d, retry_cb, clear_cb] {
             return vbox({
                 hbox({ text("❌ ") | color(Color::Red),
                        text("API Error") | bold | color(Color::Red) }),
-                text(render_error_message(d)),
+                text(render_error_message(d,
+                    retry_cb ? std::optional<std::function<void()>>{retry_cb}
+                             : std::nullopt,
+                    clear_cb ? std::optional<std::function<void()>>{clear_cb}
+                             : std::nullopt)),
                 text("(styled view → use api_error_message::APIErrorOptions for full card)") | dim,
             });
         });
+        // Wrap in CatchEvent so 'r' / 'c' dispatch retry / clear when set.
+        if (retry_cb || clear_cb) {
+            return base | CatchEvent([retry_cb, clear_cb](Event event) -> bool {
+                if (event == Event::Character('r') || event == Event::Character('R')) {
+                    if (retry_cb) { retry_cb(); return true; }
+                }
+                if (event == Event::Character('c') || event == Event::Character('C')) {
+                    if (clear_cb) { clear_cb(); return true; }
+                }
+                return false;
+            });
+        }
+        return base;
     }
 
     if (shape == S::SystemCollapsedContent) {

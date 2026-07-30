@@ -1429,7 +1429,24 @@ bool is_path_gitignored(const fs::path& path, const fs::path& repo_root) {
 /// Load all skills from /skills/ and legacy /commands/ directories.
 /// This is the main entry point for skill discovery.
 /// TS REF: getSkillDirCommands() is memoized on cwd.
+///
+/// Acquires dynamic_state().mutex (outer) + skill_dir_cache().mutex (inner),
+/// then delegates to get_skill_dir_commands_locked().  Callers that already
+/// hold dynamic_state().mutex (e.g. SkillRegistry::rebuild_cache_locked) MUST
+/// call get_skill_dir_commands_locked() directly to avoid a self-deadlock on
+/// the non-recursive std::mutex.
+// Forward declaration (defined below).
+std::vector<SkillCommand> get_skill_dir_commands_locked(const fs::path& cwd);
+
 std::vector<SkillCommand> get_skill_dir_commands(const fs::path& cwd) {
+    auto& dyn_state = detail::dynamic_state();
+    std::lock_guard dyn_lock(dyn_state.mutex);
+    return get_skill_dir_commands_locked(cwd);
+}
+
+/// Internal implementation: assumes dynamic_state().mutex is already held.
+/// Still acquires skill_dir_cache().mutex internally.
+std::vector<SkillCommand> get_skill_dir_commands_locked(const fs::path& cwd) {
     auto& cache = detail::skill_dir_cache();
     std::lock_guard lock(cache.mutex);
 
@@ -1555,8 +1572,9 @@ std::vector<SkillCommand> get_skill_dir_commands(const fs::path& cwd) {
     }
 
     // Separate conditional skills (with paths frontmatter) from unconditional ones
+    // NOTE: dynamic_state().mutex is already held by the caller
+    //       (get_skill_dir_commands or SkillRegistry::rebuild_cache_locked).
     auto& dyn_state = detail::dynamic_state();
-    std::lock_guard dyn_lock(dyn_state.mutex);
 
     std::vector<SkillCommand> unconditional_skills;
     std::vector<SkillCommand> new_conditional_skills;
@@ -1788,17 +1806,22 @@ void add_skill_directories(const std::vector<fs::path>& dirs) {
 // TS REF: src/skills/loadSkillsDir.ts:981-983
 // =========================================================================
 
-/// Get all dynamically discovered skills
-std::vector<SkillCommand> get_dynamic_skills() {
+/// Get all dynamically discovered skills (caller holds dynamic_state().mutex).
+std::vector<SkillCommand> get_dynamic_skills_locked() {
     auto& state = detail::dynamic_state();
-    std::lock_guard lock(state.mutex);
-
     std::vector<SkillCommand> result;
     result.reserve(state.dynamic_skills.size());
     for (const auto& [_, skill] : state.dynamic_skills) {
         result.push_back(skill);
     }
     return result;
+}
+
+/// Get all dynamically discovered skills
+std::vector<SkillCommand> get_dynamic_skills() {
+    auto& state = detail::dynamic_state();
+    std::lock_guard lock(state.mutex);
+    return get_dynamic_skills_locked();
 }
 
 // =========================================================================
@@ -2226,15 +2249,17 @@ private:
             add_unique(def);
         }
 
-        // 2. Statically-loaded skills from get_skill_dir_commands()
+        // 2. Statically-loaded skills from get_skill_dir_commands_locked()
         //    (managed/user/project/additional-dir/legacy-commands dirs)
-        auto static_skills = get_skill_dir_commands(cwd);
+        //    NOTE: dynamic_state().mutex already held by all_skills().
+        auto static_skills = get_skill_dir_commands_locked(cwd);
         for (const auto& cmd : static_skills) {
             add_unique(skill_command_to_definition(cmd));
         }
 
-        // 3. Dynamically-discovered skills from get_dynamic_skills()
-        auto dynamic_skills = get_dynamic_skills();
+        // 3. Dynamically-discovered skills from get_dynamic_skills_locked()
+        //    NOTE: dynamic_state().mutex already held by all_skills().
+        auto dynamic_skills = get_dynamic_skills_locked();
         for (const auto& cmd : dynamic_skills) {
             add_unique(skill_command_to_definition(cmd));
         }
@@ -2259,5 +2284,36 @@ private:
     std::optional<std::vector<SkillDefinition>> cached_all_;
     std::string cached_cwd_;
 };
+
+// =========================================================================
+// File-Access Hook Registration
+// =========================================================================
+//
+// Register the file-access hook so that file tools (cc_tools) can trigger
+// skill discovery without depending on cc_skills (avoiding circular dep).
+// This is called once during static initialization or app startup.
+//
+// TS REF: FileReadTool/FileWriteTool/FileEditTool call discoverSkillDirsForPaths
+//          + addSkillDirectories + activateConditionalSkillsForPaths after
+//          file operations.
+
+namespace detail {
+
+/// RAII registrar that sets the file-access hook on construction.
+struct FileAccessHookRegistrar {
+    FileAccessHookRegistrar() {
+        cc::skills::set_file_access_hook(
+            [](const fs::path& file_path, const fs::path& cwd) {
+                SkillRegistry::instance().discover_for_paths(
+                    {file_path}, cwd);
+            });
+    }
+};
+
+// Static registration — runs before main() via C++ dynamic initialization.
+// The hook is set once and persists for the process lifetime.
+inline const FileAccessHookRegistrar g_file_access_hook_registrar{};
+
+} // namespace detail
 
 } // namespace cc::skills

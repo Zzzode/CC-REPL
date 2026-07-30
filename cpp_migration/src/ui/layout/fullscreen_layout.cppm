@@ -146,11 +146,14 @@ class ComponentHolderNode : public Node {
 
 struct StickyPrompt {
     /// Header prompt text.  Empty is equivalent to stickyPrompt=null in TS.
+    /// TS REF: FullscreenLayout.tsx L293 — `stickyPrompt.text` (the string
+    /// shown in the StickyPromptHeader row when scrolled up).
     std::string text;
     /// Row index the header click should scroll to (content-coordinate, as
     /// produced by VirtualMessageList's StickyTracker).  Maps to
     /// TS `stickyPrompt.scrollTo` parameter capture (a closure that calls
     /// scrollTo(target) internally).
+    /// TS REF: FullscreenLayout.tsx L344 — onClick={headerPrompt.scrollTo}.
     std::size_t scroll_target_row = 0;
 };
 
@@ -331,6 +334,8 @@ class StickyPromptHeaderComponent : public ComponentBase {
 
 /// Thin helper: wrap a StickyPromptHeaderComponent in a Component and then
 /// in CompEl so it is safe to drop into an Element tree.
+/// TS REF: FullscreenLayout.tsx L343-349 — `<StickyPromptHeader>` JSX element
+///         rendered inside the scrollwrap vbox above the ScrollBox.
 [[nodiscard]] inline Element StickyPromptHeader(std::string text,
     std::function<void()> on_click) {
     auto c = Make<StickyPromptHeaderComponent>(std::move(text),

@@ -58,6 +58,7 @@ import cc.ui.messages.message_row;
 import cc.ui.messages.user_text_message;
 import cc.ui.messages.assistant_text_message;
 import cc.ui.common.declared_cursor;
+import cc.ui.autocomplete_sources;
 
 namespace {
 namespace fs = std::filesystem;
@@ -4559,3 +4560,339 @@ TEST(ImagePasteCtrlV, MessageImageRender_CardNotEmpty) {
 
 /// E2E Gate #1: Startup screen must show logo, statusline, and prompt.
 /// Regression guard for "statusline disappeared" bug.
+
+// ============================================================
+// @agent + @history autocomplete sources
+// ============================================================
+
+namespace acsrc = cc::ui::autocomplete_sources;
+
+/// Round-trip: append_prompt_history writes a JSONL line, then
+/// collect_history_suggestions reads it back (newest-first) and matches
+/// by substring query.  Uses CC_REPL_HISTORY_FILE env var to isolate
+/// the test from the real ~/.cc-repl/history.jsonl.
+TEST(AutocompleteSources, AppendAndReadHistoryRoundTrip) {
+    const auto hist_path = fs::temp_directory_path() /
+        ("cc_repl_hist_roundtrip_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
+         ".jsonl");
+    ScopedEnvVar env("CC_REPL_HISTORY_FILE");
+    env.set(hist_path.string());
+
+    // Empty file => empty results.
+    auto empty = acsrc::collect_history_suggestions("", 50);
+    EXPECT_TRUE(empty.empty());
+
+    // Append three prompts (chronological order: oldest first).
+    acsrc::append_prompt_history("fix the flaky test", "sess-aaa", "/proj");
+    acsrc::append_prompt_history("refactor auth module", "sess-bbb", "/proj");
+    acsrc::append_prompt_history("write a unit test", "sess-ccc", "/proj");
+
+    // Empty query => all entries, newest first ("write a unit test" first).
+    auto all = acsrc::collect_history_suggestions("", 50);
+    ASSERT_EQ(all.size(), 3u);
+    EXPECT_EQ(all[0].prompt_text, "write a unit test");
+    EXPECT_EQ(all[1].prompt_text, "refactor auth module");
+    EXPECT_EQ(all[2].prompt_text, "fix the flaky test");
+
+    // Substring query "test" matches two entries (newest first).
+    auto matched = acsrc::collect_history_suggestions("test", 50);
+    ASSERT_EQ(matched.size(), 2u);
+    EXPECT_EQ(matched[0].prompt_text, "write a unit test");
+    EXPECT_EQ(matched[1].prompt_text, "fix the flaky test");
+
+    // Case-insensitive: "AUTH" should match "refactor auth module".
+    auto ci = acsrc::collect_history_suggestions("AUTH", 50);
+    ASSERT_EQ(ci.size(), 1u);
+    EXPECT_EQ(ci[0].prompt_text, "refactor auth module");
+
+    // Cap at max_entries: request 1, get 1 (newest).
+    auto capped = acsrc::collect_history_suggestions("", 1);
+    ASSERT_EQ(capped.size(), 1u);
+    EXPECT_EQ(capped[0].prompt_text, "write a unit test");
+
+    // Dedup by display: append a duplicate of an existing prompt.
+    acsrc::append_prompt_history("write a unit test", "sess-ddd", "/proj");
+    auto deduped = acsrc::collect_history_suggestions("test", 50);
+    ASSERT_EQ(deduped.size(), 2u) << "duplicate display should be deduped";
+
+    fs::remove(hist_path);
+}
+
+/// build_history_suggestions produces FormattedSuggestion entries with
+/// truncated display + relative-time description.
+TEST(AutocompleteSources, BuildHistorySuggestionsFormatting) {
+    const auto hist_path = fs::temp_directory_path() /
+        ("cc_repl_hist_fmt_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
+         ".jsonl");
+    ScopedEnvVar env("CC_REPL_HISTORY_FILE");
+    env.set(hist_path.string());
+
+    // Long prompt (>80 chars) should be truncated in display.
+    acsrc::append_prompt_history(
+        "this is a very long prompt that exceeds eighty characters in display "
+        "length and should be truncated with ellipsis", "sess-xyz", "/proj");
+
+    auto sugs = acsrc::build_history_suggestions("", 0, 5, 50);
+    ASSERT_EQ(sugs.size(), 1u);
+    EXPECT_LE(sugs[0].display_text.size(), 83u)  // 80 + "..."
+        << "display should be truncated to ~80 chars";
+    EXPECT_EQ(sugs[0].display_text.back(), '.')
+        << "truncated display should end with '...'";
+    // insert_text is the FULL prompt (not truncated).
+    EXPECT_GT(sugs[0].insert_text.size(), sugs[0].display_text.size());
+    EXPECT_EQ(sugs[0].replacement_start, 0u);
+    EXPECT_EQ(sugs[0].replacement_end, 5u);
+    EXPECT_FALSE(sugs[0].submit_on_return);
+    EXPECT_EQ(sugs[0].id.substr(0, 8), "history:");
+
+    fs::remove(hist_path);
+}
+
+/// build_agent_suggestions returns agent/teammate suggestions with the
+/// color_name field populated from agent.color / record.teammate_color.
+/// At minimum the built-in "claude" agent should be present.
+TEST(AutocompleteSources, BuildAgentSuggestionsHasColors) {
+    auto agents = acsrc::collect_agent_suggestions("");
+    ASSERT_FALSE(agents.empty())
+        << "expected at least one built-in agent definition";
+
+    // The default "claude" agent should exist (catch-all).
+    auto it = std::find_if(agents.begin(), agents.end(),
+        [](const auto& a) { return a.name == "claude"; });
+    ASSERT_NE(it, agents.end()) << "built-in 'claude' agent not found";
+
+    // build_agent_suggestions with empty query returns all agents (fuzzy
+    // match passes for everything when query is empty).
+    auto sugs = acsrc::build_agent_suggestions("", "", 0, 7);
+    ASSERT_FALSE(sugs.empty());
+    bool found_claude = false;
+    for (const auto& s : sugs) {
+        EXPECT_FALSE(s.display_text.empty());
+        EXPECT_TRUE(s.display_text.starts_with("@"))
+            << "display should start with @";
+        EXPECT_EQ(s.replacement_start, 0u);
+        EXPECT_EQ(s.replacement_end, 7u);
+        EXPECT_FALSE(s.submit_on_return);
+        if (s.display_text == "@claude") {
+            found_claude = true;
+            EXPECT_FALSE(s.icon.empty()) << "claude agent should have an icon";
+            EXPECT_FALSE(s.id.empty());
+        }
+    }
+    EXPECT_TRUE(found_claude) << "@claude suggestion not found in results";
+
+    // Fuzzy filter: query "xyz" should match nothing (no agent named xyz).
+    auto filtered = acsrc::build_agent_suggestions("", "xyz_nonexistent", 0, 3);
+    EXPECT_TRUE(filtered.empty());
+}
+
+/// Typing "@history " in the prompt triggers history suggestions from the
+/// persisted history file.  We pre-populate the history file, then type
+/// "@history " and verify suggestions appear.
+TEST(AppRuntime, AtHistoryShowsPersistedPrompts) {
+    const auto hist_path = fs::temp_directory_path() /
+        ("cc_repl_app_hist_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
+         ".jsonl");
+    ScopedEnvVar env("CC_REPL_HISTORY_FILE");
+    env.set(hist_path.string());
+
+    // Pre-populate history.
+    acsrc::append_prompt_history("deploy to production", "sess-1", "/proj");
+    acsrc::append_prompt_history("review the pull request", "sess-2", "/proj");
+
+    cc::core::ToolRegistry tools;
+    cc::core::QueryEngineConfig config;
+    config.context_window.auto_compact = false;
+    config.cwd = fs::temp_directory_path().string();
+    cc::core::QueryEngine engine(std::move(config), tools);
+    cc::commands::AppCommandRegistry commands;
+    const auto storage_root = fs::temp_directory_path() /
+        ("cc_repl_app_hist_storage_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    cc::utils::SessionStorage storage(storage_root);
+
+    auto app = ftxui::Make<cc::ui::AppAdapter>(
+        &engine, nullptr, &commands, &storage, [] {});
+
+    // Type "@history " — should trigger history suggestions.
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::Character('@')));
+    for (char c : std::string("history")) {
+        EXPECT_TRUE(app->OnEvent(ftxui::Event::Character(c)));
+    }
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::Character(' ')));
+
+    ASSERT_GT(app->autocomplete_suggestion_count_for_testing(), 0u)
+        << "@history should show persisted prompt suggestions";
+
+    auto suggestions = app->autocomplete_suggestions_for_testing();
+    bool found_deploy = std::any_of(suggestions.begin(), suggestions.end(),
+        [](const std::string& s) { return s.find("deploy to production") != std::string::npos; });
+    bool found_review = std::any_of(suggestions.begin(), suggestions.end(),
+        [](const std::string& s) { return s.find("review the pull request") != std::string::npos; });
+    EXPECT_TRUE(found_deploy) << "history suggestion 'deploy to production' not found";
+    EXPECT_TRUE(found_review) << "history suggestion 'review the pull request' not found";
+
+    fs::remove_all(storage_root);
+    fs::remove(hist_path);
+}
+
+/// Typing "@history deploy" filters history by the substring "deploy".
+TEST(AppRuntime, AtHistoryWithQueryFiltersResults) {
+    const auto hist_path = fs::temp_directory_path() /
+        ("cc_repl_app_hist_filter_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
+         ".jsonl");
+    ScopedEnvVar env("CC_REPL_HISTORY_FILE");
+    env.set(hist_path.string());
+
+    acsrc::append_prompt_history("deploy to production", "sess-1", "/proj");
+    acsrc::append_prompt_history("review the pull request", "sess-2", "/proj");
+
+    cc::core::ToolRegistry tools;
+    cc::core::QueryEngineConfig config;
+    config.context_window.auto_compact = false;
+    config.cwd = fs::temp_directory_path().string();
+    cc::core::QueryEngine engine(std::move(config), tools);
+    cc::commands::AppCommandRegistry commands;
+    const auto storage_root = fs::temp_directory_path() /
+        ("cc_repl_app_hist_filter_storage_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    cc::utils::SessionStorage storage(storage_root);
+
+    auto app = ftxui::Make<cc::ui::AppAdapter>(
+        &engine, nullptr, &commands, &storage, [] {});
+
+    // Type "@history review" — should only show "review the pull request".
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::Character('@')));
+    for (char c : std::string("history")) {
+        EXPECT_TRUE(app->OnEvent(ftxui::Event::Character(c)));
+    }
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::Character(' ')));
+    for (char c : std::string("review")) {
+        EXPECT_TRUE(app->OnEvent(ftxui::Event::Character(c)));
+    }
+
+    auto suggestions = app->autocomplete_suggestions_for_testing();
+    bool found_review = std::any_of(suggestions.begin(), suggestions.end(),
+        [](const std::string& s) { return s.find("review the pull request") != std::string::npos; });
+    bool found_deploy = std::any_of(suggestions.begin(), suggestions.end(),
+        [](const std::string& s) { return s.find("deploy to production") != std::string::npos; });
+    EXPECT_TRUE(found_review) << "filtered history should show 'review the pull request'";
+    EXPECT_FALSE(found_deploy) << "filtered history should NOT show 'deploy to production'";
+
+    fs::remove_all(storage_root);
+    fs::remove(hist_path);
+}
+
+/// Ctrl+R (\\x12) injects "@history " into the input, triggering history
+/// search mode.  The input text should start with "@history ".
+TEST(AppRuntime, CtrlREntersHistorySearchMode) {
+    cc::core::ToolRegistry tools;
+    cc::core::QueryEngineConfig config;
+    config.context_window.auto_compact = false;
+    config.cwd = fs::temp_directory_path().string();
+    cc::core::QueryEngine engine(std::move(config), tools);
+    cc::commands::AppCommandRegistry commands;
+    const auto storage_root = fs::temp_directory_path() /
+        ("cc_repl_app_ctrlr_storage_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    cc::utils::SessionStorage storage(storage_root);
+
+    auto app = ftxui::Make<cc::ui::AppAdapter>(
+        &engine, nullptr, &commands, &storage, [] {});
+
+    // Ctrl+R should inject "@history " into the input.
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::Character('\x12')));
+    EXPECT_TRUE(app->input_text_for_testing().starts_with("@history"))
+        << "Ctrl+R should set input to '@history ' prefix, got: "
+        << app->input_text_for_testing();
+
+    // Pressing Ctrl+R again should NOT duplicate the prefix.
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::Character('\x12')));
+    EXPECT_TRUE(app->input_text_for_testing().starts_with("@history"))
+        << "second Ctrl+R should keep '@history ' prefix";
+    // Count occurrences of "@history" — should be exactly 1.
+    const auto input = app->input_text_for_testing();
+    size_t count = 0;
+    size_t pos = 0;
+    while ((pos = input.find("@history", pos)) != std::string::npos) {
+        ++count;
+        pos += 8;  // len("@history") = 8
+    }
+    EXPECT_EQ(count, 1u) << "@history should appear exactly once after two Ctrl+R presses";
+
+    fs::remove_all(storage_root);
+}
+
+/// Submitting a prompt persists it to history, so subsequent @history
+/// searches can find it.  Verifies the end-to-end persistence wiring.
+TEST(AppRuntime, SubmitPersistsPromptToHistory) {
+    const auto hist_path = fs::temp_directory_path() /
+        ("cc_repl_app_submit_hist_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
+         ".jsonl");
+    ScopedEnvVar env("CC_REPL_HISTORY_FILE");
+    env.set(hist_path.string());
+
+    cc::core::ToolRegistry tools;
+    cc::core::QueryEngineConfig config;
+    config.context_window.auto_compact = false;
+    config.cwd = fs::temp_directory_path().string();
+    cc::core::QueryEngine engine(std::move(config), tools);
+    cc::commands::AppCommandRegistry commands;
+    const auto storage_root = fs::temp_directory_path() /
+        ("cc_repl_app_submit_hist_storage_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    cc::utils::SessionStorage storage(storage_root);
+
+    auto app = ftxui::Make<cc::ui::AppAdapter>(
+        &engine, nullptr, &commands, &storage, [] {});
+
+    // Type a unique prompt and submit.
+    const std::string unique_prompt = "unique_persist_test_prompt_xyz";
+    for (char c : unique_prompt) {
+        EXPECT_TRUE(app->OnEvent(ftxui::Event::Character(c)));
+    }
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::Return));
+
+    // Now verify the prompt appears in history via collect_history_suggestions.
+    auto hist = acsrc::collect_history_suggestions(unique_prompt, 50);
+    ASSERT_EQ(hist.size(), 1u) << "submitted prompt should appear in history";
+    EXPECT_EQ(hist[0].prompt_text, unique_prompt);
+
+    fs::remove_all(storage_root);
+    fs::remove(hist_path);
+}
+
+/// Typing "@" followed by agent name characters should show agent
+/// suggestions.  At minimum "@cl" should match the "claude" agent.
+TEST(AppRuntime, AtAgentShowsAgentSuggestions) {
+    cc::core::ToolRegistry tools;
+    cc::core::QueryEngineConfig config;
+    config.context_window.auto_compact = false;
+    config.cwd = fs::temp_directory_path().string();
+    cc::core::QueryEngine engine(std::move(config), tools);
+    cc::commands::AppCommandRegistry commands;
+    const auto storage_root = fs::temp_directory_path() /
+        ("cc_repl_app_at_agent_storage_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    cc::utils::SessionStorage storage(storage_root);
+
+    auto app = ftxui::Make<cc::ui::AppAdapter>(
+        &engine, nullptr, &commands, &storage, [] {});
+
+    // Type "@cl" — should show agent suggestions matching "cl".
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::Character('@')));
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::Character('c')));
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::Character('l')));
+
+    auto suggestions = app->autocomplete_suggestions_for_testing();
+    bool found_claude = std::any_of(suggestions.begin(), suggestions.end(),
+        [](const std::string& s) { return s.find("@claude") != std::string::npos; });
+    EXPECT_TRUE(found_claude) << "@cl should surface @claude agent suggestion";
+
+    fs::remove_all(storage_root);
+}

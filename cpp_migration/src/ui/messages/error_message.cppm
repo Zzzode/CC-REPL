@@ -4,6 +4,7 @@ module;
 #include <string_view>
 #include <vector>
 #include <optional>
+#include <functional>
 
 export module cc.ui.error_message;
 
@@ -72,7 +73,22 @@ inline std::string format_stack_trace(std::string_view trace) {
 
 // ─── Rendering functions ─────────────────────────────────────────────
 
-inline std::string render_error_message(const ErrorMessageData& data) {
+/// Render an error message as a plain string.
+///
+/// @param data       — error message payload (message, severity, context, etc.)
+/// @param on_retry   — optional retry callback; when set, a "[r] Retry" hint
+///                     is appended so the user knows the action is available.
+///                     TS REF: src/components/messages/SystemAPIErrorMessage.tsx
+///                     — the Retry pill button (L256-259 in TS).
+/// @param on_clear   — optional clear-session callback; when set alongside a
+///                     session-expired / auth error, a "[c] Clear session" hint
+///                     is appended.  TS REF: SystemAPIErrorMessage.tsx L260-264
+///                     (onClearSession prop rendered as "Clear session" pill).
+inline std::string render_error_message(
+    const ErrorMessageData& data,
+    std::optional<std::function<void()>> on_retry = std::nullopt,
+    std::optional<std::function<void()>> on_clear = std::nullopt)
+{
     std::string result;
     result += get_severity_icon(data.severity);
     result += " ";
@@ -94,10 +110,31 @@ inline std::string render_error_message(const ErrorMessageData& data) {
     if (data.doc_url.has_value()) {
         result += "\n📖 " + *data.doc_url;
     }
+    // Retry / clear-session action hints (TS REF: SystemAPIErrorMessage.tsx
+    // action button row — Retry / Clear session / Diagnose / Dismiss).
+    // The interactive FTXUI card (api_error_message.cppm) renders full pill
+    // buttons; this plain-string fallback appends keyboard hints so the
+    // message_row.cppm fallback path can still surface retry affordance.
+    if (on_retry.has_value()) {
+        result += "\n[r] Retry";
+    }
+    if (on_clear.has_value()) {
+        result += "\n[c] Clear session";
+    }
     return result;
 }
 
-inline std::string render_system_message(const SystemMessageData& data) {
+/// Render a system message as a plain string.
+///
+/// @param data       — system message payload (type, content, details)
+/// @param on_retry   — optional retry callback; when set, a "[r] Retry" hint
+///                     is appended.  Useful for rate-limit / transient system
+///                     messages where retrying the last action makes sense.
+///                     TS REF: SystemAPIErrorMessage.tsx Retry action.
+inline std::string render_system_message(
+    const SystemMessageData& data,
+    std::optional<std::function<void()>> on_retry = std::nullopt)
+{
     std::string result = "-- ";
     switch (data.type) {
         case SystemMessageType::Info:         result += "i "; break;
@@ -110,6 +147,9 @@ inline std::string render_system_message(const SystemMessageData& data) {
     result += data.content;
     if (data.details.has_value()) {
         result += "\n   " + *data.details;
+    }
+    if (on_retry.has_value()) {
+        result += "\n[r] Retry";
     }
     result += " --";
     return result;

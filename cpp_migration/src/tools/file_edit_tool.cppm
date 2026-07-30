@@ -48,6 +48,7 @@ import cc.utils.file_read_cache;
 import cc.utils.string_utils;
 import cc.utils.path;
 import cc.tools.sed_edit_parser;
+import cc.skills.skill;
 
 export namespace cc::tools::file_edit {
 
@@ -599,6 +600,17 @@ public:
                 cr.output.git_diff = std::move(*info);
             }
         }
+
+        // --- 11. skill discovery (TS REF: FileEditTool.ts L408-422) --------
+        // After editing a file, discover any skill directories it belongs to
+        // and activate conditional skills matching its path.
+        {
+            std::error_code ec;
+            auto cwd = fs::current_path(ec);
+            if (ec) cwd = abs_path.parent_path();
+            cc::skills::notify_file_access(abs_path, cwd);
+        }
+
         return cr;
     }
 

@@ -223,40 +223,41 @@ inline TabId initial_tab_for(ViewKind k) {
 }
 
 /// The full help-text block rendered by the `Help` view.
-/// Exact match for TS PluginSettings.tsx help JSX — kept here as a single
-/// constant so Phase 4 can display it verbatim.
+/// Byte-for-byte match of the TS PluginSettings.tsx help JSX (note: plain
+/// hyphens "-", not em-dashes).  Kept here as a single constant so the UI
+/// layer can display it verbatim.
 inline constexpr std::string_view k_plugin_help_text =
 R"(Plugin Command Usage:
 
 Installation:
- /plugin install                           — Browse and install plugins
- /plugin install <marketplace>             — Install from specific marketplace
- /plugin install <plugin>                  — Install specific plugin
- /plugin install <plugin>@<market>         — Install plugin from marketplace
+ /plugin install                           - Browse and install plugins
+ /plugin install <marketplace>             - Install from specific marketplace
+ /plugin install <plugin>                  - Install specific plugin
+ /plugin install <plugin>@<market>         - Install plugin from marketplace
 
 Management:
- /plugin manage                            — Manage installed plugins
- /plugin enable <plugin>                   — Enable a plugin
- /plugin disable <plugin>                  — Disable a plugin
- /plugin uninstall <plugin>                — Uninstall a plugin
+ /plugin manage                            - Manage installed plugins
+ /plugin enable <plugin>                   - Enable a plugin
+ /plugin disable <plugin>                  - Disable a plugin
+ /plugin uninstall <plugin>                - Uninstall a plugin
 
 Marketplaces:
- /plugin marketplace                       — Marketplace management menu
- /plugin marketplace add                   — Add a marketplace
- /plugin marketplace add <path/url>        — Add marketplace directly
- /plugin marketplace update                — Update marketplaces
- /plugin marketplace update <name>         — Update specific marketplace
- /plugin marketplace remove                — Remove a marketplace
- /plugin marketplace remove <name>         — Remove specific marketplace
- /plugin marketplace list                  — List all marketplaces
+ /plugin marketplace                       - Marketplace management menu
+ /plugin marketplace add                   - Add a marketplace
+ /plugin marketplace add <path/url>        - Add marketplace directly
+ /plugin marketplace update                - Update marketplaces
+ /plugin marketplace update <name>         - Update specific marketplace
+ /plugin marketplace remove                - Remove a marketplace
+ /plugin marketplace remove <name>         - Remove specific marketplace
+ /plugin marketplace list                  - List all marketplaces
 
 Validation:
- /plugin validate <path>                   — Validate a manifest file or directory
+ /plugin validate <path>                   - Validate a manifest file or directory
 
 Other:
- /plugin                                   — Main plugin menu
- /plugin help                              — Show this help
- /plugins                                  — Alias for /plugin
+ /plugin                                   - Main plugin menu
+ /plugin help                              - Show this help
+ /plugins                                  - Alias for /plugin
 )";
 
 // ═════════════════════════════════════════════════════════════════════════════

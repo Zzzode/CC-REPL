@@ -4,25 +4,33 @@
 /// Provides the full subcommand surface area translated from the TS
 /// `src/commands/plugin/` tree:
 ///
-///   • /plugin (no args)            → text overview + hint for TUI entry
+///   • /plugin (no args)            → open the tabbed plugin dialog on the
+///                                    Discover tab (no intermediate text)
 ///   • /plugin help                 → full help text
-///   • /plugin install [<spec>]     → install a plugin / browse install UI
-///   • /plugin manage               → manage installed plugins (text list)
+///   • /plugin install [<spec>]     → open Discover / Browse, or direct-install
+///                                    a named plugin
+///   • /plugin manage               → open the dialog on the Installed tab
+///                                    (no intermediate text list)
 ///   • /plugin enable  <plugin>     → enable  an installed plugin
 ///   • /plugin disable <plugin>     → disable an installed plugin
 ///   • /plugin uninstall <plugin>   → remove an installed plugin
 ///   • /plugin validate <path>      → validate a manifest file or directory
 ///   • /plugin marketplace <sub>    → add / remove / update / list marketplaces
 ///   • /plugin info <plugin>        → show plugin metadata (kept for compat)
-///   • /plugin list                 → synonym for "manage" (text list)
+///   • /plugin list                 → synonym for "manage"
 ///
 /// Aliases: /plugins, /marketplace  (registered via definition().aliases)
 ///
-/// Subcommands that require interactive selection (e.g. browse install UI,
-/// tabbed settings) delegate to Phase 4's FTXUI layer by returning a
-/// `CommandResult` whose `metadata` field contains the string
-/// `"UI:plugins:<view>"` — the runtime detects this and spawns the dialog.
-/// No FTXUI code lives in this module.
+/// Behaviour matches the TS `src/commands/plugin/PluginSettings.tsx`
+/// dispatch: interactive subcommands open the tabbed plugin dialog with NO
+/// intermediate text — they return a `CommandResult` whose `metadata` field
+/// contains `"UI:plugins:<view>"`.  The runtime (see ui/dialogs/triggers.cppm
+/// PushFromCommandMetadata) detects this and spawns the PluginDialog on the
+/// appropriate tab / initial view.  No FTXUI code lives in this module.
+///
+/// Subcommands that produce a terminal result (help text, validation output,
+/// the one-line install/uninstall/enable/disable confirmation, marketplace
+/// list) return that text as the message.
 ///
 /// Heavy plugin work (actual install/uninstall/validation) is delegated to
 /// the `cc.utils.plugin_*` modules.  This layer is only the command I/O.
@@ -166,29 +174,33 @@ public:
             case SubcommandType::Help:
                 return CommandResult::success(std::string{k_plugin_help_text});
 
-            case SubcommandType::Menu: {
-                // Return metadata so the REPL spawns the plugin dialog
-                // (Discover tab — default landing view).
-                auto text = menu_text();
+            case SubcommandType::Menu:
+                // TS REF: src/commands/plugin/PluginSettings.tsx — bare
+                // `/plugin` (or any unrecognized subcommand) routes directly to
+                // the Discover tab with NO intermediate text.  We return empty
+                // text + the spawn metadata so the REPL opens the dialog
+                // straight onto the Discover tab, matching TS behaviour.
                 return CommandResult{
                     true,
-                    std::move(text),
+                    std::string{},
                     std::string{"UI:plugins:discover-plugins"},
                     CommandStatus::Succeeded,
                 };
-            }
 
             case SubcommandType::Install:
                 return cmd_install(cmd);
 
-            case SubcommandType::Manage: {
-                auto r = cmd_manage_list(/*verbose=*/true);
-                if (!r) return r;
-                // Tag with metadata so the REPL opens the plugin dialog on
-                // the Installed (manage-plugins) tab.
-                r->metadata = std::string{"UI:plugins:manage-plugins"};
-                return r;
-            }
+            case SubcommandType::Manage:
+                // TS REF: PluginSettings.tsx — `/plugin manage` routes directly
+                // to the Installed (manage-plugins) tab with NO textual list
+                // printed first.  Return only the spawn metadata; the dialog
+                // renders the installed plugins.
+                return CommandResult{
+                    true,
+                    std::string{},
+                    std::string{"UI:plugins:manage-plugins"},
+                    CommandStatus::Succeeded,
+                };
 
             case SubcommandType::Uninstall:
                 return cmd_uninstall(cmd);
@@ -205,7 +217,12 @@ public:
             case SubcommandType::Marketplace:
                 return cmd_marketplace(cmd);
         }
-        return CommandResult::success(menu_text());
+        return CommandResult{
+            true,
+            std::string{},
+            std::string{"UI:plugins:discover-plugins"},
+            CommandStatus::Succeeded,
+        };
     }
 
     // ── completion ────────────────────────────────────────────────────────
@@ -239,37 +256,26 @@ private:
     //  Subcommand handlers
     // ────────────────────────────────────────────────────────────────────────
 
-    // ── menu overview ────────────────────────────────────────────────────
-    [[nodiscard]] std::string menu_text() const {
-        const auto installed = load_installed_plugins();
-        std::ostringstream os;
-        os << "Plugin manager\n"
-           << "──────────────\n"
-           << "Installed: " << installed.size() << " plugin"
-           << (installed.size() == 1 ? "" : "s") << "\n"
-           << "Enabled:   "
-           << std::count_if(installed.begin(), installed.end(),
-                            [](const PluginInfo& p){ return p.enabled; }) << "\n\n"
-           << "Run /plugin help for the full list of subcommands.\n\n"
-           << "Hint: run without arguments in interactive mode to open the\n"
-           << "      tabbed plugin settings (TUI — Phase 4).\n"
-           << "UI:plugins:discover-plugins\n";
-        return os.str();
-    }
-
     // ── install ──────────────────────────────────────────────────────────
     [[nodiscard]] Result<CommandResult> cmd_install(const ParsedArgs& cmd) const {
-        // Case 1: bare "install" with no target → open TUI (Phase 4 delegation)
+        // Case 1: bare "install" with no target → open the Discover tab.
+        // TS REF: PluginSettings.tsx getInitialViewState('install') →
+        // {type:'discover-plugins'}; the dialog opens directly with no
+        // intermediate "Opening…" text.
         if (!cmd.plugin_name && !cmd.marketplace) {
             return CommandResult{
                 true,
-                "Opening plugin discovery…\nUI:plugins:discover-plugins",
+                std::string{},
                 std::string{"UI:plugins:discover-plugins"},
                 CommandStatus::Succeeded,
             };
         }
 
-        // Case 2: marketplace only (URL/path without plugin name)
+        // Case 2: marketplace only (URL/path without plugin name).
+        // TS REF: getInitialViewState('install' with marketplace) →
+        // {type:'browse-marketplace', targetMarketplace}.  No intermediate
+        // text; the metadata carries the normalized marketplace name so the
+        // dialog opens scoped to that marketplace.
         if (cmd.marketplace && !cmd.plugin_name) {
             auto plan = classify_marketplace_input(*cmd.marketplace);
             if (!plan.ok) {
@@ -277,14 +283,9 @@ private:
                     "Could not determine marketplace source: " + plan.error_message
                 );
             }
-            std::ostringstream os;
-            os << "Opening marketplace browser for " << *cmd.marketplace << '\n'
-               << "  (normalized name: " << plan.normalized_name << ", kind: "
-               << plan.source_kind << ")\n"
-               << "UI:plugins:browse-marketplace:" << plan.normalized_name;
             return CommandResult{
                 true,
-                os.str(),
+                std::string{},
                 std::string{"UI:plugins:browse-marketplace:"} + plan.normalized_name,
                 CommandStatus::Succeeded,
             };
@@ -321,33 +322,6 @@ private:
                 "Install failed for '" + plugin_id + "': " + e.what()
             );
         }
-    }
-
-    // ── manage / list (text mode) ────────────────────────────────────────
-    [[nodiscard]] Result<CommandResult> cmd_manage_list(bool verbose) const {
-        auto plugins = load_installed_plugins();
-        if (plugins.empty()) {
-            return CommandResult::success(
-                "No plugins installed.\nUse /plugin install <name> to add one.\n"
-                "Or open the TUI: UI:plugins:manage-plugins"
-            );
-        }
-        std::ostringstream os;
-        os << "Installed plugins (" << plugins.size() << "):\n\n";
-        for (const auto& p : plugins) {
-            const char* dot = p.enabled ? "\xe2\x97\x8f" : "\xe2\x97\x8b"; // ● / ○
-            os << ' ' << dot << ' ' << p.name;
-            if (verbose) {
-                os << "  v" << p.version
-                   << "  by " << p.author;
-                if (!p.description.empty()) os << "  — " << p.description;
-            }
-            os << "  [" << (p.enabled ? "enabled" : "disabled") << ']';
-            os << '\n';
-        }
-        os << "\nTip: /plugin <enable|disable|uninstall> <name>\n"
-           << "     Open interactive UI: UI:plugins:manage-plugins";
-        return CommandResult::success(os.str());
     }
 
     // ── uninstall ────────────────────────────────────────────────────────
@@ -437,10 +411,13 @@ private:
 
         switch (cmd.market_action) {
             case MarketplaceAction::None:
+                // Bare "marketplace" with no sub-action → open the Marketplaces
+                // tab directly via metadata, no intermediate text.  1:1 with
+                // TS getInitialViewState('marketplace') → {type:'manage-
+                // marketplaces'}; matches the Manage/Install pattern.
                 return CommandResult{
                     true,
-                    std::string{"Opening marketplace management…\n"} +
-                        "UI:plugins:manage-marketplaces",
+                    std::string{},
                     std::string{"UI:plugins:manage-marketplaces"},
                     CommandStatus::Succeeded,
                 };

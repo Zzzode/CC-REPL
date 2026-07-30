@@ -351,6 +351,12 @@ private:
     }
 
     [[nodiscard]] static Result<CommandResult> reload_skills() {
+        // Invalidate the unified SkillRegistry cache so subsequent
+        // all_skills() / autocomplete queries rebuild from scratch.
+        // TS REF: src/commands.ts L538 — clearSkillCaches() called on reload.
+        cc::skills::SkillRegistry::instance().invalidate();
+        cc::skills::clear_skill_caches();
+
         // Invalidate any caches by re-running discover_all + manifests.
         cc::skills::SkillLoader loader;
         auto discovered = loader.discover_all();

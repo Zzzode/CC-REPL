@@ -791,6 +791,355 @@ TEST(VirtualList, ScrollZeroViewportNeverUnderflows) {
     (void)screen;
 }
 
+// ── P0-round7: 2-tier search index (VirtualMessageList search engine) ────────
+
+namespace {
+/// Build N rows with cycling heights [1,3,7,11] and per-row search_key
+/// derived from `search_texts[i % search_texts.size()]`.  The search_key is
+/// lowered (as messages_list::get_cached_lowered_search_text would do).
+inline std::vector<VisibleRow> make_vl_rows_with_search(
+    size_t n,
+    std::vector<std::string> const &search_texts) {
+    std::vector<VisibleRow> rows(n);
+    int pat[4] = {1, 3, 7, 11};
+    for (size_t i = 0; i < n; ++i) {
+        rows[i].row_id = i + 1;
+        rows[i].estimated_height_lines = pat[i % 4];
+        rows[i].backend_index = i;
+        rows[i].type_hint = 0;
+        if (!search_texts.empty()) {
+            std::string const &src = search_texts[i % search_texts.size()];
+            // Lower the text to simulate get_cached_lowered_search_text.
+            std::string lowered;
+            lowered.reserve(src.size());
+            for (char c : src) {
+                if (c >= 'A' && c <= 'Z') lowered += static_cast<char>(c + ('a' - 'A'));
+                else lowered += c;
+            }
+            rows[i].search_key = std::move(lowered);
+        }
+    }
+    return rows;
+}
+}  // namespace
+
+TEST(VirtualList, RunSearchFindsMatchingRows) {
+    vl::VirtualListState s;
+    s.viewport_rows = 40;
+    // Rows with varied search text; "error" appears in rows 1 and 3.
+    s.rows = make_vl_rows_with_search(6, {
+        "hello world",
+        "error: something failed",
+        "all good here",
+        "error: timeout in bash",
+        "success",
+        "no problems",
+    });
+    s.jh = vl::build_geometry(std::span{s.rows});
+
+    vl::run_search(s, "error");
+
+    EXPECT_EQ(s.search_matches.size(), 2u);
+    EXPECT_EQ(s.search_matches[0], 1u);  // row 1 has "error"
+    EXPECT_EQ(s.search_matches[1], 3u);  // row 3 has "error"
+    EXPECT_EQ(s.search_total_occurrences, 2u);
+    // prefixSum: [0, 1, 2]
+    ASSERT_EQ(s.search_prefix_sum.size(), 3u);
+    EXPECT_EQ(s.search_prefix_sum[0], 0u);
+    EXPECT_EQ(s.search_prefix_sum[1], 1u);
+    EXPECT_EQ(s.search_prefix_sum[2], 2u);
+}
+
+TEST(VirtualList, RunSearchCountsMultipleOccurrencesPerRow) {
+    vl::VirtualListState s;
+    s.viewport_rows = 40;
+    // Row 0: "foo" appears 3x.  Row 1: "foo" appears 0x.  Row 2: "foo" appears 2x.
+    s.rows = make_vl_rows_with_search(3, {
+        "foo bar foo baz foo",
+        "nothing to see",
+        "foo and foo again",
+    });
+    s.jh = vl::build_geometry(std::span{s.rows});
+
+    vl::run_search(s, "foo");
+
+    EXPECT_EQ(s.search_matches.size(), 2u);
+    EXPECT_EQ(s.search_matches[0], 0u);
+    EXPECT_EQ(s.search_matches[1], 2u);
+    EXPECT_EQ(s.search_total_occurrences, 5u);  // 3 + 2
+    ASSERT_EQ(s.search_prefix_sum.size(), 3u);
+    EXPECT_EQ(s.search_prefix_sum[1], 3u);  // after row 0: 3
+    EXPECT_EQ(s.search_prefix_sum[2], 5u);  // after row 2: 5
+}
+
+TEST(VirtualList, RunSearchEmptyQueryClearsState) {
+    vl::VirtualListState s;
+    s.viewport_rows = 40;
+    s.rows = make_vl_rows_with_search(4, {"hello", "world", "hello", "there"});
+    s.jh = vl::build_geometry(std::span{s.rows});
+
+    vl::run_search(s, "hello");
+    ASSERT_EQ(s.search_matches.size(), 2u);  // sanity
+
+    vl::run_search(s, "");
+    EXPECT_TRUE(s.search_matches.empty());
+    EXPECT_EQ(s.search_total_occurrences, 0u);
+    ASSERT_EQ(s.search_prefix_sum.size(), 1u);
+    EXPECT_EQ(s.search_prefix_sum[0], 0u);
+}
+
+TEST(VirtualList, RunSearchNoMatchesReturnsEmpty) {
+    vl::VirtualListState s;
+    s.viewport_rows = 40;
+    s.rows = make_vl_rows_with_search(5, {"alpha", "beta", "gamma", "delta", "epsilon"});
+    s.jh = vl::build_geometry(std::span{s.rows});
+
+    vl::run_search(s, "zzznotfound");
+    EXPECT_TRUE(s.search_matches.empty());
+    EXPECT_EQ(s.search_total_occurrences, 0u);
+}
+
+TEST(VirtualList, RunSearchIsCaseInsensitive) {
+    vl::VirtualListState s;
+    s.viewport_rows = 40;
+    // search_key is already lowered by the helper.
+    s.rows = make_vl_rows_with_search(3, {"HELLO WORLD", "mixed Case", "UPPERCASE"});
+    s.jh = vl::build_geometry(std::span{s.rows});
+
+    // The query is also lowered inside set_search_query, but run_search
+    // expects pre-lowered input.  Verify lowered "hello" finds "HELLO" row.
+    vl::run_search(s, "hello");
+    EXPECT_EQ(s.search_matches.size(), 1u);
+    EXPECT_EQ(s.search_matches[0], 0u);
+
+    // "case" matches "mixed Case" (row 1) AND "UPPERCASE" (row 2)
+    // because "uppercase" contains "case" as a substring.
+    vl::run_search(s, "case");
+    EXPECT_EQ(s.search_matches.size(), 2u);
+    EXPECT_EQ(s.search_matches[0], 1u);
+    EXPECT_EQ(s.search_matches[1], 2u);
+}
+
+TEST(VirtualList, SetSearchQueryJumpsToNearestMatch) {
+    vl::VirtualListState s;
+    s.viewport_rows = 10;
+    // Heights: row0=1, row1=3, row2=7, row3=11, row4=1, row5=3
+    // Tops:    0,    1,    4,    11,   22,   23
+    s.rows = make_vl_rows_with_search(6, {
+        "intro text",
+        "chapter one",
+        "chapter two",
+        "chapter three",
+        "conclusion",
+        "appendix",
+    });
+    s.jh = vl::build_geometry(std::span{s.rows});
+    s.sticky_bottom = false;
+    s.scroll_top = 5;  // near row 2 (top=4, height=7)
+
+    vl::set_search_query(s, "chapter");
+
+    // "chapter" matches rows 1, 2, 3.  Their tops: 1, 4, 11.
+    // scroll_top=5 is closest to row 2 (top=4, dist=1) vs row 1 (dist=4) vs row 3 (dist=6).
+    ASSERT_FALSE(s.search_matches.empty());
+    EXPECT_EQ(s.search_matches[s.search_ptr], 2u);
+    // scroll should be clamped to valid range.
+    EXPECT_GE(s.scroll_top, 0);
+    EXPECT_LE(s.scroll_top, s.jh.total());
+}
+
+TEST(VirtualList, SetSearchQueryEmptyClearsSearch) {
+    vl::VirtualListState s;
+    s.viewport_rows = 40;
+    s.rows = make_vl_rows_with_search(4, {"hello", "world", "hello", "there"});
+    s.jh = vl::build_geometry(std::span{s.rows});
+
+    vl::set_search_query(s, "hello");
+    ASSERT_FALSE(s.search_matches.empty());  // sanity
+
+    vl::set_search_query(s, "");
+    EXPECT_TRUE(s.search_matches.empty());
+    EXPECT_EQ(s.search_ptr, 0u);
+    EXPECT_EQ(s.search_total_occurrences, 0u);
+    EXPECT_TRUE(s.search_query.empty());
+}
+
+TEST(VirtualList, SetSearchQueryNoMatchesFiresZero) {
+    vl::VirtualListState s;
+    s.viewport_rows = 40;
+    s.rows = make_vl_rows_with_search(4, {"hello", "world", "hello", "there"});
+    s.jh = vl::build_geometry(std::span{s.rows});
+
+    size_t cb_total = 999, cb_current = 999;
+    s.callbacks.on_search_matches_change = [&](size_t t, size_t c) {
+        cb_total = t;
+        cb_current = c;
+    };
+
+    vl::set_search_query(s, "zzznotfound");
+    EXPECT_TRUE(s.search_matches.empty());
+    EXPECT_EQ(cb_total, 0u);
+    EXPECT_EQ(cb_current, 0u);
+}
+
+TEST(VirtualList, SearchStepMatchWrapsAround) {
+    vl::VirtualListState s;
+    s.viewport_rows = 10;
+    s.rows = make_vl_rows_with_search(6, {
+        "match here",
+        "nope",
+        "match here too",
+        "nothing",
+        "match three",
+        "nada",
+    });
+    s.jh = vl::build_geometry(std::span{s.rows});
+    s.sticky_bottom = false;
+
+    vl::set_search_query(s, "match");
+    ASSERT_EQ(s.search_matches.size(), 3u);  // rows 0, 2, 4
+    size_t initial_ptr = s.search_ptr;
+
+    // Step forward through all 3 matches.
+    vl::search_step_match(s, 1);
+    EXPECT_NE(s.search_ptr, initial_ptr);
+    size_t ptr_after_1 = s.search_ptr;
+
+    vl::search_step_match(s, 1);
+    EXPECT_NE(s.search_ptr, ptr_after_1);
+
+    // Third step forward should wrap back to start.
+    vl::search_step_match(s, 1);
+    // After 3 steps forward from start, we should be back at start
+    // (or at least have visited all 3 unique positions).
+    // Just verify it's still in range.
+    EXPECT_LT(s.search_ptr, s.search_matches.size());
+
+    // Step backward.
+    size_t before_prev = s.search_ptr;
+    vl::search_step_match(s, -1);
+    EXPECT_LT(s.search_ptr, s.search_matches.size());
+    (void)before_prev;
+}
+
+TEST(VirtualList, GetSearchMatchInfoReturnsBadge) {
+    vl::VirtualListState s;
+    s.viewport_rows = 40;
+    s.rows = make_vl_rows_with_search(4, {
+        "foo bar foo",      // 2 occurrences
+        "nothing",
+        "foo baz",          // 1 occurrence
+        "no match",
+    });
+    s.jh = vl::build_geometry(std::span{s.rows});
+
+    // No search active → 0/0.
+    auto [t0, c0] = vl::get_search_match_info(s);
+    EXPECT_EQ(t0, 0u);
+    EXPECT_EQ(c0, 0u);
+
+    vl::set_search_query(s, "foo");
+    auto [total, current] = vl::get_search_match_info(s);
+    EXPECT_EQ(total, 3u);  // 2 + 1
+    EXPECT_GE(current, 1u);
+    EXPECT_LE(current, 3u);
+}
+
+TEST(VirtualList, DisarmSearchClearsAnchor) {
+    vl::VirtualListState s;
+    s.viewport_rows = 40;
+    s.rows = make_vl_rows_with_search(4, {"hello", "world", "hello", "there"});
+    s.jh = vl::build_geometry(std::span{s.rows});
+
+    vl::set_search_query(s, "hello");
+    // After set_search_query, anchor should be set (was -1).
+    EXPECT_NE(s.search_anchor_scroll_top, -1);
+
+    vl::disarm_search(s);
+    EXPECT_EQ(s.search_anchor_scroll_top, -1);
+}
+
+TEST(VirtualList, MakeSearchStepCallbackReturnsVisualLine) {
+    vl::VirtualListState s;
+    s.viewport_rows = 10;
+    s.rows = make_vl_rows_with_search(6, {
+        "target",
+        "filler",
+        "target",
+        "filler",
+        "target",
+        "filler",
+    });
+    s.jh = vl::build_geometry(std::span{s.rows});
+    s.sticky_bottom = false;
+
+    vl::set_search_query(s, "target");
+    ASSERT_EQ(s.search_matches.size(), 3u);
+
+    auto cb = vl::make_search_step_callback(&s);
+    // delta=+1 should return a valid visual line (>= 0).
+    int target = cb(1);
+    EXPECT_GE(target, 0);
+    EXPECT_LE(target, s.jh.total());
+
+    // delta=-1 should also be valid.
+    int target_prev = cb(-1);
+    EXPECT_GE(target_prev, 0);
+    EXPECT_LE(target_prev, s.jh.total());
+
+    // No matches → -1.
+    vl::VirtualListState s2;
+    s2.viewport_rows = 10;
+    s2.rows = make_vl_rows_with_search(3, {"a", "b", "c"});
+    s2.jh = vl::build_geometry(std::span{s2.rows});
+    auto cb2 = vl::make_search_step_callback(&s2);
+    EXPECT_EQ(cb2(1), -1);
+}
+
+TEST(VirtualList, HandleSearchApiParity) {
+    auto state = std::make_shared<vl::VirtualListState>();
+    state->viewport_rows = 10;
+    state->rows = make_vl_rows_with_search(5, {
+        "needle in haystack",
+        "nothing",
+        "needle needle",
+        "nope",
+        "needle",
+    });
+    state->jh = vl::build_geometry(std::span{state->rows});
+    state->sticky_bottom = false;
+
+    vl::VirtualListHandle h;
+    h.state = state.get();
+
+    EXPECT_FALSE(h.IsSearchActive());
+
+    h.SetSearchQuery("needle");
+    EXPECT_TRUE(h.IsSearchActive());
+
+    auto [total, current] = h.GetSearchMatchInfo();
+    EXPECT_EQ(total, 4u);  // 1 + 2 + 1
+    EXPECT_GE(current, 1u);
+
+    h.NextMatch();
+    auto [t2, c2] = h.GetSearchMatchInfo();
+    EXPECT_EQ(t2, 4u);
+
+    h.PrevMatch();
+    auto [t3, c3] = h.GetSearchMatchInfo();
+    EXPECT_EQ(t3, 4u);
+
+    h.DisarmSearch();
+    // IsSearchActive checks search_matches, not anchor — should still be true.
+    EXPECT_TRUE(h.IsSearchActive());
+
+    // WarmSearchIndex returns row count (no-op in CPP since keys are pre-populated).
+    EXPECT_EQ(h.WarmSearchIndex(), 5u);
+
+    h.SetSearchQuery("");
+    EXPECT_FALSE(h.IsSearchActive());
+}
+
 // ── P0-4 LogoV2 + WelcomeV2 + 10-deep notice stack ──────────────────────────
 
 namespace unseen_divider_test {

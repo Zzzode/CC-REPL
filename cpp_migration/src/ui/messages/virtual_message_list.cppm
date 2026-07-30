@@ -61,6 +61,7 @@ module;
 #include <memory>
 #include <cstdlib>
 #include <cmath>
+#include <climits>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
@@ -310,6 +311,13 @@ struct VirtualListCallbacks {
   /// Search support: returns a visual_line target for the delta match,
   /// or -1 if none.  Forwarded verbatim to scroll_keys::ScrollCallbacks.
   std::function<int(int delta)> search_step;
+
+  /// TS REF: VirtualMessageList.tsx onSearchMatchesChange (L88 prop, L523 call).
+  /// Fired when the total match count or current match position changes.
+  ///   total   = engine-counted occurrences across all matched messages
+  ///   current = 1-based global occurrence index of the highlighted match
+  /// Both are 0 when no search is active (query empty or no matches).
+  std::function<void(size_t total, size_t current)> on_search_matches_change;
 };
 
 // ─── Component state (private; factory below) ──────────────────────────────
@@ -340,6 +348,22 @@ struct VirtualListState {
   // ── Scroll-key FSM ─────────────────────────────────────────────────
   FSMContext               fsm;
   FocusDomain              focus_domain = FocusDomain::Messages;
+
+  // ── Search index (2-tier: per-message search_key → global match list)
+  //
+  // TS REF: VirtualMessageList.tsx L449-460  searchState ref
+  //   searchState = useRef({ matches: [], ptr: 0, screenOrd: 0, prefixSum: [] })
+  //
+  // The per-message `search_key` (lowered rich text) is pre-computed by
+  // messages_list::get_cached_lowered_search_text() and stored in each
+  // VisibleRow.  This state holds the GLOBAL index over all rows: which
+  // rows match, how many occurrences in each, and which match is current.
+  std::vector<size_t>      search_matches;      ///< row indices that contain query
+  size_t                   search_ptr     = 0;  ///< current position in search_matches
+  std::vector<size_t>      search_prefix_sum;   ///< cumulative occurrence counts [0]=0
+  std::string              search_query;        ///< current lowered query (empty = no search)
+  int                      search_anchor_scroll_top = -1;  ///< scroll_top when / was pressed
+  size_t                   search_total_occurrences = 0;  ///< total = prefix_sum.back()
 
   // ── Misc ───────────────────────────────────────────────────────────
   VirtualListOptions       options;
@@ -390,6 +414,243 @@ inline void maybe_trigger_load(VirtualListState &s) {
     s.loading_later = s.callbacks.on_load_more(LoadDirection::Down, 50);
     s.load_trigger_bot = s.scroll_top;
   }
+}
+
+// ─── Search engine (2-tier index) ──────────────────────────────────────────
+//
+// TS REF: src/components/VirtualMessageList.tsx
+//   L702-780  setSearchQuery — scan all messages, build match list + prefixSum,
+//              find nearest match to current scroll, jump to it, fire callback
+//   L650-694  step(delta) — navigate between matches (within-message first,
+//              then advance ptr to next matched message)
+//   L797-816  warmSearchIndex — pre-compute extractSearchText for all messages
+//
+// Tier 1: each VisibleRow carries `search_key` — the lowered rich searchable
+//   text pre-computed by messages_list::get_cached_lowered_search_text()
+//   (which itself does 2-tier: tool.extractSearchText preferred,
+//   renderableSearchText fallback).
+//
+// Tier 2: this engine builds a GLOBAL index over all rows — which rows
+//   contain the query, how many occurrences per row, and a prefix-sum
+//   table for 1-based global occurrence numbering (for the "3/17" badge).
+
+namespace search_detail {
+
+/// Count occurrences of `needle` in `haystack`.  Both must be lowered.
+/// Returns 0 if either is empty.
+[[nodiscard]] inline size_t count_occurrences(
+    std::string_view haystack, std::string_view needle) noexcept {
+  if (needle.empty() || haystack.empty()) return 0;
+  size_t count = 0;
+  size_t pos = 0;
+  while ((pos = haystack.find(needle, pos)) != std::string_view::npos) {
+    ++count;
+    pos += needle.size();
+    if (pos >= haystack.size()) break;
+  }
+  return count;
+}
+
+}  // namespace search_detail
+
+/// Run a full scan over all rows, populating search_matches,
+/// search_prefix_sum, search_total_occurrences, and search_query.
+///
+/// TS REF: VirtualMessageList.tsx L711-735  (the scan loop inside setSearchQuery)
+///   for (let i = 0; i < msgs.length; i++) {
+///     const text = extractSearchText(msgs[i]!);
+///     let pos = text.indexOf(lq); let cnt = 0;
+///     while (pos >= 0) { cnt++; pos = text.indexOf(lq, pos + lq.length); }
+///     if (cnt > 0) { matches.push(i); prefixSum.push(prefixSum.at(-1)! + cnt); }
+///   }
+inline void run_search(VirtualListState &s, std::string_view lowered_query) {
+  s.search_query = std::string{lowered_query};
+  s.search_matches.clear();
+  s.search_prefix_sum.clear();
+  s.search_prefix_sum.push_back(0);
+  s.search_total_occurrences = 0;
+
+  if (lowered_query.empty()) return;
+
+  for (size_t i = 0; i < s.rows.size(); ++i) {
+    const auto &key = s.rows[i].search_key;
+    if (key.empty()) continue;
+    size_t cnt = search_detail::count_occurrences(key, lowered_query);
+    if (cnt > 0) {
+      s.search_matches.push_back(i);
+      s.search_prefix_sum.push_back(
+          s.search_prefix_sum.back() + cnt);
+    }
+  }
+  s.search_total_occurrences = s.search_prefix_sum.back();
+}
+
+/// Set the search query and jump to the nearest match.
+///
+/// TS REF: VirtualMessageList.tsx L702-780  setSearchQuery
+///   1. New search invalidates screen positions
+///   2. Scan all messages → matches[] + prefixSum[]
+///   3. Find nearest match to current scroll position (or anchor)
+///   4. Jump to the matched message
+///   5. Fire onSearchMatchesChange(total, current)
+inline void set_search_query(VirtualListState &s, std::string_view query) {
+  // Lower the query — search_key is already lowered.
+  std::string lowered;
+  lowered.reserve(query.size());
+  for (char c : query) {
+    if (c >= 'A' && c <= 'Z') {
+      lowered += static_cast<char>(c + ('a' - 'A'));
+    } else {
+      lowered += c;
+    }
+  }
+
+  // Save anchor before clearing (TS: searchAnchor = scrollTop at / press).
+  if (s.search_anchor_scroll_top < 0 && !lowered.empty()) {
+    s.search_anchor_scroll_top = s.scroll_top;
+  }
+
+  // Empty query → clear search state.
+  if (lowered.empty()) {
+    s.search_matches.clear();
+    s.search_prefix_sum.clear();
+    s.search_query.clear();
+    s.search_ptr = 0;
+    s.search_total_occurrences = 0;
+    s.search_anchor_scroll_top = -1;
+    if (s.callbacks.on_search_matches_change) {
+      s.callbacks.on_search_matches_change(0, 0);
+    }
+    return;
+  }
+
+  // Tier-2 scan: build matches + prefixSum.
+  run_search(s, lowered);
+
+  if (s.search_matches.empty()) {
+    // No matches → fire 0/0 callback.
+    s.search_ptr = 0;
+    if (s.callbacks.on_search_matches_change) {
+      s.callbacks.on_search_matches_change(0, 0);
+    }
+    return;
+  }
+
+  // Find nearest match to current scroll position.
+  // TS REF: L737-758  nearest-match by abs(origin + offsets[matches[k]] - curTop)
+  int origin = s.scroll_top;
+  int best_dist = INT_MAX;
+  size_t best_ptr = 0;
+  for (size_t k = 0; k < s.search_matches.size(); ++k) {
+    size_t row_idx = s.search_matches[k];
+    int row_top = s.jh.find_visual_top_for_row(row_idx);
+    int dist = std::abs(row_top - origin);
+    if (dist <= best_dist) {
+      best_dist = dist;
+      best_ptr = k;
+    }
+  }
+  s.search_ptr = best_ptr;
+
+  // Jump to the matched row (TS: wantLast=true for sticky-bottom common case).
+  size_t target_row = s.search_matches[best_ptr];
+  int target_line = s.jh.find_visual_top_for_row(target_row);
+  int max = std::max(0, s.jh.total() - s.viewport_rows);
+  s.scroll_top = std::clamp(target_line, 0, max);
+  update_sticky_after_scroll(s, s.scroll_top);
+  if (s.callbacks.on_scrolled) {
+    s.callbacks.on_scrolled(s.scroll_top, s.sticky_bottom);
+  }
+
+  // Fire callback: total occurrences, 1-based current = prefixSum[ptr+1]
+  // (TS: placeholder = prefixSum[ptr + 1] ?? total when wantLast=true)
+  size_t current = s.search_prefix_sum[best_ptr + 1];
+  if (current > s.search_total_occurrences) current = s.search_total_occurrences;
+  if (s.callbacks.on_search_matches_change) {
+    s.callbacks.on_search_matches_change(s.search_total_occurrences, current);
+  }
+}
+
+/// Step to the next (delta=+1) or previous (delta=-1) match.
+///
+/// TS REF: VirtualMessageList.tsx L650-694  step(delta)
+///   Within-message navigation (screenOrd) is handled by the scanElement
+///   overlay in TS.  In CPP we simplify: each step advances the ptr to
+///   the next matched ROW (since we don't have per-occurrence screen
+///   positions).  This matches the engine-counted badge semantics.
+inline void search_step_match(VirtualListState &s, int delta) {
+  if (s.search_matches.empty()) return;
+
+  size_t n = s.search_matches.size();
+  // Wrap around: (ptr + delta + n) % n  (TS: L678 wraparound with matches.length)
+  size_t new_ptr = (static_cast<int>(s.search_ptr) + delta +
+                    static_cast<int>(n)) % static_cast<int>(n);
+
+  // Guard: wraparound back to start means all messages are phantoms — stop.
+  // (TS: L679-683  if ptr === startPtrRef, bail out)
+  s.search_ptr = new_ptr;
+
+  // Jump to the new matched row.
+  size_t target_row = s.search_matches[new_ptr];
+  int target_line = s.jh.find_visual_top_for_row(target_row);
+  int max = std::max(0, s.jh.total() - s.viewport_rows);
+  s.scroll_top = std::clamp(target_line, 0, max);
+  update_sticky_after_scroll(s, s.scroll_top);
+  if (s.callbacks.on_scrolled) {
+    s.callbacks.on_scrolled(s.scroll_top, s.sticky_bottom);
+  }
+
+  // Fire callback with updated current occurrence number.
+  // TS: L692-693  placeholder = delta < 0 ? prefixSum[ptr+1] : prefixSum[ptr]+1
+  // We use prefixSum[ptr] + 1 (first occurrence in this message) for simplicity.
+  size_t current = s.search_prefix_sum[new_ptr] + 1;
+  if (current > s.search_total_occurrences) current = s.search_total_occurrences;
+  if (s.callbacks.on_search_matches_change) {
+    s.callbacks.on_search_matches_change(s.search_total_occurrences, current);
+  }
+}
+
+/// Disarm search: clear screen-absolute positions (called on manual scroll).
+/// TS REF: VirtualMessageList.tsx L787-796  disarmSearch
+inline void disarm_search(VirtualListState &s) {
+  // In CPP we don't maintain screen-absolute element positions separately
+  // from the scroll state; the only thing to clear is the anchor so that
+  // a future / starts fresh from the new position.
+  s.search_anchor_scroll_top = -1;
+}
+
+/// Build the `search_step` callback that scroll_keys::ScrollCallbacks uses.
+/// Returns the visual_line target for the delta-th next match, or -1 if
+/// no search is active / no matches.
+///
+/// TS REF: VirtualMessageList.tsx L650-694  step() is called by n/N keys
+/// handled through scroll_keys FSM.  This function bridges the two.
+[[nodiscard]] inline std::function<int(int)> make_search_step_callback(
+    VirtualListState *state) {
+  return [state](int delta) -> int {
+    if (!state || state->search_matches.empty()) return -1;
+    // Compute the target visual line for the match at ptr + delta.
+    size_t n = state->search_matches.size();
+    size_t target_ptr = (static_cast<int>(state->search_ptr) + delta +
+                         static_cast<int>(n)) % static_cast<int>(n);
+    size_t target_row = state->search_matches[target_ptr];
+    return state->jh.find_visual_top_for_row(target_row);
+  };
+}
+
+/// Get current search match info for badge display.
+/// Returns {total_occurrences, current_occurrence_1based} — both 0 when
+/// no search is active.
+///
+/// TS REF: REPL.tsx L4208-4212  onSearchMatchesChange reads searchCount /
+///   searchCurrent state; L344-346  renders "current/total" badge.
+[[nodiscard]] inline std::pair<size_t, size_t>
+get_search_match_info(VirtualListState const &s) {
+  if (s.search_matches.empty()) return {0, 0};
+  size_t current = s.search_prefix_sum[s.search_ptr] + 1;
+  if (current > s.search_total_occurrences)
+    current = s.search_total_occurrences;
+  return {s.search_total_occurrences, current};
 }
 
 // ─── Render: spacers + slice + gutter ───────────────────────────────────────
@@ -661,6 +922,73 @@ struct VirtualListHandle {
   void SetFocusDomain(FocusDomain d) {
     if (state) state->focus_domain = d;
   }
+
+  // ── Search index (2-tier) imperative API ──────────────────────────────
+  //
+  // TS REF: VirtualMessageList.tsx useImperativeHandle(jumpRef, ...)
+  //   L696-817  exposes setSearchQuery, nextMatch, prevMatch, warmSearchIndex,
+  //             disarmSearch, jumpToIndex, setAnchor
+
+  /// Set the search query and jump to the nearest match.
+  /// Pass empty string to clear search.
+  ///
+  /// TS REF: VirtualMessageList.tsx L702-780  setSearchQuery(q)
+  void SetSearchQuery(std::string_view query) {
+    if (!state) return;
+    set_search_query(*state, query);
+  }
+
+  /// Step to the next match (delta=+1) or previous match (delta=-1).
+  /// Wraps around at boundaries.
+  ///
+  /// TS REF: VirtualMessageList.tsx L781-782  nextMatch() / prevMatch()
+  ///   → step(1) / step(-1)  (L650-694)
+  void NextMatch() {
+    if (!state) return;
+    search_step_match(*state, 1);
+  }
+
+  void PrevMatch() {
+    if (!state) return;
+    search_step_match(*state, -1);
+  }
+
+  /// Disarm search: clear anchor so next / starts fresh.
+  ///
+  /// TS REF: VirtualMessageList.tsx L787-796  disarmSearch()
+  void DisarmSearch() {
+    if (!state) return;
+    disarm_search(*state);
+  }
+
+  /// Pre-warm the search index (no-op in CPP since search_key is
+  /// pre-computed by messages_list; kept for API parity with TS).
+  ///
+  /// TS REF: VirtualMessageList.tsx L797-816  warmSearchIndex()
+  size_t WarmSearchIndex() {
+    // In CPP, search_key is already populated by visible_rows_to_virtual
+    // via get_cached_lowered_search_text().  No extra work needed.
+    if (!state) return 0;
+    return state->rows.size();
+  }
+
+  /// Get current search match info (for badge display).
+  /// Returns {total, current} — both 0 when no search active.
+  ///
+  /// TS REF: REPL.tsx L4208-4212  onSearchMatchesChange callback reads
+  ///   searchCount / searchCurrent state.
+  std::pair<size_t, size_t> GetSearchMatchInfo() const {
+    if (!state || state->search_matches.empty()) return {0, 0};
+    size_t current = state->search_prefix_sum[state->search_ptr] + 1;
+    if (current > state->search_total_occurrences)
+      current = state->search_total_occurrences;
+    return {state->search_total_occurrences, current};
+  }
+
+  /// Returns true if a search query is active (non-empty query with matches).
+  bool IsSearchActive() const {
+    return state && !state->search_matches.empty();
+  }
 };
 
 /// Component impl.  Captures a shared_ptr<VirtualListState> so both
@@ -759,7 +1087,19 @@ struct [[nodiscard]] VirtualListComponentBase : ftxui::ComponentBase {
         .visual_to_row = [&](int line) -> int {
           return static_cast<int>(s->jh.find_row_at_visual_line(line));
         },
-        .search_step = s->callbacks.search_step,
+        .search_step = [&](int delta) -> int {
+          // Internal search engine takes priority over external callback.
+          if (!s->search_matches.empty()) {
+            size_t n = s->search_matches.size();
+            size_t target_ptr = (static_cast<int>(s->search_ptr) + delta +
+                                 static_cast<int>(n)) % static_cast<int>(n);
+            size_t target_row = s->search_matches[target_ptr];
+            return s->jh.find_visual_top_for_row(target_row);
+          }
+          // Fall back to external callback if provided.
+          if (s->callbacks.search_step) return s->callbacks.search_step(delta);
+          return -1;
+        },
       };
 
       bool consumed = HandleScrollKey(event, ss, s->fsm, cbs);

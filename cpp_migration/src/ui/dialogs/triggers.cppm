@@ -320,10 +320,12 @@ inline void PushManagedSettingsSecurity(dsys::DialogQueue& queue,
 // ---------------------------------------------------------------------------
 // PluginDialog
 // ---------------------------------------------------------------------------
-// Full form — accepts initial menu_selected card index and an id_suffix that
-// encodes the originating metadata view (e.g. "discover-plugins",
-// "manage-plugins?action=uninstall").  The renderer parses id_suffix to
-// pre-select a row or auto-open an action panel.
+// Full form — accepts an id_suffix that encodes the originating metadata
+// view (e.g. "discover-plugins", "manage-plugins?action=uninstall").  The
+// renderer parses id_suffix to derive the initial ViewState (pre-select a
+// tab, row, or auto-open an action panel).  menu_selected is retained on
+// the payload for back-compat but is no longer used for routing (the TS
+// reference has no card dashboard — it routes straight to the tabs).
 inline void PushPluginDialog(dsys::DialogQueue& queue,
                              int menu_selected,
                              std::string id_suffix,
@@ -335,7 +337,7 @@ inline void PushPluginDialog(dsys::DialogQueue& queue,
     queue.push_modal(std::move(p));
 }
 
-// Legacy 2-arg form — defaults to Installed card (index 0).
+// Legacy 2-arg form — defaults to the Discover tab (empty id_suffix).
 inline void PushPluginDialog(dsys::DialogQueue& queue,
                              std::function<void()> on_close) {
     PushPluginDialog(queue, 0, "", std::move(on_close));
@@ -467,50 +469,58 @@ inline bool PushFromCommandMetadata(dsys::DialogQueue& queue,
         return true;
     }
     // ── Plugin dialog — all "UI:plugins:*" variants map to the same   ──
-    //    PluginDialog modal, just with different initial menu cards.    ──
-    //    menu_selected indexes k_menu_cards in plugin_dialog.cppm:
-    //      0 = Installed (ManagePlugins), 1 = Marketplace (BrowseMarketplace),
-    //      2 = Discover (DiscoverPlugins), 3 = Settings (ManageMarketplaces),
-    //      4 = Validate
+    //    PluginDialog modal, just with a different id_suffix.  The      ──
+    //    renderer derives the initial ViewState from id_suffix (the     ──
+    //    TS reference has no card dashboard — it routes straight to the ──
+    //    Discover/Installed/Marketplaces tabs).  menu_selected is kept  ──
+    //    on the payload for back-compat but is no longer used for       ──
+    //    routing.
     if (metadata == "UI:plugins:discover-plugins") {
-        // Menu card 2 = Discover (trending & recommended plugins)
-        PushPluginDialog(queue, 2, "discover-plugins", [](){});
+        // Discover tab (trending & recommended plugins)
+        PushPluginDialog(queue, 2, "discover-plugins",
+                         [&queue]() { queue.pop_modal(); });
         return true;
     }
     if (metadata == "UI:plugins:manage-plugins") {
-        // Menu card 0 = Installed (manage installed: enable/disable/uninstall)
-        PushPluginDialog(queue, 0, "manage-plugins", [](){});
+        // Installed tab (enable/disable/uninstall)
+        PushPluginDialog(queue, 0, "manage-plugins",
+                         [&queue]() { queue.pop_modal(); });
         return true;
     }
     if (metadata == "UI:plugins:manage-marketplaces") {
-        // Menu card 3 = Settings (marketplace CRUD: add/remove/update)
-        PushPluginDialog(queue, 3, "manage-marketplaces", [](){});
+        // Marketplaces tab (marketplace CRUD: add/remove/update)
+        PushPluginDialog(queue, 3, "manage-marketplaces",
+                         [&queue]() { queue.pop_modal(); });
         return true;
     }
     if (metadata == "UI:plugins:add-marketplace") {
-        // Menu card 3 = Settings, pre-open the add-input form
-        PushPluginDialog(queue, 3, "add-marketplace", [](){});
+        // Marketplaces tab, pre-open the add-input form
+        PushPluginDialog(queue, 3, "add-marketplace",
+                         [&queue]() { queue.pop_modal(); });
         return true;
     }
     if (metadata.starts_with("UI:plugins:browse-marketplace:")) {
-        // Menu card 1 = Marketplace, scoped to a single marketplace
+        // Browse subtab scoped to a single marketplace
         constexpr auto kPrefixLen = sizeof("UI:plugins:") - 1;  // skip "UI:plugins:"
         PushPluginDialog(queue, 1,
-            std::string{metadata.substr(kPrefixLen)}, [](){});
+            std::string{metadata.substr(kPrefixLen)},
+            [&queue]() { queue.pop_modal(); });
         return true;
     }
     if (metadata.starts_with("UI:plugins:manage-plugins?")) {
-        // Menu card 0 = Installed, with action query (e.g. ?action=uninstall)
+        // Installed tab, with action query (e.g. ?action=uninstall)
         constexpr auto kPrefixLen = sizeof("UI:plugins:") - 1;
         PushPluginDialog(queue, 0,
-            std::string{metadata.substr(kPrefixLen)}, [](){});
+            std::string{metadata.substr(kPrefixLen)},
+            [&queue]() { queue.pop_modal(); });
         return true;
     }
     if (metadata.starts_with("UI:plugins:manage-marketplaces?")) {
-        // Menu card 3 = Settings, with action query (e.g. ?action=remove)
+        // Marketplaces tab, with action query (e.g. ?action=remove)
         constexpr auto kPrefixLen = sizeof("UI:plugins:") - 1;
         PushPluginDialog(queue, 3,
-            std::string{metadata.substr(kPrefixLen)}, [](){});
+            std::string{metadata.substr(kPrefixLen)},
+            [&queue]() { queue.pop_modal(); });
         return true;
     }
     // ── Doctor — standalone fullscreen diagnostics ──

@@ -890,9 +890,35 @@ inline constexpr std::array<std::string_view, 15> kWelcomeV2LightRows = {{
     // ================================================================
     // DARK THEME  (TS WelcomeV2.tsx L108-197)
     // ================================================================
-    // t2-t11: raw starfield + moon/planet art rows
-    for (std::size_t i = 2; i <= 11; ++i) {
+    // t2-t6, t8: plain rows (no * styling needed)
+    for (std::size_t i : {2u, 3u, 4u, 5u, 6u, 8u}) {
       art.push_back(text(std::string(kWelcomeV2DarkRows[i])));
+    }
+
+    // t7: scattered ░ + bold '*' + moon/planet gradient
+    // TS L145: <Text>{"   ░░…░░    "}</Text><Text bold={true}>*</Text>
+    //          <Text>{"                ██▓░░      ▓   "}</Text>
+    // The '*' is the only '*' in this row. Find it and render bold.
+    {
+      std::string_view row7 = kWelcomeV2DarkRows[7];
+      auto star_pos = row7.find('*');
+      if (star_pos != std::string_view::npos) {
+        art.push_back(hbox({
+          text(std::string(row7.substr(0, star_pos))),
+          text("*") | ftxui::bold,
+          text(std::string(row7.substr(star_pos + 1))),
+        }));
+      } else {
+        art.push_back(text(std::string(row7)));
+      }
+    }
+
+    // t9, t10, t11: entire rows are dimColor (TS L147-149)
+    //   t9:  <Text dimColor={true}>{" *        ░░░░                   "}</Text>
+    //   t10: <Text dimColor={true}>{"          ░░░░░░░░              "}</Text>
+    //   t11: <Text dimColor={true}>{"        ░░░░░░░░░░░░░░░░        "}</Text>
+    for (std::size_t i : {9u, 10u, 11u}) {
+      art.push_back(text(std::string(kWelcomeV2DarkRows[i])) | dim | color(kMuted));
     }
 
     if (is_apple) {
@@ -934,20 +960,71 @@ inline constexpr std::array<std::string_view, 15> kWelcomeV2LightRows = {{
 
     } else {
       // Regular Dark: 3 solid clawd rows at position 6 (TS L163-189)
-      auto split_clawd_row = [](std::string_view row) -> Elements {
-        // Row format: 6 spaces + 9 body chars (3 bytes each = 27 bytes) + rest
-        if (row.size() < 6 + 27) {
-          return { text(std::string(row)) };
+      //
+      // TS L163-189 faithful rendering:
+      //   t12 (L171): "      " + clawd_body(" █████████ ") +
+      //               "                                       " + dim("*") + " "
+      //   t13 (L178): "      " + clawd_body+bg("██▄█████▄██") +
+      //               "                        " + bold("*") + "                "
+      //   t14 (L185): "      " + clawd_body(" █████████ ") +
+      //               "     *                                   "
+
+      // Helper: split a dark clawd row into (prefix, body, suffix)
+      // and render with per-row * styling.
+      //   body_pos:  byte offset of body within row (always 6 = 6 spaces)
+      //   body_len:  byte length of body (9 █ = 27 bytes, or 11-char body w/ spaces)
+      //   star_mode: how to render '*' in the suffix: 0=dim, 1=bold, 2=normal
+      //   body_bg:   if true, apply bgcolor(kClawdBackground) to body
+      auto render_dark_clawd_row =
+          [&](std::string_view row, std::size_t body_pos, std::size_t body_len,
+              int star_mode, bool body_bg) -> Element {
+        if (row.size() < body_pos + body_len) {
+          return text(std::string(row));
         }
-        return {
-          text(std::string(row.substr(0, 6))),
-          text(std::string(row.substr(6, 27))) | color(kClawdBody),
-          text(std::string(row.substr(33))) | dim | color(kMuted),
-        };
+        std::string prefix(row.substr(0, body_pos));
+        std::string body(row.substr(body_pos, body_len));
+        std::string suffix(row.substr(body_pos + body_len));
+
+        auto body_el = text(body) | color(kClawdBody);
+        if (body_bg) body_el = body_el | bgcolor(kClawdBackground);
+
+        // Find '*' in suffix and apply styling
+        auto star_pos = suffix.find('*');
+        if (star_pos == std::string::npos) {
+          return hbox({text(prefix), body_el, text(suffix)});
+        }
+
+        std::string pre_star(suffix.substr(0, star_pos));
+        std::string post_star(suffix.substr(star_pos + 1));
+
+        Element star_el;
+        switch (star_mode) {
+          case 0: star_el = text("*") | dim | color(kMuted); break;
+          case 1: star_el = text("*") | ftxui::bold; break;
+          default: star_el = text("*"); break;
+        }
+
+        return hbox({text(prefix), body_el,
+                     text(pre_star), star_el, text(post_star)});
       };
-      art.push_back(hbox(split_clawd_row(kWelcomeV2DarkRows[12])));
-      art.push_back(hbox(split_clawd_row(kWelcomeV2DarkRows[13])));
-      art.push_back(hbox(split_clawd_row(kWelcomeV2DarkRows[14])));
+
+      // t12: body = 9 █ (27 bytes), star = dim, no body bg
+      // TS L171: suffix has dim '*' at the end
+      art.push_back(render_dark_clawd_row(
+          kWelcomeV2DarkRows[12], /*body_pos=*/6, /*body_len=*/27,
+          /*star_mode=*/0, /*body_bg=*/false));
+
+      // t13: body = 9 █ (27 bytes), star = bold, body has bg
+      // TS L178: clawd body has backgroundColor="clawd_background", star is bold
+      art.push_back(render_dark_clawd_row(
+          kWelcomeV2DarkRows[13], /*body_pos=*/6, /*body_len=*/27,
+          /*star_mode=*/1, /*body_bg=*/true));
+
+      // t14: body = 9 █ (27 bytes), star = normal, no body bg
+      // TS L185: suffix has normal '*' (no dim, no bold)
+      art.push_back(render_dark_clawd_row(
+          kWelcomeV2DarkRows[14], /*body_pos=*/6, /*body_len=*/27,
+          /*star_mode=*/2, /*body_bg=*/false));
     }
   }
 

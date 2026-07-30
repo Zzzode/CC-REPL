@@ -189,6 +189,33 @@ constexpr std::array<std::string_view, 49> kNullRenderingTypes = {{
 } // namespace attachment_filter
 
 // ============================================================
+// From: src/components/PromptInput/PromptInputFooter.tsx (PermissionMode)
+// From: src/types/queryOptions.ts (EffortLevel)
+//
+// UNIFIED CANONICAL ENUMS — previously duplicated in:
+//   - prompt_input_full.cppm (PermissionMode + EffortLevel)
+//   - prompt_input_footer.cppm (PermissionMode)
+// ============================================================
+
+/// Permission mode for tool execution.
+/// TS REF: src/types/Tool.ts — ToolPermissionContext.mode
+enum class PermissionMode {
+    Default,        ///< default — confirm each tool use
+    AcceptEdits,    ///< 🔓 auto-accept file edits
+    AcceptAll,      ///< 🔓🔓 auto-accept all tools
+    Plan            ///< 📋 plan-only mode
+};
+
+/// Effort level for query execution.
+/// TS REF: src/types/queryOptions.ts — effort option
+enum class EffortLevel {
+    Low,
+    Medium,
+    High,
+    Auto
+};
+
+// ============================================================
 // Canonical VimMode enum — re-exported from cc.vim.vim_types
 //
 // Canonical definition lives in cc_vim (vim/vim_types.cppm) to avoid

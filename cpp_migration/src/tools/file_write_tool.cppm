@@ -21,6 +21,7 @@ import cc.utils.file;
 import cc.utils.error;
 import cc.tools.tool;
 import cc.utils.json;
+import cc.skills.skill;
 
 export namespace cc::tools::file_write {
 
@@ -290,7 +291,17 @@ private:
             }
             
             output.bytes_written = input.content.size();
-            
+
+            // TS REF: src/tools/FileWriteTool/FileWriteTool.ts L234-245
+            // After writing a file, discover any skill directories it belongs to
+            // and activate conditional skills matching its path.
+            {
+                std::error_code ec;
+                auto cwd = fs::current_path(ec);
+                if (ec) cwd = input.file_path.parent_path();
+                cc::skills::notify_file_access(input.file_path, cwd);
+            }
+
             return format_result(output);
             
         } catch (const std::exception& e) {

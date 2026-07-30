@@ -23,6 +23,7 @@ import cc.skills.load_skills_dir;
 import cc.skills.bundled;
 import cc.tools.agent_runtime;
 import cc.tools.mcp;
+import cc.ui.prompt.fuzzy_rank_nucleo;
 import cc.utils.json;
 
 namespace cc::ui::autocomplete_sources {
@@ -250,6 +251,407 @@ std::vector<McpResourceSuggestionData> collect_mcp_resource_suggestions() {
         last = std::chrono::steady_clock::now();
     }
     return out;
+}
+
+// ============================================================
+// Agent / teammate autocomplete source
+// ============================================================
+// TS REF: src/hooks/unifiedSuggestions.ts:77-108 — generateAgentSuggestions()
+//   builds AgentSuggestionSource[] from AgentDefinition[] with color +
+//   truncated whenToUse description.  Filtered by case-insensitive substring
+//   match on agentType or displayText.
+// TS REF: src/hooks/useTypeahead.tsx:604-625 — DM teammate suggestions from
+//   state.teamContext.teammates + state.agentNameRegistry, prefix-matched on
+//   lowercased name, with status appended to description.
+std::vector<AgentSuggestionData> collect_agent_suggestions(std::string_view cwd) {
+    std::vector<AgentSuggestionData> result;
+    std::unordered_set<std::string> seen_names;
+
+    std::optional<fs::path> cwd_path;
+    if (!cwd.empty()) cwd_path = fs::path(std::string(cwd));
+
+    // (1) Agent definitions (built-in, plugin, user, project, local, flag, policy)
+    for (const auto& agent : agent_runtime::get_all_agent_definitions(cwd_path)) {
+        if (agent.agent_type.empty()) continue;
+        if (!seen_names.insert(agent.agent_type).second) continue;
+
+        // Truncate description to ~60 chars, matching TS truncateDescription.
+        std::string desc = agent.when_to_use;
+        if (desc.size() > 60) {
+            desc = desc.substr(0, 57) + "...";
+        }
+
+        result.push_back(AgentSuggestionData{
+            .name        = agent.agent_type,
+            .description = std::move(desc),
+            .source      = "agent",
+            .color       = agent.color,
+            .status      = std::nullopt,
+            .is_subagent = false,
+        });
+    }
+
+    // (2) Native agent records (live teammates / named sub-agents)
+    // TS REF: useTypeahead.tsx:616-625 — named agents from agentNameRegistry
+    //   show "send message · <status>" description.
+    for (const auto& record : agent_runtime::load_all_native_agent_records()) {
+        auto name = record.name.value_or(record.agent_id);
+        if (name.empty()) continue;
+        if (!seen_names.insert(name).second) continue;
+
+        const std::string status =
+            std::string(agent_runtime::native_agent_status_name(record.status));
+        std::string desc = "send message";
+        if (!status.empty() && status != "unknown") {
+            desc += " · " + status;
+        }
+
+        result.push_back(AgentSuggestionData{
+            .name        = std::move(name),
+            .description = std::move(desc),
+            .source      = "teammate",
+            .color       = record.teammate_color,
+            .status      = status,
+            .is_subagent = true,
+        });
+    }
+
+    // Sort: teammates first (they're the DM priority per TS useTypeahead.tsx
+    // AT-05 bare-@ teammate exclusivity), then alphabetically by name.
+    std::ranges::sort(result, [](const auto& a, const auto& b) {
+        if (a.is_subagent != b.is_subagent) return a.is_subagent > b.is_subagent;
+        return a.name < b.name;
+    });
+
+    return result;
+}
+
+// ============================================================
+// Prompt history persistence (for @history / Ctrl+R autocomplete)
+// ============================================================
+namespace {
+
+// TS REF: src/history.ts:115 — history stored at {getClaudeConfigHomeDir()}/history.jsonl
+//   We use ~/.cc-repl/history.jsonl to match the CPP migration's data layout
+//   (sessions/, dump-prompts/ etc. already live under ~/.cc-repl/).
+[[nodiscard]] fs::path prompt_history_file_path() {
+    if (const char* env = std::getenv("CC_REPL_HISTORY_FILE"); env && *env) {
+        return fs::path{env};
+    }
+    if (const char* home = std::getenv("HOME"); home && *home) {
+        return fs::path{home} / ".cc-repl" / "history.jsonl";
+    }
+    return fs::path{".cc-repl"} / "history.jsonl";
+}
+
+// TS REF: src/history.ts:219-225 — LogEntry { display, pastedContents, timestamp,
+//   project, sessionId }.  We keep a minimal subset for the autocomplete source.
+struct PromptHistoryEntry {
+    std::string display;       // first line of prompt (for display)
+    std::string full_text;     // complete prompt text
+    std::int64_t timestamp_ms = 0;
+    std::string session_id;
+    std::string project;
+};
+
+// Parse a single JSONL line into a PromptHistoryEntry.
+// Returns nullopt on parse failure.
+[[nodiscard]] std::optional<PromptHistoryEntry> parse_history_line(std::string_view line) {
+    auto parsed = cc::utils::json::parse(line);
+    if (!parsed) return std::nullopt;
+    auto root = parsed->root();
+    if (!root.is_obj()) return std::nullopt;
+
+    PromptHistoryEntry entry;
+    auto display_node = root.get("display");
+    if (display_node.is_str()) {
+        entry.display = std::string(display_node.as_str());
+    } else {
+        // Fallback: use "text" field if present
+        auto text_node = root.get("text");
+        if (text_node.is_str()) entry.display = std::string(text_node.as_str());
+    }
+    if (entry.display.empty()) return std::nullopt;
+
+    auto full_node = root.get("full_text");
+    if (full_node.is_str()) {
+        entry.full_text = std::string(full_node.as_str());
+    } else {
+        entry.full_text = entry.display;
+    }
+
+    auto ts_node = root.get("timestamp");
+    if (ts_node.is_num()) {
+        entry.timestamp_ms = static_cast<std::int64_t>(ts_node.as_int());
+    }
+
+    auto sess_node = root.get("sessionId");
+    if (sess_node.is_str()) entry.session_id = std::string(sess_node.as_str());
+
+    auto proj_node = root.get("project");
+    if (proj_node.is_str()) entry.project = std::string(proj_node.as_str());
+
+    return entry;
+}
+
+// Read the history JSONL file in reverse (newest-first), yielding parsed
+// entries.  Faithful to TS readLinesReverse() pattern.
+[[nodiscard]] std::vector<PromptHistoryEntry> read_history_recent(std::size_t max_entries) {
+    const auto path = prompt_history_file_path();
+    std::error_code ec;
+    if (!fs::exists(path, ec) || !fs::is_regular_file(path, ec)) return {};
+
+    // TS REF: src/utils/fsOperations.ts:722 — readLinesReverse reads in 4KB
+    // chunks from the end.  For simplicity we read the whole file and reverse
+    // iterate; prompt history is capped at a few KB so this is fine.
+    std::ifstream ifs(path);
+    if (!ifs) return {};
+
+    std::vector<std::string> lines;
+    std::string line;
+    while (std::getline(ifs, line)) {
+        if (!line.empty()) lines.push_back(std::move(line));
+    }
+
+    std::vector<PromptHistoryEntry> entries;
+    entries.reserve(std::min(max_entries, lines.size()));
+
+    // Iterate from newest (last line) to oldest.
+    for (auto it = lines.rbegin(); it != lines.rend() && entries.size() < max_entries; ++it) {
+        if (auto entry = parse_history_line(*it)) {
+            entries.push_back(std::move(*entry));
+        }
+    }
+    return entries;
+}
+
+} // anonymous namespace
+
+void append_prompt_history(
+    std::string_view prompt_text,
+    std::string_view session_id,
+    std::string_view project_path)
+{
+    if (prompt_text.empty()) return;
+
+    const auto path = prompt_history_file_path();
+    std::error_code ec;
+    auto dir = path.parent_path();
+    if (!dir.empty()) {
+        fs::create_directories(dir, ec);
+    }
+
+    // Build first-line display (truncate at first newline or 200 chars).
+    std::string display;
+    const auto nl = prompt_text.find('\n');
+    if (nl != std::string_view::npos) {
+        display = std::string(prompt_text.substr(0, nl));
+    } else {
+        display = std::string(prompt_text);
+    }
+    if (display.size() > 200) {
+        display = display.substr(0, 197) + "...";
+    }
+
+    const auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+
+    // Build JSON line manually to avoid heavy JSON doc construction.
+    // TS REF: src/history.ts — JSONL format with escaped display text.
+    auto escape_json = [](std::string_view s) -> std::string {
+        std::string out;
+        out.reserve(s.size() + 8);
+        for (char c : s) {
+            switch (c) {
+                case '"':  out += "\\\""; break;
+                case '\\': out += "\\\\"; break;
+                case '\n': out += "\\n";  break;
+                case '\r': out += "\\r";  break;
+                case '\t': out += "\\t";  break;
+                default:   out += c;      break;
+            }
+        }
+        return out;
+    };
+
+    std::string json_line = std::format(
+        R"({{"display":"{}","full_text":"{}","timestamp":{},"sessionId":"{}","project":"{}"}})",
+        escape_json(display),
+        escape_json(std::string(prompt_text)),
+        now_ms,
+        escape_json(std::string(session_id)),
+        escape_json(std::string(project_path)));
+
+    // TS REF: src/history.ts:308-314 — file lock protects concurrent writes.
+    // We use a simple static mutex for in-process serialization; cross-process
+    // locking is out of scope for the migration (matches the CPP "best-effort"
+    // approach used elsewhere for file writes).
+    static std::mutex write_mu;
+    std::lock_guard lk(write_mu);
+
+    std::ofstream ofs(path, std::ios::app | std::ios::binary);
+    if (!ofs) return;
+    ofs << json_line << '\n';
+}
+
+// TS REF: src/history.ts:190-228 — getHistory() yields entries for the current
+//   project only, current session first, then other sessions, newest-first,
+//   deduped by display, capped at MAX_HISTORY_ITEMS (100).
+// TS REF: src/hooks/useHistorySearch.ts:73-117 — search does a case-sensitive
+//   substring match via lastIndexOf.  We use case-insensitive to match the
+//   user expectation of a search box (TS's case-sensitivity is arguably a bug
+//   — the HistorySearchDialog uses case-insensitive matching).
+std::vector<HistorySuggestionData> collect_history_suggestions(
+    std::string_view query,
+    std::size_t max_entries)
+{
+    // Read a generous batch from disk so we can filter + dedup.
+    constexpr std::size_t kReadBatch = 200;
+    auto entries = read_history_recent(kReadBatch);
+
+    // Build lowercase query once.
+    std::string query_lower;
+    query_lower.reserve(query.size());
+    for (char c : query) {
+        query_lower.push_back(static_cast<char>(
+            std::tolower(static_cast<unsigned char>(c))));
+    }
+
+    std::vector<HistorySuggestionData> result;
+    result.reserve(std::min(max_entries, entries.size()));
+    std::unordered_set<std::string> seen_display;
+
+    // Determine current project for filtering (best-effort).
+    std::error_code ec;
+    std::string current_project = fs::current_path(ec).string();
+
+    for (const auto& entry : entries) {
+        // Substring match (case-insensitive) on display + full_text.
+        if (!query_lower.empty()) {
+            std::string display_lower;
+            display_lower.reserve(entry.display.size());
+            for (char c : entry.display) {
+                display_lower.push_back(static_cast<char>(
+                    std::tolower(static_cast<unsigned char>(c))));
+            }
+            std::string full_lower;
+            full_lower.reserve(entry.full_text.size());
+            for (char c : entry.full_text) {
+                full_lower.push_back(static_cast<char>(
+                    std::tolower(static_cast<unsigned char>(c))));
+            }
+            if (display_lower.find(query_lower) == std::string::npos &&
+                full_lower.find(query_lower) == std::string::npos) {
+                continue;
+            }
+        }
+
+        // Dedup by display text (TS getHistory dedup semantics).
+        if (!seen_display.insert(entry.display).second) continue;
+
+        result.push_back(HistorySuggestionData{
+            .prompt_text   = entry.display,
+            .full_text     = entry.full_text,
+            .timestamp_ms  = entry.timestamp_ms,
+            .session_id    = entry.session_id,
+            .message_count = 0,
+        });
+
+        if (result.size() >= max_entries) break;
+    }
+
+    return result;
+}
+
+// ============================================================
+// Pre-formatted suggestions (extracted from app.cppm to stay
+// under clang's 2GB source-location budget).
+// ============================================================
+
+namespace {
+
+// Format a relative time string like "5m ago" or "2d ago".
+[[nodiscard]] std::string format_relative_time(std::int64_t timestamp_ms) {
+    if (timestamp_ms <= 0) return {};
+    using namespace std::chrono;
+    auto now = duration_cast<milliseconds>(
+        system_clock::now().time_since_epoch()).count();
+    auto ds = (now - timestamp_ms) / 1000;
+    if (ds < 60) return "just now";
+    if (ds < 3600) return std::format("{}m ago", ds / 60);
+    if (ds < 86400) return std::format("{}h ago", ds / 3600);
+    return std::format("{}d ago", ds / 86400);
+}
+
+} // anonymous namespace
+
+std::vector<FormattedSuggestion> build_history_suggestions(
+    std::string_view query,
+    std::size_t replacement_start,
+    std::size_t replacement_end,
+    std::size_t max_entries)
+{
+    auto entries = collect_history_suggestions(query, max_entries);
+    std::vector<FormattedSuggestion> result;
+    result.reserve(entries.size());
+
+    for (const auto& entry : entries) {
+        std::string display = entry.prompt_text;
+        if (display.size() > 80) display = display.substr(0, 77) + "...";
+
+        std::string desc = "History";
+        auto rel = format_relative_time(entry.timestamp_ms);
+        if (!rel.empty()) desc += " · " + rel;
+        if (!entry.session_id.empty())
+            desc += std::format(" · {}", entry.session_id.substr(0, 8));
+
+        result.push_back(FormattedSuggestion{
+            .display_text = std::move(display),
+            .description = std::move(desc),
+            .insert_text = entry.full_text,
+            .replacement_start = replacement_start,
+            .replacement_end = replacement_end,
+            .submit_on_return = false,
+            .id = "history:" + std::to_string(entry.timestamp_ms),
+            .icon = {},
+            .color_name = {},
+        });
+    }
+    return result;
+}
+
+std::vector<FormattedSuggestion> build_agent_suggestions(
+    std::string_view cwd,
+    std::string_view query,
+    std::size_t token_start,
+    std::size_t token_end)
+{
+    namespace frn = cc::ui::prompt::fuzzy_rank_nucleo;
+
+    auto agents = collect_agent_suggestions(cwd);
+    std::vector<FormattedSuggestion> result;
+    result.reserve(agents.size());
+
+    for (const auto& ag : agents) {
+        if (!frn::fuzzy_match_nucleo(ag.name, query)) continue;
+
+        std::string display = "@" + ag.name;
+        std::string desc_prefix = ag.is_subagent ? "Teammate" : "Agent";
+        std::string desc = desc_prefix + " · " + ag.description;
+
+        result.push_back(FormattedSuggestion{
+            .display_text = std::move(display),
+            .description = std::move(desc),
+            .insert_text = "@" + ag.name + " ",
+            .replacement_start = token_start,
+            .replacement_end = token_end,
+            .submit_on_return = false,
+            .id = (ag.is_subagent ? "teammate:" : "agent:") + ag.name,
+            .icon = ag.is_subagent ? "👤" : "🤖",
+            .color_name = ag.color.value_or(""),
+        });
+    }
+    return result;
 }
 
 } // namespace cc::ui::autocomplete_sources

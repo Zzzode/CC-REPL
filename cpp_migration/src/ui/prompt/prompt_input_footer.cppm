@@ -87,12 +87,8 @@ using cc::ui::common::PromptInputMode;
 using cc::ui::common::VimMode;
 
 /// Permission mode.  Mirrors TS ToolPermissionContext.mode (Tool.ts).
-enum class PermissionMode {
-    Default,        // default — confirm each tool use
-    AcceptEdits,    // 🔓 auto-accept file edits
-    AcceptAll,      // 🔓🔓 auto-accept all tools
-    Plan,           // 📋 plan-only mode
-};
+/// Canonical definition lives in cc::ui::common (ui_types.cppm).
+using cc::ui::common::PermissionMode;
 
 // ============================================================
 // Permission mode helpers (from TS PermissionMode.ts)

@@ -534,16 +534,28 @@ class AssistantTextMessageComponent : public ComponentBase {
 /// content.  M5 made cc::ui::render_markdown itself TS-faithful (GFM parity
 /// with src/utils/markdown.ts), so this path now renders faithful markdown
 /// in the running app (no separate renderer swap needed).
+///
+/// TS REF: Messages.tsx L703-712 — streaming text row uses
+///   <StreamingMarkdown>{streamingText}</StreamingMarkdown>
+/// When `streaming_md` is non-null and data.is_streaming is true, the body
+/// is rendered via StreamingMarkdown::update() (stable-prefix cache, only
+/// re-parses the unstable suffix) instead of full render_markdown().
 [[nodiscard]] inline Element RenderAssistantTextMessageFaithful(
     const AssistantTextMessageData& data,
     bool add_margin = true,
-    bool is_selected = false) {
+    bool is_selected = false,
+    ::cc::ui::StreamingMarkdown* streaming_md = nullptr) {
     // Unescape literal "\n" before markdown rendering — same fix as BuildBody().
     // Without this, models that emit JSON-escaped newlines produce one long
     // clipped line and markdown line-boundary patterns (* list, headings) fail.
     std::string cleaned = detail::unescape_literal_newlines(
         detail::strip_prompt_xml_tags(data.content));
-    auto body = ::cc::ui::render_markdown(cleaned);
+    // TS REF: Messages.tsx L703-712 + Markdown.tsx L186-235 — streaming text
+    // uses StreamingMarkdown (stable prefix + unstable suffix) to avoid
+    // re-parsing the entire growing document on every token delta.
+    Element body = (data.is_streaming && streaming_md)
+        ? streaming_md->update(cleaned)
+        : ::cc::ui::render_markdown(cleaned);
     return RenderAssistantTextMessageFaithful(data, std::move(body), add_margin, is_selected);
 }
 

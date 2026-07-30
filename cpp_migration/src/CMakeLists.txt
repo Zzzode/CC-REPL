@@ -1407,6 +1407,7 @@ target_sources(cc_ui
         ui/dialogs/permission_dialog.cppm
         ui/dialogs/permission_prompts.cppm
         ui/dialogs/plugin_dialog.cppm
+        ui/dialogs/plugin_dialog_renderer.cppm
         ui/dialogs/prompt_dialog.cppm
         ui/dialogs/quick_open.cppm
         ui/dialogs/sandbox_dialog.cppm
@@ -1518,6 +1519,7 @@ target_sources(cc_ui
         ui/prompt/file_index.cppm
         ui/prompt/fuzzy_rank_nucleo.cppm
         ui/prompt/footer.cppm
+        ui/prompt/mode_indicator.cppm  # P0: 3-way prefix glyph (❯/!/agent-tint) TS PromptInputModeIndicator
         ui/prompt/notifications.cppm
         ui/prompt/prompt_input_footer.cppm  # M5 — faithful TS PromptInputFooter port
         ui/prompt/prompt_input_full.cppm
@@ -1598,6 +1600,11 @@ target_sources(cc_ui
 # ~44 dialog implementations out of app.cppm's BMI (source-location budget).
 # See app_dialog_registration.cppm / *_impl.cpp for the rationale.
 target_sources(cc_ui PRIVATE
+    ui/app_autocomplete.cpp
+    ui/app_extra_methods.cpp
+    ui/app_constructor.cpp
+    ui/app_handle_submit.cpp
+    ui/app_agent_menu.cpp
     ui/autocomplete_sources_impl.cpp
     ui/app_prompt_suggestion_wiring.cpp
     ui/prompt/at_attachments_impl.cpp
@@ -1607,6 +1614,7 @@ target_sources(cc_ui PRIVATE
     ui/app_dialog_registration_all.cpp
     ui/app_dialog_registration_hooks.cpp
     ui/dialogs/hooks_dialog_renderer_impl.cpp
+    ui/dialogs/plugin_dialog_renderer_impl.cpp
 )
 target_link_libraries(cc_ui
     PUBLIC
@@ -1619,6 +1627,7 @@ target_link_libraries(cc_ui
         cc_plugins
         cc_session
         cc_history
+        cc_skills            # SkillRegistry::on_skills_changed for dynamic skill refresh
         # U1: cc.ui.prompt.suggestion_provider imports cc.services.prompt_suggestion
         # directly. cc_ui already consumed cc.services.* transitively via cc_hooks;
         # making the dependency explicit is correct (no cycle: cc_services never

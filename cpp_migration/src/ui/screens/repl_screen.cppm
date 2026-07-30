@@ -61,6 +61,7 @@ import cc.ui.team_status;
 import cc.ui.messages.message_row;
 import cc.ui.messages.message_image;
 import cc.ui.messages.messages_list;
+import cc.ui.markdown;   // StreamingMarkdown for streaming-tail
 import cc.ui.messages.user_text_message;
 import cc.ui.messages.assistant_text_message;
 import cc.ui.messages.system_text_message;
@@ -622,6 +623,10 @@ struct ReplScreenState {
         std::size_t replacement_start = std::string::npos;
         std::size_t replacement_end = std::string::npos;
         bool submit_on_return = false;
+        /// Optional icon prefix (e.g. "📄" for files, "📁" for dirs).
+        /// TS REF: src/components/PromptInput/PromptInputFooterSuggestions.tsx:24
+        ///          (getIcon — + for files, ◇ for MCP, * for agents).
+        std::string icon{};
         // INF-02: stable identity for selection preservation across refreshes
         // (TS getPreservedSelection-by-id, src/hooks/useTypeahead.tsx:52-74).
         // Defaults to display_text when a caller doesn't supply a richer id,
@@ -629,6 +634,10 @@ struct ReplScreenState {
         // `{}` in-class init so existing partial designated initializers (e.g.
         // in tests/test_ui.cpp) don't trip -Wmissing-designated-field-initializers.
         std::string id{};
+        /// Optional color name for a colored dot prefix (e.g. "red", "blue").
+        /// TS REF: src/hooks/unifiedSuggestions.ts:77-108 — agent defs include
+        ///          a color field used to tint the avatar dot in the picker.
+        std::string color_name{};
     };
     std::vector<AutocompleteSuggestion> autocomplete_suggestions;
     // INF-05: input text at which the user dismissed the popup with Esc.
@@ -759,6 +768,11 @@ struct ReplScreenCallbacks {
     /// the user can re-authenticate.
     /// TS REF: SystemAPIErrorMessage.tsx — onClearSession prop.
     std::function<void()> on_clear_session;
+    /// TS REF: Messages.tsx L703-712 + Markdown.tsx L186-235 — shared
+    /// StreamingMarkdown instance for the streaming-text tail row.
+    /// When non-null, RenderMessages threads it to the messages list
+    /// so is_streaming rows use stable-prefix caching.
+    ::cc::ui::StreamingMarkdown* streaming_md = nullptr;
 };
 
 // =========================================================
@@ -1001,7 +1015,12 @@ ComputeUnseenDivider(const ReplScreenState& s) {
     // session-expired error cards.  TS REF: SystemAPIErrorMessage.tsx
     //   onClearSession prop — invoked when auth has expired and user
     //   chooses to clear the session to re-authenticate.
-    std::function<void()> on_clear_session = nullptr) {
+    std::function<void()> on_clear_session = nullptr,
+    // TS REF: Messages.tsx L703-712 + Markdown.tsx L186-235 — StreamingMarkdown
+    // stable-prefix cache for the streaming-text tail row.  When non-null,
+    // RenderAssistantTextMessageFaithful uses update() instead of full
+    // render_markdown() for is_streaming rows.
+    ::cc::ui::StreamingMarkdown* streaming_md = nullptr) {
     // NOTE: We no longer early-return on empty entries.  The leading_element
     // (welcome/logo card) must always be rendered inside the yframe so it
     // scrolls with messages.  The messages_list handles empty rows gracefully
@@ -1279,6 +1298,10 @@ ComputeUnseenDivider(const ReplScreenState& s) {
     // P2 gap api-error-retry: thread on_clear_session for session-expired
     // error cards.
     input.on_clear_session = on_clear_session;
+    // TS REF: Messages.tsx L703-712 + Markdown.tsx L186-235 — thread the
+    // shared StreamingMarkdown instance so the streaming-text tail row uses
+    // stable-prefix caching instead of full re-parse per token.
+    input.streaming_md = streaming_md;
     namespace ml = cc::ui::messages_list;
     // TS REF: FullscreenLayout <Box flexGrow={1} /> at the bottom of the
     // message list — absorbs remaining viewport space so short content stays
@@ -1975,15 +1998,22 @@ inline void move_prompt_cursor_right(const std::shared_ptr<ReplScreenState>& sta
     //
     // SEMANTICS (simplified from TS — the CPP InputMode enum is kept
     // intact for backward compat with autocomplete gates in app.cppm,
-    // but the PREFIX GLYPH COLLAPSES to exactly TWO visual variants per TS:
+    // but the PREFIX GLYPH COLLAPSES to exactly TWO visual variants per TS,
+    // with priority matching PromptInputModeIndicator.tsx line 82):
     //
-    //   VARIANT A  — mode == Bash:        glyph = kBashGlyph   "!"
+    //   PRIORITY 1 — viewingAgentName set:
+    //                                        glyph = kPointer     "❯"
+    //                                        color = teammate_prefix_color
+    //                                                or palette.text
+    //   PRIORITY 2 — mode == Bash (no viewing agent):
+    //                                        glyph = kBashGlyph   "!"
     //                                        color = bashBorder  rgb(255,0,135)
-    //   VARIANT B  — ALL OTHER modes:     glyph = kPointer     "❯"
-    //                                        color = palette.text (white)
-    //                 OR: if a teammate/agent conversation is active and the
-    //                     engine supplies `teammate_prefix_color`, use that
-    //                     instead of palette.text (TS AGENT_COLOR_TO_THEME_COLOR).
+    //   PRIORITY 3 — ALL OTHER modes:     glyph = kPointer     "❯"
+    //                                        color = teammate_prefix_color
+    //                                                or palette.text
+    //                 (teammate_prefix_color is the engine-resolved
+    //                 AGENT_COLOR_TO_THEME_COLOR for both the viewing-agent
+    //                 path and the swarms-enabled default path)
     //
     // The old CPP-only per-mode glyphs (Slash "/", History "?", Plan "▣",
     // VimNormal "❮", VimVisual "❮", Permission "!", Task "*") are ELIMINATED
@@ -2011,19 +2041,35 @@ inline void move_prompt_cursor_right(const std::shared_ptr<ReplScreenState>& sta
     Color       prefix_color;   // applied to the prefix inside renderInputArea.
 
     // Step 1a: pick glyph.
-    prefix_str += is_bash_mode
+    // Priority (TS REF: PromptInputModeIndicator.tsx line 82):
+    //   1. viewingAgentName set  → ❯ (always, regardless of bash mode)
+    //   2. mode === 'bash'       → !
+    //   3. otherwise             → ❯
+    // When a viewing agent is active, the prefix is ALWAYS ❯ (never !),
+    // matching TS where `viewingAgentName ?` is checked BEFORE
+    // `mode === 'bash'`.
+    const bool has_viewing_agent = s.viewing_agent_name.has_value()
+        && !s.viewing_agent_name->empty();
+    const bool show_bash_glyph = is_bash_mode && !has_viewing_agent;
+    prefix_str += show_bash_glyph
         ? std::string(figs::kBashGlyph)
         : std::string(figs::kPointer);
     prefix_str += " ";   // trailing NBSP/space — 2 display cells total (TS).
 
     // Step 1b: pick color.
     //
-    // Bash mode always uses bashBorder (TS: dark rgb(255,0,135), daltonized blue
-    // variants, light same).  All other modes: use the teammate color if the
-    // engine has supplied one via s.teammate_prefix_color (TS
+    // Priority matches the glyph selection above:
+    //   1. viewingAgentName set  → teammate_prefix_color (engine-resolved
+    //                               agent color) or palette.text
+    //   2. bash mode (no viewing agent) → bashBorder
+    //   3. otherwise             → teammate_prefix_color or palette.text
+    //
+    // Bash mode always uses bashBorder (TS: dark rgb(255,0,135), daltonized
+    // blue variants, light same).  All other modes: use the teammate color if
+    // the engine has supplied one via s.teammate_prefix_color (TS
     // AGENT_COLOR_TO_THEME_COLOR map in agentColorManager.ts), otherwise fall
     // through to palette.text (dark: pure white, light: pure black).
-    if (is_bash_mode) {
+    if (show_bash_glyph) {
         prefix_color = pal.bash_border;
     } else if (s.teammate_prefix_color.has_value()) {
         prefix_color = *s.teammate_prefix_color;
@@ -2203,11 +2249,34 @@ inline void move_prompt_cursor_right(const std::shared_ptr<ReplScreenState>& sta
     return text;
 }
 
+/// TS REF: PromptInputFooterSuggestions.tsx — renders autocomplete suggestion
+/// items in a vertical list.
+///
+/// Two rendering modes (matching TS):
+///   - Non-fullscreen (inline in footer): adaptive maxVisibleItems =
+///     min(6, max(1, term_rows - 3)), items bottom-aligned (flex-end).
+///   - Fullscreen (overlay portal): floating overlay above the prompt with
+///     opaque background, OVERLAY_MAX_ITEMS = 5, no flex-end alignment.
+///
+/// TS REF: FullscreenLayout.tsx L591-607 — overlay uses position="absolute"
+/// bottom="100%" opaque={true} to escape the bottom-slot overflowY:hidden clip.
+/// In FTXUI there's no CSS overflow clip, so we render inline but apply
+/// overlay visual styling (background + top border) when is_overlay=true.
+///
+/// @param is_overlay  When true, apply fullscreen overlay styling.
+/// @param term_rows   Terminal height in rows (for adaptive maxVisibleItems).
 [[nodiscard]] inline Element RenderPromptSuggestions(const ReplScreenState& s,
-                                                     int term_cols) {
+                                                     int term_cols,
+                                                     bool is_overlay = false,
+                                                     int term_rows = 24) {
     if (s.autocomplete_suggestions.empty()) return Element{};
 
-    constexpr int kMaxVisibleItems = 5;
+    // TS REF: PromptInputFooterSuggestions.tsx L224 — maxVisibleItems differs
+    // between overlay (fixed 5) and inline (adaptive to terminal height).
+    constexpr int kOverlayMaxItems = 5;  // TS: OVERLAY_MAX_ITEMS
+    const int kInlineMaxItems = std::min(6, std::max(1, term_rows - 3));
+    const int kMaxVisibleItems = is_overlay ? kOverlayMaxItems : kInlineMaxItems;
+
     const int total = static_cast<int>(s.autocomplete_suggestions.size());
     const int selected = std::clamp(
         s.autocomplete_index < 0 ? 0 : s.autocomplete_index,
@@ -2225,40 +2294,104 @@ inline void move_prompt_cursor_right(const std::shared_ptr<ReplScreenState>& sta
         widest = s.autocomplete_stable_name_width;
     } else {
         for (int i = start; i < end; ++i) {
+            const auto& item = s.autocomplete_suggestions[static_cast<std::size_t>(i)];
+            // TS REF: PromptInputFooterSuggestions.tsx — icon takes display width
+            // before the label. Add icon width to the name column so labels
+            // align vertically when some rows have icons and others don't.
+            const int icon_w = item.icon.empty() ? 0 : string_width(item.icon) + 1;
             widest = std::max(
                 widest,
-                string_width(s.autocomplete_suggestions[static_cast<std::size_t>(i)].display_text));
+                icon_w + string_width(item.display_text));
         }
     }
     const int max_name_width = std::max(10, term_cols * 2 / 5);
     const int name_width = std::min(widest + 5, max_name_width);
     const int desc_width = std::max(0, term_cols - name_width - 4);
 
+    namespace thm = cc::ui::design::theme;
+    const auto& pal = *thm::current_theme().palette;
+
     Elements rows;
     rows.reserve(static_cast<std::size_t>(visible));
     for (int i = start; i < end; ++i) {
         const auto& item = s.autocomplete_suggestions[static_cast<std::size_t>(i)];
         const bool is_selected = i == selected;
-        auto display = truncate_columns(item.display_text, name_width - 2);
-        auto desc = truncate_columns(item.description, desc_width);
-        Element name = text(pad_to_columns(std::move(display), name_width));
-        Element detail = text(std::move(desc));
+
+        // Build the label: optional colored dot + icon + display_text,
+        // padded to name_width.
+        // TS REF: PromptInputFooterSuggestions.tsx renderRow — icon glyph then
+        // the label, both styled together.
+        // TS REF: src/hooks/unifiedSuggestions.ts:77-108 — agent defs include
+        //   a color field used to tint the avatar dot.
+        Elements label_parts;
+        int used = 0;
+        // Colored dot for agent/teammate suggestions.
+        if (!item.color_name.empty()) {
+            auto agent_color = [&]() -> Color {
+                if (item.color_name == "red") return Color::Red;
+                if (item.color_name == "blue") return Color::Blue;
+                if (item.color_name == "green") return Color::Green;
+                if (item.color_name == "yellow") return Color::Yellow;
+                if (item.color_name == "purple") return Color::Magenta;
+                if (item.color_name == "orange") return Color::Yellow;
+                if (item.color_name == "pink") return Color::MagentaLight;
+                if (item.color_name == "cyan") return Color::Cyan;
+                return Color::Default;
+            }();
+            label_parts.push_back(text("● ") | color(agent_color) | bold);
+            used += 2;  // "● " is 2 display columns
+        }
+        if (!item.icon.empty()) {
+            label_parts.push_back(text(item.icon + " "));
+            used += string_width(item.icon) + 1;
+        }
+        const int text_budget = std::max(1, name_width - used);
+        auto display = truncate_columns(item.display_text, text_budget);
+        label_parts.push_back(text(pad_to_columns(std::move(display), text_budget)));
+
+        Element name = hbox(std::move(label_parts));
+        Element detail = text(truncate_columns(item.description, desc_width));
         if (is_selected) {
-            name = name | color(Color::Cyan) | bold;
-            detail = detail | color(Color::Cyan);
+            // TS REF: selected item uses suggestion color (lavender in dark).
+            name = name | color(pal.suggestion) | bold;
+            detail = detail | color(pal.suggestion);
         } else {
             name = name | dim;
             detail = detail | dim;
         }
-        rows.push_back(hbox({
+        Element row_el = hbox({
             text("  "),
             std::move(name),
             std::move(detail),
             filler(),
-        }));
+        });
+        // TS REF: FullscreenLayout.tsx L607 — overlay items get the surface
+        // background so the floating list doesn't show messages through it.
+        if (is_overlay && is_selected) {
+            row_el = row_el | bgcolor(pal.message_actions_background);
+        }
+        rows.push_back(std::move(row_el));
     }
 
-    return vbox(std::move(rows));
+    Element content = vbox(std::move(rows));
+
+    // TS REF: FullscreenLayout.tsx L607 — overlay wrapper:
+    //   <Box position="absolute" bottom="100%" ... opaque={true}>
+    // In FTXUI we apply: background fill + top separator line to visually
+    // separate the floating overlay from scrollback messages above it.
+    if (is_overlay) {
+        // Build a top separator line using the chrome color (TS border-top
+        // equivalent).  The separator spans the full width so the overlay
+        // reads as a distinct floating panel.
+        Element top_sep = separator() | color(pal.chrome);
+        content = vbox({
+            text("") | size(HEIGHT, EQUAL, 1),  // marginTop=1 above overlay
+            top_sep,
+            hbox({text("  "), content, filler()}) | bgcolor(pal.background),
+        });
+    }
+
+    return content;
 }
 
 [[nodiscard]] inline std::optional<std::string> accept_selected_prompt_suggestion(
@@ -2618,7 +2751,10 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
     // P2 gap api-error-retry: clear-session callback threaded through to
     // RenderMessages for session-expired error cards.
     // TS REF: SystemAPIErrorMessage.tsx onClearSession.
-    std::function<void()> on_clear_session = nullptr) {
+    std::function<void()> on_clear_session = nullptr,
+    // TS REF: Messages.tsx L703-712 + Markdown.tsx L186-235 — shared
+    // StreamingMarkdown instance for the streaming-text tail row.
+    ::cc::ui::StreamingMarkdown* streaming_md = nullptr) {
     // Probe terminal size once per frame for adaptive layout (fix #11).
     auto [term_cols, term_rows] = cc::ui::ink_utils::query_terminal_size();
     if (term_cols <= 0) term_cols = 80;
@@ -2710,7 +2846,10 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
         on_retry,
         // P2 gap api-error-retry: thread on_clear_session for session-expired
         // error cards.
-        on_clear_session));
+        on_clear_session,
+        // TS REF: Messages.tsx L703-712 + Markdown.tsx L186-235 — thread
+        // the shared StreamingMarkdown instance to the messages list.
+        streaming_md));
     // Spinner lives in the chrome BETWEEN messages list and prompt input
     // (TS BriefSpinner marginTop=1, NOT a message row inside scroll content).
     Element spinner_chrome = text("");
@@ -2836,7 +2975,14 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
             L.push_back(hbox({spinner_chrome, filler()}) | flex_shrink);
         }
         if (!s.autocomplete_suggestions.empty()) {
-            L.push_back(RenderPromptSuggestions(s, term_cols));
+            // TS REF: FullscreenLayout.tsx L591-607 + PromptInputFooter.tsx L124-129
+            // In fullscreen mode, suggestions are portaled to FullscreenLayout
+            // as a floating overlay (position:absolute bottom:100% opaque:true).
+            // In FTXUI we apply overlay styling (background + top border) when
+            // is_fullscreen, and pass term_rows for adaptive maxVisibleItems.
+            L.push_back(RenderPromptSuggestions(s, term_cols,
+                /*is_overlay=*/is_fullscreen,
+                /*term_rows=*/term_rows));
         }
         L.push_back(RenderPromptInput(s, term_cols));
         // PromptInputFooter: LeftSide carries mode/tasks/teams via
@@ -3589,7 +3735,7 @@ inline bool forward_trust_dialog(
                           : state->permission_request->risk_labels.front();
             if (state->permission_request->file_path)
                 r.affected_paths.push_back(*state->permission_request->file_path);
-            Element base = RenderReplScreen(*state, cb->on_retry, cb->on_clear_session);
+            Element base = RenderReplScreen(*state, cb->on_retry, cb->on_clear_session, cb->streaming_md);
             Element panel = paragraph(
                 cc::ui::dialogs::render_permission_dialog(std::move(r), 80));
             return dbox({
@@ -3602,7 +3748,7 @@ inline bool forward_trust_dialog(
         // UI3: SettingsView modal — render the tabbed settings dialog
         // over the dimmed REPL background.
         if (state->mode == ReplMode::SettingsView) {
-            Element base = RenderReplScreen(*state, cb->on_retry, cb->on_clear_session);
+            Element base = RenderReplScreen(*state, cb->on_retry, cb->on_clear_session, cb->streaming_md);
             Element settings_content = dialog_router::render_settings(state, cb);
             return dbox({
                 base | dim,
@@ -3630,7 +3776,7 @@ inline bool forward_trust_dialog(
                        filler() }) | flex_shrink,
                 filler() }) | flex;
         }
-        return RenderReplScreen(*state, cb->on_retry, cb->on_clear_session);
+        return RenderReplScreen(*state, cb->on_retry, cb->on_clear_session, cb->streaming_md);
     })
          | CatchEvent([state, cb](Event ev) -> bool {
     // --- M7: dialog_queue event dispatch (priority 0) ---
@@ -3789,6 +3935,26 @@ inline bool forward_trust_dialog(
         if (!state->is_transcript_mode) {
             state->show_all_in_transcript = false;
         }
+        return true;
+    }
+
+    // Ctrl+R: enter history search mode by injecting "@history " into input.
+    // This triggers the @history autocomplete branch in RefreshAutocompleteSuggestions
+    // which reads persisted prompt history from ~/.cc-repl/history.jsonl.
+    // TS REF: src/hooks/useHistorySearch.ts:151 (handleStartSearch — Ctrl+R enters
+    //   history search mode with substring matching against persisted history)
+    // TS REF: src/components/PromptInput/PromptInput.tsx — Ctrl+R keyboard shortcut
+    //   dispatches 'chat:openHistorySearch' which opens the HistorySearchDialog.
+    if (!in_dialog && ev == Event::Character('\x12')) {
+        if (!state->input_text.starts_with("@history")) {
+            state->input_text = "@history ";
+            state->input_cursor = state->input_text.size();
+            state->autocomplete_suggestions.clear();
+            state->autocomplete_index = -1;
+            state->dismissed_autocomplete_for_input.clear();
+        }
+        state->is_prompt_input_active = true;
+        state->last_keystroke = std::chrono::steady_clock::now();
         return true;
     }
 

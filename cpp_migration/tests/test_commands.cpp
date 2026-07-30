@@ -33,6 +33,9 @@ import cc.commands.insights;
 import cc.commands.login;
 import cc.commands.model;
 import cc.commands.rewind;
+import cc.commands.plugin_cmd;
+import cc.commands.plugin_ui_data;
+import cc.commands.plugin_parse_args;
 import cc.utils.error;
 import cc.utils.json;
 
@@ -767,4 +770,158 @@ TEST(Insights, CommandExecuteWithNoSessionsIsGraceful) {
     ASSERT_TRUE(res.has_value());
     EXPECT_TRUE(res->ok);
     EXPECT_NE(res->message.find("No sessions found"), std::string::npos);
+}
+
+// ============================================================================
+// Plugin command — behavioural parity with TS src/commands/plugin/.
+// TS REF: PluginSettings.tsx getInitialViewState / PluginSettings render.
+// Interactive subcommands open the tabbed dialog with NO intermediate text;
+// they only emit the "UI:plugins:<view>" spawn metadata.
+// ============================================================================
+
+TEST(PluginCommand, DefinitionExposesNameAliasesAndCategory) {
+    auto def = cc::commands::PluginCommand::definition();
+    EXPECT_EQ(def.name, "plugin");
+    EXPECT_EQ(def.category, "tools");
+    ASSERT_EQ(def.aliases.size(), 2u);
+    EXPECT_EQ(def.aliases[0], "plugins");
+    EXPECT_EQ(def.aliases[1], "marketplace");
+    EXPECT_FALSE(def.hidden);
+}
+
+TEST(PluginCommand, ValidateAcceptsKnownSubcommandsAndRejectsUnknown) {
+    cc::commands::PluginCommand cmd;
+    EXPECT_TRUE(cmd.validate(ctx({})).has_value());
+    EXPECT_TRUE(cmd.validate(ctx({"help"})).has_value());
+    EXPECT_TRUE(cmd.validate(ctx({"install"})).has_value());
+    EXPECT_TRUE(cmd.validate(ctx({"manage"})).has_value());
+    EXPECT_TRUE(cmd.validate(ctx({"marketplace"})).has_value());
+    EXPECT_TRUE(cmd.validate(ctx({"validate"})).has_value());
+    EXPECT_FALSE(cmd.validate(ctx({"bogus"})).has_value());
+}
+
+TEST(PluginCommand, NoArgsOpensDiscoverTabWithNoIntermediateText) {
+    HomeGuard guard;
+    cc::commands::PluginCommand cmd;
+    auto r = cmd.execute(ctx({}));
+    ASSERT_TRUE(r.has_value());
+    EXPECT_TRUE(r->ok);
+    // TS: bare `/plugin` routes straight to the Discover tab — no text.
+    EXPECT_TRUE(r->message.empty());
+    ASSERT_TRUE(r->metadata.has_value());
+    EXPECT_EQ(*r->metadata, "UI:plugins:discover-plugins");
+}
+
+TEST(PluginCommand, UnknownSubcommandRoutesToDiscoverTab) {
+    HomeGuard guard;
+    cc::commands::PluginCommand cmd;
+    auto r = cmd.execute(ctx({"nope"}));
+    ASSERT_TRUE(r.has_value());
+    EXPECT_TRUE(r->message.empty());
+    ASSERT_TRUE(r->metadata.has_value());
+    EXPECT_EQ(*r->metadata, "UI:plugins:discover-plugins");
+}
+
+TEST(PluginCommand, HelpUsesHyphensNotEmDashesLikeTypeScript) {
+    cc::commands::PluginCommand cmd;
+    auto r = cmd.execute(ctx({"help"}));
+    ASSERT_TRUE(r.has_value());
+    EXPECT_NE(r->message.find("Plugin Command Usage"), std::string::npos);
+    // TS help text uses plain hyphens; em-dashes (—) would be a divergence.
+    EXPECT_EQ(r->message.find("\xe2\x80\x94"), std::string::npos);
+    EXPECT_NE(r->message.find("- Browse and install plugins"), std::string::npos);
+}
+
+TEST(PluginCommand, HelpHelpAliasAndFlagsAllRenderHelp) {
+    cc::commands::PluginCommand cmd;
+    for (const auto& tok : {"help", "--help", "-h"}) {
+        auto r = cmd.execute(ctx({tok}));
+        ASSERT_TRUE(r.has_value());
+        EXPECT_NE(r->message.find("Plugin Command Usage"), std::string::npos);
+    }
+}
+
+TEST(PluginCommand, ManageOpensInstalledTabWithNoTextList) {
+    HomeGuard guard;
+    cc::commands::PluginCommand cmd;
+    auto r = cmd.execute(ctx({"manage"}));
+    ASSERT_TRUE(r.has_value());
+    EXPECT_TRUE(r->ok);
+    // TS: `/plugin manage` opens the Installed tab directly — no text list.
+    EXPECT_TRUE(r->message.empty());
+    ASSERT_TRUE(r->metadata.has_value());
+    EXPECT_EQ(*r->metadata, "UI:plugins:manage-plugins");
+}
+
+TEST(PluginCommand, BareInstallOpensDiscoverTab) {
+    HomeGuard guard;
+    cc::commands::PluginCommand cmd;
+    auto r = cmd.execute(ctx({"install"}));
+    ASSERT_TRUE(r.has_value());
+    EXPECT_TRUE(r->ok);
+    EXPECT_TRUE(r->message.empty());
+    ASSERT_TRUE(r->metadata.has_value());
+    EXPECT_EQ(*r->metadata, "UI:plugins:discover-plugins");
+}
+
+TEST(PluginCommand, InstallMarketplaceOpensBrowseScopedToMarketplace) {
+    HomeGuard guard;
+    cc::commands::PluginCommand cmd;
+    // classify_marketplace_input takes the last URL path component as the
+    // normalized marketplace name.
+    auto r = cmd.execute(ctx({"install", "https://example.com/acme-marketplace"}));
+    ASSERT_TRUE(r.has_value());
+    EXPECT_TRUE(r->ok);
+    EXPECT_TRUE(r->message.empty());
+    ASSERT_TRUE(r->metadata.has_value());
+    EXPECT_EQ(*r->metadata, "UI:plugins:browse-marketplace:acme-marketplace");
+}
+
+TEST(PluginCommand, InstallPluginNameIsParsedAsPluginNotMarketplace) {
+    // A bare plugin name (no scheme, no slash) is classified as a plugin
+    // (not a marketplace), so it targets the Discover tab with that plugin
+    // pre-selected — mirroring TS getInitialViewState('install', plugin).
+    // We verify the routing contract via the install-with-marketplace branch
+    // below; here we only assert the parser distinguishes plugin vs marketplace.
+    namespace pp = cc::commands::plugin;
+    auto parsed = pp::parse_plugin_args("install my-cool-plugin");
+    EXPECT_EQ(parsed.type, pp::SubcommandType::Install);
+    EXPECT_TRUE(parsed.plugin_name.has_value());
+    EXPECT_EQ(*parsed.plugin_name, "my-cool-plugin");
+    EXPECT_FALSE(parsed.marketplace.has_value());
+}
+
+TEST(PluginCommand, ValidateWithNoPathPrintsUsage) {
+    cc::commands::PluginCommand cmd;
+    auto r = cmd.execute(ctx({"validate"}));
+    ASSERT_TRUE(r.has_value());
+    EXPECT_NE(r->message.find("Usage: /plugin validate <path>"), std::string::npos);
+}
+
+TEST(PluginCommand, MarketplaceNoActionOpensMarketplacesTab) {
+    HomeGuard guard;
+    cc::commands::PluginCommand cmd;
+    auto r = cmd.execute(ctx({"marketplace"}));
+    ASSERT_TRUE(r.has_value());
+    EXPECT_TRUE(r->ok);
+    EXPECT_TRUE(r->message.empty());
+    ASSERT_TRUE(r->metadata.has_value());
+    EXPECT_EQ(*r->metadata, "UI:plugins:manage-marketplaces");
+}
+
+TEST(PluginCommand, EnableDisableUninstallWithoutTargetRouteToInstalledTab) {
+    HomeGuard guard;
+    cc::commands::PluginCommand cmd;
+    for (const auto& tok : {"enable", "disable", "uninstall"}) {
+        auto r = cmd.execute(ctx({tok}));
+        ASSERT_TRUE(r.has_value());
+        ASSERT_TRUE(r->metadata.has_value());
+        EXPECT_EQ(r->metadata->find("UI:plugins:manage-plugins"), 0u);
+    }
+}
+
+TEST(PluginCommand, CompletionSuggestsSubcommands) {
+    cc::commands::PluginCommand cmd;
+    auto c = cmd.complete("in");
+    EXPECT_NE(std::find(c.begin(), c.end(), "install"), c.end());
 }

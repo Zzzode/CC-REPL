@@ -3,7 +3,7 @@
 ///        routing.  Consumes pure data-prep from Phase 2 C1/A1 only.
 ///
 /// View states covered:
-///   - ViewKind::Menu                 5-card main dashboard
+///   - ViewKind::DiscoverPlugins      (delegates → plugin_marketplace_browse)
 ///   - ViewKind::ManagePlugins        (delegates → plugin_manage_panel)
 ///   - ViewKind::BrowseMarketplace    (delegates → plugin_marketplace_browse)
 ///   - ViewKind::DiscoverPlugins      (delegates → plugin_marketplace_browse)
@@ -136,16 +136,6 @@ using pf::ErrorKind;
 // 1.  Type bridge — Phase 2 data → display-ready aliases
 // =========================================================================
 
-/// Main-menu card definition (5 cards total).
-struct MenuCard {
-    std::string icon;
-    std::string title;
-    std::string subtitle;
-    Color       accent;
-    ViewKind    target;
-    std::string hotkey;
-};
-
 /// Top-level plugin dialog options (inputs come from C1 data-prep).
 struct PluginDialogInputs {
     ViewState initial_view;
@@ -180,36 +170,6 @@ struct PluginDialogInputs {
 // =========================================================================
 
 namespace detail {
-
-/// 5 dashboard cards — mirror of TS PluginSettings.tsx main menu.
-inline std::vector<MenuCard> k_menu_cards = {
-    {"📦", "Installed",    "Manage, enable, disable",      Color::Cyan,    ViewKind::ManagePlugins,      "1"},
-    {"🛒", "Marketplace",  "Browse plugins in markets",    Color::Magenta, ViewKind::BrowseMarketplace,  "2"},
-    {"✨", "Discover",     "Trending and recommended",    Color::Yellow,  ViewKind::DiscoverPlugins,    "3"},
-    {"⚙️", "Settings",     "Global plugin settings",       Color::Blue,    ViewKind::ManageMarketplaces, "4"},
-    {"✅", "Validate",     "Check a manifest",             Color::Green,   ViewKind::Validate,           "5"},
-};
-
-/// Render a single menu card (selected when highlighted).
-[[nodiscard]] inline Element RenderMenuCard(const MenuCard& c, bool selected) {
-    auto body = vbox({
-        hbox({
-            text(c.icon),
-            text(" "),
-            text(c.title) | bold | color(c.accent),
-            filler(),
-            text("[" + c.hotkey + "]") | dim | color(c.accent),
-        }),
-        text("  " + c.subtitle) | dim,
-    }) | padding(1, 0, 1, 0);
-
-    if (selected) {
-        body = body | border | bgcolor(Color::RGB(25, 30, 45)) | color(c.accent);
-    } else {
-        body = body | borderLight | dim;
-    }
-    return body;
-}
 
 /// Render a chip/tag pill.
 [[nodiscard]] inline Element Chip(std::string_view label, Color c = Color::Cyan) {
@@ -263,52 +223,7 @@ inline std::vector<MenuCard> k_menu_cards = {
 //     live in ui/plugins/* which import this module)
 // =========================================================================
 
-// ── 3a.  Main menu (5 cards) ─────────────────────────────────────────────
-
-/// Render the 5-card dashboard.  `selected` is the 0..4 card index.
-[[nodiscard]] inline Element RenderMainMenu(int selected) {
-    Elements rows;
-    rows.push_back(hbox({
-        text(" 🧩  Plugin Manager ") | bold | color(Color::Magenta),
-        filler(),
-        text("Select a section below") | dim,
-    }));
-    rows.push_back(separator());
-
-    // Top row: 3 cards
-    Elements top_row;
-    for (int i = 0; i < 3; ++i) {
-        top_row.push_back(detail::RenderMenuCard(detail::k_menu_cards[i], i == selected) | flex);
-        if (i < 2) top_row.push_back(text("  "));
-    }
-    rows.push_back(hbox(std::move(top_row)));
-
-    rows.push_back(text(""));
-
-    // Bottom row: 2 cards, centered
-    Elements bot_row;
-    bot_row.push_back(filler());
-    for (int i = 3; i < 5; ++i) {
-        bot_row.push_back(detail::RenderMenuCard(detail::k_menu_cards[i], i == selected) | size(WIDTH, GREATER_THAN, 30));
-        if (i < 4) bot_row.push_back(text("  "));
-    }
-    bot_row.push_back(filler());
-    rows.push_back(hbox(std::move(bot_row)));
-
-    rows.push_back(text(""));
-    rows.push_back(hbox({
-        text(" ↑/↓") | bold | color(Color::Cyan), text(" navigate  "),
-        text("⏎") | bold | color(Color::Cyan), text(" open  "),
-        text("1-5") | bold | color(Color::Cyan), text(" quick-jump  "),
-        text("Esc") | bold | color(Color::Cyan), text(" close"),
-        filler(),
-        text("/plugin help") | dim,
-    }) | dim);
-
-    return vbox(std::move(rows));
-}
-
-// ── 3b.  Help view ───────────────────────────────────────────────────────
+// ── 3a.  Help view ───────────────────────────────────────────────────────
 
 /// Render the static help block (verbatim k_plugin_help_text).
 [[nodiscard]] inline Element RenderHelp() {
@@ -490,7 +405,6 @@ inline std::vector<MenuCard> k_menu_cards = {
 /// Render the full dialog chrome — wraps the active sub-view.
 [[nodiscard]] inline Element RenderPluginDialogChrome(
     Element sub_view,
-    ViewKind active_kind,
     TabId active_tab)
 {
     // Top tab bar (4 tabs)
@@ -513,7 +427,6 @@ inline std::vector<MenuCard> k_menu_cards = {
         text(" 🧩 ") | color(Color::Magenta),
         hbox(std::move(tab_bits)),
         filler(),
-        text(std::format("view: {}", ui::view_kind_name(active_kind))) | dim,
     });
 
     return vbox({
@@ -532,9 +445,6 @@ struct PluginDialogState {
     ViewKind           active_kind;
     TabId              active_tab;
 
-    // ── Menu navigation ──────────────────────────────────────────────────
-    int menu_selected = 0;
-
     // ── Errors list ─────────────────────────────────────────────────────
     int errors_selected = 0;
 
@@ -546,6 +456,310 @@ struct PluginDialogState {
     bool install_flow_active = false;
 };
 
+/// Interactive component that composes the active sub-panel (browse, manage,
+/// settings, …) into the component tree so the panel's own CatchEvent handler
+/// receives navigation events.  The previous implementation called
+/// `->Render()` on each sub-component, which extracted only the Element and
+/// discarded the Component (and its event handler) — so up/down selection,
+/// Tab, Enter, etc. were all dead.
+struct PluginDialogComponent : public ComponentBase {
+    std::shared_ptr<PluginDialogState> state;
+    Component active_panel_;
+    Component install_panel_;
+
+    // Change-detection for lazy panel rebuild (Render() is called every
+    // frame; OnEvent mutates state from within nested handlers).
+    ViewKind last_active_kind_ = ViewKind::Help;
+    bool     last_install_flow_ = false;
+
+    explicit PluginDialogComponent(std::shared_ptr<PluginDialogState> s)
+        : state(std::move(s))
+    {
+        last_active_kind_ = state->active_kind;
+        RebuildActivePanel();
+    }
+
+    // ── Panel builders ───────────────────────────────────────────────────
+
+    /// Build the active sub-panel Component based on active_kind.
+    [[nodiscard]] Component BuildActivePanel() {
+        switch (state->active_kind) {
+
+        case ViewKind::Help:
+            return Renderer([st = state]() { return RenderHelp(); });
+
+        case ViewKind::Menu:
+        case ViewKind::MarketplaceMenu:
+        case ViewKind::DiscoverPlugins:
+        case ViewKind::BrowseMarketplace:
+        case ViewKind::MarketplaceList: {
+            plugin_browse::BrowsePanelInputs browse;
+            browse.initial_subtab =
+                (state->active_kind == ViewKind::DiscoverPlugins)
+                    ? plugin_browse::SubTab::Discover
+                    : plugin_browse::SubTab::Browse;
+            browse.marketplaces = state->inputs.marketplaces;
+            browse.discover_empty = state->inputs.discover_empty;
+            browse.discover_empty_reason = state->inputs.discover_empty_reason;
+            browse.target_marketplace =
+                state->inputs.initial_view.target_marketplace;
+            browse.target_plugin =
+                state->inputs.initial_view.target_plugin;
+            for (const auto& plugin : state->inputs.discover_plugins) {
+                browse.discover_cards.push_back(ToPluginCardData(plugin));
+            }
+            browse.marketplace_cards.resize(browse.marketplaces.size());
+            for (std::size_t i = 0; i < browse.marketplaces.size(); ++i) {
+                for (const auto& plugin : state->inputs.discover_plugins) {
+                    if (plugin.marketplace_name == browse.marketplaces[i].name) {
+                        browse.marketplace_cards[i].push_back(
+                            ToPluginCardData(plugin));
+                    }
+                }
+            }
+            browse.on_install = [this](std::string_view plugin_id) {
+                // Install → switch to ManagePlugins tab.
+                state->active_kind = ViewKind::ManagePlugins;
+                state->active_tab  = TabId::Installed;
+                if (state->inputs.on_navigate) {
+                    ViewState next;
+                    next.kind = ViewKind::ManagePlugins;
+                    next.target_plugin = std::string(plugin_id);
+                    next.action = TargetAction::None;
+                    state->inputs.on_navigate(next);
+                }
+            };
+            browse.on_close = [this] {
+                if (state->inputs.on_close) state->inputs.on_close();
+            };
+            return plugin_browse::MakeBrowsePanel(std::move(browse));
+        }
+
+        case ViewKind::ManagePlugins: {
+            plugin_manage::ManagePanelInputs manage;
+            manage.installed = state->inputs.installed_plugins;
+            manage.target_plugin =
+                state->inputs.initial_view.target_plugin;
+            manage.preselect_action = state->inputs.initial_view.action;
+            manage.on_navigate = state->inputs.on_navigate;
+            manage.on_install_new = [this] {
+                state->install_flow_active = true;
+            };
+            return plugin_manage::MakeManagePanel(std::move(manage));
+        }
+
+        case ViewKind::ManageMarketplaces: {
+            plugin_settings::SettingsDialogInputs settings;
+            for (const auto& plugin : state->inputs.installed_plugins) {
+                settings.per_plugin.push_back(ToPluginSettings(plugin));
+            }
+            settings.focus_plugin_id =
+                state->inputs.initial_view.target_plugin;
+            settings.on_close = [this] {
+                if (state->inputs.on_close) state->inputs.on_close();
+            };
+            return plugin_settings::MakePluginSettingsDialog(
+                std::move(settings));
+        }
+
+        case ViewKind::Validate:
+            return Renderer([st = state]() {
+                return RenderValidate(st->inputs.validate_path,
+                                      st->inputs.validate_ok,
+                                      st->inputs.validate_messages);
+            });
+
+        case ViewKind::Errors:
+            return Renderer([st = state]() {
+                return RenderErrorsTab(st->inputs.error_rows,
+                                       st->errors_selected);
+            });
+
+        case ViewKind::AddMarketplace:
+            return Renderer([st = state]() {
+                const bool valid = !st->add_mp_value.empty() &&
+                                   st->add_mp_value.size() >= 4;
+                return RenderAddMarketplace(st->add_mp_value, valid, "");
+            });
+
+        } // switch
+        return Renderer([]() { return text(""); });
+    }
+
+    /// Build the install-wizard panel (when install_flow_active).
+    void RebuildInstallPanel() {
+        if (install_panel_) install_panel_->Detach();
+        // Detach the active panel so only the wizard receives events.
+        if (active_panel_) { active_panel_->Detach(); active_panel_ = Component(); }
+        plugin_install::InstallFlowInputs install;
+        install.prepare_review = [](const plugin_install::SourceStepData& source,
+                                    plugin_install::ReviewStepData& review) {
+            review.name = source.plugin_id.empty() ? "Plugin" : source.plugin_id;
+            review.version = "latest";
+            review.install_scope = "user";
+        };
+        install.prepare_trust = [](const plugin_install::ReviewStepData& review,
+                                   plugin_install::TrustStepData& trust) {
+            trust.is_verified = true;
+            trust.has_signature = true;
+            trust.permissions = review.permissions;
+        };
+        install.poll_progress = [](plugin_install::InstallProgressData& progress) {
+            if (progress.stage == plugin_install::InstallStage::Pending) {
+                progress.stage = plugin_install::InstallStage::Complete;
+                progress.percent = 100;
+                progress.stage_label = "Complete";
+                return true;
+            }
+            return false;
+        };
+        install.on_cancel = [this] {
+            state->install_flow_active = false;
+        };
+        install.on_complete = [this](const plugin_install::CompleteStepData&) {
+            state->install_flow_active = false;
+            state->active_kind = ViewKind::ManagePlugins;
+        };
+        install_panel_ = plugin_install::MakeInstallWizard(std::move(install));
+        if (install_panel_) Add(install_panel_);
+    }
+
+    /// Rebuild the active panel (called when active_kind changes).
+    void RebuildActivePanel() {
+        if (active_panel_) active_panel_->Detach();
+        active_panel_ = BuildActivePanel();
+        if (active_panel_) Add(active_panel_);
+        last_active_kind_ = state->active_kind;
+    }
+
+    // ── Render ───────────────────────────────────────────────────────────
+
+    Element Render() override {
+        // Detect install-flow transitions and rebuild panels accordingly.
+        if (state->install_flow_active != last_install_flow_) {
+            last_install_flow_ = state->install_flow_active;
+            if (state->install_flow_active) {
+                RebuildInstallPanel();
+            } else {
+                if (install_panel_) { install_panel_->Detach(); install_panel_ = Component(); }
+                // active_kind may have changed (e.g. ManagePlugins after
+                // install complete).
+                RebuildActivePanel();
+            }
+        }
+        // Detect view transitions (e.g. Errors → Navigate target).
+        if (!state->install_flow_active &&
+            state->active_kind != last_active_kind_) {
+            RebuildActivePanel();
+        }
+
+        if (state->install_flow_active && install_panel_) {
+            Element sub = install_panel_->Render();
+            return RenderPluginDialogChrome(std::move(sub), state->active_tab);
+        }
+
+        Element sub = active_panel_ ? active_panel_->Render() : text("");
+        return RenderPluginDialogChrome(std::move(sub), state->active_tab);
+    }
+
+    // ── Event handling ───────────────────────────────────────────────────
+
+    bool OnEvent(Event event) override {
+        // Global Esc → close the dialog.
+        if (event == Event::Escape) {
+            if (state->inputs.on_close) state->inputs.on_close();
+            return true;
+        }
+
+        // Global: h (help toggle)
+        if (event == Event::Character('h') || event == Event::Character('H')) {
+            if (state->active_kind == ViewKind::Help) {
+                // Return to previous view — fall back to Discover.
+                state->active_kind = ViewKind::DiscoverPlugins;
+            } else {
+                state->active_kind = ViewKind::Help;
+            }
+            RebuildActivePanel();
+            return true;
+        }
+
+        // Install flow active → dispatch to the wizard panel.
+        if (state->install_flow_active && install_panel_) {
+            return ComponentBase::OnEvent(event);
+        }
+
+        // ── View-specific handlers (Errors, AddMarketplace) ──────────────
+        //    These need PluginDialogState fields, so they stay here rather
+        //    than in the sub-panels.
+        switch (state->active_kind) {
+
+        case ViewKind::Errors: {
+            const int n = (int)state->inputs.error_rows.size();
+            if (event == Event::ArrowUp || event == Event::Character('k')) {
+                state->errors_selected = std::max(0, state->errors_selected - 1);
+                return true;
+            }
+            if (event == Event::ArrowDown || event == Event::Character('j')) {
+                state->errors_selected = std::min(std::max(0, n - 1),
+                                                   state->errors_selected + 1);
+                return true;
+            }
+            if (event == Event::Return && n > 0) {
+                const auto& row = state->inputs.error_rows[state->errors_selected];
+                if (row.action_kind == ErrorActionKind::Navigate &&
+                    row.nav_view.has_value())
+                {
+                    state->active_kind = *row.nav_view;
+                    state->active_tab  = row.nav_tab.value_or(
+                        ui::initial_tab_for(*row.nav_view));
+                    RebuildActivePanel();
+                    if (state->inputs.on_navigate) {
+                        ViewState vs;
+                        vs.kind = *row.nav_view;
+                        vs.target_plugin = row.nav_target_plugin;
+                        vs.target_marketplace = row.nav_target_marketplace;
+                        vs.action = row.nav_action;
+                        state->inputs.on_navigate(vs);
+                    }
+                }
+                return true;
+            }
+            return false;
+        }
+
+        case ViewKind::AddMarketplace: {
+            if (event.is_character()) {
+                state->add_mp_value.push_back(event.character()[0]);
+                return true;
+            }
+            if (event == Event::Backspace && !state->add_mp_value.empty()) {
+                state->add_mp_value.pop_back();
+                return true;
+            }
+            if (event == Event::Return && !state->add_mp_value.empty()) {
+                if (state->inputs.on_navigate) {
+                    ViewState vs;
+                    vs.kind = ViewKind::ManageMarketplaces;
+                    vs.add_initial_value = state->add_mp_value;
+                    state->inputs.on_navigate(vs);
+                }
+                state->active_kind = ViewKind::ManageMarketplaces;
+                RebuildActivePanel();
+                return true;
+            }
+            return false;
+        }
+
+        default:
+            break;
+        }
+
+        // Dispatch everything else to the active sub-panel (browse, manage,
+        // settings, …) so its CatchEvent handler processes navigation.
+        return ComponentBase::OnEvent(event);
+    }
+};
+
 /// Build the top-level plugin dialog component.
 /// Sub-views (Manage / Browse / Install / Settings) are produced by sibling
 /// factory functions in cc::ui::plugins:: — this router composes them.
@@ -553,6 +767,12 @@ struct PluginDialogState {
     auto state = std::make_shared<PluginDialogState>();
     state->inputs = std::move(inputs);
     state->active_kind = state->inputs.initial_view.kind;
+    // TS reference has no 5-card dashboard — it goes straight to tab navigation.
+    // Normalize legacy menu view-kinds to the Discover tab.
+    if (state->active_kind == ViewKind::Menu ||
+        state->active_kind == ViewKind::MarketplaceMenu) {
+        state->active_kind = ViewKind::DiscoverPlugins;
+    }
     state->active_tab  = ui::initial_tab_for(state->active_kind);
 
     // Pre-fill add-marketplace if routed with an initial value.
@@ -560,279 +780,7 @@ struct PluginDialogState {
         state->add_mp_value = *state->inputs.add_marketplace_initial;
     }
 
-    return Renderer([state] {
-        if (state->install_flow_active) {
-            plugin_install::InstallFlowInputs install;
-            install.prepare_review = [](const plugin_install::SourceStepData& source,
-                                        plugin_install::ReviewStepData& review) {
-                review.name = source.plugin_id.empty() ? "Plugin" : source.plugin_id;
-                review.version = "latest";
-                review.install_scope = "user";
-            };
-            install.prepare_trust = [](const plugin_install::ReviewStepData& review,
-                                       plugin_install::TrustStepData& trust) {
-                trust.is_verified = true;
-                trust.has_signature = true;
-                trust.permissions = review.permissions;
-            };
-            install.poll_progress = [](plugin_install::InstallProgressData& progress) {
-                if (progress.stage == plugin_install::InstallStage::Pending) {
-                    progress.stage = plugin_install::InstallStage::Complete;
-                    progress.percent = 100;
-                    progress.stage_label = "Complete";
-                    return true;
-                }
-                return false;
-            };
-            install.on_cancel = [state] {
-                state->install_flow_active = false;
-            };
-            install.on_complete = [state](const plugin_install::CompleteStepData&) {
-                state->install_flow_active = false;
-                state->active_kind = ViewKind::ManagePlugins;
-            };
-            Element sub = plugin_install::MakeInstallWizard(std::move(install))->Render();
-            return RenderPluginDialogChrome(std::move(sub), state->active_kind, state->active_tab);
-        }
-
-        Element sub;
-        switch (state->active_kind) {
-            case ViewKind::Menu:
-            case ViewKind::MarketplaceMenu:
-                sub = RenderMainMenu(state->menu_selected);
-                break;
-
-            case ViewKind::Help:
-                sub = RenderHelp();
-                break;
-
-            case ViewKind::DiscoverPlugins:
-            case ViewKind::BrowseMarketplace: {
-                plugin_browse::BrowsePanelInputs browse;
-                browse.initial_subtab = state->active_kind == ViewKind::DiscoverPlugins
-                    ? plugin_browse::SubTab::Discover
-                    : plugin_browse::SubTab::Browse;
-                browse.marketplaces = state->inputs.marketplaces;
-                browse.discover_empty = state->inputs.discover_empty;
-                browse.discover_empty_reason = state->inputs.discover_empty_reason;
-                browse.target_marketplace = state->inputs.initial_view.target_marketplace;
-                browse.target_plugin = state->inputs.initial_view.target_plugin;
-                for (const auto& plugin : state->inputs.discover_plugins) {
-                    browse.discover_cards.push_back(ToPluginCardData(plugin));
-                }
-                browse.marketplace_cards.resize(browse.marketplaces.size());
-                for (std::size_t i = 0; i < browse.marketplaces.size(); ++i) {
-                    for (const auto& plugin : state->inputs.discover_plugins) {
-                        if (plugin.marketplace_name == browse.marketplaces[i].name) {
-                            browse.marketplace_cards[i].push_back(ToPluginCardData(plugin));
-                        }
-                    }
-                }
-                browse.on_install = [state](std::string_view plugin_id) {
-                    if (state->inputs.on_navigate) {
-                        ViewState next;
-                        next.kind = ViewKind::ManagePlugins;
-                        next.target_plugin = std::string(plugin_id);
-                        next.action = TargetAction::None;
-                        state->inputs.on_navigate(next);
-                    }
-                };
-                browse.on_close = [state] {
-                    state->active_kind = ViewKind::Menu;
-                };
-                sub = plugin_browse::MakeBrowsePanel(std::move(browse))->Render();
-                break;
-            }
-            case ViewKind::ManagePlugins:
-                {
-                    plugin_manage::ManagePanelInputs manage;
-                    manage.installed = state->inputs.installed_plugins;
-                    manage.target_plugin = state->inputs.initial_view.target_plugin;
-                    manage.preselect_action = state->inputs.initial_view.action;
-                    manage.on_navigate = state->inputs.on_navigate;
-                    manage.on_install_new = [state] {
-                        state->install_flow_active = true;
-                    };
-                    sub = plugin_manage::MakeManagePanel(std::move(manage))->Render();
-                }
-                break;
-
-            case ViewKind::ManageMarketplaces:
-                {
-                    plugin_settings::SettingsDialogInputs settings;
-                    for (const auto& plugin : state->inputs.installed_plugins) {
-                        settings.per_plugin.push_back(ToPluginSettings(plugin));
-                    }
-                    settings.focus_plugin_id = state->inputs.initial_view.target_plugin;
-                    settings.on_close = [state] {
-                        state->active_kind = ViewKind::Menu;
-                    };
-                    sub = plugin_settings::MakePluginSettingsDialog(std::move(settings))->Render();
-                }
-                break;
-
-            case ViewKind::Validate:
-                sub = RenderValidate(state->inputs.validate_path,
-                                     state->inputs.validate_ok,
-                                     state->inputs.validate_messages);
-                break;
-
-            case ViewKind::Errors:
-                sub = RenderErrorsTab(state->inputs.error_rows, state->errors_selected);
-                break;
-
-            case ViewKind::AddMarketplace: {
-                const bool valid = !state->add_mp_value.empty() &&
-                                   state->add_mp_value.size() >= 4;
-                sub = RenderAddMarketplace(state->add_mp_value, valid, "");
-                break;
-            }
-
-            case ViewKind::MarketplaceList:
-                {
-                    plugin_browse::BrowsePanelInputs browse;
-                    browse.initial_subtab = plugin_browse::SubTab::Browse;
-                    browse.marketplaces = state->inputs.marketplaces;
-                    browse.on_close = [state] {
-                        state->active_kind = ViewKind::Menu;
-                    };
-                    sub = plugin_browse::MakeBrowsePanel(std::move(browse))->Render();
-                }
-                break;
-        }
-
-        return RenderPluginDialogChrome(std::move(sub), state->active_kind, state->active_tab);
-
-    }) | CatchEvent([state](Event event) -> bool {
-        // Global Esc → close / back
-        if (event == Event::Escape) {
-            if (state->active_kind == ViewKind::Menu) {
-                if (state->inputs.on_close) state->inputs.on_close();
-                return true;
-            }
-            // Go back to main menu
-            state->active_kind = ViewKind::Menu;
-            state->active_tab  = ui::initial_tab_for(state->active_kind);
-            return true;
-        }
-
-        // Global: h (help)
-        if (event == Event::Character('h') || event == Event::Character('H')) {
-            state->active_kind = ViewKind::Help;
-            return true;
-        }
-
-        // Global: digit 1-5 → menu card quick-jump
-        if (event.is_character()) {
-            const char ch = event.character()[0];
-            if (ch >= '1' && ch <= '5') {
-                int idx = ch - '1';
-                if (idx < (int)detail::k_menu_cards.size()) {
-                    auto target = detail::k_menu_cards[idx].target;
-                    state->active_kind = target;
-                    state->active_tab  = ui::initial_tab_for(target);
-                    if (state->inputs.on_navigate) {
-                        ViewState vs; vs.kind = target;
-                        state->inputs.on_navigate(vs);
-                    }
-                    return true;
-                }
-            }
-        }
-
-        // ── View-specific handlers ────────────────────────────────────────
-        switch (state->active_kind) {
-            case ViewKind::Menu:
-            case ViewKind::MarketplaceMenu: {
-                if (event == Event::ArrowUp || event == Event::Character('k')) {
-                    state->menu_selected = std::max(0, state->menu_selected - 1);
-                    return true;
-                }
-                if (event == Event::ArrowDown || event == Event::Character('j')) {
-                    state->menu_selected = std::min(
-                        (int)detail::k_menu_cards.size() - 1, state->menu_selected + 1);
-                    return true;
-                }
-                if (event == Event::ArrowLeft || event == Event::ArrowRight) {
-                    int delta = (event == Event::ArrowRight) ? 1 : -1;
-                    state->menu_selected = std::clamp(
-                        state->menu_selected + delta, 0,
-                        (int)detail::k_menu_cards.size() - 1);
-                    return true;
-                }
-                if (event == Event::Return) {
-                    auto target = detail::k_menu_cards[state->menu_selected].target;
-                    state->active_kind = target;
-                    state->active_tab  = ui::initial_tab_for(target);
-                    if (state->inputs.on_navigate) {
-                        ViewState vs; vs.kind = target;
-                        state->inputs.on_navigate(vs);
-                    }
-                    return true;
-                }
-                return false;
-            }
-
-            case ViewKind::Errors: {
-                const int n = (int)state->inputs.error_rows.size();
-                if (event == Event::ArrowUp || event == Event::Character('k')) {
-                    state->errors_selected = std::max(0, state->errors_selected - 1);
-                    return true;
-                }
-                if (event == Event::ArrowDown || event == Event::Character('j')) {
-                    state->errors_selected = std::min(std::max(0, n - 1),
-                                                       state->errors_selected + 1);
-                    return true;
-                }
-                if (event == Event::Return && n > 0) {
-                    const auto& row = state->inputs.error_rows[state->errors_selected];
-                    if (row.action_kind == ErrorActionKind::Navigate &&
-                        row.nav_view.has_value())
-                    {
-                        state->active_kind = *row.nav_view;
-                        state->active_tab  = row.nav_tab.value_or(
-                            ui::initial_tab_for(*row.nav_view));
-                        if (state->inputs.on_navigate) {
-                            ViewState vs;
-                            vs.kind = *row.nav_view;
-                            vs.target_plugin = row.nav_target_plugin;
-                            vs.target_marketplace = row.nav_target_marketplace;
-                            vs.action = row.nav_action;
-                            state->inputs.on_navigate(vs);
-                        }
-                    }
-                    return true;
-                }
-                return false;
-            }
-
-            case ViewKind::AddMarketplace: {
-                if (event.is_character()) {
-                    state->add_mp_value.push_back(event.character()[0]);
-                    return true;
-                }
-                if (event == Event::Backspace && !state->add_mp_value.empty()) {
-                    state->add_mp_value.pop_back();
-                    return true;
-                }
-                if (event == Event::Return && !state->add_mp_value.empty()) {
-                    if (state->inputs.on_navigate) {
-                        ViewState vs;
-                        vs.kind = ViewKind::ManageMarketplaces;
-                        vs.add_initial_value = state->add_mp_value;
-                        state->inputs.on_navigate(vs);
-                    }
-                    state->active_kind = ViewKind::ManageMarketplaces;
-                    return true;
-                }
-                return false;
-            }
-
-            default:
-                return false;
-        }
-        return false;
-    });
+    return std::make_shared<PluginDialogComponent>(std::move(state));
 }
 
 } // namespace cc::ui::dialogs::plugin_dialog

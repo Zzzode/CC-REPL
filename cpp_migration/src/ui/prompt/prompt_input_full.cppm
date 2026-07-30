@@ -17,6 +17,7 @@ import cc.ui.layout;
 import cc.ui.prompt_input;
 import cc.ui.design.figures;
 import cc.ui.common.types;  // unified PromptInputMode canonical enum
+import cc.ui.prompt.mode_indicator;  // TS REF: PromptInputModeIndicator.tsx — 3-way prefix glyph
 
 export namespace cc::ui::prompt {
 
@@ -98,21 +99,10 @@ struct NotificationState {
     std::chrono::steady_clock::time_point expires_at;
 };
 
-// --- Permission mode ---
-enum class PermissionMode {
-    Default,
-    AcceptEdits,
-    AcceptAll,
-    Plan
-};
-
-// --- Effort level ---
-enum class EffortLevel {
-    Low,
-    Medium,
-    High,
-    Auto
-};
+// --- Permission mode & Effort level ---
+// Canonical definitions live in cc::ui::common (ui_types.cppm).
+using cc::ui::common::PermissionMode;
+using cc::ui::common::EffortLevel;
 
 // --- Prompt suggestion state ---
 struct PromptSuggestion {
@@ -349,6 +339,29 @@ struct PromptInputFullProps {
         for (const auto& item : props.context_items) {
             result += "  " + render_context_indicator(item) + "\n";
         }
+    }
+
+    // Prompt prefix glyph (TS REF: PromptInputModeIndicator.tsx — 3-way render)
+    //   1. viewingAgentName set  → ❯ with agent theme color
+    //   2. mode === 'bash'       → !  with bashBorder color
+    //   3. otherwise             → ❯ with teammate color (if swarms) or default
+    // CPP: active_agent maps to TS "viewingAgentName" (tints ❯ with that
+    // agent's color).  teammate_color comes from running_teammates[0].color
+    // (TS getTeammateColor() — only active when swarms enabled).  When neither
+    // is set, the prefix uses the terminal's default text color.
+    {
+        std::optional<std::string_view> viewing_agent_color = std::nullopt;
+        if (props.active_agent.has_value() && !props.active_agent->color.empty()) {
+            viewing_agent_color = std::string_view(props.active_agent->color);
+        }
+        std::optional<std::string_view> teammate_color = std::nullopt;
+        if (!props.running_teammates.empty() &&
+            !props.running_teammates.front().color.empty()) {
+            teammate_color = std::string_view(props.running_teammates.front().color);
+        }
+        result += mode_indicator::render_prefix_glyph_ansi(
+            props.mode, viewing_agent_color, teammate_color,
+            /*is_loading=*/false);
     }
 
     // Mode indicator badges + prompt prefix

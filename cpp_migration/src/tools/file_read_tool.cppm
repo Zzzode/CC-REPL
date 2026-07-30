@@ -28,6 +28,7 @@ import cc.services.image;
 import cc.tools.tool;
 import cc.tools.notebook;
 import cc.utils.json;
+import cc.skills.skill;
 
 export namespace cc::tools::file_read {
 
@@ -415,30 +416,48 @@ private:
                     std::format("Cannot read blocked path: {}", input.file_path.string())
                 );
             }
-            
+
             // Check if file exists
             if (!fs::exists(input.file_path)) {
                 return ToolResult::error(
                     std::format("File not found: {}", input.file_path.string())
                 );
             }
-            
+
+            // TS REF: src/tools/FileReadTool/FileReadTool.ts L579-590
+            // After reading a file, discover any skill directories it belongs to
+            // and activate conditional skills matching its path.
+            auto discover_skills_for_file = [&]() {
+                std::error_code ec;
+                auto cwd = fs::current_path(ec);
+                if (ec) cwd = input.file_path.parent_path();
+                cc::skills::notify_file_access(input.file_path, cwd);
+            };
+
             // Check file type
             if (is_image_file(input.file_path)) {
-                return read_image(input);
+                auto result = read_image(input);
+                if (result) discover_skills_for_file();
+                return result;
             }
-            
+
             if (is_pdf_file(input.file_path)) {
-                return read_pdf(input);
+                auto result = read_pdf(input);
+                if (result) discover_skills_for_file();
+                return result;
             }
-            
+
             if (is_notebook_file(input.file_path)) {
-                return read_notebook(input);
+                auto result = read_notebook(input);
+                if (result) discover_skills_for_file();
+                return result;
             }
-            
+
             // Default: read as text
-            return read_text(input);
-            
+            auto result = read_text(input);
+            if (result) discover_skills_for_file();
+            return result;
+
         } catch (const std::exception& e) {
             return ToolResult::error(std::format("Read error: {}", e.what()));
         }
