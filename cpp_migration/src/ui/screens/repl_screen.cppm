@@ -682,6 +682,15 @@ struct ReplScreenState {
     // that the renderer needs — populated by the engine/app layer).
     std::string settings_model;             // Configured default model
     std::string settings_agent_name;        // Configured settings.agent (TS getInitialSettings().agent)
+
+    // Bridge / remote-control footer projection (TS replBridge* AppState
+    // fields; projected from AppStore in SyncState).
+    bool bridge_enabled = false;
+    bool bridge_explicit_remote = false;
+    bool bridge_connected = false;
+    bool bridge_session_active = false;
+    bool bridge_reconnecting = false;
+    bool bridge_selected = false;           // footer item focused (IDE selection)
     bool status_line_enabled = false;       // User-configurable status line
     std::string status_line_command;        // Shell command for status line
     int status_line_padding = 0;            // Horizontal padding for status line
@@ -3008,6 +3017,25 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
         footer_opts.left_side   = std::move(left_opts);
         footer_opts.is_fullscreen = is_fullscreen;
         footer_opts.is_narrow = term_cols < 80;
+
+        // Bridge status pill (TS REF: PromptInputFooter.tsx BridgeStatusIndicator
+        // + bridgeStatusUtil.ts:124 getBridgeStatus).
+        if (s.bridge_enabled) {
+            namespace bs = cc::ui::prompt::footer;
+            bs::BridgeOptions bopt;
+            // Priority: reconnecting > connected(session) > connected,
+            // mirroring getBridgeStatus (failed is surfaced via notification).
+            if (s.bridge_reconnecting) {
+                bopt.status = bs::BridgeStatus::Reconnecting;
+            } else if (s.bridge_connected || s.bridge_session_active) {
+                bopt.status = bs::BridgeStatus::Connected;
+            } else {
+                bopt.status = bs::BridgeStatus::Disconnected;
+            }
+            bopt.explicit_remote = s.bridge_explicit_remote;
+            bopt.selected = s.bridge_selected;
+            footer_opts.bridge = std::move(bopt);
+        }
 
         // P1 Footer notifications — populate from ReplScreenState
         // TS REF: src/components/PromptInput/Notifications.tsx

@@ -164,6 +164,18 @@ void AppAdapter::LoadAgentCardsForMenu() {
 // ── SyncState (moved out to remove debug import) ─────────────────────────
 void AppAdapter::SyncState() {
     auto messages = engine_->get_conversation();
+
+    // Bridge / remote-control footer projection (TS PromptInputFooter
+    // reads replBridge* from AppState).
+    if (app_store_) {
+        const auto st = app_store_->get_state();
+        screen_state_->bridge_enabled        = st.repl_bridge_enabled;
+        screen_state_->bridge_explicit_remote = st.repl_bridge_explicit;
+        screen_state_->bridge_connected      = st.repl_bridge_connected;
+        screen_state_->bridge_session_active = st.repl_bridge_session_active;
+        screen_state_->bridge_reconnecting   = st.repl_bridge_reconnecting;
+    }
+
     // TS Messages.tsx:520 collapse chain (background-bash so far).
     messages = ApplyMessageCollapsePipeline(std::move(messages));
     cc::utils::debug("app.sync",

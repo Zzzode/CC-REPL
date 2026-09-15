@@ -251,6 +251,51 @@ TEST(ReplScreen, WelcomeHeaderShowsConfiguredAgentName) {
     EXPECT_EQ(rendered_plain.find("@custom-agent"), std::string::npos);
 }
 
+TEST(ReplScreen, BridgeStatusPillReflectsProjectionState) {
+    namespace repl = cc::ui::repl_screen;
+
+    // TS REF: PromptInputFooter.tsx BridgeStatusIndicator +
+    // bridgeStatusUtil.ts:124 getBridgeStatus.
+    repl::ReplScreenState state;
+    state.app_version = "9.9.9-test";
+    state.model_display_name = "GLM-5.2";
+    state.cwd = "/tmp/cpp_migration";
+
+    // Explicit remote, connected → "Remote Control" visible.
+    state.bridge_enabled = true;
+    state.bridge_explicit_remote = true;
+    state.bridge_connected = true;
+    auto connected = strip_ansi(render_to_plain_text(
+        repl::RenderReplScreen(state), 120, 30));
+    EXPECT_NE(connected.find("Remote Control"), std::string::npos)
+        << "explicit connected bridge should show the status pill";
+
+    // Reconnecting takes priority and is visible even for implicit remote.
+    state.bridge_connected = false;
+    state.bridge_explicit_remote = false;
+    state.bridge_reconnecting = true;
+    auto reconnecting = strip_ansi(render_to_plain_text(
+        repl::RenderReplScreen(state), 120, 30));
+    EXPECT_NE(reconnecting.find("Remote Control reconnecting"),
+              std::string::npos)
+        << "implicit remote still surfaces the reconnecting state";
+
+    // Implicit remote that is merely connected/disconnected is hidden by
+    // RenderBridgeStatus (matches the TS !explicit gate).
+    state.bridge_reconnecting = false;
+    auto hidden = strip_ansi(render_to_plain_text(
+        repl::RenderReplScreen(state), 120, 30));
+    EXPECT_EQ(hidden.find("Remote Control"), std::string::npos)
+        << "non-reconnecting implicit remote must not show the pill";
+
+    // Disabled bridge renders no pill at all.
+    state.bridge_enabled = false;
+    state.bridge_explicit_remote = true;
+    auto disabled = strip_ansi(render_to_plain_text(
+        repl::RenderReplScreen(state), 120, 30));
+    EXPECT_EQ(disabled.find("Remote Control"), std::string::npos);
+}
+
 TEST(ReplScreen, WelcomeHeaderWidthAndClaudeColorTrackTerminal) {
     namespace repl = cc::ui::repl_screen;
     namespace thm = cc::ui::design::theme;
