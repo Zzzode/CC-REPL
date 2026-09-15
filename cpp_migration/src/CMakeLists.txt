@@ -310,6 +310,7 @@ target_sources(cc_utils
         utils/token_budget.cppm
         utils/tokens.cppm
         utils/tool_helpers.cppm
+        utils/tool_deny_rules.cppm
         utils/treeify.cppm
         utils/truncate.cppm
         utils/user_agent.cppm

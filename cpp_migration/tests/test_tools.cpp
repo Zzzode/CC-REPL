@@ -16,6 +16,7 @@
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <initializer_list>
 #include <iterator>
 #include <mutex>
 #include <optional>
@@ -63,6 +64,8 @@ import cc.tools.team_create;
 import cc.tools.team_delete;
 import cc.tools.tool;
 import cc.utils.json;
+import cc.utils.tool_deny_rules;
+import cc.query.query_engine;
 import cc.utils.swarm_backends;
 import cc.utils.team_helpers;
 import cc.utils.teleport_utils;
@@ -11899,3 +11902,288 @@ TEST(WorktreeShellQuote, EscapesInjectionPayloads) {
         EXPECT_EQ(q.back(), '\'');
     }
 }
+
+// ============================================================
+// Tool deny rules — pure grammar/matcher tests
+// TS REF: src/utils/permissions/permissions.ts:238-269
+// ============================================================
+namespace cc_repl_deny_rules_test {
+
+using cc::utils::tool_deny_rules::DenyToolView;
+using cc::utils::tool_deny_rules::is_tool_denied;
+
+// Test-only ergonomic wrapper: initializer_list -> span (braced lists do not
+// implicitly convert to std::span).
+bool denied(std::initializer_list<std::string> rules,
+            const DenyToolView& view) {
+    const std::vector<std::string> rule_vector(rules);
+    return is_tool_denied(rule_vector, view);
+}
+
+TEST(ToolDenyRules, BasicToolAndContentRules) {
+    // A whole-tool rule strips the tool; an unrelated rule does not.
+    EXPECT_TRUE(denied({"Bash"}, {"Bash", std::nullopt, std::nullopt}));
+    EXPECT_FALSE(denied({"Read"}, {"Bash", std::nullopt, std::nullopt}));
+
+    // Content rules never strip a tool regardless of content.
+    EXPECT_FALSE(denied({"Bash(npm install)"},
+                               {"Bash", std::nullopt, std::nullopt}));
+    // TS REF: permissionRuleParser.ts:126-128 — content "" or "*" is dropped
+    // and the rule becomes a whole-tool rule, so "Bash(*)" DOES strip Bash.
+    // (The spec's ts_behavior narrative confirms this; a literal "star is
+    // content" reading of the tests entry would contradict the TS parser.)
+    EXPECT_TRUE(denied({"Bash(*)"},
+                              {"Bash", std::nullopt, std::nullopt}));
+    // Bare "Bash" strips too.
+    EXPECT_TRUE(denied({"Bash(*)", "Bash"},
+                              {"Bash", std::nullopt, std::nullopt}));
+
+    // Content rule with escaped parentheses parses as CONTENT (parens are
+    // literal), so it never strips the whole tool — unlike "Bash()"/"Bash(*)"
+    // which become whole-tool rules.
+    EXPECT_FALSE(denied({R"(Bash(foo\(bar\)))"},
+                                {"Bash", std::nullopt, std::nullopt}));
+    // Trailing content after the closing paren is a malformed tool-name rule
+    // in TS and must not match the bare tool.
+    EXPECT_FALSE(denied({"Bash(x)tail"},
+                                {"Bash", std::nullopt, std::nullopt}));
+
+    // Legacy aliases resolve to canonical tool names.
+    EXPECT_TRUE(denied({"Task"}, {"Agent", std::nullopt, std::nullopt}));
+    EXPECT_TRUE(denied({"KillShell"},
+                              {"TaskStop", std::nullopt, std::nullopt}));
+    EXPECT_TRUE(denied({"AgentOutputTool"},
+                              {"TaskOutput", std::nullopt, std::nullopt}));
+    EXPECT_TRUE(denied({"BashOutputTool"},
+                              {"TaskOutput", std::nullopt, std::nullopt}));
+
+    // Unknown tools / empty lists match nothing and never throw.
+    EXPECT_FALSE(denied({"NoSuchTool"},
+                               {"Bash", std::nullopt, std::nullopt}));
+    EXPECT_FALSE(denied({}, {"Bash", std::nullopt, std::nullopt}));
+}
+
+TEST(ToolDenyRules, McpServerAndExactToolRules) {
+    const DenyToolView linear_view{
+        "list_issues", std::string{"linear"}, std::string{"list_issues"}};
+
+    // Server-scope rules strip every tool of the server.
+    EXPECT_TRUE(denied({"mcp__linear"}, linear_view));
+    EXPECT_TRUE(denied({"mcp__linear__*"}, linear_view));
+    // Exact-tool rule strips the matching tool.
+    EXPECT_TRUE(denied({"mcp__linear__list_issues"}, linear_view));
+    // An exact-tool rule for another tool matches only itself.
+    EXPECT_FALSE(denied({"mcp__linear__create_issue"}, linear_view));
+
+    // A different server is unaffected.
+    const DenyToolView github_view{
+        "pr_list", std::string{"github"}, std::string{"pr_list"}};
+    EXPECT_FALSE(denied({"mcp__linear"}, github_view));
+
+    // Punctuated raw server names normalize to the rule spelling.
+    const DenyToolView dotted_server{
+        "do_thing", std::string{"my.server"}, std::string{"do_thing"}};
+    EXPECT_TRUE(denied({"mcp__my_server"}, dotted_server));
+
+    // Garbage inputs return bool and never crash/fatal-fail.
+    const DenyToolView bash_view{"Bash", std::nullopt, std::nullopt};
+    for (const std::string& garbage :
+         {"mcp__", "mcp", "((", "Bash(", "mcp____x", ""}) {
+        EXPECT_NO_FATAL_FAILURE((void)denied({garbage}, bash_view));
+        EXPECT_NO_FATAL_FAILURE((void)denied({garbage}, linear_view));
+    }
+}
+
+TEST(ToolDenyRules, NormalizationAndCheckName) {
+    using cc::utils::tool_deny_rules::mcp_info_from_string;
+    using cc::utils::tool_deny_rules::normalize_name_for_mcp;
+    using cc::utils::tool_deny_rules::permission_check_name;
+
+    EXPECT_EQ(normalize_name_for_mcp("my.server"), "my_server");
+    EXPECT_EQ(normalize_name_for_mcp("a b"), "a_b");
+    // Non-claude.ai names keep underscore runs unchanged.
+    EXPECT_EQ(normalize_name_for_mcp("a__b"), "a__b");
+    // For the claude.ai prefix the ORIGINAL starts-with test drives the
+    // extra collapse/strip behavior. Verified against the TS implementation:
+    // "." and the space each normalize to '_' and neither end is underscore,
+    // so "claude.ai Hello" -> "claude_ai_Hello".
+    EXPECT_EQ(normalize_name_for_mcp("claude.ai Hello"), "claude_ai_Hello");
+    // Trailing invalid chars collapse-strip away.
+    EXPECT_EQ(normalize_name_for_mcp("claude.ai  x  "), "claude_ai_x");
+
+    DenyToolView v{"t", std::string{"My.Server"}, std::string{"Do Thing"}};
+    EXPECT_EQ(permission_check_name(v), "mcp__My_Server__Do_Thing");
+
+    auto info = mcp_info_from_string("mcp__srv__a__b");
+    ASSERT_TRUE(info.has_value());
+    EXPECT_EQ(info->server, "srv");
+    ASSERT_TRUE(info->tool.has_value());
+    EXPECT_EQ(*info->tool, "a__b");
+    EXPECT_FALSE(mcp_info_from_string("mcp__").has_value());
+    EXPECT_FALSE(mcp_info_from_string("mcp").has_value());
+    EXPECT_FALSE(mcp_info_from_string("foo__bar").has_value());
+}
+
+// ============================================================
+// QueryEngine integration: deny rules filter the request tools array
+// TS REF: src/tools.ts:319,369; permissions.ts:287-292
+// ============================================================
+namespace deny_engine {
+
+using cc::core::InputSchema;
+using cc::core::QueryEngine;
+using cc::core::QueryEngineConfig;
+using cc::core::ToolDefinition;
+using cc::core::ToolPermission;
+using cc::core::ToolRegistry;
+using cc::utils::json::parse;
+
+struct Fixture {
+    ToolRegistry registry;
+    std::filesystem::path cwd;
+    const std::vector<std::string> expected_all = {
+        "Read", "Bash", "list_issues", "create_issue", "pr_list"};
+
+    static ToolDefinition make_mcp_def(std::string name, std::string server) {
+        ToolDefinition def;
+        def.name = name;
+        def.description = name + " test tool";
+        def.input_schema = InputSchema{};
+        def.permission = ToolPermission::Network;
+        def.is_hidden = false;
+        def.category = std::string{"mcp:"} + server;
+        return def;
+    }
+
+    QueryEngineConfig make_config(std::vector<std::string> deny_rules) {
+        QueryEngineConfig config;
+        config.api_key = "test-key";
+        config.base_url = "http://127.0.0.1:1";  // never contacted
+        config.retry_policy.max_retries = 0;
+        config.cwd = cwd.string();
+        config.always_deny_rules = std::move(deny_rules);
+        config.tools = {
+            ToolDefinition{
+                .name = "Read",
+                .description = "Reads files",
+                .input_schema = InputSchema{},
+                .permission = ToolPermission::ReadOnly,
+                .is_hidden = false,
+                .category = std::nullopt,
+            },
+            ToolDefinition{
+                .name = "Bash",
+                .description = "Executes commands",
+                .input_schema = InputSchema{},
+                .permission = ToolPermission::Execute,
+                .is_hidden = false,
+                .category = std::nullopt,
+            },
+        };
+        config.dynamic_tools_provider = [] {
+            std::vector<ToolDefinition> defs;
+            defs.push_back(make_mcp_def("list_issues", "linear"));
+            defs.push_back(make_mcp_def("create_issue", "linear"));
+            defs.push_back(make_mcp_def("pr_list", "github"));
+            return defs;
+        };
+        return config;
+    }
+
+    std::vector<std::string> tool_names(
+        const std::vector<std::string>& deny_rules) {
+        QueryEngine engine(make_config(deny_rules), registry);
+        const std::string body = engine.build_request_body_for_testing();
+        auto doc = parse(body);
+        EXPECT_TRUE(doc.has_value()) << body;
+        std::vector<std::string> names;
+        if (doc) {
+            const auto tools = doc->root().get("tools");
+            EXPECT_TRUE(tools.is_arr()) << body;
+            if (tools.is_arr()) {
+                tools.iter([&](auto element) {
+                    names.emplace_back(element.get("name").as_str());
+                });
+            }
+        }
+        return names;
+    }
+
+    void setup(const std::string& suffix) {
+        cwd = std::filesystem::temp_directory_path() /
+              ("cc-repl-deny-rules-" + std::to_string(::getpid()) + "-" +
+               suffix);
+        std::filesystem::remove_all(cwd);
+        std::filesystem::create_directories(cwd);
+    }
+
+    void teardown() {
+        std::filesystem::remove_all(cwd);
+    }
+};
+
+TEST(ToolDenyRulesQueryEngine, EmptyRulesListAllFiveTools) {
+    Fixture f;
+    f.setup("empty");
+    auto names = f.tool_names({});
+    std::vector<std::string> sorted = names;
+    std::ranges::sort(sorted);
+    std::vector<std::string> expected = f.expected_all;
+    std::ranges::sort(expected);
+    EXPECT_EQ(sorted, expected);
+    f.teardown();
+}
+
+TEST(ToolDenyRulesQueryEngine, DeniesBuiltinBash) {
+    Fixture f;
+    f.setup("bash");
+    auto names = f.tool_names({"Bash"});
+    EXPECT_EQ(std::ranges::count(names, std::string{"Bash"}), 0);
+    EXPECT_NE(std::ranges::count(names, std::string{"Read"}), 0);
+    f.teardown();
+}
+
+TEST(ToolDenyRulesQueryEngine, DeniesMcpServer) {
+    Fixture f;
+    f.setup("server");
+    auto names = f.tool_names({"mcp__linear"});
+    EXPECT_EQ(std::ranges::count(names, std::string{"list_issues"}), 0);
+    EXPECT_EQ(std::ranges::count(names, std::string{"create_issue"}), 0);
+    EXPECT_NE(std::ranges::count(names, std::string{"pr_list"}), 0);
+    EXPECT_NE(std::ranges::count(names, std::string{"Read"}), 0);
+    EXPECT_NE(std::ranges::count(names, std::string{"Bash"}), 0);
+    f.teardown();
+}
+
+TEST(ToolDenyRulesQueryEngine, DeniesMcpExactTool) {
+    Fixture f;
+    f.setup("exact");
+    auto names = f.tool_names({"mcp__linear__list_issues"});
+    EXPECT_EQ(std::ranges::count(names, std::string{"list_issues"}), 0);
+    EXPECT_NE(std::ranges::count(names, std::string{"create_issue"}), 0);
+    EXPECT_NE(std::ranges::count(names, std::string{"pr_list"}), 0);
+    f.teardown();
+}
+
+TEST(ToolDenyRulesQueryEngine, UnknownAndContentRulesChangeNothing) {
+    Fixture f;
+    f.setup("none");
+    const std::vector<std::string> rules = {
+        "NoSuchTool", "mcp__nonexistent_server", "Bash(rm -rf)"};
+    auto names = f.tool_names(rules);
+    std::vector<std::string> sorted_names = names;
+    std::ranges::sort(sorted_names);
+    std::vector<std::string> expected = f.expected_all;
+    std::ranges::sort(expected);
+    EXPECT_EQ(sorted_names, expected);
+
+    // Empty deny list yields the identical set (existing E2E gate path).
+    auto names_empty = f.tool_names({});
+    std::vector<std::string> sorted_empty = names_empty;
+    std::ranges::sort(sorted_empty);
+    EXPECT_EQ(sorted_empty, expected);
+    f.teardown();
+}
+
+}  // namespace deny_engine
+}  // namespace cc_repl_deny_rules_test

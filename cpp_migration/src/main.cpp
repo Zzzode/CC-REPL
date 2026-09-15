@@ -1682,6 +1682,9 @@ int main(int argc, const char* argv[]) {
     // / ...) and records model/apiKey overrides for later application.
     std::optional<std::string> settings_model_override;
     std::optional<std::string> settings_api_key_override;
+    // Raw permissions.deny rules from --settings; copied into the engine
+    // config so the request body filters denied tools before listing.
+    std::vector<std::string> settings_deny_rules;
     if (opts.settings && !opts.settings->empty()) {
         auto applied = load_flag_settings(
             *opts.settings,
@@ -1694,6 +1697,7 @@ int main(int argc, const char* argv[]) {
             // load_flag_settings already printed the faithful error message.
             return 1;
         }
+        settings_deny_rules = applied->deny_rules;
         // `apiKey` from settings mirrors a sibling `env.ANTHROPIC_API_KEY`:
         // apply it to the process env BEFORE load_config() reads it, so the API
         // client picks it up without an explicit `env` block.
@@ -1782,6 +1786,10 @@ int main(int argc, const char* argv[]) {
     }
 
     auto config = load_config();
+    // permissions.deny from --settings feeds the pre-request tool filter.
+    // TS reads the permission context live; the CPP engine snapshots config at
+    // construction, so this must be set before the engine is created.
+    config.always_deny_rules = settings_deny_rules;
     // Priority: explicit --model flag > --settings `model` > env > default.
     // If the user passed --model on the command line, it wins; otherwise let a
     // settings-provided model override the default/env-derived value.

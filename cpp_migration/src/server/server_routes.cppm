@@ -741,6 +741,10 @@ namespace detail {
             : cc::core::ThinkingConfig::Mode::Disabled;
         config.thinking_config.budget_tokens = settings.model.thinking_budget;
         config.cwd = std::filesystem::current_path().string();
+        // permissions.deny must be enforced on the headless/server engine too,
+        // not only the interactive CLI — otherwise denied tools still reach
+        // the model through this path. Same single source (ConfigManager).
+        config.always_deny_rules = settings.permissions.deny_rules;
 
         if (config.api_key.empty()) {
             return std::unexpected("ANTHROPIC_API_KEY is required for direct-connect /message");

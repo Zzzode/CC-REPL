@@ -35,6 +35,7 @@ struct FlagSettingsResult {
     std::optional<FlagStatusLineSettings> status_line; // from `statusLine` if present
     std::vector<std::string> applied_env_keys; // env vars set (in iteration order)
     std::vector<std::string> deferred_keys;    // recognized-but-unhandled or unknown keys
+    std::vector<std::string> deny_rules;       // from permissions.deny (TS settings sources -> alwaysDenyRules)
 };
 
 /// EnvSetter abstraction: lets callers (tests) inject a recorder instead of
@@ -151,12 +152,27 @@ using EnvGetter = std::function<std::optional<std::string>(std::string_view name
         out.status_line = std::move(sl);
     }
 
+    // permissions.deny: string array of raw deny rules surfaced to the engine
+    // as alwaysDenyRules. TS key is exactly "deny" under "permissions"; no
+    // other key names are accepted.
+    // TS REF: settings sources -> permissions.ts:109-114,213-221.
+    if (auto perms = root.get("permissions"); perms.is_obj()) {
+        if (auto deny = perms.get("deny"); deny.is_arr()) {
+            deny.iter([&](auto item) {
+                if (item.is_str()) {
+                    out.deny_rules.emplace_back(item.as_str());
+                }
+            });
+        }
+    }
+
     // Record keys we recognize-but-do-not-yet-apply or do not understand, so
     // callers get honest feedback rather than silent drops.
     root.iter_obj([&](auto key, auto /*value*/) {
         if (!key.is_str()) return;
         const auto name = std::string(key.as_str());
-        if (name == "env" || name == "apiKey" || name == "model" || name == "statusLine") return;
+        if (name == "env" || name == "apiKey" || name == "model" ||
+            name == "statusLine" || name == "permissions") return;
         out.deferred_keys.push_back(name);
     });
 

@@ -110,6 +110,10 @@ struct PermissionSettings {
     std::vector<std::string> allowed_paths;    // Whitelisted file paths
     std::vector<std::string> denied_paths;     // Blacklisted file paths
     std::vector<std::string> allowed_commands; // Whitelisted shell commands
+    // Raw permissions.deny rules (TS alwaysDenyRules) filtered from the tool
+    // list before each API request. Parsed identically by interactive and
+    // headless engines so neither path can bypass them.
+    std::vector<std::string> deny_rules;
 };
 
 /// Display and UI settings
@@ -440,6 +444,17 @@ private:
                 for (std::size_t i = 0; i < arr.size(); ++i) {
                     if (auto item = arr.at(i); item.is_str()) {
                         settings_.permissions.allowed_commands.emplace_back(item.as_str());
+                    }
+                }
+            }
+            // permissions.deny — raw rules surfaced to the engine pre-request
+            // tool filter (TS permissions.ts alwaysDenyRules). Non-string
+            // elements are skipped defensively.
+            if (auto deny = perms.get("deny"); deny.is_arr()) {
+                settings_.permissions.deny_rules.clear();
+                for (std::size_t i = 0; i < deny.size(); ++i) {
+                    if (auto item = deny.at(i); item.is_str()) {
+                        settings_.permissions.deny_rules.emplace_back(item.as_str());
                     }
                 }
             }

@@ -2633,12 +2633,52 @@ TEST(FlagSettings, RecordsDeferredKeys) {
 
     ASSERT_TRUE(result.model.has_value());
     EXPECT_EQ(*result.model, "m");
-    // permissions/hooks/mcpServers are recognized TS keys we do NOT yet apply.
-    ASSERT_EQ(result.deferred_keys.size(), 3u);
+    // "permissions" is now consumed (permissions.deny feeds alwaysDenyRules);
+    // hooks/mcpServers remain recognized TS keys we do NOT yet apply.
+    ASSERT_EQ(result.deferred_keys.size(), 2u);
     std::set<std::string> deferred(result.deferred_keys.begin(), result.deferred_keys.end());
-    EXPECT_EQ(deferred.count("permissions"), 1u);
     EXPECT_EQ(deferred.count("hooks"), 1u);
     EXPECT_EQ(deferred.count("mcpServers"), 1u);
+}
+
+TEST(FlagSettings, ParsesPermissionsDenyRules) {
+    auto parsed = cc::utils::json::parse(
+        R"JSON({"permissions":{"deny":["Bash","mcp__linear","Bash(npm install)"]}})JSON");
+    ASSERT_TRUE(parsed.has_value());
+
+    auto result = cc::config::apply_flag_settings(parsed->root(), [](auto, auto) {});
+
+    // TS key is exactly "deny"; strings surface verbatim for engine matching.
+    ASSERT_EQ(result.deny_rules.size(), 3u);
+    EXPECT_EQ(result.deny_rules[0], "Bash");
+    EXPECT_EQ(result.deny_rules[1], "mcp__linear");
+    EXPECT_EQ(result.deny_rules[2], "Bash(npm install)");
+    EXPECT_TRUE(result.deferred_keys.empty());
+
+    // Non-array deny / non-object permissions are ignored without crashing.
+    auto bad = cc::utils::json::parse(
+        R"({"permissions":{"deny":"Bash"}})");
+    ASSERT_TRUE(bad.has_value());
+    auto bad_result =
+        cc::config::apply_flag_settings(bad->root(), [](auto, auto) {});
+    EXPECT_TRUE(bad_result.deny_rules.empty());
+
+    // Non-string elements inside the deny array are skipped defensively,
+    // and a non-object permissions value is ignored without crashing.
+    auto mixed = cc::utils::json::parse(
+        R"({"permissions":{"deny":["Bash",1,null,"Read"]}})");
+    ASSERT_TRUE(mixed.has_value());
+    auto mixed_result =
+        cc::config::apply_flag_settings(mixed->root(), [](auto, auto) {});
+    ASSERT_EQ(mixed_result.deny_rules.size(), 2u);
+    EXPECT_EQ(mixed_result.deny_rules[0], "Bash");
+    EXPECT_EQ(mixed_result.deny_rules[1], "Read");
+
+    auto perm_scalar = cc::utils::json::parse(R"({"permissions":123})");
+    ASSERT_TRUE(perm_scalar.has_value());
+    auto perm_scalar_result = cc::config::apply_flag_settings(
+        perm_scalar->root(), [](auto, auto) {});
+    EXPECT_TRUE(perm_scalar_result.deny_rules.empty());
 }
 
 TEST(FlagSettings, NonObjectRootReportsDeferred) {

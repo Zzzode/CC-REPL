@@ -43,6 +43,7 @@ import cc.utils.json;
 import cc.session.storage;
 import cc.memdir.paths;
 import cc.utils.tool_helpers;
+import cc.utils.tool_deny_rules;
 import cc.utils.env_utils;
 import cc.hooks.tool_permissions;
 import cc.hooks.lifecycle_hooks;
@@ -294,6 +295,15 @@ struct QueryEngineConfig {
     /// TS PARITY: assembleToolPool() merges built-in + mcp.tools; this
     /// callback is the CPP equivalent of the dynamic MCP portion.
     std::function<std::vector<ToolDefinition>()> dynamic_tools_provider;
+    /// Flat list of raw permission deny rules (e.g. "Bash",
+    /// "mcp__linear", "mcp__linear__*", "Bash(npm install)") applied to
+    /// BOTH static and dynamic tools before the request "tools" array is
+    /// serialized.
+    // TS PARITY: context.alwaysDenyRules flattened over all sources
+    // (user/project/local/flag/policy/cliArg/command/session — see
+    // permissions.ts:109-114,213-221); matched via
+    // cc::utils::tool_deny_rules before the tools array is serialized.
+    std::vector<std::string> always_deny_rules;
     std::vector<std::string> agent_definitions;     // Agent definitions
     std::vector<std::string> fallback_models;       // Fallback models for capacity errors
 };
@@ -1879,6 +1889,13 @@ public:
         return doc.to_string();
     }
 
+    /// Build a non-streaming API request body (for testing / introspection).
+    /// Runs the full tool-merge path including always_deny_rules filtering.
+    [[nodiscard]] std::string build_request_body_for_testing(
+        const QueryOptions& options = {}) const {
+        return build_request_body(options);
+    }
+
 private:
 
     void update_task_budget_remaining_after_compact(std::uint32_t pre_compact_tokens) {
@@ -1987,6 +2004,24 @@ private:
             std::unordered_set<std::string> seen_names;  // dedup: built-ins win
 
             auto add_tool = [&](const ToolDefinition& tool) {
+                // Deny-rule filtering runs BEFORE dedup and enabled checks so
+                // a denied def cannot shadow an allowed sibling. Dynamic MCP
+                // defs carry short model-facing names tagged with category
+                // "mcp:<raw server>"; synthesize the qualified permission
+                // check name from that category instead of renaming the def.
+                // TS REF: tools.ts:319,369,380 (filterToolsByDenyRules per
+                // partition before uniqBy('name')).
+                cc::utils::tool_deny_rules::DenyToolView deny_view;
+                deny_view.name = tool.name;
+                if (tool.category &&
+                    tool.category->starts_with("mcp:")) {
+                    deny_view.mcp_server = tool.category->substr(4);
+                    deny_view.mcp_tool = tool.name;
+                }
+                if (cc::utils::tool_deny_rules::is_tool_denied(
+                        config_.always_deny_rules, deny_view)) {
+                    return;
+                }
                 if (!seen_names.insert(tool.name).second) return;  // duplicate
                 if (!is_tool_enabled_for_query(tool.name, options)) return;
                 ++enabled_tool_count;
