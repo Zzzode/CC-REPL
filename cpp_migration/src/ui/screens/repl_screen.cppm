@@ -4183,6 +4183,12 @@ inline bool forward_trust_dialog(
         if (ev == Event::Character('\x0A')) {
             insert_prompt_text(state, "\n");
             return true; }
+        // Shift+Enter -> newline. Two terminal encodings:
+        //   xterm modifyOtherKeys / CSI-u : ESC [ 13 ; 2 u
+        //   kitty keyboard protocol       : ESC [ 27 ; 2 ; 13 ~
+        if (ev.input() == "\x1b[13;2u" || ev.input() == "\x1b[27;2;13~") {
+            insert_prompt_text(state, "\n");
+            return true; }
         // Tab / Shift+Tab -> autocomplete
         if (ev == Event::Tab && asn > 0) {
             // AT-07: complete to the common prefix of all visible suggestion

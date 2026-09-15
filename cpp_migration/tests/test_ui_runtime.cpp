@@ -251,6 +251,41 @@ TEST(ReplScreen, WelcomeHeaderShowsConfiguredAgentName) {
     EXPECT_EQ(rendered_plain.find("@custom-agent"), std::string::npos);
 }
 
+TEST(ReplScreen, ShiftReturnInsertsNewlineForBothTerminalEncodings) {
+    // Shift+Enter must insert a newline (not submit). Terminals emit either
+    // CSI-u (ESC [ 13 ; 2 u) or kitty protocol (ESC [ 27 ; 2 ; 13 ~).
+    for (const auto* seq : {"\x1b[13;2u", "\x1b[27;2;13~"}) {
+        cc::core::ToolRegistry tools;
+        cc::core::QueryEngineConfig config;
+        config.context_window.auto_compact = false;
+        config.cwd = fs::temp_directory_path().string();
+        cc::core::QueryEngine engine(std::move(config), tools);
+        cc::commands::AppCommandRegistry commands;
+        const auto storage_root = fs::temp_directory_path() /
+            ("cc_repl_shift_ret_" +
+             std::to_string(std::chrono::steady_clock::now()
+                                .time_since_epoch().count()) +
+             (seq[3] == '1' ? "_csiu" : "_kitty"));
+        cc::utils::SessionStorage storage(storage_root);
+        auto app = ftxui::Make<cc::ui::AppAdapter>(
+            &engine, nullptr, &commands, &storage, [] {});
+
+        app->OnEvent(ftxui::Event::Character('a'));
+        app->OnEvent(ftxui::Event::Special(seq));
+        app->OnEvent(ftxui::Event::Character('b'));
+
+        const auto text = app->input_text_for_testing();
+        EXPECT_EQ(text, "a\nb")
+            << "shift-return sequence should insert a newline";
+        EXPECT_FALSE(app->is_query_running_for_testing())
+            << "shift-return must not submit the prompt";
+
+        app.reset();
+        std::error_code ec;
+        fs::remove_all(storage_root, ec);
+    }
+}
+
 TEST(ReplScreen, BridgeStatusPillReflectsProjectionState) {
     namespace repl = cc::ui::repl_screen;
 
