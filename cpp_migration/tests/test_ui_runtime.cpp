@@ -4892,8 +4892,18 @@ TEST(AppRuntime, SubmitPersistsPromptToHistory) {
     ASSERT_EQ(hist.size(), 1u) << "submitted prompt should appear in history";
     EXPECT_EQ(hist[0].prompt_text, unique_prompt);
 
-    fs::remove_all(storage_root);
-    fs::remove(hist_path);
+    // Tear the app down BEFORE deleting its storage root so background
+    // flush threads cannot repopulate the directory mid-remove_all.
+    app.reset();
+
+    std::error_code ec;
+    fs::remove_all(storage_root, ec);
+    if (ec || fs::exists(storage_root, ec)) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        ec.clear();
+        fs::remove_all(storage_root, ec);
+    }
+    fs::remove(hist_path, ec);
 }
 
 /// Typing "@" followed by agent name characters should show agent
