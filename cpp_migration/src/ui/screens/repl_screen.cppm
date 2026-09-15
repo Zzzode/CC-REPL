@@ -681,6 +681,7 @@ struct ReplScreenState {
     std::optional<PermissionRequestInfo> permission_request;    // Settings-driven UI configuration (mirrors AppState.settings subset
     // that the renderer needs — populated by the engine/app layer).
     std::string settings_model;             // Configured default model
+    std::string settings_agent_name;        // Configured settings.agent (TS getInitialSettings().agent)
     bool status_line_enabled = false;       // User-configurable status line
     std::string status_line_command;        // Shell command for status line
     int status_line_padding = 0;            // Horizontal padding for status line
@@ -1614,7 +1615,10 @@ inline bool ScrollTranscript(const std::shared_ptr<ReplScreenState>& state,
     opts.version              = version;
     opts.cwd                  = s.cwd;
     opts.billing_type         = s.billing_type;
-    opts.agent_name           = std::nullopt;  // TODO(engine-wire): populate
+    // TS REF: logoV2Utils.ts:259 — agentName from getInitialSettings().agent
+    opts.agent_name           = s.settings_agent_name.empty()
+                              ? std::nullopt
+                              : std::make_optional(s.settings_agent_name);
     opts.model_display_name   = model_line;
     opts.username             = s.user_display_name.empty()
         ? std::nullopt

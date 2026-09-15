@@ -1371,6 +1371,15 @@ public:
             screen_state_->settings_model.clear();
         }
 
+        // --- default agent display name (settings.agent) ---
+        // TS REF: logoV2Utils.ts:259 getLogoDisplayData() reads
+        // getInitialSettings().agent and LogoV2 renders "@<agent> · <cwd>".
+        auto agent_it = settings.find("agent");
+        screen_state_->settings_agent_name =
+            (agent_it != settings.end() &&
+             std::holds_alternative<std::string>(agent_it->second))
+            ? std::get<std::string>(agent_it->second) : std::string{};
+
         // --- status line config (settings.statusLine) ---
         std::optional<std::string> status_line_type;
         std::string status_line_command;

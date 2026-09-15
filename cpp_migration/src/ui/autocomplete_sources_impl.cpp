@@ -291,6 +291,21 @@ std::vector<AgentSuggestionData> collect_agent_suggestions(std::string_view cwd)
         });
     }
 
+    // (1b) The interactive main thread itself is always addressable as
+    // "@claude" — the product's catch-all agent. It is not an AgentTool
+    // sub-agent definition, so surface it explicitly (dedup-guarded in case
+    // a user/plugin definition already claims the name).
+    if (seen_names.insert("claude").second) {
+        result.push_back(AgentSuggestionData{
+            .name        = "claude",
+            .description = "Claude Code main session",
+            .source      = "agent",
+            .color       = std::nullopt,
+            .status      = std::nullopt,
+            .is_subagent = false,
+        });
+    }
+
     // (2) Native agent records (live teammates / named sub-agents)
     // TS REF: useTypeahead.tsx:616-625 — named agents from agentNameRegistry
     //   show "send message · <status>" description.

@@ -222,6 +222,35 @@ TEST(ReplScreen, WelcomeHeaderUsesHomeCard) {
     EXPECT_EQ(rendered.find("\xF0\x9F\x90\xB1"), std::string::npos);
 }
 
+TEST(ReplScreen, WelcomeHeaderShowsConfiguredAgentName) {
+    namespace repl = cc::ui::repl_screen;
+
+    // TS REF: logoV2Utils.ts:259 — settings.agent renders as "@<agent> · <cwd>"
+    // on the welcome header's cwd line.
+    repl::ReplScreenState state;
+    state.app_version = "9.9.9-test";
+    state.model_display_name = "GLM-5.2";
+    state.cwd = "/tmp/cpp_migration";
+    state.settings_agent_name = "custom-agent";
+
+    auto rendered = strip_ansi(render_to_plain_text(
+        repl::RenderWelcomeHeader(state, /*spinner_frame=*/0, /*term_cols=*/120),
+        120, 16));
+    EXPECT_NE(rendered.find("@custom-agent \xC2\xB7 /tmp/cpp_migration"),
+              std::string::npos)
+        << "cwd line should carry the @<agent> prefix when settings.agent is set";
+
+    // With no configured agent the prefix must disappear (plain cwd only).
+    repl::ReplScreenState plain;
+    plain.app_version = "9.9.9-test";
+    plain.model_display_name = "GLM-5.2";
+    plain.cwd = "/tmp/cpp_migration";
+    auto rendered_plain = strip_ansi(render_to_plain_text(
+        repl::RenderWelcomeHeader(plain, /*spinner_frame=*/0, /*term_cols=*/120),
+        120, 16));
+    EXPECT_EQ(rendered_plain.find("@custom-agent"), std::string::npos);
+}
+
 TEST(ReplScreen, WelcomeHeaderWidthAndClaudeColorTrackTerminal) {
     namespace repl = cc::ui::repl_screen;
     namespace thm = cc::ui::design::theme;
