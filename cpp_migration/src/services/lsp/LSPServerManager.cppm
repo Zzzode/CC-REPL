@@ -23,6 +23,7 @@ import cc.utils.error;
 import cc.utils.json;
 import cc.services.lsp.types;
 import cc.services.lsp.LSPServerInstance;
+import cc.services.lsp.diagnostic_registry;
 
 export namespace cc::services::lsp {
 
@@ -480,6 +481,12 @@ public:
     const std::unordered_map<std::string, std::unique_ptr<LSPServerInstance>>& get_all_servers() const {
         return servers_;
     }
+
+    // Shared diagnostic registry handed to every instance at registration.
+    DiagnosticRegistry& diagnostic_registry() { return *diagnostic_registry_; }
+    std::shared_ptr<DiagnosticRegistry> shared_diagnostic_registry() const {
+        return diagnostic_registry_;
+    }
     
     // File synchronization methods
     Result<void> open_file(const std::string& file_path, const std::string& content);
@@ -519,6 +526,9 @@ private:
     std::string build_text_document_params(const std::string& file_path) const;
     
     std::unordered_map<std::string, std::unique_ptr<LSPServerInstance>> servers_;
+    // Shared LSP diagnostic state; the same instance is handed to every
+    // server instance so diagnostics can be queried across servers.
+    std::shared_ptr<DiagnosticRegistry> diagnostic_registry_ = std::make_shared<DiagnosticRegistry>();
     std::unordered_map<std::string, std::vector<std::string>> extension_map_;
     std::unordered_map<std::string, std::string> opened_files_; // URI -> server name
     std::unordered_map<std::string, int64_t> file_versions_;
@@ -589,6 +599,8 @@ Result<void> LSPServerManager::shutdown() {
     extension_map_.clear();
     opened_files_.clear();
     file_versions_.clear();
+    // Reset shared LSP diagnostic state so a later reinit starts clean.
+    diagnostic_registry_->reset_all_state();
     initialized_ = false;
     return {};
 }
@@ -814,6 +826,24 @@ void LSPServerManager::register_server_config(
 
     auto instance = create_lsp_server_instance(name, config);
     if (instance) {
+        // Hand the shared registry to the instance before it is observable.
+        (*instance)->diagnostic_registry = diagnostic_registry_;
+        // TS REF: passiveFeedback.ts registerLSPNotificationHandlers — every
+        // production server gets a publishDiagnostics observer. It is
+        // observability-only (the TS handler logs; a server push is NOT a
+        // user action and must not record acceptance/rejection feedback).
+        // Registered here (rather than only on the LspManager singleton) so
+        // managers created via create_lsp_server_manager() — the ones LspTool
+        // owns — are covered too.
+        (*instance)->on_notification(
+            "textDocument/publishDiagnostics",
+            [](std::string_view, std::string_view params_json) {
+                auto parsed = cc::utils::json::parse(params_json);
+                if (!parsed) return;
+                if (!parsed->root().is_obj()) return;
+                // Validated enough to prove the frame is well-formed.
+                (void)parsed->root().get("uri").is_str();
+            });
         servers_[name] = std::move(*instance);
     }
 }

@@ -10,13 +10,16 @@ module;
 #include <filesystem>
 #include <format>
 #include <cstring>
+#include <functional>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <system_error>
 #include <type_traits>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 #include <fcntl.h>
 #include <poll.h>
@@ -29,6 +32,7 @@ export module cc.services.lsp.LSPServerInstance;
 import cc.utils.error;
 import cc.utils.json;
 import cc.services.lsp.types;
+import cc.services.lsp.diagnostic_registry;
 
 export namespace cc::services::lsp {
 
@@ -61,6 +65,22 @@ struct LSPServerInstance {
     std::vector<std::string> outbound_messages;
     std::string inbound_buffer;
     std::unordered_map<std::string, std::string> diagnostics_by_uri;
+
+    // Shared stateful diagnostic registry injected by LSPServerManager.
+    // When set, publishDiagnostics are upserted/cleared here and
+    // diagnostics_json_for_uri serializes from it.
+    std::shared_ptr<DiagnosticRegistry> diagnostic_registry;
+
+    // External notification handler (TS serverInstance.onNotification analog).
+    // TS REF: src/services/lsp/passiveFeedback.ts:161-162
+    using NotificationHandler = std::function<void(
+        std::string_view method, std::string_view params_json)>;
+    uint64_t on_notification(std::string method, NotificationHandler handler);
+
+    // Test/poll-less seam: run the exact production notification path.
+    void deliver_notification(std::string json) {
+        handle_notification(std::move(json));
+    }
     
     // Start the server
     Result<void> start();
@@ -89,6 +109,14 @@ private:
     static std::string params_to_json(const std::any& params);
     static std::optional<int64_t> message_id(const std::string& json);
     void handle_notification(const std::string& json);
+
+    // Notification handlers are registered (post-initialize) from a thread
+    // other than the receive loop that dispatches, so all access is guarded
+    // by notification_handlers_mutex_. Dispatch copies the vector under the
+    // lock and invokes outside it to avoid holding the lock across callbacks.
+    std::vector<std::pair<std::string, NotificationHandler>> notification_handlers_;
+    std::mutex notification_handlers_mutex_;
+    uint64_t next_notification_id_{0};
 };
 
 // Create an LSP server instance
@@ -411,7 +439,20 @@ Result<void> LSPServerInstance::poll(std::chrono::milliseconds timeout) {
     return {};
 }
 
+uint64_t LSPServerInstance::on_notification(
+    std::string method, NotificationHandler handler) {
+    std::lock_guard lock(notification_handlers_mutex_);
+    const uint64_t id = ++next_notification_id_;
+    notification_handlers_.emplace_back(std::move(method), std::move(handler));
+    return id;
+}
+
 std::string LSPServerInstance::diagnostics_json_for_uri(std::string_view uri) const {
+    // The shared registry is the source of truth when attached.
+    if (diagnostic_registry) {
+        return diagnostics_to_json_array(diagnostic_registry->get_diagnostics(uri));
+    }
+    // Legacy fallback (raw JSON array captured straight from the notification).
     auto it = diagnostics_by_uri.find(std::string(uri));
     return it == diagnostics_by_uri.end() ? "[]" : it->second;
 }
@@ -566,18 +607,74 @@ std::optional<int64_t> LSPServerInstance::message_id(const std::string& json) {
 }
 
 void LSPServerInstance::handle_notification(const std::string& json) {
+    // (a) Parse; drop malformed frames and notifications without a string method.
     auto parsed = cc::utils::json::parse(json);
     if (!parsed) return;
     auto root = parsed->root();
     auto method_node = root.get("method");
     if (!method_node.is_str()) return;
-    if (method_node.as_str() != "textDocument/publishDiagnostics") return;
+    const std::string method_string{method_node.as_str()};
 
-    auto params = root.get("params");
-    auto uri_node = params.get("uri");
-    auto diagnostics_node = params.get("diagnostics");
+    // (b) Dispatch external handlers for EVERY notification, isolating
+    // per-handler exceptions so one failing subscriber cannot break the
+    // notification loop.
+    // TS REF: src/services/lsp/passiveFeedback.ts:249-276
+    auto params_node = root.get("params");
+    std::string params_string = params_node.valid() ? params_node.to_string() : std::string{"{}"};
+    // Snapshot handlers under the lock; registration can happen concurrently.
+    std::vector<std::pair<std::string, NotificationHandler>> handlers_snapshot;
+    {
+        std::lock_guard lock(notification_handlers_mutex_);
+        handlers_snapshot = notification_handlers_;
+    }
+    for (const auto& [registered_method, handler] : handlers_snapshot) {
+        if (registered_method != method_string) continue;
+        try {
+            handler(method_string, params_string);
+        } catch (...) {
+            // Swallow: errors are isolated to this server/handler.
+        }
+    }
+
+    // (c) Only publishDiagnostics updates local LSP state.
+    if (method_string != "textDocument/publishDiagnostics") return;
+
+    // (d) Validate the params shape.
+    if (!params_node.valid()) return;
+    auto uri_node = params_node.get("uri");
+    auto diagnostics_node = params_node.get("diagnostics");
     if (!uri_node.is_str() || !diagnostics_node.is_arr()) return;
-    diagnostics_by_uri[std::string(uri_node.as_str())] = diagnostics_node.to_string();
+
+    // (e) Key by the RAW published uri (file:// URIs are not stripped for
+    // storage; LSPServerManager::diagnostics_json_for_file also looks up by
+    // file:// URI). Keep the legacy map fresh as a fallback (empty array
+    // naturally serializes to "[]").
+    const std::string raw_uri{uri_node.as_str()};
+    diagnostics_by_uri[raw_uri] = diagnostics_node.to_string();
+
+    // (f) Route into the shared stateful registry. LSP publishDiagnostics is
+    // a full replacement: an empty array clears stale diagnostics.
+    if (!diagnostic_registry) return;
+    if (diagnostics_node.size() == 0) {
+        diagnostic_registry->clear_diagnostics(raw_uri);
+        return;
+    }
+
+    auto files = format_diagnostics_for_attachment(params_node);
+    // LSP publishDiagnostics is a full replacement: even when every element
+    // fails to parse (files empty / no diagnostics), the previously published
+    // diagnostics for this URI must be cleared, not retained.
+    std::vector<cc::services::lsp::Diagnostic> parsed_diags;
+    if (!files.empty() && !files.front().diagnostics.empty()) {
+        parsed_diags = std::move(files.front().diagnostics);
+        // format_diagnostics_for_attachment strips the file:// prefix for
+        // attachment display; the registry must key by the raw URI.
+    }
+    if (parsed_diags.empty()) {
+        diagnostic_registry->clear_diagnostics(raw_uri);
+    } else {
+        diagnostic_registry->set_diagnostics(name, raw_uri, std::move(parsed_diags));
+    }
 }
 
 } // namespace cc::services::lsp

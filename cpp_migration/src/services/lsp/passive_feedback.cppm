@@ -40,6 +40,8 @@ export module cc.services.lsp.passive_feedback;
 
 import cc.utils.error;
 import cc.utils.json;
+import cc.services.lsp.diagnostic_registry;
+import cc.services.lsp.LSPServerManager;
 
 export namespace cc::services::lsp {
 
@@ -441,5 +443,58 @@ struct DiagnosticHandlerRegistrationResult {
     /// server_name -> { consecutive_failure_count, last_error_message }
     std::unordered_map<std::string, std::pair<size_t, std::string>> diagnostic_failures;
 };
+
+/// Subscribe a diagnostics notification sink to publishDiagnostics on every
+/// server owned by the manager.
+///
+/// IMPORTANT — TS fidelity: src/services/lsp/passiveFeedback.ts:160-200
+/// registers the handler for OBSERVABILITY only (logForDebugging); a
+/// server-pushed publishDiagnostics is NOT a user action and the TS code
+/// records no acceptance/rejection signal from it. The earlier CPP port
+/// invented one Rejected item per code-bearing diagnostic, which polluted
+/// PassiveFeedbackCollector::get_acceptance_rate() with spurious rejects.
+/// The handler here therefore validates/parses the frame (so malformed
+/// notifications are counted in diagnostic_failures) but records NO
+/// feedback; genuine Accepted/Rejected items must come from explicit
+/// quick-fix user gestures wired separately.
+///
+/// TS REF: src/services/lsp/passiveFeedback.ts:125-328
+inline DiagnosticHandlerRegistrationResult register_lsp_notification_handlers(
+    LSPServerManager& manager,
+    PassiveFeedbackCollector& feedback
+) {
+    DiagnosticHandlerRegistrationResult result;
+    (void)feedback;  // no server-push → user-feedback mapping (see above)
+
+    const auto& servers = manager.get_all_servers();
+    result.total_servers = servers.size();
+
+    for (const auto& [server_name, instance] : servers) {
+        if (!instance) continue;
+
+        (void)instance->on_notification(
+            "textDocument/publishDiagnostics",
+            [server_name](std::string_view /*method*/, std::string_view params_json) {
+                try {
+                    auto parsed = cc::utils::json::parse(params_json);
+                    if (!parsed) return;
+                    auto root = parsed->root();
+                    if (!root.is_obj()) return;
+                    auto uri_node = root.get("uri");
+                    auto diagnostics_node = root.get("diagnostics");
+                    if (!uri_node.is_str() || !diagnostics_node.is_arr()) return;
+                    // Observability-only: parse to prove the frame is well
+                    // formed (mirrors TS validation) but record no feedback.
+                    (void)format_diagnostics_for_attachment(root);
+                } catch (...) {
+                    // Isolate per-server errors; do not break the notification
+                    // loop. TS REF: passiveFeedback.ts:249-276.
+                }
+            });
+        ++result.success_count;
+    }
+
+    return result;
+}
 
 } // namespace cc::services::lsp

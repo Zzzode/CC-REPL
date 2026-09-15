@@ -34,6 +34,7 @@ export module cc.services.lsp.client;
 import cc.utils.json;
 import cc.types.types;
 import cc.utils.bash_execution;
+import cc.services.lsp.diagnostic_registry;
 
 export namespace cc::services::lsp {
 
@@ -113,10 +114,17 @@ struct LocationLink {
     Range target_selection_range;
 };
 
-struct Diagnostic {
+// Local LSP diagnostic transport struct. Renamed from `Diagnostic` to avoid
+// colliding with cc.services.lsp.diagnostic_registry's exported
+// cc::services::lsp::Diagnostic (both modules export into the same namespace).
+// TS REF: vscode-languageserver-protocol Diagnostic (raw client-side shape)
+struct LspClientDiagnostic {
     Range range;
     int32_t severity = 1; // 1: Error, 2: Warning, 3: Info, 4: Hint
     std::optional<int64_t> code;
+    // Raw code text exactly as published (LSP allows string OR number codes;
+    // TS preserves it via String(code)). Preferred over `code` when present.
+    std::optional<std::string> code_text;
     std::optional<std::string> code_description;
     std::optional<std::string> source;
     std::string message;
@@ -173,7 +181,7 @@ struct DocumentSymbol {
 };
 
 struct CodeActionContext {
-    std::vector<Diagnostic> diagnostics;
+    std::vector<LspClientDiagnostic> diagnostics;
     std::optional<std::vector<std::string>> only;
     std::optional<std::string> trigger_kind;
 };
@@ -181,7 +189,7 @@ struct CodeActionContext {
 struct CodeAction {
     std::string title;
     std::optional<std::string> kind;
-    std::optional<std::vector<Diagnostic>> diagnostics;
+    std::optional<std::vector<LspClientDiagnostic>> diagnostics;
     std::optional<bool> is_preferred;
     std::optional<bool> disabled;
     std::optional<std::string> edit;
@@ -713,8 +721,15 @@ public:
     
     // Set diagnostics callback
     void set_diagnostics_callback(
-        std::function<void(const std::string& uri, const std::vector<Diagnostic>& diagnostics)> callback) {
+        std::function<void(const std::string& uri, const std::vector<LspClientDiagnostic>& diagnostics)> callback) {
         diagnostics_callback_ = std::move(callback);
+    }
+
+    // Inject the shared LSP diagnostic registry. When set, incoming
+    // publishDiagnostics notifications are upserted/cleared there in addition
+    // to the legacy callback. TS REF: src/services/lsp/manager.ts:188-191
+    void set_diagnostic_registry(std::shared_ptr<DiagnosticRegistry> registry) {
+        diagnostic_registry_ = std::move(registry);
     }
     
     // =====================================================================
@@ -1456,11 +1471,11 @@ private:
         if (!uri_node.is_str() || !diagnostics_node.is_arr()) return;
         
         std::string uri = std::string(uri_node.as_str());
-        std::vector<Diagnostic> diagnostics;
-        
+        std::vector<LspClientDiagnostic> diagnostics;
+
         diagnostics_node.iter([&diagnostics](JsonVal diag_node) {
-            Diagnostic diag;
-            
+            LspClientDiagnostic diag;
+
             // Parse range
             auto range_node = diag_node.get("range");
             if (range_node.is_obj()) {
@@ -1473,31 +1488,87 @@ private:
                     diag.range.end.character = static_cast<int64_t>(end_node.get("character").as_int());
                 }
             }
-            
+
             // Parse severity
             auto severity_node = diag_node.get("severity");
             if (severity_node.is_num()) {
                 diag.severity = static_cast<int32_t>(severity_node.as_int());
             }
-            
+
             // Parse message
             auto message_node = diag_node.get("message");
             if (message_node.is_str()) {
                 diag.message = std::string(message_node.as_str());
             }
-            
+
+            // Parse source (optional)
+            // TS REF: src/services/lsp/passiveFeedback.ts:71,86
+            auto source_node = diag_node.get("source");
+            if (source_node.is_str()) {
+                diag.source = std::string(source_node.as_str());
+            }
+
+            // Parse code (string-or-number; null/absent leaves it unset).
+            // TS REF: src/services/lsp/passiveFeedback.ts:87-90 (String(code))
+            auto code_node = diag_node.get("code");
+            if (code_node.is_num()) {
+                diag.code = code_node.as_int();
+                diag.code_text = std::to_string(*diag.code);
+            } else if (code_node.is_str()) {
+                // Preserve non-numeric string codes verbatim ("TS2345",
+                // "strictNullChecks"); populate numeric code only when the
+                // string is actually numeric (matches TS String(code)).
+                diag.code_text = std::string(code_node.as_str());
+                try {
+                    diag.code = static_cast<int64_t>(std::stoll(*diag.code_text));
+                } catch (...) {
+                    // Non-numeric code: numeric field stays unset, raw text kept.
+                }
+            }
+
             diagnostics.push_back(std::move(diag));
         });
-        
+
         // Update internal diagnostics store
         {
             std::lock_guard<std::mutex> lock(documents_mutex_);
             diagnostics_[uri] = diagnostics;
         }
-        
+
         // Notify callback
         if (diagnostics_callback_) {
             diagnostics_callback_(uri, diagnostics);
+        }
+
+        // Route into the shared stateful registry (LSP full-replacement
+        // semantics: an empty diagnostics array clears the URI).
+        // TS REF: src/services/lsp/passiveFeedback.ts:194-205
+        if (diagnostic_registry_) {
+            if (diagnostics.empty()) {
+                diagnostic_registry_->clear_diagnostics(uri);
+            } else {
+                std::vector<Diagnostic> converted;
+                converted.reserve(diagnostics.size());
+                for (const auto& d : diagnostics) {
+                    Diagnostic e;
+                    e.uri = uri;
+                    e.range.start.line = d.range.start.line;
+                    e.range.start.character = d.range.start.character;
+                    e.range.end.line = d.range.end.line;
+                    e.range.end.character = d.range.end.character;
+                    e.severity = map_lsp_severity(static_cast<int>(d.severity));
+                    e.message = d.message;
+                    e.source = d.source;
+                    if (d.code_text.has_value()) {
+                        e.code = *d.code_text;
+                    } else if (d.code.has_value()) {
+                        e.code = std::to_string(*d.code);
+                    }
+                    converted.push_back(std::move(e));
+                }
+                diagnostic_registry_->set_diagnostics(
+                    config_.name, uri, std::move(converted));
+            }
         }
     }
     
@@ -1533,6 +1604,12 @@ public:
     // =====================================================================
     // Response Parsers (pure functions; public for unit testing with fixtures)
     // =====================================================================
+
+    // Test seam: drive the inbound notification/response demux without a live
+    // server transport or receive thread.
+    void deliver_inbound_message(std::string message) {
+        handle_incoming_message(std::move(message));
+    }
 
     // --- Low-level JSON helpers (operate on a cc::utils::json::JsonVal) ---
 
@@ -1838,13 +1915,16 @@ private:
     
     mutable std::mutex documents_mutex_;
     std::unordered_map<std::string, TextDocumentItem> open_documents_;
-    std::unordered_map<std::string, std::vector<Diagnostic>> diagnostics_;
-    
+    std::unordered_map<std::string, std::vector<LspClientDiagnostic>> diagnostics_;
+
     std::atomic<bool> running_;
     std::thread receive_thread_;
-    
+
     NotificationCallback notification_callback_;
-    std::function<void(const std::string& uri, const std::vector<Diagnostic>& diagnostics)> diagnostics_callback_;
+    std::function<void(const std::string& uri, const std::vector<LspClientDiagnostic>& diagnostics)> diagnostics_callback_;
+
+    // Shared stateful registry (optional; production manager injects it).
+    std::shared_ptr<DiagnosticRegistry> diagnostic_registry_;
 };
 
 } // namespace cc::services::lsp

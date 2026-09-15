@@ -27,12 +27,31 @@
 #include <gtest/gtest.h>
 
 #include <filesystem>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unistd.h>
 
 import cc.tools.lsp;
+import cc.utils.json;
+import cc.services.lsp.types;
 import cc.services.lsp.LSPServerInstance;
+import cc.services.lsp.diagnostic_registry;
+import cc.services.lsp.passive_feedback;
+import cc.services.lsp.LSPServerManager;
+import cc.services.lsp.client;
+
+using cc::services::lsp::ScopedLspServerConfig;
+using cc::services::lsp::create_lsp_server_instance;
+using cc::services::lsp::DiagnosticRegistry;
+using cc::services::lsp::DiagnosticSeverity;
+using cc::services::lsp::format_diagnostics_for_attachment;
+using cc::services::lsp::create_lsp_server_manager;
+using cc::services::lsp::PassiveFeedbackCollector;
+using cc::services::lsp::PassiveFeedbackType;
+using cc::services::lsp::register_lsp_notification_handlers;
+using cc::services::lsp::LspClient;
 
 using cc::tools::LspAction;
 using cc::tools::LspRequest;
@@ -247,4 +266,259 @@ TEST(LspToolFixM11, SendRequestTemplateContractDocumented) {
     // documentation/CI sentinel — there is no runtime behaviour to assert.
     SUCCEED() << "send_request<T> is constrained by static_assert to T=std::string; "
                  "this test guards the contract by ensuring the TU compiles.";
+}
+
+// ===========================================================================
+// lsp-diagnostics-feedback-wiring
+//
+// The shared DiagnosticRegistry is the source of truth for diagnostics once
+// an LSPServerInstance (production fork+poll transport) is wired to it, and
+// the parallel LspClient (receive-thread transport) routes into it
+// independently. publishDiagnostics is full-replacement: an empty diagnostics
+// array clears stale state.
+// TS REF: src/services/lsp/passiveFeedback.ts:125-328
+// ===========================================================================
+
+namespace {
+
+constexpr std::string_view kPublishTwoDiags =
+    R"({"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{)"
+    R"("uri":"file:///a.ts","diagnostics":[)"
+    R"({"range":{"start":{"line":1,"character":2},"end":{"line":1,"character":6}},)"
+    R"("severity":1,"source":"ts","code":2345,"message":"boom"},)"
+    R"({"range":{"start":{"line":3,"character":0},"end":{"line":3,"character":4}},)"
+    R"("severity":3,"message":"info"}]}})";
+
+}  // namespace
+
+TEST(LspDiagnosticsWiring, PublishReachesRegistryWithAttachmentShape) {
+    auto created = create_lsp_server_instance("t", ScopedLspServerConfig{});
+    ASSERT_TRUE(created.has_value());
+    auto instance = std::move(*created);
+    auto registry = std::make_shared<DiagnosticRegistry>();
+    instance->diagnostic_registry = registry;
+
+    instance->deliver_notification(std::string{kPublishTwoDiags});
+
+    auto diags = registry->get_diagnostics("file:///a.ts");
+    ASSERT_EQ(diags.size(), 2u);
+
+    const auto& first = diags[0];
+    EXPECT_EQ(first.severity, DiagnosticSeverity::Error);
+    ASSERT_TRUE(first.code.has_value());
+    EXPECT_EQ(*first.code, "2345");
+    ASSERT_TRUE(first.source.has_value());
+    EXPECT_EQ(*first.source, "ts");
+    EXPECT_EQ(first.message, "boom");
+    EXPECT_EQ(first.range.start.line, 1);
+    EXPECT_EQ(first.range.start.character, 2);
+
+    EXPECT_EQ(diags[1].severity, DiagnosticSeverity::Info);
+    EXPECT_EQ(registry->get_error_count(), 1u);
+
+    // The registry, not the legacy raw-map, is the source of truth: clobbering
+    // the legacy entry must not change what diagnostics_json_for_uri returns.
+    instance->diagnostics_by_uri["file:///a.ts"] = "[]";
+    auto parsed = cc::utils::json::parse(instance->diagnostics_json_for_uri("file:///a.ts"));
+    ASSERT_TRUE(parsed.has_value());
+    EXPECT_EQ(parsed->root().size(), 2u);
+}
+
+TEST(LspDiagnosticsWiring, FormatAttachmentSeverityAndCodeMapping) {
+    constexpr std::string_view params =
+        R"({"uri":"file:///x.ts","diagnostics":[)"
+        R"({"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}},"severity":1,"code":"E1","message":"a"},)"
+        R"({"range":{"start":{"line":1,"character":0},"end":{"line":1,"character":1}},"severity":2,"code":42,"message":"b"},)"
+        R"({"range":{"start":{"line":2,"character":0},"end":{"line":2,"character":1}},"severity":3,"message":"c"},)"
+        R"({"range":{"start":{"line":3,"character":0},"end":{"line":3,"character":1}},"severity":4,"message":"d"},)"
+        R"({"range":{"start":{"line":4,"character":0},"end":{"line":4,"character":1}},"code":null,"message":"e"}]})";
+
+    auto parsed = cc::utils::json::parse(params);
+    ASSERT_TRUE(parsed.has_value());
+
+    auto files = format_diagnostics_for_attachment(parsed->root());
+    ASSERT_EQ(files.size(), 1u);
+    // file:// is stripped for attachment display.
+    // TS REF: src/services/lsp/passiveFeedback.ts:50-52 (fileURLToPath)
+    EXPECT_EQ(files[0].uri, "/x.ts");
+    ASSERT_EQ(files[0].diagnostics.size(), 5u);
+
+    // 1=Error, 2=Warning, 3=Info, 4=Hint, missing defaults to Error.
+    // TS REF: src/services/lsp/passiveFeedback.ts:18-35 (mapLSPSeverity)
+    EXPECT_EQ(files[0].diagnostics[0].severity, DiagnosticSeverity::Error);
+    EXPECT_EQ(files[0].diagnostics[1].severity, DiagnosticSeverity::Warning);
+    EXPECT_EQ(files[0].diagnostics[2].severity, DiagnosticSeverity::Info);
+    EXPECT_EQ(files[0].diagnostics[3].severity, DiagnosticSeverity::Hint);
+    EXPECT_EQ(files[0].diagnostics[4].severity, DiagnosticSeverity::Error);
+
+    // String code preserved, numeric code stringified, null code dropped.
+    // TS REF: src/services/lsp/passiveFeedback.ts:87-90 (String(code))
+    ASSERT_TRUE(files[0].diagnostics[0].code.has_value());
+    EXPECT_EQ(*files[0].diagnostics[0].code, "E1");
+    ASSERT_TRUE(files[0].diagnostics[1].code.has_value());
+    EXPECT_EQ(*files[0].diagnostics[1].code, "42");
+    EXPECT_FALSE(files[0].diagnostics[4].code.has_value());
+}
+
+TEST(LspDiagnosticsWiring, EmptyPublishClearsStaleDiagnostics) {
+    auto created = create_lsp_server_instance("t", ScopedLspServerConfig{});
+    ASSERT_TRUE(created.has_value());
+    auto instance = std::move(*created);
+    auto registry = std::make_shared<DiagnosticRegistry>();
+    instance->diagnostic_registry = registry;
+
+    constexpr std::string_view uri = "file:///a.ts";
+    instance->deliver_notification(std::string{kPublishTwoDiags});
+    ASSERT_EQ(registry->get_diagnostics(uri).size(), 2u);
+
+    constexpr std::string_view clear_msg =
+        R"({"jsonrpc":"2.0","method":"textDocument/publishDiagnostics",)"
+        R"("params":{"uri":"file:///a.ts","diagnostics":[]}})";
+    instance->deliver_notification(std::string{clear_msg});
+
+    EXPECT_TRUE(registry->get_diagnostics(uri).empty());
+    EXPECT_EQ(registry->get_diagnostic_count(), 0u);
+    EXPECT_EQ(registry->get_error_count(), 0u);
+    // clear_diagnostics erases the URI from the per-server map too.
+    EXPECT_TRUE(registry->get_diagnostics_by_server("t").empty());
+    EXPECT_EQ(instance->diagnostics_json_for_uri(uri), "[]");
+    // A never-published URI is also an empty result.
+    EXPECT_EQ(instance->diagnostics_json_for_uri("file:///never.ts"), "[]");
+}
+
+TEST(LspDiagnosticsWiring, DiagnosticsSerializesToNumericSeverityJsonArray) {
+    auto created = create_lsp_server_instance("t", ScopedLspServerConfig{});
+    ASSERT_TRUE(created.has_value());
+    auto instance = std::move(*created);
+    instance->diagnostic_registry = std::make_shared<DiagnosticRegistry>();
+
+    constexpr std::string_view uri = "file:///a.ts";
+    instance->deliver_notification(std::string{kPublishTwoDiags});
+
+    const std::string j = instance->diagnostics_json_for_uri(uri);
+    // parse_diagnostics (lsp_tool.cppm) requires a JSON array with NUMERIC
+    // severity; an enum string would break the diagnostics tool action.
+    EXPECT_NE(j.find("\"severity\":1"), std::string::npos);
+    EXPECT_NE(j.find("\"start\""), std::string::npos);
+    EXPECT_NE(j.find("\"line\""), std::string::npos);
+    EXPECT_NE(j.find("\"character\""), std::string::npos);
+    EXPECT_NE(j.find("boom"), std::string::npos);
+    EXPECT_NE(j.find("\"code\":\"2345\""), std::string::npos);
+
+    auto parsed = cc::utils::json::parse(j);
+    ASSERT_TRUE(parsed.has_value());
+    EXPECT_TRUE(parsed->root().is_arr());
+    EXPECT_EQ(parsed->root().size(), 2u);
+
+    // After an empty publish, serialization parses to an empty array.
+    constexpr std::string_view clear_msg =
+        R"({"jsonrpc":"2.0","method":"textDocument/publishDiagnostics",)"
+        R"("params":{"uri":"file:///a.ts","diagnostics":[]}})";
+    instance->deliver_notification(std::string{clear_msg});
+    auto empty = cc::utils::json::parse(instance->diagnostics_json_for_uri(uri));
+    ASSERT_TRUE(empty.has_value());
+    EXPECT_TRUE(empty->root().is_arr());
+    EXPECT_EQ(empty->root().size(), 0u);
+}
+
+TEST(LspFeedbackWiring, LiveHandlerIsObservabilityOnlyRegistryStillUpserts) {
+    auto mgr = create_lsp_server_manager();
+    ASSERT_TRUE(mgr->initialize().has_value());
+
+    auto inst_it = mgr->get_all_servers().find("typescript");
+    ASSERT_NE(inst_it, mgr->get_all_servers().end());
+
+    PassiveFeedbackCollector fb;
+    auto res = register_lsp_notification_handlers(*mgr, fb);
+    EXPECT_EQ(res.success_count, mgr->get_all_servers().size());
+    EXPECT_EQ(res.total_servers, res.success_count);
+
+    constexpr std::string_view publish =
+        R"({"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{)"
+        R"("uri":"file:///live.ts","diagnostics":[)"
+        R"({"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"severity":1,"code":"TS2345","message":"x"},)"
+        R"({"range":{"start":{"line":1,"character":0},"end":{"line":1,"character":3}},"severity":2,"message":"nocode"}]}})";
+    inst_it->second->deliver_notification(std::string{publish});
+
+    // TS passiveFeedback.ts handler is observability-only (it logs): a
+    // server-pushed publishDiagnostics is not a user gesture, so NO
+    // Accepted/Rejected feedback is recorded. Recording a Rejected per
+    // diagnostic here would corrupt get_acceptance_rate().
+    EXPECT_EQ(fb.get_feedback_count(), 0u);
+
+    // The registry path still upserts every diagnostic (code-bearing or
+    // not), and preserves the non-numeric string code verbatim.
+    const auto diags = mgr->diagnostic_registry().get_diagnostics("file:///live.ts");
+    ASSERT_EQ(diags.size(), 2u);
+    bool found_string_code = false;
+    for (const auto& d : diags) {
+        if (d.code.has_value() && *d.code == "TS2345") found_string_code = true;
+    }
+    EXPECT_TRUE(found_string_code)
+        << "non-numeric LSP string code must be preserved (TS String(code))";
+}
+
+TEST(LspFeedbackWiring, FeedbackExportImportRoundTrips) {
+    PassiveFeedbackCollector fb;
+    fb.record_feedback("srv", "file:///f.ts", "C1", PassiveFeedbackType::Accepted);
+    fb.record_feedback("srv", "file:///f.ts", "C1", PassiveFeedbackType::Rejected);
+    EXPECT_DOUBLE_EQ(fb.get_acceptance_rate("C1"), 0.5);
+
+    auto path = std::filesystem::temp_directory_path() /
+        ("cc_repl_lsp_feedback_" + std::to_string(::getpid()) + ".json");
+
+    auto exported = fb.export_feedback(path);
+    ASSERT_TRUE(exported.has_value());
+
+    PassiveFeedbackCollector imported;
+    auto import_result = imported.import_feedback(path);
+    ASSERT_TRUE(import_result.has_value());
+
+    EXPECT_EQ(imported.get_feedback_count(), 2u);
+    auto items = imported.get_feedback_by_code("C1");
+    ASSERT_EQ(items.size(), 2u);
+    EXPECT_EQ(items[0].server_name, "srv");
+    EXPECT_EQ(items[0].uri, "file:///f.ts");
+    EXPECT_EQ(items[1].server_name, "srv");
+    EXPECT_EQ(items[1].uri, "file:///f.ts");
+    bool has_accepted = false;
+    bool has_rejected = false;
+    for (const auto& item : items) {
+        if (item.type == PassiveFeedbackType::Accepted) has_accepted = true;
+        if (item.type == PassiveFeedbackType::Rejected) has_rejected = true;
+    }
+    EXPECT_TRUE(has_accepted);
+    EXPECT_TRUE(has_rejected);
+    EXPECT_DOUBLE_EQ(imported.get_acceptance_rate("C1"), 0.5);
+
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+}
+
+TEST(LspDiagnosticsWiring, LspClientRoutesPublishIntoRegistry) {
+    LspClient::Config config;
+    config.name = "cli-srv";
+    LspClient client{std::move(config)};
+
+    auto registry = std::make_shared<DiagnosticRegistry>();
+    client.set_diagnostic_registry(registry);
+
+    constexpr std::string_view publish =
+        R"({"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{)"
+        R"("uri":"file:///cli.ts","diagnostics":[)"
+        R"({"range":{"start":{"line":2,"character":1},"end":{"line":2,"character":7}},"severity":2,"code":7,"source":"cli","message":"warn"}]}})";
+    client.deliver_inbound_message(std::string{publish});
+
+    auto diags = registry->get_diagnostics("file:///cli.ts");
+    ASSERT_EQ(diags.size(), 1u);
+    EXPECT_EQ(diags[0].severity, DiagnosticSeverity::Warning);
+    ASSERT_TRUE(diags[0].code.has_value());
+    EXPECT_EQ(*diags[0].code, "7");
+    EXPECT_EQ(registry->get_diagnostics_by_server("cli-srv").size(), 1u);
+
+    constexpr std::string_view clear_msg =
+        R"({"jsonrpc":"2.0","method":"textDocument/publishDiagnostics",)"
+        R"("params":{"uri":"file:///cli.ts","diagnostics":[]}})";
+    client.deliver_inbound_message(std::string{clear_msg});
+    EXPECT_TRUE(registry->get_diagnostics("file:///cli.ts").empty());
 }

@@ -673,4 +673,46 @@ private:
     return result;
 }
 
+/// Serialize registry diagnostics into the JSON array shape consumed by
+/// lsp_tool.cppm parse_diagnostics: every element carries a NUMERIC severity
+/// (1-4), range.start/end line/character, message, optional source/code.
+/// TS REF: src/services/lsp/passiveFeedback.ts:63-92 (field mapping)
+/// TS REF: src/tools/LSPTool/... (parse_diagnostics requires a JSON array)
+[[nodiscard]] inline std::string diagnostics_to_json_array(
+    const std::vector<Diagnostic>& diags
+) {
+    cc::utils::json::JsonMutDoc doc;
+    auto root = doc.array();
+    for (const auto& d : diags) {
+        auto element = doc.object();
+
+        auto range = doc.object();
+        auto start = doc.object();
+        start.add("line", doc.number(static_cast<int64_t>(d.range.start.line)));
+        start.add("character", doc.number(static_cast<int64_t>(d.range.start.character)));
+        auto end = doc.object();
+        end.add("line", doc.number(static_cast<int64_t>(d.range.end.line)));
+        end.add("character", doc.number(static_cast<int64_t>(d.range.end.character)));
+        range.add("start", start);
+        range.add("end", end);
+        element.add("range", range);
+
+        // Always present and numeric so parse_diagnostics never falls back to
+        // its missing-severity default (Info).
+        element.add("severity", doc.number(static_cast<int64_t>(severity_to_number(d.severity))));
+        element.add("message", doc.string(d.message));
+
+        if (d.source.has_value()) {
+            element.add("source", doc.string(*d.source));
+        }
+        if (d.code.has_value()) {
+            element.add("code", doc.string(*d.code));
+        }
+
+        root.append(element);
+    }
+    doc.set_root(root);
+    return doc.to_string();
+}
+
 } // namespace cc::services::lsp

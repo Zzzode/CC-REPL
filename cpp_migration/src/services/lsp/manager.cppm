@@ -41,6 +41,7 @@ export module cc.services.lsp.manager;
 import cc.services.lsp.LSPServerManager;
 import cc.services.lsp.LSPServerInstance;
 import cc.services.lsp.types;
+import cc.services.lsp.passive_feedback;
 import cc.utils.error;
 import cc.utils.json;
 
@@ -284,6 +285,12 @@ public:
                     // Capture capabilities from all registered servers
                     refresh_capabilities_locked();
 
+                    // Register passive notification handlers exactly once per
+                    // successful initialization (manager_ is non-null and the
+                    // mutex is held here).
+                    // TS REF: src/services/lsp/manager.ts:188-191
+                    (void)register_lsp_notification_handlers(*manager_, lsp_feedback_);
+
                     should_emit = true;
                     success_event = LspEvent{
                         .type = LspEventType::InitializationSucceeded,
@@ -489,6 +496,11 @@ public:
         return server_capabilities_;
     }
 
+    /// Access the passive feedback collector fed by live publishDiagnostics.
+    /// The collector outlives all server instances (they are owned by
+    /// manager_ and destroyed before this member on shutdown).
+    PassiveFeedbackCollector& feedback_collector() { return lsp_feedback_; }
+
     /// Refresh capabilities from the current manager's server instances.
     /// Called after successful initialization.
     void refresh_capabilities() {
@@ -621,6 +633,10 @@ private:
 
     /// Per-server capability tracking.
     std::unordered_map<std::string, ServerCapabilities> server_capabilities_;
+
+    /// C++-only extension: collects diagnostic feedback fed by the live
+    /// publishDiagnostics handlers registered after successful init.
+    PassiveFeedbackCollector lsp_feedback_;
 
     /// Event callback registry: token -> callback.
     std::vector<std::pair<uint64_t, LspEventCallback>> event_callbacks_;
