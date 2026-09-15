@@ -373,7 +373,8 @@ TEST(StateStore, DispatchFeatureBucketParityActions) {
     speculation.status = cc::state::SpeculationStatus::Active;
     speculation.id = "spec-1";
     store->dispatch(cc::state::Action{cc::state::ActionType::SetSpeculationState, speculation});
-    store->dispatch(cc::state::Action{cc::state::ActionType::SetSpeculationTimeSaved, 1234LL});
+    store->dispatch(cc::state::Action{cc::state::ActionType::SetSpeculationTimeSaved,
+                                      std::int64_t{1234}});
 
     cc::state::AppState::SkillImprovementState::Suggestion suggestion;
     suggestion.skill_name = "state";

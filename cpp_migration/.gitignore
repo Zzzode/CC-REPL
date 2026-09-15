@@ -9,3 +9,6 @@ build-clang-release/
 build-clang-coverage/
 Testing/
 .cache/
+
+# Locally mirrored FetchContent sources (offline/network-restricted builds)
+.deps-cache/

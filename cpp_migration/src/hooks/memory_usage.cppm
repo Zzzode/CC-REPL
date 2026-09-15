@@ -11,6 +11,7 @@ module;
 #include <mach/mach.h>
 #include <sys/sysctl.h>
 #else
+#include <unistd.h>
 #include <fstream>
 #include <string>
 #endif
@@ -79,7 +80,8 @@ inline MemoryStats get_memory_stats() {
     if (statm.is_open()) {
         std::size_t pages_total = 0, pages_rss = 0;
         statm >> pages_total >> pages_rss;
-        long page_size = sysconf(_SC_PAGESIZE);
+        // POSIX spelling; macOS additionally provides the _SC_PAGESIZE alias.
+        long page_size = sysconf(_SC_PAGE_SIZE);
         stats.rss = pages_rss * static_cast<std::size_t>(page_size);
         stats.heap_used = pages_total * static_cast<std::size_t>(page_size);
     }
