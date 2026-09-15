@@ -149,18 +149,58 @@ AppAdapter::AppAdapter(core::QueryEngine* engine,
     cbs.on_submit = [this](const std::string& text, repl::InputMode mode) {
         this->HandleSubmit(text, mode);
     };
+    // Idle Ctrl+C footer key/string (TS useTextInput handleCtrlC projects
+    // pending state with key 'Ctrl-C' via onExitMessage).
+    exit_handler_.set_exit_message("Press Ctrl+C again to exit");
     cbs.on_interrupt = [this]() {
         if (query_running_.load()) {
+            // A running query aborts immediately (TS app:interrupt owned by
+            // useCancelRequest) — never arms the exit double-press and never
+            // leaves a stale footer from a previous idle press.
             engine_->abort();
             if (query_thread_.joinable())
                 query_thread_.request_stop();
             screen_state_->spinner_tip = "Cancelling...";
-        } else {
-            if (on_exit_) on_exit_();
+            exit_handler_.reset();
+            screen_state_->exit_message_until.reset();
+            return;
         }
+        // TS REF: src/hooks/useTextInput.ts:108-120 handleCtrlC =
+        // useDoublePress(onExitMessage(pending,'Ctrl-C'), onExit, onFirstPress)
+        // with DOUBLE_PRESS_TIMEOUT_MS = 800 (useDoublePress.ts:6).
+        if (exit_handler_.handle_signal(cc::hooks::ExitReason::ctrl_c)) {
+            if (on_exit_) on_exit_();
+            return;
+        }
+        // First press: clear non-empty input FIRST (TS onFirstPress:
+        // onChange('') + setOffset(0) + onHistoryReset), then arm footer.
+        if (!screen_state_->input_text.empty()) {
+            repl::set_prompt_input_text(screen_state_, {}, 0);
+            screen_state_->history_index = std::string::npos;
+        }
+        screen_state_->exit_message_key = "Ctrl-C";
+        screen_state_->exit_message_until =
+            std::chrono::steady_clock::now() + std::chrono::milliseconds(800);
+        PostRenderEvent();
     };
     cbs.on_exit = [this]() {
         if (on_exit_) on_exit_();
+    };
+    // TS REF: src/hooks/useGlobalKeybindings.tsx:225-228 handleRedraw ->
+    // ink forceRedraw: ERASE_SCREEN (CSI 2 J) + CURSOR_HOME (CSI H), then
+    // FTXUI repaints the full frame after the consumed keystroke. Input
+    // state must not be mutated.
+    cbs.on_redraw = [this]() {
+        std::fputs("\x1b[2J\x1b[H", stdout);
+        std::fflush(stdout);
+        this->PostRenderEvent();
+    };
+    // TS REF: src/hooks/useTextInput.ts:142-150 — Esc double-press persists
+    // the original value via addToHistory before clearing. Same persistence
+    // call as the submit path (app_handle_submit.cpp:110).
+    cbs.on_save_to_history = [this](const std::string& text) {
+        acsrc::append_prompt_history(text, current_session_id_,
+                                     screen_state_->cwd);
     };
     cbs.on_permission_response = [this](bool allowed, std::optional<bool> always) {
         std::lock_guard lk(permission_mutex_);

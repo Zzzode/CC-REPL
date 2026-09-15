@@ -66,6 +66,39 @@ std::string render_to_ansi(ftxui::Element el, int w = 120, int h = 40) {
     return screen.ToString();
 }
 
+/// Strip CSI/OSC ANSI sequences so substring assertions survive
+/// per-segment SGR colour codes (hbox segments emit colour resets
+/// between otherwise adjacent strings).
+std::string strip_ansi(std::string s) {
+    std::string out;
+    for (std::size_t i = 0; i < s.size();) {
+        char c = s[i];
+        if (c == '\x1b' && i + 1 < s.size()) {
+            char next = s[i + 1];
+            if (next == '[') {
+                i += 2;
+                while (i < s.size() &&
+                       !(s[i] >= '@' && s[i] <= '~')) ++i;
+                if (i < s.size()) ++i;
+                continue;
+            }
+            if (next == ']') {
+                i += 2;
+                while (i < s.size()) {
+                    if (s[i] == '\x07') { ++i; break; }
+                    if (s[i] == '\x1b' && i + 1 < s.size() &&
+                        s[i + 1] == '\\') { i += 2; break; }
+                    ++i;
+                }
+                continue;
+            }
+        }
+        out.push_back(c);
+        ++i;
+    }
+    return out;
+}
+
 std::string normalize_line_endings(std::string s) {
     s.erase(std::remove(s.begin(), s.end(), '\r'), s.end());
     return s;
@@ -653,6 +686,241 @@ TEST(LayerAllDialogs, StandaloneReplacesEntireChrome) {
     std::string ansi = render_to_ansi(std::move(full), 120, 40);
     // The fallback renderer prints the dialog type name.
     EXPECT_NE(ansi.find("trust-dialog"), std::string::npos);
+}
+
+// ─── 7. ReplMode::ToolPermission rich overlay (dlg-permission-legacy) ─────
+//
+// The dormant ReplMode::ToolPermission branch mounts the same faithful
+// panel Components the M7 queue uses (bash / edit / write / generic),
+// dispatched on tool identity per TS PermissionRequest.tsx:47-82.
+// These tests exercise that screen-level mount: ownership (the panel
+// must survive repaint), rich strings, and key-driven teardown.
+
+struct RsDecisionRecorder {
+    std::optional<DecisionPair> response;
+    int mode_changes_to_normal = 0;
+    rs::ReplScreenCallbacks callbacks() {
+        rs::ReplScreenCallbacks cbs;
+        cbs.on_permission_response =
+            [this](bool allowed, std::optional<bool> always) {
+                response = DecisionPair{allowed, always};
+            };
+        cbs.on_mode_change = [this](rs::ReplMode m) {
+            if (m == rs::ReplMode::Normal) ++mode_changes_to_normal;
+        };
+        return cbs;
+    }
+};
+
+TEST(ReplModeRichPermissionPanels, BashReplModeRendersRichPanel) {
+    auto state = std::make_shared<rs::ReplScreenState>();
+    state->mode = rs::ReplMode::ToolPermission;
+    rs::PermissionRequestInfo info;
+    info.tool_name = "Bash";
+    info.description = "Run build";
+    info.bash_command = "cmake --build build -j 8";
+    info.risk_labels = {"medium"};
+    info.can_always_allow = true;
+    state->permission_request = info;
+
+    RsDecisionRecorder rec;
+    auto comp = rs::ReplScreen(state, rec.callbacks());
+
+    std::string ansi = strip_ansi(render_to_ansi(comp->Render(), 120, 40));
+    EXPECT_NE(ansi.find("Bash command"), std::string::npos);
+    EXPECT_NE(ansi.find("Do you want to proceed?"), std::string::npos);
+    EXPECT_NE(ansi.find("$ cmake --build build -j 8"), std::string::npos);
+    // Editable prefix "cmake:*" makes the prefix option visible.
+    EXPECT_NE(ansi.find("Yes, and don't ask again"), std::string::npos);
+    // Legacy paragraph() strings are gone.
+    EXPECT_EQ(ansi.find("Permission Required"), std::string::npos);
+    EXPECT_EQ(ansi.find("Allow (once)"), std::string::npos);
+
+    EXPECT_TRUE(comp->OnEvent(ftxui::Event::Character('y')));
+    ASSERT_TRUE(rec.response.has_value());
+    EXPECT_EQ(*rec.response, (DecisionPair{true, false}));
+    EXPECT_EQ(state->mode, rs::ReplMode::Normal);
+    EXPECT_FALSE(state->permission_request.has_value());
+    EXPECT_EQ(state->tool_permission_component, nullptr);
+}
+
+TEST(ReplModeRichPermissionPanels, FileEditReplModeRendersRichPanel) {
+    auto state = std::make_shared<rs::ReplScreenState>();
+    state->mode = rs::ReplMode::ToolPermission;
+    rs::PermissionRequestInfo info;
+    info.tool_name = "Edit";
+    info.description = "Edit a source file";
+    info.file_path = "src/x.cpp";
+    info.file_relative_path = "src/x.cpp";
+    info.file_filename = "x.cpp";
+    info.file_old_content = "int a;\n";
+    info.file_new_content = "int b;\n";
+    info.can_always_allow = true;
+    state->permission_request = info;
+
+    RsDecisionRecorder rec;
+    auto comp = rs::ReplScreen(state, rec.callbacks());
+
+    std::string ansi = strip_ansi(render_to_ansi(comp->Render(), 120, 40));
+    EXPECT_NE(ansi.find("Edit file"), std::string::npos);
+    EXPECT_NE(ansi.find("Do you want to make this edit to"),
+              std::string::npos);
+    EXPECT_NE(ansi.find("x.cpp?"), std::string::npos);
+    EXPECT_NE(ansi.find("Yes, allow all edits during this session"),
+              std::string::npos);
+    EXPECT_EQ(ansi.find("Permission Required"), std::string::npos);
+
+    EXPECT_TRUE(comp->OnEvent(ftxui::Event::Character('n')));
+    ASSERT_TRUE(rec.response.has_value());
+    EXPECT_EQ(*rec.response, (DecisionPair{false, std::nullopt}));
+    EXPECT_EQ(state->mode, rs::ReplMode::Normal);
+    EXPECT_FALSE(state->permission_request.has_value());
+}
+
+TEST(ReplModeRichPermissionPanels, FileWriteReplModeCreatesRichPanel) {
+    auto state = std::make_shared<rs::ReplScreenState>();
+    state->mode = rs::ReplMode::ToolPermission;
+    rs::PermissionRequestInfo info;
+    info.tool_name = "Write";
+    info.description = "Write a new file";
+    info.file_path = "src/new.txt";
+    info.file_relative_path = "src/new.txt";
+    info.file_filename = "new.txt";
+    info.file_new_content = "hello\n";
+    info.file_exists = false;
+    state->permission_request = info;
+
+    RsDecisionRecorder rec;
+    auto comp = rs::ReplScreen(state, rec.callbacks());
+
+    std::string ansi = strip_ansi(render_to_ansi(comp->Render(), 120, 40));
+    EXPECT_NE(ansi.find("Create file"), std::string::npos);
+    EXPECT_NE(ansi.find("Do you want to create"), std::string::npos);
+    EXPECT_NE(ansi.find("new.txt?"), std::string::npos);
+    EXPECT_NE(ansi.find("Yes, allow all writes during this session"),
+              std::string::npos);
+    EXPECT_EQ(ansi.find("Permission Required"), std::string::npos);
+    EXPECT_EQ(ansi.find("Allow (once)"), std::string::npos);
+
+    // Default-focused option 0 is Yes → Return = AllowOnce.
+    EXPECT_TRUE(comp->OnEvent(ftxui::Event::Return));
+    ASSERT_TRUE(rec.response.has_value());
+    EXPECT_EQ(*rec.response, (DecisionPair{true, false}));
+    EXPECT_EQ(state->mode, rs::ReplMode::Normal);
+}
+
+TEST(ReplModeRichPermissionPanels, FileWriteReplModeOverwriteVariant) {
+    auto state = std::make_shared<rs::ReplScreenState>();
+    state->mode = rs::ReplMode::ToolPermission;
+    rs::PermissionRequestInfo info;
+    info.tool_name = "FileWriteTool";  // tolerant TS-style alias
+    info.file_path = "src/existing.txt";
+    info.file_filename = "existing.txt";
+    info.file_new_content = "new\n";
+    info.file_old_content = "old\n";
+    info.file_exists = true;
+    state->permission_request = info;
+
+    RsDecisionRecorder rec;
+    auto comp = rs::ReplScreen(state, rec.callbacks());
+
+    std::string ansi = strip_ansi(render_to_ansi(comp->Render(), 120, 40));
+    EXPECT_NE(ansi.find("Overwrite file"), std::string::npos);
+    EXPECT_NE(ansi.find("Do you want to overwrite"), std::string::npos);
+    EXPECT_NE(ansi.find("existing.txt?"), std::string::npos);
+    EXPECT_EQ(ansi.find("Permission Required"), std::string::npos);
+}
+
+TEST(ReplModeRichPermissionPanels, GenericReplModeFallsBackToSinglePrompt) {
+    auto state = std::make_shared<rs::ReplScreenState>();
+    state->mode = rs::ReplMode::ToolPermission;
+    rs::PermissionRequestInfo info;
+    info.tool_name = "AgentTool";
+    info.description = "spawn sub-agent";
+    info.risk_labels = {"high"};
+    info.can_always_allow = true;
+    state->permission_request = info;
+
+    RsDecisionRecorder rec;
+    auto comp = rs::ReplScreen(state, rec.callbacks());
+
+    std::string ansi = strip_ansi(render_to_ansi(comp->Render(), 120, 40));
+    // Single-prompt title bar renders "<tool> wants to use".
+    EXPECT_NE(ansi.find("wants to"), std::string::npos);
+    EXPECT_NE(ansi.find("Allow once"), std::string::npos);
+    EXPECT_EQ(ansi.find("Permission Required"), std::string::npos);
+    EXPECT_EQ(ansi.find("Allow (once)"), std::string::npos);
+
+    // 'a' = AlwaysAllow in the single-prompt panel.
+    EXPECT_TRUE(comp->OnEvent(ftxui::Event::Character('a')));
+    ASSERT_TRUE(rec.response.has_value());
+    EXPECT_EQ(*rec.response, (DecisionPair{true, true}));
+    EXPECT_EQ(state->mode, rs::ReplMode::Normal);
+    EXPECT_FALSE(state->permission_request.has_value());
+}
+
+TEST(ReplModeRichPermissionPanels, ClassifierUsesExactNamesNotSuffixMatching) {
+    // Regression: loose starts_with("bash")/ends_with("edit"|"write")
+    // misdispatched unrelated tool names to rich panels. TS switches on
+    // exact canonical identity; NotebookEdit/MultiEdit are distinct tools.
+    const auto renders_generic = [](const std::string& tool_name) {
+        auto state = std::make_shared<rs::ReplScreenState>();
+        state->mode = rs::ReplMode::ToolPermission;
+        rs::PermissionRequestInfo info;
+        info.tool_name = tool_name;
+        info.description = "request";
+        state->permission_request = info;
+        RsDecisionRecorder rec;
+        auto comp = rs::ReplScreen(state, rec.callbacks());
+        return strip_ansi(render_to_ansi(comp->Render(), 120, 40));
+    };
+
+    // These must NOT mount the file-edit / file-write / bash rich panels.
+    for (const char* non_panel : {
+            "NotebookEdit", "MultiEdit", "BashOutputTool",
+            "credit", "audit", "overwrite", "handwrite", "bashful"}) {
+        const std::string ansi = renders_generic(non_panel);
+        EXPECT_EQ(ansi.find("Overwrite file"), std::string::npos) << non_panel;
+        EXPECT_EQ(ansi.find("Do you want to overwrite"), std::string::npos)
+            << non_panel;
+        // File-edit panel markers must also be absent.
+        EXPECT_EQ(ansi.find("Edit file"), std::string::npos) << non_panel;
+        // Generic single-prompt falls through (still shows the tool prompt).
+        EXPECT_NE(ansi.find("wants to"), std::string::npos) << non_panel;
+    }
+}
+
+TEST(ReplModeRichPermissionPanels, ComponentHandleSurvivesRepaint) {
+    auto state = std::make_shared<rs::ReplScreenState>();
+    state->mode = rs::ReplMode::ToolPermission;
+    rs::PermissionRequestInfo info;
+    info.tool_name = "Bash";
+    info.description = "Run build";
+    info.bash_command = "cmake --build build -j 8";
+    info.can_always_allow = true;
+    state->permission_request = info;
+
+    RsDecisionRecorder rec;
+    auto comp = rs::ReplScreen(state, rec.callbacks());
+
+    // Two renders, an ArrowDown, another render — the state-owned
+    // Component must survive all frames without crashing.
+    (void)render_to_ansi(comp->Render(), 120, 40);
+    (void)render_to_ansi(comp->Render(), 120, 40);
+    EXPECT_TRUE(comp->OnEvent(ftxui::Event::ArrowDown));
+    (void)render_to_ansi(comp->Render(), 120, 40);
+
+    // 'y' is a direct AllowOnce shortcut regardless of focus; exactly
+    // one terminal response fires.
+    EXPECT_TRUE(comp->OnEvent(ftxui::Event::Character('y')));
+    ASSERT_TRUE(rec.response.has_value());
+    EXPECT_EQ(*rec.response, (DecisionPair{true, false}));
+    EXPECT_EQ(state->mode, rs::ReplMode::Normal);
+    // Exactly one terminal response: a second 'y' after resolution must not
+    // fire a duplicate response or toggle the mode back again.
+    EXPECT_EQ(rec.mode_changes_to_normal, 1);
+    (void)comp->OnEvent(ftxui::Event::Character('y'));
+    EXPECT_EQ(rec.mode_changes_to_normal, 1);
 }
 
 }  // namespace

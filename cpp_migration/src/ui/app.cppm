@@ -63,7 +63,10 @@ import cc.vim.vim_mode;
 import cc.hooks.tool_permissions;
 import cc.tools.agent_runtime;
 import cc.ui.repl_screen;
+// FooterVoiceState for the voice-processing animation gate below.
+import cc.ui.prompt.voice_indicator;
 import cc.ui.autocomplete_sources;
+import cc.ui.design.theme;
 // P0-2: 7-stage message pipeline utilities (dedup / tag filter / tool augment).
 import cc.ui.messages.message_pipeline;
 import cc.ui.agents.agent_cards;
@@ -72,6 +75,7 @@ import cc.utils.statusline_runner;
 import cc.utils.model.model;
 import cc.constants.constants;
 import cc.hooks.lifecycle_hooks;
+import cc.hooks.exit_handler;
 import cc.state.store;
 import cc.state.app_state;
 
@@ -737,6 +741,18 @@ private:
 
     std::string current_session_id_;
 
+    // TS REF: src/hooks/useTextInput.ts:108-120 handleCtrlC (useDoublePress)
+    // — idle Ctrl+C requires a second press within
+    // DOUBLE_PRESS_TIMEOUT_MS = 800ms before onExit. The ExitHandler
+    // default window is 1500ms; override to the TS value of 800ms.
+    // Non-copyable/non-movable (std::mutex); AppAdapter is only ever
+    // heap-held via ftxui::Make, so a direct member is safe.
+    cc::hooks::ExitHandler exit_handler_{cc::hooks::ExitHandlerConfig{
+        .require_double_press = true,
+        .cleanup_timeout_ms = 5000,
+        .save_on_exit = true,
+        .double_press_window = std::chrono::milliseconds{800}}};
+
     // Session start time for duration tracking (statusline cost.total_duration_ms)
     std::chrono::steady_clock::time_point session_start_time_;
 
@@ -933,6 +949,25 @@ private:
                 if (st.stop_requested()) break;
 
                 const bool query_active = query_running_.load();
+                // Voice "Voice: processing…" pulse must keep repainting at
+                // 50ms (TS useAnimationFrame(50) in ProcessingShimmer) even
+                // when no query is running — processing follows mic release
+                // and typically overlaps no running query.  Listening is
+                // static dim text and Idle renders nothing: neither ticks,
+                // preserving the static-idle fast path below.
+                // TS REF: VoiceIndicator.tsx:96 useAnimationFrame(
+                //   reducedMotion ? null : 50).
+                const bool voice_processing =
+                    screen_state_ &&
+                    screen_state_->voice_enabled &&
+                    screen_state_->voice_footer_status ==
+                        cc::ui::prompt::FooterVoiceState::Processing;
+                // TS VoiceIndicator.tsx:96 useAnimationFrame(reducedMotion ?
+                // null : 50): under reduced motion the processing shimmer is
+                // static, so do not keep repainting just for voice.
+                const bool voice_animates =
+                    voice_processing &&
+                    !cc::ui::design::theme::current_theme().a11y.reduced_motion;
                 const bool welcome_active =
                     screen_state_ &&
                     screen_state_->messages.empty() &&
@@ -940,10 +975,11 @@ private:
                 if (!welcome_active) welcome_render_ticks = 0;
 
                 // Re-render only while an animation is actually advancing:
-                // an active query (spinner) or the welcome-intro sweep.  At
-                // static idle we skip — no animation to drive.
-                if (query_active) {
-                    // spinner animation: keep ticking
+                // an active query (spinner), the voice-processing pulse, or
+                // the welcome-intro sweep.  At static idle we skip — no
+                // animation to drive.
+                if (query_active || voice_animates) {
+                    // spinner / voice-pulse animation: keep ticking
                 } else if (welcome_active &&
                            welcome_render_ticks < kWelcomeIntroTicks) {
                     ++welcome_render_ticks;

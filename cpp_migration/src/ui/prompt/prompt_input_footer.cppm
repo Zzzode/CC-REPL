@@ -60,6 +60,9 @@ import cc.ui.design.tokens;
 import cc.ui.design.theme;
 // Unified canonical PromptInputMode enum (replaces local 5-value definition).
 import cc.ui.common.types;
+// TS-faithful voice footer indicator (VoiceIndicator.tsx), rendered by
+// RenderNotifications with the highest display priority.
+import cc.ui.prompt.voice_indicator;
 
 export namespace cc::ui::prompt::footer {
 
@@ -910,6 +913,19 @@ struct NotificationData {
     // Notification queue — priority-based rotating carousel of up to 12 items.
     // When queue.current is set, it takes highest priority in RenderNotifications.
     NotificationQueue queue;
+
+    // Voice footer indicator (TS REF: src/context/voice.ts voiceState
+    // 'idle'|'recording'|'processing', projected via
+    // repl::ProjectVoiceFooterStatus).  When Listening or Processing,
+    // RenderNotifications early-returns the VoiceIndicator INSTEAD of every
+    // other notification (Notifications.tsx NotificationContent:283-285).
+    cc::ui::prompt::FooterVoiceState voice_state =
+        cc::ui::prompt::FooterVoiceState::Idle;
+    // TS voiceEnabled gate (Notifications.tsx:283).
+    bool voice_enabled = false;
+    // Wall-clock seconds since the Processing transition; drives the 2s
+    // sine pulse (TS elapsedSec = time / 1000).  Ignored for other states.
+    double voice_processing_elapsed_sec = 0.0;
 };
 
 /// IDE status indicator color — matches TS theme.ide rgb(71,130,200).
@@ -1136,7 +1152,29 @@ namespace detail {
 
     // Priority chain (highest first):
 
-    // 0. Notification queue — current item (rotating carousel)
+    // 0. Voice indicator — replaces every other notification while the
+    //    voice session is recording or processing.
+    //    TS REF: Notifications.tsx NotificationContent:283-285
+    //      if (voiceEnabled &&
+    //          (voiceState === 'recording' || voiceState === 'processing'))
+    //        return <VoiceIndicator voiceState={voiceState} />;
+    //    Idle falls through: TS idle renders null and must not add a row.
+    //    Reduced motion is read from the theme at render time (the CPP
+    //    port has no settings.prefersReducedMotion screen projection).
+    //    voice_enabled mirrors TS voiceEnabled (Notifications.tsx:283):
+    //    the indicator is suppressed entirely unless voice is enabled.
+    if (data.voice_enabled &&
+        (data.voice_state == cc::ui::prompt::FooterVoiceState::Listening ||
+         data.voice_state == cc::ui::prompt::FooterVoiceState::Processing)) {
+        const bool reduced =
+            cc::ui::design::theme::current_theme().a11y.reduced_motion;
+        return hbox({
+            cc::ui::prompt::RenderVoiceIndicator(
+                data.voice_state, data.voice_processing_elapsed_sec, reduced)
+        }) | size(HEIGHT, EQUAL, 1);
+    }
+
+    // 1. Notification queue — current item (rotating carousel)
     //    TS REF: Notifications.tsx L288-292 (notifications.current render)
     //    The queue's current item has the highest display priority because
     //    it represents time-sensitive dynamic feedback (env-hook, etc.).
@@ -1168,7 +1206,7 @@ namespace detail {
         }
     }
 
-    // 1. Dynamic notification (env-hook, external-editor hint, etc.)
+    // 2. Dynamic notification (env-hook, external-editor hint, etc.)
     //    TS: notifications.current with text/color
     //    Kept for backward compatibility; prefer using the queue API.
     if (data.dynamic_text && !data.dynamic_text->empty()) {
@@ -1179,20 +1217,20 @@ namespace detail {
              | size(HEIGHT, EQUAL, 1);
     }
 
-    // 2. IDE status indicator
+    // 3. IDE status indicator
     Element ide_el = RenderIdeStatusIndicator(data.ide);
     if (ide_el) {
         return hbox({ std::move(ide_el) }) | size(HEIGHT, EQUAL, 1);
     }
 
-    // 3. Overage mode — "Now using extra usage" (dim)
+    // 4. Overage mode — "Now using extra usage" (dim)
     //    TS REF: Notifications.tsx L293-297
     if (data.is_overage_mode) {
         return hbox({ text("Now using extra usage") | dim })
              | size(HEIGHT, EQUAL, 1);
     }
 
-    // 4. API key invalid/missing — "Not logged in · Run /login" (error)
+    // 5. API key invalid/missing — "Not logged in · Run /login" (error)
     //    TS REF: Notifications.tsx L306-310
     if (data.api_key_status == ApiKeyStatus::Invalid
         || data.api_key_status == ApiKeyStatus::Missing)
@@ -1204,14 +1242,14 @@ namespace detail {
              | size(HEIGHT, EQUAL, 1);
     }
 
-    // 5. Debug mode — "Debug mode" (warning)
+    // 6. Debug mode — "Debug mode" (warning)
     //    TS REF: Notifications.tsx L311-315
     if (data.debug_mode) {
         return hbox({ text("Debug mode") | color(Color::Yellow) })
              | size(HEIGHT, EQUAL, 1);
     }
 
-    // 6. Verbose token count — "{tokenUsage} tokens" (dim, only when apiKey valid)
+    // 7. Verbose token count — "{tokenUsage} tokens" (dim, only when apiKey valid)
     //    TS REF: Notifications.tsx L316-320
     if (data.verbose && data.api_key_status == ApiKeyStatus::Valid
         && data.token_usage > 0)
@@ -1220,7 +1258,7 @@ namespace detail {
              | size(HEIGHT, EQUAL, 1);
     }
 
-    // 7. Auto-updater — styled pill (P1: footer-notifications-stub)
+    // 8. Auto-updater — styled pill (P1: footer-notifications-stub)
     //    TS REF: src/components/AutoUpdater.tsx L176-196
     //    Shows download/install status.  Rendered via NotificationItem with
     //    PillVariant::AutoUpdater so it gets the proper icon + color.
@@ -1248,7 +1286,7 @@ namespace detail {
         }
     }
 
-    // 8. New release announcement — purple gift pill (P1: footer-notifications-stub)
+    // 9. New release announcement — purple gift pill (P1: footer-notifications-stub)
     //    TS REF: src/hooks/useUpdateNotification.ts (updateSemver)
     if (data.new_release && !data.new_release->version.empty()) {
         NotificationItem nr_item;
@@ -1261,7 +1299,7 @@ namespace detail {
         }
     }
 
-    // 9. Pro renewal reminder — orange clock pill (P1: footer-notifications-stub)
+    // 10. Pro renewal reminder — orange clock pill (P1: footer-notifications-stub)
     //    CPP enhancement — no direct TS equivalent.  Shows only when
     //    days_remaining < 7.
     if (data.pro_renewal && data.pro_renewal->days_remaining > 0
@@ -1764,6 +1802,11 @@ struct FooterOptions {
             nd.api_key_status == ApiKeyStatus::Missing ||
             nd.debug_mode ||
             (nd.verbose && nd.api_key_status == ApiKeyStatus::Valid && nd.token_usage > 0) ||
+            // Voice indicator (TS Notifications right-slot early return).
+            // TS Notifications lives in the right Box (alignItems flex-end);
+            // only non-idle voice state pushes a row, so Idle stays
+            // byte-identical and keeps the stable footer height.
+            (nd.voice_state != cc::ui::prompt::FooterVoiceState::Idle) ||
             // P1: typed notification pills (footer-notifications-stub)
             nd.auto_updater.has_value() ||
             nd.new_release.has_value() ||

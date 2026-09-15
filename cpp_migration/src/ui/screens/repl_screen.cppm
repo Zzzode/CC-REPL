@@ -42,6 +42,7 @@ module;
 #include <deque>
 #include <random>
 #include <array>
+#include <cctype>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
@@ -70,7 +71,6 @@ import cc.ui.messages.tool_use_message;
 import cc.ui.messages.message_tool_result;
 import cc.ui.messages.local_command_output_message;
 import cc.ui.messages.api_error_message;  // GAP 3: SystemAPIError rich card + retry
-import cc.ui.dialogs.permission_dialog;
 import cc.ui.dialogs.system;
 import cc.ui.dialogs.cost_threshold_dialog;
 import cc.ui.dialogs.idle_return_dialog;
@@ -131,6 +131,10 @@ import cc.ui.prompt.vim_input;
 // PromptInputFooterLeftSide.tsx.  Renders the area below the prompt input
 // with left/right columns: ModeIndicator, tasks, teams, hints, bridge status.
 import cc.ui.prompt.prompt_input_footer;
+// TS-faithful voice footer indicator state enum (VoiceIndicator.tsx /
+// src/context/voice.tsx).  Only the enum/renderer are needed here; the
+// indicator itself renders through prompt_input_footer's notifications.
+import cc.ui.prompt.voice_indicator;
 import cc.ui.prompt.prompt_stash_notice;  // GAP 2: stashed prompt restore notice
 import cc.ui.prompt.placeholder_cascade;  // P1: 4-tier contextual placeholder cascade
 // M7: Core dialog framework — DialogQueue, DialogRendererRegistry, DialogFrame.
@@ -396,7 +400,16 @@ struct DialogContext {
     // Skill
     std::optional<std::string> skill_name;
     std::optional<std::string> skill_source;  // "bundled" / "user" / "plugin"
-};/// Lean orchestration state.  Full app state lives in services/; the
+};/// Screen projection of the TS voice context.
+/// TS REF: src/context/voice.tsx — voiceState is 'idle' | 'recording' |
+/// 'processing'.  The TS 'recording' value maps to FooterVoiceState::
+/// Listening (matching cc::context::VoiceState::Listening).  The future
+/// voice service (cc::hooks::voice) is the ONLY writer, via the
+/// ProjectVoiceFooterStatus seam below; the renderer is read-only.
+/// voiceError is a separate TS Notifications path and is not represented
+/// here.
+///
+/// Lean orchestration state.  Full app state lives in services/; the
 /// engine writes computed projections into this struct between frames.
 struct ReplScreenState {
     ReplMode mode = ReplMode::Normal;
@@ -697,6 +710,36 @@ struct ReplScreenState {
     // paste arrives as one batch) stamps this point; RenderLeftSide shows
     // "Pasting text…" for 100ms after it. Event-driven — no ticker.
     std::optional<std::chrono::steady_clock::time_point> pasting_since;
+
+    // Voice footer indicator (TS REF: src/context/voice.tsx voiceState
+    // 'idle'|'recording'|'processing'; VoiceIndicator.tsx).  Written only
+    // via ProjectVoiceFooterStatus.  voice_processing_since stamps the
+    // Processing transition so the renderer can derive wall-clock elapsed
+    // seconds for the 2s sine pulse (same by-value timestamp pattern as
+    // pasting_since — no pointer lifetime).
+    cc::ui::prompt::FooterVoiceState voice_footer_status =
+        cc::ui::prompt::FooterVoiceState::Idle;
+    // TS Notifications.tsx:283 gates the indicator on voiceEnabled. The seam
+    // defaults to false (no voice service wired in production yet); the
+    // future voice service sets both this and the status together.
+    bool voice_enabled = false;
+    std::optional<std::chrono::steady_clock::time_point> voice_processing_since;
+
+    // TS REF: src/hooks/useTextInput.ts:126-153 handleEscape via
+    // src/hooks/useDoublePress.ts:6 DOUBLE_PRESS_TIMEOUT_MS = 800.
+    // First Esc on non-empty input arms (notification "Esc again to clear");
+    // a second Esc within 800ms persists to prompt history and clears.
+    // Event-driven — no timer (same pattern as pasting_since).
+    std::optional<std::chrono::steady_clock::time_point> escape_pending_since;
+
+    // TS REF: src/hooks/useTextInput.ts:108-120 handleCtrlC double-press —
+    // useExitOnCtrlCD exitState projected for
+    // LeftSideOptions.exit_message_show. Presence of the timestamp = show;
+    // expiry is event-driven at render (pasting_since pattern). The app
+    // layer owns the exit decision; the screen only renders the window.
+    std::optional<std::chrono::steady_clock::time_point> exit_message_until;
+    std::string exit_message_key = "Ctrl-C";
+
     bool status_line_enabled = false;       // User-configurable status line
     std::string status_line_command;        // Shell command for status line
     int status_line_padding = 0;            // Horizontal padding for status line
@@ -727,6 +770,12 @@ struct ReplScreenState {
     std::shared_ptr<void> agents_component;
     // UI8: trust dialog component handle (lazy-created; opaque).
     std::shared_ptr<void> wizard_trust;
+    // dlg-permission-legacy: rich permission panel for the dormant
+    // ReplMode::ToolPermission branch.  State-owned (wizard_trust
+    // pattern) so focus/PromptState survive repaint; keyed on request
+    // identity.  TS REF: PermissionRequest.tsx:47-82 (tool dispatch).
+    std::shared_ptr<void> tool_permission_component;
+    std::string tool_permission_key;
     // UI3: settings dialog component (lazy-created).  Opaque so state
     // doesn't need to import the settings dialog module types.
     std::shared_ptr<void> settings_component;
@@ -748,11 +797,47 @@ struct ReplScreenState {
     DialogRendererRegistry dialog_renderers;
 };
 
+/// Single write seam for the voice footer projection.  The future voice
+/// service (cc::hooks::voice on_state_change / cc::context::VoiceState)
+/// calls this between frames; TS Error and Idle both project to Idle here.
+/// No voice_hooks/service wiring exists in this gap — only the seam and
+/// the read-only renderer.  Entering Processing stamps the wall-clock
+/// anchor used by the 2s sine pulse (TS ProcessingShimmer elapsedSec);
+/// leaving Processing clears it.  The renderer never mutates state.
+// TS REF: src/context/voice.tsx (voiceState transitions) and
+// VoiceIndicator.tsx:107 elapsedSec = time / 1000.
+inline void ProjectVoiceFooterStatus(
+    ReplScreenState& s, cc::ui::prompt::FooterVoiceState next) {
+    if (next == cc::ui::prompt::FooterVoiceState::Processing &&
+        s.voice_footer_status != cc::ui::prompt::FooterVoiceState::Processing) {
+        s.voice_processing_since = std::chrono::steady_clock::now();
+    } else if (next != cc::ui::prompt::FooterVoiceState::Processing) {
+        s.voice_processing_since.reset();
+    }
+    // Projecting an active state means a voice service is driving the UI,
+    // which implies voiceEnabled (TS Notifications.tsx:283). Idle does not
+    // disable — the service may simply not be recording.
+    if (next != cc::ui::prompt::FooterVoiceState::Idle) {
+        s.voice_enabled = true;
+    }
+    s.voice_footer_status = next;
+}
+
 /// Engine-facing callbacks (TS ReplScreen external prop callbacks).
 struct ReplScreenCallbacks {
     std::function<void(const std::string&, InputMode)> on_submit;
     std::function<void()> on_interrupt;                 // Ctrl+C
     std::function<void()> on_exit;                      // Ctrl+D or /exit
+    /// TS REF: src/keybindings/defaultBindings.ts:42 'ctrl+l':'app:redraw'
+    /// (Global context) + useGlobalKeybindings.tsx handleRedraw ->
+    /// ink forceRedraw (ERASE_SCREEN '\x1b[2J' + CURSOR_HOME '\x1b[H', then
+    /// repaint). The engine forces a terminal repaint WITHOUT mutating the
+    /// input text or autocomplete state.
+    std::function<void()> on_redraw;
+    /// TS REF: src/hooks/useTextInput.ts:142-150 — Esc double-press clear
+    /// persists the original value via addToHistory before clearing. The
+    /// engine owns the session id / project cwd for the history append.
+    std::function<void(const std::string&)> on_save_to_history;
     // Legacy simple permission response (allow/deny + always flag)
     std::function<void(bool, std::optional<bool>)> on_permission_response;
     // M6: Rich permission response — decision kind, scope, and feedback text.
@@ -3017,6 +3102,20 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
                 s.pasting_since.reset();
             }
         }
+        // Idle Ctrl+C double-press footer ("Press <key> again to exit"),
+        // projected from the app-layer ExitHandler. Expiry is event-driven
+        // exactly like the pasting hint (no ticker).
+        // TS REF: PromptInputFooterLeftSide.tsx:150
+        //   `Press {exitMessage.key} again to exit` — with key "Ctrl-C"
+        //   RenderLeftSide composes the exact TS string.
+        if (s.exit_message_until) {
+            if (std::chrono::steady_clock::now() <= *s.exit_message_until) {
+                left_opts.exit_message_show = true;
+                left_opts.exit_message_key = s.exit_message_key;
+            } else {
+                s.exit_message_until.reset();
+            }
+        }
         left_opts.mode_indicator.mode                 = footer_mode;
         left_opts.mode_indicator.permission_mode      = s.permission_mode;
         left_opts.mode_indicator.background_task_count = s.background_task_count;
@@ -3058,6 +3157,21 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
         {
             auto& nd = footer_opts.notification;
             nd.api_key_status = s.api_key_status;
+            // Voice indicator projection (TS Notifications.tsx
+            // NotificationContent early-return).  Elapsed seconds are
+            // wall-clock from the Processing transition anchor, matching
+            // TS ProcessingShimmer elapsedSec = time / 1000.
+            nd.voice_state = s.voice_footer_status;
+            nd.voice_enabled = s.voice_enabled;
+            nd.voice_processing_elapsed_sec = 0.0;
+            if (s.voice_footer_status ==
+                    cc::ui::prompt::FooterVoiceState::Processing &&
+                s.voice_processing_since) {
+                nd.voice_processing_elapsed_sec =
+                    std::chrono::duration<double>(
+                        std::chrono::steady_clock::now() -
+                        *s.voice_processing_since).count();
+            }
             nd.is_remote = s.is_remote_session;
             nd.debug_mode = s.debug_mode;
             nd.verbose = s.verbose;
@@ -3752,6 +3866,198 @@ inline bool forward_trust_dialog(
     return d && (*d)->OnEvent(std::move(ev));
 }
 
+// -------------------------------------------------------------------
+// Tool-permission rich panel helpers (dlg-permission-legacy)
+// -------------------------------------------------------------------
+// TS-faithful panels for the dormant ReplMode::ToolPermission branch.
+// TS REF: PermissionRequest.tsx:47-82 dispatches on tool identity.
+// wizard_trust ownership keeps Component/PromptState alive across frames.
+namespace tperm_bash  = cc::ui::permissions::bash_prompt;
+namespace tperm_edit  = cc::ui::permissions::file_edit;
+namespace tperm_write = cc::ui::permissions::file_write;
+namespace tperm_one   = cc::ui::permissions::single_prompt;
+
+enum class PermissionPanelKind { Bash, FileEdit, FileWrite, Generic };
+
+// Case-insensitive tool classifier. Uses EXACT canonical names, not
+// prefix/suffix matching: loose starts_with("bash")/ends_with("edit") would
+// misdispatch unrelated tools ("bashful", "credit", "NotebookEdit",
+// "MultiEdit", "BashOutputTool") to the wrong panel.
+// TS canonical names: Bash (BashTool/toolName.ts), Edit
+// (FileEditTool/constants.ts), Write (FileWriteTool/prompt.ts). NotebookEdit
+// and MultiEdit are distinct TS tools with their own UI and must stay
+// Generic here. A few historical CPP identifiers are kept as explicit
+// aliases (not suffixes).
+[[nodiscard]] inline PermissionPanelKind classify_permission_tool(
+    std::string_view name) {
+    std::string n;
+    n.reserve(name.size());
+    for (char c : name)
+        n.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+    auto in = [&](std::initializer_list<const char*> names) {
+        for (const char* x : names) {
+            if (n == x) return true;
+        }
+        return false;
+    };
+    if (in({"bash"})) return PermissionPanelKind::Bash;
+    if (in({"edit", "fileedit", "edittool", "fileedittool"}))
+        return PermissionPanelKind::FileEdit;
+    if (in({"write", "filewrite", "writetool", "filewritetool"}))
+        return PermissionPanelKind::FileWrite;
+    return PermissionPanelKind::Generic;
+}
+
+[[nodiscard]] inline tperm_one::RiskLevel tperm_risk(const PermissionRequestInfo& i) {
+    std::string l = i.risk_labels.empty() ? "medium" : i.risk_labels.front();
+    for (char& c : l) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    if (l == "low") return tperm_one::RiskLevel::Low;
+    if (l == "high") return tperm_one::RiskLevel::High;
+    if (l == "critical") return tperm_one::RiskLevel::Critical;
+    return tperm_one::RiskLevel::Medium;
+}
+
+[[nodiscard]] inline std::string tperm_base(std::string_view p) {
+    auto pos = p.find_last_of("/\\");
+    return std::string{pos == std::string_view::npos ? p : p.substr(pos + 1)};
+}
+
+// Lazily build the panel, keyed on request identity so focus/props are
+// never reused across requests.  State is reset BEFORE signalling the
+// blocked permission worker (app_agent_menu get_permission_callback).
+// One-shot guard: the bash/edit/write panels invoke on_abort AND
+// on_decide(Abort) on one Esc — the TS contract is one terminal reply.
+[[nodiscard]] inline std::shared_ptr<Component> get_tool_permission_component(
+    const std::shared_ptr<ReplScreenState>& s,
+    const std::shared_ptr<ReplScreenCallbacks>& cb) {
+    const auto& i = *s->permission_request;
+    const std::string leaf = i.bash_command.value_or(i.file_path.value_or(""));
+    const std::string key = i.tool_name + "\x1f" + i.description + "\x1f" + leaf;
+    if (s->tool_permission_component && key == s->tool_permission_key)
+        return std::static_pointer_cast<Component>(s->tool_permission_component);
+    s->tool_permission_component.reset();
+
+    auto fired = std::make_shared<bool>(false);
+    auto respond = [s, cb, fired](bool ok, std::optional<bool> always) {
+        if (*fired) return;
+        *fired = true;
+        if (cb->on_permission_response) cb->on_permission_response(ok, always);
+        s->mode = ReplMode::Normal;
+        s->permission_request.reset();
+        s->tool_permission_component.reset();
+        s->tool_permission_key.clear();
+        if (cb->on_mode_change) cb->on_mode_change(ReplMode::Normal);
+    };
+    auto deny = [respond] { respond(false, std::nullopt); };
+
+    const std::string path = i.file_path.value_or("");
+    const std::string rel  = i.file_relative_path.value_or(path);
+    const std::string base = i.file_filename.value_or(tperm_base(path));
+
+    switch (classify_permission_tool(i.tool_name)) {
+      case PermissionPanelKind::Bash: {
+        tperm_bash::BashPromptProps p;
+        p.command = i.bash_command.value_or("");
+        if (!i.bash_command && !i.description.empty()) p.command = i.description;
+        if (i.bash_working_dir) p.working_dir = i.bash_working_dir;
+        if (!i.description.empty()) p.description = i.description;
+        p.is_destructive = i.bash_is_destructive;
+        p.destructive_reason = i.bash_destructive_reason;
+        p.show_always_allow = i.can_always_allow;
+        if (!p.command.empty()) {  // token + ":*", mirrors RenderBashPermissionPromptForTest (permission_bash.cppm)
+            auto sp = p.command.find_first_of(" \t");
+            p.editable_prefix = (sp == std::string::npos ? p.command : p.command.substr(0, sp)) + ":*";
+        }
+        p.on_decide = [respond](tperm_bash::Decision d, std::string_view, std::string_view) {
+            using D = tperm_bash::Decision;
+            if (d == D::AllowOnce) respond(true, false);
+            else if (d == D::AllowWithPrefix) respond(true, true);
+            else respond(false, std::nullopt);
+        };
+        p.on_abort = deny;
+        s->tool_permission_component = std::make_shared<Component>(
+            tperm_bash::MakeBashPermissionPrompt(std::move(p)));
+        break;
+      }
+      case PermissionPanelKind::FileEdit: {
+        tperm_edit::FileEditPermissionProps p;
+        p.file_path = path;
+        p.old_string = i.file_old_content.value_or("");
+        p.new_string = i.file_new_content.value_or("");
+        p.replace_all = i.file_replace_all;
+        p.file_content = i.file_old_content.value_or("");  // never null; sparse diff must not throw
+        p.relative_path = rel;
+        p.filename = base;
+        if (i.file_language) p.language = *i.file_language;
+        p.on_decide = [respond](tperm_edit::Decision d, tperm_edit::SessionScope, std::string_view) {
+            using D = tperm_edit::Decision;
+            if (d == D::AllowOnce) respond(true, false);
+            else if (d == D::AllowSession) respond(true, true);
+            else respond(false, std::nullopt);
+        };
+        p.on_abort = deny;
+        s->tool_permission_component = std::make_shared<Component>(
+            tperm_edit::MakeFileEditPermissionPrompt(std::move(p)));
+        break;
+      }
+      case PermissionPanelKind::FileWrite: {
+        tperm_write::FileWritePermissionProps p;
+        p.file_path = path;
+        p.content = i.file_new_content.value_or("");
+        p.old_content = i.file_old_content.value_or("");
+        p.file_exists = i.file_exists;
+        p.relative_path = rel;
+        p.filename = base;
+        if (i.file_language) p.language = *i.file_language;
+        p.on_decide = [respond](tperm_write::Decision d, tperm_write::SessionScope, std::string_view) {
+            using D = tperm_write::Decision;
+            if (d == D::AllowOnce) respond(true, false);
+            else if (d == D::AllowSession) respond(true, true);
+            else respond(false, std::nullopt);
+        };
+        p.on_abort = deny;
+        s->tool_permission_component = std::make_shared<Component>(
+            tperm_write::MakeFileWritePermissionPrompt(std::move(p)));
+        break;
+      }
+      case PermissionPanelKind::Generic: {
+        tperm_one::SinglePromptProps p;
+        p.tool_name = i.tool_name;
+        p.action_kind = tperm_one::ActionKind::Other;
+        p.risk_level = tperm_risk(i);
+        p.description = i.description;
+        if (i.file_path) p.affected_paths.push_back(*i.file_path);
+        p.detail = tperm_one::DetailGeneric{i.description};
+        p.on_decide = [respond](tperm_one::Decision d, bool /*sandbox_requested*/) {
+            using D = tperm_one::Decision;
+            if (d == D::AllowOnce) respond(true, false);
+            else if (d == D::AlwaysAllow) respond(true, true);
+            else respond(false, std::nullopt);
+        };
+        p.on_abort = deny;
+        s->tool_permission_component = std::make_shared<Component>(
+            tperm_one::MakeSinglePromptDialog(std::move(p)));
+        break;
+      }
+    }
+    s->tool_permission_key = key;
+    return std::static_pointer_cast<Component>(s->tool_permission_component);
+}
+
+[[nodiscard]] inline Element render_tool_permission(
+    const std::shared_ptr<ReplScreenState>& s,
+    const std::shared_ptr<ReplScreenCallbacks>& cb) {
+    auto d = get_tool_permission_component(s, cb);
+    return d ? (*d)->Render() : text("");
+}
+
+inline bool forward_tool_permission(
+    const std::shared_ptr<ReplScreenState>& s,
+    const std::shared_ptr<ReplScreenCallbacks>& cb, Event ev) {
+    auto d = get_tool_permission_component(s, cb);
+    return d && (*d)->OnEvent(std::move(ev));
+}
+
 } // namespace dialog_router
 
 /// Build the REPL screen as an FTXUI Component.
@@ -3771,21 +4077,12 @@ inline bool forward_trust_dialog(
         // Rendered as a dbox overlay (matching TS overlay slot).
         if (state->mode == ReplMode::ToolPermission &&
             state->permission_request) {
-            // Convert repl_screen PermissionRequestInfo →
-            // cc::ui::dialogs::PermissionRequest (lives in the dialogs
-            // namespace, NOT a nested permission_dialog sub-namespace).
-            using pd_pr = cc::ui::dialogs::PermissionRequest;
-            pd_pr r{};
-            r.tool_name   = state->permission_request->tool_name;
-            r.description = state->permission_request->description;
-            r.risk_level  = state->permission_request->risk_labels.empty()
-                          ? "medium"
-                          : state->permission_request->risk_labels.front();
-            if (state->permission_request->file_path)
-                r.affected_paths.push_back(*state->permission_request->file_path);
+            // dlg-permission-legacy: state-owned TS-faithful panel
+            // (TS REF: PermissionRequest.tsx:47-82 dispatch by tool
+            // identity) replaces the legacy paragraph(
+            // render_permission_dialog(...)) ANSI string.
             Element base = RenderReplScreen(*state, cb->on_retry, cb->on_clear_session, cb->streaming_md);
-            Element panel = paragraph(
-                cc::ui::dialogs::render_permission_dialog(std::move(r), 80));
+            Element panel = dialog_router::render_tool_permission(state, cb);
             return dbox({
                 base | dim,
                 vbox({ filler(),
@@ -3861,6 +4158,21 @@ inline bool forward_trust_dialog(
         // gating can work reliably.
         if (state->mode == ReplMode::TrustDialog) {
             return dialog_router::forward_trust_dialog(state, cb, ev);
+        }
+        // Ctrl+L is a GLOBAL redraw (TS defaultBindings.ts:42, global
+        // context) — it must work even while a tool-permission panel/dialog
+        // is open, so handle it before forwarding the event to any panel
+        // (which otherwise unconditionally consumes it).
+        if (ev == Event::Character('\x0C')) {
+            if (cb->on_redraw) cb->on_redraw();
+            return true;
+        }
+        // dlg-permission-legacy: the panel owns all its documented keys;
+        // runs BEFORE the Esc switch and legacy y/n/a block (left as
+        // harmless dead fallback).  TS dispatch REF:
+        // PermissionRequest.tsx:47-82.
+        if (state->mode == ReplMode::ToolPermission) {
+            return dialog_router::forward_tool_permission(state, cb, ev);
         }
         // UI13 agent wizard: forward every event to the wizard component
         // (it manages Esc/Enter/buttons internally).
@@ -3965,11 +4277,17 @@ inline bool forward_trust_dialog(
         { if (cb->on_interrupt) cb->on_interrupt(); return true; }
     if (ev == Event::Character('\x04'))
         { if (cb->on_exit) cb->on_exit(); return true; }
+    // Ctrl+L: force terminal redraw WITHOUT mutating input.
+    // TS REF: src/keybindings/defaultBindings.ts:42 'ctrl+l' -> 'app:redraw'
+    //   (Global context, so it works while dialogs are open too) and
+    //   useGlobalKeybindings.tsx:225-228 handleRedraw -> ink forceRedraw,
+    //   which writes ERASE_SCREEN (CSI 2 J = '\x1b[2J') + CURSOR_HOME
+    //   (CSI H = '\x1b[H') and repaints the current content; input_text,
+    //   cursor and autocomplete suggestions are never touched.
     if (ev == Event::Character('\x0C')) {
-        state->input_text.clear();
-        state->input_cursor = std::string::npos;
-        state->autocomplete_suggestions.clear();
-        state->autocomplete_index = -1; return true; }
+        if (cb->on_redraw) cb->on_redraw();
+        return true;
+    }
     // Ctrl+O: toggle transcript mode (TS: app:toggleTranscript, global context).
     // In transcript mode the message list shows ALL message types (bypassing
     // brief/dropText filters), capped at last 30 unless show_all_in_transcript.
@@ -4262,6 +4580,22 @@ inline bool forward_trust_dialog(
             state->autocomplete_index = state->autocomplete_index < 0 ||
                 state->autocomplete_index >= asn - 1
                 ? 0 : state->autocomplete_index + 1; return true; }
+        // Ctrl+N (\x0e) / Ctrl+P (\x10) navigate autocomplete suggestions.
+        // TS REF: src/hooks/useTypeahead.tsx:1344-1353 (raw ctrl+n/ctrl+p
+        //   dispatched to handleAutocompleteNext/Previous) and
+        //   :1242-1255 — next wraps selected>=length-1 -> 0; previous wraps
+        //   selected<=0 -> length-1. Both early-return when suggestions are
+        //   empty (and when a chord is pending — the CPP port has no chord
+        //   system, so that gate is omitted). When asn==0 the event
+        //   intentionally falls through (TS readline cursor/history movement
+        //   is not implemented in this port).
+        if (ev == Event::Character('\x0e') && asn > 0) {
+            state->autocomplete_index = state->autocomplete_index < 0 ||
+                state->autocomplete_index >= asn - 1
+                ? 0 : state->autocomplete_index + 1; return true; }
+        if (ev == Event::Character('\x10') && asn > 0) {
+            state->autocomplete_index = state->autocomplete_index <= 0 ? asn - 1
+                : state->autocomplete_index - 1; return true; }
         // Up (history back) / Down (history forward)
         if (ev == Event::ArrowUp && state->input_text.empty()
             && !state->input_history.empty()) {
@@ -4320,10 +4654,66 @@ inline bool forward_trust_dialog(
                 state->autocomplete_index = -1; return true; }
             if (state->selected_message_idx >= 0)
                 { state->selected_message_idx = -1; return true; }
+            // Esc double-press to clear non-empty input.
+            // TS REF: src/hooks/useTextInput.ts:126-153 (handleEscape) +
+            // src/hooks/useDoublePress.ts:6 DOUBLE_PRESS_TIMEOUT_MS = 800.
+            // The autocomplete dismiss above mirrors PromptInput.tsx
+            // disableEscapeDoublePress = suggestions.length>0: while the
+            // popup is open the first Esc dismisses instead of arming, so
+            // clearing takes Esc (dismiss) + Esc (arm) + Esc (clear).
             if (!state->input_text.empty()) {
-                state->input_text.clear();
-                state->input_cursor = std::string::npos;
-                state->history_index = std::string::npos; return true; }
+                namespace pif = cc::ui::prompt::footer;
+                const auto now_dp = std::chrono::steady_clock::now();
+                constexpr auto kDoublePressWindow =
+                    std::chrono::milliseconds(800);
+                const bool armed = state->escape_pending_since.has_value() &&
+                    (now_dp - *state->escape_pending_since) <= kDoublePressWindow;
+                if (armed) {
+                    // Second press inside the window: clear timer state,
+                    // remove the hint immediately, persist BEFORE clearing
+                    // (TS addToHistory(originalValue) guarded by trim()!==''),
+                    // then clear text/offset/history.
+                    state->escape_pending_since.reset();
+                    pif::QueueRemoveNotification(
+                        state->footer_notification_queue,
+                        "escape-again-to-clear");
+                    bool has_non_space = false;
+                    for (unsigned char c : state->input_text) {
+                        if (c != ' ' && c != '\t' && c != '\n' &&
+                            c != '\r' && c != '\v' && c != '\f') {
+                            has_non_space = true;
+                            break;
+                        }
+                    }
+                    if (has_non_space && cb->on_save_to_history) {
+                        cb->on_save_to_history(state->input_text);
+                    }
+                    state->input_text.clear();
+                    state->input_cursor = std::string::npos;
+                    state->history_index = std::string::npos;
+                    return true;
+                }
+                // First press (or an expired previous press): arm and show
+                // the hint; input is NOT cleared. Remove first because
+                // QueueAddNotification dedups an already-current same-key
+                // item and would otherwise not refresh the 1000ms timeout.
+                state->escape_pending_since = now_dp;
+                pif::NotificationItem item;
+                item.key = "escape-again-to-clear";
+                item.text = "Esc again to clear";  // TS exact string
+                item.color = "";
+                item.priority = pif::NotificationPriority::Immediate;
+                item.timeout_ms = 1000;            // TS timeoutMs: 1000
+                pif::QueueRemoveNotification(
+                    state->footer_notification_queue,
+                    "escape-again-to-clear");
+                pif::QueueAddNotification(
+                    state->footer_notification_queue, item);
+                return true;
+            }
+            // Empty input: TS handleEscape's setPending callback early-
+            // returns (no arming, no notification). The mode-exit (bash ->
+            // prompt) above still coexists when it happened.
             // Only the mode-exit happened (empty input, no popup/selection):
             // still consume the event so the reset is reflected.
             if (mode_exited) return true; }

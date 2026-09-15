@@ -34,6 +34,7 @@ import cc.ui.app;
 import cc.ui.repl_screen;
 import cc.ui.prompt_input;
 import cc.ui.prompt.prompt_input_footer;
+import cc.ui.prompt.voice_indicator;
 import cc.ui.logo_v2;
 import cc.ui.layout.fullscreen;
 import cc.ui.panels;
@@ -314,6 +315,258 @@ TEST(ReplScreen, PastingIndicatorShowsForBatchAndNotSingleKeystroke) {
         << "stale timestamp should be cleared on render";
 }
 
+TEST(ReplScreen, CtrlNCtrlPNavigateAutocompleteWithWrapping) {
+    namespace repl = cc::ui::repl_screen;
+
+    auto state = std::make_shared<repl::ReplScreenState>();
+    state->app_version = "9.9.9-test";
+    state->model_display_name = "GLM-5.2";
+    state->cwd = "/tmp/cpp_migration";
+    state->input_text = "/a";
+    state->autocomplete_suggestions = {
+        {.display_text = "/alpha", .description = "alpha",
+         .insert_text = "/alpha",
+         .replacement_start = 0, .replacement_end = 2},
+        {.display_text = "/bravo", .description = "bravo",
+         .insert_text = "/bravo",
+         .replacement_start = 0, .replacement_end = 2},
+        {.display_text = "/charlie", .description = "charlie",
+         .insert_text = "/charlie",
+         .replacement_start = 0, .replacement_end = 2},
+    };
+    state->autocomplete_index = -1;
+
+    auto component = repl::ReplScreen(state, repl::ReplScreenCallbacks{});
+
+    // Ctrl+P (\x10) from -1 wraps to the last suggestion (length-1 = 2),
+    // mirroring handleAutocompletePrevious (useTypeahead.tsx:1242-1247).
+    EXPECT_TRUE(component->OnEvent(ftxui::Event::Character("\x10")));
+    EXPECT_EQ(state->autocomplete_index, 2);
+    EXPECT_TRUE(component->OnEvent(ftxui::Event::Character("\x10")));
+    EXPECT_EQ(state->autocomplete_index, 1);
+    // Ctrl+N (\x0e) moves forward.
+    EXPECT_TRUE(component->OnEvent(ftxui::Event::Character("\x0e")));
+    EXPECT_EQ(state->autocomplete_index, 2);
+    EXPECT_TRUE(component->OnEvent(ftxui::Event::Character("\x0e")));
+    EXPECT_EQ(state->autocomplete_index, 0)
+        << "Ctrl+N wraps from last suggestion back to 0";
+    EXPECT_TRUE(component->OnEvent(ftxui::Event::Character("\x0e")));
+    EXPECT_EQ(state->autocomplete_index, 1);
+
+    // With zero suggestions Ctrl+N/Ctrl+P fall through unhandled and must
+    // not touch input_text (TS useTypeahead.tsx:1341 early return).
+    auto empty = std::make_shared<repl::ReplScreenState>();
+    empty->input_text = "keep me";
+    auto empty_component =
+        repl::ReplScreen(empty, repl::ReplScreenCallbacks{});
+    EXPECT_FALSE(empty_component->OnEvent(ftxui::Event::Character("\x0e")));
+    EXPECT_FALSE(empty_component->OnEvent(ftxui::Event::Character("\x10")));
+    EXPECT_EQ(empty->input_text, "keep me");
+}
+
+TEST(ReplScreen, CtrlLRedrawsWithoutMutatingInput) {
+    namespace repl = cc::ui::repl_screen;
+
+    auto state = std::make_shared<repl::ReplScreenState>();
+    state->app_version = "9.9.9-test";
+    state->model_display_name = "GLM-5.2";
+    state->cwd = "/tmp/cpp_migration";
+    state->input_text = "hello";
+    state->input_cursor = 5;
+    state->autocomplete_suggestions = {
+        {.display_text = "/help", .description = "help",
+         .insert_text = "/help "},
+        {.display_text = "/hi", .description = "hi",
+         .insert_text = "/hi "},
+    };
+    state->autocomplete_index = 1;
+
+    bool redraw = false;
+    repl::ReplScreenCallbacks callbacks;
+    callbacks.on_redraw = [&] { redraw = true; };
+    auto component = repl::ReplScreen(state, std::move(callbacks));
+
+    EXPECT_TRUE(component->OnEvent(ftxui::Event::Character("\x0C")));
+    EXPECT_TRUE(redraw) << "Ctrl+L must invoke the on_redraw callback";
+    EXPECT_EQ(state->input_text, "hello")
+        << "redraw must never clear the input";
+    EXPECT_EQ(state->input_cursor, 5u);
+    EXPECT_EQ(state->autocomplete_suggestions.size(), 2u);
+    EXPECT_EQ(state->autocomplete_index, 1);
+
+    const auto rendered = strip_ansi(render_to_plain_text(
+        repl::RenderReplScreen(*state), 120, 30));
+    EXPECT_NE(rendered.find("hello"), std::string::npos);
+
+    // Global redraw works even while a tool-permission panel is open
+    // (defaultBindings.ts:42 global context); the panel must not swallow it.
+    auto pstate = std::make_shared<repl::ReplScreenState>();
+    pstate->app_version = "9.9.9-test";
+    pstate->model_display_name = "GLM-5.2";
+    pstate->cwd = "/tmp/cpp_migration";
+    pstate->mode = repl::ReplMode::ToolPermission;
+    repl::PermissionRequestInfo pinfo;
+    pinfo.tool_name = "Bash";
+    pinfo.description = "rm -rf";
+    pstate->permission_request = pinfo;
+    bool panel_redraw = false;
+    repl::ReplScreenCallbacks pcbs;
+    pcbs.on_redraw = [&] { panel_redraw = true; };
+    auto pcomp = repl::ReplScreen(pstate, std::move(pcbs));
+    EXPECT_TRUE(pcomp->OnEvent(ftxui::Event::Character("\x0C")));
+    EXPECT_TRUE(panel_redraw)
+        << "Ctrl+L must redraw even over an open permission panel";
+}
+
+TEST(ReplScreen, EscapeDoublePressClearsInputAndSavesToHistory) {
+    namespace repl = cc::ui::repl_screen;
+
+    auto state = std::make_shared<repl::ReplScreenState>();
+    state->app_version = "9.9.9-test";
+    state->model_display_name = "GLM-5.2";
+    state->cwd = "/tmp/cpp_migration";
+
+    std::string saved;
+    repl::ReplScreenCallbacks callbacks;
+    callbacks.on_save_to_history = [&](const std::string& text) {
+        saved = text;
+    };
+    auto component = repl::ReplScreen(state, std::move(callbacks));
+
+    for (char c : std::string("discard me")) {
+        ASSERT_TRUE(component->OnEvent(ftxui::Event::Character(c)));
+    }
+    ASSERT_EQ(state->input_text, "discard me");
+
+    // First Esc arms: text retained, "Esc again to clear" hint shown.
+    EXPECT_TRUE(component->OnEvent(ftxui::Event::Escape));
+    EXPECT_EQ(state->input_text, "discard me");
+    const auto armed = strip_ansi(render_to_plain_text(
+        repl::RenderReplScreen(*state), 120, 30));
+    EXPECT_NE(armed.find("Esc again to clear"), std::string::npos);
+    EXPECT_TRUE(saved.empty());
+
+    // Second immediate Esc: persist then clear.
+    EXPECT_TRUE(component->OnEvent(ftxui::Event::Escape));
+    EXPECT_TRUE(state->input_text.empty());
+    EXPECT_EQ(state->input_cursor, std::string::npos);
+    EXPECT_EQ(state->history_index, std::string::npos);
+    EXPECT_EQ(saved, "discard me");
+    const auto cleared = strip_ansi(render_to_plain_text(
+        repl::RenderReplScreen(*state), 120, 30));
+    EXPECT_EQ(cleared.find("Esc again to clear"), std::string::npos);
+}
+
+TEST(ReplScreen, EscapeDoublePressOnWhitespaceOnlyClearsWithoutHistory) {
+    namespace repl = cc::ui::repl_screen;
+
+    auto state = std::make_shared<repl::ReplScreenState>();
+    state->app_version = "9.9.9-test";
+    state->model_display_name = "GLM-5.2";
+    state->cwd = "/tmp/cpp_migration";
+
+    std::string saved = "untouched";
+    repl::ReplScreenCallbacks callbacks;
+    callbacks.on_save_to_history = [&](const std::string& text) { saved = text; };
+    auto component = repl::ReplScreen(state, std::move(callbacks));
+
+    for (char c : std::string("   ")) {
+        ASSERT_TRUE(component->OnEvent(ftxui::Event::Character(c)));
+    }
+    ASSERT_EQ(state->input_text, "   ");
+
+    // TS addToHistory guard (useTextInput.ts:145): whitespace-only input is
+    // cleared on double-Esc but NOT appended to history.
+    EXPECT_TRUE(component->OnEvent(ftxui::Event::Escape));
+    EXPECT_TRUE(component->OnEvent(ftxui::Event::Escape));
+    EXPECT_TRUE(state->input_text.empty());
+    EXPECT_EQ(saved, "untouched")
+        << "whitespace-only text must not be saved to history";
+}
+
+TEST(ReplScreen, EscapeDoublePressExpiresAfterWindowAndRearms) {
+    namespace repl = cc::ui::repl_screen;
+
+    auto state = std::make_shared<repl::ReplScreenState>();
+    state->app_version = "9.9.9-test";
+    state->model_display_name = "GLM-5.2";
+    state->cwd = "/tmp/cpp_migration";
+
+    auto component = repl::ReplScreen(state, repl::ReplScreenCallbacks{});
+    for (char c : std::string("persistent text")) {
+        ASSERT_TRUE(component->OnEvent(ftxui::Event::Character(c)));
+    }
+
+    EXPECT_TRUE(component->OnEvent(ftxui::Event::Escape));
+    EXPECT_EQ(state->input_text, "persistent text");
+    const auto armed = strip_ansi(render_to_plain_text(
+        repl::RenderReplScreen(*state), 120, 30));
+    EXPECT_NE(armed.find("Esc again to clear"), std::string::npos);
+
+    // Past the 800ms double-press window the second Esc re-arms instead
+    // of clearing (TS useDoublePress DOUBLE_PRESS_TIMEOUT_MS = 800).
+    std::this_thread::sleep_for(std::chrono::milliseconds(850));
+    EXPECT_TRUE(component->OnEvent(ftxui::Event::Escape));
+    EXPECT_EQ(state->input_text, "persistent text")
+        << "an expired first press must not clear on the next Esc";
+    const auto rearmed = strip_ansi(render_to_plain_text(
+        repl::RenderReplScreen(*state), 120, 30));
+    EXPECT_NE(rearmed.find("Esc again to clear"), std::string::npos)
+        << "re-arming must show the hint with a fresh 1000ms timeout";
+
+    // The notification itself expires after its 1000ms timeout
+    // (event-driven QueueAdvance on render, no ticker).
+    std::this_thread::sleep_for(std::chrono::milliseconds(1050));
+    const auto expired = strip_ansi(render_to_plain_text(
+        repl::RenderReplScreen(*state), 120, 30));
+    EXPECT_EQ(expired.find("Esc again to clear"), std::string::npos);
+}
+
+TEST(ReplScreen, EscapeDismissesPopupThenArmsThenClears) {
+    namespace repl = cc::ui::repl_screen;
+    namespace pif = cc::ui::prompt::footer;
+
+    auto state = std::make_shared<repl::ReplScreenState>();
+    state->app_version = "9.9.9-test";
+    state->model_display_name = "GLM-5.2";
+    state->cwd = "/tmp/cpp_migration";
+    state->input_text = "query";
+    state->autocomplete_suggestions = {
+        {.display_text = "query one", .description = "one",
+         .insert_text = "query one"},
+        {.display_text = "query two", .description = "two",
+         .insert_text = "query two"},
+    };
+
+    auto component = repl::ReplScreen(state, repl::ReplScreenCallbacks{});
+
+    // TS PromptInput.tsx disableEscapeDoublePress = suggestions.length>0:
+    // Esc #1 dismisses the popup without arming.
+    EXPECT_TRUE(component->OnEvent(ftxui::Event::Escape));
+    EXPECT_TRUE(state->autocomplete_suggestions.empty());
+    EXPECT_EQ(state->autocomplete_index, -1);
+    EXPECT_EQ(state->input_text, "query");
+    // Esc #2 arms the clear hint.
+    EXPECT_TRUE(component->OnEvent(ftxui::Event::Escape));
+    EXPECT_EQ(state->input_text, "query");
+    // Esc #3 clears.
+    EXPECT_TRUE(component->OnEvent(ftxui::Event::Escape));
+    EXPECT_TRUE(state->input_text.empty());
+
+    // With empty input and no popup, a single Esc enqueues no hint.
+    auto idle = std::make_shared<repl::ReplScreenState>();
+    auto idle_component = repl::ReplScreen(idle, repl::ReplScreenCallbacks{});
+    (void)idle_component->OnEvent(ftxui::Event::Escape);
+    bool has_escape_hint = false;
+    if (idle->footer_notification_queue.current) {
+        has_escape_hint =
+            idle->footer_notification_queue.current->key ==
+            "escape-again-to-clear";
+    }
+    EXPECT_FALSE(has_escape_hint);
+    (void)pif::NotificationPriority::Immediate;
+}
+
 TEST(ReplScreen, BridgeStatusPillReflectsProjectionState) {
     namespace repl = cc::ui::repl_screen;
 
@@ -357,6 +610,117 @@ TEST(ReplScreen, BridgeStatusPillReflectsProjectionState) {
     auto disabled = strip_ansi(render_to_plain_text(
         repl::RenderReplScreen(state), 120, 30));
     EXPECT_EQ(disabled.find("Remote Control"), std::string::npos);
+}
+
+TEST(ReplScreen, VoiceFooterIndicatorProjectsAcrossStates) {
+    namespace repl = cc::ui::repl_screen;
+
+    // TS REF: src/components/PromptInput/VoiceIndicator.tsx:44-72
+    //   recording -> <Text dimColor>listening…</Text>
+    //   processing -> <ProcessingShimmer/> ("Voice: processing…")
+    //   idle -> null (renders nothing)
+    // and Notifications.tsx NotificationContent:283-285 (voice replaces
+    // every other notification while recording/processing).
+    // The ellipsis is U+2026 (UTF-8 E2 80 A6), byte-for-byte with TS.
+    static constexpr const char* kListeningEllipsis =
+        "listening\xE2\x80\xA6";
+    static constexpr const char* kProcessingEllipsis =
+        "Voice: processing\xE2\x80\xA6";
+
+    const auto render = [](repl::ReplScreenState& s) {
+        return strip_ansi(
+            render_to_plain_text(repl::RenderReplScreen(s), 120, 30));
+    };
+
+    repl::ReplScreenState state;
+    state.app_version = "9.9.9-test";
+    state.model_display_name = "GLM-5.2";
+    state.cwd = "/tmp/cpp_migration";
+
+    // Visibility helper: Idle is invisible (TS returns null).
+    EXPECT_FALSE(cc::ui::prompt::VoiceIndicatorVisible(
+        cc::ui::prompt::FooterVoiceState::Idle));
+    EXPECT_TRUE(cc::ui::prompt::VoiceIndicatorVisible(
+        cc::ui::prompt::FooterVoiceState::Listening));
+    EXPECT_TRUE(cc::ui::prompt::VoiceIndicatorVisible(
+        cc::ui::prompt::FooterVoiceState::Processing));
+
+    // (1) Idle renders neither string and holds no processing anchor.
+    auto idle = render(state);
+    EXPECT_EQ(idle.find(kListeningEllipsis), std::string::npos);
+    EXPECT_EQ(idle.find("Voice: processing"), std::string::npos);
+    EXPECT_FALSE(state.voice_processing_since.has_value());
+
+    // (2) Listening shows exactly the dim "listening…" label and never the
+    // processing label.
+    repl::ProjectVoiceFooterStatus(
+        state, cc::ui::prompt::FooterVoiceState::Listening);
+    auto listening = render(state);
+    EXPECT_NE(listening.find(kListeningEllipsis), std::string::npos);
+    EXPECT_EQ(listening.find("Voice: processing"), std::string::npos);
+    EXPECT_FALSE(state.voice_processing_since.has_value());
+
+    // (3) Processing shows exactly "Voice: processing…" and not
+    // "listening" — mutual exclusivity from the TS early-return.  The
+    // transition stamps the pulse anchor.
+    repl::ProjectVoiceFooterStatus(
+        state, cc::ui::prompt::FooterVoiceState::Processing);
+    auto processing = render(state);
+    EXPECT_NE(processing.find(kProcessingEllipsis), std::string::npos);
+    // ASCII-prefix fallback so the assertion is robust to ellipsis
+    // encoding mishaps in the test harness.
+    EXPECT_NE(processing.find("Voice: processing"), std::string::npos);
+    EXPECT_EQ(processing.find("listening"), std::string::npos);
+    EXPECT_TRUE(state.voice_processing_since.has_value());
+
+    // (4) Back to Idle clears both the glyphs and the anchor; the footer
+    // must be byte-identical to the original idle render for the voice
+    // rows (indicator renders zero rows).
+    repl::ProjectVoiceFooterStatus(
+        state, cc::ui::prompt::FooterVoiceState::Idle);
+    auto back_to_idle = render(state);
+    EXPECT_EQ(back_to_idle.find(kListeningEllipsis), std::string::npos);
+    EXPECT_EQ(back_to_idle.find("Voice: processing"), std::string::npos);
+    EXPECT_FALSE(state.voice_processing_since.has_value());
+}
+
+TEST(ReplScreen, VoiceIndicatorRequiresEnabledAndPreemptsNotifications) {
+    namespace repl = cc::ui::repl_screen;
+    static constexpr const char* kCompeting = "COMPETING_NOTIFICATION_XYZ";
+    static constexpr const char* kListeningEllipsis =
+        "listening\xE2\x80\xA6";
+
+    auto make_state = [] {
+        auto s = std::make_shared<repl::ReplScreenState>();
+        s->app_version = "9.9.9-test";
+        s->model_display_name = "GLM-5.2";
+        s->cwd = "/tmp/cpp_migration";
+        s->footer_dynamic_text = kCompeting;
+        return s;
+    };
+
+    // voice_enabled=false: an active status alone must NOT reveal the
+    // indicator (TS voiceEnabled gate); the competing notification shows.
+    {
+        auto s = make_state();
+        s->voice_footer_status = cc::ui::prompt::FooterVoiceState::Listening;
+        // enabled deliberately left false
+        auto out = strip_ansi(
+            render_to_plain_text(repl::RenderReplScreen(*s), 120, 30));
+        EXPECT_EQ(out.find(kListeningEllipsis), std::string::npos);
+        EXPECT_NE(out.find(kCompeting), std::string::npos);
+    }
+    // enabled + Listening: voice early-returns and REPLACES the competing
+    // notification (Notifications.tsx:283-285).
+    {
+        auto s = make_state();
+        repl::ProjectVoiceFooterStatus(
+            *s, cc::ui::prompt::FooterVoiceState::Listening);
+        auto out = strip_ansi(
+            render_to_plain_text(repl::RenderReplScreen(*s), 120, 30));
+        EXPECT_NE(out.find(kListeningEllipsis), std::string::npos);
+        EXPECT_EQ(out.find(kCompeting), std::string::npos);
+    }
 }
 
 TEST(ReplScreen, WelcomeHeaderWidthAndClaudeColorTrackTerminal) {
@@ -1346,8 +1710,13 @@ TEST(AppRuntime, DynamicPromptSuggestionsCoverSkillsFilesAndCursorEditing) {
         std::find(slash_suggestions.begin(), slash_suggestions.end(), "/cpp-review"),
         slash_suggestions.end());
 
+    // TS PromptInput.tsx passes disableEscapeDoublePress only while
+    // suggestions are open, so clearing through an open popup takes three
+    // presses: Esc (dismiss popup) -> Esc (arm) -> Esc (clear).
     EXPECT_TRUE(app->OnEvent(ftxui::Event::Escape));
     EXPECT_TRUE(app->OnEvent(ftxui::Event::Escape));
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::Escape));
+    EXPECT_TRUE(app->input_text_for_testing().empty());
     EXPECT_TRUE(app->OnEvent(ftxui::Event::Character("@")));
     EXPECT_TRUE(app->OnEvent(ftxui::Event::Character("s")));
     const auto at_suggestions = app->autocomplete_suggestions_for_testing();
@@ -1355,10 +1724,16 @@ TEST(AppRuntime, DynamicPromptSuggestionsCoverSkillsFilesAndCursorEditing) {
         return suggestion.find("src_file.cpp") != std::string::npos;
     }));
 
+    // Unguarded dismiss/arm/clear loop: at most three Escapes total, sending
+    // the second and third only while input is still non-empty (popup state
+    // varies with the "@s" prefix).
     EXPECT_TRUE(app->OnEvent(ftxui::Event::Escape));
-    if (!app->input_text_for_testing().empty()) {
+    for (int extra_esc = 0;
+         extra_esc < 2 && !app->input_text_for_testing().empty();
+         ++extra_esc) {
         EXPECT_TRUE(app->OnEvent(ftxui::Event::Escape));
     }
+    EXPECT_TRUE(app->input_text_for_testing().empty());
     EXPECT_TRUE(app->OnEvent(ftxui::Event::Character("a")));
     EXPECT_TRUE(app->OnEvent(ftxui::Event::Character("b")));
     EXPECT_TRUE(app->OnEvent(ftxui::Event::ArrowLeft));
@@ -1553,33 +1928,85 @@ TEST(AppRuntime, StatusLineRuntimeSettingsOverrideDiskSettings) {
     fs::remove_all(home_root);
 }
 
-TEST(AppRuntime, CtrlCWithoutRunningQueryRequestsExit) {
-    cc::core::ToolRegistry tools;
-    cc::core::QueryEngineConfig config;
-    config.context_window.auto_compact = false;
-    config.cwd = fs::temp_directory_path().string();
-    cc::core::QueryEngine engine(std::move(config), tools);
+TEST(AppRuntime, CtrlCIdleRequiresDoublePressWithinWindow) {
+    // TS REF: src/hooks/useTextInput.ts:108-120 handleCtrlC =
+    // useDoublePress(..., onExit, onFirstPress) with
+    // DOUBLE_PRESS_TIMEOUT_MS = 800 (useDoublePress.ts:6). A single idle
+    // Ctrl+C clears non-empty input and shows "Press Ctrl-C again to exit";
+    // only the second press inside 800ms exits.
 
-    cc::commands::AppCommandRegistry commands;
-    const auto storage_root = fs::temp_directory_path() /
-        ("cc_repl_ui_interrupt_test_" +
-         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
-    cc::utils::SessionStorage storage(storage_root);
+    auto make_app = [](std::function<void()> on_exit) {
+        cc::core::ToolRegistry tools;
+        cc::core::QueryEngineConfig config;
+        config.context_window.auto_compact = false;
+        config.cwd = fs::temp_directory_path().string();
+        auto engine =
+            std::make_unique<cc::core::QueryEngine>(std::move(config), tools);
+        auto commands =
+            std::make_unique<cc::commands::AppCommandRegistry>();
+        const auto storage_root = fs::temp_directory_path() /
+            ("cc_repl_ui_interrupt_test_" +
+             std::to_string(std::chrono::steady_clock::now()
+                                .time_since_epoch().count()));
+        auto storage =
+            std::make_unique<cc::utils::SessionStorage>(storage_root);
+        cc::core::QueryEngine* engine_ptr = engine.get();
+        cc::commands::AppCommandRegistry* commands_ptr = commands.get();
+        cc::utils::SessionStorage* storage_ptr = storage.get();
+        auto app = ftxui::Make<cc::ui::AppAdapter>(
+            engine_ptr, nullptr, commands_ptr, storage_ptr,
+            std::move(on_exit));
+        return std::tuple(std::move(app), std::move(engine),
+                          std::move(commands), std::move(storage),
+                          storage_root);
+    };
 
-    bool exited = false;
-    auto app = ftxui::Make<cc::ui::AppAdapter>(
-        &engine,
-        nullptr,
-        &commands,
-        &storage,
-        [&] {
-            exited = true;
-        });
+    // ── Double press inside the window exits ──────────────────────────
+    {
+        bool exited = false;
+        auto [app, engine, commands, storage, storage_root] =
+            make_app([&] { exited = true; });
 
-    EXPECT_TRUE(app->OnEvent(ftxui::Event::Special("\x03")));
-    EXPECT_TRUE(exited);
+        app->OnEvent(ftxui::Event::Character("typed text"));
+        ASSERT_EQ(app->input_text_for_testing(), "typed text");
 
-    fs::remove_all(storage_root);
+        EXPECT_TRUE(app->OnEvent(ftxui::Event::Special("\x03")));
+        EXPECT_FALSE(exited)
+            << "first idle Ctrl+C must request confirmation, not exit";
+        // TS onFirstPress clears non-empty input immediately.
+        EXPECT_TRUE(app->input_text_for_testing().empty());
+        const auto armed = strip_ansi(render_to_plain_text(
+            app->Render(), 120, 32));
+        EXPECT_NE(armed.find("Press Ctrl-C again to exit"),
+                  std::string::npos);
+
+        EXPECT_TRUE(app->OnEvent(ftxui::Event::Special("\x03")));
+        EXPECT_TRUE(exited)
+            << "second Ctrl+C inside the 800ms window must exit";
+
+        fs::remove_all(storage_root);
+    }
+
+    // ── Expired first press re-arms instead of exiting ────────────────
+    {
+        bool exited = false;
+        auto [app, engine, commands, storage, storage_root] =
+            make_app([&] { exited = true; });
+
+        EXPECT_TRUE(app->OnEvent(ftxui::Event::Special("\x03")));
+        EXPECT_FALSE(exited);
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(850));
+        EXPECT_TRUE(app->OnEvent(ftxui::Event::Special("\x03")));
+        EXPECT_FALSE(exited)
+            << "a Ctrl+C after the 800ms window must re-arm, not exit";
+        const auto rearmed = strip_ansi(render_to_plain_text(
+            app->Render(), 120, 32));
+        EXPECT_NE(rearmed.find("Press Ctrl-C again to exit"),
+                  std::string::npos);
+
+        fs::remove_all(storage_root);
+    }
 }
 
 TEST(AppRuntime, StreamFallbackErrorIsRendered) {
