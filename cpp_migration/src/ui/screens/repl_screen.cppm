@@ -691,6 +691,12 @@ struct ReplScreenState {
     bool bridge_session_active = false;
     bool bridge_reconnecting = false;
     bool bridge_selected = false;           // footer item focused (IDE selection)
+
+    // Footer pasting indicator (TS usePasteHandler.ts isPasting +
+    // PASTE_COMPLETION_TIMEOUT_MS = 100ms). A multi-char event (terminal
+    // paste arrives as one batch) stamps this point; RenderLeftSide shows
+    // "Pasting text…" for 100ms after it. Event-driven — no ticker.
+    std::optional<std::chrono::steady_clock::time_point> pasting_since;
     bool status_line_enabled = false;       // User-configurable status line
     std::string status_line_command;        // Shell command for status line
     int status_line_padding = 0;            // Horizontal padding for status line
@@ -3001,6 +3007,16 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
         // PromptInputFooter: LeftSide carries mode/tasks/teams via
         // ModeIndicatorOptions; StatusLine is its own nested struct.
         pif::LeftSideOptions left_opts;
+        // Pasting hint is visible for 100ms after the last paste batch
+        // (TS PASTE_COMPLETION_TIMEOUT_MS = 100).
+        if (s.pasting_since) {
+            const auto age = std::chrono::steady_clock::now() - *s.pasting_since;
+            if (age <= std::chrono::milliseconds(100)) {
+                left_opts.is_pasting = true;
+            } else {
+                s.pasting_since.reset();
+            }
+        }
         left_opts.mode_indicator.mode                 = footer_mode;
         left_opts.mode_indicator.permission_mode      = s.permission_mode;
         left_opts.mode_indicator.background_task_count = s.background_task_count;
@@ -4364,6 +4380,15 @@ inline bool forward_trust_dialog(
                     (first >= 0x20 && first < 0x7F) || first >= 0xC0;
                 if (is_printable) {
                     namespace figs = cc::ui::design::figures;
+
+                    // Footer "Pasting text…" feedback (TS usePasteHandler.ts):
+                    // terminals deliver a paste as one multi-char batch, while
+                    // a single CJK keystroke is at most 4 UTF-8 bytes. Stamp
+                    // the burst time; the footer hides the hint 100ms later.
+                    if (ch.size() > 4) {
+                        state->pasting_since =
+                            std::chrono::steady_clock::now();
+                    }
                     // ── P0-1: TS-equivalent single-char mode interception ──
                     //
                     // TS PromptInput.tsx lines 869-901: when the user types a

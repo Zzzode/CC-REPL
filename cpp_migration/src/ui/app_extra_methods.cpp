@@ -364,6 +364,8 @@ void AppAdapter::ProcessCompletedPastes() {
     for (auto& [id, ib] : results) {
         pasted_contents_[id] = std::move(ib);
         in_flight_pastes_.erase(id);  // main thread
+        // Surface the footer "Pasting text…" hint for the async path too.
+        screen_state_->pasting_since = std::chrono::steady_clock::now();
     }
     // Text pastes (clipboard had text, not an image): replace the
     // "[Image #N]" placeholder with the actual text.  If >10K chars,

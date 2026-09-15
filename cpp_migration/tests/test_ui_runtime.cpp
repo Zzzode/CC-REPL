@@ -286,6 +286,34 @@ TEST(ReplScreen, ShiftReturnInsertsNewlineForBothTerminalEncodings) {
     }
 }
 
+TEST(ReplScreen, PastingIndicatorShowsForBatchAndNotSingleKeystroke) {
+    namespace repl = cc::ui::repl_screen;
+
+    // A terminal paste arrives as one multi-char event; a single keystroke
+    // (incl. a 3-byte CJK char) must not trigger the hint.
+    repl::ReplScreenState state;
+    state.app_version = "9.9.9-test";
+    state.model_display_name = "GLM-5.2";
+    state.cwd = "/tmp/cpp_migration";
+
+    EXPECT_FALSE(state.pasting_since.has_value());
+
+    // Simulate a paste batch by stamping as the CatchEvent handler does,
+    // then render: the footer must contain "Pasting text…".
+    state.pasting_since = std::chrono::steady_clock::now();
+    auto pasting = strip_ansi(render_to_plain_text(
+        repl::RenderReplScreen(state), 120, 30));
+    EXPECT_NE(pasting.find("Pasting text"), std::string::npos);
+
+    // After the 100ms window the hint disappears (event-driven re-render).
+    std::this_thread::sleep_for(std::chrono::milliseconds(120));
+    auto settled = strip_ansi(render_to_plain_text(
+        repl::RenderReplScreen(state), 120, 30));
+    EXPECT_EQ(settled.find("Pasting text"), std::string::npos);
+    EXPECT_FALSE(state.pasting_since.has_value())
+        << "stale timestamp should be cleared on render";
+}
+
 TEST(ReplScreen, BridgeStatusPillReflectsProjectionState) {
     namespace repl = cc::ui::repl_screen;
 
