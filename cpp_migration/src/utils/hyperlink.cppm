@@ -162,6 +162,43 @@ namespace detail {
     return fs::path(path_str);
 }
 
+/// Convert a local filesystem path to a file:// URL.
+///
+/// TS REF: Node `url.pathToFileURL(p).href` used by
+/// src/commands/terminalSetup/terminalSetup.tsx formatPathLink() L69.
+/// POSIX: "file://" + absolute path, per-byte percent-encoded except
+/// '/' and the empirically-verified Node v22 safe set
+/// A-Za-z0-9 ! $ & ' ( ) * + , - . : ; = @ _
+/// (note: '~' AND '[' ']' ARE encoded — %7E / %5B / %5D; non-ASCII bytes
+/// are encoded as their raw UTF-8 bytes, e.g. 0xC3 0xA9 -> %C3%A9;
+/// space -> %20, '#' -> %23, '?' -> %3F, '%' -> %25; '&' stays raw).
+[[nodiscard]] inline std::string path_to_file_url(const fs::path& p) {
+    std::error_code ec;
+    fs::path ap = fs::absolute(p, ec);
+    if (ec) ap = p;
+    const std::string raw = ap.string();
+    static constexpr char kHex[] = "0123456789ABCDEF";
+    static constexpr std::string_view kSafe =
+        "!$&'()*+,-.:;=@_";
+    std::string url;
+    url.reserve(raw.size() + 7);
+    url += "file://";
+    for (unsigned char c : raw) {
+        const bool unreserved =
+            (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+            (c >= '0' && c <= '9');
+        if (c == '/' || unreserved ||
+            kSafe.find(static_cast<char>(c)) != std::string_view::npos) {
+            url.push_back(static_cast<char>(c));
+        } else {
+            url.push_back('%');
+            url.push_back(kHex[c >> 4]);
+            url.push_back(kHex[c & 0x0F]);
+        }
+    }
+    return url;
+}
+
 // ============================================================
 // Hyperlink click router (file: vs http:).
 // ============================================================
@@ -217,23 +254,46 @@ namespace detail {
 /// decide whether to use OSC 8 or plain-text fallback in contexts where
 /// raw bytes are written directly (e.g. statusline, tool output formatting).
 bool supports_hyperlinks() {
-    // iTerm2, WezTerm, Kitty, Windows Terminal support hyperlinks
+    // TS REF: src/ink/supports-hyperlinks.ts. The supports-hyperlinks
+    // library covers iTerm.app/Apple_Terminal/WezTerm/vscode/WT_SESSION and
+    // VTE>=5000; on top of that TS whitelists additional terminals via
+    // TERM_PROGRAM AND LC_TERMINAL (the latter survives inside tmux, which
+    // overwrites TERM_PROGRAM), plus TERM containing "kitty".
+    static constexpr std::string_view kAdditional[] = {
+        "ghostty", "Hyper", "kitty", "alacritty", "iTerm.app", "iTerm2",
+    };
+    auto listed = [](const char* v) {
+        if (!v) return false;
+        std::string_view s(v);
+        for (auto t : kAdditional)
+            if (s == t) return true;
+        return false;
+    };
+
+    // Detected by the underlying supports-hyperlinks-equivalent set.
     const char* term_program = std::getenv("TERM_PROGRAM");
     if (term_program) {
         std::string_view tp(term_program);
-        if (tp == "iTerm.app" || tp == "WezTerm" || tp == "vscode") return true;
+        if (tp == "iTerm.app" || tp == "Apple_Terminal" ||
+            tp == "WezTerm" || tp == "vscode") return true;
     }
+    if (std::getenv("WT_SESSION")) return true;
 
-    const char* wt_session = std::getenv("WT_SESSION");
-    if (wt_session) return true;
-
-    // Check VTE version (GNOME Terminal, etc.)
     const char* vte = std::getenv("VTE_VERSION");
     if (vte) {
         try {
-            int ver = std::stoi(vte);
-            if (ver >= 5000) return true;
+            if (std::stoi(vte) >= 5000) return true;
         } catch (...) {}
+    }
+
+    // TS ADDITIONAL_HYPERLINK_TERMINALS via TERM_PROGRAM / LC_TERMINAL.
+    if (listed(term_program)) return true;
+    if (listed(std::getenv("LC_TERMINAL"))) return true;
+
+    // Kitty identifies itself in TERM (e.g. xterm-kitty).
+    if (const char* term = std::getenv("TERM");
+        term && std::string_view(term).find("kitty") != std::string_view::npos) {
+        return true;
     }
 
     return false;
@@ -270,8 +330,10 @@ std::string make_hyperlink(std::string_view url, std::string_view text) {
 /// Display text: filename[:line]
 /// URL: file://<absolute-path>[:line]
 std::string make_file_link(fs::path file, std::optional<int> line) {
-    std::string url = "file://";
-    url += fs::absolute(file).string();
+    // TS REF: Node pathToFileURL via terminalSetup.tsx formatPathLink() L69 —
+    // percent-encodes spaces/special chars so OSC8 URLs survive terminals that
+    // split links at whitespace.
+    std::string url = path_to_file_url(file);
     if (line.has_value()) {
         url += ":" + std::to_string(*line);
     }

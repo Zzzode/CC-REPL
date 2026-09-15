@@ -11,6 +11,7 @@
 #include <fstream>
 #include <iterator>
 #include <map>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -38,6 +39,8 @@ import cc.commands.plugin_ui_data;
 import cc.commands.plugin_parse_args;
 import cc.utils.error;
 import cc.utils.json;
+import cc.commands.terminal_setup;
+import cc.utils.hyperlink;
 
 namespace {
 
@@ -924,4 +927,190 @@ TEST(PluginCommand, CompletionSuggestsSubcommands) {
     cc::commands::PluginCommand cmd;
     auto c = cmd.complete("in");
     EXPECT_NE(std::find(c.begin(), c.end(), "install"), c.end());
+}
+
+// ============================================================================
+// terminal-setup OSC 8 hyperlink support
+// TS REF: src/commands/terminalSetup/terminalSetup.tsx L54-72 formatPathLink()
+// ============================================================================
+
+namespace {
+
+namespace fs = std::filesystem;
+
+// RAII HOME override for terminal-setup tests; mirrors HomeGuard above but
+// with its own temp prefix/label so the suites stay independent if co-located.
+struct TerminalSetupHomeGuard {
+    std::optional<std::string> previous;
+    fs::path tmp;
+    explicit TerminalSetupHomeGuard() {
+        if (const char* h = std::getenv("HOME")) previous = h;
+        auto base = fs::temp_directory_path();
+        auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+        static std::atomic<long> counter{0};
+        tmp = base / ("cc-termsetup-test-" + std::to_string(stamp) + "-" +
+                      std::to_string(counter.fetch_add(1)));
+        fs::create_directories(tmp);
+        setenv("HOME", tmp.c_str(), 1);
+    }
+    ~TerminalSetupHomeGuard() {
+        if (previous) {
+            setenv("HOME", previous->c_str(), 1);
+        } else {
+            unsetenv("HOME");
+        }
+        std::error_code ec;
+        fs::remove_all(tmp, ec);
+    }
+};
+
+} // namespace
+
+TEST(TerminalSetupCommand, PreviewAndApplyWrapDisplayPathsInOsc8Links) {
+    TerminalSetupHomeGuard home;
+    EnvironmentGuard term_program("TERM_PROGRAM", "vscode");
+    EnvironmentUnsetGuard wt_session("WT_SESSION");
+    EnvironmentUnsetGuard vte_version("VTE_VERSION");
+
+    namespace ts = cc::commands::terminal_setup;
+    const std::string rc = (home.tmp / ".zshrc").string();
+
+    // 1) Preview mode: header path is hyperlinked but plain text still present.
+    auto r1 = ts::run("--shell=zsh");
+    ASSERT_TRUE(r1.ok);
+    EXPECT_NE(r1.message.find("RC file  : \x1b]8;;file://" + rc),
+              std::string::npos);
+    EXPECT_NE(r1.message.find(rc), std::string::npos);
+
+    // Pre-create the rc file so apply takes the backup-existing-file path.
+    {
+        std::ofstream pre(rc, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(pre.is_open());
+        pre << "# preexisting user content\n";
+    }
+
+    // 2) Apply mode: rc path, backup path linked; source instruction stays plain.
+    auto r2 = ts::run("--apply --shell=zsh");
+    ASSERT_TRUE(r2.ok);
+    // OSC8 opener with ST = ESC-backslash.
+    EXPECT_NE(r2.message.find("\x1b]8;;file://" + rc + "\x1b\\"),
+              std::string::npos);
+    // Plain path human-readable between opener and closer.
+    EXPECT_NE(r2.message.find(rc), std::string::npos);
+    // Closing OSC8 marker.
+    EXPECT_NE(r2.message.find("\x1b]8;;\x1b\\"), std::string::npos);
+    EXPECT_NE(r2.message.find("Successfully applied terminal-setup snippet"),
+              std::string::npos);
+    EXPECT_NE(r2.message.find("Backup created at:"), std::string::npos);
+    // Backup path is also linked (timestamp suffix means prefix match).
+    EXPECT_NE(r2.message.find("\x1b]8;;file://" +
+                              (home.tmp / ".zshrc.bak-").string()),
+              std::string::npos);
+    // The executable `source <rc>` instruction must stay plain: no ESC bytes
+    // between "source " and the rc path.
+    EXPECT_NE(r2.message.find("  source " + rc + "\n"), std::string::npos);
+
+    // The snippet must actually have been written to disk.
+    std::ifstream ifs(rc, std::ios::binary);
+    ASSERT_TRUE(ifs.is_open());
+    std::string on_disk((std::istreambuf_iterator<char>(ifs)),
+                        std::istreambuf_iterator<char>());
+    EXPECT_NE(on_disk.find("# >>> cc-repl terminal-setup"), std::string::npos);
+}
+
+TEST(TerminalSetupCommand, HyperlinkGateMatchesTsTerminalMatrix) {
+    // TS REF: src/ink/supports-hyperlinks.ts — the ADDITIONAL whitelist via
+    // TERM_PROGRAM and LC_TERMINAL, plus TERM containing "kitty".
+    namespace cu = cc::utils;
+    auto with_env = [](std::initializer_list<std::pair<const char*, const char*>> set,
+                       std::initializer_list<const char*> unset) {
+        std::vector<std::unique_ptr<EnvironmentGuard>> guards;
+        std::vector<std::unique_ptr<EnvironmentUnsetGuard>> unsets;
+        for (auto [k, v] : set)
+            guards.push_back(std::make_unique<EnvironmentGuard>(k, v));
+        for (auto k : unset)
+            unsets.push_back(std::make_unique<EnvironmentUnsetGuard>(k));
+        return cu::supports_hyperlinks();
+    };
+
+    // TERM_PROGRAM whitelist (TS ADDITIONAL_HYPERLINK_TERMINALS + base set).
+    for (const char* prog :
+         {"ghostty", "Hyper", "kitty", "alacritty", "iTerm.app", "iTerm2",
+          "WezTerm", "vscode"}) {
+        EXPECT_TRUE(with_env({{"TERM_PROGRAM", prog}},
+                             {"WT_SESSION", "VTE_VERSION", "TERM", "LC_TERMINAL"}))
+            << "TERM_PROGRAM=" << prog;
+    }
+    // LC_TERMINAL (preserved inside tmux where TERM_PROGRAM becomes tmux).
+    EXPECT_TRUE(with_env({{"LC_TERMINAL", "iTerm2"},
+                          {"TERM_PROGRAM", "tmux"}},
+                         {"WT_SESSION", "VTE_VERSION", "TERM"}));
+    // TERM contains kitty.
+    EXPECT_TRUE(with_env({{"TERM", "xterm-kitty"}},
+                         {"TERM_PROGRAM", "WT_SESSION", "VTE_VERSION",
+                          "LC_TERMINAL"}));
+    // Unknown terminal stays off.
+    EXPECT_FALSE(with_env({},
+                          {"TERM_PROGRAM", "WT_SESSION", "VTE_VERSION",
+                           "TERM", "LC_TERMINAL"}));
+    EXPECT_FALSE(with_env({{"TERM_PROGRAM", "dumb"}},
+                          {"WT_SESSION", "VTE_VERSION", "TERM", "LC_TERMINAL"}));
+}
+
+TEST(TerminalSetupCommand, UnsupportedTerminalEmitsBarePathsWithoutEscapes) {
+    TerminalSetupHomeGuard home;
+    EnvironmentUnsetGuard term_program("TERM_PROGRAM");
+    EnvironmentUnsetGuard wt_session("WT_SESSION");
+    EnvironmentUnsetGuard vte_version("VTE_VERSION");
+
+    // Guard sanity: with every recognized variable cleared the gate is false.
+    EXPECT_FALSE(cc::utils::supports_hyperlinks());
+
+    namespace ts = cc::commands::terminal_setup;
+    auto r = ts::run("--apply --shell=bash");
+    ASSERT_TRUE(r.ok);
+    EXPECT_EQ(r.message.find("\x1b]8;;"), std::string::npos);
+    EXPECT_EQ(r.message.find("\x1b"), std::string::npos);
+    const std::string rc = (home.tmp / ".bashrc").string();
+    EXPECT_NE(r.message.find(rc), std::string::npos);
+    // Header line is the bare path immediately followed by newline.
+    EXPECT_NE(r.message.find("RC file  : " + rc + "\n"), std::string::npos);
+}
+
+TEST(TerminalSetupCommand, PathToFileUrlEncodingAndHyperlinkGate) {
+    namespace cu = cc::utils;
+    // TS REF: Node url.pathToFileURL — '/' and the Node safe set pass through;
+    // every other byte is uppercased percent-encoded (UTF-8 bytes for non-ASCII).
+    // Safe set verified empirically against Node v22: '[' ']' ARE encoded
+    // (%5B/%5D) while '&' stays raw.
+    EXPECT_EQ(cu::path_to_file_url("/home/u/.zshrc"),
+              "file:///home/u/.zshrc");
+    EXPECT_EQ(cu::path_to_file_url("/home/u/a b/keymap.json"),
+              "file:///home/u/a%20b/keymap.json");
+    EXPECT_EQ(cu::path_to_file_url("/tmp/a#b?c%&[1].fish"),
+              "file:///tmp/a%23b%3Fc%25&%5B1%5D.fish");
+    EXPECT_EQ(cu::path_to_file_url("/tmp/caf\xC3\xA9.rc"),
+              "file:///tmp/caf%C3%A9.rc");
+    // Tilde is encoded by Node (not in the unreserved set).
+    EXPECT_EQ(cu::path_to_file_url("/tmp/a~b"),
+              "file:///tmp/a%7Eb");
+
+    const std::string url = "file:///home/u/.zshrc";
+    const std::string text = "/home/u/.zshrc";
+    {
+        EnvironmentGuard term_program("TERM_PROGRAM", "vscode");
+        EnvironmentUnsetGuard wt_session("WT_SESSION");
+        EnvironmentUnsetGuard vte_version("VTE_VERSION");
+        const std::string linked = cu::make_hyperlink(url, text);
+        EXPECT_EQ(linked.rfind("\x1b]8;;" + url + "\x1b\\", 0), 0u);
+        EXPECT_NE(linked.find(text), std::string::npos);
+        // Closing OSC8 marker is 7 bytes: \x1b]8;; (5) + \x1b\ (2).
+        EXPECT_EQ(linked.compare(linked.size() - 7, 7, "\x1b]8;;\x1b\\"), 0);
+    }
+    {
+        EnvironmentUnsetGuard term_program("TERM_PROGRAM");
+        EnvironmentUnsetGuard wt_session("WT_SESSION");
+        EnvironmentUnsetGuard vte_version("VTE_VERSION");
+        EXPECT_EQ(cu::make_hyperlink(url, text), text);
+    }
 }

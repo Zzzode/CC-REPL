@@ -27,6 +27,8 @@ module;
 
 export module cc.commands.terminal_setup;
 
+import cc.utils.hyperlink;
+
 export namespace cc::commands::terminal_setup {
 
 // ============================================================
@@ -187,6 +189,19 @@ namespace detail {
 [[nodiscard]] inline bool snippet_already_installed(std::string_view file_content,
                                                     std::string_view start_marker) {
     return file_content.find(start_marker) != std::string_view::npos;
+}
+
+/// TS REF: src/commands/terminalSetup/terminalSetup.tsx L54-72 formatPathLink().
+/// Returns an OSC 8 file:// hyperlink wrapping the plain path, or the bare
+/// path when the terminal does not advertise hyperlink support. The gate
+/// lives inside cc::utils::make_hyperlink(), matching the TS early return.
+/// Unlike TS (BEL ST), the helper emits ST as ESC-backslash; both are
+/// legal OSC 8 terminators. The display text is the untouched path so it
+/// stays human-readable inside the escape sequence.
+[[nodiscard]] inline std::string format_path_link(std::string_view file_path) {
+    const std::string url =
+        cc::utils::path_to_file_url(std::filesystem::path{std::string{file_path}});
+    return cc::utils::make_hyperlink(url, file_path);
 }
 
 } // namespace detail
@@ -415,7 +430,9 @@ struct ApplyResult {
         if (existing.empty() && fs::file_size(shell.rc_path, ec) > 0) {
             // File exists but we couldn't read it — bail out to avoid corrupting it
             r.succeeded = false;
-            r.report = std::format("Failed to read existing rc file: {}", shell.rc_path);
+            // TS REF: terminalSetup.tsx L237/L436/L495 — bail paths are user-facing and linked.
+            r.report = std::format("Failed to read existing rc file: {}",
+                                   detail::format_path_link(shell.rc_path));
             return r;
         }
 
@@ -426,7 +443,7 @@ struct ApplyResult {
             r.already_present = true;
             r.report = std::format("Snippet already present in {}.\n"
                                    "Remove the bracketing # >>> / # <<< lines to re-apply.",
-                                   shell.rc_path);
+                                   detail::format_path_link(shell.rc_path));
             return r;
         }
 
@@ -435,7 +452,8 @@ struct ApplyResult {
         if (!detail::copy_file(shell.rc_path, r.backup_path)) {
             r.succeeded = false;
             r.report = std::format("Failed to create backup: {} -> {}",
-                                   shell.rc_path, r.backup_path);
+                                   detail::format_path_link(shell.rc_path),
+                                   detail::format_path_link(r.backup_path));
             return r;
         }
     }
@@ -450,7 +468,8 @@ struct ApplyResult {
 
     if (!detail::append_file(shell.rc_path, to_append)) {
         r.succeeded = false;
-        r.report = std::format("Failed to write to rc file: {}", shell.rc_path);
+        r.report = std::format("Failed to write to rc file: {}",
+                               detail::format_path_link(shell.rc_path));
         // Restore backup if we created one and it exists
         if (!r.backup_path.empty() && fs::exists(r.backup_path)) {
             std::error_code ec2;
@@ -463,11 +482,13 @@ struct ApplyResult {
     r.succeeded = true;
     std::ostringstream oss;
     oss << "Successfully applied terminal-setup snippet to:\n"
-        << "  " << shell.rc_path << "\n";
+        << "  " << detail::format_path_link(shell.rc_path) << "\n";
     if (!r.backup_path.empty()) {
         oss << "\nBackup created at:\n"
-            << "  " << r.backup_path << "\n";
+            << "  " << detail::format_path_link(r.backup_path) << "\n";
     }
+    // TS REF: terminalSetup.tsx never wraps executable instructions — the
+    // `source <rc>` line must stay plain so copy-paste execution works.
     oss << "\nTo take effect in this shell session run:\n"
         << "  source " << shell.rc_path << "\n"
         << "Or start a new terminal.";
@@ -524,7 +545,7 @@ struct ApplyResult {
     oss << std::string(60, '=') << "\n\n";
     oss << std::format("Terminal : {}\n", terminal);
     oss << std::format("Shell    : {} ({})\n", shell_display_name(shell.kind), shell.exec_path);
-    oss << std::format("RC file  : {}\n", shell.rc_path);
+    oss << std::format("RC file  : {}\n", detail::format_path_link(shell.rc_path));
     oss << "\n";
 
     if (!apply) {
