@@ -58,6 +58,7 @@ import cc.query.query_engine;
 import cc.tools.tool;
 import cc.types.types;
 import cc.utils.json;
+import cc.memdir.paths;
 
 namespace fs = std::filesystem;
 
@@ -792,4 +793,108 @@ TEST(SseEventDecoder, RealisticAnthropicStreamFramesCorrectly) {
     EXPECT_NE(events[3].data.find(" world"), std::string::npos);
     EXPECT_EQ(events[5].type, "message_delta");
     EXPECT_NE(events[5].data.find("end_turn"), std::string::npos);
+}
+
+// Auto-memory guidance + MEMORY.md index must be injected into the system
+// prompt, and the directory created, mirroring TS loadMemoryPrompt() +
+// the AutoMem claudemd injection.
+TEST(QueryEngineFix, InjectsAutoMemoryGuidanceAndMemoryIndex) {
+    auto root = fs::weakly_canonical(fs::temp_directory_path()) /
+                "cc_repl_auto_memory_test";
+    fs::remove_all(root);
+    fs::create_directories(root);
+    EnvironmentGuard home_guard("HOME", root.string());
+
+    // Pin the auto-memory dir deterministically via the SDK override.
+    const auto mem_dir = root / "custom-memory";
+    EnvironmentGuard mem_guard(
+        "CLAUDE_COWORK_MEMORY_PATH_OVERRIDE", mem_dir.string());
+    EnvironmentGuard disable_guard(
+        "CLAUDE_CODE_DISABLE_AUTO_MEMORY", "0");
+
+    // Pre-existing MEMORY.md index content.
+    fs::create_directories(mem_dir);
+    {
+        std::ofstream idx(mem_dir / "MEMORY.md");
+        idx << "- [User role](user_role.md) — user is a platform engineer\n";
+    }
+
+    cc::core::ToolRegistry registry;
+    cc::core::QueryEngineConfig config;
+    config.context_window.auto_compact = false;
+    config.cwd = root.string();
+    cc::core::QueryEngine engine(std::move(config), registry);
+
+    const auto prompt = first_system_prompt_text(engine.get_conversation());
+    ASSERT_TRUE(prompt.has_value());
+
+    // Guidance teaches the model how to save.
+    EXPECT_NE(prompt->find("<context name=\"memory\">"), std::string::npos);
+    EXPECT_NE(prompt->find("persistent, file-based memory system"),
+              std::string::npos);
+    EXPECT_NE(prompt->find(mem_dir.string()), std::string::npos);
+
+    // MEMORY.md index content injected separately.
+    EXPECT_NE(prompt->find("<context name=\"MEMORY.md\">"), std::string::npos);
+    EXPECT_NE(prompt->find("platform engineer"), std::string::npos);
+
+    fs::remove_all(root);
+}
+
+// When auto-memory is disabled, neither the guidance nor the index is
+// injected and no memory directory is required.
+TEST(QueryEngineFix, AutoMemoryDisabledOmitsGuidance) {
+    auto root = fs::weakly_canonical(fs::temp_directory_path()) /
+                "cc_repl_auto_memory_disabled_test";
+    fs::remove_all(root);
+    fs::create_directories(root);
+    EnvironmentGuard home_guard("HOME", root.string());
+    EnvironmentGuard disable_guard(
+        "CLAUDE_CODE_DISABLE_AUTO_MEMORY", "1");
+
+    cc::core::ToolRegistry registry;
+    cc::core::QueryEngineConfig config;
+    config.context_window.auto_compact = false;
+    config.cwd = root.string();
+    cc::core::QueryEngine engine(std::move(config), registry);
+
+    const auto prompt = first_system_prompt_text(engine.get_conversation());
+    ASSERT_TRUE(prompt.has_value());
+    EXPECT_EQ(prompt->find("<context name=\"memory\">"), std::string::npos);
+    EXPECT_EQ(prompt->find("<context name=\"MEMORY.md\">"), std::string::npos);
+
+    fs::remove_all(root);
+}
+
+// Canonical auto-memory path resolution (TS paths.ts):
+// <CLAUDE_CONFIG_DIR>/projects/<sanitized-root>/memory, with override support.
+TEST(QueryEngineFix, AutoMemPathResolvesCanonicalLayoutAndOverride) {
+    auto root = fs::weakly_canonical(fs::temp_directory_path()) /
+                "cc_repl_mem_path_test";
+    fs::remove_all(root);
+    fs::create_directories(root);
+    EnvironmentGuard home_guard("HOME", root.string());
+    EnvironmentGuard cfg_guard("CLAUDE_CONFIG_DIR", (root / "cfg").string());
+    unsetenv("CLAUDE_COWORK_MEMORY_PATH_OVERRIDE");
+
+    const auto project = root / "my project";
+    fs::create_directories(project);
+    auto p = cc::memdir::get_auto_mem_path(project);
+    ASSERT_TRUE(p.has_value());
+    const std::string key =
+        cc::memdir::sanitize_memory_key(fs::weakly_canonical(project).string());
+    EXPECT_EQ(p->string(), (root / "cfg" / "projects" / key / "memory").string());
+    EXPECT_EQ(key.find(' '), std::string::npos); // spaces sanitized to '-'
+    EXPECT_EQ(*cc::memdir::get_auto_mem_entrypoint(project), *p / "MEMORY.md");
+
+    EnvironmentGuard ov_set(
+        "CLAUDE_COWORK_MEMORY_PATH_OVERRIDE", (root / "ov").string());
+    auto po = cc::memdir::get_auto_mem_path(project);
+    ASSERT_TRUE(po.has_value());
+    EXPECT_EQ(po->string(), (root / "ov").string());
+
+    EnvironmentGuard dis("CLAUDE_CODE_DISABLE_AUTO_MEMORY", "1");
+    EXPECT_FALSE(cc::memdir::get_auto_mem_path(project).has_value());
+
+    fs::remove_all(root);
 }

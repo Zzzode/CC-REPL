@@ -8,6 +8,9 @@ module;
 #include <filesystem>
 #include <vector>
 #include <optional>
+#include <cstdlib>
+#include <cstdio>
+#include <cctype>
 
 export module cc.memdir.paths;
 
@@ -99,6 +102,103 @@ struct MemoryPath {
     all.insert(all.end(), tree.begin(), tree.end());
     
     return all;
+}
+
+// ============================================================================
+// Auto-memory path layer (faithful port of src/memdir/paths.ts)
+//
+// Canonical per-project auto-memory directory:
+//   <CLAUDE_CONFIG_DIR or $HOME/.claude>/projects/<sanitized-git-root>/memory/
+// with MEMORY.md as the always-loaded index. An explicit override
+// (CLAUDE_COWORK_MEMORY_PATH_OVERRIDE) replaces the whole computation.
+// ===========================================================================
+
+/// Non-alphanumeric bytes become '-' (TS sanitizePath). Kept simple/stable —
+/// the TS long-name hash suffix is omitted because the C++ side only needs a
+/// deterministic, collision-resistant-enough per-project key.
+[[nodiscard]] inline std::string sanitize_memory_key(std::string_view name) {
+    std::string out;
+    out.reserve(name.size());
+    for (char c : name) {
+        const auto uc = static_cast<unsigned char>(c);
+        const bool ok = (uc >= 'a' && uc <= 'z') ||
+                        (uc >= 'A' && uc <= 'Z') ||
+                        (uc >= '0' && uc <= '9');
+        out.push_back(ok ? c : '-');
+    }
+    return out;
+}
+
+/// Find the canonical git root for a path (all worktrees of a repo share one
+/// memory dir); falls back to the path itself when not inside a git repo.
+[[nodiscard]] inline std::filesystem::path find_canonical_git_root(
+    const std::filesystem::path& start) {
+    std::error_code ec;
+    auto abs = std::filesystem::absolute(start, ec);
+    if (ec) abs = start;
+    std::string cmd =
+        "git -C \"" + abs.string() + "\" rev-parse --show-toplevel 2>/dev/null";
+    std::string out;
+    if (FILE* p = popen(cmd.c_str(), "r")) {
+        char buf[512];
+        while (fgets(buf, sizeof(buf), p)) out += buf;
+        pclose(p);
+    }
+    while (!out.empty() &&
+           (out.back() == '\n' || out.back() == '\r' || out.back() == ' ')) {
+        out.pop_back();
+    }
+    if (!out.empty()) return std::filesystem::path(out);
+    return abs;
+}
+
+/// Resolve the config home: $CLAUDE_CONFIG_DIR else $HOME/.claude.
+[[nodiscard]] inline std::filesystem::path claude_config_home() {
+    if (const char* dir = std::getenv("CLAUDE_CONFIG_DIR"); dir && *dir) {
+        return std::filesystem::path(dir);
+    }
+    if (const char* home = std::getenv("HOME"); home && *home) {
+        return std::filesystem::path(home) / ".claude";
+    }
+    return std::filesystem::path(".claude");
+}
+
+/// Whether auto-memory is enabled. TS enablement chain:
+/// CLAUDE_CODE_DISABLE_AUTO_MEMORY (1/true → off) wins.
+[[nodiscard]] inline bool is_auto_memory_enabled() {
+    const char* disable = std::getenv("CLAUDE_CODE_DISABLE_AUTO_MEMORY");
+    if (disable) {
+        std::string_view v(disable);
+        if (v == "1" || v == "true" || v == "TRUE") return false;
+        if (v == "0" || v == "false" || v == "FALSE") return true;
+    }
+    return true;
+}
+
+/// Canonical auto-memory directory for the given working/project root.
+/// Returns nullopt when auto-memory is disabled. Honors the full-path
+/// override used by SDK/cowork embeddings.
+[[nodiscard]] inline std::optional<std::filesystem::path> get_auto_mem_path(
+    const std::filesystem::path& project_root) {
+    if (!is_auto_memory_enabled()) return std::nullopt;
+
+    if (const char* ov = std::getenv("CLAUDE_COWORK_MEMORY_PATH_OVERRIDE");
+        ov && *ov) {
+        return std::filesystem::path(ov);
+    }
+
+    auto base = find_canonical_git_root(project_root);
+    auto key = sanitize_memory_key(base.string());
+    auto path = claude_config_home() / "projects" / key / "memory";
+    return path;
+}
+
+/// The MEMORY.md index inside the auto-memory directory.
+[[nodiscard]] inline std::optional<std::filesystem::path>
+get_auto_mem_entrypoint(const std::filesystem::path& project_root) {
+    auto dir = get_auto_mem_path(project_root);
+    if (!dir) return std::nullopt;
+    return *dir / "MEMORY.md";
 }
 
 } // namespace cc::memdir

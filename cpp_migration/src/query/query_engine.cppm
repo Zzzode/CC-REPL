@@ -42,6 +42,7 @@ import cc.utils.error;
 import cc.utils.json;
 import cc.session.storage;
 import cc.memdir.paths;
+import core.memdir;
 import cc.utils.tool_helpers;
 import cc.utils.tool_deny_rules;
 import cc.utils.env_utils;
@@ -867,6 +868,42 @@ private:
                     loaded_nested_memory_paths_.insert(user_mem.string());
                     user_ctx.additional_contexts.push_back(
                         std::format("<context name=\"UserMemory\">\n{}\n</context>", um_content));
+                }
+            }
+        }
+
+        // Auto-memory: inject the file-based memory guidance (teaches the
+        // model it can persist memories under the per-project memory dir) and
+        // guarantee the directory exists so the model can write without setup.
+        // TS REF: src/memdir/memdir.ts loadMemoryPrompt() (buildMemoryLines)
+        // — it returns guidance only; MEMORY.md content is appended below.
+        if (auto auto_mem_dir =
+                cc::memdir::get_auto_mem_path(std::filesystem::path(cwd))) {
+            std::error_code mkdir_ec;
+            std::filesystem::create_directories(*auto_mem_dir, mkdir_ec);
+
+            auto guidance_lines = ::memdir::build_memory_lines(
+                "auto memory", auto_mem_dir->string());
+            if (!guidance_lines.empty()) {
+                user_ctx.additional_contexts.push_back(std::format(
+                    "<context name=\"memory\">\n{}\n</context>",
+                    ::memdir::join_lines(guidance_lines)));
+            }
+
+            // Append the MEMORY.md index contents (claudemd.ts injects the
+            // AutoMem entrypoint separately from the guidance prompt).
+            std::filesystem::path mem_dir_path = *auto_mem_dir;
+            std::filesystem::path mem_index_file{mem_dir_path / "MEMORY.md"};
+            if (std::filesystem::exists(mem_index_file)) {
+                std::ifstream mm_ifs{mem_index_file};
+                if (mm_ifs) {
+                    std::string raw((std::istreambuf_iterator<char>(mm_ifs)), {});
+                    auto trunc = ::memdir::truncate_entrypoint_content(raw);
+                    if (!trunc.content.empty()) {
+                        user_ctx.additional_contexts.push_back(std::format(
+                            "<context name=\"MEMORY.md\">\n{}\n</context>",
+                            trunc.content));
+                    }
                 }
             }
         }
