@@ -2026,14 +2026,32 @@ private:
                 if (!is_tool_enabled_for_query(tool.name, options)) return;
                 ++enabled_tool_count;
                 auto tool_obj = doc.object();
-                tool_obj.add("name", doc.string(tool.name));
-                tool_obj.add("description", doc.string(tool.description));
-                auto schema_json = tool.input_schema.to_json();
-                auto schema_doc = cc::utils::json::parse(schema_json);
-                if (schema_doc) {
-                    tool_obj.add("input_schema", doc.copy_val(schema_doc->root()));
+                // Native Anthropic computer-use tool, identified by the
+                // registry's internal name "computer_use" and emitted under
+                // the Anthropic wire name "computer" with display geometry
+                // and no input_schema. Kept out of ToolDefinition so the
+                // other tools' aggregate initializers are untouched.
+                // TS REF: Anthropic computer_20241022 tool spec.
+                const bool is_native_computer = (tool.name == "computer_use");
+                tool_obj.add("name",
+                             doc.string(is_native_computer
+                                            ? std::string{"computer"}
+                                            : tool.name));
+                if (is_native_computer) {
+                    tool_obj.add("type", doc.string("computer_20241022"));
+                    tool_obj.add("display_width_px", doc.number(int64_t(1024)));
+                    tool_obj.add("display_height_px", doc.number(int64_t(768)));
+                    tool_obj.add("display_number", doc.number(int64_t(0)));
                 } else {
-                    tool_obj.add("input_schema", doc.raw_json(schema_json));
+                    tool_obj.add("type", doc.string("function"));
+                    tool_obj.add("description", doc.string(tool.description));
+                    auto schema_json = tool.input_schema.to_json();
+                    auto schema_doc = cc::utils::json::parse(schema_json);
+                    if (schema_doc) {
+                        tool_obj.add("input_schema", doc.copy_val(schema_doc->root()));
+                    } else {
+                        tool_obj.add("input_schema", doc.raw_json(schema_json));
+                    }
                 }
                 tools_arr.append(tool_obj);
             };

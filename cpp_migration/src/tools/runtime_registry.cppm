@@ -1535,7 +1535,18 @@ namespace json = cc::utils::json;
     if (result.screenshot) {
         auto data = cc::services::image::ImageService::to_base64(
             std::span<const std::uint8_t>(result.screenshot->pixels.data(), result.screenshot->pixels.size()));
-        auto media_type = result.screenshot->format == "png" ? "image/png" : "image/rgba";
+        // Pass through the backend-declared encoding, restricted to the
+        // media types the Anthropic API accepts (png/jpeg/webp/gif). Native
+        // macOS capture and a well-formed computer-use MCP server return one
+        // of these. The internal raw-pixel marker "rgba" (and anything
+        // unrecognized) is not a wire type, so default to png rather than
+        // emitting an image/rgba the API rejects.
+        const auto& fmt = result.screenshot->format;
+        const char* media_type =
+            (fmt == "jpeg" || fmt == "jpg") ? "image/jpeg" :
+            (fmt == "webp") ? "image/webp" :
+            (fmt == "gif")  ? "image/gif"  :
+            (fmt == "png")  ? "image/png" : "image/png";
         return ToolResult::success_multi({
             ToolOutputContent::text_output(std::format(
                 "Captured screenshot {}x{}.",
@@ -1764,7 +1775,10 @@ constexpr auto try_start_native_agent_resume = &runtime_message_delivery::try_st
         return ToolResult::success(answer);
     }
     if (name == "brief") return execute_brief(input);
-    if (name == "computer_use") return execute_computer_use(input);
+    // "computer" is the Anthropic native wire name (model sees it via the
+    // computer_20241022 tool); "computer_use" is the internal registry name.
+    if (name == "computer_use" || name == "computer")
+        return execute_computer_use(input);
     if (name == "config") return execute_config_tool(input);
     if (name == "enter_plan_mode") {
         EnterPlanModeTool tool;

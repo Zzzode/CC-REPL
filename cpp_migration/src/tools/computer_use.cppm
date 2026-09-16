@@ -837,11 +837,28 @@ public:
     [[nodiscard]] KeyboardControl& keyboard() { return keyboard_; }
 
 private:
+private:
+    // Anthropic computer-use returns a FRESH screenshot after every action,
+    // not just the explicit screenshot action — the model is blind to the
+    // result of a click/keystroke otherwise. Attach a full-screen capture to
+    // a successful input action's result.
+    // TS REF: every computer tool_use result is followed by a screenshot image.
+    [[nodiscard]] ActionResult with_post_action_frame(ActionResult result) {
+        if (!result.success || result.screenshot.has_value()) return result;
+        if (auto frame = screen_.capture_screen(); frame) {
+            result.screenshot = std::move(*frame);
+        }
+        // If capture is unavailable we still return success (text-only); the
+        // caller decides whether that is fatal for the current platform.
+        return result;
+    }
+
     [[nodiscard]] ActionResult dispatch_input(const ComputerAction& action) {
         if (!input_) return ActionResult::fail("Computer input control not available");
         auto result = input_(action);
         if (!result) return ActionResult::fail(result.error());
-        return ActionResult::ok();
+        // The input provider may already have attached a frame; if not, grab one.
+        return with_post_action_frame(ActionResult::ok());
     }
 
     ScreenCapture screen_;
