@@ -270,6 +270,10 @@ AppAdapter::AppAdapter(core::QueryEngine* engine,
 
     repl_component_ = repl::ReplScreen(screen_state_, std::move(cbs));
 
+    // If spawned as a tmux/iTerm pane teammate, start the filesystem inbox
+    // poller that delivers addressed tasks to this REPL (no-op otherwise).
+    start_teammate_inbox_worker();
+
     // ── Cost threshold hook wiring (M7.5) ────────────────────────────
     {
         const auto& bt = engine_->budget_tracker();

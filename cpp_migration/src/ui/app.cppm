@@ -73,6 +73,7 @@ import cc.ui.agents.agent_cards;
 import cc.utils.settings_manager;
 import cc.utils.statusline_runner;
 import cc.utils.model.model;
+import cc.utils.team_helpers;
 import cc.constants.constants;
 import cc.hooks.lifecycle_hooks;
 import cc.hooks.exit_handler;
@@ -765,6 +766,21 @@ private:
     std::jthread bash_thread_;
     std::atomic<bool> bash_running_{false};
     std::atomic<bool> query_running_{false};
+
+    // ── Teammate inbox worker (pane teammates) ──────────────────────────────
+    // When this process is spawned as a tmux/iTerm pane teammate (identity via
+    // CC_REPL_AGENT_ID + CC_REPL_TEAM_NAME), a poller reads its filesystem
+    // inbox and delivers addressed tasks as prompts while the agent is idle.
+    // The worker only enqueues (thread-safe) + posts an FTXUI event; actual
+    // submission happens on the UI thread in the Custom-event handler, so no
+    // FTXUI/engine state is touched off-thread.
+    std::jthread teammate_inbox_thread_;
+    std::mutex teammate_pending_mutex_;
+    std::deque<std::string> teammate_pending_prompts_;
+    std::unordered_set<std::string> teammate_seen_message_ids_;
+    std::string teammate_self_agent_id_;
+    std::string teammate_self_agent_name_;
+    std::string teammate_self_team_;
     /// P2 gap api-error-retry: last user-submitted message text.  Used by
     /// the Retry button on SystemAPIError cards to re-send the same query.
     /// TS REF: SystemAPIErrorMessage.tsx onRetry → re-submits last prompt.
@@ -1001,6 +1017,120 @@ private:
     void PostRenderEvent() {
         if (auto* screen = screen_.load(std::memory_order_acquire)) {
             screen->Post(Event::Custom);
+        }
+    }
+
+    // ── Teammate inbox worker ───────────────────────────────────────────────
+
+    static std::string env_first(std::initializer_list<const char*> names) {
+        for (const char* n : names) {
+            if (const char* v = std::getenv(n); v && *v) return v;
+        }
+        return {};
+    }
+
+    // True when this process was spawned with teammate identity.
+    [[nodiscard]] bool running_as_pane_teammate() const {
+        return !teammate_self_agent_name_.empty() &&
+               !teammate_self_team_.empty();
+    }
+
+    // Stable per-message key so repeated polls don't redeliver. The inbox
+    // entry has no id; from+timestamp+text is unique enough.
+    static std::string teammate_message_key(
+        const cc::utils::TeammateMessage& m) {
+        return m.from + "|" + m.timestamp + "|" + m.text;
+    }
+
+    // Control messages (shutdown / permission / mode) are handled by dedicated
+    // paths, not submitted as task prompts. Heuristic matching the TS inbox
+    // classifier tags embedded in the message text.
+    static bool is_teammate_control_message(std::string_view text) {
+        static constexpr std::string_view tags[] = {
+            "cc-repl:shutdown", "cc-repl:permission", "cc-repl:mode",
+            "cc-repl:plan-approval", "cc-repl:sandbox",
+        };
+        for (auto t : tags) {
+            if (text.find(t) != std::string_view::npos) return true;
+        }
+        return false;
+    }
+
+    void enqueue_teammate_prompt(std::string prompt) {
+        {
+            std::lock_guard lock(teammate_pending_mutex_);
+            teammate_pending_prompts_.push_back(std::move(prompt));
+        }
+        PostRenderEvent();  // wake the UI thread to drain
+    }
+
+    // Called on the UI thread (Custom-event handler) when idle: submit one
+    // queued teammate task. Returns true if a prompt was submitted.
+    bool drain_one_teammate_prompt() {
+        if (query_running_.load()) return false;
+        std::string prompt;
+        {
+            std::lock_guard lock(teammate_pending_mutex_);
+            if (teammate_pending_prompts_.empty()) return false;
+            prompt = std::move(teammate_pending_prompts_.front());
+            teammate_pending_prompts_.pop_front();
+        }
+        HandleSubmit(prompt);
+        return true;
+    }
+
+    void start_teammate_inbox_worker() {
+        teammate_self_agent_id_ =
+            env_first({"CC_REPL_AGENT_ID", "CLAUDE_CODE_AGENT_ID"});
+        teammate_self_agent_name_ =
+            env_first({"CC_REPL_AGENT_NAME", "CLAUDE_CODE_AGENT_NAME"});
+        teammate_self_team_ =
+            env_first({"CC_REPL_TEAM_NAME", "CLAUDE_CODE_TEAM_NAME"});
+        if (!running_as_pane_teammate()) return;
+
+        const std::string agent = teammate_self_agent_name_;
+        const std::string team = teammate_self_team_;
+        teammate_inbox_thread_ = std::jthread(
+            [this, agent, team](std::stop_token stop) {
+                constexpr auto kPollInterval = std::chrono::milliseconds(1500);
+                while (!stop.stop_requested()) {
+                    std::this_thread::sleep_for(kPollInterval);
+                    if (stop.stop_requested()) break;
+                    poll_teammate_inbox_once(agent, team);
+                }
+            });
+    }
+
+    // One filesystem-inbox poll: read unread addressed messages, dedup,
+    // enqueue task prompts (control messages skipped), mark read.
+    void poll_teammate_inbox_once(const std::string& agent,
+                                  const std::string& team) {
+        auto msgs = cc::utils::read_inbox(agent, team);
+        if (!msgs) return;
+
+        std::vector<std::string> to_submit;
+        for (const auto& m : *msgs) {
+            if (m.read) continue;
+            if (is_teammate_control_message(m.text)) continue;
+            auto key = teammate_message_key(m);
+            {
+                std::lock_guard lock(teammate_pending_mutex_);
+                if (!teammate_seen_message_ids_.insert(key).second) continue;
+            }
+            // Wrap like the TS useInboxPoller delivery format so the model
+            // sees the sender identity.
+            to_submit.push_back(std::format(
+                "<teammate_message teammate_id=\"{}\">\n{}\n"
+                "</teammate_message>",
+                m.from, m.text));
+        }
+
+        // Mark everything we read as processed (file inbox).
+        if (!to_submit.empty() || !msgs->empty()) {
+            (void)cc::utils::mark_all_read(agent, team);
+        }
+        for (auto& p : to_submit) {
+            enqueue_teammate_prompt(std::move(p));
         }
     }
 
@@ -1677,10 +1807,31 @@ public:
     /// HandleSubmit reads it immediately after this returns.
     void WaitForInFlightPastes(const std::string& text);
 
+    // ── Teammate inbox test seams ─────────────────────────────────────────
+    void configure_teammate_for_testing(std::string agent_name,
+                                        std::string team) {
+        teammate_self_agent_name_ = std::move(agent_name);
+        teammate_self_team_ = std::move(team);
+    }
+    void poll_teammate_inbox_once_for_testing() {
+        poll_teammate_inbox_once(teammate_self_agent_name_,
+                                 teammate_self_team_);
+    }
+    [[nodiscard]] std::size_t teammate_pending_count_for_testing() {
+        std::lock_guard lock(teammate_pending_mutex_);
+        return teammate_pending_prompts_.size();
+    }
+    [[nodiscard]] std::string pop_teammate_prompt_for_testing() {
+        std::lock_guard lock(teammate_pending_mutex_);
+        if (teammate_pending_prompts_.empty()) return {};
+        std::string out = std::move(teammate_pending_prompts_.front());
+        teammate_pending_prompts_.pop_front();
+        return out;
+    }
+
     [[nodiscard]] std::function<bool(std::string_view, std::string_view)> get_permission_callback();
 
-    [[nodiscard]] bool is_query_running_for_testing() const noexcept {
-        return query_running_.load();
+    [[nodiscard]] bool is_query_running_for_testing() const noexcept {        return query_running_.load();
     }
 
     // Drive a prompt submission through the full HandleSubmit path (slash /

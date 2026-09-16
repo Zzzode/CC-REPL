@@ -314,8 +314,14 @@ public:
 
     /// Set the original TMUX env value (called at startup)
     static void capture_env(std::string_view tmux_env, std::string_view tmux_pane) {
+        std::lock_guard lock(mutex_);
         original_tmux_env_ = std::string(tmux_env);
         original_tmux_pane_ = std::string(tmux_pane);
+        // Reset cached detection so the new environment takes effect.
+        tmux_cached_ = false;
+        is_inside_tmux_result_ = false;
+        iterm2_cached_ = false;
+        is_in_iterm2_result_ = false;
     }
 
 private:

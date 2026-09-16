@@ -1207,6 +1207,13 @@ bool AppAdapter::OnEvent(Event event) {
     // pasted_contents_ and possibly input_text).
     this->ProcessCompletedPastes();
 
+    // Pane-teammate inbox delivery: the inbox worker posts Custom events when
+    // tasks arrive. While idle, submit one queued teammate prompt here on the
+    // UI thread. Ignore keyboard/other events and never block a running query.
+    if (event == Event::Custom && running_as_pane_teammate()) {
+        if (drain_one_teammate_prompt()) return true;
+    }
+
     // Clipboard image paste (TS chat:imagePaste = ctrl+v / cmd+v).
     //
     // NOTE: We detect Ctrl+V via `Event::Character('\x16')` — the same

@@ -48,6 +48,7 @@ import cc.services.api.session_ingress;
 import cc.utils.session_storage;
 import cc.utils.json;
 import cc.utils.http;
+import cc.utils.swarm_backends;
 import cc.session.history;
 import cc.daemon.daemon_server;
 import cc.server.server_main;
@@ -1667,6 +1668,14 @@ auto run_simple_ui(
 }
 
 int main(int argc, const char* argv[]) {
+    // Capture the tmux environment BEFORE any pane backend runs. Pane spawn
+    // decisions depend on whether the leader is itself inside tmux; without
+    // this every team creation wrongly takes the external-session path.
+    // TS REF: utils/swarm/backends/detection.ts module-load capture.
+    cc::utils::swarm_backends::EnvironmentDetection::capture_env(
+        std::getenv("TMUX") ? std::getenv("TMUX") : "",
+        std::getenv("TMUX_PANE") ? std::getenv("TMUX_PANE") : "");
+
     auto opts_result = parse_args(argc, argv);
     if (!opts_result.has_value()) {
         std::println(stderr, "Error: {}", opts_result.error());

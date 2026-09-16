@@ -12318,3 +12318,26 @@ TEST(ToolDenyRulesQueryEngine, RegularFunctionToolUnaffectedByComputerShape) {
 }
 
 }  // namespace cc_repl_native_computer_tool_test
+
+namespace cc_repl_tmux_detection_test {
+TEST(SwarmBackends, CaptureEnvReflectsTmuxPresence) {
+    using cc::utils::swarm_backends::EnvironmentDetection;
+    // Before capture simulating an empty env → not inside tmux.
+    EnvironmentDetection::capture_env("", "");
+    EXPECT_FALSE(EnvironmentDetection::is_inside_tmux_sync());
+    EXPECT_FALSE(EnvironmentDetection::is_inside_tmux());
+
+    // A leader running inside tmux has TMUX set (and a pane target).
+    EnvironmentDetection::capture_env(
+        "/tmp/tmux-1000/default,1234,0", "%12");
+    EXPECT_TRUE(EnvironmentDetection::is_inside_tmux_sync());
+    // Re-capture resets the cache, so the async/cached getter agrees.
+    EXPECT_TRUE(EnvironmentDetection::is_inside_tmux());
+    EXPECT_EQ(std::string(EnvironmentDetection::get_leader_pane_id()), "%12");
+
+    // Restore to empty so other tests are unaffected.
+    EnvironmentDetection::capture_env("", "");
+    EXPECT_FALSE(EnvironmentDetection::is_inside_tmux());
+}
+
+}  // namespace cc_repl_tmux_detection_test

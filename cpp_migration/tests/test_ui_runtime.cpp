@@ -46,6 +46,7 @@ import cc.query.query_engine;
 import cc.tools.tool;
 import cc.utils.session_storage;
 import cc.utils.parse_references;
+import cc.utils.team_helpers;
 import cc.constants.constants;
 import cc.ui.design.tokens;
 import cc.ui.design.figures;
@@ -5468,5 +5469,58 @@ TEST(AppRuntime, AtAgentShowsAgentSuggestions) {
         [](const std::string& s) { return s.find("@claude") != std::string::npos; });
     EXPECT_TRUE(found_claude) << "@cl should surface @claude agent suggestion";
 
+    fs::remove_all(storage_root);
+}
+
+// A pane teammate's filesystem inbox poll delivers addressed task messages
+// (wrapped in the teammate_message XML tag) to the prompt queue, filters
+// control messages, and dedupes across repeated polls.
+TEST(AppRuntime, TeammateInboxPollDeliversTasksAndFiltersControl) {
+    namespace tu = cc::utils;
+
+    const auto runtime_dir = fs::temp_directory_path() /
+        ("cc_repl_teammate_inbox_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    fs::remove_all(runtime_dir);
+    ScopedEnvVar runtime_guard("CC_REPL_TEAM_RUNTIME_DIR");
+    runtime_guard.set(runtime_dir.string());
+    ScopedEnvVar team_guard("CC_REPL_TEAM_NAME");
+    team_guard.set("alpha");
+
+    cc::core::ToolRegistry tools;
+    cc::core::QueryEngineConfig config;
+    config.context_window.auto_compact = false;
+    config.cwd = fs::temp_directory_path().string();
+    auto engine = std::make_unique<cc::core::QueryEngine>(std::move(config), tools);
+    auto commands = std::make_unique<cc::commands::AppCommandRegistry>();
+    const auto storage_root = fs::temp_directory_path() /
+        ("cc_repl_ti_storage_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    auto storage = std::make_unique<cc::utils::SessionStorage>(storage_root);
+    auto app = ftxui::Make<cc::ui::AppAdapter>(
+        engine.get(), nullptr, commands.get(), storage.get(), [] {});
+
+    app->configure_teammate_for_testing("worker-a", "alpha");
+
+    // Leader sends one task and one control message to worker-a's inbox.
+    ASSERT_TRUE(tu::send_message(
+        "worker-a", "please run the build", std::string_view("build it")).has_value());
+    // Control message (shutdown) must not become a task prompt.
+    ASSERT_TRUE(tu::send_message(
+        "worker-a", "cc-repl:shutdown approved").has_value());
+
+    app->poll_teammate_inbox_once_for_testing();
+    // Only the task is queued.
+    ASSERT_EQ(app->teammate_pending_count_for_testing(), 1u);
+    const auto prompt = app->pop_teammate_prompt_for_testing();
+    EXPECT_NE(prompt.find("<teammate_message teammate_id=\""), std::string::npos);
+    EXPECT_NE(prompt.find("please run the build"), std::string::npos);
+    EXPECT_EQ(prompt.find("cc-repl:shutdown"), std::string::npos);
+
+    // A second poll after read-marking delivers nothing (no duplicates).
+    app->poll_teammate_inbox_once_for_testing();
+    EXPECT_EQ(app->teammate_pending_count_for_testing(), 0u);
+
+    fs::remove_all(runtime_dir);
     fs::remove_all(storage_root);
 }
