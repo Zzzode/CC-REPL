@@ -12341,3 +12341,85 @@ TEST(SwarmBackends, CaptureEnvReflectsTmuxPresence) {
 }
 
 }  // namespace cc_repl_tmux_detection_test
+
+namespace cc_repl_pane_cleanup_test {
+
+using cc::utils::swarm_backends::PaneBackend;
+using cc::utils::swarm_backends::PaneId;
+using cc::utils::swarm_backends::CreatePaneResult;
+using cc::utils::swarm_backends::AgentColor;
+using cc::utils::swarm_backends::BackendType;
+using cc::utils::swarm_backends::PaneBackendExecutor;
+using cc::utils::swarm_backends::TeammateSpawnConfig;
+
+// In-memory pane backend that records kill calls (no tmux required).
+class FakePaneBackend : public PaneBackend {
+public:
+    int create_calls = 0;
+    std::vector<std::pair<PaneId, bool>> killed;
+    bool available = true;
+    bool inside = false;
+
+    BackendType type() const override { return BackendType::Tmux; }
+    std::string_view display_name() const override { return "fake-tmux"; }
+    bool supports_hide_show() const override { return false; }
+    bool is_available() const override { return available; }
+    bool is_running_inside() const override { return inside; }
+
+    CreatePaneResult create_teammate_pane(std::string_view, AgentColor) override {
+        ++create_calls;
+        return CreatePaneResult{.pane_id = PaneId{"%p" + std::to_string(create_calls)},
+                               .is_first_teammate = (create_calls == 1)};
+    }
+    void send_command_to_pane(const PaneId&, std::string_view, bool) override {}
+    void set_pane_border_color(const PaneId&, AgentColor, bool) override {}
+    void set_pane_title(const PaneId&, std::string_view, AgentColor, bool) override {}
+    void enable_pane_border_status(std::optional<std::string_view>, bool) override {}
+    void rebalance_panes(std::string_view, bool) override {}
+    bool kill_pane(const PaneId& id, bool ext) override {
+        killed.emplace_back(id, ext);
+        return true;
+    }
+    bool hide_pane(const PaneId&, bool) override { return false; }
+    bool show_pane(const PaneId&, std::string_view, bool) override { return false; }
+};
+
+TEST(SwarmBackends, ExecutorDestructionKillsAllSpawnedPanes) {
+    auto fake = std::make_shared<FakePaneBackend>();
+    {
+        PaneBackendExecutor exec(fake);
+        TeammateSpawnConfig a{.name = "alpha", .team_name = "t1", .prompt = "task a"};
+        TeammateSpawnConfig b{.name = "beta",  .team_name = "t1", .prompt = "task b"};
+        EXPECT_TRUE(exec.spawn(a).success);
+        EXPECT_TRUE(exec.spawn(b).success);
+        EXPECT_EQ(fake->create_calls, 2);
+        EXPECT_TRUE(fake->killed.empty());
+    }
+    // Destroying the executor kills every pane it spawned, once each.
+    EXPECT_EQ(fake->killed.size(), 2u);
+}
+
+TEST(SwarmBackends, SpawnDeliversInitialPromptToMailbox) {
+    const auto runtime_dir = fs::temp_directory_path() /
+        ("cc_repl_pane_prompt_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    fs::remove_all(runtime_dir);
+    EnvironmentGuard runner("CC_REPL_TEAM_RUNTIME_DIR", runtime_dir.string());
+
+    auto fake = std::make_shared<FakePaneBackend>();
+    {
+        PaneBackendExecutor exec(fake);
+        TeammateSpawnConfig cfg{
+            .name = "worker", .team_name = "t1", .prompt = "build the thing"};
+        ASSERT_TRUE(exec.spawn(cfg).success);
+        // Initial task is delivered to the pane teammate's file inbox.
+        auto inbox = cc::utils::read_inbox("worker", std::optional<std::string_view>{"t1"});
+        ASSERT_TRUE(inbox.has_value());
+        ASSERT_EQ(inbox->size(), 1u);
+        EXPECT_EQ((*inbox)[0].from, "team-lead");
+        EXPECT_NE((*inbox)[0].text.find("build the thing"), std::string::npos);
+    }
+    fs::remove_all(runtime_dir);
+}
+
+}  // namespace cc_repl_pane_cleanup_test

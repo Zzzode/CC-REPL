@@ -568,6 +568,25 @@ public:
     explicit PaneBackendExecutor(std::shared_ptr<PaneBackend> backend)
         : backend_(std::move(backend)) {}
 
+    // Leader-exit cleanup: kill every teammate pane this executor spawned so a
+    // torn-down team doesn't leave orphan interactive shells.
+    // TS REF: PaneBackendExecutor.ts registerCleanup → killPane loop.
+    ~PaneBackendExecutor() override {
+        kill_all_spawned();
+    }
+
+    void kill_all_spawned() {
+        std::map<std::string, TeammateInfo> spawned;
+        {
+            std::lock_guard lock(spawned_mutex_);
+            spawned = spawned_teammates_;
+            spawned_teammates_.clear();
+        }
+        for (const auto& [id, info] : spawned) {
+            if (backend_) (void)backend_->kill_pane(info.pane_id, info.inside_tmux);
+        }
+    }
+
     [[nodiscard]] BackendType type() const override { return backend_->type(); }
 
     [[nodiscard]] bool is_available() const override {
@@ -1132,9 +1151,60 @@ inline bool TmuxBackend::show_pane(
 inline CreatePaneResult TmuxBackend::create_pane_with_leader(std::string_view name, AgentColor color) {
     (void)name;
     (void)color;
-    auto pane = detail::read_shell_output("tmux split-window -h -P -F '#{pane_id}' 2>/dev/null");
+    // Leader-attached balanced layout (TS TmuxBackend.createTeammatePane):
+    //  - first teammate: split the leader pane horizontally, leader keeps 70%
+    //  - further teammates: split from a middle teammate pane, alternating
+    //    vertical/horizontal by parity so the grid stays balanced.
+    const auto leader_pane =
+        detail::read_shell_output("tmux display-message -p '#{pane_id}' 2>/dev/null");
+    if (leader_pane.empty()) return {};
+
+    const auto window_target =
+        detail::read_shell_output("tmux display-message -p '#{session_name}:#{window_id}' 2>/dev/null");
+
+    auto split = [&](std::string target, const std::string& flag,
+                     bool with_size) {
+        std::string cmd = "tmux split-window -t " + detail::shell_quote(target) +
+                          " " + flag + " -P -F '#{pane_id}'";
+        if (with_size) cmd += " -l 70%";
+        cmd += " 2>/dev/null";
+        return detail::read_shell_output(cmd);
+    };
+
+    // Panes in the current window; pane 0 is the leader, the rest are
+    // teammates already spawned.
+    auto list_raw = window_target.empty()
+        ? detail::read_shell_output("tmux list-panes -F '#{pane_id}' 2>/dev/null")
+        : detail::read_shell_output("tmux list-panes -t " +
+                                    detail::shell_quote(window_target) +
+                                    " -F '#{pane_id}' 2>/dev/null");
+    std::vector<std::string> panes;
+    {
+        std::string acc;
+        for (char c : list_raw) {
+            if (c == '\n') {
+                if (!acc.empty()) { panes.push_back(acc); acc.clear(); }
+            } else acc += c;
+        }
+        if (!acc.empty()) panes.push_back(acc);
+    }
+
+    std::string pane;
+    if (panes.size() <= 1) {
+        // First teammate: 70% horizontal split off the leader.
+        pane = split(leader_pane, "-h", /*with_size=*/true);
+    } else {
+        const std::size_t teammate_count = panes.size() - 1;  // exclude leader
+        const bool split_vertical = (teammate_count % 2 == 1);
+        const std::size_t target_index =
+            std::min(static_cast<std::size_t>((teammate_count - 1) / 2),
+                     panes.size() - 1);
+        pane = split(panes[target_index], split_vertical ? "-v" : "-h",
+                     /*with_size=*/false);
+    }
+
     std::this_thread::sleep_for(std::chrono::milliseconds(kPaneShellInitDelayMs));
-    return CreatePaneResult{.pane_id = pane, .is_first_teammate = false};
+    return CreatePaneResult{.pane_id = pane, .is_first_teammate = panes.size() <= 1};
 }
 
 inline CreatePaneResult TmuxBackend::create_pane_external(std::string_view name, AgentColor color) {
@@ -1329,6 +1399,19 @@ inline TeammateSpawnResult PaneBackendExecutor::spawn(const TeammateSpawnConfig&
     {
         std::lock_guard lock(spawned_mutex_);
         spawned_teammates_[agent_id] = TeammateInfo{.pane_id = pane.pane_id, .inside_tmux = inside};
+    }
+    // Deliver the initial task to the new pane's mailbox so the spawned
+    // teammate has work the moment its inbox poller starts (TS writes the
+    // initial prompt via writeToMailbox right after spawning).
+    if (!config.prompt.empty()) {
+        TeammateMessage initial{
+            .text = config.prompt,
+            .from = std::string("team-lead"),
+            .color = std::nullopt,
+            .timestamp = std::string(detail::timestamp_now()),
+            .summary = std::nullopt,
+        };
+        (void)detail::write_backend_message_to_mailbox(agent_id, initial);
     }
     return TeammateSpawnResult{
         .success = true,
