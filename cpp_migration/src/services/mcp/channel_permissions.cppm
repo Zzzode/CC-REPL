@@ -619,6 +619,14 @@ public:
     // Resolve the path to the permissions JSON file.
     [[nodiscard]] static std::filesystem::path file_path() {
         namespace fs = std::filesystem;
+        // Test/isolation override: a dedicated path keeps parallel test
+        // processes from clobbering each other (and from touching the real
+        // user file). Mirrors the CC_REPL_*_FILE override convention.
+        if (const char* override_path =
+                std::getenv("CC_REPL_CHANNEL_PERMISSIONS_FILE");
+            override_path && *override_path) {
+            return fs::path(override_path);
+        }
         if (const char* home = std::getenv("HOME")) {
             return fs::path(home) / ".cc-repl" / "mcp-channel-permissions.json";
         }

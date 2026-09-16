@@ -7608,8 +7608,16 @@ TEST(ChannelPermission, StoreGetAllRules) {
 
 TEST(ChannelPermission, StorePersistenceRoundtrip) {
     using namespace cc::services::mcp;
-    // Use a temp file path for testing
-    auto original_path = ChannelPermissionStore::file_path();
+    // Isolate to a unique temp file: the store defaults to a shared
+    // ~/.cc-repl path, which races with sibling tests under parallel ctest
+    // (and must never touch the real user file).
+    const auto tmp_file =
+        fs::temp_directory_path() /
+        ("cc_repl_chanperm_roundtrip_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
+         ".json");
+    EnvironmentGuard env_override(
+        "CC_REPL_CHANNEL_PERMISSIONS_FILE", tmp_file.string());
     // Create a store, set rules, save
     {
         ChannelPermissionStore store;
@@ -7630,15 +7638,20 @@ TEST(ChannelPermission, StorePersistenceRoundtrip) {
     }
     // Cleanup: remove the test file
     std::error_code ec;
-    fs::remove(original_path, ec);
+    fs::remove(tmp_file, ec);
 }
 
 TEST(ChannelPermission, StoreFactoryCreatesLoaded) {
     using namespace cc::services::mcp;
-    // Clean slate
-    auto path = ChannelPermissionStore::file_path();
+    const auto tmp_file =
+        fs::temp_directory_path() /
+        ("cc_repl_chanperm_factory_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
+         ".json");
+    EnvironmentGuard env_override(
+        "CC_REPL_CHANNEL_PERMISSIONS_FILE", tmp_file.string());
     std::error_code ec;
-    fs::remove(path, ec);
+    fs::remove(tmp_file, ec);
 
     auto store = create_channel_permission_store();
     ASSERT_NE(store, nullptr);
@@ -7646,6 +7659,7 @@ TEST(ChannelPermission, StoreFactoryCreatesLoaded) {
     EXPECT_EQ(store->check_permission("any", "tool"),
               ChannelPermission::Prompt);
     EXPECT_EQ(store->rule_count(), 0u);
+    fs::remove(tmp_file, ec);
 }
 
 // ============================================================================
