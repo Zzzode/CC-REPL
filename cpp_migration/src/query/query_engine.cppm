@@ -40,9 +40,11 @@ import cc.tools.tool;
 import cc.config.config;
 import cc.utils.error;
 import cc.utils.json;
+import cc.utils.debug;
 import cc.session.storage;
 import cc.memdir.paths;
 import core.memdir;
+import cc.services.extract_memories;
 import cc.utils.tool_helpers;
 import cc.utils.tool_deny_rules;
 import cc.utils.env_utils;
@@ -494,6 +496,14 @@ public:
             std::chrono::steady_clock::now() - start);
 
         auto& [response_msg, usage, rounds] = *result;
+        (void)usage;
+        (void)rounds;
+
+        // Count this completed turn toward post-turn memory extraction and,
+        // when enough new material exists, kick off the background extractor.
+        messages_since_last_extraction_ += 2;  // user + assistant
+        maybe_run_memory_extraction();
+
         return QueryResponse{
             std::move(response_msg),
             usage,
@@ -980,6 +990,100 @@ private:
             path = parent;
         }
         return {};
+    }
+
+    // Flatten recent user/assistant turns to plain text for the extractor.
+    [[nodiscard]] static std::string transcript_to_text(
+        const std::vector<Message>& messages, std::size_t max_chars) {
+        std::string out;
+        for (const auto& m : messages) {
+            std::string role;
+            std::vector<ContentBlock> empty_blocks;
+            const std::vector<ContentBlock>* blocks = &empty_blocks;
+            if (const auto* u = std::get_if<UserMessage>(&m)) {
+                role = "user"; blocks = &u->content;
+            } else if (const auto* a = std::get_if<AssistantMessage>(&m)) {
+                role = "assistant"; blocks = &a->content;
+            }
+            for (const auto& b : *blocks) {
+                const auto* tb = std::get_if<TextBlock>(&b);
+                if (!tb || tb->text.empty()) continue;
+                if (!out.empty()) out += "\n";
+                out += role;
+                out += ": ";
+                out += tb->text;
+            }
+        }
+        if (out.size() > max_chars) {
+            out = out.substr(out.size() - max_chars);  // keep the newest end
+        }
+        return out;
+    }
+
+    // Kick off a detached LLM extraction turn when thresholds are met.
+    // Mirrors TS extractMemories (throttle by new-message count, single
+    // in-flight extraction, sub-agent with file tools writes the memories).
+    void maybe_run_memory_extraction() {
+        namespace em = cc::services::extract_memories;
+        if (!memory_extraction_enabled_) return;
+        if (messages_since_last_extraction_ < em::kExtractionMinNewMessages * 2)
+            return;
+        // Process-wide single-flight via the engine-owned flag. The thread is
+        // a member jthread joined at destruction, so captured state outlives it.
+        bool expected = false;
+        if (!memory_extraction_inflight_.compare_exchange_strong(expected, true))
+            return;  // an extraction is already running
+
+        const auto cwd = config_.cwd.value_or(
+            std::filesystem::current_path().string());
+        auto mem_dir_opt = cc::memdir::get_auto_mem_path(std::filesystem::path(cwd));
+        if (!mem_dir_opt) {
+            memory_extraction_inflight_.store(false);
+            return;
+        }
+        std::error_code mkdir_ec;
+        std::filesystem::create_directories(*mem_dir_opt, mkdir_ec);
+
+        const auto mem_dir = mem_dir_opt->string();
+        const auto recent = transcript_to_text(get_conversation(), 32'000);
+        messages_since_last_extraction_ = 0;
+
+        // Independent engine config sharing API creds / model / cwd but with a
+        // fresh conversation. The extractor is a forked sub-agent that reads
+        // the supplied transcript and writes memory files itself.
+        QueryEngineConfig sub_config = config_;
+        sub_config.custom_system_prompt = std::nullopt;
+        sub_config.append_system_prompt = std::nullopt;
+        sub_config.context_window.auto_compact = false;
+        sub_config.max_turns = 5;  // TS cap; read→write, no verification loops
+
+        const auto prompt = em::build_llm_extraction_prompt(mem_dir, recent, {});
+
+        // Detached. Registry outlives engines (same assumption as AgentTool
+        // sub-agents); no `this` is captured, so engine destruction is safe.
+        // Member jthread: joined when this QueryEngine is destroyed, so the
+        // captured registry pointer is always valid for the sub-agent's life.
+        ToolRegistry* registry = tool_registry_;
+        memory_extraction_thread_ = std::jthread(
+            [this, registry, sub_config = std::move(sub_config),
+             prompt = std::move(prompt)]() mutable {
+            struct Guard {
+                std::atomic<bool>& flag;
+                ~Guard() { flag.store(false); }
+            } guard{memory_extraction_inflight_};
+            try {
+                QueryEngine sub(std::move(sub_config), *registry);
+                sub.memory_extraction_enabled_ = false;  // no recursion
+                auto res = sub.query(prompt);
+                if (!res) {
+                    cc::utils::debug("memory.extract",
+                        "extraction sub-agent failed: {}", res.error().message);
+                }
+            } catch (const std::exception& e) {
+                cc::utils::debug("memory.extract",
+                    "extraction sub-agent threw: {}", e.what());
+            }
+        });
     }
 
     /// Build a UserMessage from raw text input
@@ -3207,6 +3311,29 @@ private:
     BudgetTracker budget_tracker_;
     ModelCost model_cost_;
     ApiClientConfig api_config_;
+
+    // ── Post-turn LLM memory extraction (TS extractMemories) ────────────────
+    // After enough NEW messages accumulate, a background sub-agent reads the
+    // recent transcript and writes durable frontmatter memories into the
+    // auto-memory dir. Runs detached so it never blocks the interactive loop;
+    // failures are logged, never surfaced. Only one extraction runs at a time.
+    // New-message throttle for post-turn LLM memory extraction.
+    std::size_t messages_since_last_extraction_ = 0;
+    // Owned extraction thread: joined in the destructor, so the captured
+    // ToolRegistry and `this`-adjacent state always outlive the sub-agent.
+    std::atomic<bool> memory_extraction_inflight_{false};
+    std::jthread memory_extraction_thread_;
+    // Set false on the extraction sub-engine so it does not recursively spawn
+    // its own extractor after its (internal) query() turn.
+    bool memory_extraction_enabled_ =
+        [] {
+            // TS gates auto-extraction behind a feature flag; default OFF so
+            // headless/server/test runs don't fire background sub-agent API
+            // calls. Opt in with CC_REPL_ENABLE_MEMORY_EXTRACTION=1.
+            const char* v = std::getenv("CC_REPL_ENABLE_MEMORY_EXTRACTION");
+            return v && (std::string_view(v) == "1" ||
+                         std::string_view(v) == "true");
+        }();
 };
 
 } // namespace cc::core

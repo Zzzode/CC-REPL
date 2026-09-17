@@ -56,6 +56,7 @@ import cc.services.mcp.elicitation_handler;
 import cc.services.mcp.headers_helper;
 import cc.services.mcp.vscode_sdk_mcp;
 import cc.services.memory.sessionMemory;
+import cc.services.extract_memories;
 import cc.services.mcp.types;
 import cc.services.rate_limit;
 import cc.services.telemetry;
@@ -7691,3 +7692,28 @@ TEST(ChannelPermission, FeatureGateDefaultsToFalse) {
 }
 
 }  // namespace
+
+TEST(MemoryExtraction, LlmPromptContainsDirInstructionsAndTranscript) {
+    namespace em = cc::services::extract_memories;
+    const std::string prompt = em::build_llm_extraction_prompt(
+        "/tmp/x/memory",
+        "user: always write tests in English\nassistant: got it",
+        std::string_view{"- [Old](old.md) — prior memory"});
+
+    // Instructs the sub-agent WHERE to write.
+    EXPECT_NE(prompt.find("/tmp/x/memory"), std::string::npos);
+    // Frontmatter + MEMORY.md index contract.
+    EXPECT_NE(prompt.find("metadata:"), std::string::npos);
+    EXPECT_NE(prompt.find("MEMORY.md"), std::string::npos);
+    // Existing manifest is passed so it can avoid duplicates.
+    EXPECT_NE(prompt.find("prior memory"), std::string::npos);
+    // The recent transcript is embedded.
+    EXPECT_NE(prompt.find("always write tests in English"), std::string::npos);
+    // Discourages ephemeral/secrets persistence.
+    EXPECT_NE(prompt.find("secrets"), std::string::npos);
+}
+
+TEST(MemoryExtraction, MinNewMessagesConstantIsPositive) {
+    namespace em = cc::services::extract_memories;
+    EXPECT_GE(em::kExtractionMinNewMessages, 1u);
+}

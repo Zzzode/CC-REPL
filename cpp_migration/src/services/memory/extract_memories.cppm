@@ -444,4 +444,63 @@ private:
     std::string storage_dir_;
 };
 
+// ============================================================================
+// LLM-driven memory extraction (faithful port of the TS extractMemories
+// runForkedAgent flow). The actual sub-agent turn is supplied by the caller
+// via a runner callback so this service does not depend on the query engine
+// (the engine depends on memory, never the reverse).
+// ============================================================================
+
+/// Minimum number of NEW messages since the last extraction before another
+/// LLM extraction turn is worth running (TS default for
+/// tengu_bramble_lintel).
+constexpr std::size_t kExtractionMinNewMessages = 1;
+
+/// Build the prompt for the extraction sub-agent. It is told to read the
+/// recent transcript, decide what is durably worth remembering, and WRITE
+/// frontmatter .md files under the memory dir plus a one-line MEMORY.md index
+/// pointer — exactly the TS buildExtractAutoOnlyPrompt contract. The sub-agent
+/// has file tools; it performs the writes itself.
+[[nodiscard]] inline std::string build_llm_extraction_prompt(
+    std::string_view memory_dir,
+    std::string_view recent_transcript,
+    std::string_view existing_manifest) {
+    std::string p;
+    p += "You are extracting DURABLE memories from the recent conversation for ";
+    p += "use in FUTURE sessions. Save only things that will be useful later: ";
+    p += "user preferences and working style, non-obvious project facts, ";
+    p += "decisions and their rationale, and reusable code/convention patterns. ";
+    p += "Do NOT save ephemeral task state, secrets, or anything trivially ";
+    p += "re-derivable from the repo.\n\n";
+    p += "Memory directory (write files here): ";
+    p += memory_dir;
+    p += "\n\n";
+    if (!existing_manifest.empty()) {
+        p += "Existing memory files (avoid duplicating these; update an existing ";
+        p += "file instead of creating a new one when it fits):\n";
+        p += existing_manifest;
+        p += "\n\n";
+    }
+    p += "For each new memory:\n";
+    p += "1. Write it to its own semantic file (e.g. user_role.md, ";
+    p += "build_system.md) in the memory directory using this frontmatter:\n";
+    p += "   ---\n";
+    p += "   name: <short-kebab-name>\n";
+    p += "   description: <one-line description for retrieval>\n";
+    p += "   metadata:\n";
+    p += "     type: user | feedback | project | reference\n";
+    p += "   ---\n";
+    p += "   <the memory, in your own words, with enough context to be useful>\n\n";
+    p += "2. Add or update a one-line pointer in ";
+    p += std::string(memory_dir);
+    p += "/MEMORY.md (the always-loaded index): ";
+    p += "`- [Title](file.md) — one-line hook`. Keep it under ~150 chars per line; ";
+    p += "MEMORY.md holds only index pointers, never memory body text.\n\n";
+    p += "3. If there is nothing durable worth saving, make no changes.\n\n";
+    p += "Recent conversation:\n<conversation>\n";
+    p += recent_transcript;
+    p += "\n</conversation>";
+    return p;
+}
+
 } // namespace cc::services::extract_memories
