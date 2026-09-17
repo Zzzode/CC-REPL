@@ -342,6 +342,7 @@ target_sources(cc_utils
         utils/swarm_backends.cppm
         utils/swarm_coordination.cppm
         utils/swarm_helpers.cppm
+        utils/swarm_pane_observer.cppm
         utils/telemetry.cppm
         utils/telemetry_exporters.cppm
         utils/ultraplan.cppm
@@ -539,8 +540,6 @@ target_link_libraries(cc_memdir PUBLIC cc_utils)
 add_library(cc_coordinator)
 target_sources(cc_coordinator
     PUBLIC FILE_SET CXX_MODULES FILES
-        coordinator/coordinator.cppm
-        coordinator/coordinator_mode.cppm
         coordinator/coordinator_types.cppm
         coordinator/swarm.cppm
 )
@@ -1581,6 +1580,7 @@ target_sources(cc_ui
         ui/teams/team_details_dialog.cppm
         ui/teams/swarm_collaboration_view.cppm
         ui/teams/team_status.cppm
+        ui/teams/live_teammates.cppm
         ui/termio/terminal_io.cppm
         ui/hooks/hooks_ui.cppm
         ui/screens/doctor_screen.cppm
@@ -1614,6 +1614,8 @@ target_sources(cc_ui PRIVATE
     ui/app_dialog_registration_bottom.cpp
     ui/app_dialog_registration_all.cpp
     ui/app_dialog_registration_hooks.cpp
+    ui/app_dialog_registration_teams.cpp
+    ui/app_team_projection.cpp
     ui/dialogs/hooks_dialog_renderer_impl.cpp
     ui/dialogs/plugin_dialog_renderer_impl.cpp
 )

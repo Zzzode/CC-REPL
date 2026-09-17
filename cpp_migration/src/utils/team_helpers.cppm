@@ -3,12 +3,14 @@ module;
 #include <algorithm>
 #include <chrono>
 #include <cctype>
+#include <cstdint>
 #include <cstdlib>
 #include <expected>
 #include <filesystem>
 #include <fstream>
 #include <functional>
 #include <initializer_list>
+#include <mutex>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -23,6 +25,19 @@ import cc.utils.json;
 export namespace cc::utils {
 
 namespace fs = std::filesystem;
+
+/// Process-wide lock serializing ALL read-modify-write operations on teammate
+/// inbox files (append write_to_mailbox, mark_all_read, and the
+/// permission-sync response remover in swarm_helpers). Without it, a worker
+/// blocking on a permission response races the inbox poller's periodic
+/// mark-all-read and can resurrect/lose the leader's approval.
+/// Cross-process leader↔worker serialization is still file-based (separate
+/// processes); this guards the multiple in-process threads that touch one
+/// inbox. TS uses proper-lockfile around each mutation.
+inline std::mutex& teammate_inbox_mutex() {
+    static std::mutex m;
+    return m;
+}
 
 // ─── Teammate Context ────────────────────────────────────────────────────────
 
@@ -161,6 +176,83 @@ struct TeammateStatus {
 /// Get detailed teammate statuses for a team
 std::vector<TeammateStatus> get_teammate_statuses(std::string_view team_name);
 
+// ─── Canonical Team Config File (config.json) ───────────────────────────────
+//
+// TS-aligned model for <teams_dir>/<sanitized(team)>/config.json, mirroring
+// src/utils/swarm/teamHelpers.ts and reconnection.ts. This is the canonical
+// writer; team_create keeps its own narrower flat <name>.json shape, which
+// coexists on disk under a different file name.
+
+/// One member row in a team config.json (TS TeamFile['members'][number]).
+struct TeamMemberRecord {
+    std::string agent_id;             // JSON "agentId", e.g. "name@team"
+    std::string name;                 // JSON "name"
+    std::optional<std::string> color;          // Palette token, e.g. "blue"
+    std::optional<std::string> backend;        // BackendType: "tmux"|"iterm2"|"in-process"
+    std::string tmux_pane_id;                  // JSON "tmuxPaneId"
+    std::optional<std::string> mode;           // PermissionMode string
+    std::int64_t joined_at = 0;                // JSON "joinedAt"
+    std::string cwd;
+    bool plan_mode_required = false;           // JSON "planModeRequired"
+    bool is_active = true;                     // JSON "isActive"
+    std::optional<std::string> agent_type;     // JSON "agentType"
+    std::optional<std::string> model;
+    std::optional<std::string> prompt;
+    std::optional<std::string> worktree_path;  // JSON "worktreePath"
+    std::optional<std::string> session_id;     // JSON "sessionId"
+    std::vector<std::string> subscriptions;
+};
+
+/// Team config.json root object (TS TeamFile in teamHelpers.ts:64-90).
+struct TeamFileRecord {
+    std::string name;
+    std::optional<std::string> description;
+    std::int64_t created_at = 0;               // JSON "createdAt"
+    std::string lead_agent_id;                 // JSON "leadAgentId"
+    std::optional<std::string> lead_session_id;  // JSON "leadSessionId"
+    std::vector<std::string> hidden_pane_ids;  // JSON "hiddenPaneIds"
+    std::vector<TeamMemberRecord> members;
+};
+
+/// Resolved startup identity for a leader or teammate (reconnection.ts:23-66).
+struct InitialTeamContext {
+    std::string team_name;
+    std::string team_file_path;
+    std::string lead_agent_id;
+    std::optional<std::string> self_agent_id;  // nullopt => leader
+    std::string self_agent_name;
+    bool is_leader = false;
+};
+
+/// Directory backing a team: <teams_dir>/<sanitized(team)> (TS getTeamDir).
+[[nodiscard]] std::string team_dir(std::string_view team_name);
+
+/// Path to a team's canonical config.json (TS getTeamFilePath).
+[[nodiscard]] std::string team_file_path(std::string_view team_name);
+
+/// Read and parse a team config.json. Returns nullopt when the file is
+/// missing or unreadable (TS readTeamFile maps ENOENT/parse failure to null).
+[[nodiscard]] std::optional<TeamFileRecord> read_team_file(std::string_view team_name);
+
+/// Serialize a team record to config.json with 2-space indentation, creating
+/// the team directory as needed. Returns false on I/O failure.
+bool write_team_file(std::string_view team_name, const TeamFileRecord& record);
+
+/// Find a member row by display name (linear search, TS Array.prototype.find).
+[[nodiscard]] std::optional<TeamMemberRecord> find_team_member(
+    const TeamFileRecord& file, std::string_view name);
+
+/// Resolve initial leader/teammate identity for an explicit identity triple.
+[[nodiscard]] std::optional<InitialTeamContext> compute_initial_team_context(
+    std::string_view team_name,
+    std::string_view agent_name,
+    std::optional<std::string_view> agent_id);
+
+/// Resolve initial identity from the current environment / dynamic context.
+/// This is the C++ equivalent of computeInitialTeamContext() in
+/// src/utils/swarm/reconnection.ts.
+[[nodiscard]] std::optional<InitialTeamContext> compute_initial_team_context_from_env();
+
 // ─── Team Memory Operations ─────────────────────────────────────────────────
 
 /// Check if a file path is a team memory file
@@ -267,14 +359,27 @@ namespace detail {
 [[nodiscard]] inline std::string mailbox_json_escape(std::string_view value) {
     std::string out;
     out.reserve(value.size() + 8);
-    for (char ch : value) {
+    static const char* hex = "0123456789abcdef";
+    for (unsigned char ch : value) {
         switch (ch) {
             case '\\': out += R"(\\)"; break;
             case '"': out += R"(\")"; break;
             case '\n': out += R"(\n)"; break;
             case '\r': out += R"(\r)"; break;
             case '\t': out += R"(\t)"; break;
-            default: out.push_back(ch); break;
+            case '\b': out += R"(\b)"; break;
+            case '\f': out += R"(\f)"; break;
+            default:
+                // RFC 8259: all other C0 control bytes must be \u-escaped;
+                // one bad control char must never corrupt the whole inbox.
+                if (ch < 0x20) {
+                    out += R"(\u00)";
+                    out.push_back(hex[(ch >> 4) & 0x0F]);
+                    out.push_back(hex[ch & 0x0F]);
+                } else {
+                    out.push_back(static_cast<char>(ch));
+                }
+                break;
         }
     }
     return out;
@@ -531,6 +636,7 @@ inline std::expected<void, std::string> write_to_mailbox(
     TeammateMessage message,
     std::optional<std::string_view> team_name
 ) {
+    std::lock_guard<std::mutex> lock(teammate_inbox_mutex());
     auto existing = read_inbox(recipient_name, team_name);
     if (!existing) return std::unexpected(existing.error());
     if (message.timestamp.empty()) message.timestamp = detail::timestamp_now();
@@ -569,6 +675,7 @@ inline std::expected<void, std::string> mark_all_read(
     std::string_view agent_name,
     std::optional<std::string_view> team_name
 ) {
+    std::lock_guard<std::mutex> lock(teammate_inbox_mutex());
     auto messages = read_inbox(agent_name, team_name);
     if (!messages) return std::unexpected(messages.error());
     for (auto& message : *messages) message.read = true;
@@ -596,6 +703,221 @@ inline std::expected<size_t, std::string> unread_count(
 
 inline std::expected<size_t, std::string> unread_count(std::string_view agent_name) {
     return unread_count(agent_name, std::nullopt);
+}
+
+// ─── Canonical team config.json implementation ──────────────────────────────
+
+inline std::string team_dir(std::string_view team_name) {
+    return (detail::teams_dir() /
+            detail::sanitize_path_component(team_name, "team")).string();
+}
+
+inline std::string team_file_path(std::string_view team_name) {
+    return (fs::path{team_dir(team_name)} / "config.json").string();
+}
+
+namespace detail {
+
+/// Parse one members[] row from config.json (camelCase keys from teamHelpers.ts).
+[[nodiscard]] inline std::optional<TeamMemberRecord> parse_team_member(
+    const cc::utils::json::JsonVal& value
+) {
+    if (!value.is_obj()) return std::nullopt;
+    const auto agent_id = value.get("agentId");
+    const auto name = value.get("name");
+    if (!agent_id.is_str() || !name.is_str()) return std::nullopt;
+
+    TeamMemberRecord member;
+    member.agent_id = std::string(agent_id.as_str());
+    member.name = std::string(name.as_str());
+    member.color = json_optional_string(value, "color");
+    member.backend = json_optional_string(value, "backendType");
+    member.tmux_pane_id = value.get_string("tmuxPaneId");
+    member.mode = json_optional_string(value, "mode");
+    member.joined_at = value.get_int("joinedAt");
+    member.cwd = value.get_string("cwd");
+    const auto plan = value.get("planModeRequired");
+    member.plan_mode_required = plan.is_bool() && plan.as_bool();
+    const auto active = value.get("isActive");
+    member.is_active = !active.is_bool() || active.as_bool();
+    member.agent_type = json_optional_string(value, "agentType");
+    member.model = json_optional_string(value, "model");
+    member.prompt = json_optional_string(value, "prompt");
+    member.worktree_path = json_optional_string(value, "worktreePath");
+    member.session_id = json_optional_string(value, "sessionId");
+    if (const auto subs = value.get("subscriptions"); subs.is_arr()) {
+        subs.iter([&](cc::utils::json::JsonVal item) {
+            if (item.is_str()) member.subscriptions.emplace_back(item.as_str());
+        });
+    }
+    return member;
+}
+
+/// Emit an optional JSON string field, skipping absent values.
+inline void append_optional_json_string(
+    std::string& out, std::string_view key, const std::optional<std::string>& value
+) {
+    if (!value) return;
+    out += ",\n      \"";
+    out += key;
+    out += R"(": ")";
+    out += mailbox_json_escape(*value);
+    out += '"';
+}
+
+} // namespace detail
+
+inline std::optional<TeamFileRecord> read_team_file(std::string_view team_name) {
+    const auto path = fs::path{team_file_path(team_name)};
+    std::error_code ec;
+    if (!fs::exists(path, ec)) return std::nullopt;
+
+    auto parsed = cc::utils::json::parse_file(path);
+    if (!parsed) return std::nullopt;
+    const auto root = parsed->root();
+    if (!root.is_obj()) return std::nullopt;
+
+    const auto lead = root.get("leadAgentId");
+    const auto name = root.get("name");
+    if (!lead.is_str() || !name.is_str()) return std::nullopt;
+
+    TeamFileRecord file;
+    file.name = std::string(name.as_str());
+    file.description = detail::json_optional_string(root, "description");
+    file.created_at = root.get_int("createdAt");
+    file.lead_agent_id = std::string(lead.as_str());
+    file.lead_session_id = detail::json_optional_string(root, "leadSessionId");
+    if (const auto hidden = root.get("hiddenPaneIds"); hidden.is_arr()) {
+        hidden.iter([&](cc::utils::json::JsonVal item) {
+            if (item.is_str()) file.hidden_pane_ids.emplace_back(item.as_str());
+        });
+    }
+    if (const auto members = root.get("members"); members.is_arr()) {
+        members.iter([&](cc::utils::json::JsonVal item) {
+            if (auto member = detail::parse_team_member(item)) {
+                file.members.push_back(std::move(*member));
+            }
+        });
+    }
+    return file;
+}
+
+inline bool write_team_file(std::string_view team_name, const TeamFileRecord& record) {
+    std::error_code ec;
+    fs::create_directories(team_dir(team_name), ec);
+    if (ec) return false;
+
+    std::string out;
+    out += "{\n";
+    out += "  \"name\": \"" + detail::mailbox_json_escape(record.name) + "\",\n";
+    if (record.description) {
+        out += "  \"description\": \"" +
+               detail::mailbox_json_escape(*record.description) + "\",\n";
+    }
+    out += "  \"createdAt\": " + std::to_string(record.created_at) + ",\n";
+    out += "  \"leadAgentId\": \"" +
+           detail::mailbox_json_escape(record.lead_agent_id) + '"';
+    if (record.lead_session_id) {
+        out += ",\n  \"leadSessionId\": \"" +
+               detail::mailbox_json_escape(*record.lead_session_id) + '"';
+    }
+    out += ",\n  \"hiddenPaneIds\": [";
+    for (std::size_t i = 0; i < record.hidden_pane_ids.size(); ++i) {
+        if (i != 0) out += ", ";
+        out += '"' + detail::mailbox_json_escape(record.hidden_pane_ids[i]) + '"';
+    }
+    out += "],\n";
+    out += "  \"members\": [";
+    if (record.members.empty()) {
+        out += "]\n";
+    } else {
+        out += '\n';
+        for (std::size_t i = 0; i < record.members.size(); ++i) {
+            const auto& m = record.members[i];
+            out += "    {\n";
+            out += "      \"agentId\": \"" +
+                   detail::mailbox_json_escape(m.agent_id) + "\",\n";
+            out += "      \"name\": \"" +
+                   detail::mailbox_json_escape(m.name) + "\"";
+            detail::append_optional_json_string(out, "agentType", m.agent_type);
+            detail::append_optional_json_string(out, "model", m.model);
+            detail::append_optional_json_string(out, "prompt", m.prompt);
+            detail::append_optional_json_string(out, "color", m.color);
+            if (m.plan_mode_required) {
+                out += ",\n      \"planModeRequired\": true";
+            }
+            out += ",\n      \"joinedAt\": " + std::to_string(m.joined_at);
+            out += ",\n      \"tmuxPaneId\": \"" +
+                   detail::mailbox_json_escape(m.tmux_pane_id) + '"';
+            out += ",\n      \"cwd\": \"" +
+                   detail::mailbox_json_escape(m.cwd) + '"';
+            detail::append_optional_json_string(out, "worktreePath", m.worktree_path);
+            detail::append_optional_json_string(out, "sessionId", m.session_id);
+            detail::append_optional_json_string(out, "backendType", m.backend);
+            if (!m.is_active) {
+                out += ",\n      \"isActive\": false";
+            }
+            detail::append_optional_json_string(out, "mode", m.mode);
+            out += ",\n      \"subscriptions\": [";
+            for (std::size_t s = 0; s < m.subscriptions.size(); ++s) {
+                if (s != 0) out += ", ";
+                out += '"' + detail::mailbox_json_escape(m.subscriptions[s]) + '"';
+            }
+            out += "]\n";
+            out += (i + 1 == record.members.size()) ? "    }\n" : "    },\n";
+        }
+        out += "  ]\n";
+    }
+    out += "}\n";
+
+    std::ofstream file(fs::path{team_file_path(team_name)}, std::ios::trunc);
+    if (!file) return false;
+    file << out;
+    return file.good();
+}
+
+inline std::optional<TeamMemberRecord> find_team_member(
+    const TeamFileRecord& file, std::string_view name
+) {
+    for (const auto& member : file.members) {
+        if (member.name == name) return member;
+    }
+    return std::nullopt;
+}
+
+inline std::optional<InitialTeamContext> compute_initial_team_context(
+    std::string_view team_name,
+    std::string_view agent_name,
+    std::optional<std::string_view> agent_id
+) {
+    if (team_name.empty() || agent_name.empty()) return std::nullopt;
+
+    const auto file = read_team_file(team_name);
+    if (!file) return std::nullopt;  // Matches TS returning undefined on read failure.
+
+    InitialTeamContext context;
+    context.team_name = std::string(team_name);
+    context.team_file_path = team_file_path(team_name);
+    context.lead_agent_id = file->lead_agent_id;
+    // reconnection.ts:51: isLeader = !agentId.
+    context.is_leader = !agent_id || agent_id->empty();
+    context.self_agent_id = (!context.is_leader)
+        ? std::optional<std::string>{std::string(*agent_id)}
+        : std::nullopt;
+    context.self_agent_name = std::string(agent_name);
+    return context;
+}
+
+inline std::optional<InitialTeamContext> compute_initial_team_context_from_env() {
+    const auto team_name = get_team_name();
+    if (!team_name || team_name->empty()) return std::nullopt;
+    const auto agent_name = get_agent_name();
+    if (!agent_name || agent_name->empty()) return std::nullopt;
+    const auto agent_id = get_agent_id();
+    return compute_initial_team_context(
+        *team_name,
+        *agent_name,
+        agent_id ? std::optional<std::string_view>{*agent_id} : std::nullopt);
 }
 
 } // namespace cc::utils

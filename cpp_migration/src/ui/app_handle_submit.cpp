@@ -396,6 +396,11 @@ void AppAdapter::HandleCommand(std::string_view cmd) {
         return;
     }
 
+    if (normalized == "/teams") {
+        this->OpenTeamsOverview();
+        return;
+    }
+
     if (normalized == "/skills") {
         this->OpenSkillsMenu();
         return;

@@ -5,6 +5,7 @@ module;
 
 #include <atomic>
 #include <array>
+#include <sys/wait.h>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -212,6 +213,22 @@ public:
     [[nodiscard]] virtual bool kill_pane(
         const PaneId& pane_id, bool use_external_session = false) = 0;
 
+    /// Capture the visible tail of a pane's screen (tmux capture-pane -p).
+    /// Returns nullopt when the pane does not exist / backend cannot capture
+    /// (e.g. iTerm2). TS has no equivalent; this backs the leader-only
+    /// 'watch them run' pane observer (swarm_pane_observer).
+    ///
+    /// Non-pure (rather than = 0) so test doubles in other translation units
+    /// do not all have to gain an override; the default means 'cannot capture'.
+    [[nodiscard]] virtual std::optional<std::string> capture_pane_text(
+        const PaneId& pane_id, int tail_lines = 200,
+        bool use_external_session = false) {
+        (void)pane_id;
+        (void)tail_lines;
+        (void)use_external_session;
+        return std::nullopt;
+    }
+
     /// Hide a pane by breaking it out into a hidden window
     [[nodiscard]] virtual bool hide_pane(
         const PaneId& pane_id, bool use_external_session = false) = 0;
@@ -391,6 +408,10 @@ public:
     [[nodiscard]] bool kill_pane(
         const PaneId& pane_id, bool use_external_session = false) override;
 
+    [[nodiscard]] std::optional<std::string> capture_pane_text(
+        const PaneId& pane_id, int tail_lines = 200,
+        bool use_external_session = false) override;
+
     [[nodiscard]] bool hide_pane(
         const PaneId& pane_id, bool use_external_session = false) override;
 
@@ -484,6 +505,11 @@ public:
     [[nodiscard]] bool kill_pane(
         const PaneId& pane_id, bool use_external_session = false) override;
 
+    /// Not supported yet — iTerm2 has no capture-pane equivalent (TODO: it2 get-screen).
+    [[nodiscard]] std::optional<std::string> capture_pane_text(
+        const PaneId& pane_id, int tail_lines = 200,
+        bool use_external_session = false) override;
+
     /// Not supported in iTerm2 (no equivalent to tmux break-pane)
     [[nodiscard]] bool hide_pane(
         const PaneId& pane_id, bool use_external_session = false) override;
@@ -565,6 +591,12 @@ private:
 /// - isActive(): Checks if the pane is still running
 class PaneBackendExecutor : public TeammateExecutor {
 public:
+    /// Info about a pane a spawned teammate lives in.
+    struct SpawnedPane {
+        PaneId pane_id;
+        bool inside_tmux = false;
+    };
+
     explicit PaneBackendExecutor(std::shared_ptr<PaneBackend> backend)
         : backend_(std::move(backend)) {}
 
@@ -576,7 +608,7 @@ public:
     }
 
     void kill_all_spawned() {
-        std::map<std::string, TeammateInfo> spawned;
+        std::map<std::string, SpawnedPane> spawned;
         {
             std::lock_guard lock(spawned_mutex_);
             spawned = spawned_teammates_;
@@ -606,16 +638,19 @@ public:
 
     [[nodiscard]] bool is_active(std::string_view agent_id) const override;
 
+    /// Capture the current screen tail of a spawned agent's pane.
+    /// Returns nullopt when the agent is unknown or its pane cannot be captured.
+    [[nodiscard]] std::optional<std::string> capture_agent_pane(
+        std::string_view agent_id, int tail_lines = 200) const;
+
+    /// Snapshot of agent_id -> pane info for every live spawned pane.
+    [[nodiscard]] std::map<std::string, SpawnedPane> spawned_panes() const;
+
 private:
     std::shared_ptr<PaneBackend> backend_;
 
-    /// Track spawned teammates: agentId -> {paneId, insideTmux}
-    struct TeammateInfo {
-        PaneId pane_id;
-        bool inside_tmux = false;
-    };
     mutable std::mutex spawned_mutex_;
-    std::map<std::string, TeammateInfo> spawned_teammates_;
+    std::map<std::string, SpawnedPane> spawned_teammates_;
 };
 
 // ============================================================================
@@ -974,7 +1009,149 @@ namespace detail {
     return out;
 }
 
+// ── Pure tmux argv builders (external swarm session re-attach) ──────────────
+//
+// These build command vectors for the TS TmuxBackend.ts external-session flow
+// (createExternalSwarmSession / createTeammatePaneExternal) without executing
+// anything, so the re-attach policy is unit-testable.
+
+struct TmuxArgv {
+    std::string program = "tmux";
+    std::vector<std::string> args;
+
+    /// Render as a shell command line with every argument single-quoted.
+    [[nodiscard]] std::string join_shell() const {
+        std::string command = program;
+        for (const auto& arg : args) {
+            command.push_back(' ');
+            command += shell_quote(arg);
+        }
+        return command;
+    }
+};
+
+[[nodiscard]] inline TmuxArgv tmux_has_session_argv(std::string_view session) {
+    TmuxArgv argv;
+    argv.args = {"has-session", "-t", std::string(session)};
+    return argv;
+}
+
+[[nodiscard]] inline TmuxArgv tmux_list_windows_argv(std::string_view session) {
+    TmuxArgv argv;
+    argv.args = {"list-windows", "-t", std::string(session),
+                 "-F", "#{window_name}"};
+    return argv;
+}
+
+[[nodiscard]] inline TmuxArgv tmux_new_session_argv(
+    std::string_view session, std::string_view window
+) {
+    TmuxArgv argv;
+    argv.args = {"new-session", "-d", "-s", std::string(session),
+                 "-n", std::string(window), "-P", "-F", "#{pane_id}"};
+    return argv;
+}
+
+[[nodiscard]] inline TmuxArgv tmux_new_window_argv(
+    std::string_view session, std::string_view window
+) {
+    TmuxArgv argv;
+    argv.args = {"new-window", "-t", std::string(session),
+                 "-n", std::string(window), "-P", "-F", "#{pane_id}"};
+    return argv;
+}
+
+[[nodiscard]] inline TmuxArgv tmux_list_panes_argv(std::string_view target) {
+    TmuxArgv argv;
+    argv.args = {"list-panes", "-t", std::string(target),
+                 "-F", "#{pane_id}"};
+    return argv;
+}
+
+[[nodiscard]] inline TmuxArgv tmux_split_window_argv(
+    std::string_view target, bool vertical
+) {
+    TmuxArgv argv;
+    argv.args = {"split-window", "-t", std::string(target),
+                 vertical ? "-v" : "-h", "-P", "-F", "#{pane_id}"};
+    return argv;
+}
+
+/// What create_pane_external must do to obtain a swarm-view window.
+enum class ExternalSessionAction {
+    CreateSession,        // claude-swarm does not exist yet
+    ReuseExistingWindow,  // session and swarm-view window both exist
+    CreateWindow,         // session exists but swarm-view does not
+};
+
+/// Resolved external-session re-attach plan.
+struct ExternalSessionPlan {
+    ExternalSessionAction action = ExternalSessionAction::CreateSession;
+    /// When true, the caller takes the window's lone pane instead of
+    /// splitting (TS isFirstTeammate guard).
+    bool reuse_first_pane = false;
+    /// Target to address later, e.g. "claude-swarm:swarm-view".
+    std::string window_target;
+};
+
+/// Pure re-attach policy, mirroring TmuxBackend.ts createExternalSwarmSession
+/// (lines 467-546) and createTeammatePaneExternal (lines 635-701). A fresh
+/// session/window always yields one unused pane (reuse_first_pane); an
+/// existing window only hands out pane 0 when it is still the sole pane, so a
+/// leader restart with live teammate panes splits instead of hijacking pane 0.
+[[nodiscard]] inline ExternalSessionPlan plan_external_swarm_view(
+    bool session_exists,
+    bool window_exists,
+    std::size_t pane_count,
+    bool first_pane_used
+) {
+    ExternalSessionPlan plan;
+    plan.window_target =
+        std::string(SWARM_SESSION_NAME) + ":" + std::string(SWARM_VIEW_WINDOW_NAME);
+    if (!session_exists) {
+        plan.action = ExternalSessionAction::CreateSession;
+        plan.reuse_first_pane = !first_pane_used;
+        return plan;
+    }
+    if (!window_exists) {
+        plan.action = ExternalSessionAction::CreateWindow;
+        plan.reuse_first_pane = !first_pane_used;
+        return plan;
+    }
+    plan.action = ExternalSessionAction::ReuseExistingWindow;
+    plan.reuse_first_pane = !first_pane_used && pane_count == 1;
+    return plan;
+}
+
+// ── Injectable shell seams (tests only; production behavior unchanged) ──────
+
+using ShellRunnerFn = std::function<int(std::string_view)>;
+using ShellCaptureFn = std::function<std::string(std::string_view)>;
+
+[[nodiscard]] inline ShellRunnerFn& shell_runner_override() {
+    static ShellRunnerFn runner;
+    return runner;
+}
+
+[[nodiscard]] inline ShellCaptureFn& shell_capture_override() {
+    static ShellCaptureFn capture;
+    return capture;
+}
+
+/// Install scripted shell implementations for unit tests.
+inline void set_shell_runners_for_test(ShellRunnerFn runner, ShellCaptureFn capture) {
+    shell_runner_override() = std::move(runner);
+    shell_capture_override() = std::move(capture);
+}
+
+/// Restore real std::system / popen shell execution after a test.
+inline void reset_shell_runners_for_test() {
+    shell_runner_override() = nullptr;
+    shell_capture_override() = nullptr;
+}
+
 [[nodiscard]] inline int run_shell(std::string_view command) {
+    if (const auto& runner = shell_runner_override()) return runner(command);
     return std::system(std::string(command).c_str());
 }
 
@@ -984,6 +1161,7 @@ namespace detail {
 }
 
 [[nodiscard]] inline std::string read_shell_output(std::string_view command) {
+    if (const auto& capture = shell_capture_override()) return capture(command);
     FILE* pipe = cc::utils::bash::popen_spawn(std::string(command).c_str());
     if (!pipe) return {};
     std::array<char, 4096> buffer{};
@@ -994,6 +1172,35 @@ namespace detail {
     (void)cc::utils::bash::pclose_spawn(pipe);
     while (!output.empty() && (output.back() == '\n' || output.back() == '\r')) output.pop_back();
     return output;
+}
+
+struct ShellOutput {
+    std::string text;
+    int exit_code = -1;
+};
+
+// Like read_shell_output but also returns the child exit code so callers can
+// distinguish 'pane gone' (non-zero) from 'pane showing an empty screen'.
+[[nodiscard]] inline ShellOutput read_shell_output_with_status(std::string_view command) {
+    FILE* pipe = cc::utils::bash::popen_spawn(std::string(command).c_str());
+    if (!pipe) return {};
+    std::array<char, 4096> buffer{};
+    std::string output;
+    while (std::fgets(buffer.data(), static_cast<int>(buffer.size()), pipe)) {
+        output += buffer.data();
+    }
+    const int raw = cc::utils::bash::pclose_spawn(pipe);
+    while (!output.empty() && (output.back() == '\n' || output.back() == '\r')) output.pop_back();
+    return ShellOutput{std::move(output), WIFEXITED(raw) ? WEXITSTATUS(raw) : -1};
+}
+
+// Unit-testable tmux arg builder for 'tmux capture-pane -p -t <id> -S -<lines>'.
+[[nodiscard]] inline std::string build_capture_pane_command(
+    std::string_view pane_id, int tail_lines
+) {
+    if (tail_lines < 1) tail_lines = 1;
+    return "tmux capture-pane -p -t " + shell_quote(pane_id) +
+           " -S -" + std::to_string(tail_lines) + " 2>/dev/null";
 }
 
 [[nodiscard]] inline std::string teammate_command() {
@@ -1128,6 +1335,21 @@ inline bool TmuxBackend::kill_pane(const PaneId& pane_id, bool use_external_sess
     return detail::run_shell(cmd) == 0;
 }
 
+inline std::optional<std::string> TmuxBackend::capture_pane_text(
+    const PaneId& pane_id, int tail_lines, bool use_external_session
+) {
+    // TODO: external swarm sessions run on a -L claude-swarm-<pid> socket in TS
+    // (constants.ts getSwarmSocketName); the C++ port currently shells out on
+    // the default socket everywhere (see create_pane_external), so honor the
+    // same simplification here until the socket gap is ported.
+    (void)use_external_session;
+    if (pane_id.empty()) return std::nullopt;
+    auto result = detail::read_shell_output_with_status(
+        detail::build_capture_pane_command(pane_id, tail_lines));
+    if (result.exit_code != 0) return std::nullopt;  // pane is gone
+    return result.text;
+}
+
 inline bool TmuxBackend::hide_pane(const PaneId& pane_id, bool use_external_session) {
     (void)use_external_session;
     if (pane_id.empty()) return false;
@@ -1210,15 +1432,90 @@ inline CreatePaneResult TmuxBackend::create_pane_with_leader(std::string_view na
 inline CreatePaneResult TmuxBackend::create_pane_external(std::string_view name, AgentColor color) {
     (void)name;
     (void)color;
-    auto ensure = "tmux has-session -t " + std::string(SWARM_SESSION_NAME) +
-        " >/dev/null 2>&1 || tmux new-session -d -s " + std::string(SWARM_SESSION_NAME) +
-        " -n " + std::string(SWARM_VIEW_WINDOW_NAME) + " >/dev/null 2>&1";
-    if (detail::run_shell(ensure) != 0) return {};
-    const bool first = !first_pane_used_external_;
-    first_pane_used_external_ = true;
-    auto pane = first
-        ? detail::read_shell_output("tmux display-message -p -t claude-swarm:swarm-view '#{pane_id}' 2>/dev/null")
-        : detail::read_shell_output("tmux split-window -t claude-swarm:swarm-view -h -P -F '#{pane_id}' 2>/dev/null");
+    const std::string session{SWARM_SESSION_NAME};
+    const std::string window{SWARM_VIEW_WINDOW_NAME};
+    const std::string window_target = session + ":" + window;
+
+    // Split newline-delimited tmux output into non-empty lines (matches the
+    // TS '.trim().split("\n").filter(Boolean)' idiom).
+    auto split_lines = [](std::string_view raw) {
+        std::vector<std::string> lines;
+        std::string acc;
+        for (char c : raw) {
+            if (c == '\n') {
+                if (!acc.empty() && acc != "\r") lines.push_back(acc);
+                acc.clear();
+            } else if (c != '\r') {
+                acc.push_back(c);
+            }
+        }
+        if (!acc.empty()) lines.push_back(acc);
+        return lines;
+    };
+
+    // 1. Probe the external swarm session (TS hasSessionInSwarm).
+    const bool session_exists =
+        detail::run_shell(detail::tmux_has_session_argv(session).join_shell()) == 0;
+
+    // 2. Probe the swarm-view window and count its live panes.
+    bool window_exists = false;
+    std::size_t pane_count = 0;
+    std::vector<std::string> existing_panes;
+    if (session_exists) {
+        const auto windows = split_lines(detail::read_shell_output(
+            detail::tmux_list_windows_argv(session).join_shell()));
+        for (const auto& line : windows) {
+            if (line == window) window_exists = true;
+        }
+        if (window_exists) {
+            existing_panes = split_lines(detail::read_shell_output(
+                detail::tmux_list_panes_argv(window_target).join_shell()));
+            pane_count = existing_panes.size();
+        }
+    }
+
+    // 3. Pure re-attach decision.
+    const auto plan = detail::plan_external_swarm_view(
+        session_exists, window_exists, pane_count, first_pane_used_external_);
+
+    // 4. Create the missing session/window; both print the fresh pane id via
+    // -P -F '#{pane_id}'. Reusing an existing window starts from pane 0.
+    std::string pane;
+    if (plan.action == detail::ExternalSessionAction::CreateSession) {
+        pane = detail::read_shell_output(
+            detail::tmux_new_session_argv(session, window).join_shell());
+        pane_count = 1;
+    } else if (plan.action == detail::ExternalSessionAction::CreateWindow) {
+        pane = detail::read_shell_output(
+            detail::tmux_new_window_argv(session, window).join_shell());
+        pane_count = 1;
+    } else if (!existing_panes.empty()) {
+        pane = existing_panes.front();
+    }
+    if (pane.empty()) return {};
+
+    // 5. First teammate takes the lone pane; further teammates split from a
+    // middle pane. Unlike the previous one-shot flag, pane_count is derived
+    // from live tmux state, so a leader restart splits instead of hijacking
+    // pane 0 when teammate panes already exist (TS guards on paneCount===1).
+    const bool first = plan.reuse_first_pane;
+    if (first) {
+        first_pane_used_external_ = true;
+    } else {
+        // External windows have no leader pane: every live pane is a teammate,
+        // so index against the full pane list (TS createTeammatePaneExternal).
+        auto panes = split_lines(detail::read_shell_output(
+            detail::tmux_list_panes_argv(window_target).join_shell()));
+        if (panes.empty()) return {};
+        pane_count = panes.size();
+        const bool vertical = (pane_count % 2 == 1);
+        const std::size_t target_index =
+            std::min((pane_count - 1) / 2, pane_count - 1);
+        pane = detail::read_shell_output(
+            detail::tmux_split_window_argv(panes[target_index], vertical).join_shell());
+        if (pane.empty()) return {};
+    }
+
     std::this_thread::sleep_for(std::chrono::milliseconds(kPaneShellInitDelayMs));
     return CreatePaneResult{.pane_id = pane, .is_first_teammate = first};
 }
@@ -1299,6 +1596,13 @@ inline bool ITermBackend::kill_pane(const PaneId& pane_id, bool use_external_ses
     if (pane_id.empty()) return false;
     auto cmd = "it2 session close -s " + detail::shell_quote(pane_id) + " >/dev/null 2>&1";
     return detail::run_shell(cmd) == 0;
+}
+
+inline std::optional<std::string> ITermBackend::capture_pane_text(
+    const PaneId&, int, bool
+) {
+    // TODO: iTerm2 has no capture-pane; explore 'it2 session get-screen' later.
+    return std::nullopt;
 }
 
 inline bool ITermBackend::hide_pane(const PaneId&, bool) { return false; }
@@ -1398,7 +1702,7 @@ inline TeammateSpawnResult PaneBackendExecutor::spawn(const TeammateSpawnConfig&
     backend_->send_command_to_pane(pane.pane_id, detail::build_teammate_cli_command(config), !inside);
     {
         std::lock_guard lock(spawned_mutex_);
-        spawned_teammates_[agent_id] = TeammateInfo{.pane_id = pane.pane_id, .inside_tmux = inside};
+        spawned_teammates_[agent_id] = SpawnedPane{.pane_id = pane.pane_id, .inside_tmux = inside};
     }
     // Deliver the initial task to the new pane's mailbox so the spawned
     // teammate has work the moment its inbox poller starts (TS writes the
@@ -1445,6 +1749,22 @@ inline bool PaneBackendExecutor::kill(std::string_view agent_id) {
 inline bool PaneBackendExecutor::is_active(std::string_view agent_id) const {
     std::lock_guard lock(spawned_mutex_);
     return spawned_teammates_.contains(std::string(agent_id));
+}
+
+inline std::optional<std::string> PaneBackendExecutor::capture_agent_pane(
+    std::string_view agent_id, int tail_lines
+) const {
+    std::lock_guard lock(spawned_mutex_);
+    auto it = spawned_teammates_.find(std::string(agent_id));
+    if (it == spawned_teammates_.end()) return std::nullopt;
+    return backend_->capture_pane_text(
+        it->second.pane_id, tail_lines, !it->second.inside_tmux);
+}
+
+inline std::map<std::string, PaneBackendExecutor::SpawnedPane>
+PaneBackendExecutor::spawned_panes() const {
+    std::lock_guard lock(spawned_mutex_);
+    return spawned_teammates_;
 }
 
 inline BackendDetectionResult BackendRegistry::detect_and_get_backend() {

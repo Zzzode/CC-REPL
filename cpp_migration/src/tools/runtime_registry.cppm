@@ -88,6 +88,7 @@ import cc.utils.http;
 import cc.utils.uuid_utils;
 import cc.utils.swarm_backends;
 import cc.utils.team_helpers;
+import cc.utils.task_utils;
 import cc.utils.bash_execution;
 import cc.services.image;
 import cc.skills.skill;
@@ -2036,6 +2037,20 @@ constexpr auto try_start_native_agent_resume = &runtime_message_delivery::try_st
         }
         auto result = tool.execute(id, team, members);
         if (!result) return ToolResult::error(std::string(format_error(result.error())));
+
+        // Establish THIS process as the leader of the newly created team.
+        // A normal interactive leader gets team identity at runtime via
+        // team_create (not just the --team-name launch flag); without this,
+        // the live teammate projection / pane observer / leader permission
+        // inbox never activate because get_team_name() stays empty.
+        // TS REF: TeamCreateTool sets setLeaderTeamName + AppState.teamContext.
+        if (std::getenv("CC_REPL_TEAM_NAME") == nullptr &&
+            std::getenv("CLAUDE_CODE_TEAM_NAME") == nullptr &&
+            !(*result)->name.empty()) {
+            ::setenv("CC_REPL_TEAM_NAME", (*result)->name.c_str(), 1);
+            // task-list resolution also tracks the leader team.
+            cc::utils::set_leader_team_name((*result)->name);
+        }
         std::unordered_map<std::string, std::string> member_start_prompts;
         for (const auto& member : (*result)->members) {
             MessageRouter::instance().register_agent(member.agent_id);

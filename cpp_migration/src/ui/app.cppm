@@ -70,10 +70,14 @@ import cc.ui.design.theme;
 // P0-2: 7-stage message pipeline utilities (dedup / tag filter / tool augment).
 import cc.ui.messages.message_pipeline;
 import cc.ui.agents.agent_cards;
+import cc.ui.teams.live_teammates;
+import cc.ui.dialogs.system;
+import cc.ui.dialogs.triggers;
 import cc.utils.settings_manager;
 import cc.utils.statusline_runner;
 import cc.utils.model.model;
 import cc.utils.team_helpers;
+import cc.utils.swarm_helpers;
 import cc.constants.constants;
 import cc.hooks.lifecycle_hooks;
 import cc.hooks.exit_handler;
@@ -781,6 +785,38 @@ private:
     std::string teammate_self_agent_id_;
     std::string teammate_self_agent_name_;
     std::string teammate_self_team_;
+
+    // ── Live-teammate projection (leader UI) ───────────────────────────────
+    // Event-driven pane observer: background callbacks only flag + post an
+    // FTXUI event; projection merges snapshots on the UI thread.
+    std::uint64_t pane_observer_token_ = 0;
+    // Held for the subscription's lifetime; releasing it on destruction makes
+    // an in-flight observer callback a no-op (no use-after-free on `this`).
+    std::shared_ptr<void> pane_observer_sub_guard_;
+    std::atomic<bool> pane_snapshot_dirty_{false};
+    // Last serialized projection; suppresses no-op state replacement.
+    std::string projected_teams_signature_;
+
+    // ── Leader-side teammate permission requests ──────────────────────────
+    // The leader inbox poll scans for stage-A permission_request control
+    // messages and enqueues them here (bg thread -> mutex); the UI thread
+    // drains one into the existing ToolPermission dialog on Custom events.
+    // Responses go back through PermissionSync (see app_team_projection.cpp).
+    struct PendingTeammatePermission {
+        cc::utils::swarm_helpers::SwarmPermissionRequestMessage request;
+        std::string team;
+    };
+    std::mutex teammate_permission_mutex_;
+    std::deque<PendingTeammatePermission> teammate_pending_permissions_;
+
+    // ── Leader inbox poller (team-lead mailbox) ────────────────────────────
+    // Mirrors the pane-teammate inbox worker: a background jthread polls
+    // $ROOT/<team>/inboxes/team-lead.json for stage-A permission_request
+    // envelopes, enqueues them (mutex + PostRenderEvent), and the UI thread
+    // drains them into the existing ToolPermission dialog. Timed mailbox
+    // polling is allowed; there is still no FTXUI render ticker.
+    std::jthread leader_inbox_thread_;
+    std::unordered_set<std::string> seen_leader_permission_ids_;
     /// P2 gap api-error-retry: last user-submitted message text.  Used by
     /// the Retry button on SystemAPIError cards to re-send the same query.
     /// TS REF: SystemAPIErrorMessage.tsx onRetry → re-submits last prompt.
@@ -1079,6 +1115,11 @@ private:
         return true;
     }
 
+    // Leader-side: background poller over the team-lead mailbox that turns
+    // stage-A permission_request envelopes into ToolPermission dialogs.
+    // Defined in app_team_projection.cpp.
+    void start_leader_inbox_worker();
+
     void start_teammate_inbox_worker() {
         teammate_self_agent_id_ =
             env_first({"CC_REPL_AGENT_ID", "CLAUDE_CODE_AGENT_ID"});
@@ -1272,6 +1313,20 @@ private:
         screen_state_->mode = repl::ReplMode::AgentsView;
         screen_state_->agents_component.reset();
         this->TriggerStatuslineUpdate();
+        PostRenderEvent();
+    }
+
+    /// Rebuild live_teammates from native store + pane observer, then open
+    /// the TeamsView modal (TS PromptInput.tsx 'teams' footer action).
+    void OpenTeamsOverview() {
+        ProjectLiveTeammatesToScreenState();
+        screen_state_->teams_overview_selected_index = 0;
+        cc::ui::dialogs::triggers::PushTeamsView(
+            screen_state_->dialog_queue,
+            [this] {
+                screen_state_->dialog_queue.pop_modal();
+                PostRenderEvent();
+            });
         PostRenderEvent();
     }
 
@@ -1763,6 +1818,16 @@ public:
 
     void SyncState();
 
+    // Rebuild screen_state_->live_teammates from the native agent store +
+    // pane-observer snapshot. Defined in app_team_projection.cpp; callers own
+    // the render wake.
+    void ProjectLiveTeammatesToScreenState();
+
+    // Leader-side: drain one queued teammate permission_request into the
+    // existing ToolPermission dialog (Band3 overlay). Defined in
+    // app_team_projection.cpp. Returns true when a dialog was pushed.
+    bool drain_one_teammate_permission();
+
     void ConsumePendingResult();
 
     Element Render() override;
@@ -1985,6 +2050,43 @@ public:
                screen_state_->dialog_queue.has_any_bottom() ||
                screen_state_->dialog_queue.has_modal() ||
                screen_state_->dialog_queue.has_standalone();
+    }
+
+    void set_live_teammates_for_testing(
+        std::vector<teams::live::LiveTeammate> v) {
+        screen_state_->live_teammates = std::move(v);
+        screen_state_->teammate_count =
+            static_cast<int>(screen_state_->live_teammates.size());
+    }
+
+    [[nodiscard]] bool teams_overview_open_for_testing() const {
+        auto peek = screen_state_->dialog_queue.peek_modal();
+        return peek.has_value() &&
+               std::holds_alternative<
+                   cc::ui::dialogs::system::TeamsViewPayload>(peek->get());
+    }
+
+    [[nodiscard]] int teams_overview_count_for_testing() const {
+        return static_cast<int>(screen_state_->live_teammates.size());
+    }
+
+    // Enqueue a stage-A permission_request as if the leader inbox poll found
+    // it (exercises the ToolPermission dialog + PermissionSync reply path
+    // without a real tmux worker mailbox).
+    void enqueue_teammate_permission_for_testing(
+        cc::utils::swarm_helpers::SwarmPermissionRequestMessage request,
+        std::string team) {
+        {
+            std::lock_guard lock(teammate_permission_mutex_);
+            teammate_pending_permissions_.push_back(
+                PendingTeammatePermission{std::move(request), std::move(team)});
+        }
+        PostRenderEvent();
+    }
+
+    [[nodiscard]] std::size_t pending_teammate_permission_count_for_testing() {
+        std::lock_guard lock(teammate_permission_mutex_);
+        return teammate_pending_permissions_.size();
     }
 };
 

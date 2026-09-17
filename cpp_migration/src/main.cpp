@@ -49,6 +49,8 @@ import cc.utils.session_storage;
 import cc.utils.json;
 import cc.utils.http;
 import cc.utils.swarm_backends;
+import cc.utils.team_helpers;
+import cc.utils.swarm_helpers;
 import cc.session.history;
 import cc.daemon.daemon_server;
 import cc.server.server_main;
@@ -603,6 +605,46 @@ cc::tools::AgentLivePermissionCheck check_agent_tool_permission(
     std::string_view input_json,
     std::string_view tool_use_id
 ) {
+    // WORKER permission forwarding: a pane/in-process teammate (identity set
+    // via --agent-name + --team-name; the leader itself never has an agent
+    // name) must not pop its own local dialog in a background pane. It asks
+    // the team leader over the mailbox and blocks for the verdict, failing
+    // closed on timeout. TS REF: swarmWorkerHandler.ts → permissionSync.
+    const char* w_agent = std::getenv("CC_REPL_AGENT_NAME");
+    if ((!w_agent || !*w_agent)) w_agent = std::getenv("CLAUDE_CODE_AGENT_NAME");
+    const char* w_team = std::getenv("CC_REPL_TEAM_NAME");
+    if ((!w_team || !*w_team)) w_team = std::getenv("CLAUDE_CODE_TEAM_NAME");
+    const bool is_worker_teammate =
+        (w_agent && *w_agent) && (w_team && *w_team);
+
+    if (is_worker_teammate) {
+        cc::utils::swarm_helpers::SwarmPermissionRequestMessage req;
+        req.type = "permission_request";
+        req.request_id = cc::utils::swarm_helpers::PermissionSync::generate_request_id();
+        req.agent_id = w_agent;
+        req.tool_name = std::string(tool_name);
+        req.tool_use_id = std::string(tool_use_id);
+        req.description = std::string(tool_name) + " requests permission";
+        req.input_json = std::string(input_json);
+
+        auto response = cc::utils::swarm_helpers::PermissionSync::request_and_await(
+            req, std::string_view(w_team));
+        cc::tools::AgentLivePermissionCheck check;
+        if (!response || response->subtype != "success") {
+            check.allowed = false;
+            check.message = response && response->error
+                ? *response->error
+                : std::string("timed out waiting for team leader approval");
+            return check;
+        }
+        check.allowed = true;
+        if (response->updated_input_json &&
+            !response->updated_input_json->empty()) {
+            check.updated_input_json = *response->updated_input_json;
+        }
+        return check;
+    }
+
     permission_hook.set_current_tool_use_id(tool_use_id);
     auto response = permission_hook.can_use_response(tool_name, input_json);
     permission_hook.clear_current_tool_use_id();
@@ -1753,6 +1795,24 @@ int main(int argc, const char* argv[]) {
 #endif
     }
     apply_teammate_environment(opts);
+
+    // Resolve leader/teammate identity from the environment just exported by
+    // apply_teammate_environment and the canonical <team>/config.json (see
+    // src/utils/swarm/reconnection.ts computeInitialTeamContext).
+    if (auto initial_team = cc::utils::compute_initial_team_context_from_env()) {
+        if (!initial_team->is_leader) {
+            // Persist into the dynamic-context slot so teammate paths and
+            // mailbox/inbox pollers see one identity source.
+            cc::utils::DynamicTeamContext dyn{};
+            dyn.team_name = initial_team->team_name;
+            dyn.agent_name = initial_team->self_agent_name;
+            dyn.agent_id = initial_team->self_agent_id.value_or("");
+            cc::utils::set_dynamic_team_context(std::move(dyn));
+        }
+        // Leader case: no dynamic worker context; the first teammate spawn
+        // re-attaches to the existing claude-swarm/swarm-view from live tmux
+        // state in TmuxBackend::create_pane_external (no cached flag).
+    }
 
     if (opts.list_runtime_commands) {
         auto cmd_registry = cc::commands::AppCommandRegistry{};

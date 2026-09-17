@@ -27,5 +27,7 @@ void register_all_dialog_renderers(
     cc::ui::dialogs::system::DialogRendererRegistry& registry);
 void register_hooks_dialog_renderer(
     cc::ui::dialogs::system::DialogRendererRegistry& registry);
+void register_teams_dialog_renderer(
+    cc::ui::dialogs::system::DialogRendererRegistry& registry);
 
 }  // namespace cc::ui::app_dialogs

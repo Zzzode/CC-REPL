@@ -47,6 +47,7 @@ import cc.tools.tool;
 import cc.utils.session_storage;
 import cc.utils.parse_references;
 import cc.utils.team_helpers;
+import cc.utils.swarm_helpers;
 import cc.constants.constants;
 import cc.ui.design.tokens;
 import cc.ui.design.figures;
@@ -61,6 +62,7 @@ import cc.ui.messages.user_text_message;
 import cc.ui.messages.assistant_text_message;
 import cc.ui.common.declared_cursor;
 import cc.ui.autocomplete_sources;
+import cc.ui.teams.live_teammates;
 
 namespace {
 namespace fs = std::filesystem;
@@ -5523,4 +5525,174 @@ TEST(AppRuntime, TeammateInboxPollDeliversTasksAndFiltersControl) {
 
     fs::remove_all(runtime_dir);
     fs::remove_all(storage_root);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Live teams UI (stage C): live teammate strip + TeamsView modal + /teams.
+// ═══════════════════════════════════════════════════════════════════════════
+
+TEST(LiveTeamsUi, StripRendersNameStatusAndTail) {
+    namespace repl = cc::ui::repl_screen;
+    namespace live = cc::ui::teams::live;
+
+    repl::ReplScreenState s;
+    s.app_version = "9.9.9";
+    s.model_display_name = "M";
+    s.cwd = "/tmp/x";
+
+    live::LiveTeammate a;
+    a.agent_id = "a1";
+    a.name = "alice";
+    a.color = "cyan";
+    a.status = "running";
+    a.last_output_tail = "BUILD TARGET widgets OK";
+    a.pane_id = "%3";
+
+    live::LiveTeammate b;
+    b.agent_id = "a2";
+    b.name = "bob";
+    b.color = "red";
+    b.status = "idle";
+    b.last_output_tail = "waiting for review";
+    b.pane_id = "%4";
+
+    s.live_teammates = {a, b};
+    s.teammate_count = 2;
+
+    const auto txt = strip_ansi(
+        render_to_plain_text(repl::RenderReplScreen(s), 140, 40));
+    EXPECT_NE(txt.find("alice"), std::string::npos);
+    EXPECT_NE(txt.find("running"), std::string::npos);
+    EXPECT_NE(txt.find("BUILD TARGET widgets OK"), std::string::npos);
+    EXPECT_NE(txt.find("bob"), std::string::npos);
+    EXPECT_NE(txt.find("idle"), std::string::npos);
+    // Footer pill (prompt_input_footer ModeIndicator label "N teams").
+    EXPECT_NE(txt.find("2 teams"), std::string::npos);
+
+    repl::ReplScreenState empty;
+    empty.cwd = "/tmp/x";
+    const auto none = strip_ansi(
+        render_to_plain_text(repl::RenderReplScreen(empty), 140, 40));
+    EXPECT_EQ(none.find("@alice"), std::string::npos);
+    EXPECT_EQ(none.find("teams"), std::string::npos);
+}
+
+TEST(LiveTeamsUi, SlashTeamsOpensOverviewModal) {
+    cc::core::ToolRegistry tools;
+    cc::core::QueryEngineConfig config;
+    config.context_window.auto_compact = false;
+    config.cwd = fs::temp_directory_path().string();
+    cc::core::QueryEngine engine(std::move(config), tools);
+    cc::commands::AppCommandRegistry commands;
+    const auto storage_root = fs::temp_directory_path() /
+        ("cc_repl_teams_modal_" +
+         std::to_string(std::chrono::steady_clock::now()
+                            .time_since_epoch().count()));
+    cc::utils::SessionStorage storage(storage_root);
+    auto app = ftxui::Make<cc::ui::AppAdapter>(
+        &engine, nullptr, &commands, &storage, [] {});
+
+    namespace live = cc::ui::teams::live;
+    live::LiveTeammate a;
+    a.agent_id = "a1";
+    a.name = "alice";
+    a.color = "cyan";
+    a.status = "running";
+    a.last_output_tail = "TAIL-MARKER-42";
+    a.pane_id = "%3";
+    app->set_live_teammates_for_testing({a});
+    ASSERT_EQ(app->teams_overview_count_for_testing(), 1);
+
+    app->handle_submit_for_testing("/teams");
+    ASSERT_TRUE(app->teams_overview_open_for_testing());
+
+    const auto txt = strip_ansi(
+        render_to_plain_text(app->Render(), 140, 40));
+    EXPECT_NE(txt.find("alice"), std::string::npos);
+    EXPECT_NE(txt.find("TAIL-MARKER-42"), std::string::npos);
+    EXPECT_NE(txt.find("Esc close"), std::string::npos);
+
+    // Unhandled Escape falls through to DispatchDialogQueueEvents' modal
+    // fallback, which pops the stack.
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::Escape));
+    EXPECT_FALSE(app->teams_overview_open_for_testing());
+
+    app.reset();
+    std::error_code ec;
+    fs::remove_all(storage_root, ec);
+}
+
+// Leader-side: a queued stage-A permission_request surfaces through the
+// existing ToolPermission overlay; approving replies via PermissionSync into
+// the worker mailbox (no second dialog path).
+TEST(LiveTeamsUi, TeammatePermissionRequestRoutesThroughToolPermission) {
+    namespace sh = cc::utils::swarm_helpers;
+
+    const auto runtime_dir = fs::temp_directory_path() /
+        ("cc_repl_teams_perm_" +
+         std::to_string(std::chrono::steady_clock::now()
+                            .time_since_epoch().count()));
+    fs::remove_all(runtime_dir);
+    ScopedEnvVar runtime_guard("CC_REPL_TEAM_RUNTIME_DIR");
+    runtime_guard.set(runtime_dir.string());
+    ScopedEnvVar team_guard("CC_REPL_TEAM_NAME");
+    team_guard.set("alpha");
+    ScopedEnvVar agent_guard("CC_REPL_AGENT_NAME");
+    agent_guard.unset();  // this process is the LEADER, not a pane teammate
+
+    cc::core::ToolRegistry tools;
+    cc::core::QueryEngineConfig config;
+    config.context_window.auto_compact = false;
+    config.cwd = fs::temp_directory_path().string();
+    auto engine = std::make_unique<cc::core::QueryEngine>(std::move(config), tools);
+    auto commands = std::make_unique<cc::commands::AppCommandRegistry>();
+    const auto storage_root = fs::temp_directory_path() /
+        ("cc_repl_teams_perm_storage_" +
+         std::to_string(std::chrono::steady_clock::now()
+                            .time_since_epoch().count()));
+    auto storage = std::make_unique<cc::utils::SessionStorage>(storage_root);
+    auto app = ftxui::Make<cc::ui::AppAdapter>(
+        engine.get(), nullptr, commands.get(), storage.get(), [] {});
+
+    sh::SwarmPermissionRequestMessage request;
+    request.type = "permission_request";
+    request.request_id = sh::PermissionSync::generate_request_id();
+    request.agent_id = "worker-a";
+    request.tool_name = "Bash";
+    request.tool_use_id = "toolu_perm_1";
+    request.description = R"({"command":"rm -rf build"})";
+    request.input_json = R"({"command":"rm -rf build"})";
+    app->enqueue_teammate_permission_for_testing(request, "alpha");
+
+    // The queued request drains on the next Custom event into the existing
+    // ToolPermission overlay (Band3), and the event is consumed like the
+    // pane-teammate prompt drain.
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::Custom));
+    EXPECT_TRUE(app->has_pending_dialog_for_testing());
+
+    // Render surfaces the worker identity + tool name in the dialog.
+    const auto txt = strip_ansi(
+        render_to_plain_text(app->Render(), 140, 40));
+    EXPECT_NE(txt.find("worker-a"), std::string::npos);
+    EXPECT_NE(txt.find("Bash"), std::string::npos);
+
+    // Approve ('y'): the stage-A success response is written to the worker's
+    // mailbox and the overlay is dismissed.
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::Character('y')));
+    EXPECT_EQ(app->pending_teammate_permission_count_for_testing(), 0u);
+
+    auto worker_inbox = cc::utils::read_inbox(
+        "worker-a", std::optional<std::string_view>{"alpha"});
+    ASSERT_TRUE(worker_inbox.has_value()) << worker_inbox.error();
+    ASSERT_EQ(worker_inbox->size(), 1u);
+    const auto response =
+        sh::PermissionSync::parse_response((*worker_inbox)[0].text);
+    ASSERT_TRUE(response.has_value());
+    EXPECT_EQ(response->subtype, "success");
+    EXPECT_EQ(response->request_id, request.request_id);
+
+    app.reset();
+    std::error_code ec;
+    fs::remove_all(runtime_dir, ec);
+    fs::remove_all(storage_root, ec);
 }

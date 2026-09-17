@@ -5,23 +5,30 @@
 //         permissionSync.ts, reconnection.ts, constants.ts
 module;
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <random>
 #include <set>
 #include <string>
 #include <string_view>
+#include <thread>
+#include <unordered_set>
 #include <vector>
 
 export module cc.utils.swarm_helpers;
 
 import cc.utils.swarm_backends;
+import cc.utils.team_helpers;
+import cc.utils.json;
 
 export namespace cc::utils::swarm_helpers {
 
@@ -509,50 +516,101 @@ private:
 // ============================================================================
 // PermissionSync — Synchronized permission prompts (from permissionSync.ts)
 // ============================================================================
+//
+// Protocol shape is frozen to match the live TypeScript mailbox path
+// (src/utils/teammateMailbox.ts createPermissionRequestMessage/
+// createPermissionResponseMessage and src/utils/swarm/permissionSync.ts
+// sendPermissionRequestViaMailbox/sendPermissionResponseViaMailbox).
+// The older TS pending/resolved DIRECTORY protocol (~/.claude/teams/<t>/
+// permissions/{pending,resolved}) is deliberately not ported: request payloads
+// live only as the "text" envelope of messages in the existing mailbox tree
+// ($CC_REPL_TEAM_RUNTIME_DIR/<sanitized team>/inboxes/<agent>.json).
+//
+// TODO(teams): sandbox_permission_request/response (permissionSync.ts:805-928)
+// and plan_approval_request/response (teammateMailbox.ts:684-711) variants are
+// deferred — no C++ worker-side sandbox network broker/plan gate emits them
+// yet; those messages use the same inbox envelope when added.
 
-/// Permission request from a worker to the leader
-struct SwarmPermissionRequest {
-    std::string id;                 ///< Unique request identifier
-    std::string worker_id;          ///< Worker's agent ID
-    std::string worker_name;        ///< Worker's display name
-    std::optional<std::string> worker_color;
-    std::string team_name;
-    std::string tool_name;          ///< Tool requesting permission
-    std::optional<std::string> tool_input; ///< JSON serialized tool input
-    std::optional<std::string> rule_content; ///< Matched rule content
-    int64_t timestamp = 0;
+/// Permission request message envelope (worker -> leader).
+/// Field names match the SDK `can_use_tool` snake_case shape.
+struct SwarmPermissionRequestMessage {
+    std::string type;        ///< Always "permission_request"
+    std::string request_id;
+    std::string agent_id;    ///< Worker NAME (mailbox routing uses names)
+    std::string tool_name;
+    std::string tool_use_id;
+    std::string description;
+    std::string input_json;  ///< Verbatim JSON object text for "input"
 };
 
-/// Permission response from leader to worker
-struct SwarmPermissionResponse {
-    std::string request_id;         ///< Matches the request ID
-    bool approved = false;
-    std::optional<std::string> reason;
-    int64_t timestamp = 0;
+/// Permission response message envelope (leader -> worker).
+struct SwarmPermissionResponseMessage {
+    std::string type;  ///< Always "permission_response"
+    std::string request_id;
+    std::string subtype;  ///< "success" | "error"
+    std::optional<std::string> error;
+    std::optional<std::string> updated_input_json;
 };
 
-/// Manages synchronized permission prompts across agents in a swarm.
-/// Workers send requests to leader's mailbox; leader responds via worker's mailbox.
+/// Static worker/leader entry points for the mailbox permission protocol.
+/// All methods are free-of-instance state apart from a process-local consumed
+/// response registry; stage C (leader TUI) calls the request parser and
+/// send_response_to_worker, while the worker tool-permission hook calls
+/// request_and_await on its query thread.
 class PermissionSync {
 public:
-    /// Send a permission request to the team leader
-    static void send_request(const SwarmPermissionRequest& request);
+    /// "perm-<unixms>-<7 base36 chars>" (permissionSync.ts generateRequestId).
+    [[nodiscard]] static std::string generate_request_id();
 
-    /// Send a permission response to a worker
-    static void send_response(const SwarmPermissionResponse& response,
-                              std::string_view worker_name,
-                              std::string_view team_name);
+    /// Serialize a request to the exact JSON text stored in the mailbox
+    /// envelope. The input object is embedded verbatim (brace-checked with a
+    /// {} fallback); the engine already produced it as parsed tool_use JSON.
+    [[nodiscard]] static std::string build_request_text(
+        const SwarmPermissionRequestMessage& request);
 
-    /// Check for pending permission responses in worker's mailbox
-    [[nodiscard]] static std::optional<SwarmPermissionResponse> poll_response(
-        std::string_view request_id, std::string_view agent_name,
+    /// Serialize a response: success -> {"response":{}}, error -> {"error":...}.
+    [[nodiscard]] static std::string build_response_text(
+        const SwarmPermissionResponseMessage& response);
+
+    /// Parse a request envelope; nullopt on type mismatch/missing request_id.
+    [[nodiscard]] static std::optional<SwarmPermissionRequestMessage> parse_request(
+        std::string_view text);
+
+    /// Parse a response envelope; nullopt on type mismatch/missing request_id.
+    [[nodiscard]] static std::optional<SwarmPermissionResponseMessage> parse_response(
+        std::string_view text);
+
+    /// Worker -> leader mailbox ("team-lead"). Returns false on write failure.
+    static bool send_request_to_leader(
+        const SwarmPermissionRequestMessage& request,
         std::string_view team_name);
 
-    /// Get the permission sync directory for a team
-    [[nodiscard]] static fs::path get_sync_dir(std::string_view team_name);
+    /// Leader -> worker mailbox; envelope from is "team-lead".
+    static bool send_response_to_worker(
+        std::string_view worker_name,
+        const SwarmPermissionResponseMessage& response,
+        std::string_view team_name);
 
-private:
-    static inline std::mutex mutex_;
+    /// One non-blocking scan of the worker's own inbox. Consumes (removes) the
+    /// matching response exactly once, accepting both read and unread messages
+    /// because the general 1.5s inbox worker may mark them read first.
+    [[nodiscard]] static std::optional<SwarmPermissionResponseMessage> poll_response(
+        std::string_view worker_name,
+        std::string_view team_name,
+        std::string_view request_id);
+
+    /// Blocking worker entry point (runs on the query/tool thread). Times out
+    /// to a DENY (nullopt): TS waits forever, but a headless port must fail
+    /// closed instead of wedging a worker on an unattended leader. Tune with
+    /// CC_REPL_PERMISSION_TIMEOUT_MS (default 300000ms).
+    [[nodiscard]] static std::optional<SwarmPermissionResponseMessage> request_and_await(
+        const SwarmPermissionRequestMessage& request,
+        std::string_view team_name,
+        std::chrono::milliseconds timeout = default_timeout(),
+        std::chrono::milliseconds poll_interval = std::chrono::milliseconds(250));
+
+    /// Env CC_REPL_PERMISSION_TIMEOUT_MS, else 300000ms (fail-closed default).
+    [[nodiscard]] static std::chrono::milliseconds default_timeout();
 };
 
 // ============================================================================
@@ -648,5 +706,321 @@ std::string SpawnUtils::build_inherited_cli_flags(const InheritedFlagsOptions& o
 }
 
 std::string SpawnUtils::build_inherited_env_vars() { return {}; }
+
+// ── PermissionSync mailbox protocol implementation ─────────────────────────
+
+namespace permission_detail {
+
+/// Same escaping switch as team_helpers detail::mailbox_json_escape; kept
+/// local so this protocol module does not couple to that detail namespace.
+[[nodiscard]] inline std::string json_quote(std::string_view value) {
+    std::string out;
+    out.reserve(value.size() + 8);
+    static const char* hex = "0123456789abcdef";
+    for (unsigned char ch : value) {
+        switch (ch) {
+            case '\\': out += R"(\\)"; break;
+            case '"': out += R"(\")"; break;
+            case '\n': out += R"(\n)"; break;
+            case '\r': out += R"(\r)"; break;
+            case '\t': out += R"(\t)"; break;
+            case '\b': out += R"(\b)"; break;
+            case '\f': out += R"(\f)"; break;
+            default:
+                // Escape every other C0 control byte so a tool-generated
+                // description can't emit invalid JSON that bricks the inbox.
+                if (ch < 0x20) {
+                    out += R"(\u00)";
+                    out.push_back(hex[(ch >> 4) & 0x0F]);
+                    out.push_back(hex[ch & 0x0F]);
+                } else {
+                    out.push_back(static_cast<char>(ch));
+                }
+                break;
+        }
+    }
+    return out;
+}
+
+[[nodiscard]] inline std::string unix_millis_now() {
+    const auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    return std::to_string(millis);
+}
+
+/// A usable tool input must be a JSON object. The engine hands us the model's
+/// already-parsed tool_use JSON, so a brace check is sufficient; anything
+/// suspicious is replaced with an empty object rather than re-serialized.
+[[nodiscard]] inline std::string normalize_input_json(const std::string& input) {
+    const auto first = input.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos) return "{}";
+    const auto last = input.find_last_not_of(" \t\r\n");
+    if (input[first] != '{' || input[last] != '}') return "{}";
+    return input;
+}
+
+/// Rewrite an inbox with one exact-text message removed (TS legacy
+/// removeWorkerResponse semantics: the blocking waiter deletes the response it
+/// consumed so a slow later poll can never redeliver it). Mirrors the
+/// read/rewrite pattern of cc::utils::mark_all_read; the envelope serializer
+/// is replicated here because team_helpers' detail::write_messages is not
+/// exported from that module.
+inline bool remove_mailbox_message_by_text(
+    std::string_view worker_name,
+    std::string_view team_name,
+    std::string_view exact_text
+) {
+    // Share the inbox RMW lock with write_to_mailbox/mark_all_read so the
+    // worker's response consumption cannot race the poller's mark-all-read.
+    std::lock_guard<std::mutex> lock(cc::utils::teammate_inbox_mutex());
+    auto messages = cc::utils::read_inbox(worker_name, team_name);
+    if (!messages) return false;
+    const auto before = messages->size();
+    std::erase_if(*messages, [&](const cc::utils::TeammateMessage& message) {
+        return message.text == exact_text;
+    });
+    if (messages->size() == before) return false;
+
+    const auto inbox_path =
+        fs::path{cc::utils::get_inbox_path(worker_name, team_name)};
+    std::error_code ec;
+    fs::create_directories(inbox_path.parent_path(), ec);
+    if (ec) return false;
+    std::ofstream out(inbox_path, std::ios::trunc);
+    if (!out) return false;
+    out << '[';
+    for (std::size_t i = 0; i < messages->size(); ++i) {
+        const auto& message = (*messages)[i];
+        if (i != 0) out << ',';
+        out << R"({"from":")" << json_quote(message.from)
+            << R"(","text":")" << json_quote(message.text)
+            << R"(","timestamp":")" << json_quote(message.timestamp)
+            << R"(","read":)" << (message.read ? "true" : "false");
+        if (message.color) {
+            out << R"(,"color":")" << json_quote(*message.color) << '"';
+        }
+        if (message.summary) {
+            out << R"(,"summary":")" << json_quote(*message.summary) << '"';
+        }
+        out << '}';
+    }
+    out << ']';
+    return out.good();
+}
+
+} // namespace permission_detail
+
+inline std::string PermissionSync::generate_request_id() {
+    static constexpr std::string_view alphabet =
+        "abcdefghijklmnopqrstuvwxyz0123456789";
+    thread_local std::mt19937 rng(static_cast<uint32_t>(
+        std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::string suffix(7, 'a');
+    for (char& ch : suffix) {
+        ch = alphabet[static_cast<std::size_t>(rng()) % alphabet.size()];
+    }
+    return "perm-" + permission_detail::unix_millis_now() + "-" + suffix;
+}
+
+inline std::string PermissionSync::build_request_text(
+    const SwarmPermissionRequestMessage& request
+) {
+    std::string text;
+    text += "{\"type\":\"permission_request\",\"request_id\":\"";
+    text += permission_detail::json_quote(request.request_id);
+    text += "\",\"agent_id\":\"";
+    text += permission_detail::json_quote(request.agent_id);
+    text += "\",\"tool_name\":\"";
+    text += permission_detail::json_quote(request.tool_name);
+    text += "\",\"tool_use_id\":\"";
+    text += permission_detail::json_quote(request.tool_use_id);
+    text += "\",\"description\":\"";
+    text += permission_detail::json_quote(request.description);
+    text += "\",\"input\":";
+    text += permission_detail::normalize_input_json(request.input_json);
+    text += ",\"permission_suggestions\":[]}";
+    return text;
+}
+
+inline std::string PermissionSync::build_response_text(
+    const SwarmPermissionResponseMessage& response
+) {
+    std::string text = "{\"type\":\"permission_response\",\"request_id\":\"";
+    text += permission_detail::json_quote(response.request_id);
+    text += "\",\"subtype\":\"";
+    text += permission_detail::json_quote(response.subtype);
+    text += '"';
+    if (response.subtype == "error") {
+        text += ",\"error\":\"";
+        text += permission_detail::json_quote(
+            response.error.value_or("Permission denied"));
+        text += '"';
+    } else {
+        text += ",\"response\":{";
+        // The generic C++ dialog never edits input, so this is normally
+        // omitted (JSON.stringify drops undefined in TS); serialize it only
+        // when a caller explicitly supplies a replacement object.
+        if (response.updated_input_json) {
+            text += "\"updated_input\":";
+            text += permission_detail::normalize_input_json(*response.updated_input_json);
+        }
+        text += '}';
+    }
+    text += '}';
+    return text;
+}
+
+inline std::optional<SwarmPermissionRequestMessage> PermissionSync::parse_request(
+    std::string_view text
+) {
+    auto parsed = cc::utils::json::parse(text);
+    if (!parsed.has_value()) return std::nullopt;
+    const auto root = parsed->root();
+    if (!root.is_obj() || root.get_string("type") != "permission_request") {
+        return std::nullopt;
+    }
+    const std::string request_id = root.get_string("request_id");
+    if (request_id.empty()) return std::nullopt;
+
+    SwarmPermissionRequestMessage request;
+    request.type = "permission_request";
+    request.request_id = request_id;
+    request.agent_id = root.get_string("agent_id");
+    request.tool_name = root.get_string("tool_name");
+    request.tool_use_id = root.get_string("tool_use_id");
+    request.description = root.get_string("description");
+    const auto input = root.get("input");
+    request.input_json = input.is_obj() ? input.to_string() : std::string{"{}"};
+    return request;
+}
+
+inline std::optional<SwarmPermissionResponseMessage> PermissionSync::parse_response(
+    std::string_view text
+) {
+    auto parsed = cc::utils::json::parse(text);
+    if (!parsed.has_value()) return std::nullopt;
+    const auto root = parsed->root();
+    if (!root.is_obj() || root.get_string("type") != "permission_response") {
+        return std::nullopt;
+    }
+    const std::string request_id = root.get_string("request_id");
+    if (request_id.empty()) return std::nullopt;
+    const std::string subtype = root.get_string("subtype");
+    if (subtype != "success" && subtype != "error") return std::nullopt;
+
+    SwarmPermissionResponseMessage response;
+    response.type = "permission_response";
+    response.request_id = request_id;
+    response.subtype = subtype;
+    if (subtype == "error") {
+        const auto error = root.get("error");
+        if (error.is_str()) response.error = std::string(error.as_str());
+    } else {
+        if (const auto body = root.get_object("response")) {
+            const auto updated_input = body->get("updated_input");
+            if (updated_input.is_obj()) {
+                response.updated_input_json = updated_input.to_string();
+            }
+        }
+    }
+    return response;
+}
+
+inline bool PermissionSync::send_request_to_leader(
+    const SwarmPermissionRequestMessage& request,
+    std::string_view team_name
+) {
+    cc::utils::TeammateMessage message;
+    message.from = request.agent_id;
+    message.text = build_request_text(request);
+    message.timestamp = permission_detail::unix_millis_now();
+    return cc::utils::write_to_mailbox(
+        TEAM_LEAD_NAME, std::move(message), team_name).has_value();
+}
+
+inline bool PermissionSync::send_response_to_worker(
+    std::string_view worker_name,
+    const SwarmPermissionResponseMessage& response,
+    std::string_view team_name
+) {
+    cc::utils::TeammateMessage message;
+    message.from = std::string(TEAM_LEAD_NAME);
+    message.text = build_response_text(response);
+    message.timestamp = permission_detail::unix_millis_now();
+    return cc::utils::write_to_mailbox(
+        worker_name, std::move(message), team_name).has_value();
+}
+
+inline std::optional<SwarmPermissionResponseMessage> PermissionSync::poll_response(
+    std::string_view worker_name,
+    std::string_view team_name,
+    std::string_view request_id
+) {
+    auto messages = cc::utils::read_inbox(worker_name, team_name);
+    if (!messages) return std::nullopt;
+
+    // Process-local consumed registry; keyed by team so request ids never
+    // collide across teams. Accepts read OR unread messages because the
+    // general 1.5s inbox poller may have marked the response read first.
+    static std::mutex consumed_mutex;
+    static std::unordered_set<std::string> consumed;
+    const std::string key =
+        std::string(team_name) + "/" + std::string(request_id);
+
+    std::optional<SwarmPermissionResponseMessage> found;
+    std::string found_text;
+    {
+        std::lock_guard lock(consumed_mutex);
+        if (consumed.find(key) != consumed.end()) return std::nullopt;
+        for (const auto& message : *messages) {
+            auto parsed = parse_response(message.text);
+            if (!parsed || parsed->request_id != request_id) continue;
+            consumed.insert(key);
+            found = std::move(parsed);
+            found_text = message.text;
+            break;
+        }
+    }
+    if (!found) return std::nullopt;
+
+    // Delete the consumed envelope independently of the general inbox worker.
+    permission_detail::remove_mailbox_message_by_text(
+        worker_name, team_name, found_text);
+    return found;
+}
+
+inline std::optional<SwarmPermissionResponseMessage> PermissionSync::request_and_await(
+    const SwarmPermissionRequestMessage& request,
+    std::string_view team_name,
+    std::chrono::milliseconds timeout,
+    std::chrono::milliseconds poll_interval
+) {
+    // Deliver the request envelope before entering the deadline loop; a
+    // mailbox write failure denies immediately (fail closed).
+    if (!send_request_to_leader(request, team_name)) return std::nullopt;
+
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (std::chrono::steady_clock::now() < deadline) {
+        if (auto response = poll_response(
+                request.agent_id, team_name, request.request_id)) {
+            return response;
+        }
+        std::this_thread::sleep_for(poll_interval);
+    }
+    return std::nullopt;
+}
+
+inline std::chrono::milliseconds PermissionSync::default_timeout() {
+    if (const char* value = std::getenv("CC_REPL_PERMISSION_TIMEOUT_MS");
+        value && *value) {
+        // NOLINTNEXTLINE(concurrency-mt-unsafe) — single-threaded env at start
+        char* end = nullptr;
+        const unsigned long long parsed = std::strtoull(value, &end, 10);
+        if (end != value && parsed > 0) {
+            return std::chrono::milliseconds(parsed);
+        }
+    }
+    return std::chrono::milliseconds(300000);
+}
 
 } // namespace cc::utils::swarm_helpers

@@ -67,6 +67,7 @@ import cc.utils.json;
 import cc.utils.tool_deny_rules;
 import cc.query.query_engine;
 import cc.utils.swarm_backends;
+import cc.utils.swarm_helpers;
 import cc.utils.team_helpers;
 import cc.utils.teleport_utils;
 import cc.hooks.tool_permissions;
@@ -12423,3 +12424,503 @@ TEST(SwarmBackends, SpawnDeliversInitialPromptToMailbox) {
 }
 
 }  // namespace cc_repl_pane_cleanup_test
+
+// ============================================================================
+// PermissionSync mailbox protocol (stage A: protocol only, no TUI wiring)
+// ============================================================================
+
+namespace {
+
+namespace sh = cc::utils::swarm_helpers;
+
+struct PermissionRuntimeGuard {
+    fs::path dir;
+    EnvironmentGuard team_dir;
+
+    PermissionRuntimeGuard()
+        : dir(fs::temp_directory_path() /
+              ("cc_repl_perm_sync_" +
+               std::to_string(std::chrono::steady_clock::now()
+                                  .time_since_epoch().count()))),
+          team_dir("CC_REPL_TEAM_RUNTIME_DIR", dir.string()) {
+        fs::remove_all(dir);
+    }
+
+    ~PermissionRuntimeGuard() { fs::remove_all(dir); }
+};
+
+sh::SwarmPermissionRequestMessage make_permission_request() {
+    return sh::SwarmPermissionRequestMessage{
+        .type = "permission_request",
+        .request_id = sh::PermissionSync::generate_request_id(),
+        .agent_id = "worker-a",
+        .tool_name = "Bash",
+        .tool_use_id = "toolu_123",
+        .description = R"({"command":"ls"})",
+        .input_json = R"({"command":"ls"})",
+    };
+}
+
+}  // namespace
+
+TEST(SwarmPermissionSync, RequestLandsInLeaderMailbox) {
+    PermissionRuntimeGuard guard;
+    auto request = make_permission_request();
+
+    ASSERT_TRUE(sh::PermissionSync::send_request_to_leader(request, "alpha"));
+
+    auto inbox = cc::utils::read_inbox(
+        "team-lead", std::optional<std::string_view>{"alpha"});
+    ASSERT_TRUE(inbox.has_value()) << inbox.error();
+    ASSERT_EQ(inbox->size(), 1u);
+    EXPECT_EQ((*inbox)[0].from, "worker-a");
+
+    // Verbatim input object is embedded in the frozen JSON shape.
+    const std::string& text = (*inbox)[0].text;
+    EXPECT_NE(text.find("\"type\":\"permission_request\""), std::string::npos);
+    EXPECT_NE(text.find(R"("input":{"command":"ls"})"), std::string::npos);
+    EXPECT_NE(text.find("\"permission_suggestions\":[]"), std::string::npos);
+
+    auto parsed = sh::PermissionSync::parse_request(text);
+    ASSERT_TRUE(parsed.has_value());
+    EXPECT_EQ(parsed->type, "permission_request");
+    EXPECT_EQ(parsed->request_id, request.request_id);
+    EXPECT_EQ(parsed->agent_id, "worker-a");
+    EXPECT_EQ(parsed->tool_name, "Bash");
+    EXPECT_EQ(parsed->tool_use_id, "toolu_123");
+    EXPECT_EQ(parsed->description, R"({"command":"ls"})");
+    EXPECT_EQ(parsed->input_json, R"({"command":"ls"})");
+
+    // Request id format: perm-<unixms>-<7 base36 chars>.
+    EXPECT_EQ(request.request_id.rfind("perm-", 0), 0u);
+    const auto last_dash = request.request_id.rfind('-');
+    ASSERT_NE(last_dash, std::string::npos);
+    EXPECT_EQ(request.request_id.size() - last_dash - 1, 7u);
+
+    // Non-object input falls back to {}.
+    auto malformed = request;
+    malformed.input_json = "not-json";
+    const auto built = sh::PermissionSync::build_request_text(malformed);
+    EXPECT_NE(built.find("\"input\":{}"), std::string::npos);
+
+    // Unrelated text is not a request.
+    EXPECT_FALSE(sh::PermissionSync::parse_request("hello team").has_value());
+    EXPECT_FALSE(
+        sh::PermissionSync::parse_request(R"({"type":"task"})").has_value());
+}
+
+TEST(SwarmPermissionSync, ApprovedRoundTrip) {
+    using namespace std::chrono_literals;
+    PermissionRuntimeGuard guard;
+    auto request = make_permission_request();
+
+    std::optional<sh::SwarmPermissionResponseMessage> received;
+    std::thread waiter([&] {
+        received = sh::PermissionSync::request_and_await(
+            request, "alpha", 5s, 50ms);
+    });
+
+    // Leader side: read the request and approve it.
+    std::this_thread::sleep_for(100ms);
+    auto leader_inbox = cc::utils::read_inbox(
+        "team-lead", std::optional<std::string_view>{"alpha"});
+    ASSERT_TRUE(leader_inbox.has_value());
+    ASSERT_EQ(leader_inbox->size(), 1u);
+    auto incoming = sh::PermissionSync::parse_request((*leader_inbox)[0].text);
+    ASSERT_TRUE(incoming.has_value());
+
+    sh::SwarmPermissionResponseMessage response;
+    response.type = "permission_response";
+    response.request_id = incoming->request_id;
+    response.subtype = "success";
+    ASSERT_TRUE(sh::PermissionSync::send_response_to_worker(
+        "worker-a", response, "alpha"));
+
+    waiter.join();
+    ASSERT_TRUE(received.has_value());
+    EXPECT_EQ(received->type, "permission_response");
+    EXPECT_EQ(received->subtype, "success");
+    EXPECT_FALSE(received->error.has_value());
+
+    // Remove-on-consume: the response envelope is gone from the worker inbox.
+    auto worker_inbox = cc::utils::read_inbox(
+        "worker-a", std::optional<std::string_view>{"alpha"});
+    ASSERT_TRUE(worker_inbox.has_value());
+    EXPECT_TRUE(worker_inbox->empty());
+}
+
+TEST(SwarmPermissionSync, DeniedRoundTrip) {
+    using namespace std::chrono_literals;
+    PermissionRuntimeGuard guard;
+    auto request = make_permission_request();
+
+    std::optional<sh::SwarmPermissionResponseMessage> received;
+    std::thread waiter([&] {
+        received = sh::PermissionSync::request_and_await(
+            request, "alpha", 5s, 50ms);
+    });
+
+    std::this_thread::sleep_for(100ms);
+    sh::SwarmPermissionResponseMessage response;
+    response.type = "permission_response";
+    response.request_id = request.request_id;
+    response.subtype = "error";
+    response.error = "Permission denied by team lead";
+    ASSERT_TRUE(sh::PermissionSync::send_response_to_worker(
+        "worker-a", response, "alpha"));
+
+    waiter.join();
+    ASSERT_TRUE(received.has_value());
+    EXPECT_EQ(received->subtype, "error");
+    ASSERT_TRUE(received->error.has_value());
+    EXPECT_EQ(*received->error, "Permission denied by team lead");
+
+    // The frozen error JSON shape round-trips through the parser.
+    const auto text = sh::PermissionSync::build_response_text(response);
+    EXPECT_NE(text.find("\"type\":\"permission_response\""), std::string::npos);
+    EXPECT_NE(text.find("\"subtype\":\"error\""), std::string::npos);
+    auto reparsed = sh::PermissionSync::parse_response(text);
+    ASSERT_TRUE(reparsed.has_value());
+    EXPECT_EQ(reparsed->subtype, "error");
+    EXPECT_EQ(reparsed->error, "Permission denied by team lead");
+}
+
+TEST(SwarmPermissionSync, TimeoutReturnsNullopt) {
+    using namespace std::chrono_literals;
+    PermissionRuntimeGuard guard;
+    auto request = make_permission_request();
+
+    const auto start = std::chrono::steady_clock::now();
+    auto received = sh::PermissionSync::request_and_await(
+        request, "alpha", 150ms, 30ms);
+    const auto elapsed = std::chrono::steady_clock::now() - start;
+
+    EXPECT_FALSE(received.has_value());  // fail closed
+    EXPECT_GE(elapsed, 140ms);
+    EXPECT_LT(elapsed, 1000ms);
+}
+
+TEST(SwarmPermissionSync, IdempotentConsume) {
+    PermissionRuntimeGuard guard;
+    auto request = make_permission_request();
+
+    // Pre-seed the worker inbox with two identical responses (the leader
+    // retried, or a slow poll raced a resend).
+    sh::SwarmPermissionResponseMessage response;
+    response.type = "permission_response";
+    response.request_id = request.request_id;
+    response.subtype = "success";
+    ASSERT_TRUE(sh::PermissionSync::send_response_to_worker(
+        "worker-a", response, "alpha"));
+    ASSERT_TRUE(sh::PermissionSync::send_response_to_worker(
+        "worker-a", response, "alpha"));
+
+    auto first = sh::PermissionSync::poll_response(
+        "worker-a", "alpha", request.request_id);
+    ASSERT_TRUE(first.has_value());
+    EXPECT_EQ(first->subtype, "success");
+
+    auto second = sh::PermissionSync::poll_response(
+        "worker-a", "alpha", request.request_id);
+    EXPECT_FALSE(second.has_value());
+
+    // Responses for a different request id remain untouched in the inbox...
+    sh::SwarmPermissionResponseMessage other;
+    other.type = "permission_response";
+    other.request_id = request.request_id + "-other";
+    other.subtype = "error";
+    other.error = "nope";
+    ASSERT_TRUE(sh::PermissionSync::send_response_to_worker(
+        "worker-a", other, "alpha"));
+    auto other_poll = sh::PermissionSync::poll_response(
+        "worker-a", "alpha", other.request_id);
+    ASSERT_TRUE(other_poll.has_value());
+    EXPECT_EQ(other_poll->subtype, "error");
+}
+
+// ── Stage D-reconn: canonical team config.json + external tmux re-attach ─────
+
+namespace cc_repl_team_file_test {
+
+using namespace cc::utils;
+
+// Points CC_REPL_TEAM_RUNTIME_DIR at a unique temp directory and removes it on
+// teardown, so config.json tests never touch the real .claude/teams tree.
+struct TeamRuntimeDirGuard {
+    fs::path dir;
+    EnvironmentGuard env;
+
+    TeamRuntimeDirGuard()
+        : dir(fs::temp_directory_path() /
+              ("cc-teamfile-" + std::to_string(static_cast<long long>(getpid())))),
+          env("CC_REPL_TEAM_RUNTIME_DIR", dir.string()) {
+        std::error_code ec;
+        fs::remove_all(dir, ec);
+        fs::create_directories(dir);
+    }
+
+    ~TeamRuntimeDirGuard() {
+        std::error_code ec;
+        fs::remove_all(dir, ec);
+        cc::utils::clear_dynamic_team_context();
+    }
+
+    TeamRuntimeDirGuard(const TeamRuntimeDirGuard&) = delete;
+    TeamRuntimeDirGuard& operator=(const TeamRuntimeDirGuard&) = delete;
+};
+
+TeamFileRecord sample_team_file() {
+    TeamFileRecord file;
+    file.name = "migration-team";
+    file.description = "stage d round trip";
+    file.created_at = 42;
+    file.lead_agent_id = "team-lead@migration-team";
+    file.members = {
+        TeamMemberRecord{
+            .agent_id = "researcher@migration-team",
+            .name = "researcher",
+            .color = std::optional<std::string>{"blue"},
+            .backend = std::optional<std::string>{"tmux"},
+            .tmux_pane_id = "%7",
+            .mode = std::optional<std::string>{"default"},
+            .joined_at = 1,
+            .cwd = "/x",
+            .plan_mode_required = false,
+            .is_active = true,
+            .subscriptions = {},
+        },
+        TeamMemberRecord{
+            .agent_id = "reviewer@migration-team",
+            .name = "reviewer",
+            .color = std::optional<std::string>{"green"},
+            .backend = std::optional<std::string>{"in-process"},
+            .tmux_pane_id = "",
+            .joined_at = 2,
+            .cwd = "/y",
+        },
+    };
+    return file;
+}
+
+TEST(TeamFile, WriteReadRoundTrip) {
+    TeamRuntimeDirGuard guard;
+    auto file = sample_team_file();
+
+    ASSERT_TRUE(write_team_file("migration-team", file));
+    const auto reread = read_team_file("migration-team");
+    ASSERT_TRUE(reread.has_value());
+    EXPECT_EQ(reread->name, "migration-team");
+    EXPECT_EQ(reread->lead_agent_id, "team-lead@migration-team");
+    EXPECT_EQ(reread->created_at, 42);
+    ASSERT_EQ(reread->description.value_or(""), "stage d round trip");
+    ASSERT_EQ(reread->members.size(), 2u);
+    EXPECT_TRUE(reread->hidden_pane_ids.empty());
+
+    const auto& researcher = reread->members[0];
+    EXPECT_EQ(researcher.agent_id, "researcher@migration-team");
+    EXPECT_EQ(researcher.tmux_pane_id, "%7");
+    EXPECT_EQ(researcher.backend.value_or(""), "tmux");
+    EXPECT_EQ(researcher.color.value_or(""), "blue");
+    EXPECT_EQ(researcher.mode.value_or(""), "default");
+    EXPECT_EQ(researcher.cwd, "/x");
+    EXPECT_TRUE(researcher.is_active);
+
+    const auto& reviewer = reread->members[1];
+    EXPECT_EQ(reviewer.backend.value_or(""), "in-process");
+    EXPECT_TRUE(reviewer.tmux_pane_id.empty());
+    EXPECT_EQ(reviewer.color.value_or(""), "green");
+}
+
+TEST(TeamFile, RoleResolution) {
+    TeamRuntimeDirGuard guard;
+    ASSERT_TRUE(write_team_file("migration-team", sample_team_file()));
+
+    const auto path = team_file_path("migration-team");
+    EXPECT_NE(path.rfind("/migration-team/config.json"), std::string::npos);
+
+    // A null/empty agent id is the leader (reconnection.ts:51 isLeader = !agentId).
+    const auto leader =
+        compute_initial_team_context("migration-team", "team-lead", std::nullopt);
+    ASSERT_TRUE(leader.has_value());
+    EXPECT_TRUE(leader->is_leader);
+    EXPECT_FALSE(leader->self_agent_id.has_value());
+    EXPECT_EQ(leader->self_agent_name, "team-lead");
+    EXPECT_EQ(leader->lead_agent_id, "team-lead@migration-team");
+    EXPECT_EQ(leader->team_file_path, path);
+
+    const auto worker = compute_initial_team_context(
+        "migration-team", "researcher",
+        std::optional<std::string_view>{"researcher@migration-team"});
+    ASSERT_TRUE(worker.has_value());
+    EXPECT_FALSE(worker->is_leader);
+    EXPECT_EQ(worker->self_agent_id.value_or(""), "researcher@migration-team");
+    EXPECT_EQ(worker->self_agent_name, "researcher");
+    EXPECT_EQ(worker->lead_agent_id, "team-lead@migration-team");
+
+    // Missing team file and missing identity both resolve to nullopt.
+    EXPECT_FALSE(compute_initial_team_context(
+        "ghost-team", "team-lead", std::nullopt).has_value());
+    EXPECT_FALSE(compute_initial_team_context(
+        "migration-team", "", std::nullopt).has_value());
+    EXPECT_FALSE(compute_initial_team_context(
+        "", "team-lead", std::nullopt).has_value());
+
+    const auto file = read_team_file("migration-team");
+    ASSERT_TRUE(file.has_value());
+    const auto researcher = find_team_member(*file, "researcher");
+    ASSERT_TRUE(researcher.has_value());
+    EXPECT_EQ(researcher->tmux_pane_id, "%7");
+    EXPECT_FALSE(find_team_member(*file, "ghost").has_value());
+}
+
+} // namespace cc_repl_team_file_test
+
+namespace cc_repl_external_reattach_test {
+
+namespace sb = cc::utils::swarm_backends;
+
+TEST(SwarmBackends, ExternalReattachArgvAndPolicy) {
+    namespace detail = sb::detail;
+    using detail::plan_external_swarm_view;
+    using detail::tmux_has_session_argv;
+    using detail::tmux_list_windows_argv;
+    using detail::tmux_new_session_argv;
+    using detail::tmux_new_window_argv;
+    using detail::tmux_list_panes_argv;
+    using detail::tmux_split_window_argv;
+    using sb::detail::ExternalSessionAction;
+
+    const auto has = tmux_has_session_argv("claude-swarm");
+    EXPECT_EQ(has.program, "tmux");
+    EXPECT_EQ(has.args,
+              (std::vector<std::string>{"has-session", "-t", "claude-swarm"}));
+
+    const auto windows = tmux_list_windows_argv("claude-swarm");
+    EXPECT_EQ(windows.args,
+              (std::vector<std::string>{"list-windows", "-t", "claude-swarm",
+                                        "-F", "#{window_name}"}));
+
+    const auto fresh = tmux_new_session_argv("claude-swarm", "swarm-view");
+    EXPECT_EQ(fresh.args,
+              (std::vector<std::string>{"new-session", "-d", "-s",
+                                        "claude-swarm", "-n", "swarm-view",
+                                        "-P", "-F", "#{pane_id}"}));
+
+    const auto window = tmux_new_window_argv("claude-swarm", "swarm-view");
+    EXPECT_NE(std::ranges::find(window.args, "new-window"), window.args.end());
+
+    const auto panes = tmux_list_panes_argv("claude-swarm:swarm-view");
+    EXPECT_EQ(panes.args,
+              (std::vector<std::string>{"list-panes", "-t",
+                                        "claude-swarm:swarm-view", "-F",
+                                        "#{pane_id}"}));
+
+    const auto vertical = tmux_split_window_argv("%9", true);
+    EXPECT_NE(std::ranges::find(vertical.args, "-v"), vertical.args.end());
+    const auto horizontal = tmux_split_window_argv("%9", false);
+    EXPECT_NE(std::ranges::find(horizontal.args, "-h"), horizontal.args.end());
+
+    // join_shell single-quotes every argument for the real shell runner.
+    const auto line = vertical.join_shell();
+    EXPECT_NE(line.find("tmux 'split-window'"), std::string::npos);
+    EXPECT_NE(line.find("'-v'"), std::string::npos);
+    EXPECT_NE(line.find("'%9'"), std::string::npos);
+
+    EXPECT_EQ(plan_external_swarm_view(false, false, 0, false).action,
+              ExternalSessionAction::CreateSession);
+    EXPECT_EQ(plan_external_swarm_view(true, false, 1, false).action,
+              ExternalSessionAction::CreateWindow);
+    EXPECT_EQ(plan_external_swarm_view(true, true, 1, false).action,
+              ExternalSessionAction::ReuseExistingWindow);
+
+    // Fresh window with one unused pane: take pane 0.
+    EXPECT_TRUE(plan_external_swarm_view(true, true, 1, false).reuse_first_pane);
+    // Leader restart with live teammate panes: must split, not hijack pane 0.
+    EXPECT_FALSE(plan_external_swarm_view(true, true, 3, false).reuse_first_pane);
+    // Pane 0 already handed out in this process: split.
+    EXPECT_FALSE(plan_external_swarm_view(true, true, 1, true).reuse_first_pane);
+}
+
+// RAII restore of the injected shell seams so later tests see real shells.
+struct ShellRunnerGuard {
+    ShellRunnerGuard() = default;
+    ~ShellRunnerGuard() { sb::detail::reset_shell_runners_for_test(); }
+    ShellRunnerGuard(const ShellRunnerGuard&) = delete;
+    ShellRunnerGuard& operator=(const ShellRunnerGuard&) = delete;
+};
+
+TEST(SwarmBackends, ExternalReattachUsesListWindowsSeam) {
+    using cc::utils::swarm_backends::AgentColor;
+    using cc::utils::swarm_backends::EnvironmentDetection;
+    using cc::utils::swarm_backends::TmuxBackend;
+    namespace detail = cc::utils::swarm_backends::detail;
+
+    // External path requires not running inside tmux.
+    EnvironmentDetection::capture_env("", "");
+    struct TmuxEnvGuard {
+        ~TmuxEnvGuard() { EnvironmentDetection::capture_env("", ""); }
+    } env_guard;
+
+    ShellRunnerGuard shell_guard;
+
+    // Scripted tmux: the swarm session and swarm-view window already exist and
+    // hold three live panes (leader restart scenario).
+    detail::set_shell_runners_for_test(
+        [](std::string_view command) -> int {
+            if (command.find("has-session") != std::string_view::npos) return 0;
+            return 0;
+        },
+        [](std::string_view command) -> std::string {
+            if (command.find("list-windows") != std::string_view::npos) {
+                return "swarm-view";
+            }
+            if (command.find("list-panes") != std::string_view::npos) {
+                return "%1\n%2\n%3";
+            }
+            if (command.find("split-window") != std::string_view::npos) {
+                return "%42";
+            }
+            return {};
+        });
+
+    TmuxBackend backend;
+    const auto result = backend.create_teammate_pane("researcher", AgentColor::Blue);
+    EXPECT_EQ(result.pane_id, "%42");
+    EXPECT_FALSE(result.is_first_teammate);
+}
+
+} // namespace cc_repl_external_reattach_test
+
+// A tool/description containing raw JSON control bytes must be escaped so it
+// cannot corrupt the inbox JSON and permanently block all later messages.
+TEST(SwarmPermissionSync, MailboxSurvivesRawControlBytes) {
+    const auto runtime_dir = fs::temp_directory_path() /
+        ("cc_repl_ctrlbytes_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    fs::remove_all(runtime_dir);
+    EnvironmentGuard runner("CC_REPL_TEAM_RUNTIME_DIR", runtime_dir.string());
+
+    // Raw 0x01 / backspace / form-feed embedded in message text.
+    std::string nasty;
+    nasty.push_back(static_cast<char>(0x01));
+    nasty += "a\bb\fc\"d\\e";
+    ASSERT_TRUE(cc::utils::write_to_mailbox(
+        "worker", cc::utils::TeammateMessage{.from = "team-lead", .text = nasty},
+        std::optional<std::string_view>{"ctlteam"}).has_value());
+
+    // The inbox must still parse (it would throw/return error if invalid JSON
+    // were written), and a normal follow-up message must be deliverable.
+    auto first = cc::utils::read_inbox("worker", std::optional<std::string_view>{"ctlteam"});
+    ASSERT_TRUE(first.has_value());
+    ASSERT_EQ(first->size(), 1u);
+
+    ASSERT_TRUE(cc::utils::write_to_mailbox(
+        "worker", cc::utils::TeammateMessage{.from = "team-lead", .text = "second"},
+        std::optional<std::string_view>{"ctlteam"}).has_value());
+    auto both = cc::utils::read_inbox("worker", std::optional<std::string_view>{"ctlteam"});
+    ASSERT_TRUE(both.has_value());
+    EXPECT_EQ(both->size(), 2u);
+    EXPECT_EQ((*both)[1].text, "second");
+
+    fs::remove_all(runtime_dir);
+}

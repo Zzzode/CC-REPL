@@ -59,6 +59,7 @@ import cc.types.types;
 // --- Sub-modules we DEPEND ON (skeleton-wired, bodies delegated) ---
 import cc.ui.task_list_ui;
 import cc.ui.team_status;
+import cc.ui.teams.live_teammates;
 import cc.ui.messages.message_row;
 import cc.ui.messages.message_image;
 import cc.ui.messages.messages_list;
@@ -747,6 +748,19 @@ struct ReplScreenState {
     // Counts
     int background_task_count = 0, teammate_count = 0;
     bool teams_footer_selected = false;
+
+    // ── Live teams (leader view) ─────────────────────────────────────────
+    // TS REF: src/components/teams/TeamStatus.tsx (footer count) +
+    // TeamsDialog.tsx (roster) + CoordinatorAgentStatus.tsx AgentLine
+    // (per-teammate live status + output tail). Projected by AppAdapter from
+    // (a) agent_runtime::native_agent_store() for in-process teammates and
+    // (b) cc::utils::swarm_pane_observer for tmux pane teammates.
+    // Event-driven: the observer posts a refresh when pane content changes;
+    // there is no render ticker (see app_team_projection.cpp).
+    std::vector<teams::live::LiveTeammate> live_teammates;
+    // Selection cursor for the TeamsView modal (TeamsViewPayload.selected_index
+    // mirrors this when the dialog is open).
+    int teams_overview_selected_index = 0;
     // Permission mode (cycled via shift+tab; TS REF: getNextPermissionMode.ts)
     cc::ui::prompt::footer::PermissionMode permission_mode =
         cc::ui::prompt::footer::PermissionMode::Default;
@@ -2589,11 +2603,13 @@ namespace dsys = dsys_fw;
 /// are populated using the same formula so modal renderers can size
 /// content to the actual available pane area.
 [[nodiscard]] inline dsys::DialogRenderContext MakeContext(
-    int term_w = 120, int term_h = 40, bool is_modal = false)
+    int term_w = 120, int term_h = 40, bool is_modal = false,
+    const void* repl_state = nullptr)
 {
     dsys::DialogRenderContext c;
     c.term_cols  = term_w;
     c.term_rows  = term_h;
+    c.repl_state = repl_state;
     if (is_modal) {
         // TS REF: FullscreenLayout.tsx L423-424
         //   rows: terminalRows - MODAL_TRANSCRIPT_PEEK - 1
@@ -2633,7 +2649,7 @@ namespace dsys = dsys_fw;
     dsys::DialogPayloadVariant& payload = peek->get();
     if (std::holds_alternative<std::monostate>(payload)) return Element{};
     // is_modal=true → populate modal_available_cols/rows from TS formula.
-    auto ctx = MakeContext(w, h, /*is_modal=*/true);
+    auto ctx = MakeContext(w, h, /*is_modal=*/true, &s);
     auto el = s.dialog_renderers.render(payload, ctx);
     if (!el) return Element{};
     // Clamp modal content to its available height (TS maxHeight enforcement).
@@ -3077,6 +3093,15 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
         L.push_back(text(""));   // marginTop=1
         if (s.spinner_mode != SpinnerMode::Hidden) {
             L.push_back(hbox({spinner_chrome, filler()}) | flex_shrink);
+        }
+        // Live teammate strip (TS CoordinatorAgentStatus.tsx AgentLine list):
+        // one status + output-tail row per teammate, pinned just above the
+        // prompt input. Pure render of state-owned data.
+        if (!s.live_teammates.empty()) {
+            L.push_back(hbox({
+                teams::live::RenderLiveTeammateStrip(s.live_teammates, term_cols),
+                filler(),
+            }) | flex_shrink);
         }
         if (!s.autocomplete_suggestions.empty()) {
             // TS REF: FullscreenLayout.tsx L591-607 + PromptInputFooter.tsx L124-129

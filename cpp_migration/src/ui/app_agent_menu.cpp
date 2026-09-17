@@ -252,6 +252,11 @@ void AppAdapter::SyncState() {
 
     this->ProjectRuntimeMetadataToScreenState();
 
+    // Live teams projection (native store + pane observer). Runs on the same
+    // event-driven cadence as every other SyncState projection — no separate
+    // timer; pane changes wake the UI via the observer subscription.
+    this->ProjectLiveTeammatesToScreenState();
+
     // Notify cost hook subscribers (drives CostThreshold dialog, etc.).
     cc::hooks::update_cost(cc::hooks::CostUpdate{
         .session_cost = engine_->budget_tracker().current_spend_usd,

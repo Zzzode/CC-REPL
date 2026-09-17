@@ -45,6 +45,12 @@ struct Task {
 
 // ─── Task List Management ────────────────────────────────────────────────────
 
+/// Process-wide leader team name backing store.
+inline std::string& leader_team_name_storage() {
+    static std::string name;
+    return name;
+}
+
 /// Signal-based notification for task list updates
 using TaskUpdateCallback = std::function<void()>;
 
@@ -55,10 +61,19 @@ std::function<void()> on_tasks_updated(TaskUpdateCallback callback);
 void notify_tasks_updated();
 
 /// Set the leader's team name for task list resolution
-void set_leader_team_name(std::string_view team_name);
+inline void set_leader_team_name(std::string_view team_name) {
+    leader_team_name_storage() = std::string(team_name);
+}
 
 /// Clear the leader's team name
-void clear_leader_team_name();
+inline void clear_leader_team_name() {
+    leader_team_name_storage().clear();
+}
+
+/// Current leader team name (empty when not leading a team).
+[[nodiscard]] inline std::string get_leader_team_name() {
+    return leader_team_name_storage();
+}
 
 /// Create a new task. Returns the assigned task ID.
 std::expected<std::string, std::string> create_task(

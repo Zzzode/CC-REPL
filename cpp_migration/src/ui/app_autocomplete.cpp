@@ -59,6 +59,7 @@ import cc.utils.parse_references;
 import cc.utils.path;
 import cc.utils.skill_usage;
 import cc.utils.session_storage;
+import cc.utils.swarm_pane_observer;
 
 namespace cc::ui {
 
@@ -902,6 +903,15 @@ void AppAdapter::RefreshAutocompleteSuggestions() {
 // compilation (exit code 139 in NamespaceDecl::getMostRecentDeclImpl).
 
 AppAdapter::~AppAdapter() {
+    // Unsubscribe from the pane observer before other teardown so a late
+    // capture-pass callback cannot flag/post on a torn-down adapter.
+    if (pane_observer_token_ != 0) {
+        cc::utils::pane_observer::unsubscribe_changed(pane_observer_token_);
+        pane_observer_token_ = 0;
+    }
+    if (leader_inbox_thread_.joinable()) {
+        leader_inbox_thread_.request_stop();
+    }
     if (query_running_.load() && engine_) {
         engine_->abort();
     }
@@ -1210,8 +1220,20 @@ bool AppAdapter::OnEvent(Event event) {
     // Pane-teammate inbox delivery: the inbox worker posts Custom events when
     // tasks arrive. While idle, submit one queued teammate prompt here on the
     // UI thread. Ignore keyboard/other events and never block a running query.
-    if (event == Event::Custom && running_as_pane_teammate()) {
-        if (drain_one_teammate_prompt()) return true;
+    if (event == Event::Custom) {
+        // Event-driven pane-observer wake: the background capture pass flags
+        // this atomic (never touches screen state off-thread). Gated so the
+        // 50ms PostRenderEvent animation traffic does no config.json I/O.
+        if (pane_snapshot_dirty_.exchange(false,
+                                          std::memory_order_acq_rel)) {
+            ProjectLiveTeammatesToScreenState();
+        }
+        // Leader-side teammate permission requests reuse the existing
+        // ToolPermission dialog (one per Custom event, overlay stays empty).
+        if (drain_one_teammate_permission()) return true;
+        if (running_as_pane_teammate()) {
+            if (drain_one_teammate_prompt()) return true;
+        }
     }
 
     // Clipboard image paste (TS chat:imagePaste = ctrl+v / cmd+v).

@@ -113,6 +113,8 @@ AppAdapter::AppAdapter(core::QueryEngine* engine,
         screen_state_->dialog_renderers);
     cc::ui::app_dialogs::register_hooks_dialog_renderer(
         screen_state_->dialog_renderers);
+    cc::ui::app_dialogs::register_teams_dialog_renderer(
+        screen_state_->dialog_renderers);
 
     // Seed a stable per-session welcome-tip index.
     std::size_t tip_hash = 0;
@@ -273,6 +275,9 @@ AppAdapter::AppAdapter(core::QueryEngine* engine,
     // If spawned as a tmux/iTerm pane teammate, start the filesystem inbox
     // poller that delivers addressed tasks to this REPL (no-op otherwise).
     start_teammate_inbox_worker();
+    // Leader-side counterpart: poll the team-lead mailbox for stage-A
+    // teammate permission_request envelopes (no-op without team identity).
+    start_leader_inbox_worker();
 
     // ── Cost threshold hook wiring (M7.5) ────────────────────────────
     {
