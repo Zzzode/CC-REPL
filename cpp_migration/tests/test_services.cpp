@@ -68,6 +68,7 @@ import cc.server.server_main;
 import cc.session.storage;
 import cc.session.history;
 import cc.query.query_engine;
+import cc.memdir.paths;
 import cc.remote.remote_session;
 import cc.tools.agent_runtime;
 import cc.tools.team;
@@ -3323,6 +3324,70 @@ TEST(QueryEngine, TracksInvokedSkillsInLoop) {
     const auto skills = engine.discovered_skills();
     EXPECT_NE(std::find(skills.begin(), skills.end(), "my-test-skill"), skills.end())
         << "skill invocation should be tracked in discovered_skills_";
+}
+
+TEST(QueryEngine, CompactionPersistsSessionSummaryForResumedSession) {
+    auto root = fs::temp_directory_path() /
+        ("cc-repl-session-summary-" + std::to_string(::getpid()));
+    fs::remove_all(root);
+    fs::create_directories(root);
+    EnvironmentGuard home_guard("HOME", root.string());
+
+    cc::core::ToolRegistry registry;
+    cc::core::QueryEngineConfig config;
+    config.context_window.auto_compact = false;
+    config.cwd = (root / "work").string();
+    config.session_id_override = "resume-session-id";
+    fs::create_directories(root / "work");
+
+    const auto summary_path = cc::memdir::get_session_memory_path(
+        root / "work", "resume-session-id");
+
+    {
+        cc::core::QueryEngine engine(config, registry);
+        auto make_user = [](std::string text) {
+            cc::core::UserMessage msg{};
+            msg.id.value = "user-" + text;
+            msg.timestamp = std::chrono::system_clock::now();
+            msg.content.push_back(cc::core::TextBlock{std::move(text)});
+            return cc::core::Message{std::move(msg)};
+        };
+        auto make_assistant = [](std::string text) {
+            cc::core::AssistantMessage msg{};
+            msg.id.value = "assistant-" + text;
+            msg.timestamp = std::chrono::system_clock::now();
+            msg.content.push_back(cc::core::TextBlock{std::move(text)});
+            return cc::core::Message{std::move(msg)};
+        };
+        // > keep_recent(6) + system messages so compaction actually runs.
+        engine.append_message_for_testing(make_user("legacy requirement alpha"));
+        engine.append_message_for_testing(make_assistant("assistant decision beta"));
+        engine.append_message_for_testing(make_user("design constraint gamma"));
+        engine.append_message_for_testing(make_assistant("assistant decision delta"));
+        engine.append_message_for_testing(make_user("recent one"));
+        engine.append_message_for_testing(make_assistant("recent two"));
+        engine.append_message_for_testing(make_user("recent three"));
+        engine.append_message_for_testing(make_assistant("recent four"));
+        engine.append_message_for_testing(make_user("recent five"));
+        engine.append_message_for_testing(make_assistant("recent six"));
+
+        ASSERT_TRUE(engine.compact_conversation().has_value());
+    }
+
+    ASSERT_TRUE(std::filesystem::exists(summary_path));
+    std::ifstream ifs(summary_path);
+    std::string persisted((std::istreambuf_iterator<char>(ifs)), {});
+    EXPECT_NE(persisted.find("legacy requirement alpha"), std::string::npos);
+    EXPECT_NE(persisted.find("Compaction"), std::string::npos);
+
+    // A fresh engine with the same session id injects the persisted summary
+    // into its system prompt (resumed session does not start blind).
+    cc::core::QueryEngine resumed(config, registry);
+    const std::string body = resumed.build_request_body_for_testing();
+    EXPECT_NE(body.find("session-memory"), std::string::npos) << body;
+    EXPECT_NE(body.find("legacy requirement alpha"), std::string::npos) << body;
+
+    fs::remove_all(root);
 }
 
 TEST(QueryEngine, CompactConversationPreservesSummarizedHistoryDetails) {

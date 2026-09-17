@@ -75,6 +75,19 @@ iTerm2 backend; session `summary.md` compaction; **bridge v2 pairing** (largest)
 Still open after this addendum: iTerm2 backend (macOS); session
 `summary.md` compaction; **bridge v2 pairing** (largest).
 
+### Session compaction summary (2026-09-18, follow-up 2)
+
+- **Session memory `summary.md`** — CLOSED. Compaction appends its summary
+  to `<config_home>/projects/<sanitized-cwd>/<sessionId>/session-memory/
+  summary.md` (TS getSessionMemoryPath); the engine injects the accumulated
+  file as a `<context name="session-memory">` block so resumed sessions
+  (`--resume`/`--continue`, new `QueryEngineConfig::session_id_override`)
+  retain pre-compaction knowledge. Test
+  `CompactionPersistsSessionSummaryForResumedSession`.
+
+Still open after this addendum: iTerm2 backend (macOS);
+**bridge v2 pairing** (largest).
+
 
 ---
 

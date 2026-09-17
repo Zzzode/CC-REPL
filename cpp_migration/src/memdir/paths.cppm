@@ -201,4 +201,41 @@ get_auto_mem_entrypoint(const std::filesystem::path& project_root) {
     return *dir / "MEMORY.md";
 }
 
+// ============================================================================
+// Session memory (summary.md) for context compaction
+//
+// TS REF: src/utils/permissions/filesystem.ts:262 getSessionMemoryDir /
+// :269 getSessionMemoryPath — <config_home>/projects/<sanitized-cwd>/
+// <sessionId>/session-memory/summary.md. Unlike the long-term auto-memory
+// above, this file is scoped to one session and accumulates the summaries
+// produced at each compaction so resumed/continuation runs do not start
+// blind after old messages are dropped.
+// ============================================================================
+
+/// Per-project projects key (same sanitization as the auto-memory key, but
+/// derived from the cwd directly — TS getProjectDir(getCwd()) does not walk
+/// to the git root here).
+[[nodiscard]] inline std::filesystem::path get_project_state_dir(
+    const std::filesystem::path& cwd) {
+    std::error_code ec;
+    auto abs = std::filesystem::absolute(cwd, ec);
+    if (ec) abs = cwd;
+    return claude_config_home() / "projects" /
+           sanitize_memory_key(abs.string());
+}
+
+[[nodiscard]] inline std::filesystem::path get_session_memory_dir(
+    const std::filesystem::path& cwd,
+    std::string_view session_id) {
+    return get_project_state_dir(cwd) /
+           std::filesystem::path(std::string(session_id)) /
+           "session-memory";
+}
+
+[[nodiscard]] inline std::filesystem::path get_session_memory_path(
+    const std::filesystem::path& cwd,
+    std::string_view session_id) {
+    return get_session_memory_dir(cwd, session_id) / "summary.md";
+}
+
 } // namespace cc::memdir

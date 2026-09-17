@@ -278,6 +278,9 @@ struct QueryEngineConfig {
     std::optional<std::string> custom_system_prompt;// Custom system prompt
     std::optional<std::string> append_system_prompt;// Append to default system prompt
     std::optional<std::string> cwd;                 // Working directory for operations
+    /// Fixed session id instead of a generated one — lets a resumed run use
+    /// the same session-memory/summary.md and transcript directory.
+    std::optional<std::string> session_id_override;
     std::optional<double> max_budget_usd;           // Max budget in USD
     std::optional<std::uint32_t> max_turns;         // Max conversation turns
     struct TaskBudget {
@@ -447,7 +450,12 @@ public:
         : config_(std::move(config)), tool_registry_(&registry),
           session_start_(std::chrono::system_clock::now()) {
         // Initialize session ID
-        session_id_.value = generate_session_id();
+        if (config_.session_id_override &&
+            !config_.session_id_override->empty()) {
+            session_id_.value = *config_.session_id_override;
+        } else {
+            session_id_.value = generate_session_id();
+        }
 
         // Set up budget
         if (config_.max_budget_usd) {
@@ -749,6 +757,8 @@ public:
         auto summary_text = build_compaction_summary(
             conversation_.begin() + 1,
             recent_start);
+        // Persist the summary for future runs/resumption of this session.
+        append_session_summary(working_directory(), summary_text);
 
         std::vector<Message> retained_recent;
         retained_recent.reserve(keep_recent);
@@ -925,6 +935,22 @@ private:
                     }
                 }
             }
+        }
+
+        // Inject this session's accumulated compaction summary, if a prior
+        // run (or an earlier compaction in this run) wrote one. Prevents a
+        // resumed/continuation session from starting blind after history was
+        // dropped. TS REF: SessionMemory getSessionMemoryContent used by
+        // sessionMemoryCompact.ts as the compact summary source.
+        if (auto summary = read_session_summary(cwd); !summary.empty()) {
+            constexpr std::size_t kMaxSummaryChars = 12000;
+            if (summary.size() > kMaxSummaryChars) {
+                summary.resize(kMaxSummaryChars);
+                summary += "\n... [older session summary truncated]";
+            }
+            user_ctx.additional_contexts.push_back(std::format(
+                "<context name=\"session-memory\">\n{}\n</context>",
+                summary));
         }
 
         // P1-1: Add tool descriptions to system context
@@ -1711,6 +1737,36 @@ private:
             .anchor_uuid = std::string(anchor_id),
             .tail_uuid = message_id_value(*(last - 1)),
         };
+    }
+
+    /// Read the session's accumulated compaction summary.md (empty when
+    /// absent/unreadable). TS REF: getSessionMemoryContent.
+    [[nodiscard]] std::string read_session_summary(std::string_view cwd) const {
+        const auto path = cc::memdir::get_session_memory_path(
+            std::filesystem::path(cwd), session_id_.str());
+        std::error_code ec;
+        if (!std::filesystem::exists(path, ec)) return {};
+        std::ifstream ifs(path);
+        if (!ifs) return {};
+        std::string content((std::istreambuf_iterator<char>(ifs)), {});
+        return content;
+    }
+
+    /// Append one compaction summary to the session's summary.md, creating
+    /// the session-memory directory as needed. Best-effort: a write failure
+    /// must not break an in-memory compaction that already succeeded.
+    void append_session_summary(std::string_view cwd,
+                                std::string_view summary) const {
+        const auto dir = cc::memdir::get_session_memory_dir(
+            std::filesystem::path(cwd), session_id_.str());
+        std::error_code ec;
+        std::filesystem::create_directories(dir, ec);
+        const auto path = dir / "summary.md";
+        std::ofstream ofs(path, std::ios::app);
+        if (!ofs) return;
+        const auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        ofs << "\n\n## Compaction " << millis << "\n\n" << summary << '\n';
     }
 
     [[nodiscard]] static std::string build_compaction_summary(

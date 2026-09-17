@@ -2028,6 +2028,17 @@ int main(int argc, const char* argv[]) {
     auto storage = cc::utils::SessionStorage{};
     auto conversation_store = cc::core::ConversationStore(conversation_store_path(opts).string());
 
+    // A resumed/continued session keeps its id so its persisted
+    // session-memory/summary.md (compaction summaries) is re-injected.
+    if (opts.resume_session_id && !opts.resume_session_id->empty()) {
+        config.session_id_override = *opts.resume_session_id;
+    } else if (opts.continue_session) {
+        if (auto active = conversation_store.active_conversation_id();
+            active && !active->empty()) {
+            config.session_id_override = *active;
+        }
+    }
+
     // Initialize lifecycle hooks for pre/post tool execution events
     auto lifecycle_hooks = cc::hooks::LifecycleHookRegistry{};
 
