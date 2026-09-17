@@ -381,6 +381,13 @@ inline std::optional<ListToolsResult> parse_list_tools_result(const std::string&
                 McpTool tool;
                 tool.name = std::string(tool_val.get("name").as_str());
                 tool.description = std::string(tool_val.get("description").as_str());
+                // Preserve the verbatim inputSchema object — it carries
+                // nested shapes (objects, arrays, $ref, vendor keys) the
+                // simplified property model cannot represent. Serialized
+                // verbatim into the API request body.
+                if (auto schema = tool_val.get("inputSchema"); schema.valid()) {
+                    tool.input_schema_json = schema.to_string();
+                }
                 result.tools.push_back(std::move(tool));
             }
         });

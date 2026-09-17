@@ -298,6 +298,15 @@ struct QueryEngineConfig {
     /// TS PARITY: assembleToolPool() merges built-in + mcp.tools; this
     /// callback is the CPP equivalent of the dynamic MCP portion.
     std::function<std::vector<ToolDefinition>()> dynamic_tools_provider;
+    /// Optional callback snapshotting connected MCP tools' verbatim input
+    /// schemas as {tool_name -> schema JSON}. Invoked at most once per
+    /// request. MCP-merged tool defs carry an empty simplified schema
+    /// (nested shapes cannot be represented there); this hook lets the
+    /// request serializer emit the servers' real schemas. Injected from the
+    /// MCP wiring layer so this module does not depend on the (large) MCP
+    /// module.
+    std::function<std::unordered_map<std::string, std::string>()>
+        mcp_input_schema_provider;
     /// Flat list of raw permission deny rules (e.g. "Bash",
     /// "mcp__linear", "mcp__linear__*", "Bash(npm install)") applied to
     /// BOTH static and dynamic tools before the request "tools" array is
@@ -2143,6 +2152,13 @@ private:
             auto tools_arr = doc.array();
             std::size_t enabled_tool_count = 0;
             std::unordered_set<std::string> seen_names;  // dedup: built-ins win
+            // Snapshot connected MCP tools' verbatim schemas once per
+            // request via the injected hook (kept out of this module to
+            // avoid pulling the MCP module into the query BMI).
+            std::unordered_map<std::string, std::string> mcp_schemas;
+            if (config_.mcp_input_schema_provider) {
+                mcp_schemas = config_.mcp_input_schema_provider();
+            }
 
             auto add_tool = [&](const ToolDefinition& tool) {
                 // Deny-rule filtering runs BEFORE dedup and enabled checks so
@@ -2179,14 +2195,40 @@ private:
                                             ? std::string{"computer"}
                                             : tool.name));
                 if (is_native_computer) {
+                    // Geometry can be supplied by the deployment (a
+                    // computer-use MCP server / VM knows its real screen);
+                    // otherwise fall back to the Anthropic sample default.
+                    const auto env_dim = [](const char* key, int64_t fallback) {
+                        if (const char* v = std::getenv(key); v && *v) {
+                            try {
+                                long long n = std::stoll(v);
+                                if (n > 0) return static_cast<int64_t>(n);
+                            } catch (...) {}
+                        }
+                        return fallback;
+                    };
                     tool_obj.add("type", doc.string("computer_20241022"));
-                    tool_obj.add("display_width_px", doc.number(int64_t(1024)));
-                    tool_obj.add("display_height_px", doc.number(int64_t(768)));
-                    tool_obj.add("display_number", doc.number(int64_t(0)));
+                    tool_obj.add("display_width_px",
+                        doc.number(env_dim("CC_REPL_COMPUTER_DISPLAY_WIDTH", 1024)));
+                    tool_obj.add("display_height_px",
+                        doc.number(env_dim("CC_REPL_COMPUTER_DISPLAY_HEIGHT", 768)));
+                    tool_obj.add("display_number",
+                        doc.number(env_dim("CC_REPL_COMPUTER_DISPLAY_NUMBER", 0)));
                 } else {
                     tool_obj.add("type", doc.string("function"));
                     tool_obj.add("description", doc.string(tool.description));
-                    auto schema_json = tool.input_schema.to_json();
+                    // MCP-merged tools carry an empty simplified schema; the
+                    // server's verbatim (possibly nested) JSON schema was
+                    // snapshotted above. Emit it verbatim when available so
+                    // the model sees the real parameter shape.
+                    std::string schema_json = tool.input_schema.to_json();
+                    if (tool.category &&
+                        tool.category->starts_with("mcp:")) {
+                        if (auto it = mcp_schemas.find(tool.name);
+                            it != mcp_schemas.end()) {
+                            schema_json = it->second;
+                        }
+                    }
                     auto schema_doc = cc::utils::json::parse(schema_json);
                     if (schema_doc) {
                         tool_obj.add("input_schema", doc.copy_val(schema_doc->root()));

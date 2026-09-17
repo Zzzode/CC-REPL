@@ -1,5 +1,10 @@
 # 2026-09-16 Retained-Feature Capability Gap Audit (bridge · teams · memory · computer-use)
 
+> **Status update (2026-09-18):** most P0 gaps below are now CLOSED. See the
+> **"Closure log"** section directly under TL;DR for what shipped; the
+> historical findings are retained below as evidence.
+
+
 > **Audit type:** POSITIVE completeness audit (find what is missing/incomplete in
 > features the product KEEPS), not a pruning audit.
 > **Scope decided by owner:** TUI stays; multi-agent teams (in-process + tmux +
@@ -30,6 +35,24 @@ Net: the **agent loop, core tools, in-process sub-agents, generic MCP, and the
 v1 bridge worker are real and usable**. Everything that makes a *watchable
 multi-pane team*, a *self-improving memory*, a *native computer-control loop*,
 and a *phone-pairable remote REPL* is currently scaffolding that needs wiring.
+
+## Closure log (2026-09-18)
+
+| Gap | Status | Evidence |
+|---|---|---|
+| Computer-use #1 — emit native `computer_20241022` tool | **CLOSED** | `query_engine.cppm` add_tool emits `{type:"computer_20241022", name:"computer", display_width_px/height_px/number}` for internal `computer_use` def; geometry env-overridable (`CC_REPL_COMPUTER_DISPLAY_*`). Tests `NativeComputerToolEmitsComputer20241022Schema`. |
+| Computer-use #2 — screenshot after every action | **CLOSED** | `ComputerUseManager::dispatch_input` → `with_post_action_frame` attaches a full-screen frame to every successful input action; local adapter still macOS-only by design. |
+| Computer-use #3 — bind to `computer-use` MCP server + preserve raw-name fallback images | **CLOSED** | `execute_computer_use` forwards verbatim to a connected ready `computer-use` server (checked BEFORE local action parsing, fail-closed); `mcp_result_to_tool_result` now used by the `mcp` wrapper and all three raw-name fallback sites (main ×2, server_routes), preserving image blocks. Tests `ComputerActionRoutesToComputerUseMcpServer`, `ResultConversionPreservesScreenshotImage`. |
+| Computer-use #4 — carry MCP input schemas verbatim | **CLOSED** | `parse_list_tools_result` now extracts `inputSchema`; flows service `McpTool.input_schema_json` → native `McpToolInfo` → `collect_mcp_input_schemas()` → `QueryEngineConfig::mcp_input_schema_provider` → request `input_schema` emitted verbatim (nested shapes, `$ref`, vendor keys). Test `VerbatimNestedSchemaEmitted`. |
+| Computer-use #5 — reject `image/rgba` | **CLOSED** | media type restricted to png/jpeg/webp/gif; rgba/unknown defaults to png (`runtime_registry.cppm`). |
+| Teams — tmux env, mailbox consumption, permission sync, watchability | **CLOSED** | commits c295da8, e0e9520, f5922dc: tmux env capture, pane inbox drain + initial-task delivery, balanced splits, leader-exit cleanup, filesystem permission request/response with fail-closed timeout, live teammates projection + pane observer UI, reconnection. |
+| Memory — canonical path + prompt injection | **CLOSED** | commit fdb0653. |
+| Memory — LLM auto-extraction | **CLOSED** | commit 84019d2; opt-in `CC_REPL_ENABLE_MEMORY_EXTRACTION=1`, member `std::jthread` (no UAF), sub-engine recursion suppressed. |
+
+Still open (ranked): computer-use #6 permission-panel wiring; cross-process
+flock + always-allow persistence + diff-bearing approval dialog in teams;
+iTerm2 backend; session `summary.md` compaction; **bridge v2 pairing** (largest).
+
 
 ---
 

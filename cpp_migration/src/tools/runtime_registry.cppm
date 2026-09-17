@@ -1313,14 +1313,16 @@ constexpr auto collect_team_native_agents = &runtime_team_shared::collect_team_n
 [[nodiscard]] std::optional<cc::core::computer_use::ActionType> parse_computer_action(
     std::string_view action) {
     using cc::core::computer_use::ActionType;
-    if (action == "screenshot") return ActionType::Screenshot;
+    if (action == "screenshot" || action == "cursor_position") return ActionType::Screenshot;
     if (action == "move" || action == "mouse_move") return ActionType::MouseMove;
-    if (action == "click" || action == "mouse_click") return ActionType::MouseClick;
+    // Anthropic computer_20241022 wire names plus local aliases.
+    if (action == "click" || action == "mouse_click" ||
+        action == "left_click") return ActionType::MouseClick;
     if (action == "double_click") return ActionType::MouseDoubleClick;
     if (action == "right_click") return ActionType::MouseRightClick;
-    if (action == "drag") return ActionType::MouseDrag;
+    if (action == "drag" || action == "left_click_drag") return ActionType::MouseDrag;
     if (action == "type") return ActionType::KeyType;
-    if (action == "press") return ActionType::KeyPress;
+    if (action == "press" || action == "key") return ActionType::KeyPress;
     if (action == "hotkey") return ActionType::KeyHotkey;
     if (action == "scroll") return ActionType::Scroll;
     return std::nullopt;
@@ -1475,8 +1477,58 @@ namespace detail {
 
 namespace json = cc::utils::json;
 
+/// TS REF: src/utils/computerUse/common.ts:59 isComputerUseMCPServer +
+/// src/services/mcp/normalization.ts:17 normalizeNameForMCP.
+[[nodiscard]] inline std::string normalize_name_for_mcp(std::string name) {
+    std::ranges::replace_if(name, [](char c) {
+        return !(std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '-');
+    }, '_');
+    return name;
+}
+
+/// Name of the conventional computer-use MCP server. TS REF:
+/// src/utils/computerUse/common.ts:4 COMPUTER_USE_MCP_SERVER_NAME.
+inline constexpr std::string_view kComputerUseMcpServerName = "computer-use";
+
+/// Return the connected MCP server name that hosts the native computer tool,
+/// if one is configured and ready. A deployment supplies a computer-use MCP
+/// server (real screen capture + input injection, often a VM); when present,
+/// computer actions are forwarded there instead of the local host adapter,
+/// which only implements macOS capture.
+[[nodiscard]] inline std::optional<std::string>
+connected_computer_use_mcp_server() {
+    for (const auto& server : NativeMcpRuntime::instance().all_statuses()) {
+        if (server.status == "ready" &&
+            normalize_name_for_mcp(server.name) ==
+                kComputerUseMcpServerName) {
+            return server.name;
+        }
+    }
+    return std::nullopt;
+}
+
 [[nodiscard]] Result<ToolResult> execute_computer_use(const ToolInput& input) {
     auto json = input.json();
+
+    // Prefer a configured computer-use MCP server: forward the model's native
+    // computer action verbatim (native action names like left_click/key
+    // differ from the local adapter's vocabulary, so this check runs BEFORE
+    // local action parsing) and preserve its screenshot image block.
+    // TS REF: src/services/mcp/client.ts:924 in-process Computer Use MCP
+    // server; src/utils/computerUse/wrapper.tsx .call() override.
+    if (auto server = connected_computer_use_mcp_server()) {
+        auto mcp_result = NativeMcpRuntime::instance().call_tool(
+            *server, "computer", std::string{input.json()});
+        if (mcp_result) {
+            return mcp_result_to_tool_result(*mcp_result);
+        }
+        // Fail closed with the routing error rather than silently running
+        // the wrong (local) backend.
+        return ToolResult::error(std::format(
+            "computer-use MCP server '{}' rejected the action: {}",
+            *server, format_error(mcp_result.error())));
+    }
+
     auto action_text = json_string(json, "action").value_or("screenshot");
     auto action = parse_computer_action(action_text);
     if (!action) {
@@ -1486,6 +1538,18 @@ namespace json = cc::utils::json;
     auto point_from_xy = [&] -> std::optional<cc::core::computer_use::Point> {
         auto x = json_int(json, "x");
         auto y = json_int(json, "y");
+        // Native computer_20241022 sends "coordinate":[x,y].
+        if ((!x || !y)) {
+            if (auto parsed = cc::utils::json::parse(json); parsed) {
+                auto coord = parsed->root().get("coordinate");
+                if (coord.is_arr() && coord.size() >= 2) {
+                    return cc::core::computer_use::Point{
+                        .x = static_cast<int32_t>(coord.at(0).as_int()),
+                        .y = static_cast<int32_t>(coord.at(1).as_int()),
+                    };
+                }
+            }
+        }
         if (!x || !y) return std::nullopt;
         return cc::core::computer_use::Point{.x = *x, .y = *y};
     };
@@ -1854,30 +1918,8 @@ constexpr auto try_start_native_agent_resume = &runtime_message_delivery::try_st
             .arguments_json = arguments,
         });
         if (!result) return ToolResult::error(std::string(format_error(result.error())));
-
-        // TS PARITY (2026-07-04): if the MCP result has structured content_items,
-        // preserve them as separate ToolOutputContent blocks so images and
-        // multi-text results survive to the UI renderer.
-        if (!result->content_items.empty()) {
-            std::vector<ToolOutputContent> items;
-            for (const auto& ci : result->content_items) {
-                if (ci.type == "text") {
-                    items.push_back(ToolOutputContent::text_output(ci.text));
-                } else if (ci.type == "image") {
-                    items.push_back(ToolOutputContent::image_output(
-                        ci.media_type.value_or("image/png"),
-                        ci.data.value_or("")));
-                }
-            }
-            if (items.empty()) {
-                // All items were non-text/non-image types; fall back to flattened
-                items.push_back(ToolOutputContent::text_output(result->content));
-            }
-            auto tool_result = ToolResult::success_multi(std::move(items));
-            tool_result.is_error = result->is_error;
-            return tool_result;
-        }
-        return ToolResult::success(result->content);
+        // Preserves structured content items (screenshots, multi-text).
+        return mcp_result_to_tool_result(*result);
     }
     if (name == "mcp_auth") {
         auto server = json_string(json, "server_name").or_else([&] { return json_string(json, "server"); });
@@ -2793,8 +2835,11 @@ void register_runtime_tools(cc::core::ToolRegistry& registry) {
             cc::core::ToolDefinition def;
             def.name = tool.name;
             def.description = tool.description;
-            // Generic input schema: accepts any JSON object.  The model
-            // infers specific parameters from the tool description.
+            // The simplified property model cannot represent nested MCP
+            // input schemas. The verbatim schema is carried by
+            // NativeMcpRuntime and surfaced at request serialization time
+            // (see QueryEngine's tool serializer); leave the simplified
+            // schema empty here.
             def.input_schema = cc::core::InputSchema{};
             def.permission = cc::core::ToolPermission::Network;
             def.is_hidden = false;
@@ -2803,6 +2848,23 @@ void register_runtime_tools(cc::core::ToolRegistry& registry) {
         }
     }
     return defs;
+}
+
+/// Snapshot connected MCP tools' verbatim input schemas keyed by tool name.
+/// Fed to QueryEngineConfig::mcp_input_schema_provider so the request
+/// serializer emits the servers' real (possibly nested) JSON schemas rather
+/// than the empty simplified schema stored on the tool defs.
+[[nodiscard]] std::unordered_map<std::string, std::string>
+collect_mcp_input_schemas() {
+    std::unordered_map<std::string, std::string> schemas;
+    for (const auto& server : NativeMcpRuntime::instance().all_statuses()) {
+        for (const auto& tool : server.tools) {
+            if (!tool.input_schema_json.empty()) {
+                schemas.emplace(tool.name, tool.input_schema_json);
+            }
+        }
+    }
+    return schemas;
 }
 
 } // namespace cc::tools

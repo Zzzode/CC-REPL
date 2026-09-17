@@ -814,13 +814,7 @@ namespace detail {
                     auto result = runtime.call_tool(
                         s.name, tool_name, std::string{input.json()});
                     if (result) {
-                        std::vector<cc::core::ToolOutputContent> contents;
-                        contents.push_back(
-                            cc::core::ToolOutputContent::text_output(result->content));
-                        return cc::core::ToolResult{
-                            .content = std::move(contents),
-                            .is_error = result->is_error,
-                        };
+                        return mcp::mcp_result_to_tool_result(*result);
                     }
                     last_error = std::string{mcp::format_error(result.error())};
                 }
@@ -838,6 +832,10 @@ namespace detail {
         // connected MCP servers' tools on every API call.
         config.dynamic_tools_provider = []() -> std::vector<cc::core::ToolDefinition> {
             return cc::tools::collect_mcp_tool_definitions();
+        };
+        // Keep MCP servers' verbatim (possibly nested) input schemas.
+        config.mcp_input_schema_provider = [] {
+            return cc::tools::collect_mcp_input_schemas();
         };
 
         cc::core::QueryEngine engine(std::move(config), registry);

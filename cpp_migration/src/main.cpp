@@ -677,9 +677,7 @@ int run_runtime_tool_once(const CliOptions& opts) {
             for (const auto& s : statuses) {
                 auto result = runtime.call_tool(s.name, tool_name, std::string{input.json()});
                 if (result) {
-                    std::vector<cc::core::ToolOutputContent> contents;
-                    contents.push_back(cc::core::ToolOutputContent::text_output(result->content));
-                    return cc::core::ToolResult{.content = std::move(contents), .is_error = result->is_error};
+                    return mcp::mcp_result_to_tool_result(*result);
                 }
                 last_error = std::string{mcp::format_error(result.error())};
             }
@@ -1966,14 +1964,9 @@ int main(int argc, const char* argv[]) {
                 auto result = runtime.call_tool(
                     server_name, tool_name, std::string{input.json()});
                 if (result) {
-                    // Convert McpToolResult → ToolResult
-                    std::vector<cc::core::ToolOutputContent> contents;
-                    contents.push_back(cc::core::ToolOutputContent::text_output(
-                        result->content));
-                    return cc::core::ToolResult{
-                        .content = std::move(contents),
-                        .is_error = result->is_error,
-                    };
+                    // Preserves screenshot image blocks from computer-use
+                    // MCP servers (required after every computer action).
+                    return mcp::mcp_result_to_tool_result(*result);
                 }
                 auto ec = result.error();
                 last_error = std::string{mcp::format_error(ec)};
@@ -2006,6 +1999,11 @@ int main(int argc, const char* argv[]) {
     // picks up newly-connected MCP servers' tools on every API call.
     config.dynamic_tools_provider = []() -> std::vector<cc::core::ToolDefinition> {
         return cc::tools::collect_mcp_tool_definitions();
+    };
+    // Surface connected MCP servers' verbatim input schemas so the request
+    // keeps nested parameter shapes the simplified schema cannot represent.
+    config.mcp_input_schema_provider = [] {
+        return cc::tools::collect_mcp_input_schemas();
     };
 
     // Initialize command registry with all migrated commands

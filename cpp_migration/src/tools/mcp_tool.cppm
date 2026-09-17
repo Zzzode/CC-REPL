@@ -28,6 +28,7 @@ import cc.services.mcp.connection_manager;
 import cc.services.mcp.auth;
 import cc.services.mcp.types;
 import cc.utils.json;
+import cc.tools.tool;
 import cc.tools.mcp_classify;  // migrated: integrate collapse decision
 import cc.hooks.remaining_notifs;  // W7: feed MCP connectivity slot from live manager
 
@@ -106,6 +107,7 @@ struct McpResource {
 struct McpToolInfo {
     std::string name;
     std::string description;
+    std::string input_schema_json;  ///< Verbatim MCP inputSchema object
 };
 
 struct McpPromptInfo {
@@ -182,7 +184,11 @@ struct NativeMcpServerStatus {
     status.server_info = snapshot.server_info;
     status.capabilities = snapshot.capabilities;
     for (const auto& tool : snapshot.tools) {
-        status.tools.push_back(McpToolInfo{.name = tool.name, .description = tool.description});
+        status.tools.push_back(McpToolInfo{
+            .name = tool.name,
+            .description = tool.description,
+            .input_schema_json = tool.input_schema_json,
+        });
     }
     for (const auto& resource : snapshot.resources) {
         status.resources.push_back(McpResource{
@@ -1277,6 +1283,33 @@ inline std::optional<NativeMcpConfiguredServer> native_mcp_configured_server(std
 
 inline std::vector<NativeMcpServerStatus> native_mcp_statuses() {
     return NativeMcpRuntime::instance().all_statuses();
+}
+
+/// Convert a native MCP tool result into the engine ToolResult, preserving
+/// structured content items — notably screenshot IMAGE blocks returned by
+/// computer-use MCP servers. Anthropic requires a screenshot after every
+/// computer action, so dropping images here would break the computer-use
+/// loop. Falls back to the flattened text when no text/image items exist.
+[[nodiscard]] inline cc::core::ToolResult mcp_result_to_tool_result(
+    const McpToolResult& result) {
+    std::vector<cc::core::ToolOutputContent> items;
+    for (const auto& ci : result.content_items) {
+        if (ci.type == "text") {
+            items.push_back(cc::core::ToolOutputContent::text_output(ci.text));
+        } else if (ci.type == "image") {
+            items.push_back(cc::core::ToolOutputContent::image_output(
+                ci.media_type.value_or("image/png"),
+                ci.data.value_or("")));
+        }
+    }
+    if (items.empty()) {
+        items.push_back(
+            cc::core::ToolOutputContent::text_output(result.content));
+    }
+    return cc::core::ToolResult{
+        .content = std::move(items),
+        .is_error = result.is_error,
+    };
 }
 
 inline std::expected<std::vector<McpResource>, McpError> list_native_mcp_resources(

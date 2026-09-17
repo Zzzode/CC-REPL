@@ -12320,6 +12320,258 @@ TEST(ToolDenyRulesQueryEngine, RegularFunctionToolUnaffectedByComputerShape) {
 
 }  // namespace cc_repl_native_computer_tool_test
 
+namespace cc_repl_mcp_input_schema_test {
+
+using namespace cc::core;
+
+// A connected stdio MCP server exposing a tool with a nested inputSchema
+// must have that schema emitted verbatim in the API request body instead of
+// the simplified empty-object schema the collector stores.
+TEST(McpToolSchemaQueryEngine, VerbatimNestedSchemaEmitted) {
+    namespace fs = std::filesystem;
+    auto root = fs::temp_directory_path() /
+        ("cc_repl_mcp_schema_test_" + std::to_string(::getpid()));
+    fs::remove_all(root);
+    fs::create_directories(root);
+    const auto server_path = root / "server.js";
+    {
+        std::ofstream server(server_path);
+        server << R"JS(
+const readline = require('node:readline');
+const rl = readline.createInterface({ input: process.stdin });
+function send(message) { process.stdout.write(JSON.stringify(message) + '\n'); }
+rl.on('line', line => {
+  const request = JSON.parse(line);
+  if (request.method === 'initialize') {
+    send({ jsonrpc: '2.0', id: request.id, result: {
+      protocolVersion: '2024-11-05',
+      capabilities: { tools: {} },
+      serverInfo: { name: 'schema-fixture', version: '1.0.0' }
+    }});
+    return;
+  }
+  if (request.method === 'tools/list') {
+    send({ jsonrpc: '2.0', id: request.id, result: { tools: [{
+      name: 'nested_lookup',
+      description: 'Nested schema fixture',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'search text' },
+          opts: { type: 'object', properties: {
+            limit: { type: 'integer', minimum: 1 },
+            tags: { type: 'array', items: { type: 'string' } }
+          }}
+        },
+        required: ['query'],
+        $schema: 'http://json-schema.org/draft-07/schema#'
+      }
+    }]}});
+    return;
+  }
+});
+)JS";
+    }
+
+    auto synced = cc::tools::sync_native_mcp_servers({
+        cc::tools::NativeMcpConfiguredServer{
+            .name = "schema_fixture",
+            .command = "node",
+            .args = {server_path.string()},
+            .env = {},
+        },
+    });
+    ASSERT_TRUE(synced.has_value());
+    auto restarted = cc::tools::restart_native_mcp_server("schema_fixture");
+    ASSERT_TRUE(restarted.has_value()) << restarted.error();
+    ASSERT_EQ(restarted->tools.size(), 1u);
+    EXPECT_EQ(restarted->tools.front().name, "nested_lookup");
+
+    QueryEngineConfig config;
+    config.api_key = "test-key";
+    config.base_url = "http://127.0.0.1:1";  // never contacted
+    config.retry_policy.max_retries = 0;
+    config.cwd = root.string();
+    config.dynamic_tools_provider = [] {
+        return cc::tools::collect_mcp_tool_definitions();
+    };
+    config.mcp_input_schema_provider = [] {
+        return cc::tools::collect_mcp_input_schemas();
+    };
+    ToolRegistry registry;
+    QueryEngine engine(std::move(config), registry);
+
+    const std::string body = engine.build_request_body_for_testing();
+    auto parsed = cc::utils::json::parse(body);
+    ASSERT_TRUE(parsed.has_value()) << body;
+    const auto tools = parsed->root().get("tools");
+    ASSERT_TRUE(tools.is_arr()) << body;
+
+    bool found = false;
+    tools.iter([&](auto element) {
+        if (std::string(element.get("name").as_str()) != "nested_lookup") return;
+        found = true;
+        EXPECT_EQ(std::string(element.get("type").as_str()), "function");
+        const auto schema = element.get("input_schema");
+        ASSERT_TRUE(schema.is_obj()) << body;
+        const auto props = schema.get("properties");
+        ASSERT_TRUE(props.is_obj()) << body;
+        // Nested object/array shapes must survive verbatim.
+        const auto opts = props.get("opts");
+        ASSERT_TRUE(opts.is_obj()) << body;
+        const auto opts_props = opts.get("properties");
+        ASSERT_TRUE(opts_props.is_obj()) << body;
+        EXPECT_EQ(std::string(opts_props.get("limit").get("type").as_str()),
+                  "integer");
+        const auto tags = opts_props.get("tags");
+        ASSERT_TRUE(tags.is_obj()) << body;
+        EXPECT_EQ(std::string(tags.get("items").get("type").as_str()),
+                  "string");
+        // Required list and vendor keys preserved.
+        EXPECT_EQ(std::string(schema.get("$schema").as_str()),
+                  "http://json-schema.org/draft-07/schema#");
+        const auto required = schema.get("required");
+        ASSERT_TRUE(required.is_arr()) << body;
+        bool has_query = false;
+        required.iter([&](auto r) {
+            if (std::string(r.as_str()) == "query") has_query = true;
+        });
+        EXPECT_TRUE(has_query) << body;
+    });
+    EXPECT_TRUE(found) << body;
+
+    ASSERT_TRUE(cc::tools::sync_native_mcp_servers({}).has_value());
+    fs::remove_all(root);
+}
+
+// Raw-name MCP calls (missing-tool fallback used by computer-use screenshot
+// responses) must preserve image content blocks, not flatten them to text.
+TEST(McpToolSchemaQueryEngine, ResultConversionPreservesScreenshotImage) {
+    using cc::services::mcp::ContentItem;
+    cc::tools::McpToolResult mcp_result{
+        .content = "screenshot taken",
+        .content_items = {
+            ContentItem{
+                .type = "text",
+                .text = "screenshot taken",
+            },
+            ContentItem{
+                .type = "image",
+                .text = {},
+                .media_type = std::string{"image/png"},
+                .data = std::string{"BASE64PNGDATA"},
+            },
+        },
+        .content_type = "text",
+    };
+
+    auto converted = cc::tools::mcp_result_to_tool_result(mcp_result);
+    ASSERT_EQ(converted.content.size(), 2u);
+    EXPECT_EQ(converted.content[0].format.value_or(""), "text");
+    EXPECT_EQ(converted.content[0].text, "screenshot taken");
+    ASSERT_TRUE(converted.content[1].format.has_value());
+    EXPECT_EQ(*converted.content[1].format, "image");
+    EXPECT_EQ(converted.content[1].media_type.value_or(""), "image/png");
+    EXPECT_EQ(converted.content[1].data.value_or(""), "BASE64PNGDATA");
+    EXPECT_FALSE(converted.is_error);
+
+    // With only a flattened payload, conversion yields a single text block.
+    cc::tools::McpToolResult text_only{
+        .content = "plain", .content_items = {}, .content_type = "text"};
+    auto text_result = cc::tools::mcp_result_to_tool_result(text_only);
+    ASSERT_EQ(text_result.content.size(), 1u);
+    EXPECT_EQ(text_result.content[0].text, "plain");
+}
+
+// When a "computer-use" MCP server is connected, native computer actions are
+// forwarded to it and its screenshot image block is preserved.
+TEST(McpToolSchemaQueryEngine, ComputerActionRoutesToComputerUseMcpServer) {
+    namespace fs = std::filesystem;
+    auto root = fs::temp_directory_path() /
+        ("cc_repl_computer_use_mcp_test_" + std::to_string(::getpid()));
+    fs::remove_all(root);
+    fs::create_directories(root);
+    const auto server_path = root / "server.js";
+    {
+        std::ofstream server(server_path);
+        server << R"JS(
+const readline = require('node:readline');
+const rl = readline.createInterface({ input: process.stdin });
+function send(message) { process.stdout.write(JSON.stringify(message) + '\n'); }
+rl.on('line', line => {
+  const request = JSON.parse(line);
+  if (request.method === 'initialize') {
+    send({ jsonrpc: '2.0', id: request.id, result: {
+      protocolVersion: '2024-11-05',
+      capabilities: { tools: {} },
+      serverInfo: { name: 'computer-use', version: '1.0.0' }
+    }});
+    return;
+  }
+  if (request.method === 'tools/list') {
+    send({ jsonrpc: '2.0', id: request.id, result: { tools: [{
+      name: 'computer',
+      description: 'Native computer tool',
+      inputSchema: { type: 'object' }
+    }]}});
+    return;
+  }
+  if (request.method === 'tools/call') {
+    send({ jsonrpc: '2.0', id: request.id, result: {
+      isError: false,
+      content: [
+        { type: 'text', text: 'clicked' },
+        { type: 'image', data: 'UE5HT05OTkc=', mimeType: 'image/png' }
+      ]
+    }});
+    return;
+  }
+});
+)JS";
+    }
+
+    auto synced = cc::tools::sync_native_mcp_servers({
+        cc::tools::NativeMcpConfiguredServer{
+            .name = "computer-use",
+            .command = "node",
+            .args = {server_path.string()},
+            .env = {},
+        },
+    });
+    ASSERT_TRUE(synced.has_value());
+    auto restarted = cc::tools::restart_native_mcp_server("computer-use");
+    ASSERT_TRUE(restarted.has_value()) << restarted.error();
+    EXPECT_EQ(restarted->status, "ready");
+
+    cc::core::ToolRegistry registry;
+    cc::tools::register_runtime_tools(
+        registry,
+        cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
+
+    // The registry dispatches the native computer action under its internal
+    // "computer_use" name; the request serializer emits it as "computer".
+    auto result = registry.execute(
+        "computer_use",
+        cc::core::ToolInput::from_json(
+            R"({"action":"left_click","coordinate":[100,200]})"));
+    ASSERT_TRUE(result.has_value());
+    ASSERT_FALSE(result->is_error);
+    bool saw_image = false;
+    for (const auto& c : result->content) {
+        if (c.format == "image") {
+            saw_image = true;
+            EXPECT_EQ(c.media_type.value_or(""), "image/png");
+            EXPECT_EQ(c.data.value_or(""), "UE5HT05OTkc=");
+        }
+    }
+    EXPECT_TRUE(saw_image);
+
+    ASSERT_TRUE(cc::tools::sync_native_mcp_servers({}).has_value());
+    fs::remove_all(root);
+}
+
+}  // namespace cc_repl_mcp_input_schema_test
+
 namespace cc_repl_tmux_detection_test {
 TEST(SwarmBackends, CaptureEnvReflectsTmuxPresence) {
     using cc::utils::swarm_backends::EnvironmentDetection;
