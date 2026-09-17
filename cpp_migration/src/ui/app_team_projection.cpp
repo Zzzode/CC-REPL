@@ -378,17 +378,30 @@ bool AppAdapter::drain_one_teammate_permission() {
 
     const auto request = pending.request;
     const std::string team = pending.team;
+    // Show the worker's concrete tool input in the approval dialog.
+    const std::string input_pretty =
+        sh::format_permission_request_input(request.tool_name,
+                                            request.input_json);
     const std::string description =
         "@" + request.agent_id + " requests " + request.tool_name +
         (request.description.empty() ? std::string{}
-                                     : ("\n" + request.description));
+                                     : ("\n" + request.description)) +
+        (input_pretty.empty() ? std::string{}
+                              : ("\n\nInput:\n" + input_pretty));
 
-    auto reply = [request, team](bool allow, std::string error_text) {
+    auto reply = [request, team](bool allow, bool always_allow,
+                                 std::string error_text) {
         sh::SwarmPermissionResponseMessage response;
         response.type = "permission_response";
         response.request_id = request.request_id;
         if (allow) {
             response.subtype = "success";
+            if (always_allow) {
+                // Persist a whole-tool allow grant on the worker so matching
+                // future calls no longer round-trip to the leader.
+                response.permission_updates_json =
+                    sh::build_always_allow_updates_json(request.tool_name);
+            }
         } else {
             response.subtype = "error";
             response.error = std::move(error_text);
@@ -408,13 +421,16 @@ bool AppAdapter::drain_one_teammate_permission() {
                 decision == dsys::ToolPermissionPayload::Decision::AllowOnce ||
                 decision ==
                     dsys::ToolPermissionPayload::Decision::AlwaysAllow;
-            reply(allow, allow ? std::string{}
-                               : std::string{"Permission denied by team lead"});
+            const bool always_allow =
+                decision == dsys::ToolPermissionPayload::Decision::AlwaysAllow;
+            reply(allow, always_allow,
+                  allow ? std::string{}
+                        : std::string{"Permission denied by team lead"});
             screen_state_->dialog_queue.pop_overlay();
             PostRenderEvent();
         },
         /*on_abort=*/[this, reply] {
-            reply(false, "Permission aborted by team lead");
+            reply(false, false, "Permission aborted by team lead");
             screen_state_->dialog_queue.pop_overlay();
             PostRenderEvent();
         },

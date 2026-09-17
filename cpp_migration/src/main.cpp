@@ -618,16 +618,26 @@ cc::tools::AgentLivePermissionCheck check_agent_tool_permission(
         (w_agent && *w_agent) && (w_team && *w_team);
 
     if (is_worker_teammate) {
-        cc::utils::swarm_helpers::SwarmPermissionRequestMessage req;
+        namespace sh = cc::utils::swarm_helpers;
+        // Honor a previously-persisted "Always allow" grant without a
+        // mailbox round-trip (whole-tool rules only; see WorkerPermissionGrants).
+        sh::WorkerPermissionGrants grants(w_team, w_agent);
+        if (grants.allows(tool_name)) {
+            cc::tools::AgentLivePermissionCheck check;
+            check.allowed = true;
+            return check;
+        }
+
+        sh::SwarmPermissionRequestMessage req;
         req.type = "permission_request";
-        req.request_id = cc::utils::swarm_helpers::PermissionSync::generate_request_id();
+        req.request_id = sh::PermissionSync::generate_request_id();
         req.agent_id = w_agent;
         req.tool_name = std::string(tool_name);
         req.tool_use_id = std::string(tool_use_id);
         req.description = std::string(tool_name) + " requests permission";
         req.input_json = std::string(input_json);
 
-        auto response = cc::utils::swarm_helpers::PermissionSync::request_and_await(
+        auto response = sh::PermissionSync::request_and_await(
             req, std::string_view(w_team));
         cc::tools::AgentLivePermissionCheck check;
         if (!response || response->subtype != "success") {
@@ -636,6 +646,11 @@ cc::tools::AgentLivePermissionCheck check_agent_tool_permission(
                 ? *response->error
                 : std::string("timed out waiting for team leader approval");
             return check;
+        }
+        // Persist any "Always allow" rules the leader attached so matching
+        // future calls skip the leader prompt.
+        if (response->permission_updates_json) {
+            grants.apply_updates(*response->permission_updates_json);
         }
         check.allowed = true;
         if (response->updated_input_json &&

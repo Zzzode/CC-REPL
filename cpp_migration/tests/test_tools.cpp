@@ -13176,3 +13176,127 @@ TEST(SwarmPermissionSync, MailboxSurvivesRawControlBytes) {
 
     fs::remove_all(runtime_dir);
 }
+
+// Cross-process flock must serialize concurrent inbox read-modify-write from
+// separate processes; without it two forked writers lose messages.
+TEST(SwarmPermissionSync, CrossProcessFlockSerializesInboxWrites) {
+    const auto runtime_dir = fs::temp_directory_path() /
+        ("cc_repl_flock_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    fs::remove_all(runtime_dir);
+    EnvironmentGuard runner("CC_REPL_TEAM_RUNTIME_DIR", runtime_dir.string());
+    constexpr std::string_view kTeam = "flockteam";
+    constexpr int kPerChild = 25;
+
+    auto child_loop = [kTeam](int tag) {
+        for (int i = 0; i < kPerChild; ++i) {
+            for (int attempt = 0; attempt < 10; ++attempt) {
+                auto written = cc::utils::write_to_mailbox(
+                    "worker",
+                    cc::utils::TeammateMessage{
+                        .from = tag == 0 ? "child-a" : "child-b",
+                        .text = std::format("msg-{}-{}", tag, i),
+                    },
+                    std::optional<std::string_view>{kTeam});
+                if (written.has_value()) break;
+                std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            }
+        }
+        _exit(0);
+    };
+
+    const pid_t pid_a = fork();
+    ASSERT_GE(pid_a, 0);
+    if (pid_a == 0) child_loop(0);
+    const pid_t pid_b = fork();
+    ASSERT_GE(pid_b, 0);
+    if (pid_b == 0) child_loop(1);
+
+    int status_a = 0, status_b = 0;
+    ASSERT_EQ(waitpid(pid_a, &status_a, 0), pid_a);
+    ASSERT_EQ(waitpid(pid_b, &status_b, 0), pid_b);
+    ASSERT_TRUE(WIFEXITED(status_a) && WEXITSTATUS(status_a) == 0);
+    ASSERT_TRUE(WIFEXITED(status_b) && WEXITSTATUS(status_b) == 0);
+
+    auto messages =
+        cc::utils::read_inbox("worker", std::optional<std::string_view>{kTeam});
+    ASSERT_TRUE(messages.has_value());
+    // No lost updates: both children performed kPerChild successful appends.
+    EXPECT_EQ(messages->size(), static_cast<std::size_t>(2 * kPerChild));
+
+    fs::remove_all(runtime_dir);
+}
+
+// Leader AlwaysAllow must round-trip a permission_updates addRules grant,
+// and the worker store must auto-allow the tool afterwards (persisted to
+// disk so a fresh store instance simulating a pane restart also sees it).
+TEST(SwarmPermissionSync, AlwaysAllowUpdatesPersistAndGrant) {
+    namespace sh = cc::utils::swarm_helpers;
+    const auto runtime_dir = fs::temp_directory_path() /
+        ("cc_repl_allow_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    fs::remove_all(runtime_dir);
+    EnvironmentGuard runner("CC_REPL_TEAM_RUNTIME_DIR", runtime_dir.string());
+    const std::string team = "allowteam";
+    const std::string agent = "worker";
+
+    sh::SwarmPermissionResponseMessage response;
+    response.type = "permission_response";
+    response.request_id = "perm-1";
+    response.subtype = "success";
+    response.permission_updates_json =
+        sh::build_always_allow_updates_json("Bash");
+    const std::string text = sh::PermissionSync::build_response_text(response);
+
+    auto parsed = sh::PermissionSync::parse_response(text);
+    ASSERT_TRUE(parsed.has_value());
+    ASSERT_TRUE(parsed->permission_updates_json.has_value());
+    EXPECT_NE(parsed->permission_updates_json->find("addRules"),
+              std::string::npos);
+
+    // Fresh store instance: grants persist on disk (pane restart semantics).
+    {
+        sh::WorkerPermissionGrants grants(team, agent);
+        EXPECT_FALSE(grants.allows("Bash"));
+        grants.apply_updates(*parsed->permission_updates_json);
+        EXPECT_TRUE(grants.allows("Bash"));
+        EXPECT_FALSE(grants.allows("Edit"));
+    }
+    {
+        sh::WorkerPermissionGrants restarted(team, agent);
+        EXPECT_TRUE(restarted.allows("Bash"));
+    }
+
+    // Non-allow / malformed updates are ignored.
+    sh::WorkerPermissionGrants strict(team, agent);
+    strict.apply_updates(R"([{"type":"setMode","destination":"session","mode":"bypassPermissions"}])");
+    strict.apply_updates("not-json");
+    EXPECT_FALSE(strict.allows("Edit"));
+
+    fs::remove_all(runtime_dir);
+}
+
+// Approval dialog input formatting: Edit payloads render as a -/+ diff;
+// regular payloads pretty-print; oversized input truncates.
+TEST(SwarmPermissionSync, PermissionInputFormatting) {
+    namespace sh = cc::utils::swarm_helpers;
+
+    const std::string edit = sh::format_permission_request_input(
+        "Edit",
+        R"({"file_path":"/tmp/a.txt","old_string":"one\ntwo","new_string":"one\n2"})");
+    EXPECT_NE(edit.find("/tmp/a.txt"), std::string::npos);
+    EXPECT_NE(edit.find("- two"), std::string::npos);
+    EXPECT_NE(edit.find("+ 2"), std::string::npos);
+
+    const std::string bash = sh::format_permission_request_input(
+        "Bash", R"({"command":"ls -la","timeout":30})");
+    EXPECT_NE(bash.find("\"command\""), std::string::npos);
+    EXPECT_NE(bash.find("ls -la"), std::string::npos);
+
+    const std::string truncated = sh::format_permission_request_input(
+        "Bash", std::string("{\"command\":\"") +
+                    std::string(5000, 'x') + "\"}",
+        /*max_chars=*/100);
+    EXPECT_LE(truncated.size(), 120u);
+    EXPECT_NE(truncated.find("[truncated]"), std::string::npos);
+}

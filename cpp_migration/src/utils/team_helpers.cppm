@@ -1,22 +1,29 @@
 module;
 
 #include <algorithm>
+#include <cerrno>
 #include <chrono>
 #include <cctype>
 #include <cstdint>
 #include <cstdlib>
 #include <expected>
 #include <filesystem>
-#include <fstream>
-#include <functional>
-#include <initializer_list>
 #include <mutex>
 #include <optional>
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <thread>
+#if !defined(_WIN32)
+#include <fcntl.h>
+#include <sys/file.h>
+#include <unistd.h>
+#endif
 #include <utility>
 #include <vector>
+#include <fstream>
+#include <functional>
+#include <initializer_list>
 
 export module cc.utils.team_helpers;
 
@@ -38,6 +45,76 @@ inline std::mutex& teammate_inbox_mutex() {
     static std::mutex m;
     return m;
 }
+
+/// Cross-process advisory lock (flock) for one inbox file. Leader and
+/// pane-teammates are SEPARATE processes, so the in-process mutex above does
+/// not serialize their concurrent read-modify-write cycles. Each RMW takes an
+/// exclusive lock on a sibling "<inbox>.lock" file; flock is released on
+/// close (RAII) and automatically if the holder dies. TS uses proper-lockfile
+/// around every mailbox mutation.
+class ScopedInboxLock {
+public:
+    explicit ScopedInboxLock(const fs::path& inbox_path) {
+#if !defined(_WIN32)
+        std::error_code ec;
+        fs::create_directories(inbox_path.parent_path(), ec);
+        lock_path_ = fs::path{inbox_path} += ".lock";
+        fd_ = ::open(lock_path_.c_str(), O_CREAT | O_RDWR | O_CLOEXEC, 0600);
+        if (fd_ < 0) return;
+        // EINTR-safe bounded exclusive lock acquisition.
+        constexpr int kMaxAttempts = 200;  // ~10s at 50ms
+        for (int attempt = 0; attempt < kMaxAttempts; ++attempt) {
+            if (::flock(fd_, LOCK_EX) == 0) {
+                locked_ = true;
+                return;
+            }
+            if (errno != EINTR) {
+                ::close(fd_);
+                fd_ = -1;
+                return;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+        ::close(fd_);
+        fd_ = -1;
+#else
+        (void)inbox_path;
+#endif
+    }
+
+    ScopedInboxLock(const ScopedInboxLock&) = delete;
+    ScopedInboxLock& operator=(const ScopedInboxLock&) = delete;
+
+    ~ScopedInboxLock() {
+#if !defined(_WIN32)
+        if (fd_ >= 0) {
+            if (locked_) ::flock(fd_, LOCK_UN);
+            ::close(fd_);
+        }
+#endif
+    }
+
+    /// True when the exclusive lock is held (and a no-op stand-in on
+    /// platforms without flock, where only the in-process mutex applies).
+    [[nodiscard]] bool locked() const noexcept {
+#if !defined(_WIN32)
+        return locked_;
+#else
+        return true;
+#endif
+    }
+
+private:
+#if !defined(_WIN32)
+    int fd_ = -1;
+    bool locked_ = false;
+    fs::path lock_path_;
+#endif
+};
+
+/// Generic cross-process advisory lock; ScopedInboxLock is not inbox-specific
+/// despite its name — it flocks any path's sibling ".lock" file.
+using ScopedFileLock = ScopedInboxLock;
 
 // ─── Teammate Context ────────────────────────────────────────────────────────
 
@@ -637,12 +714,16 @@ inline std::expected<void, std::string> write_to_mailbox(
     std::optional<std::string_view> team_name
 ) {
     std::lock_guard<std::mutex> lock(teammate_inbox_mutex());
+    const auto inbox_path = fs::path{get_inbox_path(recipient_name, team_name)};
+    ScopedInboxLock flock(inbox_path);
+    if (!flock.locked()) {
+        return std::unexpected("failed to acquire cross-process inbox lock");
+    }
     auto existing = read_inbox(recipient_name, team_name);
     if (!existing) return std::unexpected(existing.error());
     if (message.timestamp.empty()) message.timestamp = detail::timestamp_now();
     message.read = false;
     existing->push_back(std::move(message));
-    const auto inbox_path = fs::path{get_inbox_path(recipient_name, team_name)};
     if (!detail::write_messages(inbox_path, *existing)) {
         return std::unexpected("failed to write teammate inbox");
     }
@@ -676,10 +757,14 @@ inline std::expected<void, std::string> mark_all_read(
     std::optional<std::string_view> team_name
 ) {
     std::lock_guard<std::mutex> lock(teammate_inbox_mutex());
+    const auto inbox_path = fs::path{get_inbox_path(agent_name, team_name)};
+    ScopedInboxLock flock(inbox_path);
+    if (!flock.locked()) {
+        return std::unexpected("failed to acquire cross-process inbox lock");
+    }
     auto messages = read_inbox(agent_name, team_name);
     if (!messages) return std::unexpected(messages.error());
     for (auto& message : *messages) message.read = true;
-    const auto inbox_path = fs::path{get_inbox_path(agent_name, team_name)};
     if (!detail::write_messages(inbox_path, *messages)) {
         return std::unexpected("failed to update teammate inbox");
     }

@@ -53,6 +53,28 @@ Still open (ranked): computer-use #6 permission-panel wiring; cross-process
 flock + always-allow persistence + diff-bearing approval dialog in teams;
 iTerm2 backend; session `summary.md` compaction; **bridge v2 pairing** (largest).
 
+### Teams hardening addendum (2026-09-18, follow-up)
+
+- **Cross-process flock** — CLOSED. Every inbox read-modify-write
+  (write_to_mailbox, mark_all_read, permission response removal) now takes an
+  exclusive `flock` on `<inbox>.lock` in addition to the in-process mutex,
+  serializing leader ↔ separate pane processes. Verified with a two-child
+  fork concurrency test (`CrossProcessFlockSerializesInboxWrites`).
+- **Always-allow persistence to worker** — CLOSED. AlwaysAllow now attaches
+  an SDK-shaped `permission_updates` addRules update to the success envelope;
+  the worker persists whole-tool grants to
+  `<team>/permissions/worker-allow-<agent>.json` and short-circuits matching
+  future permission checks without a mailbox round-trip (survives pane
+  restart; content-scoped rules intentionally not auto-matched). Test
+  `AlwaysAllowUpdatesPersistAndGrant`.
+- **Approval dialog shows tool input/diff** — CLOSED.
+  `format_permission_request_input` renders Edit inputs as a `-`/`+` diff
+  (with file_path), other tools as pretty JSON, size-capped. Test
+  `PermissionInputFormatting`.
+
+Still open after this addendum: iTerm2 backend (macOS); session
+`summary.md` compaction; **bridge v2 pairing** (largest).
+
 
 ---
 

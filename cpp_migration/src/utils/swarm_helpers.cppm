@@ -550,6 +550,11 @@ struct SwarmPermissionResponseMessage {
     std::string subtype;  ///< "success" | "error"
     std::optional<std::string> error;
     std::optional<std::string> updated_input_json;
+    /// Verbatim JSON array of SDK PermissionUpdate objects. The leader sends
+    /// an addRules update when the user chooses "Always allow"; the worker
+    /// persists those rules and auto-allows matching future tool calls
+    /// without a mailbox round-trip.
+    std::optional<std::string> permission_updates_json;
 };
 
 /// Static worker/leader entry points for the mailbox permission protocol.
@@ -612,6 +617,7 @@ public:
     /// Env CC_REPL_PERMISSION_TIMEOUT_MS, else 300000ms (fail-closed default).
     [[nodiscard]] static std::chrono::milliseconds default_timeout();
 };
+
 
 // ============================================================================
 // TeammateInit — Initialization hooks for teammates (from teammateInit.ts)
@@ -759,6 +765,15 @@ namespace permission_detail {
     return input;
 }
 
+/// permission_updates must be a JSON array.
+[[nodiscard]] inline std::string normalize_updates_json(const std::string& json) {
+    const auto first = json.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos) return "[]";
+    const auto last = json.find_last_not_of(" \t\r\n");
+    if (json[first] != '[' || json[last] != ']') return "[]";
+    return json;
+}
+
 /// Rewrite an inbox with one exact-text message removed (TS legacy
 /// removeWorkerResponse semantics: the blocking waiter deletes the response it
 /// consumed so a slow later poll can never redeliver it). Mirrors the
@@ -773,6 +788,11 @@ inline bool remove_mailbox_message_by_text(
     // Share the inbox RMW lock with write_to_mailbox/mark_all_read so the
     // worker's response consumption cannot race the poller's mark-all-read.
     std::lock_guard<std::mutex> lock(cc::utils::teammate_inbox_mutex());
+    const auto inbox_path =
+        fs::path{cc::utils::get_inbox_path(worker_name, team_name)};
+    // Serialize against the leader and other pane PROCESSES as well.
+    cc::utils::ScopedInboxLock flock(inbox_path);
+    if (!flock.locked()) return false;
     auto messages = cc::utils::read_inbox(worker_name, team_name);
     if (!messages) return false;
     const auto before = messages->size();
@@ -781,8 +801,6 @@ inline bool remove_mailbox_message_by_text(
     });
     if (messages->size() == before) return false;
 
-    const auto inbox_path =
-        fs::path{cc::utils::get_inbox_path(worker_name, team_name)};
     std::error_code ec;
     fs::create_directories(inbox_path.parent_path(), ec);
     if (ec) return false;
@@ -809,6 +827,216 @@ inline bool remove_mailbox_message_by_text(
 }
 
 } // namespace permission_detail
+// ============================================================================
+// Worker-side "Always allow" grant persistence
+// ============================================================================
+//
+// When the leader resolves a request with AlwaysAllow, the success envelope
+// carries an SDK PermissionUpdate (addRules / behavior "allow"). The worker
+// persists those rules and auto-allows matching future calls itself — a
+// background pane must not re-prompt the leader for the same tool on every
+// turn. The grant store lives in the shared team runtime dir so it survives
+// pane process restarts/reconnection.
+//
+// Conservative enforcement: only whole-tool grants (no ruleContent) auto-
+// allow; content-scoped rules like Bash(npm install) are persisted but NOT
+// matched here — the worker keeps asking the leader rather than risk a
+// half-implemented command matcher granting too much.
+
+/// One flattened allow rule extracted from a permission_updates array.
+struct WorkerAllowRule {
+    std::string tool_name;
+    std::string rule_content;  // empty => whole tool
+};
+
+/// Build the permission_updates JSON array for one whole-tool AlwaysAllow
+/// decision. Destination is "session": pane workers are ephemeral and the
+/// grant store below is the real persistence; we never touch settings files.
+[[nodiscard]] inline std::string build_always_allow_updates_json(
+    std::string_view tool_name) {
+    // json_quote escapes string CONTENT (the wrapping quotes are literal in
+    // the fragments, matching every other envelope builder in this file).
+    std::string text =
+        R"([{"type":"addRules","destination":"session","behavior":"allow","rules":[{"toolName":")";
+    text += permission_detail::json_quote(tool_name);
+    text += R"("}]}])";
+    return text;
+}
+
+/// Render a worker's tool input for the leader's approval dialog: Edit-like
+/// inputs (old_string/new_string) get a compact -/+ diff view, everything
+/// else gets pretty-printed JSON. Capped so a huge edit body cannot flood
+/// the overlay. Shared with tests to keep the dialog formatting stable.
+[[nodiscard]] inline std::string format_permission_request_input(
+    std::string_view /*tool_name*/,
+    std::string_view input_json,
+    std::size_t max_chars = 2000) {
+    auto parsed = cc::utils::json::parse(std::string(input_json));
+    std::string rendered;
+    if (parsed && parsed->root().is_obj()) {
+        const auto root = parsed->root();
+        const auto old_s = root.get("old_string");
+        const auto new_s = root.get("new_string");
+        const auto path_s = root.get("file_path");
+        if (old_s.is_str() && new_s.is_str()) {
+            if (path_s.is_str()) {
+                rendered += std::string(path_s.as_str());
+                rendered += '\n';
+            }
+            auto split_lines = [](std::string_view text) {
+                std::vector<std::string_view> lines;
+                std::size_t start = 0;
+                while (start <= text.size()) {
+                    const auto nl = text.find('\n', start);
+                    lines.push_back(text.substr(
+                        start,
+                        nl == std::string_view::npos ? text.size() - start
+                                                     : nl - start));
+                    if (nl == std::string_view::npos) break;
+                    start = nl + 1;
+                }
+                return lines;
+            };
+            for (const auto line : split_lines(old_s.as_str())) {
+                rendered += "- ";
+                rendered += line;
+                rendered += '\n';
+            }
+            for (const auto line : split_lines(new_s.as_str())) {
+                rendered += "+ ";
+                rendered += line;
+                rendered += '\n';
+            }
+        } else {
+            rendered = cc::utils::json::to_pretty_string(*parsed);
+        }
+    } else {
+        rendered = std::string(input_json);
+    }
+    if (rendered.size() > max_chars) {
+        rendered.resize(max_chars);
+        rendered += "\n... [truncated]";
+    }
+    return rendered;
+}
+
+/// Process-local cache + on-disk store of grants received from the leader.
+/// Instantiated per worker permission check (the store is cheap; reads are
+/// file-based and flocked, matching the mailbox protocol's trust model).
+class WorkerPermissionGrants {public:
+    WorkerPermissionGrants(std::string team_name, std::string agent_name)
+        : team_name_(std::move(team_name)),
+          agent_name_(std::move(agent_name)) {}
+
+    /// True when a whole-tool allow rule covers this exact tool name.
+    [[nodiscard]] bool allows(std::string_view tool_name) {
+        for (const auto& rule : load_rules()) {
+            if (rule.rule_content.empty() && rule.tool_name == tool_name) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// Persist every addRules/allow update in a verbatim permission_updates
+    /// JSON array. Unknown/non-allow update shapes are ignored (the worker
+    /// has no settings destinations other than its own grant file).
+    void apply_updates(std::string_view updates_json) {
+        auto parsed = cc::utils::json::parse(std::string(updates_json));
+        if (!parsed) return;
+        const auto root = parsed->root();
+        if (!root.is_arr()) return;
+
+        std::vector<WorkerAllowRule> rules = load_rules();
+        std::size_t added = 0;
+        root.iter([&](cc::utils::json::JsonVal update) {
+            if (!update.is_obj()) return;
+            if (update.get_string("type") != "addRules") return;
+            if (update.get_string("behavior") != "allow") return;
+            const auto rules_node = update.get("rules");
+            if (!rules_node.is_arr()) return;
+            rules_node.iter([&](cc::utils::json::JsonVal rule) {
+                if (!rule.is_obj()) return;
+                const auto name = rule.get("toolName");
+                if (!name.is_str() || name.as_str().empty()) return;
+                WorkerAllowRule candidate{
+                    .tool_name = std::string(name.as_str()),
+                    .rule_content = {},
+                };
+                if (const auto content = rule.get("ruleContent");
+                    content.is_str()) {
+                    candidate.rule_content = std::string(content.as_str());
+                }
+                const bool duplicate = std::ranges::any_of(
+                    rules, [&](const WorkerAllowRule& existing) {
+                        return existing.tool_name == candidate.tool_name &&
+                               existing.rule_content == candidate.rule_content;
+                    });
+                if (!duplicate) {
+                    rules.push_back(std::move(candidate));
+                    ++added;
+                }
+            });
+        });
+        if (added > 0) save_rules(rules);
+    }
+
+private:
+    [[nodiscard]] fs::path grants_path() const {
+        const auto team = cc::utils::team_dir(team_name_);
+        return fs::path{team} / "permissions" /
+               ("worker-allow-" +
+                cc::utils::detail::sanitize_path_component(agent_name_, "agent") +
+                ".json");
+    }
+
+    [[nodiscard]] std::vector<WorkerAllowRule> load_rules() {
+        std::vector<WorkerAllowRule> rules;
+        const auto path = grants_path();
+        std::error_code ec;
+        if (!fs::exists(path, ec)) return rules;
+        auto parsed = cc::utils::json::parse_file(path);
+        if (!parsed) return rules;
+        const auto list = parsed->root().get("rules");
+        if (!list.is_arr()) return rules;
+        list.iter([&](cc::utils::json::JsonVal rule) {
+            if (!rule.is_obj()) return;
+            const auto name = rule.get("tool_name");
+            if (!name.is_str()) return;
+            WorkerAllowRule entry{};
+            entry.tool_name = std::string(name.as_str());
+            if (const auto content = rule.get("rule_content");
+                content.is_str()) {
+                entry.rule_content = std::string(content.as_str());
+            }
+            rules.push_back(std::move(entry));
+        });
+        return rules;
+    }
+
+    void save_rules(const std::vector<WorkerAllowRule>& rules) {
+        const auto path = grants_path();
+        cc::utils::ScopedFileLock lock(path);
+        if (!lock.locked()) return;
+        std::error_code ec;
+        fs::create_directories(path.parent_path(), ec);
+        std::ofstream out(path, std::ios::trunc);
+        if (!out) return;
+        out << "{\"rules\":[";
+        for (std::size_t i = 0; i < rules.size(); ++i) {
+            if (i != 0) out << ',';
+            out << R"({"tool_name":")"
+                << permission_detail::json_quote(rules[i].tool_name)
+                << R"(","rule_content":")"
+                << permission_detail::json_quote(rules[i].rule_content)
+                << "\"}";
+        }
+        out << "]}";
+    }
+
+    std::string team_name_;
+    std::string agent_name_;
+};
 
 inline std::string PermissionSync::generate_request_id() {
     static constexpr std::string_view alphabet =
@@ -857,12 +1085,22 @@ inline std::string PermissionSync::build_response_text(
         text += '"';
     } else {
         text += ",\"response\":{";
+        bool need_comma = false;
         // The generic C++ dialog never edits input, so this is normally
         // omitted (JSON.stringify drops undefined in TS); serialize it only
         // when a caller explicitly supplies a replacement object.
         if (response.updated_input_json) {
             text += "\"updated_input\":";
             text += permission_detail::normalize_input_json(*response.updated_input_json);
+            need_comma = true;
+        }
+        // Carries "Always allow" addRules updates so the worker persists the
+        // grant and skips the mailbox round-trip on matching later calls.
+        if (response.permission_updates_json) {
+            if (need_comma) text += ',';
+            text += "\"permission_updates\":";
+            text += permission_detail::normalize_updates_json(
+                *response.permission_updates_json);
         }
         text += '}';
     }
@@ -920,6 +1158,10 @@ inline std::optional<SwarmPermissionResponseMessage> PermissionSync::parse_respo
             const auto updated_input = body->get("updated_input");
             if (updated_input.is_obj()) {
                 response.updated_input_json = updated_input.to_string();
+            }
+            const auto updates = body->get("permission_updates");
+            if (updates.is_arr() && updates.size() > 0) {
+                response.permission_updates_json = updates.to_string();
             }
         }
     }
