@@ -115,8 +115,28 @@ Still open after this addendum: iTerm2 backend (macOS);
   negative path (untrusted certificate yields no data and a TLS error).
 
 Still open on bridge v2: real `/v1/code/sessions/{id}/bridge` HTTP, CCR v2
-worker protocol, token refresh, trusted-device enrollment, entrypoint
-wiring, `/bridge` command actions.
+worker protocol, trusted-device enrollment, entrypoint wiring, `/bridge`
+command actions.
+
+### Bridge v2 — proactive token refresh (2026-09-18, follow-up 5)
+
+- **Bridge gap #5 (token refresh), CLOSED.** `TokenRefreshScheduler`'s
+  getter returned `void`, so `on_refresh` always received an EMPTY token —
+  the refresh was log-only, exactly as the audit found. It now returns the
+  token, and the TS behaviours are ported: retry up to 3 times at 60s on an
+  empty/failed fetch (instead of silently stopping), a 30-minute follow-up
+  refresh after each success (so long sessions stay on the chain), and a
+  generation counter that drops refreshes superseded by a
+  cancel/reschedule.
+- The token is now propagated to the transports: `CcrV2Client`,
+  `ReplV2Transport` and `cc.cli::CcrClient` gained `update_token`, and
+  `init_env_less_bridge_core` wires the real `get_access_token` param through
+  to the scheduler. Fixed a deadlock introduced while doing so: `CcrClient`
+  held its connection mutex across requests, so token reads/writes now use a
+  dedicated `token_mutex_`.
+- Also makes `cc.bridge.core` reachable from tests (it previously had zero
+  importers). Three tests cover token delivery, bounded retry with no
+  `on_refresh` on failure, and cancel.
 
 Still open after this addendum: iTerm2 backend (macOS);
 **bridge v2 pairing** (largest).

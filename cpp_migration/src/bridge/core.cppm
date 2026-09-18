@@ -215,9 +215,35 @@ std::optional<T> with_retry(
 /// Periodically refreshes the access token before it expires.
 /// Fires the refresh callback at (expires_in - refresh_buffer) intervals,
 /// re-scheduling itself after each successful refresh.
+///
+/// TS REF: src/bridge/jwtUtils.ts:72 createTokenRefreshScheduler. Faithful
+/// details carried over:
+///   * the token getter RETURNS the token (an older C++ version returned
+///     void, so on_refresh always fired with an empty token — the refresh
+///     was effectively log-only);
+///   * a failed/empty fetch retries up to kMaxRefreshFailures times at
+///     kRefreshRetryDelay instead of silently giving up;
+///   * a successful refresh schedules a follow-up at kFallbackRefreshInterval
+///     so a long-running session does not fall off the refresh chain after
+///     the first window;
+///   * a generation counter drops in-flight refreshes superseded by a
+///     cancel/reschedule, so no orphaned timer survives.
 class TokenRefreshScheduler {
+public:
+    /// How long before expiry to fire the refresh (TS TOKEN_REFRESH_BUFFER_MS).
+    static constexpr std::chrono::milliseconds kDefaultRefreshBuffer{std::chrono::minutes{5}};
+    /// Retry delay after a failed/empty token fetch (TS REFRESH_RETRY_DELAY_MS).
+    static constexpr std::chrono::milliseconds kRefreshRetryDelay{std::chrono::milliseconds{60'000}};
+    /// Follow-up refresh interval after a successful refresh
+    /// (TS FALLBACK_REFRESH_INTERVAL_MS).
+    static constexpr std::chrono::milliseconds kFallbackRefreshInterval{std::chrono::minutes{30}};
+    /// Give up after this many consecutive token-fetch failures
+    /// (TS MAX_REFRESH_FAILURES).
+    static constexpr int kMaxRefreshFailures = 3;
+
+private:
     std::chrono::milliseconds refresh_buffer_ms_;
-    std::function<std::expected<void, std::string>(std::string_view)> refresh_access_token_fn_;
+    std::function<std::expected<std::string, std::string>(std::string_view)> get_access_token_fn_;
     std::function<void(const std::string&, const std::string&)> on_refresh_;
     std::string label_;
 
@@ -226,17 +252,95 @@ class TokenRefreshScheduler {
     std::string active_session_id_;
     int64_t active_expires_in_s_{0};
 
+    /// Sleep in 1s slices so a stop request is honored promptly.
+    static bool sleep_until_or_stop(std::stop_token stop,
+                                    std::chrono::steady_clock::time_point deadline) {
+        while (!stop.stop_requested()) {
+            const auto remaining = deadline - std::chrono::steady_clock::now();
+            if (remaining <= std::chrono::steady_clock::duration::zero()) return true;
+            const auto chunk = remaining < std::chrono::seconds{1}
+                ? remaining
+                : std::chrono::steady_clock::duration{std::chrono::seconds{1}};
+            std::this_thread::sleep_for(chunk);
+        }
+        return false;
+    }
+
+    /// One refresh attempt plus its retry/follow-up scheduling. Runs on the
+    /// timer thread. `generation` is compared against the live counter before
+    /// setting any follow-up timer.
+    void run_refresh(std::stop_token stop, std::string session_id,
+                     uint64_t generation, int failures_so_far) {
+        if (stop.stop_requested()) return;
+
+        std::string oauth_token;
+        if (get_access_token_fn_) {
+            auto result = get_access_token_fn_(session_id);
+            if (result) {
+                oauth_token = std::move(*result);
+            } else {
+                log_bridge_event("token_refresh_fetch_failed", {
+                    {"label", label_},
+                    {"session_id", session_id},
+                    {"error", result.error().substr(0, 120)},
+                });
+            }
+        }
+
+        // Superseded by a cancel/reschedule while the fetch was in flight.
+        {
+            std::lock_guard lock(mutex_);
+            if (generation != generation_ || session_id != active_session_id_) {
+                return;
+            }
+        }
+
+        if (oauth_token.empty()) {
+            const int failures = failures_so_far + 1;
+            log_bridge_event("token_refresh_no_oauth", {
+                {"label", label_},
+                {"session_id", session_id},
+                {"failures", std::to_string(failures)},
+            });
+            if (failures >= kMaxRefreshFailures) return;
+            // Retry so the chain recovers once a token becomes available.
+            if (!sleep_until_or_stop(stop,
+                    std::chrono::steady_clock::now() + kRefreshRetryDelay)) {
+                return;
+            }
+            run_refresh(stop, std::move(session_id), generation, failures);
+            return;
+        }
+
+        if (on_refresh_) on_refresh_(session_id, oauth_token);
+        log_bridge_event("token_refreshed", {
+            {"label", label_},
+            {"session_id", session_id},
+        });
+
+        // Keep long-running sessions authenticated.
+        if (!sleep_until_or_stop(stop,
+                std::chrono::steady_clock::now() + kFallbackRefreshInterval)) {
+            return;
+        }
+        run_refresh(stop, std::move(session_id), generation, /*failures_so_far=*/0);
+    }
+
 public:
     struct Params {
-        std::chrono::milliseconds refresh_buffer_ms{std::chrono::minutes{5}};
-        std::function<std::expected<void, std::string>(std::string_view)> get_access_token_async;
+        std::chrono::milliseconds refresh_buffer_ms{kDefaultRefreshBuffer};
+        /// Returns the current OAuth access token, or an error string.
+        /// TS REF: jwtUtils.ts:76 `getAccessToken(): string | undefined |
+        /// Promise<string | undefined>`.
+        std::function<std::expected<std::string, std::string>(std::string_view)>
+            get_access_token_async;
         std::function<void(const std::string&, const std::string&)> on_refresh;
         std::string label = "default";
     };
 
     explicit TokenRefreshScheduler(Params params)
         : refresh_buffer_ms_(params.refresh_buffer_ms)
-        , refresh_access_token_fn_(std::move(params.get_access_token_async))
+        , get_access_token_fn_(std::move(params.get_access_token_async))
         , on_refresh_(std::move(params.on_refresh))
         , label_(std::move(params.label))
     {}
@@ -248,6 +352,7 @@ public:
         std::lock_guard lock(mutex_);
         active_session_id_ = session_id;
         active_expires_in_s_ = expires_in_s;
+        ++generation_;
 
         if (timer_thread_.joinable()) {
             timer_thread_.request_stop();
@@ -257,35 +362,22 @@ public:
         auto delay_s = expires_in_s - refresh_buffer_ms_.count() / 1000;
         if (delay_s <= 0) delay_s = 5; // minimum 5s
         auto delay = std::chrono::seconds(delay_s);
+        const auto generation = generation_;
 
-        timer_thread_ = std::jthread([this, sid = session_id, delay](std::stop_token stop) {
-            // Wait for delay or stop
-            auto deadline = std::chrono::steady_clock::now() + delay;
-            while (!stop.stop_requested()) {
-                auto remaining = deadline - std::chrono::steady_clock::now();
-                if (remaining <= std::chrono::seconds{0}) break;
-                auto chunk = remaining < std::chrono::seconds{1} ? remaining : std::chrono::steady_clock::duration{std::chrono::seconds{1}};
-                std::this_thread::sleep_for(chunk);
+        timer_thread_ = std::jthread([this, sid = session_id, delay, generation](
+                                         std::stop_token stop) {
+            if (!sleep_until_or_stop(stop,
+                    std::chrono::steady_clock::now() + delay)) {
+                return;
             }
-            if (stop.stop_requested()) return;
-
-            // Refresh the OAuth token before calling on_refresh
-            std::string oauth_token;
-            if (refresh_access_token_fn_) {
-                auto result = refresh_access_token_fn_("");
-                // Whether or not refresh succeeds, try with whatever we have.
-                // The actual /bridge fetch in on_refresh will fail if the token is bad.
-            }
-
-            if (on_refresh_ && !active_session_id_.empty()) {
-                on_refresh_(active_session_id_, oauth_token);
-            }
+            run_refresh(stop, sid, generation, /*failures_so_far=*/0);
         });
     }
 
     /// Cancel all scheduled refreshes.
     void cancel_all() {
         std::lock_guard lock(mutex_);
+        ++generation_;
         if (timer_thread_.joinable()) {
             timer_thread_.request_stop();
             timer_thread_.join();
@@ -298,6 +390,11 @@ public:
     [[nodiscard]] bool is_scheduled() const {
         return !active_session_id_.empty();
     }
+
+private:
+    /// Bumped by schedule/cancel so an in-flight run_refresh can detect it
+    /// has been superseded (TS generations Map). Guarded by mutex_.
+    uint64_t generation_ = 0;
 };
 
 // =========================================================================
@@ -426,6 +523,9 @@ class CcrV2Client {
     std::string session_id_;
     int64_t epoch_{0};
     std::string auth_token_;
+    /// Guards ingress_token_, which update_token() may replace from the
+    /// refresh scheduler's timer thread while request threads read it.
+    std::mutex token_mutex_;
     std::atomic<bool> registered_{false};
     std::unique_ptr<cc::cli::CcrClient> client_;
     std::string last_state_{"idle"};
@@ -454,10 +554,24 @@ public:
         }
     }
 
+    /// Replace the bearer credential used for subsequent CCR requests.
+    /// Called by the proactive refresh scheduler so a long-running session
+    /// keeps authenticating after the worker JWT's window closes.
+    void update_token(const std::string& token) {
+        std::lock_guard lock(token_mutex_);
+        ingress_token_ = token;
+        if (client_) client_->update_token(ingress_token_);
+    }
+
     /// POST to /worker/register. Performs the real CCR session handshake
     /// (CcrClient::connect) against session_url_ with the worker JWT as the
     /// bearer token. Returns the worker epoch on success.
     std::expected<int64_t, std::string> register_worker() {
+        std::string token;
+        {
+            std::lock_guard lock(token_mutex_);
+            token = ingress_token_;
+        }
         // Build the real client. CcrConnectionOptions mirror the heartbeat/
         // reconnect defaults from Params.
         cc::cli::CcrConnectionOptions opts;
@@ -468,7 +582,7 @@ public:
 
         // The ingress_token is the worker JWT issued by /bridge. CcrClient
         // treats its token parameter as a Bearer credential.
-        auto result = client_->connect(session_url_, ingress_token_);
+        auto result = client_->connect(session_url_, token);
         if (!result) {
             log_bridge_event("ccr_v2_register_failed", {
                 {"session_id", session_id_},
@@ -635,6 +749,12 @@ public:
         sse_.disconnect();
         if (ccr_client_) ccr_client_->close();
         connected_.store(false);
+    }
+
+    /// Replace the bearer credential used for the CCR requests and the SSE
+    /// read stream. Called by the proactive refresh scheduler.
+    void update_token(const std::string& token) {
+        if (ccr_client_) ccr_client_->update_token(token);
     }
 
     /// Report worker state.
@@ -1284,11 +1404,30 @@ std::unique_ptr<ReplBridgeHandle> init_env_less_bridge_core(EnvLessBridgeParams 
     TokenRefreshScheduler::Params refresh_params;
     refresh_params.refresh_buffer_ms = std::chrono::milliseconds{cfg.token_refresh_buffer_ms};
     refresh_params.label = "remote";
-    refresh_params.on_refresh = [session_id](
-        const std::string& /*sid*/, const std::string& /*oauth_token*/
+    // Source the live OAuth token so the refresh actually carries a
+    // credential to the transport (previously on_refresh always got "").
+    // TS REF: jwtUtils.ts:76 getAccessToken.
+    if (params.get_access_token) {
+        auto getter = params.get_access_token;
+        refresh_params.get_access_token_async =
+            [getter](std::string_view) -> std::expected<std::string, std::string> {
+                auto token = getter();
+                if (!token || token->empty()) {
+                    return std::unexpected("no OAuth access token available");
+                }
+                return *token;
+            };
+    }
+    // Proactive refresh: hand the fresh token to the transport so the SSE
+    // read stream and the CCR worker keep authenticating.
+    // TS REF: remoteBridgeCore.ts:317 onRefresh.
+    auto* transport_raw = transport.get();
+    refresh_params.on_refresh = [transport_raw, session_id](
+        const std::string& /*sid*/, const std::string& oauth_token
     ) {
-        // Proactive refresh: re-fetch credentials and rebuild transport.
-        // In a full implementation this would call back into the handle.
+        if (!oauth_token.empty()) {
+            transport_raw->update_token(oauth_token);
+        }
         log_bridge_event("proactive_refresh", {{"session_id", session_id}});
     };
 

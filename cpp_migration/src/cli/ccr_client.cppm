@@ -117,6 +117,15 @@ public:
     CcrClient(CcrClient&&) = delete;
     CcrClient& operator=(CcrClient&&) = delete;
 
+    // Replace the bearer token used by subsequent requests. The proactive
+    // refresh scheduler calls this when the worker JWT is renewed, so a
+    // long-running CCR session does not start failing with 401s.
+    void update_token(std::string_view token) {
+        if (token.empty()) return;
+        std::lock_guard lock(token_mutex_);
+        token_ = std::string(token);
+    }
+
     // Connect to a Claude Code Remote endpoint with authentication token
     std::expected<void, std::string> connect(std::string_view endpoint, std::string_view token) {
         if (connected_.load()) {
@@ -427,13 +436,18 @@ private:
         const std::string& url,
         const std::string& payload,
         StreamCallback stream_callback = nullptr) {
+        std::string bearer;
+        {
+            std::lock_guard lock(token_mutex_);
+            bearer = token_;
+        }
         CcrHttpRequest request{
             .method = std::move(method),
             .url = url,
             .body = payload,
             .headers = {
                 {"Content-Type", "application/json"},
-                {"Authorization", "Bearer " + token_},
+                {"Authorization", "Bearer " + bearer},
                 {"User-Agent", options_.user_agent},
             },
             .connect_timeout_ms = options_.connect_timeout_ms,
@@ -455,6 +469,9 @@ private:
     std::string session_id_;
     std::atomic<bool> connected_{false};
     mutable std::mutex mutex_;
+    /// Dedicated guard for token_ so update_token() never contends with (or
+    /// deadlocks against) the connection mutex held across requests.
+    mutable std::mutex token_mutex_;
     CcrConnectionOptions options_;
     std::chrono::steady_clock::time_point connected_at_;
     uint64_t messages_sent_{0};

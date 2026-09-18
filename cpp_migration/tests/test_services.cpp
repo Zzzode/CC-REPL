@@ -40,6 +40,7 @@
 
 import cc.cli.ccr_client;
 import cc.cli.sse_transport;
+import cc.bridge.core;
 import cc.config.config;
 import cc.services.api.client;
 import cc.services.api.errors;
@@ -7782,4 +7783,105 @@ TEST(MemoryExtraction, LlmPromptContainsDirInstructionsAndTranscript) {
 TEST(MemoryExtraction, MinNewMessagesConstantIsPositive) {
     namespace em = cc::services::extract_memories;
     EXPECT_GE(em::kExtractionMinNewMessages, 1u);
+}
+
+// ===========================================================================
+// TokenRefreshScheduler — proactive refresh must carry a real token.
+// Regression guard: the refresh callback used to return void, so on_refresh
+// always fired with an empty OAuth token (log-only refresh).
+// ===========================================================================
+namespace {
+
+cc::bridge::TokenRefreshScheduler::Params fast_refresh_params() {
+    cc::bridge::TokenRefreshScheduler::Params p;
+    // expires_in=1s with a 0 buffer → 5s floor in the scheduler; keep the
+    // test bounded by driving expires_in near zero.
+    p.refresh_buffer_ms = std::chrono::milliseconds{0};
+    p.label = "test";
+    return p;
+}
+
+}  // namespace
+
+TEST(BridgeTokenRefresh, RefreshDeliversFetchedTokenToCallback) {
+    auto params = fast_refresh_params();
+    params.get_access_token_async =
+        [](std::string_view) -> std::expected<std::string, std::string> {
+            return std::string{"fresh-oauth-token"};
+        };
+
+    std::mutex m;
+    std::condition_variable cv;
+    std::string seen_session;
+    std::string seen_token;
+    params.on_refresh = [&](const std::string& sid, const std::string& tok) {
+        std::lock_guard lock(m);
+        seen_session = sid;
+        seen_token = tok;
+        cv.notify_one();
+    };
+
+    cc::bridge::TokenRefreshScheduler scheduler(std::move(params));
+    scheduler.schedule_from_expires_in("ses_test", /*expires_in_s=*/1);
+    EXPECT_TRUE(scheduler.is_scheduled());
+
+    std::unique_lock lock(m);
+    const bool fired = cv.wait_for(lock, std::chrono::seconds(20),
+                                   [&] { return !seen_token.empty(); });
+    ASSERT_TRUE(fired) << "refresh callback never delivered a token";
+    EXPECT_EQ(seen_session, "ses_test");
+    // The regression: this used to be empty.
+    EXPECT_EQ(seen_token, "fresh-oauth-token");
+
+    lock.unlock();
+    scheduler.cancel_all();
+}
+
+TEST(BridgeTokenRefresh, EmptyTokenTriggersBoundedRetriesNotASilentStop) {
+    auto params = fast_refresh_params();
+    std::atomic<int> fetch_calls{0};
+    params.get_access_token_async =
+        [&](std::string_view) -> std::expected<std::string, std::string> {
+            fetch_calls.fetch_add(1);
+            return std::unexpected("no OAuth access token available");
+        };
+    std::atomic<int> refresh_calls{0};
+    params.on_refresh = [&](const std::string&, const std::string&) {
+        refresh_calls.fetch_add(1);
+    };
+
+    cc::bridge::TokenRefreshScheduler scheduler(std::move(params));
+    scheduler.schedule_from_expires_in("ses_retry", /*expires_in_s=*/1);
+
+    // First attempt happens ~5s in; retries are 60s apart, so within a short
+    // window we expect exactly the initial fetch and NO on_refresh.
+    std::this_thread::sleep_for(std::chrono::seconds(8));
+    EXPECT_GE(fetch_calls.load(), 1);
+    EXPECT_EQ(refresh_calls.load(), 0)
+        << "a failed token fetch must not fire on_refresh";
+
+    scheduler.cancel_all();
+}
+
+TEST(BridgeTokenRefresh, CancelAllStopsScheduledRefresh) {
+    auto params = fast_refresh_params();
+    params.get_access_token_async =
+        [](std::string_view) -> std::expected<std::string, std::string> {
+            return std::string{"tok"};
+        };
+    std::atomic<int> refresh_calls{0};
+    params.on_refresh = [&](const std::string&, const std::string&) {
+        refresh_calls.fetch_add(1);
+    };
+
+    cc::bridge::TokenRefreshScheduler scheduler(std::move(params));
+    scheduler.schedule_from_expires_in("ses_cancel", /*expires_in_s=*/30);
+    EXPECT_TRUE(scheduler.is_scheduled());
+
+    scheduler.cancel_all();
+    EXPECT_FALSE(scheduler.is_scheduled());
+
+    // Well past the point a refresh would have fired.
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    EXPECT_EQ(refresh_calls.load(), 0);
 }
