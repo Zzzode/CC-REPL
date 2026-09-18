@@ -39,6 +39,7 @@
 #include <httplib.h>
 
 import cc.cli.ccr_client;
+import cc.cli.sse_transport;
 import cc.config.config;
 import cc.services.api.client;
 import cc.services.api.errors;

@@ -100,6 +100,24 @@ Still open after this addendum: iTerm2 backend (macOS);
   through to the generic panel. Tests `ComputerUseDetailRendersActionAndTarget`,
   `ComputerUseInputParsingRecognizesActions`.
 
+### Bridge v2 — SSE TLS transport (2026-09-18, follow-up 4)
+
+- **Bridge gap #3 (TLS), partially CLOSED.** `cc.cli.SSETransport` parsed
+  `https://` URLs but connected with raw BSD sockets — `is_https` was set
+  and never read, so every https SSE stream (the v2 bridge read stream)
+  failed at the first byte. It now performs a real OpenSSL handshake:
+  `SSL_VERIFY_PEER` against the system/overridden CA bundle
+  (`CC_REPL_CA_BUNDLE` / `SSL_CERT_FILE`), SNI, hostname verification via
+  `SSL_set1_host`, IP-SAN verification for IP-literal hosts, and all
+  request/response/stream I/O routed through `SSL_read`/`SSL_write`.
+  `cc_cli` now links `OpenSSL::SSL`/`OpenSSL::Crypto`. Two tests cover the
+  positive path (self-signed fixture server streams an event) and the
+  negative path (untrusted certificate yields no data and a TLS error).
+
+Still open on bridge v2: real `/v1/code/sessions/{id}/bridge` HTTP, CCR v2
+worker protocol, token refresh, trusted-device enrollment, entrypoint
+wiring, `/bridge` command actions.
+
 Still open after this addendum: iTerm2 backend (macOS);
 **bridge v2 pairing** (largest).
 

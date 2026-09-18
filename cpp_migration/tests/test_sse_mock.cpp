@@ -4,6 +4,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
+#include <filesystem>
 #include <functional>
 #include <gtest/gtest.h>
 #include <httplib.h>
@@ -13,6 +14,7 @@
 #include <vector>
 
 import cc.services.api.sse;
+import cc.cli.sse_transport;
 
 using namespace cc::services::api::sse;
 
@@ -292,4 +294,162 @@ TEST(SseParser, CrossChunkEventSplit) {
     ASSERT_EQ(events.size(), 1u);
     EXPECT_EQ(events[0].first, SseEventType::Ping);
     EXPECT_EQ(events[0].second, "hello");
+}
+
+// ===========================================================================
+// SSETransport TLS: an https:// endpoint must perform a real TLS handshake.
+// Regression guard — the transport previously parsed "https://" but
+// connected with raw BSD sockets, so no handshake ever happened.
+// ===========================================================================
+namespace {
+
+// Resolve tests/fixtures/<name> relative to THIS file so the test works
+// regardless of ctest's working directory.
+std::string sse_fixture_path(const char* name) {
+    std::filesystem::path here(__FILE__);
+    return (here.parent_path() / "fixtures" / name).string();
+}
+
+// Self-signed fixture certificate is issued for IP 127.0.0.1; pointing the
+// process CA bundle at it lets hostname/IP verification succeed.
+struct CaBundleGuard {
+    std::string previous;
+    bool had_previous = false;
+    explicit CaBundleGuard(const std::string& path) {
+        if (const char* v = std::getenv("CC_REPL_CA_BUNDLE"); v) {
+            previous = v;
+            had_previous = true;
+        }
+        setenv("CC_REPL_CA_BUNDLE", path.c_str(), 1);
+    }
+    ~CaBundleGuard() {
+        if (had_previous) setenv("CC_REPL_CA_BUNDLE", previous.c_str(), 1);
+        else unsetenv("CC_REPL_CA_BUNDLE");
+    }
+};
+
+}  // namespace
+
+TEST(SseTransportTls, HttpsEndpointCompletesHandshakeAndStreamsEvents) {
+    const std::string cert = sse_fixture_path("sse_cert.pem");
+    const std::string key = sse_fixture_path("sse_key.pem");
+    ASSERT_TRUE(std::filesystem::exists(cert)) << cert;
+    ASSERT_TRUE(std::filesystem::exists(key)) << key;
+
+    httplib::SSLServer svr(cert.c_str(), key.c_str());
+    ASSERT_TRUE(svr.is_valid());
+
+    svr.Get("/stream", [](const httplib::Request&, httplib::Response& res) {
+        res.set_header("Cache-Control", "no-cache");
+        res.set_content("event: hello\ndata: {\"n\":1}\n\n", "text/event-stream");
+    });
+
+    const int port = svr.bind_to_any_port("127.0.0.1");
+    ASSERT_GE(port, 0);
+    std::atomic<bool> up{false};
+    std::thread th([&] {
+        up.store(true, std::memory_order_release);
+        svr.listen_after_bind();
+    });
+    while (!up.load(std::memory_order_acquire)) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+    // Trust the fixture CA for this test only.
+    CaBundleGuard ca_guard(cert);
+
+    cc::cli::SSETransport transport;
+    std::vector<cc::cli::SSEEvent> received;
+    std::vector<std::string> errors;
+    transport.on_event([&](const cc::cli::SSEEvent& e) { received.push_back(e); });
+    transport.on_error([&](std::string_view e) { errors.push_back(std::string(e)); });
+
+    const std::string url =
+        "https://127.0.0.1:" + std::to_string(port) + "/stream";
+    auto connected = transport.connect(url);
+    ASSERT_TRUE(connected.has_value()) << connected.error();
+
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    while (received.empty() && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    transport.close();
+    svr.stop();
+    th.join();
+
+    ASSERT_FALSE(received.empty())
+        << "no SSE event over TLS; errors: "
+        << (errors.empty() ? std::string{"(none)"} : errors.front());
+    EXPECT_EQ(received.front().event, "hello");
+    EXPECT_NE(received.front().data.find("\"n\":1"), std::string::npos);
+
+    // No handshake/certificate error may have been reported.
+    for (const auto& err : errors) {
+        EXPECT_EQ(err.find("TLS"), std::string::npos) << err;
+    }
+}
+
+TEST(SseTransportTls, HttpsWithUntrustedCertificateIsRejected) {
+    const std::string cert = sse_fixture_path("sse_cert.pem");
+    const std::string key = sse_fixture_path("sse_key.pem");
+    ASSERT_TRUE(std::filesystem::exists(cert)) << cert;
+    ASSERT_TRUE(std::filesystem::exists(key)) << key;
+
+    httplib::SSLServer svr(cert.c_str(), key.c_str());
+    ASSERT_TRUE(svr.is_valid());
+    svr.Get("/stream", [](const httplib::Request&, httplib::Response& res) {
+        res.set_content("event: hello\ndata: x\n\n", "text/event-stream");
+    });
+
+    const int port = svr.bind_to_any_port("127.0.0.1");
+    ASSERT_GE(port, 0);
+    std::atomic<bool> up{false};
+    std::thread th([&] {
+        up.store(true, std::memory_order_release);
+        svr.listen_after_bind();
+    });
+    while (!up.load(std::memory_order_acquire)) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+    // Point verification at the SYSTEM bundle only: the self-signed fixture
+    // is not in it, so verification must fail and no event may arrive.
+    CaBundleGuard ca_guard("/etc/ssl/certs/ca-certificates.crt");
+    unsetenv("SSL_CERT_FILE");
+
+    cc::cli::SSETransport transport(cc::cli::SSEReconnectPolicy{
+        .initial_delay = std::chrono::milliseconds(10),
+        .max_delay = std::chrono::milliseconds(20),
+        .backoff_multiplier = 1.0,
+        .jitter_factor = 0.0,
+        .max_retries = 1,
+        .liveness_timeout = std::chrono::seconds(2),
+    });
+    std::vector<cc::cli::SSEEvent> received;
+    std::vector<std::string> errors;
+    transport.on_event([&](const cc::cli::SSEEvent& e) { received.push_back(e); });
+    transport.on_error([&](std::string_view e) { errors.push_back(std::string(e)); });
+
+    const std::string url =
+        "https://127.0.0.1:" + std::to_string(port) + "/stream";
+    auto connected = transport.connect(url);
+    ASSERT_TRUE(connected.has_value()) << connected.error();
+
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (errors.empty() && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    transport.close();
+    svr.stop();
+    th.join();
+
+    EXPECT_TRUE(received.empty()) << "untrusted certificate must not yield data";
+    ASSERT_FALSE(errors.empty());
+    bool saw_tls_error = false;
+    for (const auto& err : errors) {
+        if (err.find("TLS") != std::string::npos) saw_tls_error = true;
+    }
+    EXPECT_TRUE(saw_tls_error) << errors.front();
 }

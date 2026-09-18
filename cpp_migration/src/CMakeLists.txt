@@ -1232,6 +1232,9 @@ target_link_libraries(cc_cli
         yyjson
         uv_a
         httplib::httplib
+        # SSETransport performs a real TLS handshake for https:// streams.
+        OpenSSL::SSL
+        OpenSSL::Crypto
 )
 
 # ─── cc_bridge: IDE Bridge ────────────────────────────────────────────────────

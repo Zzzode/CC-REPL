@@ -18,10 +18,16 @@ module;
 #include <random>
 #include <algorithm>
 #include <cstring>
+#include <memory>
 #include <cstdlib>
 #include <sys/socket.h>
 #include <netdb.h>
+#include <arpa/inet.h>
 #include <unistd.h>
+
+#include <openssl/err.h>
+#include <openssl/ssl.h>
+#include <openssl/x509v3.h>
 
 export module cc.cli.sse_transport;
 
@@ -63,6 +69,31 @@ enum class SSEState : uint8_t {
     connected,
     reconnecting,
     closed       // user-initiated close, no reconnect
+};
+
+// ============================================================
+// TLS session (https:// URLs only)
+// ============================================================
+//
+// SSE endpoints (bridge / code-session streams) are https. Before this the
+// transport parsed "https://" but connected with raw BSD sockets, so the TLS
+// handshake was never performed and every https stream failed. The session is
+// owned by the reader thread; close() interrupts it by shutting down the
+// underlying fd, which unblocks SSL_read.
+struct SSETlsSession {
+    SSL_CTX* ctx = nullptr;
+    SSL* ssl = nullptr;
+
+    SSETlsSession() = default;
+    SSETlsSession(const SSETlsSession&) = delete;
+    SSETlsSession& operator=(const SSETlsSession&) = delete;
+    ~SSETlsSession() {
+        if (ssl) {
+            SSL_shutdown(ssl);
+            SSL_free(ssl);
+        }
+        if (ctx) SSL_CTX_free(ctx);
+    }
 };
 
 // ============================================================
@@ -233,8 +264,18 @@ private:
             retry_count_ = 0;
             current_delay_ = policy_.initial_delay;
 
+            // TLS handshake for https URLs before any HTTP bytes are written.
+            if (!establish_tls(fd)) {
+                tls_.reset();
+                ::close(fd);
+                socket_fd_.store(-1);
+                if (!wait_for_reconnect(stop)) break;
+                continue;
+            }
+
             // Send HTTP request
             if (!send_http_request(fd)) {
+                tls_.reset();
                 ::close(fd);
                 socket_fd_.store(-1);
                 emit_error("Failed to send HTTP request");
@@ -244,6 +285,7 @@ private:
 
             // Read and validate HTTP response headers
             if (!consume_http_headers(fd)) {
+                tls_.reset();
                 ::close(fd);
                 socket_fd_.store(-1);
                 emit_error("Invalid HTTP response");
@@ -254,6 +296,7 @@ private:
             // Stream SSE events
             read_sse_stream(fd, stop);
 
+            tls_.reset();
             ::close(fd);
             socket_fd_.store(-1);
 
@@ -302,6 +345,104 @@ private:
 
     // ─── HTTP Request ────────────────────────────────────────
 
+    /// Read exactly up to `len` bytes, transparently over TLS when the URL
+    /// is https. Returns the same values as ::recv (>=1 bytes, 0 on orderly
+    /// close, <0 on error/timeout).
+    ssize_t transport_recv(int fd, char* buf, std::size_t len) {
+        if (tls_ && tls_->ssl) {
+            int n = SSL_read(tls_->ssl, buf, static_cast<int>(len));
+            if (n > 0) return n;
+            int err = SSL_get_error(tls_->ssl, n);
+            if (err == SSL_ERROR_ZERO_RETURN) return 0;  // clean TLS close
+            if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+                // Blocking socket + SO_RCVTIMEO: treat as liveness timeout so
+                // the reconnect path (not a hard error) handles it.
+                errno = EAGAIN;
+                return -1;
+            }
+            return -1;
+        }
+        return ::recv(fd, buf, len, 0);
+    }
+
+    /// Write all bytes, transparently over TLS when the URL is https.
+    bool transport_send_all(int fd, const std::string& data) {
+        std::size_t sent = 0;
+        while (sent < data.size()) {
+            ssize_t n = 0;
+            if (tls_ && tls_->ssl) {
+                n = SSL_write(tls_->ssl, data.data() + sent,
+                              static_cast<int>(data.size() - sent));
+                if (n <= 0) return false;
+            } else {
+                n = ::send(fd, data.data() + sent, data.size() - sent, 0);
+                if (n <= 0) return false;
+            }
+            sent += static_cast<std::size_t>(n);
+        }
+        return true;
+    }
+
+    /// Perform the TLS handshake (https only). Returns false on any failure;
+    /// the caller tears the connection down and reconnects.
+    bool establish_tls(int fd) {
+        if (!url_parts_.is_https) return true;
+
+        tls_ = std::make_unique<SSETlsSession>();
+        tls_->ctx = SSL_CTX_new(TLS_client_method());
+        if (!tls_->ctx) {
+            emit_error("TLS: failed to create SSL context");
+            tls_.reset();
+            return false;
+        }
+
+        // Verify the server certificate against the system (or overridden)
+        // CA bundle — an unverified stream carrying OAuth tokens and session
+        // payloads would be worse than no transport at all.
+        SSL_CTX_set_verify(tls_->ctx, SSL_VERIFY_PEER, nullptr);
+        SSL_CTX_set_default_verify_paths(tls_->ctx);
+        if (const char* ca_env = std::getenv("CC_REPL_CA_BUNDLE");
+            ca_env && *ca_env) {
+            SSL_CTX_load_verify_locations(tls_->ctx, ca_env, nullptr);
+        } else if (const char* ssl_cert = std::getenv("SSL_CERT_FILE");
+                   ssl_cert && *ssl_cert) {
+            SSL_CTX_load_verify_locations(tls_->ctx, ssl_cert, nullptr);
+        }
+
+        tls_->ssl = SSL_new(tls_->ctx);
+        if (!tls_->ssl) {
+            emit_error("TLS: failed to create SSL object");
+            tls_.reset();
+            return false;
+        }
+        SSL_set_fd(tls_->ssl, fd);
+        // SNI + hostname verification: without these a valid certificate for
+        // a different host would be accepted. IP literals are verified
+        // against the certificate's IP SANs, not its DNS names.
+        SSL_set_tlsext_host_name(tls_->ssl, url_parts_.host.c_str());
+        unsigned char ip_buf[16] = {0};
+        const bool is_ip_literal =
+            ::inet_pton(AF_INET, url_parts_.host.c_str(), ip_buf) == 1 ||
+            ::inet_pton(AF_INET6, url_parts_.host.c_str(), ip_buf) == 1;
+        if (is_ip_literal) {
+            X509_VERIFY_PARAM* param = SSL_get0_param(tls_->ssl);
+            X509_VERIFY_PARAM_set1_ip_asc(param, url_parts_.host.c_str());
+        } else {
+            SSL_set1_host(tls_->ssl, url_parts_.host.c_str());
+        }
+
+        if (SSL_connect(tls_->ssl) != 1) {
+            unsigned long err = ERR_get_error();
+            char err_buf[256] = {0};
+            if (err) ERR_error_string_n(err, err_buf, sizeof(err_buf));
+            emit_error("TLS handshake failed" +
+                       (err ? std::string(": ") + err_buf : std::string{}));
+            tls_.reset();
+            return false;
+        }
+        return true;
+    }
+
     bool send_http_request(int fd) {
         std::string request = "GET " + url_parts_.path + " HTTP/1.1\r\n";
         request += "Host: " + url_parts_.host + "\r\n";
@@ -323,14 +464,7 @@ private:
         }
         request += "\r\n";
 
-        auto total = request.size();
-        size_t sent = 0;
-        while (sent < total) {
-            auto n = ::send(fd, request.data() + sent, total - sent, 0);
-            if (n <= 0) return false;
-            sent += static_cast<size_t>(n);
-        }
-        return true;
+        return transport_send_all(fd, request);
     }
 
     // ─── HTTP Response Headers ───────────────────────────────
@@ -340,7 +474,7 @@ private:
         std::string header_buf;
         char c;
         while (header_buf.size() < 8192) {
-            auto n = ::recv(fd, &c, 1, 0);
+            auto n = transport_recv(fd, &c, 1);
             if (n <= 0) return false;
             header_buf += c;
             if (header_buf.size() >= 4 && header_buf.ends_with("\r\n\r\n")) break;
@@ -386,7 +520,7 @@ private:
         char buf[4096];
 
         while (!stop.stop_requested() && should_reconnect_.load()) {
-            auto n = ::recv(fd, buf, sizeof(buf), 0);
+            auto n = transport_recv(fd, buf, sizeof(buf));
             if (n < 0) {
                 // Timeout (EAGAIN/EWOULDBLOCK) means liveness timeout exceeded
                 if (errno == EAGAIN || errno == EWOULDBLOCK) {
@@ -578,6 +712,9 @@ private:
     std::atomic<SSEState> state_{SSEState::disconnected};
     std::atomic<bool> should_reconnect_{false};
     std::atomic<int> socket_fd_{-1};
+    /// TLS session for https URLs; owned by the reader thread, reset on every
+    /// (re)connect. Non-null only mid-connection.
+    std::unique_ptr<SSETlsSession> tls_;
     uint32_t retry_count_{0};
     std::chrono::milliseconds current_delay_{1000};
 

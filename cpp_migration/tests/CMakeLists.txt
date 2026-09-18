@@ -147,7 +147,10 @@ target_link_libraries(test_sse_mock
         cc_core
         cc_services
         cc_utils
+        cc_cli             # cc.cli.sse_transport (TLS SSE tests)
         httplib::httplib
+        OpenSSL::SSL
+        OpenSSL::Crypto
         GTest::gtest_main
 )
 gtest_discover_tests(test_sse_mock DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
