@@ -108,6 +108,16 @@ struct DetailAskUser {
 struct DetailGeneric {
     std::string description;   // free-form body
 };
+/// Computer-use (screen/mouse/keyboard) action. Rendered with an explicit
+/// warning banner because approving it hands the model real input control.
+/// TS REF: src/components/permissions/ComputerUseApproval/ComputerUseApproval.tsx
+struct DetailComputerUse {
+    std::string action_label;         // e.g. "Click on screen"
+    std::optional<std::string> target_app;
+    std::optional<std::string> coordinates;
+    std::optional<std::string> text_to_type;
+    bool first_use_in_session = false;
+};
 
 using ToolDetail = std::variant<
     DetailBash,
@@ -119,6 +129,7 @@ using ToolDetail = std::variant<
     DetailSkill,
     DetailPlan,
     DetailAskUser,
+    DetailComputerUse,
     DetailGeneric
 >;
 
@@ -252,6 +263,33 @@ namespace detail {
             Elements els = { paragraph(d.question) };
             for (const auto& opt : d.options) {
                 els.push_back(hbox({ text("  • ") | dim, text(opt) }));
+            }
+            return vbox(els);
+        } else if constexpr (std::is_same_v<T, DetailComputerUse>) {
+            Elements els;
+            els.push_back(hbox({
+                text(" COMPUTER USE ") | color(Color::White)
+                                      | bgcolor(Color::Magenta) | bold,
+                text("  "),
+                text(d.action_label) | bold,
+            }));
+            if (d.target_app) {
+                els.push_back(hbox({ text("  App: ") | dim, text(*d.target_app) }));
+            }
+            if (d.coordinates) {
+                els.push_back(hbox({ text("  Position: ") | dim,
+                                     text(*d.coordinates) }));
+            }
+            if (d.text_to_type) {
+                els.push_back(hbox({
+                    text("  Text: ") | dim,
+                    text(pc::HeadEllipsisCommand(*d.text_to_type, 60)),
+                }));
+            }
+            if (d.first_use_in_session) {
+                els.push_back(hbox({
+                    text("  First computer use in this session") | color(Color::Yellow),
+                }));
             }
             return vbox(els);
         } else if constexpr (std::is_same_v<T, DetailGeneric>) {

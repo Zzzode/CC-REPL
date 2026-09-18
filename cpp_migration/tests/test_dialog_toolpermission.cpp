@@ -45,6 +45,7 @@ import cc.ui.dialogs.default_renderers;
 import cc.ui.dialogs.triggers;
 import cc.ui.repl_screen;
 import cc.ui.permissions.single_prompt;
+import cc.ui.permissions.permission_computer_use;
 
 namespace {
 
@@ -54,6 +55,7 @@ namespace dtrig = cc::ui::dialogs::triggers;
 namespace dr   = cc::ui::dialogs::default_renderers;
 namespace rs   = cc::ui::repl_screen;
 namespace sp   = cc::ui::permissions::single_prompt;
+namespace cperm = cc::ui::permissions;
 
 using Element = ftxui::Element;
 
@@ -888,6 +890,63 @@ TEST(ReplModeRichPermissionPanels, ClassifierUsesExactNamesNotSuffixMatching) {
         // Generic single-prompt falls through (still shows the tool prompt).
         EXPECT_NE(ansi.find("wants to"), std::string::npos) << non_panel;
     }
+}
+
+// Computer-use actions get a dedicated detail block (screen/mouse/keyboard
+// control is high-impact, so the concrete action must be visible).
+TEST(ReplModeRichPermissionPanels, ComputerUseDetailRendersActionAndTarget) {
+    sp::SinglePromptProps props;
+    props.tool_name = "computer";
+    props.action_kind = sp::ActionKind::Execute;
+    props.risk_level = sp::RiskLevel::High;
+    props.description = "computer wants to use";
+    sp::DetailComputerUse detail;
+    detail.action_label = "Click on screen";
+    detail.coordinates = "(640, 480)";
+    detail.first_use_in_session = true;
+    props.detail = sp::ToolDetail{std::move(detail)};
+
+    auto st = std::make_shared<sp::PromptState>();
+    st->props = props;
+    const std::string ansi =
+        strip_ansi(render_to_ansi(sp::RenderSinglePrompt(std::move(st)), 120, 40));
+
+    EXPECT_NE(ansi.find("COMPUTER USE"), std::string::npos) << ansi;
+    EXPECT_NE(ansi.find("Click on screen"), std::string::npos) << ansi;
+    EXPECT_NE(ansi.find("(640, 480)"), std::string::npos) << ansi;
+    EXPECT_NE(ansi.find("First computer use in this session"), std::string::npos)
+        << ansi;
+}
+
+TEST(ReplModeRichPermissionPanels, ComputerUseInputParsingRecognizesActions) {
+    // Native wire shape: action + coordinate array.
+    auto click = cperm::options_from_tool_input(
+        R"({"action":"left_click","coordinate":[100,200]})");
+    ASSERT_TRUE(click.has_value());
+    EXPECT_EQ(click->action, cperm::ComputerUseAction::Click);
+    ASSERT_TRUE(click->coordinates.has_value());
+    EXPECT_EQ(*click->coordinates, "(100, 200)");
+
+    // Typing carries the text payload.
+    auto typed = cperm::options_from_tool_input(
+        R"({"action":"type","text":"hello world"})");
+    ASSERT_TRUE(typed.has_value());
+    EXPECT_EQ(typed->action, cperm::ComputerUseAction::Type);
+    ASSERT_TRUE(typed->text_to_type.has_value());
+    EXPECT_EQ(*typed->text_to_type, "hello world");
+
+    // Local adapter vocabulary + explicit app target.
+    auto app = cperm::options_from_tool_input(
+        R"({"action":"screenshot","app":"Finder"})");
+    ASSERT_TRUE(app.has_value());
+    EXPECT_EQ(app->action, cperm::ComputerUseAction::Screenshot);
+    ASSERT_TRUE(app->target_app.has_value());
+    EXPECT_EQ(*app->target_app, "Finder");
+
+    // Non-computer inputs must NOT be claimed by this panel.
+    EXPECT_FALSE(cperm::options_from_tool_input(R"({"command":"ls"})").has_value());
+    EXPECT_FALSE(cperm::options_from_tool_input(R"({"action":"frobnicate"})").has_value());
+    EXPECT_FALSE(cperm::options_from_tool_input("not json").has_value());
 }
 
 TEST(ReplModeRichPermissionPanels, ComponentHandleSurvivesRepaint) {

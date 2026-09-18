@@ -88,6 +88,21 @@ Still open after this addendum: iTerm2 backend (macOS); session
 Still open after this addendum: iTerm2 backend (macOS);
 **bridge v2 pairing** (largest).
 
+### Computer-use permission panel (2026-09-18, follow-up 3)
+
+- **Computer-use #6 permission panel** — CLOSED. `permission_computer_use`
+  is no longer orphaned: the live permission callback detects computer
+  actions (`options_from_tool_input` on the native `action`/`coordinate`/
+  `text` shape, plus local aliases) and mounts a dedicated
+  `DetailComputerUse` block in the shared single-prompt panel — action
+  label, target app, coordinates, typed text, and the
+  "first computer use in this session" warning. Non-computer inputs fall
+  through to the generic panel. Tests `ComputerUseDetailRendersActionAndTarget`,
+  `ComputerUseInputParsingRecognizesActions`.
+
+Still open after this addendum: iTerm2 backend (macOS);
+**bridge v2 pairing** (largest).
+
 
 ---
 

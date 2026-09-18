@@ -41,6 +41,8 @@ import cc.tools.agent_display;
 import cc.ui.agents.agent_cards;
 import cc.ui.dialogs.triggers;
 import cc.ui.dialogs.system;
+import cc.ui.permissions.single_prompt;
+import cc.ui.permissions.permission_computer_use;
 import cc.hooks.cost_hook;
 
 namespace cc::ui {
@@ -51,6 +53,7 @@ namespace agent_cards = cc::ui::agents::cards;
 namespace agent_display = cc::tools::agent_display;
 namespace dtrig = cc::ui::dialogs::triggers;
 namespace dsys = cc::ui::dialogs::system;
+namespace cperm = cc::ui::permissions;
 
 // ── FormatAgentsMenuOutput (moved out to remove agent_display import) ────
 std::string AppAdapter::FormatAgentsMenuOutput(
@@ -371,16 +374,73 @@ void AppAdapter::WaitForInFlightPastes(const std::string& text) {
 
 // ── get_permission_callback (moved out to remove dialogs.system/triggers) ─
 std::function<bool(std::string_view, std::string_view)> AppAdapter::get_permission_callback() {
-    return [this](std::string_view tool_name, std::string_view description) -> bool {
+    return [this](std::string_view tool_name, std::string_view tool_args) -> bool {
         {
             std::lock_guard lk(permission_mutex_);
             if (always_allowed_tools_.contains(std::string(tool_name)))
                 return true;
 
+            // Computer-use actions get their own panel: approving one hands
+            // the model real screen/mouse/keyboard control, so the concrete
+            // action (click/type/scroll + target) must be shown, not a bare
+            // tool name. TS REF: ComputerUseApproval.tsx.
+            auto respond_cb = [this, tool_name = std::string(tool_name)](
+                dsys::ToolPermissionPayload::Decision decision,
+                bool /*sandbox*/)
+            {
+                std::lock_guard lk(permission_mutex_);
+                bool allowed =
+                    (decision == dsys::ToolPermissionPayload::Decision::AllowOnce ||
+                     decision == dsys::ToolPermissionPayload::Decision::AlwaysAllow);
+                if (decision == dsys::ToolPermissionPayload::Decision::AlwaysAllow) {
+                    always_allowed_tools_.insert(tool_name);
+                }
+                screen_state_->dialog_queue.pop_overlay();
+                permission_response_ = allowed;
+                permission_cv_.notify_one();
+            };
+            auto abort_cb = [this] {
+                std::lock_guard lk(permission_mutex_);
+                screen_state_->dialog_queue.pop_overlay();
+                permission_response_ = false;
+                permission_cv_.notify_one();
+            };
+
+            if (auto cu_options =
+                    cperm::options_from_tool_input(tool_args)) {
+                namespace sp = cc::ui::permissions::single_prompt;
+                sp::DetailComputerUse detail;
+                detail.action_label =
+                    std::string(cperm::action_description(cu_options->action));
+                detail.target_app = cu_options->target_app;
+                detail.coordinates = cu_options->coordinates;
+                detail.text_to_type = cu_options->text_to_type;
+                detail.first_use_in_session =
+                    !computer_use_seen_in_session_;
+                computer_use_seen_in_session_ = true;
+                dtrig::PushToolPermissionDetailed(
+                    screen_state_->dialog_queue,
+                    std::string(tool_name),
+                    std::format("Claude wants to control your screen: {}",
+                                cperm::action_description(cu_options->action)),
+                    sp::ActionKind::Execute,
+                    sp::ToolDetail{std::move(detail)},
+                    respond_cb, abort_cb,
+                    /*can_always_allow=*/true);
+                permission_response_.reset();
+                PostRenderEvent();
+
+                std::unique_lock lk(permission_mutex_);
+                permission_cv_.wait(lk, [this] { return permission_response_.has_value(); });
+                bool allowed = *permission_response_;
+                permission_response_.reset();
+                return allowed;
+            }
+
             dtrig::PushToolPermission(
                 screen_state_->dialog_queue,
                 std::string(tool_name),
-                std::string(description),
+                std::string(tool_args),
                 /*on_response=*/[this, tool_name = std::string(tool_name)](
                     dsys::ToolPermissionPayload::Decision decision,
                     bool /*sandbox*/)

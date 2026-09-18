@@ -13,6 +13,7 @@ module;
 export module cc.ui.permissions.permission_computer_use;
 
 import cc.types.types;
+import cc.utils.json;
 
 export namespace cc::ui::permissions {
 
@@ -48,6 +49,61 @@ struct ComputerUsePermissionOptions {
         case ComputerUseAction::OpenApp: return "Open application";
     }
     return "Unknown action";
+}
+
+/// Map an Anthropic computer_20241022 action name to the UI enum.
+[[nodiscard]] inline std::optional<ComputerUseAction> action_from_wire(
+    std::string_view action) {
+    if (action == "screenshot" || action == "cursor_position") return ComputerUseAction::Screenshot;
+    if (action == "left_click" || action == "right_click" ||
+        action == "middle_click" || action == "double_click" ||
+        action == "triple_click" || action == "left_mouse_down" ||
+        action == "left_mouse_up" || action == "click") {
+        return ComputerUseAction::Click;
+    }
+    if (action == "type" || action == "key" || action == "hold_key" ||
+        action == "press") {
+        return ComputerUseAction::Type;
+    }
+    if (action == "scroll") return ComputerUseAction::Scroll;
+    if (action == "left_click_drag" || action == "drag") return ComputerUseAction::DragDrop;
+    if (action == "open_app" || action == "open_application") return ComputerUseAction::OpenApp;
+    return std::nullopt;
+}
+
+/// Build the panel options from a raw computer tool input JSON object.
+/// Returns nullopt when the input is not recognizably a computer action, so
+/// callers can fall back to the generic panel instead of mislabeling.
+[[nodiscard]] inline std::optional<ComputerUsePermissionOptions>
+options_from_tool_input(std::string_view input_json) {
+    auto parsed = cc::utils::json::parse(std::string(input_json));
+    if (!parsed || !parsed->root().is_obj()) return std::nullopt;
+    const auto root = parsed->root();
+
+    auto action_name = root.get_string("action");
+    auto kind = action_from_wire(action_name);
+    if (!kind) return std::nullopt;
+
+    ComputerUsePermissionOptions opts;
+    opts.action = *kind;
+    if (auto app = root.get("app"); app.is_str() && app.as_str().size() > 0) {
+        opts.target_app = std::string(app.as_str());
+    }
+    // Native coordinates arrive as {"coordinate":[x,y]}.
+    if (const auto coord = root.get("coordinate");
+        coord.is_arr() && coord.size() >= 2) {
+        opts.coordinates = std::format("({}, {})",
+            coord.at(0).as_int(), coord.at(1).as_int());
+    } else if (root.get("x").is_num() && root.get("y").is_num()) {
+        opts.coordinates = std::format("({}, {})",
+            root.get("x").as_int(), root.get("y").as_int());
+    }
+    if (const auto text = root.get("text"); text.is_str()) {
+        opts.text_to_type = std::string(text.as_str());
+    } else if (const auto key = root.get("key"); key.is_str()) {
+        opts.text_to_type = std::string(key.as_str());
+    }
+    return opts;
 }
 
 /// Render computer use permission request

@@ -23,6 +23,7 @@ export module cc.ui.dialogs.triggers;
 
 import cc.constants.product;
 import cc.ui.dialogs.system;
+import cc.ui.permissions.single_prompt;
 
 export namespace cc::ui::dialogs::triggers {
 
@@ -60,6 +61,32 @@ inline void PushToolPermission(
     std::function<void(typename dsys::ToolPermissionPayload::Decision, bool)> on_response) {
     PushToolPermission(queue, std::move(tool_name), std::move(description),
                        std::move(on_response), []() {}, /*can_always_allow=*/true);
+}
+
+// Rich form: caller supplies the tool-specific detail payload + action kind
+// so the panel renders the concrete call (bash command, edit diff,
+// computer-use action) rather than a bare tool name. Used by the live
+// permission callback for computer-use actions.
+inline void PushToolPermissionDetailed(
+    dsys::DialogQueue& queue,
+    std::string tool_name,
+    std::string description,
+    cc::ui::permissions::single_prompt::ActionKind action_kind,
+    cc::ui::permissions::single_prompt::ToolDetail detail,
+    std::function<void(typename dsys::ToolPermissionPayload::Decision, bool)> on_response,
+    std::function<void()> on_abort,
+    bool can_always_allow) {
+    dsys::ToolPermissionPayload p;
+    p.id = "tool-permission";
+    p.tool_name = std::move(tool_name);
+    p.description = std::move(description);
+    p.action_kind = action_kind;
+    p.detail = std::move(detail);
+    p.can_always_allow = can_always_allow;
+    p.initial_sandbox_toggle = false;
+    p.on_response = std::move(on_response);
+    p.on_abort = std::move(on_abort);
+    queue.push(std::move(p));
 }
 
 // ---------------------------------------------------------------------------

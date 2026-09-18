@@ -928,6 +928,9 @@ private:
     std::condition_variable permission_cv_;
     std::optional<bool> permission_response_;
     std::set<std::string> always_allowed_tools_;
+    /// Whether any computer-use action has been approved/asked this session —
+    /// drives the "first computer use in this session" warning in the panel.
+    bool computer_use_seen_in_session_ = false;
 
     // MCP Elicitation (synchronous dialog response pattern,
     // same as tool permission — blocks worker thread on UI response).
