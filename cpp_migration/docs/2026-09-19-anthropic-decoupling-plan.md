@@ -1,0 +1,183 @@
+# Anthropic Decoupling — Executable Removal Plan (Phase A output)
+
+> **Status:** AUDIT COMPLETE (2026-09-19). Nothing deleted yet.
+> **Goal:** make CC-REPL a personal, Anthropic-independent project.
+> **Method:** 6 parallel read-only audits over the C++ tree; every load-bearing
+> claim independently re-verified by the primary agent (2 audit claims were
+> corrected — see §5).
+> **Verification rule used throughout:** production importers decide, not file
+> count and not the presence of the word "Anthropic". "Looks Anthropic but is a
+> generic harness capability" ⇒ KEEP.
+
+## 0. Headline findings
+
+1. **Coupling is concentrated, not diffuse.** ~40 files are genuinely
+   Anthropic-bound out of 1200+. The rest is naming.
+2. **The live API path is NOT `services/api/client.cppm`.** `QueryEngine`
+   (`query/query_engine.cppm`) owns its own `httplib::Client`, its own request
+   serializer and its own response parser; the REPL/server/CLI all run through
+   it. `AnthropicClient` has ~1 live call site. **Any backend swap edits
+   `query_engine.cppm` first.**
+3. **A large amount of Anthropic-bound code is already dead** (zero production
+   importers). Whole dead islands: most of `src/bridge/`, the analytics
+   cluster, several billing services. Deleting dead code is zero-risk and
+   should come first.
+4. **Real vendor credentials are committed** and unreferenced
+   (`constants/keys.cppm` GrowthBook SDK keys; `analytics/datadog.cppm` client
+   token). Highest-priority hygiene item.
+5. **The highest-value capability we must NOT break** is computer-use: its
+   engine has exactly ONE Anthropic mention (a comment). Only the tool-shape
+   emission is Claude-API-specific.
+
+## 1. DELETE — zero production importers (safe, do first)
+
+### 1.1 Dead bridge island (14+ files)
+`src/bridge/`: `bridge_debug`, `bridge_types`, `capacity_wake`, `pointer`,
+`poll_config`, `poll_config_defaults`, `status_util`, `trusted_device`,
+`inbound_attachments`, `envless_config`, `session_runner`, `bridge`,
+`bridge_enabled`, plus the dead chains `bridge_main`, `init`, `ui`,
+`inbound_messages`.
+> Verified: the modules that DO have importers (`capacity_wake`, `poll_config`,
+> `envless_config`, `bridge`, `bridge_enabled`, `init`, `ui`,
+> `inbound_messages`) are imported ONLY by other dead bridge files
+> (`bridge_main`, `core`, `init`, `session_runner`, `bridge`). Closed island.
+> **KEEP in this dir:** `api.cppm` + `work_secret.cppm` (the only live code,
+> reached via `daemon/daemon_server.cppm:40-41`), `messages.cppm`,
+> `transport.cppm` (abstraction, but its WebSocket impl has no TLS),
+> `bridge_messaging.cppm`, `session_id_compat.cppm`, `flush_gate.cppm`,
+> `debug_utils.cppm`, `jwt_utils.cppm` (`base64url_decode` only), and the
+> `TokenRefreshScheduler` half of `core.cppm`.
+
+### 1.2 Analytics / telemetry cluster
+`services/analytics/*` (analytics, config, metadata, sink, sink_killswitch,
+datadog, first_party_event_logger, index), `types/experiment_event.cppm`,
+`types/internal_event.cppm`, `types/auth.cppm`, `utils/telemetry.cppm`,
+`utils/telemetry_exporters.cppm`, `services/telemetry/telemetry.cppm`,
+`services/api/metrics_opt_out.cppm`, `services/api/grove.cppm`,
+`services/api/referral.cppm`, `services/api/claude_api.cppm`,
+`constants/keys.cppm`, `constants/github_app.cppm`.
+> Note: `datadog.cppm` + `constants/keys.cppm` carry live credentials.
+
+### 1.3 Dead billing / quota services
+`services/api/ultrareview_quota.cppm`, `services/api/overage_credit.cppm`,
+`services/api/first_token_date.cppm`, `services/api/claude_ai_limits.cppm`.
+
+### 1.4 Dead auth / misc
+`services/oauth/oauth_profile.cppm` (fake profile generator),
+`cli/handlers/auth.cppm` (2nd login impl, conflicting credential schema),
+`bootstrap/setup.cppm`, `screens/doctor_screen.cppm` (stub doctor),
+`ui/components/auth_flows.cppm`, `utils/auth_portable.cppm`,
+`utils/session_url.cppm`, `hooks/claude_code_hint_recommendation.cppm`,
+`hooks/update_notification.cppm` (live call to
+`api.github.com/repos/anthropics/claude-code`), `skills/bundled/claude_api.cppm`,
+`ui/logo/logo_welcome.cppm`, `ui/dialogs/teleport_dialogs.cppm` (orphan),
+`hooks/teleport_resume.cppm`, `commands/teleport.cppm`.
+
+### 1.5 Services/rate_limit pre-existing orphans
+`messages.cppm`, `mock.cppm` (verify first — `rate_limit.cppm` and
+`claude_ai_limits.cppm` have tests-only importers).
+
+## 2. DELETE — dead once §1 lands (ordering matters)
+
+| Item | Depends on |
+|---|---|
+| `ui/dialogs/install_slack_app_wizard.cppm`, `ui/dialogs/desktop_upsell.cppm` | registry allowlist edits |
+| `commands/{mock_limits,reset_limits,extra_usage}.cppm` | allowlist + init_e edits |
+| `services/rate_limit/claude_ai_limits_hook.cppm` | the two commands above |
+| `claudeai_proxy` enum member (`ui/dialogs/mcp_dialogs.cppm:72`) | — |
+
+**Removal point for commands is the allowlist** `commands/command_registry.cppm:57-85`,
+NOT the registration files. All three registration mechanisms must be edited
+together.
+
+## 3. REFACTOR — generic value, Anthropic-shaped
+
+| Target | Work |
+|---|---|
+| `query/query_engine.cppm` | **The main event.** Carve the wire format into a seam: `build_request_body` / `content_to_json` / `append_message_to_json` / `add_beta_headers` / `api_messages_endpoint` + `parse_api_response` / `parse_content_block`. Emit computer-use as `{type:"function", input_schema}` (schema already exists, just never sent) behind a config switch. |
+| `utils/model/providers.cppm` | Unify THREE parallel `Provider` enums (`models.cppm:17`, `providers.cppm:11`, `provider_selector.cppm:68`) into one; add a non-Claude branch. |
+| `services/auth/provider_selector.cppm` | KEEP the abstraction (Bedrock SigV4 / Vertex ADC / Foundry Entra are provider-native); remove only the `FirstParty` branch and rework `client.cppm`'s gate on it. |
+| `services/oauth/client.cppm` | Already vendor-clean (zero Anthropic hits). Strip defaults: keychain service name, redirect port. |
+| `commands/login.cppm` | Keep credential write (0600), API-key path; drop the claude.ai OAuth branch + scopes. |
+| `commands/logout.cppm` | **Bug:** hardcoded client-id literal (`:142`) that must not drift from login's. |
+| `constants/oauth.cppm`, `constants/product.cppm`, `constants/constants.cppm` | Strip vendor URLs/IDs/scopes; keep the struct shapes. |
+| `utils/teleport_utils.cppm` | Split: keep the generic git-bundle chain + helpers; delete the claude.ai Sessions/Environment/Files API half. **Already env-overridable** (`CC_REPL_REMOTE_API_BASE_URL:825-827`). |
+| `ui/dialogs/trust_utils.cppm` | 9 vendor hosts in `kSafeHosts` (`:461-480`). **Security surface** — duplicated in `commands/plugin/plugin_trust_text.cppm:70-81`. |
+| `ui/screens/doctor_screen.cppm`, `commands/doctor.cppm` | Re-point `network_endpoint`; 3 divergent "doctor" implementations should collapse to one. |
+| `skills/schedule_remote_agents.cppm` | Keep the NL→cron parser; delete the hosted-scheduler front-end. |
+| `commands/review/ultrareview.cppm` | Keep the multi-round review plan generator; delete the billing gate. |
+| Tools/hooks/UI cosmetic passes | `built_in_agents.cppm` + `agent_runtime.cppm` carry **duplicated** identity prompts — rebrand both or dedupe first. |
+
+## 4. Cosmetic rebrand (do LAST — test/golden locked)
+
+Direct brand-string assertions: `tests/test_ui_runtime.cpp` (10 sites incl. 2
+E2E gates), `tests/test_state.cpp:1175`, `tests/test_commands.cpp:667`.
+Goldens: `welcome_header.txt`, `logov2_render_modes_missing_*.txt`,
+`trust_dialog_workspace_low.txt`.
+**Art invariants:** `logo_v2.cppm:76` (`kWelcomeV2FixedWidth = 58`, enforced
+`:1035`) and `design_system/logo.cppm:221/:332` — a different-length caption
+desyncs hand-padded ASCII art.
+
+**Cross-module contracts — rename both sides or neither:**
+- `CLAUDE_HOOK_*` (`hooks/shell_hooks.cppm:143-166` ↔ `tools/agent_sub_utils.cppm:1792-1808`)
+- `${CLAUDE_SKILL_DIR}` / `${CLAUDE_SESSION_ID}` (`tools/skill_tool.cppm:747` ↔ `skills/load_skills_dir.cppm:240`)
+- `"yes-claude-folder"` ↔ `"claude_folder"` (`permissions/permission_file_write.cppm:404` ↔ `repl_screen.cppm:861`)
+- Theme keys in `theme_provider.cppm:254-334` — keep Anthropic names as aliases (user theme JSON)
+- `"claude"` @-mention token (`autocomplete_sources_impl.cpp:295-301`) — user-typed
+- **`agent_runtime.cppm:3987` string-matches an error produced elsewhere** (`"No Claude.ai OAuth access token found"`) — renaming the producer breaks remote-agent polling silently.
+
+**Follow the existing correct pattern:** `app.cppm:1128-1132` reads `CC_REPL_*`
+first with `CLAUDE_CODE_*` as fallback.
+
+## 5. Audit claims I verified and corrected
+
+| Claim | Verdict |
+|---|---|
+| "The entire command registry has no production caller" | **WRONG.** `main.cpp:2074` → `cc_ui_run_app_bridge` → `ui/app.cppm:2185` (live TUI loop). Deleting commands DOES change user-visible behaviour. |
+| "`ExtraUsageCommand` collides across namespaces" | **CONFIRMED** — defined in both `runtime_surface_commands.cppm:123` (macro) and `remote_commands.cppm:42`. Name-based deletion is unsafe. |
+| "computer-use is generic; 1 Anthropic hit" | **CONFIRMED** — `computer_use.cppm:841` is a comment; `computer_20241022` appears in 6 places, only one of which emits. |
+| "GrowthBook client is an env-var reader in a remote-SDK costume" | **CONFIRMED for `growthbook.cppm`** (no HTTP; values from env). But `references` to `api.anthropic.com` in the cluster are mostly string-only. |
+| "committed live credentials" | **CONFIRMED** — `constants/keys.cppm:13-15` (3 GrowthBook SDK keys), `analytics/datadog.cppm:39` (Datadog token). Both zero-importers. |
+| "bridge is a mostly-dead island" | **CONFIRMED** — importer graph closes inside dead files; live path is `api.cppm` + `work_secret.cppm` via `daemon_server`. |
+| "3 parallel SSE implementations, one dead" | **CONFIRMED** — `services/api/sse_client.cppm` (639 L) has zero production importers. |
+
+## 6. Owner decisions (2026-09-19)
+
+1. **Model backends: TWO targets — OpenAI-compatible AND Anthropic-compatible.**
+   "拿到 API 就可以用" — a user with either kind of endpoint should be able to
+   point Loom at it and go. ⇒ §3 must produce a backend seam with (at least)
+   two concrete implementations, not a generic plugin API. The
+   Anthropic-compatible one keeps the existing wire format (so the current
+   serializer becomes one implementation, not dead code); the
+   OpenAI-compatible one is new (chat/completions + SSE `data:` frames,
+   different tool-call shape, no thinking blocks).
+2. **Local telemetry: KEEP.** `analytics/index.cppm` writes local NDJSON to
+   `~/.local/state/<product>/analytics.ndjson`; no network. Everything that
+   ships data to Anthropic/Datadog/GrowthBook is deleted.
+3. **Local rate-limit display: KEEP and WIRE IN.** `claude_ai_limits_hook` is
+   misnamed — it is generic 429/529 backoff with UI callbacks, currently
+   reachable only from the dev `/mock-limits` and `/reset-limits` commands.
+   Re-point it at the real request path (or unify with the engine's inline
+   retry loop) so limit state is visible regardless of backend.
+4. **Project name: LOOM.** Chosen for "weaving many agents/tools/memories into
+   one fabric". Short, lowercase-typable as a command, product-viable.
+   Rename is the LAST phase (§4) because it is test/golden-locked.
+
+### Consequence for §3 (backend seam)
+
+Because BOTH backends are required, the seam is:
+- keep `RequestSerializer`/`ResponseParser`/`StreamEventParser` as the
+  **Anthropic-compatible implementation**;
+- add an OpenAI-compatible sibling (chat/completions, `choices[].delta`,
+  `tool_calls[]`, `finish_reason`);
+- make `QueryEngine`'s serializer/parser call through that seam instead of
+  inlining one wire format;
+- computer-use tool shape becomes config-driven: native `computer_20241022`
+  for the Anthropic backend, ordinary `{type:"function", input_schema}` for
+  the OpenAI-compatible one.
+
+## 7. Remaining open question
+
+**Rename paths (`~/.claude` → `~/.loom`)?** Breaks existing user skill dirs /
+memory / settings. Deferred to the rename phase (§4); needs its own decision
+because it is user-data-migrating, not just cosmetic.
