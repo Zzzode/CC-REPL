@@ -23,7 +23,6 @@ import cc.commands.bughunter;
 import cc.commands.commit_push_pr;
 import cc.commands.create_moved_to_plugin_command;
 import cc.commands.debug_tool_call;
-import cc.commands.extra_usage;
 import cc.commands.exit;
 import cc.commands.init_verifiers;
 import cc.commands.install_github_app.flow;
@@ -120,7 +119,6 @@ CC_RUNTIME_HELPER_COMMAND(BughunterCommand, "bughunter", "Run bug hunting diagno
 CC_RUNTIME_HELPER_COMMAND(CommitPushPrCommand, "commit-push-pr", "Commit, push, and prepare a pull request", "git", commit_push_pr::run)
 CC_RUNTIME_HELPER_COMMAND(CreateMovedToPluginCommand, "create-moved-to-plugin-command", "Create a moved-to-plugin command shim", "plugins", create_moved_to_plugin_command::run)
 CC_RUNTIME_HELPER_COMMAND(DebugToolCallCommand, "debug-tool-call", "Debug a tool call payload", "diagnostics", debug_tool_call::run)
-CC_RUNTIME_HELPER_COMMAND(ExtraUsageCommand, "extra-usage", "Show extended usage information", "usage", extra_usage::run)
 CC_RUNTIME_HELPER_COMMAND(MockLimitsCommand, "mock-limits", "Configure mock rate limits", "usage", mock_limits::run)
 CC_RUNTIME_HELPER_COMMAND(OnboardingCommand, "onboarding", "Run onboarding checks", "setup", onboarding::run)
 CC_RUNTIME_HELPER_COMMAND(OutputStyleCommand, "output-style", "Manage output style", "config", output_style::run)

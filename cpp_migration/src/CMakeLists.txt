@@ -785,7 +785,6 @@ target_sources(cc_commands
         commands/env.cppm
         commands/exit.cppm
         commands/export_cmd.cppm
-        commands/extra_usage.cppm
         commands/fast.cppm
         commands/feedback.cppm
         commands/files.cppm
@@ -840,10 +839,8 @@ target_sources(cc_commands
         commands/rate_limit_options.cppm
         commands/release_notes.cppm
         commands/reload_plugins.cppm
-        commands/remote_commands.cppm
         commands/remote_env.cppm
         commands/remote_setup.cppm
-        commands/remote_setup_api.cppm
         commands/rename.cppm
         commands/reset_limits.cppm
         commands/resume.cppm
@@ -899,7 +896,6 @@ target_sources(cc_services
     PUBLIC FILE_SET CXX_MODULES FILES
         services/agent_summary/agent_summary.cppm
         services/analytics/index.cppm
-        services/api/admin_requests.cppm
         services/api/bootstrap.cppm
         services/api/client.cppm
         services/api/error_utils.cppm
@@ -976,8 +972,6 @@ target_sources(cc_services
         services/prevent_sleep/prevent_sleep.cppm
         services/prompt_suggestion/prompt_suggestion.cppm
         services/proxy/proxy.cppm
-        services/rate_limit/messages.cppm
-        services/rate_limit/mock.cppm
         services/rate_limit/rate_limit.cppm
         services/remote/session_manager.cppm
         services/remote_settings/security_check.cppm
@@ -1312,7 +1306,6 @@ target_sources(cc_ui
         ui/components/text_input_widget.cppm
         ui/components/user_bash_input_message.cppm
         ui/components/auto_updater.cppm
-        ui/components/auth_flows.cppm
         ui/components/bash_mode_progress.cppm
         ui/components/context_visualization.cppm
         ui/components/session_preview.cppm
@@ -1339,7 +1332,6 @@ target_sources(cc_ui
         ui/dialogs/dialog_default_renderers.cppm
         ui/dialogs/hooks_dialog_renderer.cppm
         ui/dialogs/config_dialog.cppm
-        ui/dialogs/desktop_upsell.cppm
         ui/dialogs/diff_dialog.cppm
         ui/dialogs/elicitation_dialog.cppm
         ui/dialogs/feedback_survey.cppm
@@ -1718,7 +1710,6 @@ target_link_libraries(cc_server PUBLIC cc_utils cc_session cc_query cc_tools Ope
 add_library(cc_screens)
 target_sources(cc_screens
     PUBLIC FILE_SET CXX_MODULES FILES
-        screens/doctor_screen.cppm
         screens/resume_screen.cppm
         screens/screens.cppm
 )

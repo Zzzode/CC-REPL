@@ -61,11 +61,11 @@ enum class CommandPermission : std::uint8_t {
         name == "effort" || name == "env" || name == "fast" || name == "feedback" || name == "files" ||
         name == "heapdump" || name == "hooks" || name == "ide" || name == "issue" || name == "memory" ||
         name == "passes" || name == "stats" || name == "status" || name == "summary" ||
-        name == "tag" || name == "teleport" || name == "ultraplan" || name == "insights" || name == "init")
+        name == "tag" || name == "ultraplan" || name == "insights" || name == "init")
         return CommandPermission::ReadOnly;
     if (name == "chrome" || name == "desktop" || name == "good-claude" || name == "mobile" ||
         name == "stickers" || name == "ant-trace" || name == "bughunter" || name == "debug-tool-call" ||
-        name == "extra-usage" || name == "init-verifiers" || name == "onboarding" ||
+        name == "init-verifiers" || name == "onboarding" ||
         name == "perf-issue" || name == "pr-comments" || name == "rate-limit-options" ||
         name == "remote-env" || name == "statusline" || name == "terminal-setup" ||
         name == "thinkback-play" || name == "version")

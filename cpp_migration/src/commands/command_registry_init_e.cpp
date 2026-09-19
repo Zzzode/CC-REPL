@@ -36,7 +36,6 @@ void register_group_e_commands(CommandRegistry& registry) {
     registry.register_command<CreateMovedToPluginCommand>();
     registry.register_command<DebugToolCallCommand>();
     registry.register_command<ExitCommand>();
-    registry.register_command<ExtraUsageCommand>();
     registry.register_command<MockLimitsCommand>();
     registry.register_command<OauthRefreshCommand>();
     registry.register_command<OnboardingCommand>();

@@ -243,11 +243,6 @@ TEST(AppCommandRegistry, RuntimeSurfaceCommandsExecuteLocalLogic) {
     EXPECT_NE(reset->message.find("active=false"), std::string::npos);
     EXPECT_NE(reset->message.find("total_retries=0"), std::string::npos);
 
-    auto extra_usage = registry.execute("/extra-usage status", ctx());
-    ASSERT_TRUE(extra_usage.has_value());
-    EXPECT_TRUE(extra_usage->ok);
-    EXPECT_NE(extra_usage->message.find("Extra usage:"), std::string::npos);
-
     auto bridge = registry.execute("/bridge status", ctx());
     ASSERT_TRUE(bridge.has_value());
     EXPECT_TRUE(bridge->ok);
