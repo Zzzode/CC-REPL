@@ -40,9 +40,6 @@ import cc.types.types;
 import cc.bridge.config;
 import cc.bridge.transport;
 import cc.bridge.security;
-import cc.bridge.init;
-import cc.bridge.ui;
-import cc.bridge.envless_config;
 import cc.bridge.bridge_messaging;
 import cc.bridge.session_api;
 import cc.bridge.session_id_compat;
@@ -57,6 +54,25 @@ export namespace cc::bridge {
 using cc::core::Error;
 using cc::core::ErrorCode;
 using cc::core::Result;
+
+// =========================================================================
+// Core bridge value types
+// =========================================================================
+//
+// These previously lived in bridge/init.cppm and reached this module only
+// transitively through `import cc.bridge.init`. init.cppm was a dead
+// duplicate of the v1 daemon loop (the live one is daemon/daemon_server.cppm)
+// with zero production importers, so the types it actually owned moved here
+// — this module is their only remaining consumer.
+
+/// Lifecycle state reported by a bridge handle.
+enum class BridgeState { Ready, Connected, Reconnecting, Failed, Closed };
+
+using InboundMessageCallback  = std::function<void(const SDKMessage&)>;
+using PermissionResponseCallback = std::function<void(const SDKControlResponse&)>;
+using InterruptCallback       = std::function<void()>;
+using SetModelCallback        = std::function<void(const std::optional<std::string>&)>;
+using StateChangeCallback     = std::function<void(BridgeState, const std::optional<std::string>&)>;
 
 // =========================================================================
 // Poll interval configuration (pollConfigDefaults.ts)

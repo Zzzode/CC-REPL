@@ -1242,34 +1242,17 @@ add_library(cc_bridge)
 target_sources(cc_bridge
     PUBLIC FILE_SET CXX_MODULES FILES
         bridge/api.cppm
-        bridge/bridge.cppm
-        bridge/bridge_debug.cppm
-        bridge/bridge_enabled.cppm
-        bridge/bridge_main.cppm
         bridge/bridge_messaging.cppm
-        bridge/bridge_types.cppm
-        bridge/capacity_wake.cppm
         bridge/config.cppm
         bridge/core.cppm
         bridge/debug_utils.cppm
-        bridge/envless_config.cppm
         bridge/flush_gate.cppm
-        bridge/inbound_attachments.cppm
-        bridge/inbound_messages.cppm
-        bridge/init.cppm
         bridge/jwt_utils.cppm
         bridge/messages.cppm
-        bridge/pointer.cppm
-        bridge/poll_config.cppm
-        bridge/poll_config_defaults.cppm
         bridge/security.cppm
         bridge/session_api.cppm
         bridge/session_id_compat.cppm
-        bridge/session_runner.cppm
-        bridge/status_util.cppm
         bridge/transport.cppm
-        bridge/trusted_device.cppm
-        bridge/ui.cppm
         bridge/work_secret.cppm
 )
 target_link_libraries(cc_bridge
