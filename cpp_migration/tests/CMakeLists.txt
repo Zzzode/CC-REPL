@@ -56,6 +56,7 @@ endfunction()
 add_executable(test_utils
     test_utils.cpp
     utils/io_shell_memory_test.cpp
+    utils/paths_cascade_test.cpp
     utils/permissions_test.cpp
     utils/settings_validation_test.cpp
 )

@@ -22,6 +22,7 @@ module;
 export module cc.memdir.memory;
 
 import cc.utils.error;
+import cc.constants.paths;
 
 export namespace cc::core::memory {
 
@@ -387,20 +388,13 @@ struct LoomInstructions {
     std::filesystem::path source_path;
 };
 
-/// Search up the directory tree from start_dir for LOOM.md
+/// Search up the directory tree from start_dir for the nearest memory file.
+/// Applies the shared name cascade (LOOM.md -> AGENTS.md -> CLAUDE.md) within
+/// each directory, so a legacy CLAUDE.md beside the code is found rather than
+/// walked past in favour of a distant LOOM.md.
 [[nodiscard]] inline std::optional<std::filesystem::path> find_loom_md(
         const std::filesystem::path& start_dir) {
-    auto current = std::filesystem::absolute(start_dir);
-    while (true) {
-        auto candidate = current / "LOOM.md";
-        if (std::filesystem::exists(candidate)) {
-            return candidate;
-        }
-        auto parent = current.parent_path();
-        if (parent == current) break; // Reached filesystem root
-        current = parent;
-    }
-    return std::nullopt;
+    return cc::constants::paths::find_memory_file(start_dir);
 }
 
 /// Parse LOOM.md content into structured instructions

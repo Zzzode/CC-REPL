@@ -32,6 +32,7 @@ export module cc.hooks.shell_hooks;
 
 import cc.utils.hooks_registry;
 import cc.hooks.lifecycle_hooks;
+import cc.constants.paths;
 
 export namespace cc::hooks::shell {
 
@@ -543,17 +544,22 @@ private:
     }
 
     [[nodiscard]] static std::filesystem::path get_user_settings_path() {
-        const char* home = std::getenv("HOME");
-        if (!home) home = "/tmp";
-        return std::filesystem::path(home) / ".loom" / "settings.json";
+        // READ cascade: a user's pre-rename ~/.claude/settings.json hooks
+        // still load. Hooks are the surface where silently dropping them
+        // changes behaviour the user explicitly configured, so this one must
+        // follow the cascade rather than only look at ~/.loom.
+        return cc::constants::paths::config_home_read() / "settings.json";
     }
 
     [[nodiscard]] static std::filesystem::path get_project_settings_path() {
-        return std::filesystem::current_path() / ".loom" / "settings.json";
+        return std::filesystem::current_path() /
+               std::string{cc::constants::paths::kConfigDirName} / "settings.json";
     }
 
     [[nodiscard]] static std::filesystem::path get_local_settings_path() {
-        return std::filesystem::current_path() / ".loom" / "settings.local.json";
+        return std::filesystem::current_path() /
+               std::string{cc::constants::paths::kConfigDirName} /
+               "settings.local.json";
     }
 
     mutable std::mutex mu_;

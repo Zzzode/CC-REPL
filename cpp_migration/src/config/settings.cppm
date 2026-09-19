@@ -14,6 +14,7 @@ module;
 #include <vector>
 
 import cc.utils.json;
+import cc.constants.paths;
 
 export module cc.config.settings;
 
@@ -196,7 +197,11 @@ struct SettingsEntry {
     SettingsScope scope;
 };
 
-/// Get settings file path for a scope
+/// Get settings file path for a scope. The user scope resolves through the
+/// shared config cascade ($LOOM_CONFIG_DIR, ~/.loom, ~/.agents, ~/.claude),
+/// so a user's existing settings are found after the rename. Project scopes
+/// use the project's own cascade directory name -- reading a legacy
+/// `~/.claude` must not make new projects write into `./.claude/`.
 [[nodiscard]] inline std::filesystem::path get_settings_path(
     SettingsScope scope,
     const std::filesystem::path& home_dir,
@@ -204,11 +209,14 @@ struct SettingsEntry {
 ) {
     switch (scope) {
         case SettingsScope::User:
-            return home_dir / ".loom" / "settings.json";
+            return cc::constants::paths::config_home_read_under(home_dir) /
+                   "settings.json";
         case SettingsScope::Project:
-            return project_root / ".loom" / "settings.json";
+            return project_root / std::string{cc::constants::paths::kConfigDirName} /
+                   "settings.json";
         case SettingsScope::Local:
-            return project_root / ".loom" / "settings.local.json";
+            return project_root / std::string{cc::constants::paths::kConfigDirName} /
+                   "settings.local.json";
     }
     return {};
 }

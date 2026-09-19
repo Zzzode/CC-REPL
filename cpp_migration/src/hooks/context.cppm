@@ -23,6 +23,8 @@ module;
 
 export module cc.hooks.context;
 
+import cc.constants.paths;
+
 
 namespace fs = std::filesystem;
 
@@ -278,22 +280,18 @@ private:
     }
 
     /**
-     * Load project context from LOOM.md in the working directory or parents.
-     * Searches upward from cwd until a LOOM.md is found or root is reached.
+     * Load project context from the nearest memory file in the working
+     * directory or its parents. Uses the shared cascade (LOOM.md ->
+     * AGENTS.md -> CLAUDE.md) per directory, so proximity beats name
+     * priority: a CLAUDE.md next to the code wins over a LOOM.md further up.
      */
     [[nodiscard]]
     auto load_project_context() const -> std::optional<std::string> {
-        auto cwd = fs::current_path();
-
-        // Walk up directory tree looking for LOOM.md
-        for (auto dir = cwd; dir != dir.root_path(); dir = dir.parent_path()) {
-            auto loom_md = dir / "LOOM.md";
-            if (fs::exists(loom_md)) {
-                auto content = cc::utils::read_file_to_string(loom_md);
-                if (content.has_value() && !content->empty()) {
-                    return content;
-                }
-            }
+        auto found = cc::constants::paths::find_memory_file(fs::current_path());
+        if (!found) return std::nullopt;
+        auto content = cc::utils::read_file_to_string(*found);
+        if (content.has_value() && !content->empty()) {
+            return content;
         }
         return std::nullopt;
     }

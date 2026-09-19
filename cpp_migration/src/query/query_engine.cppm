@@ -46,6 +46,7 @@ import cc.query.wire_openai;
 import cc.utils.debug;
 import cc.session.storage;
 import cc.memdir.paths;
+import cc.constants.paths;
 import core.memdir;
 import cc.services.extract_memories;
 import cc.utils.tool_helpers;
@@ -913,16 +914,27 @@ private:
         // P1-12: Inject git context (branch + last commit)
         populate_git_context(user_ctx, cwd);
 
-        // P1-13: Load LOOM.md memory file
-        auto loom_md = load_loom_md(std::filesystem::path(cwd));
-        if (!loom_md.empty()) {
-            user_ctx.additional_contexts.push_back(
-                std::format("<context name=\"LOOM.md\">\n{}\n</context>", loom_md));
+        // P1-13: Load the nearest project memory file (LOOM.md / AGENTS.md /
+        // CLAUDE.md, whichever is nearest). The tag below names the file that
+        // was actually read rather than a fixed "LOOM.md", so a legacy
+        // CLAUDE.md is not mislabelled to the model as something it is not.
+        if (auto memory_file =
+                cc::constants::paths::find_memory_file(std::filesystem::path(cwd))) {
+            std::ifstream mem_ifs(*memory_file);
+            if (mem_ifs) {
+                std::string loom_md((std::istreambuf_iterator<char>(mem_ifs)), {});
+                if (!loom_md.empty()) {
+                    loaded_nested_memory_paths_.insert(memory_file->string());
+                    user_ctx.additional_contexts.push_back(std::format(
+                        "<context name=\"{}\">\n{}\n</context>",
+                        memory_file->filename().string(), loom_md));
+                }
+            }
         }
 
-        // P1-13b: Load user-level memory (~/.loom/LOOM.md) via the memdir
-        // module so global user preferences are injected alongside project
-        // memory. Tree/ancestor LOOM.md is already covered by load_loom_md.
+        // P1-13b: Load user-level memory via the memdir module so global user
+        // preferences are injected alongside project memory. Tree/ancestor
+        // memory is already covered by the walk above.
         auto user_mem = cc::memdir::get_user_memory_path();
         if (std::filesystem::exists(user_mem)) {
             std::ifstream um_ifs(user_mem);
@@ -1042,24 +1054,6 @@ private:
             git_ctx += "\n</context>";
             ctx.additional_contexts.push_back(std::move(git_ctx));
         }
-    }
-
-    /// Load LOOM.md from CWD or parent directories
-    [[nodiscard]] static std::string load_loom_md(const std::filesystem::path& cwd) {
-        auto path = cwd;
-        for (int depth = 0; depth < 10; ++depth) {
-            auto loom_md = path / "LOOM.md";
-            if (std::filesystem::exists(loom_md)) {
-                std::ifstream ifs(loom_md);
-                if (ifs) {
-                    return std::string(std::istreambuf_iterator<char>(ifs), {});
-                }
-            }
-            auto parent = path.parent_path();
-            if (parent == path) break;
-            path = parent;
-        }
-        return {};
     }
 
     // Flatten recent user/assistant turns to plain text for the extractor.

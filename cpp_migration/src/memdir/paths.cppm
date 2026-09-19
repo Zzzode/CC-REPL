@@ -14,6 +14,8 @@ module;
 
 export module cc.memdir.paths;
 
+import cc.constants.paths;
+
 export namespace cc::memdir {
 
 /// Memory file types
@@ -31,32 +33,36 @@ struct MemoryPath {
     bool exists = false;
 };
 
-/// Get the user-level memory file path (~/.loom/LOOM.md)
+/// Get the user-level memory file path. Resolves through the shared cascade
+/// (LOOM.md -> AGENTS.md -> CLAUDE.md), so a user's pre-rename
+/// `~/.claude/CLAUDE.md` is still found.
 [[nodiscard]] inline std::filesystem::path get_user_memory_path() {
-    auto home = std::filesystem::path(std::getenv("HOME") ? std::getenv("HOME") : "~");
-    return home / ".loom" / "LOOM.md";
+    return cc::constants::paths::user_memory_path();
 }
 
-/// Get the project-level memory file path
+/// Get the project-level memory file path. Prefers whichever cascade name
+/// already exists, so we read a legacy CLAUDE.md rather than looking past it
+/// for a LOOM.md that is not there.
 [[nodiscard]] inline std::filesystem::path get_project_memory_path(
     const std::filesystem::path& project_root
 ) {
-    return project_root / "LOOM.md";
+    return cc::constants::paths::project_memory_path(project_root);
 }
 
-/// Get all ancestor LOOM.md paths between cwd and filesystem root
+/// Get all ancestor memory file paths between cwd and filesystem root.
+/// Uses the shared per-directory cascade, so a nearer CLAUDE.md correctly
+/// beats a farther LOOM.md.
 [[nodiscard]] inline std::vector<MemoryPath> get_tree_memory_paths(
     const std::filesystem::path& cwd,
     const std::filesystem::path& project_root
 ) {
     std::vector<MemoryPath> paths;
     auto current = cwd;
-    
+
     while (current != project_root && current.has_parent_path() && current != current.parent_path()) {
-        auto memory_file = current / "LOOM.md";
-        if (std::filesystem::exists(memory_file)) {
+        if (auto memory_file = cc::constants::paths::memory_file_in(current)) {
             paths.push_back(MemoryPath{
-                .path = memory_file,
+                .path = *memory_file,
                 .type = MemoryType::TreeMemory,
                 .exists = true,
             });
@@ -152,15 +158,13 @@ struct MemoryPath {
     return abs;
 }
 
-/// Resolve the config home: $LOOM_CONFIG_DIR else $HOME/.loom.
+/// Resolve the config home for STATE this process owns (auto-memory,
+/// session-memory, `projects/`). Uses the WRITE resolution on purpose: these
+/// are directories we create and manage, so they belong under our own name
+/// even when a legacy `~/.claude` exists and is readable. Reading is a
+/// separate question -- see cc::constants::paths::config_home_read().
 [[nodiscard]] inline std::filesystem::path loom_config_home() {
-    if (const char* dir = std::getenv("LOOM_CONFIG_DIR"); dir && *dir) {
-        return std::filesystem::path(dir);
-    }
-    if (const char* home = std::getenv("HOME"); home && *home) {
-        return std::filesystem::path(home) / ".loom";
-    }
-    return std::filesystem::path(".loom");
+    return cc::constants::paths::config_home_write();
 }
 
 /// Whether auto-memory is enabled. TS enablement chain:

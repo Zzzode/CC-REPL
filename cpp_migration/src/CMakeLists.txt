@@ -289,7 +289,6 @@ target_sources(cc_utils
         utils/string_utils.cppm
         utils/suggestions.cppm
         utils/swarm.cppm
-        utils/system_directories.cppm
         utils/system_prompt.cppm
         utils/system_theme.cppm
         utils/task_output.cppm
@@ -439,6 +438,7 @@ target_sources(cc_constants
         constants/messages.cppm
         constants/oauth.cppm
         constants/output_styles.cppm
+        constants/paths.cppm
         constants/product.cppm
         constants/prompts.cppm
         constants/spinner_verbs.cppm
@@ -476,7 +476,7 @@ target_sources(cc_config
         config/model_config.cppm
         config/settings.cppm
 )
-target_link_libraries(cc_config PUBLIC cc_utils cc_types)
+target_link_libraries(cc_config PUBLIC cc_utils cc_types cc_constants)
 
 # ─── cc_context: UI Context ───────────────────────────────────────────────────
 add_library(cc_context)
@@ -524,7 +524,7 @@ target_sources(cc_memdir
         memdir/paths.cppm
         memdir/team_memory.cppm
 )
-target_link_libraries(cc_memdir PUBLIC cc_utils)
+target_link_libraries(cc_memdir PUBLIC cc_utils cc_constants)
 
 # ─── cc_coordinator: Multi-Agent Orchestration ────────────────────────────────
 add_library(cc_coordinator)
