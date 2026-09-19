@@ -12,6 +12,17 @@ export namespace cc::services::auto_dream {
 namespace fs = std::filesystem;
 using time_point = std::chrono::system_clock::time_point;
 
+/// The single lock file name. Both the acquire and the query path must agree on
+/// this EXACTLY: a mutual-exclusion lock that is spelled differently in two
+/// places is not a lock — two processes would each take their own file and both
+/// believe they hold it. Hence one constant, not two literals.
+inline constexpr std::string_view kConsolidationLockName = "loom_dream.lock";
+
+/// Absolute path of the consolidation lock file.
+[[nodiscard]] inline fs::path consolidation_lock_path() {
+    return fs::temp_directory_path() / kConsolidationLockName;
+}
+
 // Lock file handle for consolidation
 struct LockFile {
     fs::path path;
@@ -42,8 +53,7 @@ struct LockFile {
 
 // Attempt to acquire the consolidation lock
 auto acquire_consolidation_lock() -> std::expected<LockFile, std::string> {
-    // Lock file location in config directory
-    fs::path lock_path = fs::temp_directory_path() / "claude_dream.lock";
+    fs::path lock_path = consolidation_lock_path();
 
     if (fs::exists(lock_path)) {
         return std::unexpected("Consolidation already in progress");
@@ -63,8 +73,7 @@ auto acquire_consolidation_lock() -> std::expected<LockFile, std::string> {
 
 // Check if a consolidation is currently running
 auto is_consolidation_running() -> bool {
-    fs::path lock_path = fs::temp_directory_path() / "claude_dream.lock";
-    return fs::exists(lock_path);
+    return fs::exists(consolidation_lock_path());
 }
 
 // Get the time of the last completed consolidation

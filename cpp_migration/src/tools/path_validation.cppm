@@ -781,18 +781,29 @@ inline ValidatePathResult validate_path(
         return r;
     }
 
-    // (2) Write ops to Claude's internal config dirs are blocked regardless
+    // (2) Write ops to the app's internal config dirs are blocked regardless
     //     of allowlist.  Kept as a suffix string check for fast rejection.
+    //
+    //     Every historical and current config-home name must be listed: the
+    //     guard protects credentials and settings, so a dir that USED to hold
+    //     them is exactly as sensitive as one that does now. Omitting a legacy
+    //     name would silently unprotect a real ~/.<old> directory that still
+    //     exists on disk.  The bare-name variants (no leading dot) are the
+    //     XDG-style roots used on Linux.
     if (op != FileOperationType::kRead) {
         const auto s = absolute.string();
-        if (s.ends_with("/.claude") || s.find("/.claude/") != std::string::npos ||
+        if (s.ends_with("/.loom") || s.find("/.loom/") != std::string::npos ||
+            s.ends_with("/.cc-repl") || s.find("/.cc-repl/") != std::string::npos ||
+            s.ends_with("/.claude") || s.find("/.claude/") != std::string::npos ||
+            s.ends_with("/.config/loom") ||
+            s.find("/.config/loom/") != std::string::npos ||
             s.ends_with("/.config/claude") ||
             s.find("/.config/claude/") != std::string::npos) {
             r.allowed = false;
             r.decision_reason = DecisionReason{
                 .type = DecisionReasonType::kSafety,
                 .mode = std::nullopt,
-                .reason = "modification of Claude-internal configuration is not allowed",
+                .reason = "modification of internal configuration is not allowed",
             };
             return r;
         }

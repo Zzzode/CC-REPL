@@ -140,18 +140,6 @@ namespace tool_limits {
 // ============================================================
 
 // ============================================================
-namespace oauth {
-    inline constexpr std::string_view kClientId = "cc-repl-cli";
-    inline constexpr std::string_view kRedirectUri = "http://localhost:9876/callback";
-    inline constexpr std::string_view kAuthEndpoint = "https://api.anthropic.com/oauth/authorize";
-    inline constexpr std::string_view kTokenEndpoint = "https://api.anthropic.com/oauth/token";
-    inline constexpr std::string_view kScopes = "read write tools";
-    inline constexpr uint16_t kCallbackPort = 9876;
-}
-
-// ============================================================
-
-// ============================================================
 namespace paths {
     inline constexpr std::string_view kConfigDir = ".claude";
     inline constexpr std::string_view kConfigFile = "config.json";
@@ -506,36 +494,7 @@ namespace error_ids {
 // ============================================================
 
 // ============================================================
-namespace oauth {
-    inline constexpr std::string_view kClaudeAiInferenceScope = "user:inference";
-    inline constexpr std::string_view kClaudeAiProfileScope = "user:profile";
-    inline constexpr std::string_view kConsoleScope = "org:create_api_key";
-    inline constexpr std::string_view kOAuthBetaHeader = "oauth-2025-04-20";
-    
-    inline constexpr std::array<std::string_view, 2> kConsoleOAuthScopes = {
-        kConsoleScope,
-        kClaudeAiProfileScope
-    };
-    
-    inline constexpr std::array<std::string_view, 5> kClaudeAiOAuthScopes = {
-        kClaudeAiProfileScope,
-        kClaudeAiInferenceScope,
-        "user:sessions:claude_code",
-        "user:mcp_servers",
-        "user:file_upload"
-    };
-}
 
 // ============================================================
-
-// ============================================================
-namespace cli_sysprompt {
-    inline constexpr std::string_view kDefaultPrefix = 
-        "You are Claude Code, Anthropic's official CLI for Claude.";
-    inline constexpr std::string_view kAgentSdkClaudeCodePresetPrefix = 
-        "You are Claude Code, Anthropic's official CLI for Claude, running within the Claude Agent SDK.";
-    inline constexpr std::string_view kAgentSdkPrefix = 
-        "You are a Claude agent, built on Anthropic's Claude Agent SDK.";
-}
 
 } // namespace cc::core::constants

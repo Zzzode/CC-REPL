@@ -115,7 +115,6 @@ target_sources(cc_utils
         utils/cache_paths.cppm
         utils/circular_buffer.cppm
         utils/claude_code_hints.cppm
-        utils/claudemd.cppm
         utils/chrome_messaging.cppm
         utils/cli_highlight.cppm
         utils/collapse_read_search.cppm
@@ -443,7 +442,7 @@ target_sources(cc_constants
         constants/product.cppm
         constants/prompts.cppm
         constants/spinner_verbs.cppm
-        constants/system.cppm
+        services/api/sse_client.cppm
         constants/system_prompt_sections.cppm
         constants/tool_limits.cppm
         constants/tools_constants.cppm
@@ -897,7 +896,6 @@ add_library(cc_services)
 target_sources(cc_services
     PUBLIC FILE_SET CXX_MODULES FILES
         services/agent_summary/agent_summary.cppm
-        services/analytics/index.cppm
         services/api/bootstrap.cppm
         services/api/client.cppm
         services/api/error_utils.cppm
@@ -908,7 +906,6 @@ target_sources(cc_services
         services/api/streaming.cppm
         services/api/usage.cppm
         services/api/with_retry.cppm
-        services/api/sse_client.cppm
         services/api/with_retry_simple.cppm
         services/auto_dream/auto_dream.cppm
         services/auto_dream/config.cppm
