@@ -6,16 +6,17 @@
 /// enforces cross-file consistency checks.
 ///
 /// This implementation provides:
-///   1. Feature-flag gate (`tengu_review_bughunter_config.enabled`) via GrowthBook.
-///   2. Overage billing check — translated from TS checkOverageGate() into a
-///      stateless pure function `is_overage()` (the FTXUI overage *dialog* is
-///      DEFERRED to Phase 4; only the boolean decision + billing-note logic is
-///      present here).
-///   3. `generate_ultrareview_plan(diff_files) -> ReviewPlan` — pure logic that
+///   1. A local feature-flag gate (`cc::core::flags::Feature::UltraReview`,
+///      overridable with CC_ULTRAREVIEW=1).
+///   2. `generate_ultrareview_plan(diff_files) -> ReviewPlan` — pure logic that
 ///      partitions the diff into N rounds with per-round focus files and
 ///      per-round prompts.
-///   4. The command entry point that validates the gate, computes the plan, and
-///      injects the prompt into query_engine (no direct Anthropic SDK calls).
+///   3. The command entry point that validates the gate, computes the plan, and
+///      injects the prompt into query_engine (no direct provider SDK calls).
+///
+/// The hosted server-side billing/overage gate (checkOverageGate + Extra
+/// Usage) was removed along with the Anthropic cloud coupling: a local
+/// multi-round review has no remote quota to enforce.
 module;
 
 #include <cstdint>
@@ -39,8 +40,6 @@ export module cc.commands.review.ultrareview;
 import cc.types.types;
 import cc.commands.command;
 import cc.config.feature_flags;
-import cc.services.analytics.growthbook;
-import cc.services.api.ultrareview_quota;
 import cc.services.api.usage;
 import cc.utils.auth_utils;
 import cc.utils.exec_sync;
@@ -55,67 +54,6 @@ using namespace cc::core;
 // Overage / plan-limit pure logic (no UI)
 // ============================================================
 
-/// Extra-Usage billing information as returned by the utilization endpoint.
-struct ExtraUsageInfo {
-    bool is_enabled{false};
-    double monthly_limit{0.0};   ///< 0.0 means unlimited / null
-    double used_credits{0.0};    ///< Already consumed this billing period
-};
-
-/// Overage decision — DEFERRED from UltrareviewOverageDialog.tsx.
-/// This is a PURE function: given the current quota/utilization state,
-/// determine whether launching another ultrareview would exceed the plan.
-///
-/// The FTXUI "are you sure?" dialog is Phase-4 work; here we only surface
-/// the decision + billing note string.
-[[nodiscard]] inline bool is_overage(
-    std::uint32_t reviews_remaining,
-    const ExtraUsageInfo& extra,
-    bool is_team_or_enterprise_subscriber,
-    bool session_overage_confirmed
-) noexcept {
-    // Team / Enterprise: unlimited ultrareviews included.
-    if (is_team_or_enterprise_subscriber) return false;
-
-    // Free quota still remaining -> no overage.
-    if (reviews_remaining > 0) return false;
-
-    // Free quota exhausted.  If Extra Usage is not enabled -> blocked (treated
-    // as overage since the user cannot proceed without enabling it).
-    if (!extra.is_enabled) return true;
-
-    // Extra Usage is on: check balance.  monthly_limit == 0 means unlimited.
-    if (extra.monthly_limit > 0.0) {
-        const double available = extra.monthly_limit - extra.used_credits;
-        // Per TS: minimum $10 balance required to launch.
-        if (available < 10.0) return true;
-    }
-
-    // User needs to confirm the dialog once per session.
-    if (!session_overage_confirmed) return true;
-
-    return false;
-}
-
-/// Compute the billing-note string appended to the launch message.
-/// (Pure function — mirrors TS logic in checkOverageGate + launchRemoteReview.)
-[[nodiscard]] inline std::string billing_note(
-    std::uint32_t reviews_remaining,
-    std::uint32_t reviews_limit,
-    std::uint32_t reviews_used,
-    bool is_team_or_enterprise_subscriber
-) {
-    if (is_team_or_enterprise_subscriber) return {};
-    if (reviews_remaining > 0) {
-        return std::format(
-            " This is free ultrareview {} of {}.",
-            reviews_used + 1, reviews_limit
-        );
-    }
-    return " This review bills as Extra Usage.";
-}
-
-// ============================================================
 // Diff file descriptor & ReviewPlan
 // ============================================================
 
@@ -440,39 +378,11 @@ public:
             }
         }
 
-        auto quota = cc::services::api::get_ultrareview_quota();
-
-        cc::services::api::UsageData usage{};
-        ExtraUsageInfo extra{};
-        {
-            auto usage_opt = cc::services::api::get_session_usage();
-            usage = usage_opt;
-            // We don't yet have a full server-side utilization endpoint in C++;
-            // approximate via environment / token heuristics.  The overage check
-            // will behave conservatively: ExtraUsage disabled by default unless
-            // the environment explicitly opts in via CC_EXTRA_USAGE=1.
-            if (const char* eu = std::getenv("CC_EXTRA_USAGE")) {
-                std::string_view sv(eu);
-                extra.is_enabled = (sv == "1" || sv == "true" || sv == "yes");
-            }
-            if (const char* limit = std::getenv("CC_EXTRA_USAGE_LIMIT")) {
-                try { extra.monthly_limit = std::stod(limit); } catch (...) {}
-            }
-        }
-
-        if (is_overage(
-                quota.remaining,
-                extra,
-                is_team_or_ent,
-                s_session_overage_confirmed)) {
-            return std::unexpected(Error::make(
-                ErrorCode::ToolPermissionDenied,
-                "Free ultrareviews for this billing cycle are exhausted. "
-                "Enable Extra Usage at https://claude.ai/settings/billing, "
-                "or confirm the overage dialog next time to proceed."
-            ));
-        }
-
+        // The hosted-billing quota gate that used to live here was removed with
+        // the Anthropic decoupling: ultrareview is a LOCAL multi-round review
+        // and has no server-side quota. is_team_or_ent is still consulted so
+        // the note below stays meaningful for callers that set USER_TYPE.
+        (void)is_team_or_ent;
         return {};
     }
 
@@ -504,17 +414,8 @@ public:
         //    be injected into query_engine.  Each round's nested query is
         //    handled by query_engine via tool-calls (Task sub-agent) — we do
         //    NOT call the Anthropic SDK ourselves.
-        auto quota = cc::services::api::get_ultrareview_quota();
-        bool is_team_or_ent = [] {
-            const char* ut = std::getenv("USER_TYPE");
-            return ut && (std::string_view(ut) == "team" || std::string_view(ut) == "enterprise");
-        }();
-
-        auto note = billing_note(
-            quota.remaining, quota.total,
-            (quota.total > quota.remaining) ? (quota.total - quota.remaining) : 0,
-            is_team_or_ent
-        );
+        // No server-side quota: a local review carries no billing note.
+        const std::string note;
 
         // Build the composite prompt
         std::ostringstream prompt;

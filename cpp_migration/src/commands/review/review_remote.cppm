@@ -31,7 +31,6 @@ import cc.utils.exec_sync;
 import cc.utils.shell;
 import cc.utils.find_executable;
 import cc.utils.detect_repository;
-import cc.services.analytics.growthbook;
 
 export namespace cc::commands {
 

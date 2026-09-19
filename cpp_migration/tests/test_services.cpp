@@ -61,7 +61,6 @@ import cc.services.memory.sessionMemory;
 import cc.services.extract_memories;
 import cc.services.mcp.types;
 import cc.services.rate_limit;
-import cc.services.telemetry;
 import cc.services.token_estimation;
 import cc.services.voice.voice;
 import cc.services.prompt_suggestion;
@@ -6922,39 +6921,6 @@ TEST(TokenEstimator, EstimatesTextImagesToolsAndModelLimits) {
     EXPECT_TRUE(TokenEstimator::fits_in_context(1000, "claude-3-5-sonnet"));
 }
 
-TEST(TelemetryManager, TracksEventsAndFlushesConfiguredEndpoint) {
-    cc::services::TelemetryConfig config;
-    config.enabled = true;
-    config.send_to_server = true;
-    config.endpoint = "https://telemetry.example.test";
-    config.max_buffer_size = 2;
-    cc::services::TelemetryManager telemetry(config);
-    telemetry.set_session("session-1");
-
-    telemetry.track_command("help");
-    EXPECT_EQ(telemetry.get_event_count(), 1u);
-    EXPECT_EQ(telemetry.get_buffer_size(), 1u);
-
-    telemetry.track_tool_use("Read", 12.5);
-    EXPECT_EQ(telemetry.get_buffer_size(), 0u);
-    EXPECT_EQ(telemetry.get_last_flush_endpoint(), "https://telemetry.example.test");
-    EXPECT_EQ(telemetry.get_last_flush_count(), 2u);
-}
-
-TEST(TelemetryManager, SpanGuardRecordsCompletedSpanOnDestruction) {
-    cc::services::TelemetryManager telemetry;
-    {
-        auto span = telemetry.start_span("compile", "trace-1");
-        span.set_attribute("target", "test_services");
-    }
-
-    ASSERT_EQ(telemetry.get_spans().size(), 1u);
-    EXPECT_EQ(telemetry.get_spans().front().name, "compile");
-    EXPECT_EQ(telemetry.get_spans().front().trace_id, "trace-1");
-    EXPECT_TRUE(telemetry.get_spans().front().end_time.has_value());
-}
-
-// ---------------------------------------------------------------------------
 // LSP response parsers — exercised against canned JSON fixtures (no server).
 // These cover the previously-stubbed parsers that dropped most response data.
 // ---------------------------------------------------------------------------

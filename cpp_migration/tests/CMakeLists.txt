@@ -555,16 +555,6 @@ target_link_libraries(test_fix_lsp_tool
 gtest_discover_tests(test_fix_lsp_tool DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
 
 # M6: API stubs -> real HTTP (first_token_date, ultrareview_quota, overage_credit)
-add_executable(test_fix_api test_fix_api.cpp)
-target_link_libraries(test_fix_api
-    PRIVATE
-        cc_core
-        cc_services
-        cc_constants
-        cc_utils
-        GTest::gtest_main
-)
-gtest_discover_tests(test_fix_api DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
 
 # M7: notification backend wiring (mcp connectivity + teammate shutdowns)
 add_executable(test_fix_notifs test_fix_notifs.cpp)
@@ -624,7 +614,6 @@ foreach(_cc_test IN ITEMS
     test_fix_plugin
     test_fix_yoga
     test_fix_lsp_tool
-    test_fix_api
     test_fix_notifs
     test_fix_misc_low
 )

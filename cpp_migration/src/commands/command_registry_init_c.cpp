@@ -2,7 +2,6 @@
 /// @brief Group C registration: session/model/plan commands (model, cost, plan, insights, etc.)
 module cc.commands.registry;
 
-import cc.commands.teleport;
 import cc.commands.upgrade;
 import cc.commands.ultraplan;
 import cc.commands.review.ultrareview;
@@ -24,7 +23,6 @@ import cc.commands.vim;
 namespace cc::commands {
 
 void register_group_c_commands(CommandRegistry& registry) {
-    registry.register_command<TeleportCommand>();
     registry.register_command<UpgradeCommand>();
     registry.register_command<UltraplanCommand>();
     registry.register_command<UltraReviewCommand>();

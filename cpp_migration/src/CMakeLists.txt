@@ -101,7 +101,6 @@ target_sources(cc_utils
         utils/array_utils.cppm
         utils/async.cppm
         utils/auth_file_descriptor.cppm
-        utils/auth_portable.cppm
         utils/auth_utils.cppm
         utils/abort_controller.cppm
         utils/auto_mode_denials.cppm
@@ -271,7 +270,6 @@ target_sources(cc_utils
         utils/session_state.cppm
         utils/session_storage.cppm
         utils/session_storage_portable.cppm
-        utils/session_url.cppm
         utils/set_utils.cppm
         utils/settings_merge.cppm
         utils/settings_paths.cppm
@@ -343,8 +341,6 @@ target_sources(cc_utils
         utils/swarm_coordination.cppm
         utils/swarm_helpers.cppm
         utils/swarm_pane_observer.cppm
-        utils/telemetry.cppm
-        utils/telemetry_exporters.cppm
         utils/ultraplan.cppm
         utils/ansi_rendering.cppm
         utils/cleanup_registry.cppm
@@ -441,8 +437,6 @@ target_sources(cc_constants
         constants/error_ids.cppm
         constants/figures.cppm
         constants/files.cppm
-        constants/github_app.cppm
-        constants/keys.cppm
         constants/messages.cppm
         constants/oauth.cppm
         constants/output_styles.cppm
@@ -462,13 +456,10 @@ target_link_libraries(cc_constants PUBLIC cc_utils cc_types)
 add_library(cc_types)
 target_sources(cc_types
     PUBLIC FILE_SET CXX_MODULES FILES
-        types/auth.cppm
         types/command.cppm
         types/connector_text.cppm
-        types/experiment_event.cppm
         types/hooks.cppm
         types/ids.cppm
-        types/internal_event.cppm
         types/logs.cppm
         types/permissions.cppm
         types/plugin.cppm
@@ -589,7 +580,6 @@ target_link_libraries(cc_entrypoints PUBLIC cc_utils cc_state cc_config)
 add_library(cc_bootstrap)
 target_sources(cc_bootstrap
     PUBLIC FILE_SET CXX_MODULES FILES
-        bootstrap/setup.cppm
         bootstrap/state.cppm
         bootstrap/interactive_helpers.cppm
 )
@@ -874,7 +864,6 @@ target_sources(cc_commands
         commands/summary.cppm
         commands/tag.cppm
         commands/tasks_cmd.cppm
-        commands/teleport.cppm
         commands/terminal_setup.cppm
         commands/theme.cppm
         commands/thinkback.cppm
@@ -909,25 +898,14 @@ add_library(cc_services)
 target_sources(cc_services
     PUBLIC FILE_SET CXX_MODULES FILES
         services/agent_summary/agent_summary.cppm
-        services/analytics/analytics.cppm
-        services/analytics/config.cppm
-        services/analytics/datadog.cppm
-        services/analytics/first_party_event_logger.cppm
-        services/analytics/growthbook.cppm
         services/analytics/index.cppm
-        services/analytics/metadata.cppm
-        services/analytics/sink.cppm
-        services/analytics/sink_killswitch.cppm
         services/api/admin_requests.cppm
         services/api/bootstrap.cppm
         services/api/client.cppm
         services/api/error_utils.cppm
         services/api/errors.cppm
-        services/api/grove.cppm
         services/api/logging.cppm
-        services/api/metrics_opt_out.cppm
         services/api/models.cppm
-        services/api/referral.cppm
         services/api/session_ingress.cppm
         services/api/streaming.cppm
         services/api/usage.cppm
@@ -989,7 +967,6 @@ target_sources(cc_services
         services/oauth/auth_code_listener.cppm
         services/oauth/client.cppm
         services/oauth/crypto.cppm
-        services/oauth/oauth_profile.cppm
         services/oauth/types.cppm
         services/plugins/cli_commands.cppm
         services/plugins/installation_manager.cppm
@@ -1011,10 +988,8 @@ target_sources(cc_services
         services/team_memory/team_memory.cppm
         services/team_memory/team_memory_sync.cppm
         services/team_memory/team_memory_helpers.cppm
-        services/api/claude_api.cppm
         services/mcp/mcp_transport_service.cppm
         services/compact/compact_helpers.cppm
-        services/telemetry/telemetry.cppm
         services/tips/tip_history.cppm
         services/tips/tip_registry.cppm
         services/tips/tip_scheduler.cppm
@@ -1028,13 +1003,9 @@ target_sources(cc_services
         services/assistant/session_history.cppm
         services/output_styles/output_styles.cppm
         services/upstream_proxy/upstream_proxy.cppm
-        services/api/claude_ai_limits.cppm
         services/api/dump_prompts.cppm
         services/api/empty_usage.cppm
-        services/api/first_token_date.cppm
-        services/api/overage_credit.cppm
         services/api/prompt_cache_break.cppm
-        services/api/ultrareview_quota.cppm
         services/mcp/mcp_string_utils.cppm
         services/mcp/headers_helper.cppm
         utils/ide_integration.cppm
@@ -1097,7 +1068,6 @@ target_sources(cc_hooks
         hooks/background_task_navigation.cppm
         hooks/blink.cppm
         hooks/cancel_request.cppm
-        hooks/claude_code_hint_recommendation.cppm
         hooks/command_keybindings.cppm
         hooks/command_queue.cppm
         hooks/context.cppm
@@ -1165,7 +1135,6 @@ target_sources(cc_hooks
         hooks/task_hooks.cppm
         hooks/tasks.cppm
         hooks/teammate_view_auto_exit.cppm
-        hooks/teleport_resume.cppm
         hooks/terminal_size.cppm
         hooks/text_input.cppm
         hooks/timeout_hook.cppm
@@ -1178,7 +1147,6 @@ target_sources(cc_hooks
         hooks/turn_diffs.cppm
         hooks/typeahead.cppm
         hooks/unified_suggestions.cppm
-        hooks/update_notification.cppm
         hooks/vim_input.cppm
         hooks/virtual_scroll.cppm
         hooks/voice_hooks.cppm
@@ -1210,7 +1178,6 @@ target_sources(cc_cli
         cli/ccr_client.cppm
         cli/exit.cppm
         cli/handlers/agents.cppm
-        cli/handlers/auth.cppm
         cli/handlers/auto_mode.cppm
         cli/handlers/mcp_handler.cppm
         cli/handlers/plugins_handler.cppm
@@ -1271,7 +1238,6 @@ target_sources(cc_skills
     PUBLIC FILE_SET CXX_MODULES FILES
         skills/bundled.cppm
         skills/bundled/batch.cppm
-        skills/bundled/claude_api.cppm
         skills/bundled/claude_in_chrome.cppm
         skills/bundled/debug.cppm
         skills/bundled/loop.cppm
@@ -1401,7 +1367,6 @@ target_sources(cc_ui
         ui/dialogs/settings_dialog.cppm
         ui/dialogs/settings_status_page.cppm
         ui/dialogs/usage_dialog.cppm
-        ui/dialogs/teleport_dialogs.cppm
         ui/dialogs/trust_dialog.cppm
         ui/dialogs/trust_utils.cppm
         ui/dialogs/wizard_dialog.cppm
@@ -1438,7 +1403,6 @@ target_sources(cc_ui
         ui/logo/logo_animated.cppm
         ui/logo/logo_feed.cppm
         ui/logo/logo_notices.cppm
-        ui/logo/logo_welcome.cppm
         ui/markdown.cppm
         ui/messages.cppm
         ui/messages/assistant_message.cppm
