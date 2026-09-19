@@ -105,7 +105,6 @@ enum class DialogType : std::uint16_t {
 
     // -- Wizards (multi-step standalone) --
     InstallGitHubAppWizard, ///< 12-step GitHub app install
-    InstallSlackAppWizard,  ///< Slack app install
     CreateAgentWizard,      ///< new agent wizard
     EditAgentWizard,        ///< edit agent wizard
     Doctor,                 ///< /doctor diagnostics screen
@@ -158,7 +157,6 @@ enum class DialogType : std::uint16_t {
         case DialogType::TrustDialog:              return "trust-dialog";
         case DialogType::Onboarding:               return "onboarding";
         case DialogType::InstallGitHubAppWizard:   return "install-github-app-wizard";
-        case DialogType::InstallSlackAppWizard:    return "install-slack-app-wizard";
         case DialogType::CreateAgentWizard:        return "create-agent-wizard";
         case DialogType::EditAgentWizard:          return "edit-agent-wizard";
         case DialogType::Doctor:                   return "doctor";
@@ -233,7 +231,6 @@ enum class DialogSlot : std::uint8_t {
             return DialogSlot::Standalone;
 
         case DialogType::InstallGitHubAppWizard:
-        case DialogType::InstallSlackAppWizard:
         case DialogType::CreateAgentWizard:
         case DialogType::EditAgentWizard:
         case DialogType::Doctor:
@@ -756,14 +753,6 @@ struct InstallGitHubAppWizardPayload {
     std::function<void(bool complete)> on_complete;
 };
 
-/// Payload for InstallSlackAppWizard.
-struct InstallSlackAppWizardPayload {
-    std::string id;
-    int step = 0;
-    std::shared_ptr<void> component; ///< Opaque wizard component
-    std::function<void(bool complete)> on_complete;
-};
-
 /// Payload for CreateAgentWizard.
 struct CreateAgentWizardPayload {
     std::string id;
@@ -849,7 +838,6 @@ using DialogPayloadVariant = std::variant<
     TrustDialogPayload,
     OnboardingPayload,
     InstallGitHubAppWizardPayload,
-    InstallSlackAppWizardPayload,
     CreateAgentWizardPayload,
     EditAgentWizardPayload,
     HooksDialogPayload,
@@ -948,8 +936,6 @@ using DialogPayloadVariant = std::variant<
             return DialogType::Onboarding;
         } else if constexpr (std::is_same_v<T, InstallGitHubAppWizardPayload>) {
             return DialogType::InstallGitHubAppWizard;
-        } else if constexpr (std::is_same_v<T, InstallSlackAppWizardPayload>) {
-            return DialogType::InstallSlackAppWizard;
         } else if constexpr (std::is_same_v<T, CreateAgentWizardPayload>) {
             return DialogType::CreateAgentWizard;
         } else if constexpr (std::is_same_v<T, EditAgentWizardPayload>) {

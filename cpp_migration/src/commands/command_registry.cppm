@@ -73,7 +73,7 @@ enum class CommandPermission : std::uint8_t {
     
     if (name == "clear" || name == "compact" || name == "add-dir" || name == "commit" || name == "config" ||
         name == "mcp" || name == "bridge-kick" || name == "rename" || name == "rewind" || name == "share" ||
-        name == "upgrade" || name == "install" || name == "install-slack-app" ||
+        name == "upgrade" || name == "install" ||
         name == "autofix-pr" || name == "backfill-sessions" || name == "break-cache" ||
         name == "bridge" || name == "create-moved-to-plugin-command" || name == "install-github-app" ||
         name == "mock-limits" || name == "oauth-refresh" || name == "reload-plugins" ||

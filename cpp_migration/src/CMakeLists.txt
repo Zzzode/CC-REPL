@@ -799,7 +799,6 @@ target_sources(cc_commands
         commands/install.cppm
         commands/install_github_app.cppm
         commands/install_github_app_steps.cppm
-        commands/install_slack_app.cppm
         commands/install_github_app/flow.cppm
         commands/install_github_app/github_actions.cppm
         commands/install_github_app/steps.cppm
@@ -1341,7 +1340,6 @@ target_sources(cc_ui
         ui/dialogs/confirmation_dialog.cppm
         ui/dialogs/ide_dialogs.cppm
         ui/dialogs/install_github_app_wizard.cppm
-        ui/dialogs/install_slack_app_wizard.cppm
         ui/dialogs/managed_settings_security.cppm
         ui/dialogs/mcp_dialog.cppm
         ui/dialogs/mcp_dialogs.cppm

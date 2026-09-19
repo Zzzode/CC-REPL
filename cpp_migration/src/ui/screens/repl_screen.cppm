@@ -83,7 +83,6 @@ import cc.ui.agents.agent_cards;
 import cc.ui.agents.agent_wizard;
 import cc.tools.agent_display;
 import cc.ui.dialogs.install_github_app_wizard;
-import cc.ui.dialogs.install_slack_app_wizard;
 // Welcome header: Clawd mark + animated asterisk, wired into RenderReplScreen
 // for fresh sessions.
 import cc.ui.design.logo;
@@ -220,7 +219,6 @@ enum class ReplMode : std::uint8_t {
     TasksView, TeamsView, AgentsView, SettingsView, HelpView, AboutView, QuickOpen,
     // UI15 (Phase 4) — install-command wizard overlays.
     InstallGitHubApp,   // 12-step /install-github-app  FTXUI wizard
-    InstallSlackApp,    // 3-step  /install-slack-app   FTXUI wizard
     // UI13 — agent wizard (create/edit).
     CreateAgent,        // 4-step new-agent wizard
     EditAgent,          // 4-step edit-agent wizard
@@ -776,7 +774,6 @@ struct ReplScreenState {
     // dialog_router::get_install_*_wizard(), stored as shared_ptr<void>
     // so ReplScreenState doesn't need to import their types).
     std::shared_ptr<void> wizard_install_github_app;
-    std::shared_ptr<void> wizard_install_slack_app;
     // UI13: agent wizard component handle (lazily created by
     // dialog_router::get_agent_wizard()).
     std::shared_ptr<void> wizard_agent;
@@ -863,7 +860,6 @@ struct ReplScreenCallbacks {
     )> on_permission_decision;
     std::function<void(ReplMode, int)> on_dialog_action;
     std::function<void(ReplMode)> on_mode_change;
-    // UI15 Slack wizard "Launch /slack now" shortcut -> REPL engine.
     std::function<void(const std::string& command)> enqueue_slash_command;
     std::function<std::optional<cc::ui::agents::cards::AgentCardData>(
         std::string_view agent_id)> load_agent_for_wizard;
@@ -3375,7 +3371,6 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
 namespace dialog_router {
 
 namespace github_wizard = cc::ui::dialogs::install_github_app_wizard;
-namespace slack_wizard = cc::ui::dialogs::install_slack_app_wizard;
 namespace trust_ns = cc::ui::trust_dialog;
 
 [[nodiscard]] inline std::shared_ptr<Component> get_install_github_wizard(
@@ -3399,33 +3394,11 @@ namespace trust_ns = cc::ui::trust_dialog;
     return std::static_pointer_cast<Component>(s->wizard_install_github_app);
 }
 
-[[nodiscard]] inline std::shared_ptr<Component> get_install_slack_wizard(
-    const std::shared_ptr<ReplScreenState>& s,
-    const std::shared_ptr<ReplScreenCallbacks>& cb) {
-    if (!s->wizard_install_slack_app) {
-        slack_wizard::InstallSlackAppWizardOptions opts;
-        opts.on_complete = [s, cb] {
-            s->mode = ReplMode::Normal;
-            s->wizard_install_slack_app.reset();
-            if (cb->on_mode_change) cb->on_mode_change(ReplMode::Normal);
-        };
-        opts.on_cancel = [s, cb] {
-            s->mode = ReplMode::Normal;
-            s->wizard_install_slack_app.reset();
-            if (cb->on_mode_change) cb->on_mode_change(ReplMode::Normal);
-        };
-        s->wizard_install_slack_app = std::make_shared<Component>(
-            slack_wizard::MakeInstallSlackAppWizard(std::move(opts)));
-    }
-    return std::static_pointer_cast<Component>(s->wizard_install_slack_app);
-}
 
 [[nodiscard]] inline Element render_install_wizard(
     const std::shared_ptr<ReplScreenState>& s,
     const std::shared_ptr<ReplScreenCallbacks>& cb) {
-    auto wiz = s->mode == ReplMode::InstallGitHubApp
-        ? get_install_github_wizard(s, cb)
-        : get_install_slack_wizard(s, cb);
+    auto wiz = get_install_github_wizard(s, cb);
     return wiz ? (*wiz)->Render() : text("");
 }
 
@@ -3433,9 +3406,7 @@ inline bool forward_install_wizard(
     const std::shared_ptr<ReplScreenState>& s,
     const std::shared_ptr<ReplScreenCallbacks>& cb,
     Event ev) {
-    auto wiz = s->mode == ReplMode::InstallGitHubApp
-        ? get_install_github_wizard(s, cb)
-        : get_install_slack_wizard(s, cb);
+    auto wiz = get_install_github_wizard(s, cb);
     return wiz && (*wiz)->OnEvent(std::move(ev));
 }
 
@@ -4210,8 +4181,7 @@ inline bool forward_tool_permission(
         }
         // UI15 wizard modes: forward every event to the wizard
         // component (they manage Esc/Enter/buttons internally).
-        if (state->mode == ReplMode::InstallGitHubApp ||
-            state->mode == ReplMode::InstallSlackApp) {
+        if (state->mode == ReplMode::InstallGitHubApp) {
             return dialog_router::forward_install_wizard(state, cb, ev);
         }
         if (ev == Event::Escape) {

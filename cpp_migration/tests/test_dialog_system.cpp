@@ -1150,11 +1150,6 @@ TEST(FullDialogRegistry, AllDialogTypesRenderable) {
         check_render(std::move(p), "InstallGitHubAppWizard");
     }
     {
-        dsys::InstallSlackAppWizardPayload p;
-        p.id = "isa-all";
-        check_render(std::move(p), "InstallSlackAppWizard");
-    }
-    {
         dsys::CreateAgentWizardPayload p;
         p.id = "ca-all";
         check_render(std::move(p), "CreateAgentWizard");
