@@ -155,6 +155,18 @@ target_link_libraries(test_sse_mock
 )
 gtest_discover_tests(test_sse_mock DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
 
+add_executable(test_wire_backends test_wire_backends.cpp)
+target_link_libraries(test_wire_backends
+    PRIVATE
+        cc_core
+        cc_query           # cc.query.wire_protocol + backend implementations
+        cc_utils
+        cc_types
+        cc_tools
+        GTest::gtest_main
+)
+gtest_discover_tests(test_wire_backends DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+
 add_executable(test_with_retry test_with_retry.cpp)
 target_link_libraries(test_with_retry
     PRIVATE
