@@ -1,6 +1,7 @@
 # Anthropic Decoupling — Executable Removal Plan (Phase A output)
 
-> **Status:** AUDIT COMPLETE (2026-09-19). Nothing deleted yet.
+> **Status:** Phase A (audit) COMPLETE · Phase B (delete) PARTIAL · Phase C
+> (backend seam) COMPLETE · Phase D (rename to Loom) NOT STARTED.
 > **Goal:** make CC-REPL a personal, Anthropic-independent project.
 > **Method:** 6 parallel read-only audits over the C++ tree; every load-bearing
 > claim independently re-verified by the primary agent (2 audit claims were
@@ -181,3 +182,76 @@ Because BOTH backends are required, the seam is:
 **Rename paths (`~/.claude` → `~/.loom`)?** Breaks existing user skill dirs /
 memory / settings. Deferred to the rename phase (§4); needs its own decision
 because it is user-data-migrating, not just cosmetic.
+
+## 8. Execution log
+
+### Phase B — deletions (partial)
+
+| commit | what |
+|---|---|
+| `9658d71` | dead analytics/telemetry/billing clusters + scattered dead files |
+| `487960d` | Extra-Usage billing command; zero-importer orphans |
+| `8847df3` | Slack app install flow |
+
+Tests went 1671 → 1655 net across these (the count moved with the deltas, it is
+not a pure subtraction: some deleted files carried tests, some did not).
+
+### Phase C — backend seam (COMPLETE)
+
+| commit | what |
+|---|---|
+| `a79e300` | `query/wire_protocol.cppm` — `WireApi`, `RequestInput`, `PreparedRequest`, `ParsedResponse`, `StreamDelta`, abstract `WireBackend` |
+| `e87b0d2` | `query/wire_anthropic.cppm` + `query/wire_openai.cppm` — the two backends, 24 new tests |
+| (this commit) | `query_engine.cppm` wired through the seam: `make_wire_backend()` + `build_wire_input()`; the old 198-line inline serializer deleted; three engine helpers the extraction orphaned removed |
+
+**Result:** the engine no longer knows a wire format. `wire_api` (config) or
+`CC_REPL_WIRE_API` (env) selects the backend; unset ⇒ Anthropic, preserving
+existing behaviour exactly. An OpenAI-compatible endpoint (llama.cpp, vLLM,
+Ollama, OpenRouter, …) now runs the same agent loop, tools, permissions and UI.
+Tests: 1655 → 1685 (24 backend unit tests + 6 engine↔seam integration tests in
+`tests/test_tools.cpp` `WireSeam.*`).
+
+### Phase A re-audit — corrections to this document
+
+A second read-only sweep found several claims above are now stale or wrong.
+Recorded here so the plan is not trusted past its evidence:
+
+1. **§2 "three doctor implementations" is now TWO.** The stub was deleted in
+   `487960d`. What remains is a real, intentional split, not redundancy:
+   `commands/doctor.cppm` (491 L) is a thin CLI shim that returns
+   `"UI:doctor"` for the no-arg case and text-renders for
+   `--verbose`/`--fix`/`-i`; `ui/screens/doctor_screen.cppm` (1384 L) is the
+   interactive screen. Collapsing them is a refactor with a UX decision
+   attached, not a deletion. **The plan's "converge the three" item should be
+   dropped.** One residual to fix: `screens/screens.cppm:201` defines a second,
+   vestigial `DoctorScreen` class that name-collides and is imported only by
+   `tests/test_utils.cpp`.
+2. **Both `namespace oauth` blocks in `constants/constants.cppm` are dead** —
+   every symbol in lines 143–150 and 509–526 resolves only inside that file.
+   Safe to delete outright. In fact the module's live surface is three
+   constants (`kVersion`, `kAppName`, `api_limits::kMaxTokensDefault`); sixteen
+   of its namespaces have zero external references. Deleting the two `oauth`
+   blocks is a hygiene fix, not the "duplicate namespace" problem §2 implied.
+3. **`services/oauth/` is vendor-clean and LIVE** — parameterized, no
+   hardcoded Anthropic endpoints. The Anthropic binding is in its *callers*:
+   `commands/login.cppm:346-360` (real `client_id`, `claude.com/cai/oauth/*`)
+   and `commands/logout.cppm:141,164`. Keep the library, delete the config.
+   §2's "already vendor-clean" was right; the earlier framing was not.
+4. **No GrowthBook/Datadog SDK or credential survives.** All ~30 hits are
+   comments or local stubs. `constants/keys.cppm` and `analytics/datadog.cppm`
+   (the §0.4 "committed credentials") are already gone. Nothing left to delete.
+5. **New landmine found — a cross-module string coupling.**
+   `tools/agent_runtime.cppm:3987` matches the error text produced at
+   `utils/teleport_utils.cppm:616` (`"No Claude.ai OAuth access token found"`).
+   Renaming that producer silently breaks remote-agent polling. Must be changed
+   as a pair.
+6. **Newly confirmed dead, deletable without a rename:**
+   `constants/system.cppm` (zero importers despite being listed in
+   `src/CMakeLists.txt:446`) and `utils/claudemd.cppm`. Both hold
+   brand-bearing strings, so deleting beats rewriting.
+
+**Open, unresolved by static analysis:** whether `commands/login.cppm`'s OAuth
+branch is reachable in a default run, or whether the `ANTHROPIC_AUTH_TOKEN` /
+`ANTHROPIC_API_KEY` short-circuits always win first — this decides whether the
+real Anthropic OAuth endpoints are live or merely present. Needs a runtime
+trace before Phase D touches `login.cppm`.

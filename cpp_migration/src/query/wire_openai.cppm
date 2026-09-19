@@ -464,6 +464,16 @@ public:
                  doc.number(static_cast<int64_t>(input.max_tokens)));
         root.add("stream", doc.boolean(input.stream));
 
+        // Optional sampling parameters. top_k has no OpenAI equivalent and is
+        // intentionally dropped; most OpenAI-compatible servers reject unknown
+        // fields.
+        if (input.temperature) {
+            root.add("temperature", doc.number(*input.temperature));
+        }
+        if (input.top_p) {
+            root.add("top_p", doc.number(*input.top_p));
+        }
+
         // ---- messages: a FLAT array; no top-level `system` ----
         auto messages = doc.array();
         if (!input.system_prompt.empty()) {

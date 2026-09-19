@@ -118,6 +118,12 @@ struct RequestInput {
     int64_t computer_display_width = 1024;
     int64_t computer_display_height = 768;
     int64_t computer_display_number = 0;
+    /// Optional sampling parameters. Unset => the backend omits the field
+    /// entirely (which is what the engine did: it only emitted these when the
+    /// config carried a value).
+    std::optional<double> temperature;
+    std::optional<double> top_p;
+    std::optional<std::uint32_t> top_k;
 };
 
 /// A serialized request: what to POST and with which headers.

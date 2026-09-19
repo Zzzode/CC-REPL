@@ -41,6 +41,8 @@ import cc.config.config;
 import cc.utils.error;
 import cc.utils.json;
 import cc.query.wire_protocol;
+import cc.query.wire_anthropic;
+import cc.query.wire_openai;
 import cc.utils.debug;
 import cc.session.storage;
 import cc.memdir.paths;
@@ -2001,78 +2003,6 @@ private:
             !cc::utils::is_env_truthy(std::getenv("CLAUDE_CODE_DISABLE_THINKING"));
     }
 
-    void add_input_tokens_object(
-        cc::utils::json::JsonMutVal& parent,
-        cc::utils::json::JsonMutDoc& doc,
-        std::string_view key,
-        std::uint32_t value
-    ) const {
-        auto obj = doc.object();
-        obj.add("type", doc.string("input_tokens"));
-        obj.add("value", doc.number(static_cast<int64_t>(value)));
-        parent.add(key, obj);
-    }
-
-    void add_string_array(
-        cc::utils::json::JsonMutVal& parent,
-        cc::utils::json::JsonMutDoc& doc,
-        std::string_view key,
-        const std::vector<std::string>& values
-    ) const {
-        auto arr = doc.array();
-        for (const auto& value : values) {
-            arr.append(doc.string(value));
-        }
-        parent.add(key, arr);
-    }
-
-    void add_context_management_to_json(
-        cc::utils::json::JsonMutVal& root,
-        cc::utils::json::JsonMutDoc& doc,
-        const cc::services::compact::ContextManagementConfig& config
-    ) const {
-        auto context_management = doc.object();
-        auto edits = doc.array();
-
-        for (const auto& edit : config.edits) {
-            auto obj = doc.object();
-            obj.add("type", doc.string(edit.type));
-
-            if (edit.trigger_input_tokens) {
-                add_input_tokens_object(obj, doc, "trigger", *edit.trigger_input_tokens);
-            }
-            if (edit.clear_at_least_input_tokens) {
-                add_input_tokens_object(obj, doc, "clear_at_least", *edit.clear_at_least_input_tokens);
-            }
-            if (edit.has_thinking_keep) {
-                if (edit.keep_all_thinking) {
-                    obj.add("keep", doc.string("all"));
-                } else if (edit.keep_thinking_turns) {
-                    auto keep = doc.object();
-                    keep.add("type", doc.string("thinking_turns"));
-                    keep.add("value", doc.number(static_cast<int64_t>(*edit.keep_thinking_turns)));
-                    obj.add("keep", keep);
-                }
-            } else if (edit.keep_tool_uses) {
-                auto keep = doc.object();
-                keep.add("type", doc.string("tool_uses"));
-                keep.add("value", doc.number(static_cast<int64_t>(*edit.keep_tool_uses)));
-                obj.add("keep", keep);
-            }
-            if (!edit.clear_tool_inputs.empty()) {
-                add_string_array(obj, doc, "clear_tool_inputs", edit.clear_tool_inputs);
-            }
-            if (!edit.exclude_tools.empty()) {
-                add_string_array(obj, doc, "exclude_tools", edit.exclude_tools);
-            }
-
-            edits.append(obj);
-        }
-
-        context_management.add("edits", edits);
-        root.add("context_management", context_management);
-    }
-
     void add_output_config_to_json(
         cc::utils::json::JsonMutVal& root,
         cc::utils::json::JsonMutDoc& doc
@@ -2169,23 +2099,113 @@ private:
         }
     }
 
-    /// Build HTTP request body
-    [[nodiscard]] std::string build_request_body(
+    /// Construct the wire backend selected by `wire_api_`. Called per request
+    /// (cheap) so a config change cannot leave a stale backend behind.
+    [[nodiscard]] std::unique_ptr<cc::query::wire::WireBackend>
+    make_wire_backend() const {
+        using cc::query::wire::WireApi;
+        if (wire_api_ == WireApi::OpenAi) {
+            std::vector<std::pair<std::string, std::string>> auth;
+            if (!api_config_.auth_token.empty()) {
+                auth.emplace_back("Authorization",
+                                  std::format("Bearer {}", api_config_.auth_token));
+            } else if (!api_config_.api_key.empty()) {
+                auth.emplace_back("Authorization",
+                                  std::format("Bearer {}", api_config_.api_key));
+            }
+            return std::make_unique<cc::query::wire::OpenAiWireBackend>(
+                api_config_.base_url, std::move(auth));
+        }
+        // Anthropic (default): credential precedence matches the historical
+        // engine behaviour — bearer token wins over x-api-key.
+        std::vector<std::pair<std::string, std::string>> auth;
+        auth.push_back(cc::query::wire::anthropic_credential_header(
+            api_config_.api_key, api_config_.auth_token));
+        cc::query::wire::AnthropicWireOptions opts;
+        opts.base_url = api_config_.base_url;
+        opts.api_version = api_config_.api_version;
+        opts.extra_headers = std::move(auth);
+        // API-side context edits / task budget / response schema ride on the
+        // options struct because they are not part of the neutral input.
+        if (auto cm = api_context_management()) {
+            for (const auto& edit : cm->edits) {
+                cc::query::wire::ContextEdit ce;
+                ce.type = edit.type;
+                ce.trigger_input_tokens = edit.trigger_input_tokens;
+                ce.clear_at_least_input_tokens = edit.clear_at_least_input_tokens;
+                ce.has_thinking_keep = edit.has_thinking_keep;
+                ce.keep_all_thinking = edit.keep_all_thinking;
+                ce.keep_thinking_turns = edit.keep_thinking_turns;
+                ce.keep_tool_uses = edit.keep_tool_uses;
+                ce.clear_tool_inputs = edit.clear_tool_inputs;
+                ce.exclude_tools = edit.exclude_tools;
+                opts.context_edits.push_back(std::move(ce));
+            }
+        }
+        if (config_.task_budget) {
+            cc::query::wire::TaskBudget tb;
+            tb.total = config_.task_budget->total;
+            tb.remaining = config_.task_budget->remaining;
+            opts.task_budget = std::move(tb);
+        }
+        if (config_.response_schema) {
+            cc::query::wire::ResponseSchema rs;
+            rs.name = config_.response_schema->name;
+            rs.schema_json = config_.response_schema->schema_json;
+            opts.response_schema = std::move(rs);
+        }
+        return std::make_unique<cc::query::wire::AnthropicWireBackend>(
+            std::move(opts));
+    }
+
+    /// Collect everything a backend needs for one request. This is where the
+    /// engine's conversation walk (system-prompt hoisting, snip filtering,
+    /// compact-boundary skipping) and tool pruning live — the backends stay
+    /// ignorant of the engine's message model.
+    [[nodiscard]] cc::query::wire::RequestInput build_wire_input(
         const QueryOptions& options,
-        bool stream = false) const {
-        cc::utils::json::JsonMutDoc doc;
-        auto root = doc.object();
+        bool stream) const {
+        cc::query::wire::RequestInput input;
+        input.model = config_.model_params.model;
+        input.max_tokens = config_.model_params.max_tokens;
+        input.stream = stream;
+        input.temperature = config_.model_params.temperature;
+        input.top_p = config_.model_params.top_p;
+        input.top_k = config_.model_params.top_k;
+        input.thinking_enabled = thinking_enabled_for_request();
+        if (input.thinking_enabled &&
+            config_.thinking_config.mode != ThinkingConfig::Mode::Adaptive) {
+            input.thinking_budget_tokens =
+                config_.thinking_config.budget_tokens.value_or(10000);
+        }
+        input.native_computer_tool = native_computer_tool_;
+        const auto env_dim = [](const char* key, int64_t fallback) {
+            if (const char* v = std::getenv(key); v && *v) {
+                try {
+                    long long n = std::stoll(v);
+                    if (n > 0) return static_cast<int64_t>(n);
+                } catch (...) {}
+            }
+            return fallback;
+        };
+        input.computer_display_width =
+            env_dim("CC_REPL_COMPUTER_DISPLAY_WIDTH", 1024);
+        input.computer_display_height =
+            env_dim("CC_REPL_COMPUTER_DISPLAY_HEIGHT", 768);
+        input.computer_display_number =
+            env_dim("CC_REPL_COMPUTER_DISPLAY_NUMBER", 0);
 
-        root.add("model", doc.string(config_.model_params.model));
-        root.add("max_tokens", doc.number(static_cast<int64_t>(config_.model_params.max_tokens)));
-        root.add("stream", doc.boolean(stream));
+        // MCP verbatim schemas (snapshotted once per request).
+        if (config_.mcp_input_schema_provider) {
+            for (auto& [name, schema] : config_.mcp_input_schema_provider()) {
+                input.tool_schemas.emplace_back(std::move(name),
+                                                std::move(schema));
+            }
+        }
 
-        // Extract system prompt and build messages array
-        std::string system_prompt_text;
-        auto messages_arr = doc.array();
+        std::unordered_set<std::string> snipped_message_ids;
         {
             std::lock_guard lock(conversation_mutex_);
-            std::unordered_set<std::string> snipped_message_ids;
             for (const auto& msg : conversation_) {
                 const auto* sys = std::get_if<SystemMessage>(&msg);
                 if (!sys || !sys->snip_metadata) continue;
@@ -2193,183 +2213,67 @@ private:
                     snipped_message_ids.insert(uuid);
                 }
             }
-
             for (const auto& msg : conversation_) {
                 const auto message_id = std::visit(
-                    [](const auto& value) { return value.id.value; },
-                    msg);
-                if (snipped_message_ids.contains(message_id)) {
-                    continue;
-                }
+                    [](const auto& value) { return value.id.value; }, msg);
+                if (snipped_message_ids.contains(message_id)) continue;
 
                 if (const auto* sys = std::get_if<SystemMessage>(&msg)) {
-                    if (sys->subtype == "compact_boundary") {
-                        continue;
-                    }
-                    // Extract system prompt from first non-boundary SystemMessage.
-                    if (system_prompt_text.empty()) {
+                    if (sys->subtype == "compact_boundary") continue;
+                    if (input.system_prompt.empty()) {
                         for (const auto& block : sys->content) {
                             if (const auto* tb = std::get_if<TextBlock>(&block)) {
-                                system_prompt_text += tb->text;
+                                input.system_prompt += tb->text;
                             }
                         }
                     }
-                    continue; // Don't add to messages array
+                    continue;  // system messages never enter the messages array
                 }
-                append_message_to_json(msg, messages_arr, doc);
+                input.messages.push_back(msg);
             }
         }
 
-        // Add system prompt as top-level field (Anthropic API format)
-        if (!system_prompt_text.empty()) {
-            root.add("system", doc.string(system_prompt_text));
-        }
-
-        root.add("messages", messages_arr);
-
-        // Build tools array with input_schema as JSON object.
-        // Merge static config_.tools with any dynamically-discovered tools
-        // (e.g. MCP server tools from dynamic_tools_provider).
-        {
-            auto tools_arr = doc.array();
-            std::size_t enabled_tool_count = 0;
-            std::unordered_set<std::string> seen_names;  // dedup: built-ins win
-            // Snapshot connected MCP tools' verbatim schemas once per
-            // request via the injected hook (kept out of this module to
-            // avoid pulling the MCP module into the query BMI).
-            std::unordered_map<std::string, std::string> mcp_schemas;
-            if (config_.mcp_input_schema_provider) {
-                mcp_schemas = config_.mcp_input_schema_provider();
+        // Tool pruning: deny rules, dedup (built-ins win), enabled filter.
+        std::unordered_set<std::string> seen_names;
+        auto add_tool = [&](const ToolDefinition& tool) {
+            cc::utils::tool_deny_rules::DenyToolView deny_view;
+            deny_view.name = tool.name;
+            if (tool.category && tool.category->starts_with("mcp:")) {
+                deny_view.mcp_server = tool.category->substr(4);
+                deny_view.mcp_tool = tool.name;
             }
-
-            auto add_tool = [&](const ToolDefinition& tool) {
-                // Deny-rule filtering runs BEFORE dedup and enabled checks so
-                // a denied def cannot shadow an allowed sibling. Dynamic MCP
-                // defs carry short model-facing names tagged with category
-                // "mcp:<raw server>"; synthesize the qualified permission
-                // check name from that category instead of renaming the def.
-                // TS REF: tools.ts:319,369,380 (filterToolsByDenyRules per
-                // partition before uniqBy('name')).
-                cc::utils::tool_deny_rules::DenyToolView deny_view;
-                deny_view.name = tool.name;
-                if (tool.category &&
-                    tool.category->starts_with("mcp:")) {
-                    deny_view.mcp_server = tool.category->substr(4);
-                    deny_view.mcp_tool = tool.name;
-                }
-                if (cc::utils::tool_deny_rules::is_tool_denied(
-                        config_.always_deny_rules, deny_view)) {
-                    return;
-                }
-                if (!seen_names.insert(tool.name).second) return;  // duplicate
-                if (!is_tool_enabled_for_query(tool.name, options)) return;
-                ++enabled_tool_count;
-                auto tool_obj = doc.object();
-                // Native Anthropic computer-use tool, identified by the
-                // registry's internal name "computer_use" and emitted under
-                // the Anthropic wire name "computer" with display geometry
-                // and no input_schema. Kept out of ToolDefinition so the
-                // other tools' aggregate initializers are untouched.
-                // TS REF: Anthropic computer_20241022 tool spec.
-                const bool is_native_computer = (tool.name == "computer_use");
-                tool_obj.add("name",
-                             doc.string(is_native_computer
-                                            ? std::string{"computer"}
-                                            : tool.name));
-                if (is_native_computer) {
-                    // Geometry can be supplied by the deployment (a
-                    // computer-use MCP server / VM knows its real screen);
-                    // otherwise fall back to the Anthropic sample default.
-                    const auto env_dim = [](const char* key, int64_t fallback) {
-                        if (const char* v = std::getenv(key); v && *v) {
-                            try {
-                                long long n = std::stoll(v);
-                                if (n > 0) return static_cast<int64_t>(n);
-                            } catch (...) {}
-                        }
-                        return fallback;
-                    };
-                    tool_obj.add("type", doc.string("computer_20241022"));
-                    tool_obj.add("display_width_px",
-                        doc.number(env_dim("CC_REPL_COMPUTER_DISPLAY_WIDTH", 1024)));
-                    tool_obj.add("display_height_px",
-                        doc.number(env_dim("CC_REPL_COMPUTER_DISPLAY_HEIGHT", 768)));
-                    tool_obj.add("display_number",
-                        doc.number(env_dim("CC_REPL_COMPUTER_DISPLAY_NUMBER", 0)));
-                } else {
-                    tool_obj.add("type", doc.string("function"));
-                    tool_obj.add("description", doc.string(tool.description));
-                    // MCP-merged tools carry an empty simplified schema; the
-                    // server's verbatim (possibly nested) JSON schema was
-                    // snapshotted above. Emit it verbatim when available so
-                    // the model sees the real parameter shape.
-                    std::string schema_json = tool.input_schema.to_json();
-                    if (tool.category &&
-                        tool.category->starts_with("mcp:")) {
-                        if (auto it = mcp_schemas.find(tool.name);
-                            it != mcp_schemas.end()) {
-                            schema_json = it->second;
-                        }
-                    }
-                    auto schema_doc = cc::utils::json::parse(schema_json);
-                    if (schema_doc) {
-                        tool_obj.add("input_schema", doc.copy_val(schema_doc->root()));
-                    } else {
-                        tool_obj.add("input_schema", doc.raw_json(schema_json));
-                    }
-                }
-                tools_arr.append(tool_obj);
-            };
-
-            // Built-in tools first (they win dedup)
-            for (const auto& tool : config_.tools) {
+            if (cc::utils::tool_deny_rules::is_tool_denied(
+                    config_.always_deny_rules, deny_view)) {
+                return;
+            }
+            if (!seen_names.insert(tool.name).second) return;
+            if (!is_tool_enabled_for_query(tool.name, options)) return;
+            input.tools.push_back(tool);
+        };
+        for (const auto& tool : config_.tools) add_tool(tool);
+        if (config_.dynamic_tools_provider) {
+            for (const auto& tool : config_.dynamic_tools_provider()) {
                 add_tool(tool);
             }
-            // Dynamic tools (MCP server tools, etc.)
-            if (config_.dynamic_tools_provider) {
-                auto dyn_tools = config_.dynamic_tools_provider();
-                for (const auto& tool : dyn_tools) {
-                    add_tool(tool);
-                }
-            }
-
-            if (enabled_tool_count > 0) {
-                root.add("tools", tools_arr);
-            }
         }
-
-        // Extended thinking configuration
-        if (thinking_enabled_for_request()) {
-            auto thinking_obj = doc.object();
-            if (config_.thinking_config.mode == ThinkingConfig::Mode::Adaptive) {
-                thinking_obj.add("type", doc.string("adaptive"));
-            } else {
-                thinking_obj.add("type", doc.string("enabled"));
-                auto budget = config_.thinking_config.budget_tokens.value_or(10000);
-                thinking_obj.add("budget_tokens", doc.number(static_cast<int64_t>(budget)));
-            }
-            root.add("thinking", thinking_obj);
-        }
-
-        // Optional parameters
-        if (config_.model_params.temperature) {
-            root.add("temperature", doc.number(*config_.model_params.temperature));
-        }
-        if (config_.model_params.top_p) {
-            root.add("top_p", doc.number(*config_.model_params.top_p));
-        }
-        if (config_.model_params.top_k) {
-            root.add("top_k", doc.number(static_cast<int64_t>(*config_.model_params.top_k)));
-        }
-
-        if (auto context_management = api_context_management()) {
-            add_context_management_to_json(root, doc, *context_management);
-        }
-        add_output_config_to_json(root, doc);
-
-        doc.set_root(root);
-        return doc.to_string();
+        return input;
     }
+
+    /// Build HTTP request body
+    [[nodiscard]] std::string build_request_body(
+        const QueryOptions& options,
+        bool stream = false) const {
+        auto backend = make_wire_backend();
+        auto prepared = backend->prepare(build_wire_input(options, stream));
+        if (!prepared) {
+            // Backends only fail on unusable configuration (e.g. an empty base
+            // URL). Falling back to an empty object keeps the request path
+            // from throwing; the HTTP layer reports the real error.
+            return "{}";
+        }
+        return prepared->body;
+    }
+
 
     /// Append a Message variant to JSON array
     void append_message_to_json(const Message& msg,

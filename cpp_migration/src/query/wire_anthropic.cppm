@@ -560,6 +560,18 @@ public:
             root.add("thinking", thinking_obj);
         }
 
+        // Optional sampling parameters. Emitted only when set, matching the
+        // engine's original behaviour (an unset parameter produced no field).
+        if (input.temperature) {
+            root.add("temperature", doc.number(*input.temperature));
+        }
+        if (input.top_p) {
+            root.add("top_p", doc.number(*input.top_p));
+        }
+        if (input.top_k) {
+            root.add("top_k", doc.number(static_cast<int64_t>(*input.top_k)));
+        }
+
         if (auto context_management = options_.context_edits; !context_management.empty()) {
             add_context_management_to_json(root, doc, context_management);
         }

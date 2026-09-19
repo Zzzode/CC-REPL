@@ -12572,6 +12572,155 @@ rl.on('line', line => {
 
 }  // namespace cc_repl_mcp_input_schema_test
 
+// ============================================================
+// QueryEngine <-> wire-backend seam, end to end.
+//
+// The engine used to serialize /v1/messages inline. It now hands a
+// vendor-neutral RequestInput to whichever backend `wire_api` selects. These
+// tests pin the wiring itself: same conversation, two wires, two different
+// bodies. The backends have their own unit tests; what is checked here is that
+// the engine actually reaches them.
+// ============================================================
+namespace cc_repl_wire_seam_test {
+
+using namespace cc::core;
+using cc::utils::json::parse;
+
+namespace {
+
+ToolDefinition echo_tool() {
+    return ToolDefinition{
+        .name = "Echo",
+        .description = "Echoes its input",
+        .input_schema = InputSchema{},
+        .permission = ToolPermission::ReadOnly,
+        .is_hidden = false,
+        .category = std::nullopt,
+    };
+}
+
+QueryEngineConfig base_config() {
+    QueryEngineConfig config;
+    config.api_key = "test-key";
+    config.base_url = "http://127.0.0.1:1";  // never contacted
+    config.retry_policy.max_retries = 0;
+    config.model_params.model = "test-model";
+    config.model_params.max_tokens = 512;
+    config.tools = {echo_tool()};
+    return config;
+}
+
+}  // namespace
+
+TEST(WireSeam, DefaultsToTheAnthropicWire) {
+    ToolRegistry registry;
+    QueryEngine engine(base_config(), registry);
+    const auto doc = parse(engine.build_request_body_for_testing());
+    ASSERT_TRUE(doc.has_value());
+    const auto root = doc->root();
+    // Anthropic shape: top-level system (when set) and a nested tool type.
+    EXPECT_TRUE(root.get("model").valid());
+    EXPECT_TRUE(root.get("max_tokens").is_num());
+    EXPECT_EQ(std::string(root.get("tools").at(0).get("type").as_str()),
+              "function");
+}
+
+TEST(WireSeam, OpenAiWireProducesAChatCompletionsBody) {
+    auto config = base_config();
+    config.wire_api = "openai";
+    ToolRegistry registry;
+    QueryEngine engine(std::move(config), registry);
+    const auto doc = parse(engine.build_request_body_for_testing());
+    ASSERT_TRUE(doc.has_value()) << "engine did not route through the OpenAI backend";
+    const auto root = doc->root();
+    // OpenAI tool shape nests everything under "function" and carries no
+    // top-level "type" on the tool call itself; the engine must not emit the
+    // Anthropic nesting.
+    const auto tool = root.get("tools").at(0);
+    EXPECT_EQ(std::string(tool.get("type").as_str()), "function");
+    ASSERT_TRUE(tool.get("function").valid())
+        << "OpenAI tools must nest name/description/parameters under `function`";
+    EXPECT_EQ(std::string(tool.get("function").get("name").as_str()), "Echo");
+    EXPECT_TRUE(tool.get("function").get("parameters").valid());
+    // Anthropic-only fields must be absent.
+    EXPECT_FALSE(tool.get("input_schema").valid());
+    EXPECT_FALSE(root.get("system").valid())
+        << "OpenAI carries the system prompt as a role:system message";
+}
+
+TEST(WireSeam, OpenAiWireRoutesTheSystemPromptIntoAMessage) {
+    auto config = base_config();
+    config.wire_api = "openai";
+    config.custom_system_prompt = "be terse";
+    ToolRegistry registry;
+    QueryEngine engine(std::move(config), registry);
+    const auto doc = parse(engine.build_request_body_for_testing());
+    ASSERT_TRUE(doc.has_value());
+    const auto root = doc->root();
+    ASSERT_TRUE(root.get("messages").is_arr());
+    const auto first = root.get("messages").at(0);
+    EXPECT_EQ(std::string(first.get("role").as_str()), "system");
+    // The engine's system prompt is the configured custom prompt followed by
+    // generated context blocks, so only the head is ours to assert on.
+    const std::string content{first.get("content").as_str()};
+    EXPECT_EQ(content.rfind("be terse", 0), 0u)
+        << "system prompt should lead with the custom prompt; got: "
+        << content.substr(0, 40);
+}
+
+TEST(WireSeam, EnvVarSelectsTheWireWhenConfigDoesNot) {
+    auto config = base_config();
+    config.custom_system_prompt = "be terse";
+    ::setenv("CC_REPL_WIRE_API", "openai", 1);
+    ToolRegistry registry;
+    QueryEngine engine(std::move(config), registry);
+    const auto doc = parse(engine.build_request_body_for_testing());
+    ::unsetenv("CC_REPL_WIRE_API");
+    ASSERT_TRUE(doc.has_value());
+    ASSERT_TRUE(doc->root().get("messages").is_arr());
+    EXPECT_EQ(std::string(doc->root().get("messages").at(0).get("role").as_str()),
+              "system")
+        << "CC_REPL_WIRE_API should have selected the OpenAI backend";
+}
+
+TEST(WireSeam, UnknownWireApiFallsBackToAnthropic) {
+    auto config = base_config();
+    config.wire_api = "no-such-vendor";
+    ToolRegistry registry;
+    QueryEngine engine(std::move(config), registry);
+    const auto doc = parse(engine.build_request_body_for_testing());
+    ASSERT_TRUE(doc.has_value());
+    // Anthropic nesting is back, so the bogus value was ignored rather than
+    // producing an empty or malformed body.
+    EXPECT_TRUE(doc->root().get("tools").at(0).get("input_schema").valid());
+}
+
+TEST(WireSeam, OpenAiWireHasNoNativeComputerToolShape) {
+    auto config = base_config();
+    config.wire_api = "openai";
+    config.tools.push_back(ToolDefinition{
+        .name = "computer_use",
+        .description = "drive the screen",
+        .input_schema = InputSchema{},
+        .permission = ToolPermission::Execute,
+        .is_hidden = false,
+        .category = "computer_use",
+    });
+    ToolRegistry registry;
+    QueryEngine engine(std::move(config), registry);
+    const auto doc = parse(engine.build_request_body_for_testing());
+    ASSERT_TRUE(doc.has_value());
+    const auto tools = doc->root().get("tools");
+    ASSERT_TRUE(tools.is_arr());
+    for (size_t i = 0; i < tools.size(); ++i) {
+        const auto t = tools.at(i);
+        EXPECT_FALSE(t.get("type").as_str() == std::string_view("computer_20241022"))
+            << "the native computer tool type is Anthropic-only";
+    }
+}
+
+}  // namespace cc_repl_wire_seam_test
+
 namespace cc_repl_tmux_detection_test {
 TEST(SwarmBackends, CaptureEnvReflectsTmuxPresence) {
     using cc::utils::swarm_backends::EnvironmentDetection;
