@@ -237,16 +237,16 @@ struct RuntimePeerAddress {
     }
 
     auto endpoint = first_runtime_env({
-        "CLAUDE_CODE_REMOTE_API_BASE_URL",
-        "CC_REPL_REMOTE_API_BASE_URL",
-        "CLAUDE_CODE_SESSION_INGRESS_URL",
-        "CC_REPL_SESSION_INGRESS_URL",
+        "LOOM_REMOTE_API_BASE_URL",
+        "LOOM_REMOTE_API_BASE_URL",
+        "LOOM_SESSION_INGRESS_URL",
+        "LOOM_SESSION_INGRESS_URL",
     });
     auto source_session_id = first_runtime_env({
         "CC_REMOTE_SESSION_ID",
-        "CLAUDE_CODE_REMOTE_SESSION_ID",
+        "LOOM_REMOTE_SESSION_ID",
     });
-    auto auth_token = runtime_env_value("CLAUDE_CODE_SESSION_ACCESS_TOKEN");
+    auto auth_token = runtime_env_value("LOOM_SESSION_ACCESS_TOKEN");
     if (!endpoint || !source_session_id || !auth_token) {
         return std::unexpected(
             "Remote Control is not connected - cannot send to a bridge: target. Reconnect with /remote-control first.");
@@ -261,7 +261,7 @@ struct RuntimePeerAddress {
     };
     if (auth_token->starts_with("sk-ant-sid")) {
         headers["Cookie"] = "sessionKey=" + *auth_token;
-        if (auto org = runtime_env_value("CLAUDE_CODE_ORGANIZATION_UUID")) {
+        if (auto org = runtime_env_value("LOOM_ORGANIZATION_UUID")) {
             headers["X-Organization-Uuid"] = *org;
         }
     } else {
@@ -435,7 +435,7 @@ build_structured_send_message_payload(
 
 [[nodiscard]] inline bool runtime_has_agent_api_credentials() {
     if (auto* key = std::getenv("ANTHROPIC_API_KEY"); key && key[0] != '\0') return true;
-    if (auto* token = std::getenv("CLAUDE_AUTH_TOKEN"); token && token[0] != '\0') return true;
+    if (auto* token = std::getenv("LOOM_AUTH_TOKEN"); token && token[0] != '\0') return true;
     return false;
 }
 

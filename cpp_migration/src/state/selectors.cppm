@@ -1,5 +1,5 @@
 /// @file selectors.cppm
-/// @brief Memoized selectors for derived state in the Claude Code REPL.
+/// @brief Memoized selectors for derived state in the Loom REPL.
 /// Provides efficient cached computations over AppState, avoiding
 /// redundant recalculations when the underlying data hasn't changed.
 module;

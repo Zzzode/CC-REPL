@@ -41,8 +41,8 @@ inline constexpr std::array<std::string_view, 5> kGradientColors = {
     return "\033[38;2;" + std::to_string(r) + ";" + std::to_string(g) + ";" + std::to_string(b) + "m";
 }
 
-// --- Animated Clawd frames (4 animation frames) ---
-inline constexpr std::array<std::string_view, 4> kClawdFrames = {
+// --- Animated Loom mascot frames (4 animation frames) ---
+inline constexpr std::array<std::string_view, 4> kLoomMascotFrames = {
     R"(  /\_/\  
  ( o.o ) 
   > ^ <  )",
@@ -67,7 +67,7 @@ inline auto make_logo_props() -> LogoProps {
     return LogoProps{.is_pip = false};
 }
 
-struct AnimatedClawdProps {
+struct AnimatedLoomMascotProps {
     std::size_t frame;
 };
 
@@ -90,7 +90,7 @@ inline auto make_condensed_logo_props() -> CondensedLogoProps {
 // --- formatWelcomeMessage (faithful port of upstream logo utilities) ---
 // TS rule: empty/null username OR username longer than MAX_USERNAME_LENGTH(20)
 // → "Welcome back!".  Otherwise → "Welcome back {user}!".
-// The first-run banner caption ("Welcome to Claude Code") is handled
+// The first-run banner caption ("Welcome to Loom") is handled
 // separately by the banner renderer and only applies on a first-run session.
 inline constexpr std::size_t k_max_username_length = 20;
 [[nodiscard]] inline auto format_welcome_message(std::string_view username)
@@ -120,7 +120,7 @@ inline constexpr std::array<std::string_view, 6> kWelcomeTips = {
     "Press Ctrl+R to search command history"
 };
 
-// --- ASCII art logo lines (CC-REPL branding) ---
+// --- ASCII art logo lines (LOOM branding) ---
 inline constexpr std::array<std::string_view, 5> kLogoArt = {
     R"(  ____ ____       ____  _____ ____  _     )",
     R"( / ___/ ___|     |  _ \| ____|  _ \| |    )",
@@ -131,11 +131,11 @@ inline constexpr std::array<std::string_view, 5> kLogoArt = {
 
 // --- Rendering functions ---
 
-// Render a single Clawd animation frame
-[[nodiscard]] inline auto render_clawd_frame(const AnimatedClawdProps& props)
+// Render a single Loom mascot animation frame
+[[nodiscard]] inline auto render_clawd_frame(const AnimatedLoomMascotProps& props)
     -> std::string {
-    if (props.frame >= kClawdFrames.size()) return std::string(kClawdFrames[0]);
-    return std::string(kClawdFrames[props.frame]);
+    if (props.frame >= kLoomMascotFrames.size()) return std::string(kLoomMascotFrames[0]);
+    return std::string(kLoomMascotFrames[props.frame]);
 }
 
 // Render the gradient-colored ASCII logo
@@ -159,7 +159,7 @@ inline constexpr std::array<std::string_view, 5> kLogoArt = {
         result += render_logo_art();
         result += "\n";
     }
-    result += "\033[1mCC-REPL\033[0m v" + std::string(version) + "\n";
+    result += "\033[1mLOOM\033[0m v" + std::string(version) + "\n";
     return result;
 }
 
@@ -170,9 +170,9 @@ inline constexpr std::array<std::string_view, 5> kLogoArt = {
     -> std::string {
     std::string result;
     if (props.is_new_user) {
-        result += "\033[1mWelcome to CC-REPL!\033[0m\n\n";
+        result += "\033[1mWelcome to LOOM!\033[0m\n\n";
     } else {
-        result += "\033[1mCC-REPL\033[0m v" + std::string(version) + "\n\n";
+        result += "\033[1mLOOM\033[0m v" + std::string(version) + "\n\n";
     }
     if (tip_index < kWelcomeTips.size()) {
         result += "\033[2m💡 " + std::string(kWelcomeTips[tip_index]) + "\033[0m\n";
@@ -189,7 +189,7 @@ inline constexpr std::array<std::string_view, 5> kLogoArt = {
     int text_width = std::max(terminal_width - 15, 20);
 
     // Title + version
-    result += "\033[1mCC-REPL\033[0m";
+    result += "\033[1mLOOM\033[0m";
     auto version_display = data.version;
     if (static_cast<int>(version_display.size()) > text_width - 13) {
         version_display = version_display.substr(0, static_cast<std::size_t>(text_width - 13));
@@ -222,10 +222,10 @@ inline constexpr std::array<std::string_view, 5> kLogoArt = {
 }
 
 // ============================================================
-// Faithful: TS CondensedLogo (LogoV2/CondensedLogo.tsx + Clawd.tsx)
-// Layout: hbox of [9×3 Clawd block-art glyph] + [gap=2 cols] + [3-line text column].
+// Faithful: TS CondensedLogo (LogoV2/CondensedLogo.tsx + Loom mascot.tsx)
+// Layout: hbox of [9×3 Loom mascot block-art glyph] + [gap=2 cols] + [3-line text column].
 // Text column rows:
-//   1: Claude Code (bold, text) + v{version} (dim, muted)  — SINGLE line, no break
+//   1: Loom (bold, text) + v{version} (dim, muted)  — SINGLE line, no break
 //   2: {model} [· {billing}]                                    — all dimColor
 //   3: [@{agent} · ] {truncatePath(cwd)}                       — all dimColor
 // ============================================================
@@ -236,9 +236,9 @@ inline constexpr std::array<std::string_view, 5> kLogoArt = {
     // TS theme.ts dark tokens — exact hex matches from utils/theme.ts L443/L453/L455
     const Color kText  (255, 255, 255);   // theme.text → #FFFFFF
     const Color kMuted (153, 153, 153);   // dimColor → theme.inactive #999999
-    const Color kClawd (215, 119,  87);   // theme.claude / clawd_body #D77757
+    const Color kLoomMascot (215, 119,  87);   // theme.loom / loom_body #D77757
 
-    // --- Clawd graphic (9 cols × 3 rows), faithful to Clawd.tsx
+    // --- Loom mascot graphic (9 cols × 3 rows), faithful to Loom mascot.tsx
     //
     // Col count per row is exactly 9.  Char selection matches the "std"
     // renderer (not the apple-terminal narrow fallback of 7 cols) since we
@@ -249,33 +249,33 @@ inline constexpr std::array<std::string_view, 5> kLogoArt = {
     //   Row 3 (feet/bottom): 2ws + ▘▘ + ws + ▝▝ + 2ws  = 9
     //
     // NOTE: When terminals have ambiguous emoji/block width issues, the
-    // overall Clawd box width can be off by ±1; we accept that.
-    const std::string_view kClawdRow1 = "  \xE2\x96\x9B\xE2\x96\x88\xE2\x96\x88"
+    // overall Loom mascot box width can be off by ±1; we accept that.
+    const std::string_view kLoomMascotRow1 = "  \xE2\x96\x9B\xE2\x96\x88\xE2\x96\x88"
                                         "\xE2\x96\x88\xE2\x96\x9C ";
     // U+2588 FULL BLOCK, U+259B QUADRANT UPPER LEFT, U+259C QUADRANT UPPER RIGHT
-    const std::string_view kClawdRow2 = "\xE2\x96\x9D\xE2\x96\x9C"   // ▝▜ (U+259D, U+259C reversed)
+    const std::string_view kLoomMascotRow2 = "\xE2\x96\x9D\xE2\x96\x9C"   // ▝▜ (U+259D, U+259C reversed)
                                         "\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88"  // 5 × █ U+2588
                                         "\xE2\x96\x9B\xE2\x96\x98";  // ▛▘ (U+259B, U+2598)
-    const std::string_view kClawdRow3 = "  \xE2\x96\x98\xE2\x96\x98 \xE2\x96\x9D\xE2\x96\x9D  ";
+    const std::string_view kLoomMascotRow3 = "  \xE2\x96\x98\xE2\x96\x98 \xE2\x96\x9D\xE2\x96\x9D  ";
                                         // 2ws + ▘▘ + 1ws + ▝▝ + 2ws = 9
 
     Element clawd_col = vbox({
-        text(std::string(kClawdRow1)) | color(kClawd),
-        text(std::string(kClawdRow2)) | color(kClawd),
-        text(std::string(kClawdRow3)) | color(kClawd),
+        text(std::string(kLoomMascotRow1)) | color(kLoomMascot),
+        text(std::string(kLoomMascotRow2)) | color(kLoomMascot),
+        text(std::string(kLoomMascotRow3)) | color(kLoomMascot),
     });
 
     // --- Text column: 3 rows, width = max(term_cols - 15, 20)
     // (15 = 9 clawd + 2 gap + 4 pad).  Matches TS textWidth formula exactly.
     const int text_width = std::max(term_cols - 15, 20);
 
-    // Row 1: <Text bold>Claude Code</Text> <Text dimColor>v{version}</Text>
-    // NOTE: TS appends " v" + version literally after "Claude Code", with a
+    // Row 1: <Text bold>Loom</Text> <Text dimColor>v{version}</Text>
+    // NOTE: TS appends " v" + version literally after "Loom", with a
     // single space separator; NO line break, NO trailing tag like "-cpp".
     const std::string ver = data.version.empty()
         ? std::string("0.0.0") : data.version;
     Element row1 = hbox({
-        text("Claude Code") | bold | color(kText),
+        text("Loom") | bold | color(kText),
         text(" v" + ver) | dim | color(kMuted),
     });
 
@@ -356,7 +356,7 @@ inline constexpr std::array<std::string_view, 5> kLogoArt = {
     const Color kBr(60, 60, 60);
     // FTXUI's `borderStyled` is not available in all vendored versions; use
     // `border` + color + bgcolor as the portable fallback.
-    return hbox({text(" CC-REPL ") | bgcolor(kBg)})
+    return hbox({text(" LOOM ") | bgcolor(kBg)})
          | border | color(kBr) | bgcolor(kBg);
 }
 

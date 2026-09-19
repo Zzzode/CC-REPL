@@ -82,7 +82,7 @@ std::string AppAdapter::FormatAgentsMenuOutput(
 
     if (selectable_count == 0) {
         out += "\n";
-        out += "No agents found. Create specialized subagents that Claude can delegate to.\n";
+        out += "No agents found. Create specialized subagents that Loom can delegate to.\n";
         out += "Each subagent has its own context window, custom system prompt, and specific tools.\n";
         out += "Try creating: Code Reviewer, Code Simplifier, Security Reviewer, Tech Lead, or UX Reviewer.\n";
     } else {
@@ -421,7 +421,7 @@ std::function<bool(std::string_view, std::string_view)> AppAdapter::get_permissi
                 dtrig::PushToolPermissionDetailed(
                     screen_state_->dialog_queue,
                     std::string(tool_name),
-                    std::format("Claude wants to control your screen: {}",
+                    std::format("Loom wants to control your screen: {}",
                                 cperm::action_description(cu_options->action)),
                     sp::ActionKind::Execute,
                     sp::ToolDetail{std::move(detail)},

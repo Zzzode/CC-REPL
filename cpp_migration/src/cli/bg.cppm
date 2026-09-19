@@ -180,9 +180,9 @@ std::vector<BackgroundProcessInfo> get_background_processes() {
 inline std::string get_pid_directory() {
     const char* home = std::getenv("HOME");
     if (home) {
-        return std::string(home) + "/.config/claude-code/pids";
+        return std::string(home) + "/.config/loom/pids";
     }
-    return "/tmp/claude-code-pids";
+    return "/tmp/loom-pids";
 }
 
 // Internal: record a background process PID

@@ -333,18 +333,18 @@ private:
 // ShellPrefix — Shell command prefix handling
 // ============================================================================
 
-/// Manages shell command prefix configuration (CLAUDE_CODE_SHELL_PREFIX).
+/// Manages shell command prefix configuration (LOOM_SHELL_PREFIX).
 /// Used to wrap commands with custom shell initialization.
 class ShellPrefix {
 public:
     /// Check if a shell prefix is configured
     [[nodiscard]] static bool is_configured() {
-        return std::getenv("CLAUDE_CODE_SHELL_PREFIX") != nullptr;
+        return std::getenv("LOOM_SHELL_PREFIX") != nullptr;
     }
 
     /// Get the configured shell prefix (if any)
     [[nodiscard]] static std::optional<std::string> get_prefix() {
-        if (const char* val = std::getenv("CLAUDE_CODE_SHELL_PREFIX")) {
+        if (const char* val = std::getenv("LOOM_SHELL_PREFIX")) {
             std::string prefix(val);
             if (!prefix.empty()) return prefix;
         }

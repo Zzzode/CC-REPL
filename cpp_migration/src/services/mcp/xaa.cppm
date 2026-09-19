@@ -761,19 +761,19 @@ struct FormPostResult {
 
 namespace detail {
 
-/// Read XAA configuration from ~/.cc-repl/xaa-idp.txt
+/// Read XAA configuration from ~/.loom/xaa-idp.txt
 /// Format (one key=value per line):
 ///   idp_url=https://idp.example.com
 ///   idp_issuer=https://idp.example.com
-///   client_id=cc-repl-as-client
+///   client_id=loom-as-client
 ///   client_secret=...
-///   idp_client_id=cc-repl-idp-client
+///   idp_client_id=loom-idp-client
 ///   idp_token_endpoint=https://idp.example.com/oauth/token
 ///   scope=openid profile
 [[nodiscard]] inline std::optional<XaaConfig> read_xaa_config_file() {
     const char* home = std::getenv("HOME");
     if (!home) return std::nullopt;
-    auto path = fs::path(home) / ".cc-repl" / "xaa-idp.txt";
+    auto path = fs::path(home) / ".loom" / "xaa-idp.txt";
     if (!fs::exists(path)) return std::nullopt;
 
     std::ifstream file(path);
@@ -854,7 +854,7 @@ namespace detail {
 /// TS REF: xaaIdpLogin.ts:47-49 getXaaIdpSettings() equivalent
 ///
 /// Get XAA configuration for a specific MCP server.
-/// Reads from ~/.cc-repl/xaa-idp.txt (file-based config for now).
+/// Reads from ~/.loom/xaa-idp.txt (file-based config for now).
 [[nodiscard]] inline std::optional<XaaConfig> get_xaa_config(
     std::string_view server_name) {
     (void)server_name;  // Currently single config, future: per-server
@@ -929,7 +929,7 @@ namespace detail {
 
 /// TS REF: xaaIdpLogin.ts:32-34 isXaaEnabled()
 [[nodiscard]] inline bool is_xaa_enabled() {
-    const char* enabled = std::getenv("CLAUDE_CODE_ENABLE_XAA");
+    const char* enabled = std::getenv("LOOM_ENABLE_XAA");
     return enabled && std::string_view(enabled) == "1";
 }
 

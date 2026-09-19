@@ -94,7 +94,7 @@ public:
     }
     
     void printHelp() const {
-        std::cout << "Claude Code CLI\n\n";
+        std::cout << "Loom CLI\n\n";
         std::cout << "Available commands:\n";
         
         for (const auto& [name, cmd] : commands_) {
@@ -141,7 +141,7 @@ inline CliHandler createDefaultCliHandler() {
         "version",
         {},
         [](const std::vector<std::string>&) {
-            std::cout << "Claude Code v1.0.0\n";
+            std::cout << "Loom v1.0.0\n";
             return 0;
         }
     });
@@ -204,7 +204,7 @@ struct EntrypointConfig {
 
 // Main entrypoint function
 inline int mainEntrypoint(int argc, const char* argv[], EntrypointConfig = {EntrypointType::Cli, false, std::nullopt, {}, {}}) {
-    std::cout << "Starting Claude Code...\n";
+    std::cout << "Starting Loom...\n";
     
     // Parse arguments
     cli::CliHandler handler = cli::createDefaultCliHandler();
@@ -212,7 +212,7 @@ inline int mainEntrypoint(int argc, const char* argv[], EntrypointConfig = {Entr
     
     // Run command or default to REPL
     if (parsed.command.empty()) {
-        std::cout << "Welcome to Claude Code REPL!\n";
+        std::cout << "Welcome to Loom REPL!\n";
         std::cout << "Type 'help' for available commands.\n";
         std::cout << "Type 'exit' or Ctrl+C to quit.\n\n";
         
@@ -272,7 +272,7 @@ export namespace cpp_claude {
 
 // Version info
 constexpr const char* VERSION = "1.0.0";
-constexpr const char* VERSION_STRING = "Claude Code C++ v1.0.0";
+constexpr const char* VERSION_STRING = "Loom C++ v1.0.0";
 
 // Library initialization
 inline void initialize() {

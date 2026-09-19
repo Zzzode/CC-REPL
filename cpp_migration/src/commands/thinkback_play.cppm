@@ -19,7 +19,7 @@ struct CommandResponse { bool ok{true}; std::string message; };
     
     // Check common locations
     if (auto* home = std::getenv("HOME"); home && home[0] != '\0') {
-        fs::path skills_path = fs::path(home) / ".claude" / "skills" / "thinkback";
+        fs::path skills_path = fs::path(home) / ".loom" / "skills" / "thinkback";
         if (fs::exists(skills_path)) {
             skill_dir = skills_path.string();
         }
@@ -30,7 +30,7 @@ struct CommandResponse { bool ok{true}; std::string message; };
             .ok = false,
             .message = "Thinkback plugin not found.\n\n"
                        "Install it with: `npx skills install thinkback`\n"
-                       "Or check ~/.claude/skills/thinkback/"
+                       "Or check ~/.loom/skills/thinkback/"
         };
     }
     

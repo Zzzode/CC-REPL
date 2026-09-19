@@ -170,7 +170,7 @@ inline void set_theme(Theme t) noexcept {
 // ─── resolve_color (mirrors ThemedBox.tsx) ───────────────────────────────────
 /// Given a color string of unknown provenance — either a literal form like
 /// "rgb(r,g,b)" / "#RRGGBB" / "ansi:code" / "ansi256(n)" OR a Theme key such
-/// as "claude", "success" — return the corresponding ftxui::Color.  Unknown
+/// as "loom", "success" — return the corresponding ftxui::Color.  Unknown
 /// key names fall back to theme.text.
 [[nodiscard]] inline ftxui::Color resolve_color(std::string_view color,
                                                const Theme& theme) noexcept {
@@ -251,9 +251,9 @@ inline void set_theme(Theme t) noexcept {
 
     // ── Theme key lookup (subset of the 89 TS fields we actually use) ────
     auto& p = *theme.palette;
-    if (color == "claude" || color == "clawd_body" || color == "primary")
+    if (color == "loom" || color == "loom_body" || color == "primary")
         return p.primary;
-    if (color == "claudeShimmer" || color == "primary_shimmer")
+    if (color == "loomShimmer" || color == "primary_shimmer")
         return p.primary_shimmer;
     if (color == "success") return p.success;
     if (color == "error" || color == "danger") return p.danger;
@@ -284,10 +284,10 @@ inline void set_theme(Theme t) noexcept {
         return p.prompt_border_shimmer;
     if (color == "fastModeShimmer" || color == "fast_mode_shimmer")
         return p.fast_mode_shimmer;
-    if (color == "claudeBlueShimmer_FOR_SYSTEM_SPINNER" || color == "claude_blue_shimmer")
-        return p.claude_blue_shimmer;
-    if (color == "claudeBlue_FOR_SYSTEM_SPINNER" || color == "claude_blue")
-        return p.claude_blue;
+    if (color == "loomBlueShimmer_FOR_SYSTEM_SPINNER" || color == "loom_blue_shimmer")
+        return p.loom_blue_shimmer;
+    if (color == "loomBlue_FOR_SYSTEM_SPINNER" || color == "loom_blue")
+        return p.loom_blue;
     if (color == "planMode" || color == "plan_mode")
         return p.plan_mode;
     if (color == "ide")
@@ -330,8 +330,8 @@ inline void set_theme(Theme t) noexcept {
         return p.memory_background;
     if (color == "briefLabelYou" || color == "brief_label_you")
         return p.brief_label_you;
-    if (color == "briefLabelClaude" || color == "brief_label_claude")
-        return p.brief_label_claude;
+    if (color == "briefLabelLoom" || color == "brief_label_loom")
+        return p.brief_label_loom;
     // Rainbow per-stop shimmers
     if (color == "rainbow_red_shimmer")    return p.rainbow_shimmer_stops[0];
     if (color == "rainbow_orange_shimmer") return p.rainbow_shimmer_stops[1];

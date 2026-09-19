@@ -36,7 +36,7 @@ inline fs::path get_home() {
 
 inline fs::path get_claude_config_dir() {
 
-    if (const char* env = std::getenv("CLAUDE_CONFIG_DIR"); env && env[0] != '\0') {
+    if (const char* env = std::getenv("LOOM_CONFIG_DIR"); env && env[0] != '\0') {
         return fs::path{env};
     }
 
@@ -46,24 +46,24 @@ inline fs::path get_claude_config_dir() {
     if constexpr (platform == detail::Platform::MacOS) {
 
 
-        auto legacy = home / ".claude";
+        auto legacy = home / ".loom";
         std::error_code ec;
         if (fs::exists(legacy, ec)) {
             return legacy;
         }
-        return home / "Library" / "Application Support" / "claude";
+        return home / "Library" / "Application Support" / "loom";
     } else {
 
         if (const char* xdg = std::getenv("XDG_CONFIG_HOME"); xdg && xdg[0] != '\0') {
-            return fs::path{xdg} / "claude";
+            return fs::path{xdg} / "loom";
         }
-        return home / ".config" / "claude";
+        return home / ".config" / "loom";
     }
 }
 
 
 inline fs::path get_claude_cache_dir() {
-    if (const char* env = std::getenv("CLAUDE_CACHE_DIR"); env && env[0] != '\0') {
+    if (const char* env = std::getenv("LOOM_CACHE_DIR"); env && env[0] != '\0') {
         return fs::path{env};
     }
 
@@ -71,18 +71,18 @@ inline fs::path get_claude_cache_dir() {
     auto home = detail::get_home();
 
     if constexpr (platform == detail::Platform::MacOS) {
-        return home / "Library" / "Caches" / "claude";
+        return home / "Library" / "Caches" / "loom";
     } else {
         if (const char* xdg = std::getenv("XDG_CACHE_HOME"); xdg && xdg[0] != '\0') {
-            return fs::path{xdg} / "claude";
+            return fs::path{xdg} / "loom";
         }
-        return home / ".cache" / "claude";
+        return home / ".cache" / "loom";
     }
 }
 
 
 inline fs::path get_claude_data_dir() {
-    if (const char* env = std::getenv("CLAUDE_DATA_DIR"); env && env[0] != '\0') {
+    if (const char* env = std::getenv("LOOM_DATA_DIR"); env && env[0] != '\0') {
         return fs::path{env};
     }
 
@@ -90,18 +90,18 @@ inline fs::path get_claude_data_dir() {
     auto home = detail::get_home();
 
     if constexpr (platform == detail::Platform::MacOS) {
-        return home / "Library" / "Application Support" / "claude" / "data";
+        return home / "Library" / "Application Support" / "loom" / "data";
     } else {
         if (const char* xdg = std::getenv("XDG_DATA_HOME"); xdg && xdg[0] != '\0') {
-            return fs::path{xdg} / "claude";
+            return fs::path{xdg} / "loom";
         }
-        return home / ".local" / "share" / "claude";
+        return home / ".local" / "share" / "loom";
     }
 }
 
 
 inline fs::path get_claude_log_dir() {
-    if (const char* env = std::getenv("CLAUDE_LOG_DIR"); env && env[0] != '\0') {
+    if (const char* env = std::getenv("LOOM_LOG_DIR"); env && env[0] != '\0') {
         return fs::path{env};
     }
 
@@ -109,12 +109,12 @@ inline fs::path get_claude_log_dir() {
     auto home = detail::get_home();
 
     if constexpr (platform == detail::Platform::MacOS) {
-        return home / "Library" / "Logs" / "claude";
+        return home / "Library" / "Logs" / "loom";
     } else {
         if (const char* xdg = std::getenv("XDG_STATE_HOME"); xdg && xdg[0] != '\0') {
-            return fs::path{xdg} / "claude" / "logs";
+            return fs::path{xdg} / "loom" / "logs";
         }
-        return home / ".local" / "state" / "claude" / "logs";
+        return home / ".local" / "state" / "loom" / "logs";
     }
 }
 

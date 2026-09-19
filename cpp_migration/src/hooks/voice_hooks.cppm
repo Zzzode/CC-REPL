@@ -403,7 +403,7 @@ public:
             } else if (!had_audio) {
                 err = {VoiceErrorType::NoAudioSignal,
                        "No audio detected from microphone. Check that the correct "
-                       "input device is selected and that Claude Code has "
+                       "input device is selected and that Loom has "
                        "microphone access."};
             } else {
                 err = {VoiceErrorType::NoSpeechDetected, "No speech detected."};

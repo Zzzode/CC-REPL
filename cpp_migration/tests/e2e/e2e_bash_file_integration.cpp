@@ -4,7 +4,7 @@
 ///        can be driven end-to-end.
 ///
 /// Pipeline:
-///   1. mkdir tempdir /tmp/cc_repl_e2e_bash_file_XXXXXX
+///   1. mkdir tempdir /tmp/loom_e2e_bash_file_XXXXXX
 ///   2. Write 3 files: a.h, b.h, c.cpp with controlled content
 ///   3. BashTool "find <tempdir> -name '*.h' -type f" — expect 2 results
 ///   4. BashTool "grep -l '#include' <tempdir>/*.h <tempdir>/*.cpp" — header that

@@ -37,7 +37,7 @@ export namespace cc::skills::verify_content {
 // delegated to cc.tools.bash at the call site.
 // ============================================================
 
-/// Strip HTML `<!-- comments -->` (same pipeline used in claude_api_content).
+/// Strip HTML `<!-- comments -->` (same pipeline used in loom_api_content).
 /// The TS verify SKILL.md uses comments for editorial notes that must never
 /// reach the LLM prompt.
 [[nodiscard]] inline std::string strip_html_comments(std::string text) {

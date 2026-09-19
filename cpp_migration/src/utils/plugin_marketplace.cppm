@@ -174,7 +174,7 @@ struct PluginLookupResult {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// The canonical official marketplace name
-inline constexpr std::string_view OFFICIAL_MARKETPLACE_NAME = "claude-code-marketplace";
+inline constexpr std::string_view OFFICIAL_MARKETPLACE_NAME = "loom-marketplace";
 
 /// Get the official marketplace source configuration
 [[nodiscard]] MarketplaceSource get_official_marketplace_source();
@@ -244,15 +244,15 @@ struct DeclaredMarketplace {
 // ─────────────────────────────────────────────────────────────────────────────
 namespace detail {
 
-// ~/.claude/plugins — mirrors pluginDirectories.getPluginsDirectory() in TS.
+// ~/.loom/plugins — mirrors pluginDirectories.getPluginsDirectory() in TS.
 inline std::filesystem::path get_plugins_directory() {
-    if (const char* override = std::getenv("CLAUDE_PLUGINS_DIR"); override && *override) {
+    if (const char* override = std::getenv("LOOM_PLUGINS_DIR"); override && *override) {
         return std::filesystem::path(override);
     }
     if (const char* home = std::getenv("HOME"); home && *home) {
-        return std::filesystem::path(home) / ".claude" / "plugins";
+        return std::filesystem::path(home) / ".loom" / "plugins";
     }
-    return std::filesystem::current_path() / ".claude" / "plugins";
+    return std::filesystem::current_path() / ".loom" / "plugins";
 }
 
 inline std::filesystem::path get_known_marketplaces_config_path() {
@@ -375,7 +375,7 @@ git_pull(const std::filesystem::path& cache_path) {
 inline std::expected<std::string, std::string>
 download_url(const std::string& url) {
     std::ostringstream cmd;
-    cmd << "curl -fsSL --max-time 30 -H 'User-Agent: Claude-Code-Plugin-Manager' "
+    cmd << "curl -fsSL --max-time 30 -H 'User-Agent: Loom-Code-Plugin-Manager' "
         << url;
     auto out = cc::utils::exec_sync(cmd.str());
     if (!out) return std::unexpected("Failed to download marketplace from " + url

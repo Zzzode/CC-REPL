@@ -18,9 +18,9 @@ export namespace cc::memdir {
 
 /// Memory file types
 enum class MemoryType : std::uint8_t {
-    ProjectMemory,   // CLAUDE.md at project root
-    UserMemory,      // ~/.claude/CLAUDE.md
-    TreeMemory,      // CLAUDE.md at ancestor directories
+    ProjectMemory,   // LOOM.md at project root
+    UserMemory,      // ~/.loom/LOOM.md
+    TreeMemory,      // LOOM.md at ancestor directories
     TeamMemory,      // Team shared memories
 };
 
@@ -31,20 +31,20 @@ struct MemoryPath {
     bool exists = false;
 };
 
-/// Get the user-level memory file path (~/.claude/CLAUDE.md)
+/// Get the user-level memory file path (~/.loom/LOOM.md)
 [[nodiscard]] inline std::filesystem::path get_user_memory_path() {
     auto home = std::filesystem::path(std::getenv("HOME") ? std::getenv("HOME") : "~");
-    return home / ".claude" / "CLAUDE.md";
+    return home / ".loom" / "LOOM.md";
 }
 
 /// Get the project-level memory file path
 [[nodiscard]] inline std::filesystem::path get_project_memory_path(
     const std::filesystem::path& project_root
 ) {
-    return project_root / "CLAUDE.md";
+    return project_root / "LOOM.md";
 }
 
-/// Get all ancestor CLAUDE.md paths between cwd and filesystem root
+/// Get all ancestor LOOM.md paths between cwd and filesystem root
 [[nodiscard]] inline std::vector<MemoryPath> get_tree_memory_paths(
     const std::filesystem::path& cwd,
     const std::filesystem::path& project_root
@@ -53,7 +53,7 @@ struct MemoryPath {
     auto current = cwd;
     
     while (current != project_root && current.has_parent_path() && current != current.parent_path()) {
-        auto memory_file = current / "CLAUDE.md";
+        auto memory_file = current / "LOOM.md";
         if (std::filesystem::exists(memory_file)) {
             paths.push_back(MemoryPath{
                 .path = memory_file,
@@ -71,7 +71,7 @@ struct MemoryPath {
 [[nodiscard]] inline std::filesystem::path get_team_memory_dir(
     const std::filesystem::path& project_root
 ) {
-    return project_root / ".claude" / "team-memory";
+    return project_root / ".loom" / "team-memory";
 }
 
 /// Resolve all memory paths for the current session
@@ -108,9 +108,9 @@ struct MemoryPath {
 // Auto-memory path layer (faithful port of src/memdir/paths.ts)
 //
 // Canonical per-project auto-memory directory:
-//   <CLAUDE_CONFIG_DIR or $HOME/.claude>/projects/<sanitized-git-root>/memory/
+//   <LOOM_CONFIG_DIR or $HOME/.loom>/projects/<sanitized-git-root>/memory/
 // with MEMORY.md as the always-loaded index. An explicit override
-// (CLAUDE_COWORK_MEMORY_PATH_OVERRIDE) replaces the whole computation.
+// (LOOM_COWORK_MEMORY_PATH_OVERRIDE) replaces the whole computation.
 // ===========================================================================
 
 /// Non-alphanumeric bytes become '-' (TS sanitizePath). Kept simple/stable —
@@ -152,21 +152,21 @@ struct MemoryPath {
     return abs;
 }
 
-/// Resolve the config home: $CLAUDE_CONFIG_DIR else $HOME/.claude.
-[[nodiscard]] inline std::filesystem::path claude_config_home() {
-    if (const char* dir = std::getenv("CLAUDE_CONFIG_DIR"); dir && *dir) {
+/// Resolve the config home: $LOOM_CONFIG_DIR else $HOME/.loom.
+[[nodiscard]] inline std::filesystem::path loom_config_home() {
+    if (const char* dir = std::getenv("LOOM_CONFIG_DIR"); dir && *dir) {
         return std::filesystem::path(dir);
     }
     if (const char* home = std::getenv("HOME"); home && *home) {
-        return std::filesystem::path(home) / ".claude";
+        return std::filesystem::path(home) / ".loom";
     }
-    return std::filesystem::path(".claude");
+    return std::filesystem::path(".loom");
 }
 
 /// Whether auto-memory is enabled. TS enablement chain:
-/// CLAUDE_CODE_DISABLE_AUTO_MEMORY (1/true → off) wins.
+/// LOOM_DISABLE_AUTO_MEMORY (1/true → off) wins.
 [[nodiscard]] inline bool is_auto_memory_enabled() {
-    const char* disable = std::getenv("CLAUDE_CODE_DISABLE_AUTO_MEMORY");
+    const char* disable = std::getenv("LOOM_DISABLE_AUTO_MEMORY");
     if (disable) {
         std::string_view v(disable);
         if (v == "1" || v == "true" || v == "TRUE") return false;
@@ -182,14 +182,14 @@ struct MemoryPath {
     const std::filesystem::path& project_root) {
     if (!is_auto_memory_enabled()) return std::nullopt;
 
-    if (const char* ov = std::getenv("CLAUDE_COWORK_MEMORY_PATH_OVERRIDE");
+    if (const char* ov = std::getenv("LOOM_COWORK_MEMORY_PATH_OVERRIDE");
         ov && *ov) {
         return std::filesystem::path(ov);
     }
 
     auto base = find_canonical_git_root(project_root);
     auto key = sanitize_memory_key(base.string());
-    auto path = claude_config_home() / "projects" / key / "memory";
+    auto path = loom_config_home() / "projects" / key / "memory";
     return path;
 }
 
@@ -220,7 +220,7 @@ get_auto_mem_entrypoint(const std::filesystem::path& project_root) {
     std::error_code ec;
     auto abs = std::filesystem::absolute(cwd, ec);
     if (ec) abs = cwd;
-    return claude_config_home() / "projects" /
+    return loom_config_home() / "projects" /
            sanitize_memory_key(abs.string());
 }
 

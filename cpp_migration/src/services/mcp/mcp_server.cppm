@@ -255,7 +255,7 @@ struct TransportConfig {
 class McpServer {
 public:
     struct ServerConfig {
-        std::string name = "claude-code";
+        std::string name = "loom";
         std::string version = "1.0.0";
         ServerCapabilities capabilities;
     };

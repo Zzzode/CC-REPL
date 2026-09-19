@@ -20,7 +20,7 @@ bool is_fast_mode() {
     if (detail::fast_mode_flag()) return true;
 
     // Check environment
-    const char* env = std::getenv("CLAUDE_FAST_MODE");
+    const char* env = std::getenv("LOOM_FAST_MODE");
     return env && (std::string_view(env) == "1" || std::string_view(env) == "true");
 }
 

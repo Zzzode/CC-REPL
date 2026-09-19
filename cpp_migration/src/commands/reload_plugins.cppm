@@ -15,9 +15,9 @@ struct CommandResponse { bool ok{true}; std::string message; };
     
     std::string msg = std::format("Reloading {} plugins...\n\n", target);
     msg += "Refreshed:\n";
-    msg += "  - Skills: scanning ~/.claude/skills/\n";
+    msg += "  - Skills: scanning ~/.loom/skills/\n";
     msg += "  - MCP servers: reconnecting configured servers\n";
-    msg += "  - Hooks: reloading .claude/hooks/\n";
+    msg += "  - Hooks: reloading .loom/hooks/\n";
     msg += "  - Commands: refreshing slash command registry\n";
     msg += "\nPlugin reload complete.";
     

@@ -51,7 +51,7 @@ struct AskUserPermissionOptions {
     std::function<void(bool)> on_decision) {
     return Renderer([opts, on_decision = std::move(on_decision)] {
         return vbox({
-            text("Claude wants to ask you a question:") | bold,
+            text("Loom wants to ask you a question:") | bold,
             separator(),
             render_ask_user_permission(opts),
             separator(),

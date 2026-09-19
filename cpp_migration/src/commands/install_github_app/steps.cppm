@@ -15,8 +15,8 @@ export module cc.commands.install_github_app.steps;
 export namespace cc::commands {
 
 auto github_app_state_path() -> std::filesystem::path {
-    if (const char* home = std::getenv("HOME")) return std::filesystem::path{home} / ".cc-repl" / "github-app.txt";
-    return std::filesystem::path{".cc-repl"} / "github-app.txt";
+    if (const char* home = std::getenv("HOME")) return std::filesystem::path{home} / ".loom" / "github-app.txt";
+    return std::filesystem::path{".loom"} / "github-app.txt";
 }
 
 auto append_github_app_state(std::string_view line) -> void {

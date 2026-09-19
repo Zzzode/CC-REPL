@@ -4,7 +4,7 @@ module;
 #include <string_view>
 export module cc.commands.reset_limits;
 
-import cc.services.rate_limit.claude_ai_limits_hook;
+import cc.services.rate_limit.loom_ai_limits_hook;
 
 export namespace cc::commands::reset_limits {
 struct CommandResponse { bool ok{true}; std::string message; };

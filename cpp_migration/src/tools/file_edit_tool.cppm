@@ -573,7 +573,7 @@ public:
 
         // --- 9. telemetry hooks ------------------------------------------
         if (log_event_) {
-            if (abs_path.filename().string() == "CLAUDE.md") {
+            if (abs_path.filename().string() == "LOOM.md") {
                 log_event_("tengu_write_claudemd");
             }
             log_event_("tengu_edit_string_lengths");

@@ -1,29 +1,29 @@
-# run_smoke.cmake -- ctest wrapper for cc_repl smoke tests.
+# run_smoke.cmake -- ctest wrapper for loom smoke tests.
 #
 # Required input variables (passed via -D from the caller):
-#   CC_REPL_BIN   - Absolute path to the cc_repl executable
-#   CC_REPL_ARGS  - Semicolon-separated list of arguments to pass
+#   LOOM_BIN   - Absolute path to the loom executable
+#   LOOM_ARGS  - Semicolon-separated list of arguments to pass
 #   EXPECT_EXIT   - Expected exit code (typically 0)
 #   SKIP_RC       - Return code to emit when binary is missing (for SKIP_RETURN_CODE)
 # Optional:
 #   MATCH_STDOUT  - If set, stdout must match this regex; otherwise exit-code only
 
 # ── 1. Binary presence (skip cleanly if not yet built) ──────────────────────
-if(NOT EXISTS "${CC_REPL_BIN}")
-  message(STATUS "SKIP: cc_repl binary not found at ${CC_REPL_BIN}")
-  message(STATUS "      (build the cc_repl target first to enable smoke tests)")
+if(NOT EXISTS "${LOOM_BIN}")
+  message(STATUS "SKIP: loom binary not found at ${LOOM_BIN}")
+  message(STATUS "      (build the loom target first to enable smoke tests)")
   cmake_language(EXIT_CODE "${SKIP_RC}")
 endif()
 
 # ── 2. Run the binary ──────────────────────────────────────────────────────
-if(CC_REPL_ARGS)
-  separate_arguments(_args NATIVE_COMMAND "${CC_REPL_ARGS}")
+if(LOOM_ARGS)
+  separate_arguments(_args NATIVE_COMMAND "${LOOM_ARGS}")
 else()
   set(_args "")
 endif()
 
 execute_process(
-  COMMAND "${CC_REPL_BIN}" ${_args}
+  COMMAND "${LOOM_BIN}" ${_args}
   RESULT_VARIABLE _rc
   OUTPUT_VARIABLE _out
   ERROR_VARIABLE  _err

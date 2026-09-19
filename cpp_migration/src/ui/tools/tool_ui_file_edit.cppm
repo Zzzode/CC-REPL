@@ -101,7 +101,7 @@ namespace detail {
 
 /// Check if path is in a plans directory.
 [[nodiscard]] inline bool is_plan_file(std::string_view path) {
-    // TS: getPlansDirectory() — typically .claude/plans or similar
+    // TS: getPlansDirectory() — typically .loom/plans or similar
     return path.find("plans/") != std::string_view::npos ||
            path.find(".plan") != std::string_view::npos;
 }

@@ -258,9 +258,9 @@ private:
 
     [[nodiscard]] static std::string resolve_storage_dir() {
         if (const char* home = std::getenv("HOME")) {
-            return (fs::path(home) / ".cc-repl" / "memory").string();
+            return (fs::path(home) / ".loom" / "memory").string();
         }
-        return (fs::path(".cc-repl") / "memory").string();
+        return (fs::path(".loom") / "memory").string();
     }
 
 

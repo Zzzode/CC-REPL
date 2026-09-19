@@ -22,7 +22,7 @@
 //   target_compile_options(test_fix_lsp_tool PRIVATE
 //       $<$<CXX_COMPILER_ID:Clang,AppleClang>:-Wno-missing-designated-field-initializers>)
 //   gtest_discover_tests(test_fix_lsp_tool
-//       DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+//       DISCOVERY_TIMEOUT ${LOOM_TEST_DISCOVERY_TIMEOUT})
 
 #include <gtest/gtest.h>
 
@@ -465,7 +465,7 @@ TEST(LspFeedbackWiring, FeedbackExportImportRoundTrips) {
     EXPECT_DOUBLE_EQ(fb.get_acceptance_rate("C1"), 0.5);
 
     auto path = std::filesystem::temp_directory_path() /
-        ("cc_repl_lsp_feedback_" + std::to_string(::getpid()) + ".json");
+        ("loom_lsp_feedback_" + std::to_string(::getpid()) + ".json");
 
     auto exported = fb.export_feedback(path);
     ASSERT_TRUE(exported.has_value());

@@ -95,7 +95,7 @@ struct OAuthConfig {
     std::string token_endpoint;
     std::string redirect_uri = "http://localhost:19485/callback";
     std::vector<std::string> scopes;
-    std::string keychain_service = "claude-code-oauth";
+    std::string keychain_service = "loom-oauth";
     int callback_port = 19485;
     std::chrono::seconds auth_timeout{300}; // 5 minutes to complete auth
 };
@@ -121,7 +121,7 @@ struct CallbackResult {
 // platforms the default backend is the native Security framework
 // (SecItemAdd/SecItemCopyMatching/SecItemDelete via generic-password items);
 // everywhere else it falls back to an owner-only file under
-// $HOME/.claude/tokens. Tests inject an in-memory backend. The facade's public
+// $HOME/.loom/tokens. Tests inject an in-memory backend. The facade's public
 // method surface (store/retrieve/remove) is unchanged, so existing OAuthClient
 // call sites need no edits.
 
@@ -228,7 +228,7 @@ public:
 
     [[nodiscard]] static std::filesystem::path default_root() {
         const char* home = std::getenv("HOME");
-        return std::filesystem::path(home ? home : "/tmp") / ".claude" / "tokens";
+        return std::filesystem::path(home ? home : "/tmp") / ".loom" / "tokens";
     }
 
 private:

@@ -40,7 +40,7 @@ public:
     [[nodiscard]] static CommandDefinition definition() {
         return CommandDefinition{
             .name = "install-github-app",
-            .description = "Install and configure the Claude GitHub App for Actions",
+            .description = "Install and configure the Loom GitHub App for Actions",
             .args = {
                 CommandArg{
                     .name = "repo",
@@ -115,7 +115,7 @@ private:
         }
         s.secret_name = "ANTHROPIC_API_KEY";
         s.use_existing_secret = true;
-        s.selected_workflows = {"claude", "claude-review"};
+        s.selected_workflows = {"loom", "loom-review"};
         s.auth_type = steps::AuthType::ApiKey;
         s.selected_api_key_option = steps::ApiKeyOption::ExistingLocal;
         s.workflow_action = steps::WorkflowAction::Update;

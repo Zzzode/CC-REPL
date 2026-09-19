@@ -25,7 +25,7 @@ public:
     static std::filesystem::path default_log_path() {
         const char* home = std::getenv("HOME");
         if (!home) home = "/tmp";
-        return std::filesystem::path(home) / ".claude" / "logs" / "errors.jsonl";
+        return std::filesystem::path(home) / ".loom" / "logs" / "errors.jsonl";
     }
 
     explicit ErrorLogSink(std::filesystem::path log_path = default_log_path(),

@@ -9,7 +9,7 @@ export namespace cc::utils {
 
 // Check if user has access to 1M token context window
 bool has_1m_context_access() {
-    const char* plan = std::getenv("CLAUDE_PLAN");
+    const char* plan = std::getenv("LOOM_PLAN");
     if (!plan) return false;
 
     std::string_view plan_sv(plan);
@@ -27,7 +27,7 @@ std::size_t get_max_context_for_plan() {
 
 // Check if user is eligible to upgrade to 1M context
 bool check_context_upgrade_eligibility() {
-    const char* plan = std::getenv("CLAUDE_PLAN");
+    const char* plan = std::getenv("LOOM_PLAN");
     if (!plan) return true; // No plan info means might be eligible
 
     std::string_view plan_sv(plan);

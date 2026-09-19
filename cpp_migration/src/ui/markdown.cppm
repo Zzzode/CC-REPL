@@ -1033,7 +1033,7 @@ namespace detail {
                 //      mouse tracking is NOT intercepting clicks.
                 //
                 // When fullscreen mouse tracking IS active (the common case
-                // for cc-repl), AppAdapter::OnEvent detects left-button
+                // for loom), AppAdapter::OnEvent detects left-button
                 // releases at pixels with hyperlink != 0 and calls
                 // cc::utils::try_open_hyperlink(url) — mirroring TS Ink's
                 // ink.onHyperlinkClick callback.

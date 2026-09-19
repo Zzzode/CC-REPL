@@ -29,8 +29,8 @@ struct OnboardingStep {
 inline auto get_onboarding_steps() -> std::vector<OnboardingStep> {
     return {
         {
-            "Welcome to CC-REPL",
-            "A powerful CLI interface for Claude. Let's get you set up.",
+            "Welcome to LOOM",
+            "A powerful CLI interface for Loom. Let's get you set up.",
             std::nullopt,
             false
         },
@@ -42,14 +42,14 @@ inline auto get_onboarding_steps() -> std::vector<OnboardingStep> {
         },
         {
             "Choose a Model",
-            "Select your preferred Claude model.",
+            "Select your preferred Loom model.",
             "Run: /model",
             false
         },
         {
             "Try a Command",
             "Send your first message or try a slash command.",
-            "Type: Hello, Claude!",
+            "Type: Hello, Loom!",
             false
         },
         {

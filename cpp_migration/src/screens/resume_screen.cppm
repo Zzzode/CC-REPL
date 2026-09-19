@@ -37,7 +37,7 @@ inline auto get_resumable_sessions(int max = 10) -> std::vector<SessionPreview> 
     // Scan session storage directory for saved sessions
     const char* home = std::getenv("HOME");
     if (!home) return sessions;
-    auto sessions_dir = std::filesystem::path(home) / ".cc-repl" / "sessions";
+    auto sessions_dir = std::filesystem::path(home) / ".loom" / "sessions";
     if (!std::filesystem::exists(sessions_dir)) return sessions;
     try {
         for (const auto& entry : std::filesystem::directory_iterator(sessions_dir)) {

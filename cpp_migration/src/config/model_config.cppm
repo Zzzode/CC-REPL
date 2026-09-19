@@ -158,7 +158,7 @@ private:
             .cache_read_per_mtok = 0.3, .cache_write_per_mtok = 3.75
         };
 
-        // Claude 4 Opus
+        // Loom 4 Opus
         capabilities_["claude-opus-4-20250514"] = {
             .context_window = 200'000, .max_output_tokens = 32'768,
             .supports_vision = true, .supports_tools = true,
@@ -169,7 +169,7 @@ private:
             .cache_read_per_mtok = 1.5, .cache_write_per_mtok = 18.75
         };
 
-        // Claude 3.5 Haiku
+        // Loom 3.5 Haiku
         capabilities_["claude-3-5-haiku-20241022"] = {
             .context_window = 200'000, .max_output_tokens = 8'192,
             .supports_vision = true, .supports_tools = true,

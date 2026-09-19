@@ -271,7 +271,7 @@ detect_image_magic_bytes(std::string_view buffer) {
 /// Implementation (TS REF: imagePaste.ts getImageFromClipboard L124-242):
 ///   - Runs osascript to extract «class PNGf» from NSPasteboard into a
 ///     temp file via run_detached() (fork+setsid+exec isolates osascript
-///     from cc-repl's raw-mode terminal — see clipboard.cppm gotcha).
+///     from loom's raw-mode terminal — see clipboard.cppm gotcha).
 ///   - Falls back to HTML data-URL extraction for web-app clipboard
 ///     images (Lark/Feishu, Google Docs embed base64 in «class HTML»).
 ///   - Non-PNG HTML-embedded images are converted via `sips -s format png`.

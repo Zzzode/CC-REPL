@@ -14,8 +14,8 @@ export module cc.commands.exit;
 export namespace cc::commands {
 
 auto exit_state_path() -> std::filesystem::path {
-    if (const char* home = std::getenv("HOME")) return std::filesystem::path{home} / ".cc-repl" / "last-exit.txt";
-    return std::filesystem::path{".cc-repl"} / "last-exit.txt";
+    if (const char* home = std::getenv("HOME")) return std::filesystem::path{home} / ".loom" / "last-exit.txt";
+    return std::filesystem::path{".loom"} / "last-exit.txt";
 }
 
 auto confirm_exit_with_pending_changes() -> bool;

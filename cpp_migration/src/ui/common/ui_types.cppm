@@ -38,7 +38,7 @@ constexpr std::string_view kTeammateSelectHint = "shift + ↑/↓ to select";
 namespace agents {
 
 struct AgentPaths {
-    static constexpr std::string_view kFolderName = ".claude";
+    static constexpr std::string_view kFolderName = ".loom";
     static constexpr std::string_view kAgentsDir = "agents";
 };
 

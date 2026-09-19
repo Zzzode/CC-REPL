@@ -2,7 +2,7 @@
  * Context management module — builds and maintains the system prompt
  * and context window budget for LLM interactions.
  *
- * Assembles project context (CLAUDE.md), git state, environment info,
+ * Assembles project context (LOOM.md), git state, environment info,
  * tool descriptions, MCP tools, skills, and handles context compression
  * when approaching token limits.
  */
@@ -140,7 +140,7 @@ struct ContextManagerInit {
  * ContextManager — orchestrates assembly of the full system prompt.
  *
  * Responsible for:
- *  - Loading project-specific context (CLAUDE.md)
+ *  - Loading project-specific context (LOOM.md)
  *  - Gathering git status
  *  - Building tool description blocks
  *  - Injecting skill content
@@ -171,7 +171,7 @@ public:
         // Core identity and instructions
         append_section(prompt, "Identity", build_identity_section());
 
-        // Project-specific context (CLAUDE.md if present)
+        // Project-specific context (LOOM.md if present)
         auto project_ctx = load_project_context();
         if (project_ctx.has_value()) {
             append_section(prompt, "Project Context", project_ctx.value());
@@ -278,18 +278,18 @@ private:
     }
 
     /**
-     * Load project context from CLAUDE.md in the working directory or parents.
-     * Searches upward from cwd until a CLAUDE.md is found or root is reached.
+     * Load project context from LOOM.md in the working directory or parents.
+     * Searches upward from cwd until a LOOM.md is found or root is reached.
      */
     [[nodiscard]]
     auto load_project_context() const -> std::optional<std::string> {
         auto cwd = fs::current_path();
 
-        // Walk up directory tree looking for CLAUDE.md
+        // Walk up directory tree looking for LOOM.md
         for (auto dir = cwd; dir != dir.root_path(); dir = dir.parent_path()) {
-            auto claude_md = dir / "CLAUDE.md";
-            if (fs::exists(claude_md)) {
-                auto content = cc::utils::read_file_to_string(claude_md);
+            auto loom_md = dir / "LOOM.md";
+            if (fs::exists(loom_md)) {
+                auto content = cc::utils::read_file_to_string(loom_md);
                 if (content.has_value() && !content->empty()) {
                     return content;
                 }

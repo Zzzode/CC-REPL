@@ -356,7 +356,7 @@ inline ValidationResult validate_plugin_manifest(const std::filesystem::path& pa
             w.path = std::string(field);
             w.message = std::format(
                 "Field '{}' belongs in the marketplace entry (marketplace.json), "
-                "not plugin.json. It's harmless here but unused — Claude Code "
+                "not plugin.json. It's harmless here but unused — Loom "
                 "ignores it at load time.", field);
             r.warnings.push_back(std::move(w));
         }
@@ -381,8 +381,8 @@ inline ValidationResult validate_plugin_manifest(const std::filesystem::path& pa
         if (!kebab) {
             ValidationWarning w; w.path = "name";
             w.message = std::format(
-                "Plugin name \"{}\" is not kebab-case. Claude Code accepts it, "
-                "but the Claude.ai marketplace sync requires kebab-case "
+                "Plugin name \"{}\" is not kebab-case. Loom accepts it, "
+                "but the Loom.ai marketplace sync requires kebab-case "
                 "(lowercase letters, digits, and hyphens only, e.g., \"my-plugin\").",
                 name);
             r.warnings.push_back(std::move(w));

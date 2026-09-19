@@ -592,7 +592,7 @@ public:
         // reconnect defaults from Params.
         cc::cli::CcrConnectionOptions opts;
         opts.auto_reconnect = true;
-        opts.user_agent = "cc-repl/bridge-v2";
+        opts.user_agent = "loom/bridge-v2";
 
         client_ = std::make_unique<cc::cli::CcrClient>(std::move(opts));
 

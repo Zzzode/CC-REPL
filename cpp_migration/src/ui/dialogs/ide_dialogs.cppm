@@ -130,7 +130,7 @@ struct IdeStatusIndicatorProps {
 
     auto content = vbox({
         paragraph("We detected a supported IDE terminal. Would you like "
-                  "Claude Code to automatically connect to your IDE for "
+                  "Loom to automatically connect to your IDE for "
                   "enhanced features?"),
         text(""),
         hbox({
@@ -166,7 +166,7 @@ struct IdeStatusIndicatorProps {
     Elements content_items = {
         text("IDE Integration Setup") | bold,
         text(""),
-        paragraph("Claude Code can integrate with your IDE to provide "
+        paragraph("Loom can integrate with your IDE to provide "
                   "enhanced features like jump-to-definition, apply edits "
                   "directly, and synchronized file navigation."),
         text(""),

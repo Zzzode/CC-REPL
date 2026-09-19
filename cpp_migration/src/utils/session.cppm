@@ -173,8 +173,8 @@ public:
 private:
     static auto get_default_base_dir() -> std::filesystem::path {
         if (auto* home = std::getenv("HOME"))
-            return std::filesystem::path(home) / ".cc-repl";
-        return std::filesystem::path(".cc-repl");
+            return std::filesystem::path(home) / ".loom";
+        return std::filesystem::path(".loom");
     }
 
     static auto generate_id() -> std::string {

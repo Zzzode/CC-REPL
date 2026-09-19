@@ -1,4 +1,4 @@
-// C++23 module: Cyber risk instruction for Claude's security-related behavior.
+// C++23 module: Cyber risk instruction for Loom's security-related behavior.
 //
 // IMPORTANT: DO NOT MODIFY THIS INSTRUCTION WITHOUT SAFEGUARDS TEAM REVIEW
 // This instruction is owned by the Safeguards team and has been carefully

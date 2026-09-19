@@ -29,10 +29,10 @@ enum class ConfigError {
 
 // Configuration scope hierarchy (later scopes override earlier)
 enum class ConfigScope {
-    Global,   // ~/.config/claude/mcp_servers.json
-    User,     // ~/.claude/mcp_servers.json
-    Project,  // .claude/mcp_servers.json (project root)
-    Local,    // .claude/mcp_servers.local.json (gitignored)
+    Global,   // ~/.config/loom/mcp_servers.json
+    User,     // ~/.loom/mcp_servers.json
+    Project,  // .loom/mcp_servers.json (project root)
+    Local,    // .loom/mcp_servers.local.json (gitignored)
 };
 
 // Single MCP server configuration entry
@@ -77,10 +77,10 @@ struct McpConfig {
 // Configuration file path resolver
 class ConfigPaths {
 public:
-    // Get global config path (~/.config/claude/mcp_servers.json)
+    // Get global config path (~/.config/loom/mcp_servers.json)
     [[nodiscard]] static std::filesystem::path global_config();
 
-    // Get user config path (~/.claude/mcp_servers.json)
+    // Get user config path (~/.loom/mcp_servers.json)
     [[nodiscard]] static std::filesystem::path user_config();
 
     // Get project config path (relative to project root)

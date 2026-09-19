@@ -31,7 +31,7 @@ using namespace ftxui;
 /// Spinner animation style
 enum class SpinnerStyle : std::uint8_t {
     Dots,           // ⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏
-    Glyph,          // ·✢*✶✻✽ (default CC-REPL style)
+    Glyph,          // ·✢*✶✻✽ (default LOOM style)
     Shimmer,        // Flowing color shimmer across text
     Flash,          // Single char with pulsing brightness
     Glimmer,        // Sparkle effect on message text

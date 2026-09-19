@@ -90,7 +90,7 @@ enum class IDEPathFormat : uint8_t {
 };
 
 // =========================================================================
-// IDE Lockfile - structure for ~/.claude/ide/*.json
+// IDE Lockfile - structure for ~/.loom/ide/*.json
 // =========================================================================
 
 /// Represents a parsed IDE lockfile entry
@@ -118,12 +118,12 @@ struct IdeLockfile {
 // IDE Lockfile Scanner
 // =========================================================================
 
-/// Scans ~/.claude/ide/ for lockfiles and validates them by PID check
+/// Scans ~/.loom/ide/ for lockfiles and validates them by PID check
 class IdeLockfileScanner {
 public:
     IdeLockfileScanner() {
         if (auto* home = std::getenv("HOME")) {
-            lockfile_dir_ = fs::path(home) / ".claude" / "ide";
+            lockfile_dir_ = fs::path(home) / ".loom" / "ide";
         }
     }
 
@@ -404,7 +404,7 @@ public:
         config.name = "ide";
         config.request_timeout = std::chrono::milliseconds{5000};
         config.init_timeout = std::chrono::milliseconds{5000};
-        config.client_info.name = "claude-code-native";
+        config.client_info.name = "loom-native";
         config.client_info.version = "1.0.0";
 
         cc::services::mcp::McpClient client(std::move(config));
@@ -562,7 +562,7 @@ private:
 
         const auto initialize_id = next_id_++;
         auto initialize_request = std::format(
-            R"({{"jsonrpc":"2.0","id":{},"method":"initialize","params":{{"protocolVersion":"2024-11-05","capabilities":{{}},"clientInfo":{{"name":"claude-code-native","version":"1.0.0"}}}}}})",
+            R"({{"jsonrpc":"2.0","id":{},"method":"initialize","params":{{"protocolVersion":"2024-11-05","capabilities":{{}},"clientInfo":{{"name":"loom-native","version":"1.0.0"}}}}}})",
             initialize_id);
         if (auto sent = send_ws_text(*fd, initialize_request); !sent) {
             auto error = sent.error();
@@ -690,10 +690,10 @@ private:
             "Sec-WebSocket-Version: 13\r\n"
             "Sec-WebSocket-Protocol: mcp\r\n"
             "Sec-WebSocket-Key: {}\r\n"
-            "User-Agent: claude-code-native\r\n",
+            "User-Agent: loom-native\r\n",
             parts.path, parts.host, parts.port, random_websocket_key());
         if (auth_token && !auth_token->empty()) {
-            request += "X-Claude-Code-Ide-Authorization: " + *auth_token + "\r\n";
+            request += "X-Loom-Code-Ide-Authorization: " + *auth_token + "\r\n";
         }
         request += "\r\n";
 

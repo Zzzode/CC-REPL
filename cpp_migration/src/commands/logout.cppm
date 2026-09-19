@@ -94,12 +94,12 @@ private:
 
     [[nodiscard]] static std::filesystem::path credentials_path() {
         if (const char* xdg = std::getenv("XDG_CONFIG_HOME")) {
-            return std::filesystem::path(xdg) / "cc-repl" / "credentials.json";
+            return std::filesystem::path(xdg) / "loom" / "credentials.json";
         }
         if (const char* home = std::getenv("HOME")) {
-            return std::filesystem::path(home) / ".config" / "cc-repl" / "credentials.json";
+            return std::filesystem::path(home) / ".config" / "loom" / "credentials.json";
         }
-        return std::filesystem::temp_directory_path() / "cc-repl" / "credentials.json";
+        return std::filesystem::temp_directory_path() / "loom" / "credentials.json";
     }
 
     [[nodiscard]] bool is_authenticated() const noexcept {
@@ -134,11 +134,11 @@ private:
 
     [[nodiscard]] static VoidResult clear_oauth_tokens() {
         // Best-effort: clear OAuth token from the system keychain.
-        // The OAuthClient stores tokens under service "cc-repl-oauth" keyed by
+        // The OAuthClient stores tokens under service "loom-oauth" keyed by
         // the OAuth client_id. We also try the literal "oauth_token" account in
         // case a different storage path was used. Failures here are non-fatal.
         try {
-            cc::services::oauth::KeychainStore oauth_store("cc-repl-oauth");
+            cc::services::oauth::KeychainStore oauth_store("loom-oauth");
             (void)oauth_store.remove("9d1c250a-e61b-44d9-88ed-5944d1962f5e");
             (void)oauth_store.remove("oauth_token");
         } catch (...) {
@@ -158,10 +158,10 @@ private:
 
     [[nodiscard]] static VoidResult clear_api_key() {
         // Best-effort: clear API key from the system keychain.
-        // Try the "cc-repl" service with the "api_key" account.
+        // Try the "loom" service with the "api_key" account.
         // Failures here are non-fatal.
         try {
-            cc::services::oauth::KeychainStore api_store("cc-repl");
+            cc::services::oauth::KeychainStore api_store("loom");
             (void)api_store.remove("api_key");
         } catch (...) {
             // Keychain access may throw if the Security framework is unavailable;

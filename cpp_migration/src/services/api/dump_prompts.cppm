@@ -78,7 +78,7 @@ struct PromptDumpConfig {
 
     // Determine output directory
     fs::path out_dir = config.output_dir.empty()
-        ? fs::temp_directory_path() / "cc-repl-dumps"
+        ? fs::temp_directory_path() / "loom-dumps"
         : fs::path(config.output_dir);
 
     std::error_code ec;
@@ -206,7 +206,7 @@ struct PromptDumpConfig {
     std::string_view output_dir = "") {
 
     fs::path dir = output_dir.empty()
-        ? fs::temp_directory_path() / "cc-repl-dumps"
+        ? fs::temp_directory_path() / "loom-dumps"
         : fs::path(output_dir);
 
     std::vector<std::string> files;

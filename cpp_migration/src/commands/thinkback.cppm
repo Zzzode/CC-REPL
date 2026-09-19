@@ -18,8 +18,8 @@ export namespace cc::commands {
 using time_point = std::chrono::system_clock::time_point;
 
 auto thinking_history_path() -> std::filesystem::path {
-    if (const char* home = std::getenv("HOME")) return std::filesystem::path{home} / ".cc-repl" / "thinking-history.txt";
-    return std::filesystem::path{".cc-repl"} / "thinking-history.txt";
+    if (const char* home = std::getenv("HOME")) return std::filesystem::path{home} / ".loom" / "thinking-history.txt";
+    return std::filesystem::path{".loom"} / "thinking-history.txt";
 }
 
 

@@ -237,8 +237,8 @@ public:
         : transcriber_(std::move(transcriber)) {
         available_ = transcriber_ ||
                      std::getenv("ANTHROPIC_API_KEY") != nullptr ||
-                     std::getenv("CLAUDE_CODE_OAUTH_TOKEN") != nullptr ||
-                     std::getenv("CLAUDE_CODE_OAUTH_REFRESH_TOKEN") != nullptr;
+                     std::getenv("LOOM_OAUTH_TOKEN") != nullptr ||
+                     std::getenv("LOOM_OAUTH_REFRESH_TOKEN") != nullptr;
     }
 
     /// Start voice recording with silence detection.
@@ -363,14 +363,14 @@ private:
     }
 
     [[nodiscard]] static TranscriptionProvider make_env_command_transcriber() {
-        auto* command_env = std::getenv("CC_REPL_VOICE_TRANSCRIBE_CMD");
+        auto* command_env = std::getenv("LOOM_VOICE_TRANSCRIBE_CMD");
         if (!command_env || std::string_view(command_env).empty()) {
             return {};
         }
         std::string command_template = command_env;
         return [command_template](std::span<const uint8_t> audio) -> Result<std::string> {
             auto path = std::filesystem::temp_directory_path() /
-                std::format("cc-repl-voice-{}.raw",
+                std::format("loom-voice-{}.raw",
                     std::chrono::steady_clock::now().time_since_epoch().count());
             {
                 std::ofstream out(path, std::ios::binary);

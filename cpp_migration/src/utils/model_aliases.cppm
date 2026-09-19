@@ -14,7 +14,7 @@ export module cc.utils.model_aliases;
 export namespace cc::utils {
 
 
-enum class ModelFamily { claude3, claude3_5, claude4 };
+enum class ModelFamily { gen3, gen3_5, gen4 };
 
 
 enum class ModelProvider { anthropic, bedrock, vertex, openai_compat };
@@ -43,11 +43,11 @@ inline constexpr std::array kAliases = {
 
 
 inline const std::array<ModelInfo, 5> kModels = {{
-    {"claude-sonnet-4-20250514", ModelFamily::claude4, "Claude Sonnet 4", 200'000, 16'384},
-    {"claude-opus-4-20250514", ModelFamily::claude4, "Claude Opus 4", 200'000, 32'768},
-    {"claude-3-5-sonnet-20241022", ModelFamily::claude3_5, "Claude 3.5 Sonnet", 200'000, 8'192},
-    {"claude-3-5-haiku-20241022", ModelFamily::claude3_5, "Claude 3.5 Haiku", 200'000, 8'192},
-    {"claude-3-opus-20240229", ModelFamily::claude3, "Claude 3 Opus", 200'000, 4'096},
+    {"claude-sonnet-4-20250514", ModelFamily::gen4, "Loom Sonnet 4", 200'000, 16'384},
+    {"claude-opus-4-20250514", ModelFamily::gen4, "Loom Opus 4", 200'000, 32'768},
+    {"claude-3-5-sonnet-20241022", ModelFamily::gen3_5, "Loom 3.5 Sonnet", 200'000, 8'192},
+    {"claude-3-5-haiku-20241022", ModelFamily::gen3_5, "Loom 3.5 Haiku", 200'000, 8'192},
+    {"claude-3-opus-20240229", ModelFamily::gen3, "Loom 3 Opus", 200'000, 4'096},
 }};
 
 
@@ -76,7 +76,7 @@ inline const std::array<ModelInfo, 5> kModels = {{
 [[nodiscard]] inline auto detect_provider(std::string_view model_id) -> ModelProvider {
     if (model_id.find("bedrock") != std::string_view::npos) return ModelProvider::bedrock;
     if (model_id.find("vertex") != std::string_view::npos) return ModelProvider::vertex;
-    if (model_id.starts_with("claude")) return ModelProvider::anthropic;
+    if (model_id.starts_with("loom")) return ModelProvider::anthropic;
     return ModelProvider::openai_compat;
 }
 

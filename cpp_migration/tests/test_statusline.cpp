@@ -70,7 +70,7 @@ TEST(StatuslineCommand, DetectsZshShell) {
     EXPECT_NE(result.message.find("Detected shell: zsh"), std::string::npos);
     EXPECT_NE(result.message.find(".zshrc"), std::string::npos);
     EXPECT_NE(result.message.find("RPROMPT"), std::string::npos);
-    EXPECT_NE(result.message.find("cc-repl --status-json"), std::string::npos);
+    EXPECT_NE(result.message.find("loom --status-json"), std::string::npos);
 }
 
 TEST(StatuslineCommand, DetectsBashShell) {
@@ -80,7 +80,7 @@ TEST(StatuslineCommand, DetectsBashShell) {
     EXPECT_NE(result.message.find("Detected shell: bash"), std::string::npos);
     EXPECT_NE(result.message.find(".bashrc"), std::string::npos);
     EXPECT_NE(result.message.find("PROMPT_COMMAND"), std::string::npos);
-    EXPECT_NE(result.message.find("cc-repl --status-json"), std::string::npos);
+    EXPECT_NE(result.message.find("loom --status-json"), std::string::npos);
 }
 
 TEST(StatuslineCommand, DetectsFishShell) {
@@ -89,7 +89,7 @@ TEST(StatuslineCommand, DetectsFishShell) {
     auto result = cc::commands::statusline::run();
     EXPECT_NE(result.message.find("Detected shell: fish"), std::string::npos);
     EXPECT_NE(result.message.find("fish_right_prompt"), std::string::npos);
-    EXPECT_NE(result.message.find("cc-repl --status-json"), std::string::npos);
+    EXPECT_NE(result.message.find("loom --status-json"), std::string::npos);
 }
 
 TEST(StatuslineCommand, UnknownShellWhenEnvMissing) {
@@ -132,7 +132,7 @@ using cc::utils::json::parse;
 TEST(StatuslineJson, SerializesBaseFields) {
     StatusLineCommandInput input;
     input.model.id = "claude-3-5-sonnet";
-    input.model.display_name = "Claude 3.5 Sonnet";
+    input.model.display_name = "Loom 3.5 Sonnet";
     input.workspace.current_dir = "/home/user/project";
     input.workspace.project_dir = "/home/user/project";
     input.workspace.added_dirs = {"src", "tests"};
@@ -150,7 +150,7 @@ TEST(StatuslineJson, SerializesBaseFields) {
     auto model = root.get("model");
     EXPECT_TRUE(model.is_obj());
     EXPECT_EQ(model.get("id").as_str(), "claude-3-5-sonnet");
-    EXPECT_EQ(model.get("display_name").as_str(), "Claude 3.5 Sonnet");
+    EXPECT_EQ(model.get("display_name").as_str(), "Loom 3.5 Sonnet");
 
     // workspace
     auto ws = root.get("workspace");
@@ -645,7 +645,7 @@ TEST(StatuslineExecute, ComplexJsonInputPassedCorrectly) {
     StatusLineCommandInput input;
     input.session_name = "complex-session";
     input.model.id = "claude-3-opus";
-    input.model.display_name = "Claude 3 Opus";
+    input.model.display_name = "Loom 3 Opus";
     input.workspace.current_dir = "/home/user/work";
     input.workspace.project_dir = "/home/user/work";
     input.workspace.added_dirs = {"src", "include", "tests"};

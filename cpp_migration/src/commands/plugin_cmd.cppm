@@ -101,7 +101,7 @@ public:
     [[nodiscard]] static CommandDefinition definition() {
         return CommandDefinition{
             .name = "plugin",
-            .description = "Manage Claude Code plugins (install, enable, validate, marketplaces)",
+            .description = "Manage Loom plugins (install, enable, validate, marketplaces)",
             .args = {
                 CommandArg{
                     .name = "subcommand",
@@ -559,9 +559,9 @@ private:
 
     [[nodiscard]] static std::filesystem::path plugins_dir() {
         if (const char* home = std::getenv("HOME")) {
-            return std::filesystem::path(home) / ".cc-repl" / "plugins";
+            return std::filesystem::path(home) / ".loom" / "plugins";
         }
-        return std::filesystem::temp_directory_path() / "cc-repl" / "plugins";
+        return std::filesystem::temp_directory_path() / "loom" / "plugins";
     }
 
     [[nodiscard]] static std::optional<std::string> extract_json_string(

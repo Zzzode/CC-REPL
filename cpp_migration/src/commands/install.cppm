@@ -44,14 +44,14 @@ public:
     }
 
     [[nodiscard]] static Result<CommandResult> execute(const CommandContext&) {
-        std::string out = "Claude Code (native C++ build):\n";
-        out += std::format("  Version: {}\n", cc::constants::product::CC_REPL_VERSION);
+        std::string out = "Loom (native C++ build):\n";
+        out += std::format("  Version: {}\n", cc::constants::product::LOOM_VERSION);
 
         out += "\nThe native build has no npm installer. To update:\n";
         out += "  1. Pull the latest source.\n";
         out += "  2. Reconfigure with CMake (cmake --preset debug).\n";
-        out += "  3. Build (cmake --build --preset debug --target cc_repl).\n";
-        out += "  4. Copy the resulting binary (build/debug/bin/cc-repl) onto your PATH.";
+        out += "  3. Build (cmake --build --preset debug --target loom).\n";
+        out += "  4. Copy the resulting binary (build/debug/bin/loom) onto your PATH.";
         return CommandResult::success(std::move(out));
     }
 

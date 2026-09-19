@@ -16,8 +16,8 @@ export namespace cc::bootstrap {
 struct BootstrapConfig {
     std::filesystem::path project_root;
     std::filesystem::path home_dir;
-    std::filesystem::path config_dir;        // ~/.claude/
-    std::filesystem::path sessions_dir;      // ~/.claude/sessions/
+    std::filesystem::path config_dir;        // ~/.loom/
+    std::filesystem::path sessions_dir;      // ~/.loom/sessions/
     std::optional<std::string> initial_model;
     bool is_git_repo = false;
     std::optional<std::string> git_remote_url;
@@ -31,7 +31,7 @@ struct BootstrapConfig {
     std::optional<std::string> override_model = std::nullopt
 ) {
     auto home = std::filesystem::path(std::getenv("HOME") ? std::getenv("HOME") : "/tmp");
-    auto config_dir = home / ".claude";
+    auto config_dir = home / ".loom";
     
     // Find project root by walking up to find .git
     auto project_root = cwd;

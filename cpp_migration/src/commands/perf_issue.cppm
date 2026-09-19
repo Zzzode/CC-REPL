@@ -21,7 +21,7 @@ struct CommandResponse { bool ok{true}; std::string message; };
         "OS: {}\n"
         "Memory: {} bytes\n"
         "Working directory: {}\n"
-        "Startup profiling hint: run with CLAUDE_CODE_PROFILE_STARTUP=1 for phase timings.",
+        "Startup profiling hint: run with LOOM_PROFILE_STARTUP=1 for phase timings.",
         target.empty() ? "current-session" : std::string(target),
         info.app_version,
         info.os_version,

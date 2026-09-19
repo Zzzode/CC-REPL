@@ -25,25 +25,25 @@ struct CommandResponse { bool ok{true}; std::string message; };
     
     if (shell == "zsh") {
         msg += "Add to your ~/.zshrc:\n\n"
-               "  # CC-REPL statusline integration\n"
+               "  # LOOM statusline integration\n"
                "  precmd() {\n"
-               "    local status_info=$(cc-repl --status-json 2>/dev/null)\n"
+               "    local status_info=$(loom --status-json 2>/dev/null)\n"
                "    if [[ -n \"$status_info\" ]]; then\n"
                "      RPROMPT=\"%F{cyan}[cc]%f\"\n"
                "    fi\n"
                "  }\n";
     } else if (shell == "bash") {
         msg += "Add to your ~/.bashrc:\n\n"
-               "  # CC-REPL statusline integration\n"
-               "  PROMPT_COMMAND='__cc_repl_prompt'\n"
-               "  __cc_repl_prompt() {\n"
-               "    local status=$(cc-repl --status-json 2>/dev/null)\n"
+               "  # LOOM statusline integration\n"
+               "  PROMPT_COMMAND='__loom_prompt'\n"
+               "  __loom_prompt() {\n"
+               "    local status=$(loom --status-json 2>/dev/null)\n"
                "    # Customize PS1 based on status\n"
                "  }\n";
     } else if (shell == "fish") {
-        msg += "Add to your ~/.config/fish/conf.d/cc-repl.fish:\n\n"
+        msg += "Add to your ~/.config/fish/conf.d/loom.fish:\n\n"
                "  function fish_right_prompt\n"
-               "    set -l status_info (cc-repl --status-json 2>/dev/null)\n"
+               "    set -l status_info (loom --status-json 2>/dev/null)\n"
                "    if test -n \"$status_info\"\n"
                "      set_color cyan; echo '[cc]'; set_color normal\n"
                "    end\n"

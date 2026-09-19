@@ -1,5 +1,5 @@
 /// @file stuck.cppm
-/// @brief /stuck slash command — diagnose OTHER Claude Code sessions on the
+/// @brief /stuck slash command — diagnose OTHER Loom sessions on the
 ///        same machine that appear frozen / stuck / very slow.
 ///
 /// Audit vs TS src/skills/bundled/stuck.ts:
@@ -42,17 +42,17 @@ export namespace cc::skills::bundled {
 // ============================================================
 // kStuckPrompt — verbatim port of TS `STUCK_PROMPT` (line-for-line parity).
 // ============================================================
-constexpr std::string_view kStuckPrompt = R"P(# /stuck — diagnose frozen/slow Claude Code sessions
+constexpr std::string_view kStuckPrompt = R"P(# /stuck — diagnose frozen/slow Loom sessions
 
-The user thinks another Claude Code session on this machine is frozen,
+The user thinks another Loom session on this machine is frozen,
 stuck, or very slow. Investigate and post a report to
-#claude-code-feedback.
+#loom-feedback.
 
 ## What to look for
 
-Scan for other Claude Code processes (excluding the current one — PID is
+Scan for other Loom processes (excluding the current one — PID is
 known; for shell commands just exclude the PID you see running this
-prompt). Process names are typically `claude` (installed) or `cli` (native
+prompt). Process names are typically `loom` (installed) or `cli` (native
 dev build).
 
 Signs of a stuck session:
@@ -70,13 +70,13 @@ Signs of a stuck session:
 
 ## Investigation steps
 
-1. **List all Claude Code processes** (macOS/Linux):
+1. **List all Loom processes** (macOS/Linux):
    ```
    ps -axo pid=,pcpu=,rss=,etime=,state=,comm=,command= \
-     | grep -E '(claude|cli)' | grep -v grep
+     | grep -E '(loom|cli)' | grep -v grep
    ```
-   Filter to rows where `comm` is `claude` or (`cli` AND the command path
-   contains "claude").
+   Filter to rows where `comm` is `loom` or (`cli` AND the command path
+   contains "loom").
 
 2. **For anything suspicious**, gather more context:
    - Child processes: `pgrep -lP <pid>`
@@ -84,7 +84,7 @@ Signs of a stuck session:
    - If a child looks hung (e.g., a git command), note its full command
      line with `ps -p <child_pid> -o command=`
    - Check the session's debug log if you can infer the session ID:
-     `~/.claude/debug/<session-id>.txt` (the last few hundred lines often
+     `~/.loom/debug/<session-id>.txt` (the last few hundred lines often
      show what it was doing before hanging)
 
 3. **Consider a stack dump** for a truly frozen process (advanced,
@@ -99,13 +99,13 @@ Signs of a stuck session:
 session looks healthy, tell the user that directly — do not post an
 all-clear to the channel.
 
-If you did find a stuck/slow session, post to **#claude-code-feedback**
+If you did find a stuck/slow session, post to **#loom-feedback**
 (channel ID: `C07VBSHV7EV`) using the Slack MCP tool. Use ToolSearch to
 find `slack_send_message` if it's not already loaded.
 
 **Use a two-message structure** to keep the channel scannable:
 
-1. **Top-level message** — one short line: hostname, Claude Code version,
+1. **Top-level message** — one short line: hostname, Loom version,
    and a terse symptom (e.g. "session PID 12345 pegged at 100% CPU for
    10min" or "git subprocess hung in D state"). No code blocks, no
    details.
@@ -116,7 +116,7 @@ find `slack_send_message` if it's not already loaded.
    - Relevant debug log tail or `sample` output if you captured it
 
 If Slack MCP isn't available, format the report as a message the user can
-copy-paste into #claude-code-feedback (and let them know to thread the
+copy-paste into #loom-feedback (and let them know to thread the
 details themselves).
 
 ## Notes
@@ -338,14 +338,14 @@ cc::skills::SkillManifest get_stuck_skill_manifest() {
     return cc::skills::SkillManifest{
         .name = "stuck",
         .description =
-            "[ANT-ONLY] Investigate frozen/stuck/slow Claude Code sessions "
+            "[ANT-ONLY] Investigate frozen/stuck/slow Loom sessions "
             "on this machine and post a diagnostic report to "
-            "#claude-code-feedback.",
+            "#loom-feedback.",
         .version = "1.1.0",
         .triggers = {
             "stuck", "frozen", "session hung", "100% cpu",
             "high cpu", "slow session", "not responding",
-            "claudecode stuck", "/stuck",
+            "loomcode stuck", "/stuck",
         },
         .directory = {},
     };
@@ -358,18 +358,18 @@ cc::skills::SkillManifest get_stuck_skill_manifest() {
     return cc::skills::SkillDefinition{
         .name = "stuck",
         .description =
-            "[ANT-ONLY] Investigate frozen/stuck/slow Claude Code sessions "
+            "[ANT-ONLY] Investigate frozen/stuck/slow Loom sessions "
             "on this machine and post a diagnostic report to "
-            "#claude-code-feedback.",
+            "#loom-feedback.",
         .trigger_patterns = {
             R"(/stuck)",
             R"(\bstuck\b)",
             R"(frozen.*session)",
             R"(session.*hung)",
             R"(100\s*%.*cpu)",
-            R"(high\s+cpu.*(?:claude|cli))",
+            R"(high\s+cpu.*(?:loom|cli))",
             R"(slow.*(?:session|loop))",
-            R"(not\s+responding.*claude)",
+            R"(not\s+responding.*loom)",
         },
         .content = std::string(kStuckPrompt) +
 R"(

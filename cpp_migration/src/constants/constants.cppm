@@ -20,8 +20,8 @@ export namespace cc::core::constants {
 inline constexpr std::string_view kVersion = "1.0.0-cpp";
 inline constexpr std::string_view kBuildDate = "unknown";
 inline constexpr std::string_view kBuildTime = "unknown";
-inline constexpr std::string_view kAppName = "cc-repl";
-inline constexpr std::string_view kUserAgent = "cc-repl/1.0.0-cpp";
+inline constexpr std::string_view kAppName = "loom";
+inline constexpr std::string_view kUserAgent = "loom/1.0.0-cpp";
 
 // ============================================================
 
@@ -141,7 +141,7 @@ namespace tool_limits {
 
 // ============================================================
 namespace paths {
-    inline constexpr std::string_view kConfigDir = ".claude";
+    inline constexpr std::string_view kConfigDir = ".loom";
     inline constexpr std::string_view kConfigFile = "config.json";
     inline constexpr std::string_view kSessionsDir = "sessions";
     inline constexpr std::string_view kPluginsDir = "plugins";
@@ -178,16 +178,16 @@ namespace timeouts {
 
 // ============================================================
 namespace models {
-    inline constexpr std::string_view kClaude3Opus = "claude-3-opus-20240229";
-    inline constexpr std::string_view kClaude3Sonnet = "claude-3-sonnet-20240229";
-    inline constexpr std::string_view kClaude35Sonnet = "claude-3-5-sonnet-20241022";
-    inline constexpr std::string_view kClaude4Sonnet = "claude-sonnet-4-20250514";
-    inline constexpr std::string_view kClaude45Haiku = "claude-haiku-4-5-20251001";
-    inline constexpr std::string_view kClaude45Opus = "claude-opus-4-5";
-    inline constexpr std::string_view kClaude46Opus = "claude-opus-4-6";
-    inline constexpr std::string_view kClaude46Sonnet = "claude-sonnet-4-6";
+    inline constexpr std::string_view kLoomAccent3Opus = "claude-3-opus-20240229";
+    inline constexpr std::string_view kLoomAccent3Sonnet = "claude-3-sonnet-20240229";
+    inline constexpr std::string_view kLoomAccent35Sonnet = "claude-3-5-sonnet-20241022";
+    inline constexpr std::string_view kLoomAccent4Sonnet = "claude-sonnet-4-20250514";
+    inline constexpr std::string_view kLoomAccent45Haiku = "claude-haiku-4-5-20251001";
+    inline constexpr std::string_view kLoomAccent45Opus = "claude-opus-4-5";
+    inline constexpr std::string_view kLoomAccent46Opus = "claude-opus-4-6";
+    inline constexpr std::string_view kLoomAccent46Sonnet = "claude-sonnet-4-6";
     inline constexpr std::string_view kDefault = "claude-sonnet-4-20250514";
-    inline constexpr std::string_view kFrontierModelName = "Claude Opus 4.6";
+    inline constexpr std::string_view kFrontierModelName = "Loom Opus 4.6";
 }
 
 // ============================================================
@@ -279,11 +279,11 @@ namespace messages {
 
 // ============================================================
 namespace github_app {
-    inline constexpr std::string_view kPrTitle = "Add Claude Code GitHub Workflow";
+    inline constexpr std::string_view kPrTitle = "Add Loom GitHub Workflow";
     inline constexpr std::string_view kGitHubActionSetupDocsUrl = 
-        "https://github.com/anthropics/claude-code-action/blob/main/docs/setup.md";
+        "https://github.com/anthropics/loom-action/blob/main/docs/setup.md";
     
-    inline constexpr std::string_view kWorkflowContent = R"(name: Claude Code
+    inline constexpr std::string_view kWorkflowContent = R"(name: Loom
 
 on:
   issue_comment:
@@ -296,12 +296,12 @@ on:
     types: [submitted]
 
 jobs:
-  claude:
+  loom:
     if: |
-      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
-      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
-      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
-      (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@loom')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@loom')) ||
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@loom')) ||
+      (github.event_name == 'issues' && (contains(github.event.issue.body, '@loom') || contains(github.event.issue.title, '@loom')))
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -315,20 +315,20 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Run Claude Code
-        id: claude
-        uses: anthropics/claude-code-action@v1
+      - name: Run Loom
+        id: loom
+        uses: anthropics/loom-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
 )";
 
-    inline constexpr std::string_view kPrBody = R"(## 🤖 Installing Claude Code GitHub App
+    inline constexpr std::string_view kPrBody = R"(## 🤖 Installing Loom GitHub App
 
-This PR adds a GitHub Actions workflow that enables Claude Code integration in our repository.
+This PR adds a GitHub Actions workflow that enables Loom integration in our repository.
 
-### What is Claude Code?
+### What is Loom?
 
-[Claude Code](https://claude.com/claude-code) is an AI coding agent that can help with:
+[Loom](https://loom.com/loom) is an AI coding agent that can help with:
 - Bug fixes and improvements
 - Documentation updates
 - Implementing new features
@@ -338,27 +338,22 @@ This PR adds a GitHub Actions workflow that enables Claude Code integration in o
 
 ### How it works
 
-Once this PR is merged, we'll be able to interact with Claude by mentioning @claude in a pull request or issue comment.
-Once the workflow is triggered, Claude will analyze the comment and surrounding context, and execute on the request in a GitHub action.
+Once this PR is merged, we'll be able to interact with Loom by mentioning @loom in a pull request or issue comment.
+Once the workflow is triggered, Loom will analyze the comment and surrounding context, and execute on the request in a GitHub action.
 
 ### Important Notes
 
 - **This workflow won't take effect until this PR is merged**
-- **@claude mentions won't work until after the merge is complete**
-- The workflow runs automatically whenever Claude is mentioned in PR or issue comments
-- Claude gets access to the entire PR or issue context including files, diffs, and previous comments
+- **@loom mentions won't work until after the merge is complete**
+- The workflow runs automatically whenever Loom is mentioned in PR or issue comments
+- Loom gets access to the entire PR or issue context including files, diffs, and previous comments
 )";
 }
 
 // ============================================================
 
 // ============================================================
-namespace product {
-    inline constexpr std::string_view kProductUrl = "https://claude.com/claude-code";
-    inline constexpr std::string_view kClaudeAiBaseUrl = "https://claude.ai";
-    inline constexpr std::string_view kClaudeAiStagingBaseUrl = "https://claude-ai.staging.ant.dev";
-    inline constexpr std::string_view kClaudeAiLocalBaseUrl = "http://localhost:4000";
-}
+
 
 // ============================================================
 
@@ -451,9 +446,10 @@ namespace tool_names {
 namespace prompts {
     inline constexpr std::string_view kSystemPromptDynamicBoundary = 
         "__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__";
-    inline constexpr std::string_view kClaudeCodeDocsMapUrl = 
-        "https://code.claude.com/docs/en/claude_code_docs_map.md";
-    inline constexpr std::string_view kDefaultAgentPrompt = R"(You are an agent for Claude Code, Anthropic's official CLI for Claude. Given the user's message, you should use the tools available to complete the task. Complete the task fully—don't gold-plate, but don't leave it half-done. When you complete the task, respond with a concise report covering what was done and any key findings — the caller will relay this to the user, so it only needs the essentials.)";
+    // No docs-map URL: see product::docs_base(). An empty value keeps the
+    // prompt template intact without advertising a dead host.
+    inline constexpr std::string_view kLoomAccentCodeDocsMapUrl = "";
+    inline constexpr std::string_view kDefaultAgentPrompt = R"(You are an agent for Loom, a personal AI coding assistant. Given the user's message, you should use the tools available to complete the task. Complete the task fully—don't gold-plate, but don't leave it half-done. When you complete the task, respond with a concise report covering what was done and any key findings — the caller will relay this to the user, so it only needs the essentials.)";
 }
 
 // ============================================================
@@ -467,19 +463,19 @@ namespace xml_tags {
 
 // ============================================================
 namespace knowledge_cutoff {
-    inline constexpr std::string_view kClaude46Sonnet = "August 2025";
-    inline constexpr std::string_view kClaude46Opus = "May 2025";
-    inline constexpr std::string_view kClaude45Opus = "May 2025";
-    inline constexpr std::string_view kClaude4Haiku = "February 2025";
-    inline constexpr std::string_view kClaude4 = "January 2025";
+    inline constexpr std::string_view kLoomAccent46Sonnet = "August 2025";
+    inline constexpr std::string_view kLoomAccent46Opus = "May 2025";
+    inline constexpr std::string_view kLoomAccent45Opus = "May 2025";
+    inline constexpr std::string_view kLoomAccent4Haiku = "February 2025";
+    inline constexpr std::string_view kLoomAccent4 = "January 2025";
 
     [[nodiscard]] inline std::optional<std::string_view> get_for_model(std::string_view model_id) {
-        if (model_id.find("claude-sonnet-4-6") != std::string_view::npos) return kClaude46Sonnet;
-        if (model_id.find("claude-opus-4-6") != std::string_view::npos) return kClaude46Opus;
-        if (model_id.find("claude-opus-4-5") != std::string_view::npos) return kClaude45Opus;
-        if (model_id.find("claude-haiku-4") != std::string_view::npos) return kClaude4Haiku;
+        if (model_id.find("claude-sonnet-4-6") != std::string_view::npos) return kLoomAccent46Sonnet;
+        if (model_id.find("claude-opus-4-6") != std::string_view::npos) return kLoomAccent46Opus;
+        if (model_id.find("claude-opus-4-5") != std::string_view::npos) return kLoomAccent45Opus;
+        if (model_id.find("claude-haiku-4") != std::string_view::npos) return kLoomAccent4Haiku;
         if (model_id.find("claude-opus-4") != std::string_view::npos || 
-            model_id.find("claude-sonnet-4") != std::string_view::npos) return kClaude4;
+            model_id.find("claude-sonnet-4") != std::string_view::npos) return kLoomAccent4;
         return std::nullopt;
     }
 }

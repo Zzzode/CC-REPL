@@ -30,10 +30,10 @@ struct MemoryHeader {
 
 /// System prompt used for memory selection
 inline constexpr std::string_view kSelectMemoriesSystemPrompt =
-    "You are selecting memories that will be useful to Claude Code as it processes "
+    "You are selecting memories that will be useful to Loom as it processes "
     "a user's query. You will be given the user's query and a list of available memory "
     "files with their filenames and descriptions.\n\n"
-    "Return a list of filenames for the memories that will clearly be useful to Claude "
+    "Return a list of filenames for the memories that will clearly be useful to Loom "
     "Code as it processes the user's query (up to 5). Only include memories that you are "
     "certain will be helpful based on their name and description.\n"
     "- If you are unsure if a memory will be useful in processing the user's query, then "
@@ -41,7 +41,7 @@ inline constexpr std::string_view kSelectMemoriesSystemPrompt =
     "- If there are no memories in the list that would clearly be useful, feel free to "
     "return an empty list.\n"
     "- If a list of recently-used tools is provided, do not select memories that are "
-    "usage reference or API documentation for those tools (Claude Code is already "
+    "usage reference or API documentation for those tools (Loom is already "
     "exercising them). DO still select memories containing warnings, gotchas, or known "
     "issues about those tools — active use is exactly when those matter.";
 

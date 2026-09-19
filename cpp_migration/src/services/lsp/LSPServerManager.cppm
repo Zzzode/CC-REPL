@@ -110,12 +110,12 @@ inline void replace_all(std::string& value, std::string_view needle, std::string
 
 [[nodiscard]] fs::path plugin_data_dir(std::string_view plugin_id) {
     fs::path plugins_dir;
-    if (const char* override_dir = std::getenv("CLAUDE_CODE_PLUGIN_CACHE_DIR")) {
+    if (const char* override_dir = std::getenv("LOOM_PLUGIN_CACHE_DIR")) {
         plugins_dir = override_dir;
     } else if (const char* home = std::getenv("HOME")) {
-        plugins_dir = fs::path{home} / ".claude" / "plugins";
+        plugins_dir = fs::path{home} / ".loom" / "plugins";
     } else {
-        plugins_dir = fs::current_path() / ".claude" / "plugins";
+        plugins_dir = fs::current_path() / ".loom" / "plugins";
     }
     auto dir = plugins_dir / "data" / sanitize_plugin_data_id(plugin_id);
     std::error_code ec;
@@ -177,18 +177,18 @@ inline void merge_plugin_lsp_user_config_from_settings(
     std::unordered_map<std::string, std::string> values;
     if (const char* home = std::getenv("HOME")) {
         merge_plugin_lsp_user_config_from_settings(
-            fs::path{home} / ".claude" / "settings.json",
+            fs::path{home} / ".loom" / "settings.json",
             plugin_name,
             values
         );
     }
     merge_plugin_lsp_user_config_from_settings(
-        fs::current_path() / ".claude" / "settings.json",
+        fs::current_path() / ".loom" / "settings.json",
         plugin_name,
         values
     );
     merge_plugin_lsp_user_config_from_settings(
-        fs::current_path() / ".claude" / "settings.local.json",
+        fs::current_path() / ".loom" / "settings.local.json",
         plugin_name,
         values
     );
@@ -201,8 +201,8 @@ inline void merge_plugin_lsp_user_config_from_settings(
     std::string_view plugin_name,
     const std::unordered_map<std::string, std::string>& user_config
 ) {
-    replace_all(value, "${CLAUDE_PLUGIN_ROOT}", plugin_dir.string());
-    replace_all(value, "${CLAUDE_PLUGIN_DATA}", plugin_data_dir(plugin_name).string());
+    replace_all(value, "${LOOM_PLUGIN_ROOT}", plugin_dir.string());
+    replace_all(value, "${LOOM_PLUGIN_DATA}", plugin_data_dir(plugin_name).string());
 
     std::string resolved;
     resolved.reserve(value.size());
@@ -297,8 +297,8 @@ inline void merge_plugin_lsp_user_config_from_settings(
         if (!resolved) return std::nullopt;
         server.workspace_folder = std::move(*resolved);
     }
-    server.env.try_emplace("CLAUDE_PLUGIN_ROOT", plugin_dir.string());
-    server.env.try_emplace("CLAUDE_PLUGIN_DATA", plugin_data_dir(plugin_name).string());
+    server.env.try_emplace("LOOM_PLUGIN_ROOT", plugin_dir.string());
+    server.env.try_emplace("LOOM_PLUGIN_DATA", plugin_data_dir(plugin_name).string());
     return server;
 }
 
@@ -440,9 +440,9 @@ inline void merge_plugin_lsp_servers(
     std::vector<PluginLspServerDefinition> servers;
     std::vector<fs::path> roots;
     if (const char* home = std::getenv("HOME")) {
-        roots.push_back(fs::path{home} / ".claude" / "plugins");
+        roots.push_back(fs::path{home} / ".loom" / "plugins");
     }
-    roots.push_back(fs::current_path() / ".claude" / "plugins");
+    roots.push_back(fs::current_path() / ".loom" / "plugins");
 
     for (const auto& root : roots) {
         std::error_code ec;
@@ -552,32 +552,32 @@ Result<void> LSPServerManager::initialize() {
     
     register_server(
         "typescript",
-        env_or("CC_REPL_TYPESCRIPT_LANGUAGE_SERVER", "typescript-language-server"),
+        env_or("LOOM_TYPESCRIPT_LANGUAGE_SERVER", "typescript-language-server"),
         {"--stdio"},
         {{"ts", "typescript"}, {"tsx", "typescriptreact"}, {"js", "javascript"}, {"jsx", "javascriptreact"}});
     register_server(
         "python",
-        env_or("CC_REPL_PYTHON_LANGUAGE_SERVER", "pyright-langserver"),
+        env_or("LOOM_PYTHON_LANGUAGE_SERVER", "pyright-langserver"),
         {"--stdio"},
         {{"py", "python"}});
     register_server(
         "rust",
-        env_or("CC_REPL_RUST_LANGUAGE_SERVER", "rust-analyzer"),
+        env_or("LOOM_RUST_LANGUAGE_SERVER", "rust-analyzer"),
         {},
         {{"rs", "rust"}});
     register_server(
         "go",
-        env_or("CC_REPL_GO_LANGUAGE_SERVER", "gopls"),
+        env_or("LOOM_GO_LANGUAGE_SERVER", "gopls"),
         {},
         {{"go", "go"}});
     register_server(
         "cpp",
-        env_or("CC_REPL_CPP_LANGUAGE_SERVER", "clangd"),
+        env_or("LOOM_CPP_LANGUAGE_SERVER", "clangd"),
         {},
         {{"c", "c"}, {"cc", "cpp"}, {"cpp", "cpp"}, {"cxx", "cpp"}, {"h", "c"}, {"hpp", "cpp"}});
     register_server(
         "java",
-        env_or("CC_REPL_JAVA_LANGUAGE_SERVER", "jdtls"),
+        env_or("LOOM_JAVA_LANGUAGE_SERVER", "jdtls"),
         {},
         {{"java", "java"}});
     for (auto& server : discover_plugin_lsp_servers()) {

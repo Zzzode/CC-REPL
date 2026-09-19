@@ -1012,8 +1012,8 @@ constexpr auto collect_team_native_agents = &runtime_team_shared::collect_team_n
 }
 
 [[nodiscard]] fs::path config_path() {
-    if (const char* home = std::getenv("HOME")) return fs::path{home} / ".cc-repl" / "config.json";
-    return fs::path{".cc-repl"} / "config.json";
+    if (const char* home = std::getenv("HOME")) return fs::path{home} / ".loom" / "config.json";
+    return fs::path{".loom"} / "config.json";
 }
 
 [[nodiscard]] Result<ToolResult> execute_config_tool(const ToolInput& input) {
@@ -1162,7 +1162,7 @@ constexpr auto collect_team_native_agents = &runtime_team_shared::collect_team_n
     // TS REF: src/tools.ts:36-38 (AGENT_TRIGGERS_REMOTE)
     // In CPP, remote_trigger has a working implementation (cc.tools.remote_trigger),
     // so it is registered unconditionally.  Runtime behavior is controlled by
-    // CC_REPL_REMOTE_TRIGGER_COMMAND env var.
+    // LOOM_REMOTE_TRIGGER_COMMAND env var.
     names.push_back("remote_trigger");
     // TS REF: src/tools.ts:16-19 (USER_TYPE==='ant' — REPLTool)
     // In CPP, "repl" delegates to execute_script() which has a working
@@ -1331,7 +1331,7 @@ constexpr auto collect_team_native_agents = &runtime_team_shared::collect_team_n
 [[nodiscard]] std::expected<std::string, std::string> run_computer_use_command_backend(
     const cc::core::computer_use::ComputerAction& action
 ) {
-    auto* command_env = std::getenv("CC_REPL_COMPUTER_USE_CMD");
+    auto* command_env = std::getenv("LOOM_COMPUTER_USE_CMD");
     if (!command_env || std::string_view(command_env).empty()) {
         return std::unexpected("Computer-use command backend is not configured");
     }
@@ -1405,7 +1405,7 @@ struct ComputerUseCommandBackendResult {
 }
 
 [[nodiscard]] std::optional<cc::core::computer_use::CaptureProvider> computer_use_command_capture_provider() {
-    auto* command_env = std::getenv("CC_REPL_COMPUTER_USE_CMD");
+    auto* command_env = std::getenv("LOOM_COMPUTER_USE_CMD");
     if (!command_env || std::string_view(command_env).empty()) return std::nullopt;
     return [](std::optional<cc::core::computer_use::Rect> region)
         -> std::expected<cc::core::computer_use::ImageData, std::string> {
@@ -1439,7 +1439,7 @@ struct ComputerUseCommandBackendResult {
 }
 
 [[nodiscard]] std::optional<cc::core::computer_use::InputProvider> computer_use_command_input_provider() {
-    auto* command_env = std::getenv("CC_REPL_COMPUTER_USE_CMD");
+    auto* command_env = std::getenv("LOOM_COMPUTER_USE_CMD");
     if (!command_env || std::string_view(command_env).empty()) return std::nullopt;
     return [](const cc::core::computer_use::ComputerAction& action) -> std::expected<void, std::string> {
         auto output = run_computer_use_command_backend(action);
@@ -1644,7 +1644,7 @@ connected_computer_use_mcp_server() {
 }
 
 [[nodiscard]] Result<ToolResult> execute_brief(const ToolInput& input) {
-    auto brief_path = fs::current_path() / ".cc-repl" / "brief.md";
+    auto brief_path = fs::current_path() / ".loom" / "brief.md";
     fs::create_directories(brief_path.parent_path());
     if (auto content = json_string(input.json(), "content").or_else([&] { return json_string(input.json(), "brief"); })) {
         std::ofstream out(brief_path);
@@ -1981,7 +1981,7 @@ constexpr auto try_start_native_agent_resume = &runtime_message_delivery::try_st
             return ToolResult::success(*delivered);
         }
 
-        const char* command = std::getenv("CC_REPL_REMOTE_TRIGGER_COMMAND");
+        const char* command = std::getenv("LOOM_REMOTE_TRIGGER_COMMAND");
         if (!command) return ToolResult::error("remote_trigger requires target and message");
         auto payload = json_string(json, "payload").value_or(std::string(json));
         return run_command(std::format("{} {}", command, runtime_shell_quote(payload)));
@@ -2086,10 +2086,10 @@ constexpr auto try_start_native_agent_resume = &runtime_message_delivery::try_st
         // the live teammate projection / pane observer / leader permission
         // inbox never activate because get_team_name() stays empty.
         // TS REF: TeamCreateTool sets setLeaderTeamName + AppState.teamContext.
-        if (std::getenv("CC_REPL_TEAM_NAME") == nullptr &&
+        if (std::getenv("LOOM_TEAM_NAME") == nullptr &&
             std::getenv("CLAUDE_CODE_TEAM_NAME") == nullptr &&
             !(*result)->name.empty()) {
-            ::setenv("CC_REPL_TEAM_NAME", (*result)->name.c_str(), 1);
+            ::setenv("LOOM_TEAM_NAME", (*result)->name.c_str(), 1);
             // task-list resolution also tracks the leader team.
             cc::utils::set_leader_team_name((*result)->name);
         }
@@ -2563,7 +2563,7 @@ void register_runtime_tools(cc::core::ToolRegistry& registry, RuntimeToolOptions
         }, "computer_use"));
     registry.register_tool(simple("brief", "Read or write the workspace brief",
         ToolPermission::Write, {prop("content", "string", "Brief content to save", false)}, "context"));
-    registry.register_tool(simple("config", "Read or update CC-REPL configuration",
+    registry.register_tool(simple("config", "Read or update LOOM configuration",
         ToolPermission::Write, {prop("action", "string", "get or set", false)}, "config"));
     registry.register_tool(simple("enter_plan_mode", "Enter plan mode",
         ToolPermission::Write, {}, "planning"));
@@ -2635,7 +2635,7 @@ void register_runtime_tools(cc::core::ToolRegistry& registry, RuntimeToolOptions
     // TS REF: src/tools.ts:36-38, 238 (RemoteTriggerTool — AGENT_TRIGGERS_REMOTE)
     // In CPP, remote_trigger has a working implementation (cc.tools.remote_trigger),
     // so it is registered unconditionally.  Runtime behavior is controlled by
-    // CC_REPL_REMOTE_TRIGGER_COMMAND env var.
+    // LOOM_REMOTE_TRIGGER_COMMAND env var.
     registry.register_tool(simple("remote_trigger", "Invoke a configured remote trigger command",
         ToolPermission::Execute, {prop("payload", "string", "Trigger payload", false)}, "remote"));
     // TS REF: src/tools.ts:16-19, 234 (REPLTool — USER_TYPE==='ant')
@@ -2687,7 +2687,7 @@ void register_runtime_tools(cc::core::ToolRegistry& registry, RuntimeToolOptions
             prop("use_fork_model", "boolean",
                  "True if the skill runs in a forked isolated session", false),
             prop("fork_model", "boolean", "Alias for use_fork_model", false),
-            prop("session_id", "string", "Session identifier for ${CLAUDE_SESSION_ID}", false),
+            prop("session_id", "string", "Session identifier for ${LOOM_SESSION_ID}", false),
             prop("name", "string", "Alias for skill_path", false),
         }, "skills"));
     // TS REF: src/tools.ts:25-28, 236 (SleepTool — PROACTIVE || KAIROS)
@@ -2797,7 +2797,7 @@ void register_runtime_tools(cc::core::ToolRegistry& registry, RuntimeToolOptions
         registry.register_tool(simple("list_peers", "List connected peer sessions",
             ToolPermission::ReadOnly, {}, "peers"));
     }
-    // TS REF: src/tools.ts:91-96, 233 (VerifyPlanExecutionTool — CLAUDE_CODE_VERIFY_PLAN)
+    // TS REF: src/tools.ts:91-96, 233 (VerifyPlanExecutionTool — LOOM_VERIFY_PLAN)
     if constexpr (features::kVerifyPlanExecution) {
         registry.register_tool(simple("verify_plan_execution", "Verify that a plan execution matches expectations",
             ToolPermission::ReadOnly, {prop("plan", "string", "Plan to verify", true)}, "planning"));

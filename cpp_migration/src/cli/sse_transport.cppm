@@ -401,7 +401,7 @@ private:
         // payloads would be worse than no transport at all.
         SSL_CTX_set_verify(tls_->ctx, SSL_VERIFY_PEER, nullptr);
         SSL_CTX_set_default_verify_paths(tls_->ctx);
-        if (const char* ca_env = std::getenv("CC_REPL_CA_BUNDLE");
+        if (const char* ca_env = std::getenv("LOOM_CA_BUNDLE");
             ca_env && *ca_env) {
             SSL_CTX_load_verify_locations(tls_->ctx, ca_env, nullptr);
         } else if (const char* ssl_cert = std::getenv("SSL_CERT_FILE");

@@ -69,10 +69,10 @@ constexpr std::string_view kTrustDisclaimerPrefix = " ";
 /// ultimately decides whether to add custom text.
 [[nodiscard]] constexpr bool is_trusted_marketplace_domain(std::string_view domain) noexcept
 {
-    // Anthropic / Claude official domains.
+    // Anthropic / Loom official domains.
     if (domain == "marketplace.anthropic.com") return true;
     if (domain == "api.anthropic.com")         return true;
-    if (domain == "claudecode.app")            return true;
+    if (domain == "loomcode.app")            return true;
     if (domain == "anthropic.com")             return true;
     return false;
 }

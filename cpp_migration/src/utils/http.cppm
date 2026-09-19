@@ -47,7 +47,7 @@ struct HttpConfig {
     uint32_t timeout_ms{30'000};
     uint32_t max_retries{3};
     uint32_t retry_backoff_ms{250};
-    std::string user_agent{"cc-repl/2.0"};
+    std::string user_agent{"loom/2.0"};
 };
 
 

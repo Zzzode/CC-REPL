@@ -240,7 +240,7 @@ private:
     }
 
     /**
-     * Persist always-allowed tools to disk (~/.claude/permissions.json).
+     * Persist always-allowed tools to disk (~/.loom/permissions.json).
      */
     void persist_always_allowed() {
         // Implementation delegates to cc::utils::fs for file writing

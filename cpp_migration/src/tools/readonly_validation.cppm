@@ -447,9 +447,9 @@ inline const std::vector<std::regex>& readonly_command_regexes() {
         v.push_back(std::regex(
             R"(^echo(?:\s+(?:'[^']*'|"[^"$<>\n\r]*"|[^|;&`$(){}><#\\!"'\s]+))*(?:\s+2>&1)?\s*$)"));
 
-        // Claude CLI help
-        v.push_back(std::regex(R"(^claude -h$)"));
-        v.push_back(std::regex(R"(^claude --help$)"));
+        // Loom CLI help
+        v.push_back(std::regex(R"(^loom -h$)"));
+        v.push_back(std::regex(R"(^loom --help$)"));
 
         // uniq (flags only, no in-place files)
         v.push_back(std::regex(

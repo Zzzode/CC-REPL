@@ -36,7 +36,7 @@ struct MemoryEntry {
 
 
 struct MemdirConfig {
-    std::filesystem::path global_dir;        // ~/.cc-repl/memory/
+    std::filesystem::path global_dir;        // ~/.loom/memory/
     std::filesystem::path project_dir;
     size_t max_memories_per_scope{500};
 };
@@ -114,9 +114,9 @@ public:
 
     [[nodiscard]] auto get_project_context(const std::filesystem::path& cwd) const -> std::string {
 
-        auto claude_md = cwd / "CLAUDE.md";
-        if (std::filesystem::exists(claude_md)) {
-            std::ifstream in(claude_md);
+        auto loom_md = cwd / "LOOM.md";
+        if (std::filesystem::exists(loom_md)) {
+            std::ifstream in(loom_md);
             std::ostringstream buffer;
             buffer << in.rdbuf();
             return buffer.str();
@@ -163,8 +163,8 @@ private:
     static auto get_default_config() -> MemdirConfig {
         std::filesystem::path home = std::getenv("HOME") ? std::getenv("HOME") : ".";
         return {
-            .global_dir = home / ".cc-repl" / "memory",
-            .project_dir = ".cc-repl" / std::filesystem::path("memory"),
+            .global_dir = home / ".loom" / "memory",
+            .project_dir = ".loom" / std::filesystem::path("memory"),
             .max_memories_per_scope = 500
         };
     }

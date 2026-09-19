@@ -129,7 +129,7 @@ public:
         if (opts.use_sandbox && opts.sandbox_tmp_dir) {
             cwd_file_path = *opts.sandbox_tmp_dir + "/cwd-" + opts.id;
         } else {
-            cwd_file_path = tmp_dir + "/claude-" + opts.id + "-cwd";
+            cwd_file_path = tmp_dir + "/loom-" + opts.id + "-cwd";
         }
 
         std::vector<std::string> parts;
@@ -192,10 +192,10 @@ public:
     [[nodiscard]] std::map<std::string, std::string>
     get_environment_overrides(std::string_view command) override {
         std::map<std::string, std::string> env;
-        env["CLAUDE_CODE_SHELL_PROVIDER"] = "native";
-        env["CLAUDE_CODE_SHELL_TYPE"] = "bash";
-        if (!command.empty()) env["CLAUDE_CODE_LAST_COMMAND"] = std::string(command);
-        if (snapshot_path_) env["CLAUDE_CODE_SHELL_SNAPSHOT"] = *snapshot_path_;
+        env["LOOM_SHELL_PROVIDER"] = "native";
+        env["LOOM_SHELL_TYPE"] = "bash";
+        if (!command.empty()) env["LOOM_LAST_COMMAND"] = std::string(command);
+        if (snapshot_path_) env["LOOM_SHELL_SNAPSHOT"] = *snapshot_path_;
         return env;
     }
 
@@ -206,7 +206,7 @@ private:
         if (shell.empty() || !fs::exists(shell)) return std::nullopt;
 
         auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
-        auto path = fs::temp_directory_path() / ("cc-repl-shell-snapshot-" + std::to_string(stamp) + ".sh");
+        auto path = fs::temp_directory_path() / ("loom-shell-snapshot-" + std::to_string(stamp) + ".sh");
         std::string command = shell_quote(shell) + " -l -c " +
             shell_quote("export -p") + " > " + shell_quote(path.string()) + " 2>/dev/null";
         int status = std::system(command.c_str());
@@ -255,9 +255,9 @@ private:
         return prefix + " " + shell_quote(command);
     }
 
-    /// Get CLAUDE_CODE_SHELL_PREFIX env var
+    /// Get LOOM_SHELL_PREFIX env var
     [[nodiscard]] static std::optional<std::string> get_shell_prefix() {
-        if (const char* val = std::getenv("CLAUDE_CODE_SHELL_PREFIX")) {
+        if (const char* val = std::getenv("LOOM_SHELL_PREFIX")) {
             return std::string(val);
         }
         return std::nullopt;
@@ -298,7 +298,7 @@ public:
         if (opts.use_sandbox && opts.sandbox_tmp_dir) {
             cwd_file_path = *opts.sandbox_tmp_dir + "/cwd-" + opts.id;
         } else {
-            cwd_file_path = tmp_dir + "/claude-" + opts.id + "-cwd";
+            cwd_file_path = tmp_dir + "/loom-" + opts.id + "-cwd";
         }
 
         // PowerShell command wrapping
@@ -328,9 +328,9 @@ public:
     [[nodiscard]] std::map<std::string, std::string>
     get_environment_overrides(std::string_view command) override {
         std::map<std::string, std::string> env;
-        env["CLAUDE_CODE_SHELL_PROVIDER"] = "native";
-        env["CLAUDE_CODE_SHELL_TYPE"] = "powershell";
-        if (!command.empty()) env["CLAUDE_CODE_LAST_COMMAND"] = std::string(command);
+        env["LOOM_SHELL_PROVIDER"] = "native";
+        env["LOOM_SHELL_TYPE"] = "powershell";
+        if (!command.empty()) env["LOOM_LAST_COMMAND"] = std::string(command);
         return env;
     }
 
@@ -416,10 +416,10 @@ private:
 // ============================================================================
 
 /// Resolves the default shell for the current user/platform.
-/// Priority: CLAUDE_CODE_SHELL env > SHELL env > platform default.
+/// Priority: LOOM_SHELL env > SHELL env > platform default.
 [[nodiscard]] inline std::string resolve_default_shell() {
     // 1. Explicit override
-    if (const char* shell = std::getenv("CLAUDE_CODE_SHELL")) {
+    if (const char* shell = std::getenv("LOOM_SHELL")) {
         if (fs::exists(shell)) return shell;
     }
 

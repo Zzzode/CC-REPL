@@ -42,7 +42,7 @@ Cache& cache() {
 
 fs::path sidecar_path() {
     if (const char* home = std::getenv("HOME")) {
-        return fs::path(home) / ".claude" / "skill_usage.json";
+        return fs::path(home) / ".loom" / "skill_usage.json";
     }
     return fs::path{"skill_usage.json"};
 }

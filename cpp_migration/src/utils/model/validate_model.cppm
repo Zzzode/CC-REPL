@@ -22,9 +22,9 @@ struct ValidatedModelInfo {
 namespace detail {
     inline const std::vector<ValidatedModelInfo>& known_models() {
         static const std::vector<ValidatedModelInfo> models = {
-            {"claude-sonnet-4-20250514", "Claude Sonnet 4", 200000, 16384},
-            {"claude-opus-4-20250514",   "Claude Opus 4",   200000, 32768},
-            {"claude-haiku-4-20250514",  "Claude Haiku 4",  200000, 8192},
+            {"claude-sonnet-4-20250514", "Loom Sonnet 4", 200000, 16384},
+            {"claude-opus-4-20250514",   "Loom Opus 4",   200000, 32768},
+            {"claude-haiku-4-20250514",  "Loom Haiku 4",  200000, 8192},
         };
         return models;
     }

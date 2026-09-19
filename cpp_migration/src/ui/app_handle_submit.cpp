@@ -416,8 +416,8 @@ void AppAdapter::HandleCommand(std::string_view cmd) {
                 if (!skill->user_invocable) {
                     AppendLocalCommandInputMessage(std::string(normalized));
                     AppendLocalCommandMessage(
-                        std::format("This skill can only be invoked by Claude, not "
-                                    "directly by users. Ask Claude to use the \"{}\" skill.",
+                        std::format("This skill can only be invoked by Loom, not "
+                                    "directly by users. Ask Loom to use the \"{}\" skill.",
                                     skill->name),
                         true);
                     return;

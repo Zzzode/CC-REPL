@@ -16,7 +16,7 @@ using std::filesystem::path;
 
 
 auto get_workflow_template() -> std::string {
-    return R"yaml(name: Claude Code Review
+    return R"yaml(name: Loom Review
 on:
   pull_request:
     types: [opened, synchronize]
@@ -30,8 +30,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Run Claude Code Review
-        uses: anthropics/claude-code-action@v1
+      - name: Run Loom Review
+        uses: anthropics/loom-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
 )yaml";
@@ -65,7 +65,7 @@ auto write_workflow_file(path repo_root, std::string_view content) -> std::expec
         return std::unexpected("Failed to create workflow directory: " + ec.message());
     }
 
-    auto file_path = workflow_dir / "claude-review.yml";
+    auto file_path = workflow_dir / "loom-review.yml";
 
     std::ofstream output{file_path, std::ios::trunc};
     if (!output) {
@@ -80,14 +80,14 @@ auto write_workflow_file(path repo_root, std::string_view content) -> std::expec
 
 
 auto check_existing_workflow(path repo_root) -> std::optional<path> {
-    auto workflow_path = repo_root / ".github" / "workflows" / "claude-review.yml";
+    auto workflow_path = repo_root / ".github" / "workflows" / "loom-review.yml";
 
     if (std::filesystem::exists(workflow_path)) {
         return workflow_path;
     }
 
 
-    auto alt_path = repo_root / ".github" / "workflows" / "claude-code.yml";
+    auto alt_path = repo_root / ".github" / "workflows" / "loom.yml";
     if (std::filesystem::exists(alt_path)) {
         return alt_path;
     }

@@ -3,7 +3,7 @@
 /// Migrated from src/tools/AgentTool/agentMemorySnapshot.ts.
 ///
 /// A snapshot is a copy of an agent's memory files stored under
-/// `<cwd>/.claude/agent-memory-snapshots/<agentType>/`.  The snapshot includes
+/// `<cwd>/.loom/agent-memory-snapshots/<agentType>/`.  The snapshot includes
 /// a metadata file `snapshot.json` (with an `updatedAt` ISO timestamp) and one
 /// or more `*.md` files.  When an agent is spawned, if the agent has no local
 /// memory yet the snapshot is copied in (first-run initialization); if the
@@ -45,13 +45,13 @@ inline constexpr std::string_view SYNCED_JSON   = ".snapshot-synced.json";
 // Path helpers
 // ---------------------------------------------------------------------------
 
-/// `<cwd>/.claude/agent-memory-snapshots/<agentType>/`
+/// `<cwd>/.loom/agent-memory-snapshots/<agentType>/`
 [[nodiscard]] inline fs::path snapshot_dir_for_agent(
     std::string_view agent_type,
     const std::optional<fs::path>& working_dir = std::nullopt
 ) {
     const auto cwd = working_dir ? *working_dir : fs::current_path();
-    return cwd / ".claude" / SNAPSHOT_BASE / sanitize_agent_type_for_path(agent_type);
+    return cwd / ".loom" / SNAPSHOT_BASE / sanitize_agent_type_for_path(agent_type);
 }
 
 [[nodiscard]] inline fs::path snapshot_json_path(

@@ -229,13 +229,18 @@ using namespace skill_detail;
 [[nodiscard]] std::vector<fs::path> skill_root_dirs() {
     std::vector<fs::path> roots;
     if (const char* home = std::getenv("HOME")) {
-        roots.emplace_back(fs::path(home) / ".claude" / "skills");
+        // Two distinct install locations that must both keep working: the
+        // app's own config dir, and the legacy one users already have skills
+        // in. (Historically ".claude" and ".cc-repl" -- the rename collapsed
+        // them into one entry, which made the same directory get scanned twice
+        // and every skill counted double.)
+        roots.emplace_back(fs::path(home) / ".loom" / "skills");
         roots.emplace_back(fs::path(home) / ".cc-repl" / "skills");
         roots.emplace_back(fs::path(home) / ".codex" / "skills");
         roots.emplace_back(fs::path(home) / ".agents" / "skills");
     }
-    roots.emplace_back("/usr/local/share/cc-repl/skills");
-    roots.emplace_back("/opt/cc-repl/skills");
+    roots.emplace_back("/usr/local/share/loom/skills");
+    roots.emplace_back("/opt/loom/skills");
     std::error_code ec;
     auto cwd = fs::current_path(ec);
     if (!ec) roots.emplace_back(cwd / "skills");
@@ -715,7 +720,7 @@ execute_skill_tool_simple(std::string_view input_json)
             "The '" + action_name + "' action requires a skill source (local directory, "
             "git URL, or marketplace), which is not available in this build. To add a "
             "skill, place its SKILL.md under a skill root (e.g. "
-            "~/.claude/skills/<name>/SKILL.md) and use the 'list' or 'execute' action.";
+            "~/.loom/skills/<name>/SKILL.md) and use the 'list' or 'execute' action.";
         return std::string("{\"ok\": false, \"error\": ") + json_string_val(msg) + "}";
     }
 
@@ -744,8 +749,8 @@ execute_skill_tool_simple(std::string_view input_json)
 
     LookupFn lookup = [&](std::string_view name) -> std::optional<std::string> {
         if (name == "ARGUMENTS") return arguments_json;
-        if (name == "CLAUDE_SKILL_DIR") return canon_dir_str;
-        if (name == "CLAUDE_SESSION_ID") {
+        if (name == "LOOM_SKILL_DIR") return canon_dir_str;
+        if (name == "LOOM_SESSION_ID") {
             if (input->session_id) return *input->session_id;
             return std::nullopt;
         }

@@ -10,19 +10,19 @@ module;
 #include <utility>
 #include <vector>
 
-export module cc.utils.claude_code_hints;
+export module cc.utils.loom_code_hints;
 
-export namespace cc::utils::claude_code_hints {
+export namespace cc::utils::loom_hints {
 
-struct ClaudeCodeHint {
+struct LoomHint {
     int v{};
     std::string type;
     std::string value;
     std::string source_command;
 };
 
-struct ExtractedClaudeCodeHints {
-    std::vector<ClaudeCodeHint> hints;
+struct ExtractedLoomHints {
+    std::vector<LoomHint> hints;
     std::string stripped;
 };
 
@@ -52,7 +52,7 @@ namespace detail {
     [[nodiscard]] inline bool is_hint_tag_line(std::string_view raw_line) noexcept {
         if (!raw_line.empty() && raw_line.back() == '\r') raw_line.remove_suffix(1);
         const auto line = trim_horizontal(raw_line);
-        constexpr std::string_view prefix = "<claude-code-hint";
+        constexpr std::string_view prefix = "<loom-hint";
         if (!starts_with(line, prefix) || !ends_with(line, "/>")) return false;
         if (line.size() == prefix.size() + 2) return true;
         const char after_prefix = line[prefix.size()];
@@ -131,12 +131,12 @@ namespace detail {
     return std::string(command.substr(0, end));
 }
 
-[[nodiscard]] inline ExtractedClaudeCodeHints extract_claude_code_hints(std::string_view output, std::string_view command) {
-    if (output.find("<claude-code-hint") == std::string_view::npos) {
+[[nodiscard]] inline ExtractedLoomHints extract_loom_hints(std::string_view output, std::string_view command) {
+    if (output.find("<loom-hint") == std::string_view::npos) {
         return {.hints = {}, .stripped = std::string(output)};
     }
 
-    ExtractedClaudeCodeHints result;
+    ExtractedLoomHints result;
     result.stripped.reserve(output.size());
     const std::string source_command = first_command_token(command);
     bool matched_any_line = false;
@@ -156,7 +156,7 @@ namespace detail {
             const auto value_it = attrs.find("value");
             const auto version = v_it == attrs.end() ? std::optional<int>{} : detail::parse_int(v_it->second);
             if (version == 1 && type_it != attrs.end() && type_it->second == "plugin" && value_it != attrs.end() && !value_it->second.empty()) {
-                result.hints.push_back(ClaudeCodeHint{.v = *version, .type = type_it->second, .value = value_it->second, .source_command = source_command});
+                result.hints.push_back(LoomHint{.v = *version, .type = type_it->second, .value = value_it->second, .source_command = source_command});
             }
             if (has_newline) result.stripped.push_back('\n');
         } else {
@@ -192,7 +192,7 @@ public:
         };
     }
 
-    void set_pending_hint(ClaudeCodeHint hint) {
+    void set_pending_hint(LoomHint hint) {
         if (shown_this_session_) return;
         pending_hint_ = std::move(hint);
         notify();
@@ -208,7 +208,7 @@ public:
         shown_this_session_ = true;
     }
 
-    [[nodiscard]] std::optional<ClaudeCodeHint> get_pending_hint_snapshot() const {
+    [[nodiscard]] std::optional<LoomHint> get_pending_hint_snapshot() const {
         return pending_hint_;
     }
 
@@ -227,10 +227,10 @@ private:
         for (const auto& [_, callback] : subscribers) callback();
     }
 
-    std::optional<ClaudeCodeHint> pending_hint_;
+    std::optional<LoomHint> pending_hint_;
     bool shown_this_session_ = false;
     std::size_t next_subscription_id_ = 1;
     std::vector<std::pair<std::size_t, Callback>> subscribers_;
 };
 
-} // namespace cc::utils::claude_code_hints
+} // namespace cc::utils::loom_hints

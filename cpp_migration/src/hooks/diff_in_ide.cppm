@@ -176,7 +176,7 @@ namespace detail {
 }
 
 /// Generate the IDE tab name for a diff view.
-/// TS REF: src/hooks/useDiffInIDE.ts:62-65 (tabName = `✻ [Claude Code] ${basename(filePath)} (${sha}) ⧉`)
+/// TS REF: src/hooks/useDiffInIDE.ts:62-65 (tabName = `✻ [Loom] ${basename(filePath)} (${sha}) ⧉`)
 [[nodiscard]] inline auto generate_tab_name(std::string_view file_path, std::string_view sha) -> std::string {
     // Extract basename
     auto pos = file_path.find_last_of("/\\");
@@ -184,7 +184,7 @@ namespace detail {
         ? std::string{file_path.substr(pos + 1)}
         : std::string{file_path};
 
-    return std::string{"[Claude Code] "} + basename + " (" + std::string{sha} + ")";
+    return std::string{"[Loom] "} + basename + " (" + std::string{sha} + ")";
 }
 
 } // namespace detail
@@ -202,7 +202,7 @@ namespace bridge {
     const char* vscode_ipc = std::getenv("VSCODE_IPC_HOOK_CLI");
     if (vscode_ipc && vscode_ipc[0] != '\0') return true;
 
-    const char* cc_ide_bridge = std::getenv("CC_REPL_IDE_BRIDGE");
+    const char* cc_ide_bridge = std::getenv("LOOM_IDE_BRIDGE");
     if (cc_ide_bridge && cc_ide_bridge[0] != '\0') return true;
 
     return false;
@@ -316,7 +316,7 @@ inline auto call_ide_rpc(std::string_view method, std::string_view params_json)
 
     // Create temp files for original and modified content
     auto nonce = std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
-    auto temp_dir = fs::temp_directory_path() / "cc-repl-diffs";
+    auto temp_dir = fs::temp_directory_path() / "loom-diffs";
     std::error_code ec;
     fs::create_directories(temp_dir, ec);
     if (ec) return std::unexpected("Failed to create diff temp directory: " + ec.message());

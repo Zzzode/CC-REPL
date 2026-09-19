@@ -83,10 +83,10 @@ import cc.ui.agents.agent_cards;
 import cc.ui.agents.agent_wizard;
 import cc.tools.agent_display;
 import cc.ui.dialogs.install_github_app_wizard;
-// Welcome header: Clawd mark + animated asterisk, wired into RenderReplScreen
+// Welcome header: Loom mascot mark + animated asterisk, wired into RenderReplScreen
 // for fresh sessions.
 import cc.ui.design.logo;
-// M2: theme::current_theme() for the clawd_body colour used by the banner.
+// M2: theme::current_theme() for the loom_body colour used by the banner.
 import cc.ui.design.theme;
 // M8 (P0-1 glyph unification): shared figures/constants + palette tokens.
 import cc.ui.design.figures;
@@ -609,7 +609,7 @@ struct ReplScreenState {
     // RenderNotifications() picks the highest-priority active item.
     cc::ui::prompt::footer::ApiKeyStatus api_key_status =
         cc::ui::prompt::footer::ApiKeyStatus::Unknown;
-    bool is_remote_session = false;   // CLAUDE_CODE_REMOTE → changes error text
+    bool is_remote_session = false;   // LOOM_REMOTE → changes error text
     bool debug_mode = false;          // "Debug mode" pill
     bool verbose = false;             // show token count when valid + verbose
     // IDE selection indicator (TS IdeStatusIndicator.tsx)
@@ -855,7 +855,7 @@ struct ReplScreenCallbacks {
     // Mirrors TS onPermissionRequestDecision callback.
     std::function<void(
         std::string_view decision,  // "allow_once", "allow_always", "deny", "abort"
-        std::string_view scope,     // "session", "global", "project", "claude_folder", etc.
+        std::string_view scope,     // "session", "global", "project", "loom_folder", etc.
         std::string_view feedback   // user feedback text, may be empty
     )> on_permission_decision;
     std::function<void(ReplMode, int)> on_dialog_action;
@@ -924,16 +924,16 @@ struct ReplScreenCallbacks {
 }
 
 // UI19: spinner line shell.  Faithful port of TS Spinner.tsx + BriefSpinner.
-// Single claude-gold theme, cycling TEARDROP_ASTERISK glyph, random playful
+// Single loom-gold theme, cycling TEARDROP_ASTERISK glyph, random playful
 // verb sampled from spinner_verbs list, 3-dot blink cadence.
 [[nodiscard]] inline Element RenderSpinner(
     SpinnerMode m, const std::optional<std::string>& verb,
     const std::optional<std::string>& tip,
     int frame = 0) {
     if (m == SpinnerMode::Hidden) return text("");
-    // TS Spinner.tsx: defaultColor='claude' (amber/gold), shimmer animation.
+    // TS Spinner.tsx: defaultColor='loom' (amber/gold), shimmer animation.
     // Single theme token regardless of mode — no per-mode color switch.
-    const Color kClaudeGold = Color::RGB(217, 154, 56);  // ~claude token
+    const Color kLoomGold = Color::RGB(217, 154, 56);  // ~loom token
 
     // Pick a random playful verb once "per mount".  We don't track mount
     // state here, so hash the mode + pid and sample the verbs list.
@@ -962,10 +962,10 @@ struct ReplScreenCallbacks {
     std::string label = std::string(selected_verb) + "\xE2\x80\xA6";  // …
     Elements p = {
         text("  ") | size(WIDTH, EQUAL, 2),  // paddingLeft=2
-        text(std::string(glyph)) | color(kClaudeGold),
+        text(std::string(glyph)) | color(kLoomGold),
         text(" "),
-        text(label) | color(kClaudeGold),
-        text(dots)  | color(kClaudeGold) | dim,
+        text(label) | color(kLoomGold),
+        text(dots)  | color(kLoomGold) | dim,
     };
     if (tip) p.push_back(text("  -- " + *tip) | dim);
     return hbox(p);
@@ -1567,7 +1567,7 @@ inline bool ScrollTranscript(const std::shared_ptr<ReplScreenState>& state,
     return true;
 }
 
-[[nodiscard]] inline Element RenderClawdMark(Color body, Color bg) {
+[[nodiscard]] inline Element RenderLoomMascotMark(Color body, Color bg) {
     return vbox({
         hbox({
             text(" ▐") | color(body),
@@ -1609,7 +1609,7 @@ inline bool ScrollTranscript(const std::shared_ptr<ReplScreenState>& state,
         separator() | color(accent),
         RenderWelcomeFeed(
             "What's new",
-            "Check the Claude Code changelog for updates",
+            "Check the Loom changelog for updates",
             width,
             accent,
             muted),
@@ -1685,14 +1685,14 @@ inline bool ScrollTranscript(const std::shared_ptr<ReplScreenState>& state,
             text(welcome) | bold | color(text_color),
         }) | center,
         text(""),
-        RenderClawdMark(accent, bg) | center,
+        RenderLoomMascotMark(accent, bg) | center,
         text(""),
         vbox(std::move(meta)) | center,
     }) | size(WIDTH, EQUAL, width) | size(HEIGHT, GREATER_THAN, 9);
 }
 
 // UI0: welcome header.  Faithful to TS LogoV2/CondensedLogo + Opus1mMergeNotice:
-//   Row 1: orange AnimatedClawd + "Claude Code" bold + "vX.X.X" dim
+//   Row 1: orange AnimatedLoomMascot + "Loom" bold + "vX.X.X" dim
 //   Row 2: model · billing_type dim
 //   Row 3: [@agent · ] cwd dim
 //   Row 4: ↑ "Opus now defaults to 1M context" banner
@@ -3218,8 +3218,8 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
         //     platform clipboard-image detection; no visual regression while
         //     empty.
         // NOTE: TS upstream does NOT render a brand pill in the footer
-        // (PromptInputFooter.tsx has zero occurrences of "CC-REPL" /
-        // "Claude Code" text).  Branding is rendered by CondensedLogo only
+        // (PromptInputFooter.tsx has zero occurrences of "LOOM" /
+        // "Loom" text).  Branding is rendered by CondensedLogo only
         // in the top header.
         L.push_back(pif::RenderPromptInputFooter(footer_opts));
 
@@ -4301,7 +4301,7 @@ inline bool forward_tool_permission(
 
     // Ctrl+R: enter history search mode by injecting "@history " into input.
     // This triggers the @history autocomplete branch in RefreshAutocompleteSuggestions
-    // which reads persisted prompt history from ~/.cc-repl/history.jsonl.
+    // which reads persisted prompt history from ~/.loom/history.jsonl.
     // TS REF: src/hooks/useHistorySearch.ts:151 (handleStartSearch — Ctrl+R enters
     //   history search mode with substring matching against persisted history)
     // TS REF: src/components/PromptInput/PromptInput.tsx — Ctrl+R keyboard shortcut

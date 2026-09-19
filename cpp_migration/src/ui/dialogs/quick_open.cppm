@@ -377,7 +377,7 @@ inline bool HandleQuickOpenEvent(
     items.push_back({"Permissions", "Manage tool permissions", "", "Settings"});
     items.push_back({"API Configuration", "Set API keys and endpoints", "", "Settings"});
     items.push_back({"Privacy", "Privacy and data settings", "", "Settings"});
-    items.push_back({"About", "About Claude Code", "", "Settings"});
+    items.push_back({"About", "About Loom", "", "Settings"});
 
     return items;
 }

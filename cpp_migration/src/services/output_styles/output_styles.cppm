@@ -1,4 +1,4 @@
-// OutputStyles - Loads custom output styles from .claude/output-styles/*.md
+// OutputStyles - Loads custom output styles from .loom/output-styles/*.md
 module;
 
 #include <algorithm>
@@ -174,16 +174,16 @@ struct Frontmatter {
 [[nodiscard]] inline std::vector<OutputStyle> load_output_styles(const fs::path& project_root) {
     std::vector<OutputStyle> all_styles;
     
-    // 1. Load from project: <project>/.claude/output-styles/
-    auto project_dir = project_root / ".claude" / "output-styles";
+    // 1. Load from project: <project>/.loom/output-styles/
+    auto project_dir = project_root / ".loom" / "output-styles";
     auto project_styles = load_output_styles_dir(project_dir.string());
     for (auto& s : project_styles) {
         all_styles.push_back(std::move(s));
     }
     
-    // 2. Load from user home: ~/.claude/output-styles/
+    // 2. Load from user home: ~/.loom/output-styles/
     if (auto home = std::getenv("HOME")) {
-        auto user_dir = fs::path(home) / ".claude" / "output-styles";
+        auto user_dir = fs::path(home) / ".loom" / "output-styles";
         auto user_styles = load_output_styles_dir(user_dir.string());
         for (auto& s : user_styles) {
             // Don't override project-level styles with same name

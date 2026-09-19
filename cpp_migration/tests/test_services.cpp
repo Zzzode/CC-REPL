@@ -386,7 +386,7 @@ private:
         cv_.notify_all();
 
         std::string response_body =
-            R"({"id":"msg_test","type":"message","role":"assistant","model":"claude-test","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}})";
+            R"({"id":"msg_test","type":"message","role":"assistant","model":"loom-test","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}})";
         if (!response_bodies_.empty()) {
             response_body = response_bodies_[std::min(request_index, response_bodies_.size() - 1)];
         }
@@ -2319,16 +2319,16 @@ private:
 } // namespace
 
 TEST(LspConfig, LoadsPluginLspServersFromManifestAndRoutesExtension) {
-    auto root = fs::weakly_canonical(fs::temp_directory_path()) / "cc_repl_plugin_lsp_test";
+    auto root = fs::weakly_canonical(fs::temp_directory_path()) / "loom_plugin_lsp_test";
     fs::remove_all(root);
-    fs::create_directories(root / ".claude");
+    fs::create_directories(root / ".loom");
     EnvironmentGuard home_guard("HOME", root.string());
     EnvironmentGuard plugin_cache_guard(
-        "CLAUDE_CODE_PLUGIN_CACHE_DIR",
-        (root / ".claude" / "plugins").string()
+        "LOOM_PLUGIN_CACHE_DIR",
+        (root / ".loom" / "plugins").string()
     );
 
-    const auto plugin_root = root / ".claude" / "plugins" / "lsp-fixture";
+    const auto plugin_root = root / ".loom" / "plugins" / "lsp-fixture";
     fs::create_directories(plugin_root / "workspace");
     const auto log_path = root / "lsp-log.jsonl";
     const auto server_path = plugin_root / "server.js";
@@ -2380,7 +2380,7 @@ process.stdin.resume();
 )JS";
     }
     {
-        std::ofstream settings(root / ".claude" / "settings.json");
+        std::ofstream settings(root / ".loom" / "settings.json");
         settings << R"JSON({
   "pluginConfigs": {
     "lsp-fixture": {
@@ -2410,17 +2410,17 @@ process.stdin.resume();
     "fixture": {
       "command": "node",
       "args": [
-        "${CLAUDE_PLUGIN_ROOT}/server.js",
+        "${LOOM_PLUGIN_ROOT}/server.js",
         "${user_config.mode}",
         "${PLUGIN_LSP_MISSING:-fallback}"
       ],
       "extensionToLanguage": {".foo": "foo-plugin"},
       "env": {
         "PLUGIN_LSP_MODE": "${user_config.mode}",
-        "PLUGIN_LSP_ROOT": "${CLAUDE_PLUGIN_ROOT}",
+        "PLUGIN_LSP_ROOT": "${LOOM_PLUGIN_ROOT}",
         "PLUGIN_LSP_LOG": ")JSON" << log_path.string() << R"JSON("
       },
-      "workspaceFolder": "${CLAUDE_PLUGIN_ROOT}/workspace",
+      "workspaceFolder": "${LOOM_PLUGIN_ROOT}/workspace",
       "initializationOptions": {"mode": "configured", "feature": true}
     }
   }
@@ -2442,10 +2442,10 @@ process.stdin.resume();
         EXPECT_EQ(it->config.env.at("PLUGIN_LSP_MODE"), "configured");
         EXPECT_EQ(it->config.env.at("PLUGIN_LSP_ROOT"), plugin_root.string());
         EXPECT_EQ(it->config.env.at("PLUGIN_LSP_LOG"), log_path.string());
-        EXPECT_EQ(it->config.env.at("CLAUDE_PLUGIN_ROOT"), plugin_root.string());
+        EXPECT_EQ(it->config.env.at("LOOM_PLUGIN_ROOT"), plugin_root.string());
         EXPECT_EQ(
-            it->config.env.at("CLAUDE_PLUGIN_DATA"),
-            (root / ".claude" / "plugins" / "data" / "lsp-fixture").string()
+            it->config.env.at("LOOM_PLUGIN_DATA"),
+            (root / ".loom" / "plugins" / "data" / "lsp-fixture").string()
         );
         ASSERT_TRUE(it->config.workspace_folder.has_value());
         EXPECT_EQ(*it->config.workspace_folder, (plugin_root / "workspace").string());
@@ -2597,17 +2597,17 @@ TEST(SessionIngress, PostsSessionEventsWithSessionCookieAuth) {
 }
 
 TEST(SessionIngress, CreatesIngressFromDaemonEnvironmentAndSendsLifecycleEvent) {
-    EnvironmentGuard endpoint("CLAUDE_CODE_REMOTE_API_BASE_URL", "placeholder");
+    EnvironmentGuard endpoint("LOOM_REMOTE_API_BASE_URL", "placeholder");
     EnvironmentGuard session("CC_REMOTE_SESSION_ID", "session_1");
-    EnvironmentGuard token("CLAUDE_CODE_SESSION_ACCESS_TOKEN", "env-session-token");
-    EnvironmentUnsetGuard compat_endpoint("CC_REPL_REMOTE_API_BASE_URL");
-    EnvironmentUnsetGuard ingress_endpoint("CLAUDE_CODE_SESSION_INGRESS_URL");
-    EnvironmentUnsetGuard compat_ingress_endpoint("CC_REPL_SESSION_INGRESS_URL");
-    EnvironmentUnsetGuard compat_session("CLAUDE_CODE_REMOTE_SESSION_ID");
+    EnvironmentGuard token("LOOM_SESSION_ACCESS_TOKEN", "env-session-token");
+    EnvironmentUnsetGuard compat_endpoint("LOOM_REMOTE_API_BASE_URL");
+    EnvironmentUnsetGuard ingress_endpoint("LOOM_SESSION_INGRESS_URL");
+    EnvironmentUnsetGuard compat_ingress_endpoint("LOOM_SESSION_INGRESS_URL");
+    EnvironmentUnsetGuard compat_session("LOOM_REMOTE_SESSION_ID");
 
     LocalCcrHttpServer server;
     ASSERT_TRUE(server.ready());
-    setenv("CLAUDE_CODE_REMOTE_API_BASE_URL", server.base_url().c_str(), 1);
+    setenv("LOOM_REMOTE_API_BASE_URL", server.base_url().c_str(), 1);
 
     cc::services::api::close_ingress();
     auto created = cc::services::api::create_ingress_from_environment();
@@ -2826,7 +2826,7 @@ TEST(QueryEngine, AppliesPerQueryEnabledToolsToAnthropicRequest) {
     LocalAnthropicMessagesServer server;
     ASSERT_NE(server.port(), 0);
 
-    auto root = fs::temp_directory_path() / "cc-repl-query-engine-tool-filter-test";
+    auto root = fs::temp_directory_path() / "loom-query-engine-tool-filter-test";
     fs::remove_all(root);
     fs::create_directories(root);
 
@@ -2876,7 +2876,7 @@ TEST(QueryEngine, AppliesPerQueryEnabledToolsToAnthropicRequest) {
 
     auto response = engine.query("hello", options);
     ASSERT_TRUE(response.has_value()) << response.error().message;
-    EXPECT_EQ(response->message.model, "claude-test");
+    EXPECT_EQ(response->message.model, "loom-test");
 
     auto request_body = server.wait_for_body();
     ASSERT_TRUE(request_body.has_value());
@@ -2903,7 +2903,7 @@ TEST(QueryEngine, SnipMetadataProjectsRemovedMessagesFromAnthropicRequest) {
     LocalAnthropicMessagesServer server;
     ASSERT_NE(server.port(), 0);
 
-    auto root = fs::temp_directory_path() / "cc-repl-query-engine-snip-projection-test";
+    auto root = fs::temp_directory_path() / "loom-query-engine-snip-projection-test";
     fs::remove_all(root);
     fs::create_directories(root);
 
@@ -3012,7 +3012,7 @@ TEST(ApiMicrocompact, BuildsThinkingAndToolContextManagementStrategies) {
 }
 
 TEST(QueryEngine, SerializesTaskBudgetAndApiContextManagementRequestConfig) {
-    EnvironmentUnsetGuard disable_thinking_guard("CLAUDE_CODE_DISABLE_THINKING");
+    EnvironmentUnsetGuard disable_thinking_guard("LOOM_DISABLE_THINKING");
     EnvironmentGuard user_type_guard("USER_TYPE", "ant");
     EnvironmentGuard clear_results_guard("USE_API_CLEAR_TOOL_RESULTS", "1");
     EnvironmentGuard clear_uses_guard("USE_API_CLEAR_TOOL_USES", "1");
@@ -3022,7 +3022,7 @@ TEST(QueryEngine, SerializesTaskBudgetAndApiContextManagementRequestConfig) {
     LocalAnthropicMessagesServer server;
     ASSERT_NE(server.port(), 0);
 
-    auto root = fs::temp_directory_path() / "cc-repl-query-engine-task-budget-context-management-test";
+    auto root = fs::temp_directory_path() / "loom-query-engine-task-budget-context-management-test";
     fs::remove_all(root);
     fs::create_directories(root);
 
@@ -3077,7 +3077,7 @@ TEST(QueryEngine, SerializesTaskBudgetAndApiContextManagementRequestConfig) {
 }
 
 TEST(QueryEngine, DisableThinkingEnvSuppressesThinkingAndClearThinkingContextManagement) {
-    EnvironmentGuard disable_thinking_guard("CLAUDE_CODE_DISABLE_THINKING", "1");
+    EnvironmentGuard disable_thinking_guard("LOOM_DISABLE_THINKING", "1");
     EnvironmentUnsetGuard user_type_guard("USER_TYPE");
     EnvironmentUnsetGuard clear_results_guard("USE_API_CLEAR_TOOL_RESULTS");
     EnvironmentUnsetGuard clear_uses_guard("USE_API_CLEAR_TOOL_USES");
@@ -3085,7 +3085,7 @@ TEST(QueryEngine, DisableThinkingEnvSuppressesThinkingAndClearThinkingContextMan
     LocalAnthropicMessagesServer server;
     ASSERT_NE(server.port(), 0);
 
-    auto root = fs::temp_directory_path() / "cc-repl-query-engine-disable-thinking-test";
+    auto root = fs::temp_directory_path() / "loom-query-engine-disable-thinking-test";
     fs::remove_all(root);
     fs::create_directories(root);
 
@@ -3120,10 +3120,10 @@ TEST(QueryEngine, InjectsPendingNativeAgentTaskNotificationsIntoRequest) {
     LocalAnthropicMessagesServer server;
     ASSERT_NE(server.port(), 0);
 
-    auto root = fs::temp_directory_path() / "cc-repl-query-engine-agent-notification-test";
+    auto root = fs::temp_directory_path() / "loom-query-engine-agent-notification-test";
     fs::remove_all(root);
     fs::create_directories(root);
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     cc::tools::agent_runtime::native_agent_store().upsert(cc::tools::agent_runtime::NativeAgentRecord{
@@ -3212,7 +3212,7 @@ TEST(QueryEngine, InjectsPendingNativeAgentTaskNotificationsIntoRequest) {
 }
 
 TEST(QueryEngine, PersistsTranscriptToSessionStorage) {
-    auto dir = fs::temp_directory_path() / "cc_repl_qe_session_persist_test";
+    auto dir = fs::temp_directory_path() / "loom_qe_session_persist_test";
     fs::remove_all(dir);
     fs::create_directories(dir);
 
@@ -3329,7 +3329,7 @@ TEST(QueryEngine, TracksInvokedSkillsInLoop) {
 
 TEST(QueryEngine, CompactionPersistsSessionSummaryForResumedSession) {
     auto root = fs::temp_directory_path() /
-        ("cc-repl-session-summary-" + std::to_string(::getpid()));
+        ("loom-session-summary-" + std::to_string(::getpid()));
     fs::remove_all(root);
     fs::create_directories(root);
     EnvironmentGuard home_guard("HOME", root.string());
@@ -3464,7 +3464,7 @@ TEST(QueryEngine, CompactConversationCarriesTaskBudgetRemainingIntoNextRequest) 
     LocalAnthropicMessagesServer server;
     ASSERT_NE(server.port(), 0);
 
-    auto root = fs::temp_directory_path() / "cc-repl-query-task-budget-compact-carry-test";
+    auto root = fs::temp_directory_path() / "loom-query-task-budget-compact-carry-test";
     fs::remove_all(root);
     fs::create_directories(root);
 
@@ -3535,7 +3535,7 @@ TEST(QueryEngine, CompactConversationCarriesTaskBudgetRemainingIntoNextRequest) 
 }
 
 TEST(QueryEngine, RestoreConversationDerivesTaskBudgetRemainingFromCompactBoundaryMetadata) {
-    auto root = fs::temp_directory_path() / "cc-repl-query-task-budget-restore-test";
+    auto root = fs::temp_directory_path() / "loom-query-task-budget-restore-test";
     fs::remove_all(root);
     fs::create_directories(root);
 
@@ -3753,7 +3753,7 @@ TEST(QueryEngine, ReactiveCompactRetriesPromptTooLongAfterWritingBoundary) {
     LocalAnthropicMessagesServer server(
         {
             R"({"error":{"type":"invalid_request_error","message":"prompt_too_long"}})",
-            R"({"id":"msg_reactive","type":"message","role":"assistant","model":"claude-test","content":[{"type":"text","text":"reactive-ok"}],"stop_reason":"end_turn","usage":{"input_tokens":2,"output_tokens":3}})",
+            R"({"id":"msg_reactive","type":"message","role":"assistant","model":"loom-test","content":[{"type":"text","text":"reactive-ok"}],"stop_reason":"end_turn","usage":{"input_tokens":2,"output_tokens":3}})",
         },
         {413, 200});
     ASSERT_NE(server.port(), 0);
@@ -3822,10 +3822,10 @@ TEST(QueryEngine, AppliesMainThreadToolResultBudgetBeforeModelRequest) {
     LocalAnthropicMessagesServer server;
     ASSERT_NE(server.port(), 0);
 
-    auto root = fs::temp_directory_path() / "cc-repl-query-tool-result-budget-test";
+    auto root = fs::temp_directory_path() / "loom-query-tool-result-budget-test";
     fs::remove_all(root);
     fs::create_directories(root);
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
 
     cc::core::ToolRegistry registry;
     registry.register_tool(std::make_unique<DefinitionOnlyTool>(cc::core::ToolDefinition{
@@ -3987,14 +3987,14 @@ TEST(QueryEngine, AppliesMainThreadToolResultBudgetBeforeModelRequest) {
 }
 
 TEST(QueryEngine, TimeBasedMicrocompactClearsOldCompactableToolResultsBeforeRequest) {
-    EnvironmentGuard enable_guard("CC_REPL_TIME_BASED_MICROCOMPACT", "1");
-    EnvironmentGuard gap_guard("CC_REPL_TIME_BASED_MICROCOMPACT_GAP_MINUTES", "30");
-    EnvironmentGuard keep_guard("CC_REPL_TIME_BASED_MICROCOMPACT_KEEP_RECENT", "1");
+    EnvironmentGuard enable_guard("LOOM_TIME_BASED_MICROCOMPACT", "1");
+    EnvironmentGuard gap_guard("LOOM_TIME_BASED_MICROCOMPACT_GAP_MINUTES", "30");
+    EnvironmentGuard keep_guard("LOOM_TIME_BASED_MICROCOMPACT_KEEP_RECENT", "1");
 
     LocalAnthropicMessagesServer server;
     ASSERT_NE(server.port(), 0);
 
-    auto root = fs::temp_directory_path() / "cc-repl-query-time-based-microcompact-test";
+    auto root = fs::temp_directory_path() / "loom-query-time-based-microcompact-test";
     fs::remove_all(root);
     fs::create_directories(root);
 
@@ -4149,7 +4149,7 @@ TEST(VoiceService, ReportsMissingTranscriptionProvider) {
 
 TEST(ApiClient, RequestSerializerPreservesToolUseInputJson) {
     cc::services::api::CreateMessageRequest request;
-    request.model = "claude-test";
+    request.model = "loom-test";
     request.messages.push_back(cc::services::api::Message{
         .role = "assistant",
         .content = {
@@ -4184,7 +4184,7 @@ TEST(ApiClient, RequestSerializerPreservesToolUseInputJson) {
 
 TEST(ApiClient, RequestSerializerPreservesImageAndDocumentBlocks) {
     cc::services::api::CreateMessageRequest request;
-    request.model = "claude-test";
+    request.model = "loom-test";
     request.messages.push_back(cc::services::api::Message{
         .role = "user",
         .content = {
@@ -4223,7 +4223,7 @@ TEST(ApiClient, RequestSerializerPreservesImageAndDocumentBlocks) {
 
 TEST(ApiClient, RequestSerializerSerializesEffortConfig) {
     cc::services::api::CreateMessageRequest request;
-    request.model = "claude-test";
+    request.model = "loom-test";
     request.messages.push_back(cc::services::api::Message::from_text("user", "hello"));
     request.output_effort = "high";
     request.task_budget = cc::services::api::TaskBudget{
@@ -4252,7 +4252,7 @@ TEST(ApiClient, RequestSerializerSerializesEffortConfig) {
 TEST(ApiClient, ResponseParserPreservesToolUseInputJson) {
     const auto response = cc::services::api::ResponseParser::parse(R"({
       "id": "msg_1",
-      "model": "claude-test",
+      "model": "loom-test",
       "role": "assistant",
       "content": [
         {
@@ -4537,8 +4537,8 @@ TEST(IdeIntegration, ReadsLockfileAndCallsIdeMcpTool) {
     ASSERT_TRUE(server.ready());
 
     const auto suffix = std::chrono::system_clock::now().time_since_epoch().count();
-    const auto temp_home = fs::temp_directory_path() / ("cc_repl_ide_home_" + std::to_string(suffix));
-    const auto ide_dir = temp_home / ".claude" / "ide";
+    const auto temp_home = fs::temp_directory_path() / ("loom_ide_home_" + std::to_string(suffix));
+    const auto ide_dir = temp_home / ".loom" / "ide";
     fs::create_directories(ide_dir);
     EnvironmentGuard home("HOME", temp_home.string());
 
@@ -4580,8 +4580,8 @@ TEST(IdeIntegration, CallsIdeWebSocketMcpToolFromLockfile) {
     ASSERT_TRUE(server.ready());
 
     const auto suffix = std::chrono::system_clock::now().time_since_epoch().count();
-    const auto temp_home = fs::temp_directory_path() / ("cc_repl_ide_ws_home_" + std::to_string(suffix));
-    const auto ide_dir = temp_home / ".claude" / "ide";
+    const auto temp_home = fs::temp_directory_path() / ("loom_ide_ws_home_" + std::to_string(suffix));
+    const auto ide_dir = temp_home / ".loom" / "ide";
     fs::create_directories(ide_dir);
     EnvironmentGuard home("HOME", temp_home.string());
 
@@ -4603,7 +4603,7 @@ TEST(IdeIntegration, CallsIdeWebSocketMcpToolFromLockfile) {
 
     const auto headers = server.handshake_headers();
     EXPECT_NE(headers.find("Sec-WebSocket-Protocol: mcp"), std::string::npos) << headers;
-    EXPECT_NE(headers.find("X-Claude-Code-Ide-Authorization: test-token"), std::string::npos) << headers;
+    EXPECT_NE(headers.find("X-Loom-Code-Ide-Authorization: test-token"), std::string::npos) << headers;
 
     const auto requests = server.requests();
     std::string joined;
@@ -4618,7 +4618,7 @@ TEST(IdeIntegration, CallsIdeWebSocketMcpToolFromLockfile) {
 
 TEST(IdeIntegration, DiscoversVSCodeWorkspaceMcpServersFromObjectConfig) {
     const auto suffix = std::chrono::system_clock::now().time_since_epoch().count();
-    const auto root = fs::temp_directory_path() / ("cc_repl_vscode_mcp_workspace_" + std::to_string(suffix));
+    const auto root = fs::temp_directory_path() / ("loom_vscode_mcp_workspace_" + std::to_string(suffix));
     const auto workspace = root / "workspace";
     const auto home = root / "home";
     fs::create_directories(workspace / ".vscode");
@@ -4676,7 +4676,7 @@ TEST(IdeIntegration, DiscoversVSCodeWorkspaceMcpServersFromObjectConfig) {
 
 TEST(IdeIntegration, DiscoversVSCodeExtensionContributedMcpServers) {
     const auto suffix = std::chrono::system_clock::now().time_since_epoch().count();
-    const auto root = fs::temp_directory_path() / ("cc_repl_vscode_mcp_extension_" + std::to_string(suffix));
+    const auto root = fs::temp_directory_path() / ("loom_vscode_mcp_extension_" + std::to_string(suffix));
     const auto workspace = root / "workspace";
     const auto home = root / "home";
     const auto extension = home / ".vscode" / "extensions" / "publisher.fixture-1.0.0";
@@ -4776,7 +4776,7 @@ TEST(McpConnectionManager, ConnectsStreamableHttpServerWithDirectPostTransport) 
     ASSERT_TRUE(server.ready());
 
     cc::services::mcp::ConnectionManagerConfig manager_config;
-    manager_config.config_directory = fs::temp_directory_path() / "cc_repl_streamable_http_mcp_config";
+    manager_config.config_directory = fs::temp_directory_path() / "loom_streamable_http_mcp_config";
     manager_config.connection_timeout = std::chrono::milliseconds{2000};
     manager_config.auto_connect_on_start = false;
 
@@ -4827,7 +4827,7 @@ TEST(McpConnectionManager, MarksRemoteHttpUnauthorizedAsNeedsAuth) {
 
     const auto suffix = std::chrono::system_clock::now().time_since_epoch().count();
     cc::services::mcp::ConnectionManagerConfig manager_config;
-    manager_config.config_directory = fs::temp_directory_path() / ("cc_repl_mcp_unauthorized_" + std::to_string(suffix));
+    manager_config.config_directory = fs::temp_directory_path() / ("loom_mcp_unauthorized_" + std::to_string(suffix));
     manager_config.connection_timeout = std::chrono::milliseconds{2000};
     manager_config.auto_connect_on_start = false;
 
@@ -4866,13 +4866,13 @@ TEST(McpConnectionManager, AppliesHeadersHelperBeforeRemoteConnection) {
     ASSERT_TRUE(server.ready());
 
     const auto suffix = std::chrono::system_clock::now().time_since_epoch().count();
-    const auto root = fs::temp_directory_path() / ("cc_repl_mcp_headers_helper_" + std::to_string(suffix));
+    const auto root = fs::temp_directory_path() / ("loom_mcp_headers_helper_" + std::to_string(suffix));
     fs::create_directories(root);
     const auto helper_path = root / "headers-helper.sh";
     {
         std::ofstream helper(helper_path);
         helper << R"SH(
-printf '{"X-Test-Header":"dynamic","X-Helper-Server":"%s","X-Helper-Url":"%s"}\n' "$CLAUDE_CODE_MCP_SERVER_NAME" "$CLAUDE_CODE_MCP_SERVER_URL"
+printf '{"X-Test-Header":"dynamic","X-Helper-Server":"%s","X-Helper-Url":"%s"}\n' "$LOOM_MCP_SERVER_NAME" "$LOOM_MCP_SERVER_URL"
 )SH";
     }
 
@@ -4918,7 +4918,7 @@ TEST(McpConnectionManager, RefreshesExpiredOAuthTokenBeforeRemoteConnection) {
     ASSERT_TRUE(server.ready());
 
     const auto suffix = std::chrono::system_clock::now().time_since_epoch().count();
-    const auto root = fs::temp_directory_path() / ("cc_repl_mcp_refresh_" + std::to_string(suffix));
+    const auto root = fs::temp_directory_path() / ("loom_mcp_refresh_" + std::to_string(suffix));
     fs::remove_all(root);
     fs::create_directories(root);
     EnvironmentGuard xdg_config_guard("XDG_CONFIG_HOME", root.string());
@@ -4947,7 +4947,7 @@ TEST(McpConnectionManager, RefreshesExpiredOAuthTokenBeforeRemoteConnection) {
         }
         return sanitized;
     };
-    const auto token_path = root / "cc-repl" / "mcp" / (sanitize_key(server_key) + ".json");
+    const auto token_path = root / "loom" / "mcp" / (sanitize_key(server_key) + ".json");
     fs::create_directories(token_path.parent_path());
     const auto expired_at = std::chrono::duration_cast<std::chrono::seconds>(
         std::chrono::system_clock::now().time_since_epoch()).count() - 60;
@@ -5009,7 +5009,7 @@ TEST(McpConnectionManager, MarksRefreshFailureAsNeedsAuthWithoutRemoteConnect) {
     ASSERT_TRUE(server.ready());
 
     const auto suffix = std::chrono::system_clock::now().time_since_epoch().count();
-    const auto root = fs::temp_directory_path() / ("cc_repl_mcp_refresh_failure_" + std::to_string(suffix));
+    const auto root = fs::temp_directory_path() / ("loom_mcp_refresh_failure_" + std::to_string(suffix));
     fs::remove_all(root);
     fs::create_directories(root);
     EnvironmentGuard xdg_config_guard("XDG_CONFIG_HOME", root.string());
@@ -5038,7 +5038,7 @@ TEST(McpConnectionManager, MarksRefreshFailureAsNeedsAuthWithoutRemoteConnect) {
         }
         return sanitized;
     };
-    const auto token_path = root / "cc-repl" / "mcp" / (sanitize_key(server_key) + ".json");
+    const auto token_path = root / "loom" / "mcp" / (sanitize_key(server_key) + ".json");
     fs::create_directories(token_path.parent_path());
     const auto expired_at = std::chrono::duration_cast<std::chrono::seconds>(
         std::chrono::system_clock::now().time_since_epoch()).count() - 60;
@@ -5096,7 +5096,7 @@ TEST(McpConnectionManager, MarksDiscoveryServerWithoutTokenAsNeedsAuthThenReconn
     ASSERT_TRUE(server.ready());
 
     const auto suffix = std::chrono::system_clock::now().time_since_epoch().count();
-    const auto root = fs::temp_directory_path() / ("cc_repl_mcp_auth_needed_" + std::to_string(suffix));
+    const auto root = fs::temp_directory_path() / ("loom_mcp_auth_needed_" + std::to_string(suffix));
     fs::remove_all(root);
     fs::create_directories(root);
     EnvironmentGuard xdg_config_guard("XDG_CONFIG_HOME", root.string());
@@ -5125,7 +5125,7 @@ TEST(McpConnectionManager, MarksDiscoveryServerWithoutTokenAsNeedsAuthThenReconn
         }
         return sanitized;
     };
-    const auto token_path = root / "cc-repl" / "mcp" / (sanitize_key(server_key) + ".json");
+    const auto token_path = root / "loom" / "mcp" / (sanitize_key(server_key) + ".json");
 
     cc::services::mcp::ConnectionManagerConfig manager_config;
     manager_config.config_directory = root;
@@ -5192,7 +5192,7 @@ TEST(McpAuth, RevokesOAuthTokensViaMetadataEndpointAndClearsLocalStorage) {
     ASSERT_TRUE(server.ready());
 
     const auto suffix = std::chrono::system_clock::now().time_since_epoch().count();
-    const auto root = fs::temp_directory_path() / ("cc_repl_mcp_revoke_" + std::to_string(suffix));
+    const auto root = fs::temp_directory_path() / ("loom_mcp_revoke_" + std::to_string(suffix));
     fs::remove_all(root);
     fs::create_directories(root);
     EnvironmentGuard xdg_config_guard("XDG_CONFIG_HOME", root.string());
@@ -5213,7 +5213,7 @@ TEST(McpAuth, RevokesOAuthTokensViaMetadataEndpointAndClearsLocalStorage) {
         }
         return sanitized;
     };
-    const auto token_path = root / "cc-repl" / "mcp" / (sanitize_key(server_key) + ".json");
+    const auto token_path = root / "loom" / "mcp" / (sanitize_key(server_key) + ".json");
     fs::create_directories(token_path.parent_path());
     const auto expires_at = std::chrono::duration_cast<std::chrono::seconds>(
         std::chrono::system_clock::now().time_since_epoch()).count() + 3600;
@@ -5259,7 +5259,7 @@ TEST(McpAuth, CompletesOAuthBrowserCallbackFlowAndStoresTokens) {
     ASSERT_TRUE(server.ready());
 
     const auto suffix = std::chrono::system_clock::now().time_since_epoch().count();
-    const auto root = fs::temp_directory_path() / ("cc_repl_mcp_oauth_callback_" + std::to_string(suffix));
+    const auto root = fs::temp_directory_path() / ("loom_mcp_oauth_callback_" + std::to_string(suffix));
     fs::remove_all(root);
     fs::create_directories(root);
     EnvironmentGuard xdg_config_guard("XDG_CONFIG_HOME", root.string());
@@ -5346,7 +5346,7 @@ TEST(McpAuth, CompletesOAuthBrowserCallbackFlowAndStoresTokens) {
         }
         return sanitized;
     };
-    const auto token_path = root / "cc-repl" / "mcp" / (sanitize_key(server_key) + ".json");
+    const auto token_path = root / "loom" / "mcp" / (sanitize_key(server_key) + ".json");
     auto persisted = cc::utils::json::parse_file(token_path);
     ASSERT_TRUE(persisted.has_value());
     EXPECT_EQ(persisted->root().get_string("server_name"), "callback-fixture");
@@ -5364,14 +5364,14 @@ TEST(McpAuth, PerformsXaaIdpLoginAndStoresTokens) {
     ASSERT_TRUE(server.ready());
 
     const auto suffix = std::chrono::system_clock::now().time_since_epoch().count();
-    const auto root = fs::temp_directory_path() / ("cc_repl_mcp_xaa_idp_" + std::to_string(suffix));
+    const auto root = fs::temp_directory_path() / ("loom_mcp_xaa_idp_" + std::to_string(suffix));
     fs::remove_all(root);
-    fs::create_directories(root / ".cc-repl");
+    fs::create_directories(root / ".loom");
     EnvironmentGuard home_guard("HOME", root.string());
     EnvironmentGuard xdg_config_guard("XDG_CONFIG_HOME", root.string());
-    EnvironmentGuard xaa_enabled_guard("CLAUDE_CODE_ENABLE_XAA", "1");
+    EnvironmentGuard xaa_enabled_guard("LOOM_ENABLE_XAA", "1");
     {
-        std::ofstream idp_config(root / ".cc-repl" / "xaa-idp.txt");
+        std::ofstream idp_config(root / ".loom" / "xaa-idp.txt");
         idp_config << "idp_url=" << server.base_url() << "\n";
         idp_config << "idp_issuer=" << server.base_url() << "\n";
         idp_config << "idp_token_endpoint=" << server.base_url() << "/token\n";
@@ -5438,7 +5438,7 @@ TEST(McpAuth, PerformsXaaIdpLoginAndStoresTokens) {
         }
         return sanitized;
     };
-    const auto token_path = root / "cc-repl" / "mcp" / (sanitize_key(server_key) + ".json");
+    const auto token_path = root / "loom" / "mcp" / (sanitize_key(server_key) + ".json");
     auto persisted = cc::utils::json::parse_file(token_path);
     ASSERT_TRUE(persisted.has_value());
     EXPECT_EQ(persisted->root().get_string("server_name"), "xaa-fixture");
@@ -5453,12 +5453,12 @@ TEST(McpAuth, PerformsXaaIdpLoginAndStoresTokens) {
 
 TEST(McpAuth, XaaEnabledServerRequiresConfiguredIdpConnection) {
     const auto suffix = std::chrono::system_clock::now().time_since_epoch().count();
-    const auto root = fs::temp_directory_path() / ("cc_repl_mcp_xaa_missing_idp_" + std::to_string(suffix));
+    const auto root = fs::temp_directory_path() / ("loom_mcp_xaa_missing_idp_" + std::to_string(suffix));
     fs::remove_all(root);
     fs::create_directories(root);
     EnvironmentGuard home_guard("HOME", root.string());
     EnvironmentGuard xdg_config_guard("XDG_CONFIG_HOME", root.string());
-    EnvironmentGuard xaa_enabled_guard("CLAUDE_CODE_ENABLE_XAA", "1");
+    EnvironmentGuard xaa_enabled_guard("LOOM_ENABLE_XAA", "1");
 
     cc::services::mcp::McpServerConfig auth_config;
     auth_config.type = "http";
@@ -5481,7 +5481,7 @@ TEST(McpAuth, XaaEnabledServerRequiresConfiguredIdpConnection) {
 }
 
 TEST(McpConnectionManager, RefreshesCachedListsAfterListChangedNotifications) {
-    auto root = fs::temp_directory_path() / "cc_repl_mcp_list_changed_test";
+    auto root = fs::temp_directory_path() / "loom_mcp_list_changed_test";
     fs::remove_all(root);
     fs::create_directories(root);
     const auto server_path = root / "server.js";
@@ -5615,7 +5615,7 @@ rl.on('line', line => {
 }
 
 TEST(McpClient, HandlesServerRootsRequestsAndNotificationParams) {
-    auto root = fs::temp_directory_path() / "cc_repl_mcp_client_requests_test";
+    auto root = fs::temp_directory_path() / "loom_mcp_client_requests_test";
     fs::remove_all(root);
     fs::create_directories(root);
     const auto server_path = root / "server.js";
@@ -5749,7 +5749,7 @@ rl.on('line', line => {
 }
 
 TEST(McpClient, ParsesPromptMessageContentObjects) {
-    auto root = fs::temp_directory_path() / "cc_repl_mcp_prompt_content_test";
+    auto root = fs::temp_directory_path() / "loom_mcp_prompt_content_test";
     fs::remove_all(root);
     fs::create_directories(root);
     const auto server_path = root / "server.js";
@@ -5863,7 +5863,7 @@ rl.on('line', line => {
 
 TEST(ConfigManager, PersistsMcpServerSettings) {
     const auto suffix = std::chrono::system_clock::now().time_since_epoch().count();
-    const auto root = fs::temp_directory_path() / ("cc_repl_config_test_" + std::to_string(suffix));
+    const auto root = fs::temp_directory_path() / ("loom_config_test_" + std::to_string(suffix));
     fs::create_directories(root);
 
     cc::core::ConfigManager manager(root / "global.json", root / "project.json");
@@ -5892,7 +5892,7 @@ TEST(ConfigManager, PersistsMcpServerSettings) {
 
 TEST(ConfigManager, PreservesRemoteMcpServerAuthSettings) {
     const auto suffix = std::chrono::system_clock::now().time_since_epoch().count();
-    const auto root = fs::temp_directory_path() / ("cc_repl_remote_mcp_config_test_" + std::to_string(suffix));
+    const auto root = fs::temp_directory_path() / ("loom_remote_mcp_config_test_" + std::to_string(suffix));
     fs::create_directories(root);
 
     cc::core::ConfigManager manager(root / "global.json", root / "project.json");
@@ -5941,7 +5941,7 @@ TEST(ConfigManager, PreservesRemoteMcpServerAuthSettings) {
 
 TEST(ServerRoutes, MessageSessionsAndCompactUsePersistentState) {
     const auto suffix = std::chrono::system_clock::now().time_since_epoch().count();
-    const auto root = fs::temp_directory_path() / ("cc_repl_server_routes_test_" + std::to_string(suffix));
+    const auto root = fs::temp_directory_path() / ("loom_server_routes_test_" + std::to_string(suffix));
     const auto sessions_dir = root / "sessions";
     fs::remove_all(root);
     fs::create_directories(sessions_dir);
@@ -5950,7 +5950,7 @@ TEST(ServerRoutes, MessageSessionsAndCompactUsePersistentState) {
     ASSERT_NE(server.port(), 0);
     EnvironmentGuard api_key_guard("ANTHROPIC_API_KEY", "test-key");
     EnvironmentGuard base_url_guard("ANTHROPIC_BASE_URL", server.base_url());
-    EnvironmentGuard model_guard("CLAUDE_MODEL", "direct-route-test-model");
+    EnvironmentGuard model_guard("LOOM_MODEL", "direct-route-test-model");
     CurrentPathGuard cwd_guard(root);
 
     cc::server::reset_route_state_for_testing();
@@ -5978,7 +5978,7 @@ TEST(ServerRoutes, MessageSessionsAndCompactUsePersistentState) {
     std::string session_id(session_id_value.as_str());
     EXPECT_EQ(first_json->root().get_string("status"), "completed");
     EXPECT_EQ(first_json->root().get_string("response"), "ok");
-    EXPECT_EQ(first_json->root().get_string("model"), "claude-test");
+    EXPECT_EQ(first_json->root().get_string("model"), "loom-test");
 
     for (int i = 0; i < 4; ++i) {
         auto response = message_route->handler({
@@ -6074,7 +6074,7 @@ TEST(ServerRoutes, MessageSessionsAndCompactUsePersistentState) {
 
 TEST(ServerRoutes, MessageRoutePublishesAssistantAndResultIngressEvents) {
     const auto suffix = std::chrono::system_clock::now().time_since_epoch().count();
-    const auto root = fs::temp_directory_path() / ("cc_repl_server_routes_ingress_test_" + std::to_string(suffix));
+    const auto root = fs::temp_directory_path() / ("loom_server_routes_ingress_test_" + std::to_string(suffix));
     const auto sessions_dir = root / "sessions";
     fs::remove_all(root);
     fs::create_directories(sessions_dir);
@@ -6086,7 +6086,7 @@ TEST(ServerRoutes, MessageRoutePublishesAssistantAndResultIngressEvents) {
 
     EnvironmentGuard api_key_guard("ANTHROPIC_API_KEY", "test-key");
     EnvironmentGuard base_url_guard("ANTHROPIC_BASE_URL", anthropic.base_url());
-    EnvironmentGuard model_guard("CLAUDE_MODEL", "direct-ingress-test-model");
+    EnvironmentGuard model_guard("LOOM_MODEL", "direct-ingress-test-model");
     CurrentPathGuard cwd_guard(root);
 
     const auto now = std::chrono::system_clock::now();
@@ -6172,7 +6172,7 @@ TEST(ServerRoutes, MessageRoutePublishesAssistantAndResultIngressEvents) {
 
 TEST(ServerMain, DirectConnectSessionsAndWebSocketUsePersistentRoutes) {
     const auto suffix = std::chrono::system_clock::now().time_since_epoch().count();
-    const auto root = fs::temp_directory_path() / ("cc_repl_server_main_test_" + std::to_string(suffix));
+    const auto root = fs::temp_directory_path() / ("loom_server_main_test_" + std::to_string(suffix));
     const auto sessions_dir = root / "sessions";
     fs::remove_all(root);
     fs::create_directories(sessions_dir);
@@ -6181,8 +6181,8 @@ TEST(ServerMain, DirectConnectSessionsAndWebSocketUsePersistentRoutes) {
     ASSERT_NE(anthropic.port(), 0);
     EnvironmentGuard api_key_guard("ANTHROPIC_API_KEY", "test-key");
     EnvironmentGuard base_url_guard("ANTHROPIC_BASE_URL", anthropic.base_url());
-    EnvironmentGuard model_guard("CLAUDE_MODEL", "direct-server-test-model");
-    EnvironmentGuard sessions_guard("CC_REPL_SERVER_SESSIONS_DIR", sessions_dir.string());
+    EnvironmentGuard model_guard("LOOM_MODEL", "direct-server-test-model");
+    EnvironmentGuard sessions_guard("LOOM_SERVER_SESSIONS_DIR", sessions_dir.string());
     CurrentPathGuard cwd_guard(root);
     cc::server::reset_route_state_for_testing();
 
@@ -6349,12 +6349,12 @@ TEST(ServerMain, DirectConnectSessionsAndWebSocketUsePersistentRoutes) {
 
 TEST(ServerMain, DirectConnectInterruptCancelsActiveMessageRoute) {
     const auto suffix = std::chrono::system_clock::now().time_since_epoch().count();
-    const auto root = fs::temp_directory_path() / ("cc_repl_server_interrupt_cancel_test_" + std::to_string(suffix));
+    const auto root = fs::temp_directory_path() / ("loom_server_interrupt_cancel_test_" + std::to_string(suffix));
     const auto sessions_dir = root / "sessions";
     fs::remove_all(root);
     fs::create_directories(sessions_dir);
 
-    EnvironmentGuard sessions_guard("CC_REPL_SERVER_SESSIONS_DIR", sessions_dir.string());
+    EnvironmentGuard sessions_guard("LOOM_SERVER_SESSIONS_DIR", sessions_dir.string());
     CurrentPathGuard cwd_guard(root);
     cc::server::reset_route_state_for_testing();
 
@@ -6458,7 +6458,7 @@ TEST(ServerMain, DirectConnectInterruptCancelsActiveMessageRoute) {
 
 TEST(ServerMain, DirectConnectPermissionControlCanAllowAndDenyToolUse) {
     const auto suffix = std::chrono::system_clock::now().time_since_epoch().count();
-    const auto root = fs::temp_directory_path() / ("cc_repl_direct_permission_test_" + std::to_string(suffix));
+    const auto root = fs::temp_directory_path() / ("loom_direct_permission_test_" + std::to_string(suffix));
     const auto sessions_dir = root / "sessions";
     fs::remove_all(root);
     fs::create_directories(root);
@@ -6497,35 +6497,35 @@ TEST(ServerMain, DirectConnectPermissionControlCanAllowAndDenyToolUse) {
 
     LocalAnthropicMessagesServer anthropic({
         std::format(
-            R"({{"id":"msg_read_allow_tool","type":"message","role":"assistant","model":"claude-test","content":[{{"type":"tool_use","id":"toolu_read_allow","name":"Read","input":{{"file_path":"{}"}}}}],"stop_reason":"tool_use","usage":{{"input_tokens":1,"output_tokens":1}}}})",
+            R"({{"id":"msg_read_allow_tool","type":"message","role":"assistant","model":"loom-test","content":[{{"type":"tool_use","id":"toolu_read_allow","name":"Read","input":{{"file_path":"{}"}}}}],"stop_reason":"tool_use","usage":{{"input_tokens":1,"output_tokens":1}}}})",
             allowed_file.string()),
-        R"({"id":"msg_read_allow_done","type":"message","role":"assistant","model":"claude-test","content":[{"type":"text","text":"read allowed"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}})",
+        R"({"id":"msg_read_allow_done","type":"message","role":"assistant","model":"loom-test","content":[{"type":"text","text":"read allowed"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}})",
         std::format(
-            R"({{"id":"msg_read_update_tool","type":"message","role":"assistant","model":"claude-test","content":[{{"type":"tool_use","id":"toolu_read_update","name":"Read","input":{{"file_path":"{}"}}}}],"stop_reason":"tool_use","usage":{{"input_tokens":1,"output_tokens":1}}}})",
+            R"({{"id":"msg_read_update_tool","type":"message","role":"assistant","model":"loom-test","content":[{{"type":"tool_use","id":"toolu_read_update","name":"Read","input":{{"file_path":"{}"}}}}],"stop_reason":"tool_use","usage":{{"input_tokens":1,"output_tokens":1}}}})",
             original_file.string()),
-        R"({"id":"msg_read_update_done","type":"message","role":"assistant","model":"claude-test","content":[{"type":"text","text":"read updated"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}})",
+        R"({"id":"msg_read_update_done","type":"message","role":"assistant","model":"loom-test","content":[{"type":"text","text":"read updated"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}})",
         std::format(
-            R"({{"id":"msg_read_cached_tool","type":"message","role":"assistant","model":"claude-test","content":[{{"type":"tool_use","id":"toolu_read_cached","name":"Read","input":{{"file_path":"{}"}}}}],"stop_reason":"tool_use","usage":{{"input_tokens":1,"output_tokens":1}}}})",
+            R"({{"id":"msg_read_cached_tool","type":"message","role":"assistant","model":"loom-test","content":[{{"type":"tool_use","id":"toolu_read_cached","name":"Read","input":{{"file_path":"{}"}}}}],"stop_reason":"tool_use","usage":{{"input_tokens":1,"output_tokens":1}}}})",
             original_file.string()),
-        R"({"id":"msg_read_cached_done","type":"message","role":"assistant","model":"claude-test","content":[{"type":"text","text":"read cached"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}})",
+        R"({"id":"msg_read_cached_done","type":"message","role":"assistant","model":"loom-test","content":[{"type":"text","text":"read cached"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}})",
         std::format(
-            R"({{"id":"msg_read_directory_tool","type":"message","role":"assistant","model":"claude-test","content":[{{"type":"tool_use","id":"toolu_read_directory","name":"Read","input":{{"file_path":"{}"}}}}],"stop_reason":"tool_use","usage":{{"input_tokens":1,"output_tokens":1}}}})",
+            R"({{"id":"msg_read_directory_tool","type":"message","role":"assistant","model":"loom-test","content":[{{"type":"tool_use","id":"toolu_read_directory","name":"Read","input":{{"file_path":"{}"}}}}],"stop_reason":"tool_use","usage":{{"input_tokens":1,"output_tokens":1}}}})",
             directory_file.string()),
-        R"({"id":"msg_read_directory_done","type":"message","role":"assistant","model":"claude-test","content":[{"type":"text","text":"read directory cached"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}})",
+        R"({"id":"msg_read_directory_done","type":"message","role":"assistant","model":"loom-test","content":[{"type":"text","text":"read directory cached"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}})",
         std::format(
-            R"({{"id":"msg_read_deny_tool","type":"message","role":"assistant","model":"claude-test","content":[{{"type":"tool_use","id":"toolu_read_deny","name":"Read","input":{{"file_path":"{}"}}}}],"stop_reason":"tool_use","usage":{{"input_tokens":1,"output_tokens":1}}}})",
+            R"({{"id":"msg_read_deny_tool","type":"message","role":"assistant","model":"loom-test","content":[{{"type":"tool_use","id":"toolu_read_deny","name":"Read","input":{{"file_path":"{}"}}}}],"stop_reason":"tool_use","usage":{{"input_tokens":1,"output_tokens":1}}}})",
             denied_file.string()),
-        R"({"id":"msg_read_deny_done","type":"message","role":"assistant","model":"claude-test","content":[{"type":"text","text":"read denied"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}})",
+        R"({"id":"msg_read_deny_done","type":"message","role":"assistant","model":"loom-test","content":[{"type":"text","text":"read denied"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}})",
         std::format(
-            R"({{"id":"msg_read_error_tool","type":"message","role":"assistant","model":"claude-test","content":[{{"type":"tool_use","id":"toolu_read_error","name":"Read","input":{{"file_path":"{}"}}}}],"stop_reason":"tool_use","usage":{{"input_tokens":1,"output_tokens":1}}}})",
+            R"({{"id":"msg_read_error_tool","type":"message","role":"assistant","model":"loom-test","content":[{{"type":"tool_use","id":"toolu_read_error","name":"Read","input":{{"file_path":"{}"}}}}],"stop_reason":"tool_use","usage":{{"input_tokens":1,"output_tokens":1}}}})",
             errored_file.string()),
-        R"({"id":"msg_read_error_done","type":"message","role":"assistant","model":"claude-test","content":[{"type":"text","text":"read permission error"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}})",
+        R"({"id":"msg_read_error_done","type":"message","role":"assistant","model":"loom-test","content":[{"type":"text","text":"read permission error"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}})",
     });
     ASSERT_NE(anthropic.port(), 0);
 
     EnvironmentGuard api_key_guard("ANTHROPIC_API_KEY", "test-key");
     EnvironmentGuard base_url_guard("ANTHROPIC_BASE_URL", anthropic.base_url());
-    EnvironmentGuard sessions_guard("CC_REPL_SERVER_SESSIONS_DIR", sessions_dir.string());
+    EnvironmentGuard sessions_guard("LOOM_SERVER_SESSIONS_DIR", sessions_dir.string());
     CurrentPathGuard cwd_guard(root);
     cc::server::reset_route_state_for_testing();
 
@@ -6698,24 +6698,24 @@ TEST(ServerMain, DirectConnectPermissionControlCanAllowAndDenyToolUse) {
 
 TEST(ServerMain, DirectConnectToolLoopPersistsTeamCreateAndSendMessage) {
     const auto suffix = std::chrono::system_clock::now().time_since_epoch().count();
-    const auto root = fs::temp_directory_path() / ("cc_repl_direct_team_tool_test_" + std::to_string(suffix));
+    const auto root = fs::temp_directory_path() / ("loom_direct_team_tool_test_" + std::to_string(suffix));
     const auto sessions_dir = root / "sessions";
     fs::remove_all(root);
     fs::create_directories(root);
 
     LocalAnthropicMessagesServer anthropic({
-        R"({"id":"msg_team_create_tool","type":"message","role":"assistant","model":"claude-test","content":[{"type":"tool_use","id":"toolu_team_create","name":"team_create","input":{"team_id":"direct-team-id","team_name":"Direct Team","members":[{"agent_id":"reviewer-one","role":"reviewer"},{"agent_id":"researcher-one","role":"worker"}],"task_list":[{"id":"direct-task","description":"Inspect direct connect team migration","assigned_to":"reviewer-one"}]}}],"stop_reason":"tool_use","usage":{"input_tokens":1,"output_tokens":1}})",
-        R"({"id":"msg_team_create_done","type":"message","role":"assistant","model":"claude-test","content":[{"type":"text","text":"direct team created"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}})",
-        R"({"id":"msg_send_message_tool","type":"message","role":"assistant","model":"claude-test","content":[{"type":"tool_use","id":"toolu_send_message","name":"send_message","input":{"target_agent":"reviewer-one","team_name":"Direct Team","content":"Please review direct connect team output","summary":"direct team follow-up"}}],"stop_reason":"tool_use","usage":{"input_tokens":1,"output_tokens":1}})",
-        R"({"id":"msg_send_message_done","type":"message","role":"assistant","model":"claude-test","content":[{"type":"text","text":"direct team message delivered"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}})",
+        R"({"id":"msg_team_create_tool","type":"message","role":"assistant","model":"loom-test","content":[{"type":"tool_use","id":"toolu_team_create","name":"team_create","input":{"team_id":"direct-team-id","team_name":"Direct Team","members":[{"agent_id":"reviewer-one","role":"reviewer"},{"agent_id":"researcher-one","role":"worker"}],"task_list":[{"id":"direct-task","description":"Inspect direct connect team migration","assigned_to":"reviewer-one"}]}}],"stop_reason":"tool_use","usage":{"input_tokens":1,"output_tokens":1}})",
+        R"({"id":"msg_team_create_done","type":"message","role":"assistant","model":"loom-test","content":[{"type":"text","text":"direct team created"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}})",
+        R"({"id":"msg_send_message_tool","type":"message","role":"assistant","model":"loom-test","content":[{"type":"tool_use","id":"toolu_send_message","name":"send_message","input":{"target_agent":"reviewer-one","team_name":"Direct Team","content":"Please review direct connect team output","summary":"direct team follow-up"}}],"stop_reason":"tool_use","usage":{"input_tokens":1,"output_tokens":1}})",
+        R"({"id":"msg_send_message_done","type":"message","role":"assistant","model":"loom-test","content":[{"type":"text","text":"direct team message delivered"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}})",
     });
     ASSERT_NE(anthropic.port(), 0);
 
     EnvironmentGuard api_key_guard("ANTHROPIC_API_KEY", "test-key");
     EnvironmentGuard base_url_guard("ANTHROPIC_BASE_URL", anthropic.base_url());
-    EnvironmentGuard sessions_guard("CC_REPL_SERVER_SESSIONS_DIR", sessions_dir.string());
-    EnvironmentGuard team_dir_guard("CC_REPL_TEAM_RUNTIME_DIR", (root / "teams").string());
-    EnvironmentGuard agent_runtime_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "agents").string());
+    EnvironmentGuard sessions_guard("LOOM_SERVER_SESSIONS_DIR", sessions_dir.string());
+    EnvironmentGuard team_dir_guard("LOOM_TEAM_RUNTIME_DIR", (root / "teams").string());
+    EnvironmentGuard agent_runtime_guard("LOOM_AGENT_RUNTIME_DIR", (root / "agents").string());
     CurrentPathGuard cwd_guard(root);
     cc::server::reset_route_state_for_testing();
     cc::tools::global_team_store().clear_for_testing();
@@ -7478,10 +7478,10 @@ TEST(ChannelPermission, FilterRelayRequiresConnected) {
         {"telegram", ServerState::Ready, {}},
         {"discord", ServerState::Error, {}},
     };
-    clients[0].capabilities.experimental["claude/channel"] = "true";
-    clients[0].capabilities.experimental["claude/channel/permission"] = "true";
-    clients[1].capabilities.experimental["claude/channel"] = "true";
-    clients[1].capabilities.experimental["claude/channel/permission"] = "true";
+    clients[0].capabilities.experimental["loom/channel"] = "true";
+    clients[0].capabilities.experimental["loom/channel/permission"] = "true";
+    clients[1].capabilities.experimental["loom/channel"] = "true";
+    clients[1].capabilities.experimental["loom/channel/permission"] = "true";
 
     auto filtered = filter_permission_relay_clients<TestMcpClient>(
         clients, [](auto) { return true; });
@@ -7496,8 +7496,8 @@ TEST(ChannelPermission, FilterRelayRequiresAllowlist) {
         {"discord", ServerState::Ready, {}},
     };
     for (auto& c : clients) {
-        c.capabilities.experimental["claude/channel"] = "true";
-        c.capabilities.experimental["claude/channel/permission"] = "true";
+        c.capabilities.experimental["loom/channel"] = "true";
+        c.capabilities.experimental["loom/channel/permission"] = "true";
     }
 
     auto filtered = filter_permission_relay_clients<TestMcpClient>(
@@ -7514,10 +7514,10 @@ TEST(ChannelPermission, FilterRelayRequiresBothCapabilities) {
         {"permission_only", ServerState::Ready, {}},
         {"neither", ServerState::Ready, {}},
     };
-    clients[0].capabilities.experimental["claude/channel"] = "true";
-    clients[0].capabilities.experimental["claude/channel/permission"] = "true";
-    clients[1].capabilities.experimental["claude/channel"] = "true";
-    clients[2].capabilities.experimental["claude/channel/permission"] = "true";
+    clients[0].capabilities.experimental["loom/channel"] = "true";
+    clients[0].capabilities.experimental["loom/channel/permission"] = "true";
+    clients[1].capabilities.experimental["loom/channel"] = "true";
+    clients[2].capabilities.experimental["loom/channel/permission"] = "true";
 
     auto filtered = filter_permission_relay_clients<TestMcpClient>(
         clients, [](auto) { return true; });
@@ -7643,15 +7643,15 @@ TEST(ChannelPermission, StoreGetAllRules) {
 TEST(ChannelPermission, StorePersistenceRoundtrip) {
     using namespace cc::services::mcp;
     // Isolate to a unique temp file: the store defaults to a shared
-    // ~/.cc-repl path, which races with sibling tests under parallel ctest
+    // ~/.loom path, which races with sibling tests under parallel ctest
     // (and must never touch the real user file).
     const auto tmp_file =
         fs::temp_directory_path() /
-        ("cc_repl_chanperm_roundtrip_" +
+        ("loom_chanperm_roundtrip_" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
          ".json");
     EnvironmentGuard env_override(
-        "CC_REPL_CHANNEL_PERMISSIONS_FILE", tmp_file.string());
+        "LOOM_CHANNEL_PERMISSIONS_FILE", tmp_file.string());
     // Create a store, set rules, save
     {
         ChannelPermissionStore store;
@@ -7679,11 +7679,11 @@ TEST(ChannelPermission, StoreFactoryCreatesLoaded) {
     using namespace cc::services::mcp;
     const auto tmp_file =
         fs::temp_directory_path() /
-        ("cc_repl_chanperm_factory_" +
+        ("loom_chanperm_factory_" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
          ".json");
     EnvironmentGuard env_override(
-        "CC_REPL_CHANNEL_PERMISSIONS_FILE", tmp_file.string());
+        "LOOM_CHANNEL_PERMISSIONS_FILE", tmp_file.string());
     std::error_code ec;
     fs::remove(tmp_file, ec);
 

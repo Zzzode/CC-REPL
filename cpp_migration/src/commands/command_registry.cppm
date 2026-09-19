@@ -63,7 +63,7 @@ enum class CommandPermission : std::uint8_t {
         name == "passes" || name == "stats" || name == "status" || name == "summary" ||
         name == "tag" || name == "ultraplan" || name == "insights" || name == "init")
         return CommandPermission::ReadOnly;
-    if (name == "chrome" || name == "desktop" || name == "good-claude" || name == "mobile" ||
+    if (name == "chrome" || name == "desktop" || name == "good-loom" || name == "mobile" ||
         name == "stickers" || name == "ant-trace" || name == "bughunter" || name == "debug-tool-call" ||
         name == "init-verifiers" || name == "onboarding" ||
         name == "perf-issue" || name == "pr-comments" || name == "rate-limit-options" ||

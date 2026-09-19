@@ -47,7 +47,7 @@ import cc.utils.agent_swarms_enabled;
 import cc.utils.env_utils;
 import cc.utils.cache_paths;
 import cc.utils.binary_check;
-import cc.utils.claude_code_hints;
+import cc.utils.loom_code_hints;
 import cc.utils.commit_attribution;
 import cc.utils.hash;
 import cc.utils.tagged_id;
@@ -446,8 +446,8 @@ TEST(CollapseReadSearchSummary, IncludesTeamMemorySummaryPartsInTypeScriptOrder)
 }
 
 TEST(Memdir, TeamMemoryCanBeEnabledAtRuntime) {
-    ScopedEnvVar disable_auto("CLAUDE_CODE_DISABLE_AUTO_MEMORY");
-    ScopedEnvVar enable_team("CLAUDE_CODE_ENABLE_TEAM_MEMORY");
+    ScopedEnvVar disable_auto("LOOM_DISABLE_AUTO_MEMORY");
+    ScopedEnvVar enable_team("LOOM_ENABLE_TEAM_MEMORY");
     ScopedEnvVar cc_sync_url("CC_TEAM_MEMORY_SYNC_URL");
     ScopedEnvVar ts_sync_url("TEAM_MEMORY_SYNC_URL");
 
@@ -554,12 +554,12 @@ TEST(PrivacyLevel, ResolvesMostRestrictiveTrafficAndTelemetrySignals) {
     using cc::utils::privacy::EnvLike;
     EXPECT_EQ(cc::utils::privacy::get_privacy_level(EnvLike{}), cc::utils::privacy::PrivacyLevel::Default);
     EXPECT_EQ(cc::utils::privacy::get_privacy_level({{"DISABLE_TELEMETRY", "1"}}), cc::utils::privacy::PrivacyLevel::NoTelemetry);
-    EXPECT_EQ(cc::utils::privacy::get_privacy_level({{"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "0"}}), cc::utils::privacy::PrivacyLevel::EssentialTraffic);
+    EXPECT_EQ(cc::utils::privacy::get_privacy_level({{"LOOM_DISABLE_NONESSENTIAL_TRAFFIC", "0"}}), cc::utils::privacy::PrivacyLevel::EssentialTraffic);
     EXPECT_TRUE(cc::utils::privacy::is_telemetry_disabled({{"DISABLE_TELEMETRY", "true"}}));
-    EXPECT_TRUE(cc::utils::privacy::is_essential_traffic_only({{"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "true"}}));
+    EXPECT_TRUE(cc::utils::privacy::is_essential_traffic_only({{"LOOM_DISABLE_NONESSENTIAL_TRAFFIC", "true"}}));
     EXPECT_EQ(
-        cc::utils::privacy::get_essential_traffic_only_reason({{"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "true"}}),
-        std::optional<std::string>{"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"});
+        cc::utils::privacy::get_essential_traffic_only_reason({{"LOOM_DISABLE_NONESSENTIAL_TRAFFIC", "true"}}),
+        std::optional<std::string>{"LOOM_DISABLE_NONESSENTIAL_TRAFFIC"});
 }
 
 TEST(ScriptToolEnabled, MirrorsScriptAndBashToolEnvironmentChecks) {
@@ -642,7 +642,7 @@ TEST(GitHubUtils, FetchesAuthenticatedUserFromGitHubApi) {
     ScopedEnvVar gh_token("GH_TOKEN");
     ScopedEnvVar github_token("GITHUB_TOKEN");
     ScopedEnvVar github_user("GITHUB_USER");
-    ScopedEnvVar github_api_base("CC_REPL_GITHUB_API_BASE_URL");
+    ScopedEnvVar github_api_base("LOOM_GITHUB_API_BASE_URL");
     gh_token.unset();
     github_token.unset();
     github_user.unset();
@@ -681,7 +681,7 @@ TEST(GitHubUtils, MapsApiAuthFailuresToAuthStatus) {
 
     ScopedEnvVar gh_token("GH_TOKEN");
     ScopedEnvVar github_token("GITHUB_TOKEN");
-    ScopedEnvVar github_api_base("CC_REPL_GITHUB_API_BASE_URL");
+    ScopedEnvVar github_api_base("LOOM_GITHUB_API_BASE_URL");
     gh_token.set("gh-token-for-auth-failure");
     github_token.unset();
     github_api_base.set(server.base_url().c_str());
@@ -706,7 +706,7 @@ TEST(GitHubUtils, MapsApiAuthFailuresToAuthStatus) {
 }
 
 TEST(GitHubUtils, DetectRepoReadsLocalGitHubRemoteAndDefaultBranch) {
-    auto root = std::filesystem::temp_directory_path() / "cc_repl_github_detect_repo_test";
+    auto root = std::filesystem::temp_directory_path() / "loom_github_detect_repo_test";
     std::filesystem::remove_all(root);
     std::filesystem::create_directories(root);
 
@@ -731,12 +731,12 @@ TEST(GitHubUtils, FetchesIssueAndReviewCommentsForDetectedRepo) {
 
     ScopedEnvVar gh_token("GH_TOKEN");
     ScopedEnvVar github_token("GITHUB_TOKEN");
-    ScopedEnvVar github_api_base("CC_REPL_GITHUB_API_BASE_URL");
+    ScopedEnvVar github_api_base("LOOM_GITHUB_API_BASE_URL");
     gh_token.set("gh-token-for-comments");
     github_token.unset();
     github_api_base.set(server.base_url().c_str());
 
-    auto root = std::filesystem::temp_directory_path() / "cc_repl_github_pr_comments_test";
+    auto root = std::filesystem::temp_directory_path() / "loom_github_pr_comments_test";
     std::filesystem::remove_all(root);
     std::filesystem::create_directories(root);
 
@@ -772,12 +772,12 @@ TEST(GitHubUtils, PaginatesIssueAndReviewCommentsForDetectedRepo) {
 
     ScopedEnvVar gh_token("GH_TOKEN");
     ScopedEnvVar github_token("GITHUB_TOKEN");
-    ScopedEnvVar github_api_base("CC_REPL_GITHUB_API_BASE_URL");
+    ScopedEnvVar github_api_base("LOOM_GITHUB_API_BASE_URL");
     gh_token.set("gh-token-for-paginated-comments");
     github_token.unset();
     github_api_base.set(server.base_url().c_str());
 
-    auto root = std::filesystem::temp_directory_path() / "cc_repl_github_pr_comments_pagination_test";
+    auto root = std::filesystem::temp_directory_path() / "loom_github_pr_comments_pagination_test";
     std::filesystem::remove_all(root);
     std::filesystem::create_directories(root);
 
@@ -1212,7 +1212,7 @@ TEST(PluginIdentifier, ParsesBuildsAndMapsScopes) {
 
 TEST(PluginLoader, CreatePluginFromPathLoadsManifestAndComponentPaths) {
     namespace fs = std::filesystem;
-    auto root = fs::temp_directory_path() / "cc_repl_plugin_loader_manifest_test";
+    auto root = fs::temp_directory_path() / "loom_plugin_loader_manifest_test";
     fs::remove_all(root);
     fs::create_directories(root / ".claude-plugin");
     fs::create_directories(root / "manifest");
@@ -1272,14 +1272,14 @@ TEST(PluginLoader, CreatePluginFromPathLoadsManifestAndComponentPaths) {
 
 TEST(PluginLoader, CacheOnlyLoadsMarkdownCommandsAgentsAndOutputStyles) {
     namespace fs = std::filesystem;
-    auto root = fs::temp_directory_path() / "cc_repl_plugin_loader_cache_test";
+    auto root = fs::temp_directory_path() / "loom_plugin_loader_cache_test";
     auto plugin_root = root / "cache-plugin";
     fs::remove_all(root);
     fs::create_directories(plugin_root / ".claude-plugin");
     fs::create_directories(plugin_root / "commands");
     fs::create_directories(plugin_root / "agents");
     fs::create_directories(plugin_root / "output-styles");
-    ScopedEnvVar plugin_cache("CLAUDE_CODE_PLUGIN_CACHE_DIR");
+    ScopedEnvVar plugin_cache("LOOM_PLUGIN_CACHE_DIR");
     plugin_cache.set(root.string().c_str());
 
     {
@@ -1340,13 +1340,13 @@ TEST(PluginLoader, CachePluginClonesGitUrlAndLoadsManifest) {
     namespace fs = std::filesystem;
     if (!command_available_for_test("git")) GTEST_SKIP() << "git is not available";
 
-    auto root = fs::temp_directory_path() / "cc_repl_plugin_loader_git_cache_test";
+    auto root = fs::temp_directory_path() / "loom_plugin_loader_git_cache_test";
     auto repo = root / "repo";
     auto cache_root = root / "plugins";
     fs::remove_all(root);
     fs::create_directories(repo / ".claude-plugin");
     fs::create_directories(repo / "commands");
-    ScopedEnvVar plugin_cache("CLAUDE_CODE_PLUGIN_CACHE_DIR");
+    ScopedEnvVar plugin_cache("LOOM_PLUGIN_CACHE_DIR");
     plugin_cache.set(cache_root.string().c_str());
 
     {
@@ -1387,14 +1387,14 @@ TEST(PluginLoader, CachePluginExtractsGitSubdirAndRecordsSha) {
     namespace fs = std::filesystem;
     if (!command_available_for_test("git")) GTEST_SKIP() << "git is not available";
 
-    auto root = fs::temp_directory_path() / "cc_repl_plugin_loader_git_subdir_test";
+    auto root = fs::temp_directory_path() / "loom_plugin_loader_git_subdir_test";
     auto repo = root / "repo";
     auto plugin_dir = repo / "packages" / "plugin";
     auto cache_root = root / "plugins";
     fs::remove_all(root);
     fs::create_directories(plugin_dir / ".claude-plugin");
     fs::create_directories(plugin_dir / "commands");
-    ScopedEnvVar plugin_cache("CLAUDE_CODE_PLUGIN_CACHE_DIR");
+    ScopedEnvVar plugin_cache("LOOM_PLUGIN_CACHE_DIR");
     plugin_cache.set(cache_root.string().c_str());
 
     {
@@ -1432,18 +1432,18 @@ TEST(PluginLoader, CachePluginInstallsNpmPackageFromLocalSpec) {
     namespace fs = std::filesystem;
     if (!command_available_for_test("npm")) GTEST_SKIP() << "npm is not available";
 
-    auto root = fs::temp_directory_path() / "cc_repl_plugin_loader_npm_cache_test";
+    auto root = fs::temp_directory_path() / "loom_plugin_loader_npm_cache_test";
     auto package_dir = root / "npm-plugin";
     auto cache_root = root / "plugins";
     fs::remove_all(root);
     fs::create_directories(package_dir / "commands");
-    ScopedEnvVar plugin_cache("CLAUDE_CODE_PLUGIN_CACHE_DIR");
+    ScopedEnvVar plugin_cache("LOOM_PLUGIN_CACHE_DIR");
     plugin_cache.set(cache_root.string().c_str());
 
     {
         std::ofstream package_json(package_dir / "package.json");
         package_json << R"JSON({
-  "name": "cc-repl-npm-plugin-fixture",
+  "name": "loom-npm-plugin-fixture",
   "version": "1.0.0",
   "files": ["plugin.json", "commands"]
 })JSON";
@@ -1474,10 +1474,10 @@ TEST(PluginLoader, CachePluginInstallsNpmPackageFromLocalSpec) {
 
 TEST(PluginLoader, ProbesSeedCacheExactAndAnyVersion) {
     namespace fs = std::filesystem;
-    auto root = fs::temp_directory_path() / "cc_repl_plugin_loader_seed_cache_test";
+    auto root = fs::temp_directory_path() / "loom_plugin_loader_seed_cache_test";
     auto seed = root / "seed";
     fs::remove_all(root);
-    ScopedEnvVar seed_env("CLAUDE_CODE_PLUGIN_SEED_DIR");
+    ScopedEnvVar seed_env("LOOM_PLUGIN_SEED_DIR");
     seed_env.set(seed.string().c_str());
 
     const auto seeded_path = cc::utils::plugin_loader::get_versioned_cache_path_in(
@@ -1571,13 +1571,13 @@ TEST(PluginDependencyResolver, ResolvesClosureAndReportsDependencyErrors) {
 TEST(SettingsPathsAndMerge, ComputesManagedAndRelativePathsAndDedupesArrays) {
     using cc::utils::settings_sources::SettingSource;
 
-    EXPECT_EQ(cc::utils::settings_paths::managed_file_path(cc::utils::settings_paths::Platform::MacOS), "/Library/Application Support/ClaudeCode");
-    EXPECT_EQ(cc::utils::settings_paths::managed_file_path(cc::utils::settings_paths::Platform::Windows), "C:\\Program Files\\ClaudeCode");
-    EXPECT_EQ(cc::utils::settings_paths::managed_file_path(cc::utils::settings_paths::Platform::Linux), "/etc/claude-code");
+    EXPECT_EQ(cc::utils::settings_paths::managed_file_path(cc::utils::settings_paths::Platform::MacOS), "/Library/Application Support/Loom");
+    EXPECT_EQ(cc::utils::settings_paths::managed_file_path(cc::utils::settings_paths::Platform::Windows), "C:\\Program Files\\Loom");
+    EXPECT_EQ(cc::utils::settings_paths::managed_file_path(cc::utils::settings_paths::Platform::Linux), "/etc/loom");
     EXPECT_EQ(cc::utils::settings_paths::managed_file_path(cc::utils::settings_paths::Platform::Linux, "ant", "/tmp/managed"), "/tmp/managed");
-    EXPECT_EQ(cc::utils::settings_paths::managed_settings_drop_in_dir("/etc/claude-code"), "/etc/claude-code/managed-settings.d");
-    EXPECT_EQ(cc::utils::settings_paths::relative_settings_file_path_for_source(SettingSource::ProjectSettings), ".claude/settings.json");
-    EXPECT_EQ(cc::utils::settings_paths::relative_settings_file_path_for_source(SettingSource::LocalSettings), ".claude/settings.local.json");
+    EXPECT_EQ(cc::utils::settings_paths::managed_settings_drop_in_dir("/etc/loom"), "/etc/loom/managed-settings.d");
+    EXPECT_EQ(cc::utils::settings_paths::relative_settings_file_path_for_source(SettingSource::ProjectSettings), ".loom/settings.json");
+    EXPECT_EQ(cc::utils::settings_paths::relative_settings_file_path_for_source(SettingSource::LocalSettings), ".loom/settings.local.json");
 
     EXPECT_EQ(
         cc::utils::settings_merge::merge_arrays_unique({"Bash(ls:*)", "Read(*)"}, {"Read(*)", "Edit(src:*)"}),
@@ -1595,7 +1595,7 @@ TEST(PluginMarketplaceRules, AppliesOfficialNameAndAutoUpdateRules) {
     EXPECT_FALSE(cc::utils::plugin_marketplace_rules::is_marketplace_auto_update("anthropic-marketplace", false));
 
     EXPECT_FALSE(cc::utils::plugin_marketplace_rules::is_blocked_official_name("anthropic-marketplace"));
-    EXPECT_TRUE(cc::utils::plugin_marketplace_rules::is_blocked_official_name("claude-official"));
+    EXPECT_TRUE(cc::utils::plugin_marketplace_rules::is_blocked_official_name("loom-official"));
     EXPECT_TRUE(cc::utils::plugin_marketplace_rules::is_blocked_official_name("anthropic-marketplace-new"));
     EXPECT_TRUE(cc::utils::plugin_marketplace_rules::is_blocked_official_name("clаude")); // contains Cyrillic a
 
@@ -1619,7 +1619,7 @@ TEST(PluginMarketplace, ComputesRealSha256Checksums) {
 }
 
 TEST(ShellProviders, BashEvalCommandEscapesSingleQuotes) {
-    ScopedEnvVar prefix("CLAUDE_CODE_SHELL_PREFIX");
+    ScopedEnvVar prefix("LOOM_SHELL_PREFIX");
     prefix.unset();
 
     auto provider = cc::utils::shell_providers::create_provider("/bin/bash", true);
@@ -1636,10 +1636,10 @@ TEST(ShellProviders, BashEvalCommandEscapesSingleQuotes) {
 }
 
 TEST(ShellProviders, BashProviderSourcesSnapshotAndInjectsSandboxTmpdir) {
-    ScopedEnvVar prefix("CLAUDE_CODE_SHELL_PREFIX");
+    ScopedEnvVar prefix("LOOM_SHELL_PREFIX");
     prefix.unset();
 
-    auto sandbox = std::filesystem::temp_directory_path() / "cc_repl_shell_provider_sandbox_test";
+    auto sandbox = std::filesystem::temp_directory_path() / "loom_shell_provider_sandbox_test";
     std::filesystem::remove_all(sandbox);
     std::filesystem::create_directories(sandbox);
 
@@ -1661,10 +1661,10 @@ TEST(ShellProviders, BashProviderSourcesSnapshotAndInjectsSandboxTmpdir) {
     EXPECT_EQ(args.back(), result.command_string);
 
     auto env = provider->get_environment_overrides("echo ok");
-    EXPECT_EQ(env["CLAUDE_CODE_SHELL_PROVIDER"], "native");
-    EXPECT_EQ(env["CLAUDE_CODE_SHELL_TYPE"], "bash");
-    EXPECT_EQ(env["CLAUDE_CODE_LAST_COMMAND"], "echo ok");
-    EXPECT_TRUE(env.contains("CLAUDE_CODE_SHELL_SNAPSHOT"));
+    EXPECT_EQ(env["LOOM_SHELL_PROVIDER"], "native");
+    EXPECT_EQ(env["LOOM_SHELL_TYPE"], "bash");
+    EXPECT_EQ(env["LOOM_LAST_COMMAND"], "echo ok");
+    EXPECT_TRUE(env.contains("LOOM_SHELL_SNAPSHOT"));
 
     std::filesystem::remove_all(sandbox);
 }
@@ -1688,12 +1688,12 @@ TEST(ShellProviders, PowershellProviderTracksCwdInSandboxAndQuotesPath) {
     EXPECT_EQ(args[3], result.command_string);
 
     auto env = provider->get_environment_overrides("Write-Output ok");
-    EXPECT_EQ(env["CLAUDE_CODE_SHELL_TYPE"], "powershell");
+    EXPECT_EQ(env["LOOM_SHELL_TYPE"], "powershell");
 }
 
 TEST(PluginVersioning, ExtractsVersionedPathsAndDerivesPureVersions) {
-    EXPECT_EQ(cc::utils::plugin_versioning::get_version_from_path("/Users/me/.claude/plugins/cache/main/plugin/1.2.3"), "1.2.3");
-    EXPECT_FALSE(cc::utils::plugin_versioning::get_version_from_path("/Users/me/.claude/plugins/main/plugin").has_value());
+    EXPECT_EQ(cc::utils::plugin_versioning::get_version_from_path("/Users/me/.loom/plugins/cache/main/plugin/1.2.3"), "1.2.3");
+    EXPECT_FALSE(cc::utils::plugin_versioning::get_version_from_path("/Users/me/.loom/plugins/main/plugin").has_value());
     EXPECT_TRUE(cc::utils::plugin_versioning::is_versioned_path("/plugins/cache/main/plugin/v1"));
     EXPECT_FALSE(cc::utils::plugin_versioning::is_versioned_path("/plugins/main/plugin/v1"));
 
@@ -1957,11 +1957,11 @@ TEST(CachePaths, SanitizesStableProjectAndMcpLogPaths) {
     EXPECT_EQ(sanitized.substr(0, 200), std::string(200, 'a'));
     EXPECT_NE(sanitized.find('-'), std::string::npos);
 
-    CachePathSet paths = build_cache_paths("/var/cache/claude-cli", "/Users/me/project", "server:name");
-    EXPECT_EQ(paths.base_logs, "/var/cache/claude-cli/-Users-me-project");
-    EXPECT_EQ(paths.errors, "/var/cache/claude-cli/-Users-me-project/errors");
-    EXPECT_EQ(paths.messages, "/var/cache/claude-cli/-Users-me-project/messages");
-    EXPECT_EQ(paths.mcp_logs, "/var/cache/claude-cli/-Users-me-project/mcp-logs-server-name");
+    CachePathSet paths = build_cache_paths("/var/cache/loom-cli", "/Users/me/project", "server:name");
+    EXPECT_EQ(paths.base_logs, "/var/cache/loom-cli/-Users-me-project");
+    EXPECT_EQ(paths.errors, "/var/cache/loom-cli/-Users-me-project/errors");
+    EXPECT_EQ(paths.messages, "/var/cache/loom-cli/-Users-me-project/messages");
+    EXPECT_EQ(paths.mcp_logs, "/var/cache/loom-cli/-Users-me-project/mcp-logs-server-name");
 }
 
 TEST(BinaryCheck, TrimsCommandsCachesResultsAndClearsCache) {
@@ -1985,38 +1985,38 @@ TEST(BinaryCheck, TrimsCommandsCachesResultsAndClearsCache) {
     EXPECT_EQ(calls, 3);
 }
 
-TEST(ClaudeCodeHints, ExtractsWholeLineHintsStripsThemAndKeepsSourceCommand) {
-    using namespace cc::utils::claude_code_hints;
+TEST(LoomHints, ExtractsWholeLineHintsStripsThemAndKeepsSourceCommand) {
+    using namespace cc::utils::loom_hints;
 
     const std::string output =
         "before\n"
-        "  <claude-code-hint v=1 type=plugin value=eslint@marketplace />\n"
-        "quoted <claude-code-hint v=1 type=plugin value=ignored /> text\n"
-        "\t<claude-code-hint v=2 type=plugin value=future@marketplace />\n"
+        "  <loom-hint v=1 type=plugin value=eslint@marketplace />\n"
+        "quoted <loom-hint v=1 type=plugin value=ignored /> text\n"
+        "\t<loom-hint v=2 type=plugin value=future@marketplace />\n"
         "after";
 
-    auto result = extract_claude_code_hints(output, "  npx eslint .");
+    auto result = extract_loom_hints(output, "  npx eslint .");
 
     ASSERT_EQ(result.hints.size(), 1u);
     EXPECT_EQ(result.hints[0].v, 1);
     EXPECT_EQ(result.hints[0].type, "plugin");
     EXPECT_EQ(result.hints[0].value, "eslint@marketplace");
     EXPECT_EQ(result.hints[0].source_command, "npx");
-    EXPECT_EQ(result.stripped, "before\n\nquoted <claude-code-hint v=1 type=plugin value=ignored /> text\n\nafter");
+    EXPECT_EQ(result.stripped, "before\n\nquoted <loom-hint v=1 type=plugin value=ignored /> text\n\nafter");
 
-    auto no_hint = extract_claude_code_hints("plain output", "cmd");
+    auto no_hint = extract_loom_hints("plain output", "cmd");
     EXPECT_TRUE(no_hint.hints.empty());
     EXPECT_EQ(no_hint.stripped, "plain output");
 
-    auto huge_version = extract_claude_code_hints(
-        "<claude-code-hint v=999999999999999999999999999999 type=plugin value=x@marketplace />",
+    auto huge_version = extract_loom_hints(
+        "<loom-hint v=999999999999999999999999999999 type=plugin value=x@marketplace />",
         "tool");
     EXPECT_TRUE(huge_version.hints.empty());
     EXPECT_EQ(huge_version.stripped, "");
 }
 
-TEST(ClaudeCodeHints, PendingHintStoreIsSingleSlotAndOncePerSession) {
-    using namespace cc::utils::claude_code_hints;
+TEST(LoomHints, PendingHintStoreIsSingleSlotAndOncePerSession) {
+    using namespace cc::utils::loom_hints;
 
     PendingHintStore store;
     int notifications = 0;
@@ -2044,7 +2044,7 @@ TEST(CommitAttribution, SanitizesInternalModelNamesAndSurfaceKeys) {
     EXPECT_EQ(sanitize_model_name("claude-opus-4-6-fast"), "claude-opus-4-6");
     EXPECT_EQ(sanitize_model_name("internal-sonnet-4-5-thinking"), "claude-sonnet-4-5");
     EXPECT_EQ(sanitize_model_name("haiku-3-5-test"), "claude-haiku-3-5");
-    EXPECT_EQ(sanitize_model_name("unknown-codename"), "claude");
+    EXPECT_EQ(sanitize_model_name("unknown-codename"), "loom");
     EXPECT_EQ(sanitize_surface_key("cli/opus-4-5-fast"), "cli/claude-opus-4-5");
     EXPECT_EQ(sanitize_surface_key("cli"), "cli");
 }
@@ -2057,16 +2057,16 @@ TEST(CommitAttribution, TracksChangedRegionCreationDeletionAndBulkChanges) {
 
     state = track_file_modification(state, "src/a.ts", "hello world", "hello brave world", 10.0);
     ASSERT_TRUE(state.file_states.contains("src/a.ts"));
-    EXPECT_EQ(state.file_states.at("src/a.ts").claude_contribution, 6u);
+    EXPECT_EQ(state.file_states.at("src/a.ts").loom_contribution, 6u);
     EXPECT_EQ(state.file_states.at("src/a.ts").content_hash,
               "169f95520526c347f9ef612918879703d7b5340d162efd0880ccad0be7e17673");
     EXPECT_DOUBLE_EQ(state.file_states.at("src/a.ts").mtime, 10.0);
 
     state = track_file_creation(state, "src/new.ts", "abcdef", 11.0);
-    EXPECT_EQ(state.file_states.at("src/new.ts").claude_contribution, 6u);
+    EXPECT_EQ(state.file_states.at("src/new.ts").loom_contribution, 6u);
 
     state = track_file_deletion(state, "src/a.ts", "hello brave world", 12.0);
-    EXPECT_EQ(state.file_states.at("src/a.ts").claude_contribution, 23u);
+    EXPECT_EQ(state.file_states.at("src/a.ts").loom_contribution, 23u);
     EXPECT_EQ(state.file_states.at("src/a.ts").content_hash, "");
 
     std::vector<FileChange> changes = {
@@ -2074,14 +2074,14 @@ TEST(CommitAttribution, TracksChangedRegionCreationDeletionAndBulkChanges) {
         {.path = "src/old.ts", .type = FileChangeType::Deleted, .old_content = "gone", .new_content = "", .mtime = 14.0},
     };
     state = track_bulk_file_changes(state, changes);
-    EXPECT_EQ(state.file_states.at("src/new.ts").claude_contribution, 9u);
-    EXPECT_EQ(state.file_states.at("src/old.ts").claude_contribution, 4u);
+    EXPECT_EQ(state.file_states.at("src/new.ts").loom_contribution, 9u);
+    EXPECT_EQ(state.file_states.at("src/old.ts").loom_contribution, 4u);
 
     auto unicode = create_empty_attribution_state();
     unicode = track_file_creation(unicode, "emoji.txt", "\xF0\x9F\x98\x80", 15.0);
     unicode = track_file_creation(unicode, "cjk.txt", "\xE4\xBD\xA0", 16.0);
-    EXPECT_EQ(unicode.file_states.at("emoji.txt").claude_contribution, 2u);
-    EXPECT_EQ(unicode.file_states.at("cjk.txt").claude_contribution, 1u);
+    EXPECT_EQ(unicode.file_states.at("emoji.txt").loom_contribution, 2u);
+    EXPECT_EQ(unicode.file_states.at("cjk.txt").loom_contribution, 1u);
 }
 
 TEST(HashUtils, MatchesTypeScriptDjb2Sha256AndPairHashing) {
@@ -2089,7 +2089,7 @@ TEST(HashUtils, MatchesTypeScriptDjb2Sha256AndPairHashing) {
 
     EXPECT_EQ(djb2_hash(""), 0);
     EXPECT_EQ(djb2_hash("hello"), 99162322);
-    EXPECT_EQ(djb2_hash("CC-REPL"), 1295427772);
+    EXPECT_EQ(djb2_hash("LOOM"), 2342561);
     EXPECT_EQ(djb2_hash("\xF0\x9F\x98\x80"), 1772899);
 
     EXPECT_EQ(hash_content("hello"), "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
@@ -2584,7 +2584,7 @@ TEST(FlagSettings, AppliesEnvBlockAndModelAndApiKey) {
 
 TEST(FlagSettings, AppliesStatusLineCommandSettings) {
     auto parsed = cc::utils::json::parse(
-        R"({"statusLine":{"type":"command","command":"~/.claude/statusline.sh","padding":2}})");
+        R"({"statusLine":{"type":"command","command":"~/.loom/statusline.sh","padding":2}})");
     ASSERT_TRUE(parsed.has_value());
 
     auto result = cc::config::apply_flag_settings(parsed->root(), [](auto, auto) {});
@@ -2593,7 +2593,7 @@ TEST(FlagSettings, AppliesStatusLineCommandSettings) {
     ASSERT_TRUE(result.status_line->type.has_value());
     EXPECT_EQ(*result.status_line->type, "command");
     ASSERT_TRUE(result.status_line->command.has_value());
-    EXPECT_EQ(*result.status_line->command, "~/.claude/statusline.sh");
+    EXPECT_EQ(*result.status_line->command, "~/.loom/statusline.sh");
     ASSERT_TRUE(result.status_line->padding.has_value());
     EXPECT_EQ(*result.status_line->padding, 2);
     EXPECT_TRUE(result.deferred_keys.empty());
@@ -2618,10 +2618,10 @@ TEST(FlagSettings, ResolvesDefaultModelFromEnvironmentPriority) {
         cc::config::resolve_default_model_from_environment(getter),
         "anthropic-model");
 
-    env["CLAUDE_MODEL"] = "claude-model";
+    env["LOOM_MODEL"] = "loom-model";
     EXPECT_EQ(
         cc::config::resolve_default_model_from_environment(getter),
-        "claude-model");
+        "loom-model");
 }
 
 TEST(FlagSettings, RecordsDeferredKeys) {
@@ -2733,7 +2733,7 @@ TEST(ClipboardImage, OsascriptScriptsAreSyntacticallyValidOnMacOS) {
     });
 }
 
-// Regression (2026-07-01, user-reported): inside cc-repl the terminal runs in
+// Regression (2026-07-01, user-reported): inside loom the terminal runs in
 // raw mode (FTXUI termios ICANON off). std::system() forks a child that
 // INHERITS fd 0 = the raw-mode terminal. osascript, on detecting a TTY on
 // stdin, takes a code path that misbehaves under raw mode and exits non-zero
@@ -2770,10 +2770,10 @@ TEST(ClipboardImage, OsascriptUsesSetsidToDetachFromTty_RawModeGuard) {
                         std::istreambuf_iterator<char>());
 
     // setsid() is the load-bearing call — it detaches the osascript chain
-    // from cc-repl's controlling terminal.
+    // from loom's controlling terminal.
     EXPECT_NE(content.find("setsid()"), std::string::npos)
         << "clipboard.cppm must call setsid() in run_detached() to detach the "
-        << "osascript child from cc-repl's raw-mode controlling terminal. "
+        << "osascript child from loom's raw-mode controlling terminal. "
         << "Without it, osascript sees a raw-mode TTY on stdin and exits "
         << "non-zero. See the regression comment above.";
 
@@ -2842,7 +2842,7 @@ TEST(ClipboardImage, RunAppClearsVlnext_MacOSLineDisciplineGuard) {
 
 // Regression (2026-07-02, user-reported): copying an image from Lark/Feishu
 // (or any web app that embeds images as base64 data URLs in HTML) and pasting
-// into cc-repl showed the [Image #N] placeholder briefly, then it vanished.
+// into loom showed the [Image #N] placeholder briefly, then it vanished.
 // Root cause: the clipboard held «class HTML» (365KB HTML with a JPEG data URL
 // in data-content="data:image/jpeg;base64,..."), NOT «class PNGf» raw image
 // data. read_image_png() only tried PNGf → always nullopt → ProcessCompletedPastes

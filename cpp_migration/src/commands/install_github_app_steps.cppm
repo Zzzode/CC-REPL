@@ -39,8 +39,8 @@ enum class Step : std::uint8_t {
     CheckGitHub = 0,         // 1 – auto-run: gh CLI presence + auth + scopes
     Warnings,                // 2 – display warnings surfaced by step 1/3
     ChooseRepo,              // 3 – use current repo or type owner/repo
-    InstallApp,              // 4 – open browser to github.com/apps/claude
-    CheckExistingWorkflow,   // 5 – .github/workflows/claude*.yml already present
+    InstallApp,              // 4 – open browser to github.com/apps/loom
+    CheckExistingWorkflow,   // 5 – .github/workflows/loom*.yml already present
     SelectWorkflows,         // 6 – pick which workflow files to generate
     CheckExistingSecret,     // 7 – repo already has ANTHROPIC_API_KEY (or similar)
     ApiKey,                  // 8 – enter key, reuse existing, or go OAuth
@@ -64,12 +64,12 @@ struct Warning {
 /// Which authentication method is ultimately stored in the repo secret.
 enum class AuthType : std::uint8_t {
     ApiKey,      // plain ANTHROPIC_API_KEY
-    OAuthToken,  // CLAUDE_CODE_OAUTH_TOKEN
+    OAuthToken,  // LOOM_OAUTH_TOKEN
 };
 
 /// Action the user chose for an existing workflow file.
 enum class WorkflowAction : std::uint8_t {
-    Update,   // overwrite existing .github/workflows/claude*.yml
+    Update,   // overwrite existing .github/workflows/loom*.yml
     Skip,     // leave existing files alone
     Exit,     // cancel wizard entirely
 };
@@ -103,7 +103,7 @@ struct InstallGitHubAppContext {
     // --- Workflow detection / selection ---
     bool workflow_exists = false;
     WorkflowAction workflow_action = WorkflowAction::Update;
-    std::vector<std::string> selected_workflows{"claude", "claude-review"};
+    std::vector<std::string> selected_workflows{"loom", "loom-review"};
 
     // --- Secret detection ---
     bool secret_exists = false;
@@ -330,8 +330,8 @@ namespace detail {
 // IO side-effect contract – the CALLER is responsible for:
 //   * CheckGitHub: run `gh --version`, `gh auth status`, `gh auth token`,
 //                  parse scopes; write into ctx.*gh_* and preflight_warnings.
-//   * InstallApp:   open browser to https://github.com/apps/claude/installations/new
-//   * CheckExistingWorkflow: `ls .github/workflows/claude*.yml` style check.
+//   * InstallApp:   open browser to https://github.com/apps/loom/installations/new
+//   * CheckExistingWorkflow: `ls .github/workflows/loom*.yml` style check.
 //   * CheckExistingSecret:   `gh secret list -R <repo>` (filter names).
 //   * ApiKey (ExistingLocal branch): read key from user config on disk.
 //   * OAuthFlow:  start AuthCodeListener, build authorize URL, open browser,
@@ -452,7 +452,7 @@ namespace detail {
         case Step::CheckGitHub:          return "Checking GitHub CLI";
         case Step::Warnings:             return "Preflight warnings";
         case Step::ChooseRepo:           return "Choose target repository";
-        case Step::InstallApp:           return "Install the Claude GitHub App";
+        case Step::InstallApp:           return "Install the Loom GitHub App";
         case Step::CheckExistingWorkflow:return "Existing workflow detected";
         case Step::SelectWorkflows:      return "Select workflow files";
         case Step::CheckExistingSecret:  return "Repository secret already exists";

@@ -47,7 +47,7 @@ auto get_expansion_vars() -> std::map<std::string, std::string> {
     std::map<std::string, std::string> vars;
     // Standard MCP-relevant variables
     const char* known_vars[] = {
-        "HOME", "USER", "PATH", "CLAUDE_CONFIG_DIR",
+        "HOME", "USER", "PATH", "LOOM_CONFIG_DIR",
         "MCP_SERVER_PATH", "MCP_AUTH_TOKEN"
     };
     for (const auto* var : known_vars) {

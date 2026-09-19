@@ -41,7 +41,7 @@ inline void log_ide_event(std::string_view event, std::map<std::string, std::str
 inline std::filesystem::path get_ide_log_path() {
     const char* home = std::getenv("HOME");
     std::filesystem::path base = home ? home : "/tmp";
-    return base / ".cc-repl" / "logs" / "ide.log";
+    return base / ".loom" / "logs" / "ide.log";
 }
 
 // Set the IDE log level (debug/info/warn/error).

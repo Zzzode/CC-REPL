@@ -196,7 +196,7 @@ struct DoctorDataModel {
           "Connectivity" },
         { CheckId::ConfigReadWrite,
           "Config File Access",
-          "Verifies read/write permissions on the XDG config home and project .claude directories.",
+          "Verifies read/write permissions on the XDG config home and project .loom directories.",
           "System" },
         { CheckId::DiskSpace,
           "Disk Space",
@@ -444,7 +444,7 @@ tcp_connect_rtt_ms(std::string_view, int, int) {
 /// temp directory; the live UI uses default_doctor_context().
 struct DoctorContext {
     std::filesystem::path home;
-    std::filesystem::path config_home;          // persisted-preferences root (e.g. ~/.claude)
+    std::filesystem::path config_home;          // persisted-preferences root (e.g. ~/.loom)
     std::filesystem::path state_home;           // runtime state root (locks, bridge jwk)
     std::filesystem::path project_dir;          // current working directory
     std::filesystem::path settings_file;        // settings.json
@@ -462,11 +462,11 @@ struct DoctorContext {
     namespace fs = std::filesystem;
     DoctorContext ctx;
     ctx.home = fs::path(detail::env_or("HOME", "/"));
-    ctx.config_home = ctx.home / ".claude";
+    ctx.config_home = ctx.home / ".loom";
     if (auto xdg = detail::env_or("XDG_STATE_HOME"); !xdg.empty()) {
-        ctx.state_home = fs::path(xdg) / "claude";
+        ctx.state_home = fs::path(xdg) / "loom";
     } else {
-        ctx.state_home = ctx.home / ".local" / "state" / "claude";
+        ctx.state_home = ctx.home / ".local" / "state" / "loom";
     }
     std::error_code ec;
     ctx.project_dir = fs::current_path(ec);
@@ -622,11 +622,11 @@ struct DoctorContext {
         break;
     }
     case CheckId::McpServers: {
-        // Prefer the dedicated config; fall back to ~/.claude.json if needed.
+        // Prefer the dedicated config; fall back to ~/.loom.json if needed.
         fs::path cfg = ctx.mcp_config;
         std::error_code ec;
         if (!fs::exists(cfg, ec)) {
-            fs::path alt = ctx.home / ".claude.json";
+            fs::path alt = ctx.home / ".loom.json";
             if (fs::exists(alt, ec)) cfg = alt;
         }
         auto parsed = cc::utils::json::parse_file(cfg.string());
@@ -717,8 +717,8 @@ struct DoctorContext {
             r.severity = DiagnosticSeverity::Error;
             r.message = "Bridge JWT signing key is missing — IDE integrations disabled.";
             r.detail = "Expected: " + jwk.string();
-            r.fix_hint = "Run `claude bridge init` to provision the JWT signing key.";
-            r.fix_command = "claude bridge init";
+            r.fix_hint = "Run `loom bridge init` to provision the JWT signing key.";
+            r.fix_command = "loom bridge init";
         }
         break;
     }
@@ -804,14 +804,14 @@ RunAllChecks(const DoctorContext& ctx) {
         hbox({
             text(" 🩺 ") | bold | color(Color::GreenLight),
             text("Doctor  —  ") | bold | color(Color::White),
-            text("Claude Code installation self-check") | color(Color::Cyan),
+            text("Loom installation self-check") | color(Color::Cyan),
             filler(),
             text(started ? "  [running]" : "  [idle]") | dim | color(started ? Color::Cyan : TEXT_MUTED),
         }),
         separator(),
         hbox({ text("  Version:      ") | dim, text(v.current_version)        | color(Color::Cyan) }),
         hbox({ text("  Build type:   ") | dim, text(v.installation_type.empty() ? "native" : v.installation_type) | color(Color::Cyan) }),
-        hbox({ text("  Invoked as:   ") | dim, text(v.invoked_binary.empty()    ? "claude" : v.invoked_binary)      | dim }),
+        hbox({ text("  Invoked as:   ") | dim, text(v.invoked_binary.empty()    ? "loom" : v.invoked_binary)      | dim }),
         hbox({ text("  Install path: ") | dim, text(v.installation_path)       | dim }),
         v.package_manager
             ? hbox({ text("  Pkg manager:  ") | dim, text(*v.package_manager)     | color(Color::Yellow) })
@@ -1162,8 +1162,8 @@ namespace detail {
     // Prime: ensure version info is non-empty (demo defaults for UI preview)
     if (rt->model.version.current_version.empty()) rt->model.version.current_version = "0.12.0";
     if (rt->model.version.installation_type.empty()) rt->model.version.installation_type = "native";
-    if (rt->model.version.installation_path.empty()) rt->model.version.installation_path = "/opt/claude/claude";
-    if (rt->model.version.invoked_binary.empty()) rt->model.version.invoked_binary = "claude";
+    if (rt->model.version.installation_path.empty()) rt->model.version.installation_path = "/opt/loom/loom";
+    if (rt->model.version.invoked_binary.empty()) rt->model.version.invoked_binary = "loom";
 
     // Seed the plan so it is available before the user clicks Fix-all
     rt->summary_ui.fix_log_lines = detail::BuildFixPlan(rt->model);
@@ -1269,7 +1269,7 @@ namespace detail {
                                 perm.message,
                                 perm.severity,
                                 {"Use `/config permissions` to reorder and deduplicate.",
-                                 "See docs: https://docs.anthropic.com/claude/docs/tool-permissions"},
+                                 "See docs: https://docs.anthropic.com/loom/docs/tool-permissions"},
                             });
                         }
                         auto& mcp = rt->model.results[static_cast<std::size_t>(CheckId::McpServers)];
@@ -1278,8 +1278,8 @@ namespace detail {
                                 "MCP",
                                 "Some MCP servers are unavailable",
                                 DiagnosticSeverity::Warning,
-                                {"Run `claude mcp list` to see server definitions.",
-                                 "Run `claude mcp doctor` for per-server traces."},
+                                {"Run `loom mcp list` to see server definitions.",
+                                 "Run `loom mcp doctor` for per-server traces."},
                             });
                         }
                         rt->summary_ui.fix_log_lines = detail::BuildFixPlan(rt->model);

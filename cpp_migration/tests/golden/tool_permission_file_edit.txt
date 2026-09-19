@@ -2,7 +2,7 @@
 [36m[49m│[1m🔧[22m [1m[33m[49mFileEditTool[22m[2m[36m[49m wants to [22mwrite                                                       [1m[30m[42m LOW [22m[36m[49m│[39m[49m                            
 [36m[49m├[90m[49m──────────────────────────────────────────────────────────────────────────────────────────[36m[49m┤[39m[49m                            
 [36m[49m│                                                                                          │[39m[49m                            
-[36m[49m│[97m[49mClaude wants to edit a C++ module file.                                                   [36m[49m│[39m[49m                            
+[36m[49m│[97m[49mLoom wants to edit a C++ module file.                                                     [36m[49m│[39m[49m                            
 [36m[49m│                                                                                          │[39m[49m                            
 [36m[49m│[2mFile: [22msrc/ui/dialogs/dialog_system.cppm                                                   │[39m[49m                            
 [36m[49m│                                                                                          │[39m[49m                            

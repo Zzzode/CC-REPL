@@ -12,14 +12,14 @@ namespace detail {
 
 // Application version (compile-time or fallback)
 constexpr const char* APP_VERSION = "1.0.0";
-constexpr const char* APP_NAME = "claude-code";
+constexpr const char* APP_NAME = "loom";
 
 } // namespace detail
 
 // Get the application version string
 inline std::string get_app_version() {
     // Check for runtime version override
-    if (const char* ver = std::getenv("CLAUDE_CODE_VERSION")) {
+    if (const char* ver = std::getenv("LOOM_VERSION")) {
         return std::string(ver);
     }
     return detail::APP_VERSION;
@@ -54,7 +54,7 @@ inline std::string get_platform_info() {
 
 // Construct the full user-agent string
 inline std::string get_user_agent() {
-    // Format: "claude-code/1.0.0 (macOS arm64)"
+    // Format: "loom/1.0.0 (macOS arm64)"
     return std::string(detail::APP_NAME) + "/" + get_app_version() +
            " (" + get_platform_info() + ")";
 }

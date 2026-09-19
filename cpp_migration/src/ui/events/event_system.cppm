@@ -1,4 +1,4 @@
-// CC-REPL: Terminal UI Event System
+// LOOM: Terminal UI Event System
 // Migrated from src/ink/events/ (click-event.ts, dispatcher.ts, emitter.ts,
 // event-handlers.ts, event.ts, focus-event.ts, input-event.ts,
 // keyboard-event.ts, terminal-event.ts, terminal-focus-event.ts)

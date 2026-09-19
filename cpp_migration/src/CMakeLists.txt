@@ -1,4 +1,4 @@
-# ─── CC-REPL Module Library Targets ───────────────────────────────────────────
+# ─── LOOM Module Library Targets ───────────────────────────────────────────
 # Each target corresponds to a C++23 module partition of the system.
 # All .cppm files in each directory are registered as CXX_MODULES sources.
 
@@ -6,7 +6,7 @@
 #     (project root), immediately after the project() call.  The GLOBAL
 #     set_property(JOB_POOLS) and the CMAKE_NINJA_JOB_POOL_* variables live
 #     there so that ALL sibling subdirectories (src/, tests/, benchmarks/)
-#     observe the same CC_REPL_SCAN_JOBS cap. This keeps P1689 depfile
+#     observe the same LOOM_SCAN_JOBS cap. This keeps P1689 depfile
 #     scanning bounded for every target under this project. Do NOT re-declare JOB_POOLS
 #     here; APPENDing to the GLOBAL property twice just duplicates entries.
 # ─────────────────────────────────────────────────────────────────────────────
@@ -114,7 +114,7 @@ target_sources(cc_utils
         utils/cache.cppm
         utils/cache_paths.cppm
         utils/circular_buffer.cppm
-        utils/claude_code_hints.cppm
+        utils/loom_hints.cppm
         utils/chrome_messaging.cppm
         utils/cli_highlight.cppm
         utils/collapse_read_search.cppm
@@ -790,7 +790,7 @@ target_sources(cc_commands
         commands/fast.cppm
         commands/feedback.cppm
         commands/files.cppm
-        commands/good_claude.cppm
+        commands/good_loom.cppm
         commands/heapdump.cppm
         commands/help.cppm
         commands/hooks.cppm
@@ -1008,7 +1008,7 @@ target_sources(cc_services
         services/mcp/xaa_idp_login.cppm
         services/mcp/transport_stdio.cppm
         services/diagnostic/dump_diagnostic.cppm
-        services/rate_limit/claude_ai_limits_hook.cppm
+        services/rate_limit/loom_limits_hook.cppm
         services/compact/api_microcompact.cppm
         services/compact/compact_warning_state.cppm
         services/compact/time_based_config.cppm
@@ -1231,7 +1231,7 @@ target_sources(cc_skills
     PUBLIC FILE_SET CXX_MODULES FILES
         skills/bundled.cppm
         skills/bundled/batch.cppm
-        skills/bundled/claude_in_chrome.cppm
+        skills/bundled/loom_in_chrome.cppm
         skills/bundled/debug.cppm
         skills/bundled/loop.cppm
         skills/bundled/remember.cppm
@@ -1241,8 +1241,8 @@ target_sources(cc_skills
         skills/bundled/stuck.cppm
         skills/bundled/update_config.cppm
         skills/bundled/verify.cppm
-        skills/claude_api.cppm
-        skills/claude_api_content.cppm
+        skills/loom_api.cppm
+        skills/loom_api_content.cppm
         skills/keybindings.cppm
         skills/load_skills_dir.cppm
         skills/lorem_ipsum.cppm
@@ -1616,7 +1616,7 @@ target_link_libraries(cc_ui_components INTERFACE cc_ui)
 # Phase 4B REFACTOR: Sources moved into parent `cc_ui`'s FILE_SET so that C++23
 #   named-module BMI lookup can resolve intra-module imports both ways
 #   (cc.ui.design.* ↔ cc.ui.messages.* / cc.ui.components.*).
-#   This INTERFACE target remains for downstream consumers (cc_all / cc_repl)
+#   This INTERFACE target remains for downstream consumers (cc_all / loom)
 #   that link `cc_ui_design` as the canonical design-system surface.
 add_library(cc_ui_design INTERFACE)
 target_link_libraries(cc_ui_design INTERFACE cc_ui)
@@ -1791,21 +1791,21 @@ target_link_libraries(cc_core
         uv_a
 )
 
-# ─── cc_repl: Main Executable ─────────────────────────────────────────────────
-add_executable(cc_repl)
-target_sources(cc_repl
+# ─── loom: Main Executable ─────────────────────────────────────────────────
+add_executable(loom)
+target_sources(loom
     PRIVATE
         main.cpp
 )
-target_link_libraries(cc_repl
+target_link_libraries(loom
     PRIVATE
         cc_core
         cc_daemon
         cc_server
         cc_ui_design
 )
-set_target_properties(cc_repl PROPERTIES
-    OUTPUT_NAME "cc-repl"
+set_target_properties(loom PROPERTIES
+    OUTPUT_NAME "loom"
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
 )
 

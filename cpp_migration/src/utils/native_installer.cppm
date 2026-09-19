@@ -71,8 +71,8 @@ struct OsRelease {
 
 /// Get the binary executable name for a given platform string
 [[nodiscard]] inline std::string get_binary_name(std::string_view platform) {
-    if (platform.starts_with("win32")) return "claude.exe";
-    return "claude";
+    if (platform.starts_with("win32")) return "loom.exe";
+    return "loom";
 }
 
 /// Parse /etc/os-release for distro identification
@@ -279,10 +279,10 @@ struct BaseDirectories {
 /// Only removes native binary symlinks, not npm-managed ones.
 [[nodiscard]] std::expected<void, std::string> remove_installed_symlink();
 
-/// Clean up old Claude aliases from shell configuration files
+/// Clean up old Loom aliases from shell configuration files
 [[nodiscard]] std::expected<std::vector<SetupMessage>, std::string> cleanup_shell_aliases();
 
-/// Clean up npm global installations of Claude packages
+/// Clean up npm global installations of Loom packages
 struct NpmCleanupResult {
     int removed = 0;
     std::vector<std::string> errors;
@@ -298,7 +298,7 @@ struct NpmCleanupResult {
 [[nodiscard]] std::expected<void, std::string> remove_directory_if_empty(
     const std::filesystem::path& path);
 
-/// Check if a file looks like a valid Claude binary (exists, non-empty, executable)
+/// Check if a file looks like a valid Loom binary (exists, non-empty, executable)
 [[nodiscard]] bool is_possible_claude_binary(const std::filesystem::path& path);
 
 } // namespace cc::utils::native_installer

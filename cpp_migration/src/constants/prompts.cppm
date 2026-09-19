@@ -17,8 +17,10 @@ export module cc.constants.prompts;
 
 export namespace cc::constants::prompts {
 
-inline constexpr std::string_view claude_code_docs_map_url =
-    "https://code.claude.com/docs/en/claude_code_docs_map.md";
+// No bundled documentation site is shipped, so no docs-map URL is
+// advertised to the model. (This was an Anthropic docs URL; renaming its
+// host would have invented a domain that does not resolve.)
+inline constexpr std::string_view loom_docs_map_url = "";
 
 // Boundary marker separating static (cacheable) content from dynamic content.
 // Everything BEFORE this in the system prompt can use scope: 'global'.
@@ -27,7 +29,7 @@ inline constexpr std::string_view system_prompt_dynamic_boundary =
     "__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__";
 
 // Latest frontier model name for prompt references
-inline constexpr std::string_view frontier_model_name = "Claude Opus 4.6";
+inline constexpr std::string_view frontier_model_name = "Loom Opus 4.6";
 
 // Model family IDs for the latest in each tier
 struct ModelFamilyIds {
@@ -36,7 +38,7 @@ struct ModelFamilyIds {
     std::string_view haiku;
 };
 
-inline constexpr ModelFamilyIds claude_4_5_or_4_6_model_ids = {
+inline constexpr ModelFamilyIds loom_4_5_or_4_6_model_ids = {
     .opus = "claude-opus-4-6",
     .sonnet = "claude-sonnet-4-6",
     .haiku = "claude-haiku-4-5-20251001",
@@ -44,7 +46,7 @@ inline constexpr ModelFamilyIds claude_4_5_or_4_6_model_ids = {
 
 // Default system prompt for sub-agents
 inline constexpr std::string_view default_agent_prompt =
-    "You are an agent for Claude Code, Anthropic's official CLI for Claude. "
+    "You are an agent for Loom, a personal AI coding assistant. "
     "Given the user's message, you should use the tools available to complete the task. "
     "Complete the task fully\u2014don't gold-plate, but don't leave it half-done. "
     "When you complete the task, respond with a concise report covering what was done "
@@ -66,23 +68,23 @@ inline constexpr std::string_view summarize_tool_results_section =
 
 // Knowledge cutoff dates per model family
 enum class ModelFamily {
-    claude_sonnet_4_6,
-    claude_opus_4_6,
-    claude_opus_4_5,
-    claude_haiku_4,
-    claude_opus_4,
-    claude_sonnet_4,
+    loom_sonnet_4_6,
+    loom_opus_4_6,
+    loom_opus_4_5,
+    loom_haiku_4,
+    loom_opus_4,
+    loom_sonnet_4,
     unknown,
 };
 
 inline constexpr std::string_view get_knowledge_cutoff(ModelFamily family) {
     switch (family) {
-        case ModelFamily::claude_sonnet_4_6: return "August 2025";
-        case ModelFamily::claude_opus_4_6:   return "May 2025";
-        case ModelFamily::claude_opus_4_5:   return "May 2025";
-        case ModelFamily::claude_haiku_4:    return "February 2025";
-        case ModelFamily::claude_opus_4:     return "January 2025";
-        case ModelFamily::claude_sonnet_4:   return "January 2025";
+        case ModelFamily::loom_sonnet_4_6: return "August 2025";
+        case ModelFamily::loom_opus_4_6:   return "May 2025";
+        case ModelFamily::loom_opus_4_5:   return "May 2025";
+        case ModelFamily::loom_haiku_4:    return "February 2025";
+        case ModelFamily::loom_opus_4:     return "January 2025";
+        case ModelFamily::loom_sonnet_4:   return "January 2025";
         default:                             return "";
     }
 }
@@ -97,22 +99,22 @@ struct SystemPromptOptions {
 
 [[nodiscard]] inline ModelFamily model_family_from_id(std::string_view model_id) {
     if (model_id.find("claude-sonnet-4-6") != std::string_view::npos) {
-        return ModelFamily::claude_sonnet_4_6;
+        return ModelFamily::loom_sonnet_4_6;
     }
     if (model_id.find("claude-opus-4-6") != std::string_view::npos) {
-        return ModelFamily::claude_opus_4_6;
+        return ModelFamily::loom_opus_4_6;
     }
     if (model_id.find("claude-opus-4-5") != std::string_view::npos) {
-        return ModelFamily::claude_opus_4_5;
+        return ModelFamily::loom_opus_4_5;
     }
     if (model_id.find("claude-haiku-4") != std::string_view::npos) {
-        return ModelFamily::claude_haiku_4;
+        return ModelFamily::loom_haiku_4;
     }
     if (model_id.find("claude-opus-4") != std::string_view::npos) {
-        return ModelFamily::claude_opus_4;
+        return ModelFamily::loom_opus_4;
     }
     if (model_id.find("claude-sonnet-4") != std::string_view::npos) {
-        return ModelFamily::claude_sonnet_4;
+        return ModelFamily::loom_sonnet_4;
     }
     return ModelFamily::unknown;
 }
@@ -224,13 +226,13 @@ struct SystemPromptOptions {
     if (!cutoff.empty()) {
         items.push_back("Assistant knowledge cutoff is " + cutoff + ".");
     }
-    items.push_back("The most recent Claude model family is Claude 4.5/4.6. Model IDs — Opus 4.6: '" +
-        std::string(claude_4_5_or_4_6_model_ids.opus) + "', Sonnet 4.6: '" +
-        std::string(claude_4_5_or_4_6_model_ids.sonnet) + "', Haiku 4.5: '" +
-        std::string(claude_4_5_or_4_6_model_ids.haiku) +
-        "'. When building AI applications, default to the latest and most capable Claude models.");
-    items.push_back("Claude Code is available as a CLI in the terminal, desktop app (Mac/Windows), web app (claude.ai/code), and IDE extensions (VS Code, JetBrains).");
-    items.push_back("Fast mode for Claude Code uses the same " + std::string(frontier_model_name) +
+    items.push_back("The most recent Loom model family is Loom 4.5/4.6. Model IDs — Opus 4.6: '" +
+        std::string(loom_4_5_or_4_6_model_ids.opus) + "', Sonnet 4.6: '" +
+        std::string(loom_4_5_or_4_6_model_ids.sonnet) + "', Haiku 4.5: '" +
+        std::string(loom_4_5_or_4_6_model_ids.haiku) +
+        "'. When building AI applications, default to the latest and most capable Loom models.");
+    items.push_back("Loom is available as a CLI in the terminal, desktop app (Mac/Windows), and IDE extensions (VS Code, JetBrains).");
+    items.push_back("Fast mode for Loom uses the same " + std::string(frontier_model_name) +
         " model with faster output. It does NOT switch to a different model. It can be toggled with /fast.");
 
     std::vector<std::string> lines{
@@ -243,7 +245,7 @@ struct SystemPromptOptions {
 }
 
 [[nodiscard]] inline std::string get_simple_intro_section() {
-    return "You are Claude Code, Anthropic's official CLI for Claude.";
+    return "You are Loom, a personal AI coding assistant.";
 }
 
 [[nodiscard]] inline std::string get_simple_system_section() {
@@ -279,7 +281,7 @@ struct SystemPromptOptions {
 
 [[nodiscard]] inline std::vector<std::string> get_system_prompt(const SystemPromptOptions& options) {
     if (options.simple) {
-        return {"You are Claude Code, Anthropic's official CLI for Claude.\n\nCWD: " + get_cwd()};
+        return {"You are Loom, a personal AI coding assistant.\n\nCWD: " + get_cwd()};
     }
 
     std::vector<std::string> sections{

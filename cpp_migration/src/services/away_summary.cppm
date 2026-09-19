@@ -133,7 +133,7 @@ private:
         auto latest = *last_non_empty;
         if (latest.size() > 180) latest = latest.substr(0, 177) + "...";
         return std::format(
-            "You were working through the current CC-REPL task. The latest relevant point was: {} Next, continue from that point and verify the result.",
+            "You were working through the current LOOM task. The latest relevant point was: {} Next, continue from that point and verify the result.",
             latest);
     }
 

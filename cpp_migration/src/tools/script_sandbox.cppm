@@ -153,7 +153,7 @@ inline auto execute_in_sandbox(
 
 inline auto is_sandboxed() -> bool {
     return std::getenv("APP_SANDBOX_CONTAINER_ID") != nullptr ||
-           std::getenv("CC_REPL_SANDBOX") != nullptr;
+           std::getenv("LOOM_SANDBOX") != nullptr;
 }
 
 } // namespace cc::tools

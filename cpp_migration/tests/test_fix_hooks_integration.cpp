@@ -62,7 +62,7 @@ IndividualHookConfig make_command_hook(HookEventType event,
 class HooksIntegrationTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        root_ = fs::temp_directory_path() / "cc-repl-hooks-integration-test";
+        root_ = fs::temp_directory_path() / "loom-hooks-integration-test";
         fs::remove_all(root_);
         fs::create_directories(root_);
 

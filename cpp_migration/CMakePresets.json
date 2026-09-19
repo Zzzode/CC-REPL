@@ -19,10 +19,10 @@
         "CMAKE_CXX_EXTENSIONS": "OFF",
         "CMAKE_CXX_SCAN_FOR_MODULES": "ON",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
-        "CC_REPL_BUILD_JOBS": "0",
-        "CC_REPL_LINK_JOBS": "0",
-        "CC_REPL_SCAN_JOBS": "4",
-        "CC_REPL_WARNINGS_AS_ERRORS": "ON"
+        "LOOM_BUILD_JOBS": "0",
+        "LOOM_LINK_JOBS": "0",
+        "LOOM_SCAN_JOBS": "4",
+        "LOOM_WARNINGS_AS_ERRORS": "ON"
       }
     },
     {

@@ -58,9 +58,9 @@ struct DaemonConfig {
     std::string bridge_environment_id;              // Backend-issued bridge environment ID
     std::string bridge_environment_secret;          // Backend-issued bridge environment secret
     std::string bridge_access_token;                // OAuth token for stop/deregister operations
-    std::string bridge_runner_version{"cc-repl-daemon"};
+    std::string bridge_runner_version{"loom-daemon"};
     std::optional<std::string> trusted_device_token;
-    std::string session_binary{"cc-repl"};          // Headless child executable
+    std::string session_binary{"loom"};          // Headless child executable
 };
 
 // ============================================================
@@ -1302,40 +1302,40 @@ private:
             });
             env.push_back(std::string(key) + "=" + std::string(value));
         };
-        set("CLAUDE_CODE_SESSION_ACCESS_TOKEN", secret.session_ingress_token);
-        set("CLAUDE_CODE_REMOTE_API_BASE_URL", api_base_url);
-        set("CC_REPL_REMOTE_API_BASE_URL", api_base_url);
-        set("CLAUDE_CODE_REMOTE", "1");
-        set("CLAUDE_CODE_BRIDGE_WORK_ID", work_id);
-        set("CC_REPL_BRIDGE_WORK_ID", work_id);
+        set("LOOM_SESSION_ACCESS_TOKEN", secret.session_ingress_token);
+        set("LOOM_REMOTE_API_BASE_URL", api_base_url);
+        set("LOOM_REMOTE_API_BASE_URL", api_base_url);
+        set("LOOM_REMOTE", "1");
+        set("LOOM_BRIDGE_WORK_ID", work_id);
+        set("LOOM_BRIDGE_WORK_ID", work_id);
         if (!secret.use_code_sessions.value_or(false)) {
-            set("CLAUDE_CODE_POST_FOR_SESSION_INGRESS_V2", "1");
+            set("LOOM_POST_FOR_SESSION_INGRESS_V2", "1");
         }
         if (remote_session_id && !remote_session_id->empty()) {
             set("CC_REMOTE_SESSION_ID", *remote_session_id);
-            set("CLAUDE_CODE_REMOTE_SESSION_ID", *remote_session_id);
+            set("LOOM_REMOTE_SESSION_ID", *remote_session_id);
         }
         if (secret.use_code_sessions) {
-            set("CLAUDE_CODE_USE_CODE_SESSIONS", *secret.use_code_sessions ? "true" : "false");
-            if (*secret.use_code_sessions) set("CLAUDE_CODE_USE_CCR_V2", "1");
+            set("LOOM_USE_CODE_SESSIONS", *secret.use_code_sessions ? "true" : "false");
+            if (*secret.use_code_sessions) set("LOOM_USE_CCR_V2", "1");
         }
         if (worker_epoch) {
-            set("CLAUDE_CODE_WORKER_EPOCH", std::to_string(*worker_epoch));
+            set("LOOM_WORKER_EPOCH", std::to_string(*worker_epoch));
         }
         if (secret.code_session_mode && !secret.code_session_mode->empty()) {
-            set("CLAUDE_CODE_SESSION_MODE", *secret.code_session_mode);
+            set("LOOM_SESSION_MODE", *secret.code_session_mode);
         }
         if (!secret.raw_json.empty()) {
-            set("CLAUDE_CODE_BRIDGE_WORK_SECRET_JSON", secret.raw_json);
+            set("LOOM_BRIDGE_WORK_SECRET_JSON", secret.raw_json);
         }
         if (secret.auth_json && !secret.auth_json->empty()) {
-            set("CLAUDE_CODE_REMOTE_AUTH_JSON", *secret.auth_json);
+            set("LOOM_REMOTE_AUTH_JSON", *secret.auth_json);
         }
         if (secret.mcp_config_json && !secret.mcp_config_json->empty()) {
-            set("CLAUDE_CODE_REMOTE_MCP_CONFIG_JSON", *secret.mcp_config_json);
+            set("LOOM_REMOTE_MCP_CONFIG_JSON", *secret.mcp_config_json);
         }
         if (secret.environment_json && !secret.environment_json->empty()) {
-            set("CLAUDE_CODE_REMOTE_ENVIRONMENT_JSON", *secret.environment_json);
+            set("LOOM_REMOTE_ENVIRONMENT_JSON", *secret.environment_json);
         }
         for (const auto& [key, value] : secret.environment_variables) {
             set(key, value);
@@ -1508,14 +1508,14 @@ private:
 
     static std::filesystem::path default_pid_path() {
         const char* home = std::getenv("HOME");
-        if (home) return std::filesystem::path(home) / ".claude" / "daemon.pid";
-        return std::filesystem::temp_directory_path() / "cc-repl-daemon.pid";
+        if (home) return std::filesystem::path(home) / ".loom" / "daemon.pid";
+        return std::filesystem::temp_directory_path() / "loom-daemon.pid";
     }
 
     static std::filesystem::path default_port_path() {
         const char* home = std::getenv("HOME");
-        if (home) return std::filesystem::path(home) / ".claude" / "daemon.port";
-        return std::filesystem::temp_directory_path() / "cc-repl-daemon.port";
+        if (home) return std::filesystem::path(home) / ".loom" / "daemon.port";
+        return std::filesystem::temp_directory_path() / "loom-daemon.port";
     }
 
     // Configuration

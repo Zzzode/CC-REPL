@@ -1,5 +1,5 @@
-/// @file claude_ai_limits_hook.cppm
-/// @brief Rate limit hook for Claude AI API responses.
+/// @file loom_limits_hook.cppm
+/// @brief Rate limit hook for Loom AI API responses.
 /// Implements exponential backoff, state tracking, and callback notification
 /// when rate limits are encountered.
 module;
@@ -15,7 +15,7 @@ module;
 #include <algorithm>
 #include <vector>
 
-export module cc.services.rate_limit.claude_ai_limits_hook;
+export module cc.services.rate_limit.loom_ai_limits_hook;
 
 export namespace cc::services::rate_limit {
 

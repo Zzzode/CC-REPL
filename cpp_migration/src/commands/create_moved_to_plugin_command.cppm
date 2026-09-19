@@ -23,7 +23,7 @@ struct CommandResponse { bool ok{true}; std::string message; };
         if (!ok) ch = '-';
     }
 
-    const auto dir = fs::current_path() / ".cc-repl" / "plugin-command-shims";
+    const auto dir = fs::current_path() / ".loom" / "plugin-command-shims";
     std::error_code ec;
     fs::create_directories(dir, ec);
     if (ec) return {.ok = false, .message = "Failed to create shim directory: " + ec.message()};

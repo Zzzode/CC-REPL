@@ -156,7 +156,7 @@ public:
     }
     auto write_file(const std::filesystem::path& path, std::string_view content)
         -> std::expected<void, std::string> override {
-        auto host_path = std::filesystem::temp_directory_path() / ("cc-repl-sandbox-" + path.filename().string());
+        auto host_path = std::filesystem::temp_directory_path() / ("loom-sandbox-" + path.filename().string());
         NoSandbox local;
         auto wrote = local.write_file(host_path, content);
         if (!wrote) return wrote;

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Phase C-e acceptance test 4: drive cc-repl on a real PTY.
+"""Phase C-e acceptance test 4: drive loom on a real PTY.
 
 Sends an ESC keystroke 0.8 s after the first render byte, then expects
 ScreenInteractive::Loop() to terminate cleanly.  Exits with the REPL's
 own exit code, or 99 on timeout / internal failure.
 
-Usage: pty_esc_test.py <path-to-cc-repl> <output-trace-path>
+Usage: pty_esc_test.py <path-to-loom> <output-trace-path>
 """
 
 import fcntl

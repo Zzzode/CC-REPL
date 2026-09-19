@@ -1,7 +1,7 @@
 /// @file memory.cppm
 /// @brief Persistent memory system for cross-session knowledge retention.
 /// Manages instructions, facts, preferences, and team-shared memories
-/// with filesystem persistence, relevance scoring, and CLAUDE.md integration.
+/// with filesystem persistence, relevance scoring, and LOOM.md integration.
 module;
 
 #include <cstdint>
@@ -240,15 +240,15 @@ private:
 
 class MemoryPaths {
 public:
-    /// Global memory directory: ~/.claude/memory/
+    /// Global memory directory: ~/.loom/memory/
     [[nodiscard]] static std::filesystem::path global_memory_dir() {
         auto home = std::filesystem::path(std::getenv("HOME") ? std::getenv("HOME") : "~");
-        return home / ".claude" / "memory";
+        return home / ".loom" / "memory";
     }
 
-    /// Project-local memory directory: .claude/memory/
+    /// Project-local memory directory: .loom/memory/
     [[nodiscard]] static std::filesystem::path project_memory_dir() {
-        return std::filesystem::current_path() / ".claude" / "memory";
+        return std::filesystem::current_path() / ".loom" / "memory";
     }
 
     /// Team-shared memory directory
@@ -378,21 +378,21 @@ private:
 };
 
 // ============================================================
-// CLAUDE.md reader utilities
+// LOOM.md reader utilities
 // ============================================================
 
-struct ClaudeInstructions {
+struct LoomInstructions {
     std::string raw_content;
     std::vector<std::string> rules;
     std::filesystem::path source_path;
 };
 
-/// Search up the directory tree from start_dir for CLAUDE.md
-[[nodiscard]] inline std::optional<std::filesystem::path> find_claude_md(
+/// Search up the directory tree from start_dir for LOOM.md
+[[nodiscard]] inline std::optional<std::filesystem::path> find_loom_md(
         const std::filesystem::path& start_dir) {
     auto current = std::filesystem::absolute(start_dir);
     while (true) {
-        auto candidate = current / "CLAUDE.md";
+        auto candidate = current / "LOOM.md";
         if (std::filesystem::exists(candidate)) {
             return candidate;
         }
@@ -403,10 +403,10 @@ struct ClaudeInstructions {
     return std::nullopt;
 }
 
-/// Parse CLAUDE.md content into structured instructions
-[[nodiscard]] inline ClaudeInstructions parse_claude_md(std::string_view content,
+/// Parse LOOM.md content into structured instructions
+[[nodiscard]] inline LoomInstructions parse_loom_md(std::string_view content,
         std::filesystem::path source = {}) {
-    ClaudeInstructions result;
+    LoomInstructions result;
     result.raw_content = std::string(content);
     result.source_path = std::move(source);
 

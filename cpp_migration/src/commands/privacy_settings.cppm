@@ -14,8 +14,8 @@ export module cc.commands.privacy_settings;
 export namespace cc::commands {
 
 auto privacy_settings_path() -> std::filesystem::path {
-    if (const char* home = std::getenv("HOME")) return std::filesystem::path{home} / ".cc-repl" / "privacy.txt";
-    return std::filesystem::path{".cc-repl"} / "privacy.txt";
+    if (const char* home = std::getenv("HOME")) return std::filesystem::path{home} / ".loom" / "privacy.txt";
+    return std::filesystem::path{".loom"} / "privacy.txt";
 }
 
 auto parse_bool(std::string_view value, bool fallback) -> bool {

@@ -36,7 +36,7 @@ namespace detail {
 inline fs::path get_token_path() {
     const char* home = std::getenv("HOME");
     if (!home) return fs::path{};
-    return fs::path(home) / ".claude" / "auth_token.json";
+    return fs::path(home) / ".loom" / "auth_token.json";
 }
 
 } // namespace detail

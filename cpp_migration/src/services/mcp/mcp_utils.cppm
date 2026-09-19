@@ -32,7 +32,7 @@ auto get_mcp_timeout(std::string_view server) -> std::chrono::seconds {
 // Check if MCP is enabled globally
 auto is_mcp_enabled() -> bool {
     // Check if MCP is explicitly disabled
-    if (auto* val = std::getenv("CLAUDE_MCP_DISABLED")) {
+    if (auto* val = std::getenv("LOOM_MCP_DISABLED")) {
         return std::string_view(val) != "1" && std::string_view(val) != "true";
     }
     return true;

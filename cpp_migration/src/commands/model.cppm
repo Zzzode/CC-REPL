@@ -141,9 +141,9 @@ private:
 
     [[nodiscard]] static const std::vector<FallbackModel>& fallback_models() {
         static const std::vector<FallbackModel> models = {
-            {"claude-sonnet-4-20250514", "Claude Sonnet 4", 200000, 3.0, 15.0},
-            {"claude-opus-4-20250514", "Claude Opus 4", 200000, 15.0, 75.0},
-            {"claude-haiku-3-5-20241022", "Claude 3.5 Haiku", 200000, 0.25, 1.25},
+            {"claude-sonnet-4-20250514", "Loom Sonnet 4", 200000, 3.0, 15.0},
+            {"claude-opus-4-20250514", "Loom Opus 4", 200000, 15.0, 75.0},
+            {"claude-haiku-3-5-20241022", "Loom 3.5 Haiku", 200000, 0.25, 1.25},
         };
         return models;
     }

@@ -273,7 +273,7 @@ private:
     // Ensure save directory exists
     auto ensure_save_directory() -> void {
         if (config_.save_directory.empty()) {
-            config_.save_directory = std::filesystem::temp_directory_path() / "cc-repl-sessions";
+            config_.save_directory = std::filesystem::temp_directory_path() / "loom-sessions";
         }
         std::filesystem::create_directories(config_.save_directory);
     }

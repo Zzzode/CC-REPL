@@ -11,7 +11,7 @@ export module cc.constants.betas;
 
 export namespace cc::constants::betas {
 
-inline constexpr std::string_view CLAUDE_CODE_20250219 = "claude-code-20250219";
+inline constexpr std::string_view LOOM_20250219 = "loom-20250219";
 inline constexpr std::string_view INTERLEAVED_THINKING = "interleaved-thinking-2025-05-14";
 inline constexpr std::string_view CONTEXT_1M = "context-1m-2025-08-07";
 inline constexpr std::string_view CONTEXT_MANAGEMENT = "context-management-2025-06-27";
@@ -40,7 +40,7 @@ inline constexpr std::string_view ADVISOR = "advisor-tool-2026-03-01";
 /// Betas allowed on Vertex countTokens API
 [[nodiscard]] inline const std::unordered_set<std::string_view>& vertex_count_tokens_allowed() {
     static const std::unordered_set<std::string_view> set = {
-        CLAUDE_CODE_20250219,
+        LOOM_20250219,
         INTERLEAVED_THINKING,
         CONTEXT_MANAGEMENT,
     };

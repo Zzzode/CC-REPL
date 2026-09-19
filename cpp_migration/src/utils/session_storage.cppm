@@ -82,7 +82,7 @@ private:
     mutable std::shared_mutex mutex_;
 
 public:
-    /// Construct with storage directory (default: ~/.cc-repl/sessions)
+    /// Construct with storage directory (default: ~/.loom/sessions)
     explicit SessionStorage(fs::path storage_dir = default_storage_dir())
         : storage_dir_(std::move(storage_dir)) {
         ensure_storage_dir_exists();
@@ -304,10 +304,10 @@ public:
     }
 
 private:
-    /// Get default storage directory (~/.cc-repl/sessions)
+    /// Get default storage directory (~/.loom/sessions)
     [[nodiscard]] static fs::path default_storage_dir() {
         auto home = fs::path(std::getenv("HOME") ? std::getenv("HOME") : "/tmp");
-        return home / ".cc-repl" / "sessions";
+        return home / ".loom" / "sessions";
     }
 
     /// Ensure storage directory exists

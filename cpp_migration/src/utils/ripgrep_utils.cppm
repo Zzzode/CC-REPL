@@ -30,7 +30,7 @@ struct RgOptions {
 // Get path to vendored ripgrep binary
 fs::path get_rg_path() {
     // Check if rg is vendored alongside the binary
-    const char* exe_dir = std::getenv("CLAUDE_CODE_DIR");
+    const char* exe_dir = std::getenv("LOOM_DIR");
     if (exe_dir) {
         fs::path vendored = fs::path(exe_dir) / "vendor" / "ripgrep" / "rg";
         if (fs::exists(vendored)) return vendored;

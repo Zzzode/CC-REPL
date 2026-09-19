@@ -38,7 +38,7 @@ struct StoredToken {
 /// Credential source type
 enum class AuthSource {
     None,
-    OAuthFile,      // ~/.claude/credentials.json
+    OAuthFile,      // ~/.loom/credentials.json
     EnvVar,         // CC_API_KEY environment variable
     SessionToken,   // Short-lived session token
 };
@@ -51,9 +51,9 @@ class RemoteAuth {
 public:
     RemoteAuth() {
         if (const char* xdg = std::getenv("XDG_CONFIG_HOME"); xdg && *xdg) {
-            credentials_path_ = std::filesystem::path(xdg) / "cc-repl" / "credentials.json";
+            credentials_path_ = std::filesystem::path(xdg) / "loom" / "credentials.json";
         } else if (const char* home = std::getenv("HOME")) {
-            credentials_path_ = std::filesystem::path(home) / ".config" / "cc-repl" / "credentials.json";
+            credentials_path_ = std::filesystem::path(home) / ".config" / "loom" / "credentials.json";
         }
     }
 

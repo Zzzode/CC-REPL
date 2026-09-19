@@ -476,17 +476,17 @@ namespace detail {
 }
 
 [[nodiscard]] inline fs::path teams_dir() {
-    if (const char* value = std::getenv("CC_REPL_TEAM_RUNTIME_DIR"); value && *value) {
+    if (const char* value = std::getenv("LOOM_TEAM_RUNTIME_DIR"); value && *value) {
         return fs::path{value};
     }
-    if (const char* value = std::getenv("CLAUDE_CODE_TEAMS_DIR"); value && *value) {
+    if (const char* value = std::getenv("LOOM_TEAMS_DIR"); value && *value) {
         return fs::path{value};
     }
-    return fs::current_path() / ".claude" / "teams";
+    return fs::current_path() / ".loom" / "teams";
 }
 
 [[nodiscard]] inline std::string current_team_name() {
-    if (const char* value = std::getenv("CC_REPL_TEAM_NAME"); value && *value) {
+    if (const char* value = std::getenv("LOOM_TEAM_NAME"); value && *value) {
         return value;
     }
     if (const char* value = std::getenv("CLAUDE_CODE_TEAM_NAME"); value && *value) {
@@ -496,7 +496,7 @@ namespace detail {
 }
 
 [[nodiscard]] inline std::string current_agent_name() {
-    if (const char* value = std::getenv("CC_REPL_AGENT_NAME"); value && *value) {
+    if (const char* value = std::getenv("LOOM_AGENT_NAME"); value && *value) {
         return value;
     }
     if (const char* value = std::getenv("CLAUDE_CODE_AGENT_NAME"); value && *value) {
@@ -597,7 +597,7 @@ inline std::optional<std::string> get_parent_session_id() {
         !active_dynamic_team_context->parent_session_id->empty()) {
         return active_dynamic_team_context->parent_session_id;
     }
-    return detail::env_string({"CC_REPL_PARENT_SESSION_ID", "CLAUDE_CODE_PARENT_SESSION_ID"});
+    return detail::env_string({"LOOM_PARENT_SESSION_ID", "LOOM_PARENT_SESSION_ID"});
 }
 
 inline std::optional<std::string> get_team_name() {
@@ -607,7 +607,7 @@ inline std::optional<std::string> get_team_name() {
     if (active_dynamic_team_context && !active_dynamic_team_context->team_name.empty()) {
         return active_dynamic_team_context->team_name;
     }
-    return detail::env_string({"CC_REPL_TEAM_NAME", "CLAUDE_CODE_TEAM_NAME"});
+    return detail::env_string({"LOOM_TEAM_NAME", "LOOM_TEAM_NAME"});
 }
 
 inline std::optional<std::string> get_agent_name() {
@@ -617,7 +617,7 @@ inline std::optional<std::string> get_agent_name() {
     if (active_dynamic_team_context && !active_dynamic_team_context->agent_name.empty()) {
         return active_dynamic_team_context->agent_name;
     }
-    return detail::env_string({"CC_REPL_AGENT_NAME", "CLAUDE_CODE_AGENT_NAME"});
+    return detail::env_string({"LOOM_AGENT_NAME", "LOOM_AGENT_NAME"});
 }
 
 inline std::optional<std::string> get_agent_id() {
@@ -627,7 +627,7 @@ inline std::optional<std::string> get_agent_id() {
     if (active_dynamic_team_context && !active_dynamic_team_context->agent_id.empty()) {
         return active_dynamic_team_context->agent_id;
     }
-    return detail::env_string({"CC_REPL_AGENT_ID", "CLAUDE_CODE_AGENT_ID"});
+    return detail::env_string({"LOOM_AGENT_ID", "LOOM_AGENT_ID"});
 }
 
 inline std::optional<std::string> get_teammate_color() {
@@ -637,7 +637,7 @@ inline std::optional<std::string> get_teammate_color() {
     if (active_dynamic_team_context && active_dynamic_team_context->color && !active_dynamic_team_context->color->empty()) {
         return active_dynamic_team_context->color;
     }
-    return detail::env_string({"CC_REPL_AGENT_COLOR", "CLAUDE_CODE_AGENT_COLOR"});
+    return detail::env_string({"LOOM_AGENT_COLOR", "LOOM_AGENT_COLOR"});
 }
 
 inline std::optional<std::string> get_agent_type() {
@@ -647,13 +647,13 @@ inline std::optional<std::string> get_agent_type() {
     if (active_dynamic_team_context && active_dynamic_team_context->agent_type && !active_dynamic_team_context->agent_type->empty()) {
         return active_dynamic_team_context->agent_type;
     }
-    return detail::env_string({"CC_REPL_AGENT_TYPE", "CLAUDE_CODE_AGENT_TYPE"});
+    return detail::env_string({"LOOM_AGENT_TYPE", "LOOM_AGENT_TYPE"});
 }
 
 inline bool is_plan_mode_required() {
     if (active_teammate_context) return active_teammate_context->plan_mode_required;
     if (active_dynamic_team_context) return active_dynamic_team_context->plan_mode_required;
-    return detail::env_truthy({"CC_REPL_PLAN_MODE_REQUIRED", "CLAUDE_CODE_PLAN_MODE_REQUIRED"});
+    return detail::env_truthy({"LOOM_PLAN_MODE_REQUIRED", "LOOM_PLAN_MODE_REQUIRED"});
 }
 
 inline std::string get_inbox_path(std::string_view agent_name, std::optional<std::string_view> team_name) {

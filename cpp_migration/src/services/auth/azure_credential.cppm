@@ -6,7 +6,7 @@
 //
 // The Azure SDK for C++ (azure-sdk-for-cpp) is intentionally NOT pulled in.
 // Instead we replicate the specific sub-parts of DefaultAzureCredential that
-// cover 95% of CC-REPL BYOC use cases, in this priority order:
+// cover 95% of LOOM BYOC use cases, in this priority order:
 //
 //   1. EnvironmentCredential — AZURE_TENANT_ID + AZURE_CLIENT_ID +
 //      (AZURE_CLIENT_SECRET | AZURE_CLIENT_CERTIFICATE_PATH |
@@ -474,8 +474,8 @@ struct FoundryAuthMode {
     using cc::utils::env::get_env;
     using cc::utils::env::is_env_truthy;
     FoundryAuthMode m;
-    m.use_foundry = is_env_truthy("CLAUDE_CODE_USE_FOUNDRY");
-    m.skip_auth  = is_env_truthy("CLAUDE_CODE_SKIP_FOUNDRY_AUTH");
+    m.use_foundry = is_env_truthy("LOOM_USE_FOUNDRY");
+    m.skip_auth  = is_env_truthy("LOOM_SKIP_FOUNDRY_AUTH");
     if (auto k = get_env("ANTHROPIC_FOUNDRY_API_KEY"); k && !k->empty()) {
         m.api_key = std::move(*k);
     }

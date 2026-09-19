@@ -1,5 +1,5 @@
 /// @file terminal.cppm
-/// @brief Terminal UI module using FTXUI for the Claude Code REPL.
+/// @brief Terminal UI module using FTXUI for the Loom REPL.
 /// Provides the main TerminalUI class, REPL loop, input/output rendering,
 /// spinner, status bar, and key binding management.
 module;
@@ -313,7 +313,7 @@ private:
     /// Render the scrollable message display area
     [[nodiscard]] ftxui::Element render_message_area() {
         return ftxui::vbox({
-            ftxui::text("Welcome to Claude Code REPL") | ftxui::color(theme_.primary),
+            ftxui::text("Welcome to Loom REPL") | ftxui::color(theme_.primary),
             ftxui::text("Type /help for commands") | ftxui::color(theme_.muted),
         }) | ftxui::flex | ftxui::focusPositionRelative(0, 1);
     }

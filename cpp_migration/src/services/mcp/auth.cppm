@@ -152,18 +152,18 @@ inline Result<OAuthServerMetadata> fetch_metadata_url(std::string_view url) {
 }
 
 inline bool is_xaa_enabled() {
-    const char* enabled = std::getenv("CLAUDE_CODE_ENABLE_XAA");
+    const char* enabled = std::getenv("LOOM_ENABLE_XAA");
     return enabled && std::string_view(enabled) == "1";
 }
 
 inline std::filesystem::path token_storage_dir() {
     if (const char* xdg = std::getenv("XDG_CONFIG_HOME"); xdg && *xdg) {
-        return std::filesystem::path{xdg} / "cc-repl" / "mcp";
+        return std::filesystem::path{xdg} / "loom" / "mcp";
     }
     if (const char* home = std::getenv("HOME"); home && *home) {
-        return std::filesystem::path{home} / ".config" / "cc-repl" / "mcp";
+        return std::filesystem::path{home} / ".config" / "loom" / "mcp";
     }
-    return std::filesystem::temp_directory_path() / "cc-repl" / "mcp";
+    return std::filesystem::temp_directory_path() / "loom" / "mcp";
 }
 
 inline std::string sanitize_key(std::string_view key) {
@@ -627,7 +627,7 @@ Result<McpOAuthTokenData> refresh_server_tokens_from_local_storage(
 
     const auto client_id = server_config.oauth && server_config.oauth->client_id
         ? *server_config.oauth->client_id
-        : (!token->client_id.empty() ? token->client_id : std::string{"cc-repl"});
+        : (!token->client_id.empty() ? token->client_id : std::string{"loom"});
     auto refreshed = detail::refresh_oauth_token(*metadata, *token, client_id);
     if (!refreshed) return std::unexpected(refreshed.error());
     refreshed->server_name = server_name;
@@ -696,7 +696,7 @@ public:
     virtual void mark_step_up_pending(const std::string& scope) = 0;
 };
 
-// Claude OAuth client provider
+// Loom OAuth client provider
 class ClaudeAuthProvider : public IOAuthClientProvider {
 public:
     ClaudeAuthProvider(const std::string& server_name,
@@ -780,7 +780,7 @@ Result<void> perform_mcp_oauth_flow(
         if (!detail::is_xaa_enabled()) {
             return std::unexpected(cc::utils::Error(
                 cc::utils::ErrorCode::invalid_argument,
-                "XAA is not enabled (set CLAUDE_CODE_ENABLE_XAA=1). Remove oauth.xaa to use the standard consent flow."));
+                "XAA is not enabled (set LOOM_ENABLE_XAA=1). Remove oauth.xaa to use the standard consent flow."));
         }
         if (!server_config.oauth->client_id || server_config.oauth->client_id->empty()) {
             return std::unexpected(cc::utils::Error(
@@ -789,7 +789,7 @@ Result<void> perform_mcp_oauth_flow(
         }
 
         // TS REF: xaa.ts performCrossAppAccess() + xaaIdpLogin.ts acquireIdpIdToken()
-        // Get XAA config (IdP + AS credentials from ~/.cc-repl/xaa-idp.txt)
+        // Get XAA config (IdP + AS credentials from ~/.loom/xaa-idp.txt)
         auto xaa_config = get_xaa_config(server_name);
         if (!xaa_config) {
             return std::unexpected(cc::utils::Error(
@@ -883,7 +883,7 @@ Result<void> perform_mcp_oauth_flow(
 
         const auto client_id = server_config.oauth && server_config.oauth->client_id
             ? *server_config.oauth->client_id
-            : std::string{"cc-repl"};
+            : std::string{"loom"};
         auto code_verifier = cc::services::oauth::generate_code_verifier();
         auto code_challenge = cc::services::oauth::generate_code_challenge(code_verifier);
         auto authorization_url = std::string{(**metadata_result).authorization_endpoint}

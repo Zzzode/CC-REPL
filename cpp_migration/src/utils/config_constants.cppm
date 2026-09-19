@@ -9,7 +9,7 @@ export namespace cc::utils {
 inline constexpr std::string_view CONFIG_FILE_NAME = "config.json";
 inline constexpr std::string_view SETTINGS_FILE_NAME = "settings.json";
 inline constexpr std::string_view CREDENTIALS_FILE = "credentials.json";
-inline constexpr std::string_view CLAUDE_MD_FILE = "CLAUDE.md";
+inline constexpr std::string_view LOOM_MD_FILE = "LOOM.md";
 inline constexpr std::string_view SESSIONS_DIR = "sessions";
 inline constexpr std::string_view LOGS_DIR = "logs";
 
@@ -46,7 +46,7 @@ inline constexpr std::string_view KEY_VERTEX_PROJECT = "vertex_project";
 inline constexpr std::string_view KEY_VERTEX_REGION = "vertex_region";
 
 // Environment variable prefixes
-inline constexpr std::string_view ENV_PREFIX_CLAUDE = "CLAUDE_";
+inline constexpr std::string_view ENV_PREFIX_LOOM = "LOOM_";
 inline constexpr std::string_view ENV_PREFIX_ANTHROPIC = "ANTHROPIC_";
 
 // Limits

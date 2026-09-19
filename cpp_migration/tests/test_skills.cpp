@@ -72,7 +72,7 @@ TEST(BundledSkills, RegistersIntoExecutor) {
 }
 
 TEST(SkillLoader, LoadsDirectorySkillMarkdown) {
-    auto root = unique_test_dir("cc_repl_skill_directory_test_");
+    auto root = unique_test_dir("loom_skill_directory_test_");
     fs::create_directories(root / "review-skill");
     {
         std::ofstream skill(root / "review-skill" / "SKILL.md");

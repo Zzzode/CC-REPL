@@ -40,9 +40,9 @@ auto get_current_limits() -> RateLimits {
         return fallback;
     };
     return {
-        .rpm = read_int("CC_REPL_RATE_LIMIT_RPM", 60),
-        .tpm = read_int("CC_REPL_RATE_LIMIT_TPM", 100000),
-        .daily = read_int("CC_REPL_RATE_LIMIT_DAILY", 1000)
+        .rpm = read_int("LOOM_RATE_LIMIT_RPM", 60),
+        .tpm = read_int("LOOM_RATE_LIMIT_TPM", 100000),
+        .daily = read_int("LOOM_RATE_LIMIT_DAILY", 1000)
     };
 }
 

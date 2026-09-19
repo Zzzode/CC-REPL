@@ -98,8 +98,8 @@ bool update_goldens() {
 }
 
 fs::path golden_dir() {
-#ifdef CC_REPL_TESTS_ROOT
-    return fs::path(CC_REPL_TESTS_ROOT) / "golden";
+#ifdef LOOM_TESTS_ROOT
+    return fs::path(LOOM_TESTS_ROOT) / "golden";
 #else
     return fs::path(__FILE__).parent_path() / "golden";
 #endif

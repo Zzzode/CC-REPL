@@ -302,7 +302,7 @@ namespace detail {
         "(Like your own code, a well-known open source project, or work from "
         "your team). If not, take a moment to review what's in this folder "
         "first."));
-    parts.push_back(text("Claude Code'll be able to read, edit, and execute files here.") | dim);
+    parts.push_back(text("Loom'll be able to read, edit, and execute files here.") | dim);
 
     if (detail::has_any_concerns(src)) {
         parts.push_back(text(""));
@@ -843,7 +843,7 @@ inline void emit_choice(std::shared_ptr<DialogState> s, TrustChoice choice) {
 
     RiskSummary summary;
     summary.action_summary = std::format(
-        "Claude Code wants access to the workspace at {}.",
+        "Loom wants access to the workspace at {}.",
         *generic.workspace_path_storage);
 
     const auto concerns = detail::list_concerns(props.sources);

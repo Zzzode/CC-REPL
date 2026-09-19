@@ -1,6 +1,6 @@
 /// @file schedule_remote_agents.cppm
 /// @brief Schedule Remote Agents skill - slash command wrapper that builds a
-/// detailed prompt for creating/listing/updating/running remote Claude Code
+/// detailed prompt for creating/listing/updating/running remote Loom
 /// agent triggers via the RemoteTrigger tool.
 ///
 /// Audit vs TS src/skills/bundled/scheduleRemoteAgents.ts:
@@ -80,13 +80,13 @@ constexpr std::string_view kBase58Alphabet =
         hex.substr(20, 12));
 }
 
-/// Remove the "claude.ai-" prefix and sanitize a connector display name to the
+/// Remove the "loom.ai-" prefix and sanitize a connector display name to the
 /// character set ``[a-zA-Z0-9_-]``.  Mirrors TS ``sanitizeConnectorName``.
 [[nodiscard]] inline std::string sanitize_connector_name(std::string name) noexcept {
-    // Strip leading "claude.ai-", "claude ai ", "claude_ai-" prefixes (case insensitive).
+    // Strip leading "loom.ai-", "loom ai ", "loom_ai-" prefixes (case insensitive).
     static constexpr std::array<std::string_view, 6> kPrefixes = {
-        "claude.ai-", "claude ai-", "claude_ai-",
-        "claude.ai ", "claude ai ", "claude_ai_",
+        "loom.ai-", "loom ai-", "loom_ai-",
+        "loom.ai ", "loom ai ", "loom_ai_",
     };
     for (auto pfx : kPrefixes) {
         if (name.size() >= pfx.size()) {
@@ -375,7 +375,7 @@ struct BuildPromptOpts {
     std::string_view user_timezone = "UTC";
     std::string_view connectors_info =
         "No connected MCP connectors found. The user may need to connect "
-        "servers at https://claude.ai/settings/connectors";
+        "servers in your account's connector settings";
     std::string_view git_repo_url;   /// empty => no repo context
     std::string_view environments_info =
         "Available environments:\n"
@@ -399,7 +399,7 @@ struct BuildPromptOpts {
 [[nodiscard]] inline std::string build_prompt(const BuildPromptOpts& opts) {
     // -- Auth short-circuit (matches TS registerScheduleRemoteAgentsSkill head)
     if (!opts.authenticated) {
-        return "You need to authenticate with a claude.ai account first. "
+        return "You need to authenticate first. "
                "API accounts are not supported.  Run /login, then try "
                "/schedule again.";
     }
@@ -442,7 +442,7 @@ struct BuildPromptOpts {
         opts.needs_github_access_reminder
             ? "- If the user's request seems to require GitHub repo access "
               "(e.g. cloning a repo, opening PRs, reading code), remind them "
-              "they need the Claude GitHub App installed on the repo — "
+              "they need the Loom GitHub App installed on the repo — "
               "otherwise the remote agent won't be able to access it.\n"
         : "";
 
@@ -465,7 +465,7 @@ struct BuildPromptOpts {
     return std::format(
 R"(# Schedule Remote Agents
 
-You are helping the user schedule, update, list, or run **remote** Claude Code
+You are helping the user schedule, update, list, or run **remote** Loom
 agents. These are NOT local cron jobs — each trigger spawns a fully isolated
 remote session (CCR) in Anthropic's cloud infrastructure on a cron schedule.
 The agent runs in a sandboxed environment with its own git checkout, tools,
@@ -487,7 +487,7 @@ Use the `{}` tool (auth is handled in-process — do not use curl):
 - `{{action: "run", trigger_id: "..."}}` — run a trigger now
 
 You CANNOT delete triggers. If the user asks to delete, direct them to:
-https://claude.ai/code/scheduled
+the remote-agent web console (not part of this build)
 
 ## Create body shape
 
@@ -524,7 +524,7 @@ Generate a fresh lowercase UUID for `events[].data.uuid` yourself.
 
 ## Available MCP Connectors
 
-These are the user's currently connected claude.ai MCP connectors:
+These are the user's currently connected remote MCP connectors:
 
 {}
 
@@ -539,7 +539,7 @@ description.  For example, if they say "check Datadog and Slack me errors,"
 the agent needs both Datadog and Slack connectors.  Cross-reference against
 the list above and warn if any required service isn't connected.  If a needed
 connector is missing, direct the user to
-https://claude.ai/settings/connectors to connect it first.
+the connector settings in your account to connect it first.
 
 ## Environments
 
@@ -605,12 +605,12 @@ Minimum interval is 1 hour. `*/30 * * * *` will be rejected.
 5. **Validate connections** — Infer what services the agent will need from
    the user's description.  Cross-reference with the connectors list above.
    If any are missing, warn the user and link them to
-   https://claude.ai/settings/connectors to connect first.{}
+   your account's connector settings to connect first.{}
 6. **Review and confirm** — Show the full configuration before creating.
    Let them adjust.
 7. **Create it** — Call `{}` with `action: "create"` and show the result.
    The response includes the trigger ID.  Always output a link at the end:
-   `https://claude.ai/code/scheduled/{{TRIGGER_ID}}`
+   the remote-agent console at `scheduled/{{TRIGGER_ID}}`
 
 ### UPDATE a trigger:
 
@@ -640,7 +640,7 @@ Minimum interval is 1 hour. `*/30 * * * *` will be rejected.
   etc.) and normalize to the full HTTPS URL (without .git suffix)
 - The prompt is the most important part — spend time getting it right.  The
   remote agent starts with zero context, so the prompt must be self-contained.
-- To delete a trigger, direct users to https://claude.ai/code/scheduled
+- To delete a trigger, direct users to the remote-agent web console (not part of this build)
 {}
 {})",
         first_step,

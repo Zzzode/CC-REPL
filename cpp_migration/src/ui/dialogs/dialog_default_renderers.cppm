@@ -668,8 +668,8 @@ void register_default_renderers(dsys::DialogRendererRegistry& registry) {
                 auto ctx = default_doctor_context();
                 model.version.current_version = ctx.current_version;
                 model.version.installation_type = "native";
-                model.version.installation_path = "/opt/cc-repl/cc-repl";
-                model.version.invoked_binary = "cc-repl";
+                model.version.installation_path = "/opt/loom/loom";
+                model.version.invoked_binary = "loom";
                 // Run all checks so results are ready when the screen opens.
                 model.results = RunAllChecks(ctx);
 

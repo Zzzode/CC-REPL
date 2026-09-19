@@ -1,5 +1,5 @@
 /// @file store.cppm
-/// @brief Redux-like state management store for the Claude Code REPL.
+/// @brief Redux-like state management store for the Loom REPL.
 /// Provides a generic Store class template with actions, reducers,
 /// middleware pipeline, subscriptions, and async thunk support.
 module;

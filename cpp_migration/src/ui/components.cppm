@@ -1,5 +1,5 @@
 /// @file components.cppm
-/// @brief Reusable UI components for the Claude Code REPL.
+/// @brief Reusable UI components for the Loom REPL.
 /// Each component renders a specific visual element using FTXUI:
 /// message rows, tool displays, permission prompts, diffs, etc.
 module;
@@ -64,7 +64,7 @@ struct MessageStyle {
         case cc::core::Role::User:
             return {ftxui::Color::Green, "You:", false};
         case cc::core::Role::Assistant:
-            return {ftxui::Color::Cyan, "Claude:", false};
+            return {ftxui::Color::Cyan, "Loom:", false};
         case cc::core::Role::System:
             return {ftxui::Color::Yellow, "System:", false};
         case cc::core::Role::Tool:

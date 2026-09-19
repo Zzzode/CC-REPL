@@ -75,7 +75,7 @@ inline constexpr std::int32_t logo_refresh_ms        = 120;
 // Each Theme exposes a single color per role.  New call sites should use
 // token_by_role() rather than reaching into the palette struct by name.
 enum class Role : std::uint8_t {
-    Primary,      // Claude accent (clawd_body)
+    Primary,      // Loom accent (loom_body)
     Info,         // Info / auxiliary blue accents
     Success,      // Green
     Warning,      // Yellow / amber
@@ -100,12 +100,12 @@ enum class Role : std::uint8_t {
     BashMessageBackground, // TS: bashMessageBackgroundColor — bash msg tint
     MemoryBackground,      // TS: memoryBackgroundColor — memory bubble bg
     BriefLabelYou,         // TS: briefLabelYou — "You" in brief mode
-    BriefLabelClaude,      // TS: briefLabelClaude — "Claude" in brief mode
+    BriefLabelLoom,      // TS: briefLabelLoom — "Loom" in brief mode
     AutoAccept,            // TS: autoAccept — auto-accept indicator accent
     // ── Semantic derived roles (GAP: clr-missing-42-tokens-struct) ────────
     TextMuted,             // secondary text (TS inactive)
     TextLink,              // link text (TS suggestion)
-    TextAccent,            // accent-colored text (TS claude)
+    TextAccent,            // accent-colored text (TS loom)
     BorderSubtle,          // subtle divider borders
     BorderDefault,         // default frame borders (TS promptBorder)
     BorderAccent,          // accent-colored border (TS permission)
@@ -116,7 +116,7 @@ enum class Role : std::uint8_t {
     SurfaceMemory,         // memory surface (TS memoryBackgroundColor)
     IconDefault,           // default icon color (TS text)
     IconMuted,             // muted icon color (TS inactive)
-    IconAccent,            // accent icon color (TS claude)
+    IconAccent,            // accent icon color (TS loom)
 };
 
 // ─── Palette ─────────────────────────────────────────────────────────────────
@@ -179,12 +179,12 @@ struct Palette {
     // Semantically distinct from `merged` even though values coincide in
     // every TS theme variant today (both = electric violet).
     ftxui::Color auto_accept;
-    // TS: clawd_body — Claude mascot body orange.  In daltonized themes
+    // TS: loom_body — Loom mascot body orange.  In daltonized themes
     // this stays at the canonical clawd orange rgb(215,119,87) while
-    // `primary`/`claude` shifts to a CVD-safe orange rgb(255,153,51).
-    // Logo/mascot rendering MUST use clawd_body, not primary, to avoid
+    // `primary`/`loom` shifts to a CVD-safe orange rgb(255,153,51).
+    // Logo/mascot rendering MUST use loom_body, not primary, to avoid
     // color shifts in daltonized variants.
-    ftxui::Color clawd_body;
+    ftxui::Color loom_body;
 
     // ─── Shimmer tokens (GAP: clr-shimmer-tokens-missing) ──────────────────
     // TS REF: src/utils/theme.ts Theme type — 14 shimmer fields total.
@@ -196,14 +196,14 @@ struct Palette {
     ftxui::Color warning_shimmer;        // TS: warningShimmer
     ftxui::Color prompt_border_shimmer;  // TS: promptBorderShimmer
     ftxui::Color fast_mode_shimmer;      // TS: fastModeShimmer
-    ftxui::Color claude_blue_shimmer;    // TS: claudeBlueShimmer_FOR_SYSTEM_SPINNER
+    ftxui::Color loom_blue_shimmer;    // TS: loomBlueShimmer_FOR_SYSTEM_SPINNER
     // Rainbow per-stop shimmers (TS: rainbow_*_shimmer, 7 stops)
     // TS REF: src/utils/theme.ts:82-88 — identical across all themes.
     std::array<ftxui::Color, 7> rainbow_shimmer_stops;
 
-    // ─── Claude blue system spinner (GAP: clr-missing-42-tokens-struct) ────
-    // TS: claudeBlue_FOR_SYSTEM_SPINNER — distinct from primary/clawd.
-    ftxui::Color claude_blue;
+    // ─── Loom blue system spinner (GAP: clr-missing-42-tokens-struct) ────
+    // TS: loomBlue_FOR_SYSTEM_SPINNER — distinct from primary/clawd.
+    ftxui::Color loom_blue;
 
     // ─── Mode colors ───────────────────────────────────────────────────────
     // TS REF: src/utils/theme.ts Theme fields planMode, ide, remember, fastMode
@@ -238,7 +238,7 @@ struct Palette {
     ftxui::Color bash_message_background; // TS: bashMessageBackgroundColor — bash msg tint
     ftxui::Color memory_background;       // TS: memoryBackgroundColor — memory bubble bg
     ftxui::Color brief_label_you;         // TS: briefLabelYou — "You" label in brief mode
-    ftxui::Color brief_label_claude;      // TS: briefLabelClaude — "Claude" label in brief mode
+    ftxui::Color brief_label_loom;      // TS: briefLabelLoom — "Loom" label in brief mode
 
     // ─── Individual rainbow fields (GAP: clr-missing-42-tokens-struct) ──────
     // TS REF: src/utils/theme.ts:75-88 — 7 base + 7 shimmer = 14 individual fields.
@@ -266,7 +266,7 @@ struct Palette {
     // TS REF: usage patterns across src/ui/** (ThemedText, MessageBubble, etc.)
     ftxui::Color text_muted;              // secondary text — alias for muted (TS inactive)
     ftxui::Color text_link;               // link text — alias for suggestion (TS suggestion)
-    ftxui::Color text_accent;             // accent-colored text — alias for primary (TS claude)
+    ftxui::Color text_accent;             // accent-colored text — alias for primary (TS loom)
     ftxui::Color border_subtle;           // subtle divider borders — derived from subtle
     ftxui::Color border_default;          // default frame borders — alias for prompt_border (TS promptBorder)
     ftxui::Color border_accent;           // accent-colored border — alias for permission (TS permission)
@@ -285,8 +285,8 @@ struct Palette {
 // grayscale for accessibility testing and reduced-color terminals.
 namespace palette {
 
-// rgb(215,119,87) — Claude's canonical "clawd" orange
-// TS darkTheme.claudeShimmer = rgb(235,159,127) — lighter orange for shimmer
+// rgb(215,119,87) — Loom's canonical "clawd" orange
+// TS darkTheme.loomShimmer = rgb(235,159,127) — lighter orange for shimmer
 inline const auto CLAWDED      = ftxui::Color::RGB(215, 119,  87);
 inline const auto CLAWDED_SHIM = ftxui::Color::RGB(235, 159, 127);
 
@@ -360,15 +360,15 @@ inline const Palette dark = {
     .permission          = ftxui::Color::RGB(177, 185, 249),
     // TS dark autoAccept = rgb(175,135,255) (electric violet, == merged).
     .auto_accept         = ftxui::Color::RGB(175, 135, 255),
-    // TS dark clawd_body = rgb(215,119,87) — canonical clawd orange.
-    .clawd_body          = CLAWDED,
+    // TS dark loom_body = rgb(215,119,87) — canonical clawd orange.
+    .loom_body          = CLAWDED,
     // ── Shimmer tokens (TS REF: src/utils/theme.ts darkTheme 440-515) ──
     .permission_shimmer     = ftxui::Color::RGB(207, 215, 255),  // TS: permissionShimmer
     .inactive_shimmer       = ftxui::Color::RGB(193, 193, 193),  // TS: inactiveShimmer
     .warning_shimmer        = ftxui::Color::RGB(255, 223,  57),  // TS: warningShimmer
     .prompt_border_shimmer  = ftxui::Color::RGB(166, 166, 166),  // TS: promptBorderShimmer
     .fast_mode_shimmer      = ftxui::Color::RGB(255, 165,  70),  // TS: fastModeShimmer
-    .claude_blue_shimmer    = ftxui::Color::RGB(177, 195, 255),  // TS: claudeBlueShimmer_FOR_SYSTEM_SPINNER
+    .loom_blue_shimmer    = ftxui::Color::RGB(177, 195, 255),  // TS: loomBlueShimmer_FOR_SYSTEM_SPINNER
     .rainbow_shimmer_stops = {{
         ftxui::Color::RGB(250, 155, 147),   // TS: rainbow_red_shimmer
         ftxui::Color::RGB(255, 185, 137),   // TS: rainbow_orange_shimmer
@@ -378,8 +378,8 @@ inline const Palette dark = {
         ftxui::Color::RGB(195, 180, 230),   // TS: rainbow_indigo_shimmer
         ftxui::Color::RGB(230, 180, 210),   // TS: rainbow_violet_shimmer
     }},
-    // ── Claude blue system spinner ──
-    .claude_blue           = ftxui::Color::RGB(147, 165, 255),  // TS: claudeBlue_FOR_SYSTEM_SPINNER
+    // ── Loom blue system spinner ──
+    .loom_blue           = ftxui::Color::RGB(147, 165, 255),  // TS: loomBlue_FOR_SYSTEM_SPINNER
     // ── Mode colors ──
     .plan_mode             = ftxui::Color::RGB( 72, 150, 140),  // TS: planMode (muted sage green)
     .ide                   = ftxui::Color::RGB( 71, 130, 200),  // TS: ide (muted blue)
@@ -405,7 +405,7 @@ inline const Palette dark = {
     .bash_message_background = ftxui::Color::RGB( 65,  60,  65),// TS: bashMessageBackgroundColor
     .memory_background     = ftxui::Color::RGB( 55,  65,  70),  // TS: memoryBackgroundColor
     .brief_label_you       = ftxui::Color::RGB(122, 180, 232),  // TS: briefLabelYou (light blue)
-    .brief_label_claude    = CLAWDED,                            // TS: briefLabelClaude (== claude)
+    .brief_label_loom    = CLAWDED,                            // TS: briefLabelLoom (== loom)
     // ── Individual rainbow fields (TS REF: src/utils/theme.ts:501-514) ──
     .rainbow_red           = ftxui::Color::RGB(235,  95,  87),  // TS: rainbow_red
     .rainbow_orange        = ftxui::Color::RGB(245, 139,  87),  // TS: rainbow_orange
@@ -424,7 +424,7 @@ inline const Palette dark = {
     // ── Semantic derived tokens (dark theme) ──
     .text_muted            = ftxui::Color::RGB(153, 153, 153),  // = muted (TS inactive)
     .text_link             = ftxui::Color::RGB(177, 185, 249),  // = suggestion (TS suggestion)
-    .text_accent           = CLAWDED,                            // = primary (TS claude)
+    .text_accent           = CLAWDED,                            // = primary (TS loom)
     .border_subtle         = ftxui::Color::RGB( 55,  57,  61),  // = chrome (TS subtle → dark bg border)
     .border_default        = ftxui::Color::RGB(136, 136, 136),  // = prompt_border (TS promptBorder)
     .border_accent         = ftxui::Color::RGB(177, 185, 249),  // = permission (TS permission)
@@ -440,7 +440,7 @@ inline const Palette dark = {
 
 inline const Palette light = {
     .primary             = CLAWDED,
-    // TS lightTheme.claudeShimmer = rgb(245,149,117) — differs from dark (235,159,127)
+    // TS lightTheme.loomShimmer = rgb(245,149,117) — differs from dark (235,159,127)
     .primary_shimmer     = ftxui::Color::RGB(245, 149, 117),
     // TS lightTheme (src/utils/theme.ts:115-191) — exact rgb() values
     // (clr-light-palette-17-p1).  `info` carries TS permission/suggestion
@@ -488,18 +488,18 @@ inline const Palette light = {
     .permission          = ftxui::Color::RGB( 87, 105, 247),
     // TS light autoAccept = rgb(135,0,255) (electric violet, == merged).
     .auto_accept         = ftxui::Color::RGB(135,   0, 255),
-    // TS light clawd_body = rgb(215,119,87) — canonical clawd orange.
-    .clawd_body          = CLAWDED,
+    // TS light loom_body = rgb(215,119,87) — canonical clawd orange.
+    .loom_body          = CLAWDED,
     // ── Shimmer tokens (TS REF: src/utils/theme.ts lightTheme 115-191) ──
     .permission_shimmer     = ftxui::Color::RGB(137, 155, 255),  // TS: permissionShimmer
     .inactive_shimmer       = ftxui::Color::RGB(142, 142, 142),  // TS: inactiveShimmer
     .warning_shimmer        = ftxui::Color::RGB(200, 158,  80),  // TS: warningShimmer
     .prompt_border_shimmer  = ftxui::Color::RGB(183, 183, 183),  // TS: promptBorderShimmer
     .fast_mode_shimmer      = ftxui::Color::RGB(255, 150,  50),  // TS: fastModeShimmer
-    .claude_blue_shimmer    = ftxui::Color::RGB(117, 135, 255),  // TS: claudeBlueShimmer_FOR_SYSTEM_SPINNER
+    .loom_blue_shimmer    = ftxui::Color::RGB(117, 135, 255),  // TS: loomBlueShimmer_FOR_SYSTEM_SPINNER
     .rainbow_shimmer_stops  = dark.rainbow_shimmer_stops,         // identical across all themes
-    // ── Claude blue system spinner ──
-    .claude_blue           = ftxui::Color::RGB( 87, 105, 247),  // TS: claudeBlue_FOR_SYSTEM_SPINNER
+    // ── Loom blue system spinner ──
+    .loom_blue           = ftxui::Color::RGB( 87, 105, 247),  // TS: loomBlue_FOR_SYSTEM_SPINNER
     // ── Mode colors ──
     .plan_mode             = ftxui::Color::RGB(  0, 102, 102),  // TS: planMode (muted teal)
     .ide                   = ftxui::Color::RGB( 71, 130, 200),  // TS: ide (muted blue)
@@ -525,7 +525,7 @@ inline const Palette light = {
     .bash_message_background = ftxui::Color::RGB(250, 245, 250),// TS: bashMessageBackgroundColor
     .memory_background     = ftxui::Color::RGB(230, 245, 250),  // TS: memoryBackgroundColor
     .brief_label_you       = ftxui::Color::RGB( 37,  99, 235),  // TS: briefLabelYou (blue)
-    .brief_label_claude    = CLAWDED,                            // TS: briefLabelClaude (== claude)
+    .brief_label_loom    = CLAWDED,                            // TS: briefLabelLoom (== loom)
     // ── Individual rainbow fields (TS REF: src/utils/theme.ts:177-190) ──
     .rainbow_red           = ftxui::Color::RGB(235,  95,  87),  // TS: rainbow_red (identical across themes)
     .rainbow_orange        = ftxui::Color::RGB(245, 139,  87),  // TS: rainbow_orange
@@ -544,7 +544,7 @@ inline const Palette light = {
     // ── Semantic derived tokens (light theme) ──
     .text_muted            = ftxui::Color::RGB(102, 102, 102),  // = muted (TS inactive light)
     .text_link             = ftxui::Color::RGB( 87, 105, 247),  // = suggestion (TS suggestion light)
-    .text_accent           = CLAWDED,                            // = primary (TS claude)
+    .text_accent           = CLAWDED,                            // = primary (TS loom)
     .border_subtle         = ftxui::Color::RGB(175, 175, 175),  // = subtle (TS subtle light)
     .border_default        = ftxui::Color::RGB(153, 153, 153),  // = prompt_border (TS promptBorder light)
     .border_accent         = ftxui::Color::RGB( 87, 105, 247),  // = permission (TS permission light)
@@ -562,9 +562,9 @@ inline const Palette light = {
 // (theme.ts darkDaltonizedTheme 521-596 / lightDaltonizedTheme 359-434), NOT a
 // matrix approximation — ported verbatim here (clr-daltonized-27-p1).
 inline const Palette dark_daltonized = {
-    // TS claude (daltonized) = rgb(255,153,51) orange adjusted for deuteranopia.
+    // TS loom (daltonized) = rgb(255,153,51) orange adjusted for deuteranopia.
     .primary             = ftxui::Color::RGB(255, 153,  51),
-    .primary_shimmer     = ftxui::Color::RGB(255, 183, 101),  // claudeShimmer
+    .primary_shimmer     = ftxui::Color::RGB(255, 183, 101),  // loomShimmer
     // info/suggestion/permission all = TS rgb(153,204,255) light blue.
     .info                = ftxui::Color::RGB(153, 204, 255),
     .success             = ftxui::Color::RGB( 51, 153, 255),  // blue, not green
@@ -606,19 +606,19 @@ inline const Palette dark_daltonized = {
     .permission          = ftxui::Color::RGB(153, 204, 255),
     // TS darkDaltonizedTheme autoAccept = rgb(175,135,255) (electric violet, == merged).
     .auto_accept         = ftxui::Color::RGB(175, 135, 255),
-    // TS darkDaltonizedTheme clawd_body = rgb(215,119,87) — STAYS canonical clawd
-    // orange (unlike `primary`/`claude` which shifts to rgb(255,153,51) for CVD).
-    .clawd_body          = CLAWDED,
+    // TS darkDaltonizedTheme loom_body = rgb(215,119,87) — STAYS canonical clawd
+    // orange (unlike `primary`/`loom` which shifts to rgb(255,153,51) for CVD).
+    .loom_body          = CLAWDED,
     // ── Shimmer tokens (TS REF: src/utils/theme.ts darkDaltonizedTheme 521-596) ──
     .permission_shimmer     = ftxui::Color::RGB(183, 224, 255),  // TS: permissionShimmer
     .inactive_shimmer       = ftxui::Color::RGB(193, 193, 193),  // TS: inactiveShimmer
     .warning_shimmer        = ftxui::Color::RGB(255, 234,  50),  // TS: warningShimmer
     .prompt_border_shimmer  = ftxui::Color::RGB(166, 166, 166),  // TS: promptBorderShimmer
     .fast_mode_shimmer      = ftxui::Color::RGB(255, 165,  70),  // TS: fastModeShimmer
-    .claude_blue_shimmer    = ftxui::Color::RGB(183, 224, 255),  // TS: claudeBlueShimmer_FOR_SYSTEM_SPINNER
+    .loom_blue_shimmer    = ftxui::Color::RGB(183, 224, 255),  // TS: loomBlueShimmer_FOR_SYSTEM_SPINNER
     .rainbow_shimmer_stops  = dark.rainbow_shimmer_stops,         // identical across all themes
-    // ── Claude blue system spinner ──
-    .claude_blue           = ftxui::Color::RGB(153, 204, 255),  // TS: claudeBlue_FOR_SYSTEM_SPINNER
+    // ── Loom blue system spinner ──
+    .loom_blue           = ftxui::Color::RGB(153, 204, 255),  // TS: loomBlue_FOR_SYSTEM_SPINNER
     // ── Mode colors ──
     .plan_mode             = ftxui::Color::RGB(102, 153, 153),  // TS: planMode (gray-teal, color-blind safe)
     .ide                   = ftxui::Color::RGB( 71, 130, 200),  // TS: ide (muted blue)
@@ -644,7 +644,7 @@ inline const Palette dark_daltonized = {
     .bash_message_background = ftxui::Color::RGB( 65,  60,  65),// TS: bashMessageBackgroundColor
     .memory_background     = ftxui::Color::RGB( 55,  65,  70),  // TS: memoryBackgroundColor
     .brief_label_you       = ftxui::Color::RGB(122, 180, 232),  // TS: briefLabelYou (light blue)
-    .brief_label_claude    = ftxui::Color::RGB(255, 153,  51),  // TS: briefLabelClaude (== claude daltonized)
+    .brief_label_loom    = ftxui::Color::RGB(255, 153,  51),  // TS: briefLabelLoom (== loom daltonized)
     // ── Individual rainbow fields (TS REF: src/utils/theme.ts:582-595) ──
     .rainbow_red           = ftxui::Color::RGB(235,  95,  87),  // TS: rainbow_red (identical across themes)
     .rainbow_orange        = ftxui::Color::RGB(245, 139,  87),  // TS: rainbow_orange
@@ -663,7 +663,7 @@ inline const Palette dark_daltonized = {
     // ── Semantic derived tokens (dark daltonized) ──
     .text_muted            = ftxui::Color::RGB(153, 153, 153),  // = muted (TS inactive daltonized)
     .text_link             = ftxui::Color::RGB(153, 204, 255),  // = suggestion (TS suggestion daltonized)
-    .text_accent           = ftxui::Color::RGB(255, 153,  51),  // = primary (TS claude daltonized)
+    .text_accent           = ftxui::Color::RGB(255, 153,  51),  // = primary (TS loom daltonized)
     .border_subtle         = ftxui::Color::RGB( 55,  57,  61),  // = chrome
     .border_default        = ftxui::Color::RGB(136, 136, 136),  // = prompt_border
     .border_accent         = ftxui::Color::RGB(153, 204, 255),  // = permission
@@ -674,13 +674,13 @@ inline const Palette dark_daltonized = {
     .surface_memory        = ftxui::Color::RGB( 55,  65,  70),  // = memory_background
     .icon_default          = ftxui::Color::RGB(255, 255, 255),  // = text (white on dark)
     .icon_muted            = ftxui::Color::RGB(153, 153, 153),  // = muted
-    .icon_accent           = ftxui::Color::RGB(255, 153,  51),  // = primary (claude daltonized)
+    .icon_accent           = ftxui::Color::RGB(255, 153,  51),  // = primary (loom daltonized)
 };
 
 inline const Palette light_daltonized = {
     // TS lightDaltonizedTheme (theme.ts:359-434) — explicit rgb() literals.
-    .primary             = ftxui::Color::RGB(255, 153,  51),  // claude (deuteranopia)
-    .primary_shimmer     = ftxui::Color::RGB(255, 183, 101),  // claudeShimmer
+    .primary             = ftxui::Color::RGB(255, 153,  51),  // loom (deuteranopia)
+    .primary_shimmer     = ftxui::Color::RGB(255, 183, 101),  // loomShimmer
     .info                = ftxui::Color::RGB( 51, 102, 255),  // permission/suggestion
     .success             = ftxui::Color::RGB(  0, 102, 153),  // blue, not green
     .warning             = ftxui::Color::RGB(255, 153,   0),  // orange
@@ -717,19 +717,19 @@ inline const Palette light_daltonized = {
     .permission          = ftxui::Color::RGB( 51, 102, 255),
     // TS lightDaltonizedTheme autoAccept = rgb(135,0,255) (electric violet, == merged).
     .auto_accept         = ftxui::Color::RGB(135,   0, 255),
-    // TS lightDaltonizedTheme clawd_body = rgb(215,119,87) — STAYS canonical clawd
-    // orange (unlike `primary`/`claude` which shifts to rgb(255,153,51) for CVD).
-    .clawd_body          = CLAWDED,
+    // TS lightDaltonizedTheme loom_body = rgb(215,119,87) — STAYS canonical clawd
+    // orange (unlike `primary`/`loom` which shifts to rgb(255,153,51) for CVD).
+    .loom_body          = CLAWDED,
     // ── Shimmer tokens (TS REF: src/utils/theme.ts lightDaltonizedTheme 359-434) ──
     .permission_shimmer     = ftxui::Color::RGB(101, 152, 255),  // TS: permissionShimmer
     .inactive_shimmer       = ftxui::Color::RGB(142, 142, 142),  // TS: inactiveShimmer
     .warning_shimmer        = ftxui::Color::RGB(255, 183,  50),  // TS: warningShimmer
     .prompt_border_shimmer  = ftxui::Color::RGB(183, 183, 183),  // TS: promptBorderShimmer
     .fast_mode_shimmer      = ftxui::Color::RGB(255, 150,  50),  // TS: fastModeShimmer
-    .claude_blue_shimmer    = ftxui::Color::RGB(101, 152, 255),  // TS: claudeBlueShimmer_FOR_SYSTEM_SPINNER
+    .loom_blue_shimmer    = ftxui::Color::RGB(101, 152, 255),  // TS: loomBlueShimmer_FOR_SYSTEM_SPINNER
     .rainbow_shimmer_stops  = dark.rainbow_shimmer_stops,         // identical across all themes
-    // ── Claude blue system spinner ──
-    .claude_blue           = ftxui::Color::RGB( 51, 102, 255),  // TS: claudeBlue_FOR_SYSTEM_SPINNER
+    // ── Loom blue system spinner ──
+    .loom_blue           = ftxui::Color::RGB( 51, 102, 255),  // TS: loomBlue_FOR_SYSTEM_SPINNER
     // ── Mode colors ──
     .plan_mode             = ftxui::Color::RGB( 51, 102, 102),  // TS: planMode (muted blue-gray, CVD-safe)
     .ide                   = ftxui::Color::RGB( 71, 130, 200),  // TS: ide (muted blue)
@@ -755,7 +755,7 @@ inline const Palette light_daltonized = {
     .bash_message_background = ftxui::Color::RGB(250, 245, 250),// TS: bashMessageBackgroundColor
     .memory_background     = ftxui::Color::RGB(230, 245, 250),  // TS: memoryBackgroundColor
     .brief_label_you       = ftxui::Color::RGB( 37,  99, 235),  // TS: briefLabelYou (blue)
-    .brief_label_claude    = ftxui::Color::RGB(255, 153,  51),  // TS: briefLabelClaude (== claude daltonized)
+    .brief_label_loom    = ftxui::Color::RGB(255, 153,  51),  // TS: briefLabelLoom (== loom daltonized)
     // ── Individual rainbow fields (TS REF: src/utils/theme.ts:420-433) ──
     .rainbow_red           = ftxui::Color::RGB(235,  95,  87),  // TS: rainbow_red (identical across themes)
     .rainbow_orange        = ftxui::Color::RGB(245, 139,  87),  // TS: rainbow_orange
@@ -774,7 +774,7 @@ inline const Palette light_daltonized = {
     // ── Semantic derived tokens (light daltonized) ──
     .text_muted            = ftxui::Color::RGB(102, 102, 102),  // = muted (TS inactive light daltonized)
     .text_link             = ftxui::Color::RGB( 51, 102, 255),  // = suggestion (TS suggestion daltonized)
-    .text_accent           = ftxui::Color::RGB(255, 153,  51),  // = primary (TS claude daltonized)
+    .text_accent           = ftxui::Color::RGB(255, 153,  51),  // = primary (TS loom daltonized)
     .border_subtle         = ftxui::Color::RGB(175, 175, 175),  // = subtle
     .border_default        = ftxui::Color::RGB(153, 153, 153),  // = prompt_border
     .border_accent         = ftxui::Color::RGB( 51, 102, 255),  // = permission
@@ -785,15 +785,15 @@ inline const Palette light_daltonized = {
     .surface_memory        = ftxui::Color::RGB(230, 245, 250),  // = memory_background
     .icon_default          = ftxui::Color::RGB(  0,   0,   0),  // = text (black on light)
     .icon_muted            = ftxui::Color::RGB(102, 102, 102),  // = muted
-    .icon_accent           = ftxui::Color::RGB(255, 153,  51),  // = primary (claude daltonized)
+    .icon_accent           = ftxui::Color::RGB(255, 153,  51),  // = primary (loom daltonized)
 };
 
 // ── Light ANSI palette (TS REF: src/utils/theme.ts lightAnsiTheme 197-272) ──
 // Uses only the 16 standard ANSI palette16 colors for terminals without
 // true-color support.  TS ansi:* names mapped to ftxui::Color::Palette16.
 inline const Palette light_ansi = {
-    .primary             = ftxui::Color{ftxui::Color::Palette16::RedLight},    // TS: ansi:redBright (claude)
-    .primary_shimmer     = ftxui::Color{ftxui::Color::Palette16::YellowLight}, // TS: ansi:yellowBright (claudeShimmer)
+    .primary             = ftxui::Color{ftxui::Color::Palette16::RedLight},    // TS: ansi:redBright (loom)
+    .primary_shimmer     = ftxui::Color{ftxui::Color::Palette16::YellowLight}, // TS: ansi:yellowBright (loomShimmer)
     .info                = ftxui::Color{ftxui::Color::Palette16::Blue},         // TS: ansi:blue (permission/suggestion)
     .success             = ftxui::Color{ftxui::Color::Palette16::Green},        // TS: ansi:green
     .warning             = ftxui::Color{ftxui::Color::Palette16::Yellow},       // TS: ansi:yellow
@@ -807,7 +807,7 @@ inline const Palette light_ansi = {
     .chrome              = ftxui::Color{ftxui::Color::Palette16::GrayLight},        // TS: ansi:white (promptBorder)
     .rate_limit_fill     = ftxui::Color{ftxui::Color::Palette16::Yellow},       // TS: ansi:yellow
     .rate_limit_empty    = ftxui::Color{ftxui::Color::Palette16::Black},        // TS: ansi:black
-    .brief_label         = ftxui::Color{ftxui::Color::Palette16::RedLight},    // TS: briefLabelClaude
+    .brief_label         = ftxui::Color{ftxui::Color::Palette16::RedLight},    // TS: briefLabelLoom
     .user_message_background        = ftxui::Color{ftxui::Color::Palette16::GrayLight},       // TS: ansi:white
     .user_message_background_hover  = ftxui::Color{ftxui::Color::Palette16::White},   // TS: ansi:whiteBright
     .message_actions_background     = ftxui::Color{ftxui::Color::Palette16::GrayLight},       // TS: ansi:white
@@ -830,14 +830,14 @@ inline const Palette light_ansi = {
     .prompt_border       = ftxui::Color{ftxui::Color::Palette16::GrayLight},        // TS: ansi:white
     .permission          = ftxui::Color{ftxui::Color::Palette16::Blue},         // TS: ansi:blue
     .auto_accept         = ftxui::Color{ftxui::Color::Palette16::Magenta},      // TS: ansi:magenta
-    .clawd_body          = ftxui::Color{ftxui::Color::Palette16::RedLight},    // TS: ansi:redBright
+    .loom_body          = ftxui::Color{ftxui::Color::Palette16::RedLight},    // TS: ansi:redBright
     // ── Shimmer tokens ──
     .permission_shimmer     = ftxui::Color{ftxui::Color::Palette16::BlueLight},    // TS: ansi:blueBright
     .inactive_shimmer       = ftxui::Color{ftxui::Color::Palette16::GrayLight},         // TS: ansi:white
     .warning_shimmer        = ftxui::Color{ftxui::Color::Palette16::YellowLight},  // TS: ansi:yellowBright
     .prompt_border_shimmer  = ftxui::Color{ftxui::Color::Palette16::White},     // TS: ansi:whiteBright
     .fast_mode_shimmer      = ftxui::Color{ftxui::Color::Palette16::RedLight},     // TS: ansi:redBright
-    .claude_blue_shimmer    = ftxui::Color{ftxui::Color::Palette16::BlueLight},    // TS: ansi:blueBright
+    .loom_blue_shimmer    = ftxui::Color{ftxui::Color::Palette16::BlueLight},    // TS: ansi:blueBright
     .rainbow_shimmer_stops = {{
         ftxui::Color{ftxui::Color::Palette16::RedLight},     // TS: ansi:redBright (rainbow_red_shimmer)
         ftxui::Color{ftxui::Color::Palette16::Yellow},        // TS: ansi:yellow (rainbow_orange_shimmer)
@@ -847,7 +847,7 @@ inline const Palette light_ansi = {
         ftxui::Color{ftxui::Color::Palette16::BlueLight},    // TS: ansi:blueBright (rainbow_indigo_shimmer)
         ftxui::Color{ftxui::Color::Palette16::MagentaLight}, // TS: ansi:magentaBright (rainbow_violet_shimmer)
     }},
-    .claude_blue           = ftxui::Color{ftxui::Color::Palette16::Blue},         // TS: ansi:blue
+    .loom_blue           = ftxui::Color{ftxui::Color::Palette16::Blue},         // TS: ansi:blue
     .plan_mode             = ftxui::Color{ftxui::Color::Palette16::Cyan},         // TS: ansi:cyan
     .ide                   = ftxui::Color{ftxui::Color::Palette16::BlueLight},   // TS: ansi:blueBright
     .remember              = ftxui::Color{ftxui::Color::Palette16::Blue},         // TS: ansi:blue
@@ -871,7 +871,7 @@ inline const Palette light_ansi = {
     .bash_message_background = ftxui::Color{ftxui::Color::Palette16::White},  // TS: ansi:whiteBright
     .memory_background     = ftxui::Color{ftxui::Color::Palette16::GrayLight},        // TS: ansi:white
     .brief_label_you       = ftxui::Color{ftxui::Color::Palette16::Blue},         // TS: ansi:blue
-    .brief_label_claude    = ftxui::Color{ftxui::Color::Palette16::RedLight},    // TS: ansi:redBright
+    .brief_label_loom    = ftxui::Color{ftxui::Color::Palette16::RedLight},    // TS: ansi:redBright
     // ── Individual rainbow fields (TS REF: src/utils/theme.ts lightAnsiTheme 258-271) ──
     .rainbow_red           = ftxui::Color{ftxui::Color::Palette16::Red},           // TS: ansi:red (rainbow_red)
     .rainbow_orange        = ftxui::Color{ftxui::Color::Palette16::RedLight},     // TS: ansi:redBright (rainbow_orange)
@@ -890,7 +890,7 @@ inline const Palette light_ansi = {
     // ── Semantic derived tokens (light ANSI) ──
     .text_muted            = ftxui::Color{ftxui::Color::Palette16::GrayDark},     // = muted (TS inactive ansi:blackBright)
     .text_link             = ftxui::Color{ftxui::Color::Palette16::Blue},         // = suggestion (TS suggestion ansi:blue)
-    .text_accent           = ftxui::Color{ftxui::Color::Palette16::RedLight},    // = primary (TS claude ansi:redBright)
+    .text_accent           = ftxui::Color{ftxui::Color::Palette16::RedLight},    // = primary (TS loom ansi:redBright)
     .border_subtle         = ftxui::Color{ftxui::Color::Palette16::GrayDark},     // = subtle
     .border_default        = ftxui::Color{ftxui::Color::Palette16::GrayLight},        // = prompt_border (TS promptBorder ansi:white)
     .border_accent         = ftxui::Color{ftxui::Color::Palette16::Blue},         // = permission (TS permission ansi:blue)
@@ -907,8 +907,8 @@ inline const Palette light_ansi = {
 // ── Dark ANSI palette (TS REF: src/utils/theme.ts darkAnsiTheme 278-353) ──
 // Uses only the 16 standard ANSI palette16 colors.
 inline const Palette dark_ansi = {
-    .primary             = ftxui::Color{ftxui::Color::Palette16::RedLight},     // TS: ansi:redBright (claude)
-    .primary_shimmer     = ftxui::Color{ftxui::Color::Palette16::YellowLight},  // TS: ansi:yellowBright (claudeShimmer)
+    .primary             = ftxui::Color{ftxui::Color::Palette16::RedLight},     // TS: ansi:redBright (loom)
+    .primary_shimmer     = ftxui::Color{ftxui::Color::Palette16::YellowLight},  // TS: ansi:yellowBright (loomShimmer)
     .info                = ftxui::Color{ftxui::Color::Palette16::BlueLight},    // TS: ansi:blueBright (permission/suggestion)
     .success             = ftxui::Color{ftxui::Color::Palette16::GreenLight},   // TS: ansi:greenBright
     .warning             = ftxui::Color{ftxui::Color::Palette16::YellowLight},  // TS: ansi:yellowBright
@@ -922,7 +922,7 @@ inline const Palette dark_ansi = {
     .chrome              = ftxui::Color{ftxui::Color::Palette16::GrayLight},         // TS: ansi:white (promptBorder)
     .rate_limit_fill     = ftxui::Color{ftxui::Color::Palette16::Yellow},        // TS: ansi:yellow
     .rate_limit_empty    = ftxui::Color{ftxui::Color::Palette16::GrayLight},         // TS: ansi:white
-    .brief_label         = ftxui::Color{ftxui::Color::Palette16::RedLight},     // TS: briefLabelClaude
+    .brief_label         = ftxui::Color{ftxui::Color::Palette16::RedLight},     // TS: briefLabelLoom
     .user_message_background        = ftxui::Color{ftxui::Color::Palette16::GrayDark},    // TS: ansi:blackBright
     .user_message_background_hover  = ftxui::Color{ftxui::Color::Palette16::GrayLight},       // TS: ansi:white
     .message_actions_background     = ftxui::Color{ftxui::Color::Palette16::GrayDark},    // TS: ansi:blackBright
@@ -945,14 +945,14 @@ inline const Palette dark_ansi = {
     .prompt_border       = ftxui::Color{ftxui::Color::Palette16::GrayLight},         // TS: ansi:white
     .permission          = ftxui::Color{ftxui::Color::Palette16::BlueLight},    // TS: ansi:blueBright
     .auto_accept         = ftxui::Color{ftxui::Color::Palette16::MagentaLight}, // TS: ansi:magentaBright
-    .clawd_body          = ftxui::Color{ftxui::Color::Palette16::RedLight},     // TS: ansi:redBright
+    .loom_body          = ftxui::Color{ftxui::Color::Palette16::RedLight},     // TS: ansi:redBright
     // ── Shimmer tokens ──
     .permission_shimmer     = ftxui::Color{ftxui::Color::Palette16::BlueLight},    // TS: ansi:blueBright
     .inactive_shimmer       = ftxui::Color{ftxui::Color::Palette16::White},     // TS: ansi:whiteBright
     .warning_shimmer        = ftxui::Color{ftxui::Color::Palette16::YellowLight},  // TS: ansi:yellowBright
     .prompt_border_shimmer  = ftxui::Color{ftxui::Color::Palette16::White},     // TS: ansi:whiteBright
     .fast_mode_shimmer      = ftxui::Color{ftxui::Color::Palette16::RedLight},     // TS: ansi:redBright
-    .claude_blue_shimmer    = ftxui::Color{ftxui::Color::Palette16::BlueLight},    // TS: ansi:blueBright
+    .loom_blue_shimmer    = ftxui::Color{ftxui::Color::Palette16::BlueLight},    // TS: ansi:blueBright
     .rainbow_shimmer_stops = {{
         ftxui::Color{ftxui::Color::Palette16::RedLight},     // TS: ansi:redBright (rainbow_red_shimmer)
         ftxui::Color{ftxui::Color::Palette16::Yellow},        // TS: ansi:yellow (rainbow_orange_shimmer)
@@ -962,7 +962,7 @@ inline const Palette dark_ansi = {
         ftxui::Color{ftxui::Color::Palette16::BlueLight},    // TS: ansi:blueBright (rainbow_indigo_shimmer)
         ftxui::Color{ftxui::Color::Palette16::MagentaLight}, // TS: ansi:magentaBright (rainbow_violet_shimmer)
     }},
-    .claude_blue           = ftxui::Color{ftxui::Color::Palette16::BlueLight},   // TS: ansi:blueBright
+    .loom_blue           = ftxui::Color{ftxui::Color::Palette16::BlueLight},   // TS: ansi:blueBright
     .plan_mode             = ftxui::Color{ftxui::Color::Palette16::CyanLight},   // TS: ansi:cyanBright
     .ide                   = ftxui::Color{ftxui::Color::Palette16::Blue},         // TS: ansi:blue
     .remember              = ftxui::Color{ftxui::Color::Palette16::BlueLight},   // TS: ansi:blueBright
@@ -987,7 +987,7 @@ inline const Palette dark_ansi = {
     .bash_message_background = ftxui::Color{ftxui::Color::Palette16::Black},      // TS: ansi:black
     .memory_background     = ftxui::Color{ftxui::Color::Palette16::GrayDark},     // TS: ansi:blackBright
     .brief_label_you       = ftxui::Color{ftxui::Color::Palette16::BlueLight},   // TS: ansi:blueBright
-    .brief_label_claude    = ftxui::Color{ftxui::Color::Palette16::RedLight},    // TS: ansi:redBright
+    .brief_label_loom    = ftxui::Color{ftxui::Color::Palette16::RedLight},    // TS: ansi:redBright
     // ── Individual rainbow fields (TS REF: src/utils/theme.ts darkAnsiTheme 339-352) ──
     .rainbow_red           = ftxui::Color{ftxui::Color::Palette16::Red},           // TS: ansi:red (rainbow_red)
     .rainbow_orange        = ftxui::Color{ftxui::Color::Palette16::RedLight},     // TS: ansi:redBright (rainbow_orange)
@@ -1006,7 +1006,7 @@ inline const Palette dark_ansi = {
     // ── Semantic derived tokens (dark ANSI) ──
     .text_muted            = ftxui::Color{ftxui::Color::Palette16::GrayLight},         // = muted (TS inactive ansi:white)
     .text_link             = ftxui::Color{ftxui::Color::Palette16::BlueLight},    // = suggestion (TS suggestion ansi:blueBright)
-    .text_accent           = ftxui::Color{ftxui::Color::Palette16::RedLight},    // = primary (TS claude ansi:redBright)
+    .text_accent           = ftxui::Color{ftxui::Color::Palette16::RedLight},    // = primary (TS loom ansi:redBright)
     .border_subtle         = ftxui::Color{ftxui::Color::Palette16::GrayLight},         // = subtle
     .border_default        = ftxui::Color{ftxui::Color::Palette16::GrayLight},         // = prompt_border (TS promptBorder ansi:white)
     .border_accent         = ftxui::Color{ftxui::Color::Palette16::BlueLight},    // = permission (TS permission ansi:blueBright)
@@ -1056,21 +1056,21 @@ inline const Palette monochrome = {
     .permission          = ftxui::Color::White,
     // Monochrome: auto_accept = White (electric violet → white in reduced color)
     .auto_accept         = ftxui::Color::White,
-    // Monochrome: clawd_body = White (logo body → white in monochrome)
-    .clawd_body          = ftxui::Color::White,
+    // Monochrome: loom_body = White (logo body → white in monochrome)
+    .loom_body          = ftxui::Color::White,
     // ── Shimmer tokens (monochrome: all GrayLight) ──
     .permission_shimmer     = ftxui::Color::GrayLight,
     .inactive_shimmer       = ftxui::Color::GrayLight,
     .warning_shimmer        = ftxui::Color::GrayLight,
     .prompt_border_shimmer  = ftxui::Color::GrayLight,
     .fast_mode_shimmer      = ftxui::Color::GrayLight,
-    .claude_blue_shimmer    = ftxui::Color::GrayLight,
+    .loom_blue_shimmer    = ftxui::Color::GrayLight,
     .rainbow_shimmer_stops = {{ ftxui::Color::GrayLight, ftxui::Color::GrayLight,
                                  ftxui::Color::GrayLight, ftxui::Color::GrayLight,
                                  ftxui::Color::GrayLight, ftxui::Color::GrayLight,
                                  ftxui::Color::GrayLight }},
-    // ── Claude blue system spinner (monochrome: White) ──
-    .claude_blue           = ftxui::Color::White,
+    // ── Loom blue system spinner (monochrome: White) ──
+    .loom_blue           = ftxui::Color::White,
     // ── Mode colors (monochrome: all White for accents) ──
     .plan_mode             = ftxui::Color::White,
     .ide                   = ftxui::Color::White,
@@ -1096,7 +1096,7 @@ inline const Palette monochrome = {
     .bash_message_background = ftxui::Color::GrayDark,
     .memory_background     = ftxui::Color::GrayDark,
     .brief_label_you       = ftxui::Color::White,
-    .brief_label_claude    = ftxui::Color::White,
+    .brief_label_loom    = ftxui::Color::White,
     // ── Individual rainbow fields (monochrome: all White) ──
     .rainbow_red           = ftxui::Color::White,
     .rainbow_orange        = ftxui::Color::White,
@@ -1159,7 +1159,7 @@ inline const Palette monochrome = {
         case Role::BashMessageBackground: return pal.bash_message_background;
         case Role::MemoryBackground:      return pal.memory_background;
         case Role::BriefLabelYou:         return pal.brief_label_you;
-        case Role::BriefLabelClaude:      return pal.brief_label_claude;
+        case Role::BriefLabelLoom:      return pal.brief_label_loom;
         case Role::AutoAccept:            return pal.auto_accept;
         // Semantic derived roles (clr-missing-42-tokens-struct)
         case Role::TextMuted:             return pal.text_muted;

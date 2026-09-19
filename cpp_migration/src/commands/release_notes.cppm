@@ -15,8 +15,8 @@ export module cc.commands.release_notes;
 export namespace cc::commands {
 
 auto release_notes_cache_path() -> std::filesystem::path {
-    if (const char* home = std::getenv("HOME")) return std::filesystem::path{home} / ".cc-repl" / "release-notes.txt";
-    return std::filesystem::path{".cc-repl"} / "release-notes.txt";
+    if (const char* home = std::getenv("HOME")) return std::filesystem::path{home} / ".loom" / "release-notes.txt";
+    return std::filesystem::path{".loom"} / "release-notes.txt";
 }
 
 auto show_whats_new() -> std::string;

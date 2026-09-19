@@ -1,5 +1,5 @@
 /// @file types.cppm
-/// @brief Core type definitions for the Claude Code CLI engine.
+/// @brief Core type definitions for the Loom CLI engine.
 /// Defines message types, content blocks, strong ID types, token usage,
 /// stream events, and error types using C++23 features.
 module;

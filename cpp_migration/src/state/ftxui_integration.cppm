@@ -1,5 +1,5 @@
 /// @file ftxui_integration.cppm
-/// @brief FTXUI integration for reactive UI with Claude Code REPL state.
+/// @brief FTXUI integration for reactive UI with Loom REPL state.
 /// Provides utilities to connect FTXUI components to the AppState store.
 module;
 

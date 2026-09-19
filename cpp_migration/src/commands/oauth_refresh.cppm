@@ -1,6 +1,6 @@
 /// @file oauth_refresh.cppm
 /// @brief OAuth token refresh command — refreshes expired OAuth tokens
-/// for Claude AI / console authentication flows.
+/// for Loom AI / console authentication flows.
 module;
 
 #include <string>
@@ -44,11 +44,11 @@ struct RefreshResult {
 [[nodiscard]] inline fs::path get_token_path(std::string_view suffix = "") {
     fs::path base;
     if (const char* xdg = std::getenv("XDG_CONFIG_HOME"); xdg && *xdg) {
-        base = fs::path(xdg) / "cc-repl";
+        base = fs::path(xdg) / "loom";
     } else if (const char* home = std::getenv("HOME")) {
-        base = fs::path(home) / ".config" / "cc-repl";
+        base = fs::path(home) / ".config" / "loom";
     } else {
-        base = fs::temp_directory_path() / "cc-repl";
+        base = fs::temp_directory_path() / "loom";
     }
 
     std::string filename = "credentials";

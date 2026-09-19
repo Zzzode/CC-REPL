@@ -55,7 +55,7 @@ std::expected<ParsedUrl, std::string> parse_http_url(std::string_view url) {
 std::filesystem::path make_download_path(std::string_view url) {
     auto hash = std::hash<std::string_view>{}(url);
     return std::filesystem::temp_directory_path() /
-        ("claude-code-update-" + std::to_string(hash));
+        ("loom-update-" + std::to_string(hash));
 }
 
 std::expected<std::filesystem::path, std::string> copy_file_url(std::string_view url) {
@@ -163,7 +163,7 @@ std::string extract_json_string(const std::string& json, const std::string& key)
 std::optional<std::chrono::system_clock::time_point> get_last_check_time() {
     const char* home = std::getenv("HOME");
     if (!home) return std::nullopt;
-    auto path = std::filesystem::path(home) / ".config" / "claude-code" / ".last-update-check";
+    auto path = std::filesystem::path(home) / ".config" / "loom" / ".last-update-check";
     if (!std::filesystem::exists(path)) return std::nullopt;
     std::ifstream ifs(path);
     long long ts = 0;
@@ -176,7 +176,7 @@ std::optional<std::chrono::system_clock::time_point> get_last_check_time() {
 void record_check_time() {
     const char* home = std::getenv("HOME");
     if (!home) return;
-    auto dir = std::filesystem::path(home) / ".config" / "claude-code";
+    auto dir = std::filesystem::path(home) / ".config" / "loom";
     std::filesystem::create_directories(dir);
     auto path = dir / ".last-update-check";
     std::ofstream ofs(path);
@@ -294,13 +294,13 @@ std::expected<void, std::string> apply_update(std::filesystem::path update_file)
         // Fallback: check common installation paths
         const char* home = std::getenv("HOME");
         if (home) {
-            auto local_bin = fs::path(home) / ".local" / "bin" / "claude-code";
+            auto local_bin = fs::path(home) / ".local" / "bin" / "loom";
             if (fs::exists(local_bin)) {
                 current_binary = local_bin.string();
             }
         }
         if (current_binary.empty()) {
-            current_binary = "/usr/local/bin/claude-code";
+            current_binary = "/usr/local/bin/loom";
         }
     }
     #elif __linux__
@@ -308,10 +308,10 @@ std::expected<void, std::string> apply_update(std::filesystem::path update_file)
     if (fs::exists("/proc/self/exe")) {
         current_binary = fs::read_symlink("/proc/self/exe").string();
     } else {
-        current_binary = "/usr/local/bin/claude-code";
+        current_binary = "/usr/local/bin/loom";
     }
     #else
-    std::string current_binary = "claude-code.exe";
+    std::string current_binary = "loom.exe";
     #endif
 
     if (current_binary.empty()) {
@@ -355,7 +355,7 @@ std::expected<void, std::string> apply_update(std::filesystem::path update_file)
 // Get the current update channel
 std::string get_update_channel() {
     // Check environment variable first
-    const char* channel_env = std::getenv("CLAUDE_UPDATE_CHANNEL");
+    const char* channel_env = std::getenv("LOOM_UPDATE_CHANNEL");
     if (channel_env && channel_env[0] != '\0') {
         std::string channel(channel_env);
         if (channel == "stable" || channel == "beta" || channel == "nightly") {
@@ -445,30 +445,30 @@ inline std::string get_current_version() {
 inline std::string get_config_path() {
     const char* home = std::getenv("HOME");
     if (home) {
-        return std::string(home) + "/.config/claude-code/update.json";
+        return std::string(home) + "/.config/loom/update.json";
     }
     #ifdef _WIN32
     const char* appdata = std::getenv("APPDATA");
     if (appdata) {
-        return std::string(appdata) + "/claude-code/update.json";
+        return std::string(appdata) + "/loom/update.json";
     }
     #endif
-    return "/tmp/claude-code-update.json";
+    return "/tmp/loom-update.json";
 }
 
 inline std::string get_manifest_url(const std::string& channel) {
     if (channel == "beta") {
-        return "https://updates.anthropic.com/claude-code/beta/manifest.json";
+        return "https://updates.anthropic.com/loom/beta/manifest.json";
     }
     if (channel == "nightly") {
-        return "https://updates.anthropic.com/claude-code/nightly/manifest.json";
+        return "https://updates.anthropic.com/loom/nightly/manifest.json";
     }
-    return "https://updates.anthropic.com/claude-code/stable/manifest.json";
+    return "https://updates.anthropic.com/loom/stable/manifest.json";
 }
 
 // Format a user-facing update notification message
 inline std::string format_update_notification(const UpdateInfo& info) {
-    std::string msg = "A new version of Claude Code is available: v" + info.latest +
+    std::string msg = "A new version of Loom is available: v" + info.latest +
         " (current: v" + info.current + ")\n";
     if (info.is_security_update) {
         msg += "  [SECURITY] This update contains security fixes.\n";
@@ -479,7 +479,7 @@ inline std::string format_update_notification(const UpdateInfo& info) {
     if (!info.changelog.empty()) {
         msg += "  Changelog: " + info.changelog + "\n";
     }
-    msg += "  Run 'claude-code upgrade' to update.\n";
+    msg += "  Run 'loom upgrade' to update.\n";
     return msg;
 }
 

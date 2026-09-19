@@ -251,9 +251,9 @@ bool verify_work_secret(std::string_view presented, std::string_view stored) {
 inline std::string get_secret_path() {
     const char* home = std::getenv("HOME");
     if (home && home[0] != '\0') {
-        return std::string(home) + "/.config/claude-code/bridge/work_secret";
+        return std::string(home) + "/.config/loom/bridge/work_secret";
     }
-    return "/tmp/claude-code-bridge-work-secret";
+    return "/tmp/loom-bridge-work-secret";
 }
 
 } // namespace cc::bridge

@@ -30,9 +30,9 @@ Choose the appropriate file based on scope:
 
 | File | Scope | Git | Use For |
 |------|-------|-----|---------|
-| `~/.claude/settings.json` | Global | N/A | Personal preferences for all projects |
-| `.claude/settings.json` | Project | Commit | Team-wide hooks, permissions, plugins |
-| `.claude/settings.local.json` | Project | Gitignore | Personal overrides for this project |
+| `~/.loom/settings.json` | Global | N/A | Personal preferences for all projects |
+| `.loom/settings.json` | Project | Commit | Team-wide hooks, permissions, plugins |
+| `.loom/settings.local.json` | Project | Gitignore | Personal overrides for this project |
 
 Settings load in order: user -> project -> local (later overrides earlier).
 
@@ -42,7 +42,7 @@ Settings load in order: user -> project -> local (later overrides earlier).
 ```json
 {
   "permissions": {
-    "allow": ["Bash(npm:*)", "Edit(.claude)", "Read"],
+    "allow": ["Bash(npm:*)", "Edit(.loom)", "Read"],
     "deny": ["Bash(rm -rf:*)"],
     "ask": ["Write(/etc/*)"],
     "defaultMode": "default" | "plan" | "acceptEdits" | "dontAsk",
@@ -103,8 +103,8 @@ Set `commit` or `pr` to empty string `""` to hide that attribution.
   }
 }
 ```
-Plugin syntax: `plugin-name@source` where source is `claude-code-marketplace`,
-`claude-plugins-official`, or `builtin`.
+Plugin syntax: `plugin-name@source` where source is `loom-marketplace`,
+`loom-plugins-official`, or `builtin`.
 
 ### Other Settings
 - `language`: Preferred response language (e.g. "japanese")
@@ -154,7 +154,7 @@ Hooks run commands at specific points in the harness lifecycle.
 | PostToolUse | Tool name | Run after successful tool |
 | PostToolUseFailure | Tool name | Run after tool fails |
 | Notification | Notification type | Run on notifications |
-| Stop | - | Run when Claude stops (clear, resume, compact) |
+| Stop | - | Run when Loom stops (clear, resume, compact) |
 | PreCompact | "manual"/"auto" | Before compaction |
 | PostCompact | "manual"/"auto" | After compaction (receives summary) |
 | UserPromptSubmit | - | When user submits |
@@ -234,7 +234,7 @@ Hooks return JSON to control behavior:
       "matcher": "Bash",
       "hooks": [{
         "type": "command",
-        "command": "jq -r '.tool_input.command' >> ~/.claude/bash-log.txt"
+        "command": "jq -r '.tool_input.command' >> ~/.loom/bash-log.txt"
       }]
     }]
   }
@@ -295,7 +295,7 @@ nothing is worse than no hook.
    `2>/dev/null || true` (unless the user wants a blocking check).
 
 4. **Write the JSON.** Merge into the target file. If this creates
-   `.claude/settings.local.json` for the first time, add it to `.gitignore`.
+   `.loom/settings.local.json` for the first time, add it to `.gitignore`.
 
 5. **Validate syntax + schema in one shot:**
 
@@ -311,7 +311,7 @@ nothing is worse than no hook.
    - For a formatter: introduce a detectable violation via Edit, re-read,
      confirm the hook fixed it. Then revert.
    - For anything else: temporarily prefix the command in settings.json with
-     `echo "$(date) hook fired" >> /tmp/claude-hook-check.txt; `, trigger the
+     `echo "$(date) hook fired" >> /tmp/loom-hook-check.txt; `, trigger the
      matching tool, read the sentinel file. Then strip the prefix.
 
    **Always clean up** whether proof passed or failed.
@@ -391,7 +391,7 @@ When adding to permission or hook arrays, **merge with existing**, don't replace
   "permissions": {
     "allow": [
       "Bash(git:*)",
-      "Edit(.claude)",
+      "Edit(.loom)",
       "Bash(npm:*)"
     ]
   }
@@ -430,7 +430,7 @@ When adding to permission or hook arrays, **merge with existing**, don't replace
 
 ### Adding a Hook
 1. Clarify which formatter, linter, or action
-2. Read `.claude/settings.json` (or create if missing)
+2. Read `.loom/settings.json` (or create if missing)
 3. Merge into existing hooks, don't replace
 4. Follow the Hook Verification Flow above
 
@@ -482,7 +482,7 @@ If a hook isn't running:
             R"(from\s+now\s+on\s+when)",
             R"(before\s+(?:each|every)\s+\w+)",
             R"(after\s+(?:each|every|writing|editing))",
-            R"(whenever\s+(?:i\s+)?(?:you|claude|it)\s+)",
+            R"(whenever\s+(?:i\s+)?(?:you|loom|it)\s+)",
         },
         .content = std::move(full_content),
         .is_builtin = true,

@@ -10,11 +10,11 @@
 /// First resolver wins via claim().
 ///
 /// Inbound is a structured event: the server parses the user's "yes tbxkq"
-/// reply and emits notifications/claude/channel/permission with
+/// reply and emits notifications/loom/channel/permission with
 /// {request_id, behavior}. CC never sees the reply as text — approval
 /// requires the server to deliberately emit that specific event, not just
 /// relay content. Servers opt in by declaring
-/// capabilities.experimental['claude/channel/permission'].
+/// capabilities.experimental['loom/channel/permission'].
 // ============================================================================
 module;
 #include <algorithm>
@@ -298,8 +298,8 @@ inline auto truncate_for_preview(std::string_view json_input) -> std::string {
 // Three conditions, ALL required:
 //   1. Connected (state == Ready)
 //   2. In the session's --channels allowlist
-//   3. Declares BOTH capabilities: 'claude/channel' AND
-//      'claude/channel/permission'
+//   3. Declares BOTH capabilities: 'loom/channel' AND
+//      'loom/channel/permission'
 //
 // The second capability is the server's explicit opt-in — a relay-only
 // channel never becomes a permission surface by accident.
@@ -326,11 +326,11 @@ auto filter_permission_relay_clients(
 
         // Condition 3: declares BOTH experimental capabilities
         // TS REF: src/services/mcp/channelPermissions.ts:191-192
-        //   c.capabilities?.experimental?.['claude/channel'] !== undefined &&
-        //   c.capabilities?.experimental?.['claude/channel/permission'] !== undefined
+        //   c.capabilities?.experimental?.['loom/channel'] !== undefined &&
+        //   c.capabilities?.experimental?.['loom/channel/permission'] !== undefined
         const auto& exp = c.capabilities.experimental;
-        bool has_channel = exp.contains("claude/channel");
-        bool has_permission = exp.contains("claude/channel/permission");
+        bool has_channel = exp.contains("loom/channel");
+        bool has_permission = exp.contains("loom/channel/permission");
         if (!has_channel || !has_permission) continue;
 
         result.push_back(c);
@@ -429,7 +429,7 @@ inline auto parse_permission_reply(std::string_view reply)
 // extension designed to match the UX described in the MCP security dialog
 // (ui/mcp/mcp_security_dialog.cppm) and the --allowed-tools CLI surface.
 //
-// Rules are stored in ~/.cc-repl/mcp-channel-permissions.json with a
+// Rules are stored in ~/.loom/mcp-channel-permissions.json with a
 // most-specific-wins resolution (Tool > Server > Global > default Prompt).
 
 // ---------------------------------------------------------------------------
@@ -474,7 +474,7 @@ struct ChannelPermissionRule {
 // Manages ChannelPermissionRules with JSON persistence and most-specific-wins
 // resolution. Thread-safe: all public methods lock the internal mutex.
 //
-// File: ~/.cc-repl/mcp-channel-permissions.json
+// File: ~/.loom/mcp-channel-permissions.json
 // Schema:
 //   {
 //     "version": 1,
@@ -615,22 +615,22 @@ public:
     // File path helper
     // ------------------------------------------------------------------
 
-    // TS REF: ~/.cc-repl/mcp-channel-permissions.json
+    // TS REF: ~/.loom/mcp-channel-permissions.json
     // Resolve the path to the permissions JSON file.
     [[nodiscard]] static std::filesystem::path file_path() {
         namespace fs = std::filesystem;
         // Test/isolation override: a dedicated path keeps parallel test
         // processes from clobbering each other (and from touching the real
-        // user file). Mirrors the CC_REPL_*_FILE override convention.
+        // user file). Mirrors the LOOM_*_FILE override convention.
         if (const char* override_path =
-                std::getenv("CC_REPL_CHANNEL_PERMISSIONS_FILE");
+                std::getenv("LOOM_CHANNEL_PERMISSIONS_FILE");
             override_path && *override_path) {
             return fs::path(override_path);
         }
         if (const char* home = std::getenv("HOME")) {
-            return fs::path(home) / ".cc-repl" / "mcp-channel-permissions.json";
+            return fs::path(home) / ".loom" / "mcp-channel-permissions.json";
         }
-        return fs::path(".cc-repl") / "mcp-channel-permissions.json";
+        return fs::path(".loom") / "mcp-channel-permissions.json";
     }
 
 private:

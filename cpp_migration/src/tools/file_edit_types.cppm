@@ -21,12 +21,12 @@ export namespace cc::tools::file_edit {
 inline constexpr std::string_view kToolName = "Edit";
 
 /// Permission pattern for granting session-level access to the project's
-/// .claude/ folder (= CLAUDE_FOLDER_PERMISSION_PATTERN in TS)
-inline constexpr std::string_view kClaudeFolderPermissionPattern = "/.claude/**";
+/// .loom/ folder (= LOOM_FOLDER_PERMISSION_PATTERN in TS)
+inline constexpr std::string_view kLoomFolderPermissionPattern = "/.loom/**";
 
 /// Permission pattern for granting session-level access to the global
-/// ~/.claude/ folder (= GLOBAL_CLAUDE_FOLDER_PERMISSION_PATTERN in TS)
-inline constexpr std::string_view kGlobalClaudeFolderPermissionPattern = "~/.claude/**";
+/// ~/.loom/ folder (= GLOBAL_LOOM_FOLDER_PERMISSION_PATTERN in TS)
+inline constexpr std::string_view kGlobalLoomFolderPermissionPattern = "~/.loom/**";
 
 /// Thrown when the file on disk changed between the read-time stamp check
 /// and the actual write (= FILE_UNEXPECTEDLY_MODIFIED_ERROR in TS)

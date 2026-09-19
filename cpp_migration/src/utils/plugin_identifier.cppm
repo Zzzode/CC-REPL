@@ -55,9 +55,9 @@ enum class PluginScope : unsigned char {
 
 [[nodiscard]] inline bool is_official_marketplace_name(std::string_view marketplace) {
     static constexpr std::array<std::string_view, 8> allowed = {
-        "claude-code-marketplace",
-        "claude-code-plugins",
-        "claude-plugins-official",
+        "loom-marketplace",
+        "loom-plugins",
+        "loom-plugins-official",
         "anthropic-marketplace",
         "anthropic-plugins",
         "agent-skills",

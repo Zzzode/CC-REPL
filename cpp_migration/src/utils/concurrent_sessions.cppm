@@ -19,8 +19,8 @@ namespace fs = std::filesystem;
 namespace detail {
     inline fs::path get_sessions_dir() {
         const char* home = std::getenv("HOME");
-        if (!home) return fs::temp_directory_path() / "claude-code" / "sessions";
-        return fs::path(home) / ".claude" / "sessions";
+        if (!home) return fs::temp_directory_path() / "loom" / "sessions";
+        return fs::path(home) / ".loom" / "sessions";
     }
 
     inline fs::path lock_path_for(std::string_view session_id) {
@@ -115,7 +115,7 @@ std::expected<SessionLock, std::string> acquire_session_lock(std::string_view se
 
 // Get the maximum number of concurrent sessions allowed
 std::size_t get_concurrent_session_limit() {
-    const char* limit = std::getenv("CLAUDE_MAX_SESSIONS");
+    const char* limit = std::getenv("LOOM_MAX_SESSIONS");
     if (limit) {
         try {
             int val = std::stoi(limit);

@@ -35,7 +35,7 @@ std::vector<ModelInfo> get_all_models() {
     return {
         ModelInfo{
             "claude-sonnet-4-20250514",
-            "Claude Sonnet 4",
+            "Loom Sonnet 4",
             200000,
             16384,
             true,
@@ -44,7 +44,7 @@ std::vector<ModelInfo> get_all_models() {
         },
         ModelInfo{
             "claude-opus-4-20250514",
-            "Claude Opus 4",
+            "Loom Opus 4",
             200000,
             32768,
             true,
@@ -53,7 +53,7 @@ std::vector<ModelInfo> get_all_models() {
         },
         ModelInfo{
             "claude-haiku-4-20250514",
-            "Claude Haiku 4",
+            "Loom Haiku 4",
             200000,
             8192,
             true,

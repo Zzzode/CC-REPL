@@ -451,7 +451,7 @@ struct CommandResult {
 
 [[nodiscard]] inline std::vector<fs::path> plugin_seed_dirs() {
     std::vector<fs::path> dirs;
-    const char* raw = std::getenv("CLAUDE_CODE_PLUGIN_SEED_DIR");
+    const char* raw = std::getenv("LOOM_PLUGIN_SEED_DIR");
     if (!raw || !raw[0]) return dirs;
 #ifdef _WIN32
     constexpr char delimiter = ';';
@@ -538,7 +538,7 @@ inline void remove_git_metadata(const fs::path& path) {
 }
 
 [[nodiscard]] inline std::string github_clone_url(std::string_view repo) {
-    if (is_env_truthy("CLAUDE_CODE_REMOTE")) {
+    if (is_env_truthy("LOOM_REMOTE")) {
         return "https://github.com/" + std::string(repo) + ".git";
     }
     return "git@github.com:" + std::string(repo) + ".git";
@@ -743,9 +743,9 @@ inline void discover_plugin_roots(const fs::path& root, std::vector<fs::path>& o
 } // namespace detail
 
 [[nodiscard]] std::filesystem::path get_plugin_cache_path() {
-    if (auto* value = std::getenv("CLAUDE_CODE_PLUGIN_CACHE_DIR"); value && value[0]) return value;
-    if (auto* home = std::getenv("HOME"); home && home[0]) return std::filesystem::path(home) / ".claude" / "plugins";
-    return std::filesystem::current_path() / ".claude" / "plugins";
+    if (auto* value = std::getenv("LOOM_PLUGIN_CACHE_DIR"); value && value[0]) return value;
+    if (auto* home = std::getenv("HOME"); home && home[0]) return std::filesystem::path(home) / ".loom" / "plugins";
+    return std::filesystem::current_path() / ".loom" / "plugins";
 }
 
 [[nodiscard]] std::filesystem::path get_versioned_cache_path(

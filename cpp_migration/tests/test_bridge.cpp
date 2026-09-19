@@ -126,12 +126,12 @@ std::string bridge_test_encoded_work_secret(std::string_view api_base_url) {
         api_base_url));
 }
 
-std::filesystem::path native_cc_repl_binary_path() {
-    if (const char* path = std::getenv("CC_REPL_TEST_NATIVE_BINARY"); path && *path) {
+std::filesystem::path native_loom_binary_path() {
+    if (const char* path = std::getenv("LOOM_TEST_NATIVE_BINARY"); path && *path) {
         return path;
     }
-#ifdef CC_REPL_NATIVE_BINARY_PATH
-    return std::filesystem::path{CC_REPL_NATIVE_BINARY_PATH};
+#ifdef LOOM_NATIVE_BINARY_PATH
+    return std::filesystem::path{LOOM_NATIVE_BINARY_PATH};
 #else
     return {};
 #endif
@@ -645,7 +645,7 @@ private:
         }
         if (request->method == "POST" && request->path == "/v1/messages") {
             send_response(fd, 200, "OK",
-                R"({"id":"msg_bridge_daemon_product","type":"message","role":"assistant","model":"claude-test","content":[{"type":"text","text":"native daemon bridge product reply"}],"stop_reason":"end_turn","usage":{"input_tokens":6,"output_tokens":8}})");
+                R"({"id":"msg_bridge_daemon_product","type":"message","role":"assistant","model":"loom-test","content":[{"type":"text","text":"native daemon bridge product reply"}],"stop_reason":"end_turn","usage":{"input_tokens":6,"output_tokens":8}})");
             return;
         }
         if (request->method == "POST" && request->path == "/v1/environments/env_backend_1/work/work_1/heartbeat") {
@@ -1337,9 +1337,9 @@ TEST(BridgeDaemon, ForkExecsHeadlessSessionAndReportsCompletion) {
 }
 
 TEST(BridgeDaemon, ForkExecsNativeHeadlessSessionThroughRemoteLifecycle) {
-    const auto native_binary = native_cc_repl_binary_path();
+    const auto native_binary = native_loom_binary_path();
     if (native_binary.empty() || !std::filesystem::exists(native_binary)) {
-        GTEST_SKIP() << "native cc-repl binary is not available";
+        GTEST_SKIP() << "native loom binary is not available";
     }
 
     LocalBridgeApiHttpServer server;
@@ -1537,7 +1537,7 @@ TEST(BridgeDaemon, ForkExecsHeadlessSessionWithV1SessionIngressSdkUrl) {
         std::ofstream out(script);
         out << "#!/bin/sh\n"
             << "printf '%s\\n' \"$@\"\n"
-            << "printf 'CLAUDE_CODE_POST_FOR_SESSION_INGRESS_V2=%s\\n' \"$CLAUDE_CODE_POST_FOR_SESSION_INGRESS_V2\"\n";
+            << "printf 'LOOM_POST_FOR_SESSION_INGRESS_V2=%s\\n' \"$LOOM_POST_FOR_SESSION_INGRESS_V2\"\n";
     }
     std::filesystem::permissions(
         script,
@@ -1584,7 +1584,7 @@ TEST(BridgeDaemon, ForkExecsHeadlessSessionWithV1SessionIngressSdkUrl) {
         for (const auto& line : lines) {
             if (line == "--sdk-url") saw_sdk_url_flag = true;
             if (line == "ws://127.0.0.1:19191/v2/session_ingress/ws/session_1") saw_sdk_url = true;
-            if (line == "CLAUDE_CODE_POST_FOR_SESSION_INGRESS_V2=1") saw_v1_post_env = true;
+            if (line == "LOOM_POST_FOR_SESSION_INGRESS_V2=1") saw_v1_post_env = true;
         }
         auto sessions = daemon.sessions();
         if (saw_sdk_url_flag && saw_sdk_url && saw_v1_post_env
@@ -1613,9 +1613,9 @@ TEST(BridgeDaemon, ForkExecsHeadlessSessionWithCcrWorkerEpochEnvironment) {
         std::ofstream out(script);
         out << "#!/bin/sh\n"
             << "for arg in \"$@\"; do printf 'ARG:%s\\n' \"$arg\"; done\n"
-            << "printf 'ENV:CLAUDE_CODE_WORKER_EPOCH=%s\\n' \"$CLAUDE_CODE_WORKER_EPOCH\"\n"
-            << "printf 'ENV:CLAUDE_CODE_USE_CCR_V2=%s\\n' \"$CLAUDE_CODE_USE_CCR_V2\"\n"
-            << "printf 'ENV:CLAUDE_CODE_REMOTE_API_BASE_URL=%s\\n' \"$CLAUDE_CODE_REMOTE_API_BASE_URL\"\n";
+            << "printf 'ENV:LOOM_WORKER_EPOCH=%s\\n' \"$LOOM_WORKER_EPOCH\"\n"
+            << "printf 'ENV:LOOM_USE_CCR_V2=%s\\n' \"$LOOM_USE_CCR_V2\"\n"
+            << "printf 'ENV:LOOM_REMOTE_API_BASE_URL=%s\\n' \"$LOOM_REMOTE_API_BASE_URL\"\n";
     }
     std::filesystem::permissions(
         script,
@@ -1663,9 +1663,9 @@ TEST(BridgeDaemon, ForkExecsHeadlessSessionWithCcrWorkerEpochEnvironment) {
         lines = daemon.session_stdout_lines(*spawned);
         for (const auto& line : lines) {
             if (line == expected_sdk_url) saw_sdk_url = true;
-            if (line == "ENV:CLAUDE_CODE_WORKER_EPOCH=42") saw_worker_epoch = true;
-            if (line == "ENV:CLAUDE_CODE_USE_CCR_V2=1") saw_ccr_v2 = true;
-            if (line == "ENV:CLAUDE_CODE_REMOTE_API_BASE_URL=" + server.base_url()) saw_api_base = true;
+            if (line == "ENV:LOOM_WORKER_EPOCH=42") saw_worker_epoch = true;
+            if (line == "ENV:LOOM_USE_CCR_V2=1") saw_ccr_v2 = true;
+            if (line == "ENV:LOOM_REMOTE_API_BASE_URL=" + server.base_url()) saw_api_base = true;
         }
         auto sessions = daemon.sessions();
         if (saw_sdk_url && saw_worker_epoch && saw_ccr_v2 && saw_api_base

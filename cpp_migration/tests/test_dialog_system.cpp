@@ -41,6 +41,7 @@ import cc.ui.dialogs.quick_open;
 import cc.ui.dialogs.sandbox_permission;
 import cc.ui.design.theme;
 import cc.ui.design.tokens;
+import cc.constants.product;
 
 namespace {
 
@@ -77,7 +78,10 @@ void check_golden(const std::string& name, const std::string& actual) {
     if (std::getenv("UPDATE_GOLDENS") != nullptr) {
         std::ofstream out(path, std::ios::binary);
         ASSERT_TRUE(out.good()) << "cannot write golden: " << path;
-        out << actual;
+        // Normalize on write as well as on compare: the renderer emits CRLF,
+        // and committing it makes every line of the golden differ from its LF
+        // original for no semantic reason.
+        out << normalize_line_endings(actual);
         SUCCEED() << "golden updated: " << path;
         return;
     }
@@ -754,8 +758,10 @@ TEST(DefaultRenderers, RegisterAllDefaultRenderers) {
         // Body + docs link must appear
         EXPECT_NE(out.find("Learn more about how to monitor your spending:"),
                   std::string::npos);
-        EXPECT_NE(out.find("https://code.claude.com/docs/en/costs"),
-                  std::string::npos);
+        // No docs site ships with this build, so no link is rendered by
+        // default; the paragraph above stands on its own.
+        EXPECT_EQ(out.find("code.loom.com"), std::string::npos)
+            << "must not advertise a host that does not resolve";
         // Single "Got it, thanks!" button
         EXPECT_NE(out.find("Got it, thanks!"), std::string::npos);
         // Fabricated 3-action chrome MUST be absent
@@ -2419,7 +2425,7 @@ TEST(DialogRenderers, Golden_PromptDialog) {
             dframe::DialogFrameProps props;
             props.title = p->title.empty()
                 ? std::string{"Input Required"} : p->title;
-            props.subtitle = "Claude needs clarification";
+            props.subtitle = "Loom needs clarification";
             props.style = dframe::FrameStyle::Info;
 
             auto def = p->default_value
@@ -2561,8 +2567,8 @@ TEST(DialogRenderers, Golden_CostThreshold) {
               std::string::npos);
     EXPECT_NE(out.find("Learn more about how to monitor your spending:"),
               std::string::npos);
-    EXPECT_NE(out.find("https://code.claude.com/docs/en/costs"),
-              std::string::npos);
+    EXPECT_EQ(out.find("code.loom.com"), std::string::npos)
+        << "no docs host is configured, so no link may be rendered";
     EXPECT_NE(out.find("(model: claude-3-5-sonnet-20241022)"),
               std::string::npos);
     EXPECT_NE(out.find("Got it, thanks!"), std::string::npos);
@@ -2583,6 +2589,21 @@ TEST(DialogRenderers, Golden_CostThreshold) {
     EXPECT_TRUE(registry.handle_event(variant, ftxui::Event::Escape));
     EXPECT_EQ(done_calls.load(), 1)
         << "Escape MUST ACKNOWLEDGE via on_done() — NOT quit (data loss).";
+}
+
+// The docs link is configuration-driven: absent when LOOM_DOCS_BASE is unset
+// (the default — this project ships no docs site), present and correctly
+// composed when the user points it somewhere. Pinning both halves keeps a
+// future change from either baking in a vendor URL or dropping the feature.
+TEST(DialogRenderers, CostThresholdDocsLinkFollowsConfiguredBase) {
+    ::unsetenv("LOOM_DOCS_BASE");
+    EXPECT_EQ(cc::constants::product::doc_url("/docs/en/costs"), "")
+        << "no base configured => no link";
+
+    ::setenv("LOOM_DOCS_BASE", "https://docs.example.test", 1);
+    const auto configured = cc::constants::product::doc_url("/docs/en/costs");
+    ::unsetenv("LOOM_DOCS_BASE");
+    EXPECT_EQ(configured, "https://docs.example.test/docs/en/costs");
 }
 
 TEST(DialogRenderers, Golden_IdleReturn) {

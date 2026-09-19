@@ -285,7 +285,7 @@ public:
         const char* home = std::getenv("HOME");
         if (!home) return;
         namespace fs = std::filesystem;
-        const fs::path plugin_dir = fs::path(home) / ".cc-repl" / "plugins";
+        const fs::path plugin_dir = fs::path(home) / ".loom" / "plugins";
         if (!fs::exists(plugin_dir) || !fs::is_directory(plugin_dir)) return;
         for (const auto& entry : fs::directory_iterator(plugin_dir)) {
             if (!entry.is_directory()) continue;

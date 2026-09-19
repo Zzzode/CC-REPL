@@ -274,13 +274,13 @@ namespace detail {
 [[nodiscard]] inline std::vector<fs::path> credential_file_candidates() {
     std::vector<fs::path> paths;
     if (const char* xdg = std::getenv("XDG_CONFIG_HOME")) {
-        paths.push_back(fs::path(xdg) / "cc-repl" / "credentials.json");
+        paths.push_back(fs::path(xdg) / "loom" / "credentials.json");
     }
     auto home = home_path();
     if (!home.empty()) {
-        paths.push_back(home / ".config" / "cc-repl" / "credentials.json");
-        paths.push_back(home / ".claude" / "credentials.json");
-        paths.push_back(home / ".claude" / "auth_token.json");
+        paths.push_back(home / ".config" / "loom" / "credentials.json");
+        paths.push_back(home / ".loom" / "credentials.json");
+        paths.push_back(home / ".loom" / "auth_token.json");
     }
     return paths;
 }
@@ -604,8 +604,8 @@ namespace detail {
 
 [[nodiscard]] inline std::expected<ApiCredentials, std::string> prepare_api_request() {
     auto access_token = detail::first_env({
-        "CC_REPL_REMOTE_OAUTH_TOKEN",
-        "CLAUDE_CODE_OAUTH_TOKEN",
+        "LOOM_REMOTE_OAUTH_TOKEN",
+        "LOOM_OAUTH_TOKEN",
         "ANTHROPIC_OAUTH_TOKEN",
     }).or_else([&] {
         return detail::credential_file_field({"access_token", "accessToken"});
@@ -613,12 +613,12 @@ namespace detail {
 
     if (!access_token || access_token->empty()) {
         return std::unexpected(
-            "No Claude.ai OAuth access token found. Set CC_REPL_REMOTE_OAUTH_TOKEN or run /login.");
+            "No Loom.ai OAuth access token found. Set LOOM_REMOTE_OAUTH_TOKEN or run /login.");
     }
 
     auto org_uuid = detail::first_env({
-        "CC_REPL_REMOTE_ORG_UUID",
-        "CLAUDE_CODE_ORG_UUID",
+        "LOOM_REMOTE_ORG_UUID",
+        "LOOM_ORG_UUID",
         "ANTHROPIC_ORGANIZATION_UUID",
         "ANTHROPIC_ORGANIZATION_ID",
     }).or_else([&] {
@@ -632,7 +632,7 @@ namespace detail {
 
     if (!org_uuid || org_uuid->empty()) {
         return std::unexpected(
-            "No organization UUID found for the remote Sessions API. Set CC_REPL_REMOTE_ORG_UUID.");
+            "No organization UUID found for the remote Sessions API. Set LOOM_REMOTE_ORG_UUID.");
     }
 
     return ApiCredentials{.access_token = std::move(*access_token), .org_uuid = std::move(*org_uuid)};
@@ -821,8 +821,8 @@ default_remote_session_api_config() {
     if (!credentials) return std::unexpected(credentials.error());
 
     auto base_url = detail::first_env({
-        "CC_REPL_REMOTE_API_BASE_URL",
-        "CLAUDE_CODE_REMOTE_API_BASE_URL",
+        "LOOM_REMOTE_API_BASE_URL",
+        "LOOM_REMOTE_API_BASE_URL",
         "ANTHROPIC_BASE_URL",
     }).value_or("https://api.anthropic.com");
 
@@ -1064,8 +1064,8 @@ struct EnvironmentSelectionInfo {
 	    if (info.available_environments.empty()) return info;
 
 	    auto default_id = detail::first_env({
-	        "CC_REPL_REMOTE_DEFAULT_ENVIRONMENT_ID",
-	        "CLAUDE_CODE_REMOTE_DEFAULT_ENVIRONMENT_ID",
+	        "LOOM_REMOTE_DEFAULT_ENVIRONMENT_ID",
+	        "LOOM_REMOTE_DEFAULT_ENVIRONMENT_ID",
 	        "ANTHROPIC_REMOTE_DEFAULT_ENVIRONMENT_ID",
 	    });
 	    if (default_id) {
@@ -1314,7 +1314,7 @@ using BundleUploadResult = std::expected<BundleUploadSuccess, BundleUploadFailur
 
 	    return BundleCreateResult{
 	        .ok = false,
-	        .error = "Repo is too large to bundle. Please setup GitHub on https://claude.ai/code",
+        .error = "Repo is too large to bundle. Set up a GitHub remote and retry.",
 	        .fail_reason = BundleFailReason::too_large,
 	    };
 	}
@@ -1326,7 +1326,7 @@ using BundleUploadResult = std::expected<BundleUploadSuccess, BundleUploadFailur
 	}
 
 	[[nodiscard]] inline std::size_t bundle_max_bytes() {
-	    if (auto configured = env_string("CC_REPL_CCR_BUNDLE_MAX_BYTES")) {
+	    if (auto configured = env_string("LOOM_CCR_BUNDLE_MAX_BYTES")) {
 	        try {
 	            return static_cast<std::size_t>(std::stoull(*configured));
 	        } catch (...) {

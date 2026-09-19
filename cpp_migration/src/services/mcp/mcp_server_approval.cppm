@@ -250,9 +250,9 @@ public:
 private:
     [[nodiscard]] static fs::path config_path() {
         if (const char* home = std::getenv("HOME")) {
-            return fs::path(home) / ".cc-repl" / "mcp-server-approvals.txt";
+            return fs::path(home) / ".loom" / "mcp-server-approvals.txt";
         }
-        return fs::path(".cc-repl") / "mcp-server-approvals.txt";
+        return fs::path(".loom") / "mcp-server-approvals.txt";
     }
 
     [[nodiscard]] static std::string_view status_to_string(ApprovalStatus status) noexcept {

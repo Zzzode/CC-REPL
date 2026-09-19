@@ -15,13 +15,13 @@ export module cc.commands.mcp.xaa_idp;
 export namespace cc::commands {
 
 auto xaa_config_path() -> std::filesystem::path {
-    if (const char* home = std::getenv("HOME")) return std::filesystem::path{home} / ".cc-repl" / "xaa-idp.txt";
-    return std::filesystem::path{".cc-repl"} / "xaa-idp.txt";
+    if (const char* home = std::getenv("HOME")) return std::filesystem::path{home} / ".loom" / "xaa-idp.txt";
+    return std::filesystem::path{".loom"} / "xaa-idp.txt";
 }
 
 auto xaa_tokens_path() -> std::filesystem::path {
-    if (const char* home = std::getenv("HOME")) return std::filesystem::path{home} / ".cc-repl" / "xaa-tokens.txt";
-    return std::filesystem::path{".cc-repl"} / "xaa-tokens.txt";
+    if (const char* home = std::getenv("HOME")) return std::filesystem::path{home} / ".loom" / "xaa-tokens.txt";
+    return std::filesystem::path{".loom"} / "xaa-tokens.txt";
 }
 
 

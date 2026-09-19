@@ -372,7 +372,7 @@ private:
 /// - Leader stays on left (30%), teammates on right (70%)
 ///
 /// When running OUTSIDE tmux (leader is in regular terminal):
-/// - Creates a claude-swarm session with a swarm-view window
+/// - Creates a loom-swarm session with a swarm-view window
 /// - All teammates are equally distributed (no leader pane)
 class TmuxBackend : public PaneBackend {
 public:
@@ -915,13 +915,13 @@ inline constexpr std::string_view TMUX_COMMAND = "tmux";
 inline constexpr std::string_view IT2_COMMAND = "it2";
 
 /// Swarm session name for external tmux sessions
-inline constexpr std::string_view SWARM_SESSION_NAME = "claude-swarm";
+inline constexpr std::string_view SWARM_SESSION_NAME = "loom-swarm";
 
 /// Window name in the swarm session
 inline constexpr std::string_view SWARM_VIEW_WINDOW_NAME = "swarm-view";
 
 /// Hidden session name for pane hide/show
-inline constexpr std::string_view HIDDEN_SESSION_NAME = "claude-swarm-hidden";
+inline constexpr std::string_view HIDDEN_SESSION_NAME = "loom-swarm-hidden";
 
 namespace detail {
 
@@ -1079,7 +1079,7 @@ struct TmuxArgv {
 
 /// What create_pane_external must do to obtain a swarm-view window.
 enum class ExternalSessionAction {
-    CreateSession,        // claude-swarm does not exist yet
+    CreateSession,        // loom-swarm does not exist yet
     ReuseExistingWindow,  // session and swarm-view window both exist
     CreateWindow,         // session exists but swarm-view does not
 };
@@ -1090,7 +1090,7 @@ struct ExternalSessionPlan {
     /// When true, the caller takes the window's lone pane instead of
     /// splitting (TS isFirstTeammate guard).
     bool reuse_first_pane = false;
-    /// Target to address later, e.g. "claude-swarm:swarm-view".
+    /// Target to address later, e.g. "loom-swarm:swarm-view".
     std::string window_target;
 };
 
@@ -1204,16 +1204,16 @@ struct ShellOutput {
 }
 
 [[nodiscard]] inline std::string teammate_command() {
-    if (const char* env = std::getenv("CC_REPL_TEAMMATE_COMMAND"); env && *env) return std::string(env);
+    if (const char* env = std::getenv("LOOM_TEAMMATE_COMMAND"); env && *env) return std::string(env);
     if (const char* env = std::getenv("CLAUDE_CODE_TEAMMATE_COMMAND"); env && *env) return std::string(env);
-    if (const char* env = std::getenv("CC_REPL_BINARY"); env && *env) return std::string(env);
-    return "cc-repl";
+    if (const char* env = std::getenv("LOOM_BINARY"); env && *env) return std::string(env);
+    return "loom";
 }
 
 [[nodiscard]] inline std::string build_teammate_cli_command(const TeammateSpawnConfig& config) {
     std::ostringstream command;
     if (!config.cwd.empty()) command << "cd " << shell_quote(config.cwd) << " && ";
-    command << "env CLAUDECODE=1 CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 ";
+    command << "env LOOM=1 LOOM_EXPERIMENTAL_AGENT_TEAMS=1 ";
     command << shell_quote(teammate_command());
     command << " --agent-id " << shell_quote(format_agent_id(config.name, config.team_name));
     command << " --agent-name " << shell_quote(config.name);
@@ -1234,7 +1234,7 @@ struct ShellOutput {
 }
 
 [[nodiscard]] inline std::optional<TeammateMode> forced_mode_from_env() {
-    const char* raw = std::getenv("CC_REPL_TEAMMATE_BACKEND");
+    const char* raw = std::getenv("LOOM_TEAMMATE_BACKEND");
     if (!raw || !*raw) raw = std::getenv("CLAUDE_CODE_TEAMMATE_BACKEND");
     if (!raw || !*raw) return std::nullopt;
     std::string value(raw);
@@ -1338,7 +1338,7 @@ inline bool TmuxBackend::kill_pane(const PaneId& pane_id, bool use_external_sess
 inline std::optional<std::string> TmuxBackend::capture_pane_text(
     const PaneId& pane_id, int tail_lines, bool use_external_session
 ) {
-    // TODO: external swarm sessions run on a -L claude-swarm-<pid> socket in TS
+    // TODO: external swarm sessions run on a -L loom-swarm-<pid> socket in TS
     // (constants.ts getSwarmSocketName); the C++ port currently shells out on
     // the default socket everywhere (see create_pane_external), so honor the
     // same simplification here until the socket gap is ported.
@@ -1850,7 +1850,7 @@ inline std::shared_ptr<TeammateExecutor> BackendRegistry::get_teammate_executor(
 }
 
 inline std::string BackendRegistry::get_tmux_install_instructions() {
-    return "Install tmux or set CC_REPL_TEAMMATE_BACKEND=in-process to use in-process teammates.";
+    return "Install tmux or set LOOM_TEAMMATE_BACKEND=in-process to use in-process teammates.";
 }
 
 } // namespace cc::utils::swarm_backends

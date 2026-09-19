@@ -16,7 +16,7 @@ export namespace cc::constants::common {
 /// Get current local date in ISO format (YYYY-MM-DD)
 [[nodiscard]] inline std::string get_local_iso_date() {
     // Check for date override env var
-    if (const char* override_date = std::getenv("CLAUDE_CODE_OVERRIDE_DATE")) {
+    if (const char* override_date = std::getenv("LOOM_OVERRIDE_DATE")) {
         return std::string(override_date);
     }
     

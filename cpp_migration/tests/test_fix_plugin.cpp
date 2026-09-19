@@ -27,8 +27,8 @@ namespace pv = cc::utils::plugin_validation;
 
 namespace {
 
-// Scoped temp directory helper — keeps ~/.claude untouched by pointing the
-// plugins dir at a unique temp path via CLAUDE_PLUGINS_DIR.
+// Scoped temp directory helper — keeps ~/.loom untouched by pointing the
+// plugins dir at a unique temp path via LOOM_PLUGINS_DIR.
 class TempPluginsEnv {
 public:
     TempPluginsEnv() {
@@ -39,12 +39,12 @@ public:
                   std::this_thread::get_id())) + "_"
               + std::to_string(counter_++));
         std::filesystem::create_directories(dir_);
-        prev_ = std::getenv("CLAUDE_PLUGINS_DIR");
-        set_env("CLAUDE_PLUGINS_DIR", dir_.string());
+        prev_ = std::getenv("LOOM_PLUGINS_DIR");
+        set_env("LOOM_PLUGINS_DIR", dir_.string());
     }
     ~TempPluginsEnv() {
-        if (prev_) set_env("CLAUDE_PLUGINS_DIR", prev_);
-        else unset_env("CLAUDE_PLUGINS_DIR");
+        if (prev_) set_env("LOOM_PLUGINS_DIR", prev_);
+        else unset_env("LOOM_PLUGINS_DIR");
         std::error_code ec;
         std::filesystem::remove_all(dir_, ec);
     }

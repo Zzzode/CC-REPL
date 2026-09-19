@@ -244,7 +244,12 @@ inline std::optional<PluginMeta> parse_manifest(const std::filesystem::path& man
 
 
 class MarketplaceClient {
-    std::string api_host_{"marketplace.cc-repl.dev"};
+    // No plugin marketplace is hosted for this build; set
+    // LOOM_MARKETPLACE_HOST to point at your own registry.
+    std::string api_host_{[] {
+        if (const char* h = std::getenv("LOOM_MARKETPLACE_HOST"); h && *h) return std::string(h);
+        return std::string{};
+    }()};
     uint16_t api_port_{443};
     std::string api_base_path_{"/api/v1"};
     
@@ -354,7 +359,7 @@ public:
             .id = "code-review",
             .name = "Code Review",
             .description = "Review code changes and surface high-confidence issues",
-            .author = "Claude Code",
+            .author = "Loom",
             .version = SemVer{1, 0, 0, {}},
             .min_host_version = SemVer{0, 0, 0, {}},
             .source = PluginSource::official_marketplace,

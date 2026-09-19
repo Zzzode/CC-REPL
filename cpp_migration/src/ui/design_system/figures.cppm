@@ -136,7 +136,7 @@ inline constexpr std::string_view kLineUpDownRight     = "\xE2\x94\x9C";  // ├
 
 // BLACK_CIRCLE: platform-aware.  Darwin = ⏺ U+23FA, others = ● U+25CF.
 // We expose BOTH so callers can choose; kBlackCircle is the Darwin default
-// (cc-repl targets macOS), kBlackCircleFallback is the non-Darwin ●.
+// (loom targets macOS), kBlackCircleFallback is the non-Darwin ●.
 // TS REF: constants/figures.ts L4 — `env.platform === 'darwin' ? '⏺' : '●'`
 inline constexpr std::string_view kBlackCircle         = "\xE2\x8F\xBA";  // ⏺ U+23FA (Darwin — message row prefix, system event dot)
 inline constexpr std::string_view kBlackCircleFallback = "\xE2\x97\x8F";  // ● U+25CF (non-Darwin, same as kBullet)
@@ -304,7 +304,7 @@ enum class PromptMode : int {
 // ─── Platform fallback for BLACK_CIRCLE ────────────────────────────────
 // TS node_modules/figures: figures.circleBlack fallback handling.
 // On macOS / Linux we use the Unicode glyph; on Windows we fall back to '*'.
-// This build targets Darwin (cc-repl); Windows support is gated behind a
+// This build targets Darwin (loom); Windows support is gated behind a
 // build-time macro; callers that want the fallback behaviour should branch
 // on `#ifdef _WIN32` themselves.
 inline constexpr std::string_view kCircleBlack = "\xE2\x97\x8F";  // ● U+25CF (same as kBullet — alias for grep clarity)

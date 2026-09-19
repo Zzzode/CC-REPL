@@ -2,7 +2,7 @@
 /// @brief Keybindings template generator.
 /// Migrated from src/keybindings/template.ts
 ///
-/// Generates a well-documented template file for ~/.claude/keybindings.json
+/// Generates a well-documented template file for ~/.loom/keybindings.json
 /// that users can customize. Reserved shortcuts are excluded from the template
 /// to avoid /doctor warnings.
 module;
@@ -23,11 +23,11 @@ export namespace cc::keybindings {
 
 /// Schema URL for keybindings.json validation
 inline constexpr std::string_view keybindings_schema_url =
-    "https://www.schemastore.org/claude-code-keybindings.json";
+    "https://www.schemastore.org/loom-keybindings.json";
 
 /// Documentation URL for keybindings reference
 inline constexpr std::string_view keybindings_docs_url =
-    "https://code.claude.com/docs/en/keybindings";
+    "";  // no documentation site is shipped
 
 /// Normalize a key string for comparison (lowercase, strip whitespace)
 [[nodiscard]] inline std::string normalize_key_for_comparison(std::string_view key) {

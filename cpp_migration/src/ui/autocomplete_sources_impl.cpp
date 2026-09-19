@@ -163,10 +163,10 @@ std::vector<PluginCommandSuggestionData> collect_plugin_commands(std::string_vie
     std::unordered_set<std::string> seen;
     std::vector<fs::path> roots;
     if (const char* home = std::getenv("HOME")) {
-        roots.push_back(fs::path(home) / ".claude" / "plugins");
+        roots.push_back(fs::path(home) / ".loom" / "plugins");
     }
     if (!cwd.empty()) {
-        roots.push_back(fs::path(std::string(cwd)) / ".claude" / "plugins");
+        roots.push_back(fs::path(std::string(cwd)) / ".loom" / "plugins");
     }
 
     for (const auto& root : roots) {
@@ -292,13 +292,13 @@ std::vector<AgentSuggestionData> collect_agent_suggestions(std::string_view cwd)
     }
 
     // (1b) The interactive main thread itself is always addressable as
-    // "@claude" — the product's catch-all agent. It is not an AgentTool
+    // "@loom" — the product's catch-all agent. It is not an AgentTool
     // sub-agent definition, so surface it explicitly (dedup-guarded in case
     // a user/plugin definition already claims the name).
-    if (seen_names.insert("claude").second) {
+    if (seen_names.insert("loom").second) {
         result.push_back(AgentSuggestionData{
-            .name        = "claude",
-            .description = "Claude Code main session",
+            .name        = "loom",
+            .description = "Loom main session",
             .source      = "agent",
             .color       = std::nullopt,
             .status      = std::nullopt,
@@ -346,17 +346,17 @@ std::vector<AgentSuggestionData> collect_agent_suggestions(std::string_view cwd)
 // ============================================================
 namespace {
 
-// TS REF: src/history.ts:115 — history stored at {getClaudeConfigHomeDir()}/history.jsonl
-//   We use ~/.cc-repl/history.jsonl to match the CPP migration's data layout
-//   (sessions/, dump-prompts/ etc. already live under ~/.cc-repl/).
+// TS REF: src/history.ts:115 — history stored at {getConfigHomeDir()}/history.jsonl
+//   We use ~/.loom/history.jsonl to match the CPP migration's data layout
+//   (sessions/, dump-prompts/ etc. already live under ~/.loom/).
 [[nodiscard]] fs::path prompt_history_file_path() {
-    if (const char* env = std::getenv("CC_REPL_HISTORY_FILE"); env && *env) {
+    if (const char* env = std::getenv("LOOM_HISTORY_FILE"); env && *env) {
         return fs::path{env};
     }
     if (const char* home = std::getenv("HOME"); home && *home) {
-        return fs::path{home} / ".cc-repl" / "history.jsonl";
+        return fs::path{home} / ".loom" / "history.jsonl";
     }
-    return fs::path{".cc-repl"} / "history.jsonl";
+    return fs::path{".loom"} / "history.jsonl";
 }
 
 // TS REF: src/history.ts:219-225 — LogEntry { display, pastedContents, timestamp,

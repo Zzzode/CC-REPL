@@ -50,7 +50,7 @@ namespace github_detail {
 }
 
 [[nodiscard]] inline std::string api_base_url() {
-    if (auto* value = std::getenv("CC_REPL_GITHUB_API_BASE_URL"); value && value[0]) return value;
+    if (auto* value = std::getenv("LOOM_GITHUB_API_BASE_URL"); value && value[0]) return value;
     if (auto* value = std::getenv("GITHUB_API_URL"); value && value[0]) return value;
     return "https://api.github.com";
 }

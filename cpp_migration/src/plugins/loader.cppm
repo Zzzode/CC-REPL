@@ -143,10 +143,10 @@ public:
         // Default plugin search paths
         if (auto home = std::getenv("HOME")) {
             search_paths_.emplace_back(
-                std::filesystem::path(home) / ".claude" / "plugins");
+                std::filesystem::path(home) / ".loom" / "plugins");
         }
         search_paths_.emplace_back(
-            std::filesystem::current_path() / ".claude" / "plugins");
+            std::filesystem::current_path() / ".loom" / "plugins");
     }
 
     /// Add a custom search path

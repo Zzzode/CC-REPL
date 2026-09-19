@@ -684,8 +684,8 @@ resolve_default_credentials() {
 }
 
 // Check for the three test-hook env vars that correspond to TS upstream
-//   CLAUDE_CODE_USE_BEDROCK        (truthy = use Bedrock provider)
-//   CLAUDE_CODE_SKIP_BEDROCK_AUTH  (truthy = skip SigV4, no-op creds)
+//   LOOM_USE_BEDROCK        (truthy = use Bedrock provider)
+//   LOOM_SKIP_BEDROCK_AUTH  (truthy = skip SigV4, no-op creds)
 //   AWS_BEARER_TOKEN_BEDROCK       (non-empty = inject Authorization: Bearer, skip SigV4)
 struct BedrockAuthMode {
     bool use_bedrock = false;
@@ -696,8 +696,8 @@ struct BedrockAuthMode {
     using cc::utils::env::get_env;
     using cc::utils::env::is_env_truthy;
     BedrockAuthMode m;
-    m.use_bedrock = is_env_truthy("CLAUDE_CODE_USE_BEDROCK");
-    m.skip_auth   = is_env_truthy("CLAUDE_CODE_SKIP_BEDROCK_AUTH");
+    m.use_bedrock = is_env_truthy("LOOM_USE_BEDROCK");
+    m.skip_auth   = is_env_truthy("LOOM_SKIP_BEDROCK_AUTH");
     if (auto bt = get_env("AWS_BEARER_TOKEN_BEDROCK"); bt && !bt->empty()) {
         m.bearer_token = std::move(*bt);
         m.skip_auth = true; // Bearer token replaces SigV4 entirely

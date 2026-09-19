@@ -1,5 +1,5 @@
 /// @file tool.cppm
-/// @brief Tool system module for the Claude Code CLI engine.
+/// @brief Tool system module for the Loom CLI engine.
 /// Defines the Tool concept, registry, permission model, and execution types.
 module;
 

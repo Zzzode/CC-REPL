@@ -108,13 +108,13 @@ class SkillLoader {
 
 public:
     SkillLoader() {
-        // Default search paths: ~/.claude/skills/ and project-local .claude/skills/
+        // Default search paths: ~/.loom/skills/ and project-local .loom/skills/
         if (auto home = std::getenv("HOME")) {
             search_paths_.emplace_back(
-                std::filesystem::path(home) / ".claude" / "skills");
+                std::filesystem::path(home) / ".loom" / "skills");
         }
         search_paths_.emplace_back(
-            std::filesystem::current_path() / ".claude" / "skills");
+            std::filesystem::current_path() / ".loom" / "skills");
     }
 
     /// Add additional search path for skill discovery
@@ -204,7 +204,7 @@ public:
     }
 
 private:
-    /// Parse a directory-form skill, normally .claude/skills/<name>/SKILL.md.
+    /// Parse a directory-form skill, normally .loom/skills/<name>/SKILL.md.
     [[nodiscard]] std::optional<SkillDefinition> parse_skill_directory(
         const std::filesystem::path& dirpath) const {
 

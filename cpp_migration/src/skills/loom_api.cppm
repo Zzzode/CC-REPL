@@ -1,29 +1,29 @@
-/// @file claude_api.cppm
-/// @brief Claude API skill - direct API interaction patterns.
+/// @file loom_api.cppm
+/// @brief Loom API skill - direct API interaction patterns.
 module;
 #include <string>
 #include <vector>
 #include <optional>
 #include <expected>
 
-export module cc.skills.claude_api;
+export module cc.skills.loom_api;
 
 import cc.skills.skill;
 
-export namespace cc::skills::claude_api {
+export namespace cc::skills::loom_api {
 
-/// Claude API interaction skill definition
-[[nodiscard]] inline SkillDefinition make_claude_api_skill() {
+/// Loom API interaction skill definition
+[[nodiscard]] inline SkillDefinition make_loom_api_skill() {
     return SkillDefinition{
-        .name = "claude-api",
-        .description = "Direct Claude API interaction patterns for programmatic use",
+        .name = "loom-api",
+        .description = "Direct Loom API interaction patterns for programmatic use",
         .trigger_patterns = {
-            R"(claude\s+api)",
+            R"(loom\s+api)",
             R"(api\s+(?:call|request|endpoint))",
-            R"(programmatic.*claude)",
+            R"(programmatic.*loom)",
             R"(sdk.*(?:usage|example))",
         },
-        .content = R"(## Claude API Skill
+        .content = R"(## Loom API Skill
 
 ### Direct API Usage
 - Use the Messages API for multi-turn conversations
@@ -49,4 +49,4 @@ export namespace cc::skills::claude_api {
     };
 }
 
-} // namespace cc::skills::claude_api
+} // namespace cc::skills::loom_api

@@ -40,7 +40,7 @@ struct CcrConnectionOptions {
     bool enable_compression{true};
     bool auto_reconnect{true};
     int max_reconnect_attempts{3};
-    std::string user_agent{"cc-repl/1.0"};
+    std::string user_agent{"loom/1.0"};
     bool allow_offline_session_fallback{false};
 };
 
@@ -104,7 +104,7 @@ inline std::expected<CcrHttpResponse, std::string> default_ccr_http_transport(co
     };
 }
 
-// Claude Code Remote client — manages connection to remote Claude instances
+// Loom Remote client — manages connection to remote Loom instances
 class CcrClient {
 public:
     CcrClient() = default;
@@ -126,7 +126,7 @@ public:
         token_ = std::string(token);
     }
 
-    // Connect to a Claude Code Remote endpoint with authentication token
+    // Connect to a Loom Remote endpoint with authentication token
     std::expected<void, std::string> connect(std::string_view endpoint, std::string_view token) {
         if (connected_.load()) {
             return std::unexpected("Already connected to a remote session");
@@ -168,7 +168,7 @@ public:
         http_transport_ = std::move(transport);
     }
 
-    // Send a message to the remote Claude session and await full response
+    // Send a message to the remote Loom session and await full response
     std::expected<std::string, std::string> send_message(std::string_view content) {
         if (!connected_.load()) {
             return std::unexpected("Not connected to remote session");

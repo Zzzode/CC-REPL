@@ -1,5 +1,5 @@
 /// @file app_state.cppm
-/// @brief Application state module for the Claude Code REPL.
+/// @brief Application state module for the Loom REPL.
 /// Defines the full AppState struct, immutable update functions,
 /// observer pattern for reactive state changes, and selectors.
 module;
@@ -161,7 +161,7 @@ enum class RemoteConnectionStatus {
 /// Configuration for the active model
 struct ModelConfig {
     std::string model_id;           // e.g., "claude-sonnet-4-20250514"
-    std::string display_name;       // e.g., "Claude Sonnet 4"
+    std::string display_name;       // e.g., "Loom Sonnet 4"
     std::uint32_t max_tokens = 8192;
     double temperature = 1.0;
     std::optional<std::string> system_prompt_override;

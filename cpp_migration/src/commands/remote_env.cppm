@@ -25,11 +25,11 @@ inline std::optional<RemoteEnvInfo> configured_remote_env;
 
 auto detect_remote_env() -> std::optional<RemoteEnvInfo> {
     if (configured_remote_env) return configured_remote_env;
-    const char* provider = std::getenv("CC_REPL_REMOTE_PROVIDER");
+    const char* provider = std::getenv("LOOM_REMOTE_PROVIDER");
     if (provider == nullptr || std::string_view{provider}.empty()) return std::nullopt;
     RemoteEnvInfo info{.provider = provider, .region = {}, .instance_id = {}, .metadata = {}};
-    if (const char* region = std::getenv("CC_REPL_REMOTE_REGION")) info.region = region;
-    if (const char* instance = std::getenv("CC_REPL_REMOTE_INSTANCE_ID")) info.instance_id = instance;
+    if (const char* region = std::getenv("LOOM_REMOTE_REGION")) info.region = region;
+    if (const char* instance = std::getenv("LOOM_REMOTE_INSTANCE_ID")) info.instance_id = instance;
     info.metadata["source"] = "environment";
     return info;
 }

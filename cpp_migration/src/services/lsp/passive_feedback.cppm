@@ -2,7 +2,7 @@
 /// @file passive_feedback.cppm
 /// @brief LSP Passive Feedback - collects user acceptance/rejection signals
 ///        for LSP diagnostic suggestions, computes acceptance rates, and
-///        persists feedback to ~/.cc-repl/lsp-passive-feedback.json.
+///        persists feedback to ~/.loom/lsp-passive-feedback.json.
 ///
 /// TS REF: src/services/lsp/passiveFeedback.ts (328 lines)
 ///   - The TS module primarily handles diagnostic notification handler
@@ -16,7 +16,7 @@
 /// Architecture:
 ///   1. record_feedback() stores a PassiveFeedbackItem in memory
 ///   2. get_acceptance_rate() computes accepted / total per diagnostic code
-///   3. export_feedback() / import_feedback() persist to ~/.cc-repl/
+///   3. export_feedback() / import_feedback() persist to ~/.loom/
 ///   4. LspHealth metrics (requests/errors/latency) kept from original stub
 // ============================================================================
 module;
@@ -289,8 +289,8 @@ public:
     // ------------------------------------------------------------------
 
     /// Export all feedback to a JSON file.
-    /// Default path: ~/.cc-repl/lsp-passive-feedback.json
-    /// TS REF: task spec (export_feedback -> persist to ~/.cc-repl/)
+    /// Default path: ~/.loom/lsp-passive-feedback.json
+    /// TS REF: task spec (export_feedback -> persist to ~/.loom/)
     Result<void> export_feedback() const {
         return export_feedback(default_feedback_path());
     }
@@ -398,12 +398,12 @@ public:
     // ------------------------------------------------------------------
 
     /// Get the default feedback persistence path.
-    /// ~/.cc-repl/lsp-passive-feedback.json
+    /// ~/.loom/lsp-passive-feedback.json
     [[nodiscard]] static fs::path default_feedback_path() {
         if (const char* home = std::getenv("HOME")) {
-            return fs::path{home} / ".cc-repl" / "lsp-passive-feedback.json";
+            return fs::path{home} / ".loom" / "lsp-passive-feedback.json";
         }
-        return fs::path{".cc-repl"} / "lsp-passive-feedback.json";
+        return fs::path{".loom"} / "lsp-passive-feedback.json";
     }
 
     // ------------------------------------------------------------------

@@ -204,7 +204,7 @@ TEST(ReplScreen, WelcomeHeaderUsesHomeCard) {
 
     // Phase 2 Faithful: CondensedLogo 3-line strip + Opus1M notice banner
     // (replaces the old ASCII-card + Recent activity / What's new feed).
-    EXPECT_NE(rendered.find("Claude Code"), std::string::npos);
+    EXPECT_NE(rendered.find("Loom"), std::string::npos);
     EXPECT_NE(rendered.find("v9.9.9-test"), std::string::npos);
     EXPECT_NE(rendered.find("GLM-5.2"), std::string::npos);
     EXPECT_NE(rendered.find("/tmp/cpp_migration"), std::string::npos);
@@ -217,10 +217,10 @@ TEST(ReplScreen, WelcomeHeaderUsesHomeCard) {
     EXPECT_EQ(rendered.find("Welcome back!"), std::string::npos);
     EXPECT_EQ(rendered.find("Recent activity"), std::string::npos);
     EXPECT_EQ(rendered.find("What's new"), std::string::npos);
-    EXPECT_EQ(rendered.find("Welcome to Claude Code"), std::string::npos);
+    EXPECT_EQ(rendered.find("Welcome to Loom"), std::string::npos);
     EXPECT_EQ(rendered.find("Use /model to switch between models"),
               std::string::npos);
-    // Faithful Clawd is a 9×3 block-art composed of unicode BOX DRAWING /
+    // Faithful Loom mascot is a 9×3 block-art composed of unicode BOX DRAWING /
     // QUADRANT chars (▛ ▜ ▝ ▘ etc.) — there must be NO 🐱 U+1F431 emoji
     // anywhere (the UTF-8 encoding of U+1F431 is the 4-byte sequence below).
     EXPECT_EQ(rendered.find("\xF0\x9F\x90\xB1"), std::string::npos);
@@ -266,7 +266,7 @@ TEST(ReplScreen, ShiftReturnInsertsNewlineForBothTerminalEncodings) {
         cc::core::QueryEngine engine(std::move(config), tools);
         cc::commands::AppCommandRegistry commands;
         const auto storage_root = fs::temp_directory_path() /
-            ("cc_repl_shift_ret_" +
+            ("loom_shift_ret_" +
              std::to_string(std::chrono::steady_clock::now()
                                 .time_since_epoch().count()) +
              (seq[3] == '1' ? "_csiu" : "_kitty"));
@@ -751,7 +751,7 @@ TEST(ReplScreen, WelcomeHeaderWidthAndClaudeColorTrackTerminal) {
               std::string::npos);
 
     // Faithful condensed logo uses the brand accent (same as TS
-    // LogoV2's Clawd accent RGB(215,119,87) = #D77757) on the first row
+    // LogoV2's Loom mascot accent RGB(215,119,87) = #D77757) on the first row
     // glyph, instead of the old primary-palette border decoration.  The
     // accent must appear somewhere in the rendered header.
     const ftxui::Color kBrandAccent(215, 119, 87);
@@ -790,7 +790,7 @@ TEST(ReplScreen, FreshScreenDoesNotRenderLegacyEmptyState) {
         120,
         32));
 
-    EXPECT_NE(rendered.find("Claude Code"), std::string::npos);
+    EXPECT_NE(rendered.find("Loom"), std::string::npos);
     EXPECT_EQ(rendered.find("Type a message to begin."), std::string::npos);
     EXPECT_EQ(rendered.find("/help    -- list commands"), std::string::npos);
     EXPECT_EQ(rendered.find("/model   -- change model"), std::string::npos);
@@ -815,7 +815,7 @@ TEST(ReplScreen, FreshScreenDoesNotRenderLegacyEmptyState) {
             return l.find_first_not_of(' ') == std::string::npos;
         };
         const auto header_it = std::find_if(lines.begin(), lines.end(),
-            [](const std::string& l) { return l.find("Claude Code") != std::string::npos; });
+            [](const std::string& l) { return l.find("Loom") != std::string::npos; });
         const auto prompt_it = std::find_if(lines.begin(), lines.end(),
             [](const std::string& l) { return l.find("\xE2\x9D\xAF") != std::string::npos; });  // ❯ glyph
         ASSERT_NE(header_it, lines.end());
@@ -855,7 +855,7 @@ TEST(ReplScreen, WelcomeHeaderAnimatesAsteriskColor) {
     // card must NOT appear.
     EXPECT_EQ(frame0, frame8);
     // Sanity: condensed-logo branding + Opus1m body present.
-    EXPECT_NE(strip_ansi(frame0).find("Claude Code"), std::string::npos);
+    EXPECT_NE(strip_ansi(frame0).find("Loom"), std::string::npos);
     EXPECT_NE(strip_ansi(frame0).find("Opus now defaults to 1M context"),
               std::string::npos);
     // VoiceModeNotice static glyph present (U+273B Teardrop-Spoked Asterisk).
@@ -1133,7 +1133,7 @@ TEST(AppRuntime, ProjectsVersionIntoInitialWelcome) {
 
     cc::commands::AppCommandRegistry commands;
     const auto storage_root = fs::temp_directory_path() /
-        ("cc_repl_ui_welcome_version_test_" +
+        ("loom_ui_welcome_version_test_" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     cc::utils::SessionStorage storage(storage_root);
 
@@ -1161,7 +1161,7 @@ TEST(AppRuntime, FreshWelcomeAnimationTicksWithoutInputEvents) {
 
     cc::commands::AppCommandRegistry commands;
     const auto storage_root = fs::temp_directory_path() /
-        ("cc_repl_ui_welcome_animation_test_" +
+        ("loom_ui_welcome_animation_test_" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     cc::utils::SessionStorage storage(storage_root);
 
@@ -1190,7 +1190,7 @@ TEST(AppRuntime, FreshWelcomeAnimationKeepsTickingAfterStartupWindow) {
 
     cc::commands::AppCommandRegistry commands;
     const auto storage_root = fs::temp_directory_path() /
-        ("cc_repl_ui_welcome_animation_long_test_" +
+        ("loom_ui_welcome_animation_long_test_" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     cc::utils::SessionStorage storage(storage_root);
 
@@ -1222,7 +1222,7 @@ TEST(AppRuntime, CommandsAndStatusRenderWithoutTerminalLoop) {
 
     cc::commands::AppCommandRegistry commands;
     const auto storage_root = fs::temp_directory_path() /
-        ("cc_repl_ui_app_runtime_test_" +
+        ("loom_ui_app_runtime_test_" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     cc::utils::SessionStorage storage(storage_root);
 
@@ -1241,7 +1241,7 @@ TEST(AppRuntime, CommandsAndStatusRenderWithoutTerminalLoop) {
     auto initial = render_to_plain_text(app->Render(), 120, 28);
     EXPECT_EQ(app->status_bar_model_for_testing(), "claude-sonnet-4-20250514");
     EXPECT_EQ(initial.find("claude-sonnet-4-20250514"), std::string::npos);
-    EXPECT_EQ(initial.find("You are Claude"), std::string::npos);
+    EXPECT_EQ(initial.find("You are Loom"), std::string::npos);
     EXPECT_NE(initial.find("❯"), std::string::npos);
 
     // --- /model haiku-runtime: changes model state ---
@@ -1277,7 +1277,7 @@ TEST(AppRuntime, SlashInputShowsRegistrySuggestions) {
 
     cc::commands::AppCommandRegistry commands;
     const auto storage_root = fs::temp_directory_path() /
-        ("cc_repl_ui_slash_suggestions_test_" +
+        ("loom_ui_slash_suggestions_test_" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     cc::utils::SessionStorage storage(storage_root);
 
@@ -1325,7 +1325,7 @@ TEST(AppRuntime, SkillsDialogDismissOrderDebug) {
     cc::core::QueryEngine engine(std::move(config), tools);
     cc::commands::AppCommandRegistry commands;
     const auto storage_root = fs::temp_directory_path() /
-        ("cc_repl_ui_skills_order_dbg_" +
+        ("loom_ui_skills_order_dbg_" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     cc::utils::SessionStorage storage(storage_root);
 
@@ -1385,7 +1385,7 @@ TEST(AppRuntime, CommandResultMessagesRenderInTranscript) {
 
     cc::commands::AppCommandRegistry commands;
     const auto storage_root = fs::temp_directory_path() /
-        ("cc_repl_ui_command_result_test_" +
+        ("loom_ui_command_result_test_" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     cc::utils::SessionStorage storage(storage_root);
 
@@ -1425,7 +1425,7 @@ TEST(AppRuntime, BangCommandRunsLocallyNotThroughLLM) {
 
     cc::commands::AppCommandRegistry commands;
     const auto storage_root = fs::temp_directory_path() /
-        ("cc_repl_ui_bang_local_test_" +
+        ("loom_ui_bang_local_test_" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     cc::utils::SessionStorage storage(storage_root);
 
@@ -1475,16 +1475,16 @@ TEST(AppRuntime, BangCommandRunsLocallyNotThroughLLM) {
 
 TEST(AppRuntime, SkillsCommandRendersInlineOutputAndRejectsListSubcommand) {
     const auto cwd_root = fs::temp_directory_path() /
-        ("cc_repl_ui_skills_menu_cwd_" +
+        ("loom_ui_skills_menu_cwd_" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     const auto home_root = fs::temp_directory_path() /
-        ("cc_repl_ui_skills_menu_home_" +
+        ("loom_ui_skills_menu_home_" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     fs::create_directories(home_root);
     ScopedEnvVar home_guard("HOME");
-    ScopedEnvVar skills_path_guard("CLAUDE_SKILLS_PATH");
+    ScopedEnvVar skills_path_guard("LOOM_SKILLS_PATH");
     home_guard.set(home_root.string());
-    const auto skills_dir = cwd_root / ".claude" / "skills" / "cpp-review";
+    const auto skills_dir = cwd_root / ".loom" / "skills" / "cpp-review";
     fs::create_directories(skills_dir);
     {
         std::ofstream out(skills_dir / "SKILL.md");
@@ -1505,7 +1505,7 @@ TEST(AppRuntime, SkillsCommandRendersInlineOutputAndRejectsListSubcommand) {
 
     cc::commands::AppCommandRegistry commands;
     const auto storage_root = fs::temp_directory_path() /
-        ("cc_repl_ui_skills_menu_storage_" +
+        ("loom_ui_skills_menu_storage_" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     cc::utils::SessionStorage storage(storage_root);
 
@@ -1550,18 +1550,18 @@ TEST(AppRuntime, SkillsCommandRendersInlineOutputAndRejectsListSubcommand) {
 
 TEST(AppRuntime, SkillsCommandInlineOutputScrollsWithTranscript) {
     const auto cwd_root = fs::temp_directory_path() /
-        ("cc_repl_ui_skills_scroll_cwd_" +
+        ("loom_ui_skills_scroll_cwd_" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     const auto home_root = fs::temp_directory_path() /
-        ("cc_repl_ui_skills_scroll_home_" +
+        ("loom_ui_skills_scroll_home_" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     fs::create_directories(home_root);
     ScopedEnvVar home_guard("HOME");
-    ScopedEnvVar skills_path_guard("CLAUDE_SKILLS_PATH");
+    ScopedEnvVar skills_path_guard("LOOM_SKILLS_PATH");
     home_guard.set(home_root.string());
 
     for (int i = 0; i < 36; ++i) {
-        const auto skills_dir = cwd_root / ".claude" / "skills" /
+        const auto skills_dir = cwd_root / ".loom" / "skills" /
             ("scroll-skill-" + std::to_string(i));
         fs::create_directories(skills_dir);
         std::ofstream out(skills_dir / "SKILL.md");
@@ -1580,7 +1580,7 @@ TEST(AppRuntime, SkillsCommandInlineOutputScrollsWithTranscript) {
 
     cc::commands::AppCommandRegistry commands;
     const auto storage_root = fs::temp_directory_path() /
-        ("cc_repl_ui_skills_scroll_storage_" +
+        ("loom_ui_skills_scroll_storage_" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     cc::utils::SessionStorage storage(storage_root);
 
@@ -1613,16 +1613,16 @@ TEST(AppRuntime, SkillsCommandInlineOutputScrollsWithTranscript) {
 
 TEST(AppRuntime, ReturnSubmitsAgentSlashSubcommandsWhenCompletionIsVisible) {
     const auto cwd_root = fs::temp_directory_path() /
-        ("cc_repl_ui_slash_subcommand_return_cwd_" +
+        ("loom_ui_slash_subcommand_return_cwd_" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     const auto home_root = fs::temp_directory_path() /
-        ("cc_repl_ui_slash_subcommand_return_home_" +
+        ("loom_ui_slash_subcommand_return_home_" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     fs::create_directories(home_root);
     ScopedEnvVar home_guard("HOME");
-    ScopedEnvVar skills_path_guard("CLAUDE_SKILLS_PATH");
+    ScopedEnvVar skills_path_guard("LOOM_SKILLS_PATH");
     home_guard.set(home_root.string());
-    const auto skills_dir = cwd_root / ".claude" / "skills" / "cpp-review";
+    const auto skills_dir = cwd_root / ".loom" / "skills" / "cpp-review";
     fs::create_directories(skills_dir);
     {
         std::ofstream out(skills_dir / "SKILL.md");
@@ -1641,7 +1641,7 @@ TEST(AppRuntime, ReturnSubmitsAgentSlashSubcommandsWhenCompletionIsVisible) {
 
     cc::commands::AppCommandRegistry commands;
     const auto storage_root = fs::temp_directory_path() /
-        ("cc_repl_ui_slash_subcommand_return_storage_" +
+        ("loom_ui_slash_subcommand_return_storage_" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     cc::utils::SessionStorage storage(storage_root);
 
@@ -1661,7 +1661,7 @@ TEST(AppRuntime, ReturnSubmitsAgentSlashSubcommandsWhenCompletionIsVisible) {
     EXPECT_TRUE(rendered.find("Agents") != std::string::npos ||
                 rendered.find("Create new agent") != std::string::npos);
     EXPECT_FALSE(same_rendered_line_contains(
-        rendered, "Available agents", "claude-code-guide"));
+        rendered, "Available agents", "loom-guide"));
 
     fs::remove_all(storage_root);
     fs::remove_all(home_root);
@@ -1670,9 +1670,9 @@ TEST(AppRuntime, ReturnSubmitsAgentSlashSubcommandsWhenCompletionIsVisible) {
 
 TEST(AppRuntime, DynamicPromptSuggestionsCoverSkillsFilesAndCursorEditing) {
     const auto cwd_root = fs::temp_directory_path() /
-        ("cc_repl_ui_dynamic_suggestions_cwd_" +
+        ("loom_ui_dynamic_suggestions_cwd_" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
-    const auto skills_dir = cwd_root / ".claude" / "skills" / "cpp-review";
+    const auto skills_dir = cwd_root / ".loom" / "skills" / "cpp-review";
     fs::create_directories(skills_dir);
     {
         std::ofstream out(skills_dir / "SKILL.md");
@@ -1695,7 +1695,7 @@ TEST(AppRuntime, DynamicPromptSuggestionsCoverSkillsFilesAndCursorEditing) {
 
     cc::commands::AppCommandRegistry commands;
     const auto storage_root = fs::temp_directory_path() /
-        ("cc_repl_ui_dynamic_suggestions_storage_" +
+        ("loom_ui_dynamic_suggestions_storage_" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     cc::utils::SessionStorage storage(storage_root);
 
@@ -1751,14 +1751,14 @@ TEST(AppRuntime, DynamicPromptSuggestionsCoverSkillsFilesAndCursorEditing) {
 
 TEST(AppRuntime, ReturnOnSelectedSlashSuggestionOpensAgentsLocalJsx) {
     const auto home_root = fs::temp_directory_path() /
-        ("cc_repl_ui_slash_agents_home_" +
+        ("loom_ui_slash_agents_home_" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
-    fs::create_directories(home_root / ".claude");
+    fs::create_directories(home_root / ".loom");
     ScopedEnvVar home_guard("HOME");
     home_guard.set(home_root.string());
 
     const auto cwd_root = fs::temp_directory_path() /
-        ("cc_repl_ui_slash_agents_cwd_" +
+        ("loom_ui_slash_agents_cwd_" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     fs::create_directories(cwd_root);
 
@@ -1770,7 +1770,7 @@ TEST(AppRuntime, ReturnOnSelectedSlashSuggestionOpensAgentsLocalJsx) {
 
     cc::commands::AppCommandRegistry commands;
     const auto storage_root = fs::temp_directory_path() /
-        ("cc_repl_ui_slash_agents_accept_test_" +
+        ("loom_ui_slash_agents_accept_test_" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     cc::utils::SessionStorage storage(storage_root);
 
@@ -1820,16 +1820,16 @@ TEST(AppRuntime, ReturnOnSelectedSlashSuggestionOpensAgentsLocalJsx) {
 
 TEST(AppRuntime, AgentsLocalJsxArrowKeysSelectProjectAgentAndReturnActs) {
     const auto home_root = fs::temp_directory_path() /
-        ("cc_repl_ui_agents_nav_home_" +
+        ("loom_ui_agents_nav_home_" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
-    fs::create_directories(home_root / ".claude");
+    fs::create_directories(home_root / ".loom");
     ScopedEnvVar home_guard("HOME");
     home_guard.set(home_root.string());
 
     const auto cwd_root = fs::temp_directory_path() /
-        ("cc_repl_ui_agents_nav_cwd_" +
+        ("loom_ui_agents_nav_cwd_" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
-    const auto agents_dir = cwd_root / ".claude" / "agents";
+    const auto agents_dir = cwd_root / ".loom" / "agents";
     fs::create_directories(agents_dir);
     {
         std::ofstream out(agents_dir / "cpp-reviewer.md");
@@ -1849,7 +1849,7 @@ TEST(AppRuntime, AgentsLocalJsxArrowKeysSelectProjectAgentAndReturnActs) {
 
     cc::commands::AppCommandRegistry commands;
     const auto storage_root = fs::temp_directory_path() /
-        ("cc_repl_ui_agents_nav_storage_" +
+        ("loom_ui_agents_nav_storage_" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     cc::utils::SessionStorage storage(storage_root);
 
@@ -1887,17 +1887,17 @@ TEST(AppRuntime, AgentsLocalJsxArrowKeysSelectProjectAgentAndReturnActs) {
 
 TEST(AppRuntime, StatusLineRuntimeSettingsOverrideDiskSettings) {
     const auto home_root = fs::temp_directory_path() /
-        ("cc_repl_ui_statusline_home_" +
+        ("loom_ui_statusline_home_" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
-    fs::create_directories(home_root / ".claude");
+    fs::create_directories(home_root / ".loom");
 
     ScopedEnvVar home_guard("HOME");
-    ScopedEnvVar command_guard("CC_REPL_STATUS_LINE_COMMAND");
-    ScopedEnvVar command_compat_guard("CLAUDE_CODE_STATUS_LINE_COMMAND");
-    ScopedEnvVar enabled_guard("CC_REPL_STATUS_LINE_ENABLED");
-    ScopedEnvVar enabled_compat_guard("CLAUDE_CODE_STATUS_LINE_ENABLED");
-    ScopedEnvVar padding_guard("CC_REPL_STATUS_LINE_PADDING");
-    ScopedEnvVar padding_compat_guard("CLAUDE_CODE_STATUS_LINE_PADDING");
+    ScopedEnvVar command_guard("LOOM_STATUS_LINE_COMMAND");
+    ScopedEnvVar command_compat_guard("LOOM_STATUS_LINE_COMMAND");
+    ScopedEnvVar enabled_guard("LOOM_STATUS_LINE_ENABLED");
+    ScopedEnvVar enabled_compat_guard("LOOM_STATUS_LINE_ENABLED");
+    ScopedEnvVar padding_guard("LOOM_STATUS_LINE_PADDING");
+    ScopedEnvVar padding_compat_guard("LOOM_STATUS_LINE_PADDING");
 
     home_guard.set(home_root.string());
     command_guard.set(":");
@@ -1912,7 +1912,7 @@ TEST(AppRuntime, StatusLineRuntimeSettingsOverrideDiskSettings) {
 
     cc::commands::AppCommandRegistry commands;
     const auto storage_root = fs::temp_directory_path() /
-        ("cc_repl_ui_statusline_test_" +
+        ("loom_ui_statusline_test_" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     cc::utils::SessionStorage storage(storage_root);
 
@@ -1948,7 +1948,7 @@ TEST(AppRuntime, CtrlCIdleRequiresDoublePressWithinWindow) {
         auto commands =
             std::make_unique<cc::commands::AppCommandRegistry>();
         const auto storage_root = fs::temp_directory_path() /
-            ("cc_repl_ui_interrupt_test_" +
+            ("loom_ui_interrupt_test_" +
              std::to_string(std::chrono::steady_clock::now()
                                 .time_since_epoch().count()));
         auto storage =
@@ -2026,7 +2026,7 @@ TEST(AppRuntime, StreamFallbackErrorIsRendered) {
 
     cc::commands::AppCommandRegistry commands;
     const auto storage_root = fs::temp_directory_path() /
-        ("cc_repl_ui_stream_error_test_" +
+        ("loom_ui_stream_error_test_" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     cc::utils::SessionStorage storage(storage_root);
 
@@ -2066,7 +2066,7 @@ TEST(AppRuntime, CtrlCWhileStreamingQueryCancelsWithoutExiting) {
 
     cc::commands::AppCommandRegistry commands;
     const auto storage_root = fs::temp_directory_path() /
-        ("cc_repl_ui_stream_cancel_test_" +
+        ("loom_ui_stream_cancel_test_" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     cc::utils::SessionStorage storage(storage_root);
 
@@ -2125,7 +2125,7 @@ TEST(AppRuntime, StreamingToolUseShowsSpinnerAndLoadingState) {
 
     cc::commands::AppCommandRegistry commands;
     const auto storage_root = fs::temp_directory_path() /
-        ("cc_repl_ui_stream_tool_test_" +
+        ("loom_ui_stream_tool_test_" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     cc::utils::SessionStorage storage(storage_root);
 
@@ -2185,7 +2185,7 @@ TEST(AppRuntime, StreamingThinkingShowsSpinnerAndFinalContent) {
 
     cc::commands::AppCommandRegistry commands;
     const auto storage_root = fs::temp_directory_path() /
-        ("cc_repl_ui_stream_thinking_test_" +
+        ("loom_ui_stream_thinking_test_" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     cc::utils::SessionStorage storage(storage_root);
 
@@ -2237,7 +2237,7 @@ TEST(AppRuntime, PermissionCallbackRendersAndResolvesUserChoices) {
 
     cc::commands::AppCommandRegistry commands;
     const auto storage_root = fs::temp_directory_path() /
-        ("cc_repl_ui_permission_dialog_test_" +
+        ("loom_ui_permission_dialog_test_" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     cc::utils::SessionStorage storage(storage_root);
 
@@ -2535,7 +2535,7 @@ TEST(AppRuntime, CollapseBackgroundBashWiredIntoLiveTranscript) {
 
     cc::commands::AppCommandRegistry commands;
     const auto storage_root = fs::temp_directory_path() /
-        ("cc_repl_ui_collapse_wire_test_" +
+        ("loom_ui_collapse_wire_test_" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     cc::utils::SessionStorage storage(storage_root);
 
@@ -2653,20 +2653,20 @@ TEST(LogoV2, CondensedModeRendersStripPlusNotices) {
 
     lv2::LogoV2Options opts;
     opts.version            = "2024.6";
-    opts.cwd                = "/home/alice/dev/cc-repl";
+    opts.cwd                = "/home/alice/dev/loom";
     opts.billing_type       = "Team Seat";
-    opts.model_display_name = "Claude Opus 4.8";
+    opts.model_display_name = "Loom Opus 4.8";
     opts.is_condensed_mode  = true;   // default / early-return branch
 
     std::string s = strip_ansi(render_to_plain_text(
         lv2::render_logo_v2(opts, /*cols=*/120), 120, 20));
 
     // CondensedLogo triad.
-    EXPECT_NE(s.find("Claude Code"), std::string::npos);
+    EXPECT_NE(s.find("Loom"), std::string::npos);
     EXPECT_NE(s.find("v2024.6"), std::string::npos);
-    EXPECT_NE(s.find("Claude Opus 4.8"), std::string::npos);
+    EXPECT_NE(s.find("Loom Opus 4.8"), std::string::npos);
     EXPECT_NE(s.find("Team Seat"), std::string::npos);
-    EXPECT_NE(s.find("/home/alice/dev/cc-repl"), std::string::npos);
+    EXPECT_NE(s.find("/home/alice/dev/loom"), std::string::npos);
     // Aggregated notice stack — Voice + Opus1m always active.
     EXPECT_NE(s.find("Voice mode enabled"), std::string::npos);
     EXPECT_NE(s.find("Opus now defaults to 1M context"), std::string::npos);
@@ -2678,7 +2678,7 @@ TEST(LogoV2, CondensedModeRendersStripPlusNotices) {
 }
 
 // T2: Compact card mode (cols<70, !is_condensed_mode) renders the welcome
-//     banner + "Welcome to Claude Code [, {user}]" heading inside a rounded
+//     banner + "Welcome to Loom [, {user}]" heading inside a rounded
 //     border, and reports LogoLayoutMode::Compact.
 TEST(LogoV2, CompactModeRendersRoundedBorderCard) {
     namespace lv2 = cc::ui::logo_v2;
@@ -2686,7 +2686,7 @@ TEST(LogoV2, CompactModeRendersRoundedBorderCard) {
     lv2::LogoV2Options opts;
     opts.version            = "2024.6";
     opts.cwd                = "/x";
-    opts.model_display_name = "Claude Sonnet 4.6";
+    opts.model_display_name = "Loom Sonnet 4.6";
     opts.is_condensed_mode  = false;    // ← enables card mode
     opts.username           = std::nullopt;
 
@@ -2704,7 +2704,7 @@ TEST(LogoV2, CompactModeRendersRoundedBorderCard) {
     // (TS formatWelcomeMessage: empty => "Welcome back!", not "Welcome to …")
     EXPECT_NE(s.find("Welcome back!"), std::string::npos);
     // Model line dim.
-    EXPECT_NE(s.find("Claude Sonnet 4.6"), std::string::npos);
+    EXPECT_NE(s.find("Loom Sonnet 4.6"), std::string::npos);
     // Notice stack still rendered AFTER the card.
     EXPECT_NE(s.find("Opus now defaults to 1M context"), std::string::npos);
 }
@@ -2719,7 +2719,7 @@ TEST(LogoV2, HorizontalModeSplitsIntoPanels) {
     opts.version            = "2024.6";
     opts.cwd                = "/workspace/repo";
     opts.billing_type       = "API Usage";
-    opts.model_display_name = "Claude Opus 4.8";
+    opts.model_display_name = "Loom Opus 4.8";
     opts.is_condensed_mode  = false;
     opts.username           = std::string("bob");
     opts.org_name           = std::string("Acme Corp");
@@ -2854,7 +2854,7 @@ TEST(LogoV2, LayoutModeThresholdsMatchTSSpec) {
 }
 
 // T6: WelcomeV2 static 58-col card renders EXACTLY: width capped to 58 cols,
-//     shows "Welcome to Claude Code v<ver>" in the header, contains the
+//     shows "Welcome to Loom v<ver>" in the header, contains the
 //     ellipsis separator row (…), the 3-row █████████ clawd body, at least
 //     4 scattered '*' glyphs (asterisk dust baked into the art), and a paws
 //     footer row with "█ █   █ █" clawd feet + ░/▒ planets.
@@ -2865,13 +2865,13 @@ TEST(LogoV2, WelcomeV2StaticCardMatchesTSSpec) {
     std::string s = strip_ansi(render_to_plain_text(card, 120, 20));
 
     // Header row — versioned.
-    EXPECT_NE(s.find("Welcome to Claude Code"), std::string::npos);
+    EXPECT_NE(s.find("Welcome to Loom"), std::string::npos);
     EXPECT_NE(s.find("v2024.6"), std::string::npos);
     // Ellipsis ruler (U+2026 repeated). TS WELCOME_V2_WIDTH=58, but the string
     // literal stores 58 × … = 58 × 3 bytes = 174 bytes; look for one '…'.
     EXPECT_NE(s.find("\xE2\x80\xA6"), std::string::npos)
         << "WelcomeV2 t1 row must contain ellipsis ruler chars";
-    // Clawd body: 3 rows of █ chars start, 2nd row contains ▄ (U+2584) segments.
+    // Loom mascot body: 3 rows of █ chars start, 2nd row contains ▄ (U+2584) segments.
     EXPECT_NE(s.find("\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88"), std::string::npos)
         << "WelcomeV2 t12-t14 rows must contain clawd ███ body";
     EXPECT_NE(s.find("\xE2\x96\x84"), std::string::npos)
@@ -2908,7 +2908,7 @@ TEST(LogoV2, ReplScreenDefaultWelcomeHeaderStillCondensed) {
 
     // Condensed baseline (identical expectations to the Phase-2 golden test
     // WelcomeHeaderUsesHomeCard).
-    EXPECT_NE(rendered.find("Claude Code"), std::string::npos);
+    EXPECT_NE(rendered.find("Loom"), std::string::npos);
     EXPECT_NE(rendered.find("v9.9.9-test"), std::string::npos);
     EXPECT_NE(rendered.find("GLM-5.2"), std::string::npos);
     EXPECT_NE(rendered.find("/tmp/cpp_migration"), std::string::npos);
@@ -3004,7 +3004,7 @@ TEST(LogoV2, Logov2RenderModesMissing_Goldens) {
         lv2::LogoV2Options opts;
         opts.version            = "2024.6";
         opts.cwd                = "/x";
-        opts.model_display_name = "Claude Sonnet 4.6";
+        opts.model_display_name = "Loom Sonnet 4.6";
         opts.is_condensed_mode  = false;
         opts.username           = std::nullopt;
 
@@ -3022,7 +3022,7 @@ TEST(LogoV2, Logov2RenderModesMissing_Goldens) {
         opts.version            = "2024.6";
         opts.cwd                = "/workspace/repo";
         opts.billing_type       = "API Usage";
-        opts.model_display_name = "Claude Opus 4.8";
+        opts.model_display_name = "Loom Opus 4.8";
         opts.is_condensed_mode  = false;
         opts.username           = std::string("bob");
         opts.org_name           = std::string("Acme Corp");
@@ -3496,7 +3496,7 @@ public:
                         if (phase_++ > 0) return false;
                         sink.os <<
                             "event: message_start\n"
-                            "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_e2e_1\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-test\",\"content\":[]}}\n\n"
+                            "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_e2e_1\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"loom-test\",\"content\":[]}}\n\n"
                             "event: content_block_start\n"
                             "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_e2e_1\",\"name\":\"analyze_image\",\"input\":{}}}\n\n"
                             "event: content_block_delta\n"
@@ -3523,7 +3523,7 @@ public:
                         if (phase2_++ > 0) return false;
                         sink.os <<
                             "event: message_start\n"
-                            "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_e2e_2\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-test\",\"content\":[]}}\n\n"
+                            "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_e2e_2\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"loom-test\",\"content\":[]}}\n\n"
                             "event: content_block_start\n"
                             "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n"
                             "event: content_block_delta\n"
@@ -3635,7 +3635,7 @@ TEST(E2E_Gate, StartupScreenHasAllElements) {
 
     // Critical elements that must always be visible on startup
     auto missing = check_required_strings(rendered, {
-        "Claude Code",   // Logo / app name
+        "Loom",   // Logo / app name
         "v",             // Version string
         "Try ",          // Prompt placeholder hint
     });
@@ -4240,7 +4240,7 @@ TEST(E2E_Gate, FullConversationGoldenSnapshot) {
 
     // Structural assertions: every major section must be present
     auto missing = check_required_strings(plain, {
-        "Claude Code",       // Logo/header
+        "Loom",       // Logo/header
         "describe this",     // User message
         "analyze_image",     // Tool use block
         "terminal",          // Assistant reply (from mock)
@@ -4789,7 +4789,7 @@ struct PasteTestHarness {
         engine = std::make_unique<cc::core::QueryEngine>(
             std::move(config), tools);
         storage_root = std::filesystem::temp_directory_path() /
-            ("cc_repl_paste_test_" +
+            ("loom_paste_test_" +
              std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
         storage = std::make_unique<cc::utils::SessionStorage>(storage_root);
         app = ftxui::Make<cc::ui::AppAdapter>(
@@ -5136,14 +5136,14 @@ namespace acsrc = cc::ui::autocomplete_sources;
 
 /// Round-trip: append_prompt_history writes a JSONL line, then
 /// collect_history_suggestions reads it back (newest-first) and matches
-/// by substring query.  Uses CC_REPL_HISTORY_FILE env var to isolate
-/// the test from the real ~/.cc-repl/history.jsonl.
+/// by substring query.  Uses LOOM_HISTORY_FILE env var to isolate
+/// the test from the real ~/.loom/history.jsonl.
 TEST(AutocompleteSources, AppendAndReadHistoryRoundTrip) {
     const auto hist_path = fs::temp_directory_path() /
-        ("cc_repl_hist_roundtrip_" +
+        ("loom_hist_roundtrip_" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
          ".jsonl");
-    ScopedEnvVar env("CC_REPL_HISTORY_FILE");
+    ScopedEnvVar env("LOOM_HISTORY_FILE");
     env.set(hist_path.string());
 
     // Empty file => empty results.
@@ -5190,10 +5190,10 @@ TEST(AutocompleteSources, AppendAndReadHistoryRoundTrip) {
 /// truncated display + relative-time description.
 TEST(AutocompleteSources, BuildHistorySuggestionsFormatting) {
     const auto hist_path = fs::temp_directory_path() /
-        ("cc_repl_hist_fmt_" +
+        ("loom_hist_fmt_" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
          ".jsonl");
-    ScopedEnvVar env("CC_REPL_HISTORY_FILE");
+    ScopedEnvVar env("LOOM_HISTORY_FILE");
     env.set(hist_path.string());
 
     // Long prompt (>80 chars) should be truncated in display.
@@ -5219,16 +5219,16 @@ TEST(AutocompleteSources, BuildHistorySuggestionsFormatting) {
 
 /// build_agent_suggestions returns agent/teammate suggestions with the
 /// color_name field populated from agent.color / record.teammate_color.
-/// At minimum the built-in "claude" agent should be present.
+/// At minimum the built-in "loom" agent should be present.
 TEST(AutocompleteSources, BuildAgentSuggestionsHasColors) {
     auto agents = acsrc::collect_agent_suggestions("");
     ASSERT_FALSE(agents.empty())
         << "expected at least one built-in agent definition";
 
-    // The default "claude" agent should exist (catch-all).
+    // The default "loom" agent should exist (catch-all).
     auto it = std::find_if(agents.begin(), agents.end(),
-        [](const auto& a) { return a.name == "claude"; });
-    ASSERT_NE(it, agents.end()) << "built-in 'claude' agent not found";
+        [](const auto& a) { return a.name == "loom"; });
+    ASSERT_NE(it, agents.end()) << "built-in 'loom' agent not found";
 
     // build_agent_suggestions with empty query returns all agents (fuzzy
     // match passes for everything when query is empty).
@@ -5242,13 +5242,13 @@ TEST(AutocompleteSources, BuildAgentSuggestionsHasColors) {
         EXPECT_EQ(s.replacement_start, 0u);
         EXPECT_EQ(s.replacement_end, 7u);
         EXPECT_FALSE(s.submit_on_return);
-        if (s.display_text == "@claude") {
+        if (s.display_text == "@loom") {
             found_claude = true;
-            EXPECT_FALSE(s.icon.empty()) << "claude agent should have an icon";
+            EXPECT_FALSE(s.icon.empty()) << "loom agent should have an icon";
             EXPECT_FALSE(s.id.empty());
         }
     }
-    EXPECT_TRUE(found_claude) << "@claude suggestion not found in results";
+    EXPECT_TRUE(found_claude) << "@loom suggestion not found in results";
 
     // Fuzzy filter: query "xyz" should match nothing (no agent named xyz).
     auto filtered = acsrc::build_agent_suggestions("", "xyz_nonexistent", 0, 3);
@@ -5260,10 +5260,10 @@ TEST(AutocompleteSources, BuildAgentSuggestionsHasColors) {
 /// "@history " and verify suggestions appear.
 TEST(AppRuntime, AtHistoryShowsPersistedPrompts) {
     const auto hist_path = fs::temp_directory_path() /
-        ("cc_repl_app_hist_" +
+        ("loom_app_hist_" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
          ".jsonl");
-    ScopedEnvVar env("CC_REPL_HISTORY_FILE");
+    ScopedEnvVar env("LOOM_HISTORY_FILE");
     env.set(hist_path.string());
 
     // Pre-populate history.
@@ -5277,7 +5277,7 @@ TEST(AppRuntime, AtHistoryShowsPersistedPrompts) {
     cc::core::QueryEngine engine(std::move(config), tools);
     cc::commands::AppCommandRegistry commands;
     const auto storage_root = fs::temp_directory_path() /
-        ("cc_repl_app_hist_storage_" +
+        ("loom_app_hist_storage_" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     cc::utils::SessionStorage storage(storage_root);
 
@@ -5309,10 +5309,10 @@ TEST(AppRuntime, AtHistoryShowsPersistedPrompts) {
 /// Typing "@history deploy" filters history by the substring "deploy".
 TEST(AppRuntime, AtHistoryWithQueryFiltersResults) {
     const auto hist_path = fs::temp_directory_path() /
-        ("cc_repl_app_hist_filter_" +
+        ("loom_app_hist_filter_" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
          ".jsonl");
-    ScopedEnvVar env("CC_REPL_HISTORY_FILE");
+    ScopedEnvVar env("LOOM_HISTORY_FILE");
     env.set(hist_path.string());
 
     acsrc::append_prompt_history("deploy to production", "sess-1", "/proj");
@@ -5325,7 +5325,7 @@ TEST(AppRuntime, AtHistoryWithQueryFiltersResults) {
     cc::core::QueryEngine engine(std::move(config), tools);
     cc::commands::AppCommandRegistry commands;
     const auto storage_root = fs::temp_directory_path() /
-        ("cc_repl_app_hist_filter_storage_" +
+        ("loom_app_hist_filter_storage_" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     cc::utils::SessionStorage storage(storage_root);
 
@@ -5364,7 +5364,7 @@ TEST(AppRuntime, CtrlREntersHistorySearchMode) {
     cc::core::QueryEngine engine(std::move(config), tools);
     cc::commands::AppCommandRegistry commands;
     const auto storage_root = fs::temp_directory_path() /
-        ("cc_repl_app_ctrlr_storage_" +
+        ("loom_app_ctrlr_storage_" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     cc::utils::SessionStorage storage(storage_root);
 
@@ -5398,10 +5398,10 @@ TEST(AppRuntime, CtrlREntersHistorySearchMode) {
 /// searches can find it.  Verifies the end-to-end persistence wiring.
 TEST(AppRuntime, SubmitPersistsPromptToHistory) {
     const auto hist_path = fs::temp_directory_path() /
-        ("cc_repl_app_submit_hist_" +
+        ("loom_app_submit_hist_" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
          ".jsonl");
-    ScopedEnvVar env("CC_REPL_HISTORY_FILE");
+    ScopedEnvVar env("LOOM_HISTORY_FILE");
     env.set(hist_path.string());
 
     cc::core::ToolRegistry tools;
@@ -5411,7 +5411,7 @@ TEST(AppRuntime, SubmitPersistsPromptToHistory) {
     cc::core::QueryEngine engine(std::move(config), tools);
     cc::commands::AppCommandRegistry commands;
     const auto storage_root = fs::temp_directory_path() /
-        ("cc_repl_app_submit_hist_storage_" +
+        ("loom_app_submit_hist_storage_" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     cc::utils::SessionStorage storage(storage_root);
 
@@ -5445,7 +5445,7 @@ TEST(AppRuntime, SubmitPersistsPromptToHistory) {
 }
 
 /// Typing "@" followed by agent name characters should show agent
-/// suggestions.  At minimum "@cl" should match the "claude" agent.
+/// suggestions.  At minimum "@cl" should match the "loom" agent.
 TEST(AppRuntime, AtAgentShowsAgentSuggestions) {
     cc::core::ToolRegistry tools;
     cc::core::QueryEngineConfig config;
@@ -5454,22 +5454,22 @@ TEST(AppRuntime, AtAgentShowsAgentSuggestions) {
     cc::core::QueryEngine engine(std::move(config), tools);
     cc::commands::AppCommandRegistry commands;
     const auto storage_root = fs::temp_directory_path() /
-        ("cc_repl_app_at_agent_storage_" +
+        ("loom_app_at_agent_storage_" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     cc::utils::SessionStorage storage(storage_root);
 
     auto app = ftxui::Make<cc::ui::AppAdapter>(
         &engine, nullptr, &commands, &storage, [] {});
 
-    // Type "@cl" — should show agent suggestions matching "cl".
+    // Type "@lo" — should show agent suggestions matching "lo".
     EXPECT_TRUE(app->OnEvent(ftxui::Event::Character('@')));
-    EXPECT_TRUE(app->OnEvent(ftxui::Event::Character('c')));
     EXPECT_TRUE(app->OnEvent(ftxui::Event::Character('l')));
+    EXPECT_TRUE(app->OnEvent(ftxui::Event::Character('o')));
 
     auto suggestions = app->autocomplete_suggestions_for_testing();
     bool found_claude = std::any_of(suggestions.begin(), suggestions.end(),
-        [](const std::string& s) { return s.find("@claude") != std::string::npos; });
-    EXPECT_TRUE(found_claude) << "@cl should surface @claude agent suggestion";
+        [](const std::string& s) { return s.find("@loom") != std::string::npos; });
+    EXPECT_TRUE(found_claude) << "@lo should surface the @loom agent suggestion";
 
     fs::remove_all(storage_root);
 }
@@ -5481,12 +5481,12 @@ TEST(AppRuntime, TeammateInboxPollDeliversTasksAndFiltersControl) {
     namespace tu = cc::utils;
 
     const auto runtime_dir = fs::temp_directory_path() /
-        ("cc_repl_teammate_inbox_" +
+        ("loom_teammate_inbox_" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     fs::remove_all(runtime_dir);
-    ScopedEnvVar runtime_guard("CC_REPL_TEAM_RUNTIME_DIR");
+    ScopedEnvVar runtime_guard("LOOM_TEAM_RUNTIME_DIR");
     runtime_guard.set(runtime_dir.string());
-    ScopedEnvVar team_guard("CC_REPL_TEAM_NAME");
+    ScopedEnvVar team_guard("LOOM_TEAM_NAME");
     team_guard.set("alpha");
 
     cc::core::ToolRegistry tools;
@@ -5496,7 +5496,7 @@ TEST(AppRuntime, TeammateInboxPollDeliversTasksAndFiltersControl) {
     auto engine = std::make_unique<cc::core::QueryEngine>(std::move(config), tools);
     auto commands = std::make_unique<cc::commands::AppCommandRegistry>();
     const auto storage_root = fs::temp_directory_path() /
-        ("cc_repl_ti_storage_" +
+        ("loom_ti_storage_" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     auto storage = std::make_unique<cc::utils::SessionStorage>(storage_root);
     auto app = ftxui::Make<cc::ui::AppAdapter>(
@@ -5509,7 +5509,7 @@ TEST(AppRuntime, TeammateInboxPollDeliversTasksAndFiltersControl) {
         "worker-a", "please run the build", std::string_view("build it")).has_value());
     // Control message (shutdown) must not become a task prompt.
     ASSERT_TRUE(tu::send_message(
-        "worker-a", "cc-repl:shutdown approved").has_value());
+        "worker-a", "loom:shutdown approved").has_value());
 
     app->poll_teammate_inbox_once_for_testing();
     // Only the task is queued.
@@ -5517,7 +5517,7 @@ TEST(AppRuntime, TeammateInboxPollDeliversTasksAndFiltersControl) {
     const auto prompt = app->pop_teammate_prompt_for_testing();
     EXPECT_NE(prompt.find("<teammate_message teammate_id=\""), std::string::npos);
     EXPECT_NE(prompt.find("please run the build"), std::string::npos);
-    EXPECT_EQ(prompt.find("cc-repl:shutdown"), std::string::npos);
+    EXPECT_EQ(prompt.find("loom:shutdown"), std::string::npos);
 
     // A second poll after read-marking delivers nothing (no duplicates).
     app->poll_teammate_inbox_once_for_testing();
@@ -5585,7 +5585,7 @@ TEST(LiveTeamsUi, SlashTeamsOpensOverviewModal) {
     cc::core::QueryEngine engine(std::move(config), tools);
     cc::commands::AppCommandRegistry commands;
     const auto storage_root = fs::temp_directory_path() /
-        ("cc_repl_teams_modal_" +
+        ("loom_teams_modal_" +
          std::to_string(std::chrono::steady_clock::now()
                             .time_since_epoch().count()));
     cc::utils::SessionStorage storage(storage_root);
@@ -5629,15 +5629,15 @@ TEST(LiveTeamsUi, TeammatePermissionRequestRoutesThroughToolPermission) {
     namespace sh = cc::utils::swarm_helpers;
 
     const auto runtime_dir = fs::temp_directory_path() /
-        ("cc_repl_teams_perm_" +
+        ("loom_teams_perm_" +
          std::to_string(std::chrono::steady_clock::now()
                             .time_since_epoch().count()));
     fs::remove_all(runtime_dir);
-    ScopedEnvVar runtime_guard("CC_REPL_TEAM_RUNTIME_DIR");
+    ScopedEnvVar runtime_guard("LOOM_TEAM_RUNTIME_DIR");
     runtime_guard.set(runtime_dir.string());
-    ScopedEnvVar team_guard("CC_REPL_TEAM_NAME");
+    ScopedEnvVar team_guard("LOOM_TEAM_NAME");
     team_guard.set("alpha");
-    ScopedEnvVar agent_guard("CC_REPL_AGENT_NAME");
+    ScopedEnvVar agent_guard("LOOM_AGENT_NAME");
     agent_guard.unset();  // this process is the LEADER, not a pane teammate
 
     cc::core::ToolRegistry tools;
@@ -5647,7 +5647,7 @@ TEST(LiveTeamsUi, TeammatePermissionRequestRoutesThroughToolPermission) {
     auto engine = std::make_unique<cc::core::QueryEngine>(std::move(config), tools);
     auto commands = std::make_unique<cc::commands::AppCommandRegistry>();
     const auto storage_root = fs::temp_directory_path() /
-        ("cc_repl_teams_perm_storage_" +
+        ("loom_teams_perm_storage_" +
          std::to_string(std::chrono::steady_clock::now()
                             .time_since_epoch().count()));
     auto storage = std::make_unique<cc::utils::SessionStorage>(storage_root);

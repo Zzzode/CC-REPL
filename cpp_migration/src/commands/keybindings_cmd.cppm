@@ -125,7 +125,7 @@ public:
             return CommandResult::success(
                 "Keybinding customization is not enabled. "
                 "This feature is currently in preview. "
-                "Set CC_REPL_KEYBINDINGS=1 to enable.");
+                "Set LOOM_KEYBINDINGS=1 to enable.");
         }
 
         if (ctx.args.empty()) {

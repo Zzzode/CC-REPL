@@ -26,7 +26,7 @@
 // (modules are reachable only from other module TUs).  We therefore duplicate
 // the *logical* SSE parser logic here as a tiny reference implementation and
 // compare behaviour against the real one later by reading the test-helper
-// trace file produced by `cc-repl --dry-run --dump-sse-parser-trace`.
+// trace file produced by `loom --dry-run --dump-sse-parser-trace`.
 //
 // The real unit-level parser validation lives in `tests/test_services.cpp`
 // under the "ParseFakeSse" case; this E2E binary focuses on end-to-end

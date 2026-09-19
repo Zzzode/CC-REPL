@@ -46,23 +46,23 @@ namespace detail {
 inline std::filesystem::path get_global_templates_dir() {
     const char* home = std::getenv("HOME");
     if (home) {
-        return std::filesystem::path(home) / ".config" / "claude-code" / "templates";
+        return std::filesystem::path(home) / ".config" / "loom" / "templates";
     }
-    return std::filesystem::temp_directory_path() / "claude-code-templates";
+    return std::filesystem::temp_directory_path() / "loom-templates";
 }
 
 inline std::filesystem::path get_project_templates_dir() {
     auto cwd = std::filesystem::current_path();
     auto dir = cwd;
     while (true) {
-        if (std::filesystem::exists(dir / ".claude" / "templates")) {
-            return dir / ".claude" / "templates";
+        if (std::filesystem::exists(dir / ".loom" / "templates")) {
+            return dir / ".loom" / "templates";
         }
         auto parent = dir.parent_path();
         if (parent == dir) break;
         dir = parent;
     }
-    return cwd / ".claude" / "templates";
+    return cwd / ".loom" / "templates";
 }
 
 /// Simple JSON field extraction

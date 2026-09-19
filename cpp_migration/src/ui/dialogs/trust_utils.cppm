@@ -453,7 +453,7 @@ scan_paths_for_sensitive(const std::vector<std::string>& paths) {
 /// Returns true if `host` is on the hardcoded safe-domain allowlist.
 /// Reuses `is_trusted_marketplace_domain()` for marketplace hosts and
 /// extends it with the most common "obviously safe" cloud domains that
-/// ship with Claude Code by default.
+/// ship with Loom by default.
 [[nodiscard]] inline bool is_known_safe_domain(std::string_view host) {
     // Reuse the marketplace allowlist from plugin_trust_text.cppm.
     if (is_trusted_marketplace_domain(host)) return true;
@@ -462,8 +462,7 @@ scan_paths_for_sensitive(const std::vector<std::string>& paths) {
         "api.anthropic.com",
         "anthropic.com",
         "marketplace.anthropic.com",
-        "claudecode.app",
-        "code.claude.com",
+        "loomcode.app",
         "console.anthropic.com",
         "status.anthropic.com",
         "docs.anthropic.com",

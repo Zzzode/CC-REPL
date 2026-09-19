@@ -21,8 +21,8 @@ struct MtlsConfig {
 
 // Get mTLS configuration from environment variables
 inline std::optional<MtlsConfig> get_mtls_config() {
-    const char* cert = std::getenv("CLAUDE_MTLS_CERT");
-    const char* key = std::getenv("CLAUDE_MTLS_KEY");
+    const char* cert = std::getenv("LOOM_MTLS_CERT");
+    const char* key = std::getenv("LOOM_MTLS_KEY");
 
     // Both cert and key are required
     if (!cert || !key) return std::nullopt;
@@ -32,7 +32,7 @@ inline std::optional<MtlsConfig> get_mtls_config() {
     config.key_file = fs::path(key);
 
     // CA file is optional
-    if (const char* ca = std::getenv("CLAUDE_MTLS_CA")) {
+    if (const char* ca = std::getenv("LOOM_MTLS_CA")) {
         config.ca_file = fs::path(ca);
     }
 

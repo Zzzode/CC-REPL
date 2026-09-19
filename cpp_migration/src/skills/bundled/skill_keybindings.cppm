@@ -229,11 +229,11 @@ inline std::string generate_reserved_shortcuts() {
 
 inline const char* SECTION_INTRO = R"(# Keybindings Skill
 
-Create or modify `~/.claude/keybindings.json` to customize keyboard shortcuts.
+Create or modify `~/.loom/keybindings.json` to customize keyboard shortcuts.
 
 ## CRITICAL: Read Before Write
 
-**Always read `~/.claude/keybindings.json` first** (it may not exist yet). Merge
+**Always read `~/.loom/keybindings.json` first** (it may not exist yet). Merge
 changes with existing bindings — never replace the entire file.
 
 - Use **Edit** tool for modifications to existing files
@@ -243,8 +243,7 @@ inline const char* SECTION_FILE_FORMAT = R"(## File Format
 
 ```json
 {
-  "$schema": "https://www.schemastore.org/claude-code-keybindings.json",
-  "$docs": "https://code.claude.com/docs/en/keybindings",
+  "$schema": "https://www.schemastore.org/loom-keybindings.json",
   "bindings": [
     {
       "context": "Chat",
@@ -374,7 +373,7 @@ inline std::string section_doctor() {
     oss << R"(## Validation with /doctor
 
 The `/doctor` command includes a "Keybinding Configuration Issues" section that
-validates `~/.claude/keybindings.json`.
+validates `~/.loom/keybindings.json`.
 
 ### Common Issues and Fixes
 
@@ -383,7 +382,7 @@ validates `~/.claude/keybindings.json`.
 
 ```
 Keybinding Configuration Issues
-Location: ~/.claude/keybindings.json
+Location: ~/.loom/keybindings.json
   └ [Error] Unknown context "chat"
     → Valid contexts: Global, Chat, Autocomplete, ...
   └ [Warning] "ctrl+c" may not work: Terminal interrupt (SIGINT)
@@ -437,7 +436,7 @@ inline std::string build_keybindings_help_prompt(
 /// keybindings overrides.
 inline bool is_keybinding_customization_enabled() {
     // TODO(config): Read from global config when available.
-    const char* val = std::getenv("CLAUDE_CODE_KEYBINDINGS_ENABLED");
+    const char* val = std::getenv("LOOM_KEYBINDINGS_ENABLED");
     if (val && (std::string(val) == "0" || std::string(val) == "false")) {
         return false;
     }
@@ -457,7 +456,7 @@ cc::skills::SkillManifest get_keybindings_help_skill_manifest() {
         .name = "keybindings-help",
         .description =
             "Use when the user wants to customize keyboard shortcuts, rebind keys, add "
-            "chord bindings, or modify ~/.claude/keybindings.json. Examples: \"rebind "
+            "chord bindings, or modify ~/.loom/keybindings.json. Examples: \"rebind "
             "ctrl+s\", \"add a chord shortcut\", \"change the submit key\", "
             "\"customize keybindings\".",
         .version = "1.0.0",

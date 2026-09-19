@@ -29,8 +29,8 @@ struct PluginInstallInfo {
 };
 
 auto plugin_root_dir() -> path {
-    if (const char* home = std::getenv("HOME")) return path{home} / ".cc-repl" / "plugins";
-    return path{".cc-repl"} / "plugins";
+    if (const char* home = std::getenv("HOME")) return path{home} / ".loom" / "plugins";
+    return path{".loom"} / "plugins";
 }
 
 auto normalize_plugin_id(std::string_view id_or_url) -> std::string {

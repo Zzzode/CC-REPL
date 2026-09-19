@@ -1,5 +1,5 @@
 /// @file task_graph.cppm
-/// @brief Background task scheduling and execution module for the Claude Code CLI engine.
+/// @brief Background task scheduling and execution module for the Loom CLI engine.
 /// Implements task lifecycle, scheduling with concurrency limits, coroutine-based
 /// execution via libuv, timeout, cancellation, and output streaming.
 module;

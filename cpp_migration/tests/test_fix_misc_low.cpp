@@ -17,7 +17,7 @@
 //   target_link_libraries(test_fix_misc_low PRIVATE cc_services cc_hooks
 //                         GTest::gtest_main)
 //   gtest_discover_tests(test_fix_misc_low
-//       DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+//       DISCOVERY_TIMEOUT ${LOOM_TEST_DISCOVERY_TIMEOUT})
 
 #include <gtest/gtest.h>
 

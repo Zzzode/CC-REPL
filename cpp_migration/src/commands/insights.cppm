@@ -96,7 +96,7 @@ inline const std::map<std::string, std::string>& label_map() {
         {"wrong_approach", "Wrong Approach"},
         {"buggy_code", "Buggy Code"},
         {"user_rejected_action", "User Rejected Action"},
-        {"claude_got_blocked", "Claude Got Blocked"},
+        {"loom_got_blocked", "Loom Got Blocked"},
         {"user_stopped_early", "User Stopped Early"},
         {"wrong_file_or_location", "Wrong File/Location"},
         {"excessive_changes", "Excessive Changes"},
@@ -153,7 +153,7 @@ struct SessionFacets {
     std::map<std::string, std::size_t> goal_categories;
     std::string outcome;                                   // fully_achieved | ...
     std::map<std::string, std::size_t> user_satisfaction_counts;
-    std::string claude_helpfulness;                        // unhelpful | ...
+    std::string loom_helpfulness;                        // unhelpful | ...
     std::string session_type;                              // single_task | ...
     std::map<std::string, std::size_t> friction_counts;
     std::string friction_detail;
@@ -217,7 +217,7 @@ facets_from_json(const cc::utils::json::JsonVal& o, std::string session_id) {
     f.outcome = o.get_string("outcome");
     f.user_satisfaction_counts =
         read_count_map(o.get("user_satisfaction_counts"));
-    f.claude_helpfulness = o.get_string("claude_helpfulness");
+    f.loom_helpfulness = o.get_string("loom_helpfulness");
     f.session_type = o.get_string("session_type");
     f.friction_counts = read_count_map(o.get("friction_counts"));
     f.friction_detail = o.get_string("friction_detail");
@@ -250,7 +250,7 @@ aggregate_facets(const std::vector<SessionFacets>& facets) {
         bump_count_map(r.goal_categories, f.goal_categories);
         bump(r.outcomes, f.outcome, 1);
         bump_count_map(r.satisfaction, f.user_satisfaction_counts);
-        bump(r.helpfulness, f.claude_helpfulness, 1);
+        bump(r.helpfulness, f.loom_helpfulness, 1);
         bump(r.session_types, f.session_type, 1);
         bump_count_map(r.friction, f.friction_counts);
         if (f.primary_success != "none") {
@@ -269,7 +269,7 @@ namespace detail {
 inline fs::path usage_data_dir() {
     const char* home = std::getenv("HOME");
     fs::path base = home ? fs::path(home) : fs::temp_directory_path();
-    return base / ".claude" / "usage-data";
+    return base / ".loom" / "usage-data";
 }
 
 inline fs::path facets_dir() { return usage_data_dir() / "facets"; }
@@ -301,7 +301,7 @@ inline fs::path facet_path(std::string_view session_id) {
     put_map("goal_categories", f.goal_categories);
     root.add("outcome", doc.string(f.outcome));
     put_map("user_satisfaction_counts", f.user_satisfaction_counts);
-    root.add("claude_helpfulness", doc.string(f.claude_helpfulness));
+    root.add("loom_helpfulness", doc.string(f.loom_helpfulness));
     root.add("session_type", doc.string(f.session_type));
     put_map("friction_counts", f.friction_counts);
     root.add("friction_detail", doc.string(f.friction_detail));
@@ -442,7 +442,7 @@ namespace detail {
     std::string out;
     out += "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n";
     out += "  <meta charset=\"utf-8\">\n";
-    out += "  <title>Claude Code Insights</title>\n";
+    out += "  <title>Loom Insights</title>\n";
     out += "  <style>\n"
            "    body { font-family: Inter, system-ui, sans-serif; "
            "margin: 2rem auto; max-width: 48rem; color: #1f2937; }\n"
@@ -462,7 +462,7 @@ namespace detail {
            "    .empty { color: #9ca3af; font-style: italic; }\n"
            "  </style>\n";
     out += "</head>\n<body>\n";
-    out += "  <h1>Claude Code Insights</h1>\n";
+    out += "  <h1>Loom Insights</h1>\n";
     out += std::format("  <p class=\"subtitle\">{} messages across {} "
                        "sessions | {} to {}</p>\n",
                        total_messages, total_sessions,
@@ -486,7 +486,7 @@ namespace detail {
     out += detail::render_section("outcomes", "Outcomes", agg.outcomes);
     out += detail::render_section("satisfaction", "Satisfaction",
                                   agg.satisfaction);
-    out += detail::render_section("helpfulness", "Claude Helpfulness",
+    out += detail::render_section("helpfulness", "Loom Helpfulness",
                                   agg.helpfulness);
     out += detail::render_section("types", "Session Types",
                                   agg.session_types);
@@ -521,12 +521,12 @@ using LlmExtractFn =
 /// so callers (and tests) can assert the contract matches the TS feature.
 inline const std::string& facet_extraction_prompt() {
     static const std::string p =
-        "Analyze this Claude Code session and extract structured facets.\n\n"
+        "Analyze this Loom session and extract structured facets.\n\n"
         "CRITICAL GUIDELINES:\n\n"
         "1. **goal_categories**: Count ONLY what the USER explicitly asked "
         "for.\n"
-        "   - DO NOT count Claude's autonomous codebase exploration\n"
-        "   - DO NOT count work Claude decided to do on its own\n"
+        "   - DO NOT count Loom's autonomous codebase exploration\n"
+        "   - DO NOT count work Loom decided to do on its own\n"
         "   - ONLY count when user says \"can you...\", \"please...\", "
         "\"I need...\", \"let's...\"\n\n"
         "2. **user_satisfaction_counts**: Base ONLY on explicit user signals.\n"
@@ -537,7 +537,7 @@ inline const std::string& facet_extraction_prompt() {
         "   - \"that's not right\", \"try again\" -> dissatisfied\n"
         "   - \"this is broken\", \"I give up\" -> frustrated\n\n"
         "3. **friction_counts**: Be specific about what went wrong.\n"
-        "   - misunderstood_request: Claude interpreted incorrectly\n"
+        "   - misunderstood_request: Loom interpreted incorrectly\n"
         "   - wrong_approach: Right goal, wrong solution method\n"
         "   - buggy_code: Code didn't work correctly\n"
         "   - user_rejected_action: User said no/stop to a tool call\n"
@@ -614,7 +614,7 @@ public:
 
         if (sessions.empty()) {
             return CommandResult::success(
-                "No sessions found in local storage (~/.claude/sessions/).\n"
+                "No sessions found in local storage (~/.loom/sessions/).\n"
                 "Usage insights are generated from recorded session "
                 "transcripts.");
         }
@@ -748,7 +748,7 @@ public:
             ctx.dispatch_action(ACTION_ADD_NOTIFICATION, &note);
 
             std::string narrative_prompt = std::format(
-                "Analyze my Claude Code usage patterns based on the "
+                "Analyze my Loom usage patterns based on the "
                 "following session statistics. These are local session "
                 "scans — no rich facet extraction (goal categories, "
                 "outcomes, friction tags) is available, so work from "
@@ -762,13 +762,13 @@ public:
                 "dominate my sessions? Consider model choices, message "
                 "volumes, and session recency patterns to infer the "
                 "kinds of projects and tasks I engage with most.\n\n"
-                "2. **Interaction Style**: How do I engage with Claude "
+                "2. **Interaction Style**: How do I engage with Loom "
                 "Code? Look at session length, message frequency, and "
                 "model preferences to characterize my interaction "
                 "patterns — e.g., deep work sessions vs. quick queries.\n\n"
                 "3. **What Works Well**: Productive patterns you can "
                 "observe. Which models do I prefer, and what might "
-                "that say about the tasks where Claude is most helpful?\n\n"
+                "that say about the tasks where Loom is most helpful?\n\n"
                 "4. **Friction Analysis**: Where might I be struggling "
                 "or encountering inefficiencies? Consider unusually "
                 "long sessions, high message counts per session, or "

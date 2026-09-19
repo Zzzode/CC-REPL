@@ -1,5 +1,5 @@
 /// @file logo.cppm
-/// @brief Seed / Clawd ASCII logo with an animated asterisk.
+/// @brief Seed / Loom mascot ASCII logo with an animated asterisk.
 /// TS-side references audited: animated asterisk, welcome banner, condensed logo.
 /// We render the clawd mark with unicode block characters, suffix "🌱 Seed" as
 /// the Seed wordmark (TS SVG logos don't port to TTY), and implement the
@@ -31,7 +31,7 @@ using namespace cc::ui::design::tokens;
 using namespace cc::ui::design::theme;
 
 // ─── Static logo marks ───────────────────────────────────────────────────────
-// Clawd (Claude's icon) drawn as 9×3 unicode blocks.  The TS side uses
+// Loom mascot (Loom's icon) drawn as 9×3 unicode blocks.  The TS side uses
 // slightly different Unicode characters, but FTXUI renders `█`/`▄` cleanly.
 constexpr std::string_view k_clawd_row_1 = "█████████";
 constexpr std::string_view k_clawd_row_2 = "██▄█████▄██";
@@ -202,12 +202,12 @@ private:
 
 // ─── Welcome banner ─────────────────────────────────────────────────────────
 // The upstream banner is a 58-col fixed-width ASCII block: a row-0 welcome
-// caption, a 60-char dotted underline, then a hand-drawn "Clawd" mascot made
+// caption, a 60-char dotted underline, then a hand-drawn "Loom mascot" mascot made
 // of ░ ▒ ▓ █ quadrants with scattered * / bold-* / dim-* asterisks scattered
-// around it, and a single embedded Clawd ASCII mark (█████████ / ██▄█████▄██
-// / █████████) in the clawd_body colour.  Every glyph below is transcribed
+// around it, and a single embedded Loom mascot ASCII mark (█████████ / ██▄█████▄██
+// / █████████) in the loom_body colour.  Every glyph below is transcribed
 // from the compiled JS so the silhouette matches the real product;
-// only the trailing block-row colouring is parameterised on `clawd_body`.
+// only the trailing block-row colouring is parameterised on `loom_body`.
 //
 // Width reference (TTY display columns; all glyphs are width-1 BMP): the
 // mascot rows are 58 cols, the dotted underline is 60 cols (overhangs by 2,
@@ -218,7 +218,7 @@ namespace welcome_banner_detail {
 // Mascot body rows (no colour applied; the clawd mark span is coloured
 // separately by the caller).  These are the exact literals from the
 // dark-theme branch of the upstream welcome banner.
-constexpr std::string_view k_row_caption = "Welcome to Claude Code ";
+constexpr std::string_view k_row_caption = "Welcome to Loom        ";
 constexpr std::string_view k_row_dotted  =
     "……………………………………………………………………………………………………………………"; // 60 × …
 constexpr std::string_view k_row_blank   =
@@ -245,8 +245,8 @@ constexpr std::string_view k_row_10 =
     "                                 ░░░░░░░░                 ";
 constexpr std::string_view k_row_11 =
     "                               ░░░░░░░░░░░░░░░░           ";
-// Clawd-mark rows: 6-space indent + mark + trailing scatter.  The mark span
-// itself is clawd_body-coloured; the trailing asterisk line varies.
+// Loom mascot-mark rows: 6-space indent + mark + trailing scatter.  The mark span
+// itself is loom_body-coloured; the trailing asterisk line varies.
 constexpr std::string_view k_row_13_pre   = "      ";
 constexpr std::string_view k_row_13_mark  = " █████████ ";
 constexpr std::string_view k_row_13_mid   =
@@ -260,19 +260,19 @@ constexpr std::string_view k_row_15_pre   = "      ";
 constexpr std::string_view k_row_15_mark  = " █████████ ";
 constexpr std::string_view k_row_15_post  =
     "     *                                   ";
-// Trailing concatenation row: dots + clawd_body "█ █   █ █" + dots.
+// Trailing concatenation row: dots + loom_body "█ █   █ █" + dots.
 constexpr std::string_view k_row_tail_pre  = "………"; // 7 dots
 constexpr std::string_view k_row_tail_mark = "█ █   █ █";
 constexpr std::string_view k_row_tail_post =
     "……………………………………………………………………"; // 40 dots (total row ≈ 58)
 } // namespace welcome_banner_detail
 
-/// Render the welcome banner as a static Element.  `clawd_body` is the
-/// foreground colour for the embedded Clawd mark spans; everything else is
+/// Render the welcome banner as a static Element.  `loom_body` is the
+/// foreground colour for the embedded Loom mascot mark spans; everything else is
 /// plain text, with the per-row bold/dim styling baked in to match TS.
 /// `version` is substituted into the caption ("v{version}").
 [[nodiscard]] inline ftxui::Element welcome_banner(
-    std::string_view version, ftxui::Color clawd_body,
+    std::string_view version, ftxui::Color loom_body,
     std::optional<ftxui::Color> clawd_bg = std::nullopt) {
     using namespace ftxui;
     namespace d = welcome_banner_detail;
@@ -280,9 +280,9 @@ constexpr std::string_view k_row_tail_post =
         return clawd_bg ? (e | bgcolor(*clawd_bg)) : e;
     };
     Elements rows;
-    // Row 0: "Welcome to Claude Code " (claude-coloured) + dim "v{version} "
+    // Row 0: "Welcome to Loom        " (loom-coloured) + dim "v{version} "
     rows.push_back(hbox({
-        text(std::string(d::k_row_caption)) | color(clawd_body) | bold,
+        text(std::string(d::k_row_caption)) | color(loom_body) | bold,
         text("v" + std::string(version) + " ") | dim,
     }));
     rows.push_back(text(std::string(d::k_row_dotted)));
@@ -301,32 +301,32 @@ constexpr std::string_view k_row_tail_post =
     rows.push_back(text(std::string(d::k_row_9))  | dim);
     rows.push_back(text(std::string(d::k_row_10)) | dim);
     rows.push_back(text(std::string(d::k_row_11)) | dim);
-    // Row 13: indent + clawd_body mark + spaces + dim '*'.
+    // Row 13: indent + loom_body mark + spaces + dim '*'.
     rows.push_back(hbox({
         text(std::string(d::k_row_13_pre)),
-        bg(text(std::string(d::k_row_13_mark)) | color(clawd_body)),
+        bg(text(std::string(d::k_row_13_mark)) | color(loom_body)),
         text(std::string(d::k_row_13_mid)),
         text("*") | dim,
         text(std::string(d::k_row_13_post)),
     }));
-    // Row 14: indent + clawd_body mark + spaces + bold '*'.
+    // Row 14: indent + loom_body mark + spaces + bold '*'.
     rows.push_back(hbox({
         text(std::string(d::k_row_14_pre)),
-        bg(text(std::string(d::k_row_14_mark)) | color(clawd_body)),
+        bg(text(std::string(d::k_row_14_mark)) | color(loom_body)),
         text(std::string(d::k_row_14_mid)),
         text("*") | bold,
         text(std::string(d::k_row_14_post)),
     }));
-    // Row 15: indent + clawd_body mark + trailing scatter (has a plain '*').
+    // Row 15: indent + loom_body mark + trailing scatter (has a plain '*').
     rows.push_back(hbox({
         text(std::string(d::k_row_15_pre)),
-        bg(text(std::string(d::k_row_15_mark)) | color(clawd_body)),
+        bg(text(std::string(d::k_row_15_mark)) | color(loom_body)),
         text(std::string(d::k_row_15_post)),
     }));
-    // Trailing row: dots + clawd_body "█ █   █ █" + dots.
+    // Trailing row: dots + loom_body "█ █   █ █" + dots.
     rows.push_back(hbox({
         text(std::string(d::k_row_tail_pre)),
-        text(std::string(d::k_row_tail_mark)) | color(clawd_body),
+        text(std::string(d::k_row_tail_mark)) | color(loom_body),
         text(std::string(d::k_row_tail_post)),
     }));
     return vbox(std::move(rows)) | size(WIDTH, EQUAL, 58);

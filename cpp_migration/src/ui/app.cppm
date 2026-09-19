@@ -773,7 +773,7 @@ private:
 
     // ── Teammate inbox worker (pane teammates) ──────────────────────────────
     // When this process is spawned as a tmux/iTerm pane teammate (identity via
-    // CC_REPL_AGENT_ID + CC_REPL_TEAM_NAME), a poller reads its filesystem
+    // LOOM_AGENT_ID + LOOM_TEAM_NAME), a poller reads its filesystem
     // inbox and delivers addressed tasks as prompts while the agent is idle.
     // The worker only enqueues (thread-safe) + posts an FTXUI event; actual
     // submission happens on the UI thread in the Custom-event handler, so no
@@ -1086,8 +1086,8 @@ private:
     // classifier tags embedded in the message text.
     static bool is_teammate_control_message(std::string_view text) {
         static constexpr std::string_view tags[] = {
-            "cc-repl:shutdown", "cc-repl:permission", "cc-repl:mode",
-            "cc-repl:plan-approval", "cc-repl:sandbox",
+            "loom:shutdown", "loom:permission", "loom:mode",
+            "loom:plan-approval", "loom:sandbox",
         };
         for (auto t : tags) {
             if (text.find(t) != std::string_view::npos) return true;
@@ -1125,11 +1125,11 @@ private:
 
     void start_teammate_inbox_worker() {
         teammate_self_agent_id_ =
-            env_first({"CC_REPL_AGENT_ID", "CLAUDE_CODE_AGENT_ID"});
+            env_first({"LOOM_AGENT_ID", "LOOM_AGENT_ID"});
         teammate_self_agent_name_ =
-            env_first({"CC_REPL_AGENT_NAME", "CLAUDE_CODE_AGENT_NAME"});
+            env_first({"LOOM_AGENT_NAME", "LOOM_AGENT_NAME"});
         teammate_self_team_ =
-            env_first({"CC_REPL_TEAM_NAME", "CLAUDE_CODE_TEAM_NAME"});
+            env_first({"LOOM_TEAM_NAME", "LOOM_TEAM_NAME"});
         if (!running_as_pane_teammate()) return;
 
         const std::string agent = teammate_self_agent_name_;
@@ -1488,7 +1488,7 @@ private:
                 ? "Project skills"
                 : "Project skills (" + collapse_home_path(skill.source_detail) + ")";
         }
-        if (skill.source == "user") return "User skills (~/.claude/skills)";
+        if (skill.source == "user") return "User skills (~/.loom/skills)";
         if (skill.source == "plugin") {
             return skill.source_detail.empty()
                 ? "Plugin skills"
@@ -1523,7 +1523,7 @@ private:
 
         if (skills.empty()) {
             out += "\nNo skills found.\n";
-            out += "Create skills under `.claude/skills` or `~/.claude/skills`.\n";
+            out += "Create skills under `.loom/skills` or `~/.loom/skills`.\n";
             return out;
         }
 
@@ -1642,19 +1642,19 @@ public:
         }
 
         if (auto command = first_non_empty_env({
-                "CC_REPL_STATUS_LINE_COMMAND",
-                "CLAUDE_CODE_STATUS_LINE_COMMAND"})) {
+                "LOOM_STATUS_LINE_COMMAND",
+                "LOOM_STATUS_LINE_COMMAND"})) {
             status_line_command = *command;
             status_line_type = "command";
         }
         if (auto enabled = first_non_empty_env({
-                "CC_REPL_STATUS_LINE_ENABLED",
-                "CLAUDE_CODE_STATUS_LINE_ENABLED"})) {
+                "LOOM_STATUS_LINE_ENABLED",
+                "LOOM_STATUS_LINE_ENABLED"})) {
             status_line_enabled = parse_bool_text(*enabled);
         }
         if (auto padding = first_non_empty_env({
-                "CC_REPL_STATUS_LINE_PADDING",
-                "CLAUDE_CODE_STATUS_LINE_PADDING"})) {
+                "LOOM_STATUS_LINE_PADDING",
+                "LOOM_STATUS_LINE_PADDING"})) {
             if (auto parsed = parse_int_text(*padding)) {
                 status_line_padding = *parsed;
             }
@@ -2170,7 +2170,7 @@ public:
 
     // Restore the parent shell's original termios (FTXUI's on_exit restored
     // what IT read, which carries VLNEXT=0; re-apply the true original so
-    // Ctrl+V lnext works again in the user's shell after cc-repl exits).
+    // Ctrl+V lnext works again in the user's shell after loom exits).
 #if defined(__APPLE__) || defined(__linux__)
     if (have_orig) {
         (void)tcsetattr(STDIN_FILENO, TCSANOW, &orig_termios);

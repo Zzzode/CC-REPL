@@ -42,7 +42,7 @@ namespace detail {
 [[nodiscard]] inline auto get_config_dir() -> fs::path {
     const char* home = std::getenv("HOME");
     fs::path base = (home && *home) ? fs::path(home) : fs::path("/tmp");
-    return base / ".config" / "cc-repl";
+    return base / ".config" / "loom";
 }
 
 // Path to the on-disk schema version marker (plain integer text file).

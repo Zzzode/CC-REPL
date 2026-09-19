@@ -138,7 +138,7 @@ struct DiagnosticInfo {
     DiagnosticInfo info;
 
     // Always collect basic info
-    info.app_version = "cc-repl 1.0.0-cpp (C++23)";
+    info.app_version = "loom 1.0.0-cpp (C++23)";
     info.os_version = get_os_version();
 
 #if defined(__APPLE__) || defined(__linux__)
@@ -180,7 +180,7 @@ struct DiagnosticInfo {
 /// Format diagnostics for human-readable display
 [[nodiscard]] inline std::string format_diagnostics(const DiagnosticInfo& info) {
     std::string output;
-    output += std::format("CC-REPL Diagnostic Report\n");
+    output += std::format("LOOM Diagnostic Report\n");
     output += std::format("========================\n\n");
     output += std::format("Version:     {}\n", info.app_version);
     output += std::format("OS:          {}\n", info.os_version);
@@ -250,8 +250,8 @@ struct DiagnosticInfo {
 
     const char* home = std::getenv("HOME");
     fs::path dir = home
-        ? fs::path(home) / ".claude" / "diagnostics"
-        : fs::temp_directory_path() / "cc-repl-diagnostics";
+        ? fs::path(home) / ".loom" / "diagnostics"
+        : fs::temp_directory_path() / "loom-diagnostics";
 
     std::error_code ec;
     fs::create_directories(dir, ec);

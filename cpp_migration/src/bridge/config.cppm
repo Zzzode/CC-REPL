@@ -219,7 +219,7 @@ public:
 [[nodiscard]] auto getBridgeTokenOverride() -> std::optional<std::string> {
     auto* user_type = std::getenv("USER_TYPE");
     if (user_type == nullptr || std::string_view(user_type) != "ant") return std::nullopt;
-    auto* token = std::getenv("CLAUDE_BRIDGE_OAUTH_TOKEN");
+    auto* token = std::getenv("LOOM_BRIDGE_OAUTH_TOKEN");
     if (token == nullptr) return std::nullopt;
     return std::string(token);
 }
@@ -227,7 +227,7 @@ public:
 [[nodiscard]] auto getBridgeBaseUrlOverride() -> std::optional<std::string> {
     auto* user_type = std::getenv("USER_TYPE");
     if (user_type == nullptr || std::string_view(user_type) != "ant") return std::nullopt;
-    auto* url = std::getenv("CLAUDE_BRIDGE_BASE_URL");
+    auto* url = std::getenv("LOOM_BRIDGE_BASE_URL");
     if (url == nullptr) return std::nullopt;
     return std::string(url);
 }
@@ -240,8 +240,10 @@ public:
 
 [[nodiscard]] auto getBridgeBaseUrl() -> std::string {
     if (auto override = getBridgeBaseUrlOverride()) return *override;
-    // Deferred: the OAuth config service owns alternate API base defaults.
-    return "https://api.claude.ai";
+    // No hosted bridge service ships with this build, and the upstream vendor's
+    // host must not be renamed into one that does not resolve. Empty signals
+    // "not configured" to callers.
+    return {};
 }
 
 } // namespace cc::bridge

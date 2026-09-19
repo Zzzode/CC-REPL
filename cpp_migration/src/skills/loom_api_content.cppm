@@ -1,10 +1,10 @@
-/// @file claude_api_content.cppm
-/// @brief Claude API content skill — auto-detects project language, injects
+/// @file loom_api_content.cppm
+/// @brief Loom API content skill — auto-detects project language, injects
 ///        a curated Reading Guide, model metadata, and cross-references to
 ///        shared / language-specific reference docs for Anthropic SDK usage.
 ///
-/// This is the C++20 port of `src/skills/bundled/claudeApiContent.ts` plus the
-/// runtime logic from `src/skills/bundled/claudeApi.ts`. The TS version
+/// This is the C++20 port of `src/skills/bundled/loomApiContent.ts` plus the
+/// runtime logic from `src/skills/bundled/loomApi.ts`. The TS version
 /// lazy-loads 247 KB of inlined `.md` strings; here we embed the structural
 /// parts (Reading Guide, model constants, doc-route table, common pitfalls)
 /// as raw string literals and rely on cc.tools.web_fetch + cc.tools.file_read
@@ -23,11 +23,11 @@ module;
 #include <utility>
 #include <vector>
 
-export module cc.skills.claude_api_content;
+export module cc.skills.loom_api_content;
 
 import cc.skills.skill;
 
-export namespace cc::skills::claude_api_content {
+export namespace cc::skills::loom_api_content {
 
 // ============================================================
 // Model identifiers — these substitute into {{OPUS_ID}} style placeholders
@@ -41,11 +41,11 @@ struct ModelVar {
 
 constexpr std::array<ModelVar, 7> SKILL_MODEL_VARS{{
     {"OPUS_ID",         "claude-opus-4-6"},
-    {"OPUS_NAME",       "Claude Opus 4.6"},
+    {"OPUS_NAME",       "Loom Opus 4.6"},
     {"SONNET_ID",       "claude-sonnet-4-6"},
-    {"SONNET_NAME",     "Claude Sonnet 4.6"},
+    {"SONNET_NAME",     "Loom Sonnet 4.6"},
     {"HAIKU_ID",        "claude-haiku-4-5"},
-    {"HAIKU_NAME",      "Claude Haiku 4.5"},
+    {"HAIKU_NAME",      "Loom Haiku 4.5"},
     {"PREV_SONNET_ID",  "claude-sonnet-4-5"},
 }};
 
@@ -190,33 +190,33 @@ const std::array<LangIndicator, 8> LANGUAGE_INDICATORS{{
     // `shared/live-sources.md` when a concrete doc body is needed.
     const auto tmpl = std::string_view(R"raw(## Reference Documentation (Reading Guide)
 
-The relevant documentation for your detected language ("{lang}") is cross-referenced below. Each entry names the source path that answers a specific task. Fetch concrete doc bodies via the WebFetch tool using URLs from `shared/live-sources.md`, or read them from disk if a local `claude-api/` checkout exists.
+The relevant documentation for your detected language ("{lang}") is cross-referenced below. Each entry names the source path that answers a specific task. Fetch concrete doc bodies via the WebFetch tool using URLs from `shared/live-sources.md`, or read them from disk if a local `loom-api/` checkout exists.
 
 ### Quick Task Reference
 
 **Single text classification / summarization / extraction / Q&A:**
-  → `{lang}/claude-api/README.md` — basic Messages API, system prompts, max_tokens, temperature.
+  → `{lang}/loom-api/README.md` — basic Messages API, system prompts, max_tokens, temperature.
 
 **Chat UI or real-time response display (streaming tokens):**
-  → `{lang}/claude-api/README.md` + `{lang}/claude-api/streaming.md` — server-sent events, delta accumulation.
+  → `{lang}/loom-api/README.md` + `{lang}/loom-api/streaming.md` — server-sent events, delta accumulation.
 
 **Long-running conversations (may exceed context window):**
-  → `{lang}/claude-api/README.md` — see the **Compaction** section for message pruning + summarization strategy.
+  → `{lang}/loom-api/README.md` — see the **Compaction** section for message pruning + summarization strategy.
 
 **Prompt caching / "why is my cache hit rate low" / caching optimization:**
   → `shared/prompt-caching.md` (cache-control ephemeral headers, breakpoint strategy)
-  → `{lang}/claude-api/README.md` — language-specific cache-control helpers.
+  → `{lang}/loom-api/README.md` — language-specific cache-control helpers.
 
 **Function calling / tool use / agent loops:**
-  → `{lang}/claude-api/README.md` — defining tools in request
+  → `{lang}/loom-api/README.md` — defining tools in request
   → `shared/tool-use-concepts.md` — role alternation, tool_use/tool_result pairing, parallel tool calls
-  → `{lang}/claude-api/tool-use.md` — language-specific examples.
+  → `{lang}/loom-api/tool-use.md` — language-specific examples.
 
 **Batch processing (non-latency-sensitive, async Message Batches API):**
-  → `{lang}/claude-api/README.md` + `{lang}/claude-api/batches.md`.
+  → `{lang}/loom-api/README.md` + `{lang}/loom-api/batches.md`.
 
 **File uploads reused across multiple API requests:**
-  → `{lang}/claude-api/README.md` + `{lang}/claude-api/files-api.md`.
+  → `{lang}/loom-api/README.md` + `{lang}/loom-api/files-api.md`.
 
 **Agent with built-in tools (file / web / terminal) — Python & TypeScript only:**
   → `{lang}/agent-sdk/README.md` + `{lang}/agent-sdk/patterns.md`.
@@ -258,8 +258,8 @@ Fetch the live Anthropic docs **when**:
 
 Preferred source URLs (from `shared/live-sources.md`):
   * API reference:    https://docs.anthropic.com/en/api/messages
-  * SDK docs root:    https://docs.anthropic.com/en/docs/intro-to-claude
-  * Prompt caching:   https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching
+  * SDK docs root:    https://docs.anthropic.com/en/docs/intro-to-loom
+  * Prompt caching:   https://docs.anthropic.com/en/docs/build-with-loom/prompt-caching
   * Tool use guide:   https://docs.anthropic.com/en/docs/use-cases/tool-use
 
 **Always** prefer bundled `shared/*.md` and `{lang}/**/*.md` content *first*;
@@ -299,10 +299,10 @@ fall back to WebFetch *only* when bundled content is insufficient or stale.
 // carries the bulk of the instruction. Matches TS `basePrompt` (everything
 // before `## Reading Guide` in SKILL.md).
 // ============================================================
-constexpr std::string_view BASE_PROMPT = R"raw(# claude-api — Build apps with the Claude API / Anthropic SDKs
+constexpr std::string_view BASE_PROMPT = R"raw(# loom-api — Build apps with the Loom API / Anthropic SDKs
 
-You are an expert assistant for **Anthropic's Claude platform**. Help the user
-build, debug, and optimize applications that call the Claude Messages API
+You are an expert assistant for **Anthropic's Loom platform**. Help the user
+build, debug, and optimize applications that call the Loom Messages API
 directly or via the official SDKs.
 
 ## Mandatory Response Style
@@ -372,25 +372,25 @@ directly or via the official SDKs.
 //
 // Trigger patterns follow the TS registration description:
 //   TRIGGER when: code imports `anthropic` / `@anthropic-ai/sdk` /
-//   `claude_agent_sdk`, or user asks to use Claude API, Anthropic SDKs,
+//   `loom_agent_sdk`, or user asks to use Loom API, Anthropic SDKs,
 //   or Agent SDK.
 //   DO NOT TRIGGER when: code imports `openai` / other AI SDK, general
-//   programming, or ML/data-science tasks unrelated to Claude.
+//   programming, or ML/data-science tasks unrelated to Loom.
 // ============================================================
-[[nodiscard]] inline SkillDefinition make_claude_api_content_skill() {
+[[nodiscard]] inline SkillDefinition make_loom_api_content_skill() {
     return SkillDefinition{
-        .name = "claude-api-content",
+        .name = "loom-api-content",
         .description =
-            "Build apps with the Claude API or Anthropic SDK.\n"
+            "Build apps with the Loom API or Anthropic SDK.\n"
             "TRIGGER when: code imports `anthropic` / `@anthropic-ai/sdk` / "
-            "`claude_agent_sdk`, or user asks about Claude API, Messages "
+            "`loom_agent_sdk`, or user asks about Loom API, Messages "
             "endpoint, tool_use, prompt caching, streaming, batches, or "
             "files-api.\n"
             "DO NOT TRIGGER when: code imports `openai` / other AI SDK, "
             "general programming, or ML/data-science tasks.",
         .trigger_patterns = {
             // Explicit skill invocation or product-name mentions
-            R"(/claude-api\b)",
+            R"(/loom-api\b)",
             R"(\bclaude\s*api\b)",
             R"(\banthropic\s*api\b)",
             R"(\banthropic\s+sdk\b)",
@@ -427,4 +427,4 @@ directly or via the official SDKs.
     };
 }
 
-} // namespace cc::skills::claude_api_content
+} // namespace cc::skills::loom_api_content

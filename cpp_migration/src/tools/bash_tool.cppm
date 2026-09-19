@@ -282,7 +282,7 @@ struct ShellInvocation {
 }
 
 [[nodiscard]] std::optional<std::string> create_sandbox_tmp_dir(std::string_view id) {
-    auto path = std::filesystem::temp_directory_path() / std::format("cc-repl-shell-sandbox-{}", id);
+    auto path = std::filesystem::temp_directory_path() / std::format("loom-shell-sandbox-{}", id);
     std::error_code ec;
     std::filesystem::create_directories(path, ec);
     if (ec) return std::nullopt;

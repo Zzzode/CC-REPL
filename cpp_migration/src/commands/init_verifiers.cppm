@@ -258,7 +258,7 @@ jobs:
         run: |
           echo "Run: cc verify --all"
           echo "Verifier output goes here. The Verify agent discovers skills"
-          echo "by scanning .claude/skills/*verifier*/ directories."
+          echo "by scanning .loom/skills/*verifier*/ directories."
 )raw";
 }
 
@@ -348,7 +348,7 @@ verify:
     - if: '$CI_COMMIT_BRANCH == "{{DEFAULT_BRANCH}}"'
   script:
     - echo "Running CC verifier skills"
-    - echo "Discover and execute .claude/skills/*verifier*/ skill files"
+    - echo "Discover and execute .loom/skills/*verifier*/ skill files"
     - echo "cc verify --all (stub — integrate with Verify agent here)"
 )raw";
 }
@@ -426,8 +426,8 @@ verify:
     stage('Run verifiers') {
       steps {
         sh '''
-          echo "Discovering verifier skills in .claude/skills/*verifier*/"
-          find .claude/skills -maxdepth 2 -iname '*verifier*' -name 'SKILL.md' 2>/dev/null || \
+          echo "Discovering verifier skills in .loom/skills/*verifier*/"
+          find .loom/skills -maxdepth 2 -iname '*verifier*' -name 'SKILL.md' 2>/dev/null || \
             echo "No verifier skills yet. Run /init-verifiers locally to generate them."
         '''
       }
@@ -452,7 +452,7 @@ verify:
 #   1. Install deps
 #   2. Build
 #   3. Unit tests
-#   4. (optional, --e2e) Run skills-based verifiers in .claude/skills/*verifier*/
+#   4. (optional, --e2e) Run skills-based verifiers in .loom/skills/*verifier*/
 set -euo pipefail
 
 PROJECT="{{PROJECT_NAME}}"
@@ -506,8 +506,8 @@ esac
 
 if [ "$E2E" = "1" ]; then
   echo
-  echo "== E2E verifier skills (.claude/skills/*verifier*/) =="
-  SKILL_COUNT=$(find .claude/skills -maxdepth 2 -iname '*verifier*' -name 'SKILL.md' 2>/dev/null | wc -l | tr -d ' ')
+  echo "== E2E verifier skills (.loom/skills/*verifier*/) =="
+  SKILL_COUNT=$(find .loom/skills -maxdepth 2 -iname '*verifier*' -name 'SKILL.md' 2>/dev/null | wc -l | tr -d ' ')
   if [ "$SKILL_COUNT" = "0" ]; then
     echo "[info] No verifier skills yet. Run /init-verifiers in CC REPL to generate them."
   else
@@ -723,7 +723,7 @@ public:
             out << "Next steps:\n"
                    "  1. Review the generated file(s) above and commit them.\n"
                    "  2. Run `/init-verifiers` *locally in CC REPL* to generate\n"
-                   "     `.claude/skills/verifier-*/SKILL.md` skill files.\n"
+                   "     `.loom/skills/verifier-*/SKILL.md` skill files.\n"
                    "  3. Verify the CI passes on a PR before merging to `{{DEFAULT_BRANCH}}`.\n";
         } else {
             out << "> Preview mode — no files were written. Re-run with\n"

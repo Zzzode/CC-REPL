@@ -3,7 +3,7 @@
  * @brief MCP channel notifications — lets an MCP server push user messages into
  *        the conversation. A "channel" (Discord, Slack, SMS, etc.) is just an
  *        MCP server that exposes tools for outbound messages and sends
- *        `notifications/claude/channel` notifications for inbound messages.
+ *        `notifications/loom/channel` notifications for inbound messages.
  *
  *        Faithful C++ port of src/services/mcp/channelNotification.ts (316 lines).
  *
@@ -13,7 +13,7 @@
  *        both).
  *
  *        feature('KAIROS') || feature('KAIROS_CHANNELS'). Runtime gate
- *        tengu_harbor. Requires claude.ai OAuth auth — API key users are
+ *        tengu_harbor. Requires loom.ai OAuth auth — API key users are
  *        blocked until console gets a channelsEnabled admin surface.
  *        Teams/Enterprise orgs must explicitly opt in via channelsEnabled: true
  *        in managed settings.
@@ -63,24 +63,24 @@ using cc::utils::plugin_identifier::parse_plugin_identifier;
 // TS REF: src/services/mcp/channelNotification.ts:39
 // Inbound: server → CC — a channel message (user typed something in Slack, etc.)
 inline constexpr std::string_view CHANNEL_MESSAGE_METHOD =
-    "notifications/claude/channel";
+    "notifications/loom/channel";
 
 // TS REF: src/services/mcp/channelNotification.ts:62-63
 // Inbound: server → CC — a structured permission reply (user approved/denied)
 inline constexpr std::string_view CHANNEL_PERMISSION_METHOD =
-    "notifications/claude/channel/permission";
+    "notifications/loom/channel/permission";
 
 // TS REF: src/services/mcp/channelNotification.ts:85-86
 // Outbound: CC → server — ask the human for permission via the channel
 inline constexpr std::string_view CHANNEL_PERMISSION_REQUEST_METHOD =
-    "notifications/claude/channel/permission_request";
+    "notifications/loom/channel/permission_request";
 
 // =========================================================================
 // Channel notification types
 // =========================================================================
 
 // TS REF: src/services/mcp/channelNotification.ts:37-47
-// Parsed params from a notifications/claude/channel notification
+// Parsed params from a notifications/loom/channel notification
 struct ChannelMessageParams {
     std::string content;
     // Opaque passthrough — thread_id, user, whatever the channel wants the
@@ -89,7 +89,7 @@ struct ChannelMessageParams {
 };
 
 // TS REF: src/services/mcp/channelNotification.ts:64-72
-// Parsed params from a notifications/claude/channel/permission notification
+// Parsed params from a notifications/loom/channel/permission notification
 struct ChannelPermissionParams {
     std::string request_id;
     // "allow" or "deny"
@@ -97,7 +97,7 @@ struct ChannelPermissionParams {
 };
 
 // TS REF: src/services/mcp/channelNotification.ts:87-95
-// Params CC sends in notifications/claude/channel/permission_request
+// Params CC sends in notifications/loom/channel/permission_request
 struct ChannelPermissionRequestParams {
     std::string request_id;
     std::string tool_name;
@@ -115,8 +115,8 @@ enum class ChannelNotificationType {
     ResourceListChanged, // server's resources/list changed
     PromptListChanged,   // server's prompts/list changed
     ServerError,         // server health-check failure
-    ChannelMessage,      // notifications/claude/channel inbound
-    ChannelPermission,   // notifications/claude/channel/permission inbound
+    ChannelMessage,      // notifications/loom/channel inbound
+    ChannelPermission,   // notifications/loom/channel/permission inbound
 };
 
 // Convert notification type to a readable string (for logging/debug)
@@ -185,7 +185,7 @@ enum class AllowlistSource { Org, Ledger };
 enum class ChannelGateAction { Register, Skip };
 
 enum class ChannelGateSkipKind {
-    Capability,   // server did not declare claude/channel capability
+    Capability,   // server did not declare loom/channel capability
     Disabled,     // channels feature killswitch off
     Auth,         // not OAuth-authenticated
     Policy,       // org policy blocks channels
@@ -352,14 +352,14 @@ struct ChannelGateResult {
 //   skip      Not a channel server, or managed org hasn't opted in, or
 //             not in session --channels. Connection stays up; handler
 //             not registered.
-//   register  Subscribe to notifications/claude/channel.
+//   register  Subscribe to notifications/loom/channel.
 //
 // Which servers can connect at all is governed by allowedMcpServers —
 // this gate only decides whether the notification handler registers.
 //
 // Parameters that are stubbed in CPP (wired to real state later):
 //   - channels_enabled: corresponds to isChannelsEnabled() (tengu_harbor feature flag)
-//   - has_oauth_token: whether user has claude.ai OAuth tokens
+//   - has_oauth_token: whether user has loom.ai OAuth tokens
 //   - subscription_type: "free", "team", "enterprise", etc.
 //   - managed_channels_enabled: org policy channelsEnabled flag
 //   - allowed_channels: user's --channels entries
@@ -377,15 +377,15 @@ struct ChannelGateResult {
     const std::optional<std::string>& plugin_source = std::nullopt
 ) -> ChannelGateResult {
     // TS REF: channelNotification.ts:200-206
-    // Channel servers declare `experimental['claude/channel']: {}` (MCP's
+    // Channel servers declare `experimental['loom/channel']: {}` (MCP's
     // presence-signal idiom — same as `tools: {}`). Presence in the map
     // covers `{}` and `true`; absent/undefined/explicit-`false` all fail.
-    auto exp_it = capabilities.experimental.find("claude/channel");
+    auto exp_it = capabilities.experimental.find("loom/channel");
     if (exp_it == capabilities.experimental.end()) {
         return ChannelGateResult{
             .action = ChannelGateAction::Skip,
             .skip_kind = ChannelGateSkipKind::Capability,
-            .reason = "server did not declare claude/channel capability"
+            .reason = "server did not declare loom/channel capability"
         };
     }
 
@@ -409,7 +409,7 @@ struct ChannelGateResult {
         return ChannelGateResult{
             .action = ChannelGateAction::Skip,
             .skip_kind = ChannelGateSkipKind::Auth,
-            .reason = "channels requires claude.ai authentication (run /login)"
+            .reason = "channels requires loom.ai authentication (run /login)"
         };
     }
 
@@ -524,7 +524,7 @@ struct ChannelGateResult {
 // =========================================================================
 
 // TS REF: src/services/mcp/channelNotification.ts:37-47
-// Parse a notifications/claude/channel notification's params from JSON.
+// Parse a notifications/loom/channel notification's params from JSON.
 // Returns std::nullopt if the JSON is malformed or missing required fields.
 [[nodiscard]] inline auto parse_channel_message_params(
     const std::string& params_json
@@ -556,7 +556,7 @@ struct ChannelGateResult {
 }
 
 // TS REF: src/services/mcp/channelNotification.ts:64-72
-// Parse a notifications/claude/channel/permission notification's params.
+// Parse a notifications/loom/channel/permission notification's params.
 [[nodiscard]] inline auto parse_channel_permission_params(
     const std::string& params_json
 ) -> std::optional<ChannelPermissionParams> {
@@ -917,7 +917,7 @@ inline auto emit_prompt_list_changed(std::string_view server_name) -> void {
 // =========================================================================
 
 // TS REF: src/services/mcp/channelNotification.ts:106-116 + dispatch in
-// src/services/mcp/connectionManager.ts — when a notifications/claude/channel
+// src/services/mcp/connectionManager.ts — when a notifications/loom/channel
 // notification arrives, the content is wrapped in a <channel> tag and the
 // whole thing is emitted to the bus. Subscribers (e.g. the query engine)
 // read `wrapped` to enqueue the message and `content`/`meta` for detail.
@@ -953,7 +953,7 @@ inline auto emit_channel_message(
 
 // TS REF: src/services/mcp/channelNotification.ts:62-72 + dispatch in
 // src/services/mcp/connectionManager.ts — when a
-// notifications/claude/channel/permission notification arrives, the
+// notifications/loom/channel/permission notification arrives, the
 // structured permission reply is emitted to the bus. Subscribers match
 // request_id against their pending permission map.
 inline auto emit_channel_permission(

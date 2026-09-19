@@ -265,7 +265,7 @@ using cc::tools::agent::resume_::hydrate_resume_plan_from_existing_record;
             load_agent_memory_prompt(plan.agent_type, *plan.memory, plan.working_dir));
     }
     plan.color = definition.color;
-    plan.omit_claude_md = definition.omit_claude_md;
+    plan.omit_loom_md = definition.omit_loom_md;
     plan.critical_system_reminder = definition.critical_system_reminder;
     plan.parent_agent_id = config.parent_agent_id;
     hydrate_resume_plan_from_existing_record(plan);

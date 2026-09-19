@@ -10,12 +10,12 @@
 ///   src/components/Settings/About.tsx
 ///
 /// VISUAL STRUCTURE (faithful to TS):
-///   ┌─ About Claude Code ──────────────────────────────┐
-///   │  CC-REPL v0.0.0 — C++ native port                 │
+///   ┌─ About Loom ──────────────────────────────┐
+///   │  LOOM v0.0.0 — C++ native port                 │
 ///   ├───────────────────────────────────────────────────┤
 ///   │                                                   │
 ///   │   .--_ /\ _.-.                                   │
-///   │   \      /    \      Claude Code                  │
+///   │   \      /    \      Loom                  │
 ///   │    \    /      \     C++ native port              │
 ///   │     \  /       /                                  │
 ///   │      \/_     _/                                   │
@@ -25,8 +25,8 @@
 ///   │  Runtime      C++23 modules                       │
 ///   │  Framework    FTXUI + libuv                       │
 ///   │                                                   │
-///   │  Website  https://code.claude.com                 │
-///   │  Docs     https://code.claude.com/docs            │
+///   │  Website  https://code.loom.com                 │
+///   │  Docs     https://code.loom.com/docs            │
 ///   │                                                   │
 ///   ├───────────────────────────────────────────────────┤
 ///   │  Made with ♥ by the Anthropics                        │
@@ -68,14 +68,17 @@ using Role = cc::ui::design::tokens::Role;
 
 /// About dialog properties.
 struct AboutDialogProps {
-    std::string app_name = "Claude Code";
+    std::string app_name = "Loom";
     std::string app_version = "0.0.0";
     std::string build_date = std::string(cc::constants::product::BUILD_DATE);
     std::string build_time = std::string(cc::constants::product::BUILD_TIME);
     std::string runtime = "C++23 modules";
     std::string framework = "FTXUI + libuv";
-    std::string website = "https://code.claude.com";
-    std::string docs_url = "https://code.claude.com/docs";
+    // Empty unless the user configures LOOM_DOCS_BASE: no docs site ships
+    // with this project, and the vendor's URLs must not be re-pointed at a
+    // host that does not resolve.
+    std::string website = std::string(cc::constants::product::docs_base());
+    std::string docs_url = cc::constants::product::doc_url("/docs");
     std::string license = "MIT";
     /// Called when dialog is dismissed.
     std::function<void()> on_close;
@@ -109,7 +112,7 @@ namespace detail {
     });
 }
 
-/// Render the Claude logo (ASCII art — simplified).
+/// Render the Loom logo (ASCII art — simplified).
 [[nodiscard]] inline Element RenderLogo(const Theme& theme) {
     // Simplified ASCII clawd logo
     Elements logo_lines = {

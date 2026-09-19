@@ -1,6 +1,6 @@
 /// @file mobile.cppm
 /// @brief MobileCommand implementing the /mobile slash command.
-/// Opens the Claude mobile app store listing, or prints both links when no
+/// Opens the Loom mobile app store listing, or prints both links when no
 /// platform argument is supplied.
 module;
 
@@ -21,10 +21,11 @@ import cc.utils.exec_sync;
 // Module-internal helpers (module linkage; intentionally not exported).
 namespace cc::commands {
 
-inline constexpr std::string_view kIosUrl =
-    "https://apps.apple.com/app/claude-by-anthropic/id6473753684";
-inline constexpr std::string_view kAndroidUrl =
-    "https://play.google.com/store/apps/details?id=com.anthropic.claude";
+// No first-party mobile app is published for this build, so there is no
+// store listing to open. (These ids belonged to the upstream vendor's apps;
+// renaming the package would have produced a dead link.)
+inline constexpr std::string_view kIosUrl = "";
+inline constexpr std::string_view kAndroidUrl = "";
 
 inline void open_in_browser(std::string_view url) {
 #if defined(__APPLE__)
@@ -47,7 +48,7 @@ public:
     [[nodiscard]] static CommandDefinition definition() {
         return CommandDefinition{
             .name = "mobile",
-            .description = "Show or open the Claude mobile app download links",
+            .description = "Show or open the Loom mobile app download links",
             .args = {CommandArg{.name = "platform", .description = "ios | android (omit for both)",
                                 .type = ArgType::Choice, .required = false,
                                 .choices = {"ios", "android"}}},
@@ -69,7 +70,7 @@ public:
     }
 
     [[nodiscard]] static Result<CommandResult> execute(const CommandContext& ctx) {
-        std::string out = "Claude mobile app:\n";
+        std::string out = "Loom mobile app:\n";
         if (!ctx.args.empty() && ctx.args[0] == "ios") {
             open_in_browser(kIosUrl);
             out += std::format("  Opening iOS listing: {}", std::string(kIosUrl));

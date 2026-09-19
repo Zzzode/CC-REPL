@@ -103,8 +103,8 @@ public:
 
     [[nodiscard]] static bool is_available() noexcept {
         return std::getenv("ANTHROPIC_API_KEY") != nullptr ||
-               std::getenv("CLAUDE_CODE_OAUTH_TOKEN") != nullptr ||
-               std::getenv("CLAUDE_CODE_OAUTH_REFRESH_TOKEN") != nullptr;
+               std::getenv("LOOM_OAUTH_TOKEN") != nullptr ||
+               std::getenv("LOOM_OAUTH_REFRESH_TOKEN") != nullptr;
     }
 
 
@@ -190,7 +190,7 @@ public:
         // Add auth token
         auto* token = std::getenv("ANTHROPIC_API_KEY");
         if (token) upgrade += std::string("x-api-key: ") + token + "\r\n";
-        auto* oauth = std::getenv("CLAUDE_CODE_OAUTH_TOKEN");
+        auto* oauth = std::getenv("LOOM_OAUTH_TOKEN");
         if (oauth) upgrade += std::string("Authorization: Bearer ") + oauth + "\r\n";
 
         upgrade += "\r\n";

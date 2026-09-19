@@ -212,7 +212,7 @@ public:
     
     void dismiss() {
         if (props_.onDone) {
-            props_.onDone("Claude Code diagnostics dismissed", std::nullopt);
+            props_.onDone("Loom diagnostics dismissed", std::nullopt);
         }
     }
     

@@ -20,8 +20,8 @@ struct MarkdownConfig {
     std::string raw_content;
 };
 
-// Parse CLAUDE.md sections from content
-MarkdownConfig parse_claude_md_sections(std::string_view content) {
+// Parse LOOM.md sections from content
+MarkdownConfig parse_loom_md_sections(std::string_view content) {
     MarkdownConfig config;
     config.raw_content = std::string(content);
 
@@ -88,13 +88,13 @@ MarkdownConfig parse_claude_md_sections(std::string_view content) {
     return config;
 }
 
-// Search upward from start directory for CLAUDE.md
-std::optional<fs::path> find_claude_md(fs::path start) {
+// Search upward from start directory for LOOM.md
+std::optional<fs::path> find_loom_md(fs::path start) {
     // Search candidates in order
     static const std::vector<std::string> candidates = {
-        ".claude/CLAUDE.md",
-        "CLAUDE.md",
-        "claude.md",
+        ".loom/LOOM.md",
+        "LOOM.md",
+        "loom.md",
     };
 
     fs::path current = start;
@@ -114,9 +114,9 @@ std::optional<fs::path> find_claude_md(fs::path start) {
     return std::nullopt;
 }
 
-// Load and parse CLAUDE.md from project root
-std::optional<MarkdownConfig> load_claude_md(fs::path project_root) {
-    auto found = find_claude_md(project_root);
+// Load and parse LOOM.md from project root
+std::optional<MarkdownConfig> load_loom_md(fs::path project_root) {
+    auto found = find_loom_md(project_root);
     if (!found) return std::nullopt;
 
     std::ifstream file(*found);
@@ -126,7 +126,7 @@ std::optional<MarkdownConfig> load_claude_md(fs::path project_root) {
     ss << file.rdbuf();
     std::string content = ss.str();
 
-    return parse_claude_md_sections(content);
+    return parse_loom_md_sections(content);
 }
 
 } // namespace cc::utils

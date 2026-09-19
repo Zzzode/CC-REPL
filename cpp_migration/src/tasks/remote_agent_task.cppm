@@ -63,15 +63,15 @@ struct RemoteAgentPreconditionResult {
 [[nodiscard]] inline std::string format_precondition_error(PreconditionErrorType type) {
     switch (type) {
         case PreconditionErrorType::NotLoggedIn:
-            return "Please run /login and sign in with your Claude.ai account (not Console).";
+            return "Please run /login and sign in with your Loom.ai account (not Console).";
         case PreconditionErrorType::NoRemoteEnvironment:
-            return "No cloud environment available. Set one up at https://claude.ai/code/onboarding?magic=env-setup";
+            return "No cloud environment is available in this build.";
         case PreconditionErrorType::NotInGitRepo:
             return "Background tasks require a git repository. Initialize git or run from a git repository.";
         case PreconditionErrorType::NoGitRemote:
             return "Background tasks require a GitHub remote. Add one with `git remote add origin REPO_URL`.";
         case PreconditionErrorType::GithubAppNotInstalled:
-            return "The Claude GitHub app must be installed on this repository first.\nhttps://github.com/apps/claude/installations/new";
+            return "The Loom GitHub app must be installed on this repository first.\nhttps://github.com/apps/loom/installations/new";
         case PreconditionErrorType::PolicyBlocked:
             return "Remote sessions are disabled by your organization's policy. Contact your organization admin.";
     }
@@ -300,7 +300,7 @@ inline void kill_remote_agent_task(
     if (ingress_url) {
         return std::format("{}/chat/{}", *ingress_url, session_id);
     }
-    return std::format("https://claude.ai/chat/{}", session_id);
+    return std::format("session:{}", session_id);
 }
 
 } // namespace cc::tasks

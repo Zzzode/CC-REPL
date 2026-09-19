@@ -40,9 +40,9 @@ bool set_current_model(std::string_view model_id) {
 }
 
 bool validate_model_id(std::string_view model_id) {
-    // Valid model IDs follow pattern: claude-{family}-{version}-{date}
+    // Valid model IDs follow pattern: loom-{family}-{version}-{date}
     if (model_id.empty()) return false;
-    if (!model_id.starts_with("claude-")) return false;
+    if (!model_id.starts_with("loom-")) return false;
 
     for (auto& m : detail::known_models()) {
         if (m == model_id) return true;
@@ -51,9 +51,9 @@ bool validate_model_id(std::string_view model_id) {
 }
 
 std::string get_model_display_name(std::string_view model_id) {
-    if (model_id.find("sonnet") != std::string_view::npos) return "Claude Sonnet 4";
-    if (model_id.find("opus") != std::string_view::npos) return "Claude Opus 4";
-    if (model_id.find("haiku") != std::string_view::npos) return "Claude Haiku 4";
+    if (model_id.find("sonnet") != std::string_view::npos) return "Loom Sonnet 4";
+    if (model_id.find("opus") != std::string_view::npos) return "Loom Opus 4";
+    if (model_id.find("haiku") != std::string_view::npos) return "Loom Haiku 4";
     return std::string(model_id);
 }
 

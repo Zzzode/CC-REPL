@@ -272,7 +272,7 @@ struct SkillHookDefinition {
     fs::path skill_path;
 };
 
-/// Frontmatter hook definition from a CLAUDE.md or rule file
+/// Frontmatter hook definition from a LOOM.md or rule file
 struct FrontmatterHookDefinition {
     HookEventType event;
     std::optional<std::string> matcher;

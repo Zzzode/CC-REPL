@@ -126,7 +126,7 @@ void AppAdapter::RunLocalBashCommand(std::string command) {
             // can't collide with the cwd data.  Use && so pwd -P only runs
             // on success (failed commands shouldn't change cwd).
             const auto cwd_file = std::filesystem::temp_directory_path() /
-                ("cc-repl-cwd-" + current_session_id_);
+                ("loom-cwd-" + current_session_id_);
             const std::string cwd_file_str = cwd_file.string();
 
             std::string full;

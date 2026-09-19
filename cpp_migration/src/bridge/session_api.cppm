@@ -338,7 +338,7 @@ auto archive_bridge_session(
 /// Update the title of a bridge session via PATCH /v1/sessions/{session_id}.
 ///
 /// Called when the user renames a session so the title stays in sync on
-/// claude.ai/code. Title sync is best-effort but errors are propagated
+/// the web session store. Title sync is best-effort but errors are propagated
 /// to the caller for logging.
 auto update_bridge_session_title(
     std::string_view session_id,

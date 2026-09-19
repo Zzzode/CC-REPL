@@ -1,5 +1,5 @@
 /// @file chrome_messaging.cppm
-/// @brief Chrome native messaging host utilities for "Claude in Chrome" integration
+/// @brief Chrome native messaging host utilities for "Loom in Chrome" integration
 
 module;
 
@@ -38,7 +38,7 @@ inline auto write_manifest(const NativeHostManifest& manifest,
 
 /// Chrome native messaging host registration utilities.
 /// Manages the lifecycle of the native messaging host manifest used by
-/// "Claude in Chrome" to communicate with the locally installed CLI.
+/// "Loom in Chrome" to communicate with the locally installed CLI.
 class ChromeNativeHost {
 public:
     /// Returns the platform-specific directory where Chrome looks for
@@ -56,7 +56,7 @@ public:
 
     /// Returns the full path to the manifest JSON file.
     [[nodiscard]] static auto manifest_path() -> std::filesystem::path {
-        return manifest_directory() / "com.anthropic.claude_code.json";
+        return manifest_directory() / "com.anthropic.loom_code.json";
     }
 
     /// Registers the native messaging host by writing the manifest to
@@ -102,11 +102,11 @@ public:
     /// Builds a default manifest with the standard extension origins.
     [[nodiscard]] static auto build_default_manifest() -> NativeHostManifest {
         return NativeHostManifest{
-            .name          = "com.anthropic.claude_code",
-            .description   = "Claude Code native messaging host for Chrome integration",
-            .path          = "/usr/local/bin/claude", // Default install path
+            .name          = "com.anthropic.loom_code",
+            .description   = "Loom native messaging host for Chrome integration",
+            .path          = "/usr/local/bin/loom", // Default install path
             .allowed_origins = {
-                "chrome-extension://anthropic.claude.code/",
+                "chrome-extension://anthropic.loom.code/",
             },
         };
     }

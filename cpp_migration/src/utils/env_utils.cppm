@@ -77,8 +77,8 @@ export namespace cc::utils {
     return false;
 }
 
-[[nodiscard]] inline bool is_bare_mode(std::string_view claude_code_simple, const std::vector<std::string>& argv) {
-    if (is_env_truthy(claude_code_simple)) return true;
+[[nodiscard]] inline bool is_bare_mode(std::string_view loom_code_simple, const std::vector<std::string>& argv) {
+    if (is_env_truthy(loom_code_simple)) return true;
     return std::find(argv.begin(), argv.end(), "--bare") != argv.end();
 }
 

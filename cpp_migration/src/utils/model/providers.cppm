@@ -21,14 +21,14 @@ Provider detect_provider(std::string_view model_id) {
     // Vertex models may have publishers/ prefix
     if (model_id.find("publishers/") != std::string_view::npos) return Provider::Vertex;
     // Check environment for custom provider
-    const char* custom = std::getenv("CLAUDE_CODE_PROVIDER");
+    const char* custom = std::getenv("LOOM_PROVIDER");
     if (custom) {
         std::string_view cv(custom);
         if (cv == "bedrock") return Provider::Bedrock;
         if (cv == "vertex") return Provider::Vertex;
         if (cv == "custom") return Provider::Custom;
     }
-    // Default to Anthropic for claude-* models
+    // Default to Anthropic for loom-* models
     return Provider::Anthropic;
 }
 

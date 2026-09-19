@@ -16,14 +16,14 @@ namespace fs = std::filesystem;
 namespace detail {
     inline fs::path get_base_dir() {
         const char* home = std::getenv("HOME");
-        if (!home) return fs::temp_directory_path() / "claude-code" / "sessions";
+        if (!home) return fs::temp_directory_path() / "loom" / "sessions";
 
         // XDG-compatible: use DATA_HOME if available
         const char* xdg_data = std::getenv("XDG_DATA_HOME");
         if (xdg_data) {
-            return fs::path(xdg_data) / "claude-code" / "sessions";
+            return fs::path(xdg_data) / "loom" / "sessions";
         }
-        return fs::path(home) / ".claude" / "sessions";
+        return fs::path(home) / ".loom" / "sessions";
     }
 } // namespace detail
 

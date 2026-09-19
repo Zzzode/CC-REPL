@@ -1,4 +1,4 @@
-// Model Definitions - Claude model registry, configs, cost calculation
+// Model Definitions - Loom model registry, configs, cost calculation
 module;
 #include <expected>
 #include <format>
@@ -126,10 +126,10 @@ public:
 
 private:
     void register_models() {
-        // Claude Sonnet 4 (latest)
+        // Loom Sonnet 4 (latest)
         register_model(ModelConfig{
             .id = "claude-sonnet-4-20250514",
-            .display_name = "Claude Sonnet 4",
+            .display_name = "Loom Sonnet 4",
             .context_window = 200000,
             .max_output_tokens = 16384,
             .absolute_max_output = 128000,
@@ -154,10 +154,10 @@ private:
         aliases_["sonnet"] = "claude-sonnet-4-20250514";
         aliases_["claude-sonnet"] = "claude-sonnet-4-20250514";
 
-        // Claude Opus 4
+        // Loom Opus 4
         register_model(ModelConfig{
             .id = "claude-opus-4-20250514",
-            .display_name = "Claude Opus 4",
+            .display_name = "Loom Opus 4",
             .context_window = 200000,
             .max_output_tokens = 16384,
             .absolute_max_output = 128000,
@@ -182,10 +182,10 @@ private:
         aliases_["opus"] = "claude-opus-4-20250514";
         aliases_["claude-opus"] = "claude-opus-4-20250514";
 
-        // Claude 3.5 Sonnet (October 2024)
+        // Loom 3.5 Sonnet (October 2024)
         register_model(ModelConfig{
             .id = "claude-3-5-sonnet-20241022",
-            .display_name = "Claude 3.5 Sonnet (Oct 2024)",
+            .display_name = "Loom 3.5 Sonnet (Oct 2024)",
             .context_window = 200000,
             .max_output_tokens = 8192,
             .absolute_max_output = 8192,
@@ -209,10 +209,10 @@ private:
         });
         aliases_["sonnet-3.5"] = "claude-3-5-sonnet-20241022";
 
-        // Claude 3.5 Haiku
+        // Loom 3.5 Haiku
         register_model(ModelConfig{
             .id = "claude-3-5-haiku-20241022",
-            .display_name = "Claude 3.5 Haiku",
+            .display_name = "Loom 3.5 Haiku",
             .context_window = 200000,
             .max_output_tokens = 8192,
             .absolute_max_output = 8192,
@@ -236,10 +236,10 @@ private:
         });
         aliases_["haiku"] = "claude-3-5-haiku-20241022";
 
-        // Claude 3.5 Sonnet (June 2024)
+        // Loom 3.5 Sonnet (June 2024)
         register_model(ModelConfig{
             .id = "claude-3-5-sonnet-20240620",
-            .display_name = "Claude 3.5 Sonnet (Jun 2024)",
+            .display_name = "Loom 3.5 Sonnet (Jun 2024)",
             .context_window = 200000,
             .max_output_tokens = 4096,
             .absolute_max_output = 4096,

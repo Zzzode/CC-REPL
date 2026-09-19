@@ -18,6 +18,8 @@ module;
 
 export module cc.ui.sandbox_dialog;
 
+import cc.constants.product;
+
 export namespace cc::ui::sandbox_dialog {
 using namespace ftxui;
 
@@ -167,7 +169,8 @@ struct SandboxOverride {
         text(""),
         hbox({
             text("Learn more: ") | dim,
-            text("code.claude.com/docs/en/sandboxing") | color(Color::Cyan) | underlined,
+            text(cc::constants::product::doc_url("/docs/en/sandboxing"))
+                | color(Color::Cyan) | underlined,
         }),
     }));
 
@@ -211,7 +214,7 @@ struct SandboxOverride {
         text("  Sandbox Configuration") | bold,
         text(""),
         text("  Configuration is stored in:") | dim,
-        text("  ~/.claude/settings.json") | color(Color::Cyan),
+        text("  ~/.loom/settings.json") | color(Color::Cyan),
         text(""),
         text("  Edit manually or use overrides tab.") | dim,
     });

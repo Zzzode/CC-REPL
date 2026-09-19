@@ -37,6 +37,7 @@ module;
 export module cc.ui.dialogs.sandbox_settings;
 
 import cc.utils.platform;
+import cc.constants.product;
 
 export namespace cc::ui::dialogs::sandbox_settings {
 
@@ -264,7 +265,7 @@ struct SandboxConfigSnapshot {
         text(""),
         hbox({
             text("Learn more: ") | dim,
-            text("code.claude.com/docs/en/sandboxing")
+            text(cc::constants::product::doc_url("/docs/en/sandboxing"))
                 | color(Color::Cyan) | underlined,
         }),
     }));
@@ -347,7 +348,7 @@ struct SandboxConfigSnapshot {
     items.push_back(vbox({
         text("Allow unsandboxed fallback:") | bold | dim,
         paragraph("  When a command fails due to sandbox restrictions, "
-                 "Claude can retry with dangerouslyDisableSandbox to "
+                 "Loom can retry with dangerouslyDisableSandbox to "
                  "run outside the sandbox (falling back to default "
                  "permissions).") | dim,
         text(""),
@@ -358,7 +359,7 @@ struct SandboxConfigSnapshot {
         text(""),
         hbox({
             text("Learn more: ") | dim,
-            text("code.claude.com/docs/en/sandboxing#configure-sandboxing")
+            text(cc::constants::product::doc_url("/docs/en/sandboxing#configure-sandboxing"))
                 | color(Color::Cyan) | underlined,
         }),
     }));

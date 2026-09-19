@@ -14,9 +14,9 @@
 ///      correct JSON on disk.
 ///
 /// The three logical config trees correspond to the on-disk files:
-///   - globalConfig: ~/.config/cc-repl/globalConfig.json
-///   - userSettings: ~/.config/cc-repl/settings.json
-///   - localSettings: .claude/settings.json  (project-local)
+///   - globalConfig: ~/.config/loom/globalConfig.json
+///   - userSettings: ~/.config/loom/settings.json
+///   - localSettings: .loom/settings.json  (project-local)
 module;
 
 #include <chrono>

@@ -53,7 +53,7 @@ struct BootstrapConfig {
     std::chrono::milliseconds timeout{5000};
     std::optional<std::string> fallback_model;
     std::vector<std::string> beta_headers;
-    std::string user_agent = "ClaudeCode/1.0";
+    std::string user_agent = "Loom/1.0";
 };
 
 // =========================================================================
@@ -77,7 +77,7 @@ struct BootstrapConfig {
         // Try environment variables
         if (auto* key = std::getenv("ANTHROPIC_API_KEY"); key && key[0] != '\0') {
             cfg.api_key = key;
-        } else if (auto* token = std::getenv("CLAUDE_AUTH_TOKEN"); token && token[0] != '\0') {
+        } else if (auto* token = std::getenv("LOOM_AUTH_TOKEN"); token && token[0] != '\0') {
             cfg.auth_token = token;
         }
     }
@@ -139,12 +139,12 @@ public:
 private:
     [[nodiscard]] static std::filesystem::path cache_path() {
         if (const char* xdg = std::getenv("XDG_CACHE_HOME"); xdg && *xdg) {
-            return std::filesystem::path(xdg) / "cc-repl" / "bootstrap.json";
+            return std::filesystem::path(xdg) / "loom" / "bootstrap.json";
         }
         if (const char* home = std::getenv("HOME"); home && *home) {
-            return std::filesystem::path(home) / ".cache" / "cc-repl" / "bootstrap.json";
+            return std::filesystem::path(home) / ".cache" / "loom" / "bootstrap.json";
         }
-        return std::filesystem::temp_directory_path() / "cc-repl" / "bootstrap.json";
+        return std::filesystem::temp_directory_path() / "loom" / "bootstrap.json";
     }
 
     [[nodiscard]] static std::optional<BootstrapResponse> parse_response(JsonVal root) {

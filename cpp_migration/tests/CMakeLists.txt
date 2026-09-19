@@ -1,4 +1,4 @@
-# CC-REPL Test Suite
+# LOOM Test Suite
 
 
 include(FetchContent)
@@ -14,11 +14,11 @@ FetchContent_Declare(
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 # Disable C++ module scanning for GoogleTest (it doesn't use modules)
 set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
-set(_CC_REPL_TEST_WERROR_OLD ${CMAKE_COMPILE_WARNING_AS_ERROR})
+set(_LOOM_TEST_WERROR_OLD ${CMAKE_COMPILE_WARNING_AS_ERROR})
 set(CMAKE_COMPILE_WARNING_AS_ERROR OFF)
 FetchContent_MakeAvailable(googletest)
-set(CMAKE_COMPILE_WARNING_AS_ERROR ${_CC_REPL_TEST_WERROR_OLD})
-unset(_CC_REPL_TEST_WERROR_OLD)
+set(CMAKE_COMPILE_WARNING_AS_ERROR ${_LOOM_TEST_WERROR_OLD})
+unset(_LOOM_TEST_WERROR_OLD)
 set(CMAKE_CXX_SCAN_FOR_MODULES ON)
 
 
@@ -33,7 +33,7 @@ include(GoogleTest)
 # assumption that tests did not import modules — that caused every test TU to
 # fail with "fatal error: module 'cc.*' not found" because BMI discovery was
 # skipped even though the libraries were built correctly.
-set(CC_REPL_TEST_DISCOVERY_TIMEOUT 30 CACHE STRING "Timeout in seconds for GoogleTest discovery")
+set(LOOM_TEST_DISCOVERY_TIMEOUT 30 CACHE STRING "Timeout in seconds for GoogleTest discovery")
 
 # Turn scanning OFF for the googletest vendor targets — they contain no module
 # interfaces or imports and would otherwise waste scanner time / confuse BMI
@@ -69,7 +69,7 @@ target_link_libraries(test_utils
         cc_screens         # core.screens
         GTest::gtest_main
 )
-gtest_discover_tests(test_utils DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+gtest_discover_tests(test_utils DISCOVERY_TIMEOUT ${LOOM_TEST_DISCOVERY_TIMEOUT})
 
 
 add_executable(test_core test_core.cpp)
@@ -83,7 +83,7 @@ target_link_libraries(test_core
         cc_tasks           # import cc.tasks.task_graph
         GTest::gtest_main
 )
-gtest_discover_tests(test_core DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+gtest_discover_tests(test_core DISCOVERY_TIMEOUT ${LOOM_TEST_DISCOVERY_TIMEOUT})
 
 
 add_executable(test_state test_state.cpp)
@@ -100,7 +100,7 @@ target_link_libraries(test_state
         cc_ui              # cc.ui.repl_screen / cc.ui.* (broad coverage)
         GTest::gtest_main
 )
-gtest_discover_tests(test_state DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+gtest_discover_tests(test_state DISCOVERY_TIMEOUT ${LOOM_TEST_DISCOVERY_TIMEOUT})
 
 
 add_executable(test_tools test_tools.cpp)
@@ -113,7 +113,7 @@ target_link_libraries(test_tools
         cc_utils           # cc.utils.* helpers
         GTest::gtest_main
 )
-gtest_discover_tests(test_tools DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+gtest_discover_tests(test_tools DISCOVERY_TIMEOUT ${LOOM_TEST_DISCOVERY_TIMEOUT})
 
 
 add_executable(test_hooks test_hooks.cpp)
@@ -124,7 +124,7 @@ target_link_libraries(test_hooks
         cc_utils           # cc.utils.hooks_*
         GTest::gtest_main
 )
-gtest_discover_tests(test_hooks DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+gtest_discover_tests(test_hooks DISCOVERY_TIMEOUT ${LOOM_TEST_DISCOVERY_TIMEOUT})
 
 
 add_executable(test_services test_services.cpp)
@@ -136,7 +136,7 @@ target_link_libraries(test_services
         cc_utils
         GTest::gtest_main
 )
-gtest_discover_tests(test_services DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+gtest_discover_tests(test_services DISCOVERY_TIMEOUT ${LOOM_TEST_DISCOVERY_TIMEOUT})
 
 # ---------------------------------------------------------------------------
 # Phase 3-E2E: SSE Mock + WithRetry unit tests
@@ -153,7 +153,7 @@ target_link_libraries(test_sse_mock
         OpenSSL::Crypto
         GTest::gtest_main
 )
-gtest_discover_tests(test_sse_mock DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+gtest_discover_tests(test_sse_mock DISCOVERY_TIMEOUT ${LOOM_TEST_DISCOVERY_TIMEOUT})
 
 add_executable(test_wire_backends test_wire_backends.cpp)
 target_link_libraries(test_wire_backends
@@ -165,7 +165,7 @@ target_link_libraries(test_wire_backends
         cc_tools
         GTest::gtest_main
 )
-gtest_discover_tests(test_wire_backends DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+gtest_discover_tests(test_wire_backends DISCOVERY_TIMEOUT ${LOOM_TEST_DISCOVERY_TIMEOUT})
 
 add_executable(test_with_retry test_with_retry.cpp)
 target_link_libraries(test_with_retry
@@ -175,7 +175,7 @@ target_link_libraries(test_with_retry
         cc_utils
         GTest::gtest_main
 )
-gtest_discover_tests(test_with_retry DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+gtest_discover_tests(test_with_retry DISCOVERY_TIMEOUT ${LOOM_TEST_DISCOVERY_TIMEOUT})
 
 # ---------------------------------------------------------------------------
 # Phase P0-5: Enterprise Auth (SigV4 / GCP ADC / Azure DefaultAzureCredential
@@ -192,7 +192,7 @@ target_link_libraries(test_enterprise_auth
         OpenSSL::Crypto
         GTest::gtest_main
 )
-gtest_discover_tests(test_enterprise_auth DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+gtest_discover_tests(test_enterprise_auth DISCOVERY_TIMEOUT ${LOOM_TEST_DISCOVERY_TIMEOUT})
 
 # ---------------------------------------------------------------------------
 # Phase 3-D: MCP stdio transport + mock echo server
@@ -205,7 +205,7 @@ target_link_libraries(test_mcp_stdio
         cc_utils
         GTest::gtest_main
 )
-gtest_discover_tests(test_mcp_stdio DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+gtest_discover_tests(test_mcp_stdio DISCOVERY_TIMEOUT ${LOOM_TEST_DISCOVERY_TIMEOUT})
 
 # ── test_ui split into 4 TUs to stay under clang's 31-bit SourceLocation budget ──
 # (2.14GB hard limit; original 43 imports in one TU overflowed at 99%).
@@ -220,19 +220,19 @@ set(_ui_test_libs
 
 add_executable(test_ui_light test_ui_light.cpp test_ui_helpers.h)
 target_link_libraries(test_ui_light ${_ui_test_libs})
-gtest_discover_tests(test_ui_light DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+gtest_discover_tests(test_ui_light DISCOVERY_TIMEOUT ${LOOM_TEST_DISCOVERY_TIMEOUT})
 
 add_executable(test_ui_messages test_ui_messages.cpp test_ui_helpers.h)
 target_link_libraries(test_ui_messages ${_ui_test_libs})
-gtest_discover_tests(test_ui_messages DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+gtest_discover_tests(test_ui_messages DISCOVERY_TIMEOUT ${LOOM_TEST_DISCOVERY_TIMEOUT})
 
 add_executable(test_ui_runtime test_ui_runtime.cpp test_ui_helpers.h)
 target_link_libraries(test_ui_runtime ${_ui_test_libs})
-gtest_discover_tests(test_ui_runtime DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+gtest_discover_tests(test_ui_runtime DISCOVERY_TIMEOUT ${LOOM_TEST_DISCOVERY_TIMEOUT})
 
 add_executable(test_ui_dialogs test_ui_dialogs.cpp test_ui_helpers.h)
 target_link_libraries(test_ui_dialogs ${_ui_test_libs})
-gtest_discover_tests(test_ui_dialogs DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+gtest_discover_tests(test_ui_dialogs DISCOVERY_TIMEOUT ${LOOM_TEST_DISCOVERY_TIMEOUT})
 
 # ---------------------------------------------------------------------------
 # M7 Dialog #1 (ToolPermission) renderer + event handler regression suite.
@@ -247,7 +247,7 @@ target_link_libraries(test_dialog_toolpermission
         GTest::gtest_main
 )
 gtest_discover_tests(test_dialog_toolpermission
-    DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+    DISCOVERY_TIMEOUT ${LOOM_TEST_DISCOVERY_TIMEOUT})
 
 
 # ---------------------------------------------------------------------------
@@ -263,7 +263,7 @@ target_link_libraries(test_dialog_system
 )
 cc_test_target_enable_modules(test_dialog_system)
 gtest_discover_tests(test_dialog_system
-    DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+    DISCOVERY_TIMEOUT ${LOOM_TEST_DISCOVERY_TIMEOUT})
 
 
 # ---------------------------------------------------------------------------
@@ -277,7 +277,7 @@ target_link_libraries(test_prompt_dialog
         GTest::gtest_main
 )
 gtest_discover_tests(test_prompt_dialog
-    DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+    DISCOVERY_TIMEOUT ${LOOM_TEST_DISCOVERY_TIMEOUT})
 
 
 # ---------------------------------------------------------------------------
@@ -291,7 +291,7 @@ target_link_libraries(test_cost_threshold_dialog
         GTest::gtest_main
 )
 gtest_discover_tests(test_cost_threshold_dialog
-    DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+    DISCOVERY_TIMEOUT ${LOOM_TEST_DISCOVERY_TIMEOUT})
 
 
 add_executable(test_tasks test_tasks.cpp)
@@ -303,7 +303,7 @@ target_link_libraries(test_tasks
         cc_utils               # cc.utils.swarm_backends
         GTest::gtest_main
 )
-gtest_discover_tests(test_tasks DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+gtest_discover_tests(test_tasks DISCOVERY_TIMEOUT ${LOOM_TEST_DISCOVERY_TIMEOUT})
 
 
 add_executable(test_commands test_commands.cpp)
@@ -315,7 +315,7 @@ target_link_libraries(test_commands
         cc_types               # cc.types.types
         GTest::gtest_main
 )
-gtest_discover_tests(test_commands DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+gtest_discover_tests(test_commands DISCOVERY_TIMEOUT ${LOOM_TEST_DISCOVERY_TIMEOUT})
 
 # ---------------------------------------------------------------------------
 # Statusline (commands + utils/statusline_runner) unit tests
@@ -328,7 +328,7 @@ target_link_libraries(test_statusline
         cc_utils               # cc.utils.statusline_runner / cc.utils.json
         GTest::gtest_main
 )
-gtest_discover_tests(test_statusline DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+gtest_discover_tests(test_statusline DISCOVERY_TIMEOUT ${LOOM_TEST_DISCOVERY_TIMEOUT})
 
 
 # ---------------------------------------------------------------------------
@@ -345,7 +345,7 @@ target_link_libraries(test_bootstrap
         cc_utils               # cc.utils.json
         GTest::gtest_main
 )
-gtest_discover_tests(test_bootstrap DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+gtest_discover_tests(test_bootstrap DISCOVERY_TIMEOUT ${LOOM_TEST_DISCOVERY_TIMEOUT})
 
 
 # ---------------------------------------------------------------------------
@@ -359,7 +359,7 @@ target_link_libraries(test_migrations
         cc_utils               # cc.utils.json
         GTest::gtest_main
 )
-gtest_discover_tests(test_migrations DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+gtest_discover_tests(test_migrations DISCOVERY_TIMEOUT ${LOOM_TEST_DISCOVERY_TIMEOUT})
 
 
 add_executable(test_bridge test_bridge.cpp)
@@ -369,12 +369,12 @@ target_link_libraries(test_bridge
         cc_daemon
         GTest::gtest_main
 )
-add_dependencies(test_bridge cc_repl)
+add_dependencies(test_bridge loom)
 target_compile_definitions(test_bridge
     PRIVATE
-        CC_REPL_NATIVE_BINARY_PATH="$<TARGET_FILE:cc_repl>"
+        LOOM_NATIVE_BINARY_PATH="$<TARGET_FILE:loom>"
 )
-gtest_discover_tests(test_bridge DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+gtest_discover_tests(test_bridge DISCOVERY_TIMEOUT ${LOOM_TEST_DISCOVERY_TIMEOUT})
 
 
 add_executable(test_skills test_skills.cpp)
@@ -385,7 +385,7 @@ target_link_libraries(test_skills
         cc_skills_core
         GTest::gtest_main
 )
-gtest_discover_tests(test_skills DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+gtest_discover_tests(test_skills DISCOVERY_TIMEOUT ${LOOM_TEST_DISCOVERY_TIMEOUT})
 
 # ---------------------------------------------------------------------------
 # Google Benchmark micro-benchmark suite
@@ -515,7 +515,7 @@ target_link_libraries(test_fix_hooks_integration
         cc_core
         GTest::gtest_main
 )
-gtest_discover_tests(test_fix_hooks_integration DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+gtest_discover_tests(test_fix_hooks_integration DISCOVERY_TIMEOUT ${LOOM_TEST_DISCOVERY_TIMEOUT})
 
 # B1-qe-tests: QueryEngine coverage (output_config, fallback models, memory, skills)
 add_executable(test_fix_query_engine test_fix_query_engine.cpp)
@@ -524,7 +524,7 @@ target_link_libraries(test_fix_query_engine
         cc_core
         GTest::gtest_main
 )
-gtest_discover_tests(test_fix_query_engine DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+gtest_discover_tests(test_fix_query_engine DISCOVERY_TIMEOUT ${LOOM_TEST_DISCOVERY_TIMEOUT})
 
 # state-layer: M2 fsync atomic write + M1 undo/redo regression
 add_executable(test_fix_state test_fix_state.cpp)
@@ -535,7 +535,7 @@ target_link_libraries(test_fix_state
         cc_utils
         GTest::gtest_main
 )
-gtest_discover_tests(test_fix_state DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+gtest_discover_tests(test_fix_state DISCOVERY_TIMEOUT ${LOOM_TEST_DISCOVERY_TIMEOUT})
 
 # plugin-H1-H2: marketplace fetch/add/remove + manifest validation
 add_executable(test_fix_plugin test_fix_plugin.cpp)
@@ -546,7 +546,7 @@ target_link_libraries(test_fix_plugin
         cc_plugins
         GTest::gtest_main
 )
-gtest_discover_tests(test_fix_plugin DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+gtest_discover_tests(test_fix_plugin DISCOVERY_TIMEOUT ${LOOM_TEST_DISCOVERY_TIMEOUT})
 
 # H5: yoga layout engine subset regression (documentation-only fix, 18 tests)
 add_executable(test_fix_yoga test_fix_yoga.cpp)
@@ -555,7 +555,7 @@ target_link_libraries(test_fix_yoga
         cc_core
         GTest::gtest_main
 )
-gtest_discover_tests(test_fix_yoga DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+gtest_discover_tests(test_fix_yoga DISCOVERY_TIMEOUT ${LOOM_TEST_DISCOVERY_TIMEOUT})
 
 # M4 + M11: LSP action parity + send_request<T> static_assert
 add_executable(test_fix_lsp_tool test_fix_lsp_tool.cpp)
@@ -564,7 +564,7 @@ target_link_libraries(test_fix_lsp_tool
         cc_core
         GTest::gtest_main
 )
-gtest_discover_tests(test_fix_lsp_tool DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+gtest_discover_tests(test_fix_lsp_tool DISCOVERY_TIMEOUT ${LOOM_TEST_DISCOVERY_TIMEOUT})
 
 # M6: API stubs -> real HTTP (first_token_date, ultrareview_quota, overage_credit)
 
@@ -577,7 +577,7 @@ target_link_libraries(test_fix_notifs
         cc_services
         GTest::gtest_main
 )
-gtest_discover_tests(test_fix_notifs DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+gtest_discover_tests(test_fix_notifs DISCOVERY_TIMEOUT ${LOOM_TEST_DISCOVERY_TIMEOUT})
 
 # misc-low: oauth_port bind-probe, secret_scanner gitleaks, in_process_transport, PKCE CSPRNG
 add_executable(test_fix_misc_low test_fix_misc_low.cpp)
@@ -587,7 +587,7 @@ target_link_libraries(test_fix_misc_low
         cc_services
         GTest::gtest_main
 )
-gtest_discover_tests(test_fix_misc_low DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+gtest_discover_tests(test_fix_misc_low DISCOVERY_TIMEOUT ${LOOM_TEST_DISCOVERY_TIMEOUT})
 
 # ── Mark ALL test executables as module-importing so CMake scans them for
 #    `import cc.*` statements and propagates upstream BMI files.  Any

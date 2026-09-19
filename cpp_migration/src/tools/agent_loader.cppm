@@ -58,13 +58,13 @@ using cc::tools::agent_runtime::LoadAgentDefinitionsResult;
 // precedence order (lowest to highest) is:
 //   1. built-in
 //   2. plugin
-//   3. userSettings   (~/.claude/agents + ~/.claude/settings.json agents)
-//   4. projectSettings (<cwd>/.claude/agents + <cwd>/.claude/settings.json)
-//   5. localSettings   (<cwd>/.claude/settings.local.json)
-//   6. flagSettings    (env CC_REPL_AGENTS_JSON / CLAUDE_CODE_AGENTS_JSON)
-//   7. policySettings  (env CLAUDE_CODE_POLICY_SETTINGS)
+//   3. userSettings   (~/.loom/agents + ~/.loom/settings.json agents)
+//   4. projectSettings (<cwd>/.loom/agents + <cwd>/.loom/settings.json)
+//   5. localSettings   (<cwd>/.loom/settings.local.json)
+//   6. flagSettings    (env LOOM_AGENTS_JSON / LOOM_AGENTS_JSON)
+//   7. policySettings  (env LOOM_POLICY_SETTINGS)
 //
-// Matches TS `CLAUDE_CODE_SIMPLE` environment gate: when set the function
+// Matches TS `LOOM_SIMPLE` environment gate: when set the function
 // returns only the built-in agent list.
 [[nodiscard]] inline std::vector<AgentDefinition> get_all_agent_definitions(
     std::optional<fs::path> cwd = std::nullopt

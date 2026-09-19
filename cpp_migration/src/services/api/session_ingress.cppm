@@ -95,7 +95,7 @@ namespace detail {
         if (starts_with(config.auth_token, "sk-ant-sid")) {
             headers["Cookie"] = "sessionKey=" + config.auth_token;
             auto org_uuid = config.organization_uuid;
-            if (!org_uuid) org_uuid = env_value("CLAUDE_CODE_ORGANIZATION_UUID");
+            if (!org_uuid) org_uuid = env_value("LOOM_ORGANIZATION_UUID");
             if (org_uuid && !org_uuid->empty()) {
                 headers["X-Organization-Uuid"] = *org_uuid;
             }
@@ -205,20 +205,20 @@ auto create_ingress(IngressConfig config) -> std::expected<void, std::string> {
 
 auto create_ingress_from_environment() -> std::expected<bool, std::string> {
     auto endpoint = detail::first_env({
-        "CLAUDE_CODE_REMOTE_API_BASE_URL",
-        "CC_REPL_REMOTE_API_BASE_URL",
-        "CLAUDE_CODE_SESSION_INGRESS_URL",
-        "CC_REPL_SESSION_INGRESS_URL",
+        "LOOM_REMOTE_API_BASE_URL",
+        "LOOM_REMOTE_API_BASE_URL",
+        "LOOM_SESSION_INGRESS_URL",
+        "LOOM_SESSION_INGRESS_URL",
     });
     auto session_id = detail::first_env({
         "CC_REMOTE_SESSION_ID",
-        "CLAUDE_CODE_REMOTE_SESSION_ID",
+        "LOOM_REMOTE_SESSION_ID",
     });
-    auto auth_token = detail::env_value("CLAUDE_CODE_SESSION_ACCESS_TOKEN");
-    auto worker_epoch = detail::env_int64("CLAUDE_CODE_WORKER_EPOCH");
+    auto auth_token = detail::env_value("LOOM_SESSION_ACCESS_TOKEN");
+    auto worker_epoch = detail::env_int64("LOOM_WORKER_EPOCH");
     auto use_code_sessions = detail::first_env({
-        "CLAUDE_CODE_USE_CCR_V2",
-        "CLAUDE_CODE_USE_CODE_SESSIONS",
+        "LOOM_USE_CCR_V2",
+        "LOOM_USE_CODE_SESSIONS",
     });
 
     if (!endpoint && !session_id && !auth_token) return false;
@@ -240,7 +240,7 @@ auto create_ingress_from_environment() -> std::expected<bool, std::string> {
         .endpoint = *endpoint,
         .session_id = *session_id,
         .auth_token = *auth_token,
-        .organization_uuid = detail::env_value("CLAUDE_CODE_ORGANIZATION_UUID"),
+        .organization_uuid = detail::env_value("LOOM_ORGANIZATION_UUID"),
         .use_code_sessions = use_code_sessions ? detail::truthy(*use_code_sessions) : false,
         .worker_epoch = worker_epoch,
     });

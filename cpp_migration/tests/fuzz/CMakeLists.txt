@@ -1,4 +1,4 @@
-# Fuzz targets for CC-REPL
+# Fuzz targets for LOOM
 # Only built when ENABLE_FUZZING=ON
 
 # Fuzz target: SSE parser

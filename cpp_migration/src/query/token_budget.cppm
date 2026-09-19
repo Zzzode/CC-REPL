@@ -14,14 +14,14 @@ export namespace cc::query {
 
 /// Model context window sizes
 struct ModelLimits {
-    int max_context_tokens = 200'000;  // Default for Claude 3.5/4
+    int max_context_tokens = 200'000;  // Default for Loom 3.5/4
     int max_output_tokens = 16'384;    // Default max output
     int reserved_for_output = 16'384;  // Reserve for model response
 };
 
 /// Get model limits by model name
 [[nodiscard]] inline ModelLimits get_model_limits(std::string_view model_name) {
-    // Claude 4 Opus with 1M context
+    // Loom 4 Opus with 1M context
     if (model_name.find("opus") != std::string_view::npos && 
         model_name.find("4") != std::string_view::npos) {
         return ModelLimits{
@@ -30,7 +30,7 @@ struct ModelLimits {
             .reserved_for_output = 32'000,
         };
     }
-    // Claude 4 Sonnet / Haiku
+    // Loom 4 Sonnet / Haiku
     if (model_name.find("sonnet") != std::string_view::npos ||
         model_name.find("haiku") != std::string_view::npos) {
         return ModelLimits{

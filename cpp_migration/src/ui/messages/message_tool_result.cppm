@@ -590,12 +590,12 @@ namespace detail {
 }
 
 // ─── InterruptedByUser.tsx ─────────────────────────────────────────────────
-// "Interrupted · What should Claude do instead?"  (dim text, middot separator)
+// "Interrupted · What should Loom do instead?"  (dim text, middot separator)
 
 [[nodiscard]] inline Element render_interrupted_by_user() {
     return hbox({
         text("Interrupted ") | dim,
-        text("\xc2\xb7 What should Claude do instead?") | dim,
+        text("\xc2\xb7 What should Loom do instead?") | dim,
     });
 }
 
@@ -800,7 +800,7 @@ constexpr int kMaxRenderedLines = 10;
 }
 
 // ─── RejectedPlanMessage.tsx ──────────────────────────────────────────────
-// "User rejected Claude's plan:" label + plan content in a round-border box
+// "User rejected Loom's plan:" label + plan content in a round-border box
 // with planMode color (purple).
 
 [[nodiscard]] inline Element render_rejected_plan(
@@ -831,7 +831,7 @@ constexpr int kMaxRenderedLines = 10;
 
     Elements inner;
     inner.push_back(
-        text("User rejected Claude's plan:") | color(Color::GrayLight));
+        text("User rejected Loom's plan:") | color(Color::GrayLight));
     inner.push_back(std::move(plan_box));
 
     return wrap_message_response(vbox(std::move(inner)));

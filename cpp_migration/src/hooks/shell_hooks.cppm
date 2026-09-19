@@ -1,6 +1,6 @@
 /// @file shell_hooks.cppm
 /// @brief User-configurable shell execution hooks.
-/// Loads hook definitions from settings files (~/.claude/settings.json, .claude/settings.json)
+/// Loads hook definitions from settings files (~/.loom/settings.json, .loom/settings.json)
 /// and executes matching shell commands on lifecycle events with timeout, output capture,
 /// and return-code-based permission control.
 module;
@@ -140,18 +140,18 @@ namespace detail {
         ::close(stderr_pipe[1]);
 
         // Set environment variables for hook context
-        ::setenv("CLAUDE_HOOK_EVENT", context.event_name.c_str(), 1);
+        ::setenv("LOOM_HOOK_EVENT", context.event_name.c_str(), 1);
         if (!context.tool_name.empty()) {
-            ::setenv("CLAUDE_HOOK_TOOL_NAME", context.tool_name.c_str(), 1);
+            ::setenv("LOOM_HOOK_TOOL_NAME", context.tool_name.c_str(), 1);
         }
         if (!context.tool_use_id.empty()) {
-            ::setenv("CLAUDE_HOOK_TOOL_USE_ID", context.tool_use_id.c_str(), 1);
+            ::setenv("LOOM_HOOK_TOOL_USE_ID", context.tool_use_id.c_str(), 1);
         }
         if (!context.session_id.empty()) {
-            ::setenv("CLAUDE_HOOK_SESSION_ID", context.session_id.c_str(), 1);
+            ::setenv("LOOM_HOOK_SESSION_ID", context.session_id.c_str(), 1);
         }
         if (!context.working_directory.empty()) {
-            ::setenv("CLAUDE_HOOK_CWD", context.working_directory.c_str(), 1);
+            ::setenv("LOOM_HOOK_CWD", context.working_directory.c_str(), 1);
         }
         for (const auto& [key, value] : context.extra_env) {
             ::setenv(key.c_str(), value.c_str(), 1);
@@ -160,10 +160,10 @@ namespace detail {
         // Write tool_input_json to stdin if present
         // For simplicity, set as env var (limited to ~128KB on most systems)
         if (!context.tool_input_json.empty()) {
-            ::setenv("CLAUDE_HOOK_TOOL_INPUT", context.tool_input_json.c_str(), 1);
+            ::setenv("LOOM_HOOK_TOOL_INPUT", context.tool_input_json.c_str(), 1);
         }
         if (!context.tool_output_preview.empty()) {
-            ::setenv("CLAUDE_HOOK_TOOL_OUTPUT", context.tool_output_preview.c_str(), 1);
+            ::setenv("LOOM_HOOK_TOOL_OUTPUT", context.tool_output_preview.c_str(), 1);
         }
 
         // Execute via shell
@@ -465,7 +465,7 @@ public:
     ShellHookLoader() = default;
 
     /// Load hooks from all settings files in priority order.
-    /// Searches: ~/.claude/settings.json, .claude/settings.json, .claude/settings.local.json
+    /// Searches: ~/.loom/settings.json, .loom/settings.json, .loom/settings.local.json
     void load_from_settings() {
         std::lock_guard lock(mu_);
         hooks_by_event_.clear();
@@ -545,15 +545,15 @@ private:
     [[nodiscard]] static std::filesystem::path get_user_settings_path() {
         const char* home = std::getenv("HOME");
         if (!home) home = "/tmp";
-        return std::filesystem::path(home) / ".claude" / "settings.json";
+        return std::filesystem::path(home) / ".loom" / "settings.json";
     }
 
     [[nodiscard]] static std::filesystem::path get_project_settings_path() {
-        return std::filesystem::current_path() / ".claude" / "settings.json";
+        return std::filesystem::current_path() / ".loom" / "settings.json";
     }
 
     [[nodiscard]] static std::filesystem::path get_local_settings_path() {
-        return std::filesystem::current_path() / ".claude" / "settings.local.json";
+        return std::filesystem::current_path() / ".loom" / "settings.local.json";
     }
 
     mutable std::mutex mu_;
@@ -659,7 +659,7 @@ public:
             .working_directory = std::filesystem::current_path().string(),
             .extra_env = {}
         };
-        ctx.extra_env["CLAUDE_HOOK_PROMPT"] = std::string(prompt_text);
+        ctx.extra_env["LOOM_HOOK_PROMPT"] = std::string(prompt_text);
         return execute_event(HookEventType::UserPromptSubmit, "", ctx);
     }
 

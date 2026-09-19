@@ -96,8 +96,8 @@ enum class LoadedFrom {
 /// Source of a setting/skill
 enum class SettingSource {
     PolicySettings,   // Managed policy
-    UserSettings,     // User-level config (~/.claude/)
-    ProjectSettings,  // Project-level (.claude/)
+    UserSettings,     // User-level config (~/.loom/)
+    ProjectSettings,  // Project-level (.loom/)
     Builtin,          // Built-in default
 };
 
@@ -237,12 +237,12 @@ struct SkillCommand {
                 final_content, *args, true, arg_names_vec);
         }
 
-        // Replace ${CLAUDE_SKILL_DIR} with the skill's own directory
+        // Replace ${LOOM_SKILL_DIR} with the skill's own directory
         if (skill_root.has_value()) {
             std::string skill_dir = skill_root->string();
             // Normalize backslashes to forward slashes on Windows
             std::replace(skill_dir.begin(), skill_dir.end(), '\\', '/');
-            const std::string placeholder = "${CLAUDE_SKILL_DIR}";
+            const std::string placeholder = "${LOOM_SKILL_DIR}";
             std::size_t pos = 0;
             while ((pos = final_content.find(placeholder, pos)) != std::string::npos) {
                 final_content.replace(pos, placeholder.size(), skill_dir);
@@ -250,9 +250,9 @@ struct SkillCommand {
             }
         }
 
-        // Replace ${CLAUDE_SESSION_ID} with the current session ID
+        // Replace ${LOOM_SESSION_ID} with the current session ID
         if (session_id.has_value()) {
-            const std::string sid_placeholder = "${CLAUDE_SESSION_ID}";
+            const std::string sid_placeholder = "${LOOM_SESSION_ID}";
             std::size_t pos = 0;
             while ((pos = final_content.find(sid_placeholder, pos)) != std::string::npos) {
                 final_content.replace(pos, sid_placeholder.size(), *session_id);
@@ -281,20 +281,20 @@ struct SkillWithPath {
 } // namespace detail
 
 // =========================================================================
-// Utility: getClaudeConfigHomeDir
-// TS REF: src/utils/envUtils.ts:7 (getClaudeConfigHomeDir)
+// Utility: getConfigHomeDir
+// TS REF: src/utils/envUtils.ts:7 (getConfigHomeDir)
 // =========================================================================
 
-/// Get the Claude config home directory (~/.claude)
-std::string get_claude_config_home_dir() {
+/// Get the Loom config home directory (~/.loom)
+std::string get_config_home_dir() {
     const char* home = std::getenv("HOME");
     if (home && home[0] != '\0') {
-        return std::string(home) + "/.claude";
+        return std::string(home) + "/.loom";
     }
     // Fallback: try XDG_CONFIG_HOME
     const char* xdg = std::getenv("XDG_CONFIG_HOME");
     if (xdg && xdg[0] != '\0') {
-        return std::string(xdg) + "/claude";
+        return std::string(xdg) + "/loom";
     }
     return "";
 }
@@ -308,7 +308,7 @@ std::string get_claude_config_home_dir() {
 std::string get_managed_file_path() {
     // In the TS implementation, this resolves to a managed-settings directory.
     // For CPP, we return a stub path. Callers should check for empty string.
-    const char* managed = std::getenv("CLAUDE_MANAGED_SETTINGS_PATH");
+    const char* managed = std::getenv("LOOM_MANAGED_SETTINGS_PATH");
     if (managed && managed[0] != '\0') {
         return std::string(managed);
     }
@@ -316,13 +316,13 @@ std::string get_managed_file_path() {
 }
 
 // =========================================================================
-// Utility: getAdditionalDirectoriesForClaudeMd
+// Utility: getAdditionalDirectoriesForLoomMd
 // TS REF: src/bootstrap/state.ts:1670
 // =========================================================================
 
-/// Get additional directories for Claude MD (from --add-dir flags)
-std::vector<std::string> get_additional_directories_for_claude_md() {
-    const char* add_dirs = std::getenv("CLAUDE_ADDITIONAL_DIRS");
+/// Get additional directories for Loom MD (from --add-dir flags)
+std::vector<std::string> get_additional_directories_for_loom_md() {
+    const char* add_dirs = std::getenv("LOOM_ADDITIONAL_DIRS");
     if (!add_dirs || add_dirs[0] == '\0') return {};
 
     std::vector<std::string> result;
@@ -351,13 +351,13 @@ bool is_setting_source_enabled(SettingSource source) {
     switch (source) {
         case SettingSource::PolicySettings:
             return !cc::utils::is_env_truthy(
-                std::getenv("CLAUDE_CODE_DISABLE_POLICY_SKILLS"));
+                std::getenv("LOOM_DISABLE_POLICY_SKILLS"));
         case SettingSource::UserSettings:
             return !cc::utils::is_env_truthy(
-                std::getenv("CLAUDE_CODE_DISABLE_USER_SKILLS"));
+                std::getenv("LOOM_DISABLE_USER_SKILLS"));
         case SettingSource::ProjectSettings:
             return !cc::utils::is_env_truthy(
-                std::getenv("CLAUDE_CODE_DISABLE_PROJECT_SKILLS"));
+                std::getenv("LOOM_DISABLE_PROJECT_SKILLS"));
         default:
             return true;
     }
@@ -372,7 +372,7 @@ bool is_setting_source_enabled(SettingSource source) {
 bool is_restricted_to_plugin_only(std::string_view /*surface*/) {
     // TS REF: checks pluginOnlyPolicy setting. For CPP, we check an env var.
     return cc::utils::is_env_truthy(
-        std::getenv("CLAUDE_CODE_PLUGIN_ONLY_SKILLS"));
+        std::getenv("LOOM_PLUGIN_ONLY_SKILLS"));
 }
 
 // =========================================================================
@@ -380,18 +380,18 @@ bool is_restricted_to_plugin_only(std::string_view /*surface*/) {
 // TS REF: src/skills/loadSkillsDir.ts:78-94
 // =========================================================================
 
-/// Returns a claude config directory path for a given source
+/// Returns a loom config directory path for a given source
 std::string get_skills_path(SettingSource source, std::string_view dir) {
     switch (source) {
         case SettingSource::PolicySettings: {
             auto managed = get_managed_file_path();
             if (managed.empty()) return "";
-            return managed + "/.claude/" + std::string(dir);
+            return managed + "/.loom/" + std::string(dir);
         }
         case SettingSource::UserSettings:
-            return get_claude_config_home_dir() + "/" + std::string(dir);
+            return get_config_home_dir() + "/" + std::string(dir);
         case SettingSource::ProjectSettings:
-            return ".claude/" + std::string(dir);
+            return ".loom/" + std::string(dir);
         default:
             return "";
     }
@@ -402,7 +402,7 @@ std::string get_skills_path(SettingSource source, std::string_view dir) {
 // TS REF: src/utils/markdownConfigLoader.ts:234-280
 // =========================================================================
 
-/// Traverse from cwd up to git root (or home), collecting .claude/subdir dirs.
+/// Traverse from cwd up to git root (or home), collecting .loom/subdir dirs.
 /// TS REF: getProjectDirsUpToHome() walks up to git root to prevent parent
 /// directory skills from leaking into projects.
 std::vector<std::string> get_project_dirs_up_to_home(
@@ -436,9 +436,9 @@ std::vector<std::string> get_project_dirs_up_to_home(
         // Stop at home directory (user skills loaded separately)
         if (!home.empty() && fs::equivalent(current, home)) break;
 
-        auto claude_subdir = current / ".claude" / std::string(subdir);
-        if (fs::exists(claude_subdir) && fs::is_directory(claude_subdir)) {
-            dirs.push_back(claude_subdir.string());
+        auto loom_subdir = current / ".loom" / std::string(subdir);
+        if (fs::exists(loom_subdir) && fs::is_directory(loom_subdir)) {
+            dirs.push_back(loom_subdir.string());
         }
 
         // Stop at git root (prevents skills from parent repos leaking in)
@@ -937,7 +937,7 @@ std::optional<std::string> parse_hooks_from_frontmatter(
 // TS REF: src/skills/loadSkillsDir.ts:159-178
 // =========================================================================
 
-/// Parse paths frontmatter from a skill, using the same format as CLAUDE.md rules.
+/// Parse paths frontmatter from a skill, using the same format as LOOM.md rules.
 /// Returns nullopt if no paths specified or if all are match-all (**).
 std::optional<std::vector<std::string>> parse_skill_paths(const FrontmatterData& fm) {
     auto patterns = split_path_in_frontmatter(fm.paths, fm.paths_yaml);
@@ -1269,7 +1269,7 @@ std::vector<detail::SkillWithPath> load_skills_from_commands_dir(
 {
     std::vector<detail::SkillWithPath> skills;
 
-    // Walk up from cwd to find .claude/commands directories
+    // Walk up from cwd to find .loom/commands directories
     auto commands_dirs = get_project_dirs_up_to_home("commands", cwd);
 
     for (const auto& commands_dir_str : commands_dirs) {
@@ -1457,21 +1457,21 @@ std::vector<SkillCommand> get_skill_dir_commands_locked(const fs::path& cwd) {
     }
 
     // Build search paths
-    auto user_skills_dir = get_claude_config_home_dir() + "/skills";
+    auto user_skills_dir = get_config_home_dir() + "/skills";
     auto managed_skills_dir = [&]() -> std::string {
         auto managed = get_managed_file_path();
         if (managed.empty()) return "";
-        return managed + "/.claude/skills";
+        return managed + "/.loom/skills";
     }();
     auto project_skills_dirs = get_project_dirs_up_to_home("skills", cwd);
-    auto additional_dirs = get_additional_directories_for_claude_md();
+    auto additional_dirs = get_additional_directories_for_loom_md();
 
     bool skills_locked = is_restricted_to_plugin_only("skills");
     bool project_settings_enabled =
         is_setting_source_enabled(SettingSource::ProjectSettings) && !skills_locked;
 
     // --bare mode: skip auto-discovery
-    const char* bare_env = std::getenv("CLAUDE_CODE_SIMPLE");
+    const char* bare_env = std::getenv("LOOM_SIMPLE");
     bool is_bare = cc::utils::is_env_truthy(bare_env);
     if (is_bare) {
         if (additional_dirs.empty() || !project_settings_enabled) {
@@ -1487,7 +1487,7 @@ std::vector<SkillCommand> get_skill_dir_commands_locked(const fs::path& cwd) {
         std::vector<SkillCommand> result;
         for (const auto& dir : additional_dirs) {
             auto add_skills = load_skills_from_skills_dir(
-                fs::path(dir) / ".claude" / "skills",
+                fs::path(dir) / ".loom" / "skills",
                 SettingSource::ProjectSettings);
             for (auto& swp : add_skills) {
                 result.push_back(std::move(swp.skill));
@@ -1507,7 +1507,7 @@ std::vector<SkillCommand> get_skill_dir_commands_locked(const fs::path& cwd) {
 
     // 1. Managed skills (policy)
     if (is_setting_source_enabled(SettingSource::PolicySettings) &&
-        !cc::utils::is_env_truthy(std::getenv("CLAUDE_CODE_DISABLE_POLICY_SKILLS")) &&
+        !cc::utils::is_env_truthy(std::getenv("LOOM_DISABLE_POLICY_SKILLS")) &&
         !managed_skills_dir.empty()) {
         auto managed = load_skills_from_skills_dir(
             managed_skills_dir, SettingSource::PolicySettings);
@@ -1521,7 +1521,7 @@ std::vector<SkillCommand> get_skill_dir_commands_locked(const fs::path& cwd) {
         for (auto& s : user) all_skills_with_paths.push_back(std::move(s));
     }
 
-    // 3. Project skills (from all .claude/skills dirs up to git root)
+    // 3. Project skills (from all .loom/skills dirs up to git root)
     if (project_settings_enabled) {
         for (const auto& dir : project_skills_dirs) {
             auto project = load_skills_from_skills_dir(
@@ -1534,7 +1534,7 @@ std::vector<SkillCommand> get_skill_dir_commands_locked(const fs::path& cwd) {
     if (project_settings_enabled) {
         for (const auto& dir : additional_dirs) {
             auto add_skills = load_skills_from_skills_dir(
-                fs::path(dir) / ".claude" / "skills",
+                fs::path(dir) / ".loom" / "skills",
                 SettingSource::ProjectSettings);
             for (auto& s : add_skills) all_skills_with_paths.push_back(std::move(s));
         }
@@ -1706,7 +1706,7 @@ std::vector<fs::path> discover_skill_dirs_for_paths(
             if (ec || rel.empty() || rel == ".") break;
             if (rel.string().starts_with("..")) break;
 
-            auto skill_dir = current_dir / ".claude" / "skills";
+            auto skill_dir = current_dir / ".loom" / "skills";
             std::string skill_dir_str = skill_dir.string();
 
             // Skip if already checked
@@ -2033,13 +2033,13 @@ std::size_t estimate_skill_frontmatter_tokens(const SkillCommand& skill) {
 // TS REF: src/skills/loadSkillsDir.ts (skillDirs computation)
 // =========================================================================
 
-/// Return the standard skill search paths (~/.claude/skills + ./.claude/skills).
+/// Return the standard skill search paths (~/.loom/skills + ./.loom/skills).
 std::vector<fs::path> get_skills_search_paths() {
     std::vector<fs::path> paths;
     if (auto home = std::getenv("HOME")) {
-        paths.emplace_back(fs::path(home) / ".claude" / "skills");
+        paths.emplace_back(fs::path(home) / ".loom" / "skills");
     }
-    paths.emplace_back(fs::current_path() / ".claude" / "skills");
+    paths.emplace_back(fs::current_path() / ".loom" / "skills");
     return paths;
 }
 

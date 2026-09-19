@@ -110,7 +110,7 @@ digit_to_response(char digit) {
 
 /// Default message shown in the survey prompt
 inline constexpr std::string_view kDefaultMessage =
-    "How is Claude doing this session? (optional)";
+    "How is Loom doing this session? (optional)";
 
 // ============================================================
 // Element Rendering
@@ -158,7 +158,7 @@ inline constexpr std::string_view kDefaultMessage =
 [[nodiscard]] inline Element RenderTranscriptPrompt() {
     return vbox({
         text("Would you like to share this conversation transcript?") | bold,
-        text("This helps us improve Claude.") | dim,
+        text("This helps us improve Loom.") | dim,
         text(""),
         hbox({
             text("1") | color(Color::Cyan), text(": Yes  "),

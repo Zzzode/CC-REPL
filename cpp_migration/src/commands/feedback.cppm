@@ -1,6 +1,6 @@
 /// @file feedback.cppm
 /// @brief FeedbackCommand implementing the /feedback slash command.
-/// Submits feedback about Claude Code.
+/// Submits feedback about Loom.
 module;
 
 #include <string>
@@ -25,13 +25,13 @@ export namespace cc::commands {
 using namespace cc::core;
 
 /// FeedbackCommand implements the /feedback slash command.
-/// Submits feedback about Claude Code.
+/// Submits feedback about Loom.
 class FeedbackCommand {
 public:
     [[nodiscard]] static CommandDefinition definition() {
         return CommandDefinition{
             .name = "feedback",
-            .description = "Submit feedback about Claude Code",
+            .description = "Submit feedback about Loom",
             .args = {
                 CommandArg{.name = "text", .description = "Feedback text",
                            .type = ArgType::Text, .required = false},
@@ -90,12 +90,12 @@ public:
 private:
     [[nodiscard]] static std::filesystem::path feedback_path() {
         if (const char* xdg = std::getenv("XDG_CONFIG_HOME"); xdg && *xdg) {
-            return std::filesystem::path{xdg} / "cc-repl" / "feedback.log";
+            return std::filesystem::path{xdg} / "loom" / "feedback.log";
         }
         if (const char* home = std::getenv("HOME"); home && *home) {
-            return std::filesystem::path{home} / ".config" / "cc-repl" / "feedback.log";
+            return std::filesystem::path{home} / ".config" / "loom" / "feedback.log";
         }
-        return std::filesystem::temp_directory_path() / "cc-repl" / "feedback.log";
+        return std::filesystem::temp_directory_path() / "loom" / "feedback.log";
     }
 };
 

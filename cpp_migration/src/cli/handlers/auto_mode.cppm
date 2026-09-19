@@ -120,7 +120,7 @@ inline std::string extract_text(const std::string& response) {
 
 } // namespace detail
 
-// Handle auto mode execution — runs Claude non-interactively
+// Handle auto mode execution — runs Loom non-interactively
 std::expected<void, std::string> handle_auto_mode(std::string_view prompt, std::map<std::string, std::string> options) {
     if (prompt.empty()) {
         return std::unexpected("Prompt cannot be empty for auto mode");
@@ -203,10 +203,10 @@ AutoModeConfig get_auto_mode_config() {
     };
 
     // Check environment for overrides
-    if (const char* turns = std::getenv("CLAUDE_AUTO_MAX_TURNS"); turns && turns[0] != '\0') {
+    if (const char* turns = std::getenv("LOOM_AUTO_MAX_TURNS"); turns && turns[0] != '\0') {
         try { config.max_turns = std::stoi(turns); } catch (...) {}
     }
-    if (const char* model = std::getenv("CLAUDE_MODEL"); model && model[0] != '\0') {
+    if (const char* model = std::getenv("LOOM_MODEL"); model && model[0] != '\0') {
         config.model = model;
     }
 

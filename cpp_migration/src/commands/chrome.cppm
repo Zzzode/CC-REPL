@@ -1,6 +1,6 @@
 /// @file chrome.cppm
 /// @brief ChromeCommand implementing the /chrome slash command.
-/// Opens the Claude in Chrome setup page and lists reconnect/permissions links.
+/// Opens the Loom in Chrome setup page and lists reconnect/permissions links.
 module;
 
 #include <string>
@@ -41,7 +41,7 @@ public:
     [[nodiscard]] static CommandDefinition definition() {
         return CommandDefinition{
             .name = "chrome",
-            .description = "Open Claude in Chrome setup",
+            .description = "Open Loom in Chrome setup",
             .args = {},
             .category = "integrations",
             .aliases = {},
@@ -54,10 +54,10 @@ public:
     }
 
     [[nodiscard]] static Result<CommandResult> execute(const CommandContext&) {
-        open_in_browser("https://claude.ai/chrome");
+        // No browser-extension backend is reachable from this build.
         return CommandResult::success(
-            "Claude in Chrome setup:\n"
-            "  Install:        https://claude.ai/chrome\n"
+            "Loom in Chrome setup:\n"
+            "  Install:        (no browser extension is published for this build)\n"
             "  Reconnect:      https://clau.de/chrome/reconnect\n"
             "  Permissions:    https://clau.de/chrome/permissions\n"
             "  CLI flags:      --chrome or --no-chrome\n"

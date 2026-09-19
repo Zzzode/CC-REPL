@@ -28,22 +28,22 @@ namespace detail {
     inline const std::map<std::string, DeprecationEntry>& deprecated_models() {
         static const std::map<std::string, DeprecationEntry> m = {
             {"claude-3-opus-20240229", {
-                "Claude 3 Opus is deprecated. Please use claude-opus-4-20250514.",
+                "Loom 3 Opus is deprecated. Please use claude-opus-4-20250514.",
                 "claude-opus-4-20250514",
                 make_date(2025, 6, 1)
             }},
             {"claude-3-sonnet-20240229", {
-                "Claude 3 Sonnet is deprecated. Please use claude-sonnet-4-20250514.",
+                "Loom 3 Sonnet is deprecated. Please use claude-sonnet-4-20250514.",
                 "claude-sonnet-4-20250514",
                 make_date(2025, 3, 1)
             }},
             {"claude-3-haiku-20240307", {
-                "Claude 3 Haiku is deprecated. Please use claude-haiku-4-20250514.",
+                "Loom 3 Haiku is deprecated. Please use claude-haiku-4-20250514.",
                 "claude-haiku-4-20250514",
                 make_date(2025, 6, 1)
             }},
             {"claude-3-5-sonnet-20241022", {
-                "Claude 3.5 Sonnet is deprecated. Please use claude-sonnet-4-20250514.",
+                "Loom 3.5 Sonnet is deprecated. Please use claude-sonnet-4-20250514.",
                 "claude-sonnet-4-20250514",
                 make_date(2025, 8, 1)
             }},

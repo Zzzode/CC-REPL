@@ -479,7 +479,7 @@ private:
                                                      std::string_view filename) {
         namespace fs = std::filesystem;
         std::error_code ec;
-        auto tmp_dir = fs::temp_directory_path(ec) / "cc-repl";
+        auto tmp_dir = fs::temp_directory_path(ec) / "loom";
         if (ec) return "";
         fs::create_directories(tmp_dir, ec);
         if (ec) return "";

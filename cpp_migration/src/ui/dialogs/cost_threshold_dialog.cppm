@@ -14,7 +14,7 @@
 ///   Render   = title sprintf("You've spent $%.0f on the Anthropic API
 ///                       this session.", dollars_spent)
 ///              body   = "Learn more about how to monitor your spending:"
-///                       + https://code.claude.com/docs/en/costs
+///                       + https://code.loom.com/docs/en/costs
 ///              actions = one button: "Got it, thanks!"
 ///   Keyboard = Enter  -> on_done()
 ///              Escape -> on_done()
@@ -38,6 +38,8 @@ module;
 
 export module cc.ui.dialogs.cost_threshold_dialog;
 
+import cc.constants.product;
+
 export namespace cc::ui::dialogs::cost_threshold {
 
 using namespace ftxui;
@@ -49,8 +51,7 @@ using namespace ftxui;
 /// External link rendered below the body paragraph.  Kept as a named
 /// constant so tests can assert the exact reference URL without touching
 /// the compiled output.
-inline constexpr std::string_view kDocsUrl =
-    "https://code.claude.com/docs/en/costs";
+inline const std::string kDocsUrl = cc::constants::product::doc_url("/docs/en/costs");
 
 /// Body paragraph immediately above the external link.
 inline constexpr std::string_view kBodyParagraph =
@@ -122,7 +123,7 @@ struct CostThresholdState {
 ///   │ You've spent $5 on the Anthropic API this session.       │
 ///   ├──────────────────────────────────────────────────────────┤
 ///   │  Learn more about how to monitor your spending:          │
-///   │  https://code.claude.com/docs/en/costs                   │
+///   │  https://code.loom.com/docs/en/costs                   │
 ///   │  (model: claude-3-5-sonnet-20241022)                     │  ← optional
 ///   ├──────────────────────────────────────────────────────────┤
 ///   │  ● Got it, thanks!                                       │

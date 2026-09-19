@@ -69,7 +69,7 @@ RenderOptions get_render_options() {
                    locale.find("utf8") != std::string::npos;
 
     // Theme
-    const char* theme = std::getenv("CLAUDE_THEME");
+    const char* theme = std::getenv("LOOM_THEME");
     opts.theme = theme ? theme : "dark";
 
     return opts;

@@ -7,9 +7,9 @@
 //           RT partial (runtime impl only)  DF deferred
 //
 //   batch.cppm                    OK migrated (Phase 0)  make_batch_skill()
-//   claude_api.cppm               RT bundled/ has impl + IN root SkillDefinition
-//   claude_api_content.cppm       IN S1 migrated (root: make_claude_api_content_skill)
-//   claude_in_chrome.cppm         OK (S2, this commit)  make_claude_in_chrome_skill()
+//   loom_api.cppm               RT bundled/ has impl + IN root SkillDefinition
+//   loom_api_content.cppm       IN S1 migrated (root: make_loom_api_content_skill)
+//   loom_in_chrome.cppm         OK (S2, this commit)  make_loom_in_chrome_skill()
 //   debug.cppm                    OK (S4, THIS commit)  runtime impl in bundled/debug
 //                                 + SkillDefinition here delegates to submodule
 //   index                         -> THIS FILE (aggregator)
@@ -44,8 +44,8 @@
 /// @brief Built-in skill definitions with structured workflow steps.
 /// Provides predefined skills: update-config, keybindings, keybindings-help,
 /// lorem-ipsum, remember, verify, verify-content, debug, simplify, skillify,
-/// self-unstuck, stuck, loop, batch, schedule-remote-agents, claude-api,
-/// claude-api-content, claude-in-chrome.
+/// self-unstuck, stuck, loop, batch, schedule-remote-agents, loom-api,
+/// loom-api-content, loom-in-chrome.
 ///
 /// REGISTRATION ORDER (dependency-first):
 ///   1. Config/infra first (update-config)
@@ -53,7 +53,7 @@
 ///   3. Validation (verify, verify-content)
 ///   4. Workflow (debug, simplify, skillify, self-unstuck, stuck, loop, batch)
 ///   5. Agent orchestration (schedule-remote-agents)
-///   6. Integration (claude-api, claude-api-content, claude-in-chrome)
+///   6. Integration (loom-api, loom-api-content, loom-in-chrome)
 module;
 
 #include <algorithm>
@@ -79,8 +79,8 @@ import cc.skills.load_skills_dir;
 // the BundledSkills registry below uses the BUNDLED submodule versions
 // (make_bundled_*_skill factories) for TS parity.
 // ---------------------------------------------------------------------------
-import cc.skills.claude_api;
-import cc.skills.claude_api_content;
+import cc.skills.loom_api;
+import cc.skills.loom_api_content;
 import cc.skills.lorem_ipsum;
 import cc.skills.remember;
 import cc.skills.schedule_remote_agents;
@@ -92,7 +92,7 @@ import cc.skills.keybindings; // NOTE: simple shortcut sheet, separate from keyb
 // Bundled sub-modules (runtime impls from cpp_migration/src/skills/bundled/)
 // ---------------------------------------------------------------------------
 import cc.skills.bundled.stuck;      // runtime: detect_stuck_pattern, get_stuck_skill_manifest
-import cc.skills.bundled.claude_in_chrome;
+import cc.skills.bundled.loom_in_chrome;
 import cc.skills.bundled.skill_keybindings;
 
 // -- S4: 4 tool-type bundled skill submodules (Phase 2, S4 audit) --
@@ -351,11 +351,11 @@ and cc::skills::bundled::suggest_unstuck_action(context).
 
 // --- Phase 2, S2 additions --------------------------------------------------
 
-/// Claude in Chrome skill - browser automation via Chrome extension MCP
-/// Mirrors src/skills/bundled/claudeInChrome.ts.
-[[nodiscard]] inline SkillDefinition make_claude_in_chrome_skill() {
+/// Loom in Chrome skill - browser automation via Chrome extension MCP
+/// Mirrors src/skills/bundled/loomInChrome.ts.
+[[nodiscard]] inline SkillDefinition make_loom_in_chrome_skill() {
     return SkillDefinition{
-        .name = "claude-in-chrome",
+        .name = "loom-in-chrome",
         .description =
             "Automates your Chrome browser to interact with web pages - clicking elements, "
             "filling forms, capturing screenshots, reading console logs, and navigating sites. "
@@ -370,7 +370,7 @@ and cc::skills::bundled::suggest_unstuck_action(context).
             R"(web\s+page\s+(?:interact|scrape|automate))",
             R"(web\s+browser\s+tool)",
             R"((?:sidebar|side\s+bar)\s+(?:chrome|browser))",
-            R"(claude\s+in\s+chrome\s+not\s+respond)",
+            R"(loom\s+in\s+chrome\s+not\s+respond)",
             R"(cfc\s+(?:not|broken|issue))",
             R"(chrome\s+(?:tab|screenshot|console))",
             // English keyword patterns (replacing Chinese triggers)
@@ -380,7 +380,7 @@ and cc::skills::bundled::suggest_unstuck_action(context).
             R"(sidebar)",
             R"(extension.*not.responding)",
         },
-        .content = cc::skills::bundled::build_claude_in_chrome_prompt()
+        .content = cc::skills::bundled::build_loom_in_chrome_prompt()
             + "\n\n## Troubleshooting\n\n"
             + cc::skills::bundled::build_troubleshooting_checklist(),
         .is_builtin = true,
@@ -400,7 +400,7 @@ and cc::skills::bundled::suggest_unstuck_action(context).
         .name = "keybindings-help",
         .description =
             "Use when the user wants to customize keyboard shortcuts, rebind keys, add "
-            "chord bindings, or modify ~/.claude/keybindings.json. Examples: \"rebind "
+            "chord bindings, or modify ~/.loom/keybindings.json. Examples: \"rebind "
             "ctrl+s\", \"add a chord shortcut\", \"change the submit key\", "
             "\"customize keybindings\".",
         .trigger_patterns = {
@@ -475,9 +475,9 @@ public:
         skills_.push_back(cc::skills::schedule_remote_agents::make_schedule_remote_agents_skill());
 
         // 6. Integration (API + browser)
-        skills_.push_back(cc::skills::claude_api::make_claude_api_skill());
-        skills_.push_back(cc::skills::claude_api_content::make_claude_api_content_skill());
-        skills_.push_back(make_claude_in_chrome_skill());
+        skills_.push_back(cc::skills::loom_api::make_loom_api_skill());
+        skills_.push_back(cc::skills::loom_api_content::make_loom_api_content_skill());
+        skills_.push_back(make_loom_in_chrome_skill());
 
         // Deferred(feature-flag): Register the following only when feature flags become
         // available in C++ runtime (mirrors TS index.ts feature() gating):

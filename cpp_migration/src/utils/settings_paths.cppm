@@ -25,11 +25,11 @@ enum class Platform : unsigned char {
         return std::string(*managed_settings_path_override);
     }
     switch (platform) {
-        case Platform::MacOS: return "/Library/Application Support/ClaudeCode";
-        case Platform::Windows: return "C:\\Program Files\\ClaudeCode";
-        case Platform::Linux: return "/etc/claude-code";
+        case Platform::MacOS: return "/Library/Application Support/Loom";
+        case Platform::Windows: return "C:\\Program Files\\Loom";
+        case Platform::Linux: return "/etc/loom";
     }
-    return "/etc/claude-code";
+    return "/etc/loom";
 }
 
 [[nodiscard]] inline std::string join_path(std::string_view base, std::string_view child) {
@@ -48,8 +48,8 @@ enum class Platform : unsigned char {
 [[nodiscard]] inline std::string relative_settings_file_path_for_source(cc::utils::settings_sources::SettingSource source) {
     using cc::utils::settings_sources::SettingSource;
     switch (source) {
-        case SettingSource::ProjectSettings: return ".claude/settings.json";
-        case SettingSource::LocalSettings: return ".claude/settings.local.json";
+        case SettingSource::ProjectSettings: return ".loom/settings.json";
+        case SettingSource::LocalSettings: return ".loom/settings.local.json";
         default: return "";
     }
 }

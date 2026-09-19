@@ -54,7 +54,7 @@ inline std::optional<std::string> extract_shebang([[maybe_unused]] std::string_v
 /// any whitespace immediately after it.
 ///
 /// Under fullscreen mode this label doubles as both the non-verbose
-/// tool-use label AND the collapse-group ⎿ hint — it's what Claude
+/// tool-use label AND the collapse-group ⎿ hint — it's what Loom
 /// wrote for the human to read, so we surface it prominently.
 ///
 /// Returns std::nullopt when the command has no leading comment or

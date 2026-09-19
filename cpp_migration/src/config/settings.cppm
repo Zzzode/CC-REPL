@@ -62,7 +62,7 @@ using EnvGetter = std::function<std::optional<std::string>(std::string_view name
     std::string_view fallback = "claude-sonnet-4-20250514"
 ) {
     auto model = first_non_empty_env(env_getter, {
-        "CLAUDE_MODEL",
+        "LOOM_MODEL",
         "ANTHROPIC_MODEL",
         "ANTHROPIC_DEFAULT_SONNET_MODEL",
     });
@@ -184,9 +184,9 @@ using SettingValue = std::variant<std::string, int, double, bool, std::vector<st
 
 /// Settings scope
 enum class SettingsScope : std::uint8_t {
-    User,       // ~/.claude/settings.json
-    Project,    // .claude/settings.json in project root
-    Local,      // .claude/settings.local.json (gitignored)
+    User,       // ~/.loom/settings.json
+    Project,    // .loom/settings.json in project root
+    Local,      // .loom/settings.local.json (gitignored)
 };
 
 /// A single settings entry
@@ -204,11 +204,11 @@ struct SettingsEntry {
 ) {
     switch (scope) {
         case SettingsScope::User:
-            return home_dir / ".claude" / "settings.json";
+            return home_dir / ".loom" / "settings.json";
         case SettingsScope::Project:
-            return project_root / ".claude" / "settings.json";
+            return project_root / ".loom" / "settings.json";
         case SettingsScope::Local:
-            return project_root / ".claude" / "settings.local.json";
+            return project_root / ".loom" / "settings.local.json";
     }
     return {};
 }

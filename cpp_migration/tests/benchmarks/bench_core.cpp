@@ -1,5 +1,5 @@
 /// @file bench_core.cpp
-/// @brief Google Benchmark micro-benchmark suite for CC-REPL core subsystems.
+/// @brief Google Benchmark micro-benchmark suite for LOOM core subsystems.
 ///
 /// Benchmarks:
 ///   1. SSE parser      - Feed a pre-built SSE body through SseClient::FeedParser

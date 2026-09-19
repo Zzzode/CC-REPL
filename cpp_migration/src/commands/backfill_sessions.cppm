@@ -31,8 +31,8 @@ struct LocalSessionMeta {
 };
 
 [[nodiscard]] inline fs::path default_sessions_dir() {
-    if (const char* home = std::getenv("HOME")) return fs::path(home) / ".cc-repl" / "sessions";
-    return fs::path(".cc-repl") / "sessions";
+    if (const char* home = std::getenv("HOME")) return fs::path(home) / ".loom" / "sessions";
+    return fs::path(".loom") / "sessions";
 }
 
 [[nodiscard]] inline std::uint64_t parse_u64(std::string_view value) {

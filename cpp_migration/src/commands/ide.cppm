@@ -1,6 +1,6 @@
 /// @file ide.cppm
 /// @brief IdeCommand implementing the /ide slash command.
-/// Detects running IDEs via the ~/.claude/ide/ lockfiles and reports each
+/// Detects running IDEs via the ~/.loom/ide/ lockfiles and reports each
 /// one's MCP connection endpoint, transport, and workspace.
 module;
 
@@ -50,8 +50,8 @@ public:
             return CommandResult::success(
                 "No running IDE detected.\n\n"
                 "To connect an IDE:\n"
-                "  - Install the Claude Code extension in VS Code / Cursor / Windsurf / JetBrains,\n"
-                "  - or launch your editor from a Claude Code session so it writes a lockfile to "
+                "  - Install the Loom extension in VS Code / Cursor / Windsurf / JetBrains,\n"
+                "  - or launch your editor from a Loom session so it writes a lockfile to "
                 + scanner.lockfile_dir().string() + ".");
         }
 

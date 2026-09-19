@@ -43,13 +43,13 @@ using namespace cc::utils::swarm_backends;
 inline constexpr std::string_view TEAM_LEAD_NAME = "team-lead";
 
 /// Environment variable to override teammate spawn command
-inline constexpr std::string_view TEAMMATE_COMMAND_ENV_VAR = "CLAUDE_CODE_TEAMMATE_COMMAND";
+inline constexpr std::string_view TEAMMATE_COMMAND_ENV_VAR = "LOOM_TEAMMATE_COMMAND";
 
 /// Environment variable for teammate color assignment
-inline constexpr std::string_view TEAMMATE_COLOR_ENV_VAR = "CLAUDE_CODE_AGENT_COLOR";
+inline constexpr std::string_view TEAMMATE_COLOR_ENV_VAR = "LOOM_AGENT_COLOR";
 
 /// Environment variable to require plan mode before implementation
-inline constexpr std::string_view PLAN_MODE_REQUIRED_ENV_VAR = "CLAUDE_CODE_PLAN_MODE_REQUIRED";
+inline constexpr std::string_view PLAN_MODE_REQUIRED_ENV_VAR = "LOOM_PLAN_MODE_REQUIRED";
 
 // ============================================================================
 // Teammate Prompt Addendum (from teammatePromptAddendum.ts)
@@ -354,13 +354,13 @@ public:
 
     /// List of env vars to forward to teammates
     static constexpr std::string_view TEAMMATE_ENV_VARS[] = {
-        "CLAUDE_CODE_USE_BEDROCK",
-        "CLAUDE_CODE_USE_VERTEX",
-        "CLAUDE_CODE_USE_FOUNDRY",
+        "LOOM_USE_BEDROCK",
+        "LOOM_USE_VERTEX",
+        "LOOM_USE_FOUNDRY",
         "ANTHROPIC_BASE_URL",
-        "CLAUDE_CONFIG_DIR",
-        "CLAUDE_CODE_REMOTE",
-        "CLAUDE_CODE_REMOTE_MEMORY_DIR",
+        "LOOM_CONFIG_DIR",
+        "LOOM_REMOTE",
+        "LOOM_REMOTE_MEMORY_DIR",
         "HTTPS_PROXY",
         "https_proxy",
         "HTTP_PROXY",
@@ -521,10 +521,10 @@ private:
 // (src/utils/teammateMailbox.ts createPermissionRequestMessage/
 // createPermissionResponseMessage and src/utils/swarm/permissionSync.ts
 // sendPermissionRequestViaMailbox/sendPermissionResponseViaMailbox).
-// The older TS pending/resolved DIRECTORY protocol (~/.claude/teams/<t>/
+// The older TS pending/resolved DIRECTORY protocol (~/.loom/teams/<t>/
 // permissions/{pending,resolved}) is deliberately not ported: request payloads
 // live only as the "text" envelope of messages in the existing mailbox tree
-// ($CC_REPL_TEAM_RUNTIME_DIR/<sanitized team>/inboxes/<agent>.json).
+// ($LOOM_TEAM_RUNTIME_DIR/<sanitized team>/inboxes/<agent>.json).
 //
 // TODO(teams): sandbox_permission_request/response (permissionSync.ts:805-928)
 // and plan_approval_request/response (teammateMailbox.ts:684-711) variants are
@@ -607,14 +607,14 @@ public:
     /// Blocking worker entry point (runs on the query/tool thread). Times out
     /// to a DENY (nullopt): TS waits forever, but a headless port must fail
     /// closed instead of wedging a worker on an unattended leader. Tune with
-    /// CC_REPL_PERMISSION_TIMEOUT_MS (default 300000ms).
+    /// LOOM_PERMISSION_TIMEOUT_MS (default 300000ms).
     [[nodiscard]] static std::optional<SwarmPermissionResponseMessage> request_and_await(
         const SwarmPermissionRequestMessage& request,
         std::string_view team_name,
         std::chrono::milliseconds timeout = default_timeout(),
         std::chrono::milliseconds poll_interval = std::chrono::milliseconds(250));
 
-    /// Env CC_REPL_PERMISSION_TIMEOUT_MS, else 300000ms (fail-closed default).
+    /// Env LOOM_PERMISSION_TIMEOUT_MS, else 300000ms (fail-closed default).
     [[nodiscard]] static std::chrono::milliseconds default_timeout();
 };
 
@@ -694,7 +694,7 @@ private:
 // Defined out-of-line so translation units importing this module can link.
 std::string SpawnUtils::get_teammate_command() {
     if (const char* v = std::getenv("TEAMMATE_COMMAND")) return std::string(v);
-    return "cc-repl";  // fallback: own executable name
+    return "loom";  // fallback: own executable name
 }
 
 std::string SpawnUtils::build_inherited_cli_flags(const InheritedFlagsOptions& opts) {
@@ -1253,7 +1253,7 @@ inline std::optional<SwarmPermissionResponseMessage> PermissionSync::request_and
 }
 
 inline std::chrono::milliseconds PermissionSync::default_timeout() {
-    if (const char* value = std::getenv("CC_REPL_PERMISSION_TIMEOUT_MS");
+    if (const char* value = std::getenv("LOOM_PERMISSION_TIMEOUT_MS");
         value && *value) {
         // NOLINTNEXTLINE(concurrency-mt-unsafe) — single-threaded env at start
         char* end = nullptr;

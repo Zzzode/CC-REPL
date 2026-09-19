@@ -127,13 +127,13 @@ namespace detail {
 
     [[nodiscard]] inline std::filesystem::path default_sessions_dir() {
         if (sessions_dir_override) return *sessions_dir_override;
-        if (const char* env = std::getenv("CC_REPL_SERVER_SESSIONS_DIR"); env && *env) {
+        if (const char* env = std::getenv("LOOM_SERVER_SESSIONS_DIR"); env && *env) {
             return std::filesystem::path{env};
         }
         if (const char* home = std::getenv("HOME"); home && *home) {
-            return std::filesystem::path{home} / ".config" / "claude" / "sessions";
+            return std::filesystem::path{home} / ".config" / "loom" / "sessions";
         }
-        return std::filesystem::current_path() / ".claude" / "sessions";
+        return std::filesystem::current_path() / ".loom" / "sessions";
     }
 
     [[nodiscard]] inline std::string make_session_id() {

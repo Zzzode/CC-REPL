@@ -49,8 +49,8 @@ namespace detail {
 
     inline fs::path get_sessions_base_dir() {
         const char* home = std::getenv("HOME");
-        if (!home) return fs::temp_directory_path() / "claude-code" / "sessions";
-        return fs::path(home) / ".claude" / "sessions";
+        if (!home) return fs::temp_directory_path() / "loom" / "sessions";
+        return fs::path(home) / ".loom" / "sessions";
     }
 } // namespace detail
 

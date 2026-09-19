@@ -120,7 +120,7 @@ namespace detail {
 }
 
 [[nodiscard]] std::optional<std::string> env_team_name() {
-    if (const char* value = std::getenv("CC_REPL_TEAM_NAME"); value && *value) return std::string(value);
+    if (const char* value = std::getenv("LOOM_TEAM_NAME"); value && *value) return std::string(value);
     if (const char* value = std::getenv("CLAUDE_CODE_TEAM_NAME"); value && *value) return std::string(value);
     return std::nullopt;
 }
@@ -221,8 +221,8 @@ std::expected<void, std::string> TeamDeleteTool::cleanup_team_directories(const 
 }
 
 void TeamDeleteTool::clear_team_context() {
-    unsetenv("CC_REPL_TEAM_NAME");
-    unsetenv("CLAUDE_CODE_TEAM_NAME");
+    unsetenv("LOOM_TEAM_NAME");
+    unsetenv("LOOM_TEAM_NAME");
 }
 
 void TeamDeleteTool::unregister_from_cleanup(const std::string&) {}

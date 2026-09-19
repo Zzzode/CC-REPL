@@ -4,7 +4,7 @@
 /// MODULE:   cc.ui.dialogs.elicitation
 /// LICENCE:  Exported.  Renderer + keyboard-event handler for the
 ///           simple Band3 Elicitation prompt shown when an MCP server
-///           asks Claude to gather extra input from the user.
+///           asks Loom to gather extra input from the user.
 ///
 /// TS REFERENCE (simple form — "server connect prompt"):
 ///   src/components/mcp/ElicitationDialog.tsx
@@ -42,7 +42,7 @@
 /// CALLBACK SEMANTICS:
 ///   on_response is the "decision" callback; on_cancel is a distinct
 ///   "user cancelled out-of-band" path so callers can distinguish
-///   "no, and Claude should be told to try differently" from
+///   "no, and Loom should be told to try differently" from
 ///   "user bailed out — do not send a response back to the server".
 module;
 

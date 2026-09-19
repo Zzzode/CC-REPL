@@ -6,7 +6,7 @@
 # independently broken in partial builds.
 set -euo pipefail
 
-ROOT="/Users/bytedance/Develop/CC-REPL/cpp_migration"
+ROOT="/Users/bytedance/Develop/LOOM/cpp_migration"
 BUILD="${ROOT}/build/debug"
 SRC="${ROOT}/src"
 TESTS="${ROOT}/tests"

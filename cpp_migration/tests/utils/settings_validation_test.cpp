@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <cstdlib>
 #include <optional>
 #include <string>
 #include <vector>
@@ -16,11 +17,11 @@ TEST(SettingsValidationConfig, ClassifiesPatternToolsAndCustomWebValidators) {
     EXPECT_TRUE(is_bash_prefix_tool("Bash"));
     EXPECT_FALSE(is_bash_prefix_tool("WebFetch"));
 
-    auto web_search = validate_tool_content("WebSearch", "claude * docs");
+    auto web_search = validate_tool_content("WebSearch", "loom * docs");
     EXPECT_FALSE(web_search.valid);
     EXPECT_EQ(web_search.error, std::optional<std::string>{"WebSearch does not support wildcards"});
     ASSERT_EQ(web_search.examples.size(), 2u);
-    EXPECT_EQ(web_search.examples[0], "WebSearch(claude ai)");
+    EXPECT_EQ(web_search.examples[0], "WebSearch(loom ai)");
 
     auto web_fetch_url = validate_tool_content("WebFetch", "https://example.com/path");
     EXPECT_FALSE(web_fetch_url.valid);
@@ -80,7 +81,9 @@ TEST(SettingsValidationTips, MirrorsTypeScriptTipPriorityAndDocFallbacks) {
     });
     ASSERT_TRUE(mode.has_value());
     EXPECT_NE(mode->suggestion->find("acceptEdits"), std::string::npos);
-    EXPECT_EQ(mode->doc_link, std::optional<std::string>{"https://code.claude.com/docs/en/iam#permission-modes"});
+    // No docs site is configured by default, so the tip carries no link at
+    // all -- a bare relative path would not be followable.
+    EXPECT_FALSE(mode->doc_link.has_value());
 
     auto env = get_validation_tip({
         .path = "env.PORT",
@@ -92,7 +95,7 @@ TEST(SettingsValidationTips, MirrorsTypeScriptTipPriorityAndDocFallbacks) {
         .value = std::nullopt,
     });
     ASSERT_TRUE(env.has_value());
-    EXPECT_EQ(env->doc_link, std::optional<std::string>{"https://code.claude.com/docs/en/settings#environment-variables"});
+    EXPECT_FALSE(env->doc_link.has_value());
 
     auto enum_tip = get_validation_tip({
         .path = "model",
@@ -116,4 +119,36 @@ TEST(SettingsValidationTips, MirrorsTypeScriptTipPriorityAndDocFallbacks) {
         .value = std::nullopt,
     });
     EXPECT_FALSE(unknown.has_value());
+}
+
+// The doc-link contract: absent by default (no docs site ships with this
+// project), present when the user points LOOM_DOCS_BASE at one. This pins both
+// halves so neither a silent empty-string link nor a hard-coded vendor URL can
+// come back.
+TEST(SettingsValidationConfig, DocLinksAppearOnlyWhenADocsBaseIsConfigured) {
+    using namespace cc::utils::settings_validation;
+
+    const auto context = TipContext{
+        .path = "permissions.defaultMode",
+        .code = "invalid_value",
+        .expected = std::nullopt,
+        .received = std::nullopt,
+        .enum_values = std::nullopt,
+        .message = std::nullopt,
+        .value = std::nullopt,
+    };
+
+    ::unsetenv("LOOM_DOCS_BASE");
+    auto bare = get_validation_tip(context);
+    ASSERT_TRUE(bare.has_value());
+    EXPECT_FALSE(bare->doc_link.has_value())
+        << "a bare path is not a followable link; nullopt is the honest value";
+
+    ::setenv("LOOM_DOCS_BASE", "https://docs.example.test/en", 1);
+    auto linked = get_validation_tip(context);
+    ::unsetenv("LOOM_DOCS_BASE");
+    ASSERT_TRUE(linked.has_value());
+    ASSERT_TRUE(linked->doc_link.has_value());
+    EXPECT_EQ(*linked->doc_link,
+              "https://docs.example.test/en/iam#permission-modes");
 }

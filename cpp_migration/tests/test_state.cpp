@@ -648,7 +648,7 @@ TEST(FTXUIIntegration, ReactiveScreenManager) {
 
 TEST(Persistence, StatePersistenceAPI) {
 
-    auto state_file = std::filesystem::temp_directory_path() / "cc_repl_test_state.json";
+    auto state_file = std::filesystem::temp_directory_path() / "loom_test_state.json";
     cc::state::persistence::StatePersistence persistence(state_file);
     
     auto state = cc::state::get_default_app_state();
@@ -837,7 +837,7 @@ TEST(StoreUndoRedo, NewActionClearsRedoStack) {
 
 TEST(SessionHistory, SaveAllPersistsCreatedConversationIds) {
     auto storage_path = std::filesystem::temp_directory_path() /
-        "cc_repl_history_save_test.json";
+        "loom_history_save_test.json";
     std::filesystem::remove(storage_path);
 
     cc::core::ConversationStore store(storage_path.string());
@@ -859,7 +859,7 @@ TEST(SessionHistory, SaveAllPersistsCreatedConversationIds) {
 
 TEST(SessionHistory, LoadAllRestoresConversationIdsAndActiveSelection) {
     auto storage_path = std::filesystem::temp_directory_path() /
-        "cc_repl_history_load_test.json";
+        "loom_history_load_test.json";
     std::filesystem::remove(storage_path);
 
     {
@@ -883,7 +883,7 @@ TEST(SessionHistory, LoadAllRestoresConversationIdsAndActiveSelection) {
 
 TEST(SessionHistory, LoadAllRestoresSavedMessages) {
     auto storage_path = std::filesystem::temp_directory_path() /
-        "cc_repl_history_messages_test.json";
+        "loom_history_messages_test.json";
     std::filesystem::remove(storage_path);
 
     {
@@ -917,7 +917,7 @@ TEST(SessionHistory, LoadAllRestoresSavedMessages) {
 
 TEST(SessionHistory, LoadAllRestoresCompactBoundaryMetadata) {
     auto storage_path = std::filesystem::temp_directory_path() /
-        "cc_repl_history_compact_boundary_test.json";
+        "loom_history_compact_boundary_test.json";
     std::filesystem::remove(storage_path);
 
     {
@@ -968,7 +968,7 @@ TEST(SessionHistory, LoadAllRestoresCompactBoundaryMetadata) {
 
 TEST(SessionHistory, LoadAllRestoresSnipMetadata) {
     auto storage_path = std::filesystem::temp_directory_path() /
-        "cc_repl_history_snip_metadata_test.json";
+        "loom_history_snip_metadata_test.json";
     std::filesystem::remove(storage_path);
 
     {
@@ -1010,7 +1010,7 @@ TEST(SessionHistory, LoadAllRestoresSnipMetadata) {
 
 TEST(SessionHistory, LoadAllRestoresImageAndDocumentBlocks) {
     auto storage_path = std::filesystem::temp_directory_path() /
-        "cc_repl_history_rich_content_test.json";
+        "loom_history_rich_content_test.json";
     std::filesystem::remove(storage_path);
 
     {
@@ -1062,7 +1062,7 @@ TEST(SessionHistory, LoadAllRestoresImageAndDocumentBlocks) {
 
 TEST(CliUpdate, DownloadUpdateCopiesFileUrlPayload) {
     auto source_path = std::filesystem::temp_directory_path() /
-        "cc_repl_update_source.bin";
+        "loom_update_source.bin";
     std::filesystem::remove(source_path);
     {
         std::ofstream output(source_path, std::ios::binary | std::ios::trunc);
@@ -1087,7 +1087,7 @@ TEST(CliUpdate, DownloadUpdateCopiesFileUrlPayload) {
 
 TEST(McpAuth, FetchConfiguredMetadataFromFileUrl) {
     auto metadata_path = std::filesystem::temp_directory_path() /
-        "cc_repl_mcp_oauth_metadata.json";
+        "loom_mcp_oauth_metadata.json";
     std::filesystem::remove(metadata_path);
     {
         std::ofstream output(metadata_path, std::ios::trunc);
@@ -1114,7 +1114,7 @@ TEST(McpAuth, FetchConfiguredMetadataFromFileUrl) {
 }
 
 TEST(McpAuth, XaaFlowDoesNotReturnUnimplementedError) {
-    unsetenv("CLAUDE_CODE_ENABLE_XAA");
+    unsetenv("LOOM_ENABLE_XAA");
 
     cc::services::mcp::McpServerConfig server_config{
         .type = "http",
@@ -1144,12 +1144,12 @@ TEST(McpAuth, XaaFlowDoesNotReturnUnimplementedError) {
 TEST(SystemPrompts, ComputeSimpleEnvInfoIncludesDynamicRuntimeDetails) {
     auto env_info = cc::constants::prompts::compute_simple_env_info(
         "claude-sonnet-4-6",
-        {"/tmp/cc-repl-extra"});
+        {"/tmp/loom-extra"});
 
     EXPECT_NE(env_info.find("# Environment"), std::string::npos);
     EXPECT_NE(env_info.find("Primary working directory:"), std::string::npos);
     EXPECT_NE(env_info.find("Additional working directories:"), std::string::npos);
-    EXPECT_NE(env_info.find("/tmp/cc-repl-extra"), std::string::npos);
+    EXPECT_NE(env_info.find("/tmp/loom-extra"), std::string::npos);
     EXPECT_NE(env_info.find("Assistant knowledge cutoff is August 2025."), std::string::npos);
 }
 
@@ -1172,7 +1172,7 @@ TEST(SystemPrompts, GetSystemPromptAssemblesStaticAndDynamicSections) {
             return acc;
         });
 
-    EXPECT_NE(joined.find("You are Claude Code"), std::string::npos);
+    EXPECT_NE(joined.find("You are Loom"), std::string::npos);
     EXPECT_NE(joined.find("# Tone and style"), std::string::npos);
     EXPECT_NE(joined.find(cc::constants::prompts::system_prompt_dynamic_boundary), std::string::npos);
     EXPECT_NE(joined.find("# Environment"), std::string::npos);

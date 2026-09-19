@@ -15,7 +15,7 @@
 ///   (3) Fallback-model selection on OverloadedError (HTTP 529) and
 ///       RateLimited (HTTP 429) — drives query() through call_api() and
 ///       observes model_params().model flipping to the fallback entry.
-///   (4) User-memory (~/.claude/CLAUDE.md) + project CLAUDE.md injection into
+///   (4) User-memory (~/.loom/LOOM.md) + project LOOM.md injection into
 ///       the initial system prompt at construction time
 ///       (build_and_add_system_prompt via get_conversation()).
 ///
@@ -97,7 +97,7 @@ public:
     struct Response {
         int status = 200;
         std::string body =
-            R"({"id":"msg_test","type":"message","role":"assistant","model":"claude-test","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}})";
+            R"({"id":"msg_test","type":"message","role":"assistant","model":"loom-test","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}})";
     };
 
     explicit ScriptedHttpServer(std::vector<Response> responses)
@@ -416,27 +416,27 @@ TEST(QueryEngineFix, DiscoveredSkillsTracksSkillToolInvocations) {
 }
 
 // ===========================================================================
-// (5) User-memory + project CLAUDE.md loading into the system prompt
+// (5) User-memory + project LOOM.md loading into the system prompt
 // ===========================================================================
 
-TEST(QueryEngineFix, LoadsProjectClaudeMdAndUserMemoryIntoSystemPrompt) {
-    // Isolate HOME so get_user_memory_path() (~/.claude/CLAUDE.md) resolves
+TEST(QueryEngineFix, LoadsProjectLoomMdAndUserMemoryIntoSystemPrompt) {
+    // Isolate HOME so get_user_memory_path() (~/.loom/LOOM.md) resolves
     // inside our temp dir and we do not read the developer's real user memory.
     auto root = fs::weakly_canonical(fs::temp_directory_path()) /
-                "cc_repl_query_engine_memory_test";
+                "loom_query_engine_memory_test";
     fs::remove_all(root);
     fs::create_directories(root);
     EnvironmentGuard home_guard("HOME", root.string());
 
-    // Project CLAUDE.md at cwd root.
+    // Project LOOM.md at cwd root.
     {
-        std::ofstream project_md(root / "CLAUDE.md");
+        std::ofstream project_md(root / "LOOM.md");
         project_md << "Project-specific guidance: always write tests in English.";
     }
-    // User-level memory (~/.claude/CLAUDE.md).
-    fs::create_directories(root / ".claude");
+    // User-level memory (~/.loom/LOOM.md).
+    fs::create_directories(root / ".loom");
     {
-        std::ofstream user_md(root / ".claude" / "CLAUDE.md");
+        std::ofstream user_md(root / ".loom" / "LOOM.md");
         user_md << "Global user preference: respond concisely.";
     }
 
@@ -449,8 +449,8 @@ TEST(QueryEngineFix, LoadsProjectClaudeMdAndUserMemoryIntoSystemPrompt) {
     const auto prompt = first_system_prompt_text(engine.get_conversation());
     ASSERT_TRUE(prompt.has_value()) << "system prompt not present in conversation";
 
-    // Project memory injected under <context name="CLAUDE.md">.
-    EXPECT_NE(prompt->find("<context name=\"CLAUDE.md\">"), std::string::npos);
+    // Project memory injected under <context name="LOOM.md">.
+    EXPECT_NE(prompt->find("<context name=\"LOOM.md\">"), std::string::npos);
     EXPECT_NE(prompt->find("Project-specific guidance"), std::string::npos);
 
     // User memory injected under <context name="UserMemory">.
@@ -462,12 +462,12 @@ TEST(QueryEngineFix, LoadsProjectClaudeMdAndUserMemoryIntoSystemPrompt) {
 
 TEST(QueryEngineFix, OmitsMemoryContextsWhenFilesAbsent) {
     auto root = fs::weakly_canonical(fs::temp_directory_path()) /
-                "cc_repl_query_engine_no_memory_test";
+                "loom_query_engine_no_memory_test";
     fs::remove_all(root);
     fs::create_directories(root);
     EnvironmentGuard home_guard("HOME", root.string());
     // Ensure no user memory exists.
-    fs::remove(root / ".claude" / "CLAUDE.md");
+    fs::remove(root / ".loom" / "LOOM.md");
 
     cc::core::ToolRegistry registry;
     cc::core::QueryEngineConfig config;
@@ -478,7 +478,7 @@ TEST(QueryEngineFix, OmitsMemoryContextsWhenFilesAbsent) {
     const auto prompt = first_system_prompt_text(engine.get_conversation());
     ASSERT_TRUE(prompt.has_value());
     // Neither context block should appear when the files are missing.
-    EXPECT_EQ(prompt->find("<context name=\"CLAUDE.md\">"), std::string::npos);
+    EXPECT_EQ(prompt->find("<context name=\"LOOM.md\">"), std::string::npos);
     EXPECT_EQ(prompt->find("<context name=\"UserMemory\">"), std::string::npos);
 
     fs::remove_all(root);
@@ -504,7 +504,7 @@ TEST(QueryEngineFix, FallsBackToSecondaryModelOnOverloadedError) {
     });
     ASSERT_NE(server.port(), 0);
 
-    auto root = fs::temp_directory_path() / "cc_repl_query_engine_fallback_529_test";
+    auto root = fs::temp_directory_path() / "loom_query_engine_fallback_529_test";
     fs::remove_all(root);
     fs::create_directories(root);
 
@@ -548,7 +548,7 @@ TEST(QueryEngineFix, PreservesPathPrefixInAnthropicBaseUrl) {
     });
     ASSERT_NE(server.port(), 0);
 
-    auto root = fs::temp_directory_path() / "cc_repl_query_engine_base_path_test";
+    auto root = fs::temp_directory_path() / "loom_query_engine_base_path_test";
     fs::remove_all(root);
     fs::create_directories(root);
 
@@ -581,7 +581,7 @@ TEST(QueryEngineFix, FallsBackToSecondaryModelOnRateLimited) {
     });
     ASSERT_NE(server.port(), 0);
 
-    auto root = fs::temp_directory_path() / "cc_repl_query_engine_fallback_429_test";
+    auto root = fs::temp_directory_path() / "loom_query_engine_fallback_429_test";
     fs::remove_all(root);
     fs::create_directories(root);
 
@@ -614,7 +614,7 @@ TEST(QueryEngineFix, DoesNotFallBackWhenNoFallbackModelsConfigured) {
     });
     ASSERT_NE(server.port(), 0);
 
-    auto root = fs::temp_directory_path() / "cc_repl_query_engine_no_fallback_test";
+    auto root = fs::temp_directory_path() / "loom_query_engine_no_fallback_test";
     fs::remove_all(root);
     fs::create_directories(root);
 
@@ -773,7 +773,7 @@ TEST(SseEventDecoder, RealisticAnthropicStreamFramesCorrectly) {
     cc::core::SseEventDecoder dec;
     std::string stream =
         "event: message_start\n"
-        "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"model\":\"claude-x\"}}\n\n"
+        "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"model\":\"loom-x\"}}\n\n"
         "event: content_block_start\n"
         "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\"}}\n\n"
         "event: content_block_delta\n"
@@ -797,10 +797,10 @@ TEST(SseEventDecoder, RealisticAnthropicStreamFramesCorrectly) {
 
 // Auto-memory guidance + MEMORY.md index must be injected into the system
 // prompt, and the directory created, mirroring TS loadMemoryPrompt() +
-// the AutoMem claudemd injection.
+// the AutoMem loommd injection.
 TEST(QueryEngineFix, InjectsAutoMemoryGuidanceAndMemoryIndex) {
     auto root = fs::weakly_canonical(fs::temp_directory_path()) /
-                "cc_repl_auto_memory_test";
+                "loom_auto_memory_test";
     fs::remove_all(root);
     fs::create_directories(root);
     EnvironmentGuard home_guard("HOME", root.string());
@@ -808,9 +808,9 @@ TEST(QueryEngineFix, InjectsAutoMemoryGuidanceAndMemoryIndex) {
     // Pin the auto-memory dir deterministically via the SDK override.
     const auto mem_dir = root / "custom-memory";
     EnvironmentGuard mem_guard(
-        "CLAUDE_COWORK_MEMORY_PATH_OVERRIDE", mem_dir.string());
+        "LOOM_COWORK_MEMORY_PATH_OVERRIDE", mem_dir.string());
     EnvironmentGuard disable_guard(
-        "CLAUDE_CODE_DISABLE_AUTO_MEMORY", "0");
+        "LOOM_DISABLE_AUTO_MEMORY", "0");
 
     // Pre-existing MEMORY.md index content.
     fs::create_directories(mem_dir);
@@ -845,12 +845,12 @@ TEST(QueryEngineFix, InjectsAutoMemoryGuidanceAndMemoryIndex) {
 // injected and no memory directory is required.
 TEST(QueryEngineFix, AutoMemoryDisabledOmitsGuidance) {
     auto root = fs::weakly_canonical(fs::temp_directory_path()) /
-                "cc_repl_auto_memory_disabled_test";
+                "loom_auto_memory_disabled_test";
     fs::remove_all(root);
     fs::create_directories(root);
     EnvironmentGuard home_guard("HOME", root.string());
     EnvironmentGuard disable_guard(
-        "CLAUDE_CODE_DISABLE_AUTO_MEMORY", "1");
+        "LOOM_DISABLE_AUTO_MEMORY", "1");
 
     cc::core::ToolRegistry registry;
     cc::core::QueryEngineConfig config;
@@ -867,15 +867,15 @@ TEST(QueryEngineFix, AutoMemoryDisabledOmitsGuidance) {
 }
 
 // Canonical auto-memory path resolution (TS paths.ts):
-// <CLAUDE_CONFIG_DIR>/projects/<sanitized-root>/memory, with override support.
+// <LOOM_CONFIG_DIR>/projects/<sanitized-root>/memory, with override support.
 TEST(QueryEngineFix, AutoMemPathResolvesCanonicalLayoutAndOverride) {
     auto root = fs::weakly_canonical(fs::temp_directory_path()) /
-                "cc_repl_mem_path_test";
+                "loom_mem_path_test";
     fs::remove_all(root);
     fs::create_directories(root);
     EnvironmentGuard home_guard("HOME", root.string());
-    EnvironmentGuard cfg_guard("CLAUDE_CONFIG_DIR", (root / "cfg").string());
-    unsetenv("CLAUDE_COWORK_MEMORY_PATH_OVERRIDE");
+    EnvironmentGuard cfg_guard("LOOM_CONFIG_DIR", (root / "cfg").string());
+    unsetenv("LOOM_COWORK_MEMORY_PATH_OVERRIDE");
 
     const auto project = root / "my project";
     fs::create_directories(project);
@@ -888,12 +888,12 @@ TEST(QueryEngineFix, AutoMemPathResolvesCanonicalLayoutAndOverride) {
     EXPECT_EQ(*cc::memdir::get_auto_mem_entrypoint(project), *p / "MEMORY.md");
 
     EnvironmentGuard ov_set(
-        "CLAUDE_COWORK_MEMORY_PATH_OVERRIDE", (root / "ov").string());
+        "LOOM_COWORK_MEMORY_PATH_OVERRIDE", (root / "ov").string());
     auto po = cc::memdir::get_auto_mem_path(project);
     ASSERT_TRUE(po.has_value());
     EXPECT_EQ(po->string(), (root / "ov").string());
 
-    EnvironmentGuard dis("CLAUDE_CODE_DISABLE_AUTO_MEMORY", "1");
+    EnvironmentGuard dis("LOOM_DISABLE_AUTO_MEMORY", "1");
     EXPECT_FALSE(cc::memdir::get_auto_mem_path(project).has_value());
 
     fs::remove_all(root);

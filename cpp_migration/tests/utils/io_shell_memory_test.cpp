@@ -15,38 +15,38 @@ TEST(MemoryFileDetection, DetectsSessionFilesPatternsAndMemoryDirectories) {
     using namespace cc::utils::memory_file_detection;
 
     const MemoryDetectionConfig config{
-        .claude_config_home_dir = "/Users/me/.claude",
-        .memory_base_dir = "/Users/me/.claude",
-        .auto_mem_path = "/Users/me/.claude/memory",
+        .config_home_dir = "/Users/me/.loom",
+        .memory_base_dir = "/Users/me/.loom",
+        .auto_mem_path = "/Users/me/.loom/memory",
         .auto_memory_enabled = true,
         .team_memory_enabled = false,
         .team_mem_path = "",
         .windows = false,
     };
 
-    EXPECT_EQ(detect_session_file_type("/Users/me/.claude/session-memory/session-1.md", config), SessionFileType::SessionMemory);
-    EXPECT_EQ(detect_session_file_type("/Users/me/.claude/projects/proj/session.jsonl", config), SessionFileType::SessionTranscript);
-    EXPECT_FALSE(detect_session_file_type("/Users/me/.claude/CLAUDE.md", config).has_value());
+    EXPECT_EQ(detect_session_file_type("/Users/me/.loom/session-memory/session-1.md", config), SessionFileType::SessionMemory);
+    EXPECT_EQ(detect_session_file_type("/Users/me/.loom/projects/proj/session.jsonl", config), SessionFileType::SessionTranscript);
+    EXPECT_FALSE(detect_session_file_type("/Users/me/.loom/LOOM.md", config).has_value());
 
     EXPECT_EQ(detect_session_pattern_type("**/session-memory/*.md"), SessionFileType::SessionMemory);
-    EXPECT_EQ(detect_session_pattern_type(".claude/projects/**/*.jsonl"), SessionFileType::SessionTranscript);
+    EXPECT_EQ(detect_session_pattern_type(".loom/projects/**/*.jsonl"), SessionFileType::SessionTranscript);
     EXPECT_TRUE(is_auto_managed_memory_pattern("/tmp/project/agent-memory/*.md", config));
-    EXPECT_FALSE(is_auto_managed_memory_pattern("CLAUDE.md", config));
+    EXPECT_FALSE(is_auto_managed_memory_pattern("LOOM.md", config));
 
-    EXPECT_TRUE(is_memory_directory("/Users/me/.claude/session-memory/abc/..", config));
-    EXPECT_TRUE(is_shell_command_targeting_memory("grep foo /Users/me/.claude/session-memory/session-1.md;", config));
-    EXPECT_FALSE(is_shell_command_targeting_memory("grep foo /Users/me/project/CLAUDE.md", config));
+    EXPECT_TRUE(is_memory_directory("/Users/me/.loom/session-memory/abc/..", config));
+    EXPECT_TRUE(is_shell_command_targeting_memory("grep foo /Users/me/.loom/session-memory/session-1.md;", config));
+    EXPECT_FALSE(is_shell_command_targeting_memory("grep foo /Users/me/project/LOOM.md", config));
 
     const MemoryDetectionConfig windows_config{
-        .claude_config_home_dir = "C:\\Users\\me\\.claude",
-        .memory_base_dir = "C:\\Users\\me\\.claude",
-        .auto_mem_path = "C:\\Users\\me\\.claude\\memory",
+        .config_home_dir = "C:\\Users\\me\\.loom",
+        .memory_base_dir = "C:\\Users\\me\\.loom",
+        .auto_mem_path = "C:\\Users\\me\\.loom\\memory",
         .auto_memory_enabled = true,
         .team_memory_enabled = false,
         .team_mem_path = "",
         .windows = true,
     };
-    EXPECT_TRUE(is_shell_command_targeting_memory("grep foo /c/Users/me/.claude/session-memory/session-1.md", windows_config));
+    EXPECT_TRUE(is_shell_command_targeting_memory("grep foo /c/Users/me/.loom/session-memory/session-1.md", windows_config));
 }
 
 TEST(ModelCost, CalculatesTokenCostsAndFormatsPricingStrings) {
@@ -74,7 +74,7 @@ TEST(ModelCost, CalculatesTokenCostsAndFormatsPricingStrings) {
 }
 
 TEST(ReadFileInRange, ReadsLineRangesStripsBomCrAndTruncatesByBytes) {
-    const auto path = std::filesystem::temp_directory_path() / "cc_repl_read_file_in_range_test.txt";
+    const auto path = std::filesystem::temp_directory_path() / "loom_read_file_in_range_test.txt";
     {
         std::ofstream out(path, std::ios::binary);
         out << "\xEF\xBB\xBF" "first\r\nsecond\r\nthird\n";

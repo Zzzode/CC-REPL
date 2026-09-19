@@ -1,6 +1,6 @@
 /// @file init.cppm
 /// @brief InitCommand implementing the /init slash command.
-/// Injects a codebase-analysis prompt that drives CLAUDE.md generation,
+/// Injects a codebase-analysis prompt that drives LOOM.md generation,
 /// mirroring the default prompt of the TypeScript /init command.
 module;
 
@@ -22,17 +22,17 @@ export namespace cc::commands {
 using namespace cc::core;
 
 /// Codebase-analysis prompt injected into the conversation so the assistant
-/// generates (or updates) a CLAUDE.md for the current repository. Mirrors the
+/// generates (or updates) a LOOM.md for the current repository. Mirrors the
 /// default prompt used by the TypeScript /init command.
-inline const std::string kInitPrompt = R"INITPROMPT(Please analyze this codebase and create a CLAUDE.md file, which will be given to future instances of Claude Code to operate in this repository.
+inline const std::string kInitPrompt = R"INITPROMPT(Please analyze this codebase and create a LOOM.md file, which will be given to future instances of Loom to operate in this repository.
 
 What to add:
 1. Commands that will be commonly used, such as how to build, lint, and run tests. Include the necessary commands to develop in this codebase, such as how to run a single test.
 2. High-level code architecture and structure so that future instances can be productive more quickly. Focus on the "big picture" architecture that requires reading multiple files to understand.
 
 Usage notes:
-- If there's already a CLAUDE.md, suggest improvements to it.
-- When you make the initial CLAUDE.md, do not repeat yourself and do not include obvious instructions like "Provide helpful error messages to users", "Write unit tests for all utilities", "Never include sensitive information (API keys, tokens) in code or commits".
+- If there's already a LOOM.md, suggest improvements to it.
+- When you make the initial LOOM.md, do not repeat yourself and do not include obvious instructions like "Provide helpful error messages to users", "Write unit tests for all utilities", "Never include sensitive information (API keys, tokens) in code or commits".
 - Avoid listing every component or file structure that can be easily discovered.
 - Don't include generic development practices.
 - If there are Cursor rules (in .cursor/rules/ or .cursorrules) or Copilot rules (in .github/copilot-instructions.md), make sure to include the important parts.
@@ -41,20 +41,20 @@ Usage notes:
 - Be sure to prefix the file with the following text:
 
 ```
-# CLAUDE.md
+# LOOM.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Loom when working with code in this repository.
 ```
 )INITPROMPT";
 
 /// InitCommand implements the /init slash command.
-/// Injects a codebase-analysis prompt that drives CLAUDE.md generation.
+/// Injects a codebase-analysis prompt that drives LOOM.md generation.
 class InitCommand {
 public:
     [[nodiscard]] static CommandDefinition definition() {
         return CommandDefinition{
             .name = "init",
-            .description = "Initialize a CLAUDE.md file with codebase documentation",
+            .description = "Initialize a LOOM.md file with codebase documentation",
             .args = {},
             .category = "configuration",
             .aliases = {},

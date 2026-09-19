@@ -41,8 +41,8 @@
 ///                             validation errors only (cc.utils.plugin
 ///                             _validation), no settings-schema validator.
 ///   * SubscriptionSwitch   -> SLOT fallback. TS queries
-///                             isClaudeAISubscriber() + OAuth profile
-///                             has_claude_max/pro; isClaudeAISubscriber()
+///                             isLoomAISubscriber() + OAuth profile
+///                             has_claude_max/pro; isLoomAISubscriber()
 ///                             exists but the profile tier query does not.
 module;
 
@@ -665,7 +665,7 @@ inline void inject_teammate_shutdowns_from_tasks(
 // ==========================================================================
 // 8. SubscriptionSwitch (useCanSwitchToExistingSubscription)
 //
-// SLOT FALLBACK (intentional). The TS hook queries isClaudeAISubscriber() and
+// SLOT FALLBACK (intentional). The TS hook queries isLoomAISubscriber() and
 // the OAuth profile's account.has_claude_max / has_claude_pro (src/hooks/
 // notifs/useCanSwitchToExistingSubscription.tsx). The C++ side has
 // is_claude_ai_subscriber() (src/bridge/bridge_enabled.cppm) but no

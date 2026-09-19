@@ -25,10 +25,10 @@ std::optional<ManagedEnvConfig> load_managed_env() {
     const char* home = std::getenv("HOME");
     if (!home) return std::nullopt;
 
-    fs::path managed_path = fs::path(home) / ".config" / "claude-code" / "managed.env";
+    fs::path managed_path = fs::path(home) / ".config" / "loom" / "managed.env";
     if (!fs::exists(managed_path)) {
         // Try alternative path
-        managed_path = fs::path(home) / ".claude" / "managed.env";
+        managed_path = fs::path(home) / ".loom" / "managed.env";
         if (!fs::exists(managed_path)) return std::nullopt;
     }
 
@@ -71,8 +71,8 @@ void apply_managed_env(const ManagedEnvConfig& config) {
 // Check if running in a managed environment (MDM, enterprise, etc.)
 bool is_managed_environment() {
     // Check common managed environment indicators
-    if (std::getenv("CLAUDE_MANAGED") != nullptr) return true;
-    if (std::getenv("CLAUDE_ENTERPRISE") != nullptr) return true;
+    if (std::getenv("LOOM_MANAGED") != nullptr) return true;
+    if (std::getenv("LOOM_ENTERPRISE") != nullptr) return true;
 
     auto config = load_managed_env();
     return config.has_value();

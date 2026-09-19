@@ -29,13 +29,13 @@ export namespace cc::utils::tool_deny_rules {
 
 /// Normalize server/tool names for the API pattern ^[a-zA-Z0-9_-]{1,64}$:
 /// every char outside [A-Za-z0-9_-] becomes '_'. For names whose ORIGINAL
-/// input starts with the "claude.ai " prefix, additionally collapse runs of
+/// input starts with the "loom.ai " prefix, additionally collapse runs of
 /// '_' and strip leading/trailing '_' (prevents interference with the "__"
 /// delimiter embedded in qualified tool names).
 [[nodiscard]] inline std::string normalize_name_for_mcp(std::string_view name) {
     // TS REF: normalization.ts:7
-    static constexpr std::string_view kClaudeAiServerPrefix = "claude.ai ";
-    const bool is_claude_ai = name.starts_with(kClaudeAiServerPrefix);
+    static constexpr std::string_view kLoomAccentAiServerPrefix = "loom.ai ";
+    const bool is_claude_ai = name.starts_with(kLoomAccentAiServerPrefix);
 
     std::string normalized;
     normalized.reserve(name.size());

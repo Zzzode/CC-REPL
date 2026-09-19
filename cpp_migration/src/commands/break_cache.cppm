@@ -24,10 +24,10 @@ struct CommandResponse { bool ok{true}; std::string message; };
         targets.emplace_back(key);
         return targets;
     }
-    targets.push_back(home_path(".cc-repl/cache"));
-    targets.push_back(home_path(".cache/cc-repl"));
-    targets.push_back(home_path(".claude/cache"));
-    targets.push_back(fs::temp_directory_path() / "cc-repl");
+    targets.push_back(home_path(".loom/cache"));
+    targets.push_back(home_path(".cache/loom"));
+    targets.push_back(home_path(".loom/cache"));
+    targets.push_back(fs::temp_directory_path() / "loom");
     return targets;
 }
 

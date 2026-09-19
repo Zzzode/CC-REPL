@@ -1,5 +1,5 @@
 /// @file ink_utils.cppm
-/// @brief Ink-style terminal UI utilities for CC-REPL.
+/// @brief Ink-style terminal UI utilities for LOOM.
 /// Migrates: src/ink/ utility files
 ///   - wrap-text.ts, wrapAnsi.ts, colorize.ts, styles.ts,
 ///     searchHighlight.ts, selection.ts, tabstops.ts,

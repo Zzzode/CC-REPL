@@ -521,8 +521,8 @@ struct VertexAuthMode {
     using cc::utils::env::get_env;
     using cc::utils::env::is_env_truthy;
     VertexAuthMode m;
-    m.use_vertex  = is_env_truthy("CLAUDE_CODE_USE_VERTEX");
-    m.skip_auth   = is_env_truthy("CLAUDE_CODE_SKIP_VERTEX_AUTH");
+    m.use_vertex  = is_env_truthy("LOOM_USE_VERTEX");
+    m.skip_auth   = is_env_truthy("LOOM_SKIP_VERTEX_AUTH");
     // hasProjectEnvVar || hasKeyFile → don't set fallback_project_id.
     const bool has_project_env =
         (get_env("GCLOUD_PROJECT") && !get_env("GCLOUD_PROJECT")->empty()) ||
@@ -544,7 +544,7 @@ struct VertexAuthMode {
 }
 
 // Vertex region resolution.  Per TS envUtils::getVertexRegionForModel:
-//   1. VERTEX_REGION_CLAUDE_<model> per-model override env (12 vars).
+//   1. VERTEX_REGION_LOOM_<model> per-model override env (12 vars).
 //   2. CLOUD_ML_REGION global.
 //   3. default: "us-east5".
 // We don't have a per-model registry here, so accept a model_id_hint string;
@@ -554,17 +554,17 @@ struct VertexAuthMode {
     using cc::utils::env::get_env;
     // Build known env var names per TS VERTEX_REGION_OVERRIDES.
     static const std::pair<std::string_view, std::string_view> kOverrides[] = {
-        {"claude-3-5-sonnet", "VERTEX_REGION_CLAUDE_3_5_SONNET"},
-        {"claude-3-7-sonnet", "VERTEX_REGION_CLAUDE_3_7_SONNET"},
-        {"claude-sonnet-4",   "VERTEX_REGION_CLAUDE_4_0_SONNET"},
-        {"claude-sonnet-4-5", "VERTEX_REGION_CLAUDE_4_5_SONNET"},
-        {"claude-sonnet-4-6", "VERTEX_REGION_CLAUDE_4_6_SONNET"},
-        {"claude-3-5-haiku",  "VERTEX_REGION_CLAUDE_3_5_HAIKU"},
-        {"claude-haiku-4-5",  "VERTEX_REGION_CLAUDE_HAIKU_4_5"},
-        {"claude-opus-4",     "VERTEX_REGION_CLAUDE_OPUS_4"},
-        {"claude-opus-4-1",   "VERTEX_REGION_CLAUDE_OPUS_4_1"},
-        {"claude-opus-4-5",   "VERTEX_REGION_CLAUDE_OPUS_4_5"},
-        {"claude-opus-4-6",   "VERTEX_REGION_CLAUDE_OPUS_4_6"},
+        {"claude-3-5-sonnet", "VERTEX_REGION_LOOM_3_5_SONNET"},
+        {"claude-3-7-sonnet", "VERTEX_REGION_LOOM_3_7_SONNET"},
+        {"claude-sonnet-4",   "VERTEX_REGION_LOOM_4_0_SONNET"},
+        {"claude-sonnet-4-5", "VERTEX_REGION_LOOM_4_5_SONNET"},
+        {"claude-sonnet-4-6", "VERTEX_REGION_LOOM_4_6_SONNET"},
+        {"claude-3-5-haiku",  "VERTEX_REGION_LOOM_3_5_HAIKU"},
+        {"claude-haiku-4-5",  "VERTEX_REGION_LOOM_HAIKU_4_5"},
+        {"claude-opus-4",     "VERTEX_REGION_LOOM_OPUS_4"},
+        {"claude-opus-4-1",   "VERTEX_REGION_LOOM_OPUS_4_1"},
+        {"claude-opus-4-5",   "VERTEX_REGION_LOOM_OPUS_4_5"},
+        {"claude-opus-4-6",   "VERTEX_REGION_LOOM_OPUS_4_6"},
     };
     for (const auto& [prefix, env_var] : kOverrides) {
         if (model_id_hint.find(prefix) != std::string_view::npos) {

@@ -110,11 +110,11 @@ struct UpdateResult {
 [[nodiscard]] inline fs::path settings_path_for_source(SettingSource source) {
     switch (source) {
         case SettingSource::UserSettings:
-            return home_dir() / ".claude" / "settings.json";
+            return home_dir() / ".loom" / "settings.json";
         case SettingSource::ProjectSettings:
-            return fs::current_path() / ".claude" / "settings.json";
+            return fs::current_path() / ".loom" / "settings.json";
         case SettingSource::LocalSettings:
-            return fs::current_path() / ".claude" / "settings.local.json";
+            return fs::current_path() / ".loom" / "settings.local.json";
         case SettingSource::FlagSettings:
         case SettingSource::PolicySettings:
             return {};
@@ -303,7 +303,7 @@ private:
 };
 
 // ============================================================================
-// InternalWrites — Track writes made by Claude Code itself
+// InternalWrites — Track writes made by Loom itself
 // ============================================================================
 
 /// Tracks file writes made by the application to distinguish them from
@@ -590,7 +590,7 @@ private:
 
     static void ensure_local_settings_gitignored() {
         auto gitignore = fs::current_path() / ".gitignore";
-        const std::string entry = ".claude/settings.local.json";
+        const std::string entry = ".loom/settings.local.json";
         std::string content;
         if (fs::exists(gitignore)) {
             std::ifstream in(gitignore);
@@ -730,10 +730,10 @@ private:
         SettingSource source) {
         if (source == SettingSource::FlagSettings) {
             SettingsJson flags;
-            if (const char* model = std::getenv("CLAUDE_MODEL"); model && *model) {
+            if (const char* model = std::getenv("LOOM_MODEL"); model && *model) {
                 flags["model"] = std::string(model);
             }
-            if (const char* verbose = std::getenv("CLAUDE_VERBOSE"); verbose && *verbose) {
+            if (const char* verbose = std::getenv("LOOM_VERBOSE"); verbose && *verbose) {
                 flags["verbose"] = std::string_view(verbose) == "1" || std::string_view(verbose) == "true";
             }
             return flags.empty() ? std::nullopt : std::optional<SettingsJson>{std::move(flags)};
@@ -741,7 +741,7 @@ private:
 
         fs::path path;
         if (source == SettingSource::PolicySettings) {
-            if (const char* policy_path = std::getenv("CLAUDE_CODE_POLICY_SETTINGS"); policy_path && *policy_path) {
+            if (const char* policy_path = std::getenv("LOOM_POLICY_SETTINGS"); policy_path && *policy_path) {
                 path = policy_path;
             }
         } else {

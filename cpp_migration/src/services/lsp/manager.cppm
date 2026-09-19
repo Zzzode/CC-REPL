@@ -195,7 +195,7 @@ public:
         // --bare / SIMPLE: no LSP. LSP is for editor integration (diagnostics,
         // hover, go-to-def in the REPL). Scripted -p calls have no use for it.
         // TS REF: src/services/lsp/manager.ts:148-150 (isBareMode gate)
-        if (const char* simple = std::getenv("CLAUDE_CODE_SIMPLE");
+        if (const char* simple = std::getenv("LOOM_SIMPLE");
             simple && simple[0] == '1') {
             return;
         }

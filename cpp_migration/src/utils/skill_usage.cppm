@@ -2,8 +2,8 @@
 /// @brief SL-04: recency-weighted skill-usage scoring, faithful to TS
 /// skillUsageTracking.ts. Powers empty-'/' recent-skill-first ordering.
 ///
-/// Persistence: a per-user sidecar at ~/.claude/skill_usage.json (TS stores it
-/// in ~/.claude.json's GlobalConfig.skillUsage; cpp uses a dedicated sidecar to
+/// Persistence: a per-user sidecar at ~/.loom/skill_usage.json (TS stores it
+/// in ~/.loom.json's GlobalConfig.skillUsage; cpp uses a dedicated sidecar to
 /// avoid owning ConfigManager). Format is line-oriented (name<TAB>count<TAB>ms)
 /// for robustness; semantically equivalent to TS's Record<name,{usageCount,lastUsedAt}>.
 module;

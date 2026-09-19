@@ -435,7 +435,7 @@ private:
         s.issuer = xaa.issuer;
         s.client_id = xaa.client_id;
         s.callback_port = xaa.callback_port;
-        // Read client_secret from file-based secure storage (~/.config/cc-repl/xaa/idp_tokens.json)
+        // Read client_secret from file-based secure storage (~/.config/loom/xaa/idp_tokens.json)
         auto secret = cc::services::mcp::get_idp_client_secret(xaa.issuer);
         s.has_client_secret = secret.has_value();
         // Read cached id_token from file-based secure storage
@@ -632,10 +632,10 @@ private:
 
         // ---- XAA fail-fast validation (matches TS addCommand.ts exactly) -----
         if (request_xaa) {
-            const char* enable_env = std::getenv("CLAUDE_CODE_ENABLE_XAA");
+            const char* enable_env = std::getenv("LOOM_ENABLE_XAA");
             if (!enable_env || (std::string_view(enable_env) != "1")) {
                 return CommandResult::fail(
-                    "Error: --xaa requires CLAUDE_CODE_ENABLE_XAA=1 in your environment");
+                    "Error: --xaa requires LOOM_ENABLE_XAA=1 in your environment");
             }
             std::vector<std::string> missing;
             if (!config.oauth || !config.oauth->client_id)
@@ -644,7 +644,7 @@ private:
                 missing.push_back("--client-secret");
             auto xaa_cfg = read_xaa_idp_status();
             if (!xaa_cfg.configured)
-                missing.push_back("'claude mcp xaa setup' (settings.xaaIdp not configured)");
+                missing.push_back("'loom mcp xaa setup' (settings.xaaIdp not configured)");
             if (!missing.empty()) {
                 std::string msg = "Error: --xaa requires: ";
                 for (std::size_t i = 0; i < missing.size(); ++i) {
@@ -1022,7 +1022,7 @@ private:
         if (!issuer) return CommandResult::fail(
             "Error: --issuer is required (IdP issuer URL for OIDC discovery)");
         if (!client_id) return CommandResult::fail(
-            "Error: --client-id is required (Claude Code's client_id at the IdP)");
+            "Error: --client-id is required (Loom's client_id at the IdP)");
 
         bool looks_like_url =
             issuer->starts_with("https://") ||
@@ -1083,7 +1083,7 @@ private:
         auto status = read_xaa_idp_status();
         if (!status.configured) {
             return CommandResult::fail(
-                "Error: no XAA IdP connection. Run 'claude mcp xaa setup' first.");
+                "Error: no XAA IdP connection. Run 'loom mcp xaa setup' first.");
         }
 
         bool force = false;
@@ -1156,7 +1156,7 @@ private:
         out += std::format("Logged in:     {}\n",
             s.has_id_token
                 ? "yes (id_token cached)"
-                : "no — run 'claude mcp xaa login'");
+                : "no — run 'loom mcp xaa login'");
         return CommandResult::success(std::move(out));
     }
 

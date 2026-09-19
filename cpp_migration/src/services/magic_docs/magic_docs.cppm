@@ -1,7 +1,7 @@
 /// @file magic_docs.cppm
 /// @brief Magic documentation service.
 /// Auto-generates documentation prompts from project structure, detects project
-/// type (language, framework), analyzes README/CLAUDE.md, and generates
+/// type (language, framework), analyzes README/LOOM.md, and generates
 /// relevant context for LLM interactions.
 module;
 
@@ -85,7 +85,7 @@ struct GeneratedContext {
 struct MagicDocsConfig {
     std::size_t max_context_tokens{8192};
     bool include_readme{true};
-    bool include_claude_md{true};
+    bool include_loom_md{true};
     bool scan_subdirectories{true};
     std::size_t max_doc_depth{3};
 };
@@ -158,7 +158,7 @@ private:
     [[nodiscard]] std::vector<DocFile> collect_docs(const fs::path& root) const {
         std::vector<DocFile> docs;
         static constexpr std::string_view doc_names[] = {
-            "README.md", "CLAUDE.md", "CONTEXT.md", "CONTRIBUTING.md",
+            "README.md", "LOOM.md", "CONTEXT.md", "CONTRIBUTING.md",
         };
         for (auto name : doc_names) {
             auto path = root / name;

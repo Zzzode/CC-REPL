@@ -2,7 +2,7 @@
 /// @brief User keybinding configuration loader with hot-reload support.
 /// Migrated from src/keybindings/loadUserBindings.ts
 ///
-/// Loads keybindings from ~/.claude/keybindings.json and watches
+/// Loads keybindings from ~/.loom/keybindings.json and watches
 /// for changes to reload them automatically.
 module;
 
@@ -66,7 +66,7 @@ using KeybindingsChangedCallback = std::function<void(const KeybindingsLoadResul
 
 /// Check if keybinding customization is enabled (feature gate)
 [[nodiscard]] inline bool is_keybinding_customization_enabled() {
-    if (const char* flag = std::getenv("CC_REPL_KEYBINDINGS")) {
+    if (const char* flag = std::getenv("LOOM_KEYBINDINGS")) {
         std::string_view value(flag);
         return value == "1" || value == "true" || value == "TRUE" || value == "on";
     }
@@ -75,10 +75,10 @@ using KeybindingsChangedCallback = std::function<void(const KeybindingsLoadResul
 
 /// Get the path to the user keybindings config file
 [[nodiscard]] inline std::filesystem::path get_keybindings_path() {
-    // Equivalent to join(getClaudeConfigHomeDir(), 'keybindings.json')
+    // Equivalent to join(getConfigHomeDir(), 'keybindings.json')
     const char* home = std::getenv("HOME");
     if (!home) home = "/tmp";
-    return std::filesystem::path(home) / ".claude" / "keybindings.json";
+    return std::filesystem::path(home) / ".loom" / "keybindings.json";
 }
 
 /// Keybinding loader with caching and file watching support

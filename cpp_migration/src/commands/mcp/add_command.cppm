@@ -102,8 +102,8 @@ auto validate_server_config(McpServerConfig config) -> std::vector<std::string> 
 }
 
 auto mcp_servers_path() -> std::filesystem::path {
-    if (const char* home = std::getenv("HOME")) return std::filesystem::path{home} / ".claude" / "mcp_servers.txt";
-    return std::filesystem::path{".claude"} / "mcp_servers.txt";
+    if (const char* home = std::getenv("HOME")) return std::filesystem::path{home} / ".loom" / "mcp_servers.txt";
+    return std::filesystem::path{".loom"} / "mcp_servers.txt";
 }
 
 auto write_configured_servers(const std::vector<McpServerConfig>& servers) -> std::expected<void, std::string> {

@@ -64,11 +64,11 @@ struct EnvironmentGuard {
 } // namespace
 
 TEST(SpawnMultiAgent, TeamNameSpawnsTeammateBackend) {
-    const auto root = unique_test_dir("cc-repl-spawn-multi-agent-");
-    EnvironmentGuard team_dir_guard("CC_REPL_TEAM_RUNTIME_DIR", (root / "teams").string());
-    EnvironmentGuard agent_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "agents").string());
-    EnvironmentGuard backend_guard("CC_REPL_TEAMMATE_BACKEND", "in-process");
-    EnvironmentGuard verification_guard("CLAUDE_CODE_ENABLE_VERIFICATION_AGENT", "1");
+    const auto root = unique_test_dir("loom-spawn-multi-agent-");
+    EnvironmentGuard team_dir_guard("LOOM_TEAM_RUNTIME_DIR", (root / "teams").string());
+    EnvironmentGuard agent_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "agents").string());
+    EnvironmentGuard backend_guard("LOOM_TEAMMATE_BACKEND", "in-process");
+    EnvironmentGuard verification_guard("LOOM_ENABLE_VERIFICATION_AGENT", "1");
     cc::utils::swarm_backends::BackendRegistry::reset();
     cc::tools::global_team_store().clear_for_testing();
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
@@ -154,9 +154,9 @@ TEST(SpawnMultiAgent, TeamNameSpawnsTeammateBackend) {
 }
 
 TEST(SpawnMultiAgent, NonTeamAgentsUseAgentToolBackgroundPath) {
-    const auto root = unique_test_dir("cc-repl-spawn-multi-agent-local-");
+    const auto root = unique_test_dir("loom-spawn-multi-agent-local-");
     fs::create_directories(root);
-    EnvironmentGuard agent_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "agents").string());
+    EnvironmentGuard agent_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "agents").string());
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     cc::tools::MultiAgentConfig config{
@@ -369,7 +369,7 @@ TEST(PillLabel, ShowsRemoteCloudSessionLabelForNonUltraplanTasks) {
 // Stage B: pane capture + leader-side pane observer
 // ============================================================================
 
-namespace cc_repl_pane_observer_test {
+namespace loom_pane_observer_test {
 
 namespace sw = cc::utils::swarm_backends;
 namespace po = cc::utils::pane_observer;
@@ -543,4 +543,4 @@ TEST(PaneObserver, GlobalSingletonLifecycle) {
     EXPECT_EQ(po::global_pane_observer(), nullptr);
 }
 
-} // namespace cc_repl_pane_observer_test
+} // namespace loom_pane_observer_test

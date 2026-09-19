@@ -2,6 +2,7 @@ module;
 
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -34,7 +35,26 @@ struct TipContext {
 };
 
 namespace detail {
-    inline constexpr std::string_view documentation_base = "https://code.claude.com/docs/en";
+    /// Base URL of the configuration documentation site.
+    ///
+    /// Empty by default: this project ships no documentation site, and a
+    /// relative path is not a usable link. Set CC_LOOM_DOCS_BASE (or point it
+    /// at your own docs) to turn doc links back on.
+    [[nodiscard]] inline std::string_view documentation_base() {
+        if (const char* base = std::getenv("LOOM_DOCS_BASE"); base && *base) {
+            return base;
+        }
+        return "";
+    }
+
+    /// Build a documentation link, or std::nullopt when no docs site is
+    /// configured. Returning nullopt is the honest signal: callers render a tip
+    /// without a link rather than a link that cannot be followed.
+    [[nodiscard]] inline std::optional<std::string> doc_link(std::string_view path) {
+        const auto base = documentation_base();
+        if (base.empty()) return std::nullopt;
+        return std::string(base) + std::string(path);
+    }
 
     [[nodiscard]] inline bool contains(std::string_view haystack, std::string_view needle) {
         return haystack.find(needle) != std::string_view::npos;
@@ -157,7 +177,7 @@ namespace detail {
                 .valid = false,
                 .error = "WebSearch does not support wildcards",
                 .suggestion = "Use exact search terms without * or ?",
-                .examples = {"WebSearch(claude ai)", "WebSearch(typescript tutorial)"},
+                .examples = {"WebSearch(loom ai)", "WebSearch(typescript tutorial)"},
             };
         }
         return {.valid = true, .error = std::nullopt, .suggestion = std::nullopt, .examples = {}};
@@ -290,14 +310,14 @@ namespace detail {
 
     if (context.path == "permissions.defaultMode" && context.code == "invalid_value") {
         tip.suggestion = "Valid modes: \"acceptEdits\" (ask before file changes), \"plan\" (analysis only), \"bypassPermissions\" (auto-accept all), or \"default\" (standard behavior)";
-        tip.doc_link = std::string(detail::documentation_base) + "/iam#permission-modes";
+        tip.doc_link = detail::doc_link("/iam#permission-modes");
     } else if (context.path == "apiKeyHelper" && context.code == "invalid_type") {
         tip.suggestion = "Provide a shell command that outputs your API key to stdout. The script should output only the API key. Example: \"/bin/generate_temp_api_key.sh\"";
     } else if (context.path == "cleanupPeriodDays" && context.code == "too_small" && context.expected == "0") {
         tip.suggestion = "Must be 0 or greater. Set a positive number for days to retain transcripts (default is 30). Setting 0 disables session persistence entirely: no transcripts are written and existing transcripts are deleted at startup.";
     } else if (detail::starts_with(context.path, "env.") && context.code == "invalid_type") {
         tip.suggestion = "Environment variables must be strings. Wrap numbers and booleans in quotes. Example: \"DEBUG\": \"true\", \"PORT\": \"3000\"";
-        tip.doc_link = std::string(detail::documentation_base) + "/settings#environment-variables";
+        tip.doc_link = detail::doc_link("/settings#environment-variables");
     } else if ((context.path == "permissions.allow" || context.path == "permissions.deny") && context.code == "invalid_type" && context.expected == "array") {
         tip.suggestion = "Permission rules must be in an array. Format: [\"Tool(specifier)\"]. Examples: [\"Bash(npm run build)\", \"Edit(docs/**)\", \"Read(~/.zshrc)\"]. Use * for wildcards.";
     } else if (detail::contains(context.path, "hooks") && context.code == "invalid_type") {
@@ -306,14 +326,14 @@ namespace detail {
         tip.suggestion = "Use true or false without quotes. Example: \"includeCoAuthoredBy\": true";
     } else if (context.code == "unrecognized_keys") {
         tip.suggestion = "Check for typos or refer to the documentation for valid fields";
-        tip.doc_link = std::string(detail::documentation_base) + "/settings";
+        tip.doc_link = detail::doc_link("/settings");
     } else if (context.code == "invalid_value" && context.enum_values.has_value()) {
         tip.suggestion = "Valid values: " + detail::join_quoted(*context.enum_values);
     } else if (context.code == "invalid_type" && context.expected == "object" && context.received == "null" && context.path.empty()) {
         tip.suggestion = "Check for missing commas, unmatched brackets, or trailing commas. Use a JSON validator to identify the exact syntax error.";
     } else if (context.path == "permissions.additionalDirectories" && context.code == "invalid_type") {
         tip.suggestion = "Must be an array of directory paths. Example: [\"~/projects\", \"/tmp/workspace\"]. You can also use --add-dir flag or /add-dir command";
-        tip.doc_link = std::string(detail::documentation_base) + "/iam#working-directories";
+        tip.doc_link = detail::doc_link("/iam#working-directories");
     } else {
         matched = false;
     }
@@ -322,9 +342,9 @@ namespace detail {
     if (!tip.doc_link.has_value() && !context.path.empty()) {
         const auto dot = context.path.find('.');
         const auto prefix = context.path.substr(0, dot == std::string::npos ? context.path.size() : dot);
-        if (prefix == "permissions") tip.doc_link = std::string(detail::documentation_base) + "/iam#configuring-permissions";
-        else if (prefix == "env") tip.doc_link = std::string(detail::documentation_base) + "/settings#environment-variables";
-        else if (prefix == "hooks") tip.doc_link = std::string(detail::documentation_base) + "/hooks";
+        if (prefix == "permissions") tip.doc_link = detail::doc_link("/iam#configuring-permissions");
+        else if (prefix == "env") tip.doc_link = detail::doc_link("/settings#environment-variables");
+        else if (prefix == "hooks") tip.doc_link = detail::doc_link("/hooks");
     }
     return tip;
 }

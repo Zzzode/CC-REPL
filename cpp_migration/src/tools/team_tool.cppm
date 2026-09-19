@@ -148,10 +148,10 @@ struct Team {
 }
 
 [[nodiscard]] inline fs::path team_runtime_dir() {
-    if (const char* env = std::getenv("CC_REPL_TEAM_RUNTIME_DIR"); env && *env) {
+    if (const char* env = std::getenv("LOOM_TEAM_RUNTIME_DIR"); env && *env) {
         return fs::path{env};
     }
-    return fs::current_path() / ".claude" / "teams";
+    return fs::current_path() / ".loom" / "teams";
 }
 
 [[nodiscard]] inline std::string safe_team_filename(std::string_view id) {

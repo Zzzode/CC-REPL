@@ -20,9 +20,9 @@ struct CommandResponse { bool ok{true}; std::string message; };
         return {.ok = false, .message = "onboarding supports: status"};
     }
 
-    const bool has_agent_docs = exists("AGENTS.md") || exists("CLAUDE.md");
+    const bool has_agent_docs = exists("AGENTS.md") || exists("LOOM.md");
     const bool has_package = exists("package.json");
-    const bool has_native_binary = exists("dist/cc-repl");
+    const bool has_native_binary = exists("dist/loom");
 
     return {.ok = true, .message = std::format(
         "Onboarding status\n"

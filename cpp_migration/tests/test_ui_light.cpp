@@ -106,7 +106,7 @@ TEST(Terminal, TerminalUIExposesControlAPI) {
 
 TEST(Terminal, StatusBarRendersTokensAndCost) {
     cc::ui::StatusBarData data{
-        .model_name = "claude-test",
+        .model_name = "loom-test",
         .input_tokens = 123,
         .output_tokens = 45,
         .cost_usd = 0.0123,
@@ -115,7 +115,7 @@ TEST(Terminal, StatusBarRendersTokensAndCost) {
 
     auto rendered = render_to_plain_text(cc::ui::render_status_bar(data, cc::ui::ColorTheme::dark()), 90, 5);
 
-    EXPECT_NE(rendered.find("claude-test"), std::string::npos);
+    EXPECT_NE(rendered.find("loom-test"), std::string::npos);
     EXPECT_NE(rendered.find("123"), std::string::npos);
     EXPECT_NE(rendered.find("45"), std::string::npos);
     EXPECT_NE(rendered.find("$0.0123"), std::string::npos);
@@ -681,7 +681,7 @@ TEST(StatusLine, BuiltinShowsFolderGitModelTokens) {
     namespace pif = cc::ui::prompt::footer;
 
     pif::BuiltinStatusLineData data;
-    data.cwd = "/Users/dev/CC-REPL/cpp_migration";
+    data.cwd = "/Users/dev/LOOM/cpp_migration";
     data.git_branch = "master";
     data.model_name = "GLM-5.2";
     data.input_tokens = 25000;

@@ -123,7 +123,11 @@ void check_golden(const std::string& name, const std::string& actual) {
     if (std::getenv("UPDATE_GOLDENS") != nullptr) {
         std::ofstream out(path, std::ios::binary);
         ASSERT_TRUE(out.good()) << "cannot write golden: " << path;
-        out << actual;
+        // Normalize on the WRITE path too, not just on compare. The renderer
+        // emits CRLF; writing it verbatim would commit goldens whose every line
+        // differs from the LF originals, making the diff useless for review and
+        // the snapshot unstable across platforms.
+        out << normalize_line_endings(actual);
         SUCCEED() << "golden updated: " << path;
         return;
     }
@@ -146,7 +150,7 @@ dsys::ToolPermissionPayload MakeBashPayload(
     dsys::ToolPermissionPayload p;
     p.id           = "1001";
     p.tool_name    = "Bash";
-    p.description  = "Claude wants to run a bash command.";
+    p.description  = "Loom wants to run a bash command.";
     p.action_kind  = sp::ActionKind::Execute;
     p.risk_level   = sp::RiskLevel::Medium;
     p.affected_paths = {"/tmp/build.sh"};
@@ -175,7 +179,7 @@ dsys::ToolPermissionPayload MakeFileEditPayload() {
     dsys::ToolPermissionPayload p;
     p.id          = "1002";
     p.tool_name   = "FileEditTool";
-    p.description = "Claude wants to edit a C++ module file.";
+    p.description = "Loom wants to edit a C++ module file.";
     p.action_kind = sp::ActionKind::Write;
     p.risk_level  = sp::RiskLevel::Low;
     p.affected_paths = {"src/ui/dialogs/dialog_system.cppm"};
@@ -194,7 +198,7 @@ dsys::ToolPermissionPayload MakeGenericPayload() {
     dsys::ToolPermissionPayload p;
     p.id          = "1003";
     p.tool_name   = "AgentTool";
-    p.description = "Claude wants to spawn a sub-agent.";
+    p.description = "Loom wants to spawn a sub-agent.";
     p.action_kind = sp::ActionKind::Other;
     p.risk_level  = sp::RiskLevel::High;
     p.detail = sp::DetailGeneric{

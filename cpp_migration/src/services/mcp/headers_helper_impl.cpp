@@ -78,8 +78,8 @@ std::optional<std::string> run_headers_helper_command(
         ::close(pipe_fds[0]);
         ::dup2(pipe_fds[1], STDOUT_FILENO);
         ::close(pipe_fds[1]);
-        ::setenv("CLAUDE_CODE_MCP_SERVER_NAME", child_server_name.c_str(), 1);
-        ::setenv("CLAUDE_CODE_MCP_SERVER_URL", child_server_url.c_str(), 1);
+        ::setenv("LOOM_MCP_SERVER_NAME", child_server_name.c_str(), 1);
+        ::setenv("LOOM_MCP_SERVER_URL", child_server_url.c_str(), 1);
         ::execl("/bin/sh", "sh", "-c", child_command.c_str(), static_cast<char*>(nullptr));
         ::_exit(127);
     }

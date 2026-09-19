@@ -20,8 +20,8 @@ export module cc.commands.remote_setup;
 export namespace cc::commands {
 
 auto remote_setup_path() -> std::filesystem::path {
-    if (const char* home = std::getenv("HOME")) return std::filesystem::path{home} / ".cc-repl" / "remote-setup.txt";
-    return std::filesystem::path{".cc-repl"} / "remote-setup.txt";
+    if (const char* home = std::getenv("HOME")) return std::filesystem::path{home} / ".loom" / "remote-setup.txt";
+    return std::filesystem::path{".loom"} / "remote-setup.txt";
 }
 
 

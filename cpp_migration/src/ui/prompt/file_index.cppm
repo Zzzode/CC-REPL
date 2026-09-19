@@ -135,7 +135,7 @@ struct CacheEntry {
             const auto name = entry.path().filename().string();
             if (entry.is_directory(ec) &&
                 (name == ".git" || name == "node_modules" || name == "build" ||
-                 name == "_deps" || name == ".claude" || name == "__pycache__" ||
+                 name == "_deps" || name == ".loom" || name == "__pycache__" ||
                  name == ".next" || name == "target" || name == "dist")) {
                 it.disable_recursion_pending();
                 continue;

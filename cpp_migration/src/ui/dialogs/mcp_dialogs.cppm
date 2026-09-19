@@ -69,7 +69,7 @@ enum class McpTransportType {
     stdio,
     sse,
     http,
-    claudeai_proxy,
+    loomai_proxy,
 };
 
 /// Config scope for MCP servers

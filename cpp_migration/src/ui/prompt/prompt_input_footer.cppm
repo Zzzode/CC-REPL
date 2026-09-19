@@ -520,7 +520,7 @@ struct StatusLineOptions {
 // TS REFERENCE: There is no TS equivalent — this is a CPP-only enhancement
 // for standalone usability.  The visual style is inspired by the user's
 // Flux Island statusline:
-//   📁 CC-REPL/cpp_migration  🌿 master  🤖 GLM-5.2 ▮  14% 28.0K/200.0K  $0.12
+//   📁 LOOM/cpp_migration  🌿 master  🤖 GLM-5.2 ▮  14% 28.0K/200.0K  $0.12
 //
 // The user's configured command output takes priority when available.
 //
@@ -581,7 +581,7 @@ struct StatusLineOptions {
     auto theme = theme_ns::current_theme();
     const auto& pal = *theme.palette;
 
-    const Color kClaudeGold = pal.primary;          // clawd orange/amber
+    const Color kLoomGold = pal.primary;          // clawd orange/amber
     const Color kFolderColor = pal.muted;            // dim text
     const Color kBranchColor = pal.success;          // green
     const Color kModelColor = pal.info;              // blue/cyan
@@ -629,7 +629,7 @@ struct StatusLineOptions {
     // Color: green < 50%, amber 50-80%, red > 80%
     Color bar_color = Color::RGB(120, 200, 120);  // green
     if (pct >= 80.0) bar_color = Color::RGB(220, 80, 80);   // red
-    else if (pct >= 50.0) bar_color = kClaudeGold;           // amber
+    else if (pct >= 50.0) bar_color = kLoomGold;           // amber
 
     parts.push_back(text("  ") | dim);
     parts.push_back(text(bar) | color(bar_color));
@@ -885,7 +885,7 @@ struct NotificationQueue {
 struct NotificationData {
     // Auth
     ApiKeyStatus api_key_status = ApiKeyStatus::Unknown;
-    bool is_remote = false;   // CLAUDE_CODE_REMOTE — changes error text
+    bool is_remote = false;   // LOOM_REMOTE — changes error text
 
     // Mode indicators
     bool debug_mode = false;

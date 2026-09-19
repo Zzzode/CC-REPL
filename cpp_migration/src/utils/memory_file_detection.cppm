@@ -24,7 +24,7 @@ enum class MemoryScope {
 };
 
 struct MemoryDetectionConfig {
-    std::string claude_config_home_dir;
+    std::string config_home_dir;
     std::string memory_base_dir;
     std::string auto_mem_path;
     bool auto_memory_enabled = false;
@@ -99,7 +99,7 @@ namespace detail {
     const MemoryDetectionConfig& config
 ) {
     const std::string normalized = detail::comparable(std::string(file_path), config.windows);
-    const std::string config_dir = detail::comparable(config.claude_config_home_dir, config.windows);
+    const std::string config_dir = detail::comparable(config.config_home_dir, config.windows);
     if (!detail::starts_with_path(normalized, config_dir)) return std::nullopt;
     if (normalized.find("/session-memory/") != std::string::npos && normalized.ends_with(".md")) {
         return SessionFileType::SessionMemory;
@@ -162,7 +162,7 @@ namespace detail {
         if (cmp == auto_mem_dir || cmp.starts_with(auto_mem_path)) return true;
     }
 
-    const std::string config_dir = detail::comparable(config.claude_config_home_dir, config.windows);
+    const std::string config_dir = detail::comparable(config.config_home_dir, config.windows);
     const std::string memory_base = detail::comparable(config.memory_base_dir, config.windows);
     const bool under_config = detail::starts_with_path(cmp, config_dir);
     const bool under_memory_base = detail::starts_with_path(cmp, memory_base);
@@ -175,7 +175,7 @@ namespace detail {
 
 [[nodiscard]] inline bool is_shell_command_targeting_memory(std::string_view command, const MemoryDetectionConfig& config) {
     const std::string command_cmp = detail::comparable(std::string(command), config.windows);
-    std::vector<std::string> dirs = {config.claude_config_home_dir, config.memory_base_dir};
+    std::vector<std::string> dirs = {config.config_home_dir, config.memory_base_dir};
     if (config.auto_memory_enabled && !config.auto_mem_path.empty()) dirs.push_back(detail::trim_trailing_slashes(config.auto_mem_path));
 
     bool mentions_memory_root = false;

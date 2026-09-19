@@ -375,7 +375,7 @@ struct AgentExecutionPlan {
     std::optional<std::string> teammate_color;
     std::optional<std::string> parent_agent_id;
     std::optional<std::string> parent_session_id;
-    bool omit_claude_md = false;
+    bool omit_loom_md = false;
     std::optional<std::string> critical_system_reminder;
 };
 
@@ -392,32 +392,32 @@ struct RemoteAgentLaunchMetadata {
 };
 
 [[nodiscard]] inline bool is_auto_memory_enabled() {
-    const char* disable = std::getenv("CLAUDE_CODE_DISABLE_AUTO_MEMORY");
+    const char* disable = std::getenv("LOOM_DISABLE_AUTO_MEMORY");
     if (cc::utils::is_env_truthy(disable)) return false;
     if (cc::utils::is_env_defined_falsy(disable)) return true;
-    if (cc::utils::is_env_truthy(std::getenv("CLAUDE_CODE_SIMPLE"))) return false;
-    if (cc::utils::is_env_truthy(std::getenv("CLAUDE_CODE_REMOTE")) &&
-        (!std::getenv("CLAUDE_CODE_REMOTE_MEMORY_DIR") || !*std::getenv("CLAUDE_CODE_REMOTE_MEMORY_DIR"))) {
+    if (cc::utils::is_env_truthy(std::getenv("LOOM_SIMPLE"))) return false;
+    if (cc::utils::is_env_truthy(std::getenv("LOOM_REMOTE")) &&
+        (!std::getenv("LOOM_REMOTE_MEMORY_DIR") || !*std::getenv("CLAUDE_CODE_REMOTE_MEMORY_DIR"))) {
         return false;
     }
     return true;
 }
 
-[[nodiscard]] inline fs::path claude_config_home_dir() {
-    if (const char* configured = std::getenv("CLAUDE_CONFIG_DIR"); configured && *configured) {
+[[nodiscard]] inline fs::path config_home_dir() {
+    if (const char* configured = std::getenv("LOOM_CONFIG_DIR"); configured && *configured) {
         return fs::path{configured};
     }
     if (const char* home = std::getenv("HOME"); home && *home) {
-        return fs::path{home} / ".claude";
+        return fs::path{home} / ".loom";
     }
-    return fs::path{".claude"};
+    return fs::path{".loom"};
 }
 
 [[nodiscard]] inline fs::path agent_memory_base_dir() {
-    if (const char* remote = std::getenv("CLAUDE_CODE_REMOTE_MEMORY_DIR"); remote && *remote) {
+    if (const char* remote = std::getenv("LOOM_REMOTE_MEMORY_DIR"); remote && *remote) {
         return fs::path{remote};
     }
-    return claude_config_home_dir();
+    return config_home_dir();
 }
 
 [[nodiscard]] inline std::string sanitize_agent_memory_component(std::string_view value) {
@@ -437,16 +437,16 @@ struct RemoteAgentLaunchMetadata {
     const auto dir_name = sanitize_agent_memory_component(agent_type);
     const auto cwd = working_dir && !working_dir->empty() ? fs::path{*working_dir} : fs::current_path();
     if (scope == "project") {
-        return ((cwd / ".claude" / "agent-memory" / dir_name).string() + fs::path::preferred_separator);
+        return ((cwd / ".loom" / "agent-memory" / dir_name).string() + fs::path::preferred_separator);
     }
     if (scope == "local") {
-        if (const char* remote = std::getenv("CLAUDE_CODE_REMOTE_MEMORY_DIR"); remote && *remote) {
+        if (const char* remote = std::getenv("LOOM_REMOTE_MEMORY_DIR"); remote && *remote) {
             const auto git_root = cc::utils::git::find_git_root(cwd).value_or(cwd);
             const auto project_component = sanitize_agent_memory_component(git_root.string());
             return ((fs::path{remote} / "projects" / project_component / "agent-memory-local" / dir_name).string() +
                 fs::path::preferred_separator);
         }
-        return ((cwd / ".claude" / "agent-memory-local" / dir_name).string() + fs::path::preferred_separator);
+        return ((cwd / ".loom" / "agent-memory-local" / dir_name).string() + fs::path::preferred_separator);
     }
     return ((agent_memory_base_dir() / "agent-memory" / dir_name).string() + fs::path::preferred_separator);
 }
@@ -590,7 +590,9 @@ inline void add_agent_memory_tools(std::vector<std::string>& tools) {
         metadata.session_url = std::move(*session_url);
     }
     if (!metadata.session_url && metadata.session_id) {
-        metadata.session_url = std::format("https://claude.ai/chat/{}", *metadata.session_id);
+        // No web chat host is configured; leave the URL unset rather than
+        // link to a host that does not resolve.
+        metadata.session_url = std::format("session:{}", *metadata.session_id);
     }
     if (auto title = json_any_string(root, {"title", "description"})) metadata.title = std::move(*title);
     if (auto metadata_json = json_any_string(root, {"remote_metadata_json", "remoteMetadataJson", "metadata"})) {
@@ -623,7 +625,7 @@ inline void add_agent_memory_tools(std::vector<std::string>& tools) {
 }
 
 [[nodiscard]] inline std::string remote_agent_trigger_input_json(const AgentExecutionPlan& plan) {
-    if (const char* target = std::getenv("CC_REPL_REMOTE_AGENT_TARGET"); target && *target) {
+    if (const char* target = std::getenv("LOOM_REMOTE_AGENT_TARGET"); target && *target) {
         std::string input = "{";
         bool first = true;
         append_json_string_field(input, "target", target, first);
@@ -1054,7 +1056,7 @@ Guidelines:
 }
 
 [[nodiscard]] inline bool agent_model_supports_effort(std::string_view model) {
-    if (env_flag_enabled("CLAUDE_CODE_ALWAYS_ENABLE_EFFORT")) return true;
+    if (env_flag_enabled("LOOM_ALWAYS_ENABLE_EFFORT")) return true;
     const auto lower = lowercase_ascii(model);
     if (lower.find("opus-4-6") != std::string::npos ||
         lower.find("sonnet-4-6") != std::string::npos) {
@@ -1234,7 +1236,7 @@ inline void apply_agent_effort_to_request(
         if (const char* value = std::getenv("USER_TYPE"); value && std::string_view(value) == "ant") {
             return true;
         }
-        if (const char* value = std::getenv("CC_REPL_ENABLE_NESTED_AGENTS"); value && *value) {
+        if (const char* value = std::getenv("LOOM_ENABLE_NESTED_AGENTS"); value && *value) {
             return true;
         }
         return false;
@@ -1651,7 +1653,7 @@ prepare_agent_inline_mcp_servers(
     if (plan.effort) context += std::format("- effort: {}\n", *plan.effort);
     if (plan.memory) context += std::format("- memory: {}\n", *plan.memory);
     if (plan.color) context += std::format("- color: {}\n", *plan.color);
-    if (plan.omit_claude_md) context += "- omit_claude_md: true\n";
+    if (plan.omit_loom_md) context += "- omit_loom_md: true\n";
     if (plan.critical_system_reminder) context += "- critical_system_reminder: configured\n";
     if (plan.parent_agent_id) context += std::format("- parent_agent_id: {}\n", *plan.parent_agent_id);
     if (plan.background) context += "- background: true\n";
@@ -1708,7 +1710,7 @@ struct AgentWorktreeInfo {
     auto slug = sanitized_agent_file_part(plan.agent_id);
     if (slug.size() > 40) slug.resize(40);
     auto branch = "cc-agent-" + slug;
-    auto worktree_path = *git_root / ".claude" / "worktrees" / slug;
+    auto worktree_path = *git_root / ".loom" / "worktrees" / slug;
 
     std::error_code ec;
     fs::create_directories(worktree_path.parent_path(), ec);
@@ -1789,23 +1791,23 @@ struct AgentToolHookContext {
     const auto shell = hook.shell.empty() ? std::string("bash") : hook.shell;
     std::string command;
     command += "cd " + shell_quote(cwd) + " && ";
-    command += "CLAUDE_HOOK_EVENT=" + shell_quote(event) + " ";
-    command += "CLAUDE_HOOK_AGENT_ID=" + shell_quote(plan.agent_id) + " ";
-    command += "CLAUDE_HOOK_AGENT_TYPE=" + shell_quote(plan.agent_type) + " ";
-    command += "CLAUDE_HOOK_AGENT_TRANSCRIPT_PATH=" + shell_quote(transcript_path) + " ";
-    command += "CLAUDE_HOOK_CWD=" + shell_quote(cwd) + " ";
+    command += "LOOM_HOOK_EVENT=" + shell_quote(event) + " ";
+    command += "LOOM_HOOK_AGENT_ID=" + shell_quote(plan.agent_id) + " ";
+    command += "LOOM_HOOK_AGENT_TYPE=" + shell_quote(plan.agent_type) + " ";
+    command += "LOOM_HOOK_AGENT_TRANSCRIPT_PATH=" + shell_quote(transcript_path) + " ";
+    command += "LOOM_HOOK_CWD=" + shell_quote(cwd) + " ";
     if (!last_assistant_message.empty()) {
-        command += "CLAUDE_HOOK_LAST_ASSISTANT_MESSAGE=" + shell_quote(last_assistant_message) + " ";
+        command += "LOOM_HOOK_LAST_ASSISTANT_MESSAGE=" + shell_quote(last_assistant_message) + " ";
     }
     if (tool_context) {
-        command += "CLAUDE_HOOK_TOOL_NAME=" + shell_quote(tool_context->tool_name) + " ";
-        command += "CLAUDE_HOOK_TOOL_INPUT_JSON=" + shell_quote(tool_context->tool_input_json) + " ";
-        command += "CLAUDE_HOOK_TOOL_USE_ID=" + shell_quote(tool_context->tool_use_id) + " ";
+        command += "LOOM_HOOK_TOOL_NAME=" + shell_quote(tool_context->tool_name) + " ";
+        command += "LOOM_HOOK_TOOL_INPUT_JSON=" + shell_quote(tool_context->tool_input_json) + " ";
+        command += "LOOM_HOOK_TOOL_USE_ID=" + shell_quote(tool_context->tool_use_id) + " ";
         if (!tool_context->tool_output_preview.empty()) {
-            command += "CLAUDE_HOOK_TOOL_OUTPUT_PREVIEW=" + shell_quote(tool_context->tool_output_preview) + " ";
+            command += "LOOM_HOOK_TOOL_OUTPUT_PREVIEW=" + shell_quote(tool_context->tool_output_preview) + " ";
         }
         if (!tool_context->tool_error.empty()) {
-            command += "CLAUDE_HOOK_TOOL_ERROR=" + shell_quote(tool_context->tool_error) + " ";
+            command += "LOOM_HOOK_TOOL_ERROR=" + shell_quote(tool_context->tool_error) + " ";
         }
     }
     command += shell_quote(shell) + " -c " + shell_quote(hook.command) + " 2>&1";
@@ -2344,7 +2346,7 @@ struct AgentWorktreeCleanupResult {
 }
 
 [[nodiscard]] inline std::string teammate_parent_session_id() {
-    if (const char* value = std::getenv("CC_REPL_SESSION_ID"); value && *value) {
+    if (const char* value = std::getenv("LOOM_SESSION_ID"); value && *value) {
         return value;
     }
     if (const char* value = std::getenv("CLAUDE_SESSION_ID"); value && *value) {
@@ -2852,7 +2854,7 @@ inline constexpr std::string_view AGENT_PER_MESSAGE_BUDGET_OVERRIDE_FLAG = "teng
 template <typename Fn>
 inline void with_agent_growthbook_env_overrides(Fn&& fn) {
     if (!agent_growthbook_env_overrides_enabled()) return;
-    const char* raw = std::getenv("CLAUDE_INTERNAL_FC_OVERRIDES");
+    const char* raw = std::getenv("LOOM_INTERNAL_FC_OVERRIDES");
     if (!raw || !*raw) return;
     auto parsed = cc::utils::json::parse(raw);
     if (!parsed || !parsed->root().is_obj()) return;

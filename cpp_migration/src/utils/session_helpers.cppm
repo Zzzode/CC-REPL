@@ -157,25 +157,25 @@ struct HookMatcher {
 // ===========================================================================
 
 /// Authentication token source priority:
-/// 1. Environment variable (CLAUDE_CODE_SESSION_ACCESS_TOKEN)
-/// 2. File descriptor (CLAUDE_CODE_WEBSOCKET_AUTH_FILE_DESCRIPTOR)
+/// 1. Environment variable (LOOM_SESSION_ACCESS_TOKEN)
+/// 2. File descriptor (LOOM_WEBSOCKET_AUTH_FILE_DESCRIPTOR)
 /// 3. Well-known file path
 
 /// Configuration for session ingress auth token resolution.
 struct IngressAuthConfig {
-    /// CLAUDE_CODE_SESSION_ACCESS_TOKEN env var value
+    /// LOOM_SESSION_ACCESS_TOKEN env var value
     std::optional<std::string> env_token;
 
-    /// CLAUDE_CODE_WEBSOCKET_AUTH_FILE_DESCRIPTOR env var value
+    /// LOOM_WEBSOCKET_AUTH_FILE_DESCRIPTOR env var value
     std::optional<std::string> fd_env;
 
-    /// CLAUDE_SESSION_INGRESS_TOKEN_FILE env var override
+    /// LOOM_SESSION_INGRESS_TOKEN_FILE env var override
     std::optional<std::filesystem::path> token_file_override;
 
     /// Default well-known token file path
     std::filesystem::path default_token_path;
 
-    /// CLAUDE_CODE_ORGANIZATION_UUID env var value
+    /// LOOM_ORGANIZATION_UUID env var value
     std::optional<std::string> organization_uuid;
 
     /// Platform identifier ("darwin", "linux", "freebsd")
@@ -190,7 +190,7 @@ struct AuthHeaders {
 /// Get session ingress authentication token.
 ///
 /// Priority order:
-///  1. Environment variable (CLAUDE_CODE_SESSION_ACCESS_TOKEN)
+///  1. Environment variable (LOOM_SESSION_ACCESS_TOKEN)
 ///  2. File descriptor (legacy path)
 ///  3. Well-known file
 [[nodiscard]] std::optional<std::string> get_session_ingress_auth_token(

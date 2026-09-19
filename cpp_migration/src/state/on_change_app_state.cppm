@@ -1,5 +1,5 @@
 /// @file on_change_app_state.cppm
-/// @brief State change callback system for the Claude Code REPL.
+/// @brief State change callback system for the Loom REPL.
 /// Provides callbacks that react to specific state changes and trigger
 /// appropriate side effects like persistence, notifications, etc.
 module;

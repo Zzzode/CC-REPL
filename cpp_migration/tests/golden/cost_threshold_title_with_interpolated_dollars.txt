@@ -2,7 +2,7 @@
 │You've spent $5 on the Anthropic API this session.                          │
 ├────────────────────────────────────────────────────────────────────────────┤
 │Learn more about how to monitor your spending:                              │
-│https://code.claude.com/docs/en/costs                                       │
+│                                                                            │
 │(model: claude-3-5-sonnet-20241022)                                         │
 ├────────────────────────────────────────────────────────────────────────────┤
 │● Got it, thanks!                                                           │

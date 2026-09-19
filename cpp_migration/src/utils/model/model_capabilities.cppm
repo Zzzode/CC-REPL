@@ -20,7 +20,7 @@ struct Capabilities {
 Capabilities get_capabilities(std::string_view model_id) {
     Capabilities caps{};
 
-    // All Claude 4 models support these baseline features
+    // All Loom 4 models support these baseline features
     caps.vision = true;
     caps.thinking = true;
     caps.tool_use = true;

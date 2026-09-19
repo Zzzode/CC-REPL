@@ -50,7 +50,7 @@ std::string get_bedrock_model_id(std::string_view model) {
 }
 
 bool is_bedrock_enabled() {
-    const char* enabled = std::getenv("CLAUDE_CODE_USE_BEDROCK");
+    const char* enabled = std::getenv("LOOM_USE_BEDROCK");
     return enabled && (std::string_view(enabled) == "1" || std::string_view(enabled) == "true");
 }
 

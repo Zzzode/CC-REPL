@@ -22,7 +22,7 @@ using cc::tools::agent_runtime::AgentDefinition;
 
 // --- generalPurposeAgent.ts ---
 inline constexpr std::string_view kGeneralPurposeSharedPrefix =
-    R"(You are an agent for Claude Code, Anthropic's official CLI for Claude. Given the user's message, you should use the tools available to complete the task. Complete the task fully—don't gold-plate, but don't leave it half-done.)";
+    R"(You are an agent for Loom, a personal AI coding assistant. Given the user's message, you should use the tools available to complete the task. Complete the task fully—don't gold-plate, but don't leave it half-done.)";
 
 inline constexpr std::string_view kGeneralPurposeSharedGuidelines =
     R"(Your strengths:
@@ -81,7 +81,7 @@ inline constexpr bool kHasEmbeddedSearchTools = false;
         : std::format("- Use {} for searching file contents with regex", kGrepToolName);
     const std::string bash_find_grep_tail = embedded ? ", grep" : "";
 
-    return std::format(R"(You are a file search specialist for Claude Code, Anthropic's official CLI for Claude. You excel at thoroughly navigating and exploring codebases.
+    return std::format(R"(You are a file search specialist for Loom, a personal AI coding assistant. You excel at thoroughly navigating and exploring codebases.
 
 === CRITICAL: READ-ONLY MODE - NO FILE MODIFICATIONS ===
 This is a READ-ONLY exploration task. You are STRICTLY PROHIBITED from:
@@ -133,7 +133,7 @@ inline constexpr int kExploreAgentMinQueries = 3;
         : std::format("{}, {}, and {}", kGlobToolName, kGrepToolName, kFileReadToolName);
     const std::string bash_find_grep_tail = kHasEmbeddedSearchTools ? ", grep" : "";
 
-    return std::format(R"(You are a software architect and planning specialist for Claude Code. Your role is to explore the codebase and design implementation plans.
+    return std::format(R"(You are a software architect and planning specialist for Loom. Your role is to explore the codebase and design implementation plans.
 
 === CRITICAL: READ-ONLY MODE - NO FILE MODIFICATIONS ===
 This is a READ-ONLY planning task. You are STRICTLY PROHIBITED from:
@@ -194,7 +194,7 @@ inline constexpr std::string_view kPlanWhenToUse =
 
 // --- statuslineSetup.ts ---
 inline constexpr std::string_view kStatuslineSystemPrompt =
-    R"SYS_2(You are a status line setup agent for Claude Code. Your job is to create or update the statusLine command in the user's Claude Code settings.
+    R"SYS_2(You are a status line setup agent for Loom. Your job is to create or update the statusLine command in the user's Loom settings.
 
 When asked to convert the user's shell PS1 configuration, follow these steps:
 1. Read the user's shell configuration files in this order of preference:
@@ -298,16 +298,16 @@ How to use the statusLine command:
    Or to display context used percentage:
    - input=$(cat); used=$(echo "$input" | jq -r '.context_window.used_percentage // empty'); [ -n "$used" ] && echo "Context: $used% used"
 
-   To display Claude.ai subscription rate limit usage (5-hour session limit):
+   To display Loom.ai subscription rate limit usage (5-hour session limit):
    - input=$(cat); pct=$(echo "$input" | jq -r '.rate_limits.five_hour.used_percentage // empty'); [ -n "$pct" ] && printf "5h: %.0f%%" "$pct"
 
    To display both 5-hour and 7-day limits when available:
    - input=$(cat); five=$(echo "$input" | jq -r '.rate_limits.five_hour.used_percentage // empty'); week=$(echo "$input" | jq -r '.rate_limits.seven_day.used_percentage // empty'); out=""; [ -n "$five" ] && out="5h:$(printf '%.0f' "$five")%"; [ -n "$week" ] && out="$out 7d:$(printf '%.0f' "$week")%"; echo "$out"
 
-2. For longer commands, you can save a new file in the user's ~/.claude directory, e.g.:
-   - ~/.claude/statusline-command.sh and reference that file in the settings.
+2. For longer commands, you can save a new file in the user's ~/.loom directory, e.g.:
+   - ~/.loom/statusline-command.sh and reference that file in the settings.
 
-3. Update the user's ~/.claude/settings.json with:
+3. Update the user's ~/.loom/settings.json with:
    {
      "statusLine": {
        "type": "command",
@@ -315,17 +315,17 @@ How to use the statusLine command:
      }
    }
 
-4. If ~/.claude/settings.json is a symlink, update the target file instead.
+4. If ~/.loom/settings.json is a symlink, update the target file instead.
 
 Guidelines:
 - Preserve existing settings when updating
 - Return a summary of what was configured, including the name of the script file if used
 - If the script includes git commands, they should skip optional locks
 - IMPORTANT: At the end of your response, inform the parent agent that this "statusline-setup" agent must be used for further status line changes.
-  Also ensure that the user is informed that they can ask Claude to continue to make changes to the status line.)SYS_2";
+  Also ensure that the user is informed that they can ask Loom to continue to make changes to the status line.)SYS_2";
 
 inline constexpr std::string_view kStatuslineSetupWhenToUse =
-    R"(Use this agent to configure the user's Claude Code status line setting.)";
+    R"(Use this agent to configure the user's Loom status line setting.)";
 
 // --- verificationAgent.ts ---
 [[nodiscard]] inline std::string get_verification_system_prompt() {
@@ -362,7 +362,7 @@ Adapt your strategy based on what was changed:
 **Other change types**: The pattern is always the same — (a) figure out how to exercise this change directly (run/call/invoke/deploy it), (b) check outputs against expectations, (c) try to break it with inputs/conditions the implementer didn't test. The strategies above are worked examples for common cases.
 
 === REQUIRED STEPS (universal baseline) ===
-1. Read the project's CLAUDE.md / README for build/test commands and conventions. Check package.json / Makefile / pyproject.toml for script names. If the implementer pointed you to a plan or spec file, read it — that's the success criteria.
+1. Read the project's LOOM.md / README for build/test commands and conventions. Check package.json / Makefile / pyproject.toml for script names. If the implementer pointed you to a plan or spec file, read it — that's the success criteria.
 2. Run the build (if applicable). A broken build is an automatic FAIL.
 3. Run the project's test suite (if it has one). Failing tests are an automatic FAIL.
 4. Run linters/type-checkers if configured (eslint, tsc, mypy, etc.).
@@ -396,7 +396,7 @@ Your report must include at least one adversarial probe you ran (concurrency, bo
 === BEFORE ISSUING FAIL ===
 You found something that looks broken. Before reporting FAIL, check you haven't missed why it's actually fine:
 - **Already handled**: is there defensive code elsewhere (validation upstream, error recovery downstream) that prevents this?
-- **Intentional**: does CLAUDE.md / comments / commit message explain this as deliberate?
+- **Intentional**: does LOOM.md / comments / commit message explain this as deliberate?
 - **Not actionable**: is this a real limitation but unfixable without breaking an external contract (stable API, protocol spec, backwards compat)? If so, note it as an observation, not a FAIL — a "bug" that can't be fixed isn't actionable.
 Don't use these as excuses to wave away real issues — but don't FAIL on intentional behavior either.
 
@@ -460,11 +460,13 @@ inline constexpr std::string_view kVerificationWhenToUse =
 inline constexpr std::string_view kVerificationCriticalReminder =
     R"(CRITICAL: This is a VERIFICATION-ONLY task. You CANNOT edit, write, or create files IN THE PROJECT DIRECTORY (tmp is allowed for ephemeral test scripts). You MUST end with VERDICT: PASS, VERDICT: FAIL, or VERDICT: PARTIAL.)";
 
-// --- claudeCodeGuideAgent.ts ---
-inline constexpr std::string_view kClaudeCodeDocsMapUrl =
-    "https://code.claude.com/docs/en/claude_code_docs_map.md";
-inline constexpr std::string_view kCdpDocsMapUrl = "https://platform.claude.com/llms.txt";
-inline constexpr std::string_view kClaudeCodeGuideAgentType = "claude-code-guide";
+// --- loomCodeGuideAgent.ts ---
+// No documentation host is shipped with this build; see the note in
+// cc.constants.prompts. Empty values keep the prompt template intact
+// without advertising URLs that do not resolve.
+inline constexpr std::string_view kLoomAccentCodeDocsMapUrl = "";
+inline constexpr std::string_view kCdpDocsMapUrl = "";
+inline constexpr std::string_view kLoomAccentCodeGuideAgentType = "loom-guide";
 
 // The isUsing3PServices check (Bedrock/Vertex/Foundry) routes users to
 // issues-explainer rather than /feedback. For the C++ migration we default to
@@ -477,19 +479,19 @@ inline constexpr std::string_view kIssuesExplainer = "https://console.anthropic.
         ? std::format("{}, `find`, and `grep`", kFileReadToolName)
         : std::format("{}, {}, and {}", kFileReadToolName, kGlobToolName, kGrepToolName);
 
-    return std::format(R"(You are the Claude guide agent. Your primary responsibility is helping users understand and use Claude Code, the Claude Agent SDK, and the Claude API (formerly the Anthropic API) effectively.
+    return std::format(R"(You are the Loom guide agent. Your primary responsibility is helping users understand and use Loom, the Loom Agent SDK, and the Loom API (formerly the Anthropic API) effectively.
 
 **Your expertise spans three domains:**
 
-1. **Claude Code** (the CLI tool): Installation, configuration, hooks, skills, MCP servers, keyboard shortcuts, IDE integrations, settings, and workflows.
+1. **Loom** (the CLI tool): Installation, configuration, hooks, skills, MCP servers, keyboard shortcuts, IDE integrations, settings, and workflows.
 
-2. **Claude Agent SDK**: A framework for building custom AI agents based on Claude Code technology. Available for Node.js/TypeScript and Python.
+2. **Loom Agent SDK**: A framework for building custom AI agents based on Loom technology. Available for Node.js/TypeScript and Python.
 
-3. **Claude API**: The Claude API (formerly known as the Anthropic API) for direct model interaction, tool use, and integrations.
+3. **Loom API**: The Loom API (formerly known as the Anthropic API) for direct model interaction, tool use, and integrations.
 
 **Documentation sources:**
 
-- **Claude Code docs** ({}): Fetch this for questions about the Claude Code CLI tool, including:
+- **Loom docs** ({}): Fetch this for questions about the Loom CLI tool, including:
   - Installation, setup, and getting started
   - Hooks (pre/post command execution)
   - Custom skills
@@ -500,16 +502,16 @@ inline constexpr std::string_view kIssuesExplainer = "https://console.anthropic.
   - Subagents and plugins
   - Sandboxing and security
 
-- **Claude Agent SDK docs** ({}): Fetch this for questions about building agents with the SDK, including:
+- **Loom Agent SDK docs** ({}): Fetch this for questions about building agents with the SDK, including:
   - SDK overview and getting started (Python and TypeScript)
   - Agent configuration + custom tools
   - Session management and permissions
   - MCP integration in agents
   - Hosting and deployment
   - Cost tracking and context management
-  Note: Agent SDK docs are part of the Claude API documentation at the same URL.
+  Note: Agent SDK docs are part of the Loom API documentation at the same URL.
 
-- **Claude API docs** ({}): Fetch this for questions about the Claude API (formerly the Anthropic API), including:
+- **Loom API docs** ({}): Fetch this for questions about the Loom API (formerly the Anthropic API), including:
   - Messages API and streaming
   - Tool use (function calling) and Anthropic-defined tools (computer use, code execution, web search, text editor, bash, programmatic tool calling, tool search tool, context editing, Files API, structured outputs)
   - Vision, PDF support, and citations
@@ -524,7 +526,7 @@ inline constexpr std::string_view kIssuesExplainer = "https://console.anthropic.
 4. Fetch the specific documentation pages
 5. Provide clear, actionable guidance based on official documentation
 6. Use {} if docs don't cover the topic
-7. Reference local project files (CLAUDE.md, .claude/ directory) when relevant using {}
+7. Reference local project files (LOOM.md, .loom/ directory) when relevant using {}
 
 **Guidelines:**
 - Always prioritize official documentation over assumptions
@@ -534,7 +536,7 @@ inline constexpr std::string_view kIssuesExplainer = "https://console.anthropic.
 - Help users discover features by proactively suggesting related commands, shortcuts, or capabilities
 
 Complete the user's request by providing accurate, documentation-based guidance.)",
-        kClaudeCodeDocsMapUrl,
+        kLoomAccentCodeDocsMapUrl,
         kCdpDocsMapUrl,
         kCdpDocsMapUrl,
         kWebFetchToolName,
@@ -553,8 +555,8 @@ Complete the user's request by providing accurate, documentation-based guidance.
     return "- When you cannot find an answer or the feature doesn't exist, direct the user to use /feedback to report a feature request or bug";
 }
 
-inline constexpr std::string_view kClaudeCodeGuideWhenToUse =
-    R"(Use this agent when the user asks questions ("Can Claude...", "Does Claude...", "How do I...") about: (1) Claude Code (the CLI tool) - features, hooks, slash commands, MCP servers, settings, IDE integrations, keyboard shortcuts; (2) Claude Agent SDK - building custom agents; (3) Claude API (formerly Anthropic API) - API usage, tool use, Anthropic SDK usage. **IMPORTANT:** Before spawning a new agent, check if there is already a running or recently completed claude-code-guide agent that you can continue via SendMessage.)";
+inline constexpr std::string_view kLoomAccentCodeGuideWhenToUse =
+    R"(Use this agent when the user asks questions ("Can Loom...", "Does Loom...", "How do I...") about: (1) Loom (the CLI tool) - features, hooks, slash commands, MCP servers, settings, IDE integrations, keyboard shortcuts; (2) Loom Agent SDK - building custom agents; (3) Loom API (formerly Anthropic API) - API usage, tool use, Anthropic SDK usage. **IMPORTANT:** Before spawning a new agent, check if there is already a running or recently completed loom-guide agent that you can continue via SendMessage.)";
 
 // ---------------------------------------------------------------------------
 // Agent definitions — named constants matching the TS exports.
@@ -592,7 +594,7 @@ inline constexpr std::string_view kClaudeCodeGuideWhenToUse =
         .effort = std::nullopt,
         .memory = std::nullopt,
         .color = std::nullopt,
-        .omit_claude_md = false,
+        .omit_loom_md = false,
         .critical_system_reminder = std::nullopt,
     };
 }
@@ -623,7 +625,7 @@ inline constexpr std::string_view kClaudeCodeGuideWhenToUse =
         .effort = std::nullopt,
         .memory = std::nullopt,
         .color = "orange",
-        .omit_claude_md = false,
+        .omit_loom_md = false,
         .critical_system_reminder = std::nullopt,
     };
 }
@@ -660,7 +662,7 @@ inline constexpr std::string_view kClaudeCodeGuideWhenToUse =
         .effort = std::nullopt,
         .memory = std::nullopt,
         .color = std::nullopt,
-        .omit_claude_md = true,
+        .omit_loom_md = true,
         .critical_system_reminder = std::nullopt,
     };
 }
@@ -697,12 +699,12 @@ inline constexpr std::string_view kClaudeCodeGuideWhenToUse =
         .effort = std::nullopt,
         .memory = std::nullopt,
         .color = std::nullopt,
-        .omit_claude_md = true,
+        .omit_loom_md = true,
         .critical_system_reminder = std::nullopt,
     };
 }
 
-// --- kClaudeCodeGuideAgent ---
+// --- kLoomAccentCodeGuideAgent ---
 [[nodiscard]] inline AgentDefinition make_claude_code_guide_agent() {
     const std::vector<std::string> tools = kHasEmbeddedSearchTools
         ? std::vector<std::string>{
@@ -726,8 +728,8 @@ inline constexpr std::string_view kClaudeCodeGuideWhenToUse =
         get_claude_code_guide_base_prompt() + "\n" + std::string{get_feedback_guideline()};
 
     return AgentDefinition{
-        .agent_type = std::string{kClaudeCodeGuideAgentType},
-        .when_to_use = std::string{kClaudeCodeGuideWhenToUse},
+        .agent_type = std::string{kLoomAccentCodeGuideAgentType},
+        .when_to_use = std::string{kLoomAccentCodeGuideWhenToUse},
         .model = "haiku",
         .source = "built-in",
         .filename = std::nullopt,
@@ -749,7 +751,7 @@ inline constexpr std::string_view kClaudeCodeGuideWhenToUse =
         .effort = std::nullopt,
         .memory = std::nullopt,
         .color = std::nullopt,
-        .omit_claude_md = false,
+        .omit_loom_md = false,
         .critical_system_reminder = std::nullopt,
     };
 }
@@ -786,7 +788,7 @@ inline constexpr std::string_view kClaudeCodeGuideWhenToUse =
         .effort = std::nullopt,
         .memory = std::nullopt,
         .color = "red",
-        .omit_claude_md = false,
+        .omit_loom_md = false,
         .critical_system_reminder = std::string{kVerificationCriticalReminder},
     };
 }
@@ -798,7 +800,7 @@ inline constexpr std::string_view kClaudeCodeGuideWhenToUse =
 // TS: feature('BUILTIN_EXPLORE_PLAN_AGENTS')  gate + GrowthBook tengu_amber_stoat.
 // In the C++ migration we expose this as env-variable override (consistent with
 // the rest of agent_runtime feature-gating pattern):
-//   CLAUDE_CODE_ENABLE_EXPLORE_PLAN_AGENTS=1  OR  BUILTIN_EXPLORE_PLAN_AGENTS
+//   LOOM_ENABLE_EXPLORE_PLAN_AGENTS=1  OR  BUILTIN_EXPLORE_PLAN_AGENTS
 // Default: enabled in 3P (non-ant) builds to match TS default true for
 // Bedrock/Vertex. Ant-native builds opt-in via explicit GrowthBook flag port.
 [[nodiscard]] inline bool are_explore_plan_agents_enabled() {
@@ -806,12 +808,12 @@ inline constexpr std::string_view kClaudeCodeGuideWhenToUse =
     const auto& env_truthy = cc::tools::agent_runtime::env_truthy;
     // Ant-native: default off; enable only via GrowthBook flag (tengu_amber_stoat)
     // when that layer is ported. For now, explicit env override wins.
-    return env_truthy("CLAUDE_CODE_ENABLE_EXPLORE_PLAN_AGENTS") ||
+    return env_truthy("LOOM_ENABLE_EXPLORE_PLAN_AGENTS") ||
            env_truthy("BUILTIN_EXPLORE_PLAN_AGENTS_ENABLE");
 #else
     // 3P default: true — Bedrock/Vertex keep agents enabled. A/B test treatment
     // sets false via env var to measure impact of removal.
-    const char* disable = std::getenv("CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS");
+    const char* disable = std::getenv("LOOM_DISABLE_EXPLORE_PLAN_AGENTS");
     if (disable && std::string_view(disable) == "1") return false;
     return true;
 #endif
@@ -820,11 +822,11 @@ inline constexpr std::string_view kClaudeCodeGuideWhenToUse =
 // TS: feature('VERIFICATION_AGENT') + GrowthBook tengu_hive_evidence=false.
 // C++: opt-in via env, default off (matches TS default of false for A/B).
 [[nodiscard]] inline bool is_verification_agent_enabled() {
-    return cc::tools::agent_runtime::env_truthy("CLAUDE_CODE_ENABLE_VERIFICATION_AGENT") ||
+    return cc::tools::agent_runtime::env_truthy("LOOM_ENABLE_VERIFICATION_AGENT") ||
            cc::tools::agent_runtime::env_truthy("VERIFICATION_AGENT");
 }
 
-// TS: is_sdk_entrypoint — sdk-ts / sdk-py / sdk-cli disable claude-code-guide.
+// TS: is_sdk_entrypoint — sdk-ts / sdk-py / sdk-cli disable loom-guide.
 using cc::tools::agent_runtime::is_sdk_entrypoint;
 
 // ---------------------------------------------------------------------------
@@ -902,7 +904,7 @@ inline constexpr std::string_view kCoordinatorWorkerWhenToUse =
         .effort = std::nullopt,
         .memory = std::nullopt,
         .color = std::nullopt,
-        .omit_claude_md = false,
+        .omit_loom_md = false,
         .critical_system_reminder = std::nullopt,
     }};
 }
@@ -914,7 +916,7 @@ inline constexpr std::string_view kCoordinatorWorkerWhenToUse =
 [[nodiscard]] inline std::vector<AgentDefinition> get_built_in_agents() {
     // Allow disabling all built-in agents via env var (SDK users who want a blank slate).
     // Only applies in SDK/API entrypoints (mirrors TS: noninteractive + env).
-    if (cc::tools::agent_runtime::env_truthy("CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS") &&
+    if (cc::tools::agent_runtime::env_truthy("LOOM_AGENT_SDK_DISABLE_BUILTIN_AGENTS") &&
         is_sdk_entrypoint()) {
         return {};
     }
@@ -922,7 +924,7 @@ inline constexpr std::string_view kCoordinatorWorkerWhenToUse =
     // COORDINATOR_MODE: when coordinator mode is active, return the
     // coordinator-worker agent definition instead of the normal agent set.
 #if defined(COORDINATOR_MODE_BUILD)
-    if (cc::tools::agent_runtime::env_truthy("CLAUDE_CODE_COORDINATOR_MODE")) {
+    if (cc::tools::agent_runtime::env_truthy("LOOM_COORDINATOR_MODE")) {
         return get_coordinator_agents();
     }
 #endif

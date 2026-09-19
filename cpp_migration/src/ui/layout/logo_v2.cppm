@@ -15,7 +15,7 @@
 //   ✘ starfield / animated starfield background
 //   ✘ 12-item rotating carousel of notice messages
 //   ✘ per-frame colour cycling of static WelcomeV2 background chars
-//   ✘ "CC-REPL" branding (TS uses "Claude Code" exclusively)
+//   ✘ "LOOM" branding (TS uses "Loom" exclusively)
 //
 // See memory [[ui-port-ts-is-the-standard]] — TS is the canonical reference.
 // ==========================================================================
@@ -118,8 +118,8 @@ struct LogoV2Options {
   std::string debug_log_path;             // path only meaningful if !stderr
 
   // --- Environment notices ---
-  std::optional<std::string> tmux_session;   // CLAUDE_CODE_TMUX_SESSION
-  std::optional<std::string> tmux_prefix;    // CLAUDE_CODE_TMUX_PREFIX
+  std::optional<std::string> tmux_session;   // LOOM_TMUX_SESSION
+  std::optional<std::string> tmux_prefix;    // LOOM_TMUX_PREFIX
   bool tmux_prefix_conflicts = false;        // show "press twice" variant
   std::optional<std::string> company_announcement;  // org-wide banner
   std::optional<std::string> emergency_tip;         // EmergencyTip override
@@ -149,9 +149,9 @@ namespace detail {
 // Exact hex matches from TS src/utils/theme.ts darkTheme tokens
 inline const Color kWarningColor(255, 193,   7);   // theme.warning #FFC107
 inline const Color kIdeColor    ( 71, 130, 200);   // theme.ide     #4782C8
-inline const Color kClaude      (215, 119,  87);   // theme.claude / clawd_body #D77757
-inline const Color kClawdBody   (215, 119,  87);   // theme.clawd_body (== claude in dark)
-inline const Color kClawdBackground(0, 0, 0);      // theme.clawd_background #000000 (TS L162)
+inline const Color kLoomAccent      (215, 119,  87);   // theme.loom / loom_body #D77757
+inline const Color kLoomMascotBody   (215, 119,  87);   // theme.loom_body (== loom in dark)
+inline const Color kLoomMascotBackground(0, 0, 0);      // theme.clawd_background #000000 (TS L162)
 inline const Color kMuted       (153, 153, 153);   // theme.inactive / dimColor #999999
 
 // Padding-left 2 columns (TS <Box paddingLeft={2}>).
@@ -173,7 +173,7 @@ inline const Color kMuted       (153, 153, 153);   // theme.inactive / dimColor 
 [[nodiscard]] inline auto RenderVoiceModeNotice(bool active = false) -> Element {
   using namespace detail;
   return pad2(hbox({
-    text("\xE2\x9C\xBB ") | color(kClaude) | bold,    // ✻ U+273B
+    text("\xE2\x9C\xBB ") | color(kLoomAccent) | bold,    // ✻ U+273B
     text(active ? "Voice mode active" : "Voice mode enabled"),
     text(" \xC2\xB7 "),
     text("Press "),
@@ -197,7 +197,7 @@ template <bool KAIROS = false, bool KAIROS_CHANNELS = false>
   } else {
     using namespace detail;
     return pad2(hbox({
-      text("\xE2\x9A\xA1 ") | color(kClaude) | bold,   // ⚡ U+26A1
+      text("\xE2\x9A\xA1 ") | color(kLoomAccent) | bold,   // ⚡ U+26A1
       text("Channels beta: join live conversations") | color(kMuted) | dim,
     }));
   }
@@ -252,7 +252,7 @@ template <bool KAIROS = false, bool KAIROS_CHANNELS = false>
     std::string detach_msg =
         o.tmux_prefix_conflicts
             ? "Detach: " + prefix + " " + prefix
-                  + " d (press prefix twice - Claude uses " + prefix + ")"
+                  + " d (press prefix twice - Loom uses " + prefix + ")"
             : "Detach: " + prefix + " d";
     lines.push_back(text(std::move(detach_msg)) | dim | color(kMuted));
   }
@@ -303,7 +303,7 @@ template <bool KAIROS = false, bool KAIROS_CHANNELS = false>
   for (int i = 0; i < count; ++i) {
     if (i > 0) brackets.push_back(text(" "));
     brackets.push_back(text("[") | color(kMuted) | dim);
-    brackets.push_back(text("\xE2\x9C\xBB") | color(kClaude) | bold); // ✻
+    brackets.push_back(text("\xE2\x9C\xBB") | color(kLoomAccent) | bold); // ✻
     brackets.push_back(text("]") | color(kMuted) | dim);
   }
   return pad2(hbox({
@@ -422,7 +422,7 @@ enum class WelcomeV2Theme {
 //
 // We reproduce the dark-theme 14 rows exactly (char-for-char). Rows are
 // indexed as t0 (header) → t1 (ellipsis separator) → t2..t15 (art).
-// Clawd sits at rows 12-14 (body █████████ / ██▄█████▄██ / █████████)
+// Loom mascot sits at rows 12-14 (body █████████ / ██▄█████▄██ / █████████)
 // with a moon/planet to the right built from ░░/▒▒/██ gradient block chars.
 namespace detail {
 inline constexpr std::array<std::string_view, 15> kWelcomeV2DarkRows = {{
@@ -477,17 +477,17 @@ inline constexpr std::array<std::string_view, 15> kWelcomeV2DarkRows = {{
   "                               \xE2\x96\x91\xE2\x96\x91\xE2\x96\x91\xE2\x96\x91"
   "\xE2\x96\x91\xE2\x96\x91\xE2\x96\x91\xE2\x96\x91\xE2\x96\x91\xE2\x96\x91"
   "\xE2\x96\x91\xE2\x96\x91\xE2\x96\x91\xE2\x96\x91\xE2\x96\x91\xE2\x96\x91           ",
-  // t12: (clawd row 1) 6 spaces + clawd_body █████████ + 39 spaces +
+  // t12: (clawd row 1) 6 spaces + loom_body █████████ + 39 spaces +
   //      dim "*" + 1 space
   "       \xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88"
   "\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88"
   "                                        * ",
-  // t13: (clawd row 2) 6 spaces + ██▄█████▄██ clawd_body + 24 spaces +
+  // t13: (clawd row 2) 6 spaces + ██▄█████▄██ loom_body + 24 spaces +
   //      bold "*" + 16 spaces
   "       \xE2\x96\x88\xE2\x96\x88\xE2\x96\x84\xE2\x96\x88\xE2\x96\x88"
   "\xE2\x96\x88\xE2\x96\x88\xE2\x96\x84\xE2\x96\x88\xE2\x96\x88"
   "                        *                ",
-  // t14: (clawd row 3) 6 spaces + clawd_body █████████ + 5 spaces + dim
+  // t14: (clawd row 3) 6 spaces + loom_body █████████ + 5 spaces + dim
   //      "*" + 35 spaces
   "       \xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88"
   "\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88"
@@ -497,11 +497,11 @@ inline constexpr std::array<std::string_view, 15> kWelcomeV2DarkRows = {{
 // Light-theme WelcomeV2 rows.  TS REF: WelcomeV2.tsx L20-106 (light branch).
 // The light variant has a cloud-shape in the upper-left (6 ░ + 10 ░ + 19 ░)
 // and a smaller moon/planet in the upper-right (██, ██▒▒██, ▒▒ patterns).
-// Clawd sits at rows 12-14 in the lower-left, same as dark but with a
+// Loom mascot sits at rows 12-14 in the lower-left, same as dark but with a
 // different ground/horizon line (▒▒░░▒▒ etc.).
 //
 // Row layout (15 rows, indexed 0..14):
-//   [0]  header (built dynamically — "Welcome to Claude Code vX.X.X")
+//   [0]  header (built dynamically — "Welcome to Loom vX.X.X")
 //   [1]  58 × … ellipsis separator (same as dark, reused from dark array)
 //   [2]  58 spaces  (blank)
 //   [3]  58 spaces  (blank)
@@ -520,7 +520,7 @@ inline constexpr std::array<std::string_view, 15> kWelcomeV2DarkRows = {{
 // For rows [9] and [10], the leading ░ segment is dimColor in TS; we
 // store the full-row strings here and colourise them at render time.
 // For rows [12]-[14], the clawd body segment is colourised with
-// clawd_body (and clawd_background bg for row 13) at render time.
+// loom_body (and clawd_background bg for row 13) at render time.
 inline constexpr std::array<std::string_view, 15> kWelcomeV2LightRows = {{
   // [0] header placeholder
   "",
@@ -570,12 +570,12 @@ inline constexpr std::array<std::string_view, 15> kWelcomeV2LightRows = {{
 // ------------------------------------------------------------------
 // Apple Terminal clawd helpers.
 // TS AppleTerminalWelcomeV2 renders the clawd using ▗/▖ (U+2597/U+2596)
-// quadrant characters with backgroundColor="clawd_body" — a "negative"
+// quadrant characters with backgroundColor="loom_body" — a "negative"
 // or "reverse-video" style that works around Apple Terminal's block-
 // character rendering quirks.  Faithful structure:
 //
-//   Top row:  ▗(clawd_body) + [space+▗+5 spaces+▖+space] (fg=clawd_bg, bg=clawd_body) + ▖(clawd_body)
-//   Mid row:  9 spaces with bg=clawd_body (solid orange bar)
+//   Top row:  ▗(loom_body) + [space+▗+5 spaces+▖+space] (fg=clawd_bg, bg=loom_body) + ▖(loom_body)
+//   Mid row:  9 spaces with bg=loom_body (solid orange bar)
 //   Footer:   … + [bg-space] + [space] + [bg-space] + "   " + [bg-space] + [space] + [bg-space] + …
 //
 // TS REF: src/components/LogoV2/WelcomeV2.tsx::AppleTerminalWelcomeV2 L293-307 (light) + L404-418 (dark)
@@ -586,7 +586,7 @@ inline constexpr std::array<std::string_view, 15> kWelcomeV2LightRows = {{
 //   suffix:         trailing art string appended after the ▖ glyph
 //   suffix_bold_star_col: column position (0-indexed) of a bold '*' within
 //                         the suffix (used by dark variant; std::nullopt for light)
-[[nodiscard]] inline auto BuildAppleClawdTopRow(
+[[nodiscard]] inline auto BuildAppleLoomMascotTopRow(
     int leading_spaces,
     std::string_view suffix,
     std::optional<int> suffix_bold_star_col = std::nullopt) -> Element {
@@ -595,15 +595,15 @@ inline constexpr std::array<std::string_view, 15> kWelcomeV2LightRows = {{
   Elements parts;
   // Leading spaces.
   parts.push_back(text(std::string(static_cast<std::size_t>(leading_spaces), ' ')));
-  // Left shoulder: ▗ in clawd_body foreground, no bg.
-  parts.push_back(text("\xE2\x96\x97") | color(kClawdBody));  // ▗ U+2597
-  // Body cavity: fg = clawd_background, bg = clawd_body.
+  // Left shoulder: ▗ in loom_body foreground, no bg.
+  parts.push_back(text("\xE2\x96\x97") | color(kLoomMascotBody));  // ▗ U+2597
+  // Body cavity: fg = clawd_background, bg = loom_body.
   //   Content: " " + "▗" + "     " + "▖" + " "
-  //   TS: <Text color="clawd_background" backgroundColor="clawd_body">{" "}▗{"     "}▖{" "}</Text>
+  //   TS: <Text color="clawd_background" backgroundColor="loom_body">{" "}▗{"     "}▖{" "}</Text>
   parts.push_back(text(" \xE2\x96\x97     \xE2\x96\x96 ")
-                  | color(kClawdBackground) | bgcolor(kClawdBody));
-  // Right shoulder: ▖ in clawd_body foreground, no bg.
-  parts.push_back(text("\xE2\x96\x96") | color(kClawdBody));  // ▖ U+2596
+                  | color(kLoomMascotBackground) | bgcolor(kLoomMascotBody));
+  // Right shoulder: ▖ in loom_body foreground, no bg.
+  parts.push_back(text("\xE2\x96\x96") | color(kLoomMascotBody));  // ▖ U+2596
 
   // Suffix: optionally with a bold '*' at a given column.
   if (suffix_bold_star_col.has_value() && *suffix_bold_star_col >= 0
@@ -632,7 +632,7 @@ inline constexpr std::array<std::string_view, 15> kWelcomeV2LightRows = {{
 //   leading_spaces: spaces before the bar
 //   suffix:         trailing art after the bar
 //   suffix_dim_star_col: column of a dim '*' in suffix (std::nullopt if none)
-[[nodiscard]] inline auto BuildAppleClawdBarRow(
+[[nodiscard]] inline auto BuildAppleLoomMascotBarRow(
     int leading_spaces,
     std::string_view suffix,
     std::optional<int> suffix_dim_star_col = std::nullopt) -> Element {
@@ -640,9 +640,9 @@ inline constexpr std::array<std::string_view, 15> kWelcomeV2LightRows = {{
 
   Elements parts;
   parts.push_back(text(std::string(static_cast<std::size_t>(leading_spaces), ' ')));
-  // 9 spaces with backgroundColor=clawd_body — solid orange bar.
-  // TS: <Text backgroundColor="clawd_body">{" ".repeat(9)}</Text>
-  parts.push_back(text("         ") | bgcolor(kClawdBody));
+  // 9 spaces with backgroundColor=loom_body — solid orange bar.
+  // TS: <Text backgroundColor="loom_body">{" ".repeat(9)}</Text>
+  parts.push_back(text("         ") | bgcolor(kLoomMascotBody));
 
   if (suffix_dim_star_col.has_value() && *suffix_dim_star_col >= 0) {
     const int col = *suffix_dim_star_col;
@@ -663,8 +663,8 @@ inline constexpr std::array<std::string_view, 15> kWelcomeV2LightRows = {{
 
 // Apple Terminal footer — paws rendered as bg-colored spaces.
 // TS AppleTerminalWelcomeV2 footer (L307 light, L418 dark):
-//   "………" + <bg=clawd_body> </> + <> </> + <bg=clawd_body> </> + <>"   "</> +
-//   <bg=clawd_body> </> + <> </> + <bg=clawd_body> </> + "………(░…▒…)"
+//   "………" + <bg=loom_body> </> + <> </> + <bg=loom_body> </> + <>"   "</> +
+//   <bg=loom_body> </> + <> </> + <bg=loom_body> </> + "………(░…▒…)"
 // The trailing part is "………" for dark, "………░…▒…" for light.
 [[nodiscard]] inline auto BuildAppleFooter(bool is_light) -> Element {
   using ftxui::bgcolor;
@@ -690,19 +690,19 @@ inline constexpr std::array<std::string_view, 15> kWelcomeV2LightRows = {{
 
   return hbox({
     text(e7),                                           // 7 × …
-    text(" ") | bgcolor(kClawdBody),                    // paw 1 (bg)
+    text(" ") | bgcolor(kLoomMascotBody),                    // paw 1 (bg)
     text(" "),                                          // gap
-    text(" ") | bgcolor(kClawdBody),                    // paw 2 (bg)
+    text(" ") | bgcolor(kLoomMascotBody),                    // paw 2 (bg)
     text("   "),                                        // 3-space inter-paw gap
-    text(" ") | bgcolor(kClawdBody),                    // paw 3 (bg)
+    text(" ") | bgcolor(kLoomMascotBody),                    // paw 3 (bg)
     text(" "),                                          // gap
-    text(" ") | bgcolor(kClawdBody),                    // paw 4 (bg)
+    text(" ") | bgcolor(kLoomMascotBody),                    // paw 4 (bg)
     text(std::move(trail)),                             // trailing …
   });
 }
 
-// Regular (non-Apple) footer — paws rendered as clawd_body foreground █ chars.
-// TS: "………" + <color=clawd_body>"█ █   █ █"</> + "………(░…▒…)"
+// Regular (non-Apple) footer — paws rendered as loom_body foreground █ chars.
+// TS: "………" + <color=loom_body>"█ █   █ █"</> + "………(░…▒…)"
 [[nodiscard]] inline auto BuildRegularFooter(bool is_light) -> Element {
   std::string e7;
   e7.reserve(21);
@@ -721,12 +721,12 @@ inline constexpr std::array<std::string_view, 15> kWelcomeV2LightRows = {{
     for (int i = 0; i < 42; ++i) trail += "\xE2\x80\xA6";
   }
 
-  // "█ █   █ █" in clawd_body color.
+  // "█ █   █ █" in loom_body color.
   const std::string paws = "\xE2\x96\x88 \xE2\x96\x88   \xE2\x96\x88 \xE2\x96\x88";
 
   return hbox({
     text(e7),
-    text(paws) | color(kClawdBody),
+    text(paws) | color(kLoomMascotBody),
     text(std::move(trail)),
   });
 }
@@ -734,7 +734,7 @@ inline constexpr std::array<std::string_view, 15> kWelcomeV2LightRows = {{
 } // namespace detail
 
 // Produce the 58-col fixed-width WelcomeV2 card. Version fills the
-// header line as "Welcome to Claude Code vX.X.X " (TS t0). Returns a
+// header line as "Welcome to Loom vX.X.X " (TS t0). Returns a
 // single Element; caller is responsible for wrapping in `flex` or
 // `center` if the terminal is wider than 58 cols.
 //
@@ -760,7 +760,7 @@ inline constexpr std::array<std::string_view, 15> kWelcomeV2LightRows = {{
 
   // --- Common header (all themes): TS t0 ---
   Element header = hbox({
-    text("Welcome to Claude Code ") | color(kClaude),
+    text("Welcome to Loom        ") | color(kLoomAccent),
     text("v" + v + " ") | dim | color(kMuted),
   });
 
@@ -809,27 +809,27 @@ inline constexpr std::array<std::string_view, 15> kWelcomeV2LightRows = {{
     // t11: simple row — ▒▒ + ██ art (no color segmentation)
     art.push_back(text(std::string(kWelcomeV2LightRows[11])));
 
-    // --- Clawd rows (t12-t14) ---
+    // --- Loom mascot rows (t12-t14) ---
     if (is_apple) {
       // Apple Terminal Light: 2 clawd rows (top ▗/▖ + middle bar)
       // TS AppleTerminalWelcomeV2 L293-300
 
       // t12: 6 spaces + ▗(clawd) + [body cavity] + ▖(clawd) + ▒▒ art
-      // TS: {"      "} + ▗(color=clawd_body) +
-      //     {" "}▗{"     "}▖{" "}(color=clawd_background, bg=clawd_body) +
-      //     ▖(color=clawd_body) + {"                           ▒▒         ▒▒ "}
+      // TS: {"      "} + ▗(color=loom_body) +
+      //     {" "}▗{"     "}▖{" "}(color=clawd_background, bg=loom_body) +
+      //     ▖(color=loom_body) + {"                           ▒▒         ▒▒ "}
       const std::string suffix12 =
           "                           \xE2\x96\x92\xE2\x96\x92"
           "         \xE2\x96\x92\xE2\x96\x92 ";
-      art.push_back(BuildAppleClawdTopRow(/*leading=*/6, suffix12));
+      art.push_back(BuildAppleLoomMascotTopRow(/*leading=*/6, suffix12));
 
       // t13: 7 spaces + 9 bg-spaces bar + ░/▒ art
-      // TS: {"       "} + {" ".repeat(9)}(bg=clawd_body) +
+      // TS: {"       "} + {" ".repeat(9)}(bg=loom_body) +
       //     {"                           ░          ▒   "}
       const std::string suffix13 =
           "                           \xE2\x96\x91"
           "          \xE2\x96\x92   ";
-      art.push_back(BuildAppleClawdBarRow(/*leading=*/7, suffix13));
+      art.push_back(BuildAppleLoomMascotBarRow(/*leading=*/7, suffix13));
 
       // Note: Apple Terminal light has only 2 clawd rows (not 3).
       // TS AppleTerminalWelcomeV2 L293-307 shows t16 (top) + t17 (bar),
@@ -839,8 +839,8 @@ inline constexpr std::array<std::string_view, 15> kWelcomeV2LightRows = {{
       // Regular Light: 3 solid clawd rows
       // TS WelcomeV2.tsx L80-94
 
-      // t12: 6 spaces + " █████████ " (clawd_body) + ▒▒░░▒▒ + ▒ ▒▒
-      // TS: {"      "}<Text color="clawd_body"> █████████ </Text>
+      // t12: 6 spaces + " █████████ " (loom_body) + ▒▒░░▒▒ + ▒ ▒▒
+      // TS: {"      "}<Text color="loom_body"> █████████ </Text>
       //     {"                         ▒▒░░▒▒      ▒ ▒▒"}
       const std::string clawd_top =
           " \xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88"
@@ -851,13 +851,13 @@ inline constexpr std::array<std::string_view, 15> kWelcomeV2LightRows = {{
           "      \xE2\x96\x92 \xE2\x96\x92\xE2\x96\x92";
       art.push_back(hbox({
         text("      "),
-        text(clawd_top) | color(kClawdBody),
+        text(clawd_top) | color(kLoomMascotBody),
         text(light_suffix12),
       }));
 
-      // t13: 6 spaces + "██▄█████▄██" (clawd_body + clawd_background bg) + ▒▒
+      // t13: 6 spaces + "██▄█████▄██" (loom_body + clawd_background bg) + ▒▒
       // TS: {"      "}
-      //     <Text color="clawd_body" backgroundColor="clawd_background">
+      //     <Text color="loom_body" backgroundColor="clawd_background">
       //       ██▄█████▄██
       //     </Text>
       //     {"                           ▒▒         ▒▒ "}
@@ -869,19 +869,19 @@ inline constexpr std::array<std::string_view, 15> kWelcomeV2LightRows = {{
           "         \xE2\x96\x92\xE2\x96\x92 ";
       art.push_back(hbox({
         text("      "),
-        text(clawd_mid) | color(kClawdBody) | bgcolor(kClawdBackground),
+        text(clawd_mid) | color(kLoomMascotBody) | bgcolor(kLoomMascotBackground),
         text(light_suffix13),
       }));
 
-      // t14: 6 spaces + " █████████ " (clawd_body) + ░ + ▒
-      // TS: {"      "}<Text color="clawd_body"> █████████ </Text>
+      // t14: 6 spaces + " █████████ " (loom_body) + ░ + ▒
+      // TS: {"      "}<Text color="loom_body"> █████████ </Text>
       //     {"                          ░          ▒   "}
       const std::string light_suffix14 =
           "                          \xE2\x96\x91"
           "          \xE2\x96\x92   ";
       art.push_back(hbox({
         text("      "),
-        text(clawd_top) | color(kClawdBody),
+        text(clawd_top) | color(kLoomMascotBody),
         text(light_suffix14),
       }));
     }
@@ -946,27 +946,27 @@ inline constexpr std::array<std::string_view, 15> kWelcomeV2LightRows = {{
       const std::string suffix13 =
           "                       *                ";
       // Bold '*' is at byte position 23 within suffix (0-indexed).
-      art.push_back(BuildAppleClawdTopRow(
+      art.push_back(BuildAppleLoomMascotTopRow(
           /*leading=*/8, suffix13, /*bold_star_col=*/23));
 
       // t14: 8 spaces + 9 bg-spaces bar + 5 spaces + dim '*' + 35 spaces
-      // TS L411: {"        "} + {" ".repeat(9)}(bg=clawd_body) +
+      // TS L411: {"        "} + {" ".repeat(9)}(bg=loom_body) +
       //          {"      *                                   "}
       const std::string suffix14 =
           "      *                                   ";
       // Dim '*' at byte position 6 within suffix.
-      art.push_back(BuildAppleClawdBarRow(
+      art.push_back(BuildAppleLoomMascotBarRow(
           /*leading=*/8, suffix14, /*dim_star_col=*/6));
 
     } else {
       // Regular Dark: 3 solid clawd rows at position 6 (TS L163-189)
       //
       // TS L163-189 faithful rendering:
-      //   t12 (L171): "      " + clawd_body(" █████████ ") +
+      //   t12 (L171): "      " + loom_body(" █████████ ") +
       //               "                                       " + dim("*") + " "
-      //   t13 (L178): "      " + clawd_body+bg("██▄█████▄██") +
+      //   t13 (L178): "      " + loom_body+bg("██▄█████▄██") +
       //               "                        " + bold("*") + "                "
-      //   t14 (L185): "      " + clawd_body(" █████████ ") +
+      //   t14 (L185): "      " + loom_body(" █████████ ") +
       //               "     *                                   "
 
       // Helper: split a dark clawd row into (prefix, body, suffix)
@@ -974,7 +974,7 @@ inline constexpr std::array<std::string_view, 15> kWelcomeV2LightRows = {{
       //   body_pos:  byte offset of body within row (always 6 = 6 spaces)
       //   body_len:  byte length of body (9 █ = 27 bytes, or 11-char body w/ spaces)
       //   star_mode: how to render '*' in the suffix: 0=dim, 1=bold, 2=normal
-      //   body_bg:   if true, apply bgcolor(kClawdBackground) to body
+      //   body_bg:   if true, apply bgcolor(kLoomMascotBackground) to body
       auto render_dark_clawd_row =
           [&](std::string_view row, std::size_t body_pos, std::size_t body_len,
               int star_mode, bool body_bg) -> Element {
@@ -985,8 +985,8 @@ inline constexpr std::array<std::string_view, 15> kWelcomeV2LightRows = {{
         std::string body(row.substr(body_pos, body_len));
         std::string suffix(row.substr(body_pos + body_len));
 
-        auto body_el = text(body) | color(kClawdBody);
-        if (body_bg) body_el = body_el | bgcolor(kClawdBackground);
+        auto body_el = text(body) | color(kLoomMascotBody);
+        if (body_bg) body_el = body_el | bgcolor(kLoomMascotBackground);
 
         // Find '*' in suffix and apply styling
         auto star_pos = suffix.find('*');
@@ -1139,7 +1139,7 @@ namespace detail {
 }
 
 // TS Feed component (Feed.tsx L51-106) — renders a single feed:
-//   <Text bold color=claude>{title}</Text>
+//   <Text bold color=loom>{title}</Text>
 //   customContent.content  OR  (emptyMessage  OR  lines+padding+footer)
 // Each row: [timestamp padEnd(maxTs) + "  " + truncate(text, textWidth)]
 [[nodiscard]] inline auto RenderFeed(const FeedConfig& cfg, int actual_width)
@@ -1147,9 +1147,9 @@ namespace detail {
   using namespace ftxui;
   actual_width = std::max(actual_width, 10);
 
-  // Title row: bold + claude color.
+  // Title row: bold + loom color.
   Element title_el = text(truncate_str(cfg.title, actual_width))
-                   | bold | color(kClaude);
+                   | bold | color(kLoomAccent);
 
   // Body rows.
   int max_ts = 0;
@@ -1201,7 +1201,7 @@ namespace detail {
 //   actualWidth = min(max(...widths), maxWidth)
 //   feeds.map((f, i) => <>
 //     <Feed config=f actualWidth=actualWidth />
-//     {i < feeds.length-1 && <Divider color=claude width=actualWidth />}
+//     {i < feeds.length-1 && <Divider color=loom width=actualWidth />}
 //   </>)
 // Returns the rightWidth used for geometry hints (caller's benefit).
 struct RenderedFeedColumn {
@@ -1226,10 +1226,10 @@ struct RenderedFeedColumn {
   for (std::size_t i = 0; i < feeds.size(); ++i) {
     rows.push_back(RenderFeed(feeds[i], actual_width));
     if (i + 1 < feeds.size()) {
-      // TS Divider color=claude width=actualWidth — 1-row horizontal
-      // divider of actualWidth chars in claude accent colour.
-      // Using FTXUI separator() styled with the claude colour.
-      rows.push_back(ftxui::separator() | color(kClaude)
+      // TS Divider color=loom width=actualWidth — 1-row horizontal
+      // divider of actualWidth chars in loom accent colour.
+      // Using FTXUI separator() styled with the loom colour.
+      rows.push_back(ftxui::separator() | color(kLoomAccent)
                    | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, actual_width));
     }
   }
@@ -1264,7 +1264,7 @@ inline constexpr int kContentPadding  = 2;
 // TS formatWelcomeMessage(username):
 //   username empty/null OR longer than MAX_USERNAME_LENGTH(20) → "Welcome back!"
 //   Otherwise → "Welcome back {username}!"
-// NOTE: The first-run "Welcome to Claude Code" variant is NOT produced by
+// NOTE: The first-run "Welcome to Loom" variant is NOT produced by
 // this function — it is handled separately by the WelcomeV2 card renderer
 // (see RenderWelcomeV2).
 // TS REF: src/components/LogoV2/LogoV2.tsx::formatWelcomeMessage
@@ -1284,12 +1284,12 @@ inline constexpr int kContentPadding  = 2;
 // Structure (faithful, line-by-line):
 //   <OffscreenFreeze>
 //     <Box flexDirection="column"
-//          borderStyle="round" borderColor="claude"
-//          borderText={compactBorderTitle}   ← " Claude Code " in claude color
+//          borderStyle="round" borderColor="loom"
+//          borderText={compactBorderTitle}   ← " Loom " in loom color
 //          paddingX={1} paddingY={1}
 //          alignItems="center" width={columns}>
 //       <Text bold>{welcomeMessage}</Text>
-//       <Box marginTop={1}><Clawd /></Box>
+//       <Box marginTop={1}><Loom mascot /></Box>
 //       <Text dimColor>{modelDisplayName}</Text>
 //       <Text dimColor>{billingType}</Text>
 //       <Text dimColor>{agent ? "@agent · cwd" : cwd}</Text>
@@ -1326,16 +1326,16 @@ inline constexpr int kContentPadding  = 2;
           ? format_welcome_message(std::nullopt)
           : welcome;
 
-  // compactBorderTitle: color("claude", userTheme)(" Claude Code ")
+  // compactBorderTitle: color("loom", userTheme)(" Loom ")
   // Title sits on the top border, inset by offset=1 (TS borderText.offset).
   Element border_title = hbox({
       // offset=1: 1 leading space, then the title text.
-      text(" ") | color(kClaude),
-      text("Claude Code") | color(kClaude) | bold,
-      text(" ") | color(kClaude),
+      text(" ") | color(kLoomAccent),
+      text("Loom") | color(kLoomAccent) | bold,
+      text(" ") | color(kLoomAccent),
   });
 
-  // --- Clawd (9 cols × 3 rows) faithful to TS Clawd.tsx POSES.default. ---
+  // --- Loom mascot (9 cols × 3 rows) faithful to TS Loom mascot.tsx POSES.default. ---
   auto clawd = [&]() -> Element {
     const std::string_view r1L = " \xE2\x96\x90";                           //  ▐
     const std::string_view r1E = "\xE2\x96\x9B\xE2\x96\x88\xE2\x96\x88"
@@ -1350,18 +1350,18 @@ inline constexpr int kContentPadding  = 2;
     return vbox({
       // Row 1: {r1L (fg=clawd)} {r1E (fg=clawd, bg=clawd_bg)} {r1R (fg=clawd)}
       hbox({
-        text(std::string(r1L)) | color(kClawdBody),
-        text(std::string(r1E)) | color(kClawdBody),
-        text(std::string(r1R)) | color(kClawdBody),
+        text(std::string(r1L)) | color(kLoomMascotBody),
+        text(std::string(r1E)) | color(kLoomMascotBody),
+        text(std::string(r1R)) | color(kLoomMascotBody),
       }),
       // Row 2: {r2L} {r2B (bg)} {r2R}
       hbox({
-        text(std::string(r2L)) | color(kClawdBody),
-        text(std::string(r2B)) | color(kClawdBody),
-        text(std::string(r2R)) | color(kClawdBody),
+        text(std::string(r2L)) | color(kLoomMascotBody),
+        text(std::string(r2B)) | color(kLoomMascotBody),
+        text(std::string(r2R)) | color(kLoomMascotBody),
       }),
-      // Row 3: feet (fg=clawd_body only, no bg)
-      text(std::string(r3)) | color(kClawdBody),
+      // Row 3: feet (fg=loom_body only, no bg)
+      text(std::string(r3)) | color(kLoomMascotBody),
     }) | ftxui::center;
   };
 
@@ -1374,7 +1374,7 @@ inline constexpr int kContentPadding  = 2;
   //   fullModelDisplayName + effortSuffix, LEFT_PANEL_MAX_WIDTH - 20)
   // Pre-truncate to kMaxLeftWidth - 20 = 30 before layout-specific clipping.
   const std::string model_raw = !o.model_display_name.empty()
-      ? o.model_display_name : std::string("Claude");
+      ? o.model_display_name : std::string("Loom");
   const int model_trunc_width =
       std::min(kMaxLeftWidth - 20, content_budget);
   const std::string model_display = truncate_str(model_raw, model_trunc_width);
@@ -1405,7 +1405,7 @@ inline constexpr int kContentPadding  = 2;
   // alignItems="center" → center each line horizontally.
   Element inner = vbox({
     text(welcome_effective) | bold | ftxui::center,
-    text(""),                        // marginTop={1} (Clawd wrapped in it)
+    text(""),                        // marginTop={1} (Loom mascot wrapped in it)
     clawd(),
     text(model_display) | dim | color(kMuted) | ftxui::center,
     text(billing_display) | dim | color(kMuted) | ftxui::center,
@@ -1413,9 +1413,9 @@ inline constexpr int kContentPadding  = 2;
   }) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, inner_width);
 
   // ftxui::window(title, body) — equivalent of Ink's borderText with
-  // position="top" align="start". Border colour = claude (kClaude).
+  // position="top" align="start". Border colour = loom (kLoomAccent).
   Element card = window(std::move(border_title), std::move(inner))
-               | color(kClaude);
+               | color(kLoomAccent);
 
   return card | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, card_width);
 }
@@ -1425,8 +1425,8 @@ inline constexpr int kContentPadding  = 2;
 // Outer structure (faithful):
 //   <OffscreenFreeze>
 //     <Box flexDirection="column"
-//          borderStyle="round" borderColor="claude"
-//          borderText={borderTitle}>          ← " Claude Code vX.X.X "
+//          borderStyle="round" borderColor="loom"
+//          borderText={borderTitle}>          ← " Loom vX.X.X "
 //       <Box flexDirection="row" paddingX={1} gap={1}>
 //         {LEFT_PANEL}
 //         {layoutMode === "horizontal" && <VERTICAL_DIVIDER />}
@@ -1442,7 +1442,7 @@ inline constexpr int kContentPadding  = 2;
 //   <Box flexDirection="column" width={leftWidth}
 //        justifyContent="space-between" alignItems="center" minHeight={9}>
 //     <Box marginTop={1}><Text bold>{welcomeMessage}</Text></Box>
-//     <Clawd />
+//     <Loom mascot />
 //     <Box flexDirection="column" alignItems="center">
 //       <Text dimColor>{modelLine}</Text>
 //       <Text dimColor>{cwdLine}</Text>
@@ -1490,9 +1490,9 @@ inline constexpr int kContentPadding  = 2;
   // TS REF: LogoV2.tsx L169-178 — modelDisplayName is pre-truncated to
   //   LEFT_PANEL_MAX_WIDTH - 20 (= 30) before being composed into modelLine.
   //   "-20 to account for the max length of subscription name
-  //    '· Claude Enterprise'." (TS comment).
+  //    '· Loom Enterprise'." (TS comment).
   const std::string model_raw = o.model_display_name.empty()
-      ? std::string("Claude") : o.model_display_name;
+      ? std::string("Loom") : o.model_display_name;
   const std::string model_for_line =
       truncate_str(model_raw, kMaxLeftWidth - 20);
 
@@ -1548,16 +1548,16 @@ inline constexpr int kContentPadding  = 2;
   right_width = std::max(right_width, 20);  // safety minimum
 
   // --- borderTitle (TS L251):
-  //   ` ${color("claude", userTheme)("Claude Code")} ${color("inactive", userTheme)(`v${version}`)} `
+  //   ` ${color("loom", userTheme)("Loom")} ${color("inactive", userTheme)(`v${version}`)} `
   //   offset=3 → title starts at column 3 from the left border corner.
   const std::string v = o.version.empty() ? std::string("0.0.0") : o.version;
   Element border_title = hbox({
-      text("   ") | color(kClaude),                // offset=3 leading spaces
-      text("Claude Code") | color(kClaude) | bold,
+      text("   ") | color(kLoomAccent),                // offset=3 leading spaces
+      text("Loom") | color(kLoomAccent) | bold,
       text(" v" + v + " ") | color(kMuted) | dim,  // inactive/muted version
   });
 
-  // --- Clawd (standard 3 rows, 9 cols) centered. ---
+  // --- Loom mascot (standard 3 rows, 9 cols) centered. ---
   auto clawd = [&]() -> Element {
     using ftxui::vbox;
     const std::string_view r1L = " \xE2\x96\x90";
@@ -1572,16 +1572,16 @@ inline constexpr int kContentPadding  = 2;
                                  "\xE2\x96\x9D\xE2\x96\x9D  ";
     return vbox({
       ftxui::hbox({
-        text(std::string(r1L)) | color(kClawdBody),
-        text(std::string(r1E)) | color(kClawdBody),
-        text(std::string(r1R)) | color(kClawdBody),
+        text(std::string(r1L)) | color(kLoomMascotBody),
+        text(std::string(r1E)) | color(kLoomMascotBody),
+        text(std::string(r1R)) | color(kLoomMascotBody),
       }),
       ftxui::hbox({
-        text(std::string(r2L)) | color(kClawdBody),
-        text(std::string(r2B)) | color(kClawdBody),
-        text(std::string(r2R)) | color(kClawdBody),
+        text(std::string(r2L)) | color(kLoomMascotBody),
+        text(std::string(r2B)) | color(kLoomMascotBody),
+        text(std::string(r2R)) | color(kLoomMascotBody),
       }),
-      text(std::string(r3)) | color(kClawdBody),
+      text(std::string(r3)) | color(kLoomMascotBody),
     }) | ftxui::center;
   };
 
@@ -1604,13 +1604,13 @@ inline constexpr int kContentPadding  = 2;
      | ftxui::size(ftxui::HEIGHT, ftxui::GREATER_THAN, 9);
 
   // --- Vertical divider (TS L414-417):
-  //   <Box height="100%" borderStyle="single" borderColor="claude"
+  //   <Box height="100%" borderStyle="single" borderColor="loom"
   //        borderDimColor borderTop/bottom/left=false />
   // This is a single full-height vertical rule in the accent colour (or a
-  // dimmed variant). We approximate with 9 rows of "│" in kClaude, sized to
+  // dimmed variant). We approximate with 9 rows of "│" in kLoomAccent, sized to
   // the minimum of the left panel (GREATER_THAN 9).
   Element divider =
-      vbox(Elements(9, text("\xE2\x94\x82") | color(kClaude)))
+      vbox(Elements(9, text("\xE2\x94\x82") | color(kLoomAccent)))
       | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, kDividerWidth)
       | ftxui::size(ftxui::HEIGHT, ftxui::GREATER_THAN, 9);
 
@@ -1641,7 +1641,7 @@ inline constexpr int kContentPadding  = 2;
       FeedConfig onboarding;
       onboarding.title = "Getting started";
       onboarding.lines = {
-        FeedLine{ .text = "Ask Claude a question to start a conversation",
+        FeedLine{ .text = "Ask Loom a question to start a conversation",
                   .timestamp = std::nullopt },
         FeedLine{ .text = "Use /help to see available commands",
                   .timestamp = std::nullopt },
@@ -1668,7 +1668,7 @@ inline constexpr int kContentPadding  = 2;
       guest.lines = {
         FeedLine{ .text = "You have 3 guest passes available",
                   .timestamp = std::nullopt },
-        FeedLine{ .text = "Share Claude with teammates at /passes",
+        FeedLine{ .text = "Share Loom with teammates at /passes",
                   .timestamp = std::nullopt },
       };
       guest.footer = "Use /passes to manage invitations";
@@ -1733,9 +1733,9 @@ inline constexpr int kContentPadding  = 2;
   });
 
   // Wrap inner_row in window() with the borderTitle — equivalent of Ink's
-  // borderStyle=round + borderColor=claude + borderText.
+  // borderStyle=round + borderColor=loom + borderText.
   Element outer = ftxui::window(std::move(border_title), std::move(inner_row))
-                | color(kClaude);
+                | color(kLoomAccent);
 
   return { std::move(outer), left_width, right_width };
 }
@@ -1821,7 +1821,7 @@ struct LogoV2Result {
 /// LogoHeader which sits ABOVE VirtualMessageList and stays visible
 /// even when the welcome card scrolls off due to pin-to-bottom.
 ///
-/// Visual: "◆ Claude Code  v0.0.0  ·  ModelName"  (left-aligned, dim)
+/// Visual: "◆ Loom  v0.0.0  ·  ModelName"  (left-aligned, dim)
 [[nodiscard]] inline Element render_logo_header_bar(
     std::string_view version,
     std::string_view model_display_name,
@@ -1830,7 +1830,7 @@ struct LogoV2Result {
     using namespace ftxui;
     Elements parts;
     parts.push_back(text("\xe2\x97\x86 ") | color(Color::Cyan));  // ◆ diamond
-    parts.push_back(text("Claude Code") | bold);
+    parts.push_back(text("Loom") | bold);
     if (!version.empty()) {
         parts.push_back(text("  v" + std::string(version)) | dim);
     }

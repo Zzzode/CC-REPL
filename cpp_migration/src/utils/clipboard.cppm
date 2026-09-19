@@ -26,7 +26,7 @@ import cc.utils.crypto;
 export namespace cc::utils::clipboard {
 
 // ── osascript invocation gotcha (macOS) ─────────────────────────────────
-// cc-repl runs the terminal in raw mode (FTXUI termios: ICANON/ECHO off).
+// loom runs the terminal in raw mode (FTXUI termios: ICANON/ECHO off).
 // std::system() forks a child that INHERITS fd 0 = the raw-mode terminal.
 // osascript, on detecting a TTY on stdin, takes a code path that misbehaves
 // under raw mode and exits non-zero — so the SAME osascript command that works
@@ -58,7 +58,7 @@ inline int run_detached(const std::string& cmd) noexcept {
     if (pid < 0) return -1;
     if (pid == 0) {
         // Child: new session, no controlling terminal. osascript can no longer
-        // see cc-repl's raw-mode TTY, so it behaves as in batch mode.
+        // see loom's raw-mode TTY, so it behaves as in batch mode.
         (void)setsid();
         // Redirect 0/1/2 to /dev/null (osascript writes its PNG via AppleScript
         // file I/O, not via stdout, so this is safe).
@@ -70,7 +70,7 @@ inline int run_detached(const std::string& cmd) noexcept {
             if (devnull > STDERR_FILENO) (void)close(devnull);
         }
         // Close every other inherited fd so the osascript chain doesn't keep a
-        // dup of the terminal or any other cc-repl fd.
+        // dup of the terminal or any other loom fd.
         long maxfd = sysconf(_SC_OPEN_MAX);
         if (maxfd <= 0) maxfd = 256;
         for (int fdnum = 3; fdnum < maxfd; ++fdnum) {
@@ -95,7 +95,7 @@ inline int run_detached(const std::string& cmd) noexcept {
 #if defined(__APPLE__)
     // Only the exit code matters; non-zero ⇔ no image (osascript errors with
     // "Can't make clipboard into type alias"). run_detached() isolates the
-    // subprocess from cc-repl's raw-mode terminal — see the block above.
+    // subprocess from loom's raw-mode terminal — see the block above.
     return run_detached("osascript -e 'the clipboard as «class PNGf»'") == 0;
 #else
     return false;
@@ -124,7 +124,7 @@ extract_png_from_html_clipboard() {
     namespace fs = std::filesystem;
 
     // ── Step 1: read HTML from clipboard ────────────────────────────────
-    fs::path html_tmp = fs::temp_directory_path() / "cc-repl-clipboard.html";
+    fs::path html_tmp = fs::temp_directory_path() / "loom-clipboard.html";
     const std::string html_tmp_s = html_tmp.string();
     const std::string html_script =
         "osascript "
@@ -192,8 +192,8 @@ extract_png_from_html_clipboard() {
 
     // Non-PNG: write to temp file and convert with sips
     fs::path src_tmp = fs::temp_directory_path() /
-        ("cc-repl-src." + std::string(image_type));
-    fs::path dst_tmp = fs::temp_directory_path() / "cc-repl-dst.png";
+        ("loom-src." + std::string(image_type));
+    fs::path dst_tmp = fs::temp_directory_path() / "loom-dst.png";
 
     {
         std::ofstream sf(src_tmp, std::ios::binary);
@@ -240,7 +240,7 @@ extract_png_from_html_clipboard() {
 [[nodiscard]] inline std::optional<std::vector<std::uint8_t>> read_image_png() {
 #if defined(__APPLE__)
     namespace fs = std::filesystem;
-    fs::path tmp = fs::temp_directory_path() / "cc-repl-clipboard.png";
+    fs::path tmp = fs::temp_directory_path() / "loom-clipboard.png";
     const std::string tmp_s = tmp.string();
     // AppleScript: write the clipboard's PNG data to the temp file.  `set eof
     // to 0` truncates first so a stale larger file can't leave trailing bytes.
@@ -253,7 +253,7 @@ extract_png_from_html_clipboard() {
     // concatenation chain is clearer as a UTF-8 source literal.
     //
     // IMPORTANT (2): run_detached() (NOT std::system) is mandatory — see the
-    // gotcha block above. setsid()+/dev/null isolates osascript from cc-repl's
+    // gotcha block above. setsid()+/dev/null isolates osascript from loom's
     // raw-mode terminal so it doesn't see a TTY on stdin and fail.
     std::string script =
         "osascript "
@@ -287,7 +287,7 @@ extract_png_from_html_clipboard() {
 
 /// Read plain text from the system clipboard (macOS: `pbpaste`).
 /// Returns the clipboard text or "" if empty / unavailable.  Uses
-/// run_detached() to isolate from cc-repl's raw-mode terminal.
+/// run_detached() to isolate from loom's raw-mode terminal.
 ///
 /// TS REF: src/utils/imagePaste.ts — the TS side reads text via the same
 /// NSPasteboard APIs; on macOS `pbpaste` is the shell equivalent.
@@ -296,10 +296,10 @@ extract_png_from_html_clipboard() {
 [[nodiscard]] inline std::string read_text() {
 #if defined(__APPLE__)
     namespace fs = std::filesystem;
-    fs::path tmp = fs::temp_directory_path() / "cc-repl-clipboard-text.txt";
+    fs::path tmp = fs::temp_directory_path() / "loom-clipboard-text.txt";
     const std::string tmp_s = tmp.string();
     // Write pbpaste output to a temp file, then read it back.
-    // run_detached() isolates pbpaste from cc-repl's raw-mode terminal.
+    // run_detached() isolates pbpaste from loom's raw-mode terminal.
     const std::string script = "pbpaste > '" + tmp_s + "'";
     if (run_detached(script) != 0) {
         std::error_code rc; fs::remove(tmp, rc);

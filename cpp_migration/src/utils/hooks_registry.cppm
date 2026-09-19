@@ -380,13 +380,13 @@ enum class HookSource {
 /// Convert HookSource to description display string
 [[nodiscard]] inline std::string hook_source_description(HookSource source) {
     switch (source) {
-        case HookSource::UserSettings:    return "User settings (~/.claude/settings.json)";
-        case HookSource::ProjectSettings: return "Project settings (.claude/settings.json)";
-        case HookSource::LocalSettings:   return "Local settings (.claude/settings.local.json)";
+        case HookSource::UserSettings:    return "User settings (~/.loom/settings.json)";
+        case HookSource::ProjectSettings: return "Project settings (.loom/settings.json)";
+        case HookSource::LocalSettings:   return "Local settings (.loom/settings.local.json)";
         case HookSource::PolicySettings:  return "Policy settings (managed)";
-        case HookSource::PluginHook:      return "Plugin hooks (~/.claude/plugins/*/hooks/hooks.json)";
+        case HookSource::PluginHook:      return "Plugin hooks (~/.loom/plugins/*/hooks/hooks.json)";
         case HookSource::SessionHook:     return "Session hooks (in-memory, temporary)";
-        case HookSource::BuiltinHook:     return "Built-in hooks (registered internally by Claude Code)";
+        case HookSource::BuiltinHook:     return "Built-in hooks (registered internally by Loom)";
     }
     return "Unknown source";
 }

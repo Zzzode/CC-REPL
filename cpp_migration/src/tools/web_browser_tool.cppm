@@ -375,7 +375,7 @@ private:
         const BrowserRequest& request,
         const PageState& state
     ) {
-        auto* command_env = std::getenv("CC_REPL_BROWSER_AUTOMATION_CMD");
+        auto* command_env = std::getenv("LOOM_BROWSER_AUTOMATION_CMD");
         if (!command_env || std::string_view(command_env).empty()) {
             return std::unexpected(BrowserError::BrowserNotAvailable);
         }
@@ -432,7 +432,7 @@ private:
             return screenshot_backend_(request, page_state_);
         }
 
-        auto* command_env = std::getenv("CC_REPL_BROWSER_SCREENSHOT_CMD");
+        auto* command_env = std::getenv("LOOM_BROWSER_SCREENSHOT_CMD");
         if (!command_env || std::string_view(command_env).empty()) {
             return std::unexpected(BrowserError::BrowserNotAvailable);
         }

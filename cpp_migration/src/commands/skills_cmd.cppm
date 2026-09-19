@@ -103,7 +103,7 @@ public:
         std::string_view cwd) {
         if (!cwd.empty()) {
             loader.add_search_path(std::filesystem::path(std::string(cwd)) /
-                                   ".claude" / "skills");
+                                   ".loom" / "skills");
         }
     }
 

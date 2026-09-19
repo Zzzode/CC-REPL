@@ -35,7 +35,7 @@ public:
     [[nodiscard]] static CommandDefinition definition() {
         return CommandDefinition{
             .name = "stickers",
-            .description = "Order Claude Code stickers",
+            .description = "Order Loom stickers",
             .args = {},
             .category = "fun",
             .aliases = {},
@@ -48,11 +48,11 @@ public:
     }
 
     [[nodiscard]] Result<CommandResult> execute(const CommandContext&) {
-        constexpr std::string_view url = "https://www.stickermule.com/claudecode";
+        constexpr std::string_view url = "https://www.stickermule.com/loomcode";
         if (stickers_detail::open_url(url)) {
             return CommandResult::success("Opening sticker page in browser...");
         }
-        return CommandResult::success("Could not open browser. Visit: https://www.stickermule.com/claudecode");
+        return CommandResult::success("Could not open browser. Visit: https://www.stickermule.com/loomcode");
     }
 
     [[nodiscard]] std::vector<std::string> complete(std::string_view) {

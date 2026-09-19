@@ -27,9 +27,9 @@
 ///       2. Yes, session-wide  (dynamic label based on path location)
 ///       3. No                 (reject)
 ///   • Feedback input modes (Tab / Shift+Tab toggle, "amend" pattern):
-///       – Yes input: "and tell Claude what to do next"
-///       – No input:  "and tell Claude what to do differently"
-///   • .claude/ folder special session option (project + global)
+///       – Yes input: "and tell Loom what to do next"
+///       – No input:  "and tell Loom what to do differently"
+///   • .loom/ folder special session option (project + global)
 ///   • Worker badge (teammate permission requests)
 ///   • Bottom hints: "Esc to cancel · Tab to amend"
 ///
@@ -79,8 +79,8 @@ enum class Decision : std::uint8_t {
 /// Scope for session-level allow (mirrors TS accept-session scope).
 enum class SessionScope : std::uint8_t {
     Default,          ///< Normal directory-wide session allow
-    ClaudeFolder,     ///< Project .claude/ folder special case
-    GlobalClaudeFolder, ///< Global ~/.claude/ folder special case
+    LoomFolder,     ///< Project .loom/ folder special case
+    GlobalLoomFolder, ///< Global ~/.loom/ folder special case
 };
 
 /// One selectable option in the dialog.  Mirrors TS `OptionWithDescription`
@@ -99,7 +99,7 @@ struct Option {
 /// Props for the file write permission prompt.
 ///
 /// Every field has a default so callers can build incrementally.
-/// Fields that drive dynamic UI (symlink, claude-folder, in-allowed-path)
+/// Fields that drive dynamic UI (symlink, loom-folder, in-allowed-path)
 /// are computed by the caller and passed in — this module is UI-only.
 struct FileWritePermissionProps {
     // ── File identity ──
@@ -116,8 +116,8 @@ struct FileWritePermissionProps {
 
     // ── Context flags (drive dynamic UI) ──
     bool in_allowed_path = true;     ///< Path is inside working directory
-    bool is_claude_folder = false;   ///< Inside project .claude/
-    bool is_global_claude_folder = false; ///< Inside ~/.claude/
+    bool is_claude_folder = false;   ///< Inside project .loom/
+    bool is_global_claude_folder = false; ///< Inside ~/.loom/
     std::optional<std::string> symlink_target; ///< Symlink target if any
 
     // ── Worker badge (teammate requests) ──
@@ -380,7 +380,7 @@ inline std::vector<Option> build_options(
             .decision = Decision::AllowOnce,
             .is_input = true,
             .input_value = std::string{yes_feedback},
-            .input_placeholder = "and tell Claude what to do next",
+            .input_placeholder = "and tell Loom what to do next",
         });
     } else {
         opts.push_back({
@@ -394,20 +394,20 @@ inline std::vector<Option> build_options(
     // ── Option 2: Session-wide accept (dynamic label) ──
     //
     // TS logic:
-    //   • In .claude/ folder → special "edit its own settings" label
+    //   • In .loom/ folder → special "edit its own settings" label
     //   • In allowed path → generic "allow all edits during this session"
     //   • Outside allowed path → includes directory name
 
     if ((p.is_claude_folder || p.is_global_claude_folder)) {
-        // Special .claude folder session option
+        // Special .loom folder session option
         opts.push_back({
-            .value = "yes-claude-folder",
-            .label = "Yes, and allow Claude to edit its own settings for this session",
+            .value = "yes-loom-folder",
+            .label = "Yes, and allow Loom to edit its own settings for this session",
             .description = "",
             .decision = Decision::AllowSession,
             .scope = p.is_global_claude_folder
-                ? SessionScope::GlobalClaudeFolder
-                : SessionScope::ClaudeFolder,
+                ? SessionScope::GlobalLoomFolder
+                : SessionScope::LoomFolder,
         });
     } else if (p.in_allowed_path) {
         // Inside working directory — generic label
@@ -449,7 +449,7 @@ inline std::vector<Option> build_options(
             .decision = Decision::Deny,
             .is_input = true,
             .input_value = std::string{no_feedback},
-            .input_placeholder = "and tell Claude what to do differently",
+            .input_placeholder = "and tell Loom what to do differently",
         });
     } else {
         opts.push_back({

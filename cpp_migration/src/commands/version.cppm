@@ -12,8 +12,8 @@ struct CommandResponse { bool ok{true}; std::string message; };
 [[nodiscard]] inline auto name() -> std::string_view { return "version"; }
 
 [[nodiscard]] inline auto run(std::string_view detail = {}) -> CommandResponse {
-    std::string msg = "cc-repl ";
-    msg += cc::constants::product::CC_REPL_VERSION;
+    std::string msg = "loom ";
+    msg += cc::constants::product::LOOM_VERSION;
     msg += " (C++23, built ";
     msg += cc::constants::product::BUILD_DATE;
     msg += ")";

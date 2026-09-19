@@ -423,7 +423,7 @@ private:
         client_config.name = server_name;
         client_config.transport_type = server_config.transport;
         client_config.request_timeout = config_.connection_timeout;
-        client_config.client_info.name = "claude-code";
+        client_config.client_info.name = "loom";
         client_config.client_info.version = "1.0.0";
         client_config.capabilities.roots = true;
         
@@ -665,7 +665,7 @@ private:
             // the JSON-RPC inbound dispatch point that useIdeAtMentioned.ts
             // hooks via client.setNotificationHandler on the TS side.
             dispatch_at_mention(server_name, notification.params_json);
-        } else if (notification.method == "notifications/claude/channel") {
+        } else if (notification.method == "notifications/loom/channel") {
             // TS REF: src/services/mcp/channelNotification.ts:37-47
             // Channel server pushed an inbound message (e.g. user typed in
             // Slack). Parse params, wrap in <channel> tag, emit to the
@@ -677,7 +677,7 @@ private:
             if (params) {
                 emit_channel_message(server_name, params->content, params->meta);
             }
-        } else if (notification.method == "notifications/claude/channel/permission") {
+        } else if (notification.method == "notifications/loom/channel/permission") {
             // TS REF: src/services/mcp/channelNotification.ts:62-72
             // Channel server sent a structured permission reply (the human
             // approved/denied a tool call via the channel). Parse and emit

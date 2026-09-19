@@ -1,7 +1,7 @@
 /// @file terminal_setup.cppm
 /// @brief Terminal and shell setup helpers.
 /// Detects the user's shell, generates rc-file snippets for completions,
-/// the CLAUDE_CODE_BIN env var, and theme hints. Supports --apply to
+/// the LOOM_BIN env var, and theme hints. Supports --apply to
 /// write the snippet to the appropriate rc file with a timestamped backup.
 /// (FTXUI rendering DEFERRED to Phase 4).
 module;
@@ -264,49 +264,49 @@ namespace detail {
 
 /// Unique markers for bracket-installed snippets (used to detect and re-install).
 [[nodiscard]] inline std::string snippet_start_marker() {
-    return "# >>> cc-repl terminal-setup (do not remove this line) >>>";
+    return "# >>> loom terminal-setup (do not remove this line) >>>";
 }
 [[nodiscard]] inline std::string snippet_end_marker() {
-    return "# <<< cc-repl terminal-setup (do not remove this line) <<<";
+    return "# <<< loom terminal-setup (do not remove this line) <<<";
 }
 [[nodiscard]] inline std::string snippet_start_marker_fish() {
-    return "# >>> cc-repl terminal-setup >>>";
+    return "# >>> loom terminal-setup >>>";
 }
 [[nodiscard]] inline std::string snippet_start_marker_nushell() {
-    return "# >>> cc-repl terminal-setup >>>";
+    return "# >>> loom terminal-setup >>>";
 }
 [[nodiscard]] inline std::string snippet_start_marker_powershell() {
-    return "# >>> cc-repl terminal-setup >>>";
+    return "# >>> loom terminal-setup >>>";
 }
 
 /// Generate the shell-completion invocation for a given shell kind.
 /// These are placeholders that match the TS completion-cache module's output shape.
 [[nodiscard]] inline std::string completion_snippet(ShellKind kind) {
     switch (kind) {
-        case ShellKind::Bash: return R"SYS_3(# Completions for cc-repl
-if command -v cc-repl >/dev/null 2>&1; then
-  eval "$(cc-repl completions bash)"
+        case ShellKind::Bash: return R"SYS_3(# Completions for loom
+if command -v loom >/dev/null 2>&1; then
+  eval "$(loom completions bash)"
 fi
 )SYS_3";
-        case ShellKind::Zsh: return R"SYS_4(# Completions for cc-repl
-if command -v cc-repl >/dev/null 2>&1; then
-  eval "$(cc-repl completions zsh)"
+        case ShellKind::Zsh: return R"SYS_4(# Completions for loom
+if command -v loom >/dev/null 2>&1; then
+  eval "$(loom completions zsh)"
 fi
 # Make sure compinit picks up new entries
 autoload -Uz compinit && compinit -C
 )SYS_4";
-        case ShellKind::Fish: return R"(# Completions for cc-repl
-if command -v cc-repl >/dev/null 2>&1
-    cc-repl completions fish > $__fish_config_dir/completions/cc-repl.fish
+        case ShellKind::Fish: return R"(# Completions for loom
+if command -v loom >/dev/null 2>&1
+    loom completions fish > $__fish_config_dir/completions/loom.fish
 end
 )";
-        case ShellKind::Nushell: return R"(# Completions for cc-repl (Nushell)
-# Run once per session: source $(cc-repl completions nu | save --force /tmp/ccrepl-completions.nu)
-# Then: source /tmp/ccrepl-completions.nu
+        case ShellKind::Nushell: return R"(# Completions for loom (Nushell)
+# Run once per session: source $(loom completions nu | save --force /tmp/loom-completions.nu)
+# Then: source /tmp/loom-completions.nu
 )";
-        case ShellKind::PowerShell: return R"(# Completions for cc-repl (PowerShell)
-if (Get-Command cc-repl -ErrorAction SilentlyContinue) {
-  cc-repl completions powershell | Out-String | Invoke-Expression
+        case ShellKind::PowerShell: return R"(# Completions for loom (PowerShell)
+if (Get-Command loom -ErrorAction SilentlyContinue) {
+  loom completions powershell | Out-String | Invoke-Expression
 }
 )";
         case ShellKind::Unknown: return "";
@@ -314,30 +314,30 @@ if (Get-Command cc-repl -ErrorAction SilentlyContinue) {
     return "";
 }
 
-/// Generate the environment-variable snippet (CLAUDE_CODE_BIN).
+/// Generate the environment-variable snippet (LOOM_BIN).
 [[nodiscard]] inline std::string env_snippet(ShellKind kind) {
     switch (kind) {
         case ShellKind::Bash:
         case ShellKind::Zsh:
-            return R"SYS_5(# Locate the cc-repl binary for easy reuse
-if command -v cc-repl >/dev/null 2>&1; then
-  export CLAUDE_CODE_BIN="$(command -v cc-repl)"
+            return R"SYS_5(# Locate the loom binary for easy reuse
+if command -v loom >/dev/null 2>&1; then
+  export LOOM_BIN="$(command -v loom)"
 fi
 )SYS_5";
         case ShellKind::Fish:
-            return R"(# Locate the cc-repl binary for easy reuse
-if command -v cc-repl >/dev/null 2>&1
-    set -gx CLAUDE_CODE_BIN (command -v cc-repl)
+            return R"(# Locate the loom binary for easy reuse
+if command -v loom >/dev/null 2>&1
+    set -gx LOOM_BIN (command -v loom)
 end
 )";
         case ShellKind::Nushell:
-            return R"(# Locate the cc-repl binary for easy reuse
-# $env.CLAUDE_CODE_BIN = (which cc-repl | get path)
+            return R"(# Locate the loom binary for easy reuse
+# $env.LOOM_BIN = (which loom | get path)
 )";
         case ShellKind::PowerShell:
-            return R"(# Locate the cc-repl binary for easy reuse
-if (Get-Command cc-repl -ErrorAction SilentlyContinue) {
-  $env:CLAUDE_CODE_BIN = (Get-Command cc-repl).Source
+            return R"(# Locate the loom binary for easy reuse
+if (Get-Command loom -ErrorAction SilentlyContinue) {
+  $env:LOOM_BIN = (Get-Command loom).Source
 }
 )";
         case ShellKind::Unknown: return "";
@@ -351,21 +351,21 @@ if (Get-Command cc-repl -ErrorAction SilentlyContinue) {
         case ShellKind::Bash:
         case ShellKind::Zsh:
             return R"(# Theme / terminal integration hints
-# - Set CC_REPL_THEME=dark|light|auto to override theme detection
+# - Set LOOM_THEME=dark|light|auto to override theme detection
 # - Ensure 256-color / truecolor terminfo for best UI rendering
-# export CC_REPL_THEME=auto
+# export LOOM_THEME=auto
 )";
         case ShellKind::Fish:
             return R"(# Theme / terminal integration hints
-# set -gx CC_REPL_THEME auto   # dark|light|auto
+# set -gx LOOM_THEME auto   # dark|light|auto
 )";
         case ShellKind::Nushell:
             return R"(# Theme / terminal integration hints
-# $env.CC_REPL_THEME = "auto"   # dark|light|auto
+# $env.LOOM_THEME = "auto"   # dark|light|auto
 )";
         case ShellKind::PowerShell:
             return R"(# Theme / terminal integration hints
-# $env:CC_REPL_THEME = "auto"   # dark|light|auto
+# $env:LOOM_THEME = "auto"   # dark|light|auto
 )";
         case ShellKind::Unknown: return "";
     }
@@ -378,9 +378,9 @@ if (Get-Command cc-repl -ErrorAction SilentlyContinue) {
     std::string out;
     auto [start, end] = [&]() -> std::pair<std::string, std::string> {
         switch (shell.kind) {
-            case ShellKind::Fish:       return {snippet_start_marker_fish(), "# <<< cc-repl terminal-setup <<<"};
-            case ShellKind::Nushell:    return {snippet_start_marker_nushell(), "# <<< cc-repl terminal-setup <<<"};
-            case ShellKind::PowerShell: return {snippet_start_marker_powershell(), "# <<< cc-repl terminal-setup <<<"};
+            case ShellKind::Fish:       return {snippet_start_marker_fish(), "# <<< loom terminal-setup <<<"};
+            case ShellKind::Nushell:    return {snippet_start_marker_nushell(), "# <<< loom terminal-setup <<<"};
+            case ShellKind::PowerShell: return {snippet_start_marker_powershell(), "# <<< loom terminal-setup <<<"};
             default:                    return {snippet_start_marker(), snippet_end_marker()};
         }
     }();

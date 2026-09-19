@@ -29,9 +29,9 @@ namespace fs = std::filesystem;
 // ============================================================================
 
 /// Persistent agent memory scope.
-///   - 'user'    : ~/.claude/agent-memory/<agentType>/
-///   - 'project' : <cwd>/.claude/agent-memory/<agentType>/
-///   - 'local'   : <cwd>/.claude/agent-memory-local/<agentType>/ (or remote mount)
+///   - 'user'    : ~/.loom/agent-memory/<agentType>/
+///   - 'project' : <cwd>/.loom/agent-memory/<agentType>/
+///   - 'local'   : <cwd>/.loom/agent-memory-local/<agentType>/ (or remote mount)
 enum class Scope {
     User,
     Project,
@@ -72,23 +72,23 @@ enum class Scope {
     return out.empty() ? std::string{"agent"} : out;
 }
 
-/// User-level agent memory base directory (typically ~/.claude/agent-memory/).
+/// User-level agent memory base directory (typically ~/.loom/agent-memory/).
 [[nodiscard]] inline fs::path memory_base_dir() {
-    if (const char* remote = std::getenv("CLAUDE_CODE_REMOTE_MEMORY_DIR"); remote && *remote) {
+    if (const char* remote = std::getenv("LOOM_REMOTE_MEMORY_DIR"); remote && *remote) {
         return fs::path{remote};
     }
-    if (const char* configured = std::getenv("CLAUDE_CONFIG_DIR"); configured && *configured) {
+    if (const char* configured = std::getenv("LOOM_CONFIG_DIR"); configured && *configured) {
         return fs::path{configured};
     }
     if (const char* home = std::getenv("HOME"); home && *home) {
-        return fs::path{home} / ".claude";
+        return fs::path{home} / ".loom";
     }
-    return fs::path{".claude"};
+    return fs::path{".loom"};
 }
 
 /// Returns the agent memory directory for a given agent type and scope.
-///   - 'project' : <cwd>/.claude/agent-memory/<agentType>/
-///   - 'local'   : <cwd>/.claude/agent-memory-local/<agentType>/ (or remote mount)
+///   - 'project' : <cwd>/.loom/agent-memory/<agentType>/
+///   - 'local'   : <cwd>/.loom/agent-memory-local/<agentType>/ (or remote mount)
 ///   - 'user'    : <memoryBase>/agent-memory/<agentType>/
 [[nodiscard]] inline fs::path agent_memory_dir(
     std::string_view agent_type,
@@ -100,14 +100,14 @@ enum class Scope {
 
     switch (scope) {
         case Scope::Project:
-            return cwd / ".claude" / "agent-memory" / dir_name;
+            return cwd / ".loom" / "agent-memory" / dir_name;
         case Scope::Local: {
-            if (const char* remote = std::getenv("CLAUDE_CODE_REMOTE_MEMORY_DIR"); remote && *remote) {
+            if (const char* remote = std::getenv("LOOM_REMOTE_MEMORY_DIR"); remote && *remote) {
                 const auto git_root = cc::utils::git::find_git_root(cwd).value_or(cwd);
                 const auto project_component = sanitize_agent_type_for_path(git_root.string());
                 return fs::path{remote} / "projects" / project_component / "agent-memory-local" / dir_name;
             }
-            return cwd / ".claude" / "agent-memory-local" / dir_name;
+            return cwd / ".loom" / "agent-memory-local" / dir_name;
         }
         case Scope::User:
             return memory_base_dir() / "agent-memory" / dir_name;
@@ -151,12 +151,12 @@ enum class Scope {
 
     // Project scope
     {
-        const auto base = (cwd / ".claude" / "agent-memory").string() + sep;
+        const auto base = (cwd / ".loom" / "agent-memory").string() + sep;
         if (check_str.rfind(base, 0) == 0) return true;
     }
 
     // Local scope
-    if (const char* remote = std::getenv("CLAUDE_CODE_REMOTE_MEMORY_DIR"); remote && *remote) {
+    if (const char* remote = std::getenv("LOOM_REMOTE_MEMORY_DIR"); remote && *remote) {
         const auto marker = sep + "agent-memory-local" + sep;
         const auto projects_prefix = (fs::path{remote} / "projects").string() + sep;
         if (check_str.find(marker) != std::string::npos &&
@@ -164,7 +164,7 @@ enum class Scope {
             return true;
         }
     } else {
-        const auto base = (cwd / ".claude" / "agent-memory-local").string() + sep;
+        const auto base = (cwd / ".loom" / "agent-memory-local").string() + sep;
         if (check_str.rfind(base, 0) == 0) return true;
     }
 
@@ -182,12 +182,12 @@ enum class Scope {
         case Scope::User:
             return "User (" + (memory_base_dir() / "agent-memory").string() + "/)";
         case Scope::Project:
-            return "Project (.claude/agent-memory/)";
+            return "Project (.loom/agent-memory/)";
         case Scope::Local: {
-            if (const char* remote = std::getenv("CLAUDE_CODE_REMOTE_MEMORY_DIR"); remote && *remote) {
+            if (const char* remote = std::getenv("LOOM_REMOTE_MEMORY_DIR"); remote && *remote) {
                 return std::string{"Local ("} + remote + "/projects/<project>/agent-memory-local/...)";
             }
-            return "Local (.claude/agent-memory-local/...)";
+            return "Local (.loom/agent-memory-local/...)";
         }
     }
     return "None";

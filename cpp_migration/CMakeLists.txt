@@ -8,24 +8,24 @@ if(NOT DEFINED CMAKE_TOOLCHAIN_FILE
    AND NOT DEFINED CMAKE_C_COMPILER
    AND NOT DEFINED CMAKE_CXX_COMPILER)
     message(FATAL_ERROR
-        "CC-REPL requires an explicit LLVM toolchain. Configure with "
+        "LOOM requires an explicit LLVM toolchain. Configure with "
         "`cmake --preset debug`, `cmake --preset release`, `cmake --preset asan`, or set "
         "CMAKE_TOOLCHAIN_FILE / CMAKE_C_COMPILER / CMAKE_CXX_COMPILER.")
 endif()
 
-project(CC-REPL
+project(LOOM
     VERSION 1.0.0
-    DESCRIPTION "CC-REPL: A C++23 Modules-based CLI REPL"
+    DESCRIPTION "LOOM: A C++23 Modules-based CLI REPL"
     LANGUAGES CXX C
 )
 
-if(COMMAND _cc_repl_assert_llvm21)
-    _cc_repl_assert_llvm21()
+if(COMMAND _loom_assert_llvm21)
+    _loom_assert_llvm21()
 endif()
 
 if(CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
     message(FATAL_ERROR
-        "AppleClang cannot build CC-REPL C++23 modules because it does not "
+        "AppleClang cannot build LOOM C++23 modules because it does not "
         "ship clang-scan-deps. Use a preset backed by Homebrew LLVM, for "
         "example `cmake --preset release`.")
 endif()
@@ -70,40 +70,40 @@ if(CMAKE_GENERATOR MATCHES "Ninja")
         set(NPROC 4)
     endif()
 
-    set(CC_REPL_BUILD_JOBS "0" CACHE STRING
+    set(LOOM_BUILD_JOBS "0" CACHE STRING
         "Maximum compile jobs for Ninja pools; 0 means host processor count.")
-    set(CC_REPL_LINK_JOBS "0" CACHE STRING
+    set(LOOM_LINK_JOBS "0" CACHE STRING
         "Maximum link jobs for Ninja pools; 0 means automatic memory-safe cap.")
-    set(CC_REPL_SCAN_JOBS "4" CACHE STRING
+    set(LOOM_SCAN_JOBS "4" CACHE STRING
         "Maximum C++ module depfile scan jobs. Keep this capped until Ninja #2782 is released.")
 
-    foreach(_job_var IN ITEMS CC_REPL_BUILD_JOBS CC_REPL_LINK_JOBS CC_REPL_SCAN_JOBS)
+    foreach(_job_var IN ITEMS LOOM_BUILD_JOBS LOOM_LINK_JOBS LOOM_SCAN_JOBS)
         if(NOT "${${_job_var}}" MATCHES "^[0-9]+$")
             message(FATAL_ERROR "${_job_var} must be a non-negative integer.")
         endif()
     endforeach()
 
     set(_COMPILE_POOL ${NPROC})
-    if(CC_REPL_BUILD_JOBS GREATER 0)
-        set(_COMPILE_POOL ${CC_REPL_BUILD_JOBS})
+    if(LOOM_BUILD_JOBS GREATER 0)
+        set(_COMPILE_POOL ${LOOM_BUILD_JOBS})
     endif()
 
     # Link jobs are memory heavy.  Compile uses all configured build jobs.
     # Depfile scan defaults to 4 after 10 consecutive clean configure+full-build
     # runs with 0 P1689/dyndep races on 2026-06-25.  Ninja #2782 is merged into
     # Ninja main but not released, so scan jobs remain separately capped.
-    if(CC_REPL_LINK_JOBS GREATER 0)
-        set(_LINK_POOL ${CC_REPL_LINK_JOBS})
+    if(LOOM_LINK_JOBS GREATER 0)
+        set(_LINK_POOL ${LOOM_LINK_JOBS})
     elseif(_COMPILE_POOL GREATER 16)
         set(_LINK_POOL 4)
     else()
         set(_LINK_POOL 2)
     endif()
 
-    if(CC_REPL_SCAN_JOBS LESS 1)
-        message(FATAL_ERROR "CC_REPL_SCAN_JOBS must be at least 1.")
+    if(LOOM_SCAN_JOBS LESS 1)
+        message(FATAL_ERROR "LOOM_SCAN_JOBS must be at least 1.")
     endif()
-    set(_SCAN_POOL ${CC_REPL_SCAN_JOBS})
+    set(_SCAN_POOL ${LOOM_SCAN_JOBS})
     if(_SCAN_POOL GREATER _COMPILE_POOL)
         set(_SCAN_POOL ${_COMPILE_POOL})
     endif()
@@ -232,18 +232,18 @@ FetchContent_MakeAvailable(yyjson libuv httplib ftxui benchmark)
 set(CMAKE_CXX_SCAN_FOR_MODULES ${CMAKE_CXX_SCAN_FOR_MODULES_OLD2})
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    foreach(_cc_repl_benchmark_target IN ITEMS benchmark benchmark_main)
-        if(TARGET ${_cc_repl_benchmark_target})
-            target_compile_options(${_cc_repl_benchmark_target} PRIVATE
+    foreach(_loom_benchmark_target IN ITEMS benchmark benchmark_main)
+        if(TARGET ${_loom_benchmark_target})
+            target_compile_options(${_loom_benchmark_target} PRIVATE
                 -Wno-c2y-extensions)
         endif()
     endforeach()
-    unset(_cc_repl_benchmark_target)
+    unset(_loom_benchmark_target)
 endif()
 
 # ─── Project Warning Policy ──────────────────────────────────────────────────
-option(CC_REPL_WARNINGS_AS_ERRORS
-    "Treat CC-REPL project warnings as errors."
+option(LOOM_WARNINGS_AS_ERRORS
+    "Treat LOOM project warnings as errors."
     ON)
 
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
@@ -259,7 +259,7 @@ elseif(MSVC)
     add_compile_options(/W4)
 endif()
 
-set(CMAKE_COMPILE_WARNING_AS_ERROR ${CC_REPL_WARNINGS_AS_ERRORS})
+set(CMAKE_COMPILE_WARNING_AS_ERROR ${LOOM_WARNINGS_AS_ERRORS})
 
 # ─── Subdirectories ───────────────────────────────────────────────────────────
 add_subdirectory(src)
@@ -291,33 +291,33 @@ endif()
 #     cc_bridge
 #     cc_skills
 #     cc_utils
-#     EXPORT CC-REPLTargets
+#     EXPORT LOOMTargets
 #     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
 #     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
 #     INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 # )
 # 
 # # Generate and install package config
-# install(EXPORT CC-REPLTargets
-#     FILE CC-REPLTargets.cmake
-#     NAMESPACE CC-REPL::
-#     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/CC-REPL
+# install(EXPORT LOOMTargets
+#     FILE LOOMTargets.cmake
+#     NAMESPACE LOOM::
+#     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/LOOM
 # )
 # 
 # configure_package_config_file(
-#     "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CC-REPLConfig.cmake.in"
-#     "${CMAKE_CURRENT_BINARY_DIR}/CC-REPLConfig.cmake"
-#     INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/CC-REPL
+#     "${CMAKE_CURRENT_SOURCE_DIR}/cmake/LOOMConfig.cmake.in"
+#     "${CMAKE_CURRENT_BINARY_DIR}/LOOMConfig.cmake"
+#     INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/LOOM
 # )
 # 
 # write_basic_package_version_file(
-#     "${CMAKE_CURRENT_BINARY_DIR}/CC-REPLConfigVersion.cmake"
+#     "${CMAKE_CURRENT_BINARY_DIR}/LOOMConfigVersion.cmake"
 #     VERSION ${PROJECT_VERSION}
 #     COMPATIBILITY SameMajorVersion
 # )
 # 
 # install(FILES
-#     "${CMAKE_CURRENT_BINARY_DIR}/CC-REPLConfig.cmake"
-#     "${CMAKE_CURRENT_BINARY_DIR}/CC-REPLConfigVersion.cmake"
-#     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/CC-REPL
+#     "${CMAKE_CURRENT_BINARY_DIR}/LOOMConfig.cmake"
+#     "${CMAKE_CURRENT_BINARY_DIR}/LOOMConfigVersion.cmake"
+#     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/LOOM
 # )

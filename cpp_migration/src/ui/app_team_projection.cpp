@@ -61,15 +61,15 @@ namespace fs = std::filesystem;
 /// Teams runtime root — identical resolution to team_tool.cppm
 /// team_runtime_dir() and team_helpers detail::teams_dir().
 fs::path teams_root_dir() {
-    if (const char* env = std::getenv("CC_REPL_TEAM_RUNTIME_DIR");
+    if (const char* env = std::getenv("LOOM_TEAM_RUNTIME_DIR");
         env && *env) {
         return fs::path{env};
     }
-    if (const char* env = std::getenv("CLAUDE_CODE_TEAMS_DIR");
+    if (const char* env = std::getenv("LOOM_TEAMS_DIR");
         env && *env) {
         return fs::path{env};
     }
-    return fs::current_path() / ".claude" / "teams";
+    return fs::current_path() / ".loom" / "teams";
 }
 
 /// Byte-identical to ts_sanitized_team_dir_name
@@ -462,7 +462,7 @@ void AppAdapter::start_leader_inbox_worker() {
                 std::vector<std::string> consumed_texts;
                 for (const auto& message : *messages) {
                     // Discriminator substrings from the frozen stage-A
-                    // protocol; the generic "cc-repl:permission" tag grep is
+                    // protocol; the generic "loom:permission" tag grep is
                     // intentionally NOT used here so only real envelopes
                     // parse.
                     if (message.text.find(

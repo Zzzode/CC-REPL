@@ -535,15 +535,15 @@ struct ManagedPath {
     /// Get the managed settings base directory for the current platform
     [[nodiscard]] static fs::path get_managed_file_path() {
         #if defined(__APPLE__)
-        return "/Library/Application Support/ClaudeCode";
+        return "/Library/Application Support/Loom";
         #elif defined(_WIN32)
         // PROGRAMDATA or fallback
         if (const char* pd = std::getenv("PROGRAMDATA")) {
-            return fs::path(pd) / "ClaudeCode";
+            return fs::path(pd) / "Loom";
         }
-        return "C:\\ProgramData\\ClaudeCode";
+        return "C:\\ProgramData\\Loom";
         #else
-        return "/etc/claude-code";
+        return "/etc/loom";
         #endif
     }
 

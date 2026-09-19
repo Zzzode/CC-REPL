@@ -46,7 +46,7 @@ export namespace cc::skills::keybindings {
 - Ctrl+Space: Force trigger suggestions
 
 ### Customization
-- Edit ~/.cc-repl/keybindings.json to override defaults
+- Edit ~/.loom/keybindings.json to override defaults
 - Use /keybindings command to view current bindings
 - Context-specific bindings override global ones
 - Vim mode available via /vim command

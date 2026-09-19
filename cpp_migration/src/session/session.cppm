@@ -271,7 +271,7 @@ public:
     explicit SessionStorage(std::filesystem::path dir)
         : storage_dir_(std::move(dir)) {}
 
-    /// Default storage location (~/.config/claude/sessions/)
+    /// Default storage location (~/.config/loom/sessions/)
     SessionStorage()
         : storage_dir_(default_storage_path()) {}
 
@@ -717,9 +717,9 @@ private:
     /// Default session storage path
     [[nodiscard]] static std::filesystem::path default_storage_path() {
         if (auto* home = std::getenv("HOME")) {
-            return std::filesystem::path(home) / ".config" / "claude" / "sessions";
+            return std::filesystem::path(home) / ".config" / "loom" / "sessions";
         }
-        return std::filesystem::current_path() / ".claude" / "sessions";
+        return std::filesystem::current_path() / ".loom" / "sessions";
     }
 };
 

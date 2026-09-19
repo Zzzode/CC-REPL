@@ -85,7 +85,7 @@ struct GetAgentModelOptions {
 };
 
 [[nodiscard]] inline auto get_agent_model(const GetAgentModelOptions& options) -> std::string {
-    if (const char* env = std::getenv("CLAUDE_CODE_SUBAGENT_MODEL")) {
+    if (const char* env = std::getenv("LOOM_SUBAGENT_MODEL")) {
         return std::string(env);
     }
 

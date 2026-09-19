@@ -1,6 +1,6 @@
 /// @file remote_connection.cppm
 /// @brief WebSocket-based remote connection with automatic reconnection.
-/// Provides a persistent connection to remote CC-REPL servers with exponential
+/// Provides a persistent connection to remote LOOM servers with exponential
 /// backoff retry, ping/pong keepalive, and frame-level message handling.
 module;
 

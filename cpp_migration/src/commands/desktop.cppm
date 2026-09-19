@@ -1,6 +1,6 @@
 /// @file desktop.cppm
 /// @brief DesktopCommand implementing the /desktop slash command.
-/// Opens the Claude Desktop download page for the current platform.
+/// Opens the Loom Desktop download page for the current platform.
 module;
 
 #include <string>
@@ -30,15 +30,12 @@ inline void open_in_browser(std::string_view url) {
 #endif
 }
 
-/// Platform-appropriate Claude Desktop download URL.
+/// Platform-appropriate Loom Desktop download URL.
 [[nodiscard]] inline constexpr std::string_view desktop_download_url() {
-#if defined(_WIN32)
-    return "https://claude.ai/api/desktop/win32/x64/exe/latest/redirect";
-#elif defined(__APPLE__)
-    return "https://claude.ai/api/desktop/darwin/universal/dmg/latest/redirect";
-#else
-    return "https://clau.de/desktop";
-#endif
+    // No first-party desktop build is published for this project, so there
+    // is no download URL to hand out. Empty rather than a renamed host that
+    // would not resolve.
+    return "";
 }
 
 } // namespace cc::commands
@@ -52,7 +49,7 @@ public:
     [[nodiscard]] static CommandDefinition definition() {
         return CommandDefinition{
             .name = "desktop",
-            .description = "Open the Claude Desktop download page",
+            .description = "Open the Loom Desktop download page",
             .args = {},
             .category = "integrations",
             .aliases = {"app"},
@@ -67,7 +64,7 @@ public:
     [[nodiscard]] static Result<CommandResult> execute(const CommandContext&) {
         auto url = desktop_download_url();
         open_in_browser(url);
-        std::string out = "Claude Desktop:\n";
+        std::string out = "Loom Desktop:\n";
         out += std::format("  Opening: {}\n", std::string(url));
         out += "  Learn more: https://clau.de/desktop";
         return CommandResult::success(std::move(out));

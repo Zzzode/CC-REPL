@@ -877,7 +877,7 @@ inline void apply_to(const WorkingSettings& w, ConfigManager& cfg) {
 
 [[nodiscard]] inline Element RenderAboutTab() {
     return vbox({
-        RenderTabHeader("About", "CC-REPL native migration"),
+        RenderTabHeader("About", "LOOM native migration"),
         SettingRow(
             "Runtime",
             text(" C++23 modules ") | color(Color::Cyan),

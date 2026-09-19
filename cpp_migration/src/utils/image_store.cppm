@@ -48,7 +48,7 @@ inline auto get_registry() -> ImageRegistry& {
 inline auto get_store_dir() -> std::filesystem::path {
     const char* home = std::getenv("HOME");
     if (!home) home = "/tmp";
-    return std::filesystem::path(home) / ".cc-repl" / "images";
+    return std::filesystem::path(home) / ".loom" / "images";
 }
 
 inline auto generate_id() -> std::string {

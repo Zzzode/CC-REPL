@@ -401,16 +401,16 @@ TEST(EnterpriseAuth_Gcp, VertexRegion_PerModelAndGlobal) {
     env.unset("CLOUD_ML_REGION");
     // Clear all 12 per-model vars.
     for (const auto& name : {
-        "VERTEX_REGION_CLAUDE_3_5_SONNET",
-        "VERTEX_REGION_CLAUDE_4_5_SONNET",
-        "VERTEX_REGION_CLAUDE_4_6_SONNET",
-        "VERTEX_REGION_CLAUDE_3_5_HAIKU",
+        "VERTEX_REGION_LOOM_3_5_SONNET",
+        "VERTEX_REGION_LOOM_4_5_SONNET",
+        "VERTEX_REGION_LOOM_4_6_SONNET",
+        "VERTEX_REGION_LOOM_3_5_HAIKU",
     }) env.unset(name);
     EXPECT_EQ(resolve_vertex_region(), "us-east5");
     env.set("CLOUD_ML_REGION", "europe-west1");
     EXPECT_EQ(resolve_vertex_region(), "europe-west1");
     // Per-model override beats CLOUD_ML_REGION.
-    env.set("VERTEX_REGION_CLAUDE_4_6_SONNET", "us-central1");
+    env.set("VERTEX_REGION_LOOM_4_6_SONNET", "us-central1");
     EXPECT_EQ(resolve_vertex_region("claude-sonnet-4-6"), "us-central1");
     // Other model keys still fall back to CLOUD_ML_REGION.
     EXPECT_EQ(resolve_vertex_region("claude-3-5-haiku-20241022-v1:0"),
@@ -468,45 +468,45 @@ TEST(EnterpriseAuth_Azure, FormEncode_UsedInTokenBodyChars) {
 TEST(EnterpriseAuth_ProviderSelector, Priority_BedrockBeatsVertexAndFoundry) {
     using namespace cc::services::auth::byoc;
     EnvRollback env;
-    env.set("CLAUDE_CODE_USE_BEDROCK", "1");
-    env.set("CLAUDE_CODE_USE_VERTEX",  "true");
-    env.set("CLAUDE_CODE_USE_FOUNDRY", "1");
+    env.set("LOOM_USE_BEDROCK", "1");
+    env.set("LOOM_USE_VERTEX",  "true");
+    env.set("LOOM_USE_FOUNDRY", "1");
     EXPECT_EQ(detect_active_provider(), EnterpriseProvider::Bedrock);
 }
 
 TEST(EnterpriseAuth_ProviderSelector, Priority_VertexBeatsFoundry) {
     using namespace cc::services::auth::byoc;
     EnvRollback env;
-    env.unset("CLAUDE_CODE_USE_BEDROCK");
-    env.set("CLAUDE_CODE_USE_VERTEX",  "1");
-    env.set("CLAUDE_CODE_USE_FOUNDRY", "1");
+    env.unset("LOOM_USE_BEDROCK");
+    env.set("LOOM_USE_VERTEX",  "1");
+    env.set("LOOM_USE_FOUNDRY", "1");
     EXPECT_EQ(detect_active_provider(), EnterpriseProvider::Vertex);
 }
 
 TEST(EnterpriseAuth_ProviderSelector, Default_FirstPartyWhenNoneSet) {
     using namespace cc::services::auth::byoc;
     EnvRollback env;
-    env.unset("CLAUDE_CODE_USE_BEDROCK");
-    env.unset("CLAUDE_CODE_USE_VERTEX");
-    env.unset("CLAUDE_CODE_USE_FOUNDRY");
+    env.unset("LOOM_USE_BEDROCK");
+    env.unset("LOOM_USE_VERTEX");
+    env.unset("LOOM_USE_FOUNDRY");
     EXPECT_EQ(detect_active_provider(), EnterpriseProvider::FirstParty);
 }
 
 TEST(EnterpriseAuth_ProviderSelector, Foundry_ExplicitEnv) {
     using namespace cc::services::auth::byoc;
     EnvRollback env;
-    env.unset("CLAUDE_CODE_USE_BEDROCK");
-    env.unset("CLAUDE_CODE_USE_VERTEX");
-    env.set("CLAUDE_CODE_USE_FOUNDRY", "1");
+    env.unset("LOOM_USE_BEDROCK");
+    env.unset("LOOM_USE_VERTEX");
+    env.set("LOOM_USE_FOUNDRY", "1");
     EXPECT_EQ(detect_active_provider(), EnterpriseProvider::Foundry);
 }
 
 TEST(EnterpriseAuth_ProviderSelector, FirstParty_BaseUrlDefault) {
     using namespace cc::services::auth::byoc;
     EnvRollback env;
-    env.unset("CLAUDE_CODE_USE_BEDROCK");
-    env.unset("CLAUDE_CODE_USE_VERTEX");
-    env.unset("CLAUDE_CODE_USE_FOUNDRY");
+    env.unset("LOOM_USE_BEDROCK");
+    env.unset("LOOM_USE_VERTEX");
+    env.unset("LOOM_USE_FOUNDRY");
     EnterpriseAuthContext ctx;
     ASSERT_EQ(ctx.provider(), EnterpriseProvider::FirstParty);
     auto r = ctx.resolve_auth_for_request(
@@ -521,8 +521,8 @@ TEST(EnterpriseAuth_ProviderSelector, FirstParty_BaseUrlDefault) {
 TEST(EnterpriseAuth_ProviderSelector, Bedrock_BaseUrlAndPath) {
     using namespace cc::services::auth::byoc;
     EnvRollback env;
-    env.set("CLAUDE_CODE_USE_BEDROCK", "1");
-    env.set("CLAUDE_CODE_SKIP_BEDROCK_AUTH", "1");
+    env.set("LOOM_USE_BEDROCK", "1");
+    env.set("LOOM_SKIP_BEDROCK_AUTH", "1");
     env.set("AWS_REGION", "eu-west-2");
     env.set("AWS_ACCESS_KEY_ID", "x");
     env.set("AWS_SECRET_ACCESS_KEY", "y");
@@ -549,8 +549,8 @@ TEST(EnterpriseAuth_ProviderSelector, Bedrock_BaseUrlAndPath) {
 TEST(EnterpriseAuth_ProviderSelector, Vertex_SkipAuthFillsBaseUrlFromFallback) {
     using namespace cc::services::auth::byoc;
     EnvRollback env;
-    env.set("CLAUDE_CODE_USE_VERTEX", "1");
-    env.set("CLAUDE_CODE_SKIP_VERTEX_AUTH", "1");
+    env.set("LOOM_USE_VERTEX", "1");
+    env.set("LOOM_SKIP_VERTEX_AUTH", "1");
     env.set("ANTHROPIC_VERTEX_PROJECT_ID", "fallback-42");
     env.set("CLOUD_ML_REGION", "europe-west4");
     EnterpriseAuthContext ctx;
@@ -570,7 +570,7 @@ TEST(EnterpriseAuth_ProviderSelector, Vertex_SkipAuthFillsBaseUrlFromFallback) {
 TEST(EnterpriseAuth_ProviderSelector, Bedrock_BearerTokenModeSkipsSigning) {
     using namespace cc::services::auth::byoc;
     EnvRollback env;
-    env.set("CLAUDE_CODE_USE_BEDROCK", "1");
+    env.set("LOOM_USE_BEDROCK", "1");
     env.set("AWS_BEARER_TOKEN_BEDROCK", "iam-identity-center-bearer-token-xyz");
     env.set("AWS_REGION", "us-east-1");
     EnterpriseAuthContext ctx;

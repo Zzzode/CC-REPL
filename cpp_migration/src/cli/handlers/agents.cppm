@@ -75,7 +75,7 @@ inline std::filesystem::path get_pid_dir() {
     namespace fs = std::filesystem;
     const char* home = std::getenv("HOME");
     if (!home) home = "/tmp";
-    return fs::path(home) / ".cc-repl" / "agents";
+    return fs::path(home) / ".loom" / "agents";
 }
 
 /// Check if a process with the given PID is alive

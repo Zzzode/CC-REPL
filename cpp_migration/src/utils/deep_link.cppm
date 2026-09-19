@@ -177,7 +177,7 @@ struct DeepLink {
 [[nodiscard]] inline std::string generate_link(
     DeepLinkAction action,
     const std::unordered_map<std::string, std::string>& params,
-    std::string_view scheme = "claude") {
+    std::string_view scheme = "loom") {
 
     std::string url = std::format("{}://{}", scheme, action_to_string(action));
 
@@ -205,7 +205,7 @@ public:
 
 
     [[nodiscard]] std::expected<void, std::string> register_protocol(
-        std::string_view scheme = "claude") {
+        std::string_view scheme = "loom") {
         scheme_ = std::string(scheme);
 
 #ifdef __APPLE__
@@ -238,7 +238,7 @@ public:
     [[nodiscard]] const std::string& scheme() const { return scheme_; }
 
 private:
-    std::string scheme_{"claude"};
+    std::string scheme_{"loom"};
     std::unordered_map<DeepLinkAction, HandlerFn> handlers_;
 };
 

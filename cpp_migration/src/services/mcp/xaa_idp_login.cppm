@@ -129,11 +129,11 @@ struct XaaLoginResult {
 namespace detail {
 
 /// TS REF: xaaIdpLogin.ts:27 getSecureStorage()
-/// Storage path for XAA IdP tokens: ~/.config/cc-repl/xaa/idp_tokens.json
+/// Storage path for XAA IdP tokens: ~/.config/loom/xaa/idp_tokens.json
 [[nodiscard]] inline fs::path idp_token_storage_path() {
     const char* home = std::getenv("HOME");
-    if (!home) return fs::temp_directory_path() / "cc-repl" / "xaa_idp_tokens.json";
-    return fs::path(home) / ".config" / "cc-repl" / "xaa" / "idp_tokens.json";
+    if (!home) return fs::temp_directory_path() / "loom" / "xaa_idp_tokens.json";
+    return fs::path(home) / ".config" / "loom" / "xaa" / "idp_tokens.json";
 }
 
 /// TS REF: xaaIdpLogin.ts:99-107 getCachedIdpIdToken()

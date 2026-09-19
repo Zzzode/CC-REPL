@@ -229,10 +229,10 @@ inline std::vector<SelectOption> canonical_tool_options() {
 
 inline std::vector<SelectOption> canonical_model_options() {
     return {
-        {.label = "Claude Sonnet 4",   .value = "claude-sonnet-4-20250514",  .description = "Fast, balanced — default",      .group = "Sonnet",  .icon = "⚡"},
-        {.label = "Claude Opus 4.6",   .value = "claude-opus-4-20250514",    .description = "Best reasoning, highest cost",  .group = "Opus",    .icon = "💎"},
-        {.label = "Claude Haiku 4",    .value = "claude-haiku-4-20250514",   .description = "Cheapest, fastest — for agents",.group = "Haiku",   .icon = "🌱"},
-        {.label = "Claude Code 0.6",   .value = "claude-code-0-20250609",    .description = "Code-specialized model",        .group = "Code",    .icon = "💻"},
+        {.label = "Loom Sonnet 4",   .value = "claude-sonnet-4-20250514",  .description = "Fast, balanced — default",      .group = "Sonnet",  .icon = "⚡"},
+        {.label = "Loom Opus 4.6",   .value = "claude-opus-4-20250514",    .description = "Best reasoning, highest cost",  .group = "Opus",    .icon = "💎"},
+        {.label = "Loom Haiku 4",    .value = "claude-haiku-4-20250514",   .description = "Cheapest, fastest — for agents",.group = "Haiku",   .icon = "🌱"},
+        {.label = "Loom 0.6",   .value = "loom-0-20250609",    .description = "Code-specialized model",        .group = "Code",    .icon = "💻"},
     };
 }
 

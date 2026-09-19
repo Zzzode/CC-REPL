@@ -180,7 +180,7 @@ struct PromptState {
     yes_opt.label = "Yes";
     yes_opt.is_input = p.yes_feedback_mode;
     yes_opt.input_value = st.yes_feedback;
-    yes_opt.input_placeholder = "and tell Claude what to do next";
+    yes_opt.input_placeholder = "and tell Loom what to do next";
     opts.push_back(std::move(yes_opt));
 
     // --- Always-allow options (when enabled) ---
@@ -209,7 +209,7 @@ struct PromptState {
     no_opt.label = "No";
     no_opt.is_input = p.no_feedback_mode;
     no_opt.input_value = st.no_feedback;
-    no_opt.input_placeholder = "and tell Claude what to do differently";
+    no_opt.input_placeholder = "and tell Loom what to do differently";
     opts.push_back(std::move(no_opt));
 
     return opts;

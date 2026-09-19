@@ -26,7 +26,7 @@ namespace detail {
 } // namespace detail
 
 [[nodiscard]] inline PrivacyLevel get_privacy_level(const EnvLike& env) {
-    if (detail::has_truthy_js_env_value(env, "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC")) {
+    if (detail::has_truthy_js_env_value(env, "LOOM_DISABLE_NONESSENTIAL_TRAFFIC")) {
         return PrivacyLevel::EssentialTraffic;
     }
     if (detail::has_truthy_js_env_value(env, "DISABLE_TELEMETRY")) {
@@ -44,8 +44,8 @@ namespace detail {
 }
 
 [[nodiscard]] inline std::optional<std::string> get_essential_traffic_only_reason(const EnvLike& env) {
-    if (detail::has_truthy_js_env_value(env, "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC")) {
-        return std::string("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC");
+    if (detail::has_truthy_js_env_value(env, "LOOM_DISABLE_NONESSENTIAL_TRAFFIC")) {
+        return std::string("LOOM_DISABLE_NONESSENTIAL_TRAFFIC");
     }
     return std::nullopt;
 }

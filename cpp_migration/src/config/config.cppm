@@ -1,5 +1,5 @@
 /// @file config.cppm
-/// @brief Configuration module for the Claude Code CLI.
+/// @brief Configuration module for the Loom CLI.
 /// Manages hierarchical settings (global -> project -> CLI flags),
 /// environment variable integration, feature flags, and JSON persistence.
 module;
@@ -185,8 +185,8 @@ struct Settings {
 enum class ConfigSource : std::uint8_t {
     CliFlags = 0,      // Command-line arguments (highest priority)
     EnvVars = 1,       // Environment variables
-    ProjectConfig = 2, // .claude/config.json in project root
-    GlobalConfig = 3,  // ~/.config/claude/config.json
+    ProjectConfig = 2, // .loom/config.json in project root
+    GlobalConfig = 3,  // ~/.config/loom/config.json
     Defaults = 4,      // Built-in defaults (lowest priority)
 };
 
@@ -556,8 +556,8 @@ private:
             settings_.network.base_url = val;
         }
 
-        // CLAUDE_MODEL -> model.default_model
-        if (auto* val = std::getenv("CLAUDE_MODEL")) {
+        // LOOM_MODEL -> model.default_model
+        if (auto* val = std::getenv("LOOM_MODEL")) {
             settings_.model.default_model = val;
         }
 
@@ -568,8 +568,8 @@ private:
             settings_.network.proxy = val2;
         }
 
-        // CLAUDE_MAX_TOKENS -> model.max_output_tokens
-        if (auto* val = std::getenv("CLAUDE_MAX_TOKENS")) {
+        // LOOM_MAX_TOKENS -> model.max_output_tokens
+        if (auto* val = std::getenv("LOOM_MAX_TOKENS")) {
             try {
                 settings_.model.max_output_tokens = static_cast<std::uint32_t>(std::stoul(val));
             } catch (...) {
@@ -734,17 +734,17 @@ private:
         return std::string(child.as_str());
     }
 
-    /// Get default global config path (~/.config/claude/config.json)
+    /// Get default global config path (~/.config/loom/config.json)
     [[nodiscard]] static std::filesystem::path default_global_config_path() {
         if (auto* home = std::getenv("HOME")) {
-            return std::filesystem::path(home) / ".config" / "claude" / "config.json";
+            return std::filesystem::path(home) / ".config" / "loom" / "config.json";
         }
         return "config.json";  // Fallback
     }
 
-    /// Get default project config path (.claude/config.json in cwd)
+    /// Get default project config path (.loom/config.json in cwd)
     [[nodiscard]] static std::filesystem::path default_project_config_path() {
-        return std::filesystem::current_path() / ".claude" / "config.json";
+        return std::filesystem::current_path() / ".loom" / "config.json";
     }
 };
 

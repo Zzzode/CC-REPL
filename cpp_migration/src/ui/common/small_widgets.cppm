@@ -43,11 +43,11 @@ using cc::ui::common::formatting::trim;
 // ============================================================
 // From: src/components/InterruptedByUser.tsx
 // ============================================================
-/// Renders the dimmed "Interrupted · What should Claude do instead?" line.
+/// Renders the dimmed "Interrupted · What should Loom do instead?" line.
 [[nodiscard]] inline Element render_interrupted_by_user() {
     return hbox({
         text("Interrupted ") | dim,
-        text("· What should Claude do instead?") | dim,
+        text("· What should Loom do instead?") | dim,
     });
 }
 
@@ -73,7 +73,7 @@ using cc::ui::common::formatting::trim;
         paragraphAlignLeft(
             "MCP servers may execute code or access system resources. "
             "All tool calls require approval. Learn more in the MCP "
-            "documentation (https://code.claude.com/docs/en/mcp).") |
+            "documentation).") |
             color(Color::GrayLight),
     });
 }
@@ -235,7 +235,7 @@ struct MessageModelInfo {
     Element rendered_plan_body) {
     return render_message_response(
         vbox({
-            text("User rejected Claude's plan:") | color(Color::GrayLight),
+            text("User rejected Loom's plan:") | color(Color::GrayLight),
             vbox({
                 std::move(rendered_plan_body),
             }) | borderRounded | color(Color::Purple4) |

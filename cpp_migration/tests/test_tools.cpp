@@ -133,7 +133,7 @@ struct TempSkillRoot {
     fs::path path;
     /// The directory the SkillTool scans for skills (== path / "skills").
     fs::path skills_dir;
-    /// The simulated HOME root; skills live under "<temp_home>/.claude/skills".
+    /// The simulated HOME root; skills live under "<temp_home>/.loom/skills".
     /// Path-traversal tests drop a sibling file directly in temp_home to
     /// verify the loader rejects escaping the skill root.
     fs::path temp_home;
@@ -146,7 +146,7 @@ struct TempSkillRoot {
         ss << "cc-skill-test-" << std::chrono::duration_cast<std::chrono::nanoseconds>(
                std::chrono::high_resolution_clock::now().time_since_epoch()).count();
         temp_home = base / ss.str();
-        skills_dir = temp_home / ".claude" / "skills";
+        skills_dir = temp_home / ".loom" / "skills";
         path = skills_dir;  // primary `path` alias used by write_skill
         fs::create_directories(skills_dir);
         // Set HOME so skill_root_dirs() discovers the temp skills dir.
@@ -640,7 +640,7 @@ public:
             std::this_thread::sleep_for(delay_);
             res.set_content(
                 "event: message_start\n"
-                "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_slow\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-test\",\"content\":[]}}\n\n"
+                "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_slow\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"loom-test\",\"content\":[]}}\n\n"
                 "event: content_block_start\n"
                 "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n"
                 "event: content_block_delta\n"
@@ -723,7 +723,7 @@ public:
             if (count == 1) {
                 res.set_content(
                     "event: message_start\n"
-                    "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_sleep_tool\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-test\",\"content\":[]}}\n\n"
+                    "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_sleep_tool\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"loom-test\",\"content\":[]}}\n\n"
                     "event: content_block_start\n"
                     "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_sleep\",\"name\":\"sleep\",\"input\":{}}}\n\n"
                     "event: content_block_delta\n"
@@ -740,7 +740,7 @@ public:
 
             res.set_content(
                 "event: message_start\n"
-                "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_after_sleep\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-test\",\"content\":[]}}\n\n"
+                "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_after_sleep\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"loom-test\",\"content\":[]}}\n\n"
                 "event: content_block_start\n"
                 "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n"
                 "event: content_block_delta\n"
@@ -817,7 +817,7 @@ public:
             if (count == 1) {
                 res.set_content(
                     "event: message_start\n"
-                    "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_bash_tool\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-test\",\"content\":[]}}\n\n"
+                    "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_bash_tool\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"loom-test\",\"content\":[]}}\n\n"
                     "event: content_block_start\n"
                     "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_bash\",\"name\":\"Bash\",\"input\":{}}}\n\n"
                     "event: content_block_delta\n"
@@ -834,7 +834,7 @@ public:
 
             res.set_content(
                 "event: message_start\n"
-                "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_after_bash\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-test\",\"content\":[]}}\n\n"
+                "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_after_bash\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"loom-test\",\"content\":[]}}\n\n"
                 "event: content_block_start\n"
                 "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n"
                 "event: content_block_delta\n"
@@ -918,7 +918,7 @@ public:
                 const auto partial_json = cc::tools::agent::json_escape_string(input_json);
                 res.set_content(
                     "event: message_start\n"
-                    "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_scripted_bash_tool\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-test\",\"content\":[]}}\n\n"
+                    "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_scripted_bash_tool\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"loom-test\",\"content\":[]}}\n\n"
                     "event: content_block_start\n"
                     "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_bash_fixture\",\"name\":\"Bash\",\"input\":{}}}\n\n"
                     "event: content_block_delta\n"
@@ -936,7 +936,7 @@ public:
             const auto final_text_json = cc::tools::agent::json_escape_string(final_text_);
             res.set_content(
                 "event: message_start\n"
-                "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_after_scripted_bash\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-test\",\"content\":[]}}\n\n"
+                "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_after_scripted_bash\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"loom-test\",\"content\":[]}}\n\n"
                 "event: content_block_start\n"
                 "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n"
                 "event: content_block_delta\n"
@@ -1027,7 +1027,7 @@ public:
                 const auto partial_json = cc::tools::agent::json_escape_string(tool_input_json_);
                 res.set_content(
                     "event: message_start\n"
-                    "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_scripted_tool\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-test\",\"content\":[]}}\n\n"
+                    "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_scripted_tool\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"loom-test\",\"content\":[]}}\n\n"
                     "event: content_block_start\n"
                     "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"" + tool_use_id_json + "\",\"name\":\"" + tool_name_json + "\",\"input\":{}}}\n\n"
                     "event: content_block_delta\n"
@@ -1045,7 +1045,7 @@ public:
             const auto final_text_json = cc::tools::agent::json_escape_string(final_text_);
             res.set_content(
                 "event: message_start\n"
-                "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_after_scripted_tool\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-test\",\"content\":[]}}\n\n"
+                "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_after_scripted_tool\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"loom-test\",\"content\":[]}}\n\n"
                 "event: content_block_start\n"
                 "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n"
                 "event: content_block_delta\n"
@@ -1123,7 +1123,7 @@ public:
                 const auto partial_json = cc::tools::agent::json_escape_string(R"({"command":"pwd","description":"print working directory"})");
                 res.set_content(
                     "event: message_start\n"
-                    "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_pwd_tool\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-test\",\"content\":[]}}\n\n"
+                    "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_pwd_tool\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"loom-test\",\"content\":[]}}\n\n"
                     "event: content_block_start\n"
                     "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_pwd\",\"name\":\"Bash\",\"input\":{}}}\n\n"
                     "event: content_block_delta\n"
@@ -1140,7 +1140,7 @@ public:
 
             res.set_content(
                 "event: message_start\n"
-                "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_pwd_done\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-test\",\"content\":[]}}\n\n"
+                "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_pwd_done\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"loom-test\",\"content\":[]}}\n\n"
                 "event: content_block_start\n"
                 "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n"
                 "event: content_block_delta\n"
@@ -1214,7 +1214,7 @@ public:
                 const auto partial_json = cc::tools::agent::json_escape_string(input_json);
                 res.set_content(
                     "event: message_start\n"
-                    "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_bash_command_tool\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-test\",\"content\":[]}}\n\n"
+                    "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_bash_command_tool\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"loom-test\",\"content\":[]}}\n\n"
                     "event: content_block_start\n"
                     "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_bash_command\",\"name\":\"Bash\",\"input\":{}}}\n\n"
                     "event: content_block_delta\n"
@@ -1232,7 +1232,7 @@ public:
             const auto final_text_json = cc::tools::agent::json_escape_string(final_text_);
             res.set_content(
                 "event: message_start\n"
-                "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_bash_command_done\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-test\",\"content\":[]}}\n\n"
+                "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_bash_command_done\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"loom-test\",\"content\":[]}}\n\n"
                 "event: content_block_start\n"
                 "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n"
                 "event: content_block_delta\n"
@@ -1459,7 +1459,7 @@ TEST(Tools, RuntimeSimpleToolsFailClosedWithoutPermissionCheck) {
 }
 
 TEST(Tools, FileReadAndWriteHonorAllowedDirectories) {
-    auto root = fs::temp_directory_path() / "cc_repl_file_permission_test";
+    auto root = fs::temp_directory_path() / "loom_file_permission_test";
     auto allowed = root / "allowed";
     auto sibling_with_prefix = root / "allowed2";
     auto blocked = root / "blocked";
@@ -1516,7 +1516,7 @@ TEST(Tools, PathValidationRejectsSymlinkEscapingAllowedDir) {
     // outside it must be rejected. Previously path_validation used
     // lexically_normal() only, so the symlink was not followed and the path
     // appeared to stay within bounds — a directory-traversal bypass.
-    auto root = fs::temp_directory_path() / "cc_repl_symlink_escape_test";
+    auto root = fs::temp_directory_path() / "loom_symlink_escape_test";
     auto allowed = root / "allowed";
     auto outside = root / "outside";
     fs::remove_all(root);
@@ -1683,7 +1683,7 @@ TEST(Tools, WebBrowserToolUsesAutomationBackendForClickAndFillForm) {
 
 TEST(Tools, RuntimeWebBrowserUsesAutomationCommandBackend) {
     EnvironmentGuard automation_guard(
-        "CC_REPL_BROWSER_AUTOMATION_CMD",
+        "LOOM_BROWSER_AUTOMATION_CMD",
         "printf '%s' '{\"content\":\"clicked via command\"}' # {request}"
     );
 
@@ -1701,13 +1701,13 @@ TEST(Tools, RuntimeWebBrowserUsesAutomationCommandBackend) {
 }
 
 TEST(Tools, RuntimeWebBrowserKeepsPageStateAcrossCalls) {
-    EnvironmentUnsetGuard clear_automation_guard("CC_REPL_BROWSER_AUTOMATION_CMD");
+    EnvironmentUnsetGuard clear_automation_guard("LOOM_BROWSER_AUTOMATION_CMD");
     cc::core::ToolRegistry registry;
     cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
 
     {
         EnvironmentGuard automation_guard(
-            "CC_REPL_BROWSER_AUTOMATION_CMD",
+            "LOOM_BROWSER_AUTOMATION_CMD",
             "printf '%s' '{\"content\":\"navigated\",\"title\":\"Runtime Browser State\",\"url\":\"https://example.test\"}' # {request}"
         );
         auto navigate = registry.execute("web_browser", cc::core::ToolInput::from_json(R"({
@@ -1728,7 +1728,7 @@ TEST(Tools, RuntimeWebBrowserKeepsPageStateAcrossCalls) {
 }
 
 TEST(Tools, PowerShellToolValidatesCommandAndDangerousCmdlets) {
-    auto root = fs::temp_directory_path() / "cc_repl_powershell_validation_test";
+    auto root = fs::temp_directory_path() / "loom_powershell_validation_test";
     fs::remove_all(root);
     fs::create_directories(root);
 
@@ -1823,7 +1823,7 @@ TEST(Tools, RuntimePowerShellToolValidatesDangerousCommandBeforePlatformExecutio
 }
 
 TEST(Tools, RuntimePowerShellToolValidatesWorkingDirectoryBeforePlatformExecution) {
-    auto root = fs::temp_directory_path() / "cc_repl_powershell_runtime_cwd_test";
+    auto root = fs::temp_directory_path() / "loom_powershell_runtime_cwd_test";
     fs::remove_all(root);
 
     cc::core::ToolRegistry registry;
@@ -1843,7 +1843,7 @@ TEST(Tools, RuntimePowerShellToolExecutesRealCommandWithWorkingDirectoryOnWindow
 #ifndef _WIN32
     GTEST_SKIP() << "Real PowerShell execution is only available on Windows";
 #else
-    auto root = fs::temp_directory_path() / "cc_repl_powershell_runtime_windows_e2e";
+    auto root = fs::temp_directory_path() / "loom_powershell_runtime_windows_e2e";
     fs::remove_all(root);
     fs::create_directories(root);
 
@@ -2018,9 +2018,9 @@ TEST(Tools, RuntimeComputerUseScreenshotReturnsImageContentFromCaptureProvider) 
 
 TEST(Tools, RuntimeComputerUseUsesCommandBackendForScreenshotAndInputActions) {
     RuntimeComputerUseProviderGuard guard;
-    EnvironmentGuard disable_native_input("CC_REPL_DISABLE_NATIVE_COMPUTER_INPUT", "1");
+    EnvironmentGuard disable_native_input("LOOM_DISABLE_NATIVE_COMPUTER_INPUT", "1");
 
-    auto root = fs::temp_directory_path() / "cc_repl_computer_use_command_backend_test";
+    auto root = fs::temp_directory_path() / "loom_computer_use_command_backend_test";
     fs::remove_all(root);
     fs::create_directories(root);
     const auto script_path = root / "computer-use-host.js";
@@ -2030,7 +2030,7 @@ TEST(Tools, RuntimeComputerUseUsesCommandBackendForScreenshotAndInputActions) {
         script << R"JS(
 const fs = require('fs');
 const request = JSON.parse(process.argv[2] || '{}');
-fs.appendFileSync(process.env.CC_REPL_COMPUTER_USE_LOG, JSON.stringify(request) + '\n');
+fs.appendFileSync(process.env.LOOM_COMPUTER_USE_LOG, JSON.stringify(request) + '\n');
 if (request.action === 'screenshot') {
   console.log(JSON.stringify({
     success: true,
@@ -2046,9 +2046,9 @@ if (request.action === 'screenshot') {
 }
 )JS";
     }
-    EnvironmentGuard log_guard("CC_REPL_COMPUTER_USE_LOG", log_path.string());
+    EnvironmentGuard log_guard("LOOM_COMPUTER_USE_LOG", log_path.string());
     EnvironmentGuard command_guard(
-        "CC_REPL_COMPUTER_USE_CMD",
+        "LOOM_COMPUTER_USE_CMD",
         "node " + shell_quote_for_test(script_path.string()) + " {request}");
 
     cc::core::ToolRegistry registry;
@@ -2118,13 +2118,13 @@ TEST(Tools, ComputerUseManagerFailsInputActionsWithoutInputProvider) {
 }
 
 TEST(Tools, NativeComputerUseInputProviderHonorsDisableEnv) {
-    EnvironmentGuard guard("CC_REPL_DISABLE_NATIVE_COMPUTER_INPUT", "1");
+    EnvironmentGuard guard("LOOM_DISABLE_NATIVE_COMPUTER_INPUT", "1");
     auto provider = cc::core::computer_use::make_native_input_provider();
     EXPECT_FALSE(static_cast<bool>(provider));
 }
 
 TEST(Tools, NativeComputerUseInputProviderIsAvailableOnApple) {
-    if (const char* disabled = std::getenv("CC_REPL_DISABLE_NATIVE_COMPUTER_INPUT");
+    if (const char* disabled = std::getenv("LOOM_DISABLE_NATIVE_COMPUTER_INPUT");
         disabled && std::string_view(disabled) == "1") {
         GTEST_SKIP() << "native computer input is disabled by environment";
     }
@@ -2199,7 +2199,7 @@ TEST(Tools, RuntimeComputerUseDispatchesInputActionsToProvider) {
 
 TEST(Tools, RuntimeComputerUseRejectsInputActionsWithoutProvider) {
     RuntimeComputerUseProviderGuard guard;
-    EnvironmentGuard disable_native_input("CC_REPL_DISABLE_NATIVE_COMPUTER_INPUT", "1");
+    EnvironmentGuard disable_native_input("LOOM_DISABLE_NATIVE_COMPUTER_INPUT", "1");
 
     cc::core::ToolRegistry registry;
     cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
@@ -2216,10 +2216,10 @@ TEST(Tools, RuntimeComputerUseRejectsInputActionsWithoutProvider) {
 }
 
 TEST(Tools, LspToolUsesConfiguredLanguageServer) {
-    auto root = fs::temp_directory_path() / "cc_repl_runtime_lsp_tool_test";
+    auto root = fs::temp_directory_path() / "loom_runtime_lsp_tool_test";
     fs::remove_all(root);
-    fs::create_directories(root / ".claude" / "plugins" / "lsp-runtime-fixture");
-    const auto plugin_root = root / ".claude" / "plugins" / "lsp-runtime-fixture";
+    fs::create_directories(root / ".loom" / "plugins" / "lsp-runtime-fixture");
+    const auto plugin_root = root / ".loom" / "plugins" / "lsp-runtime-fixture";
     const auto server_path = plugin_root / "server.js";
     const auto source_path = root / "sample.foo";
     {
@@ -2335,7 +2335,7 @@ process.stdin.resume();
   "lspServers": {
     "fixture": {
       "command": "node",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/server.js"],
+      "args": ["${LOOM_PLUGIN_ROOT}/server.js"],
       "extensionToLanguage": {".foo": "foo"}
     }
   }
@@ -2343,7 +2343,7 @@ process.stdin.resume();
     }
 
     EnvironmentGuard home_guard("HOME", root.string());
-    EnvironmentGuard plugin_cache_guard("CLAUDE_CODE_PLUGIN_CACHE_DIR", (root / ".claude" / "plugins").string());
+    EnvironmentGuard plugin_cache_guard("LOOM_PLUGIN_CACHE_DIR", (root / ".loom" / "plugins").string());
     CurrentPathGuard cwd(root);
 
     cc::core::ToolRegistry registry;
@@ -2457,7 +2457,7 @@ TEST(Tools, BashToolTimesOutLongRunningCommands) {
 }
 
 TEST(Tools, BashToolStartsBackgroundCommands) {
-    auto root = fs::temp_directory_path() / "cc_repl_bash_background_test";
+    auto root = fs::temp_directory_path() / "loom_bash_background_test";
     fs::remove_all(root);
     fs::create_directories(root);
 
@@ -2694,7 +2694,7 @@ TEST(Tools, WebSearchFormatsDuckDuckGoHtmlResults) {
 }
 
 TEST(Tools, NotebookEditPreservesNotebookJsonStructure) {
-    auto root = fs::temp_directory_path() / "cc_repl_notebook_roundtrip_test";
+    auto root = fs::temp_directory_path() / "loom_notebook_roundtrip_test";
     fs::remove_all(root);
     fs::create_directories(root);
     auto notebook_path = root / "sample.ipynb";
@@ -2768,7 +2768,7 @@ TEST(Tools, NotebookEditPreservesNotebookJsonStructure) {
 }
 
 TEST(Tools, NotebookRuntimeAdapterAcceptsTypeScriptInputShape) {
-    auto root = fs::temp_directory_path() / "cc_repl_notebook_runtime_test";
+    auto root = fs::temp_directory_path() / "loom_notebook_runtime_test";
     fs::remove_all(root);
     fs::create_directories(root);
     auto notebook_path = root / "runtime.ipynb";
@@ -2816,7 +2816,7 @@ TEST(Tools, NotebookRuntimeAdapterAcceptsTypeScriptInputShape) {
 }
 
 TEST(Tools, FileReadFormatsNotebookCellsForToolResult) {
-    auto root = fs::temp_directory_path() / "cc_repl_notebook_read_test";
+    auto root = fs::temp_directory_path() / "loom_notebook_read_test";
     fs::remove_all(root);
     fs::create_directories(root);
     auto notebook_path = root / "read.ipynb";
@@ -2866,7 +2866,7 @@ TEST(Tools, FileReadFormatsNotebookCellsForToolResult) {
 }
 
 TEST(Tools, FileReadReturnsImageContentBlock) {
-    auto root = fs::temp_directory_path() / "cc_repl_image_read_test";
+    auto root = fs::temp_directory_path() / "loom_image_read_test";
     fs::remove_all(root);
     fs::create_directories(root);
     auto image_path = root / "pixel.png";
@@ -2900,7 +2900,7 @@ TEST(Tools, FileReadReturnsImageContentBlock) {
 }
 
 TEST(Tools, FileReadReturnsPdfDocumentBlock) {
-    auto root = fs::temp_directory_path() / "cc_repl_pdf_read_test";
+    auto root = fs::temp_directory_path() / "loom_pdf_read_test";
     fs::remove_all(root);
     fs::create_directories(root);
     auto pdf_path = root / "doc.pdf";
@@ -2928,11 +2928,11 @@ TEST(Tools, FileReadReturnsPdfDocumentBlock) {
 }
 
 TEST(Tools, AgentRuntimeLoadsMarkdownDefinitions) {
-    auto root = fs::temp_directory_path() / "cc_repl_agent_definition_test";
+    auto root = fs::temp_directory_path() / "loom_agent_definition_test";
     fs::remove_all(root);
-    fs::create_directories(root / ".claude" / "agents");
+    fs::create_directories(root / ".loom" / "agents");
     {
-        std::ofstream agent(root / ".claude" / "agents" / "reviewer.md");
+        std::ofstream agent(root / ".loom" / "agents" / "reviewer.md");
         agent << R"MD(---
 name: reviewer
 description: Reviews code changes
@@ -2943,7 +2943,7 @@ permissionMode: plan
 effort: 77
 memory: local
 color: cyan
-omitClaudeMd: true
+omitLoomMd: true
 criticalSystemReminder_EXPERIMENTAL: Stay within the review scope.
 maxTurns: 8
 initialPrompt: Inspect only changed files first.
@@ -2953,7 +2953,7 @@ You review code changes and report risks.
     }
 
     auto agents = cc::tools::agent_runtime::load_agent_definitions_from_dir(
-        root / ".claude" / "agents",
+        root / ".loom" / "agents",
         "projectSettings");
 
     ASSERT_EQ(agents.size(), 1u);
@@ -2972,7 +2972,7 @@ You review code changes and report risks.
     EXPECT_EQ(*agents.front().memory, "local");
     ASSERT_TRUE(agents.front().color.has_value());
     EXPECT_EQ(*agents.front().color, "cyan");
-    EXPECT_TRUE(agents.front().omit_claude_md);
+    EXPECT_TRUE(agents.front().omit_loom_md);
     ASSERT_TRUE(agents.front().critical_system_reminder.has_value());
     EXPECT_EQ(*agents.front().critical_system_reminder, "Stay within the review scope.");
     ASSERT_TRUE(agents.front().max_turns.has_value());
@@ -2984,11 +2984,11 @@ You review code changes and report risks.
 }
 
 TEST(Tools, AgentRuntimeLoadsJsonDefinitions) {
-    auto root = fs::temp_directory_path() / "cc_repl_agent_json_definition_test";
+    auto root = fs::temp_directory_path() / "loom_agent_json_definition_test";
     fs::remove_all(root);
-    fs::create_directories(root / ".claude" / "agents");
+    fs::create_directories(root / ".loom" / "agents");
     {
-        std::ofstream agents(root / ".claude" / "agents" / "agents.json");
+        std::ofstream agents(root / ".loom" / "agents" / "agents.json");
         agents << R"JSON({
   "json-reviewer": {
     "description": "Reviews JSON-defined agents",
@@ -3000,7 +3000,7 @@ TEST(Tools, AgentRuntimeLoadsJsonDefinitions) {
     "effort": "max",
     "memory": "project",
     "color": "green",
-    "omitClaudeMd": true,
+    "omitLoomMd": true,
     "criticalSystemReminder": "Stay in JSON parity scope.",
     "maxTurns": 4,
     "initialPrompt": "Start with the JSON definition.",
@@ -3045,7 +3045,7 @@ TEST(Tools, AgentRuntimeLoadsJsonDefinitions) {
     }
 
     auto agents = cc::tools::agent_runtime::load_agent_definitions_from_dir(
-        root / ".claude" / "agents",
+        root / ".loom" / "agents",
         "projectSettings");
 
     ASSERT_EQ(agents.size(), 2u);
@@ -3075,7 +3075,7 @@ TEST(Tools, AgentRuntimeLoadsJsonDefinitions) {
     EXPECT_EQ(*agent.memory, "project");
     ASSERT_TRUE(agent.color.has_value());
     EXPECT_EQ(*agent.color, "green");
-    EXPECT_TRUE(agent.omit_claude_md);
+    EXPECT_TRUE(agent.omit_loom_md);
     ASSERT_TRUE(agent.critical_system_reminder.has_value());
     EXPECT_EQ(*agent.critical_system_reminder, "Stay in JSON parity scope.");
     ASSERT_TRUE(agent.max_turns.has_value());
@@ -3120,13 +3120,13 @@ TEST(Tools, AgentRuntimeLoadsJsonDefinitions) {
 }
 
 TEST(Tools, AgentRuntimeGatesRemoteIsolationToAntUsers) {
-    auto root = fs::temp_directory_path() / "cc_repl_agent_remote_isolation_gate_test";
+    auto root = fs::temp_directory_path() / "loom_agent_remote_isolation_gate_test";
     fs::remove_all(root);
-    fs::create_directories(root / ".claude" / "agents");
+    fs::create_directories(root / ".loom" / "agents");
     EnvironmentUnsetGuard user_type_guard("USER_TYPE");
 
     {
-        std::ofstream agent(root / ".claude" / "agents" / "remote.md");
+        std::ofstream agent(root / ".loom" / "agents" / "remote.md");
         agent << R"MD(---
 name: remote-md-agent
 description: Remote markdown agent
@@ -3136,14 +3136,14 @@ Review remotely.
 )MD";
     }
     auto markdown_agents = cc::tools::agent_runtime::load_agent_definitions_from_dir(
-        root / ".claude" / "agents",
+        root / ".loom" / "agents",
         "projectSettings");
     ASSERT_EQ(markdown_agents.size(), 1u);
     EXPECT_EQ(markdown_agents.front().agent_type, "remote-md-agent");
     EXPECT_FALSE(markdown_agents.front().isolation.has_value());
 
     {
-        std::ofstream agents(root / ".claude" / "agents" / "agents.json");
+        std::ofstream agents(root / ".loom" / "agents" / "agents.json");
         agents << R"JSON({
   "remote-json-agent": {
     "description": "Remote JSON agent",
@@ -3153,14 +3153,14 @@ Review remotely.
 })JSON";
     }
     auto json_agents = cc::tools::agent_runtime::parse_agents_json_file(
-        root / ".claude" / "agents" / "agents.json",
+        root / ".loom" / "agents" / "agents.json",
         "projectSettings");
     EXPECT_TRUE(json_agents.empty());
 
     {
         EnvironmentGuard ant_user_guard("USER_TYPE", "ant");
         auto ant_agents = cc::tools::agent_runtime::parse_agents_json_file(
-            root / ".claude" / "agents" / "agents.json",
+            root / ".loom" / "agents" / "agents.json",
             "projectSettings");
         ASSERT_EQ(ant_agents.size(), 1u);
         ASSERT_TRUE(ant_agents.front().isolation.has_value());
@@ -3171,11 +3171,11 @@ Review remotely.
 }
 
 TEST(Tools, AgentRuntimeLoadsSettingsFlagAndPolicyAgentsInPriorityOrder) {
-    auto root = fs::temp_directory_path() / "cc_repl_agent_settings_priority_test";
+    auto root = fs::temp_directory_path() / "loom_agent_settings_priority_test";
     fs::remove_all(root);
-    fs::create_directories(root / ".claude");
+    fs::create_directories(root / ".loom");
     {
-        std::ofstream settings(root / ".claude" / "settings.json");
+        std::ofstream settings(root / ".loom" / "settings.json");
         settings << R"JSON({
   "agents": {
     "shared-agent": {
@@ -3208,7 +3208,7 @@ TEST(Tools, AgentRuntimeLoadsSettingsFlagAndPolicyAgentsInPriorityOrder) {
 })JSON";
     }
 
-    EnvironmentGuard flag_agents("CC_REPL_AGENTS_JSON", R"JSON({
+    EnvironmentGuard flag_agents("LOOM_AGENTS_JSON", R"JSON({
   "shared-agent": {
     "description": "Flag shared agent",
     "prompt": "flag prompt",
@@ -3220,7 +3220,7 @@ TEST(Tools, AgentRuntimeLoadsSettingsFlagAndPolicyAgentsInPriorityOrder) {
   }
 })JSON");
     EnvironmentUnsetGuard legacy_flag_agents("CLAUDE_CODE_AGENTS_JSON");
-    EnvironmentGuard policy_settings("CLAUDE_CODE_POLICY_SETTINGS", policy_path.string());
+    EnvironmentGuard policy_settings("LOOM_POLICY_SETTINGS", policy_path.string());
 
     auto agents = cc::tools::agent_runtime::get_all_agent_definitions(root);
     auto find_agent = [&](std::string_view type) -> const cc::tools::agent_runtime::AgentDefinition* {
@@ -3255,11 +3255,11 @@ TEST(Tools, AgentRuntimeLoadsSettingsFlagAndPolicyAgentsInPriorityOrder) {
 }
 
 TEST(Tools, AgentRuntimeSimpleModeOnlyLoadsBuiltInAgents) {
-    auto root = fs::temp_directory_path() / "cc_repl_agent_simple_mode_test";
+    auto root = fs::temp_directory_path() / "loom_agent_simple_mode_test";
     fs::remove_all(root);
-    fs::create_directories(root / ".claude" / "agents");
+    fs::create_directories(root / ".loom" / "agents");
     {
-        std::ofstream agent(root / ".claude" / "agents" / "project-only.md");
+        std::ofstream agent(root / ".loom" / "agents" / "project-only.md");
         agent << R"MD(---
 name: project-only
 description: Project agent should be hidden in simple mode
@@ -3280,16 +3280,16 @@ Project prompt.
 })JSON";
     }
 
-    EnvironmentUnsetGuard disable_guard("CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS");
-    EnvironmentGuard simple_mode("CLAUDE_CODE_SIMPLE", "1");
-    EnvironmentGuard flag_agents("CC_REPL_AGENTS_JSON", R"JSON({
+    EnvironmentUnsetGuard disable_guard("LOOM_AGENT_SDK_DISABLE_BUILTIN_AGENTS");
+    EnvironmentGuard simple_mode("LOOM_SIMPLE", "1");
+    EnvironmentGuard flag_agents("LOOM_AGENTS_JSON", R"JSON({
   "flag-only": {
     "description": "Flag agent should be hidden in simple mode",
     "prompt": "flag prompt"
   }
 })JSON");
     EnvironmentUnsetGuard legacy_flag_agents("CLAUDE_CODE_AGENTS_JSON");
-    EnvironmentGuard policy_settings("CLAUDE_CODE_POLICY_SETTINGS", policy_path.string());
+    EnvironmentGuard policy_settings("LOOM_POLICY_SETTINGS", policy_path.string());
 
     auto agents = cc::tools::agent_runtime::get_all_agent_definitions(root);
     auto has_agent = [&](std::string_view type) {
@@ -3307,12 +3307,12 @@ Project prompt.
 }
 
 TEST(Tools, BuiltInAgentDefinitionsHonorNativeFeatureGates) {
-    EnvironmentUnsetGuard disable_guard("CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS");
-    EnvironmentUnsetGuard explore_guard("CLAUDE_CODE_ENABLE_EXPLORE_PLAN_AGENTS");
+    EnvironmentUnsetGuard disable_guard("LOOM_AGENT_SDK_DISABLE_BUILTIN_AGENTS");
+    EnvironmentUnsetGuard explore_guard("LOOM_ENABLE_EXPLORE_PLAN_AGENTS");
     EnvironmentUnsetGuard legacy_explore_guard("BUILTIN_EXPLORE_PLAN_AGENTS");
-    EnvironmentUnsetGuard verification_guard("CLAUDE_CODE_ENABLE_VERIFICATION_AGENT");
+    EnvironmentUnsetGuard verification_guard("LOOM_ENABLE_VERIFICATION_AGENT");
     EnvironmentUnsetGuard legacy_verification_guard("VERIFICATION_AGENT");
-    EnvironmentUnsetGuard entrypoint_guard("CLAUDE_CODE_ENTRYPOINT");
+    EnvironmentUnsetGuard entrypoint_guard("LOOM_ENTRYPOINT");
 
     auto has_agent = [](const std::vector<cc::tools::agent_runtime::AgentDefinition>& agents, std::string_view type) {
         return std::ranges::any_of(agents, [&](const auto& agent) {
@@ -3323,7 +3323,7 @@ TEST(Tools, BuiltInAgentDefinitionsHonorNativeFeatureGates) {
     auto defaults = cc::tools::agent_runtime::built_in_agent_definitions();
     EXPECT_TRUE(has_agent(defaults, "general-purpose"));
     EXPECT_TRUE(has_agent(defaults, "statusline-setup"));
-    EXPECT_TRUE(has_agent(defaults, "claude-code-guide"));
+    EXPECT_TRUE(has_agent(defaults, "loom-guide"));
     EXPECT_FALSE(has_agent(defaults, "Explore"));
     EXPECT_FALSE(has_agent(defaults, "Plan"));
     EXPECT_FALSE(has_agent(defaults, "verification"));
@@ -3334,40 +3334,40 @@ TEST(Tools, BuiltInAgentDefinitionsHonorNativeFeatureGates) {
     EXPECT_EQ(general->tools, std::vector<std::string>{"*"});
 
     {
-        EnvironmentGuard explore_enabled("CLAUDE_CODE_ENABLE_EXPLORE_PLAN_AGENTS", "1");
+        EnvironmentGuard explore_enabled("LOOM_ENABLE_EXPLORE_PLAN_AGENTS", "1");
         auto enabled = cc::tools::agent_runtime::built_in_agent_definitions();
         EXPECT_TRUE(has_agent(enabled, "Explore"));
         EXPECT_TRUE(has_agent(enabled, "Plan"));
     }
 
     {
-        EnvironmentGuard verification_enabled("CLAUDE_CODE_ENABLE_VERIFICATION_AGENT", "1");
+        EnvironmentGuard verification_enabled("LOOM_ENABLE_VERIFICATION_AGENT", "1");
         auto enabled = cc::tools::agent_runtime::built_in_agent_definitions();
         EXPECT_TRUE(has_agent(enabled, "verification"));
     }
 
     {
-        EnvironmentGuard sdk_entrypoint("CLAUDE_CODE_ENTRYPOINT", "sdk-ts");
+        EnvironmentGuard sdk_entrypoint("LOOM_ENTRYPOINT", "sdk-ts");
         auto sdk_agents = cc::tools::agent_runtime::built_in_agent_definitions();
-        EXPECT_FALSE(has_agent(sdk_agents, "claude-code-guide"));
+        EXPECT_FALSE(has_agent(sdk_agents, "loom-guide"));
     }
 
     {
-        EnvironmentGuard disabled("CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS", "1");
+        EnvironmentGuard disabled("LOOM_AGENT_SDK_DISABLE_BUILTIN_AGENTS", "1");
         auto interactive_agents = cc::tools::agent_runtime::built_in_agent_definitions();
         EXPECT_FALSE(interactive_agents.empty());
         EXPECT_TRUE(has_agent(interactive_agents, "general-purpose"));
     }
 
     {
-        EnvironmentGuard sdk_entrypoint("CLAUDE_CODE_ENTRYPOINT", "sdk-cli");
-        EnvironmentGuard disabled("CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS", "1");
+        EnvironmentGuard sdk_entrypoint("LOOM_ENTRYPOINT", "sdk-cli");
+        EnvironmentGuard disabled("LOOM_AGENT_SDK_DISABLE_BUILTIN_AGENTS", "1");
         EXPECT_TRUE(cc::tools::agent_runtime::built_in_agent_definitions().empty());
     }
 }
 
 TEST(Tools, AgentRuntimeResolvesLooseAgentTypeInputs) {
-    EnvironmentGuard explore_enabled("CLAUDE_CODE_ENABLE_EXPLORE_PLAN_AGENTS", "1");
+    EnvironmentGuard explore_enabled("LOOM_ENABLE_EXPLORE_PLAN_AGENTS", "1");
     auto agents = cc::tools::agent_runtime::built_in_agent_definitions();
 
     auto general = cc::tools::agent_runtime::resolve_requested_agent_type("General Purpose", agents);
@@ -3386,7 +3386,7 @@ TEST(Tools, AgentRuntimeResolvesLooseAgentTypeInputs) {
 }
 
 TEST(Tools, AgentToolAcceptsTypeScriptInputShape) {
-    EnvironmentGuard explore_enabled("CLAUDE_CODE_ENABLE_EXPLORE_PLAN_AGENTS", "1");
+    EnvironmentGuard explore_enabled("LOOM_ENABLE_EXPLORE_PLAN_AGENTS", "1");
     cc::tools::AgentConfig config;
     config.max_depth = 0;
     cc::tools::AgentTool tool(config);
@@ -3413,23 +3413,23 @@ TEST(Tools, AgentToolRejectsUnknownAgentTypesBeforeExecution) {
     auto result = tool.execute(cc::core::ToolInput::from_json(R"({
       "description": "Missing agent",
       "prompt": "Use an unknown agent",
-      "subagent_type": "cc-repl-missing-agent-type"
+      "subagent_type": "loom-missing-agent-type"
     })"));
 
     ASSERT_TRUE(result.has_value());
     ASSERT_TRUE(result->is_error);
     ASSERT_FALSE(result->content.empty());
-    EXPECT_NE(result->content.front().text.find("Agent type 'cc-repl-missing-agent-type' not found"), std::string::npos);
+    EXPECT_NE(result->content.front().text.find("Agent type 'loom-missing-agent-type' not found"), std::string::npos);
     EXPECT_EQ(result->content.front().text.find("recursion depth"), std::string::npos);
 }
 
 TEST(Tools, AgentToolLoadsProjectAgentDefinitions) {
-    auto root = fs::temp_directory_path() / "cc_repl_agent_tool_project_test";
+    auto root = fs::temp_directory_path() / "loom_agent_tool_project_test";
     auto previous_cwd = fs::current_path();
     fs::remove_all(root);
-    fs::create_directories(root / ".claude" / "agents");
+    fs::create_directories(root / ".loom" / "agents");
     {
-        std::ofstream agent(root / ".claude" / "agents" / "project-reviewer.md");
+        std::ofstream agent(root / ".loom" / "agents" / "project-reviewer.md");
         agent << R"MD(---
 name: project-reviewer
 description: Reviews project changes
@@ -3463,12 +3463,12 @@ Review the project change and report concrete risks.
 }
 
 TEST(Tools, AgentToolAppliesInitialPromptAndToolRestrictionsInExecutionPlan) {
-    EnvironmentUnsetGuard auto_memory_guard("CLAUDE_CODE_DISABLE_AUTO_MEMORY");
-    auto root = fs::temp_directory_path() / "cc_repl_agent_plan_test";
+    EnvironmentUnsetGuard auto_memory_guard("LOOM_DISABLE_AUTO_MEMORY");
+    auto root = fs::temp_directory_path() / "loom_agent_plan_test";
     fs::remove_all(root);
-    fs::create_directories(root / ".claude" / "agents");
+    fs::create_directories(root / ".loom" / "agents");
     {
-        std::ofstream agent(root / ".claude" / "agents" / "restricted.md");
+        std::ofstream agent(root / ".loom" / "agents" / "restricted.md");
         agent << R"MD(---
 name: restricted-reviewer
 description: Reviews with restricted tools
@@ -3479,7 +3479,7 @@ permissionMode: acceptEdits
 effort: high
 memory: project
 color: purple
-omitClaudeMd: true
+omitLoomMd: true
 criticalSystemReminder: Stay focused on migration risk.
 initialPrompt: First inspect the diff.
 maxTurns: 2
@@ -3509,23 +3509,23 @@ Review with a narrow tool set.
         EXPECT_EQ(*plan->memory, "project");
         ASSERT_TRUE(plan->color.has_value());
         EXPECT_EQ(*plan->color, "purple");
-        EXPECT_TRUE(plan->omit_claude_md);
+        EXPECT_TRUE(plan->omit_loom_md);
         ASSERT_TRUE(plan->critical_system_reminder.has_value());
         EXPECT_EQ(*plan->critical_system_reminder, "Stay focused on migration risk.");
         EXPECT_NE(plan->system_prompt.find("- effort: high"), std::string::npos);
         EXPECT_NE(plan->system_prompt.find("- memory: project"), std::string::npos);
         EXPECT_NE(plan->system_prompt.find("- color: purple"), std::string::npos);
-        EXPECT_NE(plan->system_prompt.find("- omit_claude_md: true"), std::string::npos);
+        EXPECT_NE(plan->system_prompt.find("- omit_loom_md: true"), std::string::npos);
         EXPECT_NE(plan->system_prompt.find("<critical_system_reminder>"), std::string::npos);
         EXPECT_NE(plan->system_prompt.find("# Persistent Agent Memory"), std::string::npos);
         EXPECT_NE(plan->system_prompt.find("project-scope"), std::string::npos);
-        EXPECT_NE(plan->system_prompt.find((root / ".claude" / "agent-memory" / "restricted-reviewer").string()), std::string::npos);
+        EXPECT_NE(plan->system_prompt.find((root / ".loom" / "agent-memory" / "restricted-reviewer").string()), std::string::npos);
         EXPECT_NE(plan->prompt.find("First inspect the diff.\n\nReview this change."), std::string::npos);
         EXPECT_TRUE(std::ranges::contains(plan->allowed_tools, "Read"));
         EXPECT_TRUE(std::ranges::contains(plan->allowed_tools, "Bash"));
         EXPECT_TRUE(std::ranges::contains(plan->allowed_tools, "Write"));
         EXPECT_TRUE(std::ranges::contains(plan->allowed_tools, "Edit"));
-        EXPECT_TRUE(fs::exists(root / ".claude" / "agent-memory" / "restricted-reviewer"));
+        EXPECT_TRUE(fs::exists(root / ".loom" / "agent-memory" / "restricted-reviewer"));
         ASSERT_EQ(plan->disallowed_tools.size(), 1u);
         EXPECT_EQ(plan->disallowed_tools.front(), "Bash");
     }
@@ -3534,11 +3534,11 @@ Review with a narrow tool set.
 }
 
 TEST(Tools, AgentToolPermissionModeHonorsParentPrecedenceInExecutionPlan) {
-    auto root = fs::temp_directory_path() / "cc_repl_agent_permission_mode_precedence_test";
+    auto root = fs::temp_directory_path() / "loom_agent_permission_mode_precedence_test";
     fs::remove_all(root);
-    fs::create_directories(root / ".claude" / "agents");
+    fs::create_directories(root / ".loom" / "agents");
     {
-        std::ofstream agent(root / ".claude" / "agents" / "permission-planner.md");
+        std::ofstream agent(root / ".loom" / "agents" / "permission-planner.md");
         agent << R"MD(---
 name: permission-planner
 description: Plans with explicit agent permission mode
@@ -3588,12 +3588,12 @@ Plan the assigned work.
 }
 
 TEST(Tools, AgentToolHonorsDisabledAutoMemoryForAgentDefinitions) {
-    EnvironmentGuard disable_memory("CLAUDE_CODE_DISABLE_AUTO_MEMORY", "1");
-    auto root = fs::temp_directory_path() / "cc_repl_agent_memory_disabled_test";
+    EnvironmentGuard disable_memory("LOOM_DISABLE_AUTO_MEMORY", "1");
+    auto root = fs::temp_directory_path() / "loom_agent_memory_disabled_test";
     fs::remove_all(root);
-    fs::create_directories(root / ".claude" / "agents");
+    fs::create_directories(root / ".loom" / "agents");
     {
-        std::ofstream agent(root / ".claude" / "agents" / "memory-disabled.md");
+        std::ofstream agent(root / ".loom" / "agents" / "memory-disabled.md");
         agent << R"MD(---
 name: memory-disabled
 description: Agent with memory disabled by env
@@ -3620,7 +3620,7 @@ Do focused work.
         ASSERT_EQ(plan->allowed_tools.size(), 1u);
         EXPECT_EQ(plan->allowed_tools.front(), "Grep");
         EXPECT_EQ(plan->system_prompt.find("# Persistent Agent Memory"), std::string::npos);
-        EXPECT_FALSE(fs::exists(root / ".claude" / "agent-memory-local" / "memory-disabled"));
+        EXPECT_FALSE(fs::exists(root / ".loom" / "agent-memory-local" / "memory-disabled"));
     }
 
     fs::remove_all(root);
@@ -3628,7 +3628,7 @@ Do focused work.
 
 TEST(Tools, AgentToolAppliesAgentEffortToApiRequest) {
     EnvironmentUnsetGuard user_type_guard("USER_TYPE");
-    EnvironmentUnsetGuard always_effort_guard("CLAUDE_CODE_ALWAYS_ENABLE_EFFORT");
+    EnvironmentUnsetGuard always_effort_guard("LOOM_ALWAYS_ENABLE_EFFORT");
 
     {
         cc::services::api::CreateMessageRequest request;
@@ -3702,11 +3702,11 @@ TEST(Tools, AgentToolAppliesAgentEffortToApiRequest) {
 }
 
 TEST(Tools, AgentToolPropagatesParentAgentIdIntoExecutionPlanAndRecord) {
-    auto root = fs::temp_directory_path() / "cc_repl_agent_parent_id_test";
+    auto root = fs::temp_directory_path() / "loom_agent_parent_id_test";
     fs::remove_all(root);
-    fs::create_directories(root / ".claude" / "agents");
+    fs::create_directories(root / ".loom" / "agents");
     {
-        std::ofstream agent(root / ".claude" / "agents" / "child-reviewer.md");
+        std::ofstream agent(root / ".loom" / "agents" / "child-reviewer.md");
         agent << R"MD(---
 name: child-reviewer
 description: Reviews as a nested child agent
@@ -3716,7 +3716,7 @@ Review as a child agent.
 )MD";
     }
 
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     {
@@ -3762,10 +3762,10 @@ Review as a child agent.
 }
 
 TEST(Tools, AgentToolMarksForkChildContextAndRejectsImplicitNestedFork) {
-    auto root = fs::temp_directory_path() / "cc_repl_agent_live_fork_guard_test";
+    auto root = fs::temp_directory_path() / "loom_agent_live_fork_guard_test";
     fs::remove_all(root);
     fs::create_directories(root);
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     auto parsed = cc::tools::agent::parse_agent_tool_request(cc::core::ToolInput::from_json(R"({
@@ -3824,10 +3824,10 @@ TEST(Tools, AgentToolMarksForkChildContextAndRejectsImplicitNestedFork) {
 }
 
 TEST(Tools, AgentToolAcceptsForkParentPromptContextAndExactTools) {
-    auto root = fs::temp_directory_path() / "cc_repl_agent_fork_context_plan_test";
+    auto root = fs::temp_directory_path() / "loom_agent_fork_context_plan_test";
     fs::remove_all(root);
     fs::create_directories(root);
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     auto parsed = cc::tools::agent::parse_agent_tool_request(cc::core::ToolInput::from_json(R"({
@@ -3888,10 +3888,10 @@ TEST(Tools, AgentToolAcceptsForkParentPromptContextAndExactTools) {
 }
 
 TEST(Tools, AgentToolBuildsTsForkContextFromParentAssistantMessage) {
-    auto root = fs::temp_directory_path() / "cc_repl_agent_live_parent_fork_context_test";
+    auto root = fs::temp_directory_path() / "loom_agent_live_parent_fork_context_test";
     fs::remove_all(root);
     fs::create_directories(root);
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     auto parsed = cc::tools::agent::parse_agent_tool_request(cc::core::ToolInput::from_json(R"({
@@ -3950,10 +3950,10 @@ TEST(Tools, AgentToolBuildsTsForkContextFromParentAssistantMessage) {
 }
 
 TEST(Tools, AgentToolInjectsImplicitForkInputsAtAgentCallSite) {
-    auto root = fs::temp_directory_path() / "cc_repl_agent_implicit_fork_injection_test";
+    auto root = fs::temp_directory_path() / "loom_agent_implicit_fork_injection_test";
     fs::remove_all(root);
     fs::create_directories(root);
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     cc::tools::agent::AgentExecutionPlan parent_plan;
@@ -4054,7 +4054,7 @@ TEST(Tools, AgentToolPermissionRulesMatchToolNamesFromParameterizedSpecs) {
 
 TEST(Tools, AgentToolBaseFilteringMatchesTypeScriptToolSets) {
     EnvironmentUnsetGuard user_type_guard("USER_TYPE");
-    EnvironmentUnsetGuard nested_guard("CC_REPL_ENABLE_NESTED_AGENTS");
+    EnvironmentUnsetGuard nested_guard("LOOM_ENABLE_NESTED_AGENTS");
 
     EXPECT_FALSE(cc::tools::agent::agent_base_filter_allows_tool(
         "task_output",
@@ -4129,7 +4129,7 @@ TEST(Tools, AgentToolBaseFilteringMatchesTypeScriptToolSets) {
         std::nullopt,
         true));
     {
-        EnvironmentGuard nested_agents("CC_REPL_ENABLE_NESTED_AGENTS", "1");
+        EnvironmentGuard nested_agents("LOOM_ENABLE_NESTED_AGENTS", "1");
         EXPECT_TRUE(cc::tools::agent::agent_base_filter_allows_tool(
             "Agent",
             false,
@@ -4158,11 +4158,11 @@ TEST(Tools, AgentToolAgentTypePermissionRulesDoNotConstrainWorkerTools) {
 }
 
 TEST(Tools, AgentToolRestrictsAgentTypesFromParameterizedPermissionSpecs) {
-    auto root = fs::temp_directory_path() / "cc_repl_agent_type_permission_test";
+    auto root = fs::temp_directory_path() / "loom_agent_type_permission_test";
     fs::remove_all(root);
-    fs::create_directories(root / ".claude" / "agents");
+    fs::create_directories(root / ".loom" / "agents");
     {
-        std::ofstream agent(root / ".claude" / "agents" / "restricted-reviewer.md");
+        std::ofstream agent(root / ".loom" / "agents" / "restricted-reviewer.md");
         agent << R"MD(---
 name: restricted-reviewer
 description: Reviews only when explicitly allowed
@@ -4202,12 +4202,12 @@ Review the task.
 }
 
 TEST(Tools, AgentToolPreloadsSkillsFromDefinition) {
-    auto root = fs::temp_directory_path() / "cc_repl_agent_skills_test";
+    auto root = fs::temp_directory_path() / "loom_agent_skills_test";
     fs::remove_all(root);
-    fs::create_directories(root / ".claude" / "agents");
-    fs::create_directories(root / ".claude" / "skills" / "review-skill");
+    fs::create_directories(root / ".loom" / "agents");
+    fs::create_directories(root / ".loom" / "skills" / "review-skill");
     {
-        std::ofstream agent(root / ".claude" / "agents" / "skillful.md");
+        std::ofstream agent(root / ".loom" / "agents" / "skillful.md");
         agent << R"MD(---
 name: skillful-reviewer
 description: Reviews with preloaded skills
@@ -4217,7 +4217,7 @@ Review with a preloaded workflow.
 )MD";
     }
     {
-        std::ofstream skill(root / ".claude" / "skills" / "review-skill" / "SKILL.md");
+        std::ofstream skill(root / ".loom" / "skills" / "review-skill" / "SKILL.md");
         skill << R"MD(---
 description: Review skill
 ---
@@ -4245,9 +4245,9 @@ Inspect the patch before reporting findings.
 }
 
 TEST(Tools, AgentToolLoadsPluginAgentsAndPluginSkills) {
-    auto root = fs::temp_directory_path() / "cc_repl_plugin_agent_skills_test";
+    auto root = fs::temp_directory_path() / "loom_plugin_agent_skills_test";
     fs::remove_all(root);
-    const auto plugin_root = root / ".claude" / "plugins" / "plugin-fixture";
+    const auto plugin_root = root / ".loom" / "plugins" / "plugin-fixture";
     fs::create_directories(plugin_root / "agents");
     fs::create_directories(plugin_root / "skills" / "review-skill");
     const auto server_path = plugin_root / "server.js";
@@ -4407,11 +4407,11 @@ Use the plugin review checklist.
 }
 
 TEST(Tools, AgentToolAcceptsBackgroundAndIsolationDefinitionFeatures) {
-    auto root = fs::temp_directory_path() / "cc_repl_agent_background_definition_test";
+    auto root = fs::temp_directory_path() / "loom_agent_background_definition_test";
     fs::remove_all(root);
-    fs::create_directories(root / ".claude" / "agents");
+    fs::create_directories(root / ".loom" / "agents");
     {
-        std::ofstream agent(root / ".claude" / "agents" / "async.md");
+        std::ofstream agent(root / ".loom" / "agents" / "async.md");
         agent << R"MD(---
 name: async-reviewer
 description: Reviews in background native modes
@@ -4447,18 +4447,18 @@ Review asynchronously.
 }
 
 TEST(Tools, AgentToolExecutesDefinitionHooksForBackgroundAgents) {
-    auto root = fs::temp_directory_path() / "cc_repl_agent_hooks_definition_test";
+    auto root = fs::temp_directory_path() / "loom_agent_hooks_definition_test";
     fs::remove_all(root);
-    fs::create_directories(root / ".claude" / "agents");
+    fs::create_directories(root / ".loom" / "agents");
     auto marker = root / "hook-marker.txt";
     {
-        std::ofstream agent(root / ".claude" / "agents" / "hooked.md");
+        std::ofstream agent(root / ".loom" / "agents" / "hooked.md");
         agent << R"MD(---
 name: hooked-reviewer
 description: Reviews with hooks
 hooks:
   SubagentStart:
-    - command: "printf start-$CLAUDE_HOOK_AGENT_ID > )MD" << marker.string() << R"MD(; echo hook-started"
+    - command: "printf start-$LOOM_HOOK_AGENT_ID > )MD" << marker.string() << R"MD(; echo hook-started"
 ---
 Review with hooks.
 )MD";
@@ -4498,18 +4498,18 @@ Review with hooks.
 }
 
 TEST(Tools, AgentToolExecutesSubagentStopHookWhenBackgroundAgentIsCancelled) {
-    auto root = fs::temp_directory_path() / "cc_repl_agent_stop_hook_cancel_test";
+    auto root = fs::temp_directory_path() / "loom_agent_stop_hook_cancel_test";
     fs::remove_all(root);
-    fs::create_directories(root / ".claude" / "agents");
+    fs::create_directories(root / ".loom" / "agents");
     auto marker = root / "stop-hook-marker.txt";
     {
-        std::ofstream agent(root / ".claude" / "agents" / "hooked-stop.md");
+        std::ofstream agent(root / ".loom" / "agents" / "hooked-stop.md");
         agent << R"MD(---
 name: hooked-stop-reviewer
 description: Reviews with stop hooks
 hooks:
   SubagentStop:
-    - command: "printf stop-$CLAUDE_HOOK_AGENT_ID > )MD" << shell_quote_for_test(marker.string()) << R"MD(; echo hook-stopped"
+    - command: "printf stop-$LOOM_HOOK_AGENT_ID > )MD" << shell_quote_for_test(marker.string()) << R"MD(; echo hook-stopped"
 ---
 Review with stop hooks.
 )MD";
@@ -4517,10 +4517,10 @@ Review with stop hooks.
 
     LocalSlowAnthropicStreamServer server(std::chrono::milliseconds(750));
     ASSERT_TRUE(server.valid());
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
     EnvironmentGuard api_key_guard("ANTHROPIC_API_KEY", "test-key");
     EnvironmentGuard base_url_guard("ANTHROPIC_BASE_URL", server.base_url());
-    EnvironmentGuard model_guard("CLAUDE_MODEL", "stop-hook-cancel-test-model");
+    EnvironmentGuard model_guard("LOOM_MODEL", "stop-hook-cancel-test-model");
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     {
@@ -4579,23 +4579,23 @@ Review with stop hooks.
 }
 
 TEST(Tools, AgentToolRunsFrontmatterToolHooksAroundNativeToolUse) {
-    auto root = fs::temp_directory_path() / "cc_repl_agent_tool_hooks_test";
+    auto root = fs::temp_directory_path() / "loom_agent_tool_hooks_test";
     fs::remove_all(root);
-    fs::create_directories(root / ".claude" / "agents");
+    fs::create_directories(root / ".loom" / "agents");
     auto pre_marker = root / "pre-hook-marker.txt";
     auto post_marker = root / "post-hook-marker.txt";
     {
-        std::ofstream agent(root / ".claude" / "agents" / "tool-hooks.md");
+        std::ofstream agent(root / ".loom" / "agents" / "tool-hooks.md");
         agent << R"MD(---
 name: tool-hook-reviewer
 description: Reviews with tool hooks
 hooks:
   PreToolUse:
     Bash:
-      - command: "printf pre-$CLAUDE_HOOK_TOOL_NAME-$CLAUDE_HOOK_TOOL_USE_ID > )MD" << shell_quote_for_test(pre_marker.string()) << R"MD(; echo pre-ran"
+      - command: "printf pre-$LOOM_HOOK_TOOL_NAME-$LOOM_HOOK_TOOL_USE_ID > )MD" << shell_quote_for_test(pre_marker.string()) << R"MD(; echo pre-ran"
   PostToolUse:
     Bash:
-      - command: "printf post-$CLAUDE_HOOK_TOOL_NAME-$CLAUDE_HOOK_TOOL_USE_ID-$CLAUDE_HOOK_TOOL_OUTPUT_PREVIEW > )MD" << shell_quote_for_test(post_marker.string()) << R"MD(; printf '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"post context visible\"}}'"
+      - command: "printf post-$LOOM_HOOK_TOOL_NAME-$LOOM_HOOK_TOOL_USE_ID-$LOOM_HOOK_TOOL_OUTPUT_PREVIEW > )MD" << shell_quote_for_test(post_marker.string()) << R"MD(; printf '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"post context visible\"}}'"
 ---
 Review with tool hooks.
 )MD";
@@ -4603,10 +4603,10 @@ Review with tool hooks.
 
     LocalScriptedBashToolUseAnthropicServer server("printf tool-output", "tool hook complete");
     ASSERT_TRUE(server.valid());
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
     EnvironmentGuard api_key_guard("ANTHROPIC_API_KEY", "test-key");
     EnvironmentGuard base_url_guard("ANTHROPIC_BASE_URL", server.base_url());
-    EnvironmentGuard model_guard("CLAUDE_MODEL", "tool-hook-test-model");
+    EnvironmentGuard model_guard("LOOM_MODEL", "tool-hook-test-model");
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     {
@@ -4648,12 +4648,12 @@ Review with tool hooks.
 }
 
 TEST(Tools, AgentToolPreToolFrontmatterHookCanDenyNativeToolUse) {
-    auto root = fs::temp_directory_path() / "cc_repl_agent_pre_tool_deny_test";
+    auto root = fs::temp_directory_path() / "loom_agent_pre_tool_deny_test";
     fs::remove_all(root);
-    fs::create_directories(root / ".claude" / "agents");
+    fs::create_directories(root / ".loom" / "agents");
     auto executed_marker = root / "bash-executed.txt";
     {
-        std::ofstream agent(root / ".claude" / "agents" / "deny-tool.md");
+        std::ofstream agent(root / ".loom" / "agents" / "deny-tool.md");
         agent << R"MD(---
 name: deny-tool-reviewer
 description: Denies Bash through a pre hook
@@ -4670,10 +4670,10 @@ Review with deny hooks.
         "printf executed > " + shell_quote_for_test(executed_marker.string()),
         "pre hook deny complete");
     ASSERT_TRUE(server.valid());
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
     EnvironmentGuard api_key_guard("ANTHROPIC_API_KEY", "test-key");
     EnvironmentGuard base_url_guard("ANTHROPIC_BASE_URL", server.base_url());
-    EnvironmentGuard model_guard("CLAUDE_MODEL", "pre-tool-deny-test-model");
+    EnvironmentGuard model_guard("LOOM_MODEL", "pre-tool-deny-test-model");
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     {
@@ -4710,9 +4710,9 @@ Review with deny hooks.
 }
 
 TEST(Tools, AgentToolPreToolFrontmatterHookCanUpdateNativeToolInput) {
-    auto root = fs::temp_directory_path() / "cc_repl_agent_pre_tool_update_test";
+    auto root = fs::temp_directory_path() / "loom_agent_pre_tool_update_test";
     fs::remove_all(root);
-    fs::create_directories(root / ".claude" / "agents");
+    fs::create_directories(root / ".loom" / "agents");
     auto marker = root / "bash-updated-input.txt";
     auto hook_json = root / "updated-input-hook.json";
     {
@@ -4722,7 +4722,7 @@ TEST(Tools, AgentToolPreToolFrontmatterHookCanUpdateNativeToolInput) {
             << R"(","description":"rewritten by hook"},"additionalContext":"updated input context"}})";
     }
     {
-        std::ofstream agent(root / ".claude" / "agents" / "update-tool.md");
+        std::ofstream agent(root / ".loom" / "agents" / "update-tool.md");
         agent << R"MD(---
 name: update-tool-reviewer
 description: Updates Bash input through a pre hook
@@ -4739,10 +4739,10 @@ Review with update hooks.
         "printf original > " + shell_quote_for_test(marker.string()),
         "pre hook update complete");
     ASSERT_TRUE(server.valid());
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
     EnvironmentGuard api_key_guard("ANTHROPIC_API_KEY", "test-key");
     EnvironmentGuard base_url_guard("ANTHROPIC_BASE_URL", server.base_url());
-    EnvironmentGuard model_guard("CLAUDE_MODEL", "pre-tool-update-test-model");
+    EnvironmentGuard model_guard("LOOM_MODEL", "pre-tool-update-test-model");
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     {
@@ -4780,7 +4780,7 @@ Review with update hooks.
 }
 
 TEST(Tools, AgentToolLivePermissionHookDeniesChildReadWriteEditAndBash) {
-    auto root = fs::temp_directory_path() / "cc_repl_agent_live_permission_deny_test";
+    auto root = fs::temp_directory_path() / "loom_agent_live_permission_deny_test";
     fs::remove_all(root);
     fs::create_directories(root);
 
@@ -4840,9 +4840,9 @@ TEST(Tools, AgentToolLivePermissionHookDeniesChildReadWriteEditAndBash) {
         },
     };
 
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
     EnvironmentGuard api_key_guard("ANTHROPIC_API_KEY", "test-key");
-    EnvironmentGuard model_guard("CLAUDE_MODEL", "live-permission-deny-test-model");
+    EnvironmentGuard model_guard("LOOM_MODEL", "live-permission-deny-test-model");
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     for (const auto& tc : cases) {
@@ -4916,7 +4916,7 @@ TEST(Tools, AgentToolLivePermissionHookDeniesChildReadWriteEditAndBash) {
 }
 
 TEST(Tools, RuntimeRegistryEditToolEditsFileAndReturnsOutput) {
-    auto root = fs::temp_directory_path() / "cc_repl_runtime_registry_edit_test";
+    auto root = fs::temp_directory_path() / "loom_runtime_registry_edit_test";
     fs::remove_all(root);
     fs::create_directories(root);
     auto path = root / "edit.txt";
@@ -4947,7 +4947,7 @@ TEST(Tools, RuntimeRegistryEditToolEditsFileAndReturnsOutput) {
 }
 
 TEST(Tools, AgentToolBackgroundAgentPreservesLivePermissionHook) {
-    auto root = fs::temp_directory_path() / "cc_repl_agent_background_live_permission_test";
+    auto root = fs::temp_directory_path() / "loom_agent_background_live_permission_test";
     fs::remove_all(root);
     fs::create_directories(root);
 
@@ -4962,10 +4962,10 @@ TEST(Tools, AgentToolBackgroundAgentPreservesLivePermissionHook) {
         "background permission deny complete");
     ASSERT_TRUE(server.valid());
 
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
     EnvironmentGuard api_key_guard("ANTHROPIC_API_KEY", "test-key");
     EnvironmentGuard base_url_guard("ANTHROPIC_BASE_URL", server.base_url());
-    EnvironmentGuard model_guard("CLAUDE_MODEL", "background-live-permission-test-model");
+    EnvironmentGuard model_guard("LOOM_MODEL", "background-live-permission-test-model");
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     std::vector<cc::hooks::PermissionContext> calls;
@@ -5034,7 +5034,7 @@ TEST(Tools, AgentToolBackgroundAgentPreservesLivePermissionHook) {
 }
 
 TEST(Tools, AgentToolLivePermissionHookCanAllowAndUpdateChildToolInputs) {
-    auto root = fs::temp_directory_path() / "cc_repl_agent_live_permission_update_test";
+    auto root = fs::temp_directory_path() / "loom_agent_live_permission_update_test";
     fs::remove_all(root);
     fs::create_directories(root);
 
@@ -5121,9 +5121,9 @@ TEST(Tools, AgentToolLivePermissionHookCanAllowAndUpdateChildToolInputs) {
         },
     };
 
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
     EnvironmentGuard api_key_guard("ANTHROPIC_API_KEY", "test-key");
-    EnvironmentGuard model_guard("CLAUDE_MODEL", "live-permission-update-test-model");
+    EnvironmentGuard model_guard("LOOM_MODEL", "live-permission-update-test-model");
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     for (const auto& tc : cases) {
@@ -5210,20 +5210,20 @@ TEST(Tools, AgentToolLivePermissionHookCanAllowAndUpdateChildToolInputs) {
 }
 
 TEST(Tools, AgentToolPreToolHookCanPreventContinuationAfterToolExecution) {
-    auto root = fs::temp_directory_path() / "cc_repl_agent_pre_tool_stop_test";
+    auto root = fs::temp_directory_path() / "loom_agent_pre_tool_stop_test";
     fs::remove_all(root);
-    fs::create_directories(root / ".claude" / "agents");
+    fs::create_directories(root / ".loom" / "agents");
     auto pre_marker = root / "pre-stop-hook-marker.txt";
     auto bash_marker = root / "pre-stop-bash-executed.txt";
     {
-        std::ofstream agent(root / ".claude" / "agents" / "stop-after-pre-tool.md");
+        std::ofstream agent(root / ".loom" / "agents" / "stop-after-pre-tool.md");
         agent << R"MD(---
 name: stop-after-pre-tool-reviewer
 description: Stops continuation after pre-hooked Bash
 hooks:
   PreToolUse:
     Bash:
-      - command: "printf pre-stop-$CLAUDE_HOOK_TOOL_NAME-$CLAUDE_HOOK_TOOL_USE_ID > )MD" << shell_quote_for_test(pre_marker.string()) << R"MD(; printf '{\"continue\":false,\"stopReason\":\"stop after pre hook\",\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"pre stop context\"}}'"
+      - command: "printf pre-stop-$LOOM_HOOK_TOOL_NAME-$LOOM_HOOK_TOOL_USE_ID > )MD" << shell_quote_for_test(pre_marker.string()) << R"MD(; printf '{\"continue\":false,\"stopReason\":\"stop after pre hook\",\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"pre stop context\"}}'"
 ---
 Review with pre stop hooks.
 )MD";
@@ -5233,10 +5233,10 @@ Review with pre stop hooks.
         "printf tool-output > " + shell_quote_for_test(bash_marker.string()),
         "should not be requested");
     ASSERT_TRUE(server.valid());
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
     EnvironmentGuard api_key_guard("ANTHROPIC_API_KEY", "test-key");
     EnvironmentGuard base_url_guard("ANTHROPIC_BASE_URL", server.base_url());
-    EnvironmentGuard model_guard("CLAUDE_MODEL", "pre-tool-stop-hook-test-model");
+    EnvironmentGuard model_guard("LOOM_MODEL", "pre-tool-stop-hook-test-model");
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     {
@@ -5279,19 +5279,19 @@ Review with pre stop hooks.
 }
 
 TEST(Tools, AgentToolRunsPostToolUseFailureHookForFailedNativeToolUse) {
-    auto root = fs::temp_directory_path() / "cc_repl_agent_post_tool_failure_hook_test";
+    auto root = fs::temp_directory_path() / "loom_agent_post_tool_failure_hook_test";
     fs::remove_all(root);
-    fs::create_directories(root / ".claude" / "agents");
+    fs::create_directories(root / ".loom" / "agents");
     auto failure_marker = root / "failure-hook-marker.txt";
     {
-        std::ofstream agent(root / ".claude" / "agents" / "failure-hook.md");
+        std::ofstream agent(root / ".loom" / "agents" / "failure-hook.md");
         agent << R"MD(---
 name: failure-hook-reviewer
 description: Runs failure hooks
 hooks:
   PostToolUseFailure:
     Bash:
-      - command: "printf failure-$CLAUDE_HOOK_TOOL_NAME-$CLAUDE_HOOK_TOOL_USE_ID > )MD" << shell_quote_for_test(failure_marker.string()) << R"MD(; printf '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUseFailure\",\"additionalContext\":\"failure context visible\"}}'"
+      - command: "printf failure-$LOOM_HOOK_TOOL_NAME-$LOOM_HOOK_TOOL_USE_ID > )MD" << shell_quote_for_test(failure_marker.string()) << R"MD(; printf '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUseFailure\",\"additionalContext\":\"failure context visible\"}}'"
 ---
 Review with failure hooks.
 )MD";
@@ -5299,10 +5299,10 @@ Review with failure hooks.
 
     LocalScriptedBashToolUseAnthropicServer server("printf failing; exit 7", "failure hook complete");
     ASSERT_TRUE(server.valid());
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
     EnvironmentGuard api_key_guard("ANTHROPIC_API_KEY", "test-key");
     EnvironmentGuard base_url_guard("ANTHROPIC_BASE_URL", server.base_url());
-    EnvironmentGuard model_guard("CLAUDE_MODEL", "post-tool-failure-hook-test-model");
+    EnvironmentGuard model_guard("LOOM_MODEL", "post-tool-failure-hook-test-model");
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     {
@@ -5340,19 +5340,19 @@ Review with failure hooks.
 }
 
 TEST(Tools, AgentToolPostToolHookCanPreventContinuation) {
-    auto root = fs::temp_directory_path() / "cc_repl_agent_post_tool_stop_test";
+    auto root = fs::temp_directory_path() / "loom_agent_post_tool_stop_test";
     fs::remove_all(root);
-    fs::create_directories(root / ".claude" / "agents");
+    fs::create_directories(root / ".loom" / "agents");
     auto post_marker = root / "post-stop-hook-marker.txt";
     {
-        std::ofstream agent(root / ".claude" / "agents" / "stop-after-tool.md");
+        std::ofstream agent(root / ".loom" / "agents" / "stop-after-tool.md");
         agent << R"MD(---
 name: stop-after-tool-reviewer
 description: Stops continuation after Bash
 hooks:
   PostToolUse:
     Bash:
-      - command: "printf post-stop-$CLAUDE_HOOK_TOOL_NAME-$CLAUDE_HOOK_TOOL_USE_ID > )MD" << shell_quote_for_test(post_marker.string()) << R"MD(; printf '{\"continue\":false,\"stopReason\":\"stop after post hook\",\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"post stop context\"}}'"
+      - command: "printf post-stop-$LOOM_HOOK_TOOL_NAME-$LOOM_HOOK_TOOL_USE_ID > )MD" << shell_quote_for_test(post_marker.string()) << R"MD(; printf '{\"continue\":false,\"stopReason\":\"stop after post hook\",\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"post stop context\"}}'"
 ---
 Review with stop hooks.
 )MD";
@@ -5360,10 +5360,10 @@ Review with stop hooks.
 
     LocalScriptedBashToolUseAnthropicServer server("printf tool-output", "should not be requested");
     ASSERT_TRUE(server.valid());
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
     EnvironmentGuard api_key_guard("ANTHROPIC_API_KEY", "test-key");
     EnvironmentGuard base_url_guard("ANTHROPIC_BASE_URL", server.base_url());
-    EnvironmentGuard model_guard("CLAUDE_MODEL", "post-tool-stop-hook-test-model");
+    EnvironmentGuard model_guard("LOOM_MODEL", "post-tool-stop-hook-test-model");
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     {
@@ -5404,9 +5404,9 @@ Review with stop hooks.
 }
 
 TEST(Tools, AgentToolPostToolHookCanUpdateMcpToolOutput) {
-    auto root = fs::temp_directory_path() / "cc_repl_agent_post_tool_mcp_update_test";
+    auto root = fs::temp_directory_path() / "loom_agent_post_tool_mcp_update_test";
     fs::remove_all(root);
-    fs::create_directories(root / ".claude" / "agents");
+    fs::create_directories(root / ".loom" / "agents");
     const auto mcp_server_path = root / "server.js";
     const auto hook_json = root / "updated-mcp-output-hook.json";
     {
@@ -5461,7 +5461,7 @@ rl.on('line', line => {
         hook << R"({"hookSpecificOutput":{"hookEventName":"PostToolUse","updatedMCPToolOutput":"rewritten mcp output","additionalContext":"mcp updated context"}})";
     }
     {
-        std::ofstream agent(root / ".claude" / "agents" / "mcp-output-hook.md");
+        std::ofstream agent(root / ".loom" / "agents" / "mcp-output-hook.md");
         agent << R"MD(---
 name: mcp-output-hook-reviewer
 description: Updates MCP tool output through a post hook
@@ -5494,10 +5494,10 @@ Review with MCP output hooks.
         "toolu_mcp_fixture",
         "mcp hook complete");
     ASSERT_TRUE(server.valid());
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
     EnvironmentGuard api_key_guard("ANTHROPIC_API_KEY", "test-key");
     EnvironmentGuard base_url_guard("ANTHROPIC_BASE_URL", server.base_url());
-    EnvironmentGuard model_guard("CLAUDE_MODEL", "post-tool-mcp-update-hook-test-model");
+    EnvironmentGuard model_guard("LOOM_MODEL", "post-tool-mcp-update-hook-test-model");
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     {
@@ -5567,11 +5567,11 @@ TEST(Tools, AgentToolExtractsSubagentStartHookAdditionalContext) {
 }
 
 TEST(Tools, AgentToolRejectsMissingRequiredMcpServers) {
-    auto root = fs::temp_directory_path() / "cc_repl_agent_required_mcp_missing_test";
+    auto root = fs::temp_directory_path() / "loom_agent_required_mcp_missing_test";
     fs::remove_all(root);
-    fs::create_directories(root / ".claude" / "agents");
+    fs::create_directories(root / ".loom" / "agents");
     {
-        std::ofstream agent(root / ".claude" / "agents" / "linear.md");
+        std::ofstream agent(root / ".loom" / "agents" / "linear.md");
         agent << R"MD(---
 name: linear-reviewer
 description: Requires Linear MCP tools
@@ -5606,9 +5606,9 @@ Review Linear context.
 }
 
 TEST(Tools, AgentToolLoadsAgentSpecificMcpServers) {
-    auto root = fs::temp_directory_path() / "cc_repl_agent_mcp_servers_test";
+    auto root = fs::temp_directory_path() / "loom_agent_mcp_servers_test";
     fs::remove_all(root);
-    fs::create_directories(root / ".claude" / "agents");
+    fs::create_directories(root / ".loom" / "agents");
     const auto server_path = root / "server.js";
     {
         std::ofstream server(server_path);
@@ -5647,7 +5647,7 @@ rl.on('line', line => {
 )JS";
     }
     {
-        std::ofstream agent(root / ".claude" / "agents" / "mcp-agent.md");
+        std::ofstream agent(root / ".loom" / "agents" / "mcp-agent.md");
         agent << R"MD(---
 name: mcp-agent
 description: Uses an agent-specific MCP server
@@ -5694,9 +5694,9 @@ Use the agent-specific MCP server.
 }
 
 TEST(Tools, AgentToolLoadsInlineAgentMcpServersWithoutDroppingReferencedServers) {
-    auto root = fs::temp_directory_path() / "cc_repl_agent_inline_mcp_servers_test";
+    auto root = fs::temp_directory_path() / "loom_agent_inline_mcp_servers_test";
     fs::remove_all(root);
-    fs::create_directories(root / ".claude" / "agents");
+    fs::create_directories(root / ".loom" / "agents");
     const auto server_path = root / "server.js";
     {
         std::ofstream server(server_path);
@@ -5739,7 +5739,7 @@ rl.on('line', line => {
 )JS";
     }
     {
-        std::ofstream agent(root / ".claude" / "agents" / "inline-mcp-agent.md");
+        std::ofstream agent(root / ".loom" / "agents" / "inline-mcp-agent.md");
         agent << std::format(R"MD(---
 name: inline-mcp-agent
 description: Uses referenced and inline MCP servers
@@ -5866,9 +5866,9 @@ TEST(Tools, AgentToolCleansInlineMcpServersWhenPlanBuildFails) {
         },
     }).has_value());
 
-    auto root = fs::temp_directory_path() / "cc_repl_agent_inline_mcp_failure_cleanup_test";
+    auto root = fs::temp_directory_path() / "loom_agent_inline_mcp_failure_cleanup_test";
     fs::remove_all(root);
-    fs::create_directories(root / ".claude" / "agents");
+    fs::create_directories(root / ".loom" / "agents");
     const auto server_path = root / "server.js";
     {
         std::ofstream server(server_path);
@@ -5911,7 +5911,7 @@ rl.on('line', line => {
 )JS";
     }
     {
-        std::ofstream agent(root / ".claude" / "agents" / "inline-failure.md");
+        std::ofstream agent(root / ".loom" / "agents" / "inline-failure.md");
         agent << std::format(R"MD(---
 name: inline-failure-agent
 description: Fails after configuring inline MCP servers
@@ -5960,9 +5960,9 @@ Review with inline MCP cleanup on failure.
 }
 
 TEST(Tools, AgentToolAcceptsReadyRequiredMcpServers) {
-    auto root = fs::temp_directory_path() / "cc_repl_agent_required_mcp_ready_test";
+    auto root = fs::temp_directory_path() / "loom_agent_required_mcp_ready_test";
     fs::remove_all(root);
-    fs::create_directories(root / ".claude" / "agents");
+    fs::create_directories(root / ".loom" / "agents");
     const auto server_path = root / "server.js";
     {
         std::ofstream server(server_path);
@@ -6001,7 +6001,7 @@ rl.on('line', line => {
 )JS";
     }
     {
-        std::ofstream agent(root / ".claude" / "agents" / "linear.md");
+        std::ofstream agent(root / ".loom" / "agents" / "linear.md");
         agent << R"MD(---
 name: linear-reviewer
 description: Requires Linear MCP tools
@@ -6072,10 +6072,10 @@ TEST(Tools, AgentToolAcceptsBackgroundNativeParameters) {
 }
 
 TEST(Tools, AgentToolResumeExistingBackgroundPreservesNativeHistoryAndPendingQueue) {
-    auto root = fs::temp_directory_path() / "cc_repl_agent_resume_existing_preserve_test";
+    auto root = fs::temp_directory_path() / "loom_agent_resume_existing_preserve_test";
     fs::remove_all(root);
     fs::create_directories(root);
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     cc::tools::agent_runtime::native_agent_store().upsert(cc::tools::agent_runtime::NativeAgentRecord{
@@ -6127,10 +6127,10 @@ TEST(Tools, AgentToolResumeExistingBackgroundPreservesNativeHistoryAndPendingQue
 }
 
 TEST(Tools, AgentToolRejectsRemoteIsolationForNonAntUser) {
-    auto root = fs::temp_directory_path() / "cc_repl_agent_remote_isolation_reject_test";
+    auto root = fs::temp_directory_path() / "loom_agent_remote_isolation_reject_test";
     fs::remove_all(root);
     fs::create_directories(root);
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
     EnvironmentUnsetGuard user_type_guard("USER_TYPE");
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
@@ -6160,13 +6160,13 @@ TEST(Tools, AgentToolRejectsRemoteIsolationForNonAntUser) {
 }
 
 TEST(Tools, AgentToolLaunchesRemoteIsolationThroughRemoteTrigger) {
-    auto root = fs::temp_directory_path() / "cc_repl_agent_remote_isolation_test";
+    auto root = fs::temp_directory_path() / "loom_agent_remote_isolation_test";
     fs::remove_all(root);
     fs::create_directories(root);
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
     EnvironmentGuard user_type_guard("USER_TYPE", "ant");
-    EnvironmentGuard trigger_guard("CC_REPL_REMOTE_TRIGGER_COMMAND", "printf remote-started");
-    EnvironmentUnsetGuard target_guard("CC_REPL_REMOTE_AGENT_TARGET");
+    EnvironmentGuard trigger_guard("LOOM_REMOTE_TRIGGER_COMMAND", "printf remote-started");
+    EnvironmentUnsetGuard target_guard("LOOM_REMOTE_AGENT_TARGET");
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     cc::core::ToolRegistry registry;
@@ -6222,9 +6222,9 @@ TEST(Tools, AgentToolLaunchesRemoteIsolationThroughRemoteTrigger) {
 TEST(Tools, TeleportUtilsListSessionsSendEventAndUpdateTitle) {
     LocalRemoteSessionApiServer server;
     ASSERT_TRUE(server.valid());
-    EnvironmentGuard api_base_guard("CC_REPL_REMOTE_API_BASE_URL", server.base_url());
-    EnvironmentGuard token_guard("CC_REPL_REMOTE_OAUTH_TOKEN", "test-token");
-    EnvironmentGuard org_guard("CC_REPL_REMOTE_ORG_UUID", "test-org");
+    EnvironmentGuard api_base_guard("LOOM_REMOTE_API_BASE_URL", server.base_url());
+    EnvironmentGuard token_guard("LOOM_REMOTE_OAUTH_TOKEN", "test-token");
+    EnvironmentGuard org_guard("LOOM_REMOTE_ORG_UUID", "test-org");
 
     auto sessions = cc::utils::teleport::fetch_code_sessions_from_sessions_api();
     ASSERT_TRUE(sessions.has_value()) << sessions.error();
@@ -6258,11 +6258,11 @@ TEST(Tools, TeleportUtilsListSessionsSendEventAndUpdateTitle) {
 TEST(Tools, TeleportUtilsFetchCreateAndSelectEnvironments) {
     LocalRemoteSessionApiServer server;
     ASSERT_TRUE(server.valid());
-    EnvironmentGuard api_base_guard("CC_REPL_REMOTE_API_BASE_URL", server.base_url());
-    EnvironmentGuard token_guard("CC_REPL_REMOTE_OAUTH_TOKEN", "test-token");
-    EnvironmentGuard org_guard("CC_REPL_REMOTE_ORG_UUID", "test-org");
-    EnvironmentUnsetGuard default_env_guard("CC_REPL_REMOTE_DEFAULT_ENVIRONMENT_ID");
-    EnvironmentUnsetGuard default_env_guard_2("CLAUDE_CODE_REMOTE_DEFAULT_ENVIRONMENT_ID");
+    EnvironmentGuard api_base_guard("LOOM_REMOTE_API_BASE_URL", server.base_url());
+    EnvironmentGuard token_guard("LOOM_REMOTE_OAUTH_TOKEN", "test-token");
+    EnvironmentGuard org_guard("LOOM_REMOTE_ORG_UUID", "test-org");
+    EnvironmentUnsetGuard default_env_guard("LOOM_REMOTE_DEFAULT_ENVIRONMENT_ID");
+    EnvironmentUnsetGuard default_env_guard_2("LOOM_REMOTE_DEFAULT_ENVIRONMENT_ID");
     EnvironmentUnsetGuard default_env_guard_3("ANTHROPIC_REMOTE_DEFAULT_ENVIRONMENT_ID");
 
     auto environments = cc::utils::teleport::fetch_environments();
@@ -6285,7 +6285,7 @@ TEST(Tools, TeleportUtilsCreatesAndUploadsGitBundle) {
     LocalRemoteSessionApiServer server;
     ASSERT_TRUE(server.valid());
 
-    auto root = fs::temp_directory_path() / "cc_repl_git_bundle_upload_test";
+    auto root = fs::temp_directory_path() / "loom_git_bundle_upload_test";
     fs::remove_all(root);
     fs::create_directories(root);
     {
@@ -6325,19 +6325,19 @@ TEST(Tools, AgentToolPersistsRemoteSessionMetadataFromTriggerOutput) {
     LocalRemoteSessionApiServer server;
     ASSERT_TRUE(server.valid());
 
-    auto root = fs::temp_directory_path() / "cc_repl_agent_remote_metadata_test";
+    auto root = fs::temp_directory_path() / "loom_agent_remote_metadata_test";
     fs::remove_all(root);
     fs::create_directories(root);
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
-    EnvironmentGuard api_base_guard("CC_REPL_REMOTE_API_BASE_URL", server.base_url());
-    EnvironmentGuard token_guard("CC_REPL_REMOTE_OAUTH_TOKEN", "test-token");
-    EnvironmentGuard org_guard("CC_REPL_REMOTE_ORG_UUID", "test-org");
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard api_base_guard("LOOM_REMOTE_API_BASE_URL", server.base_url());
+    EnvironmentGuard token_guard("LOOM_REMOTE_OAUTH_TOKEN", "test-token");
+    EnvironmentGuard org_guard("LOOM_REMOTE_ORG_UUID", "test-org");
     EnvironmentGuard user_type_guard("USER_TYPE", "ant");
-    EnvironmentGuard auto_poll_guard("CC_REPL_REMOTE_AGENT_AUTO_POLL", "0");
+    EnvironmentGuard auto_poll_guard("LOOM_REMOTE_AGENT_AUTO_POLL", "0");
     EnvironmentGuard trigger_guard(
-        "CC_REPL_REMOTE_TRIGGER_COMMAND",
+        "LOOM_REMOTE_TRIGGER_COMMAND",
         R"(printf '{"session_id":"remote-session-1","sessionUrl":"https://remote.example/session/remote-session-1","taskId":"remote-task-1","remoteTaskType":"remote-agent","title":"Remote review session","isLongRunning":true}')");
-    EnvironmentUnsetGuard target_guard("CC_REPL_REMOTE_AGENT_TARGET");
+    EnvironmentUnsetGuard target_guard("LOOM_REMOTE_AGENT_TARGET");
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     cc::core::ToolRegistry registry;
@@ -6412,21 +6412,21 @@ TEST(Tools, AgentToolStartsRemoteAutoPollerAndCompletionNotification) {
     LocalRemoteSessionApiServer server;
     ASSERT_TRUE(server.valid());
 
-    auto root = fs::temp_directory_path() / "cc_repl_agent_remote_auto_poll_test";
+    auto root = fs::temp_directory_path() / "loom_agent_remote_auto_poll_test";
     fs::remove_all(root);
     fs::create_directories(root);
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
-    EnvironmentGuard api_base_guard("CC_REPL_REMOTE_API_BASE_URL", server.base_url());
-    EnvironmentGuard token_guard("CC_REPL_REMOTE_OAUTH_TOKEN", "test-token");
-    EnvironmentGuard org_guard("CC_REPL_REMOTE_ORG_UUID", "test-org");
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard api_base_guard("LOOM_REMOTE_API_BASE_URL", server.base_url());
+    EnvironmentGuard token_guard("LOOM_REMOTE_OAUTH_TOKEN", "test-token");
+    EnvironmentGuard org_guard("LOOM_REMOTE_ORG_UUID", "test-org");
     EnvironmentGuard user_type_guard("USER_TYPE", "ant");
-    EnvironmentGuard poll_interval_guard("CC_REPL_REMOTE_AGENT_POLL_INTERVAL_MS", "10");
-    EnvironmentUnsetGuard auto_poll_guard("CC_REPL_REMOTE_AGENT_AUTO_POLL");
+    EnvironmentGuard poll_interval_guard("LOOM_REMOTE_AGENT_POLL_INTERVAL_MS", "10");
+    EnvironmentUnsetGuard auto_poll_guard("LOOM_REMOTE_AGENT_AUTO_POLL");
     const auto trigger_json = R"({"session_id":"remote-session-http","sessionUrl":"https://remote.example/session/remote-session-http","taskId":"remote-auto-task","remoteTaskType":"remote-agent","title":"Remote auto poll session"})";
     EnvironmentGuard trigger_guard(
-        "CC_REPL_REMOTE_TRIGGER_COMMAND",
+        "LOOM_REMOTE_TRIGGER_COMMAND",
         "printf " + shell_quote_for_test(trigger_json));
-    EnvironmentUnsetGuard target_guard("CC_REPL_REMOTE_AGENT_TARGET");
+    EnvironmentUnsetGuard target_guard("LOOM_REMOTE_AGENT_TARGET");
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     cc::core::ToolRegistry registry;
@@ -6477,15 +6477,15 @@ TEST(Tools, AgentRuntimeRestoresRemoteAutoPollerFromPersistedRecord) {
     LocalRemoteSessionApiServer server;
     ASSERT_TRUE(server.valid());
 
-    auto root = fs::temp_directory_path() / "cc_repl_remote_restore_poll_test";
+    auto root = fs::temp_directory_path() / "loom_remote_restore_poll_test";
     fs::remove_all(root);
     fs::create_directories(root);
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
-    EnvironmentGuard api_base_guard("CC_REPL_REMOTE_API_BASE_URL", server.base_url());
-    EnvironmentGuard token_guard("CC_REPL_REMOTE_OAUTH_TOKEN", "test-token");
-    EnvironmentGuard org_guard("CC_REPL_REMOTE_ORG_UUID", "test-org");
-    EnvironmentGuard poll_interval_guard("CC_REPL_REMOTE_AGENT_POLL_INTERVAL_MS", "10");
-    EnvironmentUnsetGuard auto_poll_guard("CC_REPL_REMOTE_AGENT_AUTO_POLL");
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard api_base_guard("LOOM_REMOTE_API_BASE_URL", server.base_url());
+    EnvironmentGuard token_guard("LOOM_REMOTE_OAUTH_TOKEN", "test-token");
+    EnvironmentGuard org_guard("LOOM_REMOTE_ORG_UUID", "test-org");
+    EnvironmentGuard poll_interval_guard("LOOM_REMOTE_AGENT_POLL_INTERVAL_MS", "10");
+    EnvironmentUnsetGuard auto_poll_guard("LOOM_REMOTE_AGENT_AUTO_POLL");
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     cc::tools::agent_runtime::native_agent_store().upsert(cc::tools::agent_runtime::NativeAgentRecord{
@@ -6529,10 +6529,10 @@ TEST(Tools, AgentRuntimeRestoresRemoteAutoPollerFromPersistedRecord) {
 }
 
 TEST(Tools, RuntimeTaskUpdateAppliesRemotePollEventsAndStableIdleCompletion) {
-    auto root = fs::temp_directory_path() / "cc_repl_remote_poll_update_test";
+    auto root = fs::temp_directory_path() / "loom_remote_poll_update_test";
     fs::remove_all(root);
     fs::create_directories(root);
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     cc::core::ToolRegistry registry;
@@ -6608,10 +6608,10 @@ TEST(Tools, RuntimeTaskUpdateAppliesRemotePollEventsAndStableIdleCompletion) {
 }
 
 TEST(Tools, RuntimeTaskUpdateMarksRemotePollResultFailure) {
-    auto root = fs::temp_directory_path() / "cc_repl_remote_poll_failure_test";
+    auto root = fs::temp_directory_path() / "loom_remote_poll_failure_test";
     fs::remove_all(root);
     fs::create_directories(root);
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     cc::core::ToolRegistry registry;
@@ -6661,13 +6661,13 @@ TEST(Tools, RuntimeTaskUpdatePollsRemoteSessionEventsOverHttp) {
     LocalRemoteSessionApiServer server;
     ASSERT_TRUE(server.valid());
 
-    auto root = fs::temp_directory_path() / "cc_repl_remote_poll_http_test";
+    auto root = fs::temp_directory_path() / "loom_remote_poll_http_test";
     fs::remove_all(root);
     fs::create_directories(root);
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
-    EnvironmentGuard api_base_guard("CC_REPL_REMOTE_API_BASE_URL", server.base_url());
-    EnvironmentGuard token_guard("CC_REPL_REMOTE_OAUTH_TOKEN", "test-token");
-    EnvironmentGuard org_guard("CC_REPL_REMOTE_ORG_UUID", "test-org");
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard api_base_guard("LOOM_REMOTE_API_BASE_URL", server.base_url());
+    EnvironmentGuard token_guard("LOOM_REMOTE_OAUTH_TOKEN", "test-token");
+    EnvironmentGuard org_guard("LOOM_REMOTE_ORG_UUID", "test-org");
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     cc::core::ToolRegistry registry;
@@ -6714,13 +6714,13 @@ TEST(Tools, RuntimeTaskStopArchivesRemoteSessionOverHttp) {
     LocalRemoteSessionApiServer server;
     ASSERT_TRUE(server.valid());
 
-    auto root = fs::temp_directory_path() / "cc_repl_remote_archive_http_test";
+    auto root = fs::temp_directory_path() / "loom_remote_archive_http_test";
     fs::remove_all(root);
     fs::create_directories(root);
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
-    EnvironmentGuard api_base_guard("CC_REPL_REMOTE_API_BASE_URL", server.base_url());
-    EnvironmentGuard token_guard("CC_REPL_REMOTE_OAUTH_TOKEN", "test-token");
-    EnvironmentGuard org_guard("CC_REPL_REMOTE_ORG_UUID", "test-org");
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard api_base_guard("LOOM_REMOTE_API_BASE_URL", server.base_url());
+    EnvironmentGuard token_guard("LOOM_REMOTE_OAUTH_TOKEN", "test-token");
+    EnvironmentGuard org_guard("LOOM_REMOTE_ORG_UUID", "test-org");
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     cc::core::ToolRegistry registry;
@@ -6757,12 +6757,12 @@ TEST(Tools, RuntimeTaskStopArchivesRemoteSessionOverHttp) {
 }
 
 TEST(Tools, AgentToolSpawnsTeammateWithDeterministicAgentId) {
-    auto root = fs::temp_directory_path() / "cc_repl_agent_teammate_spawn_test";
+    auto root = fs::temp_directory_path() / "loom_agent_teammate_spawn_test";
     fs::remove_all(root);
     fs::create_directories(root);
-    EnvironmentGuard team_dir_guard("CC_REPL_TEAM_RUNTIME_DIR", (root / "teams").string());
-    EnvironmentGuard agent_runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "agents").string());
-    EnvironmentGuard teammate_backend_guard("CC_REPL_TEAMMATE_BACKEND", "in-process");
+    EnvironmentGuard team_dir_guard("LOOM_TEAM_RUNTIME_DIR", (root / "teams").string());
+    EnvironmentGuard agent_runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "agents").string());
+    EnvironmentGuard teammate_backend_guard("LOOM_TEAMMATE_BACKEND", "in-process");
     cc::utils::swarm_backends::BackendRegistry::reset();
     cc::tools::global_team_store().clear_for_testing();
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
@@ -6835,12 +6835,12 @@ TEST(Tools, AgentToolSpawnsTeammateWithDeterministicAgentId) {
 }
 
 TEST(Tools, AgentToolSpawnsTeammateWithUniqueNameWhenTeamAlreadyHasMember) {
-    auto root = fs::temp_directory_path() / "cc_repl_agent_teammate_unique_spawn_test";
+    auto root = fs::temp_directory_path() / "loom_agent_teammate_unique_spawn_test";
     fs::remove_all(root);
     fs::create_directories(root);
-    EnvironmentGuard team_dir_guard("CC_REPL_TEAM_RUNTIME_DIR", (root / "teams").string());
-    EnvironmentGuard agent_runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "agents").string());
-    EnvironmentGuard teammate_backend_guard("CC_REPL_TEAMMATE_BACKEND", "in-process");
+    EnvironmentGuard team_dir_guard("LOOM_TEAM_RUNTIME_DIR", (root / "teams").string());
+    EnvironmentGuard agent_runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "agents").string());
+    EnvironmentGuard teammate_backend_guard("LOOM_TEAMMATE_BACKEND", "in-process");
     cc::utils::swarm_backends::BackendRegistry::reset();
     cc::tools::global_team_store().clear_for_testing();
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
@@ -6951,11 +6951,11 @@ TEST(Tools, AgentToolRejectsBackgroundAgentFromInProcessTeammateContext) {
 }
 
 TEST(Tools, SwarmBackendsInProcessExecutorTracksActiveTeammates) {
-    auto root = fs::temp_directory_path() / "cc_repl_in_process_executor_mailbox_test";
+    auto root = fs::temp_directory_path() / "loom_in_process_executor_mailbox_test";
     fs::remove_all(root);
     fs::create_directories(root);
-    EnvironmentGuard team_dir_guard("CC_REPL_TEAM_RUNTIME_DIR", (root / "teams").string());
-    EnvironmentGuard teammate_backend_guard("CC_REPL_TEAMMATE_BACKEND", "in-process");
+    EnvironmentGuard team_dir_guard("LOOM_TEAM_RUNTIME_DIR", (root / "teams").string());
+    EnvironmentGuard teammate_backend_guard("LOOM_TEAMMATE_BACKEND", "in-process");
     cc::utils::swarm_backends::BackendRegistry::reset();
 
     auto executor = cc::utils::swarm_backends::BackendRegistry::get_teammate_executor();
@@ -7021,7 +7021,7 @@ TEST(Tools, SwarmBackendsInProcessExecutorTracksActiveTeammates) {
 }
 
 TEST(Tools, SwarmBackendsPaneCommandPropagatesPermissionModeFlags) {
-    EnvironmentGuard teammate_command_guard("CC_REPL_TEAMMATE_COMMAND", "/tmp/cc repl");
+    EnvironmentGuard teammate_command_guard("LOOM_TEAMMATE_COMMAND", "/tmp/cc repl");
 
     cc::utils::swarm_backends::TeammateSpawnConfig config{
         .name = "reviewer-one",
@@ -7073,8 +7073,8 @@ TEST(Tools, TeamHelpersResolveTeammateAgentTypeAndPlanMode) {
         }
     } clear_dynamic_team_context;
 
-    EnvironmentGuard agent_type_guard("CC_REPL_AGENT_TYPE", "verification");
-    EnvironmentGuard plan_mode_guard("CC_REPL_PLAN_MODE_REQUIRED", "true");
+    EnvironmentGuard agent_type_guard("LOOM_AGENT_TYPE", "verification");
+    EnvironmentGuard plan_mode_guard("LOOM_PLAN_MODE_REQUIRED", "true");
 
     auto env_agent_type = cc::utils::get_agent_type();
     ASSERT_TRUE(env_agent_type.has_value());
@@ -7125,11 +7125,11 @@ TEST(Tools, AgentRuntimeBuildsTeammateAppendSystemPromptFromAgentType) {
         }
     } clear_dynamic_team_context;
 
-    auto root = fs::temp_directory_path() / "cc_repl_teammate_agent_type_prompt_test";
+    auto root = fs::temp_directory_path() / "loom_teammate_agent_type_prompt_test";
     fs::remove_all(root);
-    fs::create_directories(root / ".claude" / "agents");
+    fs::create_directories(root / ".loom" / "agents");
     {
-        std::ofstream agent(root / ".claude" / "agents" / "reviewer.md");
+        std::ofstream agent(root / ".loom" / "agents" / "reviewer.md");
         agent << R"MD(---
 name: reviewer
 description: Reviews migration parity
@@ -7162,12 +7162,12 @@ You review C++ migration parity and report missing behavior.
 }
 
 TEST(Tools, RuntimeSendMessageWritesNativeTeammateMailbox) {
-    auto root = fs::temp_directory_path() / "cc_repl_send_message_teammate_mailbox_test";
+    auto root = fs::temp_directory_path() / "loom_send_message_teammate_mailbox_test";
     fs::remove_all(root);
     fs::create_directories(root);
-    EnvironmentGuard team_dir_guard("CC_REPL_TEAM_RUNTIME_DIR", (root / "teams").string());
-    EnvironmentGuard agent_runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "agents").string());
-    EnvironmentGuard teammate_backend_guard("CC_REPL_TEAMMATE_BACKEND", "in-process");
+    EnvironmentGuard team_dir_guard("LOOM_TEAM_RUNTIME_DIR", (root / "teams").string());
+    EnvironmentGuard agent_runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "agents").string());
+    EnvironmentGuard teammate_backend_guard("LOOM_TEAMMATE_BACKEND", "in-process");
     cc::utils::swarm_backends::BackendRegistry::reset();
     cc::tools::global_team_store().clear_for_testing();
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
@@ -7216,11 +7216,11 @@ TEST(Tools, RuntimeSendMessageWritesNativeTeammateMailbox) {
 }
 
 TEST(Tools, RuntimeSendMessageAcceptsTsSchemaAndBroadcastsToTeamMailbox) {
-    auto root = fs::temp_directory_path() / "cc_repl_send_message_ts_broadcast_test";
+    auto root = fs::temp_directory_path() / "loom_send_message_ts_broadcast_test";
     fs::remove_all(root);
     fs::create_directories(root);
-    EnvironmentGuard team_dir_guard("CC_REPL_TEAM_RUNTIME_DIR", (root / "teams").string());
-    EnvironmentGuard agent_runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "agents").string());
+    EnvironmentGuard team_dir_guard("LOOM_TEAM_RUNTIME_DIR", (root / "teams").string());
+    EnvironmentGuard agent_runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "agents").string());
     cc::tools::global_team_store().clear_for_testing();
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
@@ -7270,11 +7270,11 @@ TEST(Tools, RuntimeSendMessageAcceptsTsSchemaAndBroadcastsToTeamMailbox) {
 }
 
 TEST(Tools, RuntimeSendMessageWritesStructuredTeamProtocolMessages) {
-    auto root = fs::temp_directory_path() / "cc_repl_send_message_structured_protocol_test";
+    auto root = fs::temp_directory_path() / "loom_send_message_structured_protocol_test";
     fs::remove_all(root);
     fs::create_directories(root);
-    EnvironmentGuard team_dir_guard("CC_REPL_TEAM_RUNTIME_DIR", (root / "teams").string());
-    EnvironmentGuard agent_runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "agents").string());
+    EnvironmentGuard team_dir_guard("LOOM_TEAM_RUNTIME_DIR", (root / "teams").string());
+    EnvironmentGuard agent_runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "agents").string());
     cc::tools::global_team_store().clear_for_testing();
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
@@ -7439,7 +7439,7 @@ TEST(Tools, RuntimeSendMessageWritesStructuredTeamProtocolMessages) {
 
 #ifndef _WIN32
 TEST(Tools, RuntimeSendMessageDeliversPlainTextToUdsPeer) {
-    auto root = fs::temp_directory_path() / "cc_repl_send_message_uds_peer_test";
+    auto root = fs::temp_directory_path() / "loom_send_message_uds_peer_test";
     fs::remove_all(root);
     fs::create_directories(root);
     const auto socket_path = root / "peer.sock";
@@ -7480,9 +7480,9 @@ TEST(Tools, RuntimeSendMessageDeliversPlainTextToBridgePeer) {
     LocalBridgeIngressServer server;
     ASSERT_TRUE(server.ready());
 
-    EnvironmentGuard endpoint_guard("CLAUDE_CODE_REMOTE_API_BASE_URL", server.base_url());
-    EnvironmentGuard source_session_guard("CLAUDE_CODE_REMOTE_SESSION_ID", "session_source");
-    EnvironmentGuard token_guard("CLAUDE_CODE_SESSION_ACCESS_TOKEN", "session-bridge-token");
+    EnvironmentGuard endpoint_guard("LOOM_REMOTE_API_BASE_URL", server.base_url());
+    EnvironmentGuard source_session_guard("LOOM_REMOTE_SESSION_ID", "session_source");
+    EnvironmentGuard token_guard("LOOM_SESSION_ACCESS_TOKEN", "session-bridge-token");
 
     cc::core::ToolRegistry registry;
     cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
@@ -7518,7 +7518,7 @@ TEST(Tools, RuntimeSendMessageRejectsCrossSessionStructuredMessages) {
     cc::tools::register_runtime_tools(registry, cc::tools::RuntimeToolOptions{.permission_check = test_allow_all_check()});
 
     auto structured_uds = registry.execute("send_message", cc::core::ToolInput::from_json(R"({
-      "to": "uds:/tmp/cc-repl-peer.sock",
+      "to": "uds:/tmp/loom-peer.sock",
       "message": {
         "type": "shutdown_request",
         "reason": "done"
@@ -7541,12 +7541,12 @@ TEST(Tools, RuntimeSendMessageRejectsCrossSessionStructuredMessages) {
 }
 
 TEST(Tools, RuntimeSendMessageRestoresPersistedTeammateMailboxAfterStoreReload) {
-    auto root = fs::temp_directory_path() / "cc_repl_send_message_teammate_reload_test";
+    auto root = fs::temp_directory_path() / "loom_send_message_teammate_reload_test";
     fs::remove_all(root);
     fs::create_directories(root);
-    EnvironmentGuard team_dir_guard("CC_REPL_TEAM_RUNTIME_DIR", (root / "teams").string());
-    EnvironmentGuard agent_runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "agents").string());
-    EnvironmentGuard teammate_backend_guard("CC_REPL_TEAMMATE_BACKEND", "in-process");
+    EnvironmentGuard team_dir_guard("LOOM_TEAM_RUNTIME_DIR", (root / "teams").string());
+    EnvironmentGuard agent_runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "agents").string());
+    EnvironmentGuard teammate_backend_guard("LOOM_TEAMMATE_BACKEND", "in-process");
     cc::utils::swarm_backends::BackendRegistry::reset();
     cc::tools::global_team_store().clear_for_testing();
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
@@ -7613,7 +7613,7 @@ TEST(Tools, AgentToolCreatesWorktreeForIsolatedBackgroundAgent) {
         GTEST_SKIP() << "git is required for worktree isolation";
     }
 
-    auto root = fs::temp_directory_path() / "cc_repl_agent_worktree_isolation_test";
+    auto root = fs::temp_directory_path() / "loom_agent_worktree_isolation_test";
     fs::remove_all(root);
     fs::create_directories(root);
     {
@@ -7626,7 +7626,7 @@ TEST(Tools, AgentToolCreatesWorktreeForIsolatedBackgroundAgent) {
     ASSERT_EQ(std::system(std::format("git -C \"{}\" add README.md", root.string()).c_str()), 0);
     ASSERT_EQ(std::system(std::format("git -C \"{}\" commit -q --no-verify -m init", root.string()).c_str()), 0);
 
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     {
@@ -7651,7 +7651,7 @@ TEST(Tools, AgentToolCreatesWorktreeForIsolatedBackgroundAgent) {
     ASSERT_TRUE(record->cwd.has_value());
     auto worktree_path = fs::path{*record->cwd};
     EXPECT_TRUE(fs::exists(worktree_path / ".git"));
-    EXPECT_EQ(worktree_path, fs::weakly_canonical(root) / ".claude" / "worktrees" / "isolated-agent");
+    EXPECT_EQ(worktree_path, fs::weakly_canonical(root) / ".loom" / "worktrees" / "isolated-agent");
     ASSERT_TRUE(record->isolation.has_value());
     EXPECT_EQ(*record->isolation, "worktree");
     ASSERT_TRUE(record->worktree_path.has_value());
@@ -7685,7 +7685,7 @@ TEST(Tools, AgentToolPreservesChangedWorktreeAndReportsPath) {
         GTEST_SKIP() << "git is required for worktree isolation";
     }
 
-    auto root = fs::temp_directory_path() / "cc_repl_agent_worktree_dirty_test";
+    auto root = fs::temp_directory_path() / "loom_agent_worktree_dirty_test";
     fs::remove_all(root);
     fs::create_directories(root);
     {
@@ -7698,7 +7698,7 @@ TEST(Tools, AgentToolPreservesChangedWorktreeAndReportsPath) {
     ASSERT_EQ(std::system(std::format("git -C \"{}\" add README.md", root.string()).c_str()), 0);
     ASSERT_EQ(std::system(std::format("git -C \"{}\" commit -q --no-verify -m init", root.string()).c_str()), 0);
 
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     {
@@ -7753,10 +7753,10 @@ TEST(Tools, AgentToolPreservesChangedWorktreeAndReportsPath) {
 }
 
 TEST(Tools, RuntimeTaskToolsExposeNativeBackgroundAgents) {
-    auto root = fs::temp_directory_path() / "cc_repl_native_agent_task_test";
+    auto root = fs::temp_directory_path() / "loom_native_agent_task_test";
     fs::remove_all(root);
     fs::create_directories(root);
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     cc::tools::AgentTool tool;
@@ -7829,10 +7829,10 @@ TEST(Tools, RuntimeTaskToolsExposeNativeBackgroundAgents) {
 }
 
 TEST(Tools, StandaloneTaskToolsExposeNativeBackgroundAgents) {
-    auto root = fs::temp_directory_path() / "cc_repl_standalone_native_agent_task_test";
+    auto root = fs::temp_directory_path() / "loom_standalone_native_agent_task_test";
     fs::remove_all(root);
     fs::create_directories(root);
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     cc::tools::agent_runtime::native_agent_store().upsert(cc::tools::agent_runtime::NativeAgentRecord{
@@ -7889,15 +7889,15 @@ TEST(Tools, StandaloneTaskToolsExposeNativeBackgroundAgents) {
 }
 
 TEST(Tools, AgentToolUpdatesProgressAfterStartingApiStream) {
-    auto root = fs::temp_directory_path() / "cc_repl_native_agent_progress_test";
+    auto root = fs::temp_directory_path() / "loom_native_agent_progress_test";
     { std::error_code ec; fs::remove_all(root, ec); }
     fs::create_directories(root);
     LocalSlowAnthropicStreamServer server(std::chrono::milliseconds(750));
     ASSERT_TRUE(server.valid());
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
     EnvironmentGuard api_key_guard("ANTHROPIC_API_KEY", "test-key");
     EnvironmentGuard base_url_guard("ANTHROPIC_BASE_URL", server.base_url());
-    EnvironmentGuard model_guard("CLAUDE_MODEL", "stream-progress-test-model");
+    EnvironmentGuard model_guard("LOOM_MODEL", "stream-progress-test-model");
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     cc::core::ToolRegistry registry;
@@ -7941,15 +7941,15 @@ TEST(Tools, AgentToolUpdatesProgressAfterStartingApiStream) {
 }
 
 TEST(Tools, TaskStopCancelsRunningBackgroundAgentDuringModelStream) {
-    auto root = fs::temp_directory_path() / "cc_repl_native_agent_stream_cancel_test";
+    auto root = fs::temp_directory_path() / "loom_native_agent_stream_cancel_test";
     fs::remove_all(root);
     fs::create_directories(root);
     LocalSlowAnthropicStreamServer server(std::chrono::milliseconds(750));
     ASSERT_TRUE(server.valid());
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
     EnvironmentGuard api_key_guard("ANTHROPIC_API_KEY", "test-key");
     EnvironmentGuard base_url_guard("ANTHROPIC_BASE_URL", server.base_url());
-    EnvironmentGuard model_guard("CLAUDE_MODEL", "stream-cancel-test-model");
+    EnvironmentGuard model_guard("LOOM_MODEL", "stream-cancel-test-model");
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     cc::core::ToolRegistry registry;
@@ -8012,15 +8012,15 @@ TEST(Tools, TaskStopCancelsRunningBackgroundAgentDuringModelStream) {
 }
 
 TEST(Tools, TaskStopCancelsRunningBackgroundAgentDuringSleepToolExecution) {
-    auto root = fs::temp_directory_path() / "cc_repl_native_agent_sleep_cancel_test";
+    auto root = fs::temp_directory_path() / "loom_native_agent_sleep_cancel_test";
     fs::remove_all(root);
     fs::create_directories(root);
     LocalSleepToolUseAnthropicServer server;
     ASSERT_TRUE(server.valid());
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
     EnvironmentGuard api_key_guard("ANTHROPIC_API_KEY", "test-key");
     EnvironmentGuard base_url_guard("ANTHROPIC_BASE_URL", server.base_url());
-    EnvironmentGuard model_guard("CLAUDE_MODEL", "sleep-cancel-test-model");
+    EnvironmentGuard model_guard("LOOM_MODEL", "sleep-cancel-test-model");
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     cc::core::ToolRegistry registry;
@@ -8086,7 +8086,7 @@ TEST(Tools, TaskStopCancelsRunningBackgroundAgentDuringSleepToolExecution) {
 }
 
 TEST(Tools, TaskStopCancelsRunningBackgroundAgentDuringWebFetchToolExecution) {
-    auto root = fs::temp_directory_path() / "cc_repl_native_agent_webfetch_cancel_test";
+    auto root = fs::temp_directory_path() / "loom_native_agent_webfetch_cancel_test";
     fs::remove_all(root);
     fs::create_directories(root);
     LocalSlowContentServer content_server(std::chrono::seconds(2));
@@ -8100,10 +8100,10 @@ TEST(Tools, TaskStopCancelsRunningBackgroundAgentDuringWebFetchToolExecution) {
         "toolu_webfetch_cancel",
         "should not continue after web fetch cancellation");
     ASSERT_TRUE(server.valid());
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
     EnvironmentGuard api_key_guard("ANTHROPIC_API_KEY", "test-key");
     EnvironmentGuard base_url_guard("ANTHROPIC_BASE_URL", server.base_url());
-    EnvironmentGuard model_guard("CLAUDE_MODEL", "webfetch-cancel-test-model");
+    EnvironmentGuard model_guard("LOOM_MODEL", "webfetch-cancel-test-model");
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     cc::core::ToolRegistry registry;
@@ -8160,15 +8160,15 @@ TEST(Tools, TaskStopCancelsRunningBackgroundAgentDuringWebFetchToolExecution) {
 }
 
 TEST(Tools, TaskStopCancelsRunningBackgroundAgentDuringBashToolExecution) {
-    auto root = fs::temp_directory_path() / "cc_repl_native_agent_bash_cancel_test";
+    auto root = fs::temp_directory_path() / "loom_native_agent_bash_cancel_test";
     fs::remove_all(root);
     fs::create_directories(root);
     LocalBashToolUseAnthropicServer server;
     ASSERT_TRUE(server.valid());
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
     EnvironmentGuard api_key_guard("ANTHROPIC_API_KEY", "test-key");
     EnvironmentGuard base_url_guard("ANTHROPIC_BASE_URL", server.base_url());
-    EnvironmentGuard model_guard("CLAUDE_MODEL", "bash-cancel-test-model");
+    EnvironmentGuard model_guard("LOOM_MODEL", "bash-cancel-test-model");
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     cc::core::ToolRegistry registry;
@@ -8233,10 +8233,10 @@ TEST(Tools, TaskStopCancelsRunningBackgroundAgentDuringBashToolExecution) {
 }
 
 TEST(Tools, RuntimeTaskOutputIncludesNativeAgentCompletionNotification) {
-    auto root = fs::temp_directory_path() / "cc_repl_native_agent_completion_test";
+    auto root = fs::temp_directory_path() / "loom_native_agent_completion_test";
     fs::remove_all(root);
     fs::create_directories(root);
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     cc::tools::agent_runtime::native_agent_store().upsert(cc::tools::agent_runtime::NativeAgentRecord{
@@ -8275,10 +8275,10 @@ TEST(Tools, RuntimeTaskOutputIncludesNativeAgentCompletionNotification) {
 }
 
 TEST(Tools, RuntimeTaskUpdateMarksNativeAgentFailedWithOutputArtifactAndNotification) {
-    auto root = fs::temp_directory_path() / "cc_repl_native_agent_failure_artifact_test";
+    auto root = fs::temp_directory_path() / "loom_native_agent_failure_artifact_test";
     fs::remove_all(root);
     fs::create_directories(root);
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     cc::tools::agent_runtime::native_agent_store().upsert(cc::tools::agent_runtime::NativeAgentRecord{
@@ -8337,10 +8337,10 @@ TEST(Tools, RuntimeTaskUpdateMarksNativeAgentFailedWithOutputArtifactAndNotifica
 }
 
 TEST(Tools, NativeAgentNotificationsAreConsumedOnce) {
-    auto root = fs::temp_directory_path() / "cc_repl_native_agent_notification_once_test";
+    auto root = fs::temp_directory_path() / "loom_native_agent_notification_once_test";
     fs::remove_all(root);
     fs::create_directories(root);
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     cc::tools::agent_runtime::native_agent_store().upsert(cc::tools::agent_runtime::NativeAgentRecord{
@@ -8370,10 +8370,10 @@ TEST(Tools, NativeAgentNotificationsAreConsumedOnce) {
 }
 
 TEST(Tools, NativeAgentRecordPersistsWorktreeMetadata) {
-    auto root = fs::temp_directory_path() / "cc_repl_native_agent_worktree_metadata_test";
+    auto root = fs::temp_directory_path() / "loom_native_agent_worktree_metadata_test";
     fs::remove_all(root);
     fs::create_directories(root);
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     cc::tools::agent_runtime::native_agent_store().upsert(cc::tools::agent_runtime::NativeAgentRecord{
@@ -8415,10 +8415,10 @@ TEST(Tools, NativeAgentRecordPersistsWorktreeMetadata) {
 }
 
 TEST(Tools, NativeAgentRecordPersistsSidechainJsonlAndResumesFromIt) {
-    auto root = fs::temp_directory_path() / "cc_repl_native_agent_sidechain_test";
+    auto root = fs::temp_directory_path() / "loom_native_agent_sidechain_test";
     fs::remove_all(root);
     fs::create_directories(root);
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     cc::tools::agent_runtime::native_agent_store().upsert(cc::tools::agent_runtime::NativeAgentRecord{
@@ -8467,10 +8467,10 @@ TEST(Tools, NativeAgentRecordPersistsSidechainJsonlAndResumesFromIt) {
 }
 
 TEST(Tools, NativeAgentResumeReadsTypeScriptSidechainTranscriptEntries) {
-    auto root = fs::temp_directory_path() / "cc_repl_native_agent_ts_sidechain_test";
+    auto root = fs::temp_directory_path() / "loom_native_agent_ts_sidechain_test";
     fs::remove_all(root);
     fs::create_directories(root);
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     cc::tools::agent_runtime::native_agent_store().upsert(cc::tools::agent_runtime::NativeAgentRecord{
@@ -8512,10 +8512,10 @@ TEST(Tools, NativeAgentResumeReadsTypeScriptSidechainTranscriptEntries) {
 }
 
 TEST(Tools, NativeAgentStructuredSidechainPreservesToolUseAndResultBlocks) {
-    auto root = fs::temp_directory_path() / "cc_repl_native_agent_structured_sidechain_test";
+    auto root = fs::temp_directory_path() / "loom_native_agent_structured_sidechain_test";
     fs::remove_all(root);
     fs::create_directories(root);
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     cc::tools::agent_runtime::native_agent_store().upsert(cc::tools::agent_runtime::NativeAgentRecord{
@@ -8642,10 +8642,10 @@ TEST(Tools, AgentToolReplaysResumeContentReplacementRecordsFromSidechain) {
 }
 
 TEST(Tools, AgentToolPersistsLiveContentReplacementRecordsForLargeToolResults) {
-    auto root = fs::temp_directory_path() / "cc_repl_agent_live_content_replacement_test";
+    auto root = fs::temp_directory_path() / "loom_agent_live_content_replacement_test";
     fs::remove_all(root);
     fs::create_directories(root);
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
     cc::tools::agent_runtime::native_agent_store().upsert(cc::tools::agent_runtime::NativeAgentRecord{
         .agent_id = "live-replacement",
@@ -8709,10 +8709,10 @@ TEST(Tools, AgentToolPersistsLiveContentReplacementRecordsForLargeToolResults) {
 }
 
 TEST(Tools, AgentToolSkipsLiveContentReplacementForUnboundedToolResults) {
-    auto root = fs::temp_directory_path() / "cc_repl_agent_unbounded_content_replacement_test";
+    auto root = fs::temp_directory_path() / "loom_agent_unbounded_content_replacement_test";
     fs::remove_all(root);
     fs::create_directories(root);
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
     cc::tools::agent_runtime::native_agent_store().upsert(cc::tools::agent_runtime::NativeAgentRecord{
         .agent_id = "unbounded-replacement",
@@ -8788,10 +8788,10 @@ TEST(Tools, AgentToolSkipsLiveContentReplacementForUnboundedToolResults) {
 }
 
 TEST(Tools, AgentToolUsesFiniteToolResultThresholdsBeforeAggregateBudget) {
-    auto root = fs::temp_directory_path() / "cc_repl_agent_finite_threshold_replacement_test";
+    auto root = fs::temp_directory_path() / "loom_agent_finite_threshold_replacement_test";
     fs::remove_all(root);
     fs::create_directories(root);
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
     cc::tools::agent_runtime::native_agent_store().upsert(cc::tools::agent_runtime::NativeAgentRecord{
         .agent_id = "finite-threshold",
@@ -8852,13 +8852,13 @@ TEST(Tools, AgentToolUsesFiniteToolResultThresholdsBeforeAggregateBudget) {
 }
 
 TEST(Tools, AgentToolUsesGrowthBookToolResultThresholdOverrides) {
-    auto root = fs::temp_directory_path() / "cc_repl_agent_gb_threshold_override_test";
+    auto root = fs::temp_directory_path() / "loom_agent_gb_threshold_override_test";
     fs::remove_all(root);
     fs::create_directories(root);
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
     EnvironmentGuard ant_user_guard("USER_TYPE", "ant");
     EnvironmentGuard override_guard(
-        "CLAUDE_INTERNAL_FC_OVERRIDES",
+        "LOOM_INTERNAL_FC_OVERRIDES",
         R"({"tengu_satin_quoll":{"Bash":50000,"Read":1}})");
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
     cc::tools::agent_runtime::native_agent_store().upsert(cc::tools::agent_runtime::NativeAgentRecord{
@@ -8915,12 +8915,12 @@ TEST(Tools, AgentToolUsesGrowthBookToolResultThresholdOverrides) {
 }
 
 TEST(Tools, AgentToolUsesGrowthBookAggregateBudgetOverride) {
-    auto root = fs::temp_directory_path() / "cc_repl_agent_gb_aggregate_override_test";
+    auto root = fs::temp_directory_path() / "loom_agent_gb_aggregate_override_test";
     fs::remove_all(root);
     fs::create_directories(root);
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
     EnvironmentGuard ant_user_guard("USER_TYPE", "ant");
-    EnvironmentGuard override_guard("CLAUDE_INTERNAL_FC_OVERRIDES", R"({"tengu_hawthorn_window":10000})");
+    EnvironmentGuard override_guard("LOOM_INTERNAL_FC_OVERRIDES", R"({"tengu_hawthorn_window":10000})");
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
     cc::tools::agent_runtime::native_agent_store().upsert(cc::tools::agent_runtime::NativeAgentRecord{
         .agent_id = "gb-aggregate",
@@ -8990,11 +8990,11 @@ TEST(Tools, AgentToolUsesGrowthBookAggregateBudgetOverride) {
 }
 
 TEST(Tools, AgentRuntimeForkAddsDirectiveWorktreeNoticeAndMetadata) {
-    auto root = fs::temp_directory_path() / "cc_repl_agent_runtime_fork_worktree_test";
+    auto root = fs::temp_directory_path() / "loom_agent_runtime_fork_worktree_test";
     fs::remove_all(root);
     fs::create_directories(root / "parent");
     fs::create_directories(root / "worktree");
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     cc::tools::agent_runtime::native_agent_store().upsert(cc::tools::agent_runtime::NativeAgentRecord{
@@ -9111,10 +9111,10 @@ TEST(Tools, AgentRuntimeForkAddsDirectiveWorktreeNoticeAndMetadata) {
 }
 
 TEST(Tools, AgentRuntimeForkAddsPlaceholderToolResultsForUnresolvedToolUses) {
-    auto root = fs::temp_directory_path() / "cc_repl_agent_runtime_fork_placeholder_test";
+    auto root = fs::temp_directory_path() / "loom_agent_runtime_fork_placeholder_test";
     fs::remove_all(root);
     fs::create_directories(root);
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     cc::tools::agent_runtime::native_agent_store().upsert(cc::tools::agent_runtime::NativeAgentRecord{
@@ -9165,10 +9165,10 @@ TEST(Tools, AgentRuntimeForkAddsPlaceholderToolResultsForUnresolvedToolUses) {
 }
 
 TEST(Tools, AgentRuntimeResumeTouchesExistingWorktreeAndFallsBackWhenMissing) {
-    auto root = fs::temp_directory_path() / "cc_repl_agent_runtime_resume_worktree_test";
+    auto root = fs::temp_directory_path() / "loom_agent_runtime_resume_worktree_test";
     fs::remove_all(root);
     fs::create_directories(root / "existing-worktree");
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     auto old_time = fs::file_time_type::clock::now() - std::chrono::hours(2);
@@ -9222,10 +9222,10 @@ TEST(Tools, AgentRuntimeResumeTouchesExistingWorktreeAndFallsBackWhenMissing) {
 }
 
 TEST(Tools, AgentRuntimeTracksLifecycleForkAndResume) {
-    auto root = fs::temp_directory_path() / "cc_repl_agent_runtime_lifecycle_test";
+    auto root = fs::temp_directory_path() / "loom_agent_runtime_lifecycle_test";
     fs::remove_all(root);
     fs::create_directories(root);
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     cc::tools::agent_runtime::AgentRuntimeConfig parent_config{
@@ -9320,10 +9320,10 @@ TEST(Tools, AgentRuntimeTracksLifecycleForkAndResume) {
 }
 
 TEST(Tools, RuntimeSendMessageDeliversToBackgroundAgentQueue) {
-    auto root = fs::temp_directory_path() / "cc_repl_send_message_runtime_test";
+    auto root = fs::temp_directory_path() / "loom_send_message_runtime_test";
     fs::remove_all(root);
     fs::create_directories(root);
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     cc::tools::AgentTool tool;
@@ -9379,12 +9379,12 @@ TEST(Tools, RuntimeSendMessageDeliversToBackgroundAgentQueue) {
 }
 
 TEST(Tools, RuntimeSendMessageQueuesStoppedNativeAgentForResume) {
-    auto root = fs::temp_directory_path() / "cc_repl_send_message_resume_runtime_test";
+    auto root = fs::temp_directory_path() / "loom_send_message_resume_runtime_test";
     fs::remove_all(root);
     fs::create_directories(root);
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
     EnvironmentUnsetGuard anthropic_key_guard("ANTHROPIC_API_KEY");
-    EnvironmentUnsetGuard claude_token_guard("CLAUDE_AUTH_TOKEN");
+    EnvironmentUnsetGuard loom_token_guard("LOOM_AUTH_TOKEN");
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     cc::tools::agent_runtime::native_agent_store().upsert(cc::tools::agent_runtime::NativeAgentRecord{
@@ -9463,7 +9463,7 @@ TEST(Tools, RuntimeRemoteTriggerUsesTypedValidationAndFallbackCommand) {
     ASSERT_FALSE(blocked->content.empty());
     EXPECT_NE(blocked->content.front().text.find("Cannot trigger internal network addresses"), std::string::npos);
 
-    EnvironmentGuard fallback_guard("CC_REPL_REMOTE_TRIGGER_COMMAND", "printf remote-fallback");
+    EnvironmentGuard fallback_guard("LOOM_REMOTE_TRIGGER_COMMAND", "printf remote-fallback");
     auto fallback = registry.execute("remote_trigger", cc::core::ToolInput::from_json(R"({
       "payload": "fallback payload"
     })"));
@@ -9475,11 +9475,11 @@ TEST(Tools, RuntimeRemoteTriggerUsesTypedValidationAndFallbackCommand) {
 }
 
 TEST(Tools, RuntimeTeamCreateRegistersMembersAndSharedTasks) {
-    auto root = fs::temp_directory_path() / "cc_repl_team_runtime_test";
+    auto root = fs::temp_directory_path() / "loom_team_runtime_test";
     fs::remove_all(root);
     fs::create_directories(root);
-    EnvironmentGuard team_dir_guard("CC_REPL_TEAM_RUNTIME_DIR", (root / "teams").string());
-    EnvironmentGuard agent_runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "agents").string());
+    EnvironmentGuard team_dir_guard("LOOM_TEAM_RUNTIME_DIR", (root / "teams").string());
+    EnvironmentGuard agent_runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "agents").string());
     cc::tools::global_team_store().clear_for_testing();
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
@@ -9587,16 +9587,16 @@ TEST(Tools, RuntimeTeamCreateRegistersMembersAndSharedTasks) {
 }
 
 TEST(Tools, RuntimeTeamCreateCanStartNativeAgentsAndResumeThemWithSendMessage) {
-    auto root = fs::temp_directory_path() / "cc_repl_team_create_native_start_test";
+    auto root = fs::temp_directory_path() / "loom_team_create_native_start_test";
     fs::remove_all(root);
     fs::create_directories(root);
     LocalSlowAnthropicStreamServer server(std::chrono::milliseconds(1));
     ASSERT_TRUE(server.valid());
-    EnvironmentGuard team_dir_guard("CC_REPL_TEAM_RUNTIME_DIR", (root / "teams").string());
-    EnvironmentGuard agent_runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "agents").string());
+    EnvironmentGuard team_dir_guard("LOOM_TEAM_RUNTIME_DIR", (root / "teams").string());
+    EnvironmentGuard agent_runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "agents").string());
     EnvironmentGuard api_key_guard("ANTHROPIC_API_KEY", "test-key");
     EnvironmentGuard base_url_guard("ANTHROPIC_BASE_URL", server.base_url());
-    EnvironmentGuard model_guard("CLAUDE_MODEL", "team-create-native-start-model");
+    EnvironmentGuard model_guard("LOOM_MODEL", "team-create-native-start-model");
     cc::tools::global_team_store().clear_for_testing();
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
@@ -9717,16 +9717,16 @@ TEST(Tools, RuntimeTeamCreateCanStartNativeAgentsAndResumeThemWithSendMessage) {
 }
 
 TEST(Tools, RuntimeTeamCreateStartedNativeTeammateResumesAfterRegistryRestart) {
-    auto root = fs::temp_directory_path() / "cc_repl_team_create_restart_resume_test";
+    auto root = fs::temp_directory_path() / "loom_team_create_restart_resume_test";
     { std::error_code ec; fs::remove_all(root, ec); }
     fs::create_directories(root);
     LocalSlowAnthropicStreamServer server(std::chrono::milliseconds(1));
     ASSERT_TRUE(server.valid());
-    EnvironmentGuard team_dir_guard("CC_REPL_TEAM_RUNTIME_DIR", (root / "teams").string());
-    EnvironmentGuard agent_runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "agents").string());
+    EnvironmentGuard team_dir_guard("LOOM_TEAM_RUNTIME_DIR", (root / "teams").string());
+    EnvironmentGuard agent_runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "agents").string());
     EnvironmentGuard api_key_guard("ANTHROPIC_API_KEY", "test-key");
     EnvironmentGuard base_url_guard("ANTHROPIC_BASE_URL", server.base_url());
-    EnvironmentGuard model_guard("CLAUDE_MODEL", "team-create-restart-resume-model");
+    EnvironmentGuard model_guard("LOOM_MODEL", "team-create-restart-resume-model");
     cc::tools::global_team_store().clear_for_testing();
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
@@ -9828,7 +9828,7 @@ TEST(Tools, RuntimeTeamCreateStartsNativeAgentsWithWorktreeIsolation) {
         GTEST_SKIP() << "git is required for team worktree isolation";
     }
 
-    auto root = fs::temp_directory_path() / "cc_repl_team_create_worktree_test";
+    auto root = fs::temp_directory_path() / "loom_team_create_worktree_test";
     fs::remove_all(root);
     fs::create_directories(root);
     {
@@ -9845,11 +9845,11 @@ TEST(Tools, RuntimeTeamCreateStartsNativeAgentsWithWorktreeIsolation) {
         "printf team-worktree > team_member_marker.txt; pwd",
         "team worktree complete");
     ASSERT_TRUE(server.valid());
-    EnvironmentGuard team_dir_guard("CC_REPL_TEAM_RUNTIME_DIR", (root / "teams").string());
-    EnvironmentGuard agent_runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "agents").string());
+    EnvironmentGuard team_dir_guard("LOOM_TEAM_RUNTIME_DIR", (root / "teams").string());
+    EnvironmentGuard agent_runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "agents").string());
     EnvironmentGuard api_key_guard("ANTHROPIC_API_KEY", "test-key");
     EnvironmentGuard base_url_guard("ANTHROPIC_BASE_URL", server.base_url());
-    EnvironmentGuard model_guard("CLAUDE_MODEL", "team-worktree-test-model");
+    EnvironmentGuard model_guard("LOOM_MODEL", "team-worktree-test-model");
     cc::tools::global_team_store().clear_for_testing();
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
@@ -9907,8 +9907,8 @@ TEST(Tools, RuntimeTeamCreateStartsNativeAgentsWithWorktreeIsolation) {
     const auto alpha_path = fs::path{*alpha->worktree_path};
     const auto beta_path = fs::path{*beta->worktree_path};
     EXPECT_NE(alpha_path, beta_path);
-    EXPECT_EQ(alpha_path, fs::weakly_canonical(root) / ".claude" / "worktrees" / "alpha_worktree-team");
-    EXPECT_EQ(beta_path, fs::weakly_canonical(root) / ".claude" / "worktrees" / "beta_worktree-team");
+    EXPECT_EQ(alpha_path, fs::weakly_canonical(root) / ".loom" / "worktrees" / "alpha_worktree-team");
+    EXPECT_EQ(beta_path, fs::weakly_canonical(root) / ".loom" / "worktrees" / "beta_worktree-team");
     EXPECT_EQ(*alpha->cwd, alpha_path.string());
     EXPECT_EQ(*beta->cwd, beta_path.string());
     EXPECT_EQ(*alpha->isolation, "worktree");
@@ -9968,17 +9968,17 @@ TEST(Tools, RuntimeTeamCreateStartsNativeAgentsWithWorktreeIsolation) {
 }
 
 TEST(Tools, AgentToolBackgroundAgentCwdIsScopedPerToolWithoutChangingProcessCwd) {
-    auto root = fs::temp_directory_path() / "cc_repl_agent_cwd_isolation_test";
+    auto root = fs::temp_directory_path() / "loom_agent_cwd_isolation_test";
     fs::remove_all(root);
     fs::create_directories(root / "agent-a");
     fs::create_directories(root / "agent-b");
     const auto original_cwd = fs::current_path();
     LocalPerTurnBashPwdAnthropicServer server;
     ASSERT_TRUE(server.valid());
-    EnvironmentGuard runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "runtime").string());
+    EnvironmentGuard runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "runtime").string());
     EnvironmentGuard api_key_guard("ANTHROPIC_API_KEY", "test-key");
     EnvironmentGuard base_url_guard("ANTHROPIC_BASE_URL", server.base_url());
-    EnvironmentGuard model_guard("CLAUDE_MODEL", "cwd-isolation-test-model");
+    EnvironmentGuard model_guard("LOOM_MODEL", "cwd-isolation-test-model");
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
     cc::core::ToolRegistry registry;
@@ -10039,11 +10039,11 @@ TEST(Tools, AgentToolBackgroundAgentCwdIsScopedPerToolWithoutChangingProcessCwd)
 }
 
 TEST(Tools, StandaloneTeamCreateAndDeleteDelegateToRuntimeTeamStore) {
-    auto root = fs::temp_directory_path() / "cc_repl_standalone_team_tools_test";
+    auto root = fs::temp_directory_path() / "loom_standalone_team_tools_test";
     fs::remove_all(root);
     fs::create_directories(root);
-    EnvironmentGuard team_dir_guard("CC_REPL_TEAM_RUNTIME_DIR", (root / "teams").string());
-    EnvironmentGuard agent_runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "agents").string());
+    EnvironmentGuard team_dir_guard("LOOM_TEAM_RUNTIME_DIR", (root / "teams").string());
+    EnvironmentGuard agent_runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "agents").string());
     cc::tools::global_team_store().clear_for_testing();
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
 
@@ -10099,12 +10099,12 @@ TEST(Tools, StandaloneTeamCreateAndDeleteDelegateToRuntimeTeamStore) {
 }
 
 TEST(Tools, RuntimeTeamDeleteCancelsNativeTeammatesAndCleansArtifacts) {
-    auto root = fs::temp_directory_path() / "cc_repl_team_delete_cleanup_test";
+    auto root = fs::temp_directory_path() / "loom_team_delete_cleanup_test";
     fs::remove_all(root);
     fs::create_directories(root);
-    EnvironmentGuard team_dir_guard("CC_REPL_TEAM_RUNTIME_DIR", (root / "teams").string());
-    EnvironmentGuard agent_runtime_dir_guard("CC_REPL_AGENT_RUNTIME_DIR", (root / "agents").string());
-    EnvironmentGuard backend_guard("CC_REPL_TEAMMATE_BACKEND", "in-process");
+    EnvironmentGuard team_dir_guard("LOOM_TEAM_RUNTIME_DIR", (root / "teams").string());
+    EnvironmentGuard agent_runtime_dir_guard("LOOM_AGENT_RUNTIME_DIR", (root / "agents").string());
+    EnvironmentGuard backend_guard("LOOM_TEAMMATE_BACKEND", "in-process");
     cc::utils::swarm_backends::BackendRegistry::reset();
     cc::tools::global_team_store().clear_for_testing();
     cc::tools::agent_runtime::native_agent_store().clear_for_testing();
@@ -10247,10 +10247,10 @@ TEST(Tools, RuntimeTeamDeleteCancelsNativeTeammatesAndCleansArtifacts) {
 }
 
 TEST(Tools, TeamStoreUpdatesMemberStatusAndPersists) {
-    auto root = fs::temp_directory_path() / "cc_repl_team_member_status_test";
+    auto root = fs::temp_directory_path() / "loom_team_member_status_test";
     fs::remove_all(root);
     fs::create_directories(root);
-    EnvironmentGuard team_dir_guard("CC_REPL_TEAM_RUNTIME_DIR", (root / "teams").string());
+    EnvironmentGuard team_dir_guard("LOOM_TEAM_RUNTIME_DIR", (root / "teams").string());
     cc::tools::global_team_store().clear_for_testing();
 
     auto created = cc::tools::global_team_store().create("status-team", "Status Team", {
@@ -10291,7 +10291,7 @@ TEST(Tools, TeamStoreUpdatesMemberStatusAndPersists) {
 }
 
 TEST(Tools, RuntimeWorkflowExecutesJsonDefinition) {
-    auto root = fs::temp_directory_path() / "cc_repl_runtime_workflow_test";
+    auto root = fs::temp_directory_path() / "loom_runtime_workflow_test";
     fs::remove_all(root);
     fs::create_directories(root);
     auto workflow_path = root / "workflow.json";
@@ -10441,7 +10441,7 @@ TEST(Tools, TodoWriteCleanupRemovesAgentScopedTodos) {
 }
 
 TEST(Tools, GlobFiltersByPattern) {
-    auto root = fs::temp_directory_path() / "cc_repl_glob_test";
+    auto root = fs::temp_directory_path() / "loom_glob_test";
     fs::remove_all(root);
     fs::create_directories(root / "src");
     {
@@ -10462,7 +10462,7 @@ TEST(Tools, GlobFiltersByPattern) {
 }
 
 TEST(Tools, GrepUsesPathAndRegex) {
-    auto root = fs::temp_directory_path() / "cc_repl_grep_test";
+    auto root = fs::temp_directory_path() / "loom_grep_test";
     fs::remove_all(root);
     fs::create_directories(root / "src");
     {
@@ -10484,7 +10484,7 @@ TEST(Tools, GrepUsesPathAndRegex) {
 }
 
 TEST(Tools, McpToolCallsNativeStdioServer) {
-    auto root = fs::temp_directory_path() / "cc_repl_mcp_stdio_test";
+    auto root = fs::temp_directory_path() / "loom_mcp_stdio_test";
     fs::remove_all(root);
     fs::create_directories(root);
     const auto server_path = root / "server.js";
@@ -10583,13 +10583,13 @@ rl.on('line', line => {
 }
 
 TEST(Tools, NativeMcpRuntimeLoadsRemoteConfigWithOAuthFromConfigFiles) {
-    auto root = fs::weakly_canonical(fs::temp_directory_path()) / "cc_repl_mcp_remote_config_runtime_test";
+    auto root = fs::weakly_canonical(fs::temp_directory_path()) / "loom_mcp_remote_config_runtime_test";
     fs::remove_all(root);
-    fs::create_directories(root / ".claude");
+    fs::create_directories(root / ".loom");
     EnvironmentGuard home_guard("HOME", root.string());
 
     {
-        std::ofstream config(root / ".claude" / "config.json");
+        std::ofstream config(root / ".loom" / "config.json");
         config << R"JSON({
   "mcpServers": {
     "remote_fixture": {
@@ -10633,7 +10633,7 @@ TEST(Tools, NativeMcpRuntimeLoadsRemoteConfigWithOAuthFromConfigFiles) {
 }
 
 TEST(Tools, McpAuthUsesNativeOAuthFlowForConfiguredRemoteServers) {
-    EnvironmentGuard xaa_guard("CLAUDE_CODE_ENABLE_XAA", "0");
+    EnvironmentGuard xaa_guard("LOOM_ENABLE_XAA", "0");
     cc::tools::NativeMcpConfiguredServer server;
     server.name = "auth_fixture";
     server.transport = cc::services::mcp::TransportType::StreamableHttp;
@@ -10670,16 +10670,16 @@ TEST(Tools, McpToolReturnsErrorWhenNativeServerIsMissing) {
 }
 
 TEST(Tools, McpRuntimeLoadsPluginManifestMcpServers) {
-    auto root = fs::weakly_canonical(fs::temp_directory_path()) / "cc_repl_plugin_mcp_test";
+    auto root = fs::weakly_canonical(fs::temp_directory_path()) / "loom_plugin_mcp_test";
     fs::remove_all(root);
-    fs::create_directories(root / ".claude");
+    fs::create_directories(root / ".loom");
     EnvironmentGuard home_guard("HOME", root.string());
     EnvironmentGuard plugin_cache_guard(
-        "CLAUDE_CODE_PLUGIN_CACHE_DIR",
-        (root / ".claude" / "plugins").string()
+        "LOOM_PLUGIN_CACHE_DIR",
+        (root / ".loom" / "plugins").string()
     );
 
-    const auto plugin_root = root / ".claude" / "plugins" / "mcp-fixture";
+    const auto plugin_root = root / ".loom" / "plugins" / "mcp-fixture";
     fs::create_directories(plugin_root);
     const auto server_path = plugin_root / "server.js";
     {
@@ -10729,7 +10729,7 @@ rl.on('line', line => {
             request.params.arguments.value,
             process.env.PLUGIN_MCP_FIXTURE,
             process.env.PLUGIN_MCP_TOKEN,
-            process.env.CLAUDE_PLUGIN_ROOT
+            process.env.LOOM_PLUGIN_ROOT
           ].join(':')
         }]
       }
@@ -10739,7 +10739,7 @@ rl.on('line', line => {
 )JS";
     }
     {
-        std::ofstream settings(root / ".claude" / "settings.json");
+        std::ofstream settings(root / ".loom" / "settings.json");
         settings << R"JSON({
   "pluginConfigs": {
     "mcp-fixture": {
@@ -10777,7 +10777,7 @@ rl.on('line', line => {
     "echo": {{
       "type": "stdio",
       "command": "node",
-      "args": ["${{CLAUDE_PLUGIN_ROOT}}/server.js"],
+      "args": ["${{LOOM_PLUGIN_ROOT}}/server.js"],
       "env": {{
         "PLUGIN_MCP_FIXTURE": "${{user_config.suffix}}",
         "PLUGIN_MCP_TOKEN": "${{user_config.token}}"
@@ -10803,10 +10803,10 @@ rl.on('line', line => {
         EXPECT_EQ(it->args.front(), server_path.string());
         EXPECT_EQ(it->env.at("PLUGIN_MCP_FIXTURE"), "configured");
         EXPECT_EQ(it->env.at("PLUGIN_MCP_TOKEN"), "secret-token");
-        EXPECT_EQ(it->env.at("CLAUDE_PLUGIN_ROOT"), plugin_root.string());
+        EXPECT_EQ(it->env.at("LOOM_PLUGIN_ROOT"), plugin_root.string());
         EXPECT_EQ(
-            it->env.at("CLAUDE_PLUGIN_DATA"),
-            (root / ".claude" / "plugins" / "data" / "mcp-fixture").string()
+            it->env.at("LOOM_PLUGIN_DATA"),
+            (root / ".loom" / "plugins" / "data" / "mcp-fixture").string()
         );
 
         auto synced = cc::tools::sync_native_mcp_servers(std::move(servers));
@@ -10840,15 +10840,15 @@ rl.on('line', line => {
 }
 
 TEST(Tools, McpRuntimeLoadsPluginMcpbServers) {
-    auto root = fs::weakly_canonical(fs::temp_directory_path()) / "cc_repl_plugin_mcpb_test";
+    auto root = fs::weakly_canonical(fs::temp_directory_path()) / "loom_plugin_mcpb_test";
     fs::remove_all(root);
     EnvironmentGuard home_guard("HOME", root.string());
     EnvironmentGuard plugin_cache_guard(
-        "CLAUDE_CODE_PLUGIN_CACHE_DIR",
-        (root / ".claude" / "plugins").string()
+        "LOOM_PLUGIN_CACHE_DIR",
+        (root / ".loom" / "plugins").string()
     );
 
-    const auto plugin_root = root / ".claude" / "plugins" / "mcpb-fixture";
+    const auto plugin_root = root / ".loom" / "plugins" / "mcpb-fixture";
     const auto bundle_src = root / "bundle-src";
     fs::create_directories(plugin_root);
     fs::create_directories(bundle_src);
@@ -10873,7 +10873,7 @@ TEST(Tools, McpRuntimeLoadsPluginMcpbServers) {
   "server": {
     "type": "stdio",
     "command": "node",
-    "args": ["${CLAUDE_PLUGIN_ROOT}/server.js"],
+    "args": ["${LOOM_PLUGIN_ROOT}/server.js"],
     "env": {
       "PLUGIN_MCPB_VALUE": "from-bundle"
     }
@@ -10922,7 +10922,7 @@ rl.on('line', line => {
         isError: false,
         content: [{
           type: 'text',
-          text: ['mcpb', request.params.arguments.value, process.env.PLUGIN_MCPB_VALUE, process.env.CLAUDE_PLUGIN_ROOT].join(':')
+          text: ['mcpb', request.params.arguments.value, process.env.PLUGIN_MCPB_VALUE, process.env.LOOM_PLUGIN_ROOT].join(':')
         }]
       }
     });
@@ -10951,7 +10951,7 @@ rl.on('line', line => {
         ASSERT_EQ(it->args.size(), 1u);
         EXPECT_NE(it->args.front().find("mcpb/bundle/server.js"), std::string::npos);
         EXPECT_EQ(it->env.at("PLUGIN_MCPB_VALUE"), "from-bundle");
-        EXPECT_NE(it->env.at("CLAUDE_PLUGIN_ROOT").find("mcpb/bundle"), std::string::npos);
+        EXPECT_NE(it->env.at("LOOM_PLUGIN_ROOT").find("mcpb/bundle"), std::string::npos);
 
         auto synced = cc::tools::sync_native_mcp_servers(std::move(servers));
         ASSERT_TRUE(synced.has_value()) << synced.error();
@@ -11123,7 +11123,7 @@ TEST(RuntimeTeamShared, S2HelpersAndS3Writers) {
     // with a sane payload (JSON-parsable).
     std::error_code ec;
     auto tmp = fs::temp_directory_path(ec) /
-        ("cc_repl_s3_test_" + std::to_string(std::rand()));
+        ("loom_s3_test_" + std::to_string(std::rand()));
     std::vector<fs::path> cleanup_paths{tmp};
     auto guard = std::shared_ptr<void>(nullptr, [&](void*) {
         for (auto& p : cleanup_paths) fs::remove_all(p, ec);
@@ -11268,7 +11268,7 @@ TEST(RuntimeMessageDelivery, SessionIdAndEnvSafety) {
 
     // Credential check returns false when neither env var is set.
     ::unsetenv("ANTHROPIC_API_KEY");
-    ::unsetenv("CLAUDE_AUTH_TOKEN");
+    ::unsetenv("LOOM_AUTH_TOKEN");
     EXPECT_FALSE(md::runtime_has_agent_api_credentials());
 
     // Resume cwd prefers worktree when it exists; falls back to cwd otherwise.
@@ -11600,8 +11600,8 @@ version: 0.1.0
 ---
 Body start
 ARGS: ${ARGUMENTS}
-DIR: ${CLAUDE_SKILL_DIR}
-SID: ${CLAUDE_SESSION_ID}
+DIR: ${LOOM_SKILL_DIR}
+SID: ${LOOM_SESSION_ID}
 MYARG: ${target_file}
 Body end
 )md";
@@ -11980,7 +11980,7 @@ TEST(WorktreeShellQuote, EscapesInjectionPayloads) {
 // Tool deny rules — pure grammar/matcher tests
 // TS REF: src/utils/permissions/permissions.ts:238-269
 // ============================================================
-namespace cc_repl_deny_rules_test {
+namespace loom_deny_rules_test {
 
 using cc::utils::tool_deny_rules::DenyToolView;
 using cc::utils::tool_deny_rules::is_tool_denied;
@@ -12074,15 +12074,15 @@ TEST(ToolDenyRules, NormalizationAndCheckName) {
 
     EXPECT_EQ(normalize_name_for_mcp("my.server"), "my_server");
     EXPECT_EQ(normalize_name_for_mcp("a b"), "a_b");
-    // Non-claude.ai names keep underscore runs unchanged.
+    // Non-loom.ai names keep underscore runs unchanged.
     EXPECT_EQ(normalize_name_for_mcp("a__b"), "a__b");
-    // For the claude.ai prefix the ORIGINAL starts-with test drives the
+    // For the loom.ai prefix the ORIGINAL starts-with test drives the
     // extra collapse/strip behavior. Verified against the TS implementation:
     // "." and the space each normalize to '_' and neither end is underscore,
-    // so "claude.ai Hello" -> "claude_ai_Hello".
-    EXPECT_EQ(normalize_name_for_mcp("claude.ai Hello"), "claude_ai_Hello");
+    // so "loom.ai Hello" -> "loom_ai_Hello".
+    EXPECT_EQ(normalize_name_for_mcp("loom.ai Hello"), "loom_ai_Hello");
     // Trailing invalid chars collapse-strip away.
-    EXPECT_EQ(normalize_name_for_mcp("claude.ai  x  "), "claude_ai_x");
+    EXPECT_EQ(normalize_name_for_mcp("loom.ai  x  "), "loom_ai_x");
 
     DenyToolView v{"t", std::string{"My.Server"}, std::string{"Do Thing"}};
     EXPECT_EQ(permission_check_name(v), "mcp__My_Server__Do_Thing");
@@ -12184,7 +12184,7 @@ struct Fixture {
 
     void setup(const std::string& suffix) {
         cwd = std::filesystem::temp_directory_path() /
-              ("cc-repl-deny-rules-" + std::to_string(::getpid()) + "-" +
+              ("loom-deny-rules-" + std::to_string(::getpid()) + "-" +
                suffix);
         std::filesystem::remove_all(cwd);
         std::filesystem::create_directories(cwd);
@@ -12259,9 +12259,9 @@ TEST(ToolDenyRulesQueryEngine, UnknownAndContentRulesChangeNothing) {
 }
 
 }  // namespace deny_engine
-}  // namespace cc_repl_deny_rules_test
+}  // namespace loom_deny_rules_test
 
-namespace cc_repl_native_computer_tool_test {
+namespace loom_native_computer_tool_test {
 
 using namespace cc::core;
 
@@ -12318,9 +12318,9 @@ TEST(ToolDenyRulesQueryEngine, RegularFunctionToolUnaffectedByComputerShape) {
     EXPECT_FALSE(t.get("display_width_px").valid());
 }
 
-}  // namespace cc_repl_native_computer_tool_test
+}  // namespace loom_native_computer_tool_test
 
-namespace cc_repl_mcp_input_schema_test {
+namespace loom_mcp_input_schema_test {
 
 using namespace cc::core;
 
@@ -12330,7 +12330,7 @@ using namespace cc::core;
 TEST(McpToolSchemaQueryEngine, VerbatimNestedSchemaEmitted) {
     namespace fs = std::filesystem;
     auto root = fs::temp_directory_path() /
-        ("cc_repl_mcp_schema_test_" + std::to_string(::getpid()));
+        ("loom_mcp_schema_test_" + std::to_string(::getpid()));
     fs::remove_all(root);
     fs::create_directories(root);
     const auto server_path = root / "server.js";
@@ -12488,7 +12488,7 @@ TEST(McpToolSchemaQueryEngine, ResultConversionPreservesScreenshotImage) {
 TEST(McpToolSchemaQueryEngine, ComputerActionRoutesToComputerUseMcpServer) {
     namespace fs = std::filesystem;
     auto root = fs::temp_directory_path() /
-        ("cc_repl_computer_use_mcp_test_" + std::to_string(::getpid()));
+        ("loom_computer_use_mcp_test_" + std::to_string(::getpid()));
     fs::remove_all(root);
     fs::create_directories(root);
     const auto server_path = root / "server.js";
@@ -12570,7 +12570,7 @@ rl.on('line', line => {
     fs::remove_all(root);
 }
 
-}  // namespace cc_repl_mcp_input_schema_test
+}  // namespace loom_mcp_input_schema_test
 
 // ============================================================
 // QueryEngine <-> wire-backend seam, end to end.
@@ -12581,7 +12581,7 @@ rl.on('line', line => {
 // bodies. The backends have their own unit tests; what is checked here is that
 // the engine actually reaches them.
 // ============================================================
-namespace cc_repl_wire_seam_test {
+namespace loom_wire_seam_test {
 
 using namespace cc::core;
 using cc::utils::json::parse;
@@ -12719,9 +12719,9 @@ TEST(WireSeam, OpenAiWireHasNoNativeComputerToolShape) {
     }
 }
 
-}  // namespace cc_repl_wire_seam_test
+}  // namespace loom_wire_seam_test
 
-namespace cc_repl_tmux_detection_test {
+namespace loom_tmux_detection_test {
 TEST(SwarmBackends, CaptureEnvReflectsTmuxPresence) {
     using cc::utils::swarm_backends::EnvironmentDetection;
     // Before capture simulating an empty env → not inside tmux.
@@ -12742,9 +12742,9 @@ TEST(SwarmBackends, CaptureEnvReflectsTmuxPresence) {
     EXPECT_FALSE(EnvironmentDetection::is_inside_tmux());
 }
 
-}  // namespace cc_repl_tmux_detection_test
+}  // namespace loom_tmux_detection_test
 
-namespace cc_repl_pane_cleanup_test {
+namespace loom_pane_cleanup_test {
 
 using cc::utils::swarm_backends::PaneBackend;
 using cc::utils::swarm_backends::PaneId;
@@ -12803,10 +12803,10 @@ TEST(SwarmBackends, ExecutorDestructionKillsAllSpawnedPanes) {
 
 TEST(SwarmBackends, SpawnDeliversInitialPromptToMailbox) {
     const auto runtime_dir = fs::temp_directory_path() /
-        ("cc_repl_pane_prompt_" +
+        ("loom_pane_prompt_" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     fs::remove_all(runtime_dir);
-    EnvironmentGuard runner("CC_REPL_TEAM_RUNTIME_DIR", runtime_dir.string());
+    EnvironmentGuard runner("LOOM_TEAM_RUNTIME_DIR", runtime_dir.string());
 
     auto fake = std::make_shared<FakePaneBackend>();
     {
@@ -12824,7 +12824,7 @@ TEST(SwarmBackends, SpawnDeliversInitialPromptToMailbox) {
     fs::remove_all(runtime_dir);
 }
 
-}  // namespace cc_repl_pane_cleanup_test
+}  // namespace loom_pane_cleanup_test
 
 // ============================================================================
 // PermissionSync mailbox protocol (stage A: protocol only, no TUI wiring)
@@ -12840,10 +12840,10 @@ struct PermissionRuntimeGuard {
 
     PermissionRuntimeGuard()
         : dir(fs::temp_directory_path() /
-              ("cc_repl_perm_sync_" +
+              ("loom_perm_sync_" +
                std::to_string(std::chrono::steady_clock::now()
                                   .time_since_epoch().count()))),
-          team_dir("CC_REPL_TEAM_RUNTIME_DIR", dir.string()) {
+          team_dir("LOOM_TEAM_RUNTIME_DIR", dir.string()) {
         fs::remove_all(dir);
     }
 
@@ -13041,12 +13041,12 @@ TEST(SwarmPermissionSync, IdempotentConsume) {
 
 // ── Stage D-reconn: canonical team config.json + external tmux re-attach ─────
 
-namespace cc_repl_team_file_test {
+namespace loom_team_file_test {
 
 using namespace cc::utils;
 
-// Points CC_REPL_TEAM_RUNTIME_DIR at a unique temp directory and removes it on
-// teardown, so config.json tests never touch the real .claude/teams tree.
+// Points LOOM_TEAM_RUNTIME_DIR at a unique temp directory and removes it on
+// teardown, so config.json tests never touch the real .loom/teams tree.
 struct TeamRuntimeDirGuard {
     fs::path dir;
     EnvironmentGuard env;
@@ -13054,7 +13054,7 @@ struct TeamRuntimeDirGuard {
     TeamRuntimeDirGuard()
         : dir(fs::temp_directory_path() /
               ("cc-teamfile-" + std::to_string(static_cast<long long>(getpid())))),
-          env("CC_REPL_TEAM_RUNTIME_DIR", dir.string()) {
+          env("LOOM_TEAM_RUNTIME_DIR", dir.string()) {
         std::error_code ec;
         fs::remove_all(dir, ec);
         fs::create_directories(dir);
@@ -13174,9 +13174,9 @@ TEST(TeamFile, RoleResolution) {
     EXPECT_FALSE(find_team_member(*file, "ghost").has_value());
 }
 
-} // namespace cc_repl_team_file_test
+} // namespace loom_team_file_test
 
-namespace cc_repl_external_reattach_test {
+namespace loom_external_reattach_test {
 
 namespace sb = cc::utils::swarm_backends;
 
@@ -13191,29 +13191,29 @@ TEST(SwarmBackends, ExternalReattachArgvAndPolicy) {
     using detail::tmux_split_window_argv;
     using sb::detail::ExternalSessionAction;
 
-    const auto has = tmux_has_session_argv("claude-swarm");
+    const auto has = tmux_has_session_argv("loom-swarm");
     EXPECT_EQ(has.program, "tmux");
     EXPECT_EQ(has.args,
-              (std::vector<std::string>{"has-session", "-t", "claude-swarm"}));
+              (std::vector<std::string>{"has-session", "-t", "loom-swarm"}));
 
-    const auto windows = tmux_list_windows_argv("claude-swarm");
+    const auto windows = tmux_list_windows_argv("loom-swarm");
     EXPECT_EQ(windows.args,
-              (std::vector<std::string>{"list-windows", "-t", "claude-swarm",
+              (std::vector<std::string>{"list-windows", "-t", "loom-swarm",
                                         "-F", "#{window_name}"}));
 
-    const auto fresh = tmux_new_session_argv("claude-swarm", "swarm-view");
+    const auto fresh = tmux_new_session_argv("loom-swarm", "swarm-view");
     EXPECT_EQ(fresh.args,
               (std::vector<std::string>{"new-session", "-d", "-s",
-                                        "claude-swarm", "-n", "swarm-view",
+                                        "loom-swarm", "-n", "swarm-view",
                                         "-P", "-F", "#{pane_id}"}));
 
-    const auto window = tmux_new_window_argv("claude-swarm", "swarm-view");
+    const auto window = tmux_new_window_argv("loom-swarm", "swarm-view");
     EXPECT_NE(std::ranges::find(window.args, "new-window"), window.args.end());
 
-    const auto panes = tmux_list_panes_argv("claude-swarm:swarm-view");
+    const auto panes = tmux_list_panes_argv("loom-swarm:swarm-view");
     EXPECT_EQ(panes.args,
               (std::vector<std::string>{"list-panes", "-t",
-                                        "claude-swarm:swarm-view", "-F",
+                                        "loom-swarm:swarm-view", "-F",
                                         "#{pane_id}"}));
 
     const auto vertical = tmux_split_window_argv("%9", true);
@@ -13290,16 +13290,16 @@ TEST(SwarmBackends, ExternalReattachUsesListWindowsSeam) {
     EXPECT_FALSE(result.is_first_teammate);
 }
 
-} // namespace cc_repl_external_reattach_test
+} // namespace loom_external_reattach_test
 
 // A tool/description containing raw JSON control bytes must be escaped so it
 // cannot corrupt the inbox JSON and permanently block all later messages.
 TEST(SwarmPermissionSync, MailboxSurvivesRawControlBytes) {
     const auto runtime_dir = fs::temp_directory_path() /
-        ("cc_repl_ctrlbytes_" +
+        ("loom_ctrlbytes_" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     fs::remove_all(runtime_dir);
-    EnvironmentGuard runner("CC_REPL_TEAM_RUNTIME_DIR", runtime_dir.string());
+    EnvironmentGuard runner("LOOM_TEAM_RUNTIME_DIR", runtime_dir.string());
 
     // Raw 0x01 / backspace / form-feed embedded in message text.
     std::string nasty;
@@ -13330,10 +13330,10 @@ TEST(SwarmPermissionSync, MailboxSurvivesRawControlBytes) {
 // separate processes; without it two forked writers lose messages.
 TEST(SwarmPermissionSync, CrossProcessFlockSerializesInboxWrites) {
     const auto runtime_dir = fs::temp_directory_path() /
-        ("cc_repl_flock_" +
+        ("loom_flock_" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     fs::remove_all(runtime_dir);
-    EnvironmentGuard runner("CC_REPL_TEAM_RUNTIME_DIR", runtime_dir.string());
+    EnvironmentGuard runner("LOOM_TEAM_RUNTIME_DIR", runtime_dir.string());
     constexpr std::string_view kTeam = "flockteam";
     constexpr int kPerChild = 25;
 
@@ -13382,10 +13382,10 @@ TEST(SwarmPermissionSync, CrossProcessFlockSerializesInboxWrites) {
 TEST(SwarmPermissionSync, AlwaysAllowUpdatesPersistAndGrant) {
     namespace sh = cc::utils::swarm_helpers;
     const auto runtime_dir = fs::temp_directory_path() /
-        ("cc_repl_allow_" +
+        ("loom_allow_" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     fs::remove_all(runtime_dir);
-    EnvironmentGuard runner("CC_REPL_TEAM_RUNTIME_DIR", runtime_dir.string());
+    EnvironmentGuard runner("LOOM_TEAM_RUNTIME_DIR", runtime_dir.string());
     const std::string team = "allowteam";
     const std::string agent = "worker";
 

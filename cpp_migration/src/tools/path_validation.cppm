@@ -119,9 +119,9 @@ struct PathPermissionResult : public PermissionResult {
 /// with `-`.  A naive `!arg.starts_with('-')` filter drops these, causing
 /// path validation to be silently skipped for payloads like:
 ///
-///     rm -- -/../.claude/settings.local.json
+///     rm -- -/../.loom/settings.local.json
 ///
-/// Here `-/../.claude/settings.local.json` starts with `-` so the naive
+/// Here `-/../.loom/settings.local.json` starts with `-` so the naive
 /// filter drops it, validation sees zero paths → returns passthrough → file
 /// is deleted without a prompt.  With `--` handling, the path IS extracted
 /// and validated.
@@ -793,12 +793,12 @@ inline ValidatePathResult validate_path(
     if (op != FileOperationType::kRead) {
         const auto s = absolute.string();
         if (s.ends_with("/.loom") || s.find("/.loom/") != std::string::npos ||
-            s.ends_with("/.cc-repl") || s.find("/.cc-repl/") != std::string::npos ||
-            s.ends_with("/.claude") || s.find("/.claude/") != std::string::npos ||
+            s.ends_with("/.loom") || s.find("/.loom/") != std::string::npos ||
+            s.ends_with("/.loom") || s.find("/.loom/") != std::string::npos ||
             s.ends_with("/.config/loom") ||
             s.find("/.config/loom/") != std::string::npos ||
-            s.ends_with("/.config/claude") ||
-            s.find("/.config/claude/") != std::string::npos) {
+            s.ends_with("/.config/loom") ||
+            s.find("/.config/loom/") != std::string::npos) {
             r.allowed = false;
             r.decision_reason = DecisionReason{
                 .type = DecisionReasonType::kSafety,
@@ -915,7 +915,7 @@ inline auto create_path_checker(
                     return "command";
                 }();
                 result.message = std::format(
-                    "{} in '{}' was blocked.  Claude Code may only {} "
+                    "{} in '{}' was blocked.  Loom may only {} "
                     "the allowed working directories for this session.",
                     cmd_str, vr.resolved_path.string(), action_verb_for(cmd));
 

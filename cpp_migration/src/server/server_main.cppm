@@ -364,13 +364,13 @@ inline void add_json_value_to_params(
 }
 
 [[nodiscard]] inline std::string default_sessions_dir_string() {
-    if (const char* env = std::getenv("CC_REPL_SERVER_SESSIONS_DIR"); env && *env) {
+    if (const char* env = std::getenv("LOOM_SERVER_SESSIONS_DIR"); env && *env) {
         return env;
     }
     if (const char* home = std::getenv("HOME"); home && *home) {
-        return (std::filesystem::path{home} / ".config" / "claude" / "sessions").string();
+        return (std::filesystem::path{home} / ".config" / "loom" / "sessions").string();
     }
-    return (std::filesystem::current_path() / ".claude" / "sessions").string();
+    return (std::filesystem::current_path() / ".loom" / "sessions").string();
 }
 
 [[nodiscard]] inline std::string make_id(std::string_view prefix) {

@@ -57,7 +57,7 @@ struct McpListToolsResult {
 
 /// Server metadata
 struct McpServerMetadata {
-    std::string name = "claude/tengu";
+    std::string name = "loom/tengu";
     std::string version;
 };
 

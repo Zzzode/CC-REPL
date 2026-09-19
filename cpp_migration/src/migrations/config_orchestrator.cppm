@@ -89,9 +89,9 @@ inline JsonMutDoc empty_object_doc() {
 /// across all projects), userSettings (per-user customisations), and
 /// projectConfig (per-repo overrides).
 struct ConfigPaths {
-    fs::path global_config;   // ~/.config/cc-repl/global_config.json
-    fs::path user_settings;   // ~/.config/cc-repl/user_settings.json
-    fs::path project_config;  // $PWD/.cc-repl/project_settings.json
+    fs::path global_config;   // ~/.config/loom/global_config.json
+    fs::path user_settings;   // ~/.config/loom/user_settings.json
+    fs::path project_config;  // $PWD/.loom/project_settings.json
     fs::path lock_file;       // advisory lock guarding all three + schema_version
 };
 
@@ -101,7 +101,7 @@ struct ConfigPaths {
     -> ConfigPaths {
     const char* home = std::getenv("HOME");
     fs::path base = (home && *home) ? fs::path(home) : fs::path("/tmp");
-    const fs::path config_root = base / ".config" / "cc-repl";
+    const fs::path config_root = base / ".config" / "loom";
 
     fs::path project_base;
     if (working_dir.empty() || working_dir == ".") {
@@ -115,7 +115,7 @@ struct ConfigPaths {
     ConfigPaths paths;
     paths.global_config = config_root / "global_config.json";
     paths.user_settings = config_root / "user_settings.json";
-    paths.project_config = project_base / ".cc-repl" / "project_settings.json";
+    paths.project_config = project_base / ".loom" / "project_settings.json";
     paths.lock_file     = config_root / "config_migrations.lock";
     return paths;
 }

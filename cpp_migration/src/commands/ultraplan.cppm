@@ -42,7 +42,7 @@ public:
     [[nodiscard]] Result<CommandResult> execute(const CommandContext&) {
         return CommandResult::success(
             "The /ultraplan command is not enabled in this build. "
-            "It spawns a remote Claude-on-the-Web plan session, which is gated behind an external flag. "
+            "It spawns a remote Loom-on-the-Web plan session, which is gated behind an external flag. "
             "For local planning, use /plan to enter plan mode instead.");
     }
 

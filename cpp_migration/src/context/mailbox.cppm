@@ -1,5 +1,5 @@
 /// @file mailbox.cppm
-/// @brief Inter-agent message passing module for the Claude Code CLI engine.
+/// @brief Inter-agent message passing module for the Loom CLI engine.
 /// Implements typed mailboxes, message routing, priority-based delivery,
 /// and both non-blocking and coroutine-awaitable receive operations.
 module;

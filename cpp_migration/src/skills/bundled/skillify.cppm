@@ -27,7 +27,7 @@ constexpr std::string_view SKILLIFY_PROMPT = R"(## Skillify - Capture a Repeatab
 ### Purpose
 You are converting this session's repeatable process into a reusable skill that
 can be invoked automatically in future sessions. The skill lives as a markdown
-file (SKILL.md) either in the project-local `.claude/skills/` directory or the
+file (SKILL.md) either in the project-local `.loom/skills/` directory or the
 user's global skills directory.
 
 ### Phase 1: Session Analysis (DO BEFORE asking questions)
@@ -40,7 +40,7 @@ Extract the following from the session context:
   artifacts or passing conditions (e.g. "CI passing", "PR opened", "test green")
 - **User corrections**: Where did the user steer you away from a wrong path?
 - **Tools & permissions needed**: Which tools were used, with what patterns
-  (e.g. `Bash(git:*)`, `Bash(npm:*)`, `Edit(.claude)`)
+  (e.g. `Bash(git:*)`, `Bash(npm:*)`, `Edit(.loom)`)
 - **Agents used**: Did the workflow involve sub-agents or teams?
 - **Goals & success artifacts**: What tangible outputs proved completion?
 
@@ -60,8 +60,8 @@ Extract the following from the session context:
   mid-process steering) vs **forked** (runs as sub-agent with isolated context,
   good for self-contained tasks).
 - Ask where to save the skill:
-  - *This repo* (`.claude/skills/<name>/SKILL.md`) — for project-specific workflows
-  - *Personal* (`~/.claude/skills/<name>/SKILL.md`) — cross-repo reusable
+  - *This repo* (`.loom/skills/<name>/SKILL.md`) — for project-specific workflows
+  - *Personal* (`~/.loom/skills/<name>/SKILL.md`) — cross-repo reusable
 
 **Round 3 - Step Breakdown (one round per major step, especially if >3 steps):**
 For each non-obvious step, ask:
@@ -199,8 +199,8 @@ is complete and we can proceed.
     const std::filesystem::path& home_dir
 ) {
     std::filesystem::path base = is_project_local
-        ? project_root / ".claude" / "skills"
-        : home_dir / ".claude" / "skills";
+        ? project_root / ".loom" / "skills"
+        : home_dir / ".loom" / "skills";
     return base / std::string(skill_name) / "SKILL.md";
 }
 

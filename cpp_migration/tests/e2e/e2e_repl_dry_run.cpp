@@ -1,5 +1,5 @@
 /// @file e2e_repl_dry_run.cpp
-/// @brief E2E-2: Spawn the real cc-repl binary with --dry-run and assert the
+/// @brief E2E-2: Spawn the real loom binary with --dry-run and assert the
 ///        stdout banner contains the Phase C keywords (StatusBar + ReplScreen
 ///        + Esc).  Ensures the binary is runnable and the dispatch table is
 ///        wired (dialog router 9-wired message printed).
@@ -36,9 +36,9 @@ static bool file_exists_executable(const std::string& path) {
     return ::stat(path.c_str(), &st) == 0 && S_ISREG(st.st_mode) && (st.st_mode & 0111);
 }
 
-/// Locate cc-repl relative to argv[0] or via env CC_REPL_BINARY.
+/// Locate loom relative to argv[0] or via env LOOM_BINARY.
 static std::string locate_repl_binary(const char* argv0) {
-    if (const char* e = ::getenv("CC_REPL_BINARY")) {
+    if (const char* e = ::getenv("LOOM_BINARY")) {
         if (file_exists_executable(e)) return e;
     }
     // Candidate paths (ordered from closest to farthest).
@@ -47,10 +47,10 @@ static std::string locate_repl_binary(const char* argv0) {
     std::string here = ::dirname(buf);
 
     std::vector<std::string> candidates = {
-        here + "/../../build/debug/bin/cc-repl",  // from <build>/tests/
-        here + "/../build/debug/bin/cc-repl",
-        here + "/build/debug/bin/cc-repl",
-        "build/debug/bin/cc-repl",                 // from repo root
+        here + "/../../build/debug/bin/loom",  // from <build>/tests/
+        here + "/../build/debug/bin/loom",
+        here + "/build/debug/bin/loom",
+        "build/debug/bin/loom",                 // from repo root
     };
     for (const auto& c : candidates) {
         if (file_exists_executable(c)) return c;
@@ -93,7 +93,7 @@ static RunResult run_and_capture(const std::string& path,
         if (devnull >= 0) { ::dup2(devnull, STDIN_FILENO); ::close(devnull); }
         ::execv(path.c_str(), argv);
         // exec failed
-        const char msg[] = "execv failed for cc-repl\n";
+        const char msg[] = "execv failed for loom\n";
         ::write(STDERR_FILENO, msg, sizeof(msg) - 1);
         ::_exit(127);
     }
@@ -163,7 +163,7 @@ int main(int /*argc*/, char* argv[]) {
     using namespace std;
     string bin = locate_repl_binary(argv[0]);
     if (bin.empty()) {
-        fprintf(stderr, "[E2E-2] cannot locate cc-repl binary\n");
+        fprintf(stderr, "[E2E-2] cannot locate loom binary\n");
         return 2;
     }
     printf("[E2E-2] binary: %s\n", bin.c_str());
@@ -177,7 +177,7 @@ int main(int /*argc*/, char* argv[]) {
     RunResult v = run_and_capture(bin, v_argv);
     printf("[E2E-2] --version exit=%d stdout='%s'\n", v.exit_code, v.stdout_.c_str());
     assert(v.exit_code == 0);
-    assert(contains_case(v.stdout_, "cc-repl"));
+    assert(contains_case(v.stdout_, "loom"));
     // The native C++ build exposes version suffix "-cpp" for build id purposes.
     bool has_build_suffix = v.stdout_.find("1.0.0-cpp") != string::npos ||
                             v.stdout_.find("-cpp") != string::npos;

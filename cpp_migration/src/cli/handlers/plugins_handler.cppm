@@ -53,24 +53,24 @@ inline std::filesystem::path get_plugins_dir() {
     const char* home = std::getenv("HOME");
     if (!home) home = std::getenv("USERPROFILE");
     if (home) {
-        return std::filesystem::path(home) / ".config" / "claude-code" / "plugins";
+        return std::filesystem::path(home) / ".config" / "loom" / "plugins";
     }
-    return std::filesystem::temp_directory_path() / "claude-code-plugins";
+    return std::filesystem::temp_directory_path() / "loom-plugins";
 }
 
 inline std::filesystem::path get_project_plugins_dir() {
-    // Check for .claude/plugins in the project root
+    // Check for .loom/plugins in the project root
     auto cwd = std::filesystem::current_path();
     auto dir = cwd;
     while (true) {
-        if (std::filesystem::exists(dir / ".claude" / "plugins")) {
-            return dir / ".claude" / "plugins";
+        if (std::filesystem::exists(dir / ".loom" / "plugins")) {
+            return dir / ".loom" / "plugins";
         }
         auto parent = dir.parent_path();
         if (parent == dir) break;
         dir = parent;
     }
-    return cwd / ".claude" / "plugins";
+    return cwd / ".loom" / "plugins";
 }
 
 inline PluginSource detect_source(std::string_view spec) {
@@ -456,7 +456,7 @@ std::string list_plugins_cli() {
     std::string output;
 
     if (!global_plugins.empty()) {
-        output += "Global plugins (~/.config/claude-code/plugins/):\n";
+        output += "Global plugins (~/.config/loom/plugins/):\n";
         for (const auto& plugin : global_plugins) {
             output += "  " + plugin.name;
             if (!plugin.version.empty()) output += " v" + plugin.version;
@@ -468,7 +468,7 @@ std::string list_plugins_cli() {
 
     if (!project_plugins.empty()) {
         if (!output.empty()) output += "\n";
-        output += "Project plugins (.claude/plugins/):\n";
+        output += "Project plugins (.loom/plugins/):\n";
         for (const auto& plugin : project_plugins) {
             output += "  " + plugin.name;
             if (!plugin.version.empty()) output += " v" + plugin.version;

@@ -76,7 +76,7 @@ TEST(McpStdio, EchoServerRoundTrip) {
 
     // Build a minimal JSON-RPC request.
     const std::string body = cc::services::mcp::stdio::BuildInitializeRequest(
-        42, "cc-repl-cpp", "1.0.0");
+        42, "loom-cpp", "1.0.0");
     ASSERT_TRUE(t.SendJsonRpc(body));
 
     // The echo server echoes back the line verbatim.
@@ -89,7 +89,7 @@ TEST(McpStdio, EchoServerRoundTrip) {
     EXPECT_EQ(m.method, "initialize");
     EXPECT_FALSE(m.params_json.empty());
     // params should contain clientInfo + name.
-    EXPECT_NE(m.params_json.find("cc-repl-cpp"), std::string::npos);
+    EXPECT_NE(m.params_json.find("loom-cpp"), std::string::npos);
     EXPECT_NE(m.params_json.find("1.0.0"), std::string::npos);
 
     t.Stop();

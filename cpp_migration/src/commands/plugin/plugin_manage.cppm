@@ -113,7 +113,7 @@ When given a directory, automatically validates .claude-plugin/marketplace.json
 or .claude-plugin/plugin.json (prefers marketplace if both exist).
 
 Or from the command line:
-  claude plugin validate <path>)";
+  loom plugin validate <path>)";
 
 /// Count-based plural (TS `plural(n, "error")` -> "error" | "errors").
 inline std::string plural(std::size_t n, std::string_view noun) {

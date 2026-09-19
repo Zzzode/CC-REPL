@@ -1,5 +1,5 @@
 /**
- * CC-REPL Main Entry Point - C++23 Version
+ * LOOM Main Entry Point - C++23 Version
  *
  * Bootstraps the CLI application: parses arguments, initializes subsystems,
  * and launches the full interactive FTXUI-based UI.
@@ -69,7 +69,7 @@ extern "C" [[nodiscard]] int cc_ui_run_app_bridge(
 );
 
 // Application version constant
-constexpr std::string_view kVersion = cc::constants::product::CC_REPL_VERSION;
+constexpr std::string_view kVersion = cc::constants::product::LOOM_VERSION;
 
 /**
  * Parsed command-line options
@@ -101,7 +101,7 @@ struct CliOptions {
     std::optional<std::string> bridge_access_token;
     std::optional<std::string> bridge_session_binary;
     int bridge_daemon_wait_ms = 10000;
-    std::string executable_path{"cc-repl"};
+    std::string executable_path{"loom"};
     std::optional<std::string> agents_json;
     std::optional<std::string> permission_mode;
     std::optional<std::string> agent_id;
@@ -128,9 +128,9 @@ struct CliOptions {
  * Print usage/help text to stdout
  */
 void print_help() {
-    std::println(R"(CC-REPL: Claude REPL (C++23 Version)
+    std::println(R"(LOOM: Loom REPL (C++23 Version)
 
-Usage: cc-repl [options]
+Usage: loom [options]
 
 Options:
   --model <model>      Set the default model to use
@@ -189,9 +189,9 @@ Options:
   --agent-type <type>  Agent definition type for a spawned teammate session
 
 Examples:
-  cc-repl                                    # Start interactive mode
-  cc-repl --model claude-3-5-sonnet-20241022 # Use specific model
-  cc-repl --server --server-port 3000        # Start direct-connect server
+  loom                                    # Start interactive mode
+  loom --model claude-3-5-sonnet-20241022 # Use specific model
+  loom --server --server-port 3000        # Start direct-connect server
 )");
 }
 
@@ -505,15 +505,15 @@ void apply_flag_status_line_environment(const cc::config::FlagStatusLineSettings
         has_command && type_allows_command;
 
     if (has_command) {
-        set_env_value("CC_REPL_STATUS_LINE_COMMAND", *status_line.command);
-        set_env_value("CLAUDE_CODE_STATUS_LINE_COMMAND", *status_line.command);
+        set_env_value("LOOM_STATUS_LINE_COMMAND", *status_line.command);
+        set_env_value("LOOM_STATUS_LINE_COMMAND", *status_line.command);
     }
-    set_env_bool_pair("CC_REPL_STATUS_LINE_ENABLED", "CLAUDE_CODE_STATUS_LINE_ENABLED", enabled);
+    set_env_bool_pair("LOOM_STATUS_LINE_ENABLED", "CLAUDE_CODE_STATUS_LINE_ENABLED", enabled);
 
     if (status_line.padding) {
         const auto padding = std::to_string(*status_line.padding);
-        set_env_value("CC_REPL_STATUS_LINE_PADDING", padding);
-        set_env_value("CLAUDE_CODE_STATUS_LINE_PADDING", padding);
+        set_env_value("LOOM_STATUS_LINE_PADDING", padding);
+        set_env_value("LOOM_STATUS_LINE_PADDING", padding);
     }
 }
 
@@ -569,17 +569,17 @@ std::optional<cc::config::FlagSettingsResult> load_flag_settings(
 }
 
 void apply_teammate_environment(const CliOptions& opts) {
-    set_env_value_pair("CC_REPL_AGENT_ID", "CLAUDE_CODE_AGENT_ID", opts.agent_id);
-    set_env_value_pair("CC_REPL_AGENT_NAME", "CLAUDE_CODE_AGENT_NAME", opts.agent_name);
-    set_env_value_pair("CC_REPL_TEAM_NAME", "CLAUDE_CODE_TEAM_NAME", opts.team_name);
-    set_env_value_pair("CC_REPL_AGENT_TYPE", "CLAUDE_CODE_AGENT_TYPE", opts.agent_type);
-    set_env_value_pair("CC_REPL_AGENT_COLOR", "CLAUDE_CODE_AGENT_COLOR", opts.agent_color);
-    set_env_value_pair("CC_REPL_PARENT_SESSION_ID", "CLAUDE_CODE_PARENT_SESSION_ID", opts.parent_session_id);
-    set_env_value_pair("CC_REPL_SESSION_ID", "CLAUDE_CODE_SESSION_ID", opts.session_id);
-    set_env_value_pair("CC_REPL_TASK_ID", "CLAUDE_CODE_TASK_ID", opts.task_id);
+    set_env_value_pair("LOOM_AGENT_ID", "CLAUDE_CODE_AGENT_ID", opts.agent_id);
+    set_env_value_pair("LOOM_AGENT_NAME", "CLAUDE_CODE_AGENT_NAME", opts.agent_name);
+    set_env_value_pair("LOOM_TEAM_NAME", "CLAUDE_CODE_TEAM_NAME", opts.team_name);
+    set_env_value_pair("LOOM_AGENT_TYPE", "CLAUDE_CODE_AGENT_TYPE", opts.agent_type);
+    set_env_value_pair("LOOM_AGENT_COLOR", "CLAUDE_CODE_AGENT_COLOR", opts.agent_color);
+    set_env_value_pair("LOOM_PARENT_SESSION_ID", "CLAUDE_CODE_PARENT_SESSION_ID", opts.parent_session_id);
+    set_env_value_pair("LOOM_SESSION_ID", "CLAUDE_CODE_SESSION_ID", opts.session_id);
+    set_env_value_pair("LOOM_TASK_ID", "CLAUDE_CODE_TASK_ID", opts.task_id);
     if (opts.plan_mode_required) {
-        set_env_value("CC_REPL_PLAN_MODE_REQUIRED", "1");
-        set_env_value("CLAUDE_CODE_PLAN_MODE_REQUIRED", "true");
+        set_env_value("LOOM_PLAN_MODE_REQUIRED", "1");
+        set_env_value("LOOM_PLAN_MODE_REQUIRED", "true");
     }
 }
 
@@ -610,9 +610,9 @@ cc::tools::AgentLivePermissionCheck check_agent_tool_permission(
     // name) must not pop its own local dialog in a background pane. It asks
     // the team leader over the mailbox and blocks for the verdict, failing
     // closed on timeout. TS REF: swarmWorkerHandler.ts → permissionSync.
-    const char* w_agent = std::getenv("CC_REPL_AGENT_NAME");
+    const char* w_agent = std::getenv("LOOM_AGENT_NAME");
     if ((!w_agent || !*w_agent)) w_agent = std::getenv("CLAUDE_CODE_AGENT_NAME");
-    const char* w_team = std::getenv("CC_REPL_TEAM_NAME");
+    const char* w_team = std::getenv("LOOM_TEAM_NAME");
     if ((!w_team || !*w_team)) w_team = std::getenv("CLAUDE_CODE_TEAM_NAME");
     const bool is_worker_teammate =
         (w_agent && *w_agent) && (w_team && *w_team);
@@ -805,8 +805,8 @@ std::optional<std::string> env_string(const char* name) {
 }
 
 std::optional<std::string> bridge_work_id_from_environment() {
-    if (auto value = env_string("CLAUDE_CODE_BRIDGE_WORK_ID")) return value;
-    return env_string("CC_REPL_BRIDGE_WORK_ID");
+    if (auto value = env_string("LOOM_BRIDGE_WORK_ID")) return value;
+    return env_string("LOOM_BRIDGE_WORK_ID");
 }
 
 std::optional<std::string_view> optional_view(const std::optional<std::string>& value) {
@@ -865,9 +865,9 @@ std::string headless_session_id(const CliOptions& opts) {
     if (opts.session_id && !opts.session_id->empty()) return *opts.session_id;
     if (opts.resume_session_id && !opts.resume_session_id->empty()) return *opts.resume_session_id;
     if (auto value = env_string("CC_REMOTE_SESSION_ID")) return *value;
-    if (auto value = env_string("CLAUDE_CODE_REMOTE_SESSION_ID")) return *value;
-    if (auto value = env_string("CC_REPL_SESSION_ID")) return *value;
-    if (auto value = env_string("CLAUDE_CODE_SESSION_ID")) return *value;
+    if (auto value = env_string("LOOM_REMOTE_SESSION_ID")) return *value;
+    if (auto value = env_string("LOOM_SESSION_ID")) return *value;
+    if (auto value = env_string("LOOM_SESSION_ID")) return *value;
     return "headless-session";
 }
 
@@ -887,12 +887,12 @@ fs::path conversation_store_path(const CliOptions& opts) {
     if (opts.session_store_path && !opts.session_store_path->empty()) {
         return fs::path{*opts.session_store_path};
     }
-    if (auto value = env_string("CC_REPL_SESSION_STORE")) return fs::path{*value};
-    if (auto value = env_string("CLAUDE_CODE_SESSION_STORE")) return fs::path{*value};
+    if (auto value = env_string("LOOM_SESSION_STORE")) return fs::path{*value};
+    if (auto value = env_string("LOOM_SESSION_STORE")) return fs::path{*value};
     if (auto home = env_string("HOME")) {
-        return fs::path{*home} / ".config" / "claude" / "cpp-conversations.json";
+        return fs::path{*home} / ".config" / "loom" / "cpp-conversations.json";
     }
-    return fs::current_path() / ".claude" / "cpp-conversations.json";
+    return fs::current_path() / ".loom" / "cpp-conversations.json";
 }
 
 std::string title_from_messages(const std::vector<cc::core::Message>& messages) {
@@ -1206,10 +1206,10 @@ int run_headless_stream_json_sse(
         {"Accept", "text/event-stream"},
         {"anthropic-version", "2023-06-01"},
     };
-    if (auto token = env_string("CLAUDE_CODE_SESSION_ACCESS_TOKEN")) {
+    if (auto token = env_string("LOOM_SESSION_ACCESS_TOKEN")) {
         headers["Authorization"] = "Bearer " + *token;
     }
-    if (auto version = env_string("CLAUDE_CODE_ENVIRONMENT_RUNNER_VERSION")) {
+    if (auto version = env_string("LOOM_ENVIRONMENT_RUNNER_VERSION")) {
         headers["x-environment-runner-version"] = *version;
     }
 
@@ -1281,7 +1281,7 @@ int run_headless_stream_json_websocket(
     std::string_view session_id,
     cc::core::ConversationStore* conversation_store
 ) {
-    auto token = env_string("CLAUDE_CODE_SESSION_ACCESS_TOKEN");
+    auto token = env_string("LOOM_SESSION_ACCESS_TOKEN");
     std::optional<std::string_view> bearer_token;
     if (token && !token->empty()) bearer_token = std::string_view(*token);
 
@@ -1340,7 +1340,7 @@ int run_headless_stream_json(
 int run_direct_connect_server(const CliOptions& opts) {
     auto auth_token = opts.server_auth_token;
     if (!auth_token) {
-        if (const char* token = std::getenv("CC_REPL_SERVER_AUTH_TOKEN"); token && *token) {
+        if (const char* token = std::getenv("LOOM_SERVER_AUTH_TOKEN"); token && *token) {
             auth_token = std::string(token);
         }
     }
@@ -1360,7 +1360,7 @@ int run_direct_connect_server(const CliOptions& opts) {
     std::signal(SIGINT, handle_signal);
     std::signal(SIGTERM, handle_signal);
 
-    std::println("CC-REPL direct-connect server listening on {}", server.get_url());
+    std::println("LOOM direct-connect server listening on {}", server.get_url());
     while (!g_should_exit.load()) {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
@@ -1388,7 +1388,7 @@ std::string bridge_session_binary_path(const CliOptions& opts) {
     if (fs::exists(path, ec)) {
         return fs::weakly_canonical(path, ec).string();
     }
-    return opts.executable_path.empty() ? std::string{"cc-repl"} : opts.executable_path;
+    return opts.executable_path.empty() ? std::string{"loom"} : opts.executable_path;
 }
 
 struct BridgeDaemonSettings {
@@ -1403,22 +1403,22 @@ std::expected<BridgeDaemonSettings, std::string> bridge_daemon_settings_from_opt
     std::string_view flag_name
 ) {
     auto work_api_url = option_or_env(opts.bridge_work_api_url, {
-        "CC_REPL_BRIDGE_WORK_API_URL",
-        "CLAUDE_CODE_BRIDGE_WORK_API_URL",
-        "CLAUDE_BRIDGE_BASE_URL",
+        "LOOM_BRIDGE_WORK_API_URL",
+        "LOOM_BRIDGE_WORK_API_URL",
+        "LOOM_BRIDGE_BASE_URL",
     });
     auto environment_id = option_or_env(opts.bridge_environment_id, {
-        "CC_REPL_BRIDGE_ENVIRONMENT_ID",
-        "CLAUDE_CODE_BRIDGE_ENVIRONMENT_ID",
+        "LOOM_BRIDGE_ENVIRONMENT_ID",
+        "LOOM_BRIDGE_ENVIRONMENT_ID",
     });
     auto environment_secret = option_or_env(opts.bridge_environment_secret, {
-        "CC_REPL_BRIDGE_ENVIRONMENT_SECRET",
-        "CLAUDE_CODE_BRIDGE_ENVIRONMENT_SECRET",
+        "LOOM_BRIDGE_ENVIRONMENT_SECRET",
+        "LOOM_BRIDGE_ENVIRONMENT_SECRET",
     });
     auto access_token = option_or_env(opts.bridge_access_token, {
-        "CC_REPL_BRIDGE_ACCESS_TOKEN",
-        "CLAUDE_CODE_BRIDGE_ACCESS_TOKEN",
-        "CLAUDE_BRIDGE_OAUTH_TOKEN",
+        "LOOM_BRIDGE_ACCESS_TOKEN",
+        "LOOM_BRIDGE_ACCESS_TOKEN",
+        "LOOM_BRIDGE_OAUTH_TOKEN",
     });
 
     if (!work_api_url || !environment_id || !environment_secret || !access_token) {
@@ -1611,7 +1611,7 @@ int run_bridge_daemon(const CliOptions& opts) {
         return 1;
     }
 
-    std::println("CC-REPL bridge daemon listening on 127.0.0.1:{}", *started);
+    std::println("LOOM bridge daemon listening on 127.0.0.1:{}", *started);
     std::fflush(stdout);
 
     std::unordered_set<std::string> announced_sessions;
@@ -1638,7 +1638,7 @@ int run_bridge_daemon(const CliOptions& opts) {
     request_all_daemon_children_shutdown(daemon);
     wait_for_daemon_children_to_finish(daemon, std::chrono::milliseconds{5000});
     daemon.stop();
-    std::println("CC-REPL bridge daemon stopped");
+    std::println("LOOM bridge daemon stopped");
     std::fflush(stdout);
     return 0;
 }
@@ -1651,7 +1651,7 @@ auto run_simple_ui(
     cc::commands::AppCommandRegistry& cmd_registry
 ) -> int {
     std::println("╭─────────────────────────────────────────╮");
-    std::println("│      CC-REPL (C++ Migration) v{}        │", kVersion);
+    std::println("│      LOOM (C++ Migration) v{}        │", kVersion);
     std::println("│  Type /help for available commands      │");
     std::println("│  Type your query and press Enter        │");
     std::println("╰─────────────────────────────────────────╯");
@@ -1792,7 +1792,7 @@ int main(int argc, const char* argv[]) {
     }
 
     if (opts.show_version) {
-        std::println("cc-repl {}", kVersion);
+        std::println("loom {}", kVersion);
         return 0;
     }
     if (opts.show_help) {
@@ -1802,9 +1802,9 @@ int main(int argc, const char* argv[]) {
 
     if (opts.agents_json && !opts.agents_json->empty()) {
 #ifdef _WIN32
-        _putenv_s("CC_REPL_AGENTS_JSON", opts.agents_json->c_str());
+        _putenv_s("LOOM_AGENTS_JSON", opts.agents_json->c_str());
 #else
-        setenv("CC_REPL_AGENTS_JSON", opts.agents_json->c_str(), 1);
+        setenv("LOOM_AGENTS_JSON", opts.agents_json->c_str(), 1);
 #endif
     }
     apply_teammate_environment(opts);
@@ -1823,7 +1823,7 @@ int main(int argc, const char* argv[]) {
             cc::utils::set_dynamic_team_context(std::move(dyn));
         }
         // Leader case: no dynamic worker context; the first teammate spawn
-        // re-attaches to the existing claude-swarm/swarm-view from live tmux
+        // re-attaches to the existing loom-swarm/swarm-view from live tmux
         // state in TmuxBackend::create_pane_external (no cached flag).
     }
 

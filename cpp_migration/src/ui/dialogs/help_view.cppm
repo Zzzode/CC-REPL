@@ -10,14 +10,14 @@
 ///   Upstream help dialog, general tab, and commands tab components.
 ///
 /// VISUAL STRUCTURE (faithful to TS):
-///   ┌─ Claude Code v0.0.0 ─────────────────────────────┐
+///   ┌─ Loom v0.0.0 ─────────────────────────────┐
 ///   │  general │ commands │ custom-commands             │
 ///   ├──────────────────────────────────────────────────┤
 ///   │                                                  │
 ///   │  Tab content (General / Commands list / Custom)  │
 ///   │                                                  │
 ///   ├──────────────────────────────────────────────────┤
-///   │  For more help: https://code.claude.com/docs      │
+///   │  For more help: https://code.loom.com/docs      │
 ///   │  esc to cancel                                    │
 ///   └──────────────────────────────────────────────────┘
 ///
@@ -44,6 +44,7 @@ export module cc.ui.dialogs.help_view;
 import cc.ui.dialogs.frame;
 import cc.ui.design.theme;
 import cc.ui.design.tokens;
+import cc.constants.product;
 
 export namespace cc::ui::dialogs::help_view {
 
@@ -166,7 +167,7 @@ namespace detail {
     shortcuts.push_back(text(""));
     shortcuts.push_back(shortcut_row("↑/↓",         "Navigate history"));
     shortcuts.push_back(shortcut_row("Ctrl+C",      "Cancel current operation"));
-    shortcuts.push_back(shortcut_row("Ctrl+D",      "Exit Claude Code"));
+    shortcuts.push_back(shortcut_row("Ctrl+D",      "Exit Loom"));
     shortcuts.push_back(shortcut_row("Ctrl+L",      "Clear screen"));
     shortcuts.push_back(shortcut_row("Tab",         "Autocomplete"));
     shortcuts.push_back(shortcut_row("Shift+Tab",   "Previous suggestion"));
@@ -176,7 +177,7 @@ namespace detail {
 
     return vbox({
         paragraph(
-            "Claude understands your codebase, makes edits with your "
+            "Loom understands your codebase, makes edits with your "
             "permission, and executes commands — right from your terminal."
         ),
         text(""),
@@ -241,7 +242,8 @@ namespace detail {
     // Docs link row
     rows.push_back(hbox({
         text("For more help: ") | dim,
-        text("https://code.claude.com/docs/en/overview") | color(theme.color_for(Role::Info)),
+        text(cc::constants::product::doc_url("/docs/en/overview"))
+            | color(theme.color_for(Role::Info)),
     }));
 
     // Dismiss hint
@@ -318,7 +320,7 @@ namespace detail {
 
     // Wrap in DialogFrame
     dframe::DialogFrameProps frame_props;
-    frame_props.title = "Claude Code v" + props.app_version;
+    frame_props.title = "Loom v" + props.app_version;
     frame_props.subtitle = "Help";
     frame_props.style = dframe::FrameStyle::Permission;
     frame_props.content = body;

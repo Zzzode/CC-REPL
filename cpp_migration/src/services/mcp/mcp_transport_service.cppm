@@ -151,12 +151,12 @@ struct IdeLockfile {
     int pid = 0;
 };
 
-// Discover running IDE by scanning lockfiles in ~/.claude/ide/
+// Discover running IDE by scanning lockfiles in ~/.loom/ide/
 inline std::optional<IdeLockfile> discover_ide(std::string_view workspace_path) {
     auto home = std::getenv("HOME");
     if (!home) return std::nullopt;
 
-    auto ide_dir = std::filesystem::path(home) / ".claude" / "ide";
+    auto ide_dir = std::filesystem::path(home) / ".loom" / "ide";
     if (!std::filesystem::exists(ide_dir)) return std::nullopt;
 
     for (const auto& entry : std::filesystem::directory_iterator(ide_dir)) {

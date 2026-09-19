@@ -215,7 +215,7 @@ TEST(AppCommandRegistry, DispatchesMigratedRuntimeCommands) {
     auto version = registry.execute("/version detail", ctx());
     ASSERT_TRUE(version.has_value());
     EXPECT_TRUE(version->ok);
-    EXPECT_NE(version->message.find("cc-repl 1.0.0-cpp"), std::string::npos);
+    EXPECT_NE(version->message.find("loom 1.0.0-cpp"), std::string::npos);
     EXPECT_EQ(version->message.find("No dedicated local action"), std::string::npos);
 
     auto exit = registry.execute("/exit", ctx());
@@ -255,7 +255,7 @@ TEST(AppCommandRegistry, RuntimeSurfaceCommandsExecuteLocalLogic) {
 }
 
 TEST(LoginCommand, ApiKeyFlowReadsInteractiveSecretWhenEnvIsMissing) {
-    auto root = std::filesystem::temp_directory_path() / "cc_repl_login_apikey_test";
+    auto root = std::filesystem::temp_directory_path() / "loom_login_apikey_test";
     std::filesystem::remove_all(root);
     std::filesystem::create_directories(root);
 
@@ -277,7 +277,7 @@ TEST(LoginCommand, ApiKeyFlowReadsInteractiveSecretWhenEnvIsMissing) {
     ASSERT_TRUE(status.has_value()) << status.error().format();
     EXPECT_NE(status->message.find("Method:  API Key"), std::string::npos);
 
-    const auto credentials_path = root / ".config" / "cc-repl" / "credentials.json";
+    const auto credentials_path = root / ".config" / "loom" / "credentials.json";
     std::ifstream input(credentials_path);
     ASSERT_TRUE(input.is_open()) << credentials_path;
     std::string body((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
@@ -289,7 +289,7 @@ TEST(LoginCommand, ApiKeyFlowReadsInteractiveSecretWhenEnvIsMissing) {
 }
 
 TEST(LoginCommand, ApiKeyFlowRejectsInvalidInteractiveSecret) {
-    auto root = std::filesystem::temp_directory_path() / "cc_repl_login_invalid_apikey_test";
+    auto root = std::filesystem::temp_directory_path() / "loom_login_invalid_apikey_test";
     std::filesystem::remove_all(root);
     std::filesystem::create_directories(root);
 
@@ -305,14 +305,14 @@ TEST(LoginCommand, ApiKeyFlowRejectsInvalidInteractiveSecret) {
     auto result = login.execute(ctx({"apikey"}));
     ASSERT_FALSE(result.has_value());
     EXPECT_NE(result.error().message.find("API key does not look like"), std::string::npos);
-    EXPECT_FALSE(std::filesystem::exists(root / ".config" / "cc-repl" / "credentials.json"));
+    EXPECT_FALSE(std::filesystem::exists(root / ".config" / "loom" / "credentials.json"));
 
     std::error_code ec;
     std::filesystem::remove_all(root, ec);
 }
 
 TEST(AgentsCommand, ListsRealAgentDefinitions) {
-    EnvironmentGuard explore_enabled("CLAUDE_CODE_ENABLE_EXPLORE_PLAN_AGENTS", "1");
+    EnvironmentGuard explore_enabled("LOOM_ENABLE_EXPLORE_PLAN_AGENTS", "1");
     cc::commands::AgentsCommand agents;
 
     auto list = agents.execute(ctx({"list"}));
@@ -536,7 +536,7 @@ insights::SessionFacets make_facets(std::string id) {
     f.goal_categories = {{"implement_feature", 2}, {"fix_bug", 1}};
     f.outcome = "fully_achieved";
     f.user_satisfaction_counts = {{"satisfied", 2}, {"happy", 1}};
-    f.claude_helpfulness = "very_helpful";
+    f.loom_helpfulness = "very_helpful";
     f.session_type = "iterative_refinement";
     f.friction_counts = {{"buggy_code", 1}};
     f.friction_detail = "One bad edit";
@@ -634,7 +634,7 @@ TEST(Insights, FacetCacheAcceptsTSJsonShape) {
       "goal_categories": {"fix_bug": 3, "implement_feature": 1},
       "outcome": "mostly_achieved",
       "user_satisfaction_counts": {"satisfied": 2},
-      "claude_helpfulness": "essential",
+      "loom_helpfulness": "essential",
       "session_type": "multi_task",
       "friction_counts": {"wrong_approach": 1},
       "friction_detail": "Detour",
@@ -649,7 +649,7 @@ TEST(Insights, FacetCacheAcceptsTSJsonShape) {
     ASSERT_TRUE(loaded.has_value());
     EXPECT_EQ(loaded->goal_categories.at("fix_bug"), 3u);
     EXPECT_EQ(loaded->outcome, "mostly_achieved");
-    EXPECT_EQ(loaded->claude_helpfulness, "essential");
+    EXPECT_EQ(loaded->loom_helpfulness, "essential");
 }
 
 TEST(Insights, HtmlReportHasExpectedStructure) {
@@ -659,7 +659,7 @@ TEST(Insights, HtmlReportHasExpectedStructure) {
         5, 100, "2026-01-01", "2026-06-01", agg);
 
     EXPECT_TRUE(html.starts_with("<!DOCTYPE html>"));
-    EXPECT_NE(html.find("<title>Claude Code Insights</title>"), std::string::npos);
+    EXPECT_NE(html.find("<title>Loom Insights</title>"), std::string::npos);
     // Sections present.
     EXPECT_NE(html.find("id=\"goals\""), std::string::npos);
     EXPECT_NE(html.find("id=\"outcomes\""), std::string::npos);
@@ -698,7 +698,7 @@ TEST(Insights, ExtractFacetsSeamParsesValidJson) {
             std::string("Here you go: {") +
             R"("underlying_goal":"g","goal_categories":{"fix_bug":2},)"
             R"("outcome":"fully_achieved","user_satisfaction_counts":{"happy":1},)"
-            R"("claude_helpfulness":"very_helpful","session_type":"single_task",)"
+            R"("loom_helpfulness":"very_helpful","session_type":"single_task",)"
             R"("friction_counts":{"buggy_code":1},"friction_detail":"",)"
             R"("primary_success":"none","brief_summary":"b"}) done.)");
     };
@@ -1010,7 +1010,7 @@ TEST(TerminalSetupCommand, PreviewAndApplyWrapDisplayPathsInOsc8Links) {
     ASSERT_TRUE(ifs.is_open());
     std::string on_disk((std::istreambuf_iterator<char>(ifs)),
                         std::istreambuf_iterator<char>());
-    EXPECT_NE(on_disk.find("# >>> cc-repl terminal-setup"), std::string::npos);
+    EXPECT_NE(on_disk.find("# >>> loom terminal-setup"), std::string::npos);
 }
 
 TEST(TerminalSetupCommand, HyperlinkGateMatchesTsTerminalMatrix) {

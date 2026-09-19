@@ -442,7 +442,7 @@ public:
 private:
     /// Build default system prompt
     [[nodiscard]] static std::string build_default_system_prompt() {
-        return R"(You are Claude, a helpful assistant working with code and files.
+        return R"(You are Loom, a helpful assistant working with code and files.
 You have access to various tools to read, write, edit, and search files, execute commands, and more.
 Always use the appropriate tools to accomplish your tasks rather than trying to do everything manually.
 When you write or edit files, always make complete, functional changes.)";
@@ -906,16 +906,16 @@ private:
         // P1-12: Inject git context (branch + last commit)
         populate_git_context(user_ctx, cwd);
 
-        // P1-13: Load CLAUDE.md memory file
-        auto claude_md = load_claude_md(std::filesystem::path(cwd));
-        if (!claude_md.empty()) {
+        // P1-13: Load LOOM.md memory file
+        auto loom_md = load_loom_md(std::filesystem::path(cwd));
+        if (!loom_md.empty()) {
             user_ctx.additional_contexts.push_back(
-                std::format("<context name=\"CLAUDE.md\">\n{}\n</context>", claude_md));
+                std::format("<context name=\"LOOM.md\">\n{}\n</context>", loom_md));
         }
 
-        // P1-13b: Load user-level memory (~/.claude/CLAUDE.md) via the memdir
+        // P1-13b: Load user-level memory (~/.loom/LOOM.md) via the memdir
         // module so global user preferences are injected alongside project
-        // memory. Tree/ancestor CLAUDE.md is already covered by load_claude_md.
+        // memory. Tree/ancestor LOOM.md is already covered by load_loom_md.
         auto user_mem = cc::memdir::get_user_memory_path();
         if (std::filesystem::exists(user_mem)) {
             std::ifstream um_ifs(user_mem);
@@ -947,7 +947,7 @@ private:
                     ::memdir::join_lines(guidance_lines)));
             }
 
-            // Append the MEMORY.md index contents (claudemd.ts injects the
+            // Append the MEMORY.md index contents (loommd.ts injects the
             // AutoMem entrypoint separately from the guidance prompt).
             std::filesystem::path mem_dir_path = *auto_mem_dir;
             std::filesystem::path mem_index_file{mem_dir_path / "MEMORY.md"};
@@ -1037,13 +1037,13 @@ private:
         }
     }
 
-    /// Load CLAUDE.md from CWD or parent directories
-    [[nodiscard]] static std::string load_claude_md(const std::filesystem::path& cwd) {
+    /// Load LOOM.md from CWD or parent directories
+    [[nodiscard]] static std::string load_loom_md(const std::filesystem::path& cwd) {
         auto path = cwd;
         for (int depth = 0; depth < 10; ++depth) {
-            auto claude_md = path / "CLAUDE.md";
-            if (std::filesystem::exists(claude_md)) {
-                std::ifstream ifs(claude_md);
+            auto loom_md = path / "LOOM.md";
+            if (std::filesystem::exists(loom_md)) {
+                std::ifstream ifs(loom_md);
                 if (ifs) {
                     return std::string(std::istreambuf_iterator<char>(ifs), {});
                 }
@@ -1331,22 +1331,22 @@ private:
 
     [[nodiscard]] static bool time_based_microcompact_enabled() {
         return env_truthy_any({
-            "CC_REPL_TIME_BASED_MICROCOMPACT",
-            "CLAUDE_CODE_TIME_BASED_MICROCOMPACT",
+            "LOOM_TIME_BASED_MICROCOMPACT",
+            "LOOM_TIME_BASED_MICROCOMPACT",
         });
     }
 
     [[nodiscard]] static std::uint32_t time_based_microcompact_gap_minutes() {
         return env_uint_or_default({
-            "CC_REPL_TIME_BASED_MICROCOMPACT_GAP_MINUTES",
-            "CLAUDE_CODE_TIME_BASED_MICROCOMPACT_GAP_MINUTES",
+            "LOOM_TIME_BASED_MICROCOMPACT_GAP_MINUTES",
+            "LOOM_TIME_BASED_MICROCOMPACT_GAP_MINUTES",
         }, 60);
     }
 
     [[nodiscard]] static std::uint32_t time_based_microcompact_keep_recent() {
         return std::max<std::uint32_t>(1, env_uint_or_default({
-            "CC_REPL_TIME_BASED_MICROCOMPACT_KEEP_RECENT",
-            "CLAUDE_CODE_TIME_BASED_MICROCOMPACT_KEEP_RECENT",
+            "LOOM_TIME_BASED_MICROCOMPACT_KEEP_RECENT",
+            "LOOM_TIME_BASED_MICROCOMPACT_KEEP_RECENT",
         }, 5));
     }
 
@@ -2000,7 +2000,7 @@ private:
 
     [[nodiscard]] bool thinking_enabled_for_request() const {
         return config_.thinking_config.mode != ThinkingConfig::Mode::Disabled &&
-            !cc::utils::is_env_truthy(std::getenv("CLAUDE_CODE_DISABLE_THINKING"));
+            !cc::utils::is_env_truthy(std::getenv("LOOM_DISABLE_THINKING"));
     }
 
     void add_output_config_to_json(
@@ -2189,11 +2189,11 @@ private:
             return fallback;
         };
         input.computer_display_width =
-            env_dim("CC_REPL_COMPUTER_DISPLAY_WIDTH", 1024);
+            env_dim("LOOM_COMPUTER_DISPLAY_WIDTH", 1024);
         input.computer_display_height =
-            env_dim("CC_REPL_COMPUTER_DISPLAY_HEIGHT", 768);
+            env_dim("LOOM_COMPUTER_DISPLAY_HEIGHT", 768);
         input.computer_display_number =
-            env_dim("CC_REPL_COMPUTER_DISPLAY_NUMBER", 0);
+            env_dim("LOOM_COMPUTER_DISPLAY_NUMBER", 0);
 
         // MCP verbatim schemas (snapshotted once per request).
         if (config_.mcp_input_schema_provider) {
@@ -2440,7 +2440,7 @@ private:
         } else {
             headers.emplace("x-api-key", api_config_.api_key);
         }
-        headers.emplace("User-Agent", "CC-REPL/1.0");
+        headers.emplace("User-Agent", "LOOM/1.0");
         add_beta_headers(headers);
 
         // Build request body
@@ -2603,7 +2603,7 @@ private:
         } else {
             headers.emplace("x-api-key", api_config_.api_key);
         }
-        headers.emplace("User-Agent", "CC-REPL/1.0");
+        headers.emplace("User-Agent", "LOOM/1.0");
         add_beta_headers(headers);
 
         // Build streaming request body
@@ -3362,8 +3362,8 @@ private:
         [] {
             // TS gates auto-extraction behind a feature flag; default OFF so
             // headless/server/test runs don't fire background sub-agent API
-            // calls. Opt in with CC_REPL_ENABLE_MEMORY_EXTRACTION=1.
-            const char* v = std::getenv("CC_REPL_ENABLE_MEMORY_EXTRACTION");
+            // calls. Opt in with LOOM_ENABLE_MEMORY_EXTRACTION=1.
+            const char* v = std::getenv("LOOM_ENABLE_MEMORY_EXTRACTION");
             return v && (std::string_view(v) == "1" ||
                          std::string_view(v) == "true");
         }();

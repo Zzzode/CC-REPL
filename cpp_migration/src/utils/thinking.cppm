@@ -15,7 +15,7 @@ struct ThinkingBlock {
 
 // Check if thinking/extended thinking is enabled for a model
 bool is_thinking_enabled(std::string_view model_id) {
-    // All Claude 4 models support thinking
+    // All Loom 4 models support thinking
     return model_id.find("claude-sonnet-4") != std::string_view::npos ||
            model_id.find("claude-opus-4") != std::string_view::npos ||
            model_id.find("claude-haiku-4") != std::string_view::npos;

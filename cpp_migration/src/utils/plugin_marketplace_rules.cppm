@@ -61,9 +61,9 @@ struct MarketplaceSource {
     const auto normalized = lower_copy(name);
     if (cc::utils::plugin_identifier::is_official_marketplace_name(normalized)) return false;
     if (contains_non_ascii(name)) return true;
-    if (has_separator_between(normalized, "official", "anthropic") || has_separator_between(normalized, "official", "claude")) return true;
-    if (has_separator_between(normalized, "anthropic", "official") || has_separator_between(normalized, "claude", "official")) return true;
-    for (std::string_view brand : {"anthropic", "claude"}) {
+    if (has_separator_between(normalized, "official", "anthropic") || has_separator_between(normalized, "official", "loom")) return true;
+    if (has_separator_between(normalized, "anthropic", "official") || has_separator_between(normalized, "loom", "official")) return true;
+    for (std::string_view brand : {"anthropic", "loom"}) {
         if (normalized.starts_with(brand)) {
             auto rest = normalized.substr(brand.size());
             while (!rest.empty() && !((rest.front() >= 'a' && rest.front() <= 'z') || (rest.front() >= '0' && rest.front() <= '9'))) rest.erase(0, 1);

@@ -28,8 +28,8 @@ void unset_env_dynamic(std::string_view key) {
     unsetenv(std::string(key).c_str());
 }
 
-// Collect all CLAUDE_* and ANTHROPIC_* environment variables
-std::map<std::string, std::string> get_all_claude_env_vars() {
+// Collect all LOOM_* and ANTHROPIC_* environment variables
+std::map<std::string, std::string> get_all_loom_env_vars() {
     std::map<std::string, std::string> result;
 
     for (char** env = environ; *env != nullptr; ++env) {
@@ -40,7 +40,7 @@ std::map<std::string, std::string> get_all_claude_env_vars() {
         std::string_view key = entry.substr(0, eq);
         std::string_view value = entry.substr(eq + 1);
 
-        if (key.starts_with("CLAUDE_") || key.starts_with("ANTHROPIC_")) {
+        if (key.starts_with("LOOM_") || key.starts_with("ANTHROPIC_")) {
             result[std::string(key)] = std::string(value);
         }
     }

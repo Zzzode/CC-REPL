@@ -23,8 +23,8 @@ struct SessionEnvironment {
 namespace detail {
     inline fs::path get_sessions_base_dir() {
         const char* home = std::getenv("HOME");
-        if (!home) return fs::temp_directory_path() / "claude-code" / "sessions";
-        return fs::path(home) / ".claude" / "sessions";
+        if (!home) return fs::temp_directory_path() / "loom" / "sessions";
+        return fs::path(home) / ".loom" / "sessions";
     }
 } // namespace detail
 
@@ -37,17 +37,17 @@ SessionEnvironment capture_environment() {
     const char* shell = std::getenv("SHELL");
     env.shell = shell ? shell : "/bin/bash";
 
-    const char* model = std::getenv("CLAUDE_MODEL");
+    const char* model = std::getenv("LOOM_MODEL");
     env.model = model ? model : "claude-sonnet-4-20250514";
 
-    // Capture CLAUDE_* and ANTHROPIC_* env vars
+    // Capture LOOM_* and ANTHROPIC_* env vars
     extern char** environ;
     for (char** e = environ; *e != nullptr; ++e) {
         std::string_view entry(*e);
         auto eq = entry.find('=');
         if (eq == std::string_view::npos) continue;
         std::string_view key = entry.substr(0, eq);
-        if (key.starts_with("CLAUDE_") || key.starts_with("ANTHROPIC_") || key == "PATH") {
+        if (key.starts_with("LOOM_") || key.starts_with("ANTHROPIC_") || key == "PATH") {
             env.env[std::string(key)] = std::string(entry.substr(eq + 1));
         }
     }

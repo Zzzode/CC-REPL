@@ -40,7 +40,7 @@ public:
 
     [[nodiscard]] static auto is_installed() -> bool {
 
-        return std::system("which cc-repl > /dev/null 2>&1") == 0;
+        return std::system("which loom > /dev/null 2>&1") == 0;
     }
     
 
@@ -49,7 +49,7 @@ public:
             std::stringstream paths(path_env);
             std::string dir;
             while (std::getline(paths, dir, ':')) {
-                auto candidate = std::filesystem::path(dir) / "cc-repl";
+                auto candidate = std::filesystem::path(dir) / "loom";
                 if (std::filesystem::exists(candidate)) return candidate;
             }
         }
@@ -65,7 +65,7 @@ public:
             case InstallTarget::custom_path: target_dir = config.custom_path; break;
         }
         std::filesystem::create_directories(target_dir);
-        auto installed = target_dir / "cc-repl";
+        auto installed = target_dir / "loom";
         std::ofstream marker(installed, std::ios::app);
         if (!marker) return {false, installed, "failed to write to install path"};
         marker << "";
@@ -81,12 +81,12 @@ public:
 
     [[nodiscard]] static auto install_completions(std::string_view shell = "zsh") 
         -> std::expected<void, std::string> {
-        auto dir = get_local_bin().parent_path() / "share" / "cc-repl" / "completions";
+        auto dir = get_local_bin().parent_path() / "share" / "loom" / "completions";
         std::filesystem::create_directories(dir);
-        auto path = dir / ("cc-repl." + std::string(shell));
+        auto path = dir / ("loom." + std::string(shell));
         std::ofstream out(path);
         if (!out) return std::unexpected("failed to write completion script");
-        out << "#compdef cc-repl\n# generated completion shim\n";
+        out << "#compdef loom\n# generated completion shim\n";
         return {};
     }
     

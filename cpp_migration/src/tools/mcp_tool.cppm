@@ -450,12 +450,12 @@ inline void replace_all(std::string& value, std::string_view needle, std::string
 
 [[nodiscard]] inline fs::path plugin_data_dir(std::string_view plugin_id) {
     fs::path plugins_dir;
-    if (const char* override_dir = std::getenv("CLAUDE_CODE_PLUGIN_CACHE_DIR")) {
+    if (const char* override_dir = std::getenv("LOOM_PLUGIN_CACHE_DIR")) {
         plugins_dir = override_dir;
     } else if (const char* home = std::getenv("HOME")) {
-        plugins_dir = fs::path{home} / ".claude" / "plugins";
+        plugins_dir = fs::path{home} / ".loom" / "plugins";
     } else {
-        plugins_dir = fs::current_path() / ".claude" / "plugins";
+        plugins_dir = fs::current_path() / ".loom" / "plugins";
     }
     auto dir = plugins_dir / "data" / sanitize_plugin_data_id(plugin_id);
     std::error_code ec;
@@ -520,20 +520,20 @@ inline void merge_plugin_mcp_user_config_from_settings(
     std::unordered_map<std::string, std::string> values;
     if (const char* home = std::getenv("HOME")) {
         merge_plugin_mcp_user_config_from_settings(
-            fs::path{home} / ".claude" / "settings.json",
+            fs::path{home} / ".loom" / "settings.json",
             plugin_name,
             server_name,
             values
         );
     }
     merge_plugin_mcp_user_config_from_settings(
-        fs::current_path() / ".claude" / "settings.json",
+        fs::current_path() / ".loom" / "settings.json",
         plugin_name,
         server_name,
         values
     );
     merge_plugin_mcp_user_config_from_settings(
-        fs::current_path() / ".claude" / "settings.local.json",
+        fs::current_path() / ".loom" / "settings.local.json",
         plugin_name,
         server_name,
         values
@@ -547,8 +547,8 @@ inline void merge_plugin_mcp_user_config_from_settings(
     std::string_view plugin_name,
     const std::unordered_map<std::string, std::string>& user_config
 ) {
-    replace_all(value, "${CLAUDE_PLUGIN_ROOT}", plugin_dir.string());
-    replace_all(value, "${CLAUDE_PLUGIN_DATA}", plugin_data_dir(plugin_name).string());
+    replace_all(value, "${LOOM_PLUGIN_ROOT}", plugin_dir.string());
+    replace_all(value, "${LOOM_PLUGIN_DATA}", plugin_data_dir(plugin_name).string());
 
     std::string resolved;
     resolved.reserve(value.size());
@@ -625,8 +625,8 @@ inline void merge_plugin_mcp_user_config_from_settings(
     }
 
     if (server.transport == svc_mcp::TransportType::Stdio) {
-        server.env.try_emplace("CLAUDE_PLUGIN_ROOT", plugin_dir.string());
-        server.env.try_emplace("CLAUDE_PLUGIN_DATA", plugin_data_dir(plugin_name).string());
+        server.env.try_emplace("LOOM_PLUGIN_ROOT", plugin_dir.string());
+        server.env.try_emplace("LOOM_PLUGIN_DATA", plugin_data_dir(plugin_name).string());
     }
     return server;
 }
@@ -845,9 +845,9 @@ inline void merge_native_mcp_servers(
     std::vector<NativeMcpConfiguredServer> servers;
     std::vector<fs::path> roots;
     if (const char* home = std::getenv("HOME")) {
-        roots.push_back(fs::path{home} / ".claude" / "plugins");
+        roots.push_back(fs::path{home} / ".loom" / "plugins");
     }
-    roots.push_back(fs::current_path() / ".claude" / "plugins");
+    roots.push_back(fs::current_path() / ".loom" / "plugins");
 
     for (const auto& root : roots) {
         std::error_code ec;

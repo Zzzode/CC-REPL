@@ -17,7 +17,7 @@ inline std::vector<std::string> get_startup_notifications() {
     std::vector<std::string> notifications;
 
     if (check_first_run()) {
-        notifications.emplace_back("Welcome to CC-REPL! Type /help to get started.");
+        notifications.emplace_back("Welcome to LOOM! Type /help to get started.");
     }
 
     return notifications;
@@ -26,9 +26,9 @@ inline std::vector<std::string> get_startup_notifications() {
 
 inline void show_welcome_notification(bool first_run) {
     if (first_run) {
-        std::fprintf(stderr, "Welcome to CC-REPL! Type /help to get started.\n");
+        std::fprintf(stderr, "Welcome to LOOM! Type /help to get started.\n");
     } else {
-        std::fprintf(stderr, "CC-REPL ready.\n");
+        std::fprintf(stderr, "LOOM ready.\n");
     }
 }
 
@@ -42,7 +42,7 @@ inline void show_update_available_notification(std::string_view version) {
 inline bool check_first_run() {
 
     auto config_path = std::filesystem::path(std::getenv("HOME") ? std::getenv("HOME") : "")
-                       / ".cc-repl" / ".initialized";
+                       / ".loom" / ".initialized";
     return !std::filesystem::exists(config_path);
 }
 

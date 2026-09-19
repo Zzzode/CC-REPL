@@ -316,15 +316,15 @@ struct CaBundleGuard {
     std::string previous;
     bool had_previous = false;
     explicit CaBundleGuard(const std::string& path) {
-        if (const char* v = std::getenv("CC_REPL_CA_BUNDLE"); v) {
+        if (const char* v = std::getenv("LOOM_CA_BUNDLE"); v) {
             previous = v;
             had_previous = true;
         }
-        setenv("CC_REPL_CA_BUNDLE", path.c_str(), 1);
+        setenv("LOOM_CA_BUNDLE", path.c_str(), 1);
     }
     ~CaBundleGuard() {
-        if (had_previous) setenv("CC_REPL_CA_BUNDLE", previous.c_str(), 1);
-        else unsetenv("CC_REPL_CA_BUNDLE");
+        if (had_previous) setenv("LOOM_CA_BUNDLE", previous.c_str(), 1);
+        else unsetenv("LOOM_CA_BUNDLE");
     }
 };
 

@@ -27,7 +27,7 @@ public:
     [[nodiscard]] static CommandDefinition definition() {
         return CommandDefinition{
             .name = "passes",
-            .description = "Share a free week of Claude Code with friends",
+            .description = "Share a free week of Loom with friends",
             .args = {},
             .category = "configuration",
             .aliases = {},
@@ -42,7 +42,7 @@ public:
     [[nodiscard]] Result<CommandResult> execute(const CommandContext&) {
         return CommandResult::success(
             "Guest passes require the referral backend API, which is not reachable from this native build. "
-            "Manage your passes at https://claude.ai/settings/billing, or share a free week of Claude Code "
+            "Manage your passes in your account settings, or share a free week of Loom "
             "from your account page.");
     }
 

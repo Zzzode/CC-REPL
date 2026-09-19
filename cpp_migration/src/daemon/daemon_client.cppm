@@ -34,15 +34,15 @@ export namespace cc::daemon {
 /// Default PID file path
 inline std::filesystem::path daemon_pid_path() {
     const char* home = std::getenv("HOME");
-    if (home) return std::filesystem::path(home) / ".claude" / "daemon.pid";
-    return std::filesystem::temp_directory_path() / "cc-repl-daemon.pid";
+    if (home) return std::filesystem::path(home) / ".loom" / "daemon.pid";
+    return std::filesystem::temp_directory_path() / "loom-daemon.pid";
 }
 
 /// Default port file path
 inline std::filesystem::path daemon_port_path() {
     const char* home = std::getenv("HOME");
-    if (home) return std::filesystem::path(home) / ".claude" / "daemon.port";
-    return std::filesystem::temp_directory_path() / "cc-repl-daemon.port";
+    if (home) return std::filesystem::path(home) / ".loom" / "daemon.port";
+    return std::filesystem::temp_directory_path() / "loom-daemon.port";
 }
 
 /// Check if a daemon is currently running by looking for the PID file

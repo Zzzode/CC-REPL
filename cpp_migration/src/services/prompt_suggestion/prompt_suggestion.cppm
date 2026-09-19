@@ -98,7 +98,7 @@ enum class SuggestionFilterReason : std::uint8_t {
     multiple_sentences,
     has_formatting,
     evaluative,
-    claude_voice,
+    loom_voice,
 };
 
 // Why suggestion generation was suppressed entirely. Mirrors the union produced by
@@ -128,7 +128,7 @@ enum class PromptVariant : std::uint8_t {
 // suggestion. Ported verbatim: it documents the intent model and will be reused when an
 // LLM fork path exists in C++. NOT used by the deterministic ranker.
 inline constexpr std::string_view SUGGESTION_PROMPT =
-    "[SUGGESTION MODE: Suggest what the user might naturally type next into Claude Code.]\n"
+    "[SUGGESTION MODE: Suggest what the user might naturally type next into Loom.]\n"
     "FIRST: Look at the user's recent messages and original request.\n"
     "Your job is to predict what THEY would type - not what you think they should do.\n"
     "THE TEST: Would they think \"I was just about to type that\"?\n"
@@ -289,7 +289,7 @@ namespace detail {
     return check_pair('(', ')') || check_pair('[', ']');
 }
 
-// Replicates the claude_voice prefix alternation (case-insensitive on the original,
+// Replicates the loom_voice prefix alternation (case-insensitive on the original,
 // applied to mixed-case input).
 [[nodiscard]] inline bool matches_claude_voice(std::string_view text) {
     static constexpr std::string_view prefixes[] = {
@@ -380,8 +380,8 @@ namespace detail {
     // evaluative
     if (detail::matches_evaluative(lower)) return SuggestionFilterReason::evaluative;
 
-    // claude_voice
-    if (detail::matches_claude_voice(suggestion)) return SuggestionFilterReason::claude_voice;
+    // loom_voice
+    if (detail::matches_claude_voice(suggestion)) return SuggestionFilterReason::loom_voice;
 
     return std::nullopt;
 }

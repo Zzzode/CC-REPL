@@ -361,7 +361,7 @@ public:
             return std::unexpected(Error::make(
                 ErrorCode::InvalidRequest,
                 "Ultrareview is not enabled for this account. Enable Extra Usage at "
-                "https://claude.ai/settings/billing to continue."
+                "your account billing settings to continue."
             ));
         }
 

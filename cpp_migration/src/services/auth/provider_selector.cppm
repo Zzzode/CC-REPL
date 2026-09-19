@@ -3,9 +3,9 @@
 // branch.
 //
 // Provider selection priority (same as `providers.ts::getAPIProvider()`):
-//     1. BEDROCK    — CLAUDE_CODE_USE_BEDROCK
-//     2. VERTEX     — CLAUDE_CODE_USE_VERTEX
-//     3. FOUNDRY    — CLAUDE_CODE_USE_FOUNDRY
+//     1. BEDROCK    — LOOM_USE_BEDROCK
+//     2. VERTEX     — LOOM_USE_VERTEX
+//     3. FOUNDRY    — LOOM_USE_FOUNDRY
 //     4. firstParty — default, api.anthropic.com
 //
 // Note: upstream TS has a BUG where `client.ts` branches BEDROCK > FOUNDRY >
@@ -80,9 +80,9 @@ enum class EnterpriseProvider {
 [[nodiscard]] inline EnterpriseProvider detect_active_provider() {
     using cc::utils::env::is_env_truthy;
     using cc::utils::env::get_env;
-    auto bedrock = is_env_truthy("CLAUDE_CODE_USE_BEDROCK");
-    auto vertex  = is_env_truthy("CLAUDE_CODE_USE_VERTEX");
-    auto foundry = is_env_truthy("CLAUDE_CODE_USE_FOUNDRY");
+    auto bedrock = is_env_truthy("LOOM_USE_BEDROCK");
+    auto vertex  = is_env_truthy("LOOM_USE_VERTEX");
+    auto foundry = is_env_truthy("LOOM_USE_FOUNDRY");
     // Priority: Bedrock > Vertex > Foundry > FirstParty
     if (bedrock) return EnterpriseProvider::Bedrock;
     if (vertex)  return EnterpriseProvider::Vertex;
@@ -100,7 +100,7 @@ enum class EnterpriseProvider {
 struct ResolvedAuth {
     EnterpriseProvider provider = EnterpriseProvider::FirstParty;
     // Headers map (lowercase name → value).  These are ADDITIVE on top of any
-    // provider-agnostic headers (User-Agent, x-app, X-Claude-Code-Session-Id,
+    // provider-agnostic headers (User-Agent, x-app, X-Loom-Code-Session-Id,
     // Content-Type, Accept).  If a header here collides with one in the
     // agnostic set, this set wins.
     std::vector<std::pair<std::string, std::string>> headers;

@@ -200,7 +200,7 @@ struct PluginDialogHolder : public ComponentBase {
 }
 
 /// Build the full PluginDialogInputs from disk + cache, given the initial
-/// ViewState.  Installed plugins come from ~/.cc-repl/plugins manifests;
+/// ViewState.  Installed plugins come from ~/.loom/plugins manifests;
 /// marketplaces + discover plugins come from known_marketplaces.json + the
 /// per-marketplace cache (no network is performed here).
 [[nodiscard]] pd::PluginDialogInputs build_plugin_dialog_inputs(

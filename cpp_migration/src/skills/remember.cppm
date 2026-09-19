@@ -48,7 +48,7 @@ Persist important facts, decisions, and preferences across sessions.
 - Don't store sensitive data (API keys, passwords)
 
 ### Memory File
-Memories are stored in ~/.cc-repl/memories.json and CLAUDE.md.
+Memories are stored in ~/.loom/memories.json and LOOM.md.
 )",
         .is_builtin = true,
         .author = std::nullopt,

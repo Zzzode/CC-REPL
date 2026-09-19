@@ -22,7 +22,7 @@
 //   add_executable(test_fix_state test_fix_state.cpp)
 //   target_link_libraries(test_fix_state PRIVATE cc_core GTest::gtest_main)
 //   gtest_discover_tests(test_fix_state
-//       DISCOVERY_TIMEOUT ${CC_REPL_TEST_DISCOVERY_TIMEOUT})
+//       DISCOVERY_TIMEOUT ${LOOM_TEST_DISCOVERY_TIMEOUT})
 
 #include <gtest/gtest.h>
 
@@ -185,7 +185,7 @@ TEST(StateUndoRedoNotify, ConsecutiveUndosEachNotifyCorrectly) {
 
 TEST(StatePersistence, SaveLoadRoundTripPreservesFields) {
     auto tmp = std::filesystem::temp_directory_path() /
-        "cc_repl_test_fix_state_app_state.json";
+        "loom_test_fix_state_app_state.json";
     std::filesystem::remove(tmp);
 
     StatePersistence persist(tmp);
@@ -219,7 +219,7 @@ TEST(StatePersistence, SaveLoadRoundTripPreservesFields) {
 // The crash-safe write path must not leave a stale .tmp file behind on success.
 TEST(StatePersistence, AtomicWriteLeavesNoTempFile) {
     auto tmp = std::filesystem::temp_directory_path() /
-        "cc_repl_test_fix_state_notmp.json";
+        "loom_test_fix_state_notmp.json";
     std::filesystem::remove(tmp);
     std::filesystem::remove(std::string(tmp.string()) + ".tmp");
 

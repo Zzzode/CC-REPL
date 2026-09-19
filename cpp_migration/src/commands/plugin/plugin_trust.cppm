@@ -22,8 +22,8 @@ enum class TrustLevel {
 };
 
 auto trust_config_path() -> std::filesystem::path {
-    if (const char* home = std::getenv("HOME")) return std::filesystem::path{home} / ".cc-repl" / "plugin-trust.txt";
-    return std::filesystem::path{".cc-repl"} / "plugin-trust.txt";
+    if (const char* home = std::getenv("HOME")) return std::filesystem::path{home} / ".loom" / "plugin-trust.txt";
+    return std::filesystem::path{".loom"} / "plugin-trust.txt";
 }
 
 auto trust_to_string(TrustLevel level) -> std::string;

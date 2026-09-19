@@ -53,7 +53,7 @@ inline std::filesystem::path get_mcp_config_path() {
     auto cwd = std::filesystem::current_path();
     auto dir = cwd;
     while (true) {
-        auto config = dir / ".claude" / "mcp_servers.json";
+        auto config = dir / ".loom" / "mcp_servers.json";
         if (std::filesystem::exists(config)) return config;
         auto parent = dir.parent_path();
         if (parent == dir) break;
@@ -62,9 +62,9 @@ inline std::filesystem::path get_mcp_config_path() {
     // Global config
     const char* home = std::getenv("HOME");
     if (home) {
-        return std::filesystem::path(home) / ".config" / "claude-code" / "mcp_servers.json";
+        return std::filesystem::path(home) / ".config" / "loom" / "mcp_servers.json";
     }
-    return std::filesystem::temp_directory_path() / "claude-code-mcp.json";
+    return std::filesystem::temp_directory_path() / "loom-mcp.json";
 }
 
 inline std::string exec_command(const std::string& cmd) {
@@ -191,9 +191,9 @@ inline std::filesystem::path get_pid_file(const std::string& server_name) {
     const char* home = std::getenv("HOME");
     std::filesystem::path dir;
     if (home) {
-        dir = std::filesystem::path(home) / ".config" / "claude-code" / "mcp-pids";
+        dir = std::filesystem::path(home) / ".config" / "loom" / "mcp-pids";
     } else {
-        dir = std::filesystem::temp_directory_path() / "claude-code-mcp-pids";
+        dir = std::filesystem::temp_directory_path() / "loom-mcp-pids";
     }
     std::filesystem::create_directories(dir);
     return dir / (server_name + ".pid");

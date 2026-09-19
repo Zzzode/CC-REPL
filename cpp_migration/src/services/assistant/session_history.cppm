@@ -130,9 +130,9 @@ struct SessionHistoryConfig {
 [[nodiscard]] inline fs::path default_history_path() {
     const char* home = std::getenv("HOME");
     if (home) {
-        return fs::path(home) / ".claude" / "sessions" / "history.ndjson";
+        return fs::path(home) / ".loom" / "sessions" / "history.ndjson";
     }
-    return fs::temp_directory_path() / "cc-repl-history.ndjson";
+    return fs::temp_directory_path() / "loom-history.ndjson";
 }
 
 /// Load session history from disk

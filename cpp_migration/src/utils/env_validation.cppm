@@ -18,7 +18,7 @@ struct EnvIssue {
 std::vector<EnvIssue> check_required_env_vars();
 std::vector<EnvIssue> check_conflicting_env_vars();
 
-// Validate the overall environment for CC-REPL
+// Validate the overall environment for LOOM
 std::vector<EnvIssue> validate_environment() {
     std::vector<EnvIssue> issues;
 
@@ -38,8 +38,8 @@ std::vector<EnvIssue> check_required_env_vars() {
 
     // API key is required unless using bedrock/vertex
     const char* api_key = std::getenv("ANTHROPIC_API_KEY");
-    const char* use_bedrock = std::getenv("CLAUDE_CODE_USE_BEDROCK");
-    const char* use_vertex = std::getenv("CLAUDE_CODE_USE_VERTEX");
+    const char* use_bedrock = std::getenv("LOOM_USE_BEDROCK");
+    const char* use_vertex = std::getenv("LOOM_USE_VERTEX");
 
     if (!api_key && !use_bedrock && !use_vertex) {
         issues.push_back(EnvIssue{
@@ -52,7 +52,7 @@ std::vector<EnvIssue> check_required_env_vars() {
     // Warn if both bedrock and vertex are set
     if (use_bedrock && use_vertex) {
         issues.push_back(EnvIssue{
-            "CLAUDE_CODE_USE_BEDROCK",
+            "LOOM_USE_BEDROCK",
             "Both Bedrock and Vertex are enabled. Only one provider should be configured.",
             EnvIssue::Severity::Error
         });
@@ -77,22 +77,22 @@ std::vector<EnvIssue> check_conflicting_env_vars() {
     std::vector<EnvIssue> issues;
 
     // Check for conflicting model settings
-    const char* model_env = std::getenv("CLAUDE_MODEL");
+    const char* model_env = std::getenv("LOOM_MODEL");
     const char* anthropic_model = std::getenv("ANTHROPIC_MODEL");
 
     if (model_env && anthropic_model && std::string_view(model_env) != std::string_view(anthropic_model)) {
         issues.push_back(EnvIssue{
-            "CLAUDE_MODEL",
-            "CLAUDE_MODEL and ANTHROPIC_MODEL are both set with different values. CLAUDE_MODEL takes precedence.",
+            "LOOM_MODEL",
+            "LOOM_MODEL and ANTHROPIC_MODEL are both set with different values. LOOM_MODEL takes precedence.",
             EnvIssue::Severity::Warning
         });
     }
 
     // Check for deprecated env vars
-    if (std::getenv("CLAUDE_API_KEY")) {
+    if (std::getenv("LOOM_API_KEY")) {
         issues.push_back(EnvIssue{
-            "CLAUDE_API_KEY",
-            "CLAUDE_API_KEY is deprecated. Use ANTHROPIC_API_KEY instead.",
+            "LOOM_API_KEY",
+            "LOOM_API_KEY is deprecated. Use ANTHROPIC_API_KEY instead.",
             EnvIssue::Severity::Warning
         });
     }

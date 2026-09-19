@@ -61,7 +61,7 @@ inline constexpr auto SDK_BETA = "context-1m-2025-08-07";
 // Thinking Config Types
 // ============================================================================
 
-/// Adaptive thinking - Claude decides when and how much to think
+/// Adaptive thinking - Loom decides when and how much to think
 struct ThinkingAdaptive {
     static constexpr auto type = "adaptive";
 };
@@ -77,7 +77,7 @@ struct ThinkingDisabled {
     static constexpr auto type = "disabled";
 };
 
-/// Controls Claude's thinking/reasoning behavior
+/// Controls Loom's thinking/reasoning behavior
 using ThinkingConfig = std::variant<ThinkingAdaptive, ThinkingEnabled, ThinkingDisabled>;
 
 // ============================================================================
@@ -132,9 +132,9 @@ using McpServerConfig = std::variant<
     McpSdkServerConfig
 >;
 
-/// Claude AI proxy server config (output-only)
-struct McpClaudeAIProxyServerConfig {
-    static constexpr auto type = "claudeai-proxy";
+/// Loom AI proxy server config (output-only)
+struct McpLoomAIProxyServerConfig {
+    static constexpr auto type = "loomai-proxy";
     std::string url;
     std::string id;
 };

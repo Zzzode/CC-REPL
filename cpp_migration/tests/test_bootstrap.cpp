@@ -39,7 +39,7 @@ static std::filesystem::path make_tmp_path(std::string_view suffix) {
     auto base = std::filesystem::temp_directory_path();
     auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
     static std::atomic<long> counter{0};
-    auto name = "cc-repl-test-" + std::to_string(stamp) + "-" +
+    auto name = "loom-test-" + std::to_string(stamp) + "-" +
                 std::to_string(counter.fetch_add(1)) + std::string(suffix);
     return base / name;
 }

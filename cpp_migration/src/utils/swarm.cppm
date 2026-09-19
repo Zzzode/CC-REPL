@@ -33,25 +33,25 @@ inline std::string shell_quote(std::string_view sv) {
 
 
 constexpr std::string_view TEAM_LEAD_NAME = "team-lead";
-constexpr std::string_view SWARM_SESSION_NAME = "claude-swarm";
+constexpr std::string_view SWARM_SESSION_NAME = "loom-swarm";
 constexpr std::string_view SWARM_VIEW_WINDOW_NAME = "swarm-view";
 constexpr std::string_view TMUX_COMMAND = "tmux";
-constexpr std::string_view HIDDEN_SESSION_NAME = "claude-hidden";
+constexpr std::string_view HIDDEN_SESSION_NAME = "loom-hidden";
 
 
-constexpr std::string_view TEAMMATE_COMMAND_ENV_VAR = "CLAUDE_CODE_TEAMMATE_COMMAND";
-constexpr std::string_view TEAMMATE_COLOR_ENV_VAR = "CLAUDE_CODE_AGENT_COLOR";
-constexpr std::string_view PLAN_MODE_REQUIRED_ENV_VAR = "CLAUDE_CODE_PLAN_MODE_REQUIRED";
+constexpr std::string_view TEAMMATE_COMMAND_ENV_VAR = "LOOM_TEAMMATE_COMMAND";
+constexpr std::string_view TEAMMATE_COLOR_ENV_VAR = "LOOM_AGENT_COLOR";
+constexpr std::string_view PLAN_MODE_REQUIRED_ENV_VAR = "LOOM_PLAN_MODE_REQUIRED";
 
 
 constexpr std::array<std::string_view, 12> TEAMMATE_ENV_VARS = {
-    "CLAUDE_CODE_USE_BEDROCK",
-    "CLAUDE_CODE_USE_VERTEX",
-    "CLAUDE_CODE_USE_FOUNDRY",
+    "LOOM_USE_BEDROCK",
+    "LOOM_USE_VERTEX",
+    "LOOM_USE_FOUNDRY",
     "ANTHROPIC_BASE_URL",
-    "CLAUDE_CONFIG_DIR",
-    "CLAUDE_CODE_REMOTE",
-    "CLAUDE_CODE_REMOTE_MEMORY_DIR",
+    "LOOM_CONFIG_DIR",
+    "LOOM_REMOTE",
+    "LOOM_REMOTE_MEMORY_DIR",
     "HTTPS_PROXY",
     "https_proxy",
     "HTTP_PROXY",
@@ -69,7 +69,7 @@ constexpr std::array<std::string_view, 12> TEAMMATE_ENV_VARS = {
         auto now = std::chrono::system_clock::now();
         auto epoch = now.time_since_epoch();
         auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(epoch).count();
-        socket_name = std::format("claude-swarm-{}", millis);
+        socket_name = std::format("loom-swarm-{}", millis);
     }
     return socket_name;
 }
@@ -82,7 +82,7 @@ constexpr std::array<std::string_view, 12> TEAMMATE_ENV_VARS = {
     }
 
 
-    return "claude";
+    return "loom";
 }
 
 
@@ -90,8 +90,8 @@ constexpr std::array<std::string_view, 12> TEAMMATE_ENV_VARS = {
     std::vector<std::string> env_vars;
 
 
-    env_vars.emplace_back("CLAUDECODE=1");
-    env_vars.emplace_back("CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1");
+    env_vars.emplace_back("LOOM=1");
+    env_vars.emplace_back("LOOM_EXPERIMENTAL_AGENT_TEAMS=1");
 
 
     for (const auto& var_name : TEAMMATE_ENV_VARS) {

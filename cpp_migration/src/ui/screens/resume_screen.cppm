@@ -525,7 +525,7 @@ struct RowViewState {
 /// Layout (card):
 ///   ┌────────────────────────────────────────────────────────────────────┐
 ///   │ 📝  Implement auth flow            │  2026-06-08 14:02   42 msg    │
-///   │     Assistant: Added JWT middleware │  Claude 3.5 Sonnet  $0.12     │
+///   │     Assistant: Added JWT middleware │  Loom 3.5 Sonnet  $0.12     │
 ///   │     (model)                        │  3h ago                       │
 ///   └────────────────────────────────────────────────────────────────────┘
 ///   Hover → right-side strip: [✎ edit] [🗑 delete] [↗ share]

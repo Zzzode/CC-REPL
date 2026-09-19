@@ -240,7 +240,7 @@ private:
     [[nodiscard]] static std::expected<ImageData, std::string> platform_capture(std::optional<Rect> region) {
 #ifdef __APPLE__
         auto path = std::filesystem::temp_directory_path() /
-            std::format("cc-repl-computer-use-{}.png",
+            std::format("loom-computer-use-{}.png",
                 std::chrono::steady_clock::now().time_since_epoch().count());
         std::string cmd = "screencapture -x -t png ";
         if (region) {
@@ -403,7 +403,7 @@ namespace native_input_detail {
 }
 
 [[nodiscard]] inline bool native_input_disabled() {
-    const char* value = std::getenv("CC_REPL_DISABLE_NATIVE_COMPUTER_INPUT");
+    const char* value = std::getenv("LOOM_DISABLE_NATIVE_COMPUTER_INPUT");
     if (!value) return false;
     std::string_view text(value);
     return text == "1" || text == "true" || text == "TRUE" || text == "yes" || text == "on";

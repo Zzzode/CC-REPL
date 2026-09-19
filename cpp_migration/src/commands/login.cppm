@@ -133,12 +133,12 @@ private:
 
     [[nodiscard]] static std::filesystem::path credentials_path() {
         if (const char* xdg = std::getenv("XDG_CONFIG_HOME")) {
-            return std::filesystem::path(xdg) / "cc-repl" / "credentials.json";
+            return std::filesystem::path(xdg) / "loom" / "credentials.json";
         }
         if (const char* home = std::getenv("HOME")) {
-            return std::filesystem::path(home) / ".config" / "cc-repl" / "credentials.json";
+            return std::filesystem::path(home) / ".config" / "loom" / "credentials.json";
         }
-        return std::filesystem::temp_directory_path() / "cc-repl" / "credentials.json";
+        return std::filesystem::temp_directory_path() / "loom" / "credentials.json";
     }
 
     [[nodiscard]] static std::string json_escape(std::string_view value) {
@@ -343,17 +343,30 @@ private:
             }
             return CommandResult::success("Authenticated with ANTHROPIC_AUTH_TOKEN.");
         }
+        // No OAuth provider ships with this build (see cc.constants.oauth).
+        // Configure one via the LOOM_OAUTH_* environment variables, or use an
+        // API key / ANTHROPIC_AUTH_TOKEN instead.
+        const auto provider = cc::constants::oauth::oauth_config_from_env();
+        if (!cc::constants::oauth::oauth_config_is_usable(provider)) {
+            return std::unexpected(Error::make(
+                ErrorCode::AuthenticationFailed,
+                "No OAuth provider is configured. Set LOOM_OAUTH_AUTHORIZE_URL, "
+                "LOOM_OAUTH_TOKEN_URL and LOOM_OAUTH_CLIENT_ID, or authenticate "
+                "with ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN instead."));
+        }
         cc::services::oauth::OAuthConfig config{
-            .client_id = std::string(cc::constants::oauth::prod_oauth_config.client_id),
-            .authorization_endpoint = std::string(cc::constants::oauth::prod_oauth_config.claude_ai_authorize_url),
-            .token_endpoint = std::string(cc::constants::oauth::prod_oauth_config.token_url),
-            .redirect_uri = "http://localhost:19485/callback",
+            .client_id = std::string(provider.client_id),
+            .authorization_endpoint = std::string(provider.authorize_url),
+            .token_endpoint = std::string(provider.token_url),
+            .redirect_uri = provider.redirect_uri.empty()
+                ? std::string("http://localhost:19485/callback")
+                : std::string(provider.redirect_uri),
             .scopes = {},
-            .keychain_service = "cc-repl-oauth",
+            .keychain_service = "loom-oauth",
             .callback_port = 19485,
             .auth_timeout = std::chrono::seconds{300},
         };
-        for (auto scope : cc::constants::oauth::claude_ai_oauth_scopes) {
+        for (auto scope : cc::constants::oauth::subscriber_oauth_scopes) {
             config.scopes.emplace_back(scope);
         }
 

@@ -158,7 +158,7 @@ enum class JsonRpcErrorCode : int32_t {
 // =========================================================================
 
 struct ClientInfo {
-    std::string name = "claude-code";
+    std::string name = "loom";
     std::string version = "1.0.0";
 };
 
@@ -186,8 +186,8 @@ struct ServerCapabilities {
     bool prompts_list_changed = false;
     bool logging = false;
     // TS REF: src/services/mcp/channelPermissions.ts:191-192
-    // Servers declare experimental capabilities like 'claude/channel' and
-    // 'claude/channel/permission' to opt into notification relay paths.
+    // Servers declare experimental capabilities like 'loom/channel' and
+    // 'loom/channel/permission' to opt into notification relay paths.
     // Value is the raw JSON string (usually "{}" or "true") — presence in
     // the map is what matters, matching TS `!== undefined` semantics.
     std::unordered_map<std::string, std::string> experimental;

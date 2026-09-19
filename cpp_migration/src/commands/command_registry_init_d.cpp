@@ -12,7 +12,7 @@ import cc.commands.chrome;
 import cc.commands.copy_cmd;
 import cc.commands.desktop;
 import cc.commands.export_cmd;
-import cc.commands.good_claude;
+import cc.commands.good_loom;
 import cc.commands.mobile;
 import cc.commands.stickers;
 import cc.commands.tasks_cmd;
@@ -33,7 +33,7 @@ void register_group_d_commands(CommandRegistry& registry) {
     registry.register_command<CopyCommand>();
     registry.register_command<DesktopCommand>();
     registry.register_command<ExportCommand>();
-    registry.register_command<GoodClaudeCommand>();
+    registry.register_command<GoodLoomCommand>();
     registry.register_command<KeybindingsCommand>();
     registry.register_command<MobileCommand>();
     registry.register_command<StickersCommand>();

@@ -113,7 +113,7 @@ inline auto get_trust_store() -> TrustStore& {
 inline auto get_trust_config_path() -> std::filesystem::path {
     const char* home = std::getenv("HOME");
     if (!home) home = "/tmp";
-    return std::filesystem::path(home) / ".cc-repl" / "trust.json";
+    return std::filesystem::path(home) / ".loom" / "trust.json";
 }
 
 /// Execute a shell command and return stdout
@@ -153,7 +153,7 @@ inline auto extract_json_string(const std::string& json, const std::string& key)
     SearchFilter filter = {}
 ) {
     // Build search query for npm registry
-    std::string query = filter.query.value_or("cc-repl-plugin");
+    std::string query = filter.query.value_or("loom-plugin");
     std::string url = "https://registry.npmjs.org/-/v1/search?text=" + query +
                       "&size=" + std::to_string(filter.limit) +
                       "&from=" + std::to_string(filter.offset);
@@ -224,7 +224,7 @@ inline auto extract_json_string(const std::string& json, const std::string& key)
 /// Get a curated list of featured/recommended plugins
 [[nodiscard]] inline std::expected<std::vector<MarketplaceEntry>, std::string> get_featured_plugins() {
     SearchFilter filter;
-    filter.query = "cc-repl-plugin featured";
+    filter.query = "loom-plugin featured";
     filter.limit = 10;
     return search_marketplace(filter);
 }
@@ -330,7 +330,7 @@ inline void set_plugin_trust(std::string_view plugin_id, TrustLevel level) {
     // Log the report locally
     namespace fs = std::filesystem;
     const char* home = std::getenv("HOME");
-    auto reports_dir = fs::path(home ? home : "/tmp") / ".cc-repl" / "reports";
+    auto reports_dir = fs::path(home ? home : "/tmp") / ".loom" / "reports";
     fs::create_directories(reports_dir);
 
     std::ofstream ofs(reports_dir / (std::string(plugin_id) + ".report"), std::ios::app);

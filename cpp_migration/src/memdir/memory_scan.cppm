@@ -19,7 +19,7 @@ import cc.memdir.paths;
 
 export namespace cc::memdir {
 
-/// A single memory entry extracted from a CLAUDE.md file
+/// A single memory entry extracted from a LOOM.md file
 struct MemoryEntry {
     std::string content;
     MemoryType source_type;
@@ -27,7 +27,7 @@ struct MemoryEntry {
     std::chrono::system_clock::time_point last_modified;
 };
 
-/// Read and parse a CLAUDE.md file into its content
+/// Read and parse a LOOM.md file into its content
 [[nodiscard]] inline std::optional<std::string> read_memory_file(
     const std::filesystem::path& path
 ) {

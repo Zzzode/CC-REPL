@@ -1,5 +1,5 @@
 /// @file sandbox_types.cppm
-/// @brief Sandbox types for the Claude Code Agent SDK.
+/// @brief Sandbox types for the Loom Agent SDK.
 /// Migrated from src/entrypoints/sandboxTypes.ts
 ///
 /// This file is the single source of truth for sandbox configuration types.

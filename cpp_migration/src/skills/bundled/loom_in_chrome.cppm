@@ -1,7 +1,7 @@
-/// @file claude_in_chrome.cppm
-/// @brief Claude in Chrome skill - Chrome extension integration and browser automation.
+/// @file loom_in_chrome.cppm
+/// @brief Loom in Chrome skill - Chrome extension integration and browser automation.
 /// Detects Chrome-extension related user queries and injects install/debug workflow prompts.
-/// Mirrors src/skills/bundled/claudeInChrome.ts + src/utils/claudeInChrome/*.
+/// Mirrors src/skills/bundled/loomInChrome.ts + src/utils/loomInChrome/*.
 module;
 #include <string>
 #include <string_view>
@@ -15,7 +15,7 @@ module;
 #include <format>
 #include <filesystem>
 
-export module cc.skills.bundled.claude_in_chrome;
+export module cc.skills.bundled.loom_in_chrome;
 
 import cc.skills.load_skills_dir;
 import cc.utils.bash_execution;
@@ -26,9 +26,9 @@ export namespace cc::skills::bundled {
 // Constants
 // ---------------------------------------------------------------------------
 
-/// Chrome Web Store installation URL for the Claude in Chrome extension
+/// Chrome Web Store installation URL for the Loom in Chrome extension
 constexpr const char* CHROME_WEB_STORE_URL =
-    "https://chromewebstore.google.com/detail/claude-code/fcoeoabgfenejglbffodgkkbkcdhcgfn";
+    "https://chromewebstore.google.com/detail/loom/fcoeoabgfenejglbffodgkkbkcdhcgfn";
 
 /// Reconnect URL opened after native-host manifest installation
 constexpr const char* CHROME_EXTENSION_RECONNECT_URL =
@@ -36,11 +36,11 @@ constexpr const char* CHROME_EXTENSION_RECONNECT_URL =
 
 /// Native host identifier used in Chrome manifest files
 constexpr const char* NATIVE_HOST_IDENTIFIER =
-    "com.anthropic.claude_code_browser_extension";
+    "com.anthropic.loom_code_browser_extension";
 
-/// Base Chrome system prompt (kept in sync with src/utils/claudeInChrome/prompt.ts)
+/// Base Chrome system prompt (kept in sync with src/utils/loomInChrome/prompt.ts)
 /// The full prompt is injected when the skill is triggered.
-inline const char* BASE_CHROME_PROMPT = R"(# Claude in Chrome browser automation
+inline const char* BASE_CHROME_PROMPT = R"(# Loom in Chrome browser automation
 
 You have access to browser automation tools (mcp__claude-in-chrome__*) for interacting
 with web pages in Chrome. Follow these guidelines for effective browser automation.
@@ -177,16 +177,16 @@ inline std::string detect_platform() {
 // Auto-enable detection (mirrors setup.ts:shouldAutoEnableClaudeInChrome)
 // ---------------------------------------------------------------------------
 
-/// Determine whether the Claude in Chrome skill should be auto-enabled.
+/// Determine whether the Loom in Chrome skill should be auto-enabled.
 /// Mirrors TS: getIsInteractive() && isChromeExtensionInstalled() && (ant user || feature flag)
 /// C++ implementation is conservative: only enables when explicit env/config signals are
 /// present; the full cached-extension-installation scan is deferred to runtime.
-inline bool should_auto_enable_claude_in_chrome() {
+inline bool should_auto_enable_loom_in_chrome() {
     // Explicit environment override (highest priority)
-    if (detail::is_env_truthy("CLAUDE_CODE_ENABLE_CFC")) return true;
-    if (detail::is_env_defined_falsy("CLAUDE_CODE_ENABLE_CFC")) return false;
+    if (detail::is_env_truthy("LOOM_ENABLE_CFC")) return true;
+    if (detail::is_env_defined_falsy("LOOM_ENABLE_CFC")) return false;
 
-    // Cached positive detection stored in ~/.claude.json — read via lightweight file check
+    // Cached positive detection stored in ~/.loom.json — read via lightweight file check
     // TODO(perf): Integrate with global config reader when available.
     // For now, treat the existence of the Chrome native-host manifest as a proxy.
     namespace fs = std::filesystem;
@@ -222,7 +222,7 @@ inline void open_in_chrome(std::string_view url) {
     std::system(cmd.c_str());
 }
 
-/// Open the Chrome Web Store page for the Claude in Chrome extension.
+/// Open the Chrome Web Store page for the Loom in Chrome extension.
 /// Used when the user indicates the extension is missing or not installed.
 inline void open_chrome_web_store_install() {
     open_in_chrome(CHROME_WEB_STORE_URL);
@@ -242,11 +242,11 @@ inline void open_chrome_reconnect() {
 /// the TS skill description.
 inline std::string build_troubleshooting_checklist() {
     std::ostringstream oss;
-    oss << "## Claude in Chrome — Troubleshooting Checklist\n\n"
+    oss << "## Loom in Chrome — Troubleshooting Checklist\n\n"
         << "If browser tools are not responding, work through these steps:\n\n"
         << "### 1. Verify extension is installed\n"
         << "- Open `chrome://extensions` in Chrome\n"
-        << "- Look for **Claude Code** extension (id: fcoeoabgfenejglbffodgkkbkcdhcgfn)\n"
+        << "- Look for **Loom** extension (id: fcoeoabgfenejglbffodgkkbkcdhcgfn)\n"
         << "- Ensure the toggle is ON\n"
         << "- If missing: install from " << CHROME_WEB_STORE_URL << "\n\n"
         << "### 2. Grant site permissions\n"
@@ -261,7 +261,7 @@ inline std::string build_troubleshooting_checklist() {
         << "- Completely quit Chrome (Cmd+Q on macOS) and reopen\n"
         << "- The native messaging pipe resets only on full restart\n\n"
         << "### 5. Check terminal environment\n"
-        << "- Confirm `CLAUDE_CODE_ENABLE_CFC` is not set to `0`\n"
+        << "- Confirm `LOOM_ENABLE_CFC` is not set to `0`\n"
         << "- Confirm you are running in an **interactive** session (not CI/SDK)\n\n";
     return oss.str();
 }
@@ -270,9 +270,9 @@ inline std::string build_troubleshooting_checklist() {
 // Prompt construction
 // ---------------------------------------------------------------------------
 
-/// Build the complete prompt text injected when the claude-in-chrome skill fires.
+/// Build the complete prompt text injected when the loom-in-chrome skill fires.
 /// If `task_args` is provided, appends a "Task" section with the user's request.
-inline std::string build_claude_in_chrome_prompt(
+inline std::string build_loom_in_chrome_prompt(
     std::optional<std::string_view> task_args = std::nullopt) {
 
     std::ostringstream oss;
@@ -287,13 +287,13 @@ inline std::string build_claude_in_chrome_prompt(
 // Manifest (for SkillLoader discovery)
 // ---------------------------------------------------------------------------
 
-/// Get the skill manifest for the Claude in Chrome skill.
+/// Get the skill manifest for the Loom in Chrome skill.
 /// The `triggers` list contains keyword patterns (English + Chinese) that should
 /// cause the skill to be injected.  Additional regex triggers are defined in
-/// bundled.cppm:make_claude_in_chrome_skill().
-cc::skills::SkillManifest get_claude_in_chrome_skill_manifest() {
+/// bundled.cppm:make_loom_in_chrome_skill().
+cc::skills::SkillManifest get_loom_in_chrome_skill_manifest() {
     return cc::skills::SkillManifest{
-        .name = "claude-in-chrome",
+        .name = "loom-in-chrome",
         .description =
             "Automates your Chrome browser to interact with web pages - clicking elements, "
             "filling forms, capturing screenshots, reading console logs, and navigating sites. "
@@ -305,7 +305,7 @@ cc::skills::SkillManifest get_claude_in_chrome_skill_manifest() {
             "chrome plugin",
             "chrome extension",
             "sidebar",
-            "Claude in Chrome",
+            "Loom in Chrome",
             "CFC",
             "browser automation",
             "browser tool",

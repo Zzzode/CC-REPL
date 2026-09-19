@@ -630,7 +630,7 @@ public:
     struct Config {
         std::string base_url = "https://api.anthropic.com";
         std::string api_key;
-        std::string auth_token;  // For Claude AI OAuth
+        std::string auth_token;  // For Loom AI OAuth
         std::string api_version = "2023-06-01";
         std::chrono::milliseconds timeout{120000};
         int max_retries = 10;
@@ -639,7 +639,7 @@ public:
         Provider provider = Provider::Anthropic;
         std::string region;
         std::vector<std::string> beta_headers;
-        std::string user_agent = "ClaudeCode/1.0";
+        std::string user_agent = "Loom/1.0";
     };
 
     explicit AnthropicClient(Config config)

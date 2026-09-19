@@ -112,7 +112,7 @@ inline auto get_registry() -> PluginRegistry& {
 inline auto get_plugins_dir() -> std::filesystem::path {
     const char* home = std::getenv("HOME");
     if (!home) home = "/tmp";
-    return std::filesystem::path(home) / ".cc-repl" / "plugins";
+    return std::filesystem::path(home) / ".loom" / "plugins";
 }
 
 inline auto get_plugin_dir(std::string_view plugin_id) -> std::filesystem::path {

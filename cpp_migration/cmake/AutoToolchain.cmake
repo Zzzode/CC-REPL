@@ -3,19 +3,19 @@
 # Used as CMAKE_TOOLCHAIN_FILE so individual presets do not need to know
 # whether the host is macOS or Linux. Resolution order per platform:
 #
-#   macOS  : $CC_REPL_LLVM_PREFIX -> /opt/homebrew/opt/llvm
-#   Linux  : $CC_REPL_LLVM_PREFIX -> ~/.local/opt/llvm-21/usr/lib/llvm-21
+#   macOS  : $LOOM_LLVM_PREFIX -> /opt/homebrew/opt/llvm
+#   Linux  : $LOOM_LLVM_PREFIX -> ~/.local/opt/llvm-21/usr/lib/llvm-21
 #            (with `clang(++)-21-local` shim binaries on PATH)
 #
 # Override at configure time via:
 #   - CMAKE_C_COMPILER / CMAKE_CXX_COMPILER (highest precedence)
-#   - CC_REPL_LLVM_PREFIX env var (point at any LLVM >= 21 install)
+#   - LOOM_LLVM_PREFIX env var (point at any LLVM >= 21 install)
 #
 # Goal: full std::jthread / std::stop_token support and identical libc++/
 # libstdc++ behavior between macOS and Linux developer machines.
 
-if(DEFINED ENV{CC_REPL_LLVM_PREFIX})
-    set(_cc_repl_llvm_prefix "$ENV{CC_REPL_LLVM_PREFIX}")
+if(DEFINED ENV{LOOM_LLVM_PREFIX})
+    set(_loom_llvm_prefix "$ENV{LOOM_LLVM_PREFIX}")
 endif()
 
 if((DEFINED CMAKE_C_COMPILER AND NOT DEFINED CMAKE_CXX_COMPILER)
@@ -28,23 +28,23 @@ endif()
 # Skip compiler selection if the user already provided compilers explicitly.
 if(NOT DEFINED CMAKE_C_COMPILER AND NOT DEFINED CMAKE_CXX_COMPILER)
     if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin")
-        if(NOT DEFINED _cc_repl_llvm_prefix)
-            set(_cc_repl_llvm_prefix "/opt/homebrew/opt/llvm")
+        if(NOT DEFINED _loom_llvm_prefix)
+            set(_loom_llvm_prefix "/opt/homebrew/opt/llvm")
         endif()
-        set(_cc_clang     "${_cc_repl_llvm_prefix}/bin/clang")
-        set(_cc_clangxx   "${_cc_repl_llvm_prefix}/bin/clang++")
-        set(_cc_scan_deps "${_cc_repl_llvm_prefix}/bin/clang-scan-deps")
+        set(_cc_clang     "${_loom_llvm_prefix}/bin/clang")
+        set(_cc_clangxx   "${_loom_llvm_prefix}/bin/clang++")
+        set(_cc_scan_deps "${_loom_llvm_prefix}/bin/clang-scan-deps")
         set(_cc_resource_dir "")  # Homebrew layout is self-consistent
 
     elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
-        if(NOT DEFINED _cc_repl_llvm_prefix)
-            set(_cc_repl_llvm_prefix "$ENV{HOME}/.local/opt/llvm-21/usr/lib/llvm-21")
+        if(NOT DEFINED _loom_llvm_prefix)
+            set(_loom_llvm_prefix "$ENV{HOME}/.local/opt/llvm-21/usr/lib/llvm-21")
         endif()
         # Project convention: 21-local shim wrappers on PATH.
         set(_cc_clang     "$ENV{HOME}/.local/bin/clang-21-local")
         set(_cc_clangxx   "$ENV{HOME}/.local/bin/clang++-21-local")
         set(_cc_scan_deps "$ENV{HOME}/.local/bin/clang-scan-deps-21-local")
-        set(_cc_resource_dir "${_cc_repl_llvm_prefix}/lib/clang/21")
+        set(_cc_resource_dir "${_loom_llvm_prefix}/lib/clang/21")
 
     else()
         message(WARNING
@@ -59,7 +59,7 @@ if(NOT DEFINED CMAKE_C_COMPILER AND NOT DEFINED CMAKE_CXX_COMPILER)
                 "[AutoToolchain] Required LLVM tool not found: ${${_required_tool}}\n"
                 "  - macOS  : install with `brew install llvm` (>= 21)\n"
                 "  - Linux  : install LLVM 21 and place the project shim wrappers on PATH,\n"
-                "             or set CC_REPL_LLVM_PREFIX to your LLVM >= 21 install root.")
+                "             or set LOOM_LLVM_PREFIX to your LLVM >= 21 install root.")
         endif()
     endforeach()
 
@@ -77,18 +77,18 @@ if(NOT DEFINED CMAKE_C_COMPILER AND NOT DEFINED CMAKE_CXX_COMPILER)
 endif()
 
 if(NOT DEFINED CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS)
-    if(DEFINED _cc_repl_llvm_prefix AND EXISTS "${_cc_repl_llvm_prefix}/bin/clang-scan-deps")
+    if(DEFINED _loom_llvm_prefix AND EXISTS "${_loom_llvm_prefix}/bin/clang-scan-deps")
         set(CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS
-            "${_cc_repl_llvm_prefix}/bin/clang-scan-deps"
+            "${_loom_llvm_prefix}/bin/clang-scan-deps"
             CACHE FILEPATH "" FORCE)
     elseif(DEFINED CMAKE_CXX_COMPILER)
-        get_filename_component(_cc_repl_cxx_dir "${CMAKE_CXX_COMPILER}" DIRECTORY)
-        if(EXISTS "${_cc_repl_cxx_dir}/clang-scan-deps")
+        get_filename_component(_loom_cxx_dir "${CMAKE_CXX_COMPILER}" DIRECTORY)
+        if(EXISTS "${_loom_cxx_dir}/clang-scan-deps")
             set(CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS
-                "${_cc_repl_cxx_dir}/clang-scan-deps"
+                "${_loom_cxx_dir}/clang-scan-deps"
                 CACHE FILEPATH "" FORCE)
         endif()
-        unset(_cc_repl_cxx_dir)
+        unset(_loom_cxx_dir)
     endif()
 endif()
 
@@ -100,7 +100,7 @@ if(DEFINED CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS
 endif()
 
 # Enforce LLVM >= 21 once the compiler is loaded by CMake.
-function(_cc_repl_assert_llvm21)
+function(_loom_assert_llvm21)
     if(CMAKE_CXX_COMPILER_ID MATCHES "Clang"
        AND CMAKE_CXX_COMPILER_VERSION
        AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS "21.0")
@@ -110,4 +110,4 @@ function(_cc_repl_assert_llvm21)
     endif()
 endfunction()
 # CMakeLists.txt calls the assertion after project(), when compiler metadata exists.
-set(CC_REPL_TOOLCHAIN_PIN "llvm>=21" CACHE INTERNAL "")
+set(LOOM_TOOLCHAIN_PIN "llvm>=21" CACHE INTERNAL "")

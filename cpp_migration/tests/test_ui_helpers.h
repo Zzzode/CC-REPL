@@ -154,7 +154,7 @@ public:
                     if (*phase == 0) {
                         sink.os <<
                             "event: message_start\n"
-                            "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_ui_cancel\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-test\",\"content\":[]}}\n\n"
+                            "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_ui_cancel\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"loom-test\",\"content\":[]}}\n\n"
                             "event: content_block_start\n"
                             "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n"
                             "event: content_block_delta\n"
@@ -275,7 +275,7 @@ public:
                         if (*phase > 0) return false;
                         sink.os <<
                             "event: message_start\n"
-                            "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_ui_tool_followup\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-test\",\"content\":[]}}\n\n"
+                            "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_ui_tool_followup\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"loom-test\",\"content\":[]}}\n\n"
                             "event: content_block_start\n"
                             "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n"
                             "event: content_block_delta\n"
@@ -294,7 +294,7 @@ public:
                     if (*phase == 0) {
                         sink.os <<
                             "event: message_start\n"
-                            "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_ui_tool\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-test\",\"content\":[]}}\n\n"
+                            "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_ui_tool\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"loom-test\",\"content\":[]}}\n\n"
                             "event: content_block_start\n"
                             "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_ui_1\",\"name\":\"Bash\",\"input\":{}}}\n\n"
                             "event: content_block_delta\n"
@@ -413,7 +413,7 @@ public:
                     if (*phase == 0) {
                         sink.os <<
                             "event: message_start\n"
-                            "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_ui_thinking\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-test\",\"content\":[]}}\n\n"
+                            "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_ui_thinking\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"loom-test\",\"content\":[]}}\n\n"
                             "event: content_block_start\n"
                             "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"thinking\",\"thinking\":\"\"}}\n\n"
                             "event: content_block_delta\n"

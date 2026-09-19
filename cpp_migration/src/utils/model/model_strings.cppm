@@ -19,7 +19,7 @@ std::string get_friendly_name(std::string_view model_id) {
 
 // Return the provider name based on model ID prefix
 std::string get_provider_name(std::string_view model_id) {
-    if (model_id.starts_with("claude-")) return "Anthropic";
+    if (model_id.starts_with("loom-")) return "Anthropic";
     if (model_id.starts_with("anthropic.")) return "Bedrock";
     if (model_id.find("vertex") != std::string_view::npos) return "Vertex AI";
     return "Unknown";

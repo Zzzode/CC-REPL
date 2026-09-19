@@ -1,5 +1,5 @@
 /// @file persistence.cppm
-/// @brief State persistence module for the Claude Code REPL.
+/// @brief State persistence module for the Loom REPL.
 /// Handles saving and loading AppState to/from disk.
 module;
 
@@ -411,7 +411,7 @@ public:
 /// Get default state file path
 [[nodiscard]] inline fs::path get_default_state_file_path() {
     auto home = fs::path(std::getenv("HOME") ? std::getenv("HOME") : "/tmp");
-    return home / ".claude" / "state" / "app_state.json";
+    return home / ".loom" / "state" / "app_state.json";
 }
 
 } // namespace cc::state::persistence

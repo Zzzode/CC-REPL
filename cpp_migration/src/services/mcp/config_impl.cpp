@@ -151,20 +151,20 @@ McpConfig::get_server(std::string_view name) const {
 
 std::filesystem::path ConfigPaths::global_config() {
     auto home = home_directory();
-    return home / ".config" / "claude" / "mcp_servers.json";
+    return home / ".config" / "loom" / "mcp_servers.json";
 }
 
 std::filesystem::path ConfigPaths::user_config() {
     auto home = home_directory();
-    return home / ".claude" / "mcp_servers.json";
+    return home / ".loom" / "mcp_servers.json";
 }
 
 std::filesystem::path ConfigPaths::project_config(const std::filesystem::path& project_root) {
-    return project_root / ".claude" / "mcp_servers.json";
+    return project_root / ".loom" / "mcp_servers.json";
 }
 
 std::filesystem::path ConfigPaths::local_config(const std::filesystem::path& project_root) {
-    return project_root / ".claude" / "mcp_servers.local.json";
+    return project_root / ".loom" / "mcp_servers.local.json";
 }
 
 std::vector<std::pair<ConfigScope, std::filesystem::path>>

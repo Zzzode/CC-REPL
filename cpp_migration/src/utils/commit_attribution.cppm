@@ -17,7 +17,7 @@ export namespace cc::utils::commit_attribution {
 
 struct FileAttributionState {
     std::string content_hash;
-    std::size_t claude_contribution = 0;
+    std::size_t loom_contribution = 0;
     double mtime = 0.0;
 };
 
@@ -209,10 +209,10 @@ namespace detail {
         std::string_view new_content,
         double mtime) {
         const auto existing = existing_file_states.find(std::string(normalized_path));
-        const std::size_t existing_contribution = existing == existing_file_states.end() ? 0 : existing->second.claude_contribution;
+        const std::size_t existing_contribution = existing == existing_file_states.end() ? 0 : existing->second.loom_contribution;
         return FileAttributionState{
             .content_hash = sha256(new_content),
-            .claude_contribution = existing_contribution + changed_region_size(old_content, new_content),
+            .loom_contribution = existing_contribution + changed_region_size(old_content, new_content),
             .mtime = mtime,
         };
     }
@@ -229,7 +229,7 @@ namespace detail {
     if (detail::contains(short_name, "sonnet-3-7")) return "claude-sonnet-3-7";
     if (detail::contains(short_name, "haiku-4-5")) return "claude-haiku-4-5";
     if (detail::contains(short_name, "haiku-3-5")) return "claude-haiku-3-5";
-    return "claude";
+    return "loom";
 }
 
 [[nodiscard]] inline std::string sanitize_surface_key(std::string_view surface_key) {
@@ -270,10 +270,10 @@ namespace detail {
     double mtime = 0.0) {
     const std::string normalized_path(file_path);
     const auto existing = state.file_states.find(normalized_path);
-    const std::size_t existing_contribution = existing == state.file_states.end() ? 0 : existing->second.claude_contribution;
+    const std::size_t existing_contribution = existing == state.file_states.end() ? 0 : existing->second.loom_contribution;
     state.file_states[normalized_path] = FileAttributionState{
         .content_hash = "",
-        .claude_contribution = existing_contribution + old_content.size(),
+        .loom_contribution = existing_contribution + old_content.size(),
         .mtime = mtime,
     };
     return state;

@@ -48,10 +48,10 @@ struct PersistedWorktreeSession {
     std::optional<bool> hook_based;
 };
 
-/// Per-file attribution state tracking Claude's character contributions
+/// Per-file attribution state tracking Loom's character contributions
 struct FileAttributionState {
     std::string content_hash;      // SHA-256 hash of file content
-    int64_t claude_contribution;   // Characters written by Claude
+    int64_t loom_contribution;   // Characters written by Loom
     int64_t mtime;                 // File modification time
 };
 

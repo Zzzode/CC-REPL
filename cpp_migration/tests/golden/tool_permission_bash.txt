@@ -2,7 +2,7 @@
 [33m[49m│[1m🛠️[22m [1m[35m[49mBash[22m[2m[33m[49m wants to [22mexecute                                                           [1m[30m[43m MEDIUM [22m[33m[49m│[39m[49m                            
 [33m[49m├[90m[49m──────────────────────────────────────────────────────────────────────────────────────────[33m[49m┤[39m[49m                            
 [33m[49m│                                                                                          │[39m[49m                            
-[33m[49m│[97m[49mClaude wants to run a bash command.                                                       [33m[49m│[39m[49m                            
+[33m[49m│[97m[49mLoom wants to run a bash command.                                                         [33m[49m│[39m[49m                            
 [33m[49m│                                                                                          │[39m[49m                            
 [33m[49m│[1m$ [22mcmake --build build-check -j 8                                                          │[39m[49m                            
 [33m[49m│[2m in: [22m/home/user/project                                                                   │[39m[49m                            

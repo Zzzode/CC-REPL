@@ -69,7 +69,7 @@ struct McpMessage {
 };
 
 /// Check if MCP instructions delta mode is enabled.
-/// Env override: CLAUDE_CODE_MCP_INSTR_DELTA=true/false
+/// Env override: LOOM_MCP_INSTR_DELTA=true/false
 [[nodiscard]] bool is_mcp_instructions_delta_enabled(
     std::string_view env_override,
     std::string_view user_type,
@@ -134,7 +134,7 @@ struct PersistBinaryResult {
     std::string_view persist_id,
     const std::filesystem::path& results_dir);
 
-/// Build a short message telling Claude where binary content was saved.
+/// Build a short message telling Loom where binary content was saved.
 [[nodiscard]] std::string get_binary_blob_saved_message(
     std::string_view filepath,
     std::string_view mime_type,

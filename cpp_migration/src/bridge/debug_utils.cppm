@@ -22,7 +22,7 @@ namespace detail {
 
     inline bool& get_debug_enabled_ref() {
         static bool enabled = []() {
-            const char* env = std::getenv("CLAUDE_BRIDGE_DEBUG");
+            const char* env = std::getenv("LOOM_BRIDGE_DEBUG");
             return env && (std::string(env) == "1" || std::string(env) == "true");
         }();
         return enabled;
@@ -68,9 +68,9 @@ void log_bridge_event(std::string_view event, std::map<std::string, std::string>
 std::filesystem::path get_bridge_log_path() {
     const char* home = std::getenv("HOME");
     if (home && home[0] != '\0') {
-        return std::filesystem::path(home) / ".config" / "claude-code" / "bridge" / "debug.log";
+        return std::filesystem::path(home) / ".config" / "loom" / "bridge" / "debug.log";
     }
-    return std::filesystem::path("/tmp") / "claude-code-bridge-debug.log";
+    return std::filesystem::path("/tmp") / "loom-bridge-debug.log";
 }
 
 // Dump the current bridge state as a diagnostic string
@@ -98,7 +98,7 @@ std::string dump_bridge_state() {
     }
 
     // Environment
-    const char* envless = std::getenv("CLAUDE_ENVLESS");
+    const char* envless = std::getenv("LOOM_ENVLESS");
     oss << "Envless mode: " << (envless ? envless : "not set") << "\n";
 
     oss << "=========================\n";

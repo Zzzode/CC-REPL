@@ -71,8 +71,8 @@ _ALIASES = {"primary":"primary","info":"info","success":"success",
     "warning":"warning","danger":"danger","muted":"muted","subtle":"subtle",
     "suggestion":"suggestion","text":"text","background":"background",
     "chrome":"chrome","inverse_text":"inverseText","diff_added":"diffAdded",
-    "diff_removed":"diffRemoved","merged":"merged","brief_label":"claude",
-    "primary_shimmer":"claudeShimmer"}
+    "diff_removed":"diffRemoved","merged":"merged","brief_label":"loom",
+    "primary_shimmer":"loomShimmer"}
 
 # --- 2. Regex patterns + parsers --------------------------------------------
 

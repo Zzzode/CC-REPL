@@ -264,7 +264,7 @@ inline std::vector<std::string> what_not_to_save_section() {
         "- Code patterns, conventions, architecture, file paths, or project structure — these can be derived by reading the current project state.",
         "- Git history, recent changes, or who-changed-what — `git log` / `git blame` are authoritative.",
         "- Debugging solutions or fix recipes — the fix is in the code; the commit message has the context.",
-        "- Anything already documented in CLAUDE.md files.",
+        "- Anything already documented in LOOM.md files.",
         "- Ephemeral task details: in-progress work, temporary state, current conversation context.",
         "",
         "These exclusions apply even when the user explicitly asks you to save. If they ask you to save a PR list or activity summary, ask what was *surprising* or *non-obvious* about it — that is the part worth keeping."
@@ -558,13 +558,13 @@ public:
 
 // Team memory paths
 inline bool is_team_memory_enabled() {
-    if (cc::utils::is_env_truthy(std::getenv("CLAUDE_CODE_DISABLE_AUTO_MEMORY"))) {
+    if (cc::utils::is_env_truthy(std::getenv("LOOM_DISABLE_AUTO_MEMORY"))) {
         return false;
     }
-    if (cc::utils::is_env_defined_falsy(std::getenv("CLAUDE_CODE_ENABLE_TEAM_MEMORY"))) {
+    if (cc::utils::is_env_defined_falsy(std::getenv("LOOM_ENABLE_TEAM_MEMORY"))) {
         return false;
     }
-    if (cc::utils::is_env_truthy(std::getenv("CLAUDE_CODE_ENABLE_TEAM_MEMORY"))) {
+    if (cc::utils::is_env_truthy(std::getenv("LOOM_ENABLE_TEAM_MEMORY"))) {
         return true;
     }
     return std::getenv("CC_TEAM_MEMORY_SYNC_URL") != nullptr ||

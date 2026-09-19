@@ -168,7 +168,7 @@ inline constexpr std::array<std::string_view, 4> kActionNames   = {
 inline constexpr std::array<const char*, 3> kDefaultSamples = {
     "/home/user/project/src/**/*.ts",
     "~/.aws/credentials",
-    "/tmp/cc-repl-workdir/build/**/*",
+    "/tmp/loom-workdir/build/**/*",
 };
 
 /// Virtual-scroll geometry constants.

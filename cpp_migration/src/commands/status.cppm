@@ -1,6 +1,6 @@
 /// @file status.cppm
 /// @brief StatusCommand implementing the /status slash command.
-/// Shows Claude Code status.
+/// Shows Loom status.
 module;
 
 #include <string>
@@ -22,13 +22,13 @@ export namespace cc::commands {
 using namespace cc::core;
 
 /// StatusCommand implements the /status slash command.
-/// Shows Claude Code status.
+/// Shows Loom status.
 class StatusCommand {
 public:
     [[nodiscard]] static CommandDefinition definition() {
         return CommandDefinition{
             .name = "status",
-            .description = "Show Claude Code status including version, model, account, API connectivity, and tool statuses",
+            .description = "Show Loom status including version, model, account, API connectivity, and tool statuses",
             .args = {},
             .category = "info",
             .aliases = {},
@@ -42,8 +42,8 @@ public:
 
     [[nodiscard]] Result<CommandResult> execute(const CommandContext&) {
         return CommandResult::success(
-            std::string("Claude Code Status:\n") +
-            "Version: " + std::string(cc::constants::product::CC_REPL_VERSION) + "\n" +
+            std::string("Loom Status:\n") +
+            "Version: " + std::string(cc::constants::product::LOOM_VERSION) + "\n" +
             "Model: Not configured\n" +
             "Status: Offline (C++ Migration Demo)");
     }

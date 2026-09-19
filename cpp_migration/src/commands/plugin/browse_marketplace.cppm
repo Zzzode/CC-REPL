@@ -51,9 +51,9 @@ auto search_marketplace(std::string_view query)
 
 auto bundled_marketplace_entries() -> std::vector<MarketplaceEntry> {
     return {
-        {.id = "formatter-basic", .name = "Basic Formatter", .description = "formatters utilities", .author = "CC-REPL", .downloads = 0, .rating = 0.0F},
-        {.id = "theme-classic", .name = "Classic Theme", .description = "themes", .author = "CC-REPL", .downloads = 0, .rating = 0.0F},
-        {.id = "toolkit-local", .name = "Local Toolkit", .description = "tools integrations utilities", .author = "CC-REPL", .downloads = 0, .rating = 0.0F},
+        {.id = "formatter-basic", .name = "Basic Formatter", .description = "formatters utilities", .author = "LOOM", .downloads = 0, .rating = 0.0F},
+        {.id = "theme-classic", .name = "Classic Theme", .description = "themes", .author = "LOOM", .downloads = 0, .rating = 0.0F},
+        {.id = "toolkit-local", .name = "Local Toolkit", .description = "tools integrations utilities", .author = "LOOM", .downloads = 0, .rating = 0.0F},
     };
 }
 

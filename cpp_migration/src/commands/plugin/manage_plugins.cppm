@@ -78,9 +78,9 @@ auto get_plugin_info(std::string_view id) -> std::expected<InstalledPlugin, std:
 
 auto plugins_dir() -> path {
     if (const char* home = std::getenv("HOME")) {
-        return path{home} / ".cc-repl" / "plugins";
+        return path{home} / ".loom" / "plugins";
     }
-    return path{".cc-repl"} / "plugins";
+    return path{".loom"} / "plugins";
 }
 
 auto read_manifest(const path& manifest_path) -> std::map<std::string, std::string> {

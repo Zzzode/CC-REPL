@@ -1,4 +1,4 @@
-// C++23 module: Output style configurations for customizing Claude's response behavior.
+// C++23 module: Output style configurations for customizing Loom's response behavior.
 // Defines built-in output styles: default, Explanatory, and Learning.
 module;
 #include <string>
@@ -59,7 +59,7 @@ In order to encourage learning, ask the human to contribute 2-10 line code piece
 // Built-in output style definitions
 inline constexpr OutputStyleConfig explanatory_style = {
     .name = "Explanatory",
-    .description = "Claude explains its implementation choices and codebase patterns",
+    .description = "Loom explains its implementation choices and codebase patterns",
     .prompt = explanatory_style_prompt,
     .source = SettingSource::built_in,
     .keep_coding_instructions = true,
@@ -68,7 +68,7 @@ inline constexpr OutputStyleConfig explanatory_style = {
 
 inline constexpr OutputStyleConfig learning_style = {
     .name = "Learning",
-    .description = "Claude pauses and asks you to write small pieces of code for hands-on practice",
+    .description = "Loom pauses and asks you to write small pieces of code for hands-on practice",
     .prompt = learning_style_prompt,
     .source = SettingSource::built_in,
     .keep_coding_instructions = true,
