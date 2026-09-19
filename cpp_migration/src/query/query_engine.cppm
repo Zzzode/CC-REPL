@@ -40,6 +40,7 @@ import cc.tools.tool;
 import cc.config.config;
 import cc.utils.error;
 import cc.utils.json;
+import cc.query.wire_protocol;
 import cc.utils.debug;
 import cc.session.storage;
 import cc.memdir.paths;
@@ -281,6 +282,15 @@ struct QueryEngineConfig {
     /// Fixed session id instead of a generated one — lets a resumed run use
     /// the same session-memory/summary.md and transcript directory.
     std::optional<std::string> session_id_override;
+    /// Which wire protocol to speak. Unset => Anthropic (the historical
+    /// default, so existing configs keep working unchanged). Set to
+    /// "openai"/"openai-compatible" to drive any OpenAI-compatible endpoint.
+    std::optional<std::string> wire_api;
+    /// Whether to emit the vendor-native computer-use tool shape. Defaults to
+    /// true for the Anthropic wire (its native tool is what makes the
+    /// see→act loop work best there); the OpenAI wire always uses the plain
+    /// function form regardless.
+    std::optional<bool> native_computer_tool;
     std::optional<double> max_budget_usd;           // Max budget in USD
     std::optional<std::uint32_t> max_turns;         // Max conversation turns
     struct TaskBudget {
@@ -862,6 +872,22 @@ private:
         api_config_.timeout = std::chrono::milliseconds{120000};
         api_config_.max_retries = static_cast<int>(config_.retry_policy.max_retries);
         api_config_.base_retry_delay = config_.retry_policy.initial_delay;
+
+        // Select the wire protocol. Unset keeps the historical behaviour
+        // (Anthropic /v1/messages). See cc.query.wire_protocol for the seam.
+        wire_api_ = cc::query::wire::WireApi::Anthropic;
+        if (config_.wire_api && !config_.wire_api->empty()) {
+            if (auto parsed = cc::query::wire::wire_api_from_string(*config_.wire_api)) {
+                wire_api_ = *parsed;
+            }
+        } else if (const char* env = std::getenv("CC_REPL_WIRE_API");
+                   env && *env) {
+            if (auto parsed = cc::query::wire::wire_api_from_string(env)) {
+                wire_api_ = *parsed;
+            }
+        }
+        native_computer_tool_ =
+            config_.native_computer_tool.value_or(wire_api_ == cc::query::wire::WireApi::Anthropic);
     }
 
     /// Build and add system prompt to conversation
@@ -3409,6 +3435,11 @@ private:
     BudgetTracker budget_tracker_;
     ModelCost model_cost_;
     ApiClientConfig api_config_;
+    /// Selected wire protocol. Set in setup_api_client(); read when
+    /// serializing requests and parsing responses.
+    cc::query::wire::WireApi wire_api_ = cc::query::wire::WireApi::Anthropic;
+    /// When true, emit the vendor-native computer-use tool shape.
+    bool native_computer_tool_ = true;
 
     // ── Post-turn LLM memory extraction (TS extractMemories) ────────────────
     // After enough NEW messages accumulate, a background sub-agent reads the
