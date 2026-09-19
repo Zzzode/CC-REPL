@@ -262,6 +262,44 @@ Ollama, OpenRouter, …) now runs the same agent loop, tools, permissions and UI
 Tests: 1655 → 1685 (24 backend unit tests + 6 engine↔seam integration tests in
 `tests/test_tools.cpp` `WireSeam.*`).
 
+### Phase D — rename to Loom (code-complete)
+
+| commit | what |
+|---|---|
+| `8726e44` | the rename itself, plus the repairs for what it silently broke (395 files) |
+| `b76b1d2` | title-case the product name in user-visible strings; `LOOM_WIRE_API` read rewritten plainly |
+| `d215b9b` | §7 rewritten: the path inventory + the migration question, scoped but unimplemented |
+| `59bda01` | two tests pinning the legacy env fallback (mutation-checked), and an RAII env guard |
+
+**The rename's real hazard was not the renaming — it was that a blanket
+replace MERGES things that were distinct.** Four sub-classes were found and
+repaired, all of them silent at compile time:
+
+1. **Merged name pairs.** `getenv("A")` falling back to `getenv("A")` — a
+   fallback that can never fire because both legs became the same string. 11
+   read sites, 9 write sites (`main.cpp`'s `set_env_value_pair`).
+2. **Merged paths.** `skill_root_dirs()` had two *different* install
+   locations collapse into one entry, so the same directory was scanned twice
+   and every skill counted double. Same shape in
+   `path_validation.cppm`: the write guard named only `.claude` /
+   `.config/claude`, so `~/.cc-repl` — where credentials, settings and plugin
+   trust actually live — was Bash-writable. **That one was a live security
+   hole**, found by re-verifying the audit rather than by the classifier.
+3. **Fabricated domains.** A rename applied to a hostname produces a domain
+   that does not resolve and that nobody owns. All vendor URLs are now
+   user-supplied (env) or absent, and the OAuth flow reports "no provider
+   configured" instead of pointing at someone else's server.
+4. **Fixture drift.** Goldens are written with the renamer's output but read
+   with the original's, or vice versa; and a fixture renamed in one test but
+   not its sibling stops exercising the branch it names.
+
+**Two invariants the rename must not touch** (they are not our names to
+change): `.claude-plugin/` is a plugin *format* spec that third-party
+marketplaces ship, and `mcp__claude-in-chrome__*` are tool ids a third-party
+MCP server advertises. Both were masked deliberately.
+
+Tests: 1685 → 1689, debug and release both 100% at `-j1`.
+
 ### Phase A re-audit — corrections to this document
 
 A second read-only sweep found several claims above are now stale or wrong.
