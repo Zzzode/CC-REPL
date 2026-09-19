@@ -128,7 +128,7 @@ struct CliOptions {
  * Print usage/help text to stdout
  */
 void print_help() {
-    std::println(R"(LOOM: Loom REPL (C++23 Version)
+    std::println(R"(Loom REPL (C++23 Version)
 
 Usage: loom [options]
 
@@ -1360,7 +1360,7 @@ int run_direct_connect_server(const CliOptions& opts) {
     std::signal(SIGINT, handle_signal);
     std::signal(SIGTERM, handle_signal);
 
-    std::println("LOOM direct-connect server listening on {}", server.get_url());
+    std::println("Loom direct-connect server listening on {}", server.get_url());
     while (!g_should_exit.load()) {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
@@ -1611,7 +1611,7 @@ int run_bridge_daemon(const CliOptions& opts) {
         return 1;
     }
 
-    std::println("LOOM bridge daemon listening on 127.0.0.1:{}", *started);
+    std::println("Loom bridge daemon listening on 127.0.0.1:{}", *started);
     std::fflush(stdout);
 
     std::unordered_set<std::string> announced_sessions;
@@ -1638,7 +1638,7 @@ int run_bridge_daemon(const CliOptions& opts) {
     request_all_daemon_children_shutdown(daemon);
     wait_for_daemon_children_to_finish(daemon, std::chrono::milliseconds{5000});
     daemon.stop();
-    std::println("LOOM bridge daemon stopped");
+    std::println("Loom bridge daemon stopped");
     std::fflush(stdout);
     return 0;
 }

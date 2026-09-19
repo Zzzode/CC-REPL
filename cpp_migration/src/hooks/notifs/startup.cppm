@@ -17,7 +17,7 @@ inline std::vector<std::string> get_startup_notifications() {
     std::vector<std::string> notifications;
 
     if (check_first_run()) {
-        notifications.emplace_back("Welcome to LOOM! Type /help to get started.");
+        notifications.emplace_back("Welcome to Loom! Type /help to get started.");
     }
 
     return notifications;
@@ -26,9 +26,9 @@ inline std::vector<std::string> get_startup_notifications() {
 
 inline void show_welcome_notification(bool first_run) {
     if (first_run) {
-        std::fprintf(stderr, "Welcome to LOOM! Type /help to get started.\n");
+        std::fprintf(stderr, "Welcome to Loom! Type /help to get started.\n");
     } else {
-        std::fprintf(stderr, "LOOM ready.\n");
+        std::fprintf(stderr, "Loom ready.\n");
     }
 }
 

@@ -12671,16 +12671,16 @@ TEST(WireSeam, OpenAiWireRoutesTheSystemPromptIntoAMessage) {
 TEST(WireSeam, EnvVarSelectsTheWireWhenConfigDoesNot) {
     auto config = base_config();
     config.custom_system_prompt = "be terse";
-    ::setenv("CC_REPL_WIRE_API", "openai", 1);
+    ::setenv("LOOM_WIRE_API", "openai", 1);
     ToolRegistry registry;
     QueryEngine engine(std::move(config), registry);
     const auto doc = parse(engine.build_request_body_for_testing());
-    ::unsetenv("CC_REPL_WIRE_API");
+    ::unsetenv("LOOM_WIRE_API");
     ASSERT_TRUE(doc.has_value());
     ASSERT_TRUE(doc->root().get("messages").is_arr());
     EXPECT_EQ(std::string(doc->root().get("messages").at(0).get("role").as_str()),
               "system")
-        << "CC_REPL_WIRE_API should have selected the OpenAI backend";
+        << "LOOM_WIRE_API should have selected the OpenAI backend";
 }
 
 TEST(WireSeam, UnknownWireApiFallsBackToAnthropic) {

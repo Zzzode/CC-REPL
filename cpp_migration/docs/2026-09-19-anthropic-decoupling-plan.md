@@ -2,7 +2,7 @@
 
 > **Status:** Phase A (audit) COMPLETE · Phase B (delete) PARTIAL · Phase C
 > (backend seam) COMPLETE · Phase D (rename to Loom) NOT STARTED.
-> **Goal:** make CC-REPL a personal, Anthropic-independent project.
+> **Goal:** make CC-REPL (now **Loom**) a personal, Anthropic-independent project.
 > **Method:** 6 parallel read-only audits over the C++ tree; every load-bearing
 > claim independently re-verified by the primary agent (2 audit claims were
 > corrected — see §5).
@@ -205,7 +205,8 @@ not a pure subtraction: some deleted files carried tests, some did not).
 | (this commit) | `query_engine.cppm` wired through the seam: `make_wire_backend()` + `build_wire_input()`; the old 198-line inline serializer deleted; three engine helpers the extraction orphaned removed |
 
 **Result:** the engine no longer knows a wire format. `wire_api` (config) or
-`CC_REPL_WIRE_API` (env) selects the backend; unset ⇒ Anthropic, preserving
+`LOOM_WIRE_API` (env, was `CC_REPL_WIRE_API`) selects the backend; unset ⇒
+Anthropic, preserving
 existing behaviour exactly. An OpenAI-compatible endpoint (llama.cpp, vLLM,
 Ollama, OpenRouter, …) now runs the same agent loop, tools, permissions and UI.
 Tests: 1655 → 1685 (24 backend unit tests + 6 engine↔seam integration tests in

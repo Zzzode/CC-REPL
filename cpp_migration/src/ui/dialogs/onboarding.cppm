@@ -29,7 +29,7 @@ struct OnboardingStep {
 inline auto get_onboarding_steps() -> std::vector<OnboardingStep> {
     return {
         {
-            "Welcome to LOOM",
+            "Welcome to Loom",
             "A powerful CLI interface for Loom. Let's get you set up.",
             std::nullopt,
             false

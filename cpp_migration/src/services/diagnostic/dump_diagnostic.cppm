@@ -180,7 +180,7 @@ struct DiagnosticInfo {
 /// Format diagnostics for human-readable display
 [[nodiscard]] inline std::string format_diagnostics(const DiagnosticInfo& info) {
     std::string output;
-    output += std::format("LOOM Diagnostic Report\n");
+    output += std::format("Loom Diagnostic Report\n");
     output += std::format("========================\n\n");
     output += std::format("Version:     {}\n", info.app_version);
     output += std::format("OS:          {}\n", info.os_version);
