@@ -12671,16 +12671,52 @@ TEST(WireSeam, OpenAiWireRoutesTheSystemPromptIntoAMessage) {
 TEST(WireSeam, EnvVarSelectsTheWireWhenConfigDoesNot) {
     auto config = base_config();
     config.custom_system_prompt = "be terse";
-    ::setenv("LOOM_WIRE_API", "openai", 1);
+    // Guard, not raw setenv: a failing ASSERT_ below would otherwise return
+    // early and leave LOOM_WIRE_API set for every subsequent test.
+    const EnvironmentGuard wire_env("LOOM_WIRE_API", "openai");
     ToolRegistry registry;
     QueryEngine engine(std::move(config), registry);
     const auto doc = parse(engine.build_request_body_for_testing());
-    ::unsetenv("LOOM_WIRE_API");
     ASSERT_TRUE(doc.has_value());
     ASSERT_TRUE(doc->root().get("messages").is_arr());
     EXPECT_EQ(std::string(doc->root().get("messages").at(0).get("role").as_str()),
               "system")
         << "LOOM_WIRE_API should have selected the OpenAI backend";
+}
+
+// The pre-rename spelling is honoured so a config written before the rename
+// keeps working. Both names are ours (neither is a vendor name), so accepting
+// both costs nothing and avoids silently retargeting an existing setup.
+TEST(WireSeam, LegacyEnvVarNameStillSelectsTheWire) {
+    auto config = base_config();
+    config.custom_system_prompt = "be terse";
+    const EnvironmentUnsetGuard no_new_name("LOOM_WIRE_API");
+    const EnvironmentGuard legacy_env("CC_REPL_WIRE_API", "openai");
+    ToolRegistry registry;
+    QueryEngine engine(std::move(config), registry);
+    const auto doc = parse(engine.build_request_body_for_testing());
+    ASSERT_TRUE(doc.has_value());
+    ASSERT_TRUE(doc->root().get("messages").is_arr());
+    EXPECT_EQ(std::string(doc->root().get("messages").at(0).get("role").as_str()),
+              "system")
+        << "CC_REPL_WIRE_API should still select the OpenAI backend";
+}
+
+// The documented name wins when both are set, so a user migrating can leave
+// the old one in place while the new one takes effect.
+TEST(WireSeam, NewEnvVarNameWinsOverTheLegacyOne) {
+    auto config = base_config();
+    config.custom_system_prompt = "be terse";
+    const EnvironmentGuard new_env("LOOM_WIRE_API", "openai");
+    const EnvironmentGuard legacy_env("CC_REPL_WIRE_API", "anthropic");
+    ToolRegistry registry;
+    QueryEngine engine(std::move(config), registry);
+    const auto doc = parse(engine.build_request_body_for_testing());
+    ASSERT_TRUE(doc.has_value());
+    ASSERT_TRUE(doc->root().get("messages").is_arr());
+    EXPECT_EQ(std::string(doc->root().get("messages").at(0).get("role").as_str()),
+              "system")
+        << "LOOM_WIRE_API should win over the legacy spelling";
 }
 
 TEST(WireSeam, UnknownWireApiFallsBackToAnthropic) {
