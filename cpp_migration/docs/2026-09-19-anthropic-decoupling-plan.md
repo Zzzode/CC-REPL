@@ -1,7 +1,8 @@
 # Anthropic Decoupling — Executable Removal Plan (Phase A output)
 
 > **Status:** Phase A (audit) COMPLETE · Phase B (delete) PARTIAL · Phase C
-> (backend seam) COMPLETE · Phase D (rename to Loom) NOT STARTED.
+> (backend seam) COMPLETE · Phase D (rename to Loom) CODE-COMPLETE, user-data
+> migration still open (§7).
 > **Goal:** make CC-REPL (now **Loom**) a personal, Anthropic-independent project.
 > **Method:** 6 parallel read-only audits over the C++ tree; every load-bearing
 > claim independently re-verified by the primary agent (2 audit claims were
@@ -182,6 +183,55 @@ Because BOTH backends are required, the seam is:
 **Rename paths (`~/.claude` → `~/.loom`)?** Breaks existing user skill dirs /
 memory / settings. Deferred to the rename phase (§4); needs its own decision
 because it is user-data-migrating, not just cosmetic.
+
+### 7.1 What the rename actually did to paths (recorded after the fact)
+
+The blanket rename moved six path families at once. Three of them are fine;
+three are the open question.
+
+**Correctly left alone — external contract, not our name to change:**
+
+| Path | Why it must stay |
+|---|---|
+| `.claude-plugin/` (manifest dir, ~15 sites) | A plugin *format* specification. Third-party marketplaces ship this directory name; renaming it breaks every plugin that works today. The rename script masked it deliberately. |
+| `mcp__claude-in-chrome__*` tool ids (~12 sites) | Tool names a *third-party MCP server* advertises. We match them; we do not mint them. |
+| `ANTHROPIC_*`, `anthropic-version`, `anthropic-beta`, `computer_20241022`, model ids | Wire values — the whole point of the KEEP-AS-BACKEND class. |
+
+**Moved by the rename, with a consequence worth stating:**
+
+| Path family | Now resolves to | Consequence |
+|---|---|---|
+| Session/memory/skill/plugin data | `~/.loom/*` | A user's existing `~/.claude/CLAUDE.md`, skills and settings stop being read. §7.2. |
+| `~/.config/loom/credentials.json` (Linux), XDG `loom/` | new | Old `~/.config/claude/` credentials are not found; login is re-run. Acceptable — it fails safe, does not send a stale token anywhere. |
+| `~/.config/gcloud/application_default_credentials.json` | unchanged | Vendor-neutral Google path; correctly untouched. |
+
+**Deliberately kept as a fallback (the pattern the plan called for):**
+
+`CC_REPL_*` → the pre-rename spelling. Where the rename introduced a new
+`LOOM_*` variable the old name is still read as a fallback
+(`query_engine.cppm` `LOOM_WIRE_API`, `main.cpp`'s nine
+`set_env_value_pair` sites, `app.cppm`'s config reads). One deliberate
+exception: the `~/.cc-repl/skills` *directory* root in
+`tools/skill_tool.cppm:238` is a second scan root, not a fallback — both
+`.loom/skills` and `.cc-repl/skills` are scanned.
+
+### 7.2 The user-data migration (needs the owner's call)
+
+`~/.claude/CLAUDE.md`, `~/.claude/skills/`, `~/.claude/settings.json` are no
+longer read. 72 construction sites resolve the config home, but they are not
+72 independent decisions: they reduce to four resolvers —
+
+- `memdir::loom_config_home()` (`src/memdir/paths.cppm:156`) — `$LOOM_CONFIG_DIR` else `$HOME/.loom`
+- `get_claude_config_dir()` (`src/utils/system_directories.cppm:37`) — XDG-aware on Linux, `~/.loom` on macOS
+- `config::settings` user/project resolution (`src/config/settings.cppm:207`)
+- `hooks::shell_hooks` settings search (`src/hooks/shell_hooks.cppm:548`)
+
+Adding a legacy candidate is therefore a four-site change, not a 72-site one —
+but it is a *product* decision, not a mechanical one: silently reading the old
+directory means a renamed binary keeps obeying `~/.claude/settings.json`,
+including its permission allowlists. Recommended shape, if adopted: read the
+legacy path only when the new one does not exist, and surface which file was
+loaded. Not implemented — awaiting the owner.
 
 ## 8. Execution log
 
