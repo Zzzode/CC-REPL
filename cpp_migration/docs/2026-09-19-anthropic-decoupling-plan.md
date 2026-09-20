@@ -1,8 +1,9 @@
 # Anthropic Decoupling — Executable Removal Plan (Phase A output)
 
 > **Status:** Phase A (audit) COMPLETE · Phase B (delete) PARTIAL · Phase C
-> (backend seam) COMPLETE · Phase D (rename to Loom) CODE-COMPLETE, user-data
-> migration still open (§7).
+> (backend seam) COMPLETE · Phase D (rename to Loom) COMPLETE, including the
+> user-data cascade (§7). All three owner decisions of 2026-09-20 are
+> implemented — see §9.
 > **Goal:** make CC-REPL (now **Loom**) a personal, Anthropic-independent project.
 > **Method:** 6 parallel read-only audits over the C++ tree; every load-bearing
 > claim independently re-verified by the primary agent (2 audit claims were
@@ -178,11 +179,11 @@ Because BOTH backends are required, the seam is:
   for the Anthropic backend, ordinary `{type:"function", input_schema}` for
   the OpenAI-compatible one.
 
-## 7. Remaining open question
+## 7. Path migration (resolved — see §7.1 and §7.2)
 
-**Rename paths (`~/.claude` → `~/.loom`)?** Breaks existing user skill dirs /
-memory / settings. Deferred to the rename phase (§4); needs its own decision
-because it is user-data-migrating, not just cosmetic.
+**Rename paths (`~/.claude` → `~/.loom`)?** Answered 2026-09-20: read through a
+cascade, never write through it. The inventory of what the blanket rename moved
+is §7.1; the decision and its implementation are §7.2.
 
 ### 7.1 What the rename actually did to paths (recorded after the fact)
 
@@ -201,7 +202,7 @@ three are the open question.
 
 | Path family | Now resolves to | Consequence |
 |---|---|---|
-| Session/memory/skill/plugin data | `~/.loom/*` | A user's existing `~/.claude/CLAUDE.md`, skills and settings stop being read. §7.2. |
+| Session/memory/skill/plugin data | `~/.loom/*` | A user's existing `~/.claude/CLAUDE.md`, skills and settings stop being read directly, but are still *read* through the cascade (§7.2). |
 | `~/.config/loom/credentials.json` (Linux), XDG `loom/` | new | Old `~/.config/claude/` credentials are not found; login is re-run. Acceptable — it fails safe, does not send a stale token anywhere. |
 | `~/.config/gcloud/application_default_credentials.json` | unchanged | Vendor-neutral Google path; correctly untouched. |
 
@@ -215,23 +216,42 @@ exception: the `~/.cc-repl/skills` *directory* root in
 `tools/skill_tool.cppm:238` is a second scan root, not a fallback — both
 `.loom/skills` and `.cc-repl/skills` are scanned.
 
-### 7.2 The user-data migration (needs the owner's call)
+### 7.2 The user-data migration (DECIDED and IMPLEMENTED 2026-09-20)
 
-`~/.claude/CLAUDE.md`, `~/.claude/skills/`, `~/.claude/settings.json` are no
-longer read. 72 construction sites resolve the config home, but they are not
-72 independent decisions: they reduce to four resolvers —
+Owner decision: **read** through a cascade, but never write outside our own
+directory.
 
-- `memdir::loom_config_home()` (`src/memdir/paths.cppm:156`) — `$LOOM_CONFIG_DIR` else `$HOME/.loom`
-- `get_claude_config_dir()` (`src/utils/system_directories.cppm:37`) — XDG-aware on Linux, `~/.loom` on macOS
-- `config::settings` user/project resolution (`src/config/settings.cppm:207`)
-- `hooks::shell_hooks` settings search (`src/hooks/shell_hooks.cppm:548`)
+    config dir   $LOOM_CONFIG_DIR > ~/.loom > ~/.agents > ~/.claude
+    memory file  LOOM.md > AGENTS.md > CLAUDE.md
 
-Adding a legacy candidate is therefore a four-site change, not a 72-site one —
-but it is a *product* decision, not a mechanical one: silently reading the old
-directory means a renamed binary keeps obeying `~/.claude/settings.json`,
-including its permission allowlists. Recommended shape, if adopted: read the
-legacy path only when the new one does not exist, and surface which file was
-loaded. Not implemented — awaiting the owner.
+Both cascades now live in exactly one module, `src/constants/paths.cppm`. Eight
+walkers had each reimplemented the lookup with their own hardcoded filename —
+query_engine, hooks/context, memdir/memory, memdir/paths,
+utils/system_directories, config/settings, hooks/shell_hooks — so a change to
+any one applied to one code path and not the others. All now delegate.
+(`utils/system_directories.cppm` was deleted outright: zero importers, and its
+`get_claude_config_dir` contradicted the cascade by resolving to XDG
+`~/.config/loom` on Linux. Dead code that also disagrees with the policy is
+worse than absent.)
+
+Two points that were not obvious until implementation, both now pinned by
+tests:
+
+1. **Read and write are split.** `config_home_read()` follows the cascade;
+   `config_home_write()` is `$LOOM_CONFIG_DIR` else `~/.loom`, never the
+   cascade. Reading a legacy `~/.claude` is the intended behaviour; writing
+   our `sessions/`, `plugins/` and state into it is not. `~/.claude` already
+   has its own `sessions/`, so a user with only that directory would have had
+   two tools' state interleaved in a directory neither of them controls.
+   Verified on the real binary with a temp `HOME`: writes land in
+   `~/.loom/sessions`, `~/.claude` is untouched.
+2. **The memory-file cascade applies per directory, while walking up** — not
+   "find any `LOOM.md` in the tree first". A `CLAUDE.md` beside the code beats
+   a `LOOM.md` five levels up. The alternative lets a distant file of the
+   preferred name override the file next to what is being edited. `/init`
+   still creates `LOOM.md`, because new files use the preferred name.
+
+See §9 for the full record of the three 2026-09-20 owner decisions.
 
 ## 8. Execution log
 
@@ -268,7 +288,7 @@ Tests: 1655 → 1685 (24 backend unit tests + 6 engine↔seam integration tests 
 |---|---|
 | `8726e44` | the rename itself, plus the repairs for what it silently broke (395 files) |
 | `b76b1d2` | title-case the product name in user-visible strings; `LOOM_WIRE_API` read rewritten plainly |
-| `d215b9b` | §7 rewritten: the path inventory + the migration question, scoped but unimplemented |
+| `d215b9b` | §7 rewritten: the path inventory + the migration question, scoped but unimplemented at that point (implemented 2026-09-20, §9) |
 | `59bda01` | two tests pinning the legacy env fallback (mutation-checked), and an RAII env guard |
 
 **The rename's real hazard was not the renaming — it was that a blanket
@@ -344,3 +364,46 @@ branch is reachable in a default run, or whether the `ANTHROPIC_AUTH_TOKEN` /
 `ANTHROPIC_API_KEY` short-circuits always win first — this decides whether the
 real Anthropic OAuth endpoints are live or merely present. Needs a runtime
 trace before Phase D touches `login.cppm`.
+
+## 9. Phase E — owner decisions of 2026-09-20 (all implemented)
+
+Three questions were put to the owner and answered. Recorded with the
+reasoning, because in each case the answer was narrower than the obvious one.
+
+**1. Legacy config is READ through a cascade, never written.**
+
+    read:   $LOOM_CONFIG_DIR > ~/.loom > ~/.agents > ~/.claude
+    write:  $LOOM_CONFIG_DIR > ~/.loom            (never the cascade)
+
+The split is the substance of the decision. Reading another tool's config
+directory is what the cascade is for; writing our `sessions/`, `plugins/` and
+state into it is a different act, and `~/.claude` already has its own
+`sessions/` for the two to collide in. A user with only `~/.claude` now gets
+`~/.loom` created for our state, and theirs is left alone. Single
+implementation in `src/constants/paths.cppm`; eight previous walkers
+delegated to it.
+
+**2. Memory files cascade per directory: LOOM.md > AGENTS.md > CLAUDE.md.**
+
+Applied directory-by-directory while walking up, not "find any LOOM.md in the
+tree first". Consequence: a `CLAUDE.md` next to the code beats a `LOOM.md`
+five levels up. The alternative lets a distant file of the preferred name
+override the file beside what is being edited, which is worse than the
+branding inconsistency it would avoid. `/init` still creates `LOOM.md`
+because new files use the preferred name.
+
+**3. Local telemetry: a real writer, not just a decision to keep one.**
+
+The module the plan named as "kept" was a dead stub with zero importers, so
+this was owed work, not a preserved feature. Now
+`src/services/analytics.cppm`: NDJSON appended to
+`<XDG_STATE_HOME>/loom/analytics.ndjson`, no network path, and a test that
+reads the module source and fails if an HTTP import appears (a runtime test
+cannot observe "did not open a socket"). Wired into `QueryEngine`'s
+constructor, which every entry point passes through, so it is populated in
+normal use rather than being another writer nobody calls.
+
+**Still open:** the `commands/login.cppm` OAuth reachability question at the
+end of §8. It is a question about which branch wins, not about branding, and
+no decision has been taken; the OAuth config is already user-supplied with no
+vendor endpoints compiled in, so the exposure is bounded either way.
