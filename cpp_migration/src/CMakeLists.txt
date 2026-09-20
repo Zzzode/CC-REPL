@@ -434,7 +434,6 @@ target_sources(cc_constants
         constants/figures.cppm
         constants/files.cppm
         constants/messages.cppm
-        constants/oauth.cppm
         constants/output_styles.cppm
         constants/paths.cppm
         constants/product.cppm
@@ -796,11 +795,6 @@ target_sources(cc_commands
         commands/init_verifiers.cppm
         commands/insights.cppm
         commands/install.cppm
-        commands/install_github_app.cppm
-        commands/install_github_app_steps.cppm
-        commands/install_github_app/flow.cppm
-        commands/install_github_app/github_actions.cppm
-        commands/install_github_app/steps.cppm
         commands/issue.cppm
         commands/keybindings_cmd.cppm
         commands/mcp/add_command.cppm
@@ -1330,7 +1324,6 @@ target_sources(cc_ui
         ui/dialogs/about_dialog.cppm
         ui/dialogs/confirmation_dialog.cppm
         ui/dialogs/ide_dialogs.cppm
-        ui/dialogs/install_github_app_wizard.cppm
         ui/dialogs/managed_settings_security.cppm
         ui/dialogs/mcp_dialog.cppm
         ui/dialogs/mcp_dialogs.cppm

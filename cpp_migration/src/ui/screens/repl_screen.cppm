@@ -82,7 +82,6 @@ import cc.ui.sandbox_dialog;
 import cc.ui.agents.agent_cards;
 import cc.ui.agents.agent_wizard;
 import cc.tools.agent_display;
-import cc.ui.dialogs.install_github_app_wizard;
 // Welcome header: Loom mascot mark + animated asterisk, wired into RenderReplScreen
 // for fresh sessions.
 import cc.ui.design.logo;
@@ -217,8 +216,6 @@ enum class ReplMode : std::uint8_t {
     PluginHint,               // 'plugin-hint'
     // Panels (rendered inline — no overlay)
     TasksView, TeamsView, AgentsView, SettingsView, HelpView, AboutView, QuickOpen,
-    // UI15 (Phase 4) — install-command wizard overlays.
-    InstallGitHubApp,   // 12-step /install-github-app  FTXUI wizard
     // UI13 — agent wizard (create/edit).
     CreateAgent,        // 4-step new-agent wizard
     EditAgent,          // 4-step edit-agent wizard
@@ -773,7 +770,6 @@ struct ReplScreenState {
     // UI15: opaque wizard component handles (lazily created by
     // dialog_router::get_install_*_wizard(), stored as shared_ptr<void>
     // so ReplScreenState doesn't need to import their types).
-    std::shared_ptr<void> wizard_install_github_app;
     // UI13: agent wizard component handle (lazily created by
     // dialog_router::get_agent_wizard()).
     std::shared_ptr<void> wizard_agent;
@@ -3370,46 +3366,6 @@ inline bool DispatchDialogQueueEvents(ReplScreenState& s,
 // events are forwarded to it via forward_agent().
 namespace dialog_router {
 
-namespace github_wizard = cc::ui::dialogs::install_github_app_wizard;
-namespace trust_ns = cc::ui::trust_dialog;
-
-[[nodiscard]] inline std::shared_ptr<Component> get_install_github_wizard(
-    const std::shared_ptr<ReplScreenState>& s,
-    const std::shared_ptr<ReplScreenCallbacks>& cb) {
-    if (!s->wizard_install_github_app) {
-        github_wizard::InstallGitHubAppWizardOptions opts;
-        opts.on_complete = [s, cb](auto) {
-            s->mode = ReplMode::Normal;
-            s->wizard_install_github_app.reset();
-            if (cb->on_mode_change) cb->on_mode_change(ReplMode::Normal);
-        };
-        opts.on_cancel = [s, cb] {
-            s->mode = ReplMode::Normal;
-            s->wizard_install_github_app.reset();
-            if (cb->on_mode_change) cb->on_mode_change(ReplMode::Normal);
-        };
-        s->wizard_install_github_app = std::make_shared<Component>(
-            github_wizard::MakeInstallGitHubAppWizard(std::move(opts)));
-    }
-    return std::static_pointer_cast<Component>(s->wizard_install_github_app);
-}
-
-
-[[nodiscard]] inline Element render_install_wizard(
-    const std::shared_ptr<ReplScreenState>& s,
-    const std::shared_ptr<ReplScreenCallbacks>& cb) {
-    auto wiz = get_install_github_wizard(s, cb);
-    return wiz ? (*wiz)->Render() : text("");
-}
-
-inline bool forward_install_wizard(
-    const std::shared_ptr<ReplScreenState>& s,
-    const std::shared_ptr<ReplScreenCallbacks>& cb,
-    Event ev) {
-    auto wiz = get_install_github_wizard(s, cb);
-    return wiz && (*wiz)->OnEvent(std::move(ev));
-}
-
 // -------------------------------------------------------------------
 // Agent wizard helpers
 // -------------------------------------------------------------------
@@ -4181,9 +4137,6 @@ inline bool forward_tool_permission(
         }
         // UI15 wizard modes: forward every event to the wizard
         // component (they manage Esc/Enter/buttons internally).
-        if (state->mode == ReplMode::InstallGitHubApp) {
-            return dialog_router::forward_install_wizard(state, cb, ev);
-        }
         if (ev == Event::Escape) {
             // Critical dialogs defer to y/n/a/c/r/q handlers — EXCEPT
             // CostThreshold where Esc MUST ACKNOWLEDGE (never quit / data-loss).

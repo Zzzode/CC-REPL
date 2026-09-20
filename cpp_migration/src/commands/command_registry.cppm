@@ -75,7 +75,7 @@ enum class CommandPermission : std::uint8_t {
         name == "mcp" || name == "bridge-kick" || name == "rename" || name == "rewind" || name == "share" ||
         name == "upgrade" || name == "install" ||
         name == "autofix-pr" || name == "backfill-sessions" || name == "break-cache" ||
-        name == "bridge" || name == "create-moved-to-plugin-command" || name == "install-github-app" ||
+        name == "bridge" || name == "create-moved-to-plugin-command" ||
         name == "mock-limits" || name == "reload-plugins" ||
         name == "remote-setup" || name == "reset-limits" ||
         name == "plugin" || name == "plugins" || name == "marketplace")

@@ -1151,11 +1151,6 @@ TEST(FullDialogRegistry, AllDialogTypesRenderable) {
         check_render(std::move(p), "Onboarding");
     }
     {
-        dsys::InstallGitHubAppWizardPayload p;
-        p.id = "iga-all";
-        check_render(std::move(p), "InstallGitHubAppWizard");
-    }
-    {
         dsys::CreateAgentWizardPayload p;
         p.id = "ca-all";
         check_render(std::move(p), "CreateAgentWizard");

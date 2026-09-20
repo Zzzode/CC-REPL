@@ -9,7 +9,6 @@ import cc.commands.review.review_remote;
 import cc.commands.security_review;
 import cc.commands.init_verifiers;
 import cc.commands.install;
-import cc.commands.install_github_app;
 import cc.commands.insights;
 import cc.commands.init;
 import cc.commands.session;
@@ -30,7 +29,6 @@ void register_group_c_commands(CommandRegistry& registry) {
     registry.register_command<SecurityReviewCommand>();
     registry.register_command<InitVerifiersCommand>();
     registry.register_command<InstallCommand>();
-    registry.register_command<InstallGithubAppCommand>();
     registry.register_command<InsightsCommand>();
     registry.register_command<InitCommand>();
     registry.register_command<SessionCommand>();
