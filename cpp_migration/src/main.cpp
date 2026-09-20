@@ -731,8 +731,11 @@ auto load_config() -> cc::core::QueryEngineConfig {
     if (const char* key = std::getenv("ANTHROPIC_API_KEY")) {
         config.api_key = key;
     }
-    // OAuth/Pro/gateway bearer token (e.g. ANTHROPIC_AUTH_TOKEN supplied via --settings env).
-    // When present it is sent as "Authorization: Bearer" and takes precedence over api_key.
+    // Bearer token for endpoints that take one (e.g. ANTHROPIC_AUTH_TOKEN supplied
+    // via --settings env, or a gateway token). When present it is sent as
+    // "Authorization: Bearer" and takes precedence over api_key. This carries a
+    // user-supplied credential to the configured endpoint; it is not an account
+    // login, and there is no credential store behind it.
     if (const char* token = std::getenv("ANTHROPIC_AUTH_TOKEN")) {
         config.auth_token = token;
     }

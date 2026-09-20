@@ -1,9 +1,9 @@
 # Anthropic Decoupling — Executable Removal Plan (Phase A output)
 
-> **Status:** Phase A (audit) COMPLETE · Phase B (delete) PARTIAL · Phase C
+> **Status:** Phase A (audit) COMPLETE · Phase B (delete) COMPLETE · Phase C
 > (backend seam) COMPLETE · Phase D (rename to Loom) COMPLETE, including the
-> user-data cascade (§7). All three owner decisions of 2026-09-20 are
-> implemented — see §9.
+> user-data cascade (§7) · Phase E (owner decisions of 2026-09-20) COMPLETE, §9
+> · Phase F (pure-harness removal, 2026-09-21) COMPLETE, §10.
 > **Goal:** make CC-REPL (now **Loom**) a personal, Anthropic-independent project.
 > **Method:** 6 parallel read-only audits over the C++ tree; every load-bearing
 > claim independently re-verified by the primary agent (2 audit claims were
@@ -403,7 +403,71 @@ cannot observe "did not open a socket"). Wired into `QueryEngine`'s
 constructor, which every entry point passes through, so it is populated in
 normal use rather than being another writer nobody calls.
 
-**Still open:** the `commands/login.cppm` OAuth reachability question at the
-end of §8. It is a question about which branch wins, not about branding, and
-no decision has been taken; the OAuth config is already user-supplied with no
-vendor endpoints compiled in, so the exposure is bounded either way.
+**Still open at the time of writing:** the `commands/login.cppm` OAuth
+reachability question at the end of §8. Resolved 2026-09-21 by deletion rather
+than analysis — see §10.
+
+## 10. Phase F — pure-harness removal (2026-09-21)
+
+Owner decision: the project is a **pure harness**. There is no site, no hosted
+model, and no domain, so anything that exists to authenticate against, or reach,
+a service we do not run is not a latent feature — it is a feature with no
+possible backend. That reframes several items §3 and §8 had listed as
+"refactor" or "strip the vendor bits" as deletions instead.
+
+**Deleted (five commits).**
+
+| Area | What went |
+|---|---|
+| Dead modules | Six modules registered in CMake with zero importers and zero symbol references (`mcp_auth_tool`, `auth_file_descriptor`, `api_key_verification`, `commands/mcp/xaa_idp`, `ui/dialogs/onboarding`, `services/mcp/normalization`). The last is worth noting: it shared a name with the TS `normalization.ts` while implementing an unrelated API, and did not contain the function it appeared to port. |
+| Account login | `commands/{login,logout,oauth_refresh}.cppm`, `constants/oauth.cppm`, `services/oauth/client.cppm` (989 L, incl. KeychainStore), `utils/auth_utils.cppm`. This also answered §8's open question by removing both branches. |
+| GitHub App | `/install-github-app` (2125 L, 12 steps, zero tests) — step 4 installed a GitHub App that does not exist, step 9 was the login flow, generated workflows referenced an action that does not exist. |
+| Remote/teleport | `src/remote/**`, `utils/teleport_utils.cppm`, `tasks/remote_agent_task.cppm`, `tools/remote_trigger_tool.cppm`, `skills/schedule_remote_agents.cppm`, `commands/{remote_env,remote_setup}.cppm`, `ui/dialogs/remote_env_dialog.cppm`. |
+| Fabricated domains | The `loom.ai` prefix test in `tool_deny_rules.cppm` (unreachable in practice, and the only thing exercising it was its own test), the fabricated GitHub App URL, the orphaned `constants::github_app` namespace, the "Loom.ai subscription" statusline text, and the `loom_ai_limits_hook` module name. |
+
+**Deliberately KEPT — the line is "does it authenticate against *our* service".**
+
+- **MCP OAuth** (`services/mcp/{auth,xaa,xaa_idp_login,oauth_port}`,
+  `services/oauth/{auth_code_listener,crypto,types}`). This authorizes against a
+  third-party MCP server *the user configured*. It is not our account. Note the
+  989-line `services/oauth/client.cppm` was NOT shared with MCP: MCP uses only
+  `auth_code_listener`, `crypto` and `types`. That check is what made the
+  deletion safe, and it is the first thing to re-verify if this area is touched
+  again.
+- **Cloud-provider credentials** (`services/auth/`: SigV4, GCP ADC, Azure
+  Entra). Open specifications, so a user can point Loom at their own Bedrock /
+  Vertex / Foundry endpoint. §6.1's decision stands.
+- **`ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN`.** Still read, still reach the
+  wire through the single decision point in `query/wire_anthropic.cppm` (Bearer
+  if a token is set, else `x-api-key`). Carrying a user's credential to their
+  endpoint is not an account system.
+
+**Two couplings resolved by deletion rather than repair.** §8 and §4 both
+flagged `teleport_utils.cppm`'s `"No Loom.ai OAuth access token found"` producer
+and the `find()` match on it in `agent_runtime.cppm` — that match was the remote
+poll loop's kill switch, so a rename on one side alone would have made the loop
+retry forever. Both sides are gone. Likewise `tool_deny_rules.cppm`'s prefix
+constant and its test.
+
+**One rename artifact found and fixed rather than deleted.**
+`agent_runtime.cppm`'s `remote_json_string_field` was used by *local* transcript
+and sidechain parsing as well as the remote code, so deleting the remote half
+would have taken a live helper with it. Renamed to `json_string_field`.
+
+**Incidental dead code removed:** `render_welcome()` in `ui/layout/logo.cppm`
+(zero callers, still shouting `LOOM`), and a vestigial `DoctorScreen` class in
+`screens/screens.cppm` that name-collided with the live one in
+`ui/screens/doctor_screen.cppm`.
+
+Tests: 1724 → 1700. Debug and release both 100% at `-j1`. End-to-end verified
+with a temp `HOME`: `loom --headless` runs, writes only
+`<XDG_STATE_HOME>/loom/analytics.ndjson`, and creates no credentials file.
+
+**Recorded but NOT acted on:** the C++ port uses `notifications/loom/channel`,
+`loom/channel`, `loom/channel/permission` as MCP wire method names, whereas the
+TS originals are `notifications/claude/channel` etc. These are not fabricated
+domains — they are method-name namespaces a server advertises — but the rename
+moved them off the values the TS speaks, so a real channel server would match
+neither spelling. Out of scope here; it needs its own decision. (The channel
+feature is currently disabled upstream at `is_channels_enabled()`, which returns
+false, so nothing is broken today.)
