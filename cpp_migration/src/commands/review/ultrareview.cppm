@@ -344,7 +344,7 @@ public:
                 },
                 CommandArg{
                     .name = "--local",
-                    .description = "Force local-only review (skip cloud teleport)",
+                    .description = "Accepted for compatibility; reviews are always local",
                     .type = ArgType::None,
                     .required = false,
                 },
@@ -410,9 +410,7 @@ public:
                               plan.all_files.size(),
                               plan.total_additions, plan.total_deletions);
         if (!note.empty()) prompt << note << "\n";
-        if (force_local) {
-            prompt << "Execution mode: local-only; do not teleport this review to a cloud session.\n";
-        }
+        (void)force_local;
         prompt << std::format("Planned rounds: {}\n\n", plan.total_rounds);
 
         prompt << "## Execution plan\n\n";
@@ -430,8 +428,7 @@ public:
                   "When all rounds complete, run the synthesis round LAST. The final\n"
                   "user-facing output MUST include:\n"
                   "  - The summary markdown table\n"
-                  "  - Ship / do-not-ship recommendation (1 paragraph)\n"
-                  "  - Link to the cloud session (if teleported).";
+                  "  - Ship / do-not-ship recommendation (1 paragraph).";
 
         auto result = CommandResult::inject(prompt.str());
 

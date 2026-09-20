@@ -336,7 +336,6 @@ target_sources(cc_utils
         utils/swarm_coordination.cppm
         utils/swarm_helpers.cppm
         utils/swarm_pane_observer.cppm
-        utils/ultraplan.cppm
         utils/ansi_rendering.cppm
         utils/cleanup_registry.cppm
         utils/prompt_helpers.cppm

@@ -166,7 +166,7 @@ import cc.ui.common.types;
 // Forward imports (implement bodies in owning agent modules):
 //   cc.ui.dialogs.{permission_prompts,mcp_dialogs,trust_dialog,
 //                  sandbox_dialog,settings_dialog,model_picker,
-//                  ide_dialogs,teleport_dialogs,plugin_dialog,
+//                  ide_dialogs,plugin_dialog,
 //                  feedback_survey,config_dialog,mcp_dialogs}
 //   cc.ui.prompt.{prompt_input_full,autocomplete,vim_input}
 //   cc.ui.messages.{assistant_message,user_message,structured_diff}
