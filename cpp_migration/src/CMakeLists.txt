@@ -100,7 +100,6 @@ target_sources(cc_utils
         utils/argument_substitution.cppm
         utils/array_utils.cppm
         utils/async.cppm
-        utils/auth_file_descriptor.cppm
         utils/auth_utils.cppm
         utils/abort_controller.cppm
         utils/auto_mode_denials.cppm
@@ -656,7 +655,6 @@ target_sources(cc_tools
         tools/lsp_formatters.cppm
         tools/lsp_symbol_context.cppm
         tools/lsp_tool.cppm
-        tools/mcp_auth_tool.cppm
         tools/mcp_classify.cppm
         tools/mcp_tool.cppm
         tools/notebook_tool.cppm
@@ -809,7 +807,6 @@ target_sources(cc_commands
         commands/login.cppm
         commands/logout.cppm
         commands/mcp/add_command.cppm
-        commands/mcp/xaa_idp.cppm
         commands/mcp_cmd.cppm
         commands/memory.cppm
         commands/mobile.cppm
@@ -949,7 +946,6 @@ target_sources(cc_services
         services/mcp/mcp_server.cppm
         services/mcp/mcp_server_approval.cppm
         services/mcp/mcp_utils.cppm
-        services/mcp/normalization.cppm
         services/mcp/official_registry.cppm
         services/mcp/sdk_control_transport.cppm
         services/mcp/types.cppm
@@ -1054,7 +1050,6 @@ add_library(cc_hooks)
 target_sources(cc_hooks
     PUBLIC FILE_SET CXX_MODULES FILES
         hooks/after_first_render.cppm
-        hooks/api_key_verification.cppm
         hooks/arrow_key_history.cppm
         hooks/assistant_history.cppm
         hooks/auto_save.cppm
@@ -1345,7 +1340,6 @@ target_sources(cc_ui
         ui/dialogs/mcp_dialog.cppm
         ui/dialogs/mcp_dialogs.cppm
         ui/dialogs/model_picker.cppm
-        ui/dialogs/onboarding.cppm
         ui/dialogs/output_style_picker.cppm
         ui/dialogs/permission_dialog.cppm
         ui/dialogs/permission_prompts.cppm
