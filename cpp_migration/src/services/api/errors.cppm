@@ -370,7 +370,8 @@ public:
         switch (error.category) {
             case ApiErrorCategory::Authentication:
                 return is_interactive
-                    ? "Please run /login to authenticate"
+                    ? "Authentication failed. Check the API key or token "
+                      "configured for your endpoint."
                     : "Authentication failed";
 
             case ApiErrorCategory::RateLimited:

@@ -100,7 +100,6 @@ target_sources(cc_utils
         utils/argument_substitution.cppm
         utils/array_utils.cppm
         utils/async.cppm
-        utils/auth_utils.cppm
         utils/abort_controller.cppm
         utils/auto_mode_denials.cppm
         utils/bash_execution.cppm
@@ -804,15 +803,12 @@ target_sources(cc_commands
         commands/install_github_app/steps.cppm
         commands/issue.cppm
         commands/keybindings_cmd.cppm
-        commands/login.cppm
-        commands/logout.cppm
         commands/mcp/add_command.cppm
         commands/mcp_cmd.cppm
         commands/memory.cppm
         commands/mobile.cppm
         commands/model.cppm
         commands/mock_limits.cppm
-        commands/oauth_refresh.cppm
         commands/onboarding.cppm
         commands/output_style.cppm
         commands/passes.cppm
@@ -957,7 +953,6 @@ target_sources(cc_services
         services/memory/session_memory_utils.cppm
         services/notifier/notifier.cppm
         services/oauth/auth_code_listener.cppm
-        services/oauth/client.cppm
         services/oauth/crypto.cppm
         services/oauth/types.cppm
         services/plugins/cli_commands.cppm

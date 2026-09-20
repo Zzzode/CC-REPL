@@ -215,10 +215,10 @@ std::string suggest_unstuck_action(std::string_view context) {
         ctx.find("invalid key") != std::string::npos ||
         ctx.find("api key") != std::string::npos ||
         ctx.find("auth") != std::string::npos) {
-        return "Authentication failure.  Try: 1) Re-run /login to refresh "
-               "the OAuth session, 2) Verify ANTHROPIC_API_KEY / USER_TYPE "
-               "env vars, 3) Rotate the key at https://console.anthropic.com, "
-               "4) Check that the key is not expired or scoped incorrectly.";
+        return "Authentication failure.  Try: 1) Verify the API key or token "
+               "configured for your endpoint, 2) Confirm the endpoint URL is "
+               "correct, 3) Check that the credential is not expired or "
+               "scoped incorrectly.";
     }
     // Timeout (covers tool timeouts + child process hangs).
     if (ctx.find("timeout") != std::string::npos ||

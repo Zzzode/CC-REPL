@@ -31,7 +31,6 @@ import cc.commands.config;
 import cc.commands.help;
 import cc.commands.hooks;
 import cc.commands.insights;
-import cc.commands.login;
 import cc.commands.model;
 import cc.commands.rewind;
 import cc.commands.plugin_cmd;
@@ -81,12 +80,6 @@ struct EnvironmentUnsetGuard {
         } else {
             unsetenv(name.c_str());
         }
-    }
-};
-
-struct LoginReaderGuard {
-    ~LoginReaderGuard() {
-        cc::commands::clear_login_api_key_reader_for_testing();
     }
 };
 
@@ -252,63 +245,6 @@ TEST(AppCommandRegistry, RuntimeSurfaceCommandsExecuteLocalLogic) {
     ASSERT_TRUE(onboarding.has_value());
     EXPECT_TRUE(onboarding->ok);
     EXPECT_NE(onboarding->message.find("Onboarding status"), std::string::npos);
-}
-
-TEST(LoginCommand, ApiKeyFlowReadsInteractiveSecretWhenEnvIsMissing) {
-    auto root = std::filesystem::temp_directory_path() / "loom_login_apikey_test";
-    std::filesystem::remove_all(root);
-    std::filesystem::create_directories(root);
-
-    EnvironmentUnsetGuard api_key_guard("ANTHROPIC_API_KEY");
-    EnvironmentUnsetGuard xdg_guard("XDG_CONFIG_HOME");
-    EnvironmentGuard home_guard("HOME", root.string());
-    LoginReaderGuard reader_guard;
-    cc::commands::set_login_api_key_reader_for_testing([] {
-        return std::expected<std::string, std::string>{"sk-test-interactive"};
-    });
-
-    cc::commands::LoginCommand login;
-    auto result = login.execute(ctx({"apikey"}));
-    ASSERT_TRUE(result.has_value()) << result.error().format();
-    EXPECT_TRUE(result->ok);
-    EXPECT_EQ(result->message, "Authenticated with API key.");
-
-    auto status = login.execute(ctx({"status"}));
-    ASSERT_TRUE(status.has_value()) << status.error().format();
-    EXPECT_NE(status->message.find("Method:  API Key"), std::string::npos);
-
-    const auto credentials_path = root / ".config" / "loom" / "credentials.json";
-    std::ifstream input(credentials_path);
-    ASSERT_TRUE(input.is_open()) << credentials_path;
-    std::string body((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
-    EXPECT_NE(body.find(R"("type":"api_key")"), std::string::npos);
-    EXPECT_NE(body.find(R"("api_key":"sk-test-interactive")"), std::string::npos);
-
-    std::error_code ec;
-    std::filesystem::remove_all(root, ec);
-}
-
-TEST(LoginCommand, ApiKeyFlowRejectsInvalidInteractiveSecret) {
-    auto root = std::filesystem::temp_directory_path() / "loom_login_invalid_apikey_test";
-    std::filesystem::remove_all(root);
-    std::filesystem::create_directories(root);
-
-    EnvironmentUnsetGuard api_key_guard("ANTHROPIC_API_KEY");
-    EnvironmentUnsetGuard xdg_guard("XDG_CONFIG_HOME");
-    EnvironmentGuard home_guard("HOME", root.string());
-    LoginReaderGuard reader_guard;
-    cc::commands::set_login_api_key_reader_for_testing([] {
-        return std::expected<std::string, std::string>{"not-a-key"};
-    });
-
-    cc::commands::LoginCommand login;
-    auto result = login.execute(ctx({"apikey"}));
-    ASSERT_FALSE(result.has_value());
-    EXPECT_NE(result.error().message.find("API key does not look like"), std::string::npos);
-    EXPECT_FALSE(std::filesystem::exists(root / ".config" / "loom" / "credentials.json"));
-
-    std::error_code ec;
-    std::filesystem::remove_all(root, ec);
 }
 
 TEST(AgentsCommand, ListsRealAgentDefinitions) {

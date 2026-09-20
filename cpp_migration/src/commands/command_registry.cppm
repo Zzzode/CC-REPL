@@ -76,7 +76,7 @@ enum class CommandPermission : std::uint8_t {
         name == "upgrade" || name == "install" ||
         name == "autofix-pr" || name == "backfill-sessions" || name == "break-cache" ||
         name == "bridge" || name == "create-moved-to-plugin-command" || name == "install-github-app" ||
-        name == "mock-limits" || name == "oauth-refresh" || name == "reload-plugins" ||
+        name == "mock-limits" || name == "reload-plugins" ||
         name == "remote-setup" || name == "reset-limits" ||
         name == "plugin" || name == "plugins" || name == "marketplace")
         return CommandPermission::ReadWrite;

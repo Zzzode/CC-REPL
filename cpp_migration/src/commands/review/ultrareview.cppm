@@ -41,7 +41,6 @@ import cc.types.types;
 import cc.commands.command;
 import cc.config.feature_flags;
 import cc.services.api.usage;
-import cc.utils.auth_utils;
 import cc.utils.exec_sync;
 import cc.utils.git_filesystem;
 import cc.utils.detect_repository;
@@ -365,24 +364,11 @@ public:
             ));
         }
 
-        // --- Overage gate (stateless, mirrors TS checkOverageGate) ---
-        // Team / Enterprise detection
-        bool is_team_or_ent = false;
-        if (auto tok = cc::utils::load_auth_token()) {
-            // Heuristic: token prefixed with "xoxe-" or longer form is enterprise;
-            // otherwise check if user_type env says "team".  (Exact auth-user-type
-            // lookup belongs in auth_utils; here we use a best-effort check.)
-            const char* ut = std::getenv("USER_TYPE");
-            if (ut && (std::string_view(ut) == "team" || std::string_view(ut) == "enterprise")) {
-                is_team_or_ent = true;
-            }
-        }
-
-        // The hosted-billing quota gate that used to live here was removed with
-        // the Anthropic decoupling: ultrareview is a LOCAL multi-round review
-        // and has no server-side quota. is_team_or_ent is still consulted so
-        // the note below stays meaningful for callers that set USER_TYPE.
-        (void)is_team_or_ent;
+        // There is no overage gate. Ultrareview is a LOCAL multi-round review
+        // with no server-side quota, and there is no account system to bill:
+        // the credentialed-account lookup that used to inform this decision was
+        // removed with the rest of the login subsystem. validate() stays as the
+        // place a future local precondition would go.
         return {};
     }
 

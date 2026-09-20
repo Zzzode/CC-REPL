@@ -30,7 +30,6 @@ import cc.commands.install_github_app.github_actions;
 import cc.commands.install_github_app.steps;
 import cc.commands.keybindings_cmd;
 import cc.commands.mock_limits;
-import cc.commands.oauth_refresh;
 import cc.commands.onboarding;
 import cc.commands.output_style;
 import cc.commands.perf_issue;
@@ -149,22 +148,6 @@ public:
         const bool force = !ctx.args.empty() && (ctx.args.front() == "--force" || ctx.args.front() == "-f");
         execute_exit(force);
         return CommandResult::exit();
-    }
-};
-
-class OauthRefreshCommand final : public detail::BasicCommand {
-public:
-    [[nodiscard]] static CommandDefinition definition() {
-        return CommandDefinition{
-            .name = "oauth-refresh",
-            .description = "Refresh OAuth credentials",
-            .args = {CommandArg{.name = "account", .description = "Optional account suffix", .type = ArgType::Text, .required = false}},
-            .category = "auth",
-        };
-    }
-
-    [[nodiscard]] Result<CommandResult> execute(const CommandContext& ctx) {
-        return detail::from_response(oauth_refresh::run(detail::join_args(ctx.args)));
     }
 };
 

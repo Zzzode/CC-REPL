@@ -6,7 +6,7 @@
 /// backfill_sessions, break_cache, bridge, bughunter, commit_push_pr,
 /// create_moved_to_plugin_command, debug_tool_call, exit, extra_usage,
 /// init_verifiers, install_github_app sub-modules, keybindings_cmd,
-/// mock_limits, oauth_refresh, onboarding, output_style, perf_issue,
+/// mock_limits, onboarding, output_style, perf_issue,
 /// pr_comments, privacy_settings, rate_limit_options, release_notes,
 /// reload_plugins, remote_env, remote_setup, reset_limits, sandbox_toggle,
 /// security_review, statusline, terminal_setup, thinkback, thinkback_play,
@@ -37,7 +37,6 @@ void register_group_e_commands(CommandRegistry& registry) {
     registry.register_command<DebugToolCallCommand>();
     registry.register_command<ExitCommand>();
     registry.register_command<MockLimitsCommand>();
-    registry.register_command<OauthRefreshCommand>();
     registry.register_command<OnboardingCommand>();
     registry.register_command<PerfIssueCommand>();
     registry.register_command<PrCommentsCommand>();

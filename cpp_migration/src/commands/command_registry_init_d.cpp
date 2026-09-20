@@ -1,9 +1,7 @@
 /// @file command_registry_init_d.cpp
-/// @brief Group D registration: system commands (login, logout, permissions, plugin, voice, etc.)
+/// @brief Group D registration: system commands (permissions, plugin, voice, etc.)
 module cc.commands.registry;
 
-import cc.commands.login;
-import cc.commands.logout;
 import cc.commands.permissions_cmd;
 import cc.commands.plugin_cmd;
 import cc.commands.usage;
@@ -23,8 +21,6 @@ import cc.commands.voice;
 namespace cc::commands {
 
 void register_group_d_commands(CommandRegistry& registry) {
-    registry.register_command<LoginCommand>();
-    registry.register_command<LogoutCommand>();
     registry.register_command<PermissionsCommand>();
     registry.register_command<PluginCommand>();
     registry.register_command<UsageCommand>();

@@ -9,7 +9,7 @@
 //                        rule set (SecretMatch={ruleId,label}, deduped).
 //   - in_process_transport.cppm : create_linked_transport_pair delivers
 //                        send()->peer.on_message and fans close() to both.
-//   - oauth/client.cppm : PkceGenerator + state use a CSPRNG (verifier and
+//   - oauth/crypto.cppm : PKCE verifier + state use a CSPRNG (verifier and
 //                        state are base64URL-shaped and unique across runs).
 //
 // Register in tests/CMakeLists.txt (see cmakeNeeds in the migration plan):
@@ -29,7 +29,7 @@
 import cc.services.mcp.oauth_port;
 import cc.services.team_memory.secret_scanner;
 import cc.services.mcp.in_process_transport;
-import cc.services.oauth.client;
+import cc.services.oauth.crypto;
 
 namespace oauth_port = cc::services::mcp;
 namespace secret = cc::services::team_memory;
@@ -174,31 +174,30 @@ TEST(InProcessTransport, CloseFansOutToPeer) {
 }
 
 // ---------------------------------------------------------------------------
-// oauth/client.cppm — PKCE verifier + state come from a CSPRNG and have the
+// oauth/crypto.cppm — PKCE verifier + state come from a CSPRNG and have the
 // expected base64URL shape (43 chars for 32 random bytes; unique per run).
+// These exercise the primitives the MCP OAuth flow uses, so they live here
+// rather than with the account-login OAuth client, which is gone.
 // ---------------------------------------------------------------------------
 
 TEST(OauthCrypto, PkceVerifierIsUniqueAndWellShaped) {
-    auto a = oauth::PkceGenerator::generate();
-    auto b = oauth::PkceGenerator::generate();
+    auto a = oauth::generate_code_verifier();
+    auto b = oauth::generate_code_verifier();
     // base64URL(32 bytes) is 43 chars with no padding, URL-safe alphabet.
-    EXPECT_EQ(a.code_verifier.size(), 43u);
-    EXPECT_EQ(b.code_verifier.size(), 43u);
-    EXPECT_NE(a.code_verifier, b.code_verifier);
+    EXPECT_EQ(a.size(), 43u);
+    EXPECT_EQ(b.size(), 43u);
+    EXPECT_NE(a, b);
     auto only_b64url = [](char c) {
         return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
                (c >= '0' && c <= '9') || c == '-' || c == '_';
     };
-    for (char c : a.code_verifier) EXPECT_TRUE(only_b64url(c)) << c;
+    for (char c : a) EXPECT_TRUE(only_b64url(c)) << c;
     // S256 challenge is base64URL(SHA256(verifier)) -> 43 chars.
-    EXPECT_EQ(a.code_challenge.size(), 43u);
-    EXPECT_EQ(a.method, "S256");
+    EXPECT_EQ(oauth::generate_code_challenge(a).size(), 43u);
 }
 
 TEST(OauthCrypto, StateIsUniqueAcrossRuns) {
-    // generate_state is private on OAuthClient; exercise it indirectly via
-    // the public PkceGenerator parity (same fill_csrng + base64url path).
-    auto a = oauth::PkceGenerator::generate().code_verifier;
-    auto b = oauth::PkceGenerator::generate().code_verifier;
+    auto a = oauth::generate_state();
+    auto b = oauth::generate_state();
     EXPECT_NE(a, b);
 }

@@ -1037,8 +1037,7 @@ namespace detail {
             }
 
         case PillVariant::ApiKey: {
-            // TS REF: Notifications.tsx L306-310 — "Not logged in · Run /login" (error)
-            //          useApiKeyVerification.ts — VerificationStatus type
+                    //          useApiKeyVerification.ts — VerificationStatus type
             // Icon: 🔑 U+1F511
             const char* kKeyIcon = "\xF0\x9F\x94\x91";   // 🔑
             switch (pill.api_key_status) {
@@ -1230,14 +1229,16 @@ namespace detail {
              | size(HEIGHT, EQUAL, 1);
     }
 
-    // 5. API key invalid/missing — "Not logged in · Run /login" (error)
+    // 5. API key invalid/missing — credential problem with the configured
+    //    endpoint (error). There is no account login to point the user at, so
+    //    the affordance names the configuration instead.
     //    TS REF: Notifications.tsx L306-310
     if (data.api_key_status == ApiKeyStatus::Invalid
         || data.api_key_status == ApiKeyStatus::Missing)
     {
         std::string msg = data.is_remote
             ? "Authentication error \xC2\xB7 Try again"   // ·
-            : "Not logged in \xC2\xB7 Run /login";       // ·
+            : "No API key \xC2\xB7 Set one in /config";  // ·
         return hbox({ text(msg) | color(Color::Red) })
              | size(HEIGHT, EQUAL, 1);
     }
