@@ -47,10 +47,6 @@ struct DiagnosticInfo {
     std::optional<bool> hasUpdatePermissions;
 };
 
-struct DoctorProps {
-    std::function<void(std::optional<std::string>, std::optional<std::map<std::string, std::string>>)> onDone;
-};
-
 // REPL screen related types
 enum class Screen {
     Prompt,
@@ -196,30 +192,6 @@ inline std::optional<int> parsePrIdentifier(const std::string& value) {
 
     return std::nullopt;
 }
-
-// Screen state management
-class DoctorScreen {
-public:
-    explicit DoctorScreen(DoctorProps props) : props_(std::move(props)) {}
-    
-    void setDiagnostic(const DiagnosticInfo& diag) {
-        diagnostic_ = diag;
-    }
-    
-    const std::optional<DiagnosticInfo>& getDiagnostic() const {
-        return diagnostic_;
-    }
-    
-    void dismiss() {
-        if (props_.onDone) {
-            props_.onDone("Loom diagnostics dismissed", std::nullopt);
-        }
-    }
-    
-private:
-    DoctorProps props_;
-    std::optional<DiagnosticInfo> diagnostic_;
-};
 
 class REPLScreen {
 public:
@@ -369,10 +341,6 @@ private:
 };
 
 // Factory functions
-inline std::unique_ptr<DoctorScreen> createDoctorScreen(DoctorProps props) {
-    return std::make_unique<DoctorScreen>(std::move(props));
-}
-
 inline std::unique_ptr<REPLScreen> createREPLScreen(REPLProps props) {
     return std::make_unique<REPLScreen>(std::move(props));
 }

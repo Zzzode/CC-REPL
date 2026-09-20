@@ -379,18 +379,6 @@ struct AgentExecutionPlan {
     std::optional<std::string> critical_system_reminder;
 };
 
-struct RemoteAgentLaunchMetadata {
-    std::optional<std::string> task_id;
-    std::string task_type = "remote-agent";
-    std::optional<std::string> session_id;
-    std::optional<std::string> session_url;
-    std::optional<std::string> title;
-    std::optional<std::string> metadata_json;
-    bool is_review = false;
-    bool is_ultraplan = false;
-    bool is_long_running = false;
-};
-
 [[nodiscard]] inline bool is_auto_memory_enabled() {
     const char* disable = std::getenv("LOOM_DISABLE_AUTO_MEMORY");
     if (cc::utils::is_env_truthy(disable)) return false;
@@ -507,16 +495,6 @@ inline void add_agent_memory_tools(std::vector<std::string>& tools) {
     }
 }
 
-[[nodiscard]] inline std::string trim_remote_trigger_output(std::string_view value) {
-    while (!value.empty() && std::isspace(static_cast<unsigned char>(value.front()))) {
-        value.remove_prefix(1);
-    }
-    while (!value.empty() && std::isspace(static_cast<unsigned char>(value.back()))) {
-        value.remove_suffix(1);
-    }
-    return std::string(value);
-}
-
 [[nodiscard]] inline std::string trim_ascii_copy(std::string_view value) {
     while (!value.empty() && std::isspace(static_cast<unsigned char>(value.front()))) {
         value.remove_prefix(1);
@@ -525,128 +503,6 @@ inline void add_agent_memory_tools(std::vector<std::string>& tools) {
         value.remove_suffix(1);
     }
     return std::string(value);
-}
-
-[[nodiscard]] inline std::optional<std::string> json_any_string(
-    cc::utils::json::JsonVal root,
-    std::initializer_list<std::string_view> keys
-) {
-    for (const auto key : keys) {
-        auto value = root.get(key);
-        if (value.is_str() && !value.as_str().empty()) return std::string(value.as_str());
-    }
-    return std::nullopt;
-}
-
-[[nodiscard]] inline bool json_any_bool(
-    cc::utils::json::JsonVal root,
-    std::initializer_list<std::string_view> keys,
-    bool fallback = false
-) {
-    for (const auto key : keys) {
-        auto value = root.get(key);
-        if (value.is_bool()) return value.as_bool();
-    }
-    return fallback;
-}
-
-[[nodiscard]] inline std::optional<std::string> extract_embedded_json_object(std::string_view output) {
-    const auto start = output.find('{');
-    const auto end = output.rfind('}');
-    if (start == std::string_view::npos || end == std::string_view::npos || end <= start) {
-        return std::nullopt;
-    }
-    return std::string(output.substr(start, end - start + 1));
-}
-
-[[nodiscard]] inline RemoteAgentLaunchMetadata parse_remote_launch_metadata(
-    std::string_view trigger_output,
-    const AgentExecutionPlan& plan
-) {
-    RemoteAgentLaunchMetadata metadata;
-    metadata.task_id = plan.agent_id;
-    metadata.title = plan.description.value_or(plan.agent_id);
-
-    const auto trimmed = trim_remote_trigger_output(trigger_output);
-    auto parsed = cc::utils::json::parse(trimmed);
-    if (!parsed) {
-        if (auto embedded = extract_embedded_json_object(trimmed)) {
-            parsed = cc::utils::json::parse(*embedded);
-        }
-    }
-    if (!parsed || !parsed->root().is_obj()) {
-        return metadata;
-    }
-
-    auto root = parsed->root();
-    if (auto task_id = json_any_string(root, {"task_id", "taskId"})) metadata.task_id = std::move(*task_id);
-    if (auto task_type = json_any_string(root, {"remote_task_type", "remoteTaskType", "task_type", "taskType"})) {
-        metadata.task_type = std::move(*task_type);
-    }
-    if (auto session_id = json_any_string(root, {"session_id", "sessionId", "session"})) {
-        metadata.session_id = std::move(*session_id);
-    }
-    if (auto session_url = json_any_string(root, {"session_url", "sessionUrl", "url"})) {
-        metadata.session_url = std::move(*session_url);
-    }
-    if (!metadata.session_url && metadata.session_id) {
-        // No web chat host is configured; leave the URL unset rather than
-        // link to a host that does not resolve.
-        metadata.session_url = std::format("session:{}", *metadata.session_id);
-    }
-    if (auto title = json_any_string(root, {"title", "description"})) metadata.title = std::move(*title);
-    if (auto metadata_json = json_any_string(root, {"remote_metadata_json", "remoteMetadataJson", "metadata"})) {
-        metadata.metadata_json = std::move(*metadata_json);
-    }
-    metadata.is_review = json_any_bool(root, {"is_remote_review", "isRemoteReview"}, false);
-    metadata.is_ultraplan = json_any_bool(root, {"is_ultraplan", "isUltraplan"}, metadata.task_type == "ultraplan");
-    metadata.is_long_running = json_any_bool(root, {"is_long_running", "isLongRunning"}, false);
-    return metadata;
-}
-
-[[nodiscard]] inline std::string remote_agent_payload_json(const AgentExecutionPlan& plan) {
-    std::string payload = "{";
-    bool first = true;
-    append_json_string_field(payload, "agent_id", plan.agent_id, first);
-    append_json_string_field(payload, "agent_type", plan.agent_type, first);
-    append_json_string_field(payload, "prompt", plan.prompt, first);
-    append_json_string_field(
-        payload,
-        "output_file",
-        cc::tools::agent_runtime::agent_output_file_path(plan.agent_id).string(),
-        first);
-    append_json_string_field(payload, "model", plan.model, first);
-    append_json_optional_string_field(payload, "description", plan.description, first);
-    append_json_optional_string_field(payload, "cwd", plan.working_dir, first);
-    append_json_optional_string_field(payload, "permission_mode", plan.mode, first);
-    append_json_optional_string_field(payload, "effort", plan.effort, first);
-    payload += '}';
-    return payload;
-}
-
-[[nodiscard]] inline std::string remote_agent_trigger_input_json(const AgentExecutionPlan& plan) {
-    if (const char* target = std::getenv("LOOM_REMOTE_AGENT_TARGET"); target && *target) {
-        std::string input = "{";
-        bool first = true;
-        append_json_string_field(input, "target", target, first);
-        append_json_string_field(input, "message", plan.prompt, first);
-        if (!first) input += ',';
-        first = false;
-        input += R"("params":{)";
-        bool params_first = true;
-        append_json_string_field(input, "agent_id", plan.agent_id, params_first);
-        append_json_string_field(input, "agent_type", plan.agent_type, params_first);
-        append_json_string_field(input, "output_file", cc::tools::agent_runtime::agent_output_file_path(plan.agent_id).string(), params_first);
-        append_json_optional_string_field(input, "cwd", plan.working_dir, params_first);
-        input += "}}";
-        return input;
-    }
-
-    std::string input = "{";
-    bool first = true;
-    append_json_string_field(input, "payload", remote_agent_payload_json(plan), first);
-    input += '}';
-    return input;
 }
 
 [[nodiscard]] inline std::optional<std::string> json_string(

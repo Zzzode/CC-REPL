@@ -28,15 +28,17 @@ export namespace cc::utils::tool_deny_rules {
 // ============================================================
 
 /// Normalize server/tool names for the API pattern ^[a-zA-Z0-9_-]{1,64}$:
-/// every char outside [A-Za-z0-9_-] becomes '_'. For names whose ORIGINAL
-/// input starts with the "loom.ai " prefix, additionally collapse runs of
-/// '_' and strip leading/trailing '_' (prevents interference with the "__"
-/// delimiter embedded in qualified tool names).
+/// every char outside [A-Za-z0-9_-] becomes '_'.
+///
+/// The TS original special-cased names carrying the vendor's hosted-connector
+/// prefix, collapsing underscore runs for those. That branch is deleted: there
+/// is no hosted connector service, so nothing can produce a name with that
+/// prefix, and the branch was unreachable for every real MCP server name (which
+/// comes from user configuration). A prefix test that can never be true is not
+/// a safety net, it is a place for a future reader to believe something is
+/// handled that is not.
 [[nodiscard]] inline std::string normalize_name_for_mcp(std::string_view name) {
-    // TS REF: normalization.ts:7
-    static constexpr std::string_view kLoomAccentAiServerPrefix = "loom.ai ";
-    const bool is_claude_ai = name.starts_with(kLoomAccentAiServerPrefix);
-
+    // TS REF: normalization.ts:17
     std::string normalized;
     normalized.reserve(name.size());
     for (const char ch : name) {
@@ -44,29 +46,6 @@ export namespace cc::utils::tool_deny_rules {
         const bool allowed =
             std::isalnum(uch) != 0 || ch == '_' || ch == '-';
         normalized.push_back(allowed ? ch : '_');  // TS REF: normalization.ts:18
-    }
-
-    if (is_claude_ai) {
-        // TS REF: normalization.ts:20 — .replace(/_+/g, '_').replace(/^_|_$/g, '')
-        std::string collapsed;
-        collapsed.reserve(normalized.size());
-        bool prev_underscore = false;
-        for (const char ch : normalized) {
-            if (ch == '_') {
-                if (prev_underscore) continue;
-                prev_underscore = true;
-            } else {
-                prev_underscore = false;
-            }
-            collapsed.push_back(ch);
-        }
-        if (!collapsed.empty() && collapsed.front() == '_') {
-            collapsed.erase(collapsed.begin());
-        }
-        if (!collapsed.empty() && collapsed.back() == '_') {
-            collapsed.pop_back();
-        }
-        normalized = std::move(collapsed);
     }
     return normalized;
 }

@@ -293,7 +293,6 @@ target_sources(cc_utils
         utils/task_utils.cppm
         utils/tagged_id.cppm
         utils/team_helpers.cppm
-        utils/teleport_utils.cppm
         utils/tempfile.cppm
         utils/terminal.cppm
         utils/terminal_helpers.cppm
@@ -594,7 +593,6 @@ target_sources(cc_tasks
         tasks/local_main_session_task.cppm
         tasks/local_shell_task.cppm
         tasks/pill_label.cppm
-        tasks/remote_agent_task.cppm
         tasks/task.cppm
         tasks/task_graph.cppm
         tasks/types.cppm
@@ -662,7 +660,6 @@ target_sources(cc_tools
         tools/powershell_tool.cppm
         tools/read_mcp_resource_tool.cppm
         tools/repl_tool.cppm
-        tools/remote_trigger_tool.cppm
         tools/runtime_computer_use.cppm
         tools/runtime_message_delivery.cppm
         tools/runtime_registry.cppm
@@ -827,8 +824,6 @@ target_sources(cc_commands
         commands/rate_limit_options.cppm
         commands/release_notes.cppm
         commands/reload_plugins.cppm
-        commands/remote_env.cppm
-        commands/remote_setup.cppm
         commands/rename.cppm
         commands/reset_limits.cppm
         commands/resume.cppm
@@ -994,7 +989,7 @@ target_sources(cc_services
         services/mcp/xaa_idp_login.cppm
         services/mcp/transport_stdio.cppm
         services/diagnostic/dump_diagnostic.cppm
-        services/rate_limit/loom_limits_hook.cppm
+        services/rate_limit/rate_limit_hook.cppm
         services/compact/api_microcompact.cppm
         services/compact/compact_warning_state.cppm
         services/compact/time_based_config.cppm
@@ -1233,7 +1228,6 @@ target_sources(cc_skills
         skills/lorem_ipsum.cppm
         skills/mcp_skill_builders.cppm
         skills/remember.cppm
-        skills/schedule_remote_agents.cppm
         skills/simplify.cppm
         skills/verify_content.cppm
 )
@@ -1351,7 +1345,6 @@ target_sources(cc_ui
         ui/dialogs/history_search_dialog.cppm
         ui/dialogs/idle_return_dialog.cppm
         ui/dialogs/ide_connect_dialog.cppm
-        ui/dialogs/remote_env_dialog.cppm
         ui/dialogs/worktree_exit_dialog.cppm
         ui/dialogs/all_renderers.cppm            # new: DialogRendererRegistry + all renderers
         ui/dialogs/bottom_renderers.cppm         # new: Bottom-band dialog renderers
@@ -1639,18 +1632,6 @@ target_sources(cc_daemon
 )
 target_link_libraries(cc_daemon PUBLIC cc_utils cc_bridge)
 
-# ─── cc_remote: Remote Connections ────────────────────────────────────────────
-add_library(cc_remote)
-target_sources(cc_remote
-    PUBLIC FILE_SET CXX_MODULES FILES
-        remote/remote_auth.cppm
-        remote/remote_connection.cppm
-        remote/remote_permission_bridge.cppm
-        remote/remote_session.cppm
-        remote/sdk_message_adapter.cppm
-)
-target_link_libraries(cc_remote PUBLIC cc_utils cc_bridge OpenSSL::SSL OpenSSL::Crypto)
-
 # ─── cc_buddy: Buddy Companion ────────────────────────────────────────────────
 add_library(cc_buddy)
 target_sources(cc_buddy
@@ -1759,7 +1740,6 @@ target_link_libraries(cc_core
         cc_ui
         cc_vim
         cc_daemon
-        cc_remote
         cc_buddy
         cc_migrations
         cc_server

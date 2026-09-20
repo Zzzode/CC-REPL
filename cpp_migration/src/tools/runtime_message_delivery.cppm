@@ -440,7 +440,6 @@ build_structured_send_message_payload(
 }
 
 [[nodiscard]] inline bool native_agent_can_resume_locally(const NativeAgentRecord& record) {
-    if (record.remote_session_id && !record.remote_session_id->empty()) return false;
     if (record.teammate_backend && !record.teammate_backend->empty() &&
         *record.teammate_backend != "in-process") {
         return false;

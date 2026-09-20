@@ -100,7 +100,6 @@ using utils::AgentLivePermissionCheckFn;
 using utils::AgentToolRequest;
 using utils::AgentMcpToolBinding;
 using utils::AgentExecutionPlan;
-using utils::RemoteAgentLaunchMetadata;
 using utils::AgentTodoCleanupGuard;
 using utils::AgentShellTaskCleanupGuard;
 using utils::AgentInlineMcpServerRuntimeState;
@@ -198,8 +197,6 @@ using utils::sanitize_teammate_agent_name;
 using utils::unique_teammate_agent_name;
 using utils::format_teammate_agent_id;
 using utils::current_session_is_teammate;
-using utils::parse_remote_launch_metadata;
-using utils::remote_agent_trigger_input_json;
 using utils::AGENT_MAX_TOOL_RESULTS_PER_MESSAGE_CHARS;
 using utils::AGENT_DEFAULT_TOOL_RESULT_THRESHOLD_CHARS;
 
@@ -253,7 +250,7 @@ public:
                     agent_schema_property("name", "string", "Teammate name for agent swarms"),
                     agent_schema_property("team_name", "string", "Team name for agent swarms"),
                     agent_schema_property("mode", "string", "Permission mode for spawned teammates"),
-                    agent_schema_property("isolation", "string", "Isolation mode for worktree or remote agents"),
+                    agent_schema_property("isolation", "string", "Isolation mode for worktree agents"),
                     agent_schema_property("cwd", "string", "Working directory override for the spawned agent")
                 }
             },
@@ -409,8 +406,6 @@ public:
                         worktree->branch,
                         worktree->head_commit);
                 }
-            } else if (*plan->isolation == "remote") {
-                return start_remote_agent(std::move(*plan));
             } else {
                 return ToolResult::error(std::format("Unsupported isolation mode '{}'", *plan->isolation));
             }
@@ -428,93 +423,6 @@ public:
     }
 
 private:
-    [[nodiscard]] Result<ToolResult> start_remote_agent(AgentExecutionPlan plan) {
-        plan.background = true;
-        cc::tools::MessageRouter::instance().register_agent(plan.agent_id);
-        upsert_agent_record_for_plan(plan);
-        if (!plan.fork_context_includes_prompt) {
-            cc::tools::agent_runtime::native_agent_store().append_transcript(
-                plan.agent_id,
-                "user: " + plan.prompt);
-        }
-        cc::tools::agent_runtime::native_agent_store().append_transcript(
-            plan.agent_id,
-            "system: remote isolation launch requested");
-
-        if (!registry_) {
-            const auto error = "remote isolation requires the runtime registry so remote_trigger can be executed";
-            cc::tools::agent_runtime::native_agent_store().mark_failed(plan.agent_id, error);
-            return ToolResult::error(error);
-        }
-
-        auto trigger_result = registry_->execute(
-            "remote_trigger",
-            ToolInput::from_json(remote_agent_trigger_input_json(plan)));
-        if (!trigger_result) {
-            const auto error = "remote isolation trigger failed: " + trigger_result.error().message;
-            cc::tools::agent_runtime::native_agent_store().mark_failed(plan.agent_id, error);
-            return ToolResult::error(error);
-        }
-
-        auto trigger_output = tool_result_content_text(*trigger_result);
-        if (trigger_result->is_error) {
-            const auto error = "remote isolation trigger failed: " + trigger_output;
-            cc::tools::agent_runtime::native_agent_store().mark_failed(plan.agent_id, error);
-            return ToolResult::error(error);
-        }
-
-        cc::tools::agent_runtime::native_agent_store().mark_running(plan.agent_id);
-        if (!trigger_output.empty()) {
-            cc::tools::agent_runtime::native_agent_store().append_transcript(
-                plan.agent_id,
-                "system: remote trigger delivered: " + trigger_output);
-        }
-        auto remote_metadata = parse_remote_launch_metadata(trigger_output, plan);
-        cc::tools::agent_runtime::native_agent_store().set_remote_metadata(
-            plan.agent_id,
-            remote_metadata.task_id,
-            remote_metadata.task_type,
-            remote_metadata.session_id,
-            remote_metadata.session_url,
-            remote_metadata.title,
-            plan.prompt,
-            remote_metadata.metadata_json,
-            remote_metadata.is_review,
-            remote_metadata.is_ultraplan,
-            remote_metadata.is_long_running);
-        if (remote_metadata.session_id) {
-            cc::tools::agent_runtime::native_agent_store().append_transcript(
-                plan.agent_id,
-                "system: remote session registered: " + *remote_metadata.session_id);
-        }
-        const bool auto_poll_started = remote_metadata.session_id
-            ? cc::tools::agent_runtime::start_remote_agent_poll_loop(plan.agent_id)
-            : false;
-
-        const auto session_url_line = remote_metadata.session_url
-            ? std::format("\nsession_url: {}", *remote_metadata.session_url)
-            : std::string{};
-        const auto remote_task_id_line = remote_metadata.task_id && *remote_metadata.task_id != plan.agent_id
-            ? std::format("\nremote_task_id: {}", *remote_metadata.task_id)
-            : std::string{};
-        const auto auto_poll_line = remote_metadata.session_id
-            ? std::format("\nremote_auto_poll: {}", auto_poll_started ? "true" : "false")
-            : std::string{};
-
-        return ToolResult::success(std::format(
-            "Remote agent launched via configured remote trigger.\n"
-            "taskId: {}\n"
-            "agentId: {}{}{}{}\n"
-            "output_file: {}\n"
-            "The agent is running remotely. You will be notified when the remote runtime reports completion.",
-            plan.agent_id,
-            plan.agent_id,
-            remote_task_id_line,
-            session_url_line,
-            auto_poll_line,
-            agent_output_file_path(plan.agent_id)));
-    }
-
     [[nodiscard]] Result<ToolResult> start_teammate_agent(AgentExecutionPlan plan) {
         if (!plan.team_name || plan.team_name->empty() || !plan.name || plan.name->empty()) {
             return ToolResult::error("teammate spawn requires team_name and name");

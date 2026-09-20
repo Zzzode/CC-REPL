@@ -21,7 +21,7 @@ TEST(SettingsValidationConfig, ClassifiesPatternToolsAndCustomWebValidators) {
     EXPECT_FALSE(web_search.valid);
     EXPECT_EQ(web_search.error, std::optional<std::string>{"WebSearch does not support wildcards"});
     ASSERT_EQ(web_search.examples.size(), 2u);
-    EXPECT_EQ(web_search.examples[0], "WebSearch(loom ai)");
+    EXPECT_EQ(web_search.examples[0], "WebSearch(loom api)");
 
     auto web_fetch_url = validate_tool_content("WebFetch", "https://example.com/path");
     EXPECT_FALSE(web_fetch_url.valid);

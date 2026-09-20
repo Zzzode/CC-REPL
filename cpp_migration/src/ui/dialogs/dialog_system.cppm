@@ -92,7 +92,6 @@ enum class DialogType : std::uint16_t {
     HistorySearch,          ///< history search
     BridgeDialog,           ///< /bridge
     WorktreeExitDialog,     ///< worktree exit confirmation
-    RemoteEnvDialog,        ///< /remote
     AboutDialog,            ///< about / credits
     ConfirmationDialog,     ///< generic yes/no confirmation
     FeedbackSurvey,         ///< feedback survey
@@ -147,7 +146,6 @@ enum class DialogType : std::uint16_t {
         case DialogType::HistorySearch:            return "history-search";
         case DialogType::BridgeDialog:             return "bridge-dialog";
         case DialogType::WorktreeExitDialog:       return "worktree-exit-dialog";
-        case DialogType::RemoteEnvDialog:          return "remote-env-dialog";
         case DialogType::AboutDialog:            return "about-dialog";
         case DialogType::ConfirmationDialog:   return "confirmation-dialog";
         case DialogType::FeedbackSurvey:           return "feedback-survey";
@@ -216,7 +214,6 @@ enum class DialogSlot : std::uint8_t {
         case DialogType::HistorySearch:
         case DialogType::BridgeDialog:
         case DialogType::WorktreeExitDialog:
-        case DialogType::RemoteEnvDialog:
         case DialogType::AboutDialog:
         case DialogType::ConfirmationDialog:
         case DialogType::FeedbackSurvey:
@@ -539,15 +536,6 @@ struct WorktreeExitPayload {
     std::function<void(bool exit)> on_response;
 };
 
-/// Payload for RemoteEnvDialog — remote environment status.
-struct RemoteEnvPayload {
-    std::string id;
-    std::string host;
-    std::optional<std::string> user;
-    std::optional<uint16_t> port;
-    bool is_connected = false;
-    std::function<void()> on_close;
-};
 
 /// Payload for AboutDialog — app info & credits.
 struct AboutDialogPayload {
@@ -805,7 +793,6 @@ using DialogPayloadVariant = std::variant<
     InitOnboardingPayload,
     BridgeDialogPayload,
     WorktreeExitPayload,
-    RemoteEnvPayload,
     AboutDialogPayload,
     ConfirmationDialogPayload,
     DesktopUpsellPayload,
@@ -880,8 +867,6 @@ using DialogPayloadVariant = std::variant<
             return DialogType::BridgeDialog;
         } else if constexpr (std::is_same_v<T, WorktreeExitPayload>) {
             return DialogType::WorktreeExitDialog;
-        } else if constexpr (std::is_same_v<T, RemoteEnvPayload>) {
-            return DialogType::RemoteEnvDialog;
         } else if constexpr (std::is_same_v<T, AboutDialogPayload>) {
             return DialogType::AboutDialog;
         } else if constexpr (std::is_same_v<T, ConfirmationDialogPayload>) {

@@ -381,9 +381,9 @@ inline ValidationResult validate_plugin_manifest(const std::filesystem::path& pa
         if (!kebab) {
             ValidationWarning w; w.path = "name";
             w.message = std::format(
-                "Plugin name \"{}\" is not kebab-case. Loom accepts it, "
-                "but the Loom.ai marketplace sync requires kebab-case "
-                "(lowercase letters, digits, and hyphens only, e.g., \"my-plugin\").",
+                "Plugin name \"{}\" is not kebab-case. Loom accepts it, but "
+                "kebab-case is recommended (lowercase letters, digits, and "
+                "hyphens only, e.g., \"my-plugin\").",
                 name);
             r.warnings.push_back(std::move(w));
         }

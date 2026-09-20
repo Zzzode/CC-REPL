@@ -64,7 +64,6 @@ import cc.tools.mcp;
 import cc.tools.notebook;
 import cc.tools.plan_mode;
 import cc.tools.powershell;
-import cc.tools.remote_trigger;
 import cc.tools.repl;
 import cc.tools.script;
 import cc.tools.script_types;
@@ -695,14 +694,6 @@ constexpr auto collect_team_native_agents = &runtime_team_shared::collect_team_n
     if (record.teammate_task_id && !record.teammate_task_id->empty()) out += "\nteammate_task_id: " + *record.teammate_task_id;
     if (record.teammate_pane_id && !record.teammate_pane_id->empty()) out += "\nteammate_pane_id: " + *record.teammate_pane_id;
     if (record.teammate_color && !record.teammate_color->empty()) out += "\nteammate_color: " + *record.teammate_color;
-    if (record.remote_task_id && !record.remote_task_id->empty()) out += "\nremote_task_id: " + *record.remote_task_id;
-    if (record.remote_task_type && !record.remote_task_type->empty()) out += "\nremote_task_type: " + *record.remote_task_type;
-    if (record.remote_session_id && !record.remote_session_id->empty()) out += "\nremote_session_id: " + *record.remote_session_id;
-    if (record.remote_session_url && !record.remote_session_url->empty()) out += "\nremote_session_url: " + *record.remote_session_url;
-    if (record.remote_title && !record.remote_title->empty()) out += "\nremote_title: " + *record.remote_title;
-    if (record.remote_is_review) out += "\nremote_review: true";
-    if (record.remote_is_ultraplan) out += "\nremote_ultraplan: true";
-    if (record.remote_is_long_running) out += "\nremote_long_running: true";
     if (record.progress) out += std::format("\nprogress: {:.0f}%", *record.progress * 100.0);
     if (record.output && !record.output->empty()) out += "\nresult: " + *record.output;
     if (record.error && !record.error->empty()) out += "\nerror: " + *record.error;
@@ -750,34 +741,19 @@ constexpr auto collect_team_native_agents = &runtime_team_shared::collect_team_n
     if (record.worktree_branch && !record.worktree_branch->empty()) {
         worktree_section += std::format("\n<worktree_branch>{}</worktree_branch>", escape_xml_text(*record.worktree_branch));
     }
-    std::string remote_section;
-    if (record.isolation && *record.isolation == "remote") {
-        remote_section += "\n<task_type>remote_agent</task_type>";
-    }
-    if (record.remote_task_id && !record.remote_task_id->empty()) {
-        remote_section += std::format("\n<remote_task_id>{}</remote_task_id>", escape_xml_text(*record.remote_task_id));
-    }
-    if (record.remote_session_id && !record.remote_session_id->empty()) {
-        remote_section += std::format("\n<session_id>{}</session_id>", escape_xml_text(*record.remote_session_id));
-    }
-    if (record.remote_session_url && !record.remote_session_url->empty()) {
-        remote_section += std::format("\n<session_url>{}</session_url>", escape_xml_text(*record.remote_session_url));
-    }
-
     return std::format(
         "<task_notification>\n"
         "<task_id>{}</task_id>\n"
         "<output_file>{}</output_file>\n"
         "<status>{}</status>\n"
-        "<summary>{}</summary>{}{}{}\n"
+        "<summary>{}</summary>{}{}\n"
         "</task_notification>",
         escape_xml_text(record.agent_id),
         escape_xml_text(cc::tools::detail::native_agent_output_file(record)),
         escape_xml_text(*status),
         escape_xml_text(summary),
         result_section,
-        worktree_section,
-        remote_section);
+        worktree_section);
 }
 
 [[nodiscard]] std::string format_native_agent_task_output(const agent_runtime::NativeAgentRecord& record) {
@@ -876,7 +852,7 @@ constexpr auto collect_team_native_agents = &runtime_team_shared::collect_team_n
         if (auto background = bash::get_background_task_snapshot(*id)) {
             return ToolResult::success(format_background_task_summary(*background, false));
         }
-        if (auto agent = agent_runtime::native_agent_store().get_by_task_id_or_remote_id(*id);
+        if (auto agent = agent_runtime::native_agent_store().get(*id);
             agent && is_native_agent_task(*agent)) {
             return ToolResult::success(format_native_agent_task_summary(*agent));
         }
@@ -893,24 +869,11 @@ constexpr auto collect_team_native_agents = &runtime_team_shared::collect_team_n
             auto stopped = bash::get_background_task_snapshot(*id).value_or(*background);
             return ToolResult::success(format_background_task_summary(stopped, false));
         }
-        if (auto agent = agent_runtime::native_agent_store().get_by_task_id_or_remote_id(*id);
+        if (auto agent = agent_runtime::native_agent_store().get(*id);
             agent && is_native_agent_task(*agent)) {
-            std::optional<std::string> archive_error;
-            bool archive_attempted = false;
-            if (agent->remote_session_id && !agent->remote_session_id->empty()) {
-                archive_attempted = true;
-                auto archived = agent_runtime::native_agent_store().archive_remote_agent_session(agent->agent_id);
-                if (!archived) archive_error = archived.error();
-            }
             agent_runtime::native_agent_store().request_cancel(agent->agent_id, "stop requested");
             auto stopped = agent_runtime::native_agent_store().get(agent->agent_id).value_or(*agent);
-            auto summary = format_native_agent_task_summary(stopped);
-            if (archive_error) {
-                summary += "\nremote_archive_error: " + *archive_error;
-            } else if (archive_attempted) {
-                summary += "\nremote_archived: true";
-            }
-            return ToolResult::success(summary);
+            return ToolResult::success(format_native_agent_task_summary(stopped));
         }
         TaskStopTool tool;
         auto result = tool.execute(*id);
@@ -920,58 +883,8 @@ constexpr auto collect_team_native_agents = &runtime_team_shared::collect_team_n
     if (tool_name == "task_update") {
         auto status = parse_task_status(json_string(json, "status").value_or("running"));
         auto result_text = json_string(json, "result").or_else([&] { return json_string(json, "output"); });
-        if (auto agent = agent_runtime::native_agent_store().get_by_task_id_or_remote_id(*id);
+        if (auto agent = agent_runtime::native_agent_store().get(*id);
             agent && is_native_agent_task(*agent)) {
-            if (auto parsed = cc::utils::json::parse(json); parsed && parsed->root().is_obj()) {
-                auto root = parsed->root();
-                auto action = runtime_json_string(root, "action")
-                    .or_else([&] { return runtime_json_string(root, "operation"); });
-                const bool should_poll_remote =
-                    (action && (*action == "poll_remote" || *action == "pollRemote" || *action == "poll")) ||
-                    runtime_json_bool(root, "poll_remote").value_or(false) ||
-                    runtime_json_bool(root, "pollRemote").value_or(false);
-                if (should_poll_remote) {
-                    auto applied = agent_runtime::native_agent_store().poll_remote_agent_once(agent->agent_id);
-                    if (!applied) return ToolResult::error("Remote poll failed: " + applied.error());
-                    auto updated = agent_runtime::native_agent_store().get(agent->agent_id).value_or(*agent);
-                    return ToolResult::success(std::format(
-                        "Polled remote task {} [{}]\nevents_appended: {}\n{}",
-                        updated.agent_id,
-                        agent_runtime::native_agent_status_name(applied->status),
-                        applied->events_appended,
-                        format_native_agent_task_summary(updated)));
-                }
-                auto session_status = runtime_json_string(root, "session_status")
-                    .or_else([&] { return runtime_json_string(root, "sessionStatus"); });
-                auto last_event_id = runtime_json_string(root, "last_event_id")
-                    .or_else([&] { return runtime_json_string(root, "lastEventId"); });
-                auto events = runtime_json_event_array(root, "events");
-                if (events.empty()) events = runtime_json_event_array(root, "newEvents");
-                auto completion_output = runtime_json_string(root, "completion_output")
-                    .or_else([&] { return runtime_json_string(root, "remote_result"); });
-                const bool has_remote_poll_payload =
-                    session_status.has_value() || last_event_id.has_value() || !events.empty() ||
-                    completion_output.has_value();
-                if (has_remote_poll_payload) {
-                    auto applied = agent_runtime::native_agent_store().apply_remote_poll_result(
-                        agent->agent_id,
-                        agent_runtime::RemoteAgentPollResult{
-                            .session_status = std::move(session_status),
-                            .events = std::move(events),
-                            .last_event_id = std::move(last_event_id),
-                            .completion_output = std::move(completion_output),
-                            .result_failed = runtime_json_bool(root, "result_failed")
-                                .or_else([&] { return runtime_json_bool(root, "resultFailed"); })
-                                .value_or(status == TaskStatus::Failed),
-                        });
-                    auto updated = agent_runtime::native_agent_store().get(agent->agent_id).value_or(*agent);
-                    return ToolResult::success(std::format(
-                        "Updated remote task {} [{}]\n{}",
-                        updated.agent_id,
-                        agent_runtime::native_agent_status_name(applied.status),
-                        format_native_agent_task_summary(updated)));
-                }
-            }
             switch (status) {
                 case TaskStatus::Running:
                     agent_runtime::native_agent_store().mark_running(agent->agent_id);
@@ -999,7 +912,7 @@ constexpr auto collect_team_native_agents = &runtime_team_shared::collect_team_n
         if (auto background = bash::get_background_task_snapshot(*id)) {
             return ToolResult::success(format_background_task_summary(*background, true));
         }
-        if (auto agent = agent_runtime::native_agent_store().get_by_task_id_or_remote_id(*id);
+        if (auto agent = agent_runtime::native_agent_store().get(*id);
             agent && is_native_agent_task(*agent)) {
             return ToolResult::success(format_native_agent_task_output(*agent));
         }
@@ -1160,10 +1073,8 @@ constexpr auto collect_team_native_agents = &runtime_team_shared::collect_team_n
         names.push_back("powershell");
     }
     // TS REF: src/tools.ts:36-38 (AGENT_TRIGGERS_REMOTE)
-    // In CPP, remote_trigger has a working implementation (cc.tools.remote_trigger),
     // so it is registered unconditionally.  Runtime behavior is controlled by
     // LOOM_REMOTE_TRIGGER_COMMAND env var.
-    names.push_back("remote_trigger");
     // TS REF: src/tools.ts:16-19 (USER_TYPE==='ant' — REPLTool)
     // In CPP, "repl" delegates to execute_script() which has a working
     // implementation, so it is registered unconditionally (not ant-only).
@@ -1958,34 +1869,6 @@ constexpr auto try_start_native_agent_resume = &runtime_message_delivery::try_st
         return ToolResult::error("PowerShell execution is only available on Windows in this runtime");
 #endif
     }
-    if (name == "remote_trigger") {
-        auto target = json_string(json, "target").or_else([&] { return json_string(json, "url"); });
-        auto message = json_string(json, "message").or_else([&] { return json_string(json, "payload"); });
-        if (target && message) {
-            std::map<std::string, std::string> params;
-            if (auto parsed = cc::utils::json::parse(json); parsed && parsed->root().is_obj()) {
-                auto params_node = parsed->root().get("params");
-                if (params_node.is_obj()) {
-                    params_node.iter_obj([&](cc::utils::json::JsonVal key, cc::utils::json::JsonVal value) {
-                        if (!key.is_str() || !value.is_str()) return;
-                        params.emplace(key.as_str(), value.as_str());
-                    });
-                }
-            }
-            auto delivered = execute_remote_trigger(RemoteTriggerInput{
-                .target = *target,
-                .message = *message,
-                .params = std::move(params),
-            });
-            if (!delivered) return ToolResult::error(delivered.error());
-            return ToolResult::success(*delivered);
-        }
-
-        const char* command = std::getenv("LOOM_REMOTE_TRIGGER_COMMAND");
-        if (!command) return ToolResult::error("remote_trigger requires target and message");
-        auto payload = json_string(json, "payload").value_or(std::string(json));
-        return run_command(std::format("{} {}", command, runtime_shell_quote(payload)));
-    }
     if (name == "repl") return execute_script(input);
     if (name == "schedule_cron") {
         ScheduleCronTool tool;
@@ -2632,12 +2515,6 @@ void register_runtime_tools(cc::core::ToolRegistry& registry, RuntimeToolOptions
                 },
             }, "shell"));
     }
-    // TS REF: src/tools.ts:36-38, 238 (RemoteTriggerTool — AGENT_TRIGGERS_REMOTE)
-    // In CPP, remote_trigger has a working implementation (cc.tools.remote_trigger),
-    // so it is registered unconditionally.  Runtime behavior is controlled by
-    // LOOM_REMOTE_TRIGGER_COMMAND env var.
-    registry.register_tool(simple("remote_trigger", "Invoke a configured remote trigger command",
-        ToolPermission::Execute, {prop("payload", "string", "Trigger payload", false)}, "remote"));
     // TS REF: src/tools.ts:16-19, 234 (REPLTool — USER_TYPE==='ant')
     // In CPP, "repl" delegates to execute_script() which has a working
     // implementation, so it is registered unconditionally (not ant-only).
@@ -2802,8 +2679,6 @@ void register_runtime_tools(cc::core::ToolRegistry& registry, RuntimeToolOptions
         registry.register_tool(simple("verify_plan_execution", "Verify that a plan execution matches expectations",
             ToolPermission::ReadOnly, {prop("plan", "string", "Plan to verify", true)}, "planning"));
     }
-
-    (void)agent_runtime::restore_remote_agent_poll_loops();
 
     // Touch built-in agent registry so lazy feature-flag evaluation is
     // performed once per process startup. Produces no side effects but keeps

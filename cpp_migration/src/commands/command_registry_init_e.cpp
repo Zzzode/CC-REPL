@@ -8,7 +8,7 @@
 /// init_verifiers, install_github_app sub-modules, keybindings_cmd,
 /// mock_limits, onboarding, output_style, perf_issue,
 /// pr_comments, privacy_settings, rate_limit_options, release_notes,
-/// reload_plugins, remote_env, remote_setup, reset_limits, sandbox_toggle,
+/// reload_plugins, reset_limits, sandbox_toggle,
 /// security_review, statusline, terminal_setup, thinkback, thinkback_play,
 /// version).  Loading all of those BMIs in a single translation unit would
 /// blow past clang's 31-bit SourceLocation budget; keeping them in their
@@ -42,8 +42,6 @@ void register_group_e_commands(CommandRegistry& registry) {
     registry.register_command<PrCommentsCommand>();
     registry.register_command<RateLimitOptionsCommand>();
     registry.register_command<ReloadPluginsCommand>();
-    registry.register_command<RemoteEnvCommand>();
-    registry.register_command<RemoteSetupCommand>();
     registry.register_command<ResetLimitsCommand>();
     registry.register_command<StatuslineCommand>();
     registry.register_command<TerminalSetupCommand>();

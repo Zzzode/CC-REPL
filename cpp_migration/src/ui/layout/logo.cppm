@@ -71,14 +71,6 @@ struct AnimatedLoomMascotProps {
     std::size_t frame;
 };
 
-struct WelcomeProps {
-    bool is_new_user;
-};
-
-inline auto make_welcome_props() -> WelcomeProps {
-    return WelcomeProps{.is_new_user = false};
-}
-
 struct CondensedLogoProps {
     bool verbose;
 };
@@ -160,23 +152,6 @@ inline constexpr std::array<std::string_view, 5> kLogoArt = {
         result += "\n";
     }
     result += "\033[1mLOOM\033[0m v" + std::string(version) + "\n";
-    return result;
-}
-
-// Render the welcome message with a random tip
-[[nodiscard]] inline auto render_welcome(const WelcomeProps& props,
-                                          std::string_view version,
-                                          std::size_t tip_index)
-    -> std::string {
-    std::string result;
-    if (props.is_new_user) {
-        result += "\033[1mWelcome to LOOM!\033[0m\n\n";
-    } else {
-        result += "\033[1mLOOM\033[0m v" + std::string(version) + "\n\n";
-    }
-    if (tip_index < kWelcomeTips.size()) {
-        result += "\033[2m💡 " + std::string(kWelcomeTips[tip_index]) + "\033[0m\n";
-    }
     return result;
 }
 

@@ -374,7 +374,7 @@ public:
         if (auto task = global_task_store().get(id)) {
             return *task;
         }
-        if (auto record = agent_runtime::native_agent_store().get_by_task_id_or_remote_id(id);
+        if (auto record = agent_runtime::native_agent_store().get(id);
             record && native_record_is_task(*record)) {
             native_task_get_snapshot = native_task_from_record(*record);
             return &*native_task_get_snapshot;
@@ -454,7 +454,7 @@ public:
             (void)task;
             return global_task_store().cancel(id);
         }
-        if (auto record = agent_runtime::native_agent_store().get_by_task_id_or_remote_id(id);
+        if (auto record = agent_runtime::native_agent_store().get(id);
             record && native_record_is_task(*record)) {
             agent_runtime::native_agent_store().request_cancel(record->agent_id, "stop requested");
             return {};
@@ -526,7 +526,7 @@ public:
     auto execute(const std::string& id) -> std::expected<std::string_view, TaskError> {
         auto task = global_task_store().get(id);
         if (task) return std::string_view((*task)->output);
-        if (auto record = agent_runtime::native_agent_store().get_by_task_id_or_remote_id(id);
+        if (auto record = agent_runtime::native_agent_store().get(id);
             record && native_record_is_task(*record)) {
             native_task_output_snapshot = native_task_full_output(*record);
             return std::string_view(native_task_output_snapshot);

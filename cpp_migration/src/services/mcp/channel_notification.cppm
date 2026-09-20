@@ -13,7 +13,7 @@
  *        both).
  *
  *        feature('KAIROS') || feature('KAIROS_CHANNELS'). Runtime gate
- *        tengu_harbor. Requires loom.ai OAuth auth — API key users are
+ *        tengu_harbor. Requires a credentialed account — API key users are
  *        blocked until console gets a channelsEnabled admin surface.
  *        Teams/Enterprise orgs must explicitly opt in via channelsEnabled: true
  *        in managed settings.
@@ -187,7 +187,6 @@ enum class ChannelGateAction { Register, Skip };
 enum class ChannelGateSkipKind {
     Capability,   // server did not declare loom/channel capability
     Disabled,     // channels feature killswitch off
-    Auth,         // not OAuth-authenticated
     Policy,       // org policy blocks channels
     Session,      // server not in --channels list
     Marketplace,  // installed plugin marketplace doesn't match request
@@ -359,7 +358,6 @@ struct ChannelGateResult {
 //
 // Parameters that are stubbed in CPP (wired to real state later):
 //   - channels_enabled: corresponds to isChannelsEnabled() (tengu_harbor feature flag)
-//   - has_oauth_token: whether user has loom.ai OAuth tokens
 //   - subscription_type: "free", "team", "enterprise", etc.
 //   - managed_channels_enabled: org policy channelsEnabled flag
 //   - allowed_channels: user's --channels entries
@@ -369,7 +367,6 @@ struct ChannelGateResult {
     std::string_view server_name,
     const ServerCapabilities& capabilities,
     bool channels_enabled,
-    bool has_oauth_token,
     bool is_managed_org,
     bool managed_channels_enabled,
     const std::vector<ChannelEntry>& allowed_channels,
@@ -402,17 +399,6 @@ struct ChannelGateResult {
     }
 
     // TS REF: channelNotification.ts:222-228
-    // OAuth-only. API key users (console) are blocked — there's no
-    // channelsEnabled admin surface in console yet, so the policy opt-in
-    // flow doesn't exist for them.
-    if (!has_oauth_token) {
-        return ChannelGateResult{
-            .action = ChannelGateAction::Skip,
-            .skip_kind = ChannelGateSkipKind::Auth,
-            .reason = "channels requires loom.ai authentication (run /login)"
-        };
-    }
-
     // TS REF: channelNotification.ts:235-245
     // Teams/Enterprise opt-in. Managed orgs must explicitly enable channels.
     // Default OFF — absent or false blocks.

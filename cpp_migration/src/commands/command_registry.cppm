@@ -67,7 +67,7 @@ enum class CommandPermission : std::uint8_t {
         name == "stickers" || name == "ant-trace" || name == "bughunter" || name == "debug-tool-call" ||
         name == "init-verifiers" || name == "onboarding" ||
         name == "perf-issue" || name == "pr-comments" || name == "rate-limit-options" ||
-        name == "remote-env" || name == "statusline" || name == "terminal-setup" ||
+        name == "statusline" || name == "terminal-setup" ||
         name == "thinkback-play" || name == "version")
         return CommandPermission::ReadOnly;
     
@@ -77,7 +77,7 @@ enum class CommandPermission : std::uint8_t {
         name == "autofix-pr" || name == "backfill-sessions" || name == "break-cache" ||
         name == "bridge" || name == "create-moved-to-plugin-command" ||
         name == "mock-limits" || name == "reload-plugins" ||
-        name == "remote-setup" || name == "reset-limits" ||
+        name == "reset-limits" ||
         name == "plugin" || name == "plugins" || name == "marketplace")
         return CommandPermission::ReadWrite;
     

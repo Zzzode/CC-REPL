@@ -20,7 +20,6 @@
 //                                 + SkillDefinition here delegates to submodule
 //   lorem_ipsum.cppm              IN root: make_lorem_ipsum_skill()
 //   remember.cppm                 RT bundled/ has impl + IN root SkillDefinition
-//   schedule_remote_agents.cppm   IN root: make_schedule_remote_agents_skill()
 //   simplify.cppm                 RT bundled/ has impl + IN root SkillDefinition
 //   skillify.cppm                 OK (S4, THIS commit)  BUNDLED: full 4-phase interview
 //                                 NOTE: root skillify.cppm = simplified stub;
@@ -44,7 +43,7 @@
 /// @brief Built-in skill definitions with structured workflow steps.
 /// Provides predefined skills: update-config, keybindings, keybindings-help,
 /// lorem-ipsum, remember, verify, verify-content, debug, simplify, skillify,
-/// self-unstuck, stuck, loop, batch, schedule-remote-agents, loom-api,
+/// self-unstuck, stuck, loop, batch, loom-api,
 /// loom-api-content, loom-in-chrome.
 ///
 /// REGISTRATION ORDER (dependency-first):
@@ -52,7 +51,6 @@
 ///   2. Reference/helpers (keybindings, lorem-ipsum, remember)
 ///   3. Validation (verify, verify-content)
 ///   4. Workflow (debug, simplify, skillify, self-unstuck, stuck, loop, batch)
-///   5. Agent orchestration (schedule-remote-agents)
 ///   6. Integration (loom-api, loom-api-content, loom-in-chrome)
 module;
 
@@ -83,7 +81,6 @@ import cc.skills.loom_api;
 import cc.skills.loom_api_content;
 import cc.skills.lorem_ipsum;
 import cc.skills.remember;
-import cc.skills.schedule_remote_agents;
 import cc.skills.simplify;
 import cc.skills.verify_content;
 import cc.skills.keybindings; // NOTE: simple shortcut sheet, separate from keybindings-help
@@ -472,7 +469,6 @@ public:
         skills_.push_back(make_batch_skill());
 
         // 5. Agent orchestration
-        skills_.push_back(cc::skills::schedule_remote_agents::make_schedule_remote_agents_skill());
 
         // 6. Integration (API + browser)
         skills_.push_back(cc::skills::loom_api::make_loom_api_skill());

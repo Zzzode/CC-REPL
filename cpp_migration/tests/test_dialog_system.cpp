@@ -1114,11 +1114,6 @@ TEST(FullDialogRegistry, AllDialogTypesRenderable) {
         check_render(std::move(p), "WorktreeExitDialog");
     }
     {
-        dsys::RemoteEnvPayload p;
-        p.id = "re-all";
-        check_render(std::move(p), "RemoteEnvDialog");
-    }
-    {
         dsys::AboutDialogPayload p;
         p.id = "ad-all";
         check_render(std::move(p), "AboutDialog");

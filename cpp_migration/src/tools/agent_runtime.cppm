@@ -28,7 +28,6 @@ export module cc.tools.agent_runtime;
 
 import cc.utils.json;
 import cc.utils.team_helpers;
-import cc.utils.teleport_utils;
 import cc.utils.yaml;
 
 export namespace cc::tools::agent_runtime {
@@ -127,24 +126,11 @@ struct NativeAgentRecord {
     std::optional<std::string> teammate_pane_id{};
     std::optional<std::string> teammate_color{};
     std::optional<std::string> parent_session_id{};
-    std::optional<std::string> remote_task_id{};
-    std::optional<std::string> remote_task_type{};
-    std::optional<std::string> remote_session_id{};
-    std::optional<std::string> remote_session_url{};
-    std::optional<std::string> remote_title{};
-    std::optional<std::string> remote_command{};
-    std::optional<std::string> remote_metadata_json{};
-    std::optional<std::string> remote_last_event_id{};
-    std::size_t remote_idle_polls = 0;
     std::vector<std::string> transcript{};
     std::optional<double> progress{};
     bool cancel_requested = false;
     bool notification_delivered = false;
     bool worktree_cleanup_performed = false;
-    bool remote_is_review = false;
-    bool remote_is_ultraplan = false;
-    bool remote_is_long_running = false;
-    bool remote_has_output = false;
 };
 
 [[nodiscard]] inline NativeAgentRecord make_native_agent_record(
@@ -156,20 +142,6 @@ struct NativeAgentRecord {
     record.agent_type = std::move(agent_type);
     return record;
 }
-
-struct RemoteAgentPollResult {
-    std::optional<std::string> session_status;
-    std::vector<std::string> events;
-    std::optional<std::string> last_event_id;
-    std::optional<std::string> completion_output;
-    bool result_failed = false;
-};
-
-struct RemoteAgentPollApplication {
-    std::size_t events_appended = 0;
-    bool terminal = false;
-    NativeAgentStatus status = NativeAgentStatus::Running;
-};
 
 struct AgentInlineMcpServerConfig {
     std::string name;
@@ -1155,12 +1127,6 @@ How to use the statusLine command:
 
    To display context remaining percentage:
    - input=$(cat); remaining=$(echo "$input" | jq -r '.context_window.remaining_percentage // empty'); [ -n "$remaining" ] && echo "Context: $remaining% remaining"
-
-   To display Loom.ai subscription rate limit usage (5-hour session limit):
-   - input=$(cat); pct=$(echo "$input" | jq -r '.rate_limits.five_hour.used_percentage // empty'); [ -n "$pct" ] && printf "5h: %.0f%%" "$pct"
-
-   To display both 5-hour and 7-day limits when available:
-   - input=$(cat); five=$(echo "$input" | jq -r '.rate_limits.five_hour.used_percentage // empty'); week=$(echo "$input" | jq -r '.rate_limits.seven_day.used_percentage // empty'); out=""; [ -n "$five" ] && out="5h:$(printf '%.0f' "$five")%"; [ -n "$week" ] && out="$out 7d:$(printf '%.0f' "$week")%"; echo "$out"
 
 2. For longer commands, save a new file in ~/.loom, e.g. ~/.loom/statusline-command.sh, and reference it in settings.
 
@@ -2610,7 +2576,7 @@ inline AgentLifecycle get_agent_lifecycle(std::string_view agent_id);
     return std::nullopt;
 }
 
-[[nodiscard]] inline std::string remote_json_string_field(
+[[nodiscard]] inline std::string json_string_field(
     cc::utils::json::JsonVal value,
     std::initializer_list<std::string_view> keys
 ) {
@@ -2622,7 +2588,7 @@ inline AgentLifecycle get_agent_lifecycle(std::string_view agent_id);
     return {};
 }
 
-[[nodiscard]] inline std::string remote_text_from_content(cc::utils::json::JsonVal content) {
+[[nodiscard]] inline std::string json_text_from_content(cc::utils::json::JsonVal content) {
     if (content.is_str()) return std::string(content.as_str());
     if (!content.is_arr()) return {};
 
@@ -2644,70 +2610,8 @@ inline AgentLifecycle get_agent_lifecycle(std::string_view agent_id);
     return out;
 }
 
-[[nodiscard]] inline std::optional<std::string> remote_event_transcript_entry(std::string_view event) {
-    auto parsed = cc::utils::json::parse(event);
-    if (!parsed || !parsed->root().is_obj()) {
-        auto text = trim(event);
-        if (text.empty()) return std::nullopt;
-        return "system: " + text;
-    }
 
-    auto root = parsed->root();
-    const auto type = remote_json_string_field(root, {"type"});
-    if (type == "assistant") {
-        std::string text;
-        auto message = root.get("message");
-        if (message.is_obj()) text = remote_text_from_content(message.get("content"));
-        if (text.empty()) text = remote_text_from_content(root.get("content"));
-        if (text.empty()) text = remote_json_string_field(root, {"text", "stdout"});
-        if (!text.empty()) return "assistant: " + text;
-        return std::nullopt;
-    }
-    if (type == "user") {
-        std::string text;
-        auto message = root.get("message");
-        if (message.is_obj()) text = remote_text_from_content(message.get("content"));
-        if (text.empty()) text = remote_text_from_content(root.get("content"));
-        if (!text.empty()) return "user: " + text;
-        return std::nullopt;
-    }
-    if (type == "system") {
-        auto text = remote_json_string_field(root, {"stdout", "content", "text", "message"});
-        if (!text.empty()) return "system: " + text;
-        return "system: " + cc::utils::json::to_string(root);
-    }
-    if (type == "result") {
-        auto subtype = remote_json_string_field(root, {"subtype", "status"});
-        auto text = remote_json_string_field(root, {"result", "output", "content", "error"});
-        if (text.empty()) text = subtype.empty() ? "remote result" : "remote result: " + subtype;
-        return "system: " + text;
-    }
 
-    auto text = remote_json_string_field(root, {"content", "text", "message", "stdout"});
-    if (!text.empty()) return "system: " + text;
-    return "system: " + cc::utils::json::to_string(root);
-}
-
-[[nodiscard]] inline std::optional<std::string> remote_result_event_output(std::string_view event) {
-    auto parsed = cc::utils::json::parse(event);
-    if (!parsed || !parsed->root().is_obj()) return std::nullopt;
-    auto root = parsed->root();
-    if (remote_json_string_field(root, {"type"}) != "result") return std::nullopt;
-    auto text = remote_json_string_field(root, {"result", "output", "content", "error"});
-    if (!text.empty()) return text;
-    auto subtype = remote_json_string_field(root, {"subtype", "status"});
-    if (!subtype.empty()) return "remote result: " + subtype;
-    return "remote result";
-}
-
-[[nodiscard]] inline bool remote_result_event_failed(std::string_view event) {
-    auto parsed = cc::utils::json::parse(event);
-    if (!parsed || !parsed->root().is_obj()) return false;
-    auto root = parsed->root();
-    if (remote_json_string_field(root, {"type"}) != "result") return false;
-    auto subtype = remote_json_string_field(root, {"subtype", "status"});
-    return !subtype.empty() && subtype != "success" && subtype != "completed";
-}
 
 [[nodiscard]] inline std::string xml_escape(std::string_view text) {
     std::string out;
@@ -2766,34 +2670,19 @@ inline AgentLifecycle get_agent_lifecycle(std::string_view agent_id);
     if (record.worktree_branch && !record.worktree_branch->empty()) {
         worktree_section += std::format("\n<worktree_branch>{}</worktree_branch>", xml_escape(*record.worktree_branch));
     }
-    std::string remote_section;
-    if (record.isolation && *record.isolation == "remote") {
-        remote_section += "\n<task_type>remote_agent</task_type>";
-    }
-    if (record.remote_task_id && !record.remote_task_id->empty()) {
-        remote_section += std::format("\n<remote_task_id>{}</remote_task_id>", xml_escape(*record.remote_task_id));
-    }
-    if (record.remote_session_id && !record.remote_session_id->empty()) {
-        remote_section += std::format("\n<session_id>{}</session_id>", xml_escape(*record.remote_session_id));
-    }
-    if (record.remote_session_url && !record.remote_session_url->empty()) {
-        remote_section += std::format("\n<session_url>{}</session_url>", xml_escape(*record.remote_session_url));
-    }
-
     return std::format(
         "<task_notification>\n"
         "<task_id>{}</task_id>\n"
         "<output_file>{}</output_file>\n"
         "<status>{}</status>\n"
-        "<summary>{}</summary>{}{}{}\n"
+        "<summary>{}</summary>{}{}\n"
         "</task_notification>",
         xml_escape(record.agent_id),
         xml_escape(native_agent_output_file(record)),
         xml_escape(*status),
         xml_escape(summary),
         result_section,
-        worktree_section,
-        remote_section);
+        worktree_section);
 }
 
 inline void write_json_string_array(std::ostream& out, std::string_view name, const std::vector<std::string>& values) {
@@ -2914,11 +2803,11 @@ inline void refresh_native_agent_output_symlink(
 
     auto root = parsed->root();
     auto message = root.get("message");
-    std::string role = remote_json_string_field(root, {"type"});
+    std::string role = json_string_field(root, {"type"});
     cc::utils::json::JsonVal content = root.get("content");
 
     if (message.is_obj()) {
-        auto message_role = remote_json_string_field(message, {"role"});
+        auto message_role = json_string_field(message, {"role"});
         if (!message_role.empty()) role = std::move(message_role);
         content = message.get("content");
     }
@@ -2926,7 +2815,7 @@ inline void refresh_native_agent_output_symlink(
 
     auto content_json = content.valid() ? content.to_string() : std::string{};
     if (content_json.empty()) {
-        auto text = remote_json_string_field(root, {"raw", "content", "text"});
+        auto text = json_string_field(root, {"raw", "content", "text"});
         content_json = fallback_sidechain_content_json(text);
     }
 
@@ -2945,7 +2834,7 @@ inline void refresh_native_agent_output_symlink(
     auto parsed = cc::utils::json::parse(entry);
     if (!parsed || !parsed->root().is_obj()) return std::nullopt;
     auto root = parsed->root();
-    if (remote_json_string_field(root, {"type"}) != "content-replacement") return std::nullopt;
+    if (json_string_field(root, {"type"}) != "content-replacement") return std::nullopt;
 
     auto replacements = root.get("replacements");
     if (!replacements.is_arr()) return std::nullopt;
@@ -2953,7 +2842,7 @@ inline void refresh_native_agent_output_symlink(
     std::string rebased;
     rebased.reserve(entry.size() + agent_id.size() + 64);
     rebased += R"({"type":"content-replacement")";
-    auto session_id = remote_json_string_field(root, {"sessionId", "session_id"});
+    auto session_id = json_string_field(root, {"sessionId", "session_id"});
     if (!session_id.empty()) {
         rebased += R"(,"sessionId":")";
         rebased += json_escape(session_id);
@@ -3024,9 +2913,9 @@ inline void collect_sidechain_tool_use_state(
     }
 
     if (!content.is_obj()) return;
-    const auto type = remote_json_string_field(content, {"type"});
+    const auto type = json_string_field(content, {"type"});
     if (type == "tool_use") {
-        auto id = remote_json_string_field(content, {"id"});
+        auto id = json_string_field(content, {"id"});
         if (!id.empty() && !seen_tool_use_ids.contains(id)) {
             seen_tool_use_ids.insert(id);
             tool_use_ids.push_back(std::move(id));
@@ -3034,7 +2923,7 @@ inline void collect_sidechain_tool_use_state(
         return;
     }
     if (type == "tool_result") {
-        auto id = remote_json_string_field(content, {"tool_use_id"});
+        auto id = json_string_field(content, {"tool_use_id"});
         if (!id.empty()) tool_result_ids.insert(std::move(id));
         return;
     }
@@ -3218,11 +3107,6 @@ inline bool persist_native_agent_record(const NativeAgentRecord& record) {
         << R"(,"cancel_requested":)" << (record.cancel_requested ? "true" : "false")
         << R"(,"notification_delivered":)" << (record.notification_delivered ? "true" : "false")
         << R"(,"worktree_cleanup_performed":)" << (record.worktree_cleanup_performed ? "true" : "false")
-        << R"(,"remote_is_review":)" << (record.remote_is_review ? "true" : "false")
-        << R"(,"remote_is_ultraplan":)" << (record.remote_is_ultraplan ? "true" : "false")
-        << R"(,"remote_is_long_running":)" << (record.remote_is_long_running ? "true" : "false")
-        << R"(,"remote_has_output":)" << (record.remote_has_output ? "true" : "false")
-        << R"(,"remote_idle_polls":)" << record.remote_idle_polls
         << R"(,"transcript_path":")" << json_escape(transcript_path.string()) << '"'
         << R"(,"sidechain_jsonl_path":")" << json_escape(sidechain_path.string()) << '"'
         << R"(,"output_file_path":")" << json_escape(output_path.string()) << '"';
@@ -3244,14 +3128,6 @@ inline bool persist_native_agent_record(const NativeAgentRecord& record) {
     write_json_optional_string(out, "teammate_pane_id", record.teammate_pane_id);
     write_json_optional_string(out, "teammate_color", record.teammate_color);
     write_json_optional_string(out, "parent_session_id", record.parent_session_id);
-    write_json_optional_string(out, "remote_task_id", record.remote_task_id);
-    write_json_optional_string(out, "remote_task_type", record.remote_task_type);
-    write_json_optional_string(out, "remote_session_id", record.remote_session_id);
-    write_json_optional_string(out, "remote_session_url", record.remote_session_url);
-    write_json_optional_string(out, "remote_title", record.remote_title);
-    write_json_optional_string(out, "remote_command", record.remote_command);
-    write_json_optional_string(out, "remote_metadata_json", record.remote_metadata_json);
-    write_json_optional_string(out, "remote_last_event_id", record.remote_last_event_id);
     if (record.progress) out << R"(,"progress":)" << *record.progress;
     write_json_string_array(out, "sidechain_entries", record.sidechain_entries);
     write_json_string_array(out, "pending_messages", record.pending_messages);
@@ -3296,13 +3172,13 @@ inline bool persist_native_agent_record(const NativeAgentRecord& record) {
         }
         if (!block.is_obj()) return;
 
-        const auto type = remote_json_string_field(block, {"type"});
+        const auto type = json_string_field(block, {"type"});
         if (auto text = block.get("text"); text.is_str()) {
             append(std::string(text.as_str()));
             return;
         }
         if (type == "tool_use") {
-            auto name = remote_json_string_field(block, {"name"});
+            auto name = json_string_field(block, {"name"});
             append(name.empty() ? "[tool_use]" : "[tool_use:" + name + "]");
             return;
         }
@@ -3319,14 +3195,14 @@ inline bool persist_native_agent_record(const NativeAgentRecord& record) {
 [[nodiscard]] inline std::optional<std::string> transcript_entry_from_ts_jsonl(cc::utils::json::JsonVal root) {
     if (!root.valid() || !root.is_obj()) return std::nullopt;
 
-    auto type = remote_json_string_field(root, {"type"});
+    auto type = json_string_field(root, {"type"});
     if (type != "user" && type != "assistant" && type != "system") return std::nullopt;
 
     std::string role = type;
     cc::utils::json::JsonVal content = root.get("content");
     auto message = root.get("message");
     if (message.is_obj()) {
-        auto message_role = remote_json_string_field(message, {"role"});
+        auto message_role = json_string_field(message, {"role"});
         if (!message_role.empty()) role = message_role;
         content = message.get("content");
     }
@@ -3419,15 +3295,6 @@ inline bool persist_native_agent_record(const NativeAgentRecord& record) {
         root.get("notification_delivered").as_bool();
     record.worktree_cleanup_performed = root.get("worktree_cleanup_performed").is_bool() &&
         root.get("worktree_cleanup_performed").as_bool();
-    record.remote_is_review = root.get("remote_is_review").is_bool() && root.get("remote_is_review").as_bool();
-    record.remote_is_ultraplan = root.get("remote_is_ultraplan").is_bool() && root.get("remote_is_ultraplan").as_bool();
-    record.remote_is_long_running = root.get("remote_is_long_running").is_bool() &&
-        root.get("remote_is_long_running").as_bool();
-    record.remote_has_output = root.get("remote_has_output").is_bool() && root.get("remote_has_output").as_bool();
-    auto remote_idle_polls = root.get("remote_idle_polls");
-    if (remote_idle_polls.is_num()) {
-        record.remote_idle_polls = static_cast<std::size_t>(std::max<int64_t>(0, remote_idle_polls.as_int()));
-    }
 
     auto assign_optional = [&](std::string_view key, std::optional<std::string>& field) {
         auto value = root.get(key);
@@ -3454,14 +3321,6 @@ inline bool persist_native_agent_record(const NativeAgentRecord& record) {
     assign_optional("teammate_pane_id", record.teammate_pane_id);
     assign_optional("teammate_color", record.teammate_color);
     assign_optional("parent_session_id", record.parent_session_id);
-    assign_optional("remote_task_id", record.remote_task_id);
-    assign_optional("remote_task_type", record.remote_task_type);
-    assign_optional("remote_session_id", record.remote_session_id);
-    assign_optional("remote_session_url", record.remote_session_url);
-    assign_optional("remote_title", record.remote_title);
-    assign_optional("remote_command", record.remote_command);
-    assign_optional("remote_metadata_json", record.remote_metadata_json);
-    assign_optional("remote_last_event_id", record.remote_last_event_id);
     auto progress = root.get("progress");
     if (progress.is_num()) record.progress = progress.as_double();
     record.sidechain_entries = json_string_array(root.get("sidechain_entries"));
@@ -3528,156 +3387,6 @@ public:
             it = inserted;
         }
         return it->second;
-    }
-
-    [[nodiscard]] std::optional<NativeAgentRecord> get_by_task_id_or_remote_id(std::string_view id) const {
-        if (auto direct = get(id)) return direct;
-
-        std::scoped_lock lock(mutex_);
-        for (auto record : load_all_native_agent_records()) {
-            auto agent_id = record.agent_id;
-            records_[std::move(agent_id)] = std::move(record);
-        }
-        for (const auto& [_, record] : records_) {
-            if (record.remote_task_id && *record.remote_task_id == id) return record;
-            if (record.remote_session_id && *record.remote_session_id == id) return record;
-        }
-        return std::nullopt;
-    }
-
-    [[nodiscard]] RemoteAgentPollApplication apply_remote_poll_result(
-        std::string_view id,
-        RemoteAgentPollResult poll
-    ) {
-        auto record = get_by_task_id_or_remote_id(id);
-        if (!record) return {};
-
-        RemoteAgentPollApplication applied;
-        update(record->agent_id, [&](NativeAgentRecord& current) {
-            if (current.status != NativeAgentStatus::Queued &&
-                current.status != NativeAgentStatus::Running) {
-                applied.terminal = true;
-                applied.status = current.status;
-                return;
-            }
-
-            current.status = NativeAgentStatus::Running;
-            current.progress = current.progress.value_or(0.0);
-            if (poll.last_event_id && !poll.last_event_id->empty()) {
-                current.remote_last_event_id = std::move(poll.last_event_id);
-            }
-
-            std::optional<std::string> result_output;
-            bool result_failed = poll.result_failed;
-            for (const auto& event : poll.events) {
-                if (auto entry = remote_event_transcript_entry(event)) {
-                    current.transcript.push_back(std::move(*entry));
-                    current.remote_has_output = true;
-                    ++applied.events_appended;
-                }
-                if (auto output = remote_result_event_output(event)) {
-                    result_output = std::move(*output);
-                }
-                result_failed = result_failed || remote_result_event_failed(event);
-            }
-
-            if (poll.completion_output && !poll.completion_output->empty()) {
-                result_output = std::move(poll.completion_output);
-            }
-
-            if (result_output) {
-                if (result_failed) {
-                    current.status = NativeAgentStatus::Failed;
-                    current.error = std::move(*result_output);
-                    current.output = std::nullopt;
-                } else {
-                    current.status = NativeAgentStatus::Completed;
-                    current.output = std::move(*result_output);
-                    current.error = std::nullopt;
-                    current.progress = 1.0;
-                }
-                current.remote_idle_polls = 0;
-                current.notification_delivered = false;
-                applied.terminal = true;
-                applied.status = current.status;
-                return;
-            }
-
-            const auto status = poll.session_status.value_or("");
-            if (status == "archived") {
-                current.status = NativeAgentStatus::Completed;
-                current.output = current.output.value_or("Remote session archived");
-                current.error = std::nullopt;
-                current.progress = 1.0;
-                current.remote_idle_polls = 0;
-                current.notification_delivered = false;
-                applied.terminal = true;
-                applied.status = current.status;
-                return;
-            }
-
-            if (status == "idle" && poll.events.empty() && current.remote_has_output &&
-                !current.remote_is_ultraplan && !current.remote_is_long_running) {
-                ++current.remote_idle_polls;
-                if (current.remote_idle_polls >= 5) {
-                    current.status = NativeAgentStatus::Completed;
-                    current.output = current.output.value_or("Remote session became idle after producing output");
-                    current.error = std::nullopt;
-                    current.progress = 1.0;
-                    current.notification_delivered = false;
-                    applied.terminal = true;
-                    applied.status = current.status;
-                    return;
-                }
-            } else if (status == "running" || status == "requires_action" || !poll.events.empty()) {
-                current.remote_idle_polls = 0;
-            }
-
-            applied.status = current.status;
-        });
-        return applied;
-    }
-
-    [[nodiscard]] std::expected<RemoteAgentPollApplication, std::string>
-    poll_remote_agent_once(std::string_view id) {
-        auto record = get_by_task_id_or_remote_id(id);
-        if (!record) return std::unexpected(std::format("Remote task not found: {}", id));
-        if (!record->remote_session_id || record->remote_session_id->empty()) {
-            return std::unexpected(std::format("Task {} does not have a remote session id", record->agent_id));
-        }
-
-        auto config = cc::utils::teleport::default_remote_session_api_config();
-        if (!config) return std::unexpected(config.error());
-
-        auto events = cc::utils::teleport::poll_remote_session_events(
-            *config,
-            *record->remote_session_id,
-            record->remote_last_event_id,
-            false);
-        if (!events) return std::unexpected(events.error());
-
-        return apply_remote_poll_result(
-            record->agent_id,
-            RemoteAgentPollResult{
-                .session_status = std::move(events->session_status),
-                .events = std::move(events->new_events),
-                .last_event_id = std::move(events->last_event_id),
-                .completion_output = std::nullopt,
-                .result_failed = false,
-            });
-    }
-
-    [[nodiscard]] std::expected<void, std::string>
-    archive_remote_agent_session(std::string_view id) {
-        auto record = get_by_task_id_or_remote_id(id);
-        if (!record) return std::unexpected(std::format("Remote task not found: {}", id));
-        if (!record->remote_session_id || record->remote_session_id->empty()) {
-            return std::unexpected(std::format("Task {} does not have a remote session id", record->agent_id));
-        }
-
-        auto config = cc::utils::teleport::default_remote_session_api_config();
-        if (!config) return std::unexpected(config.error());
-        return cc::utils::teleport::archive_remote_session(*config, *record->remote_session_id);
     }
 
     [[nodiscard]] std::vector<NativeAgentRecord> list() const {
@@ -3897,33 +3606,6 @@ public:
         });
     }
 
-    void set_remote_metadata(
-        std::string_view agent_id,
-        std::optional<std::string> task_id,
-        std::optional<std::string> task_type,
-        std::optional<std::string> session_id,
-        std::optional<std::string> session_url,
-        std::optional<std::string> title,
-        std::optional<std::string> command,
-        std::optional<std::string> metadata_json = std::nullopt,
-        bool is_review = false,
-        bool is_ultraplan = false,
-        bool is_long_running = false
-    ) {
-        update(agent_id, [&](NativeAgentRecord& record) {
-            record.remote_task_id = std::move(task_id);
-            record.remote_task_type = std::move(task_type);
-            record.remote_session_id = std::move(session_id);
-            record.remote_session_url = std::move(session_url);
-            record.remote_title = std::move(title);
-            record.remote_command = std::move(command);
-            record.remote_metadata_json = std::move(metadata_json);
-            record.remote_is_review = is_review;
-            record.remote_is_ultraplan = is_ultraplan;
-            record.remote_is_long_running = is_long_running;
-        });
-    }
-
 private:
     template <typename Fn>
     void update(std::string_view agent_id, Fn&& fn) {
@@ -3961,147 +3643,6 @@ inline NativeAgentStore& native_agent_store() {
     return store;
 }
 
-[[nodiscard]] inline bool remote_agent_auto_poll_enabled() {
-    if (const char* value = std::getenv("LOOM_REMOTE_AGENT_AUTO_POLL"); value && *value) {
-        auto text = canonicalize_agent_type(value);
-        return text != "0" && text != "false" && text != "no" && text != "off";
-    }
-    return true;
-}
-
-[[nodiscard]] inline int remote_agent_poll_interval_ms() {
-    if (const char* value = std::getenv("LOOM_REMOTE_AGENT_POLL_INTERVAL_MS"); value && *value) {
-        if (auto parsed = parse_positive_int(value)) {
-            return std::clamp(*parsed, 10, 60'000);
-        }
-    }
-    return 1'000;
-}
-
-[[nodiscard]] inline bool native_agent_status_terminal(NativeAgentStatus status) {
-    return status == NativeAgentStatus::Completed ||
-        status == NativeAgentStatus::Failed ||
-        status == NativeAgentStatus::Cancelled;
-}
-
-[[nodiscard]] inline bool remote_poll_error_is_missing_local_config(std::string_view error) {
-    return error.find("No Loom.ai OAuth access token found") != std::string_view::npos ||
-        error.find("No organization UUID found") != std::string_view::npos;
-}
-
-[[nodiscard]] inline bool remote_agent_poll_should_continue(std::string_view agent_id) {
-    auto record = native_agent_store().get(agent_id);
-    if (!record) return false;
-    if (record->cancel_requested) return false;
-    return !native_agent_status_terminal(record->status);
-}
-
-inline std::mutex& remote_agent_pollers_mutex() {
-    static std::mutex mutex;
-    return mutex;
-}
-
-inline std::unordered_set<std::string>& active_remote_agent_pollers() {
-    static std::unordered_set<std::string> pollers;
-    return pollers;
-}
-
-[[nodiscard]] inline bool reserve_remote_agent_poller(std::string_view agent_id) {
-    std::scoped_lock lock(remote_agent_pollers_mutex());
-    return active_remote_agent_pollers().insert(std::string(agent_id)).second;
-}
-
-inline void release_remote_agent_poller(std::string_view agent_id) {
-    std::scoped_lock lock(remote_agent_pollers_mutex());
-    active_remote_agent_pollers().erase(std::string(agent_id));
-}
-
-struct RemoteAgentPollerLease {
-    std::string agent_id;
-
-    explicit RemoteAgentPollerLease(std::string id) : agent_id(std::move(id)) {}
-    RemoteAgentPollerLease(const RemoteAgentPollerLease&) = delete;
-    RemoteAgentPollerLease& operator=(const RemoteAgentPollerLease&) = delete;
-    ~RemoteAgentPollerLease() {
-        release_remote_agent_poller(agent_id);
-    }
-};
-
-inline void sleep_remote_agent_poll_interval(std::string_view agent_id, int interval_ms) {
-    int slept = 0;
-    while (slept < interval_ms && remote_agent_poll_should_continue(agent_id)) {
-        const auto chunk = std::min(100, interval_ms - slept);
-        std::this_thread::sleep_for(std::chrono::milliseconds(chunk));
-        slept += chunk;
-    }
-}
-
-inline bool start_remote_agent_poll_loop(std::string agent_id) {
-    if (!remote_agent_auto_poll_enabled()) {
-        native_agent_store().append_transcript(agent_id, "system: remote auto poll disabled by environment");
-        return false;
-    }
-
-    if (auto config = cc::utils::teleport::default_remote_session_api_config(); !config) {
-        native_agent_store().append_transcript(
-            agent_id,
-            "system: remote auto poll not started: " + config.error());
-        return false;
-    }
-
-    auto record = native_agent_store().get(agent_id);
-    if (!record || !record->remote_session_id || record->remote_session_id->empty()) {
-        native_agent_store().append_transcript(
-            agent_id,
-            "system: remote auto poll not started: missing remote session id");
-        return false;
-    }
-
-    if (!reserve_remote_agent_poller(agent_id)) {
-        return true;
-    }
-
-    const auto interval_ms = remote_agent_poll_interval_ms();
-    std::thread([agent_id = std::move(agent_id), interval_ms] {
-        RemoteAgentPollerLease lease(agent_id);
-        std::size_t failure_count = 0;
-        while (remote_agent_poll_should_continue(agent_id)) {
-            auto applied = native_agent_store().poll_remote_agent_once(agent_id);
-            if (applied) {
-                failure_count = 0;
-                if (applied->terminal) return;
-            } else {
-                ++failure_count;
-                if (remote_poll_error_is_missing_local_config(applied.error())) {
-                    native_agent_store().append_transcript(
-                        agent_id,
-                        "system: remote auto poll stopped: " + applied.error());
-                    return;
-                }
-                if (failure_count == 1 || failure_count % 30 == 0) {
-                    native_agent_store().append_transcript(
-                        agent_id,
-                        std::format("system: remote poll failed ({}): {}", failure_count, applied.error()));
-                }
-            }
-            sleep_remote_agent_poll_interval(agent_id, interval_ms);
-        }
-    }).detach();
-    return true;
-}
-
-inline std::size_t restore_remote_agent_poll_loops() {
-    if (!remote_agent_auto_poll_enabled()) return 0;
-
-    std::size_t restored = 0;
-    for (const auto& record : native_agent_store().list()) {
-        if (!record.background) continue;
-        if (!record.remote_session_id || record.remote_session_id->empty()) continue;
-        if (record.cancel_requested || native_agent_status_terminal(record.status)) continue;
-        if (start_remote_agent_poll_loop(record.agent_id)) ++restored;
-    }
-    return restored;
-}
 
 // NOTE: build_fork_child_message and build_worktree_fork_notice are defined
 // earlier in this translation unit (near the public API declarations) with

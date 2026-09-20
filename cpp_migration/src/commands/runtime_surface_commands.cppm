@@ -35,8 +35,6 @@ import cc.commands.privacy_settings;
 import cc.commands.rate_limit_options;
 import cc.commands.release_notes;
 import cc.commands.reload_plugins;
-import cc.commands.remote_env;
-import cc.commands.remote_setup;
 import cc.commands.reset_limits;
 import cc.commands.sandbox_toggle;
 import cc.commands.security_review;
@@ -214,60 +212,6 @@ public:
         auto notes = get_release_notes(ctx.args.empty() ? std::nullopt : std::optional<std::string>{ctx.args.front()});
         if (!notes) return CommandResult::fail(notes.error());
         return CommandResult::success(*notes);
-    }
-};
-
-class RemoteEnvCommand final : public detail::BasicCommand {
-public:
-    [[nodiscard]] static CommandDefinition definition() {
-        return CommandDefinition{
-            .name = "remote-env",
-            .description = "Show remote environment state",
-            .category = "remote",
-        };
-    }
-
-    [[nodiscard]] Result<CommandResult> execute(const CommandContext&) {
-        return CommandResult::success(get_remote_env_summary());
-    }
-};
-
-class RemoteSetupCommand final : public detail::BasicCommand {
-public:
-    [[nodiscard]] static CommandDefinition definition() {
-        return CommandDefinition{
-            .name = "remote-setup",
-            .description = "Configure remote execution",
-            .args = {
-                CommandArg{.name = "host", .description = "Remote host, or status/test", .type = ArgType::Text, .required = false},
-                CommandArg{.name = "port", .description = "Remote port", .type = ArgType::Number, .required = false},
-                CommandArg{.name = "auth", .description = "ssh_key, token, or oauth", .type = ArgType::Choice, .required = false, .choices = {"ssh_key", "token", "oauth"}},
-            },
-            .category = "remote",
-        };
-    }
-
-    [[nodiscard]] Result<CommandResult> execute(const CommandContext& ctx) {
-        if (ctx.args.empty() || ctx.args.front() == "status") {
-            return CommandResult::success(get_remote_status());
-        }
-
-        const bool test_only = ctx.args.front() == "test";
-        const auto offset = test_only ? std::size_t{1} : std::size_t{0};
-        if (ctx.args.size() <= offset) {
-            return CommandResult::fail("remote-setup requires a host");
-        }
-
-        RemoteSetupConfig config{
-            .host = ctx.args[offset],
-            .port = ctx.args.size() > offset + 1 ? detail::parse_port(ctx.args[offset + 1]) : std::uint16_t{22},
-            .auth_method = ctx.args.size() > offset + 2 ? ctx.args[offset + 2] : "ssh_key",
-        };
-
-        auto result = test_only ? test_remote_connection(config) : setup_remote(config);
-        if (!result) return CommandResult::fail(result.error());
-        return CommandResult::success(test_only ? "Remote connection test succeeded"
-                                                : "Remote execution configured");
     }
 };
 

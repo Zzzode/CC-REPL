@@ -177,7 +177,7 @@ namespace detail {
                 .valid = false,
                 .error = "WebSearch does not support wildcards",
                 .suggestion = "Use exact search terms without * or ?",
-                .examples = {"WebSearch(loom ai)", "WebSearch(typescript tutorial)"},
+                .examples = {"WebSearch(loom api)", "WebSearch(typescript tutorial)"},
             };
         }
         return {.valid = true, .error = std::nullopt, .suggestion = std::nullopt, .examples = {}};
