@@ -59,6 +59,7 @@ add_executable(test_utils
     utils/paths_cascade_test.cpp
     utils/permissions_test.cpp
     utils/settings_validation_test.cpp
+    services/analytics_test.cpp
 )
 target_link_libraries(test_utils
     PRIVATE

@@ -746,7 +746,7 @@ if(APPLE)
     target_link_libraries(cc_tools PUBLIC "-framework ApplicationServices")
 endif()
 
-target_link_libraries(cc_query PUBLIC cc_tools cc_hooks cc_session cc_memdir)
+target_link_libraries(cc_query PUBLIC cc_tools cc_hooks cc_session cc_memdir cc_services)
 
 # ─── cc_commands: Command System ──────────────────────────────────────────────
 add_library(cc_commands)
@@ -896,6 +896,7 @@ add_library(cc_services)
 target_sources(cc_services
     PUBLIC FILE_SET CXX_MODULES FILES
         services/agent_summary/agent_summary.cppm
+        services/analytics.cppm
         services/api/bootstrap.cppm
         services/api/client.cppm
         services/api/error_utils.cppm

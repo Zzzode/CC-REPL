@@ -47,6 +47,7 @@ import cc.utils.debug;
 import cc.session.storage;
 import cc.memdir.paths;
 import cc.constants.paths;
+import cc.services.analytics;
 import core.memdir;
 import cc.services.extract_memories;
 import cc.utils.tool_helpers;
@@ -480,6 +481,15 @@ public:
 
         // Initialize conversation with system prompt if available
         build_and_add_system_prompt();
+
+        // Record the session start in the local-only event log. The engine is
+        // the one place every entry point (REPL, server, headless) passes
+        // through, so emitting here means the log is actually populated rather
+        // than being a writer nobody calls -- which is how the previous
+        // analytics module ended up dead.
+        cc::services::analytics::local_analytics().log_event(
+            "session_start",
+            {{"wire_api", std::string(cc::query::wire::wire_api_name(wire_api_))}});
     }
 
     // Non-copyable, movable
