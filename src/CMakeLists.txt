@@ -312,7 +312,7 @@ target_link_libraries(cc_state
 add_library(cc_task_types)
 target_sources(cc_task_types
     PUBLIC FILE_SET CXX_MODULES FILES
-        task_types.cppm
+        types/task_types.cppm
 )
 target_link_libraries(cc_task_types PUBLIC cc_utils)
 
@@ -320,7 +320,7 @@ target_link_libraries(cc_task_types PUBLIC cc_utils)
 add_library(cc_history)
 target_sources(cc_history
     PUBLIC FILE_SET CXX_MODULES FILES
-        history.cppm
+        types/history.cppm
 )
 target_link_libraries(cc_history PUBLIC cc_utils)
 
