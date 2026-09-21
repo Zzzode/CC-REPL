@@ -24,7 +24,7 @@ namespace json = cc::utils::json;
 
 struct ParsedArgs {
     std::optional<std::string> config_path;
-    std::string cases = "benchmarks/pare/cases/core.json";
+    std::string cases = "benchmarks/pare/cases/pare-v2-reproducible.json";
     std::optional<std::string> model;
     std::string permission_mode = "bypassPermissions";
     std::optional<size_t> max_cases;

@@ -12,7 +12,13 @@ const testTargets = [
   'test_services',
   'test_state',
   'test_tools',
-  'test_ui',
+  // test_ui was split into four TUs to stay under clang's 31-bit
+  // SourceLocation budget (tests/CMakeLists.txt). The target no longer exists,
+  // so this list carries the split names.
+  'test_ui_light',
+  'test_ui_messages',
+  'test_ui_runtime',
+  'test_ui_dialogs',
 ]
 
 const gates = [

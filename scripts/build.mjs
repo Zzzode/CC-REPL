@@ -6,7 +6,7 @@ import { availableParallelism, cpus } from 'os'
 const cmake = process.env.CMAKE ?? 'cmake'
 const projectDir = resolve('cpp_migration')
 const distDir = resolve('dist')
-const binaryName = process.platform === 'win32' ? 'cc-repl.exe' : 'cc-repl'
+const binaryName = process.platform === 'win32' ? 'loom.exe' : 'loom'
 const requestedPreset = process.env.CC_REPL_CMAKE_PRESET
 const preset = selectCMakePreset(requestedPreset)
 const buildJobs = selectBuildJobs()
@@ -61,7 +61,7 @@ function run(command, args, options = {}) {
 mkdirSync(distDir, { recursive: true })
 
 run(cmake, ['--preset', preset, `-DCC_REPL_BUILD_JOBS=${buildJobs}`])
-run(cmake, ['--build', '--preset', preset, '--target', 'cc_repl', '--parallel', String(buildJobs)])
+run(cmake, ['--build', '--preset', preset, '--target', 'loom', '--parallel', String(buildJobs)])
 
 copyFileSync(builtBinary, distBinary)
 chmodSync(distBinary, 0o755)
