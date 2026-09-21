@@ -26,3 +26,6 @@ build-clang-debug/
 build-clang-debug-asan/
 build-clang-release/
 build-clang-coverage/
+
+# Machine-local CMake presets (explicit toolchain paths, not portable)
+CMakeUserPresets.json
