@@ -265,10 +265,38 @@ component layer is not:
 A design system with a live token layer and a dead component layer is a wiring
 gap, not a removal — the primitives were presumably written to be used.
 
-**Fix:** decide whether these five are the component layer going forward. If
-yes, the UI should adopt them. If no, delete — but note `design/dialog.cppm`
-sits next to a live `dialogs/` subsystem, so check it is not a third renderer
-path.
+**Verified 2026-09-21, and the gap is larger than stated — the live UI does not
+merely ignore these five, it reimplements them locally.** Counted:
+
+| capability | dead design module | local live reimplementations |
+|---|---|---|
+| progress bar | `design/progress_bar.cppm` (113) | **five** — `ui/components.cppm:287`, `permissions/permission_batch_panel.cppm:212`, `dialogs/wizard_dialog.cppm:262`, `tasks/task_components.cppm:297` |
+| divider | `design/divider.cppm` (63) | **three** — `design/component_primitives.cppm:127`, `permissions/permissions_components.cppm:295`, `dialogs/dialog_frame.cppm:273` |
+| tabs | `design/tabs.cppm` (102) | `components/tag_tabs.cppm:28`, `agents/agent_editor.cppm:247` |
+
+(Import counts re-checked: `tokens` 34, `theme` 31, `figures` 18, `primitives`
+7, `themed_box`/`themed_text` 2 each; the five dead ones 0 each. Note `figures`
+is 18, not the 19 in the original table — 19 is `ui.components.figures`, a
+different module.)
+
+So the decision is sharper than "adopt them or not": the UI has **already** made
+this choice, differently, four to five times over. The honest options are (a)
+consolidate every local copy onto the design-system version, which is a real
+refactor with visible-risk to existing layouts, or (b) delete all five and accept
+that this codebase styles its components locally. Option (b) is cheaper and
+matches what the code does today; option (a) is what the design system was built
+for. Either is defensible — but leaving five dead modules beside five live
+near-duplicates is the one outcome that helps nobody.
+
+**`design/dialog.cppm` resolved (134 LOC): not a third renderer path — it cannot
+be adopted.** Checked as the original note asked. It is a `std::cout` box-drawing
+console prompt: it formats a `╭─╮` frame with `ostringstream`, prints it, and
+returns `DialogResult{default_button.value_or(0), false}` **without reading any
+input** (`show_dialog`, `:35-77`). It never touches FTXUI, so it cannot render in
+this UI and is not in competition with the live `dialogs/` subsystem. It is a
+console-mode prototype from before the interface was FTXUI. Delete it with the
+other four if the decision is (b); if the decision is (a), exclude it — there is
+nothing here to consolidate *onto*.
 
 ## Related, but not bugs
 
@@ -282,12 +310,29 @@ dead. That is wrong: `src/hooks/notifs/` contains exactly two files.
 (one notification that nothing emits); it was **not** deleted in this sweep
 because it sits under a "mixed verdict" flag.
 
+**Re-verified 2026-09-21 — counts confirmed, with a naming trap worth recording.**
+`remaining_notifs` really does have 4 importers
+(`tools/mcp_tool.cppm:33`, `tasks/in_process_teammate_task.cppm:16`,
+`tests/test_fix_notifs.cpp`, `tests/test_hooks.cpp`) and `rate_limit_warning`
+really has 0. But note **the two files in this one directory declare modules in
+two different namespaces**:
+
+    hooks/notifs/remaining_notifs.cppm  ->  cc.hooks.remaining_notifs   (drops "notifs")
+    hooks/notifs/rate_limit_warning.cppm -> cc.hooks.notifs.rate_limit_warning
+
+So grepping `import cc.hooks.notifs.remaining_notifs;` — the name the path
+suggests — returns **0** and would have "confirmed" this module dead. This is
+the module-name/path decoupling CLAUDE.md describes, and it is the single
+easiest way to produce a false dead-module verdict in this tree: always resolve
+the declared name (`grep -rn "^export module" <file>`) before counting.
+
 **`src/buddy/` is a self-contained island, not a directory of dead modules.**
 Only `buddy_sprites` (626 LOC of ASCII art) was deleted. What remains:
 
     cc.buddy.buddy_types        2 importers   } both from within this directory
     cc.buddy.buddy_companion    1 importer    } (the only live path is the one
     cc.buddy.buddy_prompt       0 importers   }  below, and it goes nowhere)
+    cc.buddy.buddy_hooks        0 importers   }  <- omitted from the original note
 
 The imports form a closed loop — `buddy_prompt` imports `buddy_companion` and
 `buddy_types`, and `buddy_companion` imports `buddy_types` — with nothing
@@ -295,8 +340,34 @@ outside the directory importing any of them. So the whole island is
 unreachable, but each module inside it has an "importer", which is why a
 per-module importer count alone does not see it.
 
-**Decision needed:** is the companion feature intended to ship? If not, the
-remaining three go together (and `ui/app.cppm:1812`, which alludes to
-`buddy_prompt` in a comment, is the only trace of intent). If yes, something
-must import it — nothing does today. Left in place pending that call rather
-than deleted on a per-module basis that would have looked safe and been wrong.
+**Verified 2026-09-21, with one correction and one addition.**
+
+*Addition:* there is a **fourth** file, `buddy_hooks.cppm` (also 0 importers).
+It holds a date-gated easter egg — `is_buddy_teaser_window(year, month, day)`,
+`is_buddy_live(year, month)`, `find_buddy_trigger_positions(text)` — and none of
+the three is called from anywhere. Note the file list in the original note was
+incomplete, which is why "only two modules" (§ the `notifs` entry) was checked.
+
+*Correction — the island is NOT closed, and "nothing outside imports it" is too
+strong.* The claim is true of **imports**, but the buddy concept is referenced
+from four live modules, and one of them is a live consumer:
+
+| file | what it is |
+|---|---|
+| `ui/prompt/combined_highlights.cppm:83-85,557-574` | **live** — a `buddy_enabled` flag that applies `/\/buddy\b/` rainbow-shimmer highlighting, reimplementing the TS `findBuddyTriggerPositions` inline rather than calling `buddy_hooks`'s version |
+| `config/settings.cppm:232` | a `BUDDY_ENABLED` ("buddyEnabled") setting key — **declared, never read** |
+| `ui/rendering/fullscreen_layout.cppm:190` | a `bottom_float` companion-bubble slot, self-documented "can be a stub" |
+| `utils/text_highlighting.cppm:225` | a `RainbowShimmer` style ordinal comment mentioning buddy |
+
+The `app.cppm:1812` trace the original note cited does not exist — grep `buddy`
+in `ui/app.cppm` returns nothing. The real surviving trace of intent is the
+highlighting path, not a comment.
+
+**Decision needed — but it is narrower than "does the companion ship?"** The
+`/buddy` keyword highlighting is live *today* and independent of these modules
+(it reimplements the trigger scan). So the question is only whether the
+companion *module* set gets wired to the `bottom_float` slot and the
+`buddyEnabled` key. If yes, `buddy_hooks` is the piece to wire (nothing uses
+its date gate); if no, all four go, and the highlighting stays. Left in place
+pending that call rather than deleted on a per-module basis that would have
+looked safe and been wrong.
