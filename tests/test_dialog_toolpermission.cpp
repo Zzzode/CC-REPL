@@ -46,6 +46,8 @@ import cc.ui.dialogs.triggers;
 import cc.ui.repl_screen;
 import cc.ui.permissions.single_prompt;
 import cc.ui.permissions.permission_computer_use;
+import cc.ui.permissions.permission_file_edit;
+import cc.ui.permissions.permission_file_write;
 
 namespace {
 
@@ -504,6 +506,86 @@ TEST(KeyboardEvents, EscapeFallsBackToDenyWhenNoAbortCb) {
     ASSERT_TRUE(rec.response.has_value());
     EXPECT_EQ(*rec.response, (DecisionPair{false, std::nullopt}));
 }
+
+
+// ===========================================================================
+// File-edit / file-write permission prompt: the abort callback must survive
+// ===========================================================================
+//
+// Regression guard for a real bug fixed on 2026-09-21. These builders hand the
+// SAME function object to both on_decide and on_abort, and the first lambda
+// MOVES it in. The second capture consequently held a moved-from (empty)
+// std::function, so `on_abort` did nothing -- and because the shared prompt
+// gives on_abort PRIORITY over on_decide for the Abort decision
+// (permission_single_prompt.cppm:345), choosing Abort produced no callback at
+// all. Escape looked like it worked (the dialog closed) but no consumer was
+// ever told.
+//
+// The bug survived because equivalent coverage existed only for the
+// TOOL-permission path (EscapeInvokesAbortCallback, above), never for these
+// two builders. These tests close that gap.
+//
+// Note on what is asserted: `on_result` is documented as the single "decision"
+// callback, invoked with `false` on abort. So driving Escape must call it
+// exactly once with false -- if the move-bug returns, it is called zero times.
+
+TEST(FilePermissionPrompt, EscapeAbortsThroughTheSingleResultCallback) {
+    namespace fedit = cc::ui::permissions::file_edit;
+
+    int calls = 0;
+    bool last_value = true;
+    auto component = fedit::MakeSimpleFileEditPrompt(
+        "sample.txt", "old", "new", "old contents",
+        [&](bool allowed) { ++calls; last_value = allowed; });
+
+    ASSERT_TRUE(component != nullptr);
+    component->OnEvent(ftxui::Event::Escape);
+
+    // The panel fires on_abort() AND on_decide(Decision::Abort) on one Esc (its
+    // documented contract -- see repl_screen.cppm's one-shot guard).  This
+    // helper exposes a single callback, so it must collapse the pair: exactly
+    // one call, reporting 'not allowed'.
+    EXPECT_EQ(calls, 1)
+        << "Esc must reach the result callback exactly once; two calls means "
+        << "the helper failed to collapse the panel's on_abort/on_decide pair";
+    EXPECT_FALSE(last_value) << "abort must report 'not allowed'";
+}
+
+TEST(FilePermissionPrompt, DecideStillWorksAfterTheAbortWiring) {
+    namespace fedit = cc::ui::permissions::file_edit;
+
+    int calls = 0;
+    bool last_value = false;
+    auto component = fedit::MakeSimpleFileEditPrompt(
+        "sample.txt", "old", "new", "old contents",
+        [&](bool allowed) { ++calls; last_value = allowed; });
+
+    ASSERT_TRUE(component != nullptr);
+    // 'y' accepts. This is the other half of the pair: fixing the abort capture
+    // must not have broken the decide path.
+    component->OnEvent(ftxui::Event::Character('y'));
+
+    EXPECT_EQ(calls, 1);
+    EXPECT_TRUE(last_value) << "accepting must report 'allowed'";
+}
+
+TEST(FilePermissionPrompt, WriteEscapeAlsoReportsExactlyOnce) {
+    namespace fwrite = cc::ui::permissions::file_write;
+
+    int calls = 0;
+    bool last_value = true;
+    auto component = fwrite::MakeSimpleFileWritePrompt(
+        "sample.txt", "new contents", /*file_exists=*/false, "",
+        [&](bool allowed) { ++calls; last_value = allowed; });
+
+    ASSERT_TRUE(component != nullptr);
+    component->OnEvent(ftxui::Event::Escape);
+
+    EXPECT_EQ(calls, 1) << "write prompt shares the collapse contract";
+    EXPECT_FALSE(last_value);
+}
+
+
 
 TEST(KeyboardEvents, LowercaseDProducesAlwaysDeny) {
     DecisionRecorder rec;

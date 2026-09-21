@@ -865,14 +865,24 @@ struct PromptState {
         props.filename = props.file_path.substr(last_slash + 1);
     }
 
-    props.on_decide = [on_result = std::move(on_result)](
+    // Same one-shot collapse as MakeSimpleFileEditPrompt: the panel fires
+    // `on_abort()` AND `on_decide(Decision::Abort)` on one Esc, and this helper
+    // hands both to a single `on_result`.
+    struct Flight { bool fired = false; };
+    auto flight = std::make_shared<Flight>();
+
+    props.on_decide = [on_result, flight](
         Decision d, SessionScope, std::string_view)
     {
+        if (flight->fired) return;
+        flight->fired = true;
         if (on_result) {
             on_result(d == Decision::AllowOnce || d == Decision::AllowSession);
         }
     };
-    props.on_abort = [on_result] {
+    props.on_abort = [on_result, flight] {
+        if (flight->fired) return;
+        flight->fired = true;
         if (on_result) on_result(false);
     };
 

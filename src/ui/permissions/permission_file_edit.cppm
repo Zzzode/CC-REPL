@@ -623,14 +623,30 @@ struct PromptState {
         props.filename = props.file_path.substr(last_slash + 1);
     }
 
-    props.on_decide = [on_result = std::move(on_result)](
+    // This helper exposes ONE result callback, but the panel underneath fires
+    // TWO on a single Esc: `on_abort()` and then `on_decide(Decision::Abort)`
+    // (see the Escape branch above).  That double-fire is the panel's documented
+    // contract -- production collapses the pair with its own one-shot guard
+    // (repl_screen.cppm, get_tool_permission_component).  Collapsing it here too
+    // makes the single callback fire exactly once: without the guard, `on_abort`
+    // was left empty and Escape reached `on_result` only via `on_decide`, which
+    // happened to be right -- but only by accident, and it silently broke any
+    // caller that did supply `on_abort`.
+    struct Flight { bool fired = false; };
+    auto flight = std::make_shared<Flight>();
+
+    props.on_decide = [on_result, flight](
         Decision d, SessionScope, std::string_view)
     {
+        if (flight->fired) return;
+        flight->fired = true;
         if (on_result) {
             on_result(d == Decision::AllowOnce || d == Decision::AllowSession);
         }
     };
-    props.on_abort = [on_result] {
+    props.on_abort = [on_result, flight] {
+        if (flight->fired) return;
+        flight->fired = true;
         if (on_result) on_result(false);
     };
 

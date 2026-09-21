@@ -208,7 +208,19 @@ inline void PushElicitation(dsys::DialogQueue& queue,
     p.request_id = request_id;
     p.request_description = std::move(message);
     p.on_response = std::move(on_response);
-    p.on_cancel = [on_response] { if (on_response) on_response(false); };
+    // `on_response` was moved into the payload on the line above, so capture the
+    // copy that now lives in `p` -- capturing the parameter would capture an
+    // empty std::function and leave `on_cancel` a no-op.  The payload documents
+    // on_cancel as an out-of-band Esc path that fires *instead of* the
+    // on_response(false) fallback (dialog_system.cppm), so an inert on_cancel
+    // silently disables that contract for any renderer that honours it.
+    // The live renderer (dialog_default_renderers.cppm, HandleElicitationEvent)
+    // currently ignores on_cancel and calls on_response(false) itself, so this
+    // is a latent contract break rather than an observed one.
+    if (p.on_response) {
+        auto respond = p.on_response;
+        p.on_cancel = [respond] { respond(false); };
+    }
     queue.push(std::move(p));
 }
 
