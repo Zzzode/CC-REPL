@@ -1365,9 +1365,6 @@ target_sources(cc_ui
         ui/layout/measure.cppm
         ui/layout/wrap_text.cppm
         ui/layout/yoga.cppm
-        ui/logo/logo_animated.cppm
-        ui/logo/logo_feed.cppm
-        ui/logo/logo_notices.cppm
         ui/markdown.cppm
         ui/messages.cppm
         ui/messages/assistant_message.cppm
@@ -1503,12 +1500,12 @@ target_sources(cc_ui
         ui/screens/resume_screen.cppm
         ui/screens/log_selector.cppm              # UI23 — LogSelector (1574 → 1730 loc)
         ui/terminal.cppm
-        ui/design_system/design_tokens.cppm       # UI20 (merged from cc_ui_design to resolve module-import cycle)
-        ui/design_system/figures.cppm             # Shared glyph + prompt-mode constants (TS utils/figures.ts + inputModes.ts)
-        ui/design_system/theme_provider.cppm
-        ui/design_system/logo.cppm
-        ui/design_system/component_primitives.cppm
-        ui/design_system/design_extras.cppm       # UI27 — fuzzy picker + theme picker + design extras
+        ui/design/design_tokens.cppm       # UI20 (merged from cc_ui_design to resolve module-import cycle)
+        ui/design/figures.cppm             # Shared glyph + prompt-mode constants (TS utils/figures.ts + inputModes.ts)
+        ui/design/theme_provider.cppm
+        ui/design/logo.cppm
+        ui/design/component_primitives.cppm
+        ui/design/design_extras.cppm       # UI27 — fuzzy picker + theme picker + design extras
 )
 # Module implementation units for cc.ui.app_dialog_registration — one per
 # dialog-renderer aggregator, so no single TU imports more than one aggregator's
