@@ -1251,61 +1251,11 @@ target_link_libraries(cc_ui
         # making the dependency explicit is correct (no cycle: cc_services never
         # imports cc.ui.*).
         cc_services
-        cc_ui_messages       # Phase 4B-UI21/22/25: list + virtual scroll + interactions
-        cc_ui_screens        # Phase 4B-UI23: log selector
-        cc_ui_permissions    # Phase 4B-UI24: rule list (+ advanced prompts)
-        cc_ui_components     # Phase 4B-UI26/27: feature dialogs + PARTIAL completions
         ftxui::screen
         ftxui::dom
         ftxui::component
 )
 
-# ─── cc_ui_messages: Phase 4B Messages (list / virtual scroll / interactions)
-# UI21 (Messages), UI22 (VirtualScroll + Keybindings), UI25 (Interactions)
-#
-# NOTE: Sources are registered directly in the parent `cc_ui` FILE_SET so that
-# C++23 module-import lookup (BMI) can resolve intra-`cc.ui.*` imports without
-# cross-OBJECT cycles.  This INTERFACE target is provided for downstream
-# consumers that want to link "just the messages layer" explicitly.
-add_library(cc_ui_messages INTERFACE)
-target_link_libraries(cc_ui_messages INTERFACE cc_ui)
-
-# ─── cc_ui_screens: Phase 4B Additional Screens (beyond doctor / repl / resume)
-# UI23 (LogSelector)
-add_library(cc_ui_screens INTERFACE)
-target_link_libraries(cc_ui_screens INTERFACE cc_ui)
-
-# ─── cc_ui_permissions: Phase 4B Permissions (rule list / advanced prompts)
-# UI24 (PermissionRuleList + PermissionAdvancedPrompts)
-add_library(cc_ui_permissions INTERFACE)
-target_link_libraries(cc_ui_permissions INTERFACE cc_ui)
-
-# ─── cc_ui_components: Phase 4B Feature-Gated Components
-# UI26 (MemoryFileSelector / Feedback / Grove), UI27 PARTIAL (TreeSelect / ShikiFallback)
-add_library(cc_ui_components INTERFACE)
-target_link_libraries(cc_ui_components INTERFACE cc_ui)
-
-# ─── cc_ui_design: Design System (tokens / theme / logo / primitives) ────────
-# Phase 4-UI20: mirrors the TS-side design-system package
-#   (src/components/design-system/* + src/utils/theme.ts + upstream logo components).
-# Phase 4B REFACTOR: Sources moved into parent `cc_ui`'s FILE_SET so that C++23
-#   named-module BMI lookup can resolve intra-module imports both ways
-#   (cc.ui.design.* ↔ cc.ui.messages.* / cc.ui.components.*).
-#   This INTERFACE target remains for downstream consumers (cc_all / loom)
-#   that link `cc_ui_design` as the canonical design-system surface.
-add_library(cc_ui_design INTERFACE)
-target_link_libraries(cc_ui_design INTERFACE cc_ui)
-
-# ─── cc_all: Convenience aggregator (all production targets) ─────────────────
-# INTERFACE library that transitively pulls in every subsystem plus the
-# newly-added cc_ui_design.  Downstream targets can link cc_all instead of
-# enumerating subsystems.
-add_library(cc_all INTERFACE)
-target_link_libraries(cc_all
-    INTERFACE
-        cc_core          # existing subsystem aggregator
-        cc_ui_design     # design system (added Phase 4-UI20)
-)
 
 # ─── cc_vim: Vim Mode ─────────────────────────────────────────────────────────
 add_library(cc_vim)
@@ -1453,7 +1403,6 @@ target_link_libraries(loom
         cc_core
         cc_daemon
         cc_server
-        cc_ui_design
 )
 set_target_properties(loom PROPERTIES
     OUTPUT_NAME "loom"
