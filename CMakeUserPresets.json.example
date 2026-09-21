@@ -1,0 +1,67 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 28,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "local-linux",
+      "displayName": "Local Linux dev box (Homebrew LLVM + brew glibc)",
+      "description": "Machine-local preset \u2014 NOT for CI. The committed presets target GitHub's macos-14 runner. On Linux you need an explicit LLVM toolchain, system (not Homebrew) OpenSSL/curl headers, and a link line against Homebrew's glibc. Replace <LLVM_PREFIX> and <BREW_PREFIX> with your own paths. If you are not on a Homebrew layout, start from the committed 'debug' preset instead and add only what your toolchain needs.",
+      "inherits": "debug",
+      "binaryDir": "${sourceDir}/build/debug",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "<LLVM_PREFIX>/bin/clang",
+        "CMAKE_CXX_COMPILER": "<LLVM_PREFIX>/bin/clang++",
+        "CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS": "<LLVM_PREFIX>/bin/clang-scan-deps",
+        "CMAKE_CXX_FLAGS": "-stdlib=libc++ -isystem <LLVM_PREFIX>/include/c++/v1",
+        "CMAKE_CXX_FLAGS_DEBUG": "-g0",
+        "CMAKE_PREFIX_PATH": "/usr",
+        "CMAKE_IGNORE_PREFIX_PATH": "<BREW_PREFIX>",
+        "OPENSSL_ROOT_DIR": "/usr",
+        "CMAKE_EXE_LINKER_FLAGS": "-stdlib=libc++ -L<LLVM_PREFIX>/lib -L<BREW_PREFIX>/opt/glibc/lib -Wl,-rpath,<LLVM_PREFIX>/lib -Wl,-rpath,<BREW_PREFIX>/opt/glibc/lib -Wl,-dynamic-linker,<BREW_PREFIX>/opt/glibc/lib/ld-linux-x86-64.so.2 -Wl,--allow-shlib-undefined"
+      }
+    },
+    {
+      "name": "local-linux-release",
+      "displayName": "Local Linux dev box \u2014 Release",
+      "description": "As local-linux, but Release. Forcing -O0 with LTO off is a workaround for an optimizer crash in one specific LLVM build; drop those two lines for a normal Release configuration.",
+      "inherits": "local-linux",
+      "binaryDir": "${sourceDir}/build/release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_C_FLAGS_RELEASE": "-O0 -DNDEBUG",
+        "CMAKE_CXX_FLAGS_RELEASE": "-O0 -DNDEBUG",
+        "CMAKE_INTERPROCEDURAL_OPTIMIZATION": "OFF"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "local-linux",
+      "configurePreset": "local-linux"
+    },
+    {
+      "name": "local-linux-release",
+      "configurePreset": "local-linux-release"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "local-linux",
+      "configurePreset": "local-linux",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "local-linux-release",
+      "configurePreset": "local-linux-release",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}
