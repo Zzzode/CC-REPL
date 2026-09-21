@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# format-cpp.sh — run clang-format 21 across the cpp_migration tree
+# format-cpp.sh — run clang-format 21 across the source tree
 #
 # Pins formatter to clang-format 21.x to keep macOS / Linux output identical.
 # Resolves the binary in this order:

@@ -4,12 +4,20 @@ on:
   push:
     branches: [master]
     paths:
-      - "cpp_migration/**"
+      - "src/**"
+      - "tests/**"
+      - "CMakeLists.txt"
+      - "CMakePresets.json"
+      - "cmake/**"
       - ".github/workflows/cpp-migration-ci.yml"
   pull_request:
     branches: [master]
     paths:
-      - "cpp_migration/**"
+      - "src/**"
+      - "tests/**"
+      - "CMakeLists.txt"
+      - "CMakePresets.json"
+      - "cmake/**"
       - ".github/workflows/cpp-migration-ci.yml"
 
 jobs:
@@ -33,7 +41,6 @@ jobs:
           clang++ --version
 
       - name: Configure
-        working-directory: cpp_migration
         run: |
           LLVM_PREFIX="$(brew --prefix llvm)"
           SDKROOT="$(xcrun --show-sdk-path)"
@@ -45,10 +52,8 @@ jobs:
 
       - name: Build
         timeout-minutes: 15
-        working-directory: cpp_migration
         run: cmake --build --preset debug
 
       - name: Test
         timeout-minutes: 5
-        working-directory: cpp_migration
         run: ctest --preset debug --parallel 4

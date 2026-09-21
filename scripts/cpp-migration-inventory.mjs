@@ -6,9 +6,9 @@ import process from 'node:process'
 
 const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..')
 const tsRoot = path.join(repoRoot, 'src')
-const cppRoot = path.join(repoRoot, 'cpp_migration', 'src')
+const cppRoot = path.join(repoRoot, 'src')
 const cmakeFile = path.join(cppRoot, 'CMakeLists.txt')
-const decisionRegisterFile = path.join(repoRoot, 'cpp_migration', 'docs', 'unregistered-modules-decision-register.md')
+const decisionRegisterFile = path.join(repoRoot, 'docs', 'unregistered-modules-decision-register.md')
 
 const tsExtensions = new Set(['.ts', '.tsx', '.js', '.jsx'])
 const cppExtensions = new Set(['.cppm', '.cpp', '.h', '.hpp'])

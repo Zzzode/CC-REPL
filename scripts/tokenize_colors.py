@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """tokenize_colors.py — Hard-coded color → UI20 design token replacement scanner.
 
-Scans cpp_migration/src/**/*.cppm for hard-coded RGB/ANSI/hex colors, finds the
+Scans src/**/*.cppm for hard-coded RGB/ANSI/hex colors, finds the
 nearest UI20 Palette token by Euclidean distance, and produces:
 
   build/tokens_scan_summary.csv   — file, line_no, original, token, distance
@@ -207,8 +207,8 @@ def write_diff(recs: list[Rec], p: Path, root: Path, apply_: bool) -> None:
             if pos >= 0:
                 new[i] = new[i][:pos] + r.replacement + new[i][pos+len(r.original_text):]
         try:
-            # Paths relative to cpp_migration/ (src/commands/theme.cppm …) so the
-            # diff is directly `git apply`-able from cpp_migration/.
+            # Paths relative to the repo root (src/commands/theme.cppm …) so the
+            # diff is directly `git apply`-able from the repo root.
             rel = str(fp.relative_to(root.parent))
         except ValueError:
             rel = str(fp)

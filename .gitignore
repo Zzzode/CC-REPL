@@ -7,10 +7,22 @@ bun.lock
 .trae/
 build
 .cache
-# CMake build configurations for cpp_migration
-cpp_migration/build-*/
-cpp_migration/*build*/
-cpp_migration/Debug/
-cpp_migration/Release/
-cpp_migration/RelWithDebInfo/
-cpp_migration/MinSizeRel/
+# CMake build configurations
+build-*/
+Debug/
+Release/
+RelWithDebInfo/
+MinSizeRel/
+Testing/
+
+# Locally mirrored FetchContent sources (offline/network-restricted builds)
+.deps-cache/
+
+# Build outputs
+build-clang/
+build-clang2/
+build-treesitter/
+build-clang-debug/
+build-clang-debug-asan/
+build-clang-release/
+build-clang-coverage/

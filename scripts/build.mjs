@@ -4,7 +4,7 @@ import { spawnSync } from 'child_process'
 import { availableParallelism, cpus } from 'os'
 
 const cmake = process.env.CMAKE ?? 'cmake'
-const projectDir = resolve('cpp_migration')
+const projectDir = resolve('.')
 const distDir = resolve('dist')
 const binaryName = process.platform === 'win32' ? 'loom.exe' : 'loom'
 const requestedPreset = process.env.CC_REPL_CMAKE_PRESET

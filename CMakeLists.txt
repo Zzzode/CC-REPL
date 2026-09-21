@@ -178,6 +178,32 @@ set(CMAKE_CXX_SCAN_FOR_MODULES ${CMAKE_CXX_SCAN_FOR_MODULES_OLD})
 # ─── FetchContent for Header-Only / Build-From-Source Dependencies ────────────
 include(FetchContent)
 
+# Offline dependency cache. If `.deps-cache/<name>-src/` exists next to this
+# file, point FetchContent at it instead of cloning. The directory is
+# gitignored and machine-local; it exists because this project is developed on
+# a host with no github.com access, and re-downloading six pinned tarballs on
+# every cache wipe is not reasonable.
+#
+# This lives here rather than in CMakePresets.json because a preset only applies
+# when you configure through `cmake --preset`; a bare `cmake -B build` (or a
+# wiped cache mid-session) would otherwise silently fall back to the network and
+# fail. Absent directory => normal FetchContent behaviour, so CI is unaffected.
+set(LOOM_DEPS_CACHE "${CMAKE_CURRENT_SOURCE_DIR}/.deps-cache")
+if(EXISTS "${LOOM_DEPS_CACHE}")
+    foreach(_loom_dep IN ITEMS yyjson libuv httplib ftxui benchmark googletest)
+        string(TOUPPER "${_loom_dep}" _loom_dep_upper)
+        set(_loom_dep_dir "${LOOM_DEPS_CACHE}/${_loom_dep}-src")
+        if(EXISTS "${_loom_dep_dir}")
+            set(FETCHCONTENT_SOURCE_DIR_${_loom_dep_upper} "${_loom_dep_dir}"
+                CACHE PATH "Offline source for ${_loom_dep}" FORCE)
+        endif()
+        unset(_loom_dep_dir)
+        unset(_loom_dep_upper)
+    endforeach()
+    unset(_loom_dep)
+    message(STATUS "LOOM: using offline dependency cache at ${LOOM_DEPS_CACHE}")
+endif()
+
 # yyjson - high-performance JSON library
 FetchContent_Declare(
     yyjson

@@ -2701,6 +2701,41 @@ TEST(FlagSettings, NonObjectRootReportsDeferred) {
 // false/nullopt when the clipboard has no image, but they MUST NOT exit with
 // the specific -2741 syntax-error signature produced by the literal-\xc2 mistake. Off-macOS
 // these stubs always return false/nullopt unconditionally.
+// ===========================================================================
+// Source-text guards.
+//
+// A few tests below assert on the SOURCE TEXT of a module rather than its
+// behaviour, because the property they pin (e.g. "osascript is detached with
+// setsid()") cannot be observed at runtime without a raw-mode TTY. They locate
+// the file by walking up from the CWD.
+//
+// The walk used to be inlined per test with a broken fallback: after walking
+// up, `src` held some existing *directory*, so the `if (!fs::exists(src))` skip
+// guard could never fire — a move of the tree turned the "skip" path into a
+// read of a directory and a hard failure. This helper returns nullopt instead,
+// so a future move degrades to a clean GTEST_SKIP.
+// ===========================================================================
+namespace {
+
+/// Locate a source file by walking up from the CWD looking for <root>/rel.
+/// Returns nullopt if not found, so callers can skip rather than misread.
+[[nodiscard]] std::optional<std::filesystem::path>
+find_source_file(std::initializer_list<std::string_view> rel,
+                 int max_levels = 6) {
+    namespace fs = std::filesystem;
+    fs::path dir = fs::current_path();
+    for (int i = 0; i < max_levels; ++i) {
+        fs::path candidate = dir;
+        for (auto part : rel) candidate /= part;
+        if (fs::is_regular_file(candidate)) return candidate;
+        if (dir == dir.parent_path()) break;  // filesystem root
+        dir = dir.parent_path();
+    }
+    return std::nullopt;
+}
+
+}  // namespace
+
 TEST(ClipboardImage, OsascriptScriptsAreSyntacticallyValidOnMacOS) {
     // has_image() is noexcept — it must not crash, and on macOS must not produce a
     // script that exit()s 0 or 1 cleanly (never throws or aborts). The call is always safe on all
@@ -2751,19 +2786,13 @@ TEST(ClipboardImage, OsascriptScriptsAreSyntacticallyValidOnMacOS) {
 // through run_detached(). If someone "simplifies" back to std::system(), this
 // test fails and points them at the regression comment above.
 TEST(ClipboardImage, OsascriptUsesSetsidToDetachFromTty_RawModeGuard) {
-    namespace fs = std::filesystem;
-    fs::path src = fs::current_path();
-    for (int i = 0; i < 6; ++i) {
-        const fs::path candidate =
-            src / "cpp_migration" / "src" / "utils" / "clipboard.cppm";
-        if (fs::exists(candidate)) { src = candidate; break; }
-        src = src.parent_path();
-    }
-    if (!fs::exists(src)) {
+    const auto found = find_source_file({"src", "utils", "clipboard.cppm"});
+    if (!found) {
         GTEST_SKIP() << "clipboard.cppm source not found from "
-                     << fs::current_path()
+                     << std::filesystem::current_path()
                      << " — skipping source-level raw-mode guard.";
     }
+    const std::filesystem::path src = *found;
     std::ifstream f(src);
     ASSERT_TRUE(f.good()) << "cannot open " << src;
     std::string content((std::istreambuf_iterator<char>(f)),
@@ -2810,19 +2839,13 @@ TEST(ClipboardImage, OsascriptUsesSetsidToDetachFromTty_RawModeGuard) {
 // a source-level guard asserting app.cppm still does the VLNEXT clear — there
 // is no portable way to reproduce a raw-mode controlling TTY in a unit test.
 TEST(ClipboardImage, RunAppClearsVlnext_MacOSLineDisciplineGuard) {
-    namespace fs = std::filesystem;
-    fs::path src = fs::current_path();
-    for (int i = 0; i < 6; ++i) {
-        const fs::path candidate =
-            src / "cpp_migration" / "src" / "ui" / "app.cppm";
-        if (fs::exists(candidate)) { src = candidate; break; }
-        src = src.parent_path();
-    }
-    if (!fs::exists(src)) {
+    const auto found = find_source_file({"src", "ui", "app.cppm"});
+    if (!found) {
         GTEST_SKIP() << "app.cppm source not found from "
-                     << fs::current_path()
+                     << std::filesystem::current_path()
                      << " — skipping VLNEXT source-level guard.";
     }
+    const std::filesystem::path src = *found;
     std::ifstream f(src);
     ASSERT_TRUE(f.good()) << "cannot open " << src;
     std::string content((std::istreambuf_iterator<char>(f)),
@@ -2857,18 +2880,12 @@ TEST(ClipboardImage, RunAppClearsVlnext_MacOSLineDisciplineGuard) {
 //   1. extract_png_from_html_clipboard function exists in clipboard.cppm
 //   2. read_image_png() calls it as fallback (not just return nullopt)
 TEST(ClipboardImage, HtmlClipboardDataUrlFallback_SourceGuard) {
-    namespace fs = std::filesystem;
-    fs::path src = fs::current_path();
-    for (int i = 0; i < 6; ++i) {
-        const fs::path candidate =
-            src / "cpp_migration" / "src" / "utils" / "clipboard.cppm";
-        if (fs::exists(candidate)) { src = candidate; break; }
-        src = src.parent_path();
-    }
-    if (!fs::exists(src)) {
+    const auto found = find_source_file({"src", "utils", "clipboard.cppm"});
+    if (!found) {
         GTEST_SKIP() << "clipboard.cppm source not found from "
-                     << fs::current_path();
+                     << std::filesystem::current_path();
     }
+    const std::filesystem::path src = *found;
     std::ifstream f(src);
     ASSERT_TRUE(f.good()) << "cannot open " << src;
     std::string content((std::istreambuf_iterator<char>(f)),

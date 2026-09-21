@@ -137,11 +137,11 @@ function candidateBuildDirs() {
     dirs.push(resolve(repoRoot, process.env.CC_REPL_CMAKE_BUILD_DIR))
   }
   if (process.env.CC_REPL_CMAKE_PRESET) {
-    dirs.push(resolve(repoRoot, 'cpp_migration', 'build', process.env.CC_REPL_CMAKE_PRESET))
+    dirs.push(resolve(repoRoot, 'build', process.env.CC_REPL_CMAKE_PRESET))
   }
   dirs.push(
-    resolve(repoRoot, 'cpp_migration', 'build', 'release'),
-    resolve(repoRoot, 'cpp_migration', 'build', 'debug'),
+    resolve(repoRoot, 'build', 'release'),
+    resolve(repoRoot, 'build', 'debug'),
   )
   return [...new Set(dirs)]
 }
