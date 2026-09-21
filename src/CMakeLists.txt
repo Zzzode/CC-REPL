@@ -98,14 +98,14 @@ target_sources(cc_utils
         utils/agent_id.cppm
         utils/agent_swarms_enabled.cppm
         utils/argument_substitution.cppm
-        utils/array_utils.cppm
+        utils/containers/array_utils.cppm
         utils/async.cppm
         utils/abort_controller.cppm
-        utils/auto_mode_denials.cppm
+        utils/permissions/auto_mode_denials.cppm
         utils/bash/bash_execution.cppm
         utils/bash/bash_security.cppm
         utils/bash/bash_shell_quoting.cppm
-        utils/binary_check.cppm
+        utils/platform/binary_check.cppm
         utils/cache.cppm
         utils/cache_paths.cppm
         utils/circular_buffer.cppm
@@ -121,7 +121,7 @@ target_sources(cc_utils
         utils/cwd.cppm
         utils/debug.cppm
         utils/debug_filter.cppm
-        utils/detect_repository.cppm
+        utils/git/detect_repository.cppm
         utils/diff_utils.cppm
         utils/editor_utils.cppm
         utils/effort.cppm
@@ -138,22 +138,22 @@ target_sources(cc_utils
         utils/file_history.cppm
         utils/file_persistence.cppm
         utils/file_read_cache.cppm
-        utils/find_executable.cppm
+        utils/platform/find_executable.cppm
         utils/fps_tracker.cppm
         utils/format.cppm
         utils/frontmatter_parser.cppm
         utils/fs_operations.cppm
-        utils/get_worktree_paths.cppm
-        utils/git.cppm
-        utils/git_diff.cppm
-        utils/git_filesystem.cppm
+        utils/git/get_worktree_paths.cppm
+        utils/git/git.cppm
+        utils/git/git_diff.cppm
+        utils/git/git_filesystem.cppm
         utils/github_utils.cppm
-        utils/gitignore.cppm
+        utils/git/gitignore.cppm
         utils/glob_utils.cppm
         utils/hash.cppm
         utils/clipboard.cppm
-        utils/http.cppm
-        utils/http_encoding.cppm
+        utils/http/http.cppm
+        utils/http/http_encoding.cppm
         utils/hyperlink.cppm
         utils/json.cppm
         utils/skill_usage.cppm
@@ -164,7 +164,7 @@ target_sources(cc_utils
         utils/mcp_helpers.cppm
         utils/mcp_validation.cppm
         utils/memory_file_detection.cppm
-        utils/message_mappers.cppm
+        utils/messages/message_mappers.cppm
         utils/model/ant_models.cppm
         utils/model/configs.cppm
         utils/model/model.cppm
@@ -173,27 +173,27 @@ target_sources(cc_utils
         utils/model/providers.cppm
         utils/model_aliases.cppm
         utils/model_cost.cppm
-        utils/message_predicates.cppm
+        utils/messages/message_predicates.cppm
         utils/native_installer.cppm
-        utils/object_group_by.cppm
+        utils/containers/object_group_by.cppm
         utils/path.cppm
         utils/path_utils.cppm
         utils/pdf.cppm
         utils/parse_references.cppm
-        utils/peer_address.cppm
-        utils/permissions.cppm
-        utils/permissions_engine.cppm
+        utils/http/peer_address.cppm
+        utils/permissions/permissions.cppm
+        utils/permissions/permissions_engine.cppm
         utils/plans.cppm
-        utils/plugin_dependency_resolver.cppm
-        utils/plugin_identifier.cppm
-        utils/plugin_marketplace_rules.cppm
-        utils/plugin_versioning.cppm
-        utils/platform.cppm
+        utils/plugin/plugin_dependency_resolver.cppm
+        utils/plugin/plugin_identifier.cppm
+        utils/plugin/plugin_marketplace_rules.cppm
+        utils/plugin/plugin_versioning.cppm
+        utils/platform/platform.cppm
         utils/powershell_parser.cppm
         utils/process.cppm
         utils/privacy_level.cppm
         utils/prompt_category.cppm
-        utils/proxy_utils.cppm
+        utils/http/proxy_utils.cppm
         utils/query_guard.cppm
         utils/read_file_in_range.cppm
         utils/semantic_boolean.cppm
@@ -203,16 +203,16 @@ target_sources(cc_utils
         utils/session_helpers.cppm
         utils/session_restore.cppm
         utils/session_storage.cppm
-        utils/set_utils.cppm
-        utils/settings_merge.cppm
-        utils/settings_paths.cppm
-        utils/settings_sources.cppm
-        utils/settings_validation.cppm
-        utils/shell.cppm
-        utils/shell_parser.cppm
-        utils/shell_rule_matching.cppm
+        utils/containers/set_utils.cppm
+        utils/settings/settings_merge.cppm
+        utils/settings/settings_paths.cppm
+        utils/settings/settings_sources.cppm
+        utils/settings/settings_validation.cppm
+        utils/shell/shell.cppm
+        utils/shell/shell_parser.cppm
+        utils/shell/shell_rule_matching.cppm
         utils/slash_command_parsing.cppm
-        utils/ssrf_guard.cppm
+        utils/http/ssrf_guard.cppm
         utils/stats_utils.cppm
         utils/string.cppm
         utils/string_utils.cppm
@@ -232,25 +232,25 @@ target_sources(cc_utils
         utils/token_budget.cppm
         utils/tokens.cppm
         utils/tool_helpers.cppm
-        utils/tool_deny_rules.cppm
+        utils/permissions/tool_deny_rules.cppm
         utils/user_utils.cppm
         utils/words.cppm
         utils/uuid_utils.cppm
-        utils/xdg.cppm
+        utils/platform/xdg.cppm
         utils/yaml.cppm
-        utils/hooks_config.cppm
-        utils/hooks_execution.cppm
-        utils/hooks_registry.cppm
+        utils/hooks/hooks_config.cppm
+        utils/hooks/hooks_execution.cppm
+        utils/hooks/hooks_registry.cppm
         utils/statusline_runner.cppm
-        utils/plugin_lifecycle.cppm
-        utils/plugin_loader.cppm
-        utils/plugin_manager.cppm
-        utils/plugin_marketplace.cppm
-        utils/plugin_marketplace_lifecycle.cppm
-        utils/plugin_validation.cppm
-        utils/settings_manager.cppm
-        utils/settings_rules.cppm
-        utils/shell_providers.cppm
+        utils/plugin/plugin_lifecycle.cppm
+        utils/plugin/plugin_loader.cppm
+        utils/plugin/plugin_manager.cppm
+        utils/plugin/plugin_marketplace.cppm
+        utils/plugin/plugin_marketplace_lifecycle.cppm
+        utils/plugin/plugin_validation.cppm
+        utils/settings/settings_manager.cppm
+        utils/settings/settings_rules.cppm
+        utils/shell/shell_providers.cppm
         utils/swarm/swarm_backends.cppm
         utils/swarm/swarm_coordination.cppm
         utils/swarm/swarm_helpers.cppm
@@ -258,7 +258,7 @@ target_sources(cc_utils
         utils/tool_management.cppm
         utils/mcp_transport.cppm
         utils/image_store.cppm
-        utils/platform_paths.cppm
+        utils/platform/platform_paths.cppm
         utils/file_index.cppm
         utils/tree_sitter/tree_sitter.cppm
         utils/tree_sitter/bash/ast.cppm
