@@ -1663,15 +1663,6 @@ target_sources(cc_server
 )
 target_link_libraries(cc_server PUBLIC cc_utils cc_session cc_query cc_tools OpenSSL::Crypto)
 
-# ─── cc_screens: Screen System ────────────────────────────────────────────────
-add_library(cc_screens)
-target_sources(cc_screens
-    PUBLIC FILE_SET CXX_MODULES FILES
-        screens/resume_screen.cppm
-        screens/screens.cppm
-)
-target_link_libraries(cc_screens PUBLIC cc_ui)
-
 # ─── cc_schemas: Validation Schemas ───────────────────────────────────────────
 add_library(cc_schemas)
 target_sources(cc_schemas
@@ -1738,7 +1729,6 @@ target_link_libraries(cc_core
         cc_buddy
         cc_migrations
         cc_server
-        cc_screens
         cc_schemas
         cc_benchmarks
         cc_plugins

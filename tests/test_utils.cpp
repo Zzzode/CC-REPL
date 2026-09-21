@@ -38,6 +38,7 @@ import cc.utils.argument_substitution;
 import cc.utils.semantic_boolean;
 import cc.utils.semantic_number;
 import cc.ui.terminal_io;
+import cc.commands.review.review_remote;
 import cc.utils.query_guard;
 import cc.utils.collapse_notifications;
 import cc.utils.agent_id;
@@ -75,7 +76,6 @@ import cc.plugins.marketplace;
 import cc.utils.clipboard;
 import cc.utils.parse_references;
 import core.memdir;
-import core.screens;
 
 class ScopedEnvVar {
 public:
@@ -372,15 +372,50 @@ TEST(StringUtilsCompat, SafeJoinLinesTruncatesLikeTypeScriptHelper) {
     EXPECT_EQ(cc::utils::safe_join_lines(lines, ",", 20), "abc,def,ghi");
 }
 
-TEST(Screens, ParsePrIdentifierUsesStrictNumbersAndGithubPullUrls) {
-    EXPECT_EQ(screens::parsePrIdentifier("42"), std::optional<int>(42));
-    EXPECT_EQ(screens::parsePrIdentifier("  https://github.com/org/repo/pull/123/files?diff=split  "), std::optional<int>(123));
-    EXPECT_EQ(screens::parsePrIdentifier("github.com/org/repo/pull/77#discussion_r1"), std::optional<int>(77));
+// Retargeted from the deleted `core.screens` module (a dead parallel model of
+// the screen layer, no production importers) to the parser the app actually
+// uses: `cc.commands.parse_pr_input` (module cc.commands.review.review_remote).
+// That function had no test.
+//
+// These assert what the LIVE parser guarantees, which is not identical to what
+// the deleted one did: the live one matches the GitHub-URL shape with
+// regex_search (not anchored), so it is deliberately permissive about
+// surrounding text, while still requiring an owner/repo/pull path. The
+// rejections below are the properties that genuinely hold.
+TEST(ReviewRemote, ParsePrInputAcceptsGithubPullReferenceForms) {
+    namespace rv = cc::commands;
 
-    EXPECT_FALSE(screens::parsePrIdentifier("123abc").has_value());
-    EXPECT_FALSE(screens::parsePrIdentifier("https://example.com/org/repo/pull/123").has_value());
-    EXPECT_FALSE(screens::parsePrIdentifier("https://github.com/org/repo/issues/123").has_value());
-    EXPECT_FALSE(screens::parsePrIdentifier("0").has_value());
+    auto url = rv::parse_pr_input("  https://github.com/org/repo/pull/123/files?diff=split  ");
+    ASSERT_TRUE(url.has_value());
+    EXPECT_EQ(url->owner, "org");
+    EXPECT_EQ(url->repo, "repo");
+    EXPECT_EQ(url->number, 123u);
+
+    auto bare_host = rv::parse_pr_input("github.com/org/repo/pull/77#discussion_r1");
+    ASSERT_TRUE(bare_host.has_value());
+    EXPECT_EQ(bare_host->owner, "org");
+    EXPECT_EQ(bare_host->repo, "repo");
+    EXPECT_EQ(bare_host->number, 77u);
+
+    auto short_form = rv::parse_pr_input("org/repo#42");
+    ASSERT_TRUE(short_form.has_value());
+    EXPECT_EQ(short_form->owner, "org");
+    EXPECT_EQ(short_form->repo, "repo");
+    EXPECT_EQ(short_form->number, 42u);
+}
+
+TEST(ReviewRemote, ParsePrInputRejectsNonPullReferences) {
+    namespace rv = cc::commands;
+
+    // An issue URL is not a pull request.
+    EXPECT_FALSE(rv::parse_pr_input("https://github.com/org/repo/issues/123").has_value());
+    // A non-GitHub host with no owner/repo/pull path.
+    EXPECT_FALSE(rv::parse_pr_input("https://example.com/org/repo/pull/123").has_value());
+    // Trailing junk on a bare number is not a number.
+    EXPECT_FALSE(rv::parse_pr_input("123abc").has_value());
+    // Empty / whitespace.
+    EXPECT_FALSE(rv::parse_pr_input("").has_value());
+    EXPECT_FALSE(rv::parse_pr_input("   ").has_value());
 }
 
 TEST(ArrayUtilsCompat, CountUniqAndIntersperseMatchTypeScriptHelpers) {

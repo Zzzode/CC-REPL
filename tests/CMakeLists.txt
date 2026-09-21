@@ -67,8 +67,8 @@ target_link_libraries(test_utils
         cc_utils           # all 50+ cc.utils.* imports
         cc_ui              # cc.ui.terminal_io
         cc_plugins         # cc.plugins.marketplace
-        cc_memdir          # core.memdir
-        cc_screens         # core.screens
+        cc_memdir
+        cc_commands        # cc.commands.review.review_remote (parse_pr_input)
         GTest::gtest_main
 )
 gtest_discover_tests(test_utils DISCOVERY_TIMEOUT ${LOOM_TEST_DISCOVERY_TIMEOUT})
