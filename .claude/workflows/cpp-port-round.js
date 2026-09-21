@@ -1,3 +1,18 @@
+// ARCHIVED 2026-09-21 — do not run.
+//
+// The TypeScript reference tree at `src/` was deleted; the project is now a pure
+// C++ codebase. This workflow's core premise ("TS = authority, read the TS
+// reference at <repo>/<ts_path>, leave `// TS REF:` breadcrumbs") cannot execute,
+// and its config is stale independently of that:
+//
+//   - line ~359:  REPO_ROOT is hardcoded to '/Users/bytedance/Develop/CC-REPL'
+//   - line ~140:  reads audit_round7_full_report.json from a hardcoded macOS path
+//   - GAP_SCHEMA requires a `ts_path` field, so no gap can be described without TS
+//
+// Kept as a historical record of how the port was driven. The design intent it
+// used to source from the TS tree is now in
+// cpp_migration/docs/decisions/design-decisions.md.
+
 export const meta = {
   name: 'cpp-port-round',
   description: 'TS to CPP faithful-port round. Pipeline: audit-driven gap discovery; 3-judge feasibility/priority/risk panel; top-gap implementation; cmake build + scoped ctest + UPDATE_GOLDENS verification. Loops until budget exhausted or no fresh gaps.',

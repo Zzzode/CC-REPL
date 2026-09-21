@@ -3,6 +3,19 @@ name: cpp-port
 pattern: "^/cpp-port\\b"
 ---
 
+> **ARCHIVED (2026-09-21).** The TypeScript reference tree at `src/` was deleted;
+> this project is now a pure C++ codebase. The methodology below ("TS = authority,
+> read `src/<ts_path>` first, leave `// TS REF:` breadcrumbs") can no longer run as
+> written, and the `ts:<path-prefix>` scope token is unsatisfiable.
+>
+> What survives and is still useful: the build/verify commands, the golden
+> `UPDATE_GOLDENS=1` procedure, and the pre-existing flake allow-list. For the
+> design intent that used to live in the TS tree, see
+> `cpp_migration/docs/decisions/design-decisions.md` — extracted before deletion.
+>
+> Kept for that remainder rather than deleted. Do not run a "port round" against
+> a tree that no longer exists.
+
 Handle the `/cpp-port` slash command by launching the `cpp-port-round`
 workflow. Parse scope/switches from the raw command string and forward
 as `args`.
