@@ -43,6 +43,7 @@ import cc.services.mcp.elicitation_handler;
 import cc.services.mcp.at_mention_handler;
 import cc.tools.ask_user;
 import cc.ui.dialogs.default_renderers;
+import cc.ui.dialogs.elicitation;
 import cc.ui.dialogs.system;
 import cc.ui.dialogs.triggers;
 import cc.ui.app.app_dialog_registration;
@@ -114,6 +115,11 @@ AppAdapter::AppAdapter(core::QueryEngine* engine,
     cc::ui::app_dialogs::register_hooks_dialog_renderer(
         screen_state_->dialog_renderers);
     cc::ui::app_dialogs::register_teams_dialog_renderer(
+        screen_state_->dialog_renderers);
+    // The faithful MCP elicitation dialog (y/n shortcuts, Esc -> on_cancel)
+    // overrides the minimal inline renderer in default_renderers. Registered
+    // last so it wins the by-index slot.
+    cc::ui::dialogs::elicitation::RegisterElicitationDialog(
         screen_state_->dialog_renderers);
 
     // Seed a stable per-session welcome-tip index.

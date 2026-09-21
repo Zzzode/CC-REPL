@@ -89,21 +89,25 @@ module) or be deliberately abandoned — not by an import-count sweep.
 
 ## Confirmed wiring bugs
 
-### 1. `cc.ui.dialogs.elicitation` (224 LOC) — a registered dialog with no renderer
+### 1. `cc.ui.dialogs.elicitation` (224 LOC) — RESOLVED 2026-09-22: orphan adopted
+
+The orphan renderer is now wired. `app_constructor.cpp` calls
+`elicitation::RegisterElicitationDialog(screen_state_->dialog_renderers)` at
+the end of the dialog-registration block, **after** every other registration;
+`register_dialog` assigns by index, so the faithful renderer overrides the
+minimal inline one in `default_renderers`. Net effect (a deliberate, approved
+behaviour change): MCP elicitation prompts now accept `y`/`Y` and `n`/`N`
+shortcuts, show `[y] Allow [n] Deny [Esc] Cancel`, and route Esc to
+`on_cancel()` rather than conflating Cancel with Deny. (Module renamed to
+`cc.ui.dialogs.elicitation` in the ui reshuffle; the file is now
+`ui/dialogs/elicitation_dialog.cppm`.)
+
+**Original analysis (kept for the rationale):**
 
 `DialogType::Elicitation` exists and is handled, but this module's
-`RegisterElicitationDialog(DialogRendererRegistry&)` — defined at
-`ui/dialogs/elicitation_dialog.cppm:204` — is **never called**. Meanwhile
-`ui/dialogs/dialog_default_renderers.cppm:398-426` hand-inlines
-`RenderElicitation` and `HandleElicitationEvent` for the same
-`dsys::ElicitationPayload`.
-
-**Fix:** call `RegisterElicitationDialog` from the default-renderer
-registration and drop the inline pair, or the reverse — but not both. There are
-two implementations of one renderer and only one is reachable.
-
-**These two are not equivalent, so this is a behaviour decision, not a swap.**
-Verified against both sources:
+`RegisterElicitationDialog(DialogRendererRegistry&)` was never called, while
+`dialog_default_renderers.cppm` hand-inlined a `RenderElicitation` /
+`HandleElicitationEvent` for the same `dsys::ElicitationPayload`.
 
 | | orphan `elicitation_dialog.cppm` | live `HandleElicitationEvent` |
 |---|---|---|
@@ -111,19 +115,12 @@ Verified against both sources:
 | Esc fires | `on_cancel()` | `on_response(false)` |
 | footer | `[y] Allow  [n] Deny  [Esc] Cancel` | `[Enter] Approve  [Esc] Deny` |
 
-The orphan is a strict superset: it honours the two single-key shortcuts and it
-uses the distinct `on_cancel` path that `ElicitationPayload` documents
-(`dialog_system.cppm:390` — "Esc fires on_cancel() instead of falling back to
-on_response(false)"). The live version conflates Cancel with Deny. Adopting the
-orphan therefore *changes what the user sees* — do not file this as a mechanical
-wiring fix.
+The orphan is a strict superset and matches the payload contract
+(`dialog_system.cppm` — "Esc fires on_cancel() instead of falling back to
+on_response(false)"). Producer side: `PushElicitation` (`dialogs/triggers.cppm`)
+populates `on_cancel`; an earlier moved-from-capture bug that left it empty was
+fixed before the adoption, so the on_cancel branch is now genuinely live.
 
-Producer side, for whoever resolves this: `PushElicitation`
-(`ui/dialogs/triggers.cppm`) is the only thing that populates `on_cancel`, and
-until recently it captured a moved-from `std::function`, so `on_cancel` was
-always empty — the two renderers behaved identically on Esc only because the
-orphan kept falling through to its `on_response` branch. That is fixed; if the
-orphan is adopted, its `on_cancel` branch is now live for the first time.
 
 ### 2-5. Four `cc.skills.bundled.*` orphans — shadowed by inline copies
 
@@ -345,20 +342,28 @@ Both have **zero** importers. Verified 2026-09-21 — see the revised fix below.
   as a 10-file subsystem, and `get_all_available_plugins` is live in
   `utils/plugin_marketplace.cppm:142`, so no capability is lost. The only other
   `PluginCommand` is an unrelated data struct in `utils/plugin_loader.cppm:301`.
-- **`cc.vim.vim_commands` — do NOT simply delete.** The original note called it
-  a shadowed duplicate of `commands/vim.cppm`'s `VimCommand` class. That is
-  true of the *name* and false of the *module*: the file is a complete 180-line
-  ex-mode registry (`:w` `:q` `:wq` `:set` `:map` `:help` `:noh` `:number`)
-  with a working `execute_ex_command` that parses `!` force variants. The
-  `struct VimCommand` at line 14 is just its entry type.
+- **`cc.vim.vim_commands` — do NOT wire it as-is; the "better implementation"
+  reading was wrong.** The file is a 180-line ex-mode registry (`:w` `:q` `:wq`
+  `:set` `:map` `:help` `:noh` `:number`) with an `execute_ex_command` that
+  parses `!` force variants, and it is unreachable: `hooks/vim_input.cppm`
+  carries its own local `execute_ex_command` (the only live one) that handles
+  all-digit `:42` line jumps. Re-examined 2026-09-22 before wiring, the registry
+  turned out to be a **string-returning toy with zero side effects**: grep shows
+  it never calls a cursor/insert/save/quit callback, never writes, never exits —
+  every handler returns a literal std::string ("Buffer saved", "quit", the help
+  text). The live `VimInputHook` exposes only text/cursor callbacks and has no
+  channel to even *display* those strings, and there is no buffer to save or
+  application-quit path for it to invoke. Wiring it would therefore make `:w`
+  and `:q` silently fake success with no effect — the exact "do not fake a
+  success string" rule this codebase applies elsewhere. The live `:<number>`
+  jump, by contrast, does real work via `set_cursor_`.
 
-  It is unreachable because the live vim hook does not use it. `hooks/vim_input.cppm`
-  carries its **own local** `execute_ex_command` (line 420) and calls *that* at
-  line 398 — and the live one is a near-stub that handles only all-digit input
-  (`:42` jumps to line 42) and ignores `:w`, `:q`, `:help` entirely. So the dead
-  module holds the *better* implementation. This is entry 1's pattern again: two
-  implementations of one behaviour, the reachable one weaker, which means the
-  fix is a decision (adopt the registry, or drop ex-mode) rather than a deletion.
+  **Real options** (a product decision, not yet taken): (a) delete the registry
+  and keep numeric jump as the only honest ex command; (b) build the missing
+  pieces — a message channel plus real save/quit callbacks — and then wire it;
+  (c) wire only commands that can have a genuine effect (none today beyond the
+  numeric jump the hook already does). Until one is chosen the file is left in
+  place, and it should NOT be adopted just because it is longer.
 
 ## Sibling gap
 
