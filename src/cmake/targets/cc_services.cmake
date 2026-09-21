@@ -1,0 +1,116 @@
+# ─── cc_services: Services Layer ──────────────────────────────────────────────
+add_library(cc_services)
+target_sources(cc_services
+    PUBLIC FILE_SET CXX_MODULES FILES
+        services/agent_summary/agent_summary.cppm
+        services/analytics.cppm
+        services/api/bootstrap.cppm
+        services/api/client.cppm
+        services/api/error_utils.cppm
+        services/api/errors.cppm
+        services/api/logging.cppm
+        services/api/models.cppm
+        services/api/session_ingress.cppm
+        services/api/streaming.cppm
+        services/api/usage.cppm
+        services/api/with_retry.cppm
+        services/api/with_retry_simple.cppm
+        services/auto_dream/auto_dream.cppm
+        services/auto_dream/consolidation_lock.cppm
+        services/auth/sigv4.cppm
+        services/auth/gcp_adc.cppm
+        services/auth/azure_credential.cppm
+        services/auth/provider_selector.cppm
+        services/compact/auto_compact.cppm
+        services/compact/grouping.cppm
+        services/compact/types.cppm
+        services/diagnostic/diagnostic.cppm
+        services/image/image.cppm
+        services/lsp/LSPServerInstance.cppm
+        services/lsp/LSPServerManager.cppm
+        services/lsp/client.cppm
+        services/lsp/diagnostic_registry.cppm
+        services/lsp/manager.cppm
+        services/lsp/passive_feedback.cppm
+        services/lsp/types.cppm
+        services/magic_docs/magic_docs.cppm
+        services/mcp/at_mention_handler.cppm
+        services/mcp/auth.cppm
+        services/mcp/channel_notification.cppm
+        services/mcp/channel_permissions.cppm
+        services/mcp/client.cppm
+        services/mcp/config.cppm
+        services/mcp/connection_manager.cppm
+        services/mcp/elicitation_handler.cppm
+        services/mcp/mcp_server.cppm
+        services/mcp/types.cppm
+        services/mcp/xaa.cppm
+        services/memory/extract_memories.cppm
+        services/memory/sessionMemory.cppm
+        services/memory/session_memory.cppm
+        services/notifier/notifier.cppm
+        services/oauth/auth_code_listener.cppm
+        services/oauth/crypto.cppm
+        services/oauth/types.cppm
+        services/policy/types.cppm
+        services/prevent_sleep/prevent_sleep.cppm
+        services/prompt_suggestion/prompt_suggestion.cppm
+        services/proxy/proxy.cppm
+        services/rate_limit/rate_limit.cppm
+        services/remote/session_manager.cppm
+        services/remote_settings/sync_cache_state.cppm
+        services/remote_settings/types.cppm
+        services/mcp/mcp_transport_service.cppm
+        services/tips/tip_registry.cppm
+        services/tips/tips.cppm
+        services/token/estimation.cppm
+        services/tool_summary/tool_summary.cppm
+        services/vcr/vcr.cppm
+        services/voice/voice.cppm
+        services/voice/voice_keyterms.cppm
+        services/voice/voice_stream_stt.cppm
+        services/assistant/session_history.cppm
+        services/output_styles/output_styles.cppm
+        services/mcp/headers_helper.cppm
+        utils/ide_integration.cppm
+        services/mcp/vscode_sdk_mcp.cppm
+        services/mcp/in_process_transport.cppm
+        services/mcp/oauth_port.cppm
+        services/mcp/xaa_idp_login.cppm
+        services/mcp/transport_stdio.cppm
+        services/diagnostic/dump_diagnostic.cppm
+        services/rate_limit/rate_limit_hook.cppm
+        services/compact/api_microcompact.cppm
+        services/team_memory/secret_scanner.cppm
+)
+target_sources(cc_services
+    PRIVATE
+        services/mcp/config_impl.cpp
+        services/mcp/headers_helper_impl.cpp
+)
+target_link_libraries(cc_services
+    PUBLIC
+        cc_utils
+        cc_types
+        cc_constants
+        CURL::libcurl
+        yyjson
+        uv_a
+        httplib::httplib
+        OpenSSL::SSL
+        OpenSSL::Crypto
+)
+# Native macOS Keychain backend (services/oauth) uses the Security framework.
+if(APPLE)
+    target_link_libraries(cc_services PUBLIC "-framework Security" "-framework CoreFoundation")
+endif()
+target_link_libraries(cc_commands
+    PUBLIC
+        cc_services
+        cc_constants
+        cc_keybindings
+        cc_skills_core
+        cc_skills
+        cc_tasks
+        cc_vim
+)

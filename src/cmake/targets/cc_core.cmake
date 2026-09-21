@@ -1,0 +1,42 @@
+# ─── cc_core: Aggregator (links ALL sub-libraries) ────────────────────────────
+# Convenience INTERFACE library that links all subsystems together.
+add_library(cc_core INTERFACE)
+target_link_libraries(cc_core
+    INTERFACE
+        cc_utils
+        cc_state
+        cc_constants
+        cc_types
+        cc_config
+        cc_context
+        cc_keybindings
+        cc_memdir
+        cc_coordinator
+        cc_query
+        cc_session
+        cc_entrypoints
+        cc_bootstrap
+        cc_tasks
+        cc_tools
+        cc_commands
+        cc_services
+        cc_hooks
+        cc_cli
+        cc_bridge
+        cc_skills_core
+        cc_skills
+        cc_ui
+        cc_vim
+        cc_daemon
+        cc_buddy
+        cc_migrations
+        cc_server
+        cc_schemas
+        cc_benchmarks
+        cc_plugins
+        cc_task_types
+        cc_history
+        CURL::libcurl
+        yyjson
+        uv_a
+)

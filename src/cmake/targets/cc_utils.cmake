@@ -1,0 +1,198 @@
+# ─── cc_utils: Utilities (no internal deps) ───────────────────────────────────
+add_library(cc_utils)
+target_sources(cc_utils
+    PUBLIC FILE_SET CXX_MODULES FILES
+        utils/agent_model.cppm
+        utils/activity_manager.cppm
+        utils/agent_id.cppm
+        utils/agent_swarms_enabled.cppm
+        utils/argument_substitution.cppm
+        utils/containers/array_utils.cppm
+        utils/async.cppm
+        utils/abort_controller.cppm
+        utils/permissions/auto_mode_denials.cppm
+        utils/bash/bash_execution.cppm
+        utils/bash/bash_security.cppm
+        utils/bash/bash_shell_quoting.cppm
+        utils/platform/binary_check.cppm
+        utils/cache.cppm
+        utils/cache_paths.cppm
+        utils/circular_buffer.cppm
+        utils/loom_hints.cppm
+        utils/collapse_read_search.cppm
+        utils/collapse_notifications.cppm
+        utils/commit_attribution.cppm
+        utils/code_indexing.cppm
+        utils/content_array.cppm
+        utils/control_message_compat.cppm
+        utils/config_utils.cppm
+        utils/crypto.cppm
+        utils/cwd.cppm
+        utils/debug.cppm
+        utils/debug_filter.cppm
+        utils/git/detect_repository.cppm
+        utils/diff_utils.cppm
+        utils/editor_utils.cppm
+        utils/effort.cppm
+        utils/env/env.cppm
+        utils/env/env_dynamic.cppm
+        utils/env/env_utils.cppm
+        utils/env/env_validation.cppm
+        utils/error.cppm
+        utils/errors_utils.cppm
+        utils/exec_file.cppm
+        utils/exec_sync.cppm
+        utils/file.cppm
+        utils/file_edit_utils.cppm
+        utils/file_history.cppm
+        utils/file_persistence.cppm
+        utils/file_read_cache.cppm
+        utils/platform/find_executable.cppm
+        utils/fps_tracker.cppm
+        utils/format.cppm
+        utils/frontmatter_parser.cppm
+        utils/fs_operations.cppm
+        utils/git/get_worktree_paths.cppm
+        utils/git/git.cppm
+        utils/git/git_diff.cppm
+        utils/git/git_filesystem.cppm
+        utils/github_utils.cppm
+        utils/git/gitignore.cppm
+        utils/glob_utils.cppm
+        utils/hash.cppm
+        utils/clipboard.cppm
+        utils/http/http.cppm
+        utils/http/http_encoding.cppm
+        utils/hyperlink.cppm
+        utils/json.cppm
+        utils/skill_usage.cppm
+        utils/list_sessions.cppm
+        utils/lockfile.cppm
+        utils/log.cppm
+        utils/markdown_utils.cppm
+        utils/mcp_helpers.cppm
+        utils/mcp_validation.cppm
+        utils/memory_file_detection.cppm
+        utils/messages/message_mappers.cppm
+        utils/model/ant_models.cppm
+        utils/model/configs.cppm
+        utils/model/model.cppm
+        utils/model/model_capabilities.cppm
+        utils/model/model_support_overrides.cppm
+        utils/model/providers.cppm
+        utils/model_aliases.cppm
+        utils/model_cost.cppm
+        utils/messages/message_predicates.cppm
+        utils/native_installer.cppm
+        utils/containers/object_group_by.cppm
+        utils/path.cppm
+        utils/path_utils.cppm
+        utils/pdf.cppm
+        utils/parse_references.cppm
+        utils/http/peer_address.cppm
+        utils/permissions/permissions.cppm
+        utils/permissions/permissions_engine.cppm
+        utils/plans.cppm
+        utils/plugin/plugin_dependency_resolver.cppm
+        utils/plugin/plugin_identifier.cppm
+        utils/plugin/plugin_marketplace_rules.cppm
+        utils/plugin/plugin_versioning.cppm
+        utils/platform/platform.cppm
+        utils/powershell_parser.cppm
+        utils/process.cppm
+        utils/privacy_level.cppm
+        utils/prompt_category.cppm
+        utils/http/proxy_utils.cppm
+        utils/query_guard.cppm
+        utils/read_file_in_range.cppm
+        utils/semantic_boolean.cppm
+        utils/semantic_number.cppm
+        utils/sanitization.cppm
+        utils/script_tool_enabled.cppm
+        utils/session_helpers.cppm
+        utils/session_restore.cppm
+        utils/session_storage.cppm
+        utils/containers/set_utils.cppm
+        utils/settings/settings_merge.cppm
+        utils/settings/settings_paths.cppm
+        utils/settings/settings_sources.cppm
+        utils/settings/settings_validation.cppm
+        utils/shell/shell.cppm
+        utils/shell/shell_parser.cppm
+        utils/shell/shell_rule_matching.cppm
+        utils/slash_command_parsing.cppm
+        utils/http/ssrf_guard.cppm
+        utils/stats_utils.cppm
+        utils/string.cppm
+        utils/string_utils.cppm
+        utils/swarm/swarm.cppm
+        utils/system_prompt.cppm
+        utils/system_theme.cppm
+        utils/task_output.cppm
+        utils/task_utils.cppm
+        utils/tagged_id.cppm
+        utils/team_helpers.cppm
+        utils/tempfile.cppm
+        utils/terminal_helpers.cppm
+        utils/text_highlighting.cppm
+        utils/theme.cppm
+        utils/thinking.cppm
+        utils/timeouts.cppm
+        utils/token_budget.cppm
+        utils/tokens.cppm
+        utils/tool_helpers.cppm
+        utils/permissions/tool_deny_rules.cppm
+        utils/user_utils.cppm
+        utils/words.cppm
+        utils/uuid_utils.cppm
+        utils/platform/xdg.cppm
+        utils/yaml.cppm
+        utils/hooks/hooks_config.cppm
+        utils/hooks/hooks_execution.cppm
+        utils/hooks/hooks_registry.cppm
+        utils/statusline_runner.cppm
+        utils/plugin/plugin_lifecycle.cppm
+        utils/plugin/plugin_loader.cppm
+        utils/plugin/plugin_manager.cppm
+        utils/plugin/plugin_marketplace.cppm
+        utils/plugin/plugin_marketplace_lifecycle.cppm
+        utils/plugin/plugin_validation.cppm
+        utils/settings/settings_manager.cppm
+        utils/settings/settings_rules.cppm
+        utils/shell/shell_providers.cppm
+        utils/swarm/swarm_backends.cppm
+        utils/swarm/swarm_coordination.cppm
+        utils/swarm/swarm_helpers.cppm
+        utils/swarm/swarm_pane_observer.cppm
+        utils/tool_management.cppm
+        utils/mcp_transport.cppm
+        utils/image_store.cppm
+        utils/platform/platform_paths.cppm
+        utils/file_index.cppm
+        utils/tree_sitter/tree_sitter.cppm
+        utils/tree_sitter/bash/ast.cppm
+)
+target_sources(cc_utils
+    PRIVATE
+        utils/json_impl.cpp
+        utils/skill_usage_impl.cpp
+)
+set_source_files_properties(utils/swarm_backends.cppm PROPERTIES
+    COMPILE_OPTIONS "$<$<CXX_COMPILER_ID:Clang>:-O0>"
+)
+target_link_libraries(cc_utils
+    PUBLIC
+        yyjson
+        uv_a
+        httplib::httplib
+        ftxui::screen
+)
+if(CC_ENABLE_TREE_SITTER)
+    target_link_libraries(cc_utils PUBLIC tree-sitter tree-sitter-bash)
+    target_compile_definitions(cc_utils PUBLIC CC_HAS_TREE_SITTER=1)
+else()
+    target_compile_definitions(cc_utils PUBLIC CC_HAS_TREE_SITTER=0)
+endif()
+if(APPLE)
+    target_link_libraries(cc_utils PUBLIC "-framework CoreFoundation")
+endif()

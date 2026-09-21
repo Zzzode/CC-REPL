@@ -1,0 +1,58 @@
+# ─── cc_hooks: Hooks System ───────────────────────────────────────────────────
+add_library(cc_hooks)
+target_sources(cc_hooks
+    PUBLIC FILE_SET CXX_MODULES FILES
+        hooks/assistant_history.cppm
+        hooks/auto_save.cppm
+        hooks/away_summary.cppm
+        hooks/background_task_navigation.cppm
+        hooks/command_queue.cppm
+        hooks/context.cppm
+        hooks/cost_hook.cppm
+        hooks/diff_data.cppm
+        hooks/exit_handler.cppm
+        hooks/file_watcher.cppm
+        hooks/ide_at_mentioned.cppm
+        hooks/ide_integration.cppm
+        hooks/input_buffer.cppm
+        hooks/input_hooks.cppm
+        hooks/main_loop_model.cppm
+        hooks/notifications.cppm
+        hooks/notifs/remaining_notifs.cppm
+        hooks/permissions.cppm
+        hooks/pr_status.cppm
+        hooks/prompt_suggestion.cppm
+        hooks/remaining_hooks.cppm
+        hooks/repl_bridge.cppm
+        hooks/settings_hooks.cppm
+        hooks/swarm_hooks.cppm
+        hooks/task_hooks.cppm
+        hooks/tasks.cppm
+        hooks/terminal_size.cppm
+        hooks/text_input.cppm
+        hooks/tool_permission/coordinator_handler.cppm
+        hooks/tool_permission/interactive_handler.cppm
+        hooks/tool_permission/permission_context.cppm
+        hooks/tool_permission/swarm_worker_handler.cppm
+        hooks/tool_permissions.cppm
+        hooks/lifecycle_hooks.cppm
+        hooks/turn_diffs.cppm
+        hooks/typeahead.cppm
+        hooks/vim_input.cppm
+        hooks/virtual_scroll.cppm
+        hooks/voice_hooks.cppm
+        hooks/swarm_permission_poller.cppm
+        hooks/permission_resolver.cppm
+        hooks/tool_permission_gate.cppm
+)
+target_link_libraries(cc_hooks
+    PUBLIC
+        cc_utils
+        cc_types
+        cc_config
+        cc_state
+        cc_context
+        cc_services
+        cc_vim
+        uv_a
+)

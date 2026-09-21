@@ -1,0 +1,30 @@
+# ─── cc_skills: Skill System ─────────────────────────────────────────────────
+add_library(cc_skills)
+target_sources(cc_skills
+    PUBLIC FILE_SET CXX_MODULES FILES
+        skills/bundled.cppm
+        skills/bundled/loom_in_chrome.cppm
+        skills/bundled/debug.cppm
+        skills/bundled/loop.cppm
+        skills/bundled/skill_keybindings.cppm
+        skills/bundled/skillify.cppm
+        skills/bundled/stuck.cppm
+        skills/bundled/update_config.cppm
+        skills/bundled/verify.cppm
+        skills/loom_api.cppm
+        skills/loom_api_content.cppm
+        skills/keybindings.cppm
+        skills/load_skills_dir.cppm
+        skills/lorem_ipsum.cppm
+        skills/mcp_skill_builders.cppm
+        skills/remember.cppm
+        skills/simplify.cppm
+        skills/verify_content.cppm
+)
+target_link_libraries(cc_skills
+    PUBLIC
+        cc_utils
+        cc_skills_core
+        cc_tools
+        yyjson
+)

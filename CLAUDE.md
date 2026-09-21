@@ -65,6 +65,26 @@ worth internalizing:
 - **Importers are found by module name, not filename.** To check whether a
   module is used, grep for `import cc.area.thing;`, and cover `tests/` too.
 
+**Build layout.** `src/CMakeLists.txt` holds global/project setup and, in
+dependency order, one `include()` per target pulling a file from
+`src/cmake/targets/`. `include()` (not `add_subdirectory()`) is deliberate: it
+keeps every target in one CMake scope, so the variables and the tree-sitter
+conditional at the top are visible throughout — `add_subdirectory()` would add
+a directory scope and change evaluation order. When adding a target, add its
+file under `src/cmake/targets/` and an `include()` in the same dependency order.
+
+**`cc_ui` is intentionally one target — do not split it to "speed up the
+build".** The module graph is a DAG (verified: 217 ui modules, zero module-level
+cycles), but grouped by the responsibility directories (`foundation`, `dialogs`,
+`messages`, …) nine of them collapse into one strongly-connected component
+(e.g. `foundation ↔ chrome`, `dialogs ↔ widgets`, `messages ↔ prompt`), so they
+cannot become separate static libraries without a library-level cycle. More
+importantly it would not help anyway: with named modules the recompile fan-out
+is driven by the BMI/import graph, not the library boundary — touching
+`design_tokens` already forces ~62 module recompiles regardless of how the
+archives are split. The single FILE_SET also lets clang-scan-deps resolve the
+intra-`cc.ui.*` imports both ways.
+
 ### Layout
 
 | Path | What |
@@ -73,7 +93,7 @@ worth internalizing:
 | `src/query/wire_*.cppm` | The wire-protocol seam. `wire_protocol.cppm` defines `WireBackend`; `wire_anthropic.cppm` and `wire_openai.cppm` implement it. The engine builds a vendor-neutral `RequestInput` and never serializes a wire format itself. |
 | `src/tools/` | Tool implementations, each with its input schema, permission model, and execution. |
 | `src/commands/` | Slash commands. Registered via `command_registry_init_*.cpp`. |
-| `src/ui/` | FTXUI interface. **Not Ink, not React** — do not port React idioms into it. |
+| `src/ui/` | FTXUI interface. **Not Ink, not React** — do not port React idioms into it. Cut by responsibility: `foundation/` (tokens, theme, figures, primitives), `chrome/` (layout, renderer, terminal I/O), `widgets/` (reusable controls), `visual/` (markdown/diff rendering), `messages/`, `dialogs/`, `permissions/`, `prompt/`, `screens/`, `features/{agents,teams,tasks,plugins,mcp}/`, `tools/` (tool-UI registry), and `app/` (the top-level app orchestrator shards). One `cc_ui` target — see the build-layout note above. |
 | `src/services/` | External integrations: MCP, LSP, API clients, plugins. |
 | `src/state/` | AppState store and reducers. |
 | `src/constants/paths.cppm` | **The single source for config/memory path resolution.** Both cascades live here; delegate to it rather than hardcoding paths. |
