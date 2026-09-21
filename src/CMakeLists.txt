@@ -102,9 +102,9 @@ target_sources(cc_utils
         utils/async.cppm
         utils/abort_controller.cppm
         utils/auto_mode_denials.cppm
-        utils/bash_execution.cppm
-        utils/bash_security.cppm
-        utils/bash_shell_quoting.cppm
+        utils/bash/bash_execution.cppm
+        utils/bash/bash_security.cppm
+        utils/bash/bash_shell_quoting.cppm
         utils/binary_check.cppm
         utils/cache.cppm
         utils/cache_paths.cppm
@@ -125,10 +125,10 @@ target_sources(cc_utils
         utils/diff_utils.cppm
         utils/editor_utils.cppm
         utils/effort.cppm
-        utils/env.cppm
-        utils/env_dynamic.cppm
-        utils/env_utils.cppm
-        utils/env_validation.cppm
+        utils/env/env.cppm
+        utils/env/env_dynamic.cppm
+        utils/env/env_utils.cppm
+        utils/env/env_validation.cppm
         utils/error.cppm
         utils/errors_utils.cppm
         utils/exec_file.cppm
@@ -216,7 +216,7 @@ target_sources(cc_utils
         utils/stats_utils.cppm
         utils/string.cppm
         utils/string_utils.cppm
-        utils/swarm.cppm
+        utils/swarm/swarm.cppm
         utils/system_prompt.cppm
         utils/system_theme.cppm
         utils/task_output.cppm
@@ -251,10 +251,10 @@ target_sources(cc_utils
         utils/settings_manager.cppm
         utils/settings_rules.cppm
         utils/shell_providers.cppm
-        utils/swarm_backends.cppm
-        utils/swarm_coordination.cppm
-        utils/swarm_helpers.cppm
-        utils/swarm_pane_observer.cppm
+        utils/swarm/swarm_backends.cppm
+        utils/swarm/swarm_coordination.cppm
+        utils/swarm/swarm_helpers.cppm
+        utils/swarm/swarm_pane_observer.cppm
         utils/tool_management.cppm
         utils/mcp_transport.cppm
         utils/image_store.cppm
