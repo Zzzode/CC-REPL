@@ -1357,14 +1357,13 @@ target_sources(cc_ui
         # entire target if any listed source is missing.  Only add module
         # sources that exist AND contain real implementations.  Registration
         # lives in register_default_renderers() in default_renderers.cppm.
-        ui/events/event_system.cppm
         ui/layout.cppm
-        ui/layout/fullscreen_layout.cppm
-        ui/layout/logo.cppm
-        ui/layout/logo_v2.cppm          # P0-4: LogoV2 3-mode dispatch + WelcomeV2 + notice stack
-        ui/layout/measure.cppm
-        ui/layout/wrap_text.cppm
-        ui/layout/yoga.cppm
+        ui/rendering/fullscreen_layout.cppm
+        ui/branding/logo.cppm
+        ui/branding/logo_v2.cppm          # P0-4: LogoV2 3-mode dispatch + WelcomeV2 + notice stack
+        ui/rendering/measure.cppm
+        ui/rendering/wrap_text.cppm
+        ui/rendering/yoga.cppm
         ui/markdown.cppm
         ui/messages.cppm
         ui/messages/assistant_message.cppm
@@ -1459,9 +1458,9 @@ target_sources(cc_ui
         ui/mcp/mcp_reconnect.cppm
         ui/mcp/mcp_settings_panel.cppm
         ui/mcp/mcp_tool_browser.cppm
-        ui/renderer/ink_utils.cppm
-        ui/renderer/renderer.cppm
-        ui/renderer/text_measure.cppm
+        ui/rendering/ink_utils.cppm
+        ui/rendering/renderer.cppm
+        ui/rendering/text_measure.cppm
         ui/tasks/task_components.cppm
         ui/tasks/task_details_dialog.cppm
         ui/tasks/task_list_view.cppm
@@ -1493,8 +1492,8 @@ target_sources(cc_ui
         ui/teams/swarm_collaboration_view.cppm
         ui/teams/team_status.cppm
         ui/teams/live_teammates.cppm
-        ui/termio/terminal_io.cppm
-        ui/hooks/hooks_ui.cppm
+        ui/rendering/terminal_io.cppm
+        ui/rendering/hooks_ui.cppm
         ui/screens/doctor_screen.cppm
         ui/screens/repl_screen.cppm
         ui/screens/resume_screen.cppm
