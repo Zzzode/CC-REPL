@@ -1,122 +1,147 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code when working in this repository.
 
-## Build and Development Commands
+## What this is
+
+**Loom** — a C++23 CLI agent harness. A single self-contained project: no
+TypeScript, no Bun, no npm. The tree was ported from a TypeScript codebase that
+has since been deleted; `docs/decisions/design-decisions.md` records the design
+intent that used to live there.
+
+## Build and test
 
 ```bash
-# Build the CLI wrapper
-bun run build
+cmake --preset debug      # configure (also: release, asan)
+cmake --build --preset debug -j8
+ctest --preset debug -j1
 
-# Run the CLI (requires build first)
-bun run start
-
-# Type check without emitting
-bun run typecheck
-
-# Run with specific settings
-bun run start:ttadk
-
-# Check version
-bun run start:version
-
-# Run with computer use MCP enabled
-bun run start:cu
+# or, the whole loop at once:
+cmake --workflow --preset dev     # configure + build debug
+cmake --workflow --preset ci      # configure + build + test release
+cmake --workflow --preset check   # configure + build + test asan
 ```
 
-## Tech Stack
+Configuring without a preset (or an explicit `CMAKE_TOOLCHAIN_FILE`) is a
+`FATAL_ERROR` by design: C++23 named modules need a matched `clang++` /
+`clang-scan-deps` pair, and a silent fallback would be hard to diagnose.
+AppleClang is rejected outright — it ships no `clang-scan-deps`.
 
-- **Runtime**: Bun (packageManager: bun@1.3.4)
-- **Language**: TypeScript (strict: false in tsconfig)
-- **Terminal UI**: React + [Ink](https://github.com/vadimdemedes/ink) (React for CLI)
-- **CLI Parsing**: Commander.js (extra-typings)
-- **Schema Validation**: Zod v4
-- **Code Search**: ripgrep (vendored in src/utils/vendor/ripgrep/)
-- **Feature Flags**: Bun's `bun:bundle` feature() for build-time dead code elimination
-- **Protocols**: MCP SDK, LSP
-- **API**: Anthropic SDK
+**Run tests serially (`-j1`).** There are pre-existing timing-sensitive flakes
+under `ctest -j$(nproc)`; `-j1` is deterministic and is the signal that counts.
 
-## Architecture Overview
+### Building on this Linux dev box
 
-### Entry Points
+The committed presets target the macOS CI runner and will not configure here.
+Use the machine-local preset (gitignored, because it holds absolute paths):
 
-- `src/entrypoints/cli.tsx` — Bootstrap entrypoint with fast-path handling for special flags
-- `src/main.tsx` — Full CLI initialization, Commander.js setup, Ink renderer
-
-The CLI uses dynamic imports to minimize module evaluation for fast startup paths (e.g., `--version` has zero imports beyond cli.tsx).
-
-### Core Systems
-
-**Tools** (`src/tools/`): Self-contained modules for each tool Claude can invoke. Each defines input schema, permission model, and execution logic. Key tools: BashTool, FileReadTool, FileWriteTool, FileEditTool, GlobTool, GrepTool, WebFetchTool, WebSearchTool, AgentTool, SkillTool, MCPTool, TaskCreateTool, TaskUpdateTool, TeamCreateTool.
-
-**Commands** (`src/commands/`): Slash command implementations (e.g., `/commit`, `/review`, `/compact`, `/mcp`, `/config`, `/doctor`).
-
-**Services** (`src/services/`): External integrations including Anthropic API (`api/`), MCP server management (`mcp/`), OAuth (`oauth/`), LSP (`lsp/`), analytics, plugins, context compression.
-
-**Bridge** (`src/bridge/`): Bidirectional communication for IDE integrations (VS Code, JetBrains). Handles messaging protocol, JWT auth, session management.
-
-**Hooks** (`src/hooks/`): React hooks for UI state, including `toolPermission/` for permission checking on tool invocations.
-
-**State** (`src/state/`): AppState management with store pattern.
-
-### Key Files
-
-- `src/QueryEngine.ts` (~46K lines) — Core LLM API engine: streaming, tool-call loops, thinking mode, retry logic
-- `src/Tool.ts` (~29K lines) — Base types and interfaces for all tools
-- `src/commands.ts` (~25K lines) — Command registry with conditional imports
-- `src/tools.ts` — Tool registry
-
-### Feature Flags
-
-Dead code elimination via Bun's `bun:bundle`:
-
-```typescript
-import { feature } from 'bun:bundle'
-
-// Inactive code is stripped at build time
-if (feature('SOME_FLAG')) {
-  // This block is eliminated if flag is false
-}
+```bash
+cmake --preset local-linux            # debug
+cmake --preset local-linux-release    # release
+cmake --build --preset local-linux -j8
+ctest --preset local-linux -j1
 ```
 
-Notable flags: `PROACTIVE`, `KAIROS`, `BRIDGE_MODE`, `DAEMON`, `VOICE_MODE`, `AGENT_TRIGGERS`, `MONITOR_TOOL`, `TEMPLATES`, `BG_SESSIONS`, `BYOC_ENVIRONMENT_RUNNER`, `SELF_HOSTED_RUNNER`.
+It pins Homebrew LLVM 22, points at the offline dependency cache, uses system
+(not brew) OpenSSL/curl headers, and links against brew's glibc 2.38. Release
+forces `-O0 -DNDEBUG` with LTO off, because the Homebrew LLVM 22 optimizer
+crashes on this tree.
 
-### Startup Optimization
+**If configuration fails with a FetchContent download error**, `.deps-cache/`
+is missing or incomplete. It holds the six pinned dependency archives; this box
+has no github.com access, so they cannot be re-fetched. `CMakeLists.txt` probes
+for `.deps-cache/<dep>-src/` automatically — no flags needed when it is present.
 
-- Parallel prefetch: MDM settings, keychain reads, API preconnect fired as side-effects before heavy module evaluation
-- Lazy loading: Heavy modules (OpenTelemetry ~400KB, gRPC ~700KB) deferred via dynamic `import()`
+## Architecture
 
-### Agent Swarms
+**Modules, not headers.** The tree is C++23 named modules (`export module
+cc.<area>.<thing>;`), built with `-fmodules-reduced-bmi`. Two consequences
+worth internalizing:
 
-Sub-agents spawned via `AgentTool` with `coordinator/` handling multi-agent orchestration. `TeamCreateTool` enables team-level parallel work with shared task lists.
+- **A module's name does not have to match its path.** `export module
+  cc.ui.design.tokens;` can live in `ui/design/tokens.cppm`. Moving a file
+  therefore usually needs only a `CMakeLists.txt` path update — not an import
+  rewrite. This is what makes directory restructuring cheap here.
+- **Importers are found by module name, not filename.** To check whether a
+  module is used, grep for `import cc.area.thing;`, and cover `tests/` too.
 
-### Skill System
+### Layout
 
-Reusable workflows in `src/skills/` executed through `SkillTool`. Users can add custom skills.
+| Path | What |
+|---|---|
+| `src/query/` | **The engine.** `query_engine.cppm` owns the streaming loop, tool-call loop, thinking mode, retry. Start here for anything about model interaction. |
+| `src/query/wire_*.cppm` | The wire-protocol seam. `wire_protocol.cppm` defines `WireBackend`; `wire_anthropic.cppm` and `wire_openai.cppm` implement it. The engine builds a vendor-neutral `RequestInput` and never serializes a wire format itself. |
+| `src/tools/` | Tool implementations, each with its input schema, permission model, and execution. |
+| `src/commands/` | Slash commands. Registered via `command_registry_init_*.cpp`. |
+| `src/ui/` | FTXUI interface. **Not Ink, not React** — do not port React idioms into it. |
+| `src/services/` | External integrations: MCP, LSP, API clients, plugins. |
+| `src/state/` | AppState store and reducers. |
+| `src/constants/paths.cppm` | **The single source for config/memory path resolution.** Both cascades live here; delegate to it rather than hardcoding paths. |
+| `benchmarks/pare/` | Benchmark case data. The `pare-benchmark` binary reads the JSON by CWD-relative path. |
 
-## Important Notes
+### Configuration and data paths
 
-- The `stubs/` directory contains placeholder packages for internal Anthropic dependencies (`@ant/*`)
-- Build output is a thin wrapper in `dist/cli.js` that imports `src/entrypoints/cli.tsx` directly
-- Source maps reference the original leaked source from Anthropic's R2 storage
+    config dir   $LOOM_CONFIG_DIR > ~/.loom > ~/.agents > ~/.claude   (read)
+                 $LOOM_CONFIG_DIR > ~/.loom                          (write)
+    memory file  LOOM.md > AGENTS.md > CLAUDE.md   (per directory, walking up)
 
-## Language Requirements
+Read follows the cascade; **write never does.** Writing into another tool's
+config directory would interleave two tools' state. Both cascades are
+implemented in `src/constants/paths.cppm` — eight call sites previously
+reimplemented the lookup and silently drifted.
 
-- All project documentation and all code comments must be written in English only. Do not use any other language in docs/comments.
+### Wire backends
 
-## CPP Migration: Debug Traces
+`wire_api` config key or `LOOM_WIRE_API` env selects the backend; unset ⇒
+Anthropic. Credentials reach the wire through the single decision point in
+`query/wire_anthropic.cppm` (Bearer when a token is set, else `x-api-key`).
+`ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` are read as user-supplied
+credentials for the user's own endpoint — there is no account system and no
+login.
 
-The C++ build (`cpp_migration/`) automatically persists debug traces for every session:
+## Debug traces
 
-- **Session Transcript**: `~/.cc-repl/sessions/<session_id>/messages.jsonl`
-  Complete conversation (all Message variants with ToolUseBlock/ToolResultBlock/TextBlock/ThinkingBlock).
-  
-- **API Dump**: `~/.cc-repl/dump-prompts/<session_id>.jsonl`
-  Full API request body (messages array sent to model) + parsed response (AssistantMessage with all blocks, stop_reason, has_tool_use).
+Every session persists two traces, both under the storage dir
+(`~/.loom/sessions/`):
 
-Use these to diagnose:
-- Duplicate tool-call rows (check if model produced redundant ToolUseBlocks across API rounds)
-- Missing tool output (check ToolResultMessage content)
-- Wrong tool status rendering (check conversation message ordering)
+- `~/.loom/sessions/<session_id>/messages.jsonl` — the full conversation: every
+  message appended to the engine, with tool-use/tool-result/text/thinking
+  blocks. One JSON object per line.
+- `~/.loom/dump-prompts/<session_id>.jsonl` — the API request body (messages
+  array, system prompt, tool schemas) and the parsed response.
 
-See `.agents/skills/debug-session/SKILL.md` for detailed inspection commands.
+Wired in `src/ui/app_constructor.cpp` via `set_session_storage` /
+`set_dump_prompts_dir`. Use them to diagnose duplicate tool-call rows, missing
+tool output, and wrong tool status. See `.agents/skills/debug-session/SKILL.md`.
+
+## Conventions
+
+- **All code comments and docs in English.**
+- **`-Werror` is on** (`-Wall -Wextra -Wpedantic`). New warnings fail the build.
+- **No hardcoded RGB** — use palette/design tokens (`src/ui/design/`).
+- **No constant-frequency render ticker** — the FTXUI UI is event-driven.
+- **FTXUI components must be held by state**, not reconstructed per render.
+- **Every change builds debug *and* release, with ctest green**, before committing.
+- Prefer deleting dead code to fixing it.
+
+### A hazard specific to this codebase
+
+Cross-module couplings are often **string- or shape-based**, so a change on one
+side silently breaks the other rather than failing to compile. Examples:
+
+- `tools/runtime_registry.cppm`'s `parse_lsp_action` mirrors
+  `lsp_action_name()` in `lsp_tool.cppm`; a mismatch silently falls through to
+  `LspAction::Symbols` — a *wrong answer*, not an error.
+- The `<task_notification>` / `<status>` / `<summary>` tag format is produced by
+  three modules (`local_agent_task`, `local_shell_task`, `runtime_registry`) and
+  consumed by `ui/messages/collapse_background_bash.cppm`; changing the
+  emitters' spelling silently stops the collapsing.
+
+`docs/decisions/design-decisions.md` catalogues these — consult it before
+changing a wire shape, a registry key, or a tag format.
+
+## Historical documents
+
+`docs/` holds audit reports and plans written while the TypeScript reference
+tree still existed. They contain paths that no longer resolve, and are kept
+unedited as records of what was found. `docs/README.md` says which are current.
