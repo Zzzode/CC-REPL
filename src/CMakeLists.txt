@@ -103,7 +103,6 @@ target_sources(cc_utils
         utils/abort_controller.cppm
         utils/auto_mode_denials.cppm
         utils/bash_execution.cppm
-        utils/bash_parser.cppm
         utils/bash_security.cppm
         utils/bash_shell_quoting.cppm
         utils/binary_check.cppm
@@ -156,7 +155,6 @@ target_sources(cc_utils
         utils/http.cppm
         utils/http_encoding.cppm
         utils/hyperlink.cppm
-        utils/input_router.cppm
         utils/json.cppm
         utils/skill_usage.cppm
         utils/list_sessions.cppm
@@ -165,8 +163,6 @@ target_sources(cc_utils
         utils/markdown_utils.cppm
         utils/mcp_helpers.cppm
         utils/mcp_validation.cppm
-        utils/memdir.cppm
-        utils/memory.cppm
         utils/memory_file_detection.cppm
         utils/message_mappers.cppm
         utils/model/ant_models.cppm
@@ -179,7 +175,6 @@ target_sources(cc_utils
         utils/model_cost.cppm
         utils/message_predicates.cppm
         utils/native_installer.cppm
-        utils/native_utils.cppm
         utils/object_group_by.cppm
         utils/path.cppm
         utils/path_utils.cppm
@@ -200,14 +195,11 @@ target_sources(cc_utils
         utils/prompt_category.cppm
         utils/proxy_utils.cppm
         utils/query_guard.cppm
-        utils/query_helpers.cppm
         utils/read_file_in_range.cppm
-        utils/sandbox.cppm
         utils/semantic_boolean.cppm
         utils/semantic_number.cppm
         utils/sanitization.cppm
         utils/script_tool_enabled.cppm
-        utils/session.cppm
         utils/session_helpers.cppm
         utils/session_restore.cppm
         utils/session_storage.cppm
@@ -224,7 +216,6 @@ target_sources(cc_utils
         utils/stats_utils.cppm
         utils/string.cppm
         utils/string_utils.cppm
-        utils/suggestions.cppm
         utils/swarm.cppm
         utils/system_prompt.cppm
         utils/system_theme.cppm
@@ -233,7 +224,6 @@ target_sources(cc_utils
         utils/tagged_id.cppm
         utils/team_helpers.cppm
         utils/tempfile.cppm
-        utils/terminal.cppm
         utils/terminal_helpers.cppm
         utils/text_highlighting.cppm
         utils/theme.cppm
@@ -244,7 +234,6 @@ target_sources(cc_utils
         utils/tool_helpers.cppm
         utils/tool_deny_rules.cppm
         utils/user_utils.cppm
-        utils/utils.cppm
         utils/words.cppm
         utils/uuid_utils.cppm
         utils/xdg.cppm
@@ -348,7 +337,6 @@ target_sources(cc_constants
         constants/prompts.cppm
         constants/spinner_verbs.cppm
         services/api/sse_client.cppm
-        constants/tools_constants.cppm
         constants/xml.cppm
 )
 target_link_libraries(cc_constants PUBLIC cc_utils cc_types)
@@ -873,7 +861,6 @@ target_sources(cc_hooks
         hooks/input_hooks.cppm
         hooks/main_loop_model.cppm
         hooks/notifications.cppm
-        hooks/notifs/rate_limit_warning.cppm
         hooks/notifs/remaining_notifs.cppm
         hooks/permissions.cppm
         hooks/pr_status.cppm
@@ -970,12 +957,9 @@ add_library(cc_skills)
 target_sources(cc_skills
     PUBLIC FILE_SET CXX_MODULES FILES
         skills/bundled.cppm
-        skills/bundled/batch.cppm
         skills/bundled/loom_in_chrome.cppm
         skills/bundled/debug.cppm
         skills/bundled/loop.cppm
-        skills/bundled/remember.cppm
-        skills/bundled/simplify.cppm
         skills/bundled/skill_keybindings.cppm
         skills/bundled/skillify.cppm
         skills/bundled/stuck.cppm

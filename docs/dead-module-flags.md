@@ -34,6 +34,59 @@ instructions. Two habits would have prevented all three errors: **an import
 count is not evidence of correctness**, and **"same name" is not "same thing"** —
 read what the module actually does, not what it is called.
 
+## Disposition record (2026-09-21) — adversarial verification
+
+The candidate set (the `cc.utils` aggregator, the sixteen modules it alone
+reached, and four other zero-importer modules) was run through a **two-stage
+adversarial verification**: 23 modules × one skeptic each, each checking both
+reachability (declared module name, `export import` chains, `extern "C"`,
+template registration, tests, CMake) and capability preservation (is the live
+counterpart equally strong, a stub, or a drifted duplicate?), then an
+independent **refuter** for every SAFE verdict that tried to construct a reason
+to keep it. 46 agents, zero failures. A module was deleted only when both the
+skeptic and the refuter agreed it was safe. The per-module evidence is in the
+workflow journal; this table is the ruling.
+
+**Deleted (16)** — both agents agreed: unreachable AND no capability lost.
+
+| module | why nothing is lost |
+|---|---|
+| `cc.utils` | the aggregator itself; convention is direct imports (`json` ×144), 0 importers, every member independently CMake-listed |
+| `cc.utils.bash_parser` | `bash_execution` (45 importers) covers `is_dangerous_command`/`split_shell_command` |
+| `cc.utils.memory` | `cc.memdir.paths` `MemoryType`; `AutoMem` consumed by `query_engine.cppm:971` |
+| `cc.utils.memdir` | live `src/memdir/` target (`cc.memdir.*`) |
+| `cc.utils.session` | live `src/session/` target (`cc.session.*`) |
+| `cc.utils.terminal` | `cc.utils.hyperlink`, `cc.hooks.terminal_size`, `ui/rendering/ink_utils.cppm` |
+| `cc.utils.input_router` | `command_registry` slash parsing + `parse_references` + `bash_execution` |
+| `cc.utils.sandbox` | `tools/should_use_sandbox.cppm` + `bash/impl_bash.cppm` enforce it; only the Docker/nsjail adapters were unhoused (unused) |
+| `cc.utils.query_helpers` | `token_budget.cppm:259` `should_compact` + `query_engine` utilization math |
+| `cc.utils.suggestions` | live autocomplete pipeline (`autocomplete_sources`, `app_autocomplete`, `fuzzy_rank_nucleo`) |
+| `cc.utils.native_utils` | the one real capability (background-task tracking) has a strictly stronger live home in `cc.tasks.task_graph` (libuv, timeout, cancel); installer/DXT halves were non-functional stubs |
+| `cc.constants.tools_constants` | all three agent tool-access sets are strict supersets in live `agent_sub_utils.cppm` (called from `agent_tool.cppm`); the 30 string values exist as live per-module `kToolName`/literals; the one unmatched set (`coordinator_mode_allowed_tools`) never took effect in C++ |
+| `cc.skills.bundled.remember` | in-memory KV store + manifest; shipped skill text comes from root `cc.skills.remember` |
+| `cc.skills.bundled.simplify` | shipped skill comes from root `cc.skills.simplify` |
+| `cc.skills.bundled.batch` | bundled.cppm ships its local `make_batch_skill()` |
+| `cc.hooks.notifs.rate_limit_warning` | one notification nothing emits |
+
+**Kept (7) — all `KEEP_CAPABILITY_LOSS`.** Unreachable, but each holds a real
+capability the live tree does **not** match in strength. These are consolidation
+candidates, not cleanup; deleting them would silently ratify a regression.
+
+| module | the capability the live tree lacks |
+|---|---|
+| `cc.utils.pdf` | the tree's only real PDF **text extraction**; live `file_read_tool::read_pdf` merely base64s the file (no extraction, no page count, no markdown), and the OpenAI wire drops that block |
+| `cc.utils.task_output` | generic **8 MB-then-disk spill** with 5 GB retention, tail, progress polling, tmp lifecycle; live paths are unbounded in-memory or a last-30 KB trim |
+| `cc.utils.agent_model` | `LOOM_SUBAGENT_MODEL` override, same-tier collapse to the parent model, true inherit-to-parent; live resolver hardcodes per-alias IDs and a fixed sonnet default |
+| `cc.utils.code_indexing` | zero-dependency offline regex symbol index over 7 languages; the live LSP tool returns `ServerNotConnected` with no fallback when no server is installed |
+| `cc.utils.cache` | generic TTL cache with proactive cleanup and `SimpleCache`; the three live copies are strictly narrower (path→string lazy-TTL, no-TTL token cache, single TTL snapshot) |
+| `cc.utils.swarm` | provider/proxy env forwarding to tmux teammates and per-PID `-L` swarm-socket isolation (an explicit TODO at `swarm_backends.cppm:1341` admits it is unported); also its `HIDDEN_SESSION_NAME` has **drifted** from both the kept value and TS — resolve the constant before consolidating |
+| `cc.skills.bundled.verify` | a 348-line working multi-language check/auto-fix engine; its only live counterpart is static LLM prompt text with no executable hook — an unfinished never-wired feature |
+
+The recurring shape across the seven is the one §6 and §9-10 first exposed:
+**the reachable implementation is the weaker one.** Resolve these by deciding
+whether the capability should ship (wire it / port the body into the live
+module) or be deliberately abandoned — not by an import-count sweep.
+
 ## Confirmed wiring bugs
 
 ### 1. `cc.ui.dialogs.elicitation` (224 LOC) — a registered dialog with no renderer
@@ -195,11 +248,70 @@ modules are in that position (`bash_parser`, `cache`, `agent_model`, `memory`,
 `sandbox`, `query_helpers`, `task_output`, `suggestions`, `swarm`,
 `native_utils`).
 
-**Fix:** the decision is whether this aggregator is wanted at all. If yes, point
-callers at it (and the 16 become reachable). If no, delete it **and** decide the
-16 individually — they are currently excluded from the dead list only because
-this module nominally reaches them. This is the one flag whose resolution
-changes whether ~16 other modules live or die, so resolve it first.
+**Fix — RESOLVED 2026-09-21: delete the aggregator. It is not the intended
+pattern.**
+
+Two checks settle it:
+1. **The codebase's convention is direct imports, by a wide margin.**
+   `import cc.utils.json;` appears 144×, `cc.utils.error` 65×,
+   `cc.utils.bash_execution` 45×, and so on down the list. The aggregator itself
+   is imported **0** times. Nobody was ever going to route through it.
+2. **The 16 are not mechanically dependent on it.** Each is listed individually
+   in `src/CMakeLists.txt`, so they compile whether or not the aggregator
+   imports them. Deleting the aggregator does not unbuild anything.
+
+So "point callers at it" would mean inventing a convention the tree has
+consistently rejected. Delete `utils/utils.cppm`.
+
+**The 16 classified** (2026-09-21; all confirmed to have exactly one importer —
+the aggregator — and none imported anywhere else):
+
+| module | verdict | live counterpart |
+|---|---|---|
+| `bash_parser` | SHADOWED | `cc.utils.bash_execution` (45 importers) for `is_dangerous_command`/`split_shell_command`; `cc.utils.shell_parser` holds the same grammar but is **test-only** reachable |
+| `cache` | SHADOWED | `cc.utils.file_read_cache` (live) — and a hand-rolled LRU exists in `ui/markdown.cppm` + `plugins/marketplace.cppm`, i.e. the codebase needs LRU and has written it 3× |
+| `agent_model` | SHADOWED | `app.cppm`/`repl_screen.cppm` use the `"inherit"` vocabulary; `model_aliases` resolves live |
+| `memory` | SHADOWED | `cc.memdir.paths` (`MemoryType`); `AutoMem` is consumed by the live `query_engine.cppm:971` |
+| `memdir`, `session` | SHADOWED | have live sibling directories (`src/memdir/`, `src/session/`) with their own targets |
+| `terminal` | SHADOWED | `cc.utils.hyperlink` (7), `cc.hooks.terminal_size`, `ink_utils.cppm` |
+| `input_router` | SHADOWED | `command_registry.cppm`'s slash parsing + `parse_references` (10) + `bash_execution` |
+| `code_indexing` | SHADOWED | LSP symbol tool (`cc.tools.lsp`, live-registered) — but see the caveat below |
+| `pdf` | SHADOWED | `file_read_tool.cppm:216` `is_pdf_file`... and the live one does **no text extraction**. See below. |
+| `sandbox` | SHADOWED | `should_use_sandbox.cppm`, `bash/impl_bash.cppm` enforced live via bash tool |
+| `query_helpers` | SHADOWED | `token_budget.cppm:259` `should_compact` (80% threshold, identical) |
+| `task_output` | SHADOWED | `tools/task_tool.cppm:521` `TaskOutputTool` — live |
+| `suggestions` | SHADOWED | live autocomplete pipeline: `ui/autocomplete_sources.cppm`, `app_autocomplete.cpp`, `fuzzy_rank_nucleo` |
+| `swarm` | SHADOWED | `cc.utils.swarm_backends` (17), `swarm_helpers` (6) — constants verbatim-identical |
+| `native_utils` | **AMBIGUOUS** | no confirmed live home; `cc.utils.native_installer` also has 0 importers, so it does not "shadow" it. The DXT half has zero references tree-wide and the installer half is itself a stub. |
+
+**Read this before deleting the whole table** — four of the SHADOWED verdicts
+are the *weaker-live-implementation* pattern this file documents elsewhere (§6,
+§9-10), not clean duplicates:
+
+- `pdf` — the live `read_pdf` is a stub that base64s the file and reports a byte
+  count; it extracts **no text**. The dead module implements real extraction.
+- `task_output` — the live path buffers in memory with **no disk spill**
+  (8 MB cap, then truncation); the dead module has `DiskTaskOutput`/`spill_to_disk`.
+- `agent_model` — the live `resolve_agent_model` hardcodes per-alias model IDs;
+  the dead one calls `resolve_alias`. The collapsing behaviour may be lost.
+- `code_indexing` — the live counterpart is an LSP client requiring an installed
+  server. The dead one is a zero-dependency regex index. If the intent was
+  always-available indexing, that is a capability loss, not a duplicate.
+
+So the honest instruction is: **delete the aggregator** (unambiguous), then treat
+the 16 as a batch to review, deleting the clean duplicates and raising the four
+above as consolidation decisions. Deleting them in one sweep would silently
+ratify four capability losses.
+
+**Correction to one datum a reviewer would otherwise trust:** `cc.utils.shell_parser`
+is *not* on a live production path. The earlier classification said
+`utils/permissions.cppm:130` imports it — true, but `cc.utils.permissions` is
+itself imported **only** by this dead aggregator (`utils.cppm:63`) and
+`tests/utils/permissions_test.cpp`. So `shell_parser` is test-reachable, not
+live; the genuinely live counterpart for `bash_parser`'s capabilities is
+`cc.utils.bash_execution` (45 importers). Three other thin chains verified:
+`token_budget` is imported only by `tests/test_utils.cpp:27`, and `ink_utils`
+by exactly one live file (`repl_screen.cppm:104`).
 
 ### 9-10. `cc.services.plugins.cli_commands` and `cc.vim.vim_commands` — one shadowed, one not
 
