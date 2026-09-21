@@ -31,6 +31,29 @@ the evidence before acting — line numbers drift.
 registration and drop the inline pair, or the reverse — but not both. There are
 two implementations of one renderer and only one is reachable.
 
+**These two are not equivalent, so this is a behaviour decision, not a swap.**
+Verified against both sources:
+
+| | orphan `elicitation_dialog.cppm` | live `HandleElicitationEvent` |
+|---|---|---|
+| keys | `y`/`Y`, `n`/`N`, Enter, Esc | Enter, Esc only |
+| Esc fires | `on_cancel()` | `on_response(false)` |
+| footer | `[y] Allow  [n] Deny  [Esc] Cancel` | `[Enter] Approve  [Esc] Deny` |
+
+The orphan is a strict superset: it honours the two single-key shortcuts and it
+uses the distinct `on_cancel` path that `ElicitationPayload` documents
+(`dialog_system.cppm:390` — "Esc fires on_cancel() instead of falling back to
+on_response(false)"). The live version conflates Cancel with Deny. Adopting the
+orphan therefore *changes what the user sees* — do not file this as a mechanical
+wiring fix.
+
+Producer side, for whoever resolves this: `PushElicitation`
+(`ui/dialogs/triggers.cppm`) is the only thing that populates `on_cancel`, and
+until recently it captured a moved-from `std::function`, so `on_cancel` was
+always empty — the two renderers behaved identically on Esc only because the
+orphan kept falling through to its `on_response` branch. That is fixed; if the
+orphan is adopted, its `on_cancel` branch is now live for the first time.
+
 ### 2-5. Four `cc.skills.bundled.*` orphans — shadowed by inline copies
 
 `skills/bundled.cppm` is the live bundled-skill registry. For four skills it has

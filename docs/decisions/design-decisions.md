@@ -1478,6 +1478,17 @@ promoted to the repository root in the same series of commits, so
 - **`cpp_migration/src/ui/permissions/permission_single_prompt.cppm:344-346`** — See A.10: exactly one
   terminal callback per prompt.
 
+- **`cpp_migration/src/ui/permissions/permission_file_edit.cppm:626-651`** and
+  **`permission_file_write.cppm:868-893`** — The two test-only convenience helpers
+  (`MakeSimpleFileEditPrompt`, `MakeSimpleFileWritePrompt`) require an **explicit** one-shot guard,
+  because the panels they wrap fire **two** callbacks on one Esc. The edit/write Escape branch calls
+  `on_abort()` and then `emit(Decision::Abort)` (→ `on_decide`) unconditionally; that double-fire is
+  the panel's contract and `repl_screen.cppm:3880-3882` collapses it with a `fired` flag of its own.
+  The helpers hand *both* callbacks to a single `on_result`, so they need the same guard. This was
+  previously correct only **by accident**: `on_abort` was built from a moved-from `std::function`,
+  so it was empty and Esc reached `on_result` exactly once via `on_decide`. Any caller that supplied
+  a working `on_abort` would have gotten **two** replies.
+
 ### B.3 — MCP / wire-format fields
 
 - **`cpp_migration/src/services/mcp/types.cppm:384-390`** — The `inputSchema` object is preserved
