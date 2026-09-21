@@ -57,9 +57,9 @@ module;
 
 export module cc.ui.screens.log_selector;
 
-import cc.ui.trust_dialog;
-import cc.ui.trust_utils;
-import cc.ui.design.tokens;
+import cc.ui.dialogs.trust_dialog;
+import cc.ui.dialogs.trust_utils;
+import cc.ui.foundation.design_tokens;
 
 export namespace cc::ui::screens::log_selector {
 

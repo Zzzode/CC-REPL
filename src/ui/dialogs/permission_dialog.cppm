@@ -29,7 +29,7 @@ struct PermissionRequest {
     //   so this dialog can share the classification logic with TrustDialog.
     //   Migration path:
     //
-    //     1. import cc.ui.trust_utils;
+    //     1. import cc.ui.dialogs.trust_utils;
     //     2. change `risk_level` to `cc::ui::trust_utils::RiskLevel level;`
     //     3. at build site, call:
     //          level = classify_risk(ActionType::Command, summary)

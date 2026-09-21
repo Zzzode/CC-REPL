@@ -33,13 +33,13 @@ export module cc.ui.messages.assistant_text_message;
 
 import cc.ui.messages.message_components;
 import cc.ui.messages.message_timestamp;
-import cc.ui.markdown;
+import cc.ui.visual.markdown;
 // R7: BLACK_CIRCLE selection recoloring uses palette.suggestion +
 // message_actions_background tokens (not inline RGB) so light/daltonized
 // variants stay faithful.  Figures provides kBullet (U+25CF = TS BLACK_CIRCLE).
-import cc.ui.design.tokens;
-import cc.ui.design.theme;
-import cc.ui.design.figures;
+import cc.ui.foundation.design_tokens;
+import cc.ui.foundation.theme_provider;
+import cc.ui.foundation.design_figures;
 
 // ─── Prompt XML tag stripping (module-internal) ────────────────────────
 // Models sometimes emit prompt scaffolding XML blocks (<commit_analysis>,

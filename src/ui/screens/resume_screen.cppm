@@ -36,15 +36,15 @@ module;
 #include <ftxui/component/component_base.hpp>
 #include <ftxui/component/event.hpp>
 
-export module cc.ui.resume_screen;
+export module cc.ui.screens.resume_screen;
 
 // ---------------------------------------------------------------------------
 // Cross-module imports
 // ---------------------------------------------------------------------------
 import cc.session.history;
 import cc.types.types;
-import cc.ui.trust_dialog;
-import cc.ui.trust_utils;
+import cc.ui.dialogs.trust_dialog;
+import cc.ui.dialogs.trust_utils;
 
 export namespace cc::ui::resume_screen {
 using namespace ftxui;

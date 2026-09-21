@@ -33,7 +33,7 @@ import cc.ui.messages.message_timestamp;
 // P0-1: Unified prompt / user-message glyph source (TS figures.pointer).
 // Eliminates the local `kFiguresPointer` duplicate that diverged from the
 // prompt prefix's UTF-8 byte sequence in CPP Round 1-6.
-import cc.ui.design.figures;
+import cc.ui.foundation.design_figures;
 
 export namespace cc::ui::messages {
 
@@ -292,7 +292,7 @@ class UserTextMessageComponent : public ComponentBase {
 // figures.pointer is U+276F "❯".  No timestamp / role label in the non-brief
 // path — that only appears in the brief/chat layout.
 //
-// NOTE: The glyph itself lives in cc.ui.design.figures::kPointer — the
+// NOTE: The glyph itself lives in cc.ui.foundation.design_figures::kPointer — the
 // authoritative source used by the prompt prefix, user messages, and plugin
 // manager.  Use `namespace figs = cc::ui::design::figures;` below.
 

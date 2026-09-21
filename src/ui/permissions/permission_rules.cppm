@@ -6,7 +6,7 @@ module;
 #include <string_view>
 #include <vector>
 
-export module cc.ui.permission_rules;
+export module cc.ui.permissions.permission_rules;
 
 export namespace cc::ui::permissions {
 

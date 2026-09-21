@@ -10,7 +10,7 @@ module;
 
 export module cc.ui.prompt.voice_indicator;
 
-import cc.ui.design.theme;
+import cc.ui.foundation.theme_provider;
 
 export namespace cc::ui::prompt {
 

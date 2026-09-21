@@ -30,7 +30,7 @@ export module cc.ui.dialogs.quick_open;
 
 import cc.ui.dialogs.system;
 import cc.ui.dialogs.frame;
-import cc.ui.design.theme;
+import cc.ui.foundation.theme_provider;
 import cc.ui.permissions.components;
 
 export namespace cc::ui::dialogs::quick_open {

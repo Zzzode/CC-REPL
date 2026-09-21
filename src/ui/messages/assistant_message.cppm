@@ -8,7 +8,7 @@ module;
 #include <chrono>
 #include <cstdint>
 
-export module cc.ui.assistant_message;
+export module cc.ui.messages.assistant_message;
 
 export namespace cc::ui::messages {
 

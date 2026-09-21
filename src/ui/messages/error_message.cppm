@@ -6,7 +6,7 @@ module;
 #include <optional>
 #include <functional>
 
-export module cc.ui.error_message;
+export module cc.ui.messages.error_message;
 
 export namespace cc::ui::messages {
 

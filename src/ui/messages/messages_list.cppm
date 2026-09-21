@@ -19,15 +19,15 @@
 ///       -> MessageShape enum  +  MessageRowPayload variant
 ///       +  RenderMessageRowByType(shape, payload, callbacks)
 ///   import cc.ui.messages.message_timestamp;
-///   import cc.ui.design.themed_text;        // UI20 tokens placeholder
-///   import cc.ui.design.themed_box;         // UI20 primitive stand-in
-///   import cc.ui.components.spinner;        // for streaming tail glyph
+///   import cc.ui.foundation.themed_text;        // UI20 tokens placeholder
+///   import cc.ui.foundation.themed_box;         // UI20 primitive stand-in
+///   import cc.ui.widgets.spinner;        // for streaming tail glyph
 ///
 ///   NOTE: UI20 design.tokens / design.primitives modules are not yet
 ///   materialised in the C++ tree.  We import themed_text + themed_box as
 ///   their working stand-ins; every palette lookup goes through the small
 ///   inline helpers `palette::*()` so that swapping the real modules is a
-///   one-line grep.  When cc.ui.design.tokens arrives, replace those
+///   one-line grep.  When cc.ui.foundation.design_tokens arrives, replace those
 ///   helpers with the real token API — nothing else changes.
 /// =========================================================================
 ///
@@ -124,17 +124,17 @@ import cc.ui.messages.virtual_list;   // P0-3: VirtualMessageList types + factor
 import cc.ui.messages.user_text_message;
 import cc.ui.messages.message_user_command;
 import cc.ui.messages.message_bash_io;
-import cc.ui.user_message;
+import cc.ui.messages.user_message;
 import cc.ui.messages.message_image;
 import cc.ui.messages.message_tool_result;
 import cc.ui.messages.local_command_output_message;
 import cc.ui.messages.attachment_message;
 import cc.ui.messages.assistant_text_message;
-import cc.ui.markdown;   // StreamingMarkdown for streaming-tail body
+import cc.ui.visual.markdown;   // StreamingMarkdown for streaming-tail body
 import cc.ui.messages.tool_use_message;
 import cc.ui.messages.thinking_message;
 import cc.ui.messages.system_text_message;
-import cc.ui.error_message;
+import cc.ui.messages.error_message;
 import cc.ui.messages.api_error_message;
 import cc.ui.messages.collapsed_content_message;
 import cc.ui.messages.message_components;   // RateLimitInfo
@@ -146,14 +146,14 @@ import cc.ui.messages.message_advisor;
 import cc.ui.tools.registry;
 import cc.ui.tools.generic;
 
-import cc.ui.design.themed_text;
-import cc.ui.design.themed_box;
-import cc.ui.design.tokens;         // Role + Palette for divider color
-import cc.ui.design.figures;        // kSpinnerFrames canonical set (GAP 4)
-import cc.ui.components.spinner;
+import cc.ui.foundation.themed_text;
+import cc.ui.foundation.themed_box;
+import cc.ui.foundation.design_tokens;         // Role + Palette for divider color
+import cc.ui.foundation.design_figures;        // kSpinnerFrames canonical set (GAP 4)
+import cc.ui.widgets.spinner;
 
 // =========================================================================
-// Small palette helpers — tokens placeholders (swap for cc.ui.design.tokens)
+// Small palette helpers — tokens placeholders (swap for cc.ui.foundation.design_tokens)
 // =========================================================================
 // Each lookup returns an ftxui::Color.  Kept in a single namespace so the
 // grep-replace for real tokens is mechanical.

@@ -45,7 +45,7 @@ module;
 #include <ftxui/component/component_base.hpp>
 #include <ftxui/component/event.hpp>
 
-export module cc.ui.wizard_dialog;
+export module cc.ui.dialogs.wizard_dialog;
 
 export namespace cc::ui::wizard_dialog {
 using namespace ftxui;

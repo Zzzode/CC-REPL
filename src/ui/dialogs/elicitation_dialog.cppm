@@ -61,7 +61,7 @@ export module cc.ui.dialogs.elicitation;
 
 import cc.ui.dialogs.system;
 import cc.ui.dialogs.frame;
-import cc.ui.design.theme;
+import cc.ui.foundation.theme_provider;
 
 export namespace cc::ui::dialogs::elicitation {
 

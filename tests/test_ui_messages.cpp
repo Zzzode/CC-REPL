@@ -30,7 +30,7 @@
 
 #include "test_ui_helpers.h"
 
-import cc.ui.messages;
+import cc.ui.messages.messages;
 import cc.ui.messages.message_pipeline;
 import cc.ui.messages.collapse_background_bash;
 import cc.ui.messages.virtual_list;
@@ -39,13 +39,13 @@ import cc.ui.messages.message_row;
 import cc.ui.messages.user_text_message;
 import cc.ui.messages.assistant_text_message;
 import cc.ui.messages.message_image;
-import cc.ui.markdown;
-import cc.ui.design.tokens;
-import cc.ui.design.figures;
+import cc.ui.visual.markdown;
+import cc.ui.foundation.design_tokens;
+import cc.ui.foundation.design_figures;
 import cc.constants.constants;
 import cc.utils.parse_references;
-import cc.ui.components;
-import cc.ui.components_extended;
+import cc.ui.widgets.components;
+import cc.ui.widgets.all_components;
 import cc.types.types;
 
 namespace {
@@ -54,7 +54,7 @@ namespace fs = std::filesystem;
 
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// cc.ui.terminal: FTXUI terminal controller and common widgets
+// cc.ui.chrome.terminal: FTXUI terminal controller and common widgets
 // ═══════════════════════════════════════════════════════════════════════════════
 
 TEST(Messages, ParseMarkdownRecognizesHeadingListAndCodeBlock) {
@@ -111,7 +111,7 @@ TEST(Messages, ThinkingViewCanToggleCollapse) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// cc.ui.prompt_input: prompt buffer, history, typeahead, vim behavior
+// cc.ui.prompt.prompt_input: prompt buffer, history, typeahead, vim behavior
 // ═══════════════════════════════════════════════════════════════════════════════
 
 namespace pl = cc::ui::messages::pipeline;

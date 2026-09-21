@@ -120,9 +120,9 @@ import cc.ui.messages.message_compact_boundary;
 import cc.ui.messages.message_image;
 import cc.ui.messages.message_task_assignment;
 import cc.ui.messages.message_tool_result;   // exports ToolResultOptions
-import cc.ui.user_message;
-import cc.ui.assistant_message;
-import cc.ui.error_message;
+import cc.ui.messages.user_message;
+import cc.ui.messages.assistant_message;
+import cc.ui.messages.error_message;
 
 // =========================================================================
 // SIX COMPLEX MESSAGE TYPES — UI5 Agent

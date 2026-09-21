@@ -10,9 +10,9 @@ module;
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
 
-export module cc.ui.permission_views;
+export module cc.ui.permissions.permission_views;
 
-import cc.ui.layout;
+import cc.ui.chrome.layout;
 
 export namespace cc::ui::permissions {
 

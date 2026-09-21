@@ -73,7 +73,7 @@ module;
 export module cc.ui.messages.virtual_list;
 
 import cc.ui.messages.scroll_keys;
-import cc.ui.design.tokens;
+import cc.ui.foundation.design_tokens;
 
 // NOTE: The VirtualList module intentionally keeps its own VisibleRow struct.
 //       `cc.ui.messages.messages_list` is a separate, larger module that

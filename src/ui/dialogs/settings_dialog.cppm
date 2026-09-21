@@ -28,7 +28,7 @@ export module cc.ui.dialogs.settings_dialog;
 
 import cc.types.types;
 import cc.config.config;
-import cc.ui.custom_select;
+import cc.ui.widgets.custom_select;
 
 export namespace cc::ui::dialogs::settings_dialog {
 using namespace ftxui;

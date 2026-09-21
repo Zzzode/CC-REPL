@@ -57,7 +57,7 @@ module;
 
 export module cc.ui.messages.message_pipeline;
 
-import cc.ui.design.figures;
+import cc.ui.foundation.design_figures;
 
 export namespace cc::ui::messages::pipeline {
 

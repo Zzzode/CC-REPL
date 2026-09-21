@@ -23,7 +23,7 @@ module;
 
 module cc.ui.dialogs.hooks_renderer;
 
-import cc.ui.hooks_ui;
+import cc.ui.features.hooks_ui;
 import cc.utils.hooks_config;
 import cc.utils.hooks_registry;
 import cc.tools.registry;

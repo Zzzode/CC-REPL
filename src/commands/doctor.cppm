@@ -195,7 +195,7 @@ private:
 
     /// Open a non-blocking TCP connection to host:port within timeout_ms.
     /// Returns the measured round-trip in milliseconds, or an error string.
-    /// Mirrors the proven implementation in cc.ui.doctor_screen but kept local
+    /// Mirrors the proven implementation in cc.ui.screens.doctor_screen but kept local
     /// to avoid exposing a UI-internal helper across module boundaries.
     [[nodiscard]] static std::expected<int, std::string>
     tcp_connect_rtt_ms(std::string_view host, int port, int timeout_ms) {

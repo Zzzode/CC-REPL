@@ -50,9 +50,9 @@ module;
 #include <ftxui/component/event.hpp>
 #include <ftxui/dom/elements.hpp>
 
-export module cc.ui.trust_dialog;
+export module cc.ui.dialogs.trust_dialog;
 
-import cc.ui.trust_utils;
+import cc.ui.dialogs.trust_utils;
 import cc.plugins.plugin;
 import cc.commands.plugin.plugin_trust;
 

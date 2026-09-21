@@ -47,7 +47,7 @@ module;
 #include <ftxui/dom/table.hpp>
 #include <ftxui/screen/color.hpp>
 
-export module cc.ui.mcp_dialogs;
+export module cc.ui.dialogs.mcp_dialogs;
 
 export namespace cc::ui::mcp_dialogs {
 using namespace ftxui;

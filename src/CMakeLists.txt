@@ -985,55 +985,55 @@ target_link_libraries(cc_skills
 add_library(cc_ui)
 target_sources(cc_ui
     PUBLIC FILE_SET CXX_MODULES FILES
-        ui/app.cppm
-        ui/autocomplete_sources.cppm
-        ui/app_dialog_registration.cppm
-        ui/components.cppm
-        ui/agents/agent_cards.cppm
-        ui/agents/agent_details_dialog.cppm
-        ui/agents/agent_editor.cppm
-        ui/agents/agent_list.cppm
-        ui/agents/agent_shared_widgets.cppm
-        ui/agents/agent_wizard.cppm
-        ui/components/all_components.cppm
-        ui/components/agent_view.cppm
-        ui/components/code_highlight.cppm
-        ui/components/custom_select.cppm
-        ui/components/dev_bar.cppm
-        ui/components/diff_view.cppm
-        ui/components/fast_icon.cppm
-        ui/components/feature_dialogs.cppm
-        ui/components/figures.cppm
-        ui/components/grove.cppm
-        ui/components/lsp_recommendation_menu.cppm
-        ui/components/partial_completions.cppm   # UI27 — TreeSelect + ShikiFallback (PARTIAL -> DONE)
-        ui/components/passes.cppm
-        ui/components/plugin_hint_menu.cppm
-        ui/components/pr_badge.cppm
-        ui/components/spinner.cppm
-        ui/components/spinner_widget.cppm
-        ui/components/stats.cppm
-        ui/components/structured_diff.cppm
-        ui/components/file_edit_tool_diff.cppm
-        ui/components/tag_tabs.cppm
-        ui/components/task_view.cppm
-        ui/components/text_input.cppm
-        ui/components/text_input_widget.cppm
-        ui/components/user_bash_input_message.cppm
-        ui/components/shell_progress_message.cppm
-        ui/components/shell_time_display.cppm
-        ui/components/spinner_animations.cppm
-        ui/common/ui_types.cppm
-        ui/common/ui_formatting.cppm
-        ui/common/declared_cursor.cppm
-        ui/design/dialog.cppm
-        ui/design/divider.cppm
-        ui/design/list_item.cppm
-        ui/design/progress_bar.cppm
-        ui/design/status_icon.cppm
-        ui/design/tabs.cppm
-        ui/design/themed_box.cppm
-        ui/design/themed_text.cppm
+        ui/app/app.cppm
+        ui/prompt/autocomplete_sources.cppm
+        ui/app/app_dialog_registration.cppm
+        ui/widgets/components.cppm
+        ui/features/agents/agent_cards.cppm
+        ui/features/agents/agent_details_dialog.cppm
+        ui/features/agents/agent_editor.cppm
+        ui/features/agents/agent_list.cppm
+        ui/features/agents/agent_shared_widgets.cppm
+        ui/features/agents/agent_wizard.cppm
+        ui/widgets/all_components.cppm
+        ui/features/agents/agent_view.cppm
+        ui/visual/code_highlight.cppm
+        ui/widgets/custom_select.cppm
+        ui/widgets/dev_bar.cppm
+        ui/visual/diff_view.cppm
+        ui/widgets/fast_icon.cppm
+        ui/dialogs/feature_dialogs.cppm
+        ui/foundation/components_figures.cppm
+        ui/features/grove.cppm
+        ui/features/plugins/lsp_recommendation_menu.cppm
+        ui/widgets/partial_completions.cppm   # UI27 — TreeSelect + ShikiFallback (PARTIAL -> DONE)
+        ui/widgets/passes.cppm
+        ui/features/plugins/plugin_hint_menu.cppm
+        ui/widgets/pr_badge.cppm
+        ui/widgets/spinner.cppm
+        ui/widgets/spinner_widget.cppm
+        ui/widgets/stats.cppm
+        ui/visual/structured_diff.cppm
+        ui/visual/file_edit_tool_diff.cppm
+        ui/widgets/tag_tabs.cppm
+        ui/features/tasks/task_view.cppm
+        ui/widgets/text_input.cppm
+        ui/widgets/text_input_widget.cppm
+        ui/messages/user_bash_input_message.cppm
+        ui/messages/shell_progress_message.cppm
+        ui/messages/shell_time_display.cppm
+        ui/widgets/spinner_animations.cppm
+        ui/foundation/ui_types.cppm
+        ui/foundation/ui_formatting.cppm
+        ui/foundation/declared_cursor.cppm
+        ui/foundation/dialog.cppm
+        ui/foundation/divider.cppm
+        ui/foundation/list_item.cppm
+        ui/foundation/progress_bar.cppm
+        ui/foundation/status_icon.cppm
+        ui/foundation/tabs.cppm
+        ui/foundation/themed_box.cppm
+        ui/foundation/themed_text.cppm
         ui/dialogs/dialog_system.cppm
         ui/dialogs/dialog_frame.cppm
         ui/dialogs/dialog_launchers.cppm
@@ -1081,13 +1081,13 @@ target_sources(cc_ui
         # entire target if any listed source is missing.  Only add module
         # sources that exist AND contain real implementations.  Registration
         # lives in register_default_renderers() in default_renderers.cppm.
-        ui/layout.cppm
-        ui/rendering/fullscreen_layout.cppm
-        ui/branding/logo.cppm
-        ui/branding/logo_v2.cppm          # P0-4: LogoV2 3-mode dispatch + WelcomeV2 + notice stack
-        ui/rendering/yoga.cppm
-        ui/markdown.cppm
-        ui/messages.cppm
+        ui/chrome/layout.cppm
+        ui/chrome/fullscreen_layout.cppm
+        ui/foundation/logo.cppm
+        ui/foundation/logo_v2.cppm          # P0-4: LogoV2 3-mode dispatch + WelcomeV2 + notice stack
+        ui/chrome/yoga.cppm
+        ui/visual/markdown.cppm
+        ui/messages/messages.cppm
         ui/messages/assistant_message.cppm
         ui/messages/error_message.cppm
         ui/messages/message_components.cppm
@@ -1123,7 +1123,7 @@ target_sources(cc_ui
         ui/messages/collapse_background_bash.cppm  # P0-2 — collapseBackgroundBashNotifications pass (Messages.tsx:520)
         ui/messages/scroll_keybindings.cppm       # UI22 — ScrollKeybindingHandler (1011 → 752 loc)
         ui/messages/virtual_message_list.cppm     # UI22 — VirtualScroll (1081 → 857 loc)
-        ui/panels.cppm
+        ui/chrome/panels.cppm
         ui/permissions/permission_request.cppm
         ui/permissions/permission_rules.cppm
         ui/permissions/permission_views.cppm
@@ -1155,25 +1155,25 @@ target_sources(cc_ui
         ui/prompt/placeholder_cascade.cppm  # P1: 4-tier memoized placeholder cascade
         ui/prompt/vim_input.cppm
         ui/prompt/voice_indicator.cppm
-        ui/prompt_input.cppm
-        ui/plugins/plugin_install_flow.cppm
-        ui/plugins/plugin_manage_panel.cppm
-        ui/plugins/plugin_marketplace_browse.cppm
-        ui/plugins/plugin_settings_dialog.cppm
-        ui/mcp/mcp_add_server_wizard.cppm
-        ui/mcp/mcp_security_dialog.cppm
-        ui/mcp/mcp_server_details.cppm
-        ui/mcp/mcp_server_list.cppm
-        ui/mcp/mcp_elicitation.cppm
-        ui/mcp/mcp_settings_panel.cppm
-        ui/rendering/ink_utils.cppm
-        ui/rendering/renderer.cppm
-        ui/rendering/text_measure.cppm
-        ui/tasks/task_components.cppm
-        ui/tasks/task_details_dialog.cppm
-        ui/tasks/task_list_view.cppm
-        ui/tasks/task_wizard.cppm
-        ui/tasks/task_list_ui.cppm
+        ui/prompt/prompt_input.cppm
+        ui/features/plugins/plugin_install_flow.cppm
+        ui/features/plugins/plugin_manage_panel.cppm
+        ui/features/plugins/plugin_marketplace_browse.cppm
+        ui/features/plugins/plugin_settings_dialog.cppm
+        ui/features/mcp/mcp_add_server_wizard.cppm
+        ui/features/mcp/mcp_security_dialog.cppm
+        ui/features/mcp/mcp_server_details.cppm
+        ui/features/mcp/mcp_server_list.cppm
+        ui/features/mcp/mcp_elicitation.cppm
+        ui/features/mcp/mcp_settings_panel.cppm
+        ui/chrome/ink_utils.cppm
+        ui/chrome/renderer.cppm
+        ui/chrome/text_measure.cppm
+        ui/features/tasks/task_components.cppm
+        ui/features/tasks/task_details_dialog.cppm
+        ui/features/tasks/task_list_view.cppm
+        ui/features/tasks/task_wizard.cppm
+        ui/features/tasks/task_list_ui.cppm
         ui/tools/tool_ui_registry.cppm
         ui/tools/tool_ui_init.cppm
         ui/tools/tool_ui_generic.cppm
@@ -1191,24 +1191,24 @@ target_sources(cc_ui
         ui/tools/tool_ui_mcp.cppm
         ui/tools/tool_ui_lsp.cppm
         ui/tools/tool_ui_longtail.cppm
-        ui/teams/teams_overview.cppm
-        ui/teams/team_details_dialog.cppm
-        ui/teams/swarm_collaboration_view.cppm
-        ui/teams/team_status.cppm
-        ui/teams/live_teammates.cppm
-        ui/rendering/terminal_io.cppm
-        ui/rendering/hooks_ui.cppm
+        ui/features/teams/teams_overview.cppm
+        ui/features/teams/team_details_dialog.cppm
+        ui/features/teams/swarm_collaboration_view.cppm
+        ui/features/teams/team_status.cppm
+        ui/features/teams/live_teammates.cppm
+        ui/chrome/terminal_io.cppm
+        ui/features/hooks_ui.cppm
         ui/screens/doctor_screen.cppm
         ui/screens/repl_screen.cppm
         ui/screens/resume_screen.cppm
         ui/screens/log_selector.cppm              # UI23 — LogSelector (1574 → 1730 loc)
-        ui/terminal.cppm
-        ui/design/design_tokens.cppm       # UI20 (merged from cc_ui_design to resolve module-import cycle)
-        ui/design/figures.cppm             # Shared glyph + prompt-mode constants (TS utils/figures.ts + inputModes.ts)
-        ui/design/theme_provider.cppm
-        ui/design/logo.cppm
-        ui/design/component_primitives.cppm
-        ui/design/design_extras.cppm       # UI27 — fuzzy picker + theme picker + design extras
+        ui/chrome/terminal.cppm
+        ui/foundation/design_tokens.cppm       # UI20 (merged from cc_ui_design to resolve module-import cycle)
+        ui/foundation/design_figures.cppm             # Shared glyph + prompt-mode constants (TS utils/figures.ts + inputModes.ts)
+        ui/foundation/theme_provider.cppm
+        ui/foundation/design_logo.cppm
+        ui/foundation/component_primitives.cppm
+        ui/foundation/design_extras.cppm       # UI27 — fuzzy picker + theme picker + design extras
 )
 # Module implementation units for cc.ui.app_dialog_registration — one per
 # dialog-renderer aggregator, so no single TU imports more than one aggregator's
@@ -1216,21 +1216,21 @@ target_sources(cc_ui
 # ~44 dialog implementations out of app.cppm's BMI (source-location budget).
 # See app_dialog_registration.cppm / *_impl.cpp for the rationale.
 target_sources(cc_ui PRIVATE
-    ui/app_autocomplete.cpp
-    ui/app_extra_methods.cpp
-    ui/app_constructor.cpp
-    ui/app_handle_submit.cpp
-    ui/app_agent_menu.cpp
-    ui/autocomplete_sources_impl.cpp
-    ui/app_prompt_suggestion_wiring.cpp
+    ui/app/app_autocomplete.cpp
+    ui/app/app_extra_methods.cpp
+    ui/app/app_constructor.cpp
+    ui/app/app_handle_submit.cpp
+    ui/app/app_agent_menu.cpp
+    ui/prompt/autocomplete_sources_impl.cpp
+    ui/app/app_prompt_suggestion_wiring.cpp
     ui/prompt/at_attachments_impl.cpp
-    ui/app_dialog_registration_default.cpp
-    ui/app_dialog_registration_modal.cpp
-    ui/app_dialog_registration_bottom.cpp
-    ui/app_dialog_registration_all.cpp
-    ui/app_dialog_registration_hooks.cpp
-    ui/app_dialog_registration_teams.cpp
-    ui/app_team_projection.cpp
+    ui/app/app_dialog_registration_default.cpp
+    ui/app/app_dialog_registration_modal.cpp
+    ui/app/app_dialog_registration_bottom.cpp
+    ui/app/app_dialog_registration_all.cpp
+    ui/app/app_dialog_registration_hooks.cpp
+    ui/app/app_dialog_registration_teams.cpp
+    ui/app/app_team_projection.cpp
     ui/dialogs/hooks_dialog_renderer_impl.cpp
     ui/dialogs/plugin_dialog_renderer_impl.cpp
 )

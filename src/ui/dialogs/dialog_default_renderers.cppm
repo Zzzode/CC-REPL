@@ -38,10 +38,10 @@ import cc.ui.dialogs.frame;
 import cc.ui.dialogs.sandbox_permission;
 import cc.ui.permissions.single_prompt;
 import cc.ui.permissions.components;
-import cc.ui.design.theme;
-import cc.ui.design.primitives;
+import cc.ui.foundation.theme_provider;
+import cc.ui.foundation.component_primitives;
 import cc.ui.dialogs.cost_threshold_dialog;
-import cc.ui.doctor_screen;
+import cc.ui.screens.doctor_screen;
 
 export namespace cc::ui::dialogs::default_renderers {
 

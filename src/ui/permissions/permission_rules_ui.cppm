@@ -25,7 +25,7 @@ export module cc.ui.permissions.permission_rules_ui;
 
 import cc.types.types;
 import cc.ui.permissions.rule_list;
-import cc.ui.design.tokens;
+import cc.ui.foundation.design_tokens;
 import cc.ui.permissions.components;
 
 export namespace cc::ui::permissions {

@@ -20,7 +20,7 @@ module;
 
 export module cc.ui.messages.collapsed_content_message;
 
-import cc.ui.code_highlight;
+import cc.ui.visual.code_highlight;
 
 export namespace cc::ui::messages::collapsed_content {
 using namespace ftxui;

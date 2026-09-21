@@ -6,7 +6,7 @@ module;
 #include <optional>
 #include <chrono>
 
-export module cc.ui.user_message;
+export module cc.ui.messages.user_message;
 
 // P0 user-prompt truncation: share the head/tail splitter used by
 // RenderUserPromptMessage so the divergent-envelope path (UserMessageData

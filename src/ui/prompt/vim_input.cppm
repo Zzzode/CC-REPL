@@ -19,7 +19,7 @@ module;
 export module cc.ui.prompt.vim_input;
 
 import cc.types.types;
-import cc.ui.common.types;  // TS REF: canonical VimMode lives here
+import cc.ui.foundation.ui_types;  // TS REF: canonical VimMode lives here
 import cc.vim.vim_controller;  // unified VimController state
 
 export namespace cc::ui::prompt::vim_input {

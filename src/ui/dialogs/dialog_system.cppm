@@ -39,7 +39,7 @@ module;
 
 export module cc.ui.dialogs.system;
 
-import cc.ui.design.theme;
+import cc.ui.foundation.theme_provider;
 import cc.ui.permissions.single_prompt;
 
 export namespace cc::ui::dialogs::system {

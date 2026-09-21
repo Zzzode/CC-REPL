@@ -46,7 +46,7 @@ module;
 #include <poll.h>
 #endif
 
-export module cc.ui.doctor_screen;
+export module cc.ui.screens.doctor_screen;
 
 import cc.utils.json;
 

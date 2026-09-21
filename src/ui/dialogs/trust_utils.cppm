@@ -28,7 +28,7 @@ module;
 #include <utility>
 #include <vector>
 
-export module cc.ui.trust_utils;
+export module cc.ui.dialogs.trust_utils;
 
 // Reuse existing trust / security primitives instead of redefining them.
 import cc.utils.bash_security;

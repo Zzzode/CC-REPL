@@ -16,7 +16,7 @@ module;
 #include <ftxui/component/component_base.hpp>
 #include <ftxui/component/event.hpp>
 
-export module cc.ui.sandbox_dialog;
+export module cc.ui.dialogs.sandbox_dialog;
 
 import cc.constants.product;
 

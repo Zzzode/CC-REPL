@@ -39,8 +39,8 @@ import cc.ui.dialogs.all_renderers;
 import cc.ui.dialogs.triggers;
 import cc.ui.dialogs.quick_open;
 import cc.ui.dialogs.sandbox_permission;
-import cc.ui.design.theme;
-import cc.ui.design.tokens;
+import cc.ui.foundation.theme_provider;
+import cc.ui.foundation.design_tokens;
 import cc.constants.product;
 
 namespace {

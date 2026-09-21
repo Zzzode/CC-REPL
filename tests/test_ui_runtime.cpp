@@ -30,14 +30,14 @@
 
 #include "test_ui_helpers.h"
 
-import cc.ui.app;
-import cc.ui.repl_screen;
-import cc.ui.prompt_input;
+import cc.ui.app.app;
+import cc.ui.screens.repl_screen;
+import cc.ui.prompt.prompt_input;
 import cc.ui.prompt.prompt_input_footer;
 import cc.ui.prompt.voice_indicator;
-import cc.ui.logo_v2;
-import cc.ui.layout.fullscreen;
-import cc.ui.panels;
+import cc.ui.foundation.logo_v2;
+import cc.ui.chrome.fullscreen_layout;
+import cc.ui.chrome.panels;
 import cc.ui.messages.message_image;
 import cc.ui.messages.virtual_list;
 import cc.config.config;
@@ -49,20 +49,20 @@ import cc.utils.parse_references;
 import cc.utils.team_helpers;
 import cc.utils.swarm_helpers;
 import cc.constants.constants;
-import cc.ui.design.tokens;
-import cc.ui.design.figures;
-import cc.ui.design.theme;
-import cc.ui.components;
-import cc.ui.components_extended;
-import cc.ui.messages;
+import cc.ui.foundation.design_tokens;
+import cc.ui.foundation.design_figures;
+import cc.ui.foundation.theme_provider;
+import cc.ui.widgets.components;
+import cc.ui.widgets.all_components;
+import cc.ui.messages.messages;
 import cc.ui.messages.message_pipeline;
 import cc.ui.messages.messages_list;
 import cc.ui.messages.message_row;
 import cc.ui.messages.user_text_message;
 import cc.ui.messages.assistant_text_message;
-import cc.ui.common.declared_cursor;
-import cc.ui.autocomplete_sources;
-import cc.ui.teams.live_teammates;
+import cc.ui.foundation.declared_cursor;
+import cc.ui.prompt.autocomplete_sources;
+import cc.ui.features.teams.live_teammates;
 
 namespace {
 namespace fs = std::filesystem;
@@ -70,7 +70,7 @@ namespace fs = std::filesystem;
 
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// cc.ui.terminal: FTXUI terminal controller and common widgets
+// cc.ui.chrome.terminal: FTXUI terminal controller and common widgets
 // ═══════════════════════════════════════════════════════════════════════════════
 
 TEST(ReplScreen, SubmitsUtf8PromptOnReturn) {
@@ -2413,7 +2413,7 @@ TEST(AppRuntime, RenderMessageShowsUserMessage) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// cc.ui.panels: panel data models and state transitions
+// cc.ui.chrome.panels: panel data models and state transitions
 // ═══════════════════════════════════════════════════════════════════════════════
 
 TEST(PromptInput, InputBufferInsertMoveAndDelete) {

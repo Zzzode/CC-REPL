@@ -39,9 +39,9 @@ export module cc.ui.permissions.rule_list;
 import cc.utils.permissions_engine;
 import cc.ui.permissions.scope_editor;
 import cc.ui.permissions.components;
-import cc.ui.design.tokens;
-import cc.ui.custom_select;
-import cc.ui.structured_diff;
+import cc.ui.foundation.design_tokens;
+import cc.ui.widgets.custom_select;
+import cc.ui.visual.structured_diff;
 
 export namespace cc::ui::permissions::rule_list {
 using namespace ftxui;

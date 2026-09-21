@@ -7,7 +7,7 @@ module;
 #include <variant>
 #include <vector>
 
-export module cc.ui.permission_request;
+export module cc.ui.permissions.permission_request;
 
 export namespace cc::ui::permissions {
 

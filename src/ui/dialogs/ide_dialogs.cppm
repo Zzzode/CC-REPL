@@ -16,7 +16,7 @@ module;
 #include <ftxui/component/component_base.hpp>
 #include <ftxui/component/event.hpp>
 
-export module cc.ui.ide_dialogs;
+export module cc.ui.dialogs.ide_dialogs;
 
 export namespace cc::ui::ide_dialogs {
 using namespace ftxui;

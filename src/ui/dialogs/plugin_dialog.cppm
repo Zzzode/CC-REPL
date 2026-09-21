@@ -44,10 +44,10 @@ import cc.commands.plugin_error_formatting;
 import cc.commands.plugin_details_helpers;
 import cc.commands.plugin_pagination_util;
 import cc.commands.plugin_trust_text;
-import cc.ui.plugins.plugin_install_flow;
-import cc.ui.plugins.plugin_manage_panel;
-import cc.ui.plugins.plugin_marketplace_browse;
-import cc.ui.plugins.plugin_settings_dialog;
+import cc.ui.features.plugins.plugin_install_flow;
+import cc.ui.features.plugins.plugin_manage_panel;
+import cc.ui.features.plugins.plugin_marketplace_browse;
+import cc.ui.features.plugins.plugin_settings_dialog;
 
 export namespace cc::ui::dialogs::plugin_dialog {
 using namespace ftxui;

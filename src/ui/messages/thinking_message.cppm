@@ -26,7 +26,7 @@ module;
 export module cc.ui.messages.thinking_message;
 
 import cc.types.types;
-import cc.ui.design.figures;  // kSpinnerFrames canonical set (GAP 4)
+import cc.ui.foundation.design_figures;  // kSpinnerFrames canonical set (GAP 4)
 
 export namespace cc::ui::messages::thinking_message {
 using namespace ftxui;

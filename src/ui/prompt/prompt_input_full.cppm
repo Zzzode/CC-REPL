@@ -11,12 +11,12 @@ module;
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
 
-export module cc.ui.prompt_input_full;
+export module cc.ui.prompt.prompt_input_full;
 
-import cc.ui.layout;
-import cc.ui.prompt_input;
-import cc.ui.design.figures;
-import cc.ui.common.types;  // unified PromptInputMode canonical enum
+import cc.ui.chrome.layout;
+import cc.ui.prompt.prompt_input;
+import cc.ui.foundation.design_figures;
+import cc.ui.foundation.ui_types;  // unified PromptInputMode canonical enum
 import cc.ui.prompt.mode_indicator;  // TS REF: PromptInputModeIndicator.tsx — 3-way prefix glyph
 
 export namespace cc::ui::prompt {

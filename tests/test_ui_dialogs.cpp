@@ -31,23 +31,23 @@
 #include "test_ui_helpers.h"
 
 import cc.ui.dialogs.settings_dialog;
-import cc.ui.wizard_dialog;
+import cc.ui.dialogs.wizard_dialog;
 import cc.ui.permissions.permission_rules_ui;
 import cc.ui.permissions.rule_list;
 import cc.ui.permissions.single_prompt;
 import cc.ui.permissions.components;
-import cc.ui.mcp_dialogs;
-import cc.ui.components.lsp_rec_menu;
-import cc.ui.components.plugin_hint_menu;
+import cc.ui.dialogs.mcp_dialogs;
+import cc.ui.features.plugins.lsp_recommendation_menu;
+import cc.ui.features.plugins.plugin_hint_menu;
 import cc.utils.permissions_engine;
-import cc.ui.design.theme;
-import cc.ui.design.tokens;
+import cc.ui.foundation.theme_provider;
+import cc.ui.foundation.design_tokens;
 import cc.constants.constants;
 import cc.config.config;
-import cc.ui.messages;
+import cc.ui.messages.messages;
 import cc.ui.messages.message_pipeline;
-import cc.ui.components;
-import cc.ui.components_extended;
+import cc.ui.widgets.components;
+import cc.ui.widgets.all_components;
 import cc.ui.messages.virtual_list;
 import cc.ui.messages.message_image;
 
@@ -57,7 +57,7 @@ namespace fs = std::filesystem;
 
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// cc.ui.terminal: FTXUI terminal controller and common widgets
+// cc.ui.chrome.terminal: FTXUI terminal controller and common widgets
 // ═══════════════════════════════════════════════════════════════════════════════
 
 TEST(WizardDialog, RendersStepFactoryContent) {

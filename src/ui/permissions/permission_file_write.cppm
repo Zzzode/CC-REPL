@@ -57,7 +57,7 @@ module;
 
 export module cc.ui.permissions.permission_file_write;
 
-import cc.ui.code_highlight;
+import cc.ui.visual.code_highlight;
 import cc.ui.permissions.components;
 
 export namespace cc::ui::permissions::file_write {
@@ -142,7 +142,7 @@ struct FileWritePermissionProps {
 // ─── Internal: Diff computation (LCS-based) ────────────────────────────────
 //
 // Kept inline here because it's small and self-contained; shared diff
-// utilities live in cc.ui.components.file_edit_tool_diff but that module
+// utilities live in cc.ui.visual.file_edit_tool_diff but that module
 // is geared toward edit-hunk style diffs.  For file-write we do a full
 // unified diff of old vs new content.
 

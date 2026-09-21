@@ -30,7 +30,7 @@ export module cc.ui.messages.system_text_message;
 
 import cc.ui.messages.message_components;
 import cc.ui.messages.message_timestamp;
-import cc.ui.design.figures;  // kReferenceMark, kTeardropAsterisk, kBlackCircle (single source of truth)
+import cc.ui.foundation.design_figures;  // kReferenceMark, kTeardropAsterisk, kBlackCircle (single source of truth)
 
 export namespace cc::ui::messages {
 

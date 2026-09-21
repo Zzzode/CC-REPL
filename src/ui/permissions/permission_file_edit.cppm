@@ -54,7 +54,7 @@ module;
 
 export module cc.ui.permissions.permission_file_edit;
 
-import cc.ui.components.file_edit_tool_diff;
+import cc.ui.visual.file_edit_tool_diff;
 import cc.ui.permissions.components;
 import cc.utils.file_edit;
 

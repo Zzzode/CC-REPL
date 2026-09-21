@@ -13,8 +13,8 @@ module;
 
 export module cc.ui.messages.message_components;
 
-import cc.ui.layout;
-import cc.ui.design.figures;  // kBlackCircleFallback (● U+25CF) — single source of truth
+import cc.ui.chrome.layout;
+import cc.ui.foundation.design_figures;  // kBlackCircleFallback (● U+25CF) — single source of truth
 
 export namespace cc::ui::messages {
 

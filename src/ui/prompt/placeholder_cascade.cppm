@@ -33,7 +33,7 @@ module;
 
 export module cc.ui.prompt.placeholder_cascade;
 
-import cc.ui.common.types;  // PromptInputMode
+import cc.ui.foundation.ui_types;  // PromptInputMode
 
 export namespace cc::ui::placeholder {
 

@@ -14,7 +14,7 @@
 ///         delete/redact) + 3 submenus · keyboard j/k/Enter/Esc/1-9/h/l
 ///
 /// ZERO ENGINE I/O - every real operation dispatches through callbacks.
-/// Bulk-delete risk classification routes through cc.ui.trust_utils so UI8
+/// Bulk-delete risk classification routes through cc.ui.dialogs.trust_utils so UI8
 /// (TrustDialog) can own the confirmation UX.
 ///
 /// Integration surface (for UI21 messages_list):
@@ -58,9 +58,9 @@ export module cc.ui.messages.messages_interactions;
 // interaction primitives have a stable ABI to code against today.
 
 // Toolbar + menu share these cross-cutting imports:
-import cc.ui.custom_select;     // SelectMode / SelectOption for export-format
-import cc.ui.design.tokens;     // palette + spacing + radius
-import cc.ui.trust_utils;       // RiskLevel for bulk delete
+import cc.ui.widgets.custom_select;     // SelectMode / SelectOption for export-format
+import cc.ui.foundation.design_tokens;     // palette + spacing + radius
+import cc.ui.dialogs.trust_utils;       // RiskLevel for bulk delete
 
 export namespace cc::ui::messages::interactions {
 

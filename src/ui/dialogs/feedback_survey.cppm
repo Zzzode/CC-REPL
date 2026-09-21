@@ -12,7 +12,7 @@ module;
 #include <ftxui/component/component_base.hpp>
 #include <ftxui/component/event.hpp>
 
-export module cc.ui.feedback_survey;
+export module cc.ui.dialogs.feedback_survey;
 
 export namespace cc::ui::feedback_survey {
 using namespace ftxui;

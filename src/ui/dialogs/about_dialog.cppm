@@ -52,8 +52,8 @@ export module cc.ui.dialogs.about;
 
 import cc.constants.product;
 import cc.ui.dialogs.frame;
-import cc.ui.design.theme;
-import cc.ui.design.tokens;
+import cc.ui.foundation.theme_provider;
+import cc.ui.foundation.design_tokens;
 
 export namespace cc::ui::dialogs::about {
 

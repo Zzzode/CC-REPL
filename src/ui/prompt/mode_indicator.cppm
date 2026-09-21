@@ -36,8 +36,8 @@ module;
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
 
-import cc.ui.design.figures;
-import cc.ui.common.types;
+import cc.ui.foundation.design_figures;
+import cc.ui.foundation.ui_types;
 
 export module cc.ui.prompt.mode_indicator;
 

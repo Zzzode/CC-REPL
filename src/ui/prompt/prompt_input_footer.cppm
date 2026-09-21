@@ -55,11 +55,11 @@ export module cc.ui.prompt.prompt_input_footer;
 // Lives in message_tool_result.cppm as a shared inline utility.
 import cc.ui.messages.message_tool_result;
 // P0-1: palette tokens (bash_border / prompt_border color resolution).
-import cc.ui.design.tokens;
+import cc.ui.foundation.design_tokens;
 // P0-1: active theme provider for bash-border consistency (BUG-3 fix).
-import cc.ui.design.theme;
+import cc.ui.foundation.theme_provider;
 // Unified canonical PromptInputMode enum (replaces local 5-value definition).
-import cc.ui.common.types;
+import cc.ui.foundation.ui_types;
 // TS-faithful voice footer indicator (VoiceIndicator.tsx), rendered by
 // RenderNotifications with the highest display priority.
 import cc.ui.prompt.voice_indicator;

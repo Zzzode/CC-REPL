@@ -39,9 +39,9 @@ module;
 
 export module cc.ui.dialogs.frame;
 
-import cc.ui.design.theme;
-import cc.ui.design.tokens;
-import cc.ui.design.primitives;
+import cc.ui.foundation.theme_provider;
+import cc.ui.foundation.design_tokens;
+import cc.ui.foundation.component_primitives;
 import cc.ui.permissions.components;
 
 export namespace cc::ui::dialogs::frame {

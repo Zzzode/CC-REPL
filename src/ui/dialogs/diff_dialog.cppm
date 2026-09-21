@@ -4,8 +4,8 @@
 /// detail, top toolbar, bottom status, full j/k/Enter/q/Esc/Tab key nav.
 ///
 /// Reuses:
-///   • cc.ui.components.diff_view        (unified-diff rendering, parsing)
-///   • cc.ui.structured_diff             (summary bar, block-aware rendering)
+///   • cc.ui.visual.diff_view        (unified-diff rendering, parsing)
+///   • cc.ui.visual.structured_diff             (summary bar, block-aware rendering)
 ///   • cc.utils.file_edit                 (Myers algorithm — NOT rewritten)
 ///
 /// Integration:
@@ -34,8 +34,8 @@ export module cc.ui.dialogs.diff_dialog;
 
 import cc.types.types;
 import cc.utils.file_edit;
-import cc.ui.components.diff_view;
-import cc.ui.structured_diff;
+import cc.ui.visual.diff_view;
+import cc.ui.visual.structured_diff;
 
 export namespace cc::ui::dialogs::diff_dialog {
 using namespace ftxui;
@@ -592,7 +592,7 @@ enum class FocusPanel : std::uint8_t {
 //       • When a code block in an assistant message has a "diff" or
 //         "patch" language tag, use RenderStructuredDiff() instead of
 //         RenderCodeBlock() — the factory is exposed by
-//         cc.ui.structured_diff module.
+//         cc.ui.visual.structured_diff module.
 // ===========================================================================
 
 } // namespace cc::ui::dialogs::diff_dialog

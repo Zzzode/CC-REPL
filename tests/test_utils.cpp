@@ -37,7 +37,7 @@ import cc.utils.plugin_loader;
 import cc.utils.argument_substitution;
 import cc.utils.semantic_boolean;
 import cc.utils.semantic_number;
-import cc.ui.terminal_io;
+import cc.ui.chrome.terminal_io;
 import cc.commands.review.review_remote;
 import cc.utils.query_guard;
 import cc.utils.collapse_notifications;
@@ -2330,7 +2330,7 @@ TEST(SlashCommandParsing, ParsesRegularAndMcpSlashCommands) {
 }
 
 // ===========================================================================
-// cc.ui.terminal_io — pure ANSI/CSI/SGR parsing helpers.
+// cc.ui.chrome.terminal_io — pure ANSI/CSI/SGR parsing helpers.
 // These parser entry points (parse_sgr, strip_ansi, parse_csi, tokenize_ansi)
 // had no direct test coverage; the suite below pins their contract.
 // ===========================================================================

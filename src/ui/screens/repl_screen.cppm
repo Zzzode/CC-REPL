@@ -21,7 +21,7 @@
 /// RENDERING DELEGATION (this file does NOT contain render bodies):
 ///   status bar   -> cc.ui.prompt.prompt_input_footer (UI1, user-configurable command output)
 ///   spinner      -> cc.ui.components.spinner_widget (UI19)
-///   msg list     -> cc.ui.messages (RenderMessages wrapper, UI4/5)
+///   msg list     -> cc.ui.messages.messages (RenderMessages wrapper, UI4/5)
 ///   prompt input -> cc.ui.prompt.prompt_input_full (UI2)
 ///   dialogs      -> cc.ui.dialogs.* (DialogQueue 4-slot system, UI8-UI11/UI16)
 module;
@@ -51,19 +51,19 @@ module;
 #include <ftxui/component/mouse.hpp>
 #include <ftxui/screen/string.hpp>  // for string_width
 
-export module cc.ui.repl_screen;
+export module cc.ui.screens.repl_screen;
 
 // Core engine types (Role, Message, ContentBlock, ImageBlock, etc.)
 import cc.types.types;
 
 // --- Sub-modules we DEPEND ON (skeleton-wired, bodies delegated) ---
-import cc.ui.task_list_ui;
-import cc.ui.team_status;
-import cc.ui.teams.live_teammates;
+import cc.ui.features.tasks.task_list_ui;
+import cc.ui.features.teams.team_status;
+import cc.ui.features.teams.live_teammates;
 import cc.ui.messages.message_row;
 import cc.ui.messages.message_image;
 import cc.ui.messages.messages_list;
-import cc.ui.markdown;   // StreamingMarkdown for streaming-tail
+import cc.ui.visual.markdown;   // StreamingMarkdown for streaming-tail
 import cc.ui.messages.user_text_message;
 import cc.ui.messages.assistant_text_message;
 import cc.ui.messages.system_text_message;
@@ -77,37 +77,37 @@ import cc.ui.dialogs.cost_threshold_dialog;
 import cc.ui.dialogs.idle_return_dialog;
 import cc.ui.dialogs.settings_dialog;
 import cc.config.config;
-import cc.ui.trust_dialog;
-import cc.ui.sandbox_dialog;
-import cc.ui.agents.agent_cards;
-import cc.ui.agents.agent_wizard;
+import cc.ui.dialogs.trust_dialog;
+import cc.ui.dialogs.sandbox_dialog;
+import cc.ui.features.agents.agent_cards;
+import cc.ui.features.agents.agent_wizard;
 import cc.tools.agent_display;
 // Welcome header: Loom mascot mark + animated asterisk, wired into RenderReplScreen
 // for fresh sessions.
-import cc.ui.design.logo;
+import cc.ui.foundation.design_logo;
 // M2: theme::current_theme() for the loom_body colour used by the banner.
-import cc.ui.design.theme;
+import cc.ui.foundation.theme_provider;
 // M8 (P0-1 glyph unification): shared figures/constants + palette tokens.
-import cc.ui.design.figures;
-import cc.ui.design.tokens;
+import cc.ui.foundation.design_figures;
+import cc.ui.foundation.design_tokens;
 // M2: format_welcome_message + kWelcomeTips feed for the welcome header.
-import cc.ui.logo;
+import cc.ui.foundation.logo;
 // P0-4: LogoV2 3-mode dispatch + WelcomeV2 58-col static card + full
 // notice stack (Voice/Opus1m/Channels/Debug/Emergency/Tmux/Org/Sandbox/
 // StatusNotices ×6 / GuestPasses / OverageCredit).  Condensed mode is
 // the default (no changelog/onboarding/force_full_logo available yet);
 // Compact & Horizontal modes are used when the caller opts in via the
 // force_full_logo = true flag (see RenderWelcomeHeader below).
-import cc.ui.logo_v2;
+import cc.ui.foundation.logo_v2;
 // Terminal size probe for adaptive layout (welcome header centering + future
 // message-scroll height clamping).
-import cc.ui.ink_utils;
+import cc.ui.chrome.ink_utils;
 // Runtime terminal feature detection (fullscreen mode, mouse tracking, etc.)
 import cc.utils.terminal_helpers;
 // M1: FullscreenLayout slot-system — faithful port of TS FullscreenLayout's
 // region model (scrollable / bottom / overlay / modal / bottomFloat).  The
 // shell is now composed via this slot composer instead of a flat vbox.
-import cc.ui.layout.fullscreen;
+import cc.ui.chrome.fullscreen_layout;
 // M3: the REAL text editor component (ui::components::TextInputImpl).  This is
 // the faithful counterpart of TS BaseTextInput.tsx's inputState — it owns
 // cursor tracking, multi-line layout, selection rendering, and the suggestions
@@ -116,12 +116,12 @@ import cc.ui.layout.fullscreen;
 // it in: each render we sync a TextInputImpl from ReplScreenState and delegate
 // the caret/multiline/selection painting to it (mirroring TS
 // useDeclaredCursor, which parks the terminal cursor at the insertion point).
-import cc.ui.components.text_input;
+import cc.ui.widgets.text_input;
 // M5: Declared cursor support — parks the real terminal cursor at the text
 // input's insertion point so IME preedit renders inline and screen readers /
 // magnifiers can follow the input.  Faithful port of TS useDeclaredCursor +
 // CursorDeclarationContext.
-import cc.ui.common.declared_cursor;
+import cc.ui.foundation.declared_cursor;
 // M3: vim mode badge / mode_display helper (Normal/Insert/Visual/VisualLine/
 // Command).  Faithful to TS VimInput's -- INSERT -- / -- NORMAL -- / -- VISUAL
 // indicator driven by vim_input state.
@@ -161,7 +161,7 @@ import cc.ui.permissions.permission_file_edit;
 import cc.ui.permissions.permission_file_write;
 import cc.ui.permissions.single_prompt;
 // Unified canonical PromptInputMode enum (replaces local InputMode definition).
-import cc.ui.common.types;
+import cc.ui.foundation.ui_types;
 
 // Forward imports (implement bodies in owning agent modules):
 //   cc.ui.dialogs.{permission_prompts,mcp_dialogs,trust_dialog,

@@ -14,9 +14,9 @@ module;
 export module cc.ui.messages.message_tool_result;
 
 import cc.types.types;
-import cc.ui.terminal_io;
+import cc.ui.chrome.terminal_io;
 import cc.ui.messages.message_components;  // for padding() Decorator
-import cc.ui.markdown;                     // render_markdown() for natural-language tool results
+import cc.ui.visual.markdown;                     // render_markdown() for natural-language tool results
 
 export namespace cc::ui::messages {
 

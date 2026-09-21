@@ -8,9 +8,9 @@ module;
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
 
-export module cc.ui.tool_messages;
+export module cc.ui.messages.tool_messages;
 
-import cc.ui.layout;
+import cc.ui.chrome.layout;
 
 export namespace cc::ui::tool_messages {
 

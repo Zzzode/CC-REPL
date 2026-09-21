@@ -14,7 +14,7 @@ module;
 
 export module cc.ui.prompt.prompt_stash_notice;
 
-import cc.ui.design.figures;  // kPointerSmall (figures.pointerSmall '›')
+import cc.ui.foundation.design_figures;  // kPointerSmall (figures.pointerSmall '›')
 
 export namespace cc::ui::prompt {
 using namespace ftxui;

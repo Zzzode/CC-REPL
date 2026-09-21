@@ -45,9 +45,9 @@ module;
 export module cc.ui.permissions.advanced_prompts;
 
 import cc.utils.permissions_engine;
-import cc.ui.design.tokens;
-import cc.ui.trust_utils;
-import cc.ui.custom_select;
+import cc.ui.foundation.design_tokens;
+import cc.ui.dialogs.trust_utils;
+import cc.ui.widgets.custom_select;
 import cc.ui.permissions.components;
 
 export namespace cc::ui::permissions::advanced {

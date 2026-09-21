@@ -42,8 +42,8 @@ module;
 export module cc.ui.dialogs.help_view;
 
 import cc.ui.dialogs.frame;
-import cc.ui.design.theme;
-import cc.ui.design.tokens;
+import cc.ui.foundation.theme_provider;
+import cc.ui.foundation.design_tokens;
 import cc.constants.product;
 
 export namespace cc::ui::dialogs::help_view {

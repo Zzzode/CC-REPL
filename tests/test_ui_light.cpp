@@ -30,21 +30,21 @@
 
 #include "test_ui_helpers.h"
 
-import cc.ui.terminal;
-import cc.ui.design.theme;
-import cc.ui.design.tokens;
-import cc.ui.components;
-import cc.ui.components_extended;
-import cc.ui.components.passes;
-import cc.ui.components.grove;
-import cc.ui.components.lsp_rec_menu;
-import cc.ui.components.plugin_hint_menu;
-import cc.ui.common.declared_cursor;
-import cc.ui.panels;
-import cc.ui.markdown;
+import cc.ui.chrome.terminal;
+import cc.ui.foundation.theme_provider;
+import cc.ui.foundation.design_tokens;
+import cc.ui.widgets.components;
+import cc.ui.widgets.all_components;
+import cc.ui.widgets.passes;
+import cc.ui.features.grove;
+import cc.ui.features.plugins.lsp_recommendation_menu;
+import cc.ui.features.plugins.plugin_hint_menu;
+import cc.ui.foundation.declared_cursor;
+import cc.ui.chrome.panels;
+import cc.ui.visual.markdown;
 import cc.ui.prompt.prompt_input_footer;
 import cc.ui.prompt.placeholder_cascade;
-import cc.ui.design.figures;
+import cc.ui.foundation.design_figures;
 import cc.constants.constants;
 
 namespace {
@@ -53,7 +53,7 @@ namespace fs = std::filesystem;
 
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// cc.ui.terminal: FTXUI terminal controller and common widgets
+// cc.ui.chrome.terminal: FTXUI terminal controller and common widgets
 // ═══════════════════════════════════════════════════════════════════════════════
 
 TEST(Terminal, ColorThemesAreConstructible) {
@@ -122,7 +122,7 @@ TEST(Terminal, StatusBarRendersTokensAndCost) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// cc.ui.components: reusable FTXUI render helpers
+// cc.ui.widgets.components: reusable FTXUI render helpers
 // ═══════════════════════════════════════════════════════════════════════════════
 
 TEST(Components, RenderToolUseReturnsElement) {
@@ -873,7 +873,7 @@ TEST(Panels, DiffPanelAggregatesStats) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// cc.ui.messages: message parsing and renderable views
+// cc.ui.messages.messages: message parsing and renderable views
 // ═══════════════════════════════════════════════════════════════════════════════
 
 TEST(Markdown, OrderedListSupportsMultiDigitNumbers) {
@@ -993,7 +993,7 @@ TEST(Components, BuildPassesPanelReturnsComponent) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// cc.ui.components.grove — Grove tree view
+// cc.ui.features.grove — Grove tree view
 // ═══════════════════════════════════════════════════════════════════════════════
 
 TEST(Components, GroveKindLabelAllValues) {
@@ -1134,7 +1134,7 @@ TEST(Components, BuildLspRecommendationMenuReturnsComponent) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// cc.ui.components.plugin_hint_menu — Plugin hint menu
+// cc.ui.features.plugins.plugin_hint_menu — Plugin hint menu
 // ═══════════════════════════════════════════════════════════════════════════════
 
 TEST(Components, PluginHintDefaultConstructs) {
@@ -1200,7 +1200,7 @@ TEST(Components, PluginHintMenuUpdateState) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// cc.ui.design.figures: Glyph byte-sequence fidelity tests
+// cc.ui.foundation.design_figures: Glyph byte-sequence fidelity tests
 // TS REF: src/constants/figures.ts + node_modules/figures/index.js
 // Every glyph's exact UTF-8 bytes must match the TS reference so that golden
 // snapshots don't drift between platforms.  These tests are the single source
