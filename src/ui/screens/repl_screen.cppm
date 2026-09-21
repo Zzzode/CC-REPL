@@ -116,7 +116,7 @@ import cc.ui.layout.fullscreen;
 // it in: each render we sync a TextInputImpl from ReplScreenState and delegate
 // the caret/multiline/selection painting to it (mirroring TS
 // useDeclaredCursor, which parks the terminal cursor at the insertion point).
-import ui.components.text_input;
+import cc.ui.components.text_input;
 // M5: Declared cursor support — parks the real terminal cursor at the text
 // input's insertion point so IME preedit renders inline and screen readers /
 // magnifiers can follow the input.  Faithful port of TS useDeclaredCursor +

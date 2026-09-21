@@ -6,7 +6,7 @@ module;
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
 
-export module ui.components.spinner;
+export module cc.ui.components.spinner;
 
 export namespace ui::components {
 

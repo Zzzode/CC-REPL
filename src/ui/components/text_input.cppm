@@ -26,7 +26,7 @@ module;
 #include <ftxui/component/screen_interactive.hpp>
 #include <ftxui/screen/string.hpp>  // for string_width
 
-export module ui.components.text_input;
+export module cc.ui.components.text_input;
 
 import cc.utils.parse_references;
 import cc.ui.design.figures;

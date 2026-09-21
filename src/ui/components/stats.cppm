@@ -5,7 +5,7 @@ module;
 #include <format>
 #include <ftxui/dom/elements.hpp>
 
-export module ui.components.stats;
+export module cc.ui.components.stats;
 
 export namespace ui::components {
 

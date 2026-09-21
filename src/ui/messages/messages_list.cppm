@@ -150,7 +150,7 @@ import cc.ui.design.themed_text;
 import cc.ui.design.themed_box;
 import cc.ui.design.tokens;         // Role + Palette for divider color
 import cc.ui.design.figures;        // kSpinnerFrames canonical set (GAP 4)
-import ui.components.spinner;
+import cc.ui.components.spinner;
 
 // =========================================================================
 // Small palette helpers — tokens placeholders (swap for cc.ui.design.tokens)

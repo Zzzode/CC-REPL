@@ -3,9 +3,9 @@ module;
 #include <string>
 #include <ftxui/dom/elements.hpp>
 
-export module ui.components.fast_icon;
+export module cc.ui.components.fast_icon;
 
-import ui.components.figures;
+import cc.ui.components.figures;
 
 export namespace ui::components {
 

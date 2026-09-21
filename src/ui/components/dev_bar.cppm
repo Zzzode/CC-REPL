@@ -4,7 +4,7 @@ module;
 #include <vector>
 #include <ftxui/dom/elements.hpp>
 
-export module ui.components.dev_bar;
+export module cc.ui.components.dev_bar;
 
 export namespace ui::components {
 

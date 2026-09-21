@@ -27,7 +27,7 @@ import cc.types.types;
 import cc.ui.code_highlight;
 // Import the shared spinner via its module-interface name.  The file exports
 // `ui::components` so we alias at the bottom of this file for convenience.
-import ui.components.spinner;
+import cc.ui.components.spinner;
 // For unescape_literal_newlines() + ansi_to_ftxui_elements() used by the
 // Output: section to decode JSON-escaped newlines and render ANSI SGR codes.
 import cc.ui.messages.message_tool_result;

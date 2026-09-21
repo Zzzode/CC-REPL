@@ -11,14 +11,14 @@ module;
 export module cc.ui.components_extended;
 
 // Import and re-export all new components
-export import ui.components.figures;
-export import ui.components.fast_icon;
-export import ui.components.pr_badge;
-export import ui.components.spinner;
-export import ui.components.dev_bar;
-export import ui.components.stats;
+export import cc.ui.components.figures;
+export import cc.ui.components.fast_icon;
+export import cc.ui.components.pr_badge;
+export import cc.ui.components.spinner;
+export import cc.ui.components.dev_bar;
+export import cc.ui.components.stats;
 export import cc.ui.components.tag_tabs;
-export import ui.components.text_input;
+export import cc.ui.components.text_input;
 export import cc.ui.components.feature_dialogs;
 // Unified canonical PromptInputMode enum — all modules import this from here.
 export import cc.ui.common.types;

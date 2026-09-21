@@ -2,7 +2,7 @@ module;
 
 #include <string>
 
-export module ui.components.figures;
+export module cc.ui.components.figures;
 
 export namespace ui::components::figures {
 

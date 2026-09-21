@@ -4,7 +4,7 @@ module;
 #include <optional>
 #include <ftxui/dom/elements.hpp>
 
-export module ui.components.pr_badge;
+export module cc.ui.components.pr_badge;
 
 export namespace ui::components {
 
