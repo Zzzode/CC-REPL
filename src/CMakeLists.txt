@@ -790,7 +790,6 @@ target_sources(cc_services
         services/oauth/auth_code_listener.cppm
         services/oauth/crypto.cppm
         services/oauth/types.cppm
-        services/plugins/cli_commands.cppm
         services/policy/types.cppm
         services/prevent_sleep/prevent_sleep.cppm
         services/prompt_suggestion/prompt_suggestion.cppm

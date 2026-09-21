@@ -13,8 +13,26 @@ deleted; see commit `f9f69eb`). The distinction that matters:
 - **Wiring forgotten** → this file. There is a live artefact shaped exactly like
   the socket this module plugs into.
 
-Each entry states the evidence and a suggested fix. None is fixed yet. Verify
+Each entry states the evidence and a suggested fix. Verify
 the evidence before acting — line numbers drift.
+
+**Three entries have been re-verified and found wrong** (§6, §7, §9-10). The
+pattern is consistent enough to state as a rule: the *evidence* in this file is
+sound, but the *recommendations* repeatedly inverted on inspection.
+
+- §6 recommended deleting the un-imported figures module. It turned out to be
+  one of only two faithful copies of a glyph that has **drifted** in the
+  heavily-imported copy — so the import count pointed at the wrong survivor.
+- §7 claimed a live module held "the same" constants. The two modules share
+  exactly two, differently-spelled names and have different shapes entirely.
+- §9-10 called both modules "shadowed names". One is (and was deleted); the
+  other, `cc.vim.vim_commands`, is a complete ex-mode registry that is merely
+  unreachable because a live hook carries its own weaker stub.
+
+Treat the remaining unchecked entries' recommendations as hypotheses, not
+instructions. Two habits would have prevented all three errors: **an import
+count is not evidence of correctness**, and **"same name" is not "same thing"** —
+read what the module actually does, not what it is called.
 
 ## Confirmed wiring bugs
 
@@ -72,9 +90,33 @@ while the inline copies build a `SkillDefinition` directly. And the header
 comment at `bundled.cppm:9,32` claims these are "OK migrated (Phase 0)" — so the
 intent was to use the submodules and the local copies are leftovers.
 
-**Fix:** decide per skill whether the submodule's manifest is what should ship.
-If yes, call it and delete the inline copy; if no, delete the submodule. The
-current state ships the inline copy while carrying 693 LOC of the intended one.
+**Verified 2026-09-21 — the framing above is wrong, and the four split 2-2.**
+The core claim ("the inline copies shadow the submodules, the intent was to use
+the submodules") does not survive inspection:
+
+- **None of the four submodules exports a `SkillDefinition` builder at all.**
+  So they were never drop-in replacements for the inline `make_*_skill()`
+  functions, and the inline copies cannot be "leftovers" of them.
+- The submodules are **different kinds of thing** that merely share a name:
+  `bundled/verify.cppm` is a 348-line verification *engine* (`VerifyConfig`,
+  `run_verification`); `bundled/remember.cppm` is a 77-line in-memory
+  key-value *store* (`remember`/`recall`/`forget`/`list_memories`) plus a
+  `SkillManifest`. The inline copies are prompt-text `SkillDefinition`s.
+- `run_verification` and `VerifyConfig` are referenced **nowhere** outside
+  their own file — not even by a test.
+- `bundled.cppm` imports `cc.skills.remember` and `cc.skills.simplify`, the
+  **root** modules (`:83-84`) — it does not import `cc.skills.bundled.*` for
+  those two at all. So the `remember`/`simplify` rows are not "shadowed"; the
+  bundled copies are simply never referenced under any name.
+
+**Revised fix — two distinct calls, neither of them "swap the pair":**
+- `bundled/verify` and `bundled/batch`: unrelated engines nothing calls. Delete
+  both, or keep `verify` only if the verification engine is a feature you intend
+  to wire up (it is the most substantial thing here, and the only one that looks
+  like an unfinished feature rather than a duplicate).
+- `bundled/remember` and `bundled/simplify`: delete. The live skill text comes
+  from the root modules, and the bundled copies are a parallel store/manifest
+  with no importer and no call site.
 
 ### 6. `cc.constants.figures` (62 LOC) — one glyph set, three copies
 
@@ -86,17 +128,62 @@ current state ships the inline copy while carrying 693 LOC of the intended one.
 | `constants/figures.cppm:24` | `LIGHTNING_BOLT = "↯"` (escape) | **0×** |
 | `ui/components/figures.cppm:15` | `LIGHTNING_BOLT = "↯"` (literal) | 19× |
 
-**Fix:** keep one. `constants/figures.cppm` is the one nothing imports, so it is
-the one to delete — but the escape form is the only substantive difference from
-the live copies, so check whether it was deliberate (e.g. for a compiler or
-platform where the literal did not survive) before removing it.
+**The suggested fix here was wrong — do not delete `constants/figures.cppm` on
+the strength of the importer count.** The escape form is *not* a difference: all
+24 glyphs shared between `constants/figures.cppm` and `ui/components/figures.cppm`
+decode to identical code points, so the escape notation was purely cosmetic.
+
+But comparing them turned up a **real, unreported divergence**, and it inverts
+which copy is authoritative. `BRIDGE_READY_INDICATOR` exists in **four** places,
+in two spellings:
+
+| file | value | code points |
+|---|---|---|
+| `ui/design/figures.cppm:192` | `·✔︎·` | U+00B7 U+2714 U+FE0E U+00B7 |
+| `constants/figures.cppm:59` | `·✔︎·` | same, via `✔︎` |
+| `ui/components/figures.cppm:44` | `·✓·` | U+2713 — **drifted** |
+| `constants/constants.cppm:219` | `·✓·` | U+2713 — **drifted** |
+
+The first two are the TypeScript-faithful value, and a **passing test pins it**:
+`tests/test_ui_light.cpp:1471` `Figures.BridgeReadyIndicatorIsTsFaithful` asserts
+the 10-byte `·✔︎·` sequence against `cc::ui::design::figures`, with a comment
+recording that the C++ previously held emoji `✅︎` and was corrected. The two
+drifted copies hold the *pre-correction* shape minus the emoji.
+
+So `constants/figures.cppm`, the module nothing imports, is one of only two
+copies that agree with the test; the copy with 19 importers is wrong. Nothing
+renders the indicator today (no consumer references it outside these modules),
+which is why the drift is invisible.
+
+**Fix:** this is not a deletion — it is a **consolidation with a correctness
+bug inside**. Pick `design/figures.cppm` as the survivor (it is the tested one),
+point the other three at it, and let the existing test guard the value. Deleting
+`constants/figures.cppm` as originally suggested would discard a faithful copy
+and leave the drifted one in place.
 
 ### 7. `cc.constants.tools_constants` (101 LOC) — duplicate tool-name constants
 
-`tools/tool_display_names.cppm` declares the same `BASH_TOOL_NAME` /
-`AGENT_TOOL_NAME` constants and is the one imported.
+**The stated comparison was wrong: these two modules are not duplicates.** They
+have different shapes and different jobs.
 
-**Fix:** delete, unless it holds names the live module lacks.
+| module | what it actually exports |
+|---|---|
+| `constants/tools_constants.cppm` | **30 exported string constants** — `bash_tool_name = "Bash"`, `grep_tool_name = "Grep"`, … No function. |
+| `tools/tool_display_names.cppm` | a **lookup function** `display_tool_name(id)`, built on an internal 57-entry table of string *literals*, plus exactly **two** exported constants (`BASH_TOOL_NAME`, `SCRIPT_TOOL_NAME`). |
+
+They overlap on only two names, and those two are spelled differently
+(`bash_tool_name` vs `BASH_TOOL_NAME`). `tool_display_names` is also far less
+"the one imported" than it sounds: it has **one** importer,
+`tools/script_tool.cppm:23`.
+
+**Fix — delete `tools_constants`, but for a different reason than given.**
+Nothing consumes it: grep for its constants outside its own file returns zero
+real uses (`agent_tool_name` matches only a *function parameter* of the same
+name in `utils/message_mappers.cppm:386`, which is unrelated). The live codebase
+does not centralize tool names this way — each tool module declares its own
+`inline constexpr std::string_view kToolName = "Edit"` (e.g.
+`tools/file_edit_types.cppm:21`) and the rest uses raw literals. So the module is
+a never-adopted idea, not a shadowed implementation.
 
 ### 8. `cc.utils` (69 LOC) — the aggregator everything was supposed to go through
 
@@ -114,9 +201,15 @@ callers at it (and the 16 become reachable). If no, delete it **and** decide the
 this module nominally reaches them. This is the one flag whose resolution
 changes whether ~16 other modules live or die, so resolve it first.
 
-### 9-10. `cc.services.plugins.cli_commands` and `cc.vim.vim_commands` — shadowed names
+### 9-10. `cc.services.plugins.cli_commands` and `cc.vim.vim_commands` — one shadowed, one not
 
-Both declare a class whose name is registered from a *different* module:
+Both were filed as "a class whose name is registered from a *different*
+module", and both do declare a type whose name is also declared and registered
+elsewhere. But that shared symptom hides **opposite** conclusions — one is a
+shadowed duplicate to delete, the other is a better implementation that is
+merely unreachable. Read the per-module notes below before acting.
+
+Originally recorded as:
 
 - `command_registry_init_d.cpp:25` registers `PluginCommand`, importing
   `cc.commands.plugin_cmd`.
@@ -125,8 +218,35 @@ Both declare a class whose name is registered from a *different* module:
   (`{name, handler, description}` vs a slash-command class with
   `definition()`/`validate()`), which is how we know which one is bound.
 
-**Fix:** delete both. The registration binds to the imported class, so these are
-inert — but delete only after confirming no third definition appears.
+Both have **zero** importers. Verified 2026-09-21 — see the revised fix below.
+
+**Fix (revised 2026-09-21): the two halves have opposite verdicts.**
+
+- **`cc.services.plugins.cli_commands` — delete. DELETED 2026-09-21.** The
+  original note called it a shadowed `struct PluginCommand`; the struct is real
+  (`:32`) but incidental — the module's actual body is a
+  `handle_plugin_command` **superseded stub**, and its own comments say so:
+  `list` delegates to the marketplace backend while `install`/`uninstall`/
+  `update` return an explicit "superseded, use `cc.utils.plugin_manager` via
+  `commands/plugin/plugin_manage`" error rather than faking success. Never
+  called anywhere. The named replacement `commands/plugin/plugin_manage` exists
+  as a 10-file subsystem, and `get_all_available_plugins` is live in
+  `utils/plugin_marketplace.cppm:142`, so no capability is lost. The only other
+  `PluginCommand` is an unrelated data struct in `utils/plugin_loader.cppm:301`.
+- **`cc.vim.vim_commands` — do NOT simply delete.** The original note called it
+  a shadowed duplicate of `commands/vim.cppm`'s `VimCommand` class. That is
+  true of the *name* and false of the *module*: the file is a complete 180-line
+  ex-mode registry (`:w` `:q` `:wq` `:set` `:map` `:help` `:noh` `:number`)
+  with a working `execute_ex_command` that parses `!` force variants. The
+  `struct VimCommand` at line 14 is just its entry type.
+
+  It is unreachable because the live vim hook does not use it. `hooks/vim_input.cppm`
+  carries its **own local** `execute_ex_command` (line 420) and calls *that* at
+  line 398 — and the live one is a near-stub that handles only all-digit input
+  (`:42` jumps to line 42) and ignores `:w`, `:q`, `:help` entirely. So the dead
+  module holds the *better* implementation. This is entry 1's pattern again: two
+  implementations of one behaviour, the reachable one weaker, which means the
+  fix is a decision (adopt the registry, or drop ex-mode) rather than a deletion.
 
 ## Sibling gap
 
