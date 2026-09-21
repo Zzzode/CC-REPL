@@ -48,7 +48,7 @@ import cc.session.storage;
 import cc.memdir.paths;
 import cc.constants.paths;
 import cc.services.analytics;
-import core.memdir;
+import cc.memdir.memdir;
 import cc.services.extract_memories;
 import cc.utils.tool_helpers;
 import cc.utils.tool_deny_rules;

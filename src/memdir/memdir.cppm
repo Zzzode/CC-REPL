@@ -13,7 +13,7 @@ module;
 #include <string_view>
 #include <vector>
 
-export module core.memdir;
+export module cc.memdir.memdir;
 
 import cc.utils.env_utils;
 

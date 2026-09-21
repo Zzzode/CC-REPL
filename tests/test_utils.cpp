@@ -75,7 +75,7 @@ import cc.utils.github_utils;
 import cc.plugins.marketplace;
 import cc.utils.clipboard;
 import cc.utils.parse_references;
-import core.memdir;
+import cc.memdir.memdir;
 
 class ScopedEnvVar {
 public:
