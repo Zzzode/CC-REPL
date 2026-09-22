@@ -65,5 +65,11 @@ jobs:
         run: cmake --build --preset debug -j 1
 
       - name: Test
-        timeout-minutes: 15
-        run: ctest --preset debug --parallel 4
+        timeout-minutes: 20
+        # Serial (CLAUDE.md: timing-sensitive backoff/server tests flake under
+        # parallel scheduling) and truecolor so RGB palette goldens render the
+        # 24-bit escapes they were captured with instead of 16-color ANSI.
+        env:
+          COLORTERM: truecolor
+          TERM: xterm-256color
+        run: ctest --preset debug -j1
