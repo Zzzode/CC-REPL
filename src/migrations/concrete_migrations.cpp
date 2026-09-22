@@ -261,22 +261,6 @@ inline void merge_str_array(yyjson_mut_doc* doc, yyjson_mut_val* parent,
         return name(obj.raw(), std::forward<Args>(args)...);                   \
     }
 
-CC_MUT_R_(is_obj)
-CC_MUT_R_(is_arr)
-CC_MUT_R_(is_str)
-CC_MUT_R_(is_true)
-CC_MUT_R_(is_false)
-CC_MUT_R_(is_bool)
-CC_MUT_R_(is_sint)
-CC_MUT_R_(is_uint)
-CC_MUT_R_(is_num)
-CC_MUT_R_(is_null)
-CC_MUT_R_(get_str)
-CC_MUT_R_(get_sint)
-CC_MUT_R_(get_uint)
-CC_MUT_R_(get_bool)
-CC_MUT_R_(arr_size)
-CC_MUT_R_(obj_size)
 CC_MUT_R_(obj_getn)
 CC_MUT_R_(has)
 CC_MUT_R_(remove)
