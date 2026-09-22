@@ -3,6 +3,7 @@
 /// syntax highlighting, line numbers, and navigation.
 module;
 
+#include <cctype>
 #include <string>
 #include <vector>
 #include <memory>

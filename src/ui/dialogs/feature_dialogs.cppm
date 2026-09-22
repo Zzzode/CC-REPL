@@ -23,6 +23,7 @@
 ///   - Grove graph loading is likewise injected via `GroveCallbacks`.
 
 module;
+#include <ctime>
 #include <algorithm>
 #include <array>
 #include <bitset>

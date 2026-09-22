@@ -3,6 +3,7 @@
 ///        prompt/agent/function runners, pipeline helpers.
 module;
 
+#include <cerrno>
 #include <algorithm>
 #include <array>
 #include <cctype>

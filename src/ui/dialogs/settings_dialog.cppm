@@ -5,6 +5,7 @@
 /// delegated 100% to ConfigManager (cc.config.config) — no direct JSON I/O.
 module;
 
+#include <ctime>
 #include <string>
 #include <vector>
 #include <memory>

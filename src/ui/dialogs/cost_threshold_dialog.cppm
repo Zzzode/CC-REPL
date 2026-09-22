@@ -26,6 +26,7 @@
 /// RenderCostThreshold / HandleCostThresholdEvent.
 module;
 
+#include <cstdio>
 #include <cmath>
 #include <cstdint>
 #include <functional>

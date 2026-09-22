@@ -17,6 +17,7 @@
 /// (UI18) and use the design tokens defined in that screen.
 module;
 
+#include <ctime>
 #include <string>
 #include <vector>
 #include <memory>

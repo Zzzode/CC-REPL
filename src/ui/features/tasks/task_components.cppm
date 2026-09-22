@@ -6,6 +6,7 @@
 ///   sibling agents UI13 (Agent view) and UI14 (Team view).
 module;
 
+#include <ctime>
 #include <cctype>
 #include <string>
 #include <vector>

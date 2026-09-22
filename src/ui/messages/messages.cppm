@@ -1,6 +1,7 @@
 // C++23 Module: Message display components for conversation rendering
 module;
 
+#include <ctime>
 #include <algorithm>
 #include <array>
 #include <chrono>

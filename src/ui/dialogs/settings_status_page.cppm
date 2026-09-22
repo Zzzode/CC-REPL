@@ -4,6 +4,7 @@
 /// Migrated from Settings/Status.tsx diagnostics rendering.
 module;
 
+#include <ctime>
 #include <string>
 #include <vector>
 #include <memory>

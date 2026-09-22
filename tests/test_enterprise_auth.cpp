@@ -22,6 +22,7 @@
 // SKIP_*_AUTH env-var doubles; token-fetch tests mock with httplib::Server
 // and environment variable overrides.
 
+#include <cstdio>
 #include <chrono>
 #include <cstdlib>
 #include <fstream>

@@ -4,6 +4,7 @@
 /// permissions, and reports environment information.
 module;
 
+#include <cerrno>
 #include <cstdlib>
 #include <cstdint>
 #include <cstdio>

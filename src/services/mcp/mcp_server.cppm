@@ -3,6 +3,7 @@
 /// JSON-RPC 2.0 over stdio or HTTP SSE transport (using libuv).
 module;
 
+#include <cstdio>
 #include <cstdint>
 #include <string>
 #include <vector>

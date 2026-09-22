@@ -32,6 +32,7 @@
 /// with mandatory 5 s countdown (UI8, reused — not reimplemented).
 module;
 
+#include <ctime>
 #include <array>
 #include <algorithm>
 #include <cctype>

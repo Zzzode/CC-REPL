@@ -34,6 +34,7 @@
 /// build_output_config_json_for_testing, execute_single_tool_for_testing,
 /// discovered_skills, get_conversation, model_params).
 
+#include <cstdlib>
 #include <gtest/gtest.h>
 
 #include <atomic>

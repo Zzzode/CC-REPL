@@ -1,5 +1,6 @@
 module;
 
+#include <ctime>
 #include <string>
 #include <functional>
 #include <filesystem>

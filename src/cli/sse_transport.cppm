@@ -3,6 +3,7 @@
 /// Implements proper SSE frame parsing per W3C spec, exponential backoff reconnect,
 /// liveness timeout, and Last-Event-ID tracking for resume on reconnect.
 module;
+#include <cerrno>
 #include <string>
 #include <string_view>
 #include <map>

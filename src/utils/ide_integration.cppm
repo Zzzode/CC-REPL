@@ -2,6 +2,7 @@
 // Sources: ide.ts, idePathConversion.ts, jetbrains.ts
 module;
 
+#include <cerrno>
 #include <chrono>
 #include <array>
 #include <cctype>

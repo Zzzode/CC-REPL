@@ -1,5 +1,6 @@
 // API Error Handling - Comprehensive error types and utilities for Anthropic API
 module;
+#include <cstdlib>
 #include <chrono>
 #include <format>
 #include <optional>

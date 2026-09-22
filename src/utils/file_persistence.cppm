@@ -1,5 +1,6 @@
 module;
 
+#include <cerrno>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
