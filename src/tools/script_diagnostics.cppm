@@ -7,6 +7,7 @@
 //                                                adjustLineNumbers, etc.)
 // Merged with pre-existing parse + summary formatters that lived here.
 module;
+#include <chrono>
 #include <algorithm>
 #include <cctype>
 #include <cstdint>

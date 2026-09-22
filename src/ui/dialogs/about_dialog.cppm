@@ -37,6 +37,7 @@
 ///   Esc  — close dialog
 module;
 
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>

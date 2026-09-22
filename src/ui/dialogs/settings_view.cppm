@@ -38,6 +38,7 @@
 ///   c    — open full config (handled by caller)
 module;
 
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>

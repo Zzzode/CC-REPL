@@ -4,6 +4,7 @@
 /// appropriate side effects like persistence, notifications, etc.
 module;
 
+#include <condition_variable>
 #include <cstdint>
 #include <string>
 #include <vector>

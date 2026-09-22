@@ -15,6 +15,7 @@
 /// the migrated UI.
 module;
 
+#include <cmath>
 #include <string>
 #include <string_view>
 #include <format>

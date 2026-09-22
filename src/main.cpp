@@ -5,6 +5,7 @@
  * and launches the full interactive FTXUI-based UI.
  */
 
+#include <sstream>
 #include <algorithm>
 #include <atomic>
 #include <chrono>

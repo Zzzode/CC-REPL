@@ -4,6 +4,7 @@
 /// message rows, tool displays, permission prompts, diffs, etc.
 module;
 
+#include <algorithm>
 #include <cstdint>
 #include <string>
 #include <string_view>

@@ -5,6 +5,7 @@
 // that hook/source files will eventually migrate toward.
 module;
 
+#include <condition_variable>
 #include <algorithm>
 #include <chrono>
 #include <cstdint>

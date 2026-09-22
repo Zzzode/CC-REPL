@@ -46,6 +46,7 @@
 ///                             exists but the profile tier query does not.
 module;
 
+#include <condition_variable>
 #include <algorithm>
 #include <chrono>
 #include <cstdint>

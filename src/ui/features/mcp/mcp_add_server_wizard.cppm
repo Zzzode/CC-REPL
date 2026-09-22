@@ -12,6 +12,7 @@
 ///   - cc.services.mcp.connection_manager                (temp probe in step 3)
 module;
 
+#include <sstream>
 #include <algorithm>
 #include <cctype>
 #include <chrono>

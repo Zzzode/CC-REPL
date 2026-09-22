@@ -3,6 +3,7 @@
 /// Manages saving, loading, listing, and deleting conversations using C++23 features.
 module;
 
+#include <condition_variable>
 #include <cstdint>
 #include <cstdlib>
 #include <string>

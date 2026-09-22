@@ -28,6 +28,7 @@
 ///   Enter            — run selected command
 module;
 
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>

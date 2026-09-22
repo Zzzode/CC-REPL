@@ -12,6 +12,7 @@
 ///   - MCP ext-auth (SEP-990): https://github.com/modelcontextprotocol/ext-auth
 ///   - RFC 8693 (Token Exchange), RFC 7523 (JWT Bearer), RFC 9728 (PRM)
 module;
+#include <functional>
 #include <algorithm>
 #include <chrono>
 #include <cstdint>

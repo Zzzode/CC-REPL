@@ -16,6 +16,7 @@
 /// multi-line / interactive inputs.
 module;
 
+#include <condition_variable>
 #include <algorithm>
 #include <array>
 #include <cerrno>

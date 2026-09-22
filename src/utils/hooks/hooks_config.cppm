@@ -4,6 +4,7 @@
 // Provides hook configuration management, file watching, and skill/session hook registration
 module;
 
+#include <condition_variable>
 #include <atomic>
 #include <chrono>
 #include <cstdint>

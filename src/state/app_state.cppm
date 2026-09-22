@@ -4,6 +4,8 @@
 /// observer pattern for reactive state changes, and selectors.
 module;
 
+#include <condition_variable>
+#include <tuple>
 #include <cstdint>
 #include <string>
 #include <vector>

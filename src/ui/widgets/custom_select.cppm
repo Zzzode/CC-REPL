@@ -20,6 +20,7 @@
 ///   - Group collapse: groups render as label + separator today; no fold.
 module;
 
+#include <cmath>
 #include <string>
 #include <vector>
 #include <memory>

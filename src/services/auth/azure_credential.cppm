@@ -38,6 +38,7 @@
 // export the same model-ID table as TS configs.ts so callers can look up
 // the default deployment name before the runtime ListDeployments call.
 module;
+#include <functional>
 #include <array>
 #include <chrono>
 #include <cstdint>

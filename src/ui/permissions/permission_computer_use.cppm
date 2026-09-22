@@ -2,6 +2,7 @@
 /// @brief Computer use permission UI for screen/mouse/keyboard control
 module;
 
+#include <functional>
 #include <string>
 #include <string_view>
 #include <vector>

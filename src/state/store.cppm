@@ -4,6 +4,7 @@
 /// middleware pipeline, subscriptions, and async thunk support.
 module;
 
+#include <condition_variable>
 #include <cstdint>
 #include <string>
 #include <vector>

@@ -8,6 +8,7 @@
 ///   └───────────────────────────────────────────────────────┘
 module;
 
+#include <tuple>
 #include <functional>
 #include <string>
 #include <string_view>

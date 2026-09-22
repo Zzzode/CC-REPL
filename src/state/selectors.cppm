@@ -4,6 +4,7 @@
 /// redundant recalculations when the underlying data hasn't changed.
 module;
 
+#include <chrono>
 #include <cstdint>
 #include <string>
 #include <string_view>

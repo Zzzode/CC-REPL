@@ -7,6 +7,7 @@
 /// PARTIAL COMPLETED by UI27.
 module;
 
+#include <chrono>
 #include <algorithm>
 #include <array>
 #include <cctype>

@@ -7,6 +7,7 @@
 /// UI rendering (FTXUI tables/dialogs) DEFERRED to Phase 4.
 module;
 
+#include <chrono>
 #include <cstdint>
 #include <string>
 #include <vector>
