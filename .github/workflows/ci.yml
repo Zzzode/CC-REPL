@@ -23,7 +23,7 @@ on:
 jobs:
   build-and-test:
     runs-on: macos-14
-    timeout-minutes: 40
+    timeout-minutes: 50
 
     steps:
       - name: Checkout
@@ -51,7 +51,7 @@ jobs:
             -DCMAKE_EXE_LINKER_FLAGS="-L${LLVM_PREFIX}/lib/c++ -Wl,-rpath,${LLVM_PREFIX}/lib/c++ -L${SDKROOT}/usr/lib"
 
       - name: Build
-        timeout-minutes: 25
+        timeout-minutes: 35
         run: cmake --build --preset debug
 
       - name: Test
