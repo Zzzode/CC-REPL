@@ -5,6 +5,7 @@
 // plugin flagging/reporting, schema definitions, and startup safety checks.
 module;
 
+#include <array>
 #include <algorithm>
 #include <cctype>
 #include <expected>

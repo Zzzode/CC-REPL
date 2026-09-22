@@ -19,6 +19,7 @@
 ///     until runForkedAgent is ported; do NOT claim parity with the TS LLM path.
 module;
 
+#include <array>
 #include <cstdint>
 #include <cstddef>
 #include <cstring>

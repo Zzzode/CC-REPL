@@ -17,6 +17,7 @@
 /// footer buttons since decisions are driven from the batch toolbar/nav.
 module;
 
+#include <array>
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>

@@ -4,6 +4,7 @@
 /// preserves key information, and manages token budgets.
 module;
 
+#include <array>
 #include <cstdint>
 #include <string>
 #include <vector>

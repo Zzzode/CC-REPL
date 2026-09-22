@@ -25,6 +25,7 @@
 // `refreshAndGetAwsCredentials()`) before signing, if user scripts need to
 // run first.  This module does NOT spawn user shells.
 module;
+#include <array>
 #include <algorithm>
 #include <chrono>
 #include <cstdint>

@@ -5,6 +5,7 @@
 /// names that would otherwise be misheard.
 module;
 
+#include <array>
 #include <cstdint>
 #include <string>
 #include <string_view>

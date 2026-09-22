@@ -7,6 +7,7 @@
 /// wizard embeds that component.
 module;
 
+#include <array>
 #include <algorithm>
 #include <cstdint>
 #include <cstddef>

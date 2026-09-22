@@ -21,6 +21,7 @@
 /// without bringing in any other C++ modules.
 module;
 
+#include <array>
 #include <cerrno>
 #include <csignal>
 #include <cstdint>

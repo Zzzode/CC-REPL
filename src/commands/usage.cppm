@@ -3,6 +3,7 @@
 /// Show token usage, cost breakdown, session duration, and rate limit status.
 module;
 
+#include <array>
 #include <cstdint>
 #include <string>
 #include <vector>

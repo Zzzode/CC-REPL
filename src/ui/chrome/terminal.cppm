@@ -4,6 +4,7 @@
 /// spinner, status bar, and key binding management.
 module;
 
+#include <array>
 #include <cstdint>
 #include <string>
 #include <vector>

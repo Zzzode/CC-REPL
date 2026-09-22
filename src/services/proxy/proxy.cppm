@@ -4,6 +4,7 @@
 /// no_proxy matching, curl option application, and CA certificate management.
 module;
 
+#include <array>
 #include <cstdint>
 #include <string>
 #include <vector>

@@ -15,6 +15,7 @@
 /// Phase 4 concern.
 module;
 
+#include <array>
 #include <algorithm>
 #include <cctype>
 #include <format>

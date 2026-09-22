@@ -26,6 +26,7 @@
 /// =========================================================================
 module;
 
+#include <array>
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>

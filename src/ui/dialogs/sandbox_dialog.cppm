@@ -3,6 +3,7 @@
 /// Migrated from SandboxSettings.tsx.
 module;
 
+#include <array>
 #include <string>
 #include <vector>
 #include <functional>

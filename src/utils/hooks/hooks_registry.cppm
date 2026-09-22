@@ -3,6 +3,7 @@
 // Provides core hook registration, event broadcasting, and settings resolution
 module;
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstdint>

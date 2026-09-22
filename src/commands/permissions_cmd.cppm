@@ -6,6 +6,7 @@
 /// Output is plain-text rows ready for Phase 4 FTXUI table rendering.
 module;
 
+#include <array>
 #include <cstdint>
 #include <algorithm>
 #include <chrono>
