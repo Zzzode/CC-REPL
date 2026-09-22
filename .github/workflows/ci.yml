@@ -23,7 +23,7 @@ on:
 jobs:
   build-and-test:
     runs-on: macos-14
-    timeout-minutes: 60
+    timeout-minutes: 90
 
     steps:
       - name: Checkout
@@ -53,8 +53,12 @@ jobs:
             -DCMAKE_EXE_LINKER_FLAGS="-fuse-ld=lld -L${LLVM_PREFIX}/lib/c++ -Wl,-rpath,${LLVM_PREFIX}/lib/c++ -L${SDKROOT}/usr/lib"
 
       - name: Build
-        timeout-minutes: 45
-        run: cmake --build --preset debug
+        timeout-minutes: 70
+        # -j2: named-module compiles of the large aggregating TUs (test_core,
+        # app_constructor, dialog impls) each need multiple GB; ninja's default
+        # (~5 concurrent on the 3-vCPU/14GB runner) swaps the machine and the
+        # build freezes silently at the final ~90 units.
+        run: cmake --build --preset debug -j 2
 
       - name: Test
         timeout-minutes: 15
