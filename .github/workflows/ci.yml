@@ -23,7 +23,7 @@ on:
 jobs:
   build-and-test:
     runs-on: macos-14
-    timeout-minutes: 90
+    timeout-minutes: 120
 
     steps:
       - name: Checkout
@@ -50,15 +50,16 @@ jobs:
             -DCMAKE_C_COMPILER="${LLVM_PREFIX}/bin/clang" \
             -DCMAKE_CXX_COMPILER="${LLVM_PREFIX}/bin/clang++" \
             -DCMAKE_CXX_FLAGS="-isysroot ${SDKROOT} -isystem ${LLVM_PREFIX}/include/c++/v1 -isystem ${SDKROOT}/usr/include" \
+            -DCMAKE_CXX_FLAGS_DEBUG="-g0" \
             -DCMAKE_EXE_LINKER_FLAGS="-fuse-ld=lld -L${LLVM_PREFIX}/lib/c++ -Wl,-rpath,${LLVM_PREFIX}/lib/c++ -L${SDKROOT}/usr/lib"
 
       - name: Build
-        timeout-minutes: 70
-        # -j2: named-module compiles of the large aggregating TUs (test_core,
-        # app_constructor, dialog impls) each need multiple GB; ninja's default
-        # (~5 concurrent on the 3-vCPU/14GB runner) swaps the machine and the
-        # build freezes silently at the final ~90 units.
-        run: cmake --build --preset debug -j 2
+        timeout-minutes: 100
+        # -j1: measured PSS for one heavy module compile (ui/app/app.cppm,
+        # hundreds of named-module BMIs) is ~8 GB; the macos-14 runner has 14 GB
+        # and two such TUs concurrently swapped for 10-18 min each. Debug info
+        # disabled (-DCMAKE_CXX_FLAGS_DEBUG=-g0) to trim compiler memory.
+        run: cmake --build --preset debug -j 1
 
       - name: Test
         timeout-minutes: 15
