@@ -38,6 +38,7 @@ module;
 #endif
 
 export module cc.tools.runtime_registry;
+import cc.utils.parse_int;
 
 import cc.tools.tool;
 import cc.tools.built_in_agents;
@@ -360,7 +361,7 @@ private:
     std::size_t value = 0;
     const auto* begin = text.data();
     const auto* end = begin + text.size();
-    auto [ptr, ec] = std::from_chars(begin, end, value);
+    auto [ptr, ec] = cc::utils::from_chars(begin, end, value);
     if (ec != std::errc{} || ptr != end) return std::nullopt;
     return value;
 }

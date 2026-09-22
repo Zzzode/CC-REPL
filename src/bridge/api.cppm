@@ -18,6 +18,7 @@ module;
 #include <charconv>
 
 export module cc.bridge.api;
+import cc.utils.parse_int;
 
 import cc.types.types;
 import cc.bridge.messages;
@@ -413,7 +414,7 @@ private:
                 auto text = value.as_str();
                 auto* first = text.data();
                 auto* last = text.data() + text.size();
-                auto result = std::from_chars(first, last, parsed);
+                auto result = cc::utils::from_chars(first, last, parsed);
                 if (result.ec == std::errc{} && result.ptr == last) return parsed;
             }
         }

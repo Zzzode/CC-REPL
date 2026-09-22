@@ -11,6 +11,7 @@ module;
 #include <vector>
 
 export module cc.commands.runtime_surface_commands;
+import cc.utils.parse_int;
 
 import cc.types.types;
 import cc.commands.command;
@@ -63,7 +64,7 @@ namespace detail {
     std::uint16_t value = 0;
     auto begin = text.data();
     auto end = text.data() + text.size();
-    auto [ptr, ec] = std::from_chars(begin, end, value);
+    auto [ptr, ec] = cc::utils::from_chars(begin, end, value);
     if (ec != std::errc{} || ptr != end || value == 0) return fallback;
     return value;
 }

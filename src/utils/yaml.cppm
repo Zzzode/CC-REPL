@@ -5,7 +5,9 @@ module;
 #include <map>
 #include <variant>
 #include <cstdint>
-#include <charconv>
+#include <cstdlib>
+#include <cerrno>
+#include <climits>
 #include <optional>
 #include <sstream>
 #include <iomanip>
@@ -59,6 +61,33 @@ namespace yaml_detail {
     }
 
 
+    // Strict integer parse: optional leading '-', then one-or-more ASCII digits,
+    // full consumption required. Portable replacement for std::from_chars on
+    // int64_t, whose overload is gated behind a newer macOS SDK than CI targets
+    // (Apple libc++ marks it macOS 26+). Returns false on whitespace, '+',
+    // overflow, or trailing characters -- matching from_chars' strictness.
+    inline bool parse_int64_strict(std::string_view text, int64_t& out) {
+        if (text.empty()) return false;
+        std::size_t i = 0;
+        bool negative = false;
+        if (text[i] == '-') { negative = true; ++i; }
+        if (i >= text.size()) return false;
+        std::uint64_t magnitude = 0;
+        for (; i < text.size(); ++i) {
+            if (text[i] < '0' || text[i] > '9') return false;
+            magnitude = magnitude * 10 + static_cast<unsigned>(text[i] - '0');
+            // int64 range is [-2^63, 2^63-1]; reject anything beyond.
+            constexpr std::uint64_t kInt64Max = static_cast<std::uint64_t>(LLONG_MAX);
+            constexpr std::uint64_t kInt64MinMag = kInt64Max + 1u;  // 2^63
+            if (magnitude > (negative ? kInt64MinMag : kInt64Max))
+                return false;
+        }
+        out = negative ? -static_cast<int64_t>(magnitude)
+                       :  static_cast<int64_t>(magnitude);
+        return true;
+    }
+
+
     inline YamlValue parse_scalar(std::string_view value) {
         if (value.empty() || value == "null" || value == "~") return YamlValue(nullptr);
         if (value == "true" || value == "True" || value == "TRUE") return YamlValue(true);
@@ -80,16 +109,28 @@ namespace yaml_detail {
 
 
         int64_t int_val{};
-        auto [ptr, ec] = std::from_chars(value.data(), value.data() + value.size(), int_val);
-        if (ec == std::errc{} && ptr == value.data() + value.size()) {
+        if (parse_int64_strict(value, int_val)) {
             return YamlValue(int_val);
         }
 
 
+        // Strict floating parse via strtod with full-consumption check. Avoids
+        // std::from_chars(double), which is also unavailable on older macOS
+        // SDKs. Reject leading/trailing whitespace (strtod would skip/look past
+        // it) and any unconsumed suffix; reject on range error.
         double dbl_val{};
-        auto [ptr2, ec2] = std::from_chars(value.data(), value.data() + value.size(), dbl_val);
-        if (ec2 == std::errc{} && ptr2 == value.data() + value.size()) {
-            return YamlValue(dbl_val);
+        if (!value.empty() &&
+            value.data()[0] != ' ' && value.data()[0] != '\t' &&
+            value.data()[0] != '\n' && value.data()[0] != '\r') {
+            std::string buffer(value);  // NUL-terminated for strtod
+            errno = 0;
+            char* end = nullptr;
+            const char* begin = buffer.c_str();
+            double parsed = std::strtod(begin, &end);
+            if (errno != ERANGE && end == begin + buffer.size()) {
+                dbl_val = parsed;
+                return YamlValue(dbl_val);
+            }
         }
 
 

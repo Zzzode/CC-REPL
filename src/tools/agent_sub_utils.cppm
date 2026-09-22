@@ -32,6 +32,7 @@ module;
 #include <sys/wait.h>
 
 export module cc.tools.agent.utils;
+import cc.utils.parse_int;
 
 import cc.utils.error;
 import cc.utils.git;
@@ -971,7 +972,7 @@ Guidelines:
     int parsed = 0;
     const auto* begin = value.data();
     const auto* end = value.data() + value.size();
-    const auto [ptr, ec] = std::from_chars(begin, end, parsed);
+    const auto [ptr, ec] = cc::utils::from_chars(begin, end, parsed);
     if (ec != std::errc{} || ptr != end) return std::nullopt;
     return parsed;
 }

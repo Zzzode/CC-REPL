@@ -24,6 +24,7 @@ module;
 #include <vector>
 
 export module cc.tools.skill;
+import cc.utils.parse_int;
 
 import cc.utils.json;
 
@@ -138,7 +139,7 @@ namespace skill_detail {
     int value = 0;
     const auto* first = t.data();
     const auto* last = t.data() + t.size();
-    auto [ptr, ec] = std::from_chars(first, last, value);
+    auto [ptr, ec] = cc::utils::from_chars(first, last, value);
     if (ec != std::errc{} || ptr != last) return std::nullopt;
     return value;
 }

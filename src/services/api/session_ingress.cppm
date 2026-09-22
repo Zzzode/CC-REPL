@@ -13,6 +13,7 @@ module;
 #include <utility>
 #include <vector>
 export module cc.services.api.session_ingress;
+import cc.utils.parse_int;
 
 import cc.utils.http;
 import cc.utils.json;
@@ -64,7 +65,7 @@ namespace detail {
         int64_t parsed = 0;
         auto* first = value->data();
         auto* last = value->data() + value->size();
-        auto result = std::from_chars(first, last, parsed);
+        auto result = cc::utils::from_chars(first, last, parsed);
         if (result.ec != std::errc{} || result.ptr != last) return std::nullopt;
         return parsed;
     }

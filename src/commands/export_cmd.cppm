@@ -25,6 +25,7 @@ module;
 #include <string_view>
 
 export module cc.commands.export_cmd;
+import cc.utils.parse_int;
 
 import cc.types.types;
 import cc.commands.command;
@@ -487,7 +488,7 @@ private:
 
     [[nodiscard]] static std::size_t parse_uint(std::string_view s, std::size_t fallback) {
         std::size_t v = 0;
-        auto [ptr, ec] = std::from_chars(s.data(), s.data() + s.size(), v);
+        auto [ptr, ec] = cc::utils::from_chars(s.data(), s.data() + s.size(), v);
         if (ec != std::errc{} || ptr != s.data() + s.size()) return fallback;
         return v;
     }

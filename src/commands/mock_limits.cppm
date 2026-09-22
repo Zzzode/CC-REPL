@@ -5,6 +5,7 @@ module;
 #include <string_view>
 #include <system_error>
 export module cc.commands.mock_limits;
+import cc.utils.parse_int;
 
 import cc.services.rate_limit.rate_limit_hook;
 
@@ -15,7 +16,7 @@ struct CommandResponse { bool ok{true}; std::string message; };
 [[nodiscard]] inline int parse_retry_after(std::string_view text) {
     if (text.empty()) return 60;
     int seconds = 0;
-    auto [ptr, ec] = std::from_chars(text.data(), text.data() + text.size(), seconds);
+    auto [ptr, ec] = cc::utils::from_chars(text.data(), text.data() + text.size(), seconds);
     if (ec != std::errc{} || ptr != text.data() + text.size() || seconds <= 0) return 60;
     return seconds;
 }

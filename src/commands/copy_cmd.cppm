@@ -23,6 +23,7 @@ module;
 #include <string_view>
 
 export module cc.commands.copy_cmd;
+import cc.utils.parse_int;
 
 import cc.types.types;
 import cc.commands.command;
@@ -329,7 +330,7 @@ private:
 
     [[nodiscard]] static std::size_t parse_size(std::string_view s, std::size_t fallback) {
         std::size_t value = 0;
-        auto [ptr, ec] = std::from_chars(s.data(), s.data() + s.size(), value);
+        auto [ptr, ec] = cc::utils::from_chars(s.data(), s.data() + s.size(), value);
         if (ec != std::errc{} || ptr != s.data() + s.size()) return fallback;
         return value;
     }

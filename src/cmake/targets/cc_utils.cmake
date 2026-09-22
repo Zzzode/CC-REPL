@@ -88,6 +88,7 @@ target_sources(cc_utils
         utils/path.cppm
         utils/path_utils.cppm
         utils/pdf.cppm
+        utils/parse_int.cppm
         utils/parse_references.cppm
         utils/http/peer_address.cppm
         utils/permissions/permissions.cppm
