@@ -15,6 +15,7 @@
 //                           ProcessCompletedPastes, project_agent_definition_card
 module;
 
+#include <cstring>
 #include <algorithm>
 #include <array>
 #include <chrono>

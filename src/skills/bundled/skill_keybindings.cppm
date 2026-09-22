@@ -7,6 +7,7 @@
 ///             file format, reserved shortcuts, /doctor validation, and
 ///             dynamic tables of actions/contexts.
 module;
+#include <cstdlib>
 #include <string>
 #include <string_view>
 #include <vector>

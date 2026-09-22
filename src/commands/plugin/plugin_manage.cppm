@@ -14,6 +14,7 @@
 
 module;
 
+#include <cctype>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>

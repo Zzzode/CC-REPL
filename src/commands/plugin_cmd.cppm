@@ -37,6 +37,7 @@
 
 module;
 
+#include <cctype>
 #include <algorithm>
 #include <array>
 #include <cstdint>

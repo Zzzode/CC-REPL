@@ -3,6 +3,7 @@
 /// Handles session creation, persistence, resume, and history tracking.
 module;
 
+#include <cstdlib>
 #include <cstdint>
 #include <string>
 #include <vector>

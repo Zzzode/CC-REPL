@@ -8,6 +8,7 @@
 /// MCP server auths. The id_token is cached in secure storage and reused until
 /// expiry.
 module;
+#include <cctype>
 #include <arpa/inet.h>
 #include <cerrno>
 #include <chrono>

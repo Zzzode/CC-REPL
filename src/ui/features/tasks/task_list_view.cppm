@@ -5,6 +5,7 @@
 ///   Supersedes the skeleton in cc.ui.components.task_view.
 module;
 
+#include <cctype>
 #include <string>
 #include <vector>
 #include <memory>

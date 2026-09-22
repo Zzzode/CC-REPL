@@ -7,6 +7,7 @@
 /// to avoid /doctor warnings.
 module;
 
+#include <cctype>
 #include <string>
 #include <string_view>
 #include <vector>

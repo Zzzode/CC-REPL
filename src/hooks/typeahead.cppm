@@ -1,6 +1,7 @@
 // C++23 Module: Typeahead/autocomplete for command input, file paths, and tool arguments
 module;
 
+#include <cctype>
 #include <algorithm>
 #include <chrono>
 #include <cstddef>

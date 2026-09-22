@@ -16,6 +16,7 @@
 ///     registry just forward to this function.
 module;
 
+#include <cstdlib>
 #include <algorithm>
 #include <array>
 #include <cerrno>

@@ -1,4 +1,6 @@
 module;
+#include <cstdio>
+#include <cstring>
 #include <algorithm>
 #include <cmath>
 #include <cstddef>

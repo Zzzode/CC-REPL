@@ -37,6 +37,7 @@
 
 module;
 
+#include <cstring>
 #include <string>
 #include <vector>
 #include <optional>

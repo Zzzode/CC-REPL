@@ -18,6 +18,7 @@
 /// caller repopulating `options`.
 module;
 
+#include <cctype>
 #include <string>
 #include <vector>
 #include <memory>

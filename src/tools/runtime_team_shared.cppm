@@ -11,6 +11,7 @@
 /// stay in the runtime-registry dispatcher layer.
 module;
 
+#include <cctype>
 #include <algorithm>
 #include <chrono>
 #include <cstdint>

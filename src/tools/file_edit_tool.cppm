@@ -16,6 +16,7 @@
 //     Phase 4 / FTXUI. Only the pure text-formatting helpers were ported.
 module;
 
+#include <cctype>
 #include <algorithm>
 #include <chrono>
 #include <cstdint>

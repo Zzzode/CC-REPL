@@ -25,6 +25,7 @@
 
 module;
 
+#include <cctype>
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>

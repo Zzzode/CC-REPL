@@ -1,6 +1,7 @@
 // BashTool - Executes shell commands with process lifecycle management
 module;
 
+#include <cctype>
 #include <array>
 #include <algorithm>
 #include <atomic>

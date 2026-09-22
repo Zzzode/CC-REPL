@@ -19,6 +19,7 @@
 /// This replaces the stub implementation that wrote a minimal JSON profile.
 module;
 
+#include <cstdlib>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>

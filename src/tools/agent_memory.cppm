@@ -10,6 +10,7 @@
 /// to pull the entire Agent tool implementation.
 module;
 
+#include <cstdlib>
 #include <filesystem>
 #include <optional>
 #include <string>

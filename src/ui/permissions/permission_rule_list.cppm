@@ -5,6 +5,8 @@
 /// Migrated from src/components/permissions/rules/PermissionRuleList.tsx.
 module;
 
+#include <cctype>
+#include <cstdlib>
 #include <algorithm>
 #include <array>
 #include <cstddef>

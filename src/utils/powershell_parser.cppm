@@ -3,6 +3,7 @@
 // and static prefix extraction for permission management.
 module;
 
+#include <cctype>
 #include <string>
 #include <string_view>
 #include <vector>

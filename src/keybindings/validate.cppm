@@ -3,6 +3,7 @@
 /// Migrated from src/keybindings/validate.ts - validates keybinding configurations
 module;
 
+#include <cctype>
 #include <cstdint>
 #include <string>
 #include <string_view>

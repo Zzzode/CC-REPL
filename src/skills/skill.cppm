@@ -3,6 +3,7 @@
 /// Skills are reusable workflow templates injected into the system prompt.
 module;
 
+#include <cstdlib>
 #include <cstdint>
 #include <string>
 #include <vector>

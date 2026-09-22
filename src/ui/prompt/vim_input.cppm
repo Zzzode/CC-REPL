@@ -3,6 +3,7 @@
 /// Visual, and Command-line modes for the prompt input.
 module;
 
+#include <cctype>
 #include <string>
 #include <vector>
 #include <memory>

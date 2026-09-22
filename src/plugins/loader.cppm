@@ -3,6 +3,8 @@
 /// Discovers plugins from filesystem, validates manifests, manages lifecycle.
 module;
 
+#include <cctype>
+#include <cstdlib>
 #include <cstdint>
 #include <string>
 #include <vector>

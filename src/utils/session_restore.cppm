@@ -1,4 +1,5 @@
 module;
+#include <cstdlib>
 #include <expected>
 #include <filesystem>
 #include <fstream>

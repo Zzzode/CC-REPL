@@ -31,6 +31,7 @@
 
 module;
 
+#include <cstdlib>
 #include <algorithm>
 #include <array>
 #include <chrono>

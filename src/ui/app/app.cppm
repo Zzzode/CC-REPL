@@ -3,6 +3,7 @@
 ///        the production QueryEngine.
 module;
 
+#include <cstring>
 #include <string>
 #include <vector>
 #include <array>

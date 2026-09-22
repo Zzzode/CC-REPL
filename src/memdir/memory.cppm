@@ -4,6 +4,7 @@
 /// with filesystem persistence, relevance scoring, and LOOM.md integration.
 module;
 
+#include <cstdlib>
 #include <cstdint>
 #include <cstddef>
 #include <string>

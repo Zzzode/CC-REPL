@@ -7,6 +7,7 @@
 /// - Guards: max_iterations, sleep_between_ms, wall-clock timeout
 module;
 
+#include <cctype>
 #include <array>
 #include <string>
 #include <string_view>

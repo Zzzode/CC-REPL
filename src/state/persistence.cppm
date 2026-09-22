@@ -3,6 +3,7 @@
 /// Handles saving and loading AppState to/from disk.
 module;
 
+#include <cstdlib>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>

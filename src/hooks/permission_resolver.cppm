@@ -13,6 +13,8 @@
 ///   AllowOnce=0  AlwaysAllow=1  Deny=2  AlwaysDeny=3  Abort=4
 module;
 
+#include <cstdio>
+#include <cstring>
 #include <cstdint>
 #include <cstddef>
 #include <functional>

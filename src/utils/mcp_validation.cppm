@@ -2,6 +2,7 @@
 // Date/time parsing and elicitation schema validation for MCP protocol
 module;
 
+#include <cctype>
 #include <algorithm>
 #include <atomic>
 #include <chrono>

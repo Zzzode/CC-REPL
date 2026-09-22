@@ -5,6 +5,7 @@
 /// action buttons (Retry / Copy / Open In Editor).
 module;
 
+#include <cctype>
 #include <string>
 #include <vector>
 #include <memory>

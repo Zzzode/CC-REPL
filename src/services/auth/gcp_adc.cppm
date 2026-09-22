@@ -28,6 +28,7 @@
 // the exact 3-step OAuth2 flow that google-auth-library performs internally,
 // keeping the BYOC surface small and auditable.
 module;
+#include <cstdlib>
 #include <chrono>
 #include <cstdint>
 #include <cstring>

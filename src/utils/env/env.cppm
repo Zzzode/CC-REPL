@@ -2,6 +2,7 @@
 // Provides access to environment variables
 module;
 
+#include <cctype>
 #include <string>
 #include <optional>
 #include <cstdlib>

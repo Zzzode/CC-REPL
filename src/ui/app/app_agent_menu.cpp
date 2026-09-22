@@ -9,6 +9,7 @@
 // + dialogs.system imports from app_autocomplete.cpp.
 module;
 
+#include <cstring>
 #include <condition_variable>
 #include <algorithm>
 #include <chrono>

@@ -17,6 +17,7 @@
 /// the coordinator / team-discovery layer apply the mutation.
 module;
 
+#include <cctype>
 #include <string>
 #include <vector>
 #include <memory>

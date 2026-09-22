@@ -4,6 +4,7 @@
 ///   activity+comments timeline, Save/Delete/Close footer.
 module;
 
+#include <cctype>
 #include <string>
 #include <vector>
 #include <memory>

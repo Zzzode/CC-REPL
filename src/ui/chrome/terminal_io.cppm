@@ -8,6 +8,7 @@
 
 module;
 
+#include <cstdlib>
 #include <array>
 #include <cstdint>
 #include <expected>

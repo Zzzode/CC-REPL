@@ -8,6 +8,7 @@
 ///   src/utils/textHighlighting.ts         – TextHighlight, segmentTextByHighlights
 module;
 
+#include <cctype>
 #include <array>
 #include <string>
 #include <vector>

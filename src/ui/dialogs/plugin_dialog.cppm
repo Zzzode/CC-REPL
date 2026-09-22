@@ -18,6 +18,7 @@
 /// keybindings editor).
 module;
 
+#include <cctype>
 #include <array>
 #include <algorithm>
 #include <cstdint>

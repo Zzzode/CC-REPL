@@ -3,6 +3,8 @@
 ///        path-safety checks, template expansion, context-modifier cascading.
 module;
 
+#include <cstdlib>
+#include <cstring>
 #include <algorithm>
 #include <array>
 #include <cctype>

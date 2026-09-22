@@ -20,6 +20,7 @@
 ///   * format_agent_pending_user_message (L593–603)
 module;
 
+#include <cctype>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>

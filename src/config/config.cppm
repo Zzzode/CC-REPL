@@ -4,6 +4,7 @@
 /// environment variable integration, feature flags, and JSON persistence.
 module;
 
+#include <cstdlib>
 #include <cstdint>
 #include <string>
 #include <vector>

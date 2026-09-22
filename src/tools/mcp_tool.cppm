@@ -1,5 +1,6 @@
 // McpTool - Invokes tools and resources exposed by connected MCP servers
 module;
+#include <cctype>
 #include <chrono>
 #include <algorithm>
 #include <condition_variable>

@@ -7,6 +7,7 @@
 /// query_engine public entry point handles the actual API call + tool loop.
 module;
 
+#include <cctype>
 #include <cstdint>
 #include <cstdio>
 #include <string>

@@ -16,6 +16,7 @@
 //            the Unicode-aware check in TS.
 module;
 
+#include <cctype>
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>

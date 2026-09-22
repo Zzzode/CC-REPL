@@ -8,6 +8,7 @@
 ///   3. Sub-tasks + confirm — sub-task checklist editor + summary preview
 module;
 
+#include <cctype>
 #include <string>
 #include <vector>
 #include <memory>

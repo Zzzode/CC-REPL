@@ -11,6 +11,7 @@
 
 module;
 
+#include <cctype>
 #include <cstddef>
 #include <optional>
 #include <set>

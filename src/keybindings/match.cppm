@@ -7,6 +7,7 @@
 /// the keybinding system's parsed representation.
 module;
 
+#include <cctype>
 #include <string>
 #include <string_view>
 #include <optional>

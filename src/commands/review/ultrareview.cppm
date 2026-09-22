@@ -19,6 +19,8 @@
 /// multi-round review has no remote quota to enforce.
 module;
 
+#include <cctype>
+#include <cstdlib>
 #include <sstream>
 #include <cstdint>
 #include <cmath>

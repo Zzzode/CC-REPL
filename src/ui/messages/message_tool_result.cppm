@@ -2,6 +2,7 @@
 /// @brief Tool result message rendering (success/error states)
 module;
 
+#include <cctype>
 #include <cstdint>
 #include <string>
 #include <string_view>

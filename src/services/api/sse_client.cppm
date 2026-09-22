@@ -4,6 +4,7 @@
 // - dry-run gate when api_key is empty (no network)
 // - abort propagation via should_abort callback
 module;
+#include <cctype>
 #include <atomic>
 #include <chrono>
 #include <cstddef>

@@ -4,6 +4,7 @@
 /// permissions, and reports environment information.
 module;
 
+#include <cstdlib>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>

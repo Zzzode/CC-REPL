@@ -3,6 +3,8 @@
 /// Supports load, save, search, and pruning of session entries.
 module;
 
+#include <cctype>
+#include <cstdlib>
 #include <string>
 #include <string_view>
 #include <vector>

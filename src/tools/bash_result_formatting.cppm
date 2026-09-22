@@ -13,6 +13,7 @@
 //                            <ShellTimeDisplay>, useXXX() hooks
 module;
 
+#include <cctype>
 #include <algorithm>
 #include <chrono>
 #include <cstdint>

@@ -4,6 +4,7 @@
 //           bashState.ts, processManager.ts, ptyManager.ts, shellSession.ts
 module;
 
+#include <cctype>
 #include <unordered_map>
 #include <string>
 #include <string_view>

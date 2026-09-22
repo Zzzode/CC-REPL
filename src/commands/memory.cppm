@@ -3,6 +3,7 @@
 /// Edit persistent memory files (LOOM.md) that provide instructions across sessions.
 module;
 
+#include <cstdlib>
 #include <string>
 #include <vector>
 #include <optional>

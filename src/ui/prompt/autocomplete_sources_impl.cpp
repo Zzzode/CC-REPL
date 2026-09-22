@@ -2,6 +2,7 @@
 /// @brief Heavy autocomplete source implementations kept out of app.cppm.
 module;
 
+#include <cctype>
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>

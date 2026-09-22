@@ -2,6 +2,7 @@
 // Provides path manipulation functions similar to src/utils/path.ts
 module;
 
+#include <cctype>
 #include <string>
 #include <string_view>
 #include <filesystem>

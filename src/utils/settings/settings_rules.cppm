@@ -4,6 +4,8 @@
 //         schemaOutput.ts, managedPath.ts, types.ts, constants.ts
 module;
 
+#include <cctype>
+#include <cstdlib>
 #include <algorithm>
 #include <array>
 #include <filesystem>

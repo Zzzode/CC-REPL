@@ -14,6 +14,7 @@
 ///   - isTransparentWrapper: false
 module;
 
+#include <cctype>
 #include <string>
 #include <string_view>
 #include <optional>

@@ -9,6 +9,7 @@
 /// passed as parameters.
 module;
 
+#include <cstring>
 #include <cstdio>
 #include <cstdlib>
 #include <format>

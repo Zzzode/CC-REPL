@@ -6,6 +6,8 @@
 /// cc.types.types (FTXUI rendering DEFERRED to Phase 4).
 module;
 
+#include <cctype>
+#include <cstdlib>
 #include <cstdint>
 #include <charconv>
 #include <chrono>
