@@ -342,28 +342,29 @@ Both have **zero** importers. Verified 2026-09-21 — see the revised fix below.
   as a 10-file subsystem, and `get_all_available_plugins` is live in
   `utils/plugin_marketplace.cppm:142`, so no capability is lost. The only other
   `PluginCommand` is an unrelated data struct in `utils/plugin_loader.cppm:301`.
-- **`cc.vim.vim_commands` — do NOT wire it as-is; the "better implementation"
-  reading was wrong.** The file is a 180-line ex-mode registry (`:w` `:q` `:wq`
-  `:set` `:map` `:help` `:noh` `:number`) with an `execute_ex_command` that
-  parses `!` force variants, and it is unreachable: `hooks/vim_input.cppm`
-  carries its own local `execute_ex_command` (the only live one) that handles
-  all-digit `:42` line jumps. Re-examined 2026-09-22 before wiring, the registry
-  turned out to be a **string-returning toy with zero side effects**: grep shows
-  it never calls a cursor/insert/save/quit callback, never writes, never exits —
-  every handler returns a literal std::string ("Buffer saved", "quit", the help
-  text). The live `VimInputHook` exposes only text/cursor callbacks and has no
-  channel to even *display* those strings, and there is no buffer to save or
-  application-quit path for it to invoke. Wiring it would therefore make `:w`
-  and `:q` silently fake success with no effect — the exact "do not fake a
-  success string" rule this codebase applies elsewhere. The live `:<number>`
-  jump, by contrast, does real work via `set_cursor_`.
+- **`cc.vim.vim_commands` — DELETED 2026-09-22.** The file was a 180-line ex-mode
+  registry (`:w` `:q` `:wq` `:set` `:map` `:help` `:noh` `:number`) with an
+  `execute_ex_command` that parsed `!` force variants. It was first read as "the
+  stronger implementation the live vim hook should adopt"; that reading was
+  wrong. Verified before deletion:
 
-  **Real options** (a product decision, not yet taken): (a) delete the registry
-  and keep numeric jump as the only honest ex command; (b) build the missing
-  pieces — a message channel plus real save/quit callbacks — and then wire it;
-  (c) wire only commands that can have a genuine effect (none today beyond the
-  numeric jump the hook already does). Until one is chosen the file is left in
-  place, and it should NOT be adopted just because it is longer.
+  - **Zero side effects.** Every built-in handler returns a literal std::string
+    ("Buffer saved", "quit", the help text). Grep shows no cursor/insert/save/
+    quit callback, no write, no exit.
+  - **Not an extension point.** `register_ex_command` / `get_ex_commands` /
+    `register_builtin_commands` had no caller anywhere, and the module had zero
+    importers, so no live code could even register a command with a real effect.
+  - **No way to surface it.** The live `VimInputHook` exposes only text/cursor
+    callbacks; it has no channel to display the returned strings and no
+    buffer-save or application-quit path to invoke.
+
+  Wiring it would have made `:w`/`:q` report success with no effect — the same
+  "do not fake a success string" rule behind the earlier plugin-command stub
+  deletion. The one ex command with a real effect, the all-digit `:42` line
+  jump, lives in the hook's own local `execute_ex_command` (`hooks/vim_input.cppm`)
+  and is unchanged. If genuine `:w`/`:q` support is wanted later it should be
+  built with real save/quit callbacks plus a message channel, not revived from
+  this stub.
 
 ## Sibling gap
 
