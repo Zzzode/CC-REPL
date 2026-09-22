@@ -57,19 +57,19 @@ jobs:
             -DCMAKE_EXE_LINKER_FLAGS="-fuse-ld=lld -L${LLVM_PREFIX}/lib/c++ -Wl,-rpath,${LLVM_PREFIX}/lib/c++ -L${SDKROOT}/usr/lib"
 
       - name: Build
-        timeout-minutes: 100
-        # -j1: measured PSS for one heavy module compile (ui/app/app.cppm,
-        # hundreds of named-module BMIs) is ~8 GB; the macos-14 runner has 14 GB
-        # and two such TUs concurrently swapped for 10-18 min each. Debug info
-        # disabled (-DCMAKE_CXX_FLAGS_DEBUG=-g0) to trim compiler memory.
-        run: cmake --build --preset debug -j 1
+        timeout-minutes: 60
+        # Ninja default parallelism (= host CPU count via the compile_jobs
+        # pool in CMakeLists.txt). -g0 trims per-clang memory so the 14GB
+        # runner tolerates several heavy module compiles at once.
+        run: cmake --build --preset debug
 
       - name: Test
         timeout-minutes: 20
-        # Serial (CLAUDE.md: timing-sensitive backoff/server tests flake under
-        # parallel scheduling) and truecolor so RGB palette goldens render the
-        # 24-bit escapes they were captured with instead of 16-color ANSI.
+        # ctest default is serial (CLAUDE.md: timing-sensitive backoff/server
+        # tests flake under parallel scheduling). truecolor so RGB palette
+        # goldens render the 24-bit escapes they were captured with instead of
+        # 16-color ANSI.
         env:
           COLORTERM: truecolor
           TERM: xterm-256color
-        run: ctest --preset debug -j1
+        run: ctest --preset debug
