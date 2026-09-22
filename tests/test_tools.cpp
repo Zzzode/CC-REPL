@@ -1743,6 +1743,8 @@ TEST(Tools, ComputerUseManagerUsesCaptureProviderForScreenshot) {
 // model is blind after acting.
 TEST(Tools, ComputerUseInputActionReturnsPostActionScreenshot) {
     using namespace cc::core::computer_use;
+    // macOS MacTypes.h also defines global ::Rect; alias to disambiguate.
+    using Rect = cc::core::computer_use::Rect;
 
     int capture_calls = 0;
     ComputerUseManager manager(
@@ -1780,6 +1782,9 @@ TEST(Tools, ComputerUseInputActionReturnsPostActionScreenshot) {
 // second capture.
 TEST(Tools, ComputerUseInputActionKeepsProviderProvidedFrame) {
     using namespace cc::core::computer_use;
+    // macOS MacTypes.h also defines global ::Rect/::Point; alias to disambiguate.
+    using Rect = cc::core::computer_use::Rect;
+    using Point = cc::core::computer_use::Point;
 
     int capture_calls = 0;
     ComputerUseManager manager(
