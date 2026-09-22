@@ -39,7 +39,8 @@ jobs:
           cmake --version
           ninja --version
           clang++ --version
-          "${LLVM_PREFIX:-$(brew --prefix llvm)}/bin/ld64.lld" --version
+          ls "$(brew --prefix llvm)/bin" | grep -iE 'lld|^ld' || true
+          "$(brew --prefix llvm)/bin/lld" --version || true
 
       - name: Configure
         run: |
