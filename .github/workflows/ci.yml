@@ -31,8 +31,12 @@ jobs:
 
       - name: Install dependencies
         run: |
-          brew install cmake ninja llvm@22 curl openssl
+          brew install cmake ninja llvm@22 lld curl openssl
           echo "$(brew --prefix llvm@22)/bin" >> $GITHUB_PATH
+          # clang resolves -fuse-ld=lld as <toolchain>/bin/ld64.lld; the lld
+          # formula (23) ships the binary, llvm@22 does not, so link it in.
+          ln -sf "$(brew --prefix lld)/bin/ld64.lld" \
+                 "$(brew --prefix llvm@22)/bin/ld64.lld"
 
       - name: Verify tool versions
         run: |
