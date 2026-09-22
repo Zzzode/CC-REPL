@@ -12,6 +12,7 @@ module;
 #include <sys/socket.h>
 
 export module cc.utils.peer_address;
+import cc.utils.parse_int;
 
 export namespace cc::utils {
 
@@ -56,7 +57,7 @@ inline std::expected<PeerAddress, std::string> parse_url(std::string_view url) {
         if (bracket_end + 1 < host_port.size() && host_port[bracket_end + 1] == ':') {
             auto port_str = host_port.substr(bracket_end + 2);
             uint16_t port = 0;
-            auto [ptr, ec] = std::from_chars(port_str.data(), port_str.data() + port_str.size(), port);
+            auto [ptr, ec] = cc::utils::from_chars(port_str.data(), port_str.data() + port_str.size(), port);
             if (ec != std::errc()) {
                 return std::unexpected("Invalid port number in URL");
             }
@@ -69,7 +70,7 @@ inline std::expected<PeerAddress, std::string> parse_url(std::string_view url) {
             addr.host = std::string(host_port.substr(0, colon));
             auto port_str = host_port.substr(colon + 1);
             uint16_t port = 0;
-            auto [ptr, ec] = std::from_chars(port_str.data(), port_str.data() + port_str.size(), port);
+            auto [ptr, ec] = cc::utils::from_chars(port_str.data(), port_str.data() + port_str.size(), port);
             if (ec != std::errc()) {
                 return std::unexpected("Invalid port number in URL");
             }

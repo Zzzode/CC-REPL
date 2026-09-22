@@ -36,6 +36,7 @@ module;
 extern "C" char** environ;
 
 export module cc.utils.hooks_execution;
+import cc.utils.parse_int;
 
 import cc.utils.json;
 import cc.utils.async;
@@ -779,7 +780,7 @@ struct HttpHookRunner {
                 result.stderr += "[http_status=" + code + "]";
                 if (!code.empty()) {
                     int v = 0;
-                    auto [ptr, ec] = std::from_chars(code.data(), code.data() + code.size(), v);
+                    auto [ptr, ec] = cc::utils::from_chars(code.data(), code.data() + code.size(), v);
                     if (ec == std::errc{} && ptr == code.data() + code.size() && (v < 200 || v >= 300)) {
                         if (result.exit_code == 0) result.exit_code = 1;
                     }

@@ -9,6 +9,7 @@ module;
 #include <vector>
 
 export module cc.utils.diff_utils;
+import cc.utils.parse_int;
 
 export namespace cc::utils {
 
@@ -146,13 +147,13 @@ parse_range(std::string_view value) {
     auto count_view = comma == std::string_view::npos ? std::string_view{"1"} : value.substr(comma + 1);
 
     std::size_t start = 0;
-    auto [start_ptr, start_ec] = std::from_chars(start_view.data(), start_view.data() + start_view.size(), start);
+    auto [start_ptr, start_ec] = cc::utils::from_chars(start_view.data(), start_view.data() + start_view.size(), start);
     if (start_ec != std::errc{} || start_ptr != start_view.data() + start_view.size()) {
         return std::nullopt;
     }
 
     std::size_t count = 0;
-    auto [count_ptr, count_ec] = std::from_chars(count_view.data(), count_view.data() + count_view.size(), count);
+    auto [count_ptr, count_ec] = cc::utils::from_chars(count_view.data(), count_view.data() + count_view.size(), count);
     if (count_ec != std::errc{} || count_ptr != count_view.data() + count_view.size()) {
         return std::nullopt;
     }

@@ -6,6 +6,7 @@ module;
 #include <string_view>
 
 export module cc.utils.agent_id;
+import cc.utils.parse_int;
 
 export namespace cc::utils::agent_id {
 
@@ -46,7 +47,7 @@ struct ParsedRequestId {
     long long timestamp = 0;
     const auto* begin = timestamp_text.data();
     const auto* end = timestamp_text.data() + timestamp_text.size();
-    auto [ptr, ec] = std::from_chars(begin, end, timestamp);
+    auto [ptr, ec] = cc::utils::from_chars(begin, end, timestamp);
     if (ec != std::errc{} || ptr != end) return std::nullopt;
     return ParsedRequestId{.request_type = std::string(type), .timestamp = timestamp, .agent_id = std::string(agent)};
 }
