@@ -73,7 +73,6 @@ import cc.ui.features.agents.agent_cards;
 import cc.ui.features.teams.live_teammates;
 import cc.ui.dialogs.system;
 import cc.ui.dialogs.triggers;
-import cc.utils.settings_manager;
 import cc.utils.statusline_runner;
 import cc.utils.model.model;
 import cc.utils.team_helpers;
@@ -502,10 +501,14 @@ private:
     void* app_store_raw() noexcept;
     BridgeState bridge_state() const;
 
-    // Settings manager — loads settings from disk and watches for changes.
-    // Projections into screen_state_ are applied on init and on file change.
-    std::unique_ptr<cc::utils::settings_manager::SettingsManager> settings_manager_;
-    cc::utils::settings_manager::UnsubscribeFn settings_unsubscribe_;
+    // Settings manager — state in AppImpl.
+    void init_settings_manager();
+    void subscribe_settings_changed(std::function<void()> cb);
+    std::optional<std::string> setting_string(std::string_view key) const;
+    std::optional<std::string> statusline_setting(std::string_view key) const;
+    std::string output_style_setting() const;
+
+    // Settings manager moved into AppImpl (:impl partition).
     std::function<void()> skills_changed_unsubscribe_;  // SkillRegistry dynamic discovery
 
     // Cost threshold hook — listener ID + shown guard to avoid re-prompting.
@@ -1132,97 +1135,7 @@ public:
     /// Mirrors how the TS engine projects AppState.settings into the REPL
     /// screen's model/status-line fields.  Only the subset needed by the
     /// renderer is projected — the engine owns the full settings object.
-    void ProjectSettingsToScreenState() {
-        if (!settings_manager_) return;
-
-        namespace sm = cc::utils::settings_manager;
-        auto settings = settings_manager_->get_initial_settings();
-
-        // --- default model ---
-        auto model_it = settings.find("model");
-        if (model_it != settings.end() &&
-            std::holds_alternative<std::string>(model_it->second)) {
-            screen_state_->settings_model = std::get<std::string>(model_it->second);
-        } else {
-            screen_state_->settings_model.clear();
-        }
-
-        // --- default agent display name (settings.agent) ---
-        // TS REF: logoV2Utils.ts:259 getLogoDisplayData() reads
-        // getInitialSettings().agent and LogoV2 renders "@<agent> · <cwd>".
-        auto agent_it = settings.find("agent");
-        screen_state_->settings_agent_name =
-            (agent_it != settings.end() &&
-             std::holds_alternative<std::string>(agent_it->second))
-            ? std::get<std::string>(agent_it->second) : std::string{};
-
-        // --- status line config (settings.statusLine) ---
-        std::optional<std::string> status_line_type;
-        std::string status_line_command;
-        std::optional<bool> status_line_enabled;
-        int status_line_padding = 0;
-
-        auto sl_it = settings.find("statusLine");
-        if (sl_it != settings.end() &&
-            std::holds_alternative<std::map<std::string, std::string>>(sl_it->second)) {
-            const auto& sl_map = std::get<std::map<std::string, std::string>>(sl_it->second);
-
-            auto type_it = sl_map.find("type");
-            if (type_it != sl_map.end()) {
-                status_line_type = type_it->second;
-            }
-
-            // enabled flag
-            auto enabled_it = sl_map.find("enabled");
-            if (enabled_it != sl_map.end()) {
-                status_line_enabled = parse_bool_text(enabled_it->second);
-            }
-
-            // shell command
-            auto cmd_it = sl_map.find("command");
-            if (cmd_it != sl_map.end()) {
-                status_line_command = cmd_it->second;
-            }
-
-            // horizontal padding
-            auto pad_it = sl_map.find("padding");
-            if (pad_it != sl_map.end()) {
-                if (auto parsed = parse_int_text(pad_it->second)) {
-                    status_line_padding = *parsed;
-                }
-            }
-        }
-
-        if (auto command = first_non_empty_env({
-                "LOOM_STATUS_LINE_COMMAND",
-                "LOOM_STATUS_LINE_COMMAND"})) {
-            status_line_command = *command;
-            status_line_type = "command";
-        }
-        if (auto enabled = first_non_empty_env({
-                "LOOM_STATUS_LINE_ENABLED",
-                "LOOM_STATUS_LINE_ENABLED"})) {
-            status_line_enabled = parse_bool_text(*enabled);
-        }
-        if (auto padding = first_non_empty_env({
-                "LOOM_STATUS_LINE_PADDING",
-                "LOOM_STATUS_LINE_PADDING"})) {
-            if (auto parsed = parse_int_text(*padding)) {
-                status_line_padding = *parsed;
-            }
-        }
-
-        const bool type_allows_command = !status_line_type || *status_line_type == "command";
-        const bool enabled = status_line_enabled.value_or(
-            !status_line_command.empty() && type_allows_command);
-        screen_state_->status_line_command = std::move(status_line_command);
-        screen_state_->status_line_padding = status_line_padding;
-        screen_state_->status_line_enabled =
-            enabled && type_allows_command && !screen_state_->status_line_command.empty();
-        if (!screen_state_->status_line_enabled) {
-            screen_state_->status_line_text.clear();
-        }
-    }
+    void ProjectSettingsToScreenState();
 
     /// Trigger an async statusline update (debounced).
     /// Faithful to TS scheduleUpdate() — sets a dirty flag and wakes the
@@ -1259,18 +1172,7 @@ public:
         input.workspace.added_dirs = {};
 
         // Output style from settings
-        if (settings_manager_) {
-            auto settings = settings_manager_->get_initial_settings();
-            auto os_it = settings.find("outputStyle");
-            if (os_it != settings.end() &&
-                std::holds_alternative<std::string>(os_it->second)) {
-                input.output_style_name = std::get<std::string>(os_it->second);
-            } else {
-                input.output_style_name = "full";  // default
-            }
-        } else {
-            input.output_style_name = "full";  // default
-        }
+        input.output_style_name = output_style_setting();
 
         // Cost / usage
         const auto& usage = engine_->get_usage();

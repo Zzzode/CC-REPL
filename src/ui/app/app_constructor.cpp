@@ -50,7 +50,6 @@ import cc.ui.dialogs.triggers;
 import cc.ui.app.app_dialog_registration;
 import cc.ui.tools.init;
 import cc.ui.prompt.prompt_input_footer;
-import cc.utils.settings_manager;
 import cc.utils.statusline_runner;
 import cc.skills.load_skills_dir;
 import cc.state.app_state;
@@ -131,8 +130,7 @@ AppAdapter::AppAdapter(core::QueryEngine* engine,
     screen_state_->welcome_tip_index = tip_hash;
 
     // ── Load settings from disk and project into screen state ──────────
-    settings_manager_ = std::make_unique<cc::utils::settings_manager::SettingsManager>();
-    settings_manager_->initialize();
+    init_settings_manager();
     this->ProjectSettingsToScreenState();
     this->ProjectRuntimeMetadataToScreenState();
 
@@ -148,12 +146,11 @@ AppAdapter::AppAdapter(core::QueryEngine* engine,
         });
 
     // Re-project settings whenever they change on disk.
-    settings_unsubscribe_ = settings_manager_->on_change(
-        [this](cc::utils::settings_manager::SettingSource) {
-            this->ProjectSettingsToScreenState();
-            this->TriggerStatuslineUpdate();
-            PostRenderEvent();
-        });
+    subscribe_settings_changed([this] {
+        this->ProjectSettingsToScreenState();
+        this->TriggerStatuslineUpdate();
+        PostRenderEvent();
+    });
 
     repl::ReplScreenCallbacks cbs;
     cbs.on_submit = [this](const std::string& text, repl::InputMode mode) {
