@@ -13,6 +13,12 @@ current documentation.
 
 ## What is still current
 
+**RFCs (proposals for future architecture work):**
+
+| File | Status |
+|---|---|
+| [`rfcs/0001-module-architecture-target.md`](rfcs/0001-module-architecture-target.md) | **Proposed.** Target module architecture for Loom: declaration-only interfaces, `import std;` + single FTXUI wrapper module, breaking the UI9/Core8 directory SCCs, dissolving the `cc.utils` junk drawer, and (last) UI state sharding. Based on the 2026-09-23 graph audit (849 modules, zero module-level cycles, 816/850 interfaces carrying bodies). |
+
 | File | Status |
 |---|---|
 | `decisions/design-decisions.md` | **Current.** Extracted from the C++ tree *before* the TS deletion: the ~800 comments that record a decision, a non-obvious constraint, or a cross-module coupling. This is the replacement for the design intent that used to live in the TS tree. Read this one first. |
