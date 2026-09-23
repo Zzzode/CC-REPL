@@ -80,7 +80,6 @@ import cc.utils.team_helpers;
 import cc.utils.swarm_helpers;
 import cc.constants.constants;
 import cc.hooks.lifecycle_hooks;
-import cc.hooks.exit_handler;
 import cc.state.store;
 import cc.state.app_state;
 
@@ -434,17 +433,8 @@ private:
 
     std::string current_session_id_;
 
-    // TS REF: src/hooks/useTextInput.ts:108-120 handleCtrlC (useDoublePress)
-    // — idle Ctrl+C requires a second press within
-    // DOUBLE_PRESS_TIMEOUT_MS = 800ms before onExit. The ExitHandler
-    // default window is 1500ms; override to the TS value of 800ms.
-    // Non-copyable/non-movable (std::mutex); AppAdapter is only ever
-    // heap-held via ftxui::Make, so a direct member is safe.
-    cc::hooks::ExitHandler exit_handler_{cc::hooks::ExitHandlerConfig{
-        .require_double_press = true,
-        .cleanup_timeout_ms = 5000,
-        .save_on_exit = true,
-        .double_press_window = std::chrono::milliseconds{800}}};
+    // Ctrl-C double-press ExitHandler moved into AppImpl (:impl partition);
+    // access via set_exit_message_impl/reset_exit_handler/handle_ctrl_c.
 
     // Session start time for duration tracking (statusline cost.total_duration_ms)
     std::chrono::steady_clock::time_point session_start_time_;
@@ -640,6 +630,12 @@ private:
     // Returns the statusline mode label ("NORMAL"/"INSERT"/…) or nullopt when
     // vim mode is off.
     std::optional<std::string> vim_statusline_label() const;
+
+    // Exit handler (Ctrl-C double-press) — state in AppImpl. Accessors keep
+    // ExitHandler/ExitReason types out of this interface.
+    void set_exit_message_impl(std::string_view msg);
+    void reset_exit_handler();
+    bool handle_ctrl_c();
 
     // Settings manager — loads settings from disk and watches for changes.
     // Projections into screen_state_ are applied on init and on file change.

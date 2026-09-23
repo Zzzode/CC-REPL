@@ -15,12 +15,14 @@ module;
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 
 export module cc.ui.app.app:impl;
 
 import cc.ui.app.app;
 import cc.vim.vim_mode;
+import cc.hooks.exit_handler;
 
 namespace cc::ui {
 
@@ -28,6 +30,13 @@ struct AppImpl {
     // Vim state.
     bool vim_enabled_ = false;
     cc::vim::VimStateMachine vim_sm_;
+
+    // Ctrl-C double-press handler (TS useDoublePress, 800ms window).
+    cc::hooks::ExitHandler exit_handler_{cc::hooks::ExitHandlerConfig{
+        .require_double_press = true,
+        .cleanup_timeout_ms = 5000,
+        .save_on_exit = true,
+        .double_press_window = std::chrono::milliseconds{800}}};
 };
 
 // ── Vim accessors (keep VimMode/VimStateMachine out of the interface) ───────
@@ -52,6 +61,20 @@ std::optional<std::string> AppAdapter::vim_statusline_label() const {
         default:                           label = "INSERT"; break;
     }
     return label;
+}
+
+// ── Exit handler accessors (keep ExitReason/ExitHandler out of interface) ──
+void AppAdapter::set_exit_message_impl(std::string_view msg) {
+    if (impl_) impl_->exit_handler_.set_exit_message(std::string(msg));
+}
+
+void AppAdapter::reset_exit_handler() {
+    if (impl_) impl_->exit_handler_.reset();
+}
+
+bool AppAdapter::handle_ctrl_c() {
+    return impl_ && impl_->exit_handler_.handle_signal(
+                        cc::hooks::ExitReason::ctrl_c);
 }
 
 // AppImplDeleter: defined where AppImpl is complete so unique_ptr teardown

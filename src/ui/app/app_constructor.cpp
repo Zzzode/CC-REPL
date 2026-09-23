@@ -162,7 +162,7 @@ AppAdapter::AppAdapter(core::QueryEngine* engine,
     };
     // Idle Ctrl+C footer key/string (TS useTextInput handleCtrlC projects
     // pending state with key 'Ctrl-C' via onExitMessage).
-    exit_handler_.set_exit_message("Press Ctrl+C again to exit");
+    set_exit_message_impl("Press Ctrl+C again to exit");
     cbs.on_interrupt = [this]() {
         if (query_running_.load()) {
             // A running query aborts immediately (TS app:interrupt owned by
@@ -172,14 +172,14 @@ AppAdapter::AppAdapter(core::QueryEngine* engine,
             if (query_thread_.joinable())
                 query_thread_.request_stop();
             screen_state_->spinner_tip = "Cancelling...";
-            exit_handler_.reset();
+            reset_exit_handler();
             screen_state_->exit_message_until.reset();
             return;
         }
         // TS REF: src/hooks/useTextInput.ts:108-120 handleCtrlC =
         // useDoublePress(onExitMessage(pending,'Ctrl-C'), onExit, onFirstPress)
         // with DOUBLE_PRESS_TIMEOUT_MS = 800 (useDoublePress.ts:6).
-        if (exit_handler_.handle_signal(cc::hooks::ExitReason::ctrl_c)) {
+        if (handle_ctrl_c()) {
             if (on_exit_) on_exit_();
             return;
         }
