@@ -60,7 +60,6 @@ import cc.utils.session_storage;
 import cc.ui.widgets.components;
 import cc.ui.widgets.all_components;
 import cc.ui.visual.markdown;
-import cc.vim.vim_mode;
 import cc.hooks.tool_permissions;
 import cc.tools.agent_runtime;
 import cc.ui.screens.repl_screen;
@@ -86,6 +85,18 @@ import cc.state.store;
 import cc.state.app_state;
 
 export namespace cc::ui {
+
+// PIMPL backing type, defined in the internal partition cc.ui.app.app:impl.
+// Forward-declared here so the interface can hold a unique_ptr without
+// importing the heavy modules its member objects require.
+struct AppImpl;
+// Deleter whose call operator is defined in the :impl partition (where
+// AppImpl is complete). This lets unique_ptr<AppImpl> be destroyed from any
+// translation unit — including the out-of-line constructor's implicit
+// cleanup — without AppImpl being complete there.
+struct AppImplDeleter {
+    void operator()(AppImpl* p) const noexcept;
+};
 
 // SL-11: defined in app_prompt_suggestion_wiring.cpp (impl unit) to keep the
 // heavy cc.services.prompt_suggestion import out of this thin module (clang
@@ -405,6 +416,12 @@ project_messages(const Message& msg);
 
 class AppAdapter : public ComponentBase {
 private:
+    std::unique_ptr<AppImpl, AppImplDeleter> impl_;
+    // Defined in the :impl partition where AppImpl is complete. The out-of-line
+    // constructor body calls this; teardown goes through AppImplDeleter, so
+    // neither impl unit needs AppImpl's layout.
+    void construct_impl();
+
     core::QueryEngine* engine_;
     cc::hooks::LifecycleHookRegistry* lifecycle_hooks_{nullptr};
     cc::commands::AppCommandRegistry* cmd_registry_;
@@ -616,9 +633,13 @@ private:
     std::condition_variable ask_user_cv_;
     std::optional<std::optional<std::string>> ask_user_response_;
 
-    // Vim mode
-    bool vim_enabled_ = false;
-    cc::vim::VimStateMachine vim_sm_;
+    // Vim mode — state lives in AppImpl (:impl partition). Accessors keep the
+    // VimMode/VimStateMachine types out of this interface.
+    bool vim_enabled() const noexcept;
+    void set_vim_enabled(bool on);
+    // Returns the statusline mode label ("NORMAL"/"INSERT"/…) or nullopt when
+    // vim mode is off.
+    std::optional<std::string> vim_statusline_label() const;
 
     // Settings manager — loads settings from disk and watches for changes.
     // Projections into screen_state_ are applied on init and on file change.
@@ -1448,18 +1469,8 @@ public:
         input.session_id = current_session_id_;
 
         // Vim mode (optional — only populated if vim enabled)
-        if (vim_enabled_) {
-            std::string mode_str;
-            switch (vim_sm_.get_mode()) {
-                case cc::vim::VimMode::Normal:     mode_str = "NORMAL"; break;
-                case cc::vim::VimMode::Insert:     mode_str = "INSERT"; break;
-                case cc::vim::VimMode::Visual:     mode_str = "VISUAL"; break;
-                case cc::vim::VimMode::VisualLine: mode_str = "VISUAL LINE"; break;
-                case cc::vim::VimMode::Command:    mode_str = "COMMAND"; break;
-                case cc::vim::VimMode::Replace:    mode_str = "REPLACE"; break;
-                default:                           mode_str = "INSERT"; break;
-            }
-            input.vim = sl::StatusLineVimInfo{.mode = std::move(mode_str)};
+        if (auto mode_str = vim_statusline_label()) {
+            input.vim = sl::StatusLineVimInfo{.mode = std::move(*mode_str)};
         }
 
         // rate_limits, agent, remote, worktree: not available at the app level

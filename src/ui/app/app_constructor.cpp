@@ -72,13 +72,15 @@ AppAdapter::AppAdapter(core::QueryEngine* engine,
                        cc::commands::AppCommandRegistry* cmd_registry,
                        utils::SessionStorage* storage,
                        std::function<void()> on_exit)
-    : engine_(engine),
+    : impl_(nullptr),
+      engine_(engine),
       lifecycle_hooks_(lifecycle_hooks),
       cmd_registry_(cmd_registry),
       storage_(storage),
       on_exit_(std::move(on_exit)),
       screen_state_(std::make_shared<repl::ReplScreenState>()),
       app_store_(cc::state::create_app_store()) {
+    construct_impl();
 
     // ── M7: Register default dialog renderers in the registry ────
     cc::ui::dialogs::default_renderers::register_default_renderers(

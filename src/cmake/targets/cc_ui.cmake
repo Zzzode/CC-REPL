@@ -3,6 +3,7 @@ add_library(cc_ui)
 target_sources(cc_ui
     PUBLIC FILE_SET CXX_MODULES FILES
         ui/app/app.cppm
+        ui/app/app_impl.cppm
         ui/prompt/autocomplete_sources.cppm
         ui/app/app_dialog_registration.cppm
         ui/widgets/components.cppm

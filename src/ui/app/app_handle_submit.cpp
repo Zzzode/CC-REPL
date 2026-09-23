@@ -374,12 +374,12 @@ void AppAdapter::HandleCommand(std::string_view cmd) {
     if (normalized.starts_with("/vim")) {
         auto args_start = normalized.find(' ');
         if (args_start == std::string_view::npos)
-            vim_enabled_ = !vim_enabled_;
+            set_vim_enabled(!vim_enabled());
         else {
             auto arg = normalized.substr(args_start + 1);
-            vim_enabled_ = (arg == "on" || arg == "1");
+            set_vim_enabled(arg == "on" || arg == "1");
         }
-        if (vim_enabled_) cc::vim::enable_vim_mode();
+        if (vim_enabled()) cc::vim::enable_vim_mode();
         else cc::vim::disable_vim_mode();
         this->TriggerStatuslineUpdate();
         return;
