@@ -5662,7 +5662,7 @@ TEST(LiveTeamsUi, TeammatePermissionRequestRoutesThroughToolPermission) {
     request.tool_use_id = "toolu_perm_1";
     request.description = R"({"command":"rm -rf build"})";
     request.input_json = R"({"command":"rm -rf build"})";
-    app->enqueue_teammate_permission_for_testing(request, "alpha");
+    app->enqueue_teammate_permission_for_testing(&request, "alpha");
 
     // The queued request drains on the next Custom event into the existing
     // ToolPermission overlay (Band3), and the event is consumed like the

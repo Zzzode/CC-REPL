@@ -75,8 +75,6 @@ import cc.ui.dialogs.system;
 import cc.ui.dialogs.triggers;
 import cc.utils.statusline_runner;
 import cc.utils.model.model;
-import cc.utils.team_helpers;
-import cc.utils.swarm_helpers;
 import cc.constants.constants;
 import cc.hooks.lifecycle_hooks;
 
@@ -308,20 +306,7 @@ private:
     std::atomic<bool> bash_running_{false};
     std::atomic<bool> query_running_{false};
 
-    // ── Teammate inbox worker (pane teammates) ──────────────────────────────
-    // When this process is spawned as a tmux/iTerm pane teammate (identity via
-    // LOOM_AGENT_ID + LOOM_TEAM_NAME), a poller reads its filesystem
-    // inbox and delivers addressed tasks as prompts while the agent is idle.
-    // The worker only enqueues (thread-safe) + posts an FTXUI event; actual
-    // submission happens on the UI thread in the Custom-event handler, so no
-    // FTXUI/engine state is touched off-thread.
-    std::jthread teammate_inbox_thread_;
-    std::mutex teammate_pending_mutex_;
-    std::deque<std::string> teammate_pending_prompts_;
-    std::unordered_set<std::string> teammate_seen_message_ids_;
-    std::string teammate_self_agent_id_;
-    std::string teammate_self_agent_name_;
-    std::string teammate_self_team_;
+    // ── Teammate inbox worker state moved into AppImpl (:impl/:team). ─────
 
     // ── Live-teammate projection (leader UI) ───────────────────────────────
     // Event-driven pane observer: background callbacks only flag + post an
@@ -335,16 +320,7 @@ private:
     std::string projected_teams_signature_;
 
     // ── Leader-side teammate permission requests ──────────────────────────
-    // The leader inbox poll scans for stage-A permission_request control
-    // messages and enqueues them here (bg thread -> mutex); the UI thread
-    // drains one into the existing ToolPermission dialog on Custom events.
-    // Responses go back through PermissionSync (see app_team_projection.cpp).
-    struct PendingTeammatePermission {
-        cc::utils::swarm_helpers::SwarmPermissionRequestMessage request;
-        std::string team;
-    };
-    std::mutex teammate_permission_mutex_;
-    std::deque<PendingTeammatePermission> teammate_pending_permissions_;
+    // Pending-permission deque + mutex moved into AppImpl (:impl/:team).
 
     // ── Leader inbox poller (team-lead mailbox) ────────────────────────────
     // Mirrors the pane-teammate inbox worker: a background jthread polls
@@ -616,122 +592,17 @@ private:
 
     // ── Teammate inbox worker ───────────────────────────────────────────────
 
-    static std::string env_first(std::initializer_list<const char*> names) {
-        for (const char* n : names) {
-            if (const char* v = std::getenv(n); v && *v) return v;
-        }
-        return {};
-    }
-
-    // True when this process was spawned with teammate identity.
-    [[nodiscard]] bool running_as_pane_teammate() const {
-        return !teammate_self_agent_name_.empty() &&
-               !teammate_self_team_.empty();
-    }
-
-    // Stable per-message key so repeated polls don't redeliver. The inbox
-    // entry has no id; from+timestamp+text is unique enough.
-    static std::string teammate_message_key(
-        const cc::utils::TeammateMessage& m) {
-        return m.from + "|" + m.timestamp + "|" + m.text;
-    }
-
-    // Control messages (shutdown / permission / mode) are handled by dedicated
-    // paths, not submitted as task prompts. Heuristic matching the TS inbox
-    // classifier tags embedded in the message text.
-    static bool is_teammate_control_message(std::string_view text) {
-        static constexpr std::string_view tags[] = {
-            "loom:shutdown", "loom:permission", "loom:mode",
-            "loom:plan-approval", "loom:sandbox",
-        };
-        for (auto t : tags) {
-            if (text.find(t) != std::string_view::npos) return true;
-        }
-        return false;
-    }
-
-    void enqueue_teammate_prompt(std::string prompt) {
-        {
-            std::lock_guard lock(teammate_pending_mutex_);
-            teammate_pending_prompts_.push_back(std::move(prompt));
-        }
-        PostRenderEvent();  // wake the UI thread to drain
-    }
-
-    // Called on the UI thread (Custom-event handler) when idle: submit one
-    // queued teammate task. Returns true if a prompt was submitted.
-    bool drain_one_teammate_prompt() {
-        if (query_running_.load()) return false;
-        std::string prompt;
-        {
-            std::lock_guard lock(teammate_pending_mutex_);
-            if (teammate_pending_prompts_.empty()) return false;
-            prompt = std::move(teammate_pending_prompts_.front());
-            teammate_pending_prompts_.pop_front();
-        }
-        HandleSubmit(prompt);
-        return true;
-    }
-
-    // Leader-side: background poller over the team-lead mailbox that turns
-    // stage-A permission_request envelopes into ToolPermission dialogs.
-    // Defined in app_team_projection.cpp.
+    // Teammate inbox worker methods used by other shards are declared here;
+    // their bodies (and the partition-only helpers) live in the :team
+    // partition (app_team.cppm), keeping the TeammateMessage/swarm closure out
+    // of this interface BMI.
+    [[nodiscard]] bool running_as_pane_teammate() const;
+    bool drain_one_teammate_prompt();
+    void start_teammate_inbox_worker();
+    // Leader-side poller; body in the :team partition.
     void start_leader_inbox_worker();
-
-    void start_teammate_inbox_worker() {
-        teammate_self_agent_id_ =
-            env_first({"LOOM_AGENT_ID", "LOOM_AGENT_ID"});
-        teammate_self_agent_name_ =
-            env_first({"LOOM_AGENT_NAME", "LOOM_AGENT_NAME"});
-        teammate_self_team_ =
-            env_first({"LOOM_TEAM_NAME", "LOOM_TEAM_NAME"});
-        if (!running_as_pane_teammate()) return;
-
-        const std::string agent = teammate_self_agent_name_;
-        const std::string team = teammate_self_team_;
-        teammate_inbox_thread_ = std::jthread(
-            [this, agent, team](std::stop_token stop) {
-                constexpr auto kPollInterval = std::chrono::milliseconds(1500);
-                while (!stop.stop_requested()) {
-                    std::this_thread::sleep_for(kPollInterval);
-                    if (stop.stop_requested()) break;
-                    poll_teammate_inbox_once(agent, team);
-                }
-            });
-    }
-
-    // One filesystem-inbox poll: read unread addressed messages, dedup,
-    // enqueue task prompts (control messages skipped), mark read.
-    void poll_teammate_inbox_once(const std::string& agent,
-                                  const std::string& team) {
-        auto msgs = cc::utils::read_inbox(agent, team);
-        if (!msgs) return;
-
-        std::vector<std::string> to_submit;
-        for (const auto& m : *msgs) {
-            if (m.read) continue;
-            if (is_teammate_control_message(m.text)) continue;
-            auto key = teammate_message_key(m);
-            {
-                std::lock_guard lock(teammate_pending_mutex_);
-                if (!teammate_seen_message_ids_.insert(key).second) continue;
-            }
-            // Wrap like the TS useInboxPoller delivery format so the model
-            // sees the sender identity.
-            to_submit.push_back(std::format(
-                "<teammate_message teammate_id=\"{}\">\n{}\n"
-                "</teammate_message>",
-                m.from, m.text));
-        }
-
-        // Mark everything we read as processed (file inbox).
-        if (!to_submit.empty() || !msgs->empty()) {
-            (void)cc::utils::mark_all_read(agent, team);
-        }
-        for (auto& p : to_submit) {
-            enqueue_teammate_prompt(std::move(p));
-        }
-    }
+    void enqueue_teammate_prompt(std::string prompt);
+    void poll_teammate_inbox_once(const std::string& agent, const std::string& team);
 
     void AppendLocalMessagesToScreenState() {
         // Ensure local-command entries have a synthetic 24-char uuids so the
@@ -1319,27 +1190,11 @@ public:
     /// HandleSubmit reads it immediately after this returns.
     void WaitForInFlightPastes(const std::string& text);
 
-    // ── Teammate inbox test seams ─────────────────────────────────────────
-    void configure_teammate_for_testing(std::string agent_name,
-                                        std::string team) {
-        teammate_self_agent_name_ = std::move(agent_name);
-        teammate_self_team_ = std::move(team);
-    }
-    void poll_teammate_inbox_once_for_testing() {
-        poll_teammate_inbox_once(teammate_self_agent_name_,
-                                 teammate_self_team_);
-    }
-    [[nodiscard]] std::size_t teammate_pending_count_for_testing() {
-        std::lock_guard lock(teammate_pending_mutex_);
-        return teammate_pending_prompts_.size();
-    }
-    [[nodiscard]] std::string pop_teammate_prompt_for_testing() {
-        std::lock_guard lock(teammate_pending_mutex_);
-        if (teammate_pending_prompts_.empty()) return {};
-        std::string out = std::move(teammate_pending_prompts_.front());
-        teammate_pending_prompts_.pop_front();
-        return out;
-    }
+    // ── Teammate inbox test seams (bodies in the :team partition) ─────────
+    void configure_teammate_for_testing(std::string agent_name, std::string team);
+    void poll_teammate_inbox_once_for_testing();
+    [[nodiscard]] std::size_t teammate_pending_count_for_testing();
+    [[nodiscard]] std::string pop_teammate_prompt_for_testing();
 
     [[nodiscard]] std::function<bool(std::string_view, std::string_view)> get_permission_callback();
 
@@ -1520,21 +1375,8 @@ public:
     // Enqueue a stage-A permission_request as if the leader inbox poll found
     // it (exercises the ToolPermission dialog + PermissionSync reply path
     // without a real tmux worker mailbox).
-    void enqueue_teammate_permission_for_testing(
-        cc::utils::swarm_helpers::SwarmPermissionRequestMessage request,
-        std::string team) {
-        {
-            std::lock_guard lock(teammate_permission_mutex_);
-            teammate_pending_permissions_.push_back(
-                PendingTeammatePermission{std::move(request), std::move(team)});
-        }
-        PostRenderEvent();
-    }
-
-    [[nodiscard]] std::size_t pending_teammate_permission_count_for_testing() {
-        std::lock_guard lock(teammate_permission_mutex_);
-        return teammate_pending_permissions_.size();
-    }
+    void enqueue_teammate_permission_for_testing(void* request, std::string team);
+    [[nodiscard]] std::size_t pending_teammate_permission_count_for_testing();
 };
 
 // ============================================================

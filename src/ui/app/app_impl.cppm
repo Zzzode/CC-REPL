@@ -11,12 +11,16 @@
 module;
 
 #include <chrono>
+#include <deque>
 #include <functional>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <thread>
+#include <unordered_set>
 #include <utility>
 #include <variant>
 
@@ -28,6 +32,8 @@ import cc.hooks.exit_handler;
 import cc.state.store;
 import cc.state.app_state;
 import cc.utils.settings_manager;
+import cc.utils.swarm_helpers;
+import cc.utils.team_helpers;
 
 namespace cc::ui {
 
@@ -49,6 +55,23 @@ struct AppImpl {
     // Settings manager (disk load + file-watch).
     std::unique_ptr<cc::utils::settings_manager::SettingsManager> settings_manager_;
     cc::utils::settings_manager::UnsubscribeFn settings_unsubscribe_;
+
+    // Leader-side teammate permission requests (drained into the dialog).
+    struct PendingTeammatePermission {
+        cc::utils::swarm_helpers::SwarmPermissionRequestMessage request;
+        std::string team;
+    };
+    std::mutex teammate_permission_mutex_;
+    std::deque<PendingTeammatePermission> teammate_pending_permissions_;
+
+    // Pane-teammate inbox worker state.
+    std::jthread teammate_inbox_thread_;
+    std::mutex teammate_pending_mutex_;
+    std::deque<std::string> teammate_pending_prompts_;
+    std::unordered_set<std::string> teammate_seen_message_ids_;
+    std::string teammate_self_agent_id_;
+    std::string teammate_self_agent_name_;
+    std::string teammate_self_team_;
 };
 
 // ── Vim accessors (keep VimMode/VimStateMachine out of the interface) ───────

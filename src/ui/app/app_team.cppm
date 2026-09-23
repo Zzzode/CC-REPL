@@ -24,6 +24,9 @@ module;
 #include <cstdlib>
 #include <filesystem>
 #include <functional>
+#include <initializer_list>
+#include <cstdlib>
+#include <format>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -32,7 +35,10 @@ module;
 #include <unordered_map>
 #include <vector>
 
-module cc.ui.app.app;
+export module cc.ui.app.app:team;
+
+import cc.ui.app.app;
+import :impl;
 
 import cc.utils.json;
 import cc.utils.team_helpers;
@@ -40,6 +46,7 @@ import cc.utils.swarm_helpers;
 import cc.utils.swarm_backends;
 import cc.utils.swarm_pane_observer;
 import cc.tools.agent_runtime;
+import cc.ui.features.teams.live_teammates;
 import cc.ui.screens.repl_screen;
 import cc.ui.dialogs.system;
 import cc.ui.dialogs.triggers;
@@ -53,6 +60,122 @@ namespace sw = cc::utils::swarm_backends;
 namespace po = cc::utils::pane_observer;
 namespace dtrig = cc::ui::dialogs::triggers;
 namespace dsys = cc::ui::dialogs::system;
+
+// ── Teammate inbox worker (moved out of app.cppm to keep TeammateMessage ──
+//    and the file-inbox closure out of the interface BMI).
+namespace {
+std::string env_first(std::initializer_list<const char*> names) {
+        for (const char* n : names) {
+            if (const char* v = std::getenv(n); v && *v) return v;
+        }
+        return {};
+    }
+
+    // Stable per-message key so repeated polls don't redeliver. The inbox
+    // entry has no id; from+timestamp+text is unique enough.
+std::string teammate_message_key(const cc::utils::TeammateMessage& m) {
+        return m.from + "|" + m.timestamp + "|" + m.text;
+    }
+
+    // Control messages (shutdown / permission / mode) are handled by dedicated
+    // paths, not submitted as task prompts. Heuristic matching the TS inbox
+    // classifier tags embedded in the message text.
+bool is_teammate_control_message(std::string_view text) {
+        static constexpr std::string_view tags[] = {
+            "loom:shutdown", "loom:permission", "loom:mode",
+            "loom:plan-approval", "loom:sandbox",
+        };
+        for (auto t : tags) {
+            if (text.find(t) != std::string_view::npos) return true;
+        }
+        return false;
+    }
+
+}  // namespace
+
+// True when this process was spawned with teammate identity.
+bool AppAdapter::running_as_pane_teammate() const {
+    return !impl_->teammate_self_agent_name_.empty() &&
+           !impl_->teammate_self_team_.empty();
+}
+
+void AppAdapter::enqueue_teammate_prompt(std::string prompt) {
+        {
+            std::lock_guard lock(impl_->teammate_pending_mutex_);
+            impl_->teammate_pending_prompts_.push_back(std::move(prompt));
+        }
+        PostRenderEvent();  // wake the UI thread to drain
+    }
+
+    // Called on the UI thread (Custom-event handler) when idle: submit one
+    // queued teammate task. Returns true if a prompt was submitted.
+bool AppAdapter::drain_one_teammate_prompt() {
+        if (query_running_.load()) return false;
+        std::string prompt;
+        {
+            std::lock_guard lock(impl_->teammate_pending_mutex_);
+            if (impl_->teammate_pending_prompts_.empty()) return false;
+            prompt = std::move(impl_->teammate_pending_prompts_.front());
+            impl_->teammate_pending_prompts_.pop_front();
+        }
+        HandleSubmit(prompt);
+        return true;
+    }
+
+void AppAdapter::start_teammate_inbox_worker() {
+        impl_->teammate_self_agent_id_ =
+            env_first({"LOOM_AGENT_ID", "LOOM_AGENT_ID"});
+        impl_->teammate_self_agent_name_ =
+            env_first({"LOOM_AGENT_NAME", "LOOM_AGENT_NAME"});
+        impl_->teammate_self_team_ =
+            env_first({"LOOM_TEAM_NAME", "LOOM_TEAM_NAME"});
+        if (!running_as_pane_teammate()) return;
+
+        const std::string agent = impl_->teammate_self_agent_name_;
+        const std::string team = impl_->teammate_self_team_;
+        impl_->teammate_inbox_thread_ = std::jthread(
+            [this, agent, team](std::stop_token stop) {
+                constexpr auto kPollInterval = std::chrono::milliseconds(1500);
+                while (!stop.stop_requested()) {
+                    std::this_thread::sleep_for(kPollInterval);
+                    if (stop.stop_requested()) break;
+                    poll_teammate_inbox_once(agent, team);
+                }
+            });
+    }
+
+    // One filesystem-inbox poll: read unread addressed messages, dedup,
+    // enqueue task prompts (control messages skipped), mark read.
+void AppAdapter::poll_teammate_inbox_once(const std::string& agent,
+                                          const std::string& team) {
+        auto msgs = cc::utils::read_inbox(agent, team);
+        if (!msgs) return;
+
+        std::vector<std::string> to_submit;
+        for (const auto& m : *msgs) {
+            if (m.read) continue;
+            if (is_teammate_control_message(m.text)) continue;
+            auto key = teammate_message_key(m);
+            {
+                std::lock_guard lock(impl_->teammate_pending_mutex_);
+                if (!impl_->teammate_seen_message_ids_.insert(key).second) continue;
+            }
+            // Wrap like the TS useInboxPoller delivery format so the model
+            // sees the sender identity.
+            to_submit.push_back(std::format(
+                "<teammate_message teammate_id=\"{}\">\n{}\n"
+                "</teammate_message>",
+                m.from, m.text));
+        }
+
+        // Mark everything we read as processed (file inbox).
+        if (!to_submit.empty() || !msgs->empty()) {
+            (void)cc::utils::mark_all_read(agent, team);
+        }
+        for (auto& p : to_submit) {
+            enqueue_teammate_prompt(std::move(p));
+        }
+    }
 
 namespace {
 
@@ -363,17 +486,17 @@ void AppAdapter::ProjectLiveTeammatesToScreenState() {
 // ============================================================================
 
 bool AppAdapter::drain_one_teammate_permission() {
-    PendingTeammatePermission pending;
+    AppImpl::PendingTeammatePermission pending;
     {
-        std::lock_guard lock(teammate_permission_mutex_);
+        std::lock_guard lock(impl_->teammate_permission_mutex_);
         // One ToolPermission overlay at a time, like every other Band3
         // request — wait for the active dialog to finish first.
-        if (teammate_pending_permissions_.empty() ||
+        if (impl_->teammate_pending_permissions_.empty() ||
             screen_state_->dialog_queue.has_overlay()) {
             return false;
         }
-        pending = std::move(teammate_pending_permissions_.front());
-        teammate_pending_permissions_.pop_front();
+        pending = std::move(impl_->teammate_pending_permissions_.front());
+        impl_->teammate_pending_permissions_.pop_front();
     }
 
     const auto request = pending.request;
@@ -458,7 +581,7 @@ void AppAdapter::start_leader_inbox_worker() {
                     cc::utils::read_inbox(std::string{sh::TEAM_LEAD_NAME}, team);
                 if (!messages) continue;
 
-                std::vector<PendingTeammatePermission> fresh;
+                std::vector<AppImpl::PendingTeammatePermission> fresh;
                 std::vector<std::string> consumed_texts;
                 for (const auto& message : *messages) {
                     // Discriminator substrings from the frozen stage-A
@@ -474,7 +597,7 @@ void AppAdapter::start_leader_inbox_worker() {
                         sh::PermissionSync::parse_request(message.text);
                     if (!parsed) continue;
                     {
-                        std::lock_guard lock(teammate_permission_mutex_);
+                        std::lock_guard lock(impl_->teammate_permission_mutex_);
                         if (!seen_leader_permission_ids_
                                  .insert(parsed->request_id)
                                  .second) {
@@ -482,7 +605,7 @@ void AppAdapter::start_leader_inbox_worker() {
                         }
                     }
                     fresh.push_back(
-                        PendingTeammatePermission{std::move(*parsed), team});
+                        AppImpl::PendingTeammatePermission{std::move(*parsed), team});
                     consumed_texts.push_back(message.text);
                 }
 
@@ -495,9 +618,9 @@ void AppAdapter::start_leader_inbox_worker() {
                 }
                 if (!fresh.empty()) {
                     {
-                        std::lock_guard lock(teammate_permission_mutex_);
+                        std::lock_guard lock(impl_->teammate_permission_mutex_);
                         for (auto& item : fresh) {
-                            teammate_pending_permissions_.push_back(
+                            impl_->teammate_pending_permissions_.push_back(
                                 std::move(item));
                         }
                     }
@@ -505,6 +628,48 @@ void AppAdapter::start_leader_inbox_worker() {
                 }
             }
         });
+}
+
+
+// ── Teammate test seams ────────────────────────────────────────────────────
+void AppAdapter::configure_teammate_for_testing(std::string agent_name,
+                                               std::string team) {
+    impl_->teammate_self_agent_name_ = std::move(agent_name);
+    impl_->teammate_self_team_ = std::move(team);
+}
+
+void AppAdapter::poll_teammate_inbox_once_for_testing() {
+    poll_teammate_inbox_once(impl_->teammate_self_agent_name_,
+                             impl_->teammate_self_team_);
+}
+
+std::size_t AppAdapter::teammate_pending_count_for_testing() {
+    std::lock_guard lock(impl_->teammate_pending_mutex_);
+    return impl_->teammate_pending_prompts_.size();
+}
+
+std::string AppAdapter::pop_teammate_prompt_for_testing() {
+    std::lock_guard lock(impl_->teammate_pending_mutex_);
+    if (impl_->teammate_pending_prompts_.empty()) return {};
+    std::string out = std::move(impl_->teammate_pending_prompts_.front());
+    impl_->teammate_pending_prompts_.pop_front();
+    return out;
+}
+
+void AppAdapter::enqueue_teammate_permission_for_testing(void* request,
+                                                         std::string team) {
+    auto* req = static_cast<cc::utils::swarm_helpers::SwarmPermissionRequestMessage*>(request);
+    {
+        std::lock_guard lock(impl_->teammate_permission_mutex_);
+        impl_->teammate_pending_permissions_.push_back(
+            AppImpl::PendingTeammatePermission{*req, std::move(team)});
+    }
+    PostRenderEvent();
+}
+
+std::size_t AppAdapter::pending_teammate_permission_count_for_testing() {
+    std::lock_guard lock(impl_->teammate_permission_mutex_);
+    return impl_->teammate_pending_permissions_.size();
 }
 
 }  // namespace cc::ui
