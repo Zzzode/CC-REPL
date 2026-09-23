@@ -23,6 +23,8 @@ export module cc.ui.app.app:impl;
 import cc.ui.app.app;
 import cc.vim.vim_mode;
 import cc.hooks.exit_handler;
+import cc.state.store;
+import cc.state.app_state;
 
 namespace cc::ui {
 
@@ -37,6 +39,9 @@ struct AppImpl {
         .cleanup_timeout_ms = 5000,
         .save_on_exit = true,
         .double_press_window = std::chrono::milliseconds{800}}};
+
+    // Redux-like AppState store for CommandContext bridging.
+    std::shared_ptr<cc::state::AppStore> app_store_;
 };
 
 // ── Vim accessors (keep VimMode/VimStateMachine out of the interface) ───────
@@ -77,6 +82,28 @@ bool AppAdapter::handle_ctrl_c() {
                         cc::hooks::ExitReason::ctrl_c);
 }
 
+// ── AppStore accessors (keep AppStore/AppState out of the interface) ────────
+bool AppAdapter::has_app_store() const noexcept {
+    return impl_ && static_cast<bool>(impl_->app_store_);
+}
+
+void* AppAdapter::app_store_raw() noexcept {
+    return impl_ ? static_cast<void*>(impl_->app_store_.get()) : nullptr;
+}
+
+BridgeState AppAdapter::bridge_state() const {
+    BridgeState b{false, false, false, false, false};
+    if (impl_ && impl_->app_store_) {
+        const auto st = impl_->app_store_->get_state();
+        b.enabled        = st.repl_bridge_enabled;
+        b.explicit_remote = st.repl_bridge_explicit;
+        b.connected      = st.repl_bridge_connected;
+        b.session_active = st.repl_bridge_session_active;
+        b.reconnecting   = st.repl_bridge_reconnecting;
+    }
+    return b;
+}
+
 // AppImplDeleter: defined where AppImpl is complete so unique_ptr teardown
 // needs no complete type in the constructor/destructor impl units.
 void AppImplDeleter::operator()(AppImpl* p) const noexcept {
@@ -86,6 +113,7 @@ void AppImplDeleter::operator()(AppImpl* p) const noexcept {
 // Construct the backing state. Called from the out-of-line constructor.
 void AppAdapter::construct_impl() {
     impl_.reset(new AppImpl());
+    impl_->app_store_ = cc::state::create_app_store();
 }
 
 }  // namespace cc::ui

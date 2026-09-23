@@ -80,8 +80,6 @@ import cc.utils.team_helpers;
 import cc.utils.swarm_helpers;
 import cc.constants.constants;
 import cc.hooks.lifecycle_hooks;
-import cc.state.store;
-import cc.state.app_state;
 
 export namespace cc::ui {
 
@@ -95,6 +93,16 @@ struct AppImpl;
 // cleanup — without AppImpl being complete there.
 struct AppImplDeleter {
     void operator()(AppImpl* p) const noexcept;
+};
+
+// Plain-data projection of the AppState bridge fields, returned by
+// AppAdapter::bridge_state() so callers need not import cc.state.app_state.
+struct BridgeState {
+    bool enabled = false;
+    bool explicit_remote = false;
+    bool connected = false;
+    bool session_active = false;
+    bool reconnecting = false;
 };
 
 // SL-11: defined in app_prompt_suggestion_wiring.cpp (impl unit) to keep the
@@ -232,154 +240,6 @@ struct AutocompleteToken {
 // while preserving the exact {0..3} base range so the tier offsets (alias +1,
 // skill +4, plugin +6) and the rank-ascending sort stay unchanged. See
 // ui/prompt/fuzzy_rank_nucleo.cppm. lowercase_ascii() above is retained.
-
-[[nodiscard]] inline std::vector<Message> compact_runtime_messages(void* state) {
-    auto* engine = static_cast<core::QueryEngine*>(state);
-    return engine ? engine->get_conversation() : std::vector<Message>{};
-}
-
-[[nodiscard]] inline VoidResult compact_runtime_apply(void* state) {
-    auto* engine = static_cast<core::QueryEngine*>(state);
-    if (!engine) {
-        return std::unexpected(Error::make(
-            ErrorCode::InternalError,
-            "No active query engine is available for compaction"));
-    }
-    auto compacted = engine->compact_conversation();
-    if (!compacted) {
-        return std::unexpected(Error::make(
-            ErrorCode::InternalError,
-            compacted.error().format()));
-    }
-    return VoidResult{};
-}
-
-// ============================================================
-// AppStore bridge for CommandContext
-// ============================================================
-
-/// dispatch_fn implementation: casts void* back to AppStore*, int back to
-/// ActionType, and dispatches.  Payload types are inferred from the action
-/// type (the common bool / optional-string / enum cases); anything
-/// unrecognised falls back to a payload-less dispatch.
-inline void app_store_dispatch(void* store_ptr, int action_type_int,
-                               const void* payload) {
-    using cc::state::ActionType;
-    auto* store = static_cast<cc::state::AppStore*>(store_ptr);
-    if (!store) return;
-    const auto at = static_cast<ActionType>(action_type_int);
-
-    using cc::state::Action;
-    switch (at) {
-        // ── Bool-payload actions ──────────────────────────────────
-        case ActionType::SetLoading:
-        case ActionType::SetStreaming:
-        case ActionType::SetVerbose:
-        case ActionType::SetBriefOnly:
-        case ActionType::SetFastMode:
-        case ActionType::ToggleCompactMode:
-        case ActionType::ToggleThinking:
-            if (payload) {
-                store->dispatch(Action{at, *static_cast<const bool*>(payload)});
-            } else {
-                store->dispatch(Action{at});
-            }
-            break;
-
-        // ── String-payload actions ────────────────────────────────
-        // Reducer expects std::string directly (not optional).
-        case ActionType::SetError:
-        case ActionType::GrantPermission:
-        case ActionType::RevokePermission:
-        case ActionType::SetWorkingDirectory:
-        case ActionType::SetOutputStyle:
-        case ActionType::AddNotification:
-        case ActionType::DismissNotification:
-            if (payload) {
-                store->dispatch(Action{at,
-                    *static_cast<const std::string*>(payload)});
-            } else {
-                store->dispatch(Action{at});
-            }
-            break;
-
-        // ── Optional-string-payload actions ───────────────────────
-        // Reducer expects std::optional<std::string>; caller passes a
-        // std::string* which we wrap.
-        case ActionType::SetStatusLineText:
-        case ActionType::SetSpinnerTip:
-        case ActionType::SetSlashCommand:
-        case ActionType::SetMainLoopModel:
-        case ActionType::SetAdvisorModel:
-        case ActionType::SetEffortValue:
-            if (payload) {
-                store->dispatch(Action{at,
-                    std::optional<std::string>{*static_cast<const std::string*>(payload)}});
-            } else {
-                store->dispatch(Action{at, std::optional<std::string>{}});
-            }
-            break;
-
-        // ── ExpandedView enum payload ─────────────────────────────
-        case ActionType::SetExpandedView:
-            if (payload) {
-                store->dispatch(Action{at,
-                    *static_cast<const cc::state::ExpandedView*>(payload)});
-            } else {
-                store->dispatch(Action{at, cc::state::ExpandedView::None});
-            }
-            break;
-
-        // ── PermissionMode enum payload ──────────────────────────
-        case ActionType::SetPermissionMode:
-            if (payload) {
-                store->dispatch(Action{at,
-                    *static_cast<const cc::state::PermissionMode*>(payload)});
-            } else {
-                store->dispatch(Action{at, cc::state::PermissionMode::Default});
-            }
-            break;
-
-        // ── Payload-less actions ──────────────────────────────────
-        case ActionType::ClearMessages:
-        case ActionType::ResetSession:
-        case ActionType::ClearError:
-        case ActionType::SaveState:
-        case ActionType::LoadState:
-        case ActionType::ClearSavedState:
-        default:
-            store->dispatch(Action{at});
-            break;
-    }
-}
-
-/// get_state_fn implementation: returns a thread-local snapshot of AppState
-/// so the returned pointer stays valid until the next call on this thread.
-inline const void* app_store_get_state(void* store_ptr) {
-    auto* store = static_cast<cc::state::AppStore*>(store_ptr);
-    if (!store) return nullptr;
-    thread_local static cc::state::AppState snapshot;
-    snapshot = store->get_state();
-    return &snapshot;
-}
-
-[[nodiscard]] inline CommandContext command_context_for_engine(
-    core::QueryEngine* engine,
-    cc::state::AppStore* app_store = nullptr,
-    std::string cwd = {}) {
-    if (cwd.empty() && engine) cwd = engine->working_directory();
-    return CommandContext{
-        .args = {},
-        .raw_input = {},
-        .cwd = std::move(cwd),
-        .runtime_state = engine,
-        .compact_message_provider = compact_runtime_messages,
-        .compact_applier = compact_runtime_apply,
-        .app_store = static_cast<void*>(app_store),
-        .dispatch_fn = app_store ? app_store_dispatch : nullptr,
-        .get_state_fn = app_store ? app_store_get_state : nullptr,
-    };
-}
 
 // ============================================================
 // Projection: Engine state -> ReplScreenState
@@ -637,6 +497,11 @@ private:
     void reset_exit_handler();
     bool handle_ctrl_c();
 
+    // AppStore bridge — state in AppImpl.
+    bool has_app_store() const noexcept;
+    void* app_store_raw() noexcept;
+    BridgeState bridge_state() const;
+
     // Settings manager — loads settings from disk and watches for changes.
     // Projections into screen_state_ are applied on init and on file change.
     std::unique_ptr<cc::utils::settings_manager::SettingsManager> settings_manager_;
@@ -647,9 +512,8 @@ private:
     int cost_listener_id_ = -1;
     bool cost_threshold_shown_ = false;
 
-    // Redux-like AppState store (commands dispatch actions / read state via
-    // CommandContext.app_store bridge). Created in constructor.
-    std::shared_ptr<cc::state::AppStore> app_store_;
+    // Redux-like AppState store moved into AppImpl (:impl partition).
+    // Access via has_app_store/app_store_raw/bridge_state.
 
     // Statusline runner — async execution of user-configurable shell command.
     // Triggered on mount, after messages change, and when settings change.

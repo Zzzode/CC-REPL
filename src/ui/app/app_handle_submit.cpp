@@ -53,6 +53,9 @@ import cc.ui.dialogs.triggers;
 import cc.vim.vim_mode;
 
 namespace cc::ui {
+// Defined in app_store_bridge.cpp (impl unit of this module).
+CommandContext command_context_for_engine(cc::core::QueryEngine* engine,
+                                          void* app_store, std::string cwd);
 
 namespace repl = cc::ui::repl_screen;
 namespace agent_runtime = cc::tools::agent_runtime;
@@ -459,7 +462,7 @@ void AppAdapter::HandleCommand(std::string_view cmd) {
     if (cmd_registry_) {
         auto result = cmd_registry_->execute(
             command,
-            command_context_for_engine(engine_, app_store_.get(), screen_state_->cwd));
+            command_context_for_engine(engine_, app_store_raw(), screen_state_->cwd));
         if (result) {
             if (result->status == CommandStatus::Injected) {
                 this->HandleSubmit(result->message);

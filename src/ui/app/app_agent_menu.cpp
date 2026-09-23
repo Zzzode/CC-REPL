@@ -172,13 +172,13 @@ void AppAdapter::SyncState() {
 
     // Bridge / remote-control footer projection (TS PromptInputFooter
     // reads replBridge* from AppState).
-    if (app_store_) {
-        const auto st = app_store_->get_state();
-        screen_state_->bridge_enabled        = st.repl_bridge_enabled;
-        screen_state_->bridge_explicit_remote = st.repl_bridge_explicit;
-        screen_state_->bridge_connected      = st.repl_bridge_connected;
-        screen_state_->bridge_session_active = st.repl_bridge_session_active;
-        screen_state_->bridge_reconnecting   = st.repl_bridge_reconnecting;
+    if (has_app_store()) {
+        const auto b = bridge_state();
+        screen_state_->bridge_enabled        = b.enabled;
+        screen_state_->bridge_explicit_remote = b.explicit_remote;
+        screen_state_->bridge_connected      = b.connected;
+        screen_state_->bridge_session_active = b.session_active;
+        screen_state_->bridge_reconnecting   = b.reconnecting;
     }
 
     // TS Messages.tsx:520 collapse chain (background-bash so far).
