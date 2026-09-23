@@ -16,6 +16,7 @@ module;
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <ftxui/component/event.hpp>
 #include <format>
 #include <functional>
 #include <memory>
@@ -30,6 +31,11 @@ module;
 #include <vector>
 
 module cc.ui.app.app;
+import cc.query.query_engine;
+import cc.commands.registry;
+import cc.commands.command;
+import cc.utils.session_storage;
+import cc.hooks.lifecycle_hooks;
 
 // ── Base imports (shared with app_autocomplete.cpp) ─────────────────────
 import cc.ui.screens.repl_screen;
@@ -48,17 +54,128 @@ import cc.ui.permissions.permission_computer_use;
 import cc.hooks.cost_hook;
 
 namespace cc::ui {
-
-namespace repl = cc::ui::repl_screen;
 namespace agent_runtime = cc::tools::agent_runtime;
 namespace agent_cards = cc::ui::agents::cards;
+// Defined in app_extra_methods.cpp (same module); redeclared for module linkage.
+agent_cards::AgentCardData project_agent_definition_card(
+    const agent_runtime::AgentDefinition& agent);
+
+std::string FormatAgentsMenuOutput(
+    const std::vector<agent_cards::AgentCardData>& agents,
+    int selected_position);
+
+namespace {
+[[nodiscard]] bool is_built_in_agent(
+        const agent_cards::AgentCardData& agent) {
+        return agent.source == "built-in";
+    }
+
+[[nodiscard]] std::vector<std::size_t> selectable_agent_indices(
+        const std::vector<agent_cards::AgentCardData>& agents) {
+        std::vector<std::size_t> out;
+        out.reserve(agents.size());
+        for (std::size_t i = 0; i < agents.size(); ++i) {
+            if (!is_built_in_agent(agents[i])) out.push_back(i);
+        }
+        return out;
+    }
+
+[[nodiscard]] std::string agent_model_label(
+        const agent_cards::AgentCardData& agent) {
+        if (agent.model_override && !agent.model_override->empty()) {
+            return *agent.model_override;
+        }
+        return is_built_in_agent(agent) ? "inherit" : "";
+    }
+
+}  // namespace
+
+void AppAdapter::RefreshAgentsMenuOutput() {
+        screen_state_->active_local_jsx_content = FormatAgentsMenuOutput(
+            screen_state_->agent_cards,
+            screen_state_->active_agents_selection_position);
+    }
+
+void AppAdapter::OpenAgentsMenu() {
+        LoadAgentCardsForMenu();
+        screen_state_->mode = repl::ReplMode::AgentsView;
+        screen_state_->agents_component.reset();
+        this->TriggerStatuslineUpdate();
+        PostRenderEvent();
+    }
+
+    /// Rebuild live_teammates from native store + pane observer, then open
+    /// the TeamsView modal (TS PromptInput.tsx 'teams' footer action).
+void AppAdapter::OpenTeamsOverview() {
+        ProjectLiveTeammatesToScreenState();
+        screen_state_->teams_overview_selected_index = 0;
+        cc::ui::dialogs::triggers::PushTeamsView(
+            screen_state_->dialog_queue,
+            [this] {
+                screen_state_->dialog_queue.pop_modal();
+                PostRenderEvent();
+            });
+        PostRenderEvent();
+    }
+
+bool AppAdapter::HandleLocalJsxEvent(const Event& ev) {
+        if (!screen_state_->active_local_jsx_command ||
+            screen_state_->active_local_jsx_command_name != "agents") {
+            return false;
+        }
+
+        const auto selectable = selectable_agent_indices(screen_state_->agent_cards);
+        const int item_count = 1 + static_cast<int>(selectable.size());
+        if (item_count <= 0) return false;
+
+        auto refresh_selection = [&] {
+            RefreshAgentsMenuOutput();
+            PostRenderEvent();
+        };
+
+        if (ev == Event::ArrowDown || ev == Event::Character('j')) {
+            screen_state_->active_agents_selection_position =
+                (screen_state_->active_agents_selection_position + 1) % item_count;
+            refresh_selection();
+            return true;
+        }
+        if (ev == Event::ArrowUp || ev == Event::Character('k')) {
+            screen_state_->active_agents_selection_position =
+                (screen_state_->active_agents_selection_position - 1 + item_count) %
+                item_count;
+            refresh_selection();
+            return true;
+        }
+        if (ev == Event::Return) {
+            const int selected = std::clamp(
+                screen_state_->active_agents_selection_position,
+                0,
+                item_count - 1);
+            std::string command = "/agents create";
+            if (selected > 0) {
+                const auto agent_index =
+                    selectable[static_cast<std::size_t>(selected - 1)];
+                command = "/agents configure " +
+                    screen_state_->agent_cards[agent_index].id;
+            }
+            ClearActiveLocalJsxCommand();
+            screen_state_->scroll_offset = 0;
+            screen_state_->scroll_pinned_to_bottom = true;
+            HandleCommand(command);
+            PostRenderEvent();
+            return true;
+        }
+        return false;
+    }
+
+namespace repl = cc::ui::repl_screen;
 namespace agent_display = cc::tools::agent_display;
 namespace dtrig = cc::ui::dialogs::triggers;
 namespace dsys = cc::ui::dialogs::system;
 namespace cperm = cc::ui::permissions;
 
 // ── FormatAgentsMenuOutput (moved out to remove agent_display import) ────
-std::string AppAdapter::FormatAgentsMenuOutput(
+std::string FormatAgentsMenuOutput(
     const std::vector<agent_cards::AgentCardData>& agents,
     int selected_position) {
     const auto selectable = selectable_agent_indices(agents);
@@ -168,7 +285,7 @@ void AppAdapter::LoadAgentCardsForMenu() {
 
 // ── SyncState (moved out to remove debug import) ─────────────────────────
 void AppAdapter::SyncState() {
-    auto messages = engine_->get_conversation();
+    auto messages = static_cast<cc::core::QueryEngine*>(engine_raw())->get_conversation();
 
     // Bridge / remote-control footer projection (TS PromptInputFooter
     // reads replBridge* from AppState).
@@ -264,7 +381,7 @@ void AppAdapter::SyncState() {
 
     // Notify cost hook subscribers (drives CostThreshold dialog, etc.).
     cc::hooks::update_cost(cc::hooks::CostUpdate{
-        .session_cost = engine_->budget_tracker().current_spend_usd,
+        .session_cost = static_cast<cc::core::QueryEngine*>(engine_raw())->budget_tracker().current_spend_usd,
         .monthly_cost = 0.0,
         .input_tokens = screen_state_->status_bar.input_tokens,
         .output_tokens = screen_state_->status_bar.output_tokens,
@@ -328,9 +445,9 @@ void AppAdapter::ConsumePendingResult() {
     streaming_markdown_.reset();
     streaming_tools_.clear();
 
-    if (storage_) {
+    if (static_cast<cc::utils::SessionStorage*>(storage_raw())) {
         std::vector<cc::utils::Message> storage_msgs;
-        for (const auto& msg : engine_->get_conversation()) {
+        for (const auto& msg : static_cast<cc::core::QueryEngine*>(engine_raw())->get_conversation()) {
             std::visit([&storage_msgs](const auto& m) {
                 using T = std::decay_t<decltype(m)>;
                 std::string text;
@@ -344,7 +461,7 @@ void AppAdapter::ConsumePendingResult() {
                     storage_msgs.push_back(cc::utils::AssistantMessage{{cc::utils::TextBlock{text}}});
             }, msg);
         }
-        (void)storage_->save_session(current_session_id_, "Session", storage_msgs);
+        (void)static_cast<cc::utils::SessionStorage*>(storage_raw())->save_session(current_session_id_, "Session", storage_msgs);
     }
 
     this->TriggerStatuslineUpdate();

@@ -338,9 +338,9 @@ struct StatusLineResult {
 ///   - Trims output and removes blank lines
 ///   - Non-zero exit → empty output (success=false)
 ///   - Timeout → empty output
-[[nodiscard]] inline StatusLineResult execute_statusline_command(
+[[nodiscard]] inline StatusLineResult execute_statusline_command_json(
     std::string_view command,
-    const StatusLineCommandInput& input,
+    std::string json_input,
     int timeout_ms = 5000)
 {
     StatusLineResult result;
@@ -350,7 +350,6 @@ struct StatusLineResult {
     }
 
     auto t0 = steady_clock::now();
-    std::string json_input = to_json(input);
 
     // Run via bash -c, matching TS execCommandHook shell behavior.
     auto cmd_result = hooks_ns::CommandHookRunner::run_raw(
@@ -422,6 +421,16 @@ struct StatusLineResult {
     result.output = std::move(processed);
     result.success = true;
     return result;
+}
+
+/// Convenience overload: serialize the input struct, then execute.
+[[nodiscard]] inline StatusLineResult execute_statusline_command(
+    std::string_view command,
+    const StatusLineCommandInput& input,
+    int timeout_ms = 5000)
+{
+    return execute_statusline_command_json(
+        command, to_json(input), timeout_ms);
 }
 
 } // namespace cc::utils::statusline

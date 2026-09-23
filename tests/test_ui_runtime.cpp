@@ -5600,7 +5600,8 @@ TEST(LiveTeamsUi, SlashTeamsOpensOverviewModal) {
     a.status = "running";
     a.last_output_tail = "TAIL-MARKER-42";
     a.pane_id = "%3";
-    app->set_live_teammates_for_testing({a});
+    std::vector<live::LiveTeammate> teammates{a};
+    app->set_live_teammates_for_testing(&teammates);
     ASSERT_EQ(app->teams_overview_count_for_testing(), 1);
 
     app->handle_submit_for_testing("/teams");

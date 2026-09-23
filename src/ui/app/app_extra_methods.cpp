@@ -32,9 +32,16 @@ module;
 #include <vector>
 
 module cc.ui.app.app;
+import cc.query.query_engine;
+import cc.commands.registry;
+import cc.commands.command;
+import cc.utils.session_storage;
+import cc.hooks.lifecycle_hooks;
 
 // ── Imports needed by the 5 methods (not available via the interface) ────
 import cc.utils.bash_execution;
+import cc.utils.model.model;
+import cc.constants.constants;
 import cc.utils.git;
 import cc.utils.crypto;
 import cc.utils.clipboard;
@@ -107,7 +114,7 @@ void AppAdapter::RunLocalBashCommand(std::string command) {
     if (bash_thread_.joinable()) bash_thread_.join();
 
     bash_running_.store(true);
-    const std::string cwd = engine_ ? engine_->working_directory() : std::string{};
+    const std::string cwd = static_cast<cc::core::QueryEngine*>(engine_raw()) ? static_cast<cc::core::QueryEngine*>(engine_raw())->working_directory() : std::string{};
     bash_thread_ = std::jthread(
         [this, command, cwd](std::stop_token st) {
             // POSIX single-quote helper for paths with spaces/quotes.
@@ -182,7 +189,7 @@ void AppAdapter::RunLocalBashCommand(std::string command) {
                 std::filesystem::current_path(new_cwd, ec);
                 if (!ec) {
                     screen_state_->cwd = new_cwd;
-                    if (engine_) engine_->set_working_directory(new_cwd);
+                    if (static_cast<cc::core::QueryEngine*>(engine_raw())) static_cast<cc::core::QueryEngine*>(engine_raw())->set_working_directory(new_cwd);
                 }
             }
             {
@@ -199,22 +206,22 @@ void AppAdapter::RunLocalBashCommand(std::string command) {
 void AppAdapter::ProjectRuntimeMetadataToScreenState() {
     screen_state_->app_version = std::string(cc::core::constants::kVersion);
 
-    const auto& model_id = engine_->model_params().model;
+    const auto& model_id = static_cast<cc::core::QueryEngine*>(engine_raw())->model_params().model;
     screen_state_->status_bar.model_name = model_id;
     screen_state_->model_display_name =
         cc::utils::get_model_display_name(model_id);
 
-    auto usage = engine_->get_usage();
+    auto usage = static_cast<cc::core::QueryEngine*>(engine_raw())->get_usage();
     screen_state_->status_bar.input_tokens =
         static_cast<int>(usage.input_tokens);
     screen_state_->status_bar.output_tokens =
         static_cast<int>(usage.output_tokens);
     screen_state_->status_bar.cost_usd =
-        engine_->budget_tracker().current_spend_usd;
+        static_cast<cc::core::QueryEngine*>(engine_raw())->budget_tracker().current_spend_usd;
     screen_state_->status_bar.context_token_count =
         static_cast<int>(usage.input_tokens + usage.output_tokens);
 
-    screen_state_->cwd = engine_->working_directory();
+    screen_state_->cwd = static_cast<cc::core::QueryEngine*>(engine_raw())->working_directory();
     screen_state_->status_bar.current_path = screen_state_->cwd;
 
     // P0-6 builtin statusline: detect git branch for the current cwd.
@@ -458,5 +465,6 @@ void AppAdapter::ProcessCompletedPastes() {
         }
     }
 }
+
 
 } // namespace cc::ui

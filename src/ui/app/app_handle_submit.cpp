@@ -27,6 +27,11 @@ module;
 #include <vector>
 
 module cc.ui.app.app;
+import cc.query.query_engine;
+import cc.commands.registry;
+import cc.commands.command;
+import cc.utils.session_storage;
+import cc.hooks.lifecycle_hooks;
 
 // ── Base imports (shared with app_autocomplete.cpp) ─────────────────────
 import cc.commands.registry;
@@ -273,7 +278,7 @@ void AppAdapter::HandleSubmit(const std::string& text,
             opts.attachments.push_back(std::move(b));
         }
 
-        engine_->stream_query(materialized.text, opts);
+        static_cast<cc::core::QueryEngine*>(engine_raw())->stream_query(materialized.text, opts);
 
         query_running_.store(false);
         PostRenderEvent();
@@ -291,7 +296,7 @@ void AppAdapter::HandleCommand(std::string_view cmd) {
         return;
     }
     if (normalized == "/clear") {
-        engine_->clear_conversation();
+        static_cast<cc::core::QueryEngine*>(engine_raw())->clear_conversation();
         local_command_messages_.clear();
         screen_state_->divider_index.reset();
         screen_state_->unseen_divider.reset();
@@ -326,7 +331,7 @@ void AppAdapter::HandleCommand(std::string_view cmd) {
                 std::move(ref_images), std::move(ref_texts));
             repl::set_prompt_input_text(screen_state_, {}, 0);
         }
-        auto result = engine_->compact_conversation();
+        auto result = static_cast<cc::core::QueryEngine*>(engine_raw())->compact_conversation();
         if (result) {
             this->SyncState();
             // Restore stash after compact completes (TS: restore after
@@ -342,22 +347,22 @@ void AppAdapter::HandleCommand(std::string_view cmd) {
         return;
     }
     if (normalized == "/cost") {
-        auto usage = engine_->get_usage();
-        auto cost = engine_->budget_tracker().current_spend_usd;
+        auto usage = static_cast<cc::core::QueryEngine*>(engine_raw())->get_usage();
+        auto cost = static_cast<cc::core::QueryEngine*>(engine_raw())->budget_tracker().current_spend_usd;
         screen_state_->spinner_tip = std::format(
             "Cost: ${:.4f} | In: {} | Out: {} | Ctx: {:.0f}%",
             cost, usage.input_tokens, usage.output_tokens,
-            engine_->context_utilization() * 100.0);
+            static_cast<cc::core::QueryEngine*>(engine_raw())->context_utilization() * 100.0);
         return;
     }
     if (normalized.starts_with("/model")) {
         auto args_start = normalized.find(' ');
         if (args_start != std::string_view::npos) {
             auto new_model = normalized.substr(args_start + 1);
-            auto params = engine_->model_params();
+            auto params = static_cast<cc::core::QueryEngine*>(engine_raw())->model_params();
             std::string old_model = params.model;
             params.model = std::string(new_model);
-            engine_->set_model_params(std::move(params));
+            static_cast<cc::core::QueryEngine*>(engine_raw())->set_model_params(std::move(params));
 
             // M7.5: Show model switch confirmation banner
             dtrig::PushModelSwitch(
@@ -411,7 +416,7 @@ void AppAdapter::HandleCommand(std::string_view cmd) {
 
     if (auto parsed = cc::core::CommandRegistry::parse(normalized)) {
         const bool known_command =
-            cmd_registry_ && cmd_registry_->has_command(parsed->name);
+            static_cast<cc::commands::AppCommandRegistry*>(cmd_registry_raw()) && static_cast<cc::commands::AppCommandRegistry*>(cmd_registry_raw())->has_command(parsed->name);
         if (!known_command) {
             if (auto skill =
                     acsrc::find_skill_suggestion(screen_state_->cwd, parsed->name)) {
@@ -459,10 +464,10 @@ void AppAdapter::HandleCommand(std::string_view cmd) {
         }
     }
 
-    if (cmd_registry_) {
-        auto result = cmd_registry_->execute(
+    if (static_cast<cc::commands::AppCommandRegistry*>(cmd_registry_raw())) {
+        auto result = static_cast<cc::commands::AppCommandRegistry*>(cmd_registry_raw())->execute(
             command,
-            command_context_for_engine(engine_, app_store_raw(), screen_state_->cwd));
+            command_context_for_engine(static_cast<cc::core::QueryEngine*>(engine_raw()), app_store_raw(), screen_state_->cwd));
         if (result) {
             if (result->status == CommandStatus::Injected) {
                 this->HandleSubmit(result->message);
@@ -492,12 +497,12 @@ void AppAdapter::HandleCommand(std::string_view cmd) {
                         *result->metadata,
                         enqueue_fn))
                 {
-                    AppendCommandResult(*result);
+                    AppendLocalCommandMessage(result->message, !result->ok || result->status == core::CommandStatus::Failed);
                     PostRenderEvent();
                     return;
                 }
             }
-            AppendCommandResult(*result);
+            AppendLocalCommandMessage(result->message, !result->ok || result->status == core::CommandStatus::Failed);
             return;
         }
         AppendLocalCommandMessage(result.error().message, true);

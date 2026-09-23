@@ -27,6 +27,10 @@ module;
 export module cc.ui.app.app:impl;
 
 import cc.ui.app.app;
+import cc.query.query_engine;
+import cc.hooks.lifecycle_hooks;
+import cc.commands.registry;
+import cc.utils.session_storage;
 import cc.vim.vim_mode;
 import cc.hooks.exit_handler;
 import cc.state.store;
@@ -38,6 +42,13 @@ import cc.utils.team_helpers;
 namespace cc::ui {
 
 struct AppImpl {
+    // Type-erased constructor collaborators (stored typed here, behind the
+    // :impl partition so the primary never imports their modules).
+    cc::core::QueryEngine* engine_ = nullptr;
+    cc::hooks::LifecycleHookRegistry* lifecycle_hooks_ = nullptr;
+    cc::commands::AppCommandRegistry* cmd_registry_ = nullptr;
+    cc::utils::SessionStorage* storage_ = nullptr;
+
     // Vim state.
     bool vim_enabled_ = false;
     cc::vim::VimStateMachine vim_sm_;
@@ -237,9 +248,21 @@ void AppImplDeleter::operator()(AppImpl* p) const noexcept {
     delete p;
 }
 
+// Type-erased collaborator accessors (casts live in the impl units that
+// already import the owning modules).
+void* AppAdapter::engine_raw() const noexcept { return impl_ ? impl_->engine_ : nullptr; }
+void* AppAdapter::lifecycle_hooks_raw() const noexcept { return impl_ ? impl_->lifecycle_hooks_ : nullptr; }
+void* AppAdapter::cmd_registry_raw() const noexcept { return impl_ ? impl_->cmd_registry_ : nullptr; }
+void* AppAdapter::storage_raw() const noexcept { return impl_ ? impl_->storage_ : nullptr; }
+
 // Construct the backing state. Called from the out-of-line constructor.
-void AppAdapter::construct_impl() {
+void AppAdapter::construct_impl(void* engine, void* lifecycle_hooks,
+                                void* cmd_registry, void* storage) {
     impl_.reset(new AppImpl());
+    impl_->engine_ = static_cast<cc::core::QueryEngine*>(engine);
+    impl_->lifecycle_hooks_ = static_cast<cc::hooks::LifecycleHookRegistry*>(lifecycle_hooks);
+    impl_->cmd_registry_ = static_cast<cc::commands::AppCommandRegistry*>(cmd_registry);
+    impl_->storage_ = static_cast<cc::utils::SessionStorage*>(storage);
     impl_->app_store_ = cc::state::create_app_store();
 }
 

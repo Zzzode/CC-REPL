@@ -46,9 +46,15 @@ module;
 #include <ftxui/dom/elements.hpp>
 
 module cc.ui.app.app;
+import cc.query.query_engine;
+import cc.commands.registry;
+import cc.commands.command;
+import cc.utils.session_storage;
+import cc.hooks.lifecycle_hooks;
 
 import cc.commands.registry;
 import cc.tools.agent_runtime;
+import cc.ui.features.agents.agent_cards;
 import cc.ui.prompt.autocomplete_sources;
 import cc.ui.foundation.declared_cursor;
 import cc.ui.prompt.file_index;
@@ -63,9 +69,13 @@ import cc.utils.session_storage;
 import cc.utils.swarm_pane_observer;
 
 namespace cc::ui {
+namespace agent_runtime = cc::tools::agent_runtime;
+namespace agent_cards = cc::ui::agents::cards;
+// Defined in app_extra_methods.cpp (same module); redeclared for module linkage.
+agent_cards::AgentCardData project_agent_definition_card(
+    const agent_runtime::AgentDefinition& agent);
 
 namespace repl = cc::ui::repl_screen;
-namespace agent_runtime = cc::tools::agent_runtime;
 namespace acsrc = cc::ui::autocomplete_sources;
 namespace frn = cc::ui::prompt::fuzzy_rank_nucleo;
 namespace fidx = cc::ui::prompt::file_index;
@@ -163,11 +173,11 @@ void AppAdapter::RefreshAutocompleteSuggestions() {
     // TextInputImpl after the prompt). Faithful to TS useTypeahead's
     // commandArgumentHint (src/hooks/useTypeahead.tsx:729-770).
     screen_state_->pending_argument_hint.clear();
-    if (input.starts_with('/') && cmd_registry_) {
+    if (input.starts_with('/') && static_cast<cc::commands::AppCommandRegistry*>(cmd_registry_raw())) {
         const auto sp = input.find(' ');
         if (sp != std::string::npos && sp > 1) {
             const std::string cmd_name = input.substr(1, sp - 1);
-            if (const auto* def = cmd_registry_->find_definition(cmd_name)) {
+            if (const auto* def = static_cast<cc::commands::AppCommandRegistry*>(cmd_registry_raw())->find_definition(cmd_name)) {
                 if (!def->argument_hint.empty()) {
                     screen_state_->pending_argument_hint = def->argument_hint;
                 }
@@ -181,11 +191,11 @@ void AppAdapter::RefreshAutocompleteSuggestions() {
     // + getBestCommandMatch (src/utils/commandSuggestions.ts:114-195).
     screen_state_->pending_ghost_text.clear();
     if (!input.starts_with('/') && token.text.starts_with('/') &&
-        cmd_registry_) {
+        static_cast<cc::commands::AppCommandRegistry*>(cmd_registry_raw())) {
         const std::string partial = token.text.substr(1);
         if (!(partial.empty() || partial.find(' ') != std::string::npos)) {
             const CommandDefinition* best = nullptr;
-            for (const auto* def : cmd_registry_->visible_commands()) {
+            for (const auto* def : static_cast<cc::commands::AppCommandRegistry*>(cmd_registry_raw())->visible_commands()) {
                 if (def->name.size() >= partial.size() &&
                     def->name.compare(0, partial.size(), partial) == 0) {
                     if (!best || def->name.size() < best->name.size()) best = def;
@@ -244,8 +254,8 @@ void AppAdapter::RefreshAutocompleteSuggestions() {
     };
 
     auto add_session_suggestions = [&](std::string_view partial) {
-        if (!storage_) return;
-        auto sessions = storage_->list_sessions(50);
+        if (!static_cast<cc::utils::SessionStorage*>(storage_raw())) return;
+        auto sessions = static_cast<cc::utils::SessionStorage*>(storage_raw())->list_sessions(50);
         if (!sessions) return;
         for (const auto& session : *sessions) {
             const auto& id = session.metadata.id;
@@ -307,8 +317,8 @@ void AppAdapter::RefreshAutocompleteSuggestions() {
     if (input.starts_with('/') &&
         cursor <= input.size() &&
         before_cursor.find_first_of(" \t\n") != std::string::npos &&
-        cmd_registry_) {
-        auto completions = cmd_registry_->complete(before_cursor);
+        static_cast<cc::commands::AppCommandRegistry*>(cmd_registry_raw())) {
+        auto completions = static_cast<cc::commands::AppCommandRegistry*>(cmd_registry_raw())->complete(before_cursor);
         for (auto& completion : completions) {
             const bool whole_command = completion.starts_with('/');
             add_suggestion(
@@ -337,8 +347,8 @@ void AppAdapter::RefreshAutocompleteSuggestions() {
         };
         std::vector<SlashCandidate> candidates;
 
-        if (cmd_registry_) {
-            for (const auto* def : cmd_registry_->visible_commands()) {
+        if (static_cast<cc::commands::AppCommandRegistry*>(cmd_registry_raw())) {
+            for (const auto* def : static_cast<cc::commands::AppCommandRegistry*>(cmd_registry_raw())->visible_commands()) {
                 if (!def) continue;
                 // SL-02: multi-key match — name (exact/prefix/substring/subseq)
                 // outranks a description-word match, so commands are still
@@ -455,7 +465,7 @@ void AppAdapter::RefreshAutocompleteSuggestions() {
         // the full name of a hidden command, surface it at the top (TS
         // commandSuggestions.ts:391-401 hiddenExact). visible_commands()
         // otherwise hides them entirely.
-        if (auto* hidden = cmd_registry_->hidden_command_if_exact(query)) {
+        if (auto* hidden = static_cast<cc::commands::AppCommandRegistry*>(cmd_registry_raw())->hidden_command_if_exact(query)) {
             candidates.push_back(SlashCandidate{
                 .display = "/" + hidden->name,
                 .description = hidden->description,
@@ -735,8 +745,8 @@ void AppAdapter::RefreshAutocompleteSuggestions() {
         // (src/utils/sessionStorage.ts:3066-3107) exposed as an @-mention
         // source alongside files/agents/MCP. Sessions are sorted by
         // recency (newest first) per SessionStorage::list_sessions.
-        if (storage_) {
-            auto sessions = storage_->list_sessions(30);
+        if (static_cast<cc::utils::SessionStorage*>(storage_raw())) {
+            auto sessions = static_cast<cc::utils::SessionStorage*>(storage_raw())->list_sessions(30);
             if (sessions) {
                 for (const auto& session : *sessions) {
                     const auto& id = session.metadata.id;
@@ -913,8 +923,8 @@ AppAdapter::~AppAdapter() {
     if (leader_inbox_thread_.joinable()) {
         leader_inbox_thread_.request_stop();
     }
-    if (query_running_.load() && engine_) {
-        engine_->abort();
+    if (query_running_.load() && static_cast<cc::core::QueryEngine*>(engine_raw())) {
+        static_cast<cc::core::QueryEngine*>(engine_raw())->abort();
     }
     if (query_thread_.joinable()) query_thread_.request_stop();
     if (spinner_thread_.joinable()) spinner_thread_.request_stop();
@@ -964,7 +974,7 @@ Element AppAdapter::Render() {
         std::lock_guard lk(result_mutex_);
 
         const auto now = std::chrono::system_clock::now();
-        auto messages = engine_->get_conversation();
+        auto messages = static_cast<cc::core::QueryEngine*>(engine_raw())->get_conversation();
         // TS Messages.tsx:520 collapse chain (background-bash so far).
         messages = ApplyMessageCollapsePipeline(std::move(messages));
         screen_state_->messages.clear();

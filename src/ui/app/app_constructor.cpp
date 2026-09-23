@@ -51,12 +51,15 @@ import cc.ui.app.app_dialog_registration;
 import cc.ui.tools.init;
 import cc.ui.prompt.prompt_input_footer;
 import cc.utils.statusline_runner;
+import cc.utils.model.model;
+import cc.constants.constants;
 import cc.skills.load_skills_dir;
 import cc.state.app_state;
 import cc.state.store;
 import cc.query.query_engine;
 import cc.hooks.lifecycle_hooks;
 import cc.commands.command;
+import cc.ui.foundation.theme_provider;
 
 namespace cc::ui {
 
@@ -66,19 +69,17 @@ namespace dtrig = cc::ui::dialogs::triggers;
 namespace dsys = cc::ui::dialogs::system;
 
 // ── Constructor (moved out of app_autocomplete.cpp to reduce import closure) ──
-AppAdapter::AppAdapter(core::QueryEngine* engine,
-                       cc::hooks::LifecycleHookRegistry* lifecycle_hooks,
-                       cc::commands::AppCommandRegistry* cmd_registry,
-                       utils::SessionStorage* storage,
+AppAdapter::AppAdapter(void* engine, void* lifecycle_hooks,
+                       void* cmd_registry, void* storage,
                        std::function<void()> on_exit)
     : impl_(nullptr),
-      engine_(engine),
-      lifecycle_hooks_(lifecycle_hooks),
-      cmd_registry_(cmd_registry),
-      storage_(storage),
       on_exit_(std::move(on_exit)),
       screen_state_(std::make_shared<repl::ReplScreenState>()) {
-    construct_impl();
+    construct_impl(engine, lifecycle_hooks, cmd_registry, storage);
+    auto* engine_ = static_cast<cc::core::QueryEngine*>(engine);
+    auto* lifecycle_hooks_ =
+        static_cast<cc::hooks::LifecycleHookRegistry*>(lifecycle_hooks);
+    auto* storage_ = static_cast<cc::utils::SessionStorage*>(storage);
 
     // ── M7: Register default dialog renderers in the registry ────
     cc::ui::dialogs::default_renderers::register_default_renderers(
@@ -86,7 +87,7 @@ AppAdapter::AppAdapter(core::QueryEngine* engine,
 
     // ── SL-11: deterministic next-action suggestion on QueryEnd ──
     if (lifecycle_hooks_) {
-        wire_prompt_suggestion_hook(*lifecycle_hooks_, engine_, screen_state_);
+        wire_prompt_suggestion_hook(lifecycle_hooks_, engine_, screen_state_);
     }
 
     current_session_id_ = utils::SessionStorage::generate_session_id();
@@ -164,7 +165,7 @@ AppAdapter::AppAdapter(core::QueryEngine* engine,
             // A running query aborts immediately (TS app:interrupt owned by
             // useCancelRequest) — never arms the exit double-press and never
             // leaves a stale footer from a previous idle press.
-            engine_->abort();
+            static_cast<cc::core::QueryEngine*>(engine_raw())->abort();
             if (query_thread_.joinable())
                 query_thread_.request_stop();
             screen_state_->spinner_tip = "Cancelling...";
@@ -261,7 +262,7 @@ AppAdapter::AppAdapter(core::QueryEngine* engine,
 
     // P2 gap api-error-retry: Clear-session button.
     cbs.on_clear_session = [this]() {
-        engine_->clear_conversation();
+        static_cast<cc::core::QueryEngine*>(engine_raw())->clear_conversation();
         local_command_messages_.clear();
         screen_state_->divider_index.reset();
         screen_state_->unseen_divider.reset();
@@ -286,7 +287,7 @@ AppAdapter::AppAdapter(core::QueryEngine* engine,
 
     // ── Cost threshold hook wiring (M7.5) ────────────────────────────
     {
-        const auto& bt = engine_->budget_tracker();
+        const auto& bt = static_cast<cc::core::QueryEngine*>(engine_raw())->budget_tracker();
         cc::hooks::set_cost_budget(bt.max_budget_usd);
 
         cost_listener_id_ = cc::hooks::on_cost_update(
@@ -297,7 +298,7 @@ AppAdapter::AppAdapter(core::QueryEngine* engine,
                 if (!warning->starts_with("Session cost")) return;
 
                 cost_threshold_shown_ = true;
-                const auto& bt = engine_->budget_tracker();
+                const auto& bt = static_cast<cc::core::QueryEngine*>(engine_raw())->budget_tracker();
                 dtrig::PushCostThreshold(
                     screen_state_->dialog_queue,
                     bt.max_budget_usd,
@@ -446,9 +447,7 @@ AppAdapter::AppAdapter(core::QueryEngine* engine,
 
             statusline_running_.store(true);
 
-            auto input = this->BuildStatuslineInput();
-            namespace sl = cc::utils::statusline;
-            std::string new_json = sl::to_json(input);
+            std::string new_json = this->BuildStatuslineInputJson();
             const auto now = std::chrono::steady_clock::now();
 
             const bool memo_hit =
@@ -463,7 +462,9 @@ AppAdapter::AppAdapter(core::QueryEngine* engine,
                 continue;
             }
 
-            auto result = sl::execute_statusline_command(cmd, input, 5000);
+            std::string sl_output;
+            const bool sl_ok =
+                this->ExecuteStatuslineCommand(cmd, new_json, 5000, sl_output);
 
             statusline_running_.store(false);
 
@@ -471,8 +472,8 @@ AppAdapter::AppAdapter(core::QueryEngine* engine,
             statusline_last_input_json_ = new_json;
             statusline_last_run_ = now;
 
-            if (result.success && !result.output.empty()) {
-                screen_state_->status_line_text = std::move(result.output);
+            if (sl_ok && !sl_output.empty()) {
+                screen_state_->status_line_text = std::move(sl_output);
             } else {
                 screen_state_->status_line_text.clear();
             }
@@ -485,6 +486,119 @@ AppAdapter::AppAdapter(core::QueryEngine* engine,
 
     this->TriggerStatuslineUpdate();
     StartUiAnimationTicker();
+}
+
+// Build the StatusLineCommandInput payload from current engine state.
+// Faithful to TS buildStatusLineCommandInput(); kept out of the
+// app.cppm BMI along with the statusline_runner/model/constants imports.
+[[nodiscard]] std::string AppAdapter::BuildStatuslineInputJson() {
+        namespace sl = cc::utils::statusline;
+
+        sl::StatusLineCommandInput input;
+
+        // Version
+        input.version = std::string(cc::core::constants::kVersion);
+
+        // Model info
+        const auto& model = static_cast<cc::core::QueryEngine*>(engine_raw())->model_params().model;
+        input.model.id = model;
+        input.model.display_name = cc::utils::get_model_display_name(model);
+
+        // Workspace
+        const auto cwd = static_cast<cc::core::QueryEngine*>(engine_raw())->working_directory();
+        input.workspace.current_dir = cwd;
+        input.workspace.project_dir = cwd;
+        // added_dirs: not easily accessible at the app level; populated by
+        // tool permission context when additional directories are configured.
+        // Left empty (empty vector) to match TS semantics for default config.
+        input.workspace.added_dirs = {};
+
+        // Output style from settings
+        input.output_style_name = output_style_setting();
+
+        // Cost / usage
+        const auto& usage = static_cast<cc::core::QueryEngine*>(engine_raw())->get_usage();
+        const auto& budget = static_cast<cc::core::QueryEngine*>(engine_raw())->budget_tracker();
+        input.cost.total_cost_usd = budget.current_spend_usd;
+        // Session duration: time since AppAdapter construction
+        auto session_dur = std::chrono::steady_clock::now() - session_start_time_;
+        input.cost.total_duration_ms =
+            std::chrono::duration_cast<std::chrono::milliseconds>(session_dur).count();
+        // total_api_duration_ms: not separately tracked at the app layer
+        // (would require summing individual API call durations).
+        input.cost.total_api_duration_ms = 0;
+        // total_lines_added / total_lines_removed: not tracked at this level
+        // (would need to aggregate from FileEditTool results).
+        input.cost.total_lines_added = 0;
+        input.cost.total_lines_removed = 0;
+
+        // Context window
+        input.context_window.total_input_tokens = usage.input_tokens;
+        input.context_window.total_output_tokens = usage.output_tokens;
+        input.context_window.context_window_size =
+            static_cast<std::int64_t>(static_cast<cc::core::QueryEngine*>(engine_raw())->max_context_tokens());
+        const bool has_usage = usage.input_tokens > 0 || usage.output_tokens > 0 ||
+            usage.cache_creation_tokens > 0 || usage.cache_read_tokens > 0;
+        if (has_usage) {
+            input.context_window.current_usage = sl::StatusLineCurrentUsageInfo{
+                .input_tokens = usage.input_tokens,
+                .output_tokens = usage.output_tokens,
+                .cache_creation_input_tokens = usage.cache_creation_tokens,
+                .cache_read_input_tokens = usage.cache_read_tokens,
+            };
+            const auto input_context_tokens =
+                static_cast<std::int64_t>(usage.input_tokens) +
+                static_cast<std::int64_t>(usage.cache_creation_tokens) +
+                static_cast<std::int64_t>(usage.cache_read_tokens);
+            if (input.context_window.context_window_size > 0) {
+                auto pct = static_cast<int>(std::llround(
+                    static_cast<double>(input_context_tokens) /
+                    static_cast<double>(input.context_window.context_window_size) *
+                    100.0));
+                pct = std::clamp(pct, 0, 100);
+                input.context_window.used_percentage = static_cast<double>(pct);
+                input.context_window.remaining_percentage = static_cast<double>(100 - pct);
+            }
+        }
+
+        // 200k threshold flag
+        input.exceeds_200k_tokens =
+            (usage.input_tokens + usage.output_tokens) > 200'000;
+
+        // Session name: use session id as identifier (TS uses getCurrentSessionTitle
+        // which derives from first user message; session id is always available)
+        input.session_name = current_session_id_;
+        // session_id: TS StatusLineCommandInput.session_id — used by user scripts
+        // for the #hashtag display (e.g. #a1b2c3). Same value as session_name.
+        input.session_id = current_session_id_;
+
+        // Vim mode (optional — only populated if vim enabled)
+        if (auto mode_str = vim_statusline_label()) {
+            input.vim = sl::StatusLineVimInfo{.mode = std::move(*mode_str)};
+        }
+
+        // rate_limits, agent, remote, worktree: not available at the app level
+        // (would require additional service wiring). Left unpopulated (nullopt)
+        // which matches TS semantics where undefined fields are omitted from JSON.
+
+    return sl::to_json(input);
+}
+
+bool AppAdapter::ExecuteStatuslineCommand(std::string_view command,
+                                       std::string json_input,
+                                       int timeout_ms,
+                                       std::string& output) {
+    namespace sl = cc::utils::statusline;
+    if (command.empty()) return false;
+    auto result = sl::execute_statusline_command_json(
+        command, std::move(json_input), timeout_ms);
+    if (!result.success) return false;
+    output = std::move(result.output);
+    return true;
+}
+
+[[nodiscard]] bool reduced_motion_enabled() {
+    return cc::ui::design::theme::current_theme().a11y.reduced_motion;
 }
 
 }  // namespace cc::ui

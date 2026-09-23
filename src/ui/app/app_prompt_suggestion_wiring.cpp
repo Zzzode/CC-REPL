@@ -11,6 +11,11 @@ module;
 #include <variant>
 
 module cc.ui.app.app;
+import cc.query.query_engine;
+import cc.commands.registry;
+import cc.commands.command;
+import cc.utils.session_storage;
+import cc.hooks.lifecycle_hooks;
 
 import cc.types.types;
 import cc.hooks.lifecycle_hooks;
@@ -23,9 +28,10 @@ namespace cc::ui {
 // deterministic PromptSuggestionService ranker (no LLM / speculation — those
 // subsystems don't exist in cpp), and stores the top suggestion on
 // ReplScreenState::next_action_suggestion for the empty-prompt renderer.
-void wire_prompt_suggestion_hook(cc::hooks::LifecycleHookRegistry& hooks,
-                                 core::QueryEngine* engine,
+void wire_prompt_suggestion_hook(void* hooks_v, void* engine_v,
                                  std::shared_ptr<repl_screen::ReplScreenState> state) {
+    auto& hooks = *static_cast<cc::hooks::LifecycleHookRegistry*>(hooks_v);
+    auto* engine = static_cast<core::QueryEngine*>(engine_v);
     hooks.on_query_end([engine, state](const cc::hooks::QueryEndEvent& ev) {
         if (!ev.success) {
             state->next_action_suggestion.reset();

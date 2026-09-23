@@ -33,6 +33,7 @@ module;
 #include <string_view>
 #include <thread>
 #include <unordered_map>
+#include <variant>
 #include <vector>
 
 export module cc.ui.app.app:team;
@@ -670,6 +671,22 @@ void AppAdapter::enqueue_teammate_permission_for_testing(void* request,
 std::size_t AppAdapter::pending_teammate_permission_count_for_testing() {
     std::lock_guard lock(impl_->teammate_permission_mutex_);
     return impl_->teammate_pending_permissions_.size();
+}
+
+
+void AppAdapter::set_live_teammates_for_testing(void* v) {
+    auto& teammates =
+        *static_cast<std::vector<cc::ui::teams::live::LiveTeammate>*>(v);
+    screen_state_->live_teammates = std::move(teammates);
+    screen_state_->teammate_count =
+        static_cast<int>(screen_state_->live_teammates.size());
+}
+
+bool AppAdapter::teams_overview_open_for_testing() const {
+    auto peek = screen_state_->dialog_queue.peek_modal();
+    return peek.has_value() &&
+           std::holds_alternative<
+               cc::ui::dialogs::system::TeamsViewPayload>(peek->get());
 }
 
 }  // namespace cc::ui

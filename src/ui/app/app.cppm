@@ -34,14 +34,6 @@ module;
 #include <iterator>
 #include <filesystem>
 
-// Terminal control for VLNEXT disable (macOS line-discipline workaround —
-// see DisableVlnext RAII in RunApp). Plain C headers, kept in the global
-// module fragment so they don't leak into the module interface.
-#if defined(__APPLE__) || defined(__linux__)
-#include <termios.h>  // tcgetattr/tcsetattr/termios/VLNEXT
-#include <unistd.h>   // STDIN_FILENO
-#endif
-
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/screen/screen.hpp>
 #include <ftxui/component/component.hpp>
@@ -52,31 +44,17 @@ module;
 export module cc.ui.app.app;
 
 import cc.types.types;
-import cc.query.query_engine;
-import cc.types.command;
-import cc.commands.command;
-import cc.commands.registry;
-import cc.utils.session_storage;
 import cc.ui.widgets.components;
 import cc.ui.widgets.all_components;
 import cc.ui.visual.markdown;
-import cc.hooks.tool_permissions;
-import cc.tools.agent_runtime;
-import cc.ui.screens.repl_screen;
+import cc.ui.screens.repl_state;
 // FooterVoiceState for the voice-processing animation gate below.
 import cc.ui.prompt.voice_indicator;
 import cc.ui.prompt.autocomplete_sources;
-import cc.ui.foundation.theme_provider;
 // P0-2: 7-stage message pipeline utilities (dedup / tag filter / tool augment).
 import cc.ui.messages.message_pipeline;
-import cc.ui.features.agents.agent_cards;
 import cc.ui.features.teams.live_teammates;
 import cc.ui.dialogs.system;
-import cc.ui.dialogs.triggers;
-import cc.utils.statusline_runner;
-import cc.utils.model.model;
-import cc.constants.constants;
-import cc.hooks.lifecycle_hooks;
 
 export namespace cc::ui {
 
@@ -105,8 +83,7 @@ struct BridgeState {
 // SL-11: defined in app_prompt_suggestion_wiring.cpp (impl unit) to keep the
 // heavy cc.services.prompt_suggestion import out of this thin module (clang
 // 2GB source-location budget).
-void wire_prompt_suggestion_hook(cc::hooks::LifecycleHookRegistry& hooks,
-                                 core::QueryEngine* engine,
+void wire_prompt_suggestion_hook(void* hooks, void* engine,
                                  std::shared_ptr<cc::ui::repl_screen::ReplScreenState> state);
 
 using namespace ftxui;
@@ -114,8 +91,6 @@ using namespace cc::ui::components;
 using namespace cc::core;
 
 namespace repl = cc::ui::repl_screen;
-namespace agent_runtime = cc::tools::agent_runtime;
-namespace agent_cards = cc::ui::agents::cards;
 namespace acsrc = cc::ui::autocomplete_sources;
 
 [[nodiscard]] inline std::optional<std::string> non_empty_env(const char* name) {
@@ -182,8 +157,6 @@ namespace acsrc = cc::ui::autocomplete_sources;
     return out;
 }
 
-[[nodiscard]] agent_cards::AgentCardData project_agent_definition_card(
-    const agent_runtime::AgentDefinition& agent);
 
 struct AutocompleteToken {
     std::size_t start = 0;
@@ -266,6 +239,10 @@ project_messages(const Message& msg);
 
 [[nodiscard]] Element RenderMessage(const Message& msg);
 
+// Defined out-of-line (app_constructor.cpp) to keep the
+// cc.ui.foundation.theme_provider closure out of this interface.
+[[nodiscard]] bool reduced_motion_enabled();
+
 // ============================================================
 // App Adapter Component
 // ============================================================
@@ -276,12 +253,16 @@ private:
     // Defined in the :impl partition where AppImpl is complete. The out-of-line
     // constructor body calls this; teardown goes through AppImplDeleter, so
     // neither impl unit needs AppImpl's layout.
-    void construct_impl();
+    // Stored type-erased as void* in AppImpl; each impl unit casts back
+    // after importing the owning module (cc.query/cc.hooks/cc.commands/
+    // cc.utils.session_storage), keeping those closures out of this BMI.
+    void construct_impl(void* engine, void* lifecycle_hooks,
+                        void* cmd_registry, void* storage);
+    [[nodiscard]] void* engine_raw() const noexcept;
+    [[nodiscard]] void* lifecycle_hooks_raw() const noexcept;
+    [[nodiscard]] void* cmd_registry_raw() const noexcept;
+    [[nodiscard]] void* storage_raw() const noexcept;
 
-    core::QueryEngine* engine_;
-    cc::hooks::LifecycleHookRegistry* lifecycle_hooks_{nullptr};
-    cc::commands::AppCommandRegistry* cmd_registry_;
-    utils::SessionStorage* storage_;
     std::function<void()> on_exit_;
 
     std::shared_ptr<repl::ReplScreenState> screen_state_;
@@ -553,7 +534,7 @@ private:
                 // static, so do not keep repainting just for voice.
                 const bool voice_animates =
                     voice_processing &&
-                    !cc::ui::design::theme::current_theme().a11y.reduced_motion;
+                    !reduced_motion_enabled();
                 const bool welcome_active =
                     screen_state_ &&
                     screen_state_->messages.empty() &&
@@ -649,11 +630,6 @@ private:
         PostRenderEvent();
     }
 
-    void AppendCommandResult(const CommandResult& result) {
-        AppendLocalCommandMessage(
-            result.message,
-            !result.ok || result.status == CommandStatus::Failed);
-    }
 
     // TS REF: src/utils/processUserInput/processBashCommand.tsx
     //
@@ -702,112 +678,13 @@ private:
     void RefreshAutocompleteSuggestions();
 
 
-    [[nodiscard]] static bool is_built_in_agent(
-        const agent_cards::AgentCardData& agent) {
-        return agent.source == "built-in";
-    }
-
-    [[nodiscard]] static std::vector<std::size_t> selectable_agent_indices(
-        const std::vector<agent_cards::AgentCardData>& agents) {
-        std::vector<std::size_t> out;
-        out.reserve(agents.size());
-        for (std::size_t i = 0; i < agents.size(); ++i) {
-            if (!is_built_in_agent(agents[i])) out.push_back(i);
-        }
-        return out;
-    }
-
-    [[nodiscard]] static std::string agent_model_label(
-        const agent_cards::AgentCardData& agent) {
-        if (agent.model_override && !agent.model_override->empty()) {
-            return *agent.model_override;
-        }
-        return is_built_in_agent(agent) ? "inherit" : "";
-    }
-
-    [[nodiscard]] static std::string FormatAgentsMenuOutput(
-        const std::vector<agent_cards::AgentCardData>& agents,
-        int selected_position);
-
-    void RefreshAgentsMenuOutput() {
-        screen_state_->active_local_jsx_content = FormatAgentsMenuOutput(
-            screen_state_->agent_cards,
-            screen_state_->active_agents_selection_position);
-    }
-
+    // Agents menu methods are defined in app_agent_menu.cpp so the
+    // agent_cards closure stays out of this interface BMI.
+    void RefreshAgentsMenuOutput();
     void LoadAgentCardsForMenu();
-
-    void OpenAgentsMenu() {
-        LoadAgentCardsForMenu();
-        screen_state_->mode = repl::ReplMode::AgentsView;
-        screen_state_->agents_component.reset();
-        this->TriggerStatuslineUpdate();
-        PostRenderEvent();
-    }
-
-    /// Rebuild live_teammates from native store + pane observer, then open
-    /// the TeamsView modal (TS PromptInput.tsx 'teams' footer action).
-    void OpenTeamsOverview() {
-        ProjectLiveTeammatesToScreenState();
-        screen_state_->teams_overview_selected_index = 0;
-        cc::ui::dialogs::triggers::PushTeamsView(
-            screen_state_->dialog_queue,
-            [this] {
-                screen_state_->dialog_queue.pop_modal();
-                PostRenderEvent();
-            });
-        PostRenderEvent();
-    }
-
-    bool HandleLocalJsxEvent(const Event& ev) {
-        if (!screen_state_->active_local_jsx_command ||
-            screen_state_->active_local_jsx_command_name != "agents") {
-            return false;
-        }
-
-        const auto selectable = selectable_agent_indices(screen_state_->agent_cards);
-        const int item_count = 1 + static_cast<int>(selectable.size());
-        if (item_count <= 0) return false;
-
-        auto refresh_selection = [&] {
-            RefreshAgentsMenuOutput();
-            PostRenderEvent();
-        };
-
-        if (ev == Event::ArrowDown || ev == Event::Character('j')) {
-            screen_state_->active_agents_selection_position =
-                (screen_state_->active_agents_selection_position + 1) % item_count;
-            refresh_selection();
-            return true;
-        }
-        if (ev == Event::ArrowUp || ev == Event::Character('k')) {
-            screen_state_->active_agents_selection_position =
-                (screen_state_->active_agents_selection_position - 1 + item_count) %
-                item_count;
-            refresh_selection();
-            return true;
-        }
-        if (ev == Event::Return) {
-            const int selected = std::clamp(
-                screen_state_->active_agents_selection_position,
-                0,
-                item_count - 1);
-            std::string command = "/agents create";
-            if (selected > 0) {
-                const auto agent_index =
-                    selectable[static_cast<std::size_t>(selected - 1)];
-                command = "/agents configure " +
-                    screen_state_->agent_cards[agent_index].id;
-            }
-            ClearActiveLocalJsxCommand();
-            screen_state_->scroll_offset = 0;
-            screen_state_->scroll_pinned_to_bottom = true;
-            HandleCommand(command);
-            PostRenderEvent();
-            return true;
-        }
-        return false;
-    }
+    void OpenAgentsMenu();
+    void OpenTeamsOverview();
+    bool HandleLocalJsxEvent(const Event& ev);
 
     [[nodiscard]] static int skill_source_order(std::string_view source) {
         if (source == "project") return 0;
@@ -989,10 +866,8 @@ private:
 public:
     ~AppAdapter() override;
 
-    AppAdapter(core::QueryEngine* engine,
-               cc::hooks::LifecycleHookRegistry* lifecycle_hooks,
-               cc::commands::AppCommandRegistry* cmd_registry,
-               utils::SessionStorage* storage,
+    AppAdapter(void* engine, void* lifecycle_hooks,
+               void* cmd_registry, void* storage,
                std::function<void()> on_exit);
 
     void HandleSubmit(const std::string& text,
@@ -1017,101 +892,14 @@ public:
         statusline_cv_.notify_one();
     }
 
-    /// Build the StatusLineCommandInput payload from current engine state.
-    /// Faithful to TS buildStatusLineCommandInput() — populates model info,
-    /// workspace, cost, context window, version, etc.
-    [[nodiscard]] cc::utils::statusline::StatusLineCommandInput BuildStatuslineInput() {
-        namespace sl = cc::utils::statusline;
-
-        sl::StatusLineCommandInput input;
-
-        // Version
-        input.version = std::string(cc::core::constants::kVersion);
-
-        // Model info
-        const auto& model = engine_->model_params().model;
-        input.model.id = model;
-        input.model.display_name = cc::utils::get_model_display_name(model);
-
-        // Workspace
-        const auto cwd = engine_->working_directory();
-        input.workspace.current_dir = cwd;
-        input.workspace.project_dir = cwd;
-        // added_dirs: not easily accessible at the app level; populated by
-        // tool permission context when additional directories are configured.
-        // Left empty (empty vector) to match TS semantics for default config.
-        input.workspace.added_dirs = {};
-
-        // Output style from settings
-        input.output_style_name = output_style_setting();
-
-        // Cost / usage
-        const auto& usage = engine_->get_usage();
-        const auto& budget = engine_->budget_tracker();
-        input.cost.total_cost_usd = budget.current_spend_usd;
-        // Session duration: time since AppAdapter construction
-        auto session_dur = std::chrono::steady_clock::now() - session_start_time_;
-        input.cost.total_duration_ms =
-            std::chrono::duration_cast<std::chrono::milliseconds>(session_dur).count();
-        // total_api_duration_ms: not separately tracked at the app layer
-        // (would require summing individual API call durations).
-        input.cost.total_api_duration_ms = 0;
-        // total_lines_added / total_lines_removed: not tracked at this level
-        // (would need to aggregate from FileEditTool results).
-        input.cost.total_lines_added = 0;
-        input.cost.total_lines_removed = 0;
-
-        // Context window
-        input.context_window.total_input_tokens = usage.input_tokens;
-        input.context_window.total_output_tokens = usage.output_tokens;
-        input.context_window.context_window_size =
-            static_cast<std::int64_t>(engine_->max_context_tokens());
-        const bool has_usage = usage.input_tokens > 0 || usage.output_tokens > 0 ||
-            usage.cache_creation_tokens > 0 || usage.cache_read_tokens > 0;
-        if (has_usage) {
-            input.context_window.current_usage = sl::StatusLineCurrentUsageInfo{
-                .input_tokens = usage.input_tokens,
-                .output_tokens = usage.output_tokens,
-                .cache_creation_input_tokens = usage.cache_creation_tokens,
-                .cache_read_input_tokens = usage.cache_read_tokens,
-            };
-            const auto input_context_tokens =
-                static_cast<std::int64_t>(usage.input_tokens) +
-                static_cast<std::int64_t>(usage.cache_creation_tokens) +
-                static_cast<std::int64_t>(usage.cache_read_tokens);
-            if (input.context_window.context_window_size > 0) {
-                auto pct = static_cast<int>(std::llround(
-                    static_cast<double>(input_context_tokens) /
-                    static_cast<double>(input.context_window.context_window_size) *
-                    100.0));
-                pct = std::clamp(pct, 0, 100);
-                input.context_window.used_percentage = static_cast<double>(pct);
-                input.context_window.remaining_percentage = static_cast<double>(100 - pct);
-            }
-        }
-
-        // 200k threshold flag
-        input.exceeds_200k_tokens =
-            (usage.input_tokens + usage.output_tokens) > 200'000;
-
-        // Session name: use session id as identifier (TS uses getCurrentSessionTitle
-        // which derives from first user message; session id is always available)
-        input.session_name = current_session_id_;
-        // session_id: TS StatusLineCommandInput.session_id — used by user scripts
-        // for the #hashtag display (e.g. #a1b2c3). Same value as session_name.
-        input.session_id = current_session_id_;
-
-        // Vim mode (optional — only populated if vim enabled)
-        if (auto mode_str = vim_statusline_label()) {
-            input.vim = sl::StatusLineVimInfo{.mode = std::move(*mode_str)};
-        }
-
-        // rate_limits, agent, remote, worktree: not available at the app level
-        // (would require additional service wiring). Left unpopulated (nullopt)
-        // which matches TS semantics where undefined fields are omitted from JSON.
-
-        return input;
-    }
+    // Build the statusline JSON payload / execute the user command.
+    // Out-of-line in app_constructor.cpp so cc.utils.statusline_runner,
+    // cc.utils.model and cc.constants stay out of this interface's BMI.
+    [[nodiscard]] std::string BuildStatuslineInputJson();
+    bool ExecuteStatuslineCommand(std::string_view command,
+                                  std::string json_input,
+                                  int timeout_ms,
+                                  std::string& output);
 
     // TS REF: src/components/Messages.tsx L519-520 — the render `useMemo`
     // applies a chain of collapse passes to the message list before projecting
@@ -1354,19 +1142,10 @@ public:
                screen_state_->dialog_queue.has_standalone();
     }
 
-    void set_live_teammates_for_testing(
-        std::vector<teams::live::LiveTeammate> v) {
-        screen_state_->live_teammates = std::move(v);
-        screen_state_->teammate_count =
-            static_cast<int>(screen_state_->live_teammates.size());
-    }
-
-    [[nodiscard]] bool teams_overview_open_for_testing() const {
-        auto peek = screen_state_->dialog_queue.peek_modal();
-        return peek.has_value() &&
-               std::holds_alternative<
-                   cc::ui::dialogs::system::TeamsViewPayload>(peek->get());
-    }
+    // Out-of-line in the :team partition so the live_teammates /
+    // dialogs.system closures stay out of this interface.
+    void set_live_teammates_for_testing(void* v);
+    [[nodiscard]] bool teams_overview_open_for_testing() const;
 
     [[nodiscard]] int teams_overview_count_for_testing() const {
         return static_cast<int>(screen_state_->live_teammates.size());
@@ -1383,97 +1162,4 @@ public:
 // Main Application Runner
 // ============================================================
 
-[[nodiscard]] int RunApp(
-    core::QueryEngine& engine,
-    cc::commands::AppCommandRegistry& cmd_registry,
-    utils::SessionStorage& storage,
-    cc::hooks::ToolPermissionHook* permission_hook = nullptr,
-    cc::hooks::LifecycleHookRegistry* lifecycle_hooks = nullptr
-) {
-    // Use the alternate-screen fullscreen like TS (AlternateScreen) - the REPL owns the terminal.
-    auto screen = ScreenInteractive::Fullscreen();
-
-    // ── macOS/BSD line-discipline workaround: disable VLNEXT ─────────────
-    // VLNEXT (the "literal-next" char, Ctrl+V by default) is processed by the
-    // terminal line discipline EVEN in non-canonical mode (ICANON off) on
-    // macOS/BSD. FTXUI puts the terminal in non-canonical mode (ICANON|ECHO
-    // off) but does NOT clear c_cc[VLNEXT], so every Ctrl+V the user presses
-    // gets consumed as an lnext escape: a pair of \x16 bytes collapses into a
-    // single literal \x16. Net effect: pressing Ctrl+V 8× registers only 4×
-    // (floor(N/2)) — half the image-paste keystrokes are silently dropped
-    // before FTXUI's event loop ever sees them.
-    //
-    // Fix: clear VLNEXT ourselves before entering the loop. We do this BEFORE
-    // screen.Loop() because FTXUI's Install() (called inside Loop) does
-    // tcgetattr()+save-then-restore: it will read our VLNEXT=0, preserve it
-    // for the session, and restore that same value on exit. To still give the
-    // parent shell back its original Ctrl+V lnext on exit, we snapshot the
-    // true original termios here and re-apply it after Loop() returns.
-    //
-    // Verified: sending N×\x16 through a pty with VLNEXT=0 delivers all N
-    // bytes; with VLNEXT at its default, only floor(N/2) arrive. This is
-    // independent of the osascript/clipboard path (setsid/closefrom there
-    // remain good hygiene but were NOT the cause of keystroke loss).
-#if defined(__APPLE__) || defined(__linux__)
-    struct termios orig_termios;
-    const bool have_orig = (tcgetattr(STDIN_FILENO, &orig_termios) == 0);
-    if (have_orig) {
-        struct termios t = orig_termios;
-        t.c_cc[VLNEXT] = 0;  // 0 == _POSIX_VDISABLE: disable literal-next
-        (void)tcsetattr(STDIN_FILENO, TCSANOW, &t);
-    }
-#endif
-
-    bool should_exit = false;
-
-    auto app = Make<AppAdapter>(
-        &engine,
-        lifecycle_hooks,
-        &cmd_registry,
-        &storage,
-        [&screen, &should_exit]() {
-            should_exit = true;
-            screen.Exit();
-        }
-    );
-
-    app->set_screen(&screen);
-
-    if (permission_hook && !permission_hook->is_auto_approve_mode()) {
-        auto ui_callback = app->get_permission_callback();
-        permission_hook->set_ask_user_fn(
-            [ui_callback](const cc::hooks::PermissionContext& ctx) -> cc::hooks::PermissionDecision {
-                bool allowed = ui_callback(ctx.tool_name, ctx.args);
-                return allowed ? cc::hooks::PermissionDecision::allow
-                               : cc::hooks::PermissionDecision::deny;
-            }
-        );
-    }
-
-    app->SyncState();
-
-    screen.Loop(app);
-
-    // Restore the parent shell's original termios (FTXUI's on_exit restored
-    // what IT read, which carries VLNEXT=0; re-apply the true original so
-    // Ctrl+V lnext works again in the user's shell after loom exits).
-#if defined(__APPLE__) || defined(__linux__)
-    if (have_orig) {
-        (void)tcsetattr(STDIN_FILENO, TCSANOW, &orig_termios);
-    }
-#endif
-
-    return should_exit ? 0 : 1;
-}
-
 } // namespace cc::ui
-
-extern "C" int cc_ui_run_app_bridge(
-    cc::core::QueryEngine* engine,
-    cc::hooks::LifecycleHookRegistry* lifecycle_hooks,
-    cc::commands::AppCommandRegistry* cmd_registry,
-    cc::utils::SessionStorage* storage,
-    cc::hooks::ToolPermissionHook* permission_hook
-) {
-    return cc::ui::RunApp(*engine, *cmd_registry, *storage, permission_hook, lifecycle_hooks);
-}

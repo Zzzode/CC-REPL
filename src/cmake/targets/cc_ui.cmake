@@ -218,6 +218,7 @@ target_sources(cc_ui
         ui/chrome/terminal_io.cppm
         ui/features/hooks_ui.cppm
         ui/screens/doctor_screen.cppm
+        ui/screens/repl_state.cppm
         ui/screens/repl_screen.cppm
         ui/screens/resume_screen.cppm
         ui/screens/log_selector.cppm              # UI23 — LogSelector (1574 → 1730 loc)
@@ -251,6 +252,7 @@ target_sources(cc_ui PRIVATE
     ui/app/app_dialog_registration_teams.cpp
     ui/app/app_message_projection.cpp
     ui/app/app_store_bridge.cpp
+    ui/app/app_run.cpp
     ui/dialogs/hooks_dialog_renderer_impl.cpp
     ui/dialogs/plugin_dialog_renderer_impl.cpp
 )
