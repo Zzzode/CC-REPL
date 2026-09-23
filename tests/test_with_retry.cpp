@@ -132,9 +132,14 @@ TEST(RunWithRetry, TransportErrorRetriesThenFails) {
     });
 
     EXPECT_EQ(calls, 4);
-    // total backoff: attempt 0,1,2 -> 5ms + 10ms + 20ms = 35ms. 5ms tolerance.
+    // Nominal backoff after attempts 0,1,2: 5ms + 10ms + 20ms = 35ms.
+    // The lower bound proves the waits really happen. The upper bound only
+    // guards against a seconds-scale regression; sleep_for() overshoots
+    // heavily under load on virtualized 3-vCPU CI runners (observed 194ms
+    // for these three short sleeps on macos-14), so a tight 60ms ceiling
+    // is scheduler-fragile rather than a meaningful semantic check.
     EXPECT_GE(elapsed.count(), 30);
-    EXPECT_LE(elapsed.count(), 60);
+    EXPECT_LE(elapsed.count(), 500);
 }
 
 TEST(RunWithRetry, Http429RetryThen400Abort) {
