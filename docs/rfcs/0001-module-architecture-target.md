@@ -1,14 +1,20 @@
+---
+rfc: 1
+title: Module Architecture Target Shape
+status: provisional
+owners: "@Zzzode"
+reviewers: []
+created: 2026-09-23
+last-reviewed: 2026-09-23
+---
+
 # RFC 0001 — Module Architecture Target Shape
 
-- **Status:** Proposed (2026-09-23)
-- **Authors:** C++ port workstream
-- **Status of CI at time of writing:** macos-14 cold build passes in 80 min at
-  default 3-way Ninja parallelism after the BMI-slimming series; this RFC is
-  the follow-up that addresses the *structural* findings exposed by that work.
-- **Supersedes / extends:** the "cc_ui is one target, do not split" note in
-  `CLAUDE.md` and the design-decisions catalog. It does **not** retract the
-  claim that *today's* `cc_ui` cannot be split; it states what must change
-  first.
+> CI context at time of writing: macos-14 cold build passes in ~80 min at
+> default 3-way Ninja parallelism after the BMI-slimming series; this RFC is
+> the follow-up that addresses the *structural* findings exposed by that work.
+> It extends (does not retract) the "cc_ui is one target today" note in
+> `CLAUDE.md` — it states what must change before splitting is possible.
 
 ## 1. Summary
 
@@ -26,7 +32,7 @@ reversible, and does not require serializing the build.
 
 ## 2. Motivation
 
-### 2.1 Measured current state (graph analysis, 2026-09-23)
+### 2.1 Evidence — measured current state (graph analysis, 2026-09-23)
 
 | Metric | Measured | Best practice |
 |---|---|---|
@@ -209,7 +215,23 @@ the UI9 directory SCC dissolves, split `cc_ui` along the §3.1 lines. This is
 the only phase with user-visible behavioural risk and should be designed in
 its own follow-up RFC.
 
-## 5. Non-goals
+## 5. Goals
+
+- G1. Producer BMI PSS for the app/UI closure drops materially again (target
+  recorded at the implementable gate) and editing a function body recompiles
+  one object file, not an import fan-out.
+- G2. The module graph contains no directory-level SCC larger than one
+  responsibility area; the invariant is enforced in CI.
+- G3. Standard library and FTXUI enter module units only via `import std;`
+  and a single `cc.third_party.ftxui` wrapper.
+- G4. Non-UI targets (`cc_utils`/`cc_tools`/`cc_services`) become
+  independently linkable static libraries.
+- G5. `cc.utils` is re-homed into sub-domain areas; new flat
+  `cc.utils.<thing>` modules are prohibited.
+- G6. macos-14 cold and warm builds stay green at default parallelism with no
+  swap; warm-cache PR CI reaches single-digit minutes.
+
+## Non-Goals
 
 - **No return to header files.** Headers force every consumer TU to re-parse
   the full closure; modules parse it once and lazily deserialize. Consumers of

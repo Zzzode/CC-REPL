@@ -1,0 +1,24 @@
+name: RFC lint
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "docs/rfcs/**"
+      - "tools/rfc/**"
+      - ".github/workflows/rfc-lint.yml"
+  pull_request:
+    branches: [master]
+    paths:
+      - "docs/rfcs/**"
+      - "tools/rfc/**"
+      - ".github/workflows/rfc-lint.yml"
+
+jobs:
+  rfc-lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run RFC linter
+        run: python3 tools/rfc/rfc_lint.py
