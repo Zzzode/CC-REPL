@@ -248,6 +248,7 @@ target_sources(cc_ui PRIVATE
     ui/app/app_dialog_registration_hooks.cpp
     ui/app/app_dialog_registration_teams.cpp
     ui/app/app_team_projection.cpp
+    ui/app/app_message_projection.cpp
     ui/dialogs/hooks_dialog_renderer_impl.cpp
     ui/dialogs/plugin_dialog_renderer_impl.cpp
 )
