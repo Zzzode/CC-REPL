@@ -76,6 +76,8 @@ AppAdapter::AppAdapter(void* engine, void* lifecycle_hooks,
       on_exit_(std::move(on_exit)),
       screen_state_(std::make_shared<repl::ReplScreenState>()) {
     construct_impl(engine, lifecycle_hooks, cmd_registry, storage);
+    construct_teammate();
+    construct_settings();
     auto* engine_ = static_cast<cc::core::QueryEngine*>(engine);
     auto* lifecycle_hooks_ =
         static_cast<cc::hooks::LifecycleHookRegistry*>(lifecycle_hooks);

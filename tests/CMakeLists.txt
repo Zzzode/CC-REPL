@@ -227,7 +227,14 @@ add_executable(test_ui_messages test_ui_messages.cpp test_ui_helpers.h)
 target_link_libraries(test_ui_messages ${_ui_test_libs})
 gtest_discover_tests(test_ui_messages DISCOVERY_TIMEOUT ${LOOM_TEST_DISCOVERY_TIMEOUT})
 
-add_executable(test_ui_runtime test_ui_runtime.cpp test_ui_helpers.h)
+add_executable(test_ui_runtime
+    test_ui_runtime.cpp
+    test_ui_render.cpp
+    test_ui_render_state.cpp
+    test_ui_render_pure.cpp
+    test_ui_paste.cpp
+    test_ui_e2e.cpp
+    test_ui_helpers.h)
 target_link_libraries(test_ui_runtime ${_ui_test_libs})
 gtest_discover_tests(test_ui_runtime DISCOVERY_TIMEOUT ${LOOM_TEST_DISCOVERY_TIMEOUT})
 

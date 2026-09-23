@@ -1,4 +1,5 @@
-// app_team_projection.cpp — impl unit for cc.ui.app.
+// app_team.cpp — plain impl unit for cc.ui.app. Owns TeammateState (the
+// nested PIMPL for the teammate inbox/permission cluster).
 //
 // Contains the leader-side live teams projection:
 //   AppAdapter::ProjectLiveTeammatesToScreenState()
@@ -33,13 +34,12 @@ module;
 #include <string_view>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
+#include <deque>
 #include <variant>
 #include <vector>
 
-export module cc.ui.app.app:team;
-
-import cc.ui.app.app;
-import :impl;
+module cc.ui.app.app;
 
 import cc.utils.json;
 import cc.utils.team_helpers;
@@ -48,11 +48,39 @@ import cc.utils.swarm_backends;
 import cc.utils.swarm_pane_observer;
 import cc.tools.agent_runtime;
 import cc.ui.features.teams.live_teammates;
-import cc.ui.screens.repl_screen;
+import cc.ui.screens.repl_state;
 import cc.ui.dialogs.system;
 import cc.ui.dialogs.triggers;
 
 namespace cc::ui {
+
+struct TeammateState {
+    // Leader-side teammate permission requests (drained into the dialog).
+    struct PendingTeammatePermission {
+        cc::utils::swarm_helpers::SwarmPermissionRequestMessage request;
+        std::string team;
+    };
+    std::mutex teammate_permission_mutex_;
+    std::deque<PendingTeammatePermission> teammate_pending_permissions_;
+
+    // Pane-teammate inbox worker state.
+    std::jthread teammate_inbox_thread_;
+    std::mutex teammate_pending_mutex_;
+    std::deque<std::string> teammate_pending_prompts_;
+    std::unordered_set<std::string> teammate_seen_message_ids_;
+    std::string teammate_self_agent_id_;
+    std::string teammate_self_agent_name_;
+    std::string teammate_self_team_;
+};
+
+void TeammateStateDeleter::operator()(TeammateState* p) const noexcept {
+    delete p;
+}
+
+void AppAdapter::construct_teammate() {
+    teammate_.reset(new TeammateState());
+}
+
 
 namespace repl = cc::ui::repl_screen;
 namespace live = cc::ui::teams::live;
@@ -96,14 +124,14 @@ bool is_teammate_control_message(std::string_view text) {
 
 // True when this process was spawned with teammate identity.
 bool AppAdapter::running_as_pane_teammate() const {
-    return !impl_->teammate_self_agent_name_.empty() &&
-           !impl_->teammate_self_team_.empty();
+    return !teammate_->teammate_self_agent_name_.empty() &&
+           !teammate_->teammate_self_team_.empty();
 }
 
 void AppAdapter::enqueue_teammate_prompt(std::string prompt) {
         {
-            std::lock_guard lock(impl_->teammate_pending_mutex_);
-            impl_->teammate_pending_prompts_.push_back(std::move(prompt));
+            std::lock_guard lock(teammate_->teammate_pending_mutex_);
+            teammate_->teammate_pending_prompts_.push_back(std::move(prompt));
         }
         PostRenderEvent();  // wake the UI thread to drain
     }
@@ -114,27 +142,27 @@ bool AppAdapter::drain_one_teammate_prompt() {
         if (query_running_.load()) return false;
         std::string prompt;
         {
-            std::lock_guard lock(impl_->teammate_pending_mutex_);
-            if (impl_->teammate_pending_prompts_.empty()) return false;
-            prompt = std::move(impl_->teammate_pending_prompts_.front());
-            impl_->teammate_pending_prompts_.pop_front();
+            std::lock_guard lock(teammate_->teammate_pending_mutex_);
+            if (teammate_->teammate_pending_prompts_.empty()) return false;
+            prompt = std::move(teammate_->teammate_pending_prompts_.front());
+            teammate_->teammate_pending_prompts_.pop_front();
         }
         HandleSubmit(prompt);
         return true;
     }
 
 void AppAdapter::start_teammate_inbox_worker() {
-        impl_->teammate_self_agent_id_ =
+        teammate_->teammate_self_agent_id_ =
             env_first({"LOOM_AGENT_ID", "LOOM_AGENT_ID"});
-        impl_->teammate_self_agent_name_ =
+        teammate_->teammate_self_agent_name_ =
             env_first({"LOOM_AGENT_NAME", "LOOM_AGENT_NAME"});
-        impl_->teammate_self_team_ =
+        teammate_->teammate_self_team_ =
             env_first({"LOOM_TEAM_NAME", "LOOM_TEAM_NAME"});
         if (!running_as_pane_teammate()) return;
 
-        const std::string agent = impl_->teammate_self_agent_name_;
-        const std::string team = impl_->teammate_self_team_;
-        impl_->teammate_inbox_thread_ = std::jthread(
+        const std::string agent = teammate_->teammate_self_agent_name_;
+        const std::string team = teammate_->teammate_self_team_;
+        teammate_->teammate_inbox_thread_ = std::jthread(
             [this, agent, team](std::stop_token stop) {
                 constexpr auto kPollInterval = std::chrono::milliseconds(1500);
                 while (!stop.stop_requested()) {
@@ -158,8 +186,8 @@ void AppAdapter::poll_teammate_inbox_once(const std::string& agent,
             if (is_teammate_control_message(m.text)) continue;
             auto key = teammate_message_key(m);
             {
-                std::lock_guard lock(impl_->teammate_pending_mutex_);
-                if (!impl_->teammate_seen_message_ids_.insert(key).second) continue;
+                std::lock_guard lock(teammate_->teammate_pending_mutex_);
+                if (!teammate_->teammate_seen_message_ids_.insert(key).second) continue;
             }
             // Wrap like the TS useInboxPoller delivery format so the model
             // sees the sender identity.
@@ -487,17 +515,17 @@ void AppAdapter::ProjectLiveTeammatesToScreenState() {
 // ============================================================================
 
 bool AppAdapter::drain_one_teammate_permission() {
-    AppImpl::PendingTeammatePermission pending;
+    TeammateState::PendingTeammatePermission pending;
     {
-        std::lock_guard lock(impl_->teammate_permission_mutex_);
+        std::lock_guard lock(teammate_->teammate_permission_mutex_);
         // One ToolPermission overlay at a time, like every other Band3
         // request — wait for the active dialog to finish first.
-        if (impl_->teammate_pending_permissions_.empty() ||
+        if (teammate_->teammate_pending_permissions_.empty() ||
             screen_state_->dialog_queue.has_overlay()) {
             return false;
         }
-        pending = std::move(impl_->teammate_pending_permissions_.front());
-        impl_->teammate_pending_permissions_.pop_front();
+        pending = std::move(teammate_->teammate_pending_permissions_.front());
+        teammate_->teammate_pending_permissions_.pop_front();
     }
 
     const auto request = pending.request;
@@ -582,7 +610,7 @@ void AppAdapter::start_leader_inbox_worker() {
                     cc::utils::read_inbox(std::string{sh::TEAM_LEAD_NAME}, team);
                 if (!messages) continue;
 
-                std::vector<AppImpl::PendingTeammatePermission> fresh;
+                std::vector<TeammateState::PendingTeammatePermission> fresh;
                 std::vector<std::string> consumed_texts;
                 for (const auto& message : *messages) {
                     // Discriminator substrings from the frozen stage-A
@@ -598,7 +626,7 @@ void AppAdapter::start_leader_inbox_worker() {
                         sh::PermissionSync::parse_request(message.text);
                     if (!parsed) continue;
                     {
-                        std::lock_guard lock(impl_->teammate_permission_mutex_);
+                        std::lock_guard lock(teammate_->teammate_permission_mutex_);
                         if (!seen_leader_permission_ids_
                                  .insert(parsed->request_id)
                                  .second) {
@@ -606,7 +634,7 @@ void AppAdapter::start_leader_inbox_worker() {
                         }
                     }
                     fresh.push_back(
-                        AppImpl::PendingTeammatePermission{std::move(*parsed), team});
+                        TeammateState::PendingTeammatePermission{std::move(*parsed), team});
                     consumed_texts.push_back(message.text);
                 }
 
@@ -619,9 +647,9 @@ void AppAdapter::start_leader_inbox_worker() {
                 }
                 if (!fresh.empty()) {
                     {
-                        std::lock_guard lock(impl_->teammate_permission_mutex_);
+                        std::lock_guard lock(teammate_->teammate_permission_mutex_);
                         for (auto& item : fresh) {
-                            impl_->teammate_pending_permissions_.push_back(
+                            teammate_->teammate_pending_permissions_.push_back(
                                 std::move(item));
                         }
                     }
@@ -635,25 +663,25 @@ void AppAdapter::start_leader_inbox_worker() {
 // ── Teammate test seams ────────────────────────────────────────────────────
 void AppAdapter::configure_teammate_for_testing(std::string agent_name,
                                                std::string team) {
-    impl_->teammate_self_agent_name_ = std::move(agent_name);
-    impl_->teammate_self_team_ = std::move(team);
+    teammate_->teammate_self_agent_name_ = std::move(agent_name);
+    teammate_->teammate_self_team_ = std::move(team);
 }
 
 void AppAdapter::poll_teammate_inbox_once_for_testing() {
-    poll_teammate_inbox_once(impl_->teammate_self_agent_name_,
-                             impl_->teammate_self_team_);
+    poll_teammate_inbox_once(teammate_->teammate_self_agent_name_,
+                             teammate_->teammate_self_team_);
 }
 
 std::size_t AppAdapter::teammate_pending_count_for_testing() {
-    std::lock_guard lock(impl_->teammate_pending_mutex_);
-    return impl_->teammate_pending_prompts_.size();
+    std::lock_guard lock(teammate_->teammate_pending_mutex_);
+    return teammate_->teammate_pending_prompts_.size();
 }
 
 std::string AppAdapter::pop_teammate_prompt_for_testing() {
-    std::lock_guard lock(impl_->teammate_pending_mutex_);
-    if (impl_->teammate_pending_prompts_.empty()) return {};
-    std::string out = std::move(impl_->teammate_pending_prompts_.front());
-    impl_->teammate_pending_prompts_.pop_front();
+    std::lock_guard lock(teammate_->teammate_pending_mutex_);
+    if (teammate_->teammate_pending_prompts_.empty()) return {};
+    std::string out = std::move(teammate_->teammate_pending_prompts_.front());
+    teammate_->teammate_pending_prompts_.pop_front();
     return out;
 }
 
@@ -661,16 +689,16 @@ void AppAdapter::enqueue_teammate_permission_for_testing(void* request,
                                                          std::string team) {
     auto* req = static_cast<cc::utils::swarm_helpers::SwarmPermissionRequestMessage*>(request);
     {
-        std::lock_guard lock(impl_->teammate_permission_mutex_);
-        impl_->teammate_pending_permissions_.push_back(
-            AppImpl::PendingTeammatePermission{*req, std::move(team)});
+        std::lock_guard lock(teammate_->teammate_permission_mutex_);
+        teammate_->teammate_pending_permissions_.push_back(
+            TeammateState::PendingTeammatePermission{*req, std::move(team)});
     }
     PostRenderEvent();
 }
 
 std::size_t AppAdapter::pending_teammate_permission_count_for_testing() {
-    std::lock_guard lock(impl_->teammate_permission_mutex_);
-    return impl_->teammate_pending_permissions_.size();
+    std::lock_guard lock(teammate_->teammate_permission_mutex_);
+    return teammate_->teammate_pending_permissions_.size();
 }
 
 

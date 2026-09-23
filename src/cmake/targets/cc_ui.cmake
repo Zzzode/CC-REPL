@@ -4,7 +4,6 @@ target_sources(cc_ui
     PUBLIC FILE_SET CXX_MODULES FILES
         ui/app/app.cppm
         ui/app/app_impl.cppm
-        ui/app/app_team.cppm
         ui/prompt/autocomplete_sources.cppm
         ui/app/app_dialog_registration.cppm
         ui/widgets/components.cppm
@@ -253,6 +252,8 @@ target_sources(cc_ui PRIVATE
     ui/app/app_message_projection.cpp
     ui/app/app_store_bridge.cpp
     ui/app/app_run.cpp
+    ui/app/app_team.cpp
+    ui/app/app_settings.cpp
     ui/dialogs/hooks_dialog_renderer_impl.cpp
     ui/dialogs/plugin_dialog_renderer_impl.cpp
 )

@@ -12,6 +12,7 @@ module;
 #include <string>
 #include <utility>
 #include <vector>
+#include <memory>
 
 module cc.ui.app.app;
 
@@ -171,5 +172,27 @@ const void* app_store_get_state(void* store_ptr) {
         .get_state_fn = app_store ? app_store_get_state : nullptr,
     };
 }
+
+
+// Type-erased AppStore factory (keeps cc.state.* out of the :impl partition).
+[[nodiscard]] std::shared_ptr<void> create_typed_app_store() {
+    // Adopt the unique_ptr's raw pointer: shared_ptr<void> type-erases the
+    // deleter at this construction site, so :impl need never name AppStore.
+    return std::shared_ptr<void>(cc::state::create_app_store().release());
+}
+
+BridgeState AppAdapter::bridge_state() const {
+    BridgeState b{false, false, false, false, false};
+    if (auto* raw = app_store_raw()) {
+        const auto st = static_cast<cc::state::AppStore*>(raw)->get_state();
+        b.enabled        = st.repl_bridge_enabled;
+        b.explicit_remote = st.repl_bridge_explicit;
+        b.connected      = st.repl_bridge_connected;
+        b.session_active = st.repl_bridge_session_active;
+        b.reconnecting   = st.repl_bridge_reconnecting;
+    }
+    return b;
+}
+
 
 }  // namespace cc::ui

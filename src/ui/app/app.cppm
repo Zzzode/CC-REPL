@@ -70,6 +70,26 @@ struct AppImplDeleter {
     void operator()(AppImpl* p) const noexcept;
 };
 
+// Nested PIMPL for the teammate inbox/permission cluster. The backing struct
+// lives entirely in app_team.cpp (a plain impl unit), keeping swarm_helpers /
+// team_helpers / swarm_backends out of both this interface and the :impl
+// partition.
+struct TeammateState;
+struct TeammateStateDeleter {
+    void operator()(TeammateState* p) const noexcept;
+};
+
+// Nested PIMPL for settings (disk load + file-watch). Defined in
+// app_settings.cpp; keeps cc.utils.settings_manager out of the :impl BMI.
+struct SettingsState;
+struct SettingsStateDeleter {
+    void operator()(SettingsState* p) const noexcept;
+};
+
+// Defined in app_store_bridge.cpp; type-erased shared_ptr factory so :impl
+// never imports cc.state.{store,app_state}.
+[[nodiscard]] std::shared_ptr<void> create_typed_app_store();
+
 // Plain-data projection of the AppState bridge fields, returned by
 // AppAdapter::bridge_state() so callers need not import cc.state.app_state.
 struct BridgeState {
@@ -250,6 +270,8 @@ project_messages(const Message& msg);
 class AppAdapter : public ComponentBase {
 private:
     std::unique_ptr<AppImpl, AppImplDeleter> impl_;
+    std::unique_ptr<TeammateState, TeammateStateDeleter> teammate_;
+    std::unique_ptr<SettingsState, SettingsStateDeleter> settings_;
     // Defined in the :impl partition where AppImpl is complete. The out-of-line
     // constructor body calls this; teardown goes through AppImplDeleter, so
     // neither impl unit needs AppImpl's layout.
@@ -258,6 +280,8 @@ private:
     // cc.utils.session_storage), keeping those closures out of this BMI.
     void construct_impl(void* engine, void* lifecycle_hooks,
                         void* cmd_registry, void* storage);
+    void construct_teammate();
+    void construct_settings();
     [[nodiscard]] void* engine_raw() const noexcept;
     [[nodiscard]] void* lifecycle_hooks_raw() const noexcept;
     [[nodiscard]] void* cmd_registry_raw() const noexcept;
@@ -455,7 +479,7 @@ private:
 
     // AppStore bridge — state in AppImpl.
     bool has_app_store() const noexcept;
-    void* app_store_raw() noexcept;
+    [[nodiscard]] void* app_store_raw() const noexcept;
     BridgeState bridge_state() const;
 
     // Settings manager — state in AppImpl.

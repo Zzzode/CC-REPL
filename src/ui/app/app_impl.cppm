@@ -27,27 +27,21 @@ module;
 export module cc.ui.app.app:impl;
 
 import cc.ui.app.app;
-import cc.query.query_engine;
-import cc.hooks.lifecycle_hooks;
-import cc.commands.registry;
-import cc.utils.session_storage;
 import cc.vim.vim_mode;
 import cc.hooks.exit_handler;
-import cc.state.store;
-import cc.state.app_state;
-import cc.utils.settings_manager;
-import cc.utils.swarm_helpers;
-import cc.utils.team_helpers;
 
 namespace cc::ui {
 
 struct AppImpl {
-    // Type-erased constructor collaborators (stored typed here, behind the
-    // :impl partition so the primary never imports their modules).
-    cc::core::QueryEngine* engine_ = nullptr;
-    cc::hooks::LifecycleHookRegistry* lifecycle_hooks_ = nullptr;
-    cc::commands::AppCommandRegistry* cmd_registry_ = nullptr;
-    cc::utils::SessionStorage* storage_ = nullptr;
+    // Type-erased constructor collaborators. Plain pointers need no complete
+    // type; every consumer casts after importing the owning module.
+    void* engine_ = nullptr;
+    void* lifecycle_hooks_ = nullptr;
+    void* cmd_registry_ = nullptr;
+    void* storage_ = nullptr;
+
+    // Redux-like AppState store, type-erased (factory in app_store_bridge.cpp).
+    std::shared_ptr<void> app_store_;
 
     // Vim state.
     bool vim_enabled_ = false;
@@ -60,29 +54,6 @@ struct AppImpl {
         .save_on_exit = true,
         .double_press_window = std::chrono::milliseconds{800}}};
 
-    // Redux-like AppState store for CommandContext bridging.
-    std::shared_ptr<cc::state::AppStore> app_store_;
-
-    // Settings manager (disk load + file-watch).
-    std::unique_ptr<cc::utils::settings_manager::SettingsManager> settings_manager_;
-    cc::utils::settings_manager::UnsubscribeFn settings_unsubscribe_;
-
-    // Leader-side teammate permission requests (drained into the dialog).
-    struct PendingTeammatePermission {
-        cc::utils::swarm_helpers::SwarmPermissionRequestMessage request;
-        std::string team;
-    };
-    std::mutex teammate_permission_mutex_;
-    std::deque<PendingTeammatePermission> teammate_pending_permissions_;
-
-    // Pane-teammate inbox worker state.
-    std::jthread teammate_inbox_thread_;
-    std::mutex teammate_pending_mutex_;
-    std::deque<std::string> teammate_pending_prompts_;
-    std::unordered_set<std::string> teammate_seen_message_ids_;
-    std::string teammate_self_agent_id_;
-    std::string teammate_self_agent_name_;
-    std::string teammate_self_team_;
 };
 
 // ── Vim accessors (keep VimMode/VimStateMachine out of the interface) ───────
@@ -128,118 +99,8 @@ bool AppAdapter::has_app_store() const noexcept {
     return impl_ && static_cast<bool>(impl_->app_store_);
 }
 
-void* AppAdapter::app_store_raw() noexcept {
-    return impl_ ? static_cast<void*>(impl_->app_store_.get()) : nullptr;
-}
-
-BridgeState AppAdapter::bridge_state() const {
-    BridgeState b{false, false, false, false, false};
-    if (impl_ && impl_->app_store_) {
-        const auto st = impl_->app_store_->get_state();
-        b.enabled        = st.repl_bridge_enabled;
-        b.explicit_remote = st.repl_bridge_explicit;
-        b.connected      = st.repl_bridge_connected;
-        b.session_active = st.repl_bridge_session_active;
-        b.reconnecting   = st.repl_bridge_reconnecting;
-    }
-    return b;
-}
-
-// ── Settings accessors (keep SettingsManager/SettingsJson out of interface)
-void AppAdapter::init_settings_manager() {
-    if (!impl_) return;
-    impl_->settings_manager_ =
-        std::make_unique<cc::utils::settings_manager::SettingsManager>();
-    impl_->settings_manager_->initialize();
-}
-
-void AppAdapter::subscribe_settings_changed(std::function<void()> cb) {
-    if (!impl_ || !impl_->settings_manager_) return;
-    impl_->settings_unsubscribe_ =
-        impl_->settings_manager_->on_change([cb = std::move(cb)](
-            cc::utils::settings_manager::SettingSource) mutable { cb(); });
-}
-
-std::optional<std::string> AppAdapter::setting_string(std::string_view key) const {
-    if (!impl_ || !impl_->settings_manager_) return std::nullopt;
-    auto settings = impl_->settings_manager_->get_initial_settings();
-    auto it = settings.find(std::string(key));
-    if (it != settings.end() &&
-        std::holds_alternative<std::string>(it->second)) {
-        return std::get<std::string>(it->second);
-    }
-    return std::nullopt;
-}
-
-std::optional<std::string> AppAdapter::statusline_setting(std::string_view key) const {
-    if (!impl_ || !impl_->settings_manager_) return std::nullopt;
-    auto settings = impl_->settings_manager_->get_initial_settings();
-    auto sl = settings.find("statusLine");
-    if (sl == settings.end() ||
-        !std::holds_alternative<std::map<std::string, std::string>>(sl->second)) {
-        return std::nullopt;
-    }
-    const auto& m = std::get<std::map<std::string, std::string>>(sl->second);
-    auto it = m.find(std::string(key));
-    return it != m.end() ? std::optional<std::string>{it->second} : std::nullopt;
-}
-
-std::string AppAdapter::output_style_setting() const {
-    return setting_string("outputStyle").value_or("full");
-}
-
-void AppAdapter::ProjectSettingsToScreenState() {
-    if (!impl_ || !impl_->settings_manager_) return;
-
-    // --- default model ---
-    screen_state_->settings_model = setting_string("model").value_or(std::string{});
-
-    // --- default agent display name ---
-    screen_state_->settings_agent_name =
-        setting_string("agent").value_or(std::string{});
-
-    // --- status line config (settings.statusLine) ---
-    std::optional<std::string> status_line_type = statusline_setting("type");
-    std::string status_line_command  = statusline_setting("command").value_or(std::string{});
-    std::optional<bool> status_line_enabled;
-    int status_line_padding = 0;
-
-    if (auto enabled = statusline_setting("enabled")) {
-        status_line_enabled = parse_bool_text(*enabled);
-    }
-    if (auto pad = statusline_setting("padding")) {
-        if (auto parsed = parse_int_text(*pad)) status_line_padding = *parsed;
-    }
-
-    if (auto command = first_non_empty_env({
-            "LOOM_STATUS_LINE_COMMAND",
-            "LOOM_STATUS_LINE_COMMAND"})) {
-        status_line_command = *command;
-        status_line_type = "command";
-    }
-    if (auto enabled = first_non_empty_env({
-            "LOOM_STATUS_LINE_ENABLED",
-            "LOOM_STATUS_LINE_ENABLED"})) {
-        status_line_enabled = parse_bool_text(*enabled);
-    }
-    if (auto padding = first_non_empty_env({
-            "LOOM_STATUS_LINE_PADDING",
-            "LOOM_STATUS_LINE_PADDING"})) {
-        if (auto parsed = parse_int_text(*padding)) {
-            status_line_padding = *parsed;
-        }
-    }
-
-    const bool type_allows_command = !status_line_type || *status_line_type == "command";
-    const bool enabled = status_line_enabled.value_or(
-        !status_line_command.empty() && type_allows_command);
-    screen_state_->status_line_command = std::move(status_line_command);
-    screen_state_->status_line_padding = status_line_padding;
-    screen_state_->status_line_enabled =
-        enabled && type_allows_command && !screen_state_->status_line_command.empty();
-    if (!screen_state_->status_line_enabled) {
-        screen_state_->status_line_text.clear();
-    }
+void* AppAdapter::app_store_raw() const noexcept {
+    return impl_ ? impl_->app_store_.get() : nullptr;
 }
 
 // AppImplDeleter: defined where AppImpl is complete so unique_ptr teardown
@@ -259,11 +120,11 @@ void* AppAdapter::storage_raw() const noexcept { return impl_ ? impl_->storage_ 
 void AppAdapter::construct_impl(void* engine, void* lifecycle_hooks,
                                 void* cmd_registry, void* storage) {
     impl_.reset(new AppImpl());
-    impl_->engine_ = static_cast<cc::core::QueryEngine*>(engine);
-    impl_->lifecycle_hooks_ = static_cast<cc::hooks::LifecycleHookRegistry*>(lifecycle_hooks);
-    impl_->cmd_registry_ = static_cast<cc::commands::AppCommandRegistry*>(cmd_registry);
-    impl_->storage_ = static_cast<cc::utils::SessionStorage*>(storage);
-    impl_->app_store_ = cc::state::create_app_store();
+    impl_->engine_ = engine;
+    impl_->lifecycle_hooks_ = lifecycle_hooks;
+    impl_->cmd_registry_ = cmd_registry;
+    impl_->storage_ = storage;
+    impl_->app_store_ = create_typed_app_store();
 }
 
 }  // namespace cc::ui

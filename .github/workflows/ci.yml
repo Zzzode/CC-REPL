@@ -57,10 +57,13 @@ jobs:
             -DCMAKE_EXE_LINKER_FLAGS="-fuse-ld=lld -L${LLVM_PREFIX}/lib/c++ -Wl,-rpath,${LLVM_PREFIX}/lib/c++ -L${SDKROOT}/usr/lib"
 
       - name: Build
-        timeout-minutes: 60
+        timeout-minutes: 90
         # Ninja default parallelism (= host CPU count via the compile_jobs
         # pool in CMakeLists.txt). -g0 trims per-clang memory so the 14GB
         # runner tolerates several heavy module compiles at once.
+        # The heavy app-closure TUs were split (app.cppm BMI 7.9GB->4.4GB
+        # PSS, test_ui_runtime split by closure); 90 min is headroom for the
+        # legit 3-core compile time, NOT a swap allowance.
         run: cmake --build --preset debug
 
       - name: Test
