@@ -1,11 +1,11 @@
 ---
 rfc: 1
 title: Module Architecture Target Shape
-status: provisional
+status: accepted
 owners: "@Zzzode"
-reviewers: []
+reviewers: ["agent:design-review#1", "agent:design-review#2", "agent:design-review#3 (approved)"]
 created: 2026-09-23
-last-reviewed: 2026-09-23
+last-reviewed: 2026-09-24
 ---
 
 # RFC 0001 — Module Architecture Target Shape
@@ -38,7 +38,7 @@ reversible, and does not require serializing the build.
 |---|---|---|
 | Interface units (`.cppm`) | **849** | — |
 | Module implementation units (`module cc.x;` `.cpp`) | **32** | interface ↔ implementation balance |
-| Interfaces containing function bodies | **816 / 850** | declarations in interfaces, bodies in impl units |
+| Interfaces containing function bodies | **816 / 850 export module units** (849 module primaries + the `cc.ui.app.app:impl` partition) | declarations in interfaces, bodies in impl units |
 | God interfaces (inline defs) | agent_runtime **498**, agent.utils **439**, query_engine **433**, repl_screen **321**, messages_list **321**, runtime_registry **316** | tens, not hundreds |
 | Module-level cycles | **0** (pure DAG) | DAG |
 | Directory-level SCCs | **2**: UI9 (documented) and **Core8 (previously undocumented)** | none |
@@ -74,33 +74,52 @@ reversible, and does not require serializing the build.
 ### 3.1 Layered dependency graph
 
 Dependencies point downward only. A layer may import any layer below it; it
-must never import above. Ports (abstract interfaces) live in the lower layer
-so a lower layer can accept behaviour injected from above without importing it.
+must never import above. A **contract** (abstract port / callback / plain
+DTO) lives in the layer that declares it; the implementation importing that
+contract is a legal downward edge. A module that imports a concrete service
+implementation belongs ABOVE that service, never beside it.
+
+The non-UI order (REV 3, corrected through three Tarjan reviews — see
+`attachments/0001-oq3-phase-b-cut-design.md`) is:
 
 ```
-cc.third_party.ftxui        ── single wrapper module; import std; everywhere
+cc.third_party.ftxui        ── per OQ-1 (header units preferred); import std;
         │
-types / constants / config ── zero-dependency leaves
+types / constants / cc.config.*_types / *.port *.contract ── leaves
+(cc.config.config / .settings rank WITH utils — they import utils.json;
+ only the *_types data leaves sit here)
         │
-platform / fs / text / json / process / crypto ── sub-domain leaves (from cc.utils)
+platform / fs / text / json / serdes / process / crypto ── from cc.utils (Phase D)
         │
 state / task_types / vim
         │
-tools (pure domain logic; depends only on declared ports)
-        ▲            ▲  ports implemented above, injected at composition
-        │            │
-services (MCP / LSP / API / voice concrete implementations)
+hooks   ── event/callback CONTRACTS + pure hook logic only.
+          Never imports a concrete services/state implementation.
         │
-hooks (event contracts and port interfaces)
+skills  ── definitions/loading; publishes callbacks via sinks, no tools import
         │
-query / commands / skills / orchestration (agent run/resume/fork live HERE)
+services ── concrete API/MCP/LSP/voice/image implementations.
+           MAY implement hook/skill contracts below it; never concrete hook logic.
         │
-ui
-  foundation → chrome → widgets/visual → messages/dialogs/permissions/prompt
-             → screens → app
+tools   ── PURE domain tools only (bash, primitives, tool contract types in
+          cc.types, registry mechanics). A service-backed tool does NOT live here.
+        │
+orchestration ── service-backed tools & multi-service flows:
+                 agent run/resume/fork subtree, McpTool/LspTool, image-aware
+                 file reads, SkillLoader + MCP-snapshot wiring
+        │
+query / commands
+        │
+ui (foundation → chrome → widgets/visual → messages/dialogs/permissions/prompt
+    → screens → app)
         │
 server / cli / entrypoints
 ```
+
+This order is forced by the real edges: e.g. `McpTool`/`LspTool` and the
+agent subtree import concrete services, so they sit above services in
+orchestration; voice hooks must become pure logic over injected ports so
+services can implement the port without creating a hooks↔services cycle.
 
 ### 3.2 Module discipline rules
 
@@ -113,7 +132,11 @@ server / cli / entrypoints
 3. **`import std;`** is the only way the standard library enters a module.
 4. **Third-party code enters through exactly one wrapper module per vendor**
    (`cc.third_party.ftxui`). No textual third-party include in any other GMF.
-5. **No upward edges** (§4.2). Enforced by a CI graph check, not convention.
+5. **No upward edges** (§4.2), verified by Tarjan (`tools/arch/graph_check.py`,
+   milestone E0). The ONLY permitted cross-rank edges are into a module in a
+   named contract package (`*.port`, `*.contract`, `cc.types`,
+   `cc.config.*_types`) listed in `tools/arch/port_allowlist.txt`; the lint
+   enforces a total layer rank, not convention.
 6. **One responsibility area per static library once its directory is acyclic
    with respect to every other area.** The single FILE_SET rule stays only
    while a real cycle remains, and the graph check documents which edges.
@@ -191,6 +214,10 @@ the two mechanisms.
 
 ### 4.2 Phase B — break the Core8 SCC (small, sharp, newly found)
 
+> **Authoritative design:** [OQ-3 Phase B cut design REV 3](attachments/0001-oq3-phase-b-cut-design.md).
+> The table below is the original sketch and is superseded by the attachment's
+> 14-family / 52-edge / 9-singleton design (REV 3). Kept for context only.
+
 **Prerequisite: OQ-3 (orchestration boundary and port shape) closed.** The
 edge table is evidence; the cut designs are not. Before implementation the
 RFC must name, per edge: the port interface, the module owning it, and the
@@ -214,8 +241,7 @@ Layering clarification: `hooks` owning port interfaces below, with
 edge. The lint must encode this structurally (edges into an explicit
 `*.port` / contract module are allowed) rather than via a blanket whitelist.
 
-Graduation: Tarjan over directory nodes reports singleton components for
-the eight areas (Core8 → 8× size 1); `cc_utils`/`cc_tools`/`cc_services`
+Graduation: Tarjan over the layered nodes (incl. the new orchestration) reports 9 singleton SCCs (Core8 areas + orchestration); `cc_utils`/`cc_tools`/`cc_services`
 link as independent static libraries; `graph_check.py` fails CI on any new
 non-port back edge; ctest total unchanged.
 
@@ -315,8 +341,11 @@ invariant.
   independently linkable static libraries.
 - G5. `cc.utils` is re-homed into sub-domain areas; new flat
   `cc.utils.<thing>` modules are prohibited.
-- G6. macos-14 cold and warm builds stay green at default parallelism with no
-  swap; warm-cache PR CI reaches single-digit minutes.
+- G6. macos-14 cold builds stay green at default parallelism with no swap
+  (achieved 2026-09-23). A single-digit-minute warm-cache PR build is a
+  CONDITIONAL goal only: it stands if a BMI-capable compiler cache is proven
+  on CI per OQ-5 (ccache 4.x / newer sccache); otherwise it is explicitly
+  dropped, never claimed.
 
 ## Non-Goals
 
@@ -350,7 +379,7 @@ invariant.
 - Top-10 god interfaces reduced from 200–500 inline definitions each to
   declaration-only interfaces; editing a body recompiles one object file.
 - Zero textual std/FTXUI includes in module units.
-- Incremental CI with warm cache in single-digit minutes.
+- Incremental CI with warm cache in single-digit minutes (CONDITIONAL on the OQ-5 cache proof; removed if not achievable).
 - `cc_ui` splittable into area libraries (only after Phase F).
 
 ## 8. Alternatives considered
@@ -368,19 +397,19 @@ invariant.
 
 ## 9. Sequencing summary
 
-| Phase | Scope | Risk | Expected build payoff |
+| Milestone | Scope | Risk | Expected build payoff |
 |---|---|---|---|
-| A | `import std;` (per-TU atomic) + FTXUI per OQ-1 | med (spike-gated) | high |
-| B | break Core8 SCC via OQ-3 port design, split non-UI libs | med | medium + structural |
+| **E0** | `tools/arch/graph_check.py` + port allowlist + dead-import check in CI (lands FIRST; A/B graduate against it) | low | structural enabler |
+| A | `import std;` (incremental per file) + FTXUI per OQ-1 | med (spike-gated) | high |
+| B | break Core8 per the REV 3 cut design (14 families, 52 edges, hooks/services reordered, service-backed tools lifted, family-14 type sinks), split non-UI libs -> 9 singleton SCCs | med–high | medium + structural |
 | C | bodies out of god interfaces | low (mechanical) | high, incremental |
-| D | re-home `cc.utils` | low | low–medium |
-| E | graph_check.py + PSS sampler + (spike-gated) sccache | low–med | very high for PR latency if spike passes |
-| F | UI state sharding, break UI9, split cc_ui | high | structural |
+| D | re-home `cc.utils` (mapping attached; one deletion candidate reconciled in ctest) | low | low–medium |
+| E | PSS sampler + (conditional, OQ-5) compiler cache | low–med | PR latency only if a BMI-capable cache is proven |
+| F | UI state sharding, break UI9, split cc_ui | high | structural (own RFC) |
 
-A, C and D can start as soon as the RFC is implementable; A is gated
-on the OQ-1/OQ-2 spike and B on OQ-3. E's lint part can land first; its
-cache part is spike-gated (OQ-5). F awaits a dedicated RFC after measured
-results from A-E.
+Order: E0 -> (A, C, D may proceed) -> B (gated on the graph_check
+singleton prediction) -> E cache sub-goal if proven -> F. F awaits a
+dedicated RFC after measured results from A–E.
 
 ## 10. Open questions
 
@@ -392,7 +421,7 @@ here so the gate cannot be passed on assertion.
 |---|---|---|---|---|
 | OQ-1 | ~~How does FTXUI enter module units?~~ **Spike 2026-09-24 (branch rfc-0001-spike-import-std-ftxui): the clang mechanism WORKS** — FTXUI v5.0.0 headers build cleanly as user header units (`-fmodule-header=user`): color.hpp 8.3 MB / 1.3 s one-off, dom/elements.hpp 12 MB, component/component.hpp 19 MB / 2.0 s; FTXUI headers are module-compatible. Manual consumer wiring needs the scan-deps-generated module-map/`-fmodule-file` set, which is exactly what **CMake 4 `FILE_SET CXX_MODULE_HEADERS`** generates; CMake 3.31 (offline dev box) rejects the file-set type, so the end-to-end CMake path is validated on CI (brew cmake is 4.x). Remaining decision at implementable: full header set enumeration strategy (list FTXUI public headers wholesale vs. the subset Loom imports) and the leaf-subarea golden pilot. Status: mechanism proven, CMake-4 integration CI-gated. | @Zzzode | Phase A | CI pilot: one leaf UI subarea built through CXX_MODULE_HEADERS; truecolor goldens byte-identical or reviewed; consumer PSS/wall-time recorded vs textual. |
 | OQ-2 | ~~Exact CMake recipe for `import std;`?~~ **Spike 2026-09-24: RESOLVED on the local toolchain.** (1) CMake 3.31 `CXX_MODULE_STD` exists but is gated behind an experimental UUID and builds std with `-std=gnu++23`, mismatching this repo `CXX_EXTENSIONS=OFF` (c++23) — rejected. (2) The robust path is vendoring the shipped `std.cppm` as an ordinary FILE_SET CXX_MODULES target, compiled with `-fno-implicit-module-maps -Wno-reserved-module-identifier` and an include dir at the toolchain `share/libc++/v1` (for `std/*.inc`); works at c++23 with ext OFF, CMake 3.28+, and carries whatever flags the preset already sets (so macos isysroot/libc++ flags flow naturally). Consumer micro-benchmark: a 10-header heavy TU **1.71 s -> 0.13 s (13x)**; std BMI precompiled once (35 MB). (3) The claimed "cannot mix textual std headers with import std" rule does NOT hold on clang 22 — a mixed TU compiled exit 0 — so conversion is incremental per file, not atomic per target (still prefer per-target commits). macos build of the same vendored std.cppm to be confirmed on CI. | @Zzzode | Phase A | vendored std module target builds under both presets; one leaf target converts and dual-preset + macos CI pass; 13x micro result reproduced inside a real producer TU before sweep. |
-| OQ-3 | ~~What is the precise orchestration boundary and port shape?~~ **Design attached 2026-09-24:** [OQ-3 Phase B cut design](attachments/0001-oq3-phase-b-cut-design.md) — lift the 5-module agent facade subtree (run/resume/fork/utils + `cc.tools.agent`) to a new `cc.orchestration.agent` target (the 7 store/display/memory agent modules stay in tools); per-edge cuts for the other 7 edge families; 3 of the hooks->state edges proven to be dead imports. Code-level port modules and the graph-prediction gate remain to be produced when the phase starts. | @Zzzode | Phase B | The attached doc exists (done). Before bodies move: port modules compile and graph_check predicts Core8 -> 8 singleton SCCs. |
+| OQ-3 | ~~Orchestration boundary and port shape?~~ **Design REV 3, 2026-09-24** ([attachment](attachments/0001-oq3-phase-b-cut-design.md)). Two adversarial Tarjan reviews drove it from REV 1 to REV 3: hooks/services reordered (voice logic behind hooks-owned ports, notifs MCP bridge moved to orchestration, 4 dead hook imports deleted); all **52** live upward edges owned across 14 families; service-backed tools (Mcp/Lsp/image file/SkillLoader) and the 25-edge agent subtree lifted to orchestration; family 14 sinks AgentConfig/permission DTOs to agent_types and moves only spawn_multi_agent/runtime_team_shared up, so the reverse tools->orchestration edges are cut. Completion invariant: **9 singleton SCCs** including orchestration. McpServerConfig x6 unified as a persisted-data leaf; ToolInput split so its json helper stays in tools. | @Zzzode | Phase B | Before bodies move: port/type modules compile and graph_check predicts 9 singleton SCCs. |
 | OQ-4 | ~~Numeric baselines and utils mapping?~~ **Artifact attached 2026-09-24:** [OQ-4 baselines + mapping](attachments/0001-oq4-baselines-and-utils-mapping.md). Phase C: all 55 >=1000-LOC interfaces measured (8,950 inline defs; C1 top-6 = 2,328); concrete exits C1 <30/interface, C2 none >100, C3 lint warn-40/error-80. Phase D: all 171 utils modules classified into ~60 destination areas, with the 5 ambiguous ones content-read and resolved (image_store -> cc.media.images; pdf retained leaf; prompt_category is a deletion candidate with zero source importers; system_theme -> cc.platform.terminal; theme -> cc.ui.theme.types data leaf). | @Zzzode | implementable gate | Artifact exists and mapping reviewed; lint freeze-list produced during Phase D execution. |
 | OQ-5 | ~~Does sccache cache named-module output?~~ **Spike 2026-09-24: NEGATIVE with the available tool.** sccache 0.4.0-pre.6 (the only such tool on the offline box) reports **"unknown source language" and non-cacheable for `.cppm` BMI compiles**; module implementation units execute but are not stored (1 executed, 0 hits/0 misses). Plain `.cpp` files DO cache (warm hit confirmed). Since the expensive outputs are exactly the `.cppm` producers, sccache gives no benefit for the cost that matters. | @Zzzode | Phase E / G6 | Options for implementable: (a) verify a newer sccache or **ccache 4.x** (not installed offline; testable via brew on CI) caches `.cppm`; (b) until then ship the architecture lint only and DROP the single-digit warm-cache claim from G6 - do not fake it. BMI-level caching may instead come from a future compiler-native/CMake module cache. |
 
@@ -406,4 +435,6 @@ Append-only.
 | 2026-09-23 | First design review against the `accepted` checklist | REQUEST CHANGES: FTXUI wrapper sketch invalid (GMF includes are not exported), import-std per-TU constraint missing, Phase B port design unspecified, Phase F lacked a completion invariant, sccache assumed; G1/G3 not falsifiable. Logged as OQ-1..OQ-5 and sections 4.1-4.6 rewritten. Status deliberately remains `provisional`. |
 | 2026-09-24 | Branch `rfc-0001-spike-import-std-ftxui` spikes OQ-1/OQ-2 (no `src/` changes on master) | Both mechanisms proven on clang 22/cmake 3.31: vendored std.cppm FILE_SET target works at c++23 (consumer 1.71s->0.13s, mixed TU tolerated); FTXUI headers compile to header units; end-to-end header-unit consumption deferred to CI cmake 4. OQ-1/OQ-2 updated in place. OQ-3/OQ-4/OQ-5 still open. |
 | 2026-09-24 | OQ-3 design produced from the live graph (`attachments/0001-oq3-phase-b-cut-design.md`) | Agent cluster mapped by real symbols: 5 upward-importing modules (run/resume/fork/utils + the `cc.tools.agent` facade) have zero external importers -> promote to a new cc_orchestration target; 7 store/display/memory agent modules stay in tools. Other 7 edge families given per-edge cuts; 3 hooks->state imports proven DEAD (removed, full build green, then reverted pending Phase B). OQ-4/OQ-5 still open; status remains provisional. |
+| 2026-09-24 | Independent agent design reviews #1 and #2 | request-changes. #1 found a hooks↔services cycle from the voice port + uncut notifs→mcp bridge, 4 dead hook imports, 3 voice edges, and 11 unaddressed service-backed-tool edges. #2 (over 9 nodes incl. orchestration) found the REV-2 fix still left a tools↔orchestration SCC (4 team/spawn modules import the moved facade), family-12 count 5 not 1, total 52 not 48, McpServerConfig 6. Both verified by the reviewer’s own Tarjan run; REV 2 then REV 3 attached. |
+| 2026-09-24 | Independent agent design review #3 (full re-graph, 850 .cppm + 34 .cpp, 1,825 internal edges) | **APPROVED.** Simulated all 14 families over 9 layered nodes = 9 singleton SCCs; live upward total exactly 52; all feasibility claims verified (agent DTOs std-only, ToolInput json split, voice ports leak no concrete types). Editorial non-blockers (stale REV-2/48/8 strings, runtime_team_shared optional move, test-seam note, config unique pair) applied. **Status -> accepted.** Implementable gate still requires: tracking issue, PRR fill, graph_check predicting 9 singleton SCCs, and CI confirmation of the FTXUI cmake-4 + macos import-std spikes. |
 | 2026-09-24 | OQ-4 artifact attached (55-interface C baselines, 8,950 inline defs; all 171 utils modules mapped, 5 ambiguous ones resolved incl. one zero-importer deletion candidate). OQ-5 spiked: sccache 0.4.0-pre.6 cannot cache `.cppm` BMI ("unknown source language") - warm-cache goal contingent on ccache 4.x/newer sccache being verified on CI, else dropped from G6. All five OQs now have an answer/artifact; the design (accepted) gate is reviewable, status still provisional pending reviewer approval and the CI-gated FTXUI/import-std confirmations. |
