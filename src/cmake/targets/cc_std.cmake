@@ -75,6 +75,15 @@ target_compile_options(cc_std PRIVATE
     -Wno-reserved-module-identifier
     -fno-implicit-module-maps
     -w)
+# ALSO pin the same suppressions per source file. CMake 4.x compiles module
+# BMIs via a synthesized `target@synth` precompile rule that — unlike 3.31's
+# scanned-object rule — does not inherit the target's PRIVATE compile options
+# (observed on macos-14 with Homebrew cmake 4: the std.cppm BMI rule carried
+# the global -Werror but not this target's -w, and clang promoted
+# -Wreduced-bmi-output-overrided to a hard error). Per-source COMPILE_FLAGS
+# reach every compile of this source on both generators.
+set_source_files_properties("${_cc_std_staged}" PROPERTIES
+    COMPILE_FLAGS "-Wno-reserved-module-identifier -fno-implicit-module-maps -w")
 # std.cppm includes sibling fragments (`std/algorithm.inc`, ...) that stay
 # in the toolchain share dir; make them resolvable for this target only.
 target_include_directories(cc_std SYSTEM PRIVATE
