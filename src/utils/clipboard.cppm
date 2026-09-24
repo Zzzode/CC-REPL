@@ -9,17 +9,12 @@ module;
 #include <cstdint>
 #include <cstdlib>
 #include <fcntl.h>        // open, O_RDWR
-#include <filesystem>
-#include <fstream>
-#include <iterator>
-#include <optional>
-#include <string>
 #include <sys/wait.h>     // waitpid
-#include <system_error>
 #include <unistd.h>       // fork, setsid, dup2, execl, _exit, STDIN_FILENO
-#include <vector>
 
 export module cc.utils.clipboard;
+
+import std;
 
 import cc.utils.crypto;
 

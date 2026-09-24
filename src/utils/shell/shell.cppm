@@ -1,15 +1,5 @@
 module;
 
-#include <string>
-#include <string_view>
-#include <vector>
-#include <map>
-#include <optional>
-#include <expected>
-#include <chrono>
-#include <future>
-#include <filesystem>
-#include <array>
 #include <cstdio>
 #include <cstring>
 #include <sys/wait.h>
@@ -17,8 +7,12 @@ module;
 #include <signal.h>
 #include <poll.h>
 #include <fcntl.h>
+#include <cstddef>
+#include <cstdlib>
 
 export module cc.utils.shell;
+
+import std;
 
 export namespace cc::utils {
 

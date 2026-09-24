@@ -1,10 +1,7 @@
-module;
-#include <optional>
-#include <set>
-#include <string>
-#include <string_view>
 
 export module cc.utils.prompt_category;
+
+import std;
 
 export namespace cc::utils::prompt_category {
 

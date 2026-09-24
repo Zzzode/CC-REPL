@@ -1,15 +1,11 @@
 module;
 
-#include <string>
-#include <vector>
-#include <filesystem>
-#include <fstream>
-#include <sstream>
-#include <iostream>
-#include <optional>
 #include <cstdlib>
+#include <cstddef>
 
 export module cc.benchmarks.pare.cli;
+
+import std;
 
 import cc.benchmarks.pare.schema;
 import cc.benchmarks.pare.run;

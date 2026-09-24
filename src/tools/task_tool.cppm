@@ -1,19 +1,10 @@
 // TaskTool - Task lifecycle management with concurrent execution via libuv
 module;
-#include <chrono>
-#include <algorithm>
 #include <cstddef>
-#include <expected>
-#include <format>
-#include <iterator>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <unordered_map>
-#include <utility>
-#include <vector>
 
 export module cc.tools.task;
+
+import std;
 
 import cc.tools.agent_runtime;
 

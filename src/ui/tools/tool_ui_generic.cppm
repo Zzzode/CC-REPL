@@ -12,12 +12,11 @@
 ///   Default tool behavior when no specialized UI is provided.
 module;
 
-#include <string>
-#include <string_view>
-#include <optional>
 #include <cctype>
 
 export module cc.ui.tools.generic;
+
+import std;
 
 import cc.ui.tools.registry;
 

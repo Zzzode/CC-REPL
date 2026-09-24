@@ -1,17 +1,13 @@
-/// @file session_api.cppm
-/// @brief Thin HTTP wrappers for CCR v2 code-session API
 module;
 
-#include <string>
-#include <optional>
-#include <vector>
-#include <chrono>
-#include <expected>
-#include <format>
-#include <functional>
-#include <unordered_map>
+#include <cstdint>
+
+/// @file session_api.cppm
+/// @brief Thin HTTP wrappers for CCR v2 code-session API
 
 export module cc.bridge.session_api;
+
+import std;
 
 import cc.types.types;
 import cc.utils.http;

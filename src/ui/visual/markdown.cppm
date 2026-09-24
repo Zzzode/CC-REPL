@@ -16,18 +16,6 @@ module;
 
 #include <cstdint>
 #include <cctype>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <format>
-#include <ranges>
-#include <algorithm>
-#include <unordered_map>
-#include <list>
-#include <memory>
-#include <utility>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
@@ -35,6 +23,8 @@ module;
 #include <ftxui/component/event.hpp>
 
 export module cc.ui.visual.markdown;
+
+import std;
 
 import cc.ui.visual.code_highlight;
 import cc.utils.hyperlink;

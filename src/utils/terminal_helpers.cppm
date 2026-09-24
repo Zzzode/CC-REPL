@@ -1,17 +1,12 @@
 module;
 
-#include <atomic>
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
-#include <expected>
-#include <functional>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <vector>
 
 export module cc.utils.terminal_helpers;
+
+import std;
 
 export namespace cc::utils {
 

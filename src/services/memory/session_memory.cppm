@@ -5,19 +5,10 @@ module;
 
 #include <cstdint>
 #include <cstddef>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <chrono>
-#include <format>
-#include <algorithm>
-#include <ranges>
-#include <mutex>
-#include <coroutine>
 
 export module cc.services.session_memory;
+
+import std;
 
 import cc.types.types;
 import cc.utils.async;

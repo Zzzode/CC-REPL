@@ -10,16 +10,10 @@
 /// pass just the payload.
 module;
 #include <cstdint>
-#include <functional>
-#include <memory>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <variant>
-#include <vector>
 
 export module cc.ui.dialogs.triggers;
+
+import std;
 
 import cc.constants.product;
 import cc.ui.dialogs.system;

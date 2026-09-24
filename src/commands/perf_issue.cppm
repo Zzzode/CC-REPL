@@ -1,9 +1,6 @@
-module;
-#include <filesystem>
-#include <format>
-#include <string>
-#include <string_view>
 export module cc.commands.perf_issue;
+
+import std;
 
 import cc.services.diagnostic.dump_diagnostic;
 

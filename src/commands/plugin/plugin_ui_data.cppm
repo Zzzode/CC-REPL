@@ -26,18 +26,12 @@
 module;
 
 #include <cctype>
-#include <algorithm>
 #include <cstddef>
 #include <cstdint>
-#include <map>
-#include <optional>
-#include <set>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 export module cc.commands.plugin_ui_data;
+
+import std;
 
 import cc.commands.plugin_parse_args;
 import cc.commands.plugin_helpers;

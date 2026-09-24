@@ -7,22 +7,10 @@ module;
 
 #include <cstdint>
 #include <cstddef>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <chrono>
-#include <format>
-#include <ranges>
-#include <algorithm>
-#include <functional>
-#include <mutex>
-#include <deque>
-#include <unordered_map>
-#include <unordered_set>
 
 export module cc.services.auto_dream;
+
+import std;
 
 import cc.types.types;
 

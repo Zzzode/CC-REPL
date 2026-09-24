@@ -1,19 +1,10 @@
+
 // GrepTool - File content grep search
 module;
 
-#include <filesystem>
-#include <expected>
-#include <format>
-#include <fstream>
-#include <memory>
-#include <optional>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <regex>
-
 export module cc.tools.grep;
+
+import std;
 
 import cc.utils.file;
 import cc.utils.error;

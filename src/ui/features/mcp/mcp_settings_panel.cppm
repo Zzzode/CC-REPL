@@ -1,12 +1,11 @@
 /// @file mcp_settings_panel.cppm
 /// @brief MCP server settings configuration panel
 module;
-#include <string>
-#include <vector>
-#include <optional>
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
 export module cc.ui.features.mcp.mcp_settings_panel;
+
+import std;
 export namespace cc::ui::mcp {
 using namespace ftxui;
 struct McpServerConfig { std::string name; std::string command; std::vector<std::string> args; bool is_connected{false}; };

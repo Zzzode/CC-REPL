@@ -1,11 +1,6 @@
-module;
-
-#include <optional>
-#include <string>
-#include <string_view>
-#include <vector>
-
 export module cc.utils.slash_command_parsing;
+
+import std;
 
 export namespace cc::utils::slash_command_parsing {
 

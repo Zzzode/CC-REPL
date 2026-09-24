@@ -1,25 +1,18 @@
 module;
 
 #include <cerrno>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <map>
-#include <optional>
-#include <expected>
-#include <chrono>
-#include <span>
-#include <functional>
-#include <filesystem>
-#include <array>
 #include <cstring>
 #include <sys/wait.h>
 #include <unistd.h>
 #include <signal.h>
 #include <poll.h>
 #include <fcntl.h>
+#include <cstdlib>
+#include <cstddef>
 
 export module cc.utils.exec_file;
+
+import std;
 
 export namespace cc::utils {
 

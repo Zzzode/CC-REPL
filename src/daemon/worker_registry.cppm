@@ -11,26 +11,14 @@
 
 module;
 
-#include <condition_variable>
-#include <algorithm>
-#include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
-#include <expected>
-#include <functional>
-#include <memory>
-#include <mutex>
-#include <optional>
-#include <shared_mutex>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <unordered_map>
-#include <utility>
-#include <vector>
+#include <cstddef>
 
 export module cc.daemon.worker_registry;
+
+import std;
 
 import cc.utils.json;
 

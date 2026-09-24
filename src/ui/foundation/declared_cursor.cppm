@@ -19,9 +19,6 @@
 /// simply skip the call rather than actively clearing.
 module;
 
-#include <algorithm>  // for std::clamp
-#include <memory>
-#include <utility>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/dom/node.hpp>
@@ -30,6 +27,8 @@ module;
 #include <ftxui/screen/screen.hpp>
 
 export module cc.ui.foundation.declared_cursor;
+
+import std;
 
 export namespace cc::ui::common::declared_cursor {
 using namespace ftxui;

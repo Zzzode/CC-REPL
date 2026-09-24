@@ -1,13 +1,10 @@
 module;
 
 #include <cctype>
-#include <algorithm>
-#include <array>
-#include <optional>
-#include <string>
-#include <string_view>
 
 export module cc.utils.plugin_marketplace_rules;
+
+import std;
 
 import cc.utils.plugin_identifier;
 

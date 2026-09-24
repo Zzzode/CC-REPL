@@ -5,20 +5,11 @@
 module;
 
 #include <cstdint>
-#include <string>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <format>
-#include <functional>
-#include <ranges>
-#include <algorithm>
-#include <span>
-#include <array>
 #include <cstdio>
-#include <unordered_map>
 
 export module cc.commands.clear;
+
+import std;
 
 import cc.types.types;
 import cc.commands.command;

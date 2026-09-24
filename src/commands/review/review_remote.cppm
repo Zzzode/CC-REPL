@@ -10,21 +10,10 @@ module;
 #include <cctype>
 #include <cstdint>
 #include <cstdio>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <format>
-#include <ranges>
-#include <algorithm>
-#include <span>
-#include <array>
-#include <regex>
-#include <sstream>
-#include <utility>
 
 export module cc.commands.review.review_remote;
+
+import std;
 
 import cc.types.types;
 import cc.commands.command;

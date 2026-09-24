@@ -81,22 +81,15 @@
 /// =========================================================================
 module;
 
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
-#include <variant>
-#include <chrono>
-#include <sstream>
-#include <iomanip>
 #include <ctime>
-#include <functional>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_base.hpp>
 
 export module cc.ui.messages.message_row;
+
+import std;
 
 // --- Import per-type renderers ------------------------------------------
 import cc.ui.messages.message_timestamp;

@@ -8,14 +8,10 @@
 /// observer/UI dependencies when not needed.
 module;
 
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
-#include <unordered_set>
-#include <functional>
 
 export module cc.keybindings.shortcut_format;
+
+import std;
 
 import cc.keybindings.schema;
 import cc.keybindings.defaults;

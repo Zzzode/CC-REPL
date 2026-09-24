@@ -1,9 +1,7 @@
-module;
-#include <map>
-#include <string>
-#include <string_view>
 
 export module cc.utils.script_tool_enabled;
+
+import std;
 
 import cc.utils.env_utils;
 

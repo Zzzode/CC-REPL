@@ -83,22 +83,9 @@
 
 module;
 
-#include <algorithm>
 #include <cctype>
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <functional>
-#include <memory>
-#include <optional>
-#include <set>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <unordered_set>
-#include <utility>
-#include <variant>
-#include <vector>
 
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_base.hpp>
@@ -112,6 +99,8 @@ module;
 #include <ftxui/screen/color.hpp>
 
 export module cc.ui.messages.messages_list;
+
+import std;
 
 // ─── Strict re-uses (no type / colour duplication) ──────────────────────
 import cc.ui.messages.message_row;

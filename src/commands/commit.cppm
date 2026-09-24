@@ -6,18 +6,10 @@ module;
 
 #include <cstdint>
 #include <cstdio>
-#include <string>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <format>
-#include <ranges>
-#include <algorithm>
-#include <regex>
-#include <array>
-#include <span>
 
 export module cc.commands.commit;
+
+import std;
 
 import cc.types.types;
 import cc.commands.command;

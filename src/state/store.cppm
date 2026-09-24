@@ -4,27 +4,11 @@
 /// middleware pipeline, subscriptions, and async thunk support.
 module;
 
-#include <condition_variable>
 #include <cstdint>
-#include <string>
-#include <vector>
-#include <functional>
-#include <memory>
-#include <mutex>
-#include <shared_mutex>
-#include <unordered_map>
-#include <optional>
-#include <expected>
-#include <format>
-#include <concepts>
-#include <variant>
-#include <type_traits>
-#include <any>
-#include <queue>
-#include <future>
-#include <chrono>
 
 export module cc.state.store;
+
+import std;
 
 import cc.types.types;
 import cc.state.app_state;

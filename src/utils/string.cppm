@@ -2,14 +2,13 @@
 /// @brief String utility functions - equivalent to src/utils/string.ts
 module;
 
-#include <string>
-#include <vector>
-#include <optional>
-#include <sstream>
-#include <algorithm>
+#include <unistd.h>
 #include <cctype>
+#include <cstddef>
 
 export module cc.utils.string;
+
+import std;
 
 export namespace cc::utils {
 

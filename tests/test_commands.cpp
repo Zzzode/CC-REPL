@@ -2,24 +2,9 @@
 /// @brief Command system smoke tests aligned with current C++ module APIs.
 
 #include <gtest/gtest.h>
-#include <algorithm>
-#include <atomic>
-#include <chrono>
 #include <cstdlib>
-#include <expected>
-#include <filesystem>
-#include <fstream>
-#include <iterator>
-#include <map>
-#include <memory>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <system_error>
-#include <utility>
-#include <variant>
-#include <vector>
 
+import std;
 import cc.commands.command;
 import cc.commands.registry;
 import cc.query.query_engine;

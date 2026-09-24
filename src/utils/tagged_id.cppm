@@ -1,12 +1,10 @@
 module;
 
-#include <array>
 #include <cstdint>
-#include <expected>
-#include <string>
-#include <string_view>
 
 export module cc.utils.tagged_id;
+
+import std;
 
 export namespace cc::utils::tagged_id {
 

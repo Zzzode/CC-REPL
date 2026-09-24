@@ -38,19 +38,14 @@
 module;
 
 #include <cstring>
-#include <string>
-#include <vector>
-#include <optional>
-#include <filesystem>
-#include <algorithm>
-#include <format>
 #include <cmath>
 #include <cstdio>
-#include <chrono>
 
 #include <ftxui/dom/elements.hpp>
 
 export module cc.ui.prompt.prompt_input_footer;
+
+import std;
 
 // ANSI → FTXUI element converter (used by StatusLine for colored command output).
 // Lives in message_tool_result.cppm as a shared inline utility.

@@ -40,22 +40,15 @@
 // ────────────────────────────────────────────────────────────────────────
 module;
 
-#include <algorithm>
-#include <array>
 #include <cctype>
 #include <cstddef>
 #include <cstdint>
-#include <optional>
-#include <set>
-#include <string>
-#include <string_view>
-#include <unordered_map>
-#include <utility>
-#include <vector>
 
 #include <ftxui/dom/elements.hpp>
 
 export module cc.ui.messages.message_pipeline;
+
+import std;
 
 import cc.ui.foundation.design_figures;
 

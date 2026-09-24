@@ -1,13 +1,10 @@
 module;
 
-#include <string>
-#include <vector>
-#include <optional>
-#include <unordered_map>
-#include <variant>
-#include <chrono>
+#include <cstdint>
 
 export module cc.benchmarks.pare.schema;
+
+import std;
 
 export namespace cc::benchmarks::pare {
 

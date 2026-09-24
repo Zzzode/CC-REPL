@@ -8,12 +8,6 @@
 ///   └───────────────────────────────────────────────────────┘
 module;
 
-#include <tuple>
-#include <functional>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
@@ -21,6 +15,8 @@ module;
 #include <ftxui/component/event.hpp>
 
 export module cc.ui.messages.message_advisor;
+
+import std;
 
 import cc.ui.messages.message_components;
 

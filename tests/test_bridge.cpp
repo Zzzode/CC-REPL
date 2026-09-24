@@ -2,32 +2,15 @@
 /// @brief Bridge module smoke tests aligned with current C++ module APIs.
 
 #include <gtest/gtest.h>
-#include <algorithm>
-#include <array>
-#include <atomic>
-#include <chrono>
-#include <condition_variable>
 #include <cstdint>
 #include <cstdlib>
-#include <expected>
-#include <filesystem>
-#include <format>
-#include <fstream>
-#include <mutex>
 #include <netinet/in.h>
-#include <optional>
 #include <openssl/sha.h>
-#include <sstream>
-#include <string>
-#include <string_view>
 #include <sys/socket.h>
-#include <thread>
 #include <signal.h>
 #include <unistd.h>
-#include <utility>
-#include <variant>
-#include <vector>
 
+import std;
 import cc.bridge.api;
 import cc.bridge.config;
 import cc.bridge.messages;

@@ -5,34 +5,16 @@
  * and launches the full interactive FTXUI-based UI.
  */
 
-#include <sstream>
-#include <algorithm>
-#include <atomic>
-#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <csignal>
-#include <expected>
-#include <filesystem>
-#include <fstream>
-#include <functional>
-#include <iostream>
-#include <memory>
-#include <optional>
-#include <print>
-#include <ranges>
-#include <string>
-#include <thread>
-#include <unordered_map>
-#include <unordered_set>
-#include <variant>
-#include <vector>
 #ifndef _WIN32
 #include <unistd.h>
 #endif
 
 // Import our core modules
+import std;
 import cc.query.query_engine;
 import cc.types.types;
 import cc.tools.tool;

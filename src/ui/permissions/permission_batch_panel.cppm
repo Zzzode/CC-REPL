@@ -17,20 +17,8 @@
 /// footer buttons since decisions are driven from the batch toolbar/nav.
 module;
 
-#include <array>
-#include <algorithm>
 #include <cstddef>
 #include <cstdint>
-#include <format>
-#include <functional>
-#include <memory>
-#include <numeric>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <unordered_map>
-#include <utility>
-#include <vector>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
@@ -38,6 +26,8 @@ module;
 #include <ftxui/component/event.hpp>
 
 export module cc.ui.permissions.batch_panel;
+
+import std;
 
 import cc.utils.permissions_engine;
 import cc.ui.permissions.components;

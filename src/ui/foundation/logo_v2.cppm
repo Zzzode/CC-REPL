@@ -21,18 +21,15 @@
 // ==========================================================================
 
 module;
-#include <array>
+#include <unistd.h>
 #include <cstddef>
 #include <cstdint>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
 
 export module cc.ui.foundation.logo_v2;
+
+import std;
 
 import cc.ui.foundation.logo;  // LogoDisplayData + RenderCondensedLogoElement +
                      // RenderOpus1MNotice + RenderBrandChip helpers

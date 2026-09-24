@@ -16,18 +16,14 @@
 /// literals are introduced.
 module;
 
-#include <algorithm>
 #include <cstddef>
 #include <cstdint>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 #include <ftxui/dom/elements.hpp>
 
 export module cc.ui.features.teams.live_teammates;
+
+import std;
 
 import cc.ui.foundation.theme_provider;
 import cc.ui.features.agents.agent_shared_widgets;

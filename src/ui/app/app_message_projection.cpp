@@ -6,17 +6,14 @@
 // Contains: project_message, project_messages, RenderMessage.
 module;
 
-#include <chrono>
 #include <cstdio>
 #include <cstddef>
-#include <optional>
-#include <string>
-#include <variant>
-#include <vector>
 
 #include <ftxui/dom/elements.hpp>
 
 module cc.ui.app.app;
+
+import std;
 
 import cc.types.types;
 import cc.ui.screens.repl_screen;

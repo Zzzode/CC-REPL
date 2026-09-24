@@ -2,42 +2,20 @@
 /// @brief Runtime registration for all migrated tools exposed to the query engine.
 module;
 
-#include <algorithm>
-#include <array>
 #include <cerrno>
-#include <charconv>
-#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cctype>
 #include <cstdint>
 #include <cstring>
-#include <expected>
-#include <filesystem>
-#include <format>
-#include <fstream>
-#include <functional>
-#include <iostream>
-#include <map>
-#include <memory>
-#include <optional>
-#include <regex>
-#include <sstream>
-#include <span>
-#include <string>
-#include <string_view>
-#include <system_error>
-#include <thread>
-#include <unordered_map>
-#include <utility>
-#include <vector>
 #ifndef _WIN32
 #include <sys/socket.h>
 #include <sys/un.h>
-#include <unistd.h>
 #endif
 
 export module cc.tools.runtime_registry;
+
+import std;
 import cc.utils.parse_int;
 
 import cc.tools.tool;

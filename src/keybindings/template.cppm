@@ -8,14 +8,10 @@
 module;
 
 #include <cctype>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <sstream>
-#include <algorithm>
-#include <unordered_set>
 
 export module cc.keybindings.template_;
+
+import std;
 
 import cc.keybindings.schema;
 import cc.keybindings.defaults;

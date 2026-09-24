@@ -5,25 +5,10 @@
 module;
 
 #include <cstdint>
-#include <exception>
-#include <expected>
-#include <string>
-#include <vector>
-#include <deque>
-#include <memory>
-#include <mutex>
-#include <optional>
-#include <fstream>
-#include <sstream>
-#include <format>
-#include <chrono>
-#include <filesystem>
-#include <type_traits>
-#include <unordered_map>
-#include <utility>
-#include <variant>
 
 export module cc.session.history;
+
+import std;
 
 import cc.types.types;
 import cc.utils.json;

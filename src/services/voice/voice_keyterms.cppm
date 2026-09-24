@@ -5,18 +5,13 @@
 /// names that would otherwise be misheard.
 module;
 
-#include <array>
 #include <cstdint>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <set>
-#include <algorithm>
-#include <filesystem>
-#include <optional>
 #include <cctype>
+#include <cstddef>
 
 export module cc.services.voice.keyterms;
+
+import std;
 
 export namespace cc::services::voice::keyterms {
 

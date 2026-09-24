@@ -1,30 +1,13 @@
 module;
 
-#include <string>
-#include <string_view>
-#include <vector>
-#include <expected>
-#include <optional>
-#include <functional>
 #include <cstdint>
 #include <cstdlib>
-#include <filesystem>
-#include <fstream>
-#include <format>
-#include <sstream>
-#include <map>
-#include <algorithm>
 #include <cctype>
-#include <iterator>
-#include <chrono>
-#include <mutex>
-#include <ostream>
-#include <thread>
-#include <unordered_map>
-#include <unordered_set>
-#include <variant>
+#include <cstdio>
 
 export module cc.tools.agent_runtime;
+
+import std;
 
 import cc.utils.json;
 import cc.utils.team_helpers;
@@ -2610,9 +2593,6 @@ inline AgentLifecycle get_agent_lifecycle(std::string_view agent_id);
     return out;
 }
 
-
-
-
 [[nodiscard]] inline std::string xml_escape(std::string_view text) {
     std::string out;
     out.reserve(text.size());
@@ -3642,7 +3622,6 @@ inline NativeAgentStore& native_agent_store() {
     static NativeAgentStore store;
     return store;
 }
-
 
 // NOTE: build_fork_child_message and build_worktree_fork_notice are defined
 // earlier in this translation unit (near the public API declarations) with

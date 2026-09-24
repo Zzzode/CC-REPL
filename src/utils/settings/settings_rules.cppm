@@ -6,23 +6,11 @@ module;
 
 #include <cctype>
 #include <cstdlib>
-#include <algorithm>
-#include <array>
-#include <filesystem>
-#include <functional>
-#include <map>
-#include <optional>
-#include <regex>
-#include <set>
-#include <string>
-#include <string_view>
-#include <unordered_map>
-#include <unordered_set>
-#include <utility>
-#include <variant>
-#include <vector>
+#include <cstddef>
 
 export module cc.utils.settings_rules;
+
+import std;
 
 export namespace cc::utils::settings_rules {
 

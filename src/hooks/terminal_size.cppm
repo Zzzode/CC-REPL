@@ -1,24 +1,18 @@
 // C++23 Module: Terminal size monitoring with SIGWINCH subscription and debounced resize events
 module;
 
-#include <atomic>
-#include <chrono>
 #include <csignal>
 #include <cstddef>
 #include <cstdint>
-#include <functional>
-#include <mutex>
-#include <optional>
-#include <utility>
-#include <vector>
 
 #include <sys/ioctl.h>
 #include <unistd.h>
 
 export module cc.hooks.terminal_size;
 
-export namespace cc::hooks {
+import std;
 
+export namespace cc::hooks {
 
 struct TerminalDimensions {
     std::uint16_t cols{80};
@@ -32,21 +26,17 @@ struct TerminalDimensions {
     auto operator!=(const TerminalDimensions&) const -> bool = default;
 };
 
-
 struct ResizeEvent {
     TerminalDimensions old_dims;
     TerminalDimensions new_dims;
     std::chrono::steady_clock::time_point timestamp;
 
-
     [[nodiscard]] auto changed() const -> bool { return old_dims != new_dims; }
 };
-
 
 using UnsubscribeFn = std::function<void()>;
 
 using ResizeCallback = std::function<void(const ResizeEvent&)>;
-
 
 class TerminalSizeHook {
     using Clock = std::chrono::steady_clock;
@@ -59,7 +49,6 @@ public:
 
     ~TerminalSizeHook() { stop_monitoring(); }
 
-
     [[nodiscard]] auto get_size() -> TerminalDimensions {
         if (s_resize_flag_.load(std::memory_order_relaxed)) {
             s_resize_flag_.store(false, std::memory_order_relaxed);
@@ -68,7 +57,6 @@ public:
         std::lock_guard lock{mu_};
         return current_;
     }
-
 
     [[nodiscard]] auto on_resize(ResizeCallback callback) -> UnsubscribeFn {
         std::lock_guard lock{mu_};
@@ -81,13 +69,11 @@ public:
         };
     }
 
-
     [[nodiscard]] auto is_too_small(std::uint16_t min_cols = 40,
                                      std::uint16_t min_rows = 10) -> bool {
         auto dims = get_size();
         return dims.cols < min_cols || dims.rows < min_rows;
     }
-
 
     auto start_monitoring() -> void {
         std::lock_guard lock{mu_};
@@ -104,7 +90,6 @@ public:
         sigaction(SIGWINCH, &sa, nullptr);
     }
 
-
     auto stop_monitoring() -> void {
         std::lock_guard lock{mu_};
         if (!monitoring_) return;
@@ -116,7 +101,6 @@ public:
         sigemptyset(&sa.sa_mask);
         sigaction(SIGWINCH, &sa, nullptr);
     }
-
 
     auto handle_resize_signal() -> void {
         auto new_dims = query_terminal_size();
@@ -133,7 +117,6 @@ public:
 
         emit_resize(new_dims, now);
     }
-
 
     auto flush_pending() -> void {
         std::lock_guard lock{mu_};
@@ -166,7 +149,6 @@ private:
     std::uint64_t next_id_{1};
     bool monitoring_{false};
 
-
     [[nodiscard]] static auto query_terminal_size() -> TerminalDimensions {
         TerminalDimensions dims;
         struct winsize ws{};
@@ -176,7 +158,6 @@ private:
         }
         return dims;
     }
-
 
     auto emit_resize(TerminalDimensions new_dims, Clock::time_point now) -> void {
         ResizeEvent event{

@@ -1,19 +1,10 @@
 // GlobTool - File system glob pattern matching
 module;
 
-#include <filesystem>
-#include <format>
-#include <expected>
-#include <memory>
-#include <optional>
-#include <algorithm>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <unordered_set>
-#include <regex>
 
 export module cc.tools.glob;
+
+import std;
 
 import cc.utils.file;
 import cc.utils.error;

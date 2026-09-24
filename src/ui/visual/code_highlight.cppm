@@ -9,27 +9,18 @@
 ///   function) heuristic matches TS Fallback.tsx line-for-line.
 module;
 
-#include <algorithm>
-#include <string>
-#include <vector>
-#include <memory>
-#include <functional>
-#include <optional>
-#include <format>
 #include <cstdint>
-#include <unordered_map>
-#include <expected>
-#include <algorithm>
-#include <string_view>
-#include <array>
 #include <cctype>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_base.hpp>
 #include <ftxui/component/event.hpp>
+#include <cstddef>
 
 export module cc.ui.visual.code_highlight;
+
+import std;
 
 import cc.types.types;
 

@@ -1,16 +1,10 @@
 module;
 
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
-#include <filesystem>
-#include <fstream>
-#include <sstream>
-#include <algorithm>
-#include <regex>
+#include <cstddef>
 
 export module cc.utils.gitignore;
+
+import std;
 
 export namespace cc::utils {
 

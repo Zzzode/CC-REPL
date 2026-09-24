@@ -5,25 +5,10 @@
 module;
 
 #include <cstdint>
-#include <string>
-#include <vector>
-#include <memory>
-#include <functional>
-#include <unordered_map>
-#include <optional>
-#include <expected>
-#include <chrono>
-#include <format>
-#include <ranges>
-#include <algorithm>
-#include <mutex>
-#include <atomic>
-#include <coroutine>
-#include <deque>
-#include <concepts>
-#include <set>
 
 export module cc.tasks.task_graph;
+
+import std;
 
 import cc.types.types;
 import cc.coordinator.swarm;

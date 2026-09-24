@@ -6,16 +6,11 @@
 /// and cannot be generated from Zod schemas.
 module;
 
-#include <string>
-#include <vector>
-#include <optional>
-#include <variant>
-#include <unordered_map>
-#include <functional>
-#include <memory>
 #include <cstdint>
 
 export module cc.entrypoints.runtime_types;
+
+import std;
 
 import cc.entrypoints.core_types;
 import cc.entrypoints.core_schemas;

@@ -6,20 +6,12 @@
 /// is exercised end to end.  yyjson is used to build request bodies and
 /// inspect parsed replies.
 
-#include <atomic>
-#include <chrono>
-#include <condition_variable>
 #include <errno.h>
 #include <gtest/gtest.h>
-#include <memory>
-#include <mutex>
 #include <signal.h>
-#include <string>
-#include <string_view>
 #include <sys/types.h>
-#include <thread>
-#include <vector>
 
+import std;
 import cc.services.mcp.stdio;
 
 using namespace cc::services::mcp::stdio;

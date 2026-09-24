@@ -4,16 +4,8 @@
 /// Retry / Diagnose / Dismiss action buttons.
 module;
 
-#include <string>
-#include <vector>
-#include <memory>
-#include <functional>
-#include <optional>
-#include <format>
 #include <cstdint>
-#include <chrono>
 #include <cmath>
-#include <algorithm>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
@@ -21,6 +13,8 @@ module;
 #include <ftxui/component/event.hpp>
 
 export module cc.ui.messages.api_error_message;
+
+import std;
 
 export namespace cc::ui::messages::api_error_message {
 using namespace ftxui;

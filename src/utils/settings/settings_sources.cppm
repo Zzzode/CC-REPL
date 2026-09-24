@@ -1,13 +1,6 @@
-module;
-
-#include <algorithm>
-#include <array>
-#include <expected>
-#include <string>
-#include <string_view>
-#include <vector>
-
 export module cc.utils.settings_sources;
+
+import std;
 
 export namespace cc::utils::settings_sources {
 

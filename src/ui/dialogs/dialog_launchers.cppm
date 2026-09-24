@@ -20,18 +20,13 @@
 module;
 
 #include <cstdint>
-#include <functional>
-#include <memory>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/screen_interactive.hpp>
 
 export module cc.ui.dialogs.launchers;
+
+import std;
 
 import cc.ui.dialogs.system;
 import cc.ui.foundation.theme_provider;

@@ -2,11 +2,11 @@
 /// @brief Badge/indicator for worker permission mode
 module;
 
-#include <string>
-#include <string_view>
 #include <ftxui/dom/elements.hpp>
 
 export module cc.ui.permissions.permission_worker_badge;
+
+import std;
 
 export namespace cc::ui::permissions {
 

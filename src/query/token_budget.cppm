@@ -4,11 +4,10 @@
 module;
 
 #include <cstdint>
-#include <algorithm>
-#include <string>
-#include <optional>
 
 export module cc.query.token_budget;
+
+import std;
 
 export namespace cc::query {
 

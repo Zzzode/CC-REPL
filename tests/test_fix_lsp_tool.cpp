@@ -26,13 +26,9 @@
 
 #include <gtest/gtest.h>
 
-#include <filesystem>
-#include <memory>
-#include <optional>
-#include <string>
-#include <string_view>
 #include <unistd.h>
 
+import std;
 import cc.tools.lsp;
 import cc.utils.json;
 import cc.services.lsp.types;

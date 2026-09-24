@@ -6,14 +6,13 @@
 /// that default_renderers delegates to.
 module;
 #include <cstdint>
-#include <functional>
-#include <string>
-#include <string_view>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/event.hpp>
 
 export module cc.ui.dialogs.sandbox_permission;
+
+import std;
 
 export namespace cc::ui::dialogs::sandbox_permission {
 

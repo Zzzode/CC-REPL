@@ -8,21 +8,13 @@
 module;
 
 #include <cctype>
-#include <array>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <functional>
-#include <format>
-#include <chrono>
-#include <thread>
-#include <regex>
-#include <algorithm>
 #include <cstdint>
+#include <cstddef>
+#include <cstdio>
 
 export module cc.skills.bundled.loop;
+
+import std;
 
 import cc.skills.skill;
 import cc.skills.load_skills_dir;

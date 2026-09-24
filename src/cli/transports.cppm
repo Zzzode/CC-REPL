@@ -1,18 +1,13 @@
 // C++23 Module: CLI transport layer
 
 module;
-#include <concepts>
+#include <unistd.h>
 #include <cstddef>
 #include <cstdint>
-#include <expected>
-#include <format>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <variant>
-#include <vector>
 
 export module cc.cli.transports;
+
+import std;
 
 
 export namespace cc::cli::transports {

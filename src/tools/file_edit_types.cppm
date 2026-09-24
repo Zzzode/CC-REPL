@@ -1,15 +1,12 @@
 // FileEditTool types — migrated from src/tools/FileEditTool/types.ts + constants.ts
 // Agent 9: audit completed 2026-06-09. All TS types / error codes / constants ported.
 module;
+#include <unistd.h>
 #include <cstdint>
-#include <filesystem>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <expected>
 
 export module cc.tools.file_edit_types;
+
+import std;
 
 export namespace cc::tools::file_edit {
 

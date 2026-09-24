@@ -1,12 +1,9 @@
 module;
-#include <string>
-#include <optional>
-#include <sstream>
-#include <iomanip>
-#include <array>
 #include <cmath>
 
 export module cc.ui.foundation.progress_bar;
+
+import std;
 
 import cc.ui.foundation.design_figures;  // kSpinnerFrames canonical set (GAP 4)
 

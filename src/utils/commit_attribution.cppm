@@ -1,17 +1,10 @@
 module;
 
-#include <array>
-#include <algorithm>
 #include <cstdint>
-#include <iomanip>
-#include <map>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 export module cc.utils.commit_attribution;
+
+import std;
 
 export namespace cc::utils::commit_attribution {
 

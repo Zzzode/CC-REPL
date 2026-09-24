@@ -5,29 +5,17 @@
 // that hook/source files will eventually migrate toward.
 module;
 
-#include <condition_variable>
-#include <algorithm>
-#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <expected>
-#include <filesystem>
-#include <fstream>
-#include <memory>
-#include <mutex>
-#include <optional>
-#include <shared_mutex>
-#include <string>
-#include <string_view>
-#include <unordered_map>
-#include <utility>
-#include <vector>
 
 #include <yyjson.h>
+#include <cstddef>
 
 export module cc.history;
+
+import std;
 
 import cc.utils.json;
 

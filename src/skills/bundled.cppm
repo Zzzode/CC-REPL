@@ -1,3 +1,7 @@
+module;
+
+#include <cstdio>
+
 // ============================================================================
 // Bundled skills registry audit (Phase 2, Agent S2 + S4):
 //   Source of truth: src/skills/bundled/index.ts (17 skills + 4 conditional)
@@ -52,18 +56,10 @@
 ///   3. Validation (verify, verify-content)
 ///   4. Workflow (debug, simplify, skillify, self-unstuck, stuck, loop, batch)
 ///   6. Integration (loom-api, loom-api-content, loom-in-chrome)
-module;
-
-#include <algorithm>
-#include <string>
-#include <vector>
-#include <array>
-#include <memory>
-#include <optional>
-#include <format>
-#include <ranges>
 
 export module cc.skills.bundled;
+
+import std;
 
 import cc.skills.skill;
 import cc.skills.load_skills_dir;

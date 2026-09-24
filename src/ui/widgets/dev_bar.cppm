@@ -1,10 +1,10 @@
 module;
 
-#include <string>
-#include <vector>
 #include <ftxui/dom/elements.hpp>
 
 export module cc.ui.widgets.dev_bar;
+
+import std;
 
 export namespace ui::components {
 

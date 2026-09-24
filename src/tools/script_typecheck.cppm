@@ -5,21 +5,12 @@
 // numbers to account for an injected preamble.
 module;
 
-#include <array>
 #include <cstdio>
 #include <cstdlib>
-#include <expected>
-#include <filesystem>
-#include <fstream>
-#include <format>
-#include <chrono>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <algorithm>
-#include <optional>
 
 export module cc.tools.script_typecheck;
+
+import std;
 
 import cc.tools.script_types;
 import cc.tools.script_diagnostics;

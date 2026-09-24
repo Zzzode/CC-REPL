@@ -2,16 +2,10 @@
 // Migrated from: useAwaySummary.ts
 module;
 
-#include <string>
-#include <string_view>
-#include <vector>
-#include <expected>
-#include <chrono>
-#include <optional>
-#include <mutex>
-#include <format>
 
 export module cc.hooks.away_summary;
+
+import std;
 
 export namespace cc::hooks::away_summary {
 

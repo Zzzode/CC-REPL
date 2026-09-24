@@ -7,6 +7,12 @@
 //
 // Splitting these out removes 4 heavy imports (figures, at_attachments,
 // message_pipeline, types) from app_autocomplete.cpp.
+//
+// Phase A (import std): this impl unit deliberately keeps std TEXTUAL and
+// does NOT `import std;`. clang 22.1.8's reduced-BMI writer (LLVM #184957,
+// fixed in clang 23 / PR #179178) leaks a duplicate aligned operator new into
+// impl units of a primary whose GMF pulls libc++ textually (app.cppm via FTXUI),
+// causing "operator new is ambiguous". Re-evaluate after the toolchain upgrade.
 module;
 
 #include <algorithm>
@@ -27,6 +33,7 @@ module;
 #include <vector>
 
 module cc.ui.app.app;
+
 import cc.query.query_engine;
 import cc.commands.registry;
 import cc.commands.command;

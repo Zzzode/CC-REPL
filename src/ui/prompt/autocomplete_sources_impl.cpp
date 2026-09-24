@@ -3,21 +3,11 @@
 module;
 
 #include <cctype>
-#include <algorithm>
-#include <chrono>
 #include <cstdlib>
-#include <filesystem>
-#include <format>
-#include <fstream>
-#include <mutex>
-#include <optional>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <unordered_set>
-#include <vector>
 
 module cc.ui.prompt.autocomplete_sources;
+
+import std;
 
 import cc.skills.skill;
 import cc.skills.load_skills_dir;

@@ -4,19 +4,11 @@
 /// preserves key information, and manages token budgets.
 module;
 
-#include <array>
 #include <cstdint>
-#include <string>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <format>
-#include <ranges>
-#include <algorithm>
-#include <numeric>
-#include <span>
 
 export module cc.commands.compact;
+
+import std;
 
 import cc.types.types;
 import cc.commands.command;

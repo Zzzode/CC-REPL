@@ -1,15 +1,10 @@
 module;
 
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
-#include <filesystem>
 #include <cstdio>
-#include <array>
-#include <sstream>
 
 export module cc.utils.get_worktree_paths;
+
+import std;
 import cc.utils.bash_execution;
 
 export namespace cc::utils {

@@ -1,32 +1,18 @@
 /// @file voice_stream_stt.cppm
 
-
 module;
 
 #include <cstdint>
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <chrono>
-#include <format>
-#include <functional>
-#include <memory>
-#include <queue>
-#include <atomic>
-#include <mutex>
-#include <condition_variable>
-#include <thread>
-#include <random>
 #include <sys/socket.h>
 #include <netdb.h>
 #include <unistd.h>
 
 export module cc.services.voice_stream_stt;
+
+import std;
 
 import cc.utils.error;
 
@@ -50,7 +36,6 @@ constexpr std::uint32_t FINALIZE_TIMEOUT_NO_DATA_MS = 1500;
 
 // ============================================================
 
-
 enum class ConnectionState : std::uint8_t {
     Disconnected,
     Connecting,
@@ -58,7 +43,6 @@ enum class ConnectionState : std::uint8_t {
     Finalizing,
     Closed
 };
-
 
 using TranscriptCallback = std::function<void(std::string_view text, bool is_final)>;
 
@@ -68,14 +52,12 @@ using CloseCallback = std::function<void()>;
 
 using ReadyCallback = std::function<void()>;
 
-
 struct VoiceStreamConfig {
     std::string language = "en";
     std::vector<std::string> keyterms;
     bool use_conversation_engine = false;
     std::string stt_provider;
 };
-
 
 enum class FinalizeSource : std::uint8_t {
     PostClosestreamEndpoint,
@@ -100,13 +82,11 @@ public:
     VoiceStreamSTTService(const VoiceStreamSTTService&) = delete;
     VoiceStreamSTTService& operator=(const VoiceStreamSTTService&) = delete;
 
-
     [[nodiscard]] static bool is_available() noexcept {
         return std::getenv("ANTHROPIC_API_KEY") != nullptr ||
                std::getenv("LOOM_OAUTH_TOKEN") != nullptr ||
                std::getenv("LOOM_OAUTH_REFRESH_TOKEN") != nullptr;
     }
-
 
     std::expected<void, Error> connect(
         const VoiceStreamConfig& config,
@@ -226,7 +206,6 @@ public:
         return {};
     }
 
-
     void send_audio(const std::vector<std::uint8_t>& audio_data) {
         if (state_.load() != ConnectionState::Connected) return;
         if (finalized_.load()) return;
@@ -234,7 +213,6 @@ public:
         // Send as WebSocket binary frame (opcode 0x02, masked)
         send_ws_frame(0x02, audio_data.data(), audio_data.size());
     }
-
 
     FinalizeSource finalize() {
         if (finalizing_.exchange(true)) {
@@ -259,7 +237,6 @@ public:
 
         return FinalizeSource::PostClosestreamEndpoint;
     }
-
 
     void close() noexcept {
         finalized_.store(true);
@@ -467,7 +444,6 @@ private:
 // ============================================================
 
 // ============================================================
-
 
 [[nodiscard]] inline std::expected<std::unique_ptr<VoiceStreamSTTService>, Error> create_and_connect(
     const VoiceStreamConfig& config,

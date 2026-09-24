@@ -1,12 +1,11 @@
 /// @file mcp_elicitation.cppm
 /// @brief MCP elicitation request UI (server asking for user input)
 module;
-#include <string>
-#include <vector>
-#include <optional>
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
 export module cc.ui.features.mcp.mcp_elicitation;
+
+import std;
 export namespace cc::ui::mcp {
 using namespace ftxui;
 struct ElicitationField { std::string name; std::string description; std::string type; bool required{false}; std::optional<std::string> default_value; };

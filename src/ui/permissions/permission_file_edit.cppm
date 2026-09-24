@@ -37,15 +37,8 @@
 
 module;
 
-#include <algorithm>
 #include <cstddef>
 #include <cstdint>
-#include <functional>
-#include <memory>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <vector>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
@@ -53,6 +46,8 @@ module;
 #include <ftxui/component/event.hpp>
 
 export module cc.ui.permissions.permission_file_edit;
+
+import std;
 
 import cc.ui.visual.file_edit_tool_diff;
 import cc.ui.permissions.components;

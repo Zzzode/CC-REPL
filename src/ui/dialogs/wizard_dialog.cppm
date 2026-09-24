@@ -25,20 +25,8 @@
 /// OWNED BY dedicated agents — this file is the framework + samples only.
 module;
 
-#include <string>
-#include <vector>
-#include <functional>
-#include <optional>
-#include <expected>
-#include <algorithm>
+#include <unistd.h>
 #include <cstdint>
-#include <memory>
-#include <any>
-#include <unordered_map>
-#include <variant>
-#include <sstream>
-#include <format>
-#include <utility>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
@@ -46,6 +34,8 @@ module;
 #include <ftxui/component/event.hpp>
 
 export module cc.ui.dialogs.wizard_dialog;
+
+import std;
 
 export namespace cc::ui::wizard_dialog {
 using namespace ftxui;

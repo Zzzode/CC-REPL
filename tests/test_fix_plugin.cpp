@@ -12,12 +12,9 @@
 // logic without touching the network (directory/file sources only).
 
 #include <cstdlib>
-#include <filesystem>
-#include <fstream>
 #include <gtest/gtest.h>
-#include <string>
-#include <thread>
 
+import std;
 import cc.utils.json;
 import cc.utils.plugin_marketplace;
 import cc.utils.plugin_validation;

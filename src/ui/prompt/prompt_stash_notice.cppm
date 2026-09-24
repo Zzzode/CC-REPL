@@ -7,12 +7,12 @@
 ///   after the current request completes.
 module;
 
-#include <string>
-#include <format>
 
 #include <ftxui/dom/elements.hpp>
 
 export module cc.ui.prompt.prompt_stash_notice;
+
+import std;
 
 import cc.ui.foundation.design_figures;  // kPointerSmall (figures.pointerSmall '›')
 

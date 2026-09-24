@@ -1,12 +1,10 @@
 module;
 
 #include <ctime>
-#include <string>
-#include <functional>
-#include <filesystem>
-#include <fstream>
 
 export module cc.benchmarks.pare.workspace;
+
+import std;
 
 import cc.utils.process;
 import cc.utils.git;

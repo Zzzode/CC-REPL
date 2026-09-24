@@ -2,18 +2,11 @@
 // Migrated from: useReplBridge.tsx
 module;
 
-#include <string>
-#include <string_view>
-#include <expected>
-#include <functional>
-#include <chrono>
 #include <cstdint>
-#include <mutex>
-#include <atomic>
-#include <vector>
-#include <deque>
 
 export module cc.hooks.repl_bridge;
+
+import std;
 
 export namespace cc::hooks::repl_bridge {
 

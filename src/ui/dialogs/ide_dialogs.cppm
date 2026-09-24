@@ -3,12 +3,6 @@
 /// Migrated from IdeAutoConnectDialog.tsx, IdeOnboardingDialog.tsx, IdeStatusIndicator.tsx.
 module;
 
-#include <string>
-#include <vector>
-#include <functional>
-#include <optional>
-#include <expected>
-#include <algorithm>
 #include <cstdint>
 
 #include <ftxui/dom/elements.hpp>
@@ -17,6 +11,8 @@ module;
 #include <ftxui/component/event.hpp>
 
 export module cc.ui.dialogs.ide_dialogs;
+
+import std;
 
 export namespace cc::ui::ide_dialogs {
 using namespace ftxui;

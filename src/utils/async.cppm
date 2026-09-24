@@ -2,29 +2,15 @@
 // Provides Task<T>, EventLoop, timers, async IO, channels, and combinators
 module;
 
-#include <chrono>
-#include <concepts>
-#include <coroutine>
+#include <unistd.h>
 #include <cstddef>
 #include <cstdint>
-#include <deque>
-#include <exception>
-#include <expected>
-#include <format>
-#include <functional>
-#include <memory>
-#include <mutex>
-#include <optional>
-#include <string>
-#include <tuple>
-#include <type_traits>
-#include <utility>
-#include <variant>
-#include <vector>
 
 #include <uv.h>
 
 export module cc.utils.async;
+
+import std;
 
 import cc.utils.error;
 

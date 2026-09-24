@@ -6,37 +6,24 @@ module;
 
 #include <cerrno>
 #include <cctype>
-#include <unordered_map>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <expected>
-#include <optional>
-#include <functional>
-#include <chrono>
 #include <cstdint>
-#include <memory>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <array>
-#include <algorithm>
-#include <filesystem>
-#include <deque>
-#include <mutex>
 
 #ifdef _WIN32
 #include <windows.h>
 #else
-#include <unistd.h>
 #include <signal.h>
 #include <sys/wait.h>
 #include <sys/types.h>
+#include <unistd.h>
 #include <dirent.h>
 #include <spawn.h>
 #include <sys/socket.h>
 #ifdef __APPLE__
 #include <crt_externs.h>
+#include <cstddef>
 #define CC_ENVIRON (*_NSGetEnviron())
 #else
 extern char** environ;
@@ -45,6 +32,8 @@ extern char** environ;
 #endif
 
 export module cc.utils.bash_execution;
+
+import std;
 
 export namespace cc::utils::bash {
 

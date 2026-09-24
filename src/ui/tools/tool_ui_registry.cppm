@@ -23,15 +23,10 @@
 ///     tool.extractSearchText?(output)  -> string (rich searchable text)
 module;
 
-#include <functional>
-#include <memory>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <unordered_map>
-#include <utility>
 
 export module cc.ui.tools.registry;
+
+import std;
 
 export namespace cc::ui::tools {
 

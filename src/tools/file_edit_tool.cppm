@@ -17,26 +17,12 @@
 module;
 
 #include <cctype>
-#include <algorithm>
-#include <chrono>
 #include <cstdint>
-#include <expected>
-#include <filesystem>
-#include <format>
-#include <fstream>
-#include <functional>
-#include <memory>
-#include <optional>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <system_error>
-#include <unordered_map>
-#include <unordered_set>
-#include <utility>
-#include <vector>
+#include <cstddef>
 
 export module cc.tools.file_edit;
+
+import std;
 
 import cc.tools.tool;
 import cc.tools.file_edit_types;

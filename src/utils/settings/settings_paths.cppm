@@ -1,10 +1,6 @@
-module;
-
-#include <optional>
-#include <string>
-#include <string_view>
-
 export module cc.utils.settings_paths;
+
+import std;
 
 import cc.utils.settings_sources;
 

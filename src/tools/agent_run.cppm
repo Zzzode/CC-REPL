@@ -1,37 +1,14 @@
 module;
 
-#include <atomic>
-#include <algorithm>
-#include <charconv>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
-#include <expected>
-#include <format>
-#include <fstream>
-#include <functional>
-#include <initializer_list>
-#include <iterator>
-#include <limits>
-#include <memory>
-#include <string>
-#include <string_view>
-#include <optional>
-#include <vector>
-#include <array>
-#include <utility>
-#include <sstream>
 #include <cctype>
-#include <chrono>
 #include <cstdint>
-#include <filesystem>
-#include <system_error>
-#include <thread>
-#include <unordered_map>
-#include <unordered_set>
-#include <sys/wait.h>
 
 export module cc.tools.agent.run;
+
+import std;
 
 import cc.utils.error;
 import cc.utils.git;
@@ -118,7 +95,6 @@ using cc::tools::agent::utils::format_agent_runtime_context;
 using cc::tools::agent::fork_::forked_messages_from_parent_assistant_entries;
 using cc::tools::agent::fork_::messages_contain_fork_boilerplate;
 using cc::tools::agent::resume_::hydrate_resume_plan_from_existing_record;
-
 
 [[nodiscard]] inline std::expected<AgentExecutionPlan, std::string> build_agent_execution_plan(
     const AgentToolRequest& request,
@@ -363,6 +339,5 @@ using cc::tools::agent::resume_::hydrate_resume_plan_from_existing_record;
     }
     return ToolResult::success(std::move(result->output));
 }
-
 
 } // namespace cc::tools::agent::run_

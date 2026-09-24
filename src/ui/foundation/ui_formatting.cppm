@@ -10,21 +10,13 @@
 ///   - Source: src/components/ManagedSettingsSecurityDialog/utils.ts (144 lines → partial, types only)
 module;
 
-#include <algorithm>
 #include <cctype>
 #include <cstdint>
-#include <format>
-#include <functional>
-#include <iomanip>
-#include <map>
-#include <optional>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <tuple>
-#include <vector>
+#include <cstddef>
 
 export module cc.ui.foundation.ui_formatting;
+
+import std;
 
 export namespace cc::ui::common::formatting {
 

@@ -7,24 +7,17 @@
 // their canonical source of truth.
 module;
 
-#include <algorithm>
 #include <cctype>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
-#include <expected>
-#include <optional>
-#include <random>
-#include <string>
-#include <string_view>
-#include <unordered_map>
-#include <unordered_set>
-#include <utility>
-#include <vector>
 
 #include <yyjson.h>
+#include <cstddef>
 
 export module cc.task_types;
+
+import std;
 
 import cc.utils.json;
 

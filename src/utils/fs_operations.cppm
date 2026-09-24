@@ -1,18 +1,5 @@
 module;
 
-#include <filesystem>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <functional>
-#include <memory>
-#include <regex>
-#include <thread>
-#include <atomic>
-#include <chrono>
-#include <system_error>
 
 #if defined(__APPLE__)
 #include <sys/event.h>
@@ -20,11 +7,14 @@ module;
 #include <unistd.h>
 #elif defined(__linux__)
 #include <sys/inotify.h>
-#include <unistd.h>
 #include <poll.h>
+#include <unistd.h>
+#include <cstddef>
 #endif
 
 export module cc.utils.fs_operations;
+
+import std;
 
 namespace fs = std::filesystem;
 

@@ -1,27 +1,11 @@
 // McpTool - Invokes tools and resources exposed by connected MCP servers
 module;
 #include <cctype>
-#include <chrono>
-#include <algorithm>
-#include <condition_variable>
 #include <cstdlib>
-#include <expected>
-#include <filesystem>
-#include <format>
-#include <fstream>
-#include <map>
-#include <memory>
-#include <mutex>
-#include <optional>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <thread>
-#include <unordered_map>
-#include <utility>
-#include <vector>
 
 export module cc.tools.mcp;
+
+import std;
 
 import cc.config.config;
 import cc.services.mcp.config;
@@ -32,7 +16,6 @@ import cc.utils.json;
 import cc.tools.tool;
 import cc.tools.mcp_classify;  // migrated: integrate collapse decision
 import cc.hooks.remaining_notifs;  // W7: feed MCP connectivity slot from live manager
-
 
 export namespace cc::tools {
 
@@ -68,7 +51,6 @@ constexpr auto format_error(McpError err) -> std::string_view {
     }
 }
 
-
 struct McpServerInfo {
     std::string name;
     std::string endpoint;        // stdio, sse, or streamable-http URL
@@ -76,7 +58,6 @@ struct McpServerInfo {
     std::vector<std::string> available_tools;
     std::vector<std::string> available_resources;
 };
-
 
 struct McpToolRequest {
     std::string server_name;
@@ -86,7 +67,6 @@ struct McpToolRequest {
     std::chrono::seconds timeout{30};
 };
 
-
 struct McpToolResult {
     std::string content;                          ///< flattened text (backward compat)
     std::vector<cc::services::mcp::ContentItem> content_items;  ///< structured content (TS parity)
@@ -95,7 +75,6 @@ struct McpToolResult {
     // migrated: integrate collapse decision
     CollapseDecision collapse_hint{CollapseDecision::AlwaysShow};
 };
-
 
 struct McpResource {
     std::string uri;
@@ -1326,7 +1305,6 @@ inline std::expected<McpToolResult, McpError> read_native_mcp_resource(
     return NativeMcpRuntime::instance().read_resource(server_name, uri);
 }
 
-
 class McpClientRouter {
 public:
 
@@ -1336,13 +1314,11 @@ public:
         return {};
     }
 
-
     auto find_server(std::string_view name) -> std::expected<McpServerInfo*, McpError> {
         auto it = servers_.find(std::string(name));
         if (it == servers_.end()) return std::unexpected(McpError::ServerNotFound);
         return &it->second;
     }
-
 
     auto list_servers() const -> std::vector<const McpServerInfo*> {
         std::vector<const McpServerInfo*> result;
@@ -1356,12 +1332,10 @@ private:
     std::unordered_map<std::string, McpServerInfo> servers_;
 };
 
-
 inline McpClientRouter& global_mcp_router() {
     static McpClientRouter router;
     return router;
 }
-
 
 class McpTool {
 public:
@@ -1420,7 +1394,6 @@ public:
     }
 };
 
-
 class ListMcpResourcesTool {
 public:
     static constexpr std::string_view name = "list_mcp_resources";
@@ -1459,7 +1432,6 @@ public:
     }
 };
 
-
 class ReadMcpResourceTool {
 public:
     static constexpr std::string_view name = "read_mcp_resource";
@@ -1493,7 +1465,6 @@ public:
 }})json", name, description);
     }
 };
-
 
 class McpAuthTool {
 public:

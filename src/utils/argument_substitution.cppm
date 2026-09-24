@@ -1,14 +1,10 @@
 module;
 
 #include <cctype>
-#include <optional>
-#include <span>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 export module cc.utils.argument_substitution;
+
+import std;
 
 export namespace cc::utils::argument_substitution {
 

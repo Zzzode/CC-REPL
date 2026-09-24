@@ -28,26 +28,17 @@
 ///       annotate the footer with a comment pointing at the integration.
 module;
 
-#include <algorithm>
-#include <chrono>
 #include <cctype>
 #include <cstdint>
-#include <format>
-#include <functional>
-#include <istream>
-#include <memory>
-#include <optional>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_base.hpp>
 #include <ftxui/component/event.hpp>
+#include <cstddef>
 
 export module cc.ui.features.agents.agent_details_dialog;
+
+import std;
 
 import cc.ui.features.agents.agent_shared_widgets;
 import cc.ui.features.agents.agent_cards;

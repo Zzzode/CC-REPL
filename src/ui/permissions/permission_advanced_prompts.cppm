@@ -21,21 +21,9 @@
 /// cc.utils.permissions_engine where needed.
 module;
 
-#include <algorithm>
-#include <array>
 #include <cctype>
 #include <cstddef>
 #include <cstdint>
-#include <format>
-#include <functional>
-#include <memory>
-#include <optional>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <unordered_map>
-#include <utility>
-#include <vector>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
@@ -43,6 +31,8 @@ module;
 #include <ftxui/component/event.hpp>
 
 export module cc.ui.permissions.advanced_prompts;
+
+import std;
 
 import cc.utils.permissions_engine;
 import cc.ui.foundation.design_tokens;

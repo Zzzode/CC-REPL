@@ -1,10 +1,11 @@
 module;
-#include <string>
-#include <optional>
-#include <sstream>
-#include <vector>
+
+#include <cstddef>
+
 
 export module cc.ui.foundation.themed_box;
+
+import std;
 
 export namespace cc::ui::design {
 

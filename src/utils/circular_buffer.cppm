@@ -1,13 +1,11 @@
 // C++23 Module: Circular buffer
 
 module;
-#include <array>
 #include <cstddef>
-#include <iterator>
-#include <utility>
-#include <vector>
 
 export module cc.utils.circular_buffer;
+
+import std;
 
 export namespace cc::utils {
 

@@ -1,15 +1,10 @@
 module;
-#include <algorithm>
 #include <cctype>
 #include <cstdlib>
-#include <expected>
-#include <map>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <vector>
 
 export module cc.utils.env_utils;
+
+import std;
 
 export namespace cc::utils {
 

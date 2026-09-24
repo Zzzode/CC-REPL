@@ -19,19 +19,15 @@
 ///   - GenericDialogPayload — fallback generic dialog
 module;
 
-#include <functional>
-#include <memory>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <variant>
-#include <vector>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/event.hpp>
+#include <cstddef>
 
 export module cc.ui.dialogs.default_renderers;
+
+import std;
 
 import cc.ui.dialogs.system;
 import cc.ui.dialogs.frame;

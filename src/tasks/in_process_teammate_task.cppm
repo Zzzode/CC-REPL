@@ -3,13 +3,10 @@
 /// Migrated from src/tasks/InProcessTeammateTask/
 module;
 
-#include <string>
-#include <vector>
-#include <optional>
-#include <functional>
-#include <algorithm>
 
 export module cc.tasks.in_process_teammate_task;
+
+import std;
 
 import cc.tasks.task;
 import cc.tasks.types;

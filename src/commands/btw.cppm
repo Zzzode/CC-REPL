@@ -3,15 +3,10 @@
 /// Asks a quick side question without interrupting the main conversation.
 module;
 
-#include <string>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <format>
-#include <algorithm>
-#include <span>
 
 export module cc.commands.btw;
+
+import std;
 
 import cc.types.types;
 import cc.commands.command;

@@ -1,10 +1,6 @@
-module;
-
-#include <string>
-#include <utility>
-#include <vector>
-
 export module cc.utils.content_array;
+
+import std;
 
 export namespace cc::utils::content_array {
 

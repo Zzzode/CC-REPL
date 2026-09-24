@@ -89,6 +89,9 @@ if(CC_ENABLE_TREE_SITTER)
     endif()
 endif()
 
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/targets/cc_std.cmake")
+# Make the `import std;` BMI available to every module target defined below.
+link_libraries(cc_std)
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/targets/cc_utils.cmake")
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/targets/cc_state.cmake")
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/targets/cc_task_types.cmake")

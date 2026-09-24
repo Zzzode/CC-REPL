@@ -2,14 +2,11 @@
 /// @brief Shared shell permission rendering helpers
 module;
 
-#include <string>
-#include <string_view>
-#include <vector>
-#include <algorithm>
-#include <format>
 #include <ftxui/dom/elements.hpp>
 
 export module cc.ui.permissions.permission_shell_helpers;
+
+import std;
 
 export namespace cc::ui::permissions {
 

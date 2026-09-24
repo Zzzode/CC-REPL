@@ -1,17 +1,12 @@
 module;
 
-#include <string>
-#include <string_view>
-#include <random>
-#include <chrono>
-#include <array>
-#include <algorithm>
 #include <cstdint>
-#include <sstream>
-#include <iomanip>
 #include <cctype>
+#include <cstddef>
 
 export module cc.utils.uuid_utils;
+
+import std;
 
 export namespace cc::utils {
 

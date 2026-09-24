@@ -2,17 +2,11 @@
 // Provides logging and error tracking functions
 module;
 
-#include <string>
-#include <vector>
-#include <chrono>
 #include <ctime>
-#include <sstream>
-#include <iomanip>
-#include <functional>
-#include <exception>
-#include <iostream>
 
 export module cc.utils.log;
+
+import std;
 
 export namespace cc::utils::log {
 

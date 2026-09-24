@@ -9,11 +9,8 @@
 
 #include <cstdio>
 #include <cstdlib>
-#include <iostream>
-#include <string>
-#include <string_view>
-#include <vector>
 
+import std;
 import cc.hooks.permission_resolver;
 import cc.hooks.tool_permission_gate;
 

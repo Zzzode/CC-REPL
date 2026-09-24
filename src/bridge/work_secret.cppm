@@ -1,19 +1,11 @@
 module;
-#include <string>
-#include <string_view>
-#include <expected>
-#include <random>
-#include <sstream>
-#include <iomanip>
-#include <fstream>
-#include <filesystem>
 #include <cstdlib>
-#include <algorithm>
-#include <optional>
-#include <unordered_map>
-#include <vector>
+#include <cstddef>
+#include <cstdint>
 
 export module cc.bridge.work_secret;
+
+import std;
 
 import cc.bridge.jwt_utils;
 import cc.utils.json;

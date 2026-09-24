@@ -1,10 +1,9 @@
 // Thinkback Play command - plays back recorded thinking animations
 module;
 #include <cstdlib>
-#include <filesystem>
-#include <string>
-#include <string_view>
 export module cc.commands.thinkback_play;
+
+import std;
 export namespace cc::commands::thinkback_play {
 
 namespace fs = std::filesystem;

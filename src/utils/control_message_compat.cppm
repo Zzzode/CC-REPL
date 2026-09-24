@@ -1,9 +1,7 @@
-module;
-#include <map>
-#include <string>
-#include <utility>
 
 export module cc.utils.control_message_compat;
+
+import std;
 
 export namespace cc::utils::control_message_compat {
 

@@ -5,17 +5,11 @@ module;
 
 #include <cstdio>
 #include <cstdlib>
-#include <chrono>
-#include <filesystem>
-#include <functional>
-#include <map>
-#include <memory>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <vector>
+#include <cstddef>
 
 export module cc.utils.shell_providers;
+
+import std;
 
 import cc.utils.shell;
 import cc.utils.bash_execution;

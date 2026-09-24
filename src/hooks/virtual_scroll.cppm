@@ -4,14 +4,12 @@
 /// dynamic item heights, scroll-to-bottom, and viewport calculation.
 module;
 
-#include <algorithm>
 #include <cstddef>
 #include <cstdint>
-#include <optional>
-#include <tuple>
-#include <vector>
 
 export module cc.hooks.virtual_scroll;
+
+import std;
 
 
 export namespace cc::hooks {

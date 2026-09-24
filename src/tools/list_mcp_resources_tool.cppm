@@ -1,14 +1,9 @@
-module;
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
-#include <filesystem>
 
 export module cc.tools.list_mcp_resources_tool;
 
-export namespace cc::tools {
+import std;
 
+export namespace cc::tools {
 
 struct McpResource {
     std::string uri;
@@ -16,7 +11,6 @@ struct McpResource {
     std::optional<std::string> description;
     std::string mime_type;
 };
-
 
 inline auto list_mcp_resources(std::string_view server_name) -> std::vector<McpResource> {
     if (server_name.empty()) {
@@ -43,7 +37,6 @@ inline auto list_mcp_resources(std::string_view server_name) -> std::vector<McpR
         .mime_type = "application/json"
     }};
 }
-
 
 inline auto get_list_mcp_resources_prompt() -> std::string {
     return R"(## ListMcpResourcesTool
@@ -72,7 +65,6 @@ Array of resources with:
 }
 ```)";
 }
-
 
 inline auto format_mcp_resources(const std::vector<McpResource>& resources) -> std::string {
     if (resources.empty()) {

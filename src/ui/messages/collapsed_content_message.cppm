@@ -4,14 +4,7 @@
 /// >20 entries + expanded 10-line per-file preview via code_highlight.
 module;
 
-#include <string>
-#include <vector>
-#include <memory>
-#include <functional>
-#include <optional>
-#include <format>
 #include <cstdint>
-#include <algorithm>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
@@ -19,6 +12,8 @@ module;
 #include <ftxui/component/event.hpp>
 
 export module cc.ui.messages.collapsed_content_message;
+
+import std;
 
 import cc.ui.visual.code_highlight;
 

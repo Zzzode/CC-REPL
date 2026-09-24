@@ -8,14 +8,7 @@ module;
 
 #include <ctime>
 #include <cctype>
-#include <string>
-#include <vector>
-#include <optional>
 #include <cstdint>
-#include <format>
-#include <functional>
-#include <algorithm>
-#include <chrono>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
@@ -23,6 +16,8 @@ module;
 #include <ftxui/component/event.hpp>
 
 export module cc.ui.features.tasks.task_components;
+
+import std;
 
 export namespace cc::ui::tasks::components {
 using namespace ftxui;

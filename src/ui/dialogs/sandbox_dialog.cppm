@@ -3,13 +3,6 @@
 /// Migrated from SandboxSettings.tsx.
 module;
 
-#include <array>
-#include <string>
-#include <vector>
-#include <functional>
-#include <optional>
-#include <expected>
-#include <algorithm>
 #include <cstdint>
 
 #include <ftxui/dom/elements.hpp>
@@ -18,6 +11,8 @@ module;
 #include <ftxui/component/event.hpp>
 
 export module cc.ui.dialogs.sandbox_dialog;
+
+import std;
 
 import cc.constants.product;
 

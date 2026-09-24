@@ -1,15 +1,12 @@
 module;
 #include <cstdlib>
-#include <filesystem>
-#include <optional>
-#include <stdexcept>
-#include <string>
-#include <string_view>
 
 // Shell quoting for safe command construction.
 #include <cctype>
 
 export module cc.utils.hyperlink;
+
+import std;
 
 export namespace cc::utils {
 

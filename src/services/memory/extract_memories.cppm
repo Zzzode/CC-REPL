@@ -8,20 +8,10 @@ module;
 #include <cstddef>
 #include <cstdlib>
 #include <cctype>
-#include <filesystem>
-#include <fstream>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <chrono>
-#include <format>
-#include <algorithm>
-#include <functional>
-#include <coroutine>
 
 export module cc.services.extract_memories;
+
+import std;
 
 import cc.types.types;
 import cc.utils.async;

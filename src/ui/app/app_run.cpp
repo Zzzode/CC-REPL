@@ -3,8 +3,8 @@
 // screen-interactive / termios closure stay out of the interface BMI.
 module;
 
+#include <unistd.h>
 #include <termios.h>  // tcgetattr/tcsetattr/termios/VLNEXT
-#include <unistd.h>   // STDIN_FILENO
 
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/screen_interactive.hpp>
@@ -102,7 +102,6 @@ namespace {
 
     return should_exit ? 0 : 1;
 }
-
 
 }  // namespace
 

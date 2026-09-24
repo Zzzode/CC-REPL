@@ -23,31 +23,17 @@
 ///   - clearSkillCaches()            → clear_skill_caches()
 module;
 
-#include <algorithm>
-#include <atomic>
 #include <cctype>
 #include <climits>
 #include <cstdlib>
 #include <cstring>
-#include <filesystem>
-#include <fstream>
-#include <functional>
-#include <map>
-#include <memory>
-#include <mutex>
-#include <optional>
-#include <set>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <unordered_map>
-#include <unordered_set>
-#include <variant>
-#include <vector>
+#include <cstdint>
 
 // (sys/stat.h functionality provided by <filesystem>)
 
 export module cc.skills.load_skills_dir;
+
+import std;
 
 import cc.utils.yaml;
 import cc.utils.frontmatter_parser;

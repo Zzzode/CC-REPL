@@ -21,24 +21,12 @@ module;
 
 #include <cctype>
 #include <cstdlib>
-#include <sstream>
 #include <cstdint>
 #include <cmath>
-#include <string>
-#include <string_view>
-#include <unordered_map>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <format>
-#include <ranges>
-#include <algorithm>
-#include <span>
-#include <array>
-#include <numeric>
-#include <utility>
 
 export module cc.commands.review.ultrareview;
+
+import std;
 
 import cc.types.types;
 import cc.commands.command;

@@ -2,11 +2,10 @@ module;
 
 #include <cmath>
 #include <cctype>
-#include <optional>
-#include <string>
-#include <string_view>
 
 export module cc.utils.semantic_number;
+
+import std;
 
 export namespace cc::utils::semantic_number {
 

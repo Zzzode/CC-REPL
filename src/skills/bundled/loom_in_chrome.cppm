@@ -3,19 +3,12 @@
 /// Detects Chrome-extension related user queries and injects install/debug workflow prompts.
 /// Mirrors src/skills/bundled/loomInChrome.ts + src/utils/loomInChrome/*.
 module;
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
-#include <expected>
 #include <cstdlib>
 #include <cstdio>
-#include <array>
-#include <sstream>
-#include <format>
-#include <filesystem>
 
 export module cc.skills.bundled.loom_in_chrome;
+
+import std;
 
 import cc.skills.load_skills_dir;
 import cc.utils.bash_execution;

@@ -4,26 +4,19 @@
 /// and status queries over newline-delimited JSON-RPC protocol.
 module;
 
-#include <string>
-#include <string_view>
-#include <expected>
-#include <optional>
-#include <vector>
 #include <cstdint>
-#include <format>
-#include <chrono>
 #include <sys/socket.h>
 #include <netinet/in.h>
-#include <unistd.h>
 #include <arpa/inet.h>
-#include <fstream>
-#include <filesystem>
 #include <signal.h>
+#include <unistd.h>
 #include <cstdlib>
 #include <cerrno>
-#include <atomic>
+#include <cstddef>
 
 export module cc.daemon.daemon_client;
+
+import std;
 
 export namespace cc::daemon {
 

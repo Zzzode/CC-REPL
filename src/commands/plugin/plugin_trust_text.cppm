@@ -8,12 +8,10 @@
 
 module;
 
-#include <string>
-#include <string_view>
-#include <optional>
-#include <format>
 
 export module cc.commands.plugin_trust_text;
+
+import std;
 
 export namespace cc::commands::plugin {
 

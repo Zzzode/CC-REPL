@@ -4,13 +4,10 @@
 module;
 
 #include <cstdint>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <functional>
-#include <optional>
 
 export module cc.query.stop_hooks;
+
+import std;
 
 export namespace cc::query {
 

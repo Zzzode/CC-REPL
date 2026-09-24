@@ -20,20 +20,12 @@
 
 module;
 
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
-#include <array>
-#include <unordered_set>
-#include <span>
-#include <algorithm>
 #include <cctype>
-#include <functional>
-#include <regex>
-#include <ranges>
+#include <cstddef>
 
 export module cc.tools.should_use_sandbox;
+
+import std;
 
 import cc.tools.bash_security;
 

@@ -1,12 +1,11 @@
 /// @file spinner_animations.cppm
 /// @brief Custom spinner animation sets
 module;
-#include <string>
-#include <array>
 #include <cstdint>
-#include <string_view>
 #include <ftxui/dom/elements.hpp>
 export module cc.ui.widgets.spinner_animations;
+
+import std;
 export namespace cc::ui::components {
 using namespace ftxui;
 inline constexpr std::array<std::string_view, 10> kDotsAnimation = {"⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏"};

@@ -10,13 +10,11 @@
 module;
 
 #include <cctype>
-#include <map>
-#include <mutex>
-#include <optional>
-#include <string>
-#include <string_view>
+#include <cstddef>
 
 export module cc.tools.agent_color_manager;
+
+import std;
 
 import cc.utils.swarm_backends;
 import cc.utils.swarm_helpers;

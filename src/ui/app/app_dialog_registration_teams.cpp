@@ -9,13 +9,13 @@
 // TeamsViewPayload.
 module;
 
-#include <algorithm>
-#include <string>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/event.hpp>
 
 module cc.ui.app.app_dialog_registration;
+
+import std;
 
 import cc.ui.dialogs.system;
 import cc.ui.screens.repl_screen;

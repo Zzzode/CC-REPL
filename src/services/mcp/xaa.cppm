@@ -13,28 +13,14 @@
 ///   - RFC 8693 (Token Exchange), RFC 7523 (JWT Bearer), RFC 9728 (PRM)
 module;
 #include <cctype>
-#include <functional>
-#include <algorithm>
-#include <chrono>
 #include <cstdint>
 #include <cstdlib>
-#include <expected>
-#include <filesystem>
-#include <fstream>
-#include <memory>
-#include <optional>
-#include <regex>
-#include <sstream>
-#include <stdexcept>
-#include <string>
-#include <string_view>
-#include <unordered_map>
-#include <utility>
-#include <vector>
 
 #include <httplib.h>
 
 export module cc.services.mcp.xaa;
+
+import std;
 
 import cc.utils.crypto;
 import cc.utils.error;

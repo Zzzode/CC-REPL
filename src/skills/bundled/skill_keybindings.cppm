@@ -8,16 +8,11 @@
 ///             dynamic tables of actions/contexts.
 module;
 #include <cstdlib>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
-#include <sstream>
-#include <format>
-#include <map>
-#include <algorithm>
+#include <cstddef>
 
 export module cc.skills.bundled.skill_keybindings;
+
+import std;
 
 import cc.skills.load_skills_dir;
 

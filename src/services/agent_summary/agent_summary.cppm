@@ -6,18 +6,10 @@ module;
 
 #include <cstdint>
 #include <cstddef>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <chrono>
-#include <format>
-#include <ranges>
-#include <algorithm>
-#include <numeric>
 
 export module cc.services.agent_summary;
+
+import std;
 
 import cc.types.types;
 
@@ -29,13 +21,11 @@ using Clock = std::chrono::system_clock;
 using TimePoint = Clock::time_point;
 using Duration = std::chrono::milliseconds;
 
-
 enum class SummaryFormat : std::uint8_t {
     PlainText,
     Structured,
     Markdown,
 };
-
 
 struct ToolInvocation {
     std::string tool_name;
@@ -45,14 +35,12 @@ struct ToolInvocation {
     std::string error_message;
 };
 
-
 struct FileModification {
     std::string path;
     std::size_t lines_added{0};
     std::size_t lines_removed{0};
     TimePoint modified_at;
 };
-
 
 struct ExecutionSummary {
     std::string session_id;
@@ -64,7 +52,6 @@ struct ExecutionSummary {
     std::size_t total_tokens_consumed{0};
     std::size_t turns_count{0};
 
-
     [[nodiscard]] double success_rate() const noexcept {
         if (tools_used.empty()) return 1.0;
         auto successes = std::ranges::count_if(tools_used,
@@ -72,12 +59,10 @@ struct ExecutionSummary {
         return static_cast<double>(successes) / static_cast<double>(tools_used.size());
     }
 
-
     [[nodiscard]] double elapsed_seconds() const noexcept {
         return static_cast<double>(total_elapsed.count()) / 1000.0;
     }
 };
-
 
 struct TokenBudget {
     std::size_t max_tokens{4096};
@@ -97,7 +82,6 @@ public:
     explicit AgentSummaryService(TokenBudget budget = {})
         : budget_(budget) {}
 
-
     [[nodiscard]] std::expected<std::string, Error> generate(
         const ExecutionSummary& summary,
         SummaryFormat format = SummaryFormat::PlainText) const
@@ -110,15 +94,12 @@ public:
         return std::unexpected(Error::make(ErrorCode::InvalidInput, "unknown format"));
     }
 
-
     void set_budget(TokenBudget budget) noexcept { budget_ = budget; }
-
 
     [[nodiscard]] TokenBudget budget() const noexcept { return budget_; }
 
 private:
     TokenBudget budget_;
-
 
     [[nodiscard]] std::string truncate_to_budget(std::string text) const {
 

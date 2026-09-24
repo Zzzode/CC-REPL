@@ -3,13 +3,10 @@
 /// Migrated from src/tasks/pillLabel.ts
 module;
 
-#include <string>
-#include <vector>
-#include <set>
-#include <format>
-#include <algorithm>
 
 export module cc.tasks.pill_label;
+
+import std;
 
 import cc.tasks.task;
 import cc.tasks.types;

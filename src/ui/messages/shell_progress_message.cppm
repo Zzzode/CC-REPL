@@ -19,19 +19,14 @@
 // ────────────────────────────────────────────────────────────────────────
 module;
 
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
-#include <sstream>
-#include <iomanip>
-#include <algorithm>
 #include <cctype>
 #include <cmath>
 
 #include <ftxui/dom/elements.hpp>
 
 export module cc.ui.messages.shell_progress_message;
+
+import std;
 
 import cc.ui.messages.shell_time_display;
 import cc.ui.foundation.design_tokens;

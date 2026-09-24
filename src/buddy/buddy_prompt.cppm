@@ -2,11 +2,10 @@
 /// Companion prompt text generation and intro attachment logic.
 module;
 
-#include <string>
-#include <vector>
-#include <optional>
 
 export module cc.buddy.buddy_prompt;
+
+import std;
 
 import cc.buddy.buddy_types;
 import cc.buddy.buddy_companion;

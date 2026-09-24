@@ -4,17 +4,12 @@
 /// word-level navigation, and selection ranges.
 module;
 
-#include <algorithm>
 #include <cstddef>
 #include <cstdint>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 export module cc.hooks.text_input;
 
+import std;
 
 export namespace cc::hooks {
 

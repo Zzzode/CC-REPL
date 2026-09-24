@@ -14,20 +14,10 @@
 module;
 
 #include <cstdint>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <format>
-#include <ranges>
-#include <algorithm>
-#include <span>
-#include <array>
-#include <sstream>
-#include <utility>
 
 export module cc.commands.security_review;
+
+import std;
 
 import cc.types.types;
 import cc.commands.command;

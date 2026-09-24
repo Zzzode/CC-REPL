@@ -34,19 +34,11 @@
 module;
 
 #include <cstdlib>
-#include <chrono>
-#include <expected>
-#include <filesystem>
-#include <fstream>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <system_error>
-#include <utility>
-#include <vector>
-#include <array>
+#include <cstdint>
 
 export module cc.migrations.config_orchestrator;
+
+import std;
 
 export import cc.migrations.migration_runner;
 export import cc.migrations.schema_versions;

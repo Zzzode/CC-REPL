@@ -5,19 +5,10 @@ module;
 
 #include <cstdint>
 #include <cstddef>
-#include <string>
-#include <vector>
-#include <memory>
-#include <functional>
-#include <unordered_map>
-#include <optional>
-#include <expected>
-#include <concepts>
-#include <format>
-#include <ranges>
-#include <span>
 
 export module cc.tools.tool;
+
+import std;
 
 export import cc.types.types;
 import cc.utils.json;

@@ -5,16 +5,11 @@
 /// closest available analogue for memory inspection.
 module;
 
-#include <string>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <format>
-#include <algorithm>
-#include <array>
 #include <sys/resource.h>
 
 export module cc.commands.heapdump;
+
+import std;
 
 import cc.types.types;
 import cc.commands.command;

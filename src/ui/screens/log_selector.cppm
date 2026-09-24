@@ -32,24 +32,10 @@
 /// with mandatory 5 s countdown (UI8, reused — not reimplemented).
 module;
 
+#include <unistd.h>
 #include <ctime>
-#include <array>
-#include <algorithm>
 #include <cctype>
-#include <chrono>
 #include <cstdint>
-#include <filesystem>
-#include <format>
-#include <functional>
-#include <memory>
-#include <optional>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <unordered_map>
-#include <unordered_set>
-#include <utility>
-#include <vector>
 
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_base.hpp>
@@ -58,6 +44,8 @@ module;
 #include <ftxui/screen/color.hpp>
 
 export module cc.ui.screens.log_selector;
+
+import std;
 
 import cc.ui.dialogs.trust_dialog;
 import cc.ui.dialogs.trust_utils;

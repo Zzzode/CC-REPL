@@ -1,8 +1,6 @@
-module;
-#include <chrono>
-#include <string>
-#include <vector>
 export module cc.services.remote_settings.types;
+
+import std;
 
 export namespace cc::services::remote_settings {
 

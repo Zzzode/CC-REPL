@@ -3,12 +3,10 @@
 module;
 
 #include <cstdint>
-#include <functional>
-#include <memory>
-#include <string>
-#include <vector>
 
 export module cc.migrations.concrete;
+
+import std;
 
 import cc.utils.json;
 

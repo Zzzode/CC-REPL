@@ -1,19 +1,12 @@
 // C++23 Module: Raw input buffering with escape sequence detection and UTF-8 handling
 module;
 
-#include <array>
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <deque>
-#include <functional>
-#include <optional>
-#include <span>
-#include <string>
-#include <utility>
-#include <vector>
 
 export module cc.hooks.input_buffer;
+
+import std;
 
 
 export namespace cc::hooks {

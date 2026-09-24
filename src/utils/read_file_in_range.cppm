@@ -1,15 +1,8 @@
 module;
 
-#include <expected>
-#include <chrono>
-#include <filesystem>
-#include <fstream>
-#include <optional>
-#include <sstream>
-#include <string>
-#include <vector>
-
 export module cc.utils.read_file_in_range;
+
+import std;
 
 export namespace cc::utils::read_file_in_range {
 

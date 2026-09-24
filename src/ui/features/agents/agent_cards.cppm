@@ -22,18 +22,7 @@
 ///   - cc.tools.agent_runtime::AgentDefinition  (data model, readonly)
 module;
 
-#include <algorithm>
-#include <chrono>
 #include <cstdint>
-#include <format>
-#include <functional>
-#include <memory>
-#include <optional>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
@@ -41,6 +30,8 @@ module;
 #include <ftxui/component/event.hpp>
 
 export module cc.ui.features.agents.agent_cards;
+
+import std;
 
 import cc.ui.features.agents.agent_shared_widgets;
 import cc.tools.agent_color_manager;

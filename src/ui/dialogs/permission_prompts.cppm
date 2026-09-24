@@ -3,21 +3,17 @@
 /// Provides interactive permission prompts for file access, shell commands, and tool use.
 module;
 
-#include <string>
-#include <vector>
-#include <memory>
-#include <functional>
-#include <optional>
-#include <format>
 #include <cstdint>
-#include <chrono>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_base.hpp>
 #include <ftxui/component/event.hpp>
+#include <cstddef>
 
 export module cc.ui.dialogs.permission_prompts;
+
+import std;
 
 import cc.types.types;
 

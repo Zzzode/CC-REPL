@@ -8,13 +8,10 @@
 module;
 
 #include <cctype>
-#include <string>
-#include <string_view>
-#include <optional>
-#include <vector>
-#include <algorithm>
 
 export module cc.keybindings.match;
+
+import std;
 
 import cc.keybindings.schema;
 

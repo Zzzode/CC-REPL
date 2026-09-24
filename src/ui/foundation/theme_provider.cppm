@@ -12,18 +12,13 @@
 /// available via the legacy ui/design/themed_text.cppm module.
 module;
 
-#include <atomic>
-#include <memory>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <mutex>
-#include <array>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component_base.hpp>
 
 export module cc.ui.foundation.theme_provider;
+
+import std;
 
 import cc.ui.foundation.design_tokens;
 

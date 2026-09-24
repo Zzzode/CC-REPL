@@ -3,23 +3,11 @@
 // Provides core hook registration, event broadcasting, and settings resolution
 module;
 
-#include <array>
-#include <atomic>
-#include <chrono>
 #include <cstdint>
-#include <expected>
-#include <format>
-#include <functional>
-#include <memory>
-#include <mutex>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <unordered_map>
-#include <variant>
-#include <vector>
 
 export module cc.utils.hooks_registry;
+
+import std;
 
 import cc.utils.json;
 import cc.utils.async;

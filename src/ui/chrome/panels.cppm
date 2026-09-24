@@ -1,22 +1,12 @@
 // C++23 Module: Panel components for settings, MCP, tasks, diff, help, permissions
 module;
 
-#include <chrono>
-#include <algorithm>
 #include <cstddef>
 #include <cstdint>
-#include <expected>
-#include <format>
-#include <map>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <tuple>
-#include <utility>
-#include <variant>
-#include <vector>
 
 export module cc.ui.chrome.panels;
+
+import std;
 
 
 namespace ftxui {

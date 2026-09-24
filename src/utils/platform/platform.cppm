@@ -2,9 +2,10 @@
 // Provides platform identification functions
 module;
 
-#include <string>
 
 export module cc.utils.platform;
+
+import std;
 
 export namespace cc::utils::platform {
 

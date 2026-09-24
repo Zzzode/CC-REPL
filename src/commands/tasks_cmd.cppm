@@ -6,21 +6,12 @@
 /// UI rendering (FTXUI dialogs/tables) DEFERRED to Phase 4.
 module;
 
+#include <unistd.h>
 #include <cstdint>
-#include <string>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <format>
-#include <ranges>
-#include <algorithm>
-#include <span>
-#include <array>
-#include <chrono>
-#include <string_view>
-#include <functional>
 
 export module cc.commands.tasks_cmd;
+
+import std;
 
 import cc.types.types;
 import cc.commands.command;

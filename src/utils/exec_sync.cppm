@@ -1,14 +1,12 @@
 module;
 
 #include <cstdlib>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <expected>
 #include <cstdio>
-#include <sstream>
+#include <sys/wait.h>
 
 export module cc.utils.exec_sync;
+
+import std;
 import cc.utils.bash_execution;
 
 export namespace cc::utils {

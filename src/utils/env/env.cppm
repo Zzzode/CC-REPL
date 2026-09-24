@@ -3,13 +3,11 @@
 module;
 
 #include <cctype>
-#include <string>
-#include <optional>
 #include <cstdlib>
-#include <vector>
-#include <sstream>
 
 export module cc.utils.env;
+
+import std;
 
 export namespace cc::utils::env {
 

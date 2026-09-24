@@ -1,9 +1,6 @@
-module;
-#include <filesystem>
-#include <format>
-#include <string>
-#include <string_view>
 export module cc.commands.onboarding;
+
+import std;
 export namespace cc::commands::onboarding {
 namespace fs = std::filesystem;
 

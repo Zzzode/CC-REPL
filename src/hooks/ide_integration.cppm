@@ -4,22 +4,12 @@
 /// editor state tracking, and apply-diff commands.
 module;
 
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <expected>
-#include <filesystem>
-#include <format>
-#include <functional>
-#include <optional>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 export module cc.hooks.ide_integration;
 
+import std;
 
 export namespace cc::hooks {
 
@@ -135,7 +125,6 @@ public:
     IdeIntegrationHook() = default;
     ~IdeIntegrationHook() { disconnect(); }
 
-
     IdeIntegrationHook(const IdeIntegrationHook&) = delete;
     IdeIntegrationHook& operator=(const IdeIntegrationHook&) = delete;
     IdeIntegrationHook(IdeIntegrationHook&&) noexcept = default;
@@ -164,7 +153,6 @@ public:
         state_.connected_at = std::chrono::system_clock::now();
         send_message(std::format(R"({{"type":"hello","port":{},"ide":"{}"}})",
             port, ide_type_to_string(state_.ide_type)));
-
 
         if (on_connection_) on_connection_(true, state_.ide_type);
         return {};
@@ -332,9 +320,6 @@ private:
 
     /// Auto-detect IDE type based on port conventions and handshake
     [[nodiscard]] auto detect_ide_type(std::uint16_t port) const -> IdeType {
-
-
-
 
         if (port >= 63340 && port <= 63350) return IdeType::JetBrains;
         if (port >= 6940 && port <= 6950) return IdeType::JetBrains;

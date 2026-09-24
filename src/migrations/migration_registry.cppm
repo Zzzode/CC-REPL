@@ -1,13 +1,11 @@
 module;
-#include <expected>
-#include <functional>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
+
+#include <cstdint>
+
 
 export module cc.migrations.migration_registry;
+
+import std;
 import cc.utils.json;
 
 export import cc.migrations.migration_runner;

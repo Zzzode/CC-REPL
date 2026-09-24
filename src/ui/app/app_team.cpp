@@ -18,28 +18,12 @@
 // atomic + posts one FTXUI event; there is NO constant-rate render ticker.
 module;
 
-#include <algorithm>
-#include <atomic>
-#include <chrono>
 #include <cctype>
 #include <cstdlib>
-#include <filesystem>
-#include <functional>
-#include <initializer_list>
-#include <cstdlib>
-#include <format>
-#include <mutex>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <thread>
-#include <unordered_map>
-#include <unordered_set>
-#include <deque>
-#include <variant>
-#include <vector>
 
 module cc.ui.app.app;
+
+import std;
 
 import cc.utils.json;
 import cc.utils.team_helpers;

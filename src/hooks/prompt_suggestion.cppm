@@ -1,11 +1,7 @@
-module;
-#include <string>
-#include <functional>
-#include <optional>
-#include <vector>
-#include <algorithm>
 
 export module cc.hooks.prompt_suggestion;
+
+import std;
 
 import cc.state.app_state;
 

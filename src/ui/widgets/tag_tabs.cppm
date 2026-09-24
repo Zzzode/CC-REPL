@@ -1,13 +1,13 @@
 module;
 
-#include <string>
-#include <vector>
-#include <functional>
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/event.hpp>
+#include <cstddef>
 
 export module cc.ui.widgets.tag_tabs;
+
+import std;
 
 export namespace cc::ui::components {
 

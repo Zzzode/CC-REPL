@@ -1,18 +1,14 @@
+module;
+
+#include <cstddef>
+
 /// @file add_dir.cppm
 /// @brief AddDirCommand implementing the /add-dir slash command.
 /// Adds a working directory to the session or local settings.
-module;
-
-#include <string>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <format>
-#include <span>
-#include <filesystem>
-#include <algorithm>
 
 export module cc.commands.add_dir;
+
+import std;
 
 import cc.types.types;
 import cc.commands.command;

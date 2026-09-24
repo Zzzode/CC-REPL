@@ -1,15 +1,9 @@
 module;
-#include <array>
-#include <atomic>
-#include <chrono>
 #include <cstdint>
-#include <fstream>
-#include <functional>
-#include <random>
-#include <span>
-#include <string>
-#include <string_view>
+#include <cstddef>
 export module cc.services.oauth.crypto;
+
+import std;
 
 import cc.utils.crypto;
 

@@ -1,33 +1,20 @@
 // LSP Server Instance Module
 module;
-#include <any>
-#include <algorithm>
-#include <array>
 #include <cerrno>
-#include <chrono>
 #include <cctype>
-#include <expected>
-#include <filesystem>
-#include <format>
 #include <cstring>
-#include <functional>
-#include <memory>
-#include <mutex>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <system_error>
-#include <type_traits>
-#include <unordered_map>
-#include <utility>
-#include <vector>
 #include <fcntl.h>
 #include <poll.h>
 #include <signal.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <cstdlib>
+#include <cstddef>
+#include <cstdint>
 
 export module cc.services.lsp.LSPServerInstance;
+
+import std;
 
 import cc.utils.error;
 import cc.utils.json;

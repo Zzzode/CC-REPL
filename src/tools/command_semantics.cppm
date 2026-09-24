@@ -9,18 +9,14 @@
 // NOTE: React JSX rendering of result cards is deferred to Phase 4 (FTXUI).
 module;
 
-#include <algorithm>
-#include <chrono>
+#include <unistd.h>
 #include <cstdint>
-#include <filesystem>
-#include <optional>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <unordered_map>
-#include <vector>
+#include <cstddef>
+#include <cstdlib>
 
 export module cc.tools.command_semantics;
+
+import std;
 
 import cc.utils.format;
 

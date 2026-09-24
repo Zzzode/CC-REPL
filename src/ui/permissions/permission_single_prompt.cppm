@@ -20,15 +20,7 @@
 /// This file only formats the UI and routes user input.
 module;
 
-#include <array>
 #include <cstdint>
-#include <functional>
-#include <memory>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <variant>
-#include <vector>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
@@ -36,6 +28,8 @@ module;
 #include <ftxui/component/event.hpp>
 
 export module cc.ui.permissions.single_prompt;
+
+import std;
 
 import cc.utils.permissions_engine;
 import cc.ui.permissions.components;

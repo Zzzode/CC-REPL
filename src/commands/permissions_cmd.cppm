@@ -6,22 +6,12 @@
 /// Output is plain-text rows ready for Phase 4 FTXUI table rendering.
 module;
 
-#include <array>
 #include <cstdint>
-#include <algorithm>
-#include <chrono>
 #include <cctype>
-#include <expected>
-#include <format>
-#include <optional>
-#include <ranges>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 export module cc.commands.permissions_cmd;
+
+import std;
 
 import cc.types.types;
 import cc.commands.command;

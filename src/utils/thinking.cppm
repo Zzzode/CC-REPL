@@ -1,10 +1,9 @@
 module;
-#include <chrono>
 #include <cstddef>
-#include <string>
-#include <string_view>
 
 export module cc.utils.thinking;
+
+import std;
 
 export namespace cc::utils {
 

@@ -6,14 +6,11 @@
 /// In C++ they largely mirror control_schemas but provide convenient type aliases.
 module;
 
-#include <string>
-#include <vector>
-#include <optional>
-#include <variant>
-#include <unordered_map>
 #include <cstdint>
 
 export module cc.entrypoints.control_types;
+
+import std;
 
 import cc.entrypoints.core_types;
 import cc.entrypoints.control_schemas;

@@ -16,19 +16,8 @@
 /// This file never duplicates the pattern-matching or evaluation logic.
 module;
 
-#include <algorithm>
-#include <array>
 #include <cstddef>
 #include <cstdint>
-#include <chrono>
-#include <format>
-#include <functional>
-#include <memory>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
@@ -36,6 +25,8 @@ module;
 #include <ftxui/component/event.hpp>
 
 export module cc.ui.permissions.scope_editor;
+
+import std;
 
 import cc.utils.permissions_engine;
 import cc.ui.permissions.components;

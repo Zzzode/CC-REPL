@@ -3,9 +3,6 @@
 module;
 
 #include <cctype>
-#include <string>
-#include <string_view>
-#include <filesystem>
 #include <cstdlib>
 
 #ifdef _WIN32
@@ -14,6 +11,8 @@ module;
 #endif
 
 export module cc.utils.path;
+
+import std;
 
 export namespace cc::utils::path {
 

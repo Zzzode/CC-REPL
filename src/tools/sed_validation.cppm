@@ -14,15 +14,11 @@
 
 module;
 
-#include <algorithm>
 #include <cctype>
-#include <optional>
-#include <regex>
-#include <string>
-#include <string_view>
-#include <vector>
 
 export module cc.tools.sed_validation;
+
+import std;
 
 import cc.tools.bash_validation;
 import cc.tools.bash_security;

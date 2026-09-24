@@ -6,22 +6,11 @@
 // focus-switching to the pane.
 module;
 
-#include <chrono>
-#include <condition_variable>
 #include <cstdint>
-#include <functional>
-#include <map>
-#include <memory>
-#include <mutex>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <thread>
-#include <unordered_map>
-#include <utility>
-#include <vector>
 
 export module cc.utils.swarm_pane_observer;
+
+import std;
 
 import cc.utils.swarm_backends;
 

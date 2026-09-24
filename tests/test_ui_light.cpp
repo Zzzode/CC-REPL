@@ -1,24 +1,8 @@
 /// @file test_ui_light.cpp
 /// @brief Split from test_ui.cpp - Components, Markdown, Panels, PromptInputFooter, StatusLine, Terminal (SLOC budget fix)
 
-#include <algorithm>
-#include <atomic>
-#include <chrono>
-#include <condition_variable>
 #include <cstdlib>
-#include <filesystem>
-#include <fstream>
-#include <functional>
-#include <map>
-#include <memory>
-#include <mutex>
-#include <optional>
-#include <string>
-#include <thread>
-#include <utility>
-#include <vector>
 
-#include <expected>
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/dom/node.hpp>
 #include <ftxui/screen/screen.hpp>
@@ -30,6 +14,7 @@
 
 #include "test_ui_helpers.h"
 
+import std;
 import cc.ui.chrome.terminal;
 import cc.ui.foundation.theme_provider;
 import cc.ui.foundation.design_tokens;

@@ -4,29 +4,11 @@
 /// observer pattern for reactive state changes, and selectors.
 module;
 
-#include <condition_variable>
-#include <tuple>
 #include <cstdint>
-#include <string>
-#include <vector>
-#include <unordered_map>
-#include <unordered_set>
-#include <optional>
-#include <expected>
-#include <format>
-#include <functional>
-#include <memory>
-#include <mutex>
-#include <shared_mutex>
-#include <chrono>
-#include <algorithm>
-#include <ranges>
-#include <concepts>
-#include <variant>
-#include <map>
-#include <set>
 
 export module cc.state.app_state;
+
+import std;
 
 import cc.types.types;
 

@@ -1,21 +1,10 @@
 // FileWriteTool - Creates or overwrites files with safety checks
 module;
 
-#include <algorithm>
-#include <chrono>
-#include <expected>
-#include <filesystem>
-#include <format>
-#include <fstream>
-#include <memory>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <unordered_map>
-#include <unordered_set>
-#include <vector>
 
 export module cc.tools.file_write;
+
+import std;
 
 import cc.utils.file;
 import cc.utils.error;

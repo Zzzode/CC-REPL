@@ -2,22 +2,14 @@
 module;
 
 #include <ctime>
-#include <algorithm>
-#include <array>
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <format>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <variant>
-#include <vector>
 
 #include <ftxui/dom/elements.hpp>
 
 export module cc.ui.messages.messages;
+
+import std;
 
 export namespace cc::ui {
 

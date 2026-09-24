@@ -1,9 +1,9 @@
 // Statusline command - configures shell statusline/PS1 integration
 module;
 #include <cstdlib>
-#include <string>
-#include <string_view>
 export module cc.commands.statusline;
+
+import std;
 export namespace cc::commands::statusline {
 
 struct CommandResponse { bool ok{true}; std::string message; };

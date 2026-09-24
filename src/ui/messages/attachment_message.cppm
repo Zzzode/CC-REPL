@@ -4,16 +4,7 @@
 /// items, and per-card interactions (preview / open / delete).
 module;
 
-#include <string>
-#include <vector>
-#include <memory>
-#include <functional>
-#include <optional>
-#include <format>
 #include <cstdint>
-#include <algorithm>
-#include <array>
-#include <string_view>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
@@ -21,6 +12,8 @@ module;
 #include <ftxui/component/event.hpp>
 
 export module cc.ui.messages.attachment_message;
+
+import std;
 
 export namespace cc::ui::messages::attachment_message {
 using namespace ftxui;

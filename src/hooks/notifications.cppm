@@ -1,16 +1,11 @@
 module;
 
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <functional>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 export module cc.hooks.notifications;
+
+import std;
 
 
 export namespace cc::hooks {

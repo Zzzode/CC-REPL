@@ -1,11 +1,11 @@
 /// @file bridge_dialog.cppm
 /// @brief IDE bridge connection dialog
 module;
-#include <string>
-#include <optional>
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
 export module cc.ui.dialogs.bridge_dialog;
+
+import std;
 export namespace cc::ui::dialogs {
 using namespace ftxui;
 struct BridgeStatus { std::string ide_name; bool is_connected{false}; std::optional<std::string> version; std::optional<std::string> error; };

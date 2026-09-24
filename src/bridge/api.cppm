@@ -2,22 +2,12 @@
 /// @brief Bridge API client for communicating with the Anthropic bridge API
 module;
 
-#include <string>
 #include <cctype>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <format>
-#include <chrono>
-#include <functional>
-#include <initializer_list>
-#include <stdexcept>
-#include <unordered_map>
-#include <sstream>
-#include <utility>
-#include <charconv>
+#include <cstdint>
 
 export module cc.bridge.api;
+
+import std;
 import cc.utils.parse_int;
 
 import cc.types.types;

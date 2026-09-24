@@ -1,10 +1,10 @@
 module;
 
-#include <string>
-#include <optional>
 #include <ftxui/dom/elements.hpp>
 
 export module cc.ui.widgets.pr_badge;
+
+import std;
 
 export namespace ui::components {
 

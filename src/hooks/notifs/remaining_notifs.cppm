@@ -46,27 +46,13 @@
 ///                             exists but the profile tier query does not.
 module;
 
-#include <condition_variable>
-#include <algorithm>
-#include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <ctime>
-#include <expected>
-#include <filesystem>
-#include <functional>
-#include <memory>
-#include <mutex>
-#include <shared_mutex>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <unordered_map>
-#include <unordered_set>
-#include <utility>
-#include <vector>
 
 export module cc.hooks.remaining_notifs;
+
+import std;
 
 import cc.utils.json;
 import cc.services.mcp.types;

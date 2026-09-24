@@ -1,8 +1,7 @@
-module;
-#include <string>
-#include <sstream>
 
 export module cc.ui.foundation.status_icon;
+
+import std;
 
 export namespace cc::ui::design {
 

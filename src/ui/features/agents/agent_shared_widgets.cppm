@@ -16,20 +16,8 @@
 ///   - cc.ui.widgets.spinner_animations  (running spinner glyphs)
 module;
 
-#include <algorithm>
-#include <array>
 #include <cctype>
-#include <chrono>
 #include <cstdint>
-#include <format>
-#include <functional>
-#include <memory>
-#include <optional>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
@@ -37,6 +25,8 @@ module;
 #include <ftxui/component/event.hpp>
 
 export module cc.ui.features.agents.agent_shared_widgets;
+
+import std;
 
 import cc.utils.swarm_backends;
 import cc.tools.agent_color_manager;

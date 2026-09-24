@@ -27,14 +27,10 @@
 
 module;
 
-#include <string>
-#include <string_view>
-#include <optional>
-#include <chrono>
-#include <format>
-#include <vector>
 
 export module cc.utils.statusline_runner;
+
+import std;
 
 import cc.utils.json;
 import cc.utils.hooks_execution;

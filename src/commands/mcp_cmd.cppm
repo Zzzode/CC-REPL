@@ -8,24 +8,11 @@ module;
 
 #include <cstdint>
 #include <cstddef>
-#include <string>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <format>
-#include <ranges>
-#include <algorithm>
-#include <span>
-#include <unordered_map>
-#include <array>
-#include <utility>
-#include <string_view>
-#include <filesystem>
 #include <cstdlib>
-#include <charconv>
-#include <numeric>
 
 export module cc.commands.mcp_cmd;
+
+import std;
 
 import cc.types.types;
 import cc.commands.command;

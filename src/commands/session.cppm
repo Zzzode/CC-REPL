@@ -4,18 +4,10 @@
 module;
 
 #include <cstdint>
-#include <string>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <format>
-#include <ranges>
-#include <algorithm>
-#include <span>
-#include <array>
-#include <chrono>
 
 export module cc.commands.session;
+
+import std;
 
 import cc.types.types;
 import cc.commands.command;

@@ -17,27 +17,17 @@
 /// capabilities.experimental['loom/channel/permission'].
 // ============================================================================
 module;
-#include <algorithm>
-#include <array>
 #include <cctype>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
-#include <filesystem>
-#include <fstream>
-#include <functional>
-#include <memory>
-#include <mutex>
-#include <optional>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <unordered_map>
-#include <vector>
 
 #include <yyjson.h>
+#include <cstddef>
 
 export module cc.services.mcp.channel_permissions;
+
+import std;
 
 import cc.services.mcp.types;
 import cc.utils.json;

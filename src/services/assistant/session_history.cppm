@@ -5,19 +5,11 @@ module;
 
 #include <cctype>
 #include <cstdlib>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
 #include <cstdint>
-#include <filesystem>
-#include <fstream>
-#include <sstream>
-#include <algorithm>
-#include <chrono>
-#include <format>
 
 export module cc.services.assistant_session_history;
+
+import std;
 
 export namespace cc::services::assistant {
 

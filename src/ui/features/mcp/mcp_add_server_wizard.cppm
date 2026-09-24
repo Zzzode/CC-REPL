@@ -12,22 +12,8 @@
 ///   - cc.services.mcp.connection_manager                (temp probe in step 3)
 module;
 
-#include <sstream>
-#include <algorithm>
 #include <cctype>
-#include <chrono>
 #include <cstdint>
-#include <expected>
-#include <functional>
-#include <map>
-#include <memory>
-#include <optional>
-#include <regex>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
-#include <format>
 
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_base.hpp>
@@ -35,6 +21,8 @@ module;
 #include <ftxui/dom/elements.hpp>
 
 export module cc.ui.features.mcp.mcp_add_server_wizard;
+
+import std;
 
 import cc.services.mcp.types;
 import cc.services.mcp.config;

@@ -1,13 +1,11 @@
 module;
-#include <algorithm>
-#include <chrono>
-#include <functional>
-#include <optional>
-#include <string>
-#include <unordered_map>
-#include <vector>
+
+#include <cstdint>
+
 
 export module cc.hooks.tasks;
+
+import std;
 
 export namespace cc::hooks {
 

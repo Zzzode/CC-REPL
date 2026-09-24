@@ -26,22 +26,7 @@
 ///   dialogs      -> cc.ui.dialogs.* (DialogQueue 4-slot system, UI8-UI11/UI16)
 module;
 
-#include <string>
-#include <vector>
-#include <memory>
-#include <functional>
-#include <mutex>
-#include <optional>
-#include <unordered_set>
-#include <unordered_map>
-#include <variant>
-#include <format>
 #include <cstdint>
-#include <chrono>
-#include <algorithm>
-#include <deque>
-#include <random>
-#include <array>
 #include <cctype>
 
 #include <ftxui/dom/elements.hpp>
@@ -50,8 +35,11 @@ module;
 #include <ftxui/component/event.hpp>
 #include <ftxui/component/mouse.hpp>
 #include <ftxui/screen/string.hpp>  // for string_width
+#include <cstddef>
 
 export module cc.ui.screens.repl_screen;
+
+import std;
 
 export import cc.ui.screens.repl_state;
 
@@ -177,8 +165,6 @@ import cc.ui.foundation.ui_types;
 //                     cost_display,dev_bar,status_line}
 //   cc.ui.{design.dialog,hooks.hooks_ui,permissions.permission_views,
 //          agents.agent_editor,tasks.task_list_ui,markdown,terminal}
-
-
 
 export namespace cc::ui::repl_screen {
 using namespace ftxui;

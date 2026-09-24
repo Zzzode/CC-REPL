@@ -1,8 +1,6 @@
-module;
-
-#include <string>
-
 export module cc.utils.message_predicates;
+
+import std;
 
 export namespace cc::utils::message_predicates {
 

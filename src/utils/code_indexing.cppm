@@ -1,23 +1,13 @@
 // C++23 Module: Code indexing for semantic search
 
 module;
-#include <algorithm>
 #include <cctype>
 #include <cstddef>
 #include <cstdint>
-#include <filesystem>
-#include <format>
-#include <fstream>
-#include <ranges>
-#include <regex>
-#include <string>
-#include <string_view>
-#include <system_error>
-#include <unordered_map>
-#include <utility>
-#include <vector>
 
 export module cc.utils.code_indexing;
+
+import std;
 
 
 export namespace cc::utils::code_indexing {

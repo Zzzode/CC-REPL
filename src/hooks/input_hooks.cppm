@@ -1,19 +1,13 @@
 // C++23 Module: Input handling hooks with mode switching, key detection, and clipboard
 module;
 
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <expected>
-#include <functional>
-#include <optional>
-#include <string>
-#include <string_view>
 #include <unistd.h>
-#include <utility>
-#include <vector>
 
 export module cc.hooks.input_hooks;
+
+import std;
 
 
 export namespace cc::hooks {

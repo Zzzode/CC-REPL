@@ -1,18 +1,15 @@
 module;
 
-#include <string>
-#include <vector>
-#include <chrono>
-#include <sstream>
-#include <iomanip>
-#include <iostream>
-#include <functional>
-#include <array>
 #include <cstdio>
 #include <cstdlib>
 #include <sys/wait.h>
+#include <ctime>
+#include <cstddef>
+#include <cstdint>
 
 export module cc.benchmarks.pare.execute_ref;
+
+import std;
 
 import cc.benchmarks.pare.schema;
 import cc.benchmarks.pare.evaluator;

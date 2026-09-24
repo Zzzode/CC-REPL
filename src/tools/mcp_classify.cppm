@@ -1,16 +1,12 @@
 module;
-#include <string>
-#include <string_view>
 #include <cstddef>
-#include <algorithm>
 #include <cctype>
-#include <unordered_set>
-#include <ranges>
 
 export module cc.tools.mcp_classify;
 
-export namespace cc::tools {
+import std;
 
+export namespace cc::tools {
 
 enum class McpOutputType {
     Text,
@@ -21,12 +17,10 @@ enum class McpOutputType {
     Unknown
 };
 
-
 inline auto classify_mcp_output(std::string_view content) -> McpOutputType {
     if (content.empty()) {
         return McpOutputType::Unknown;
     }
-
 
     if (content.starts_with("Error:") ||
         content.starts_with("error:") ||
@@ -36,7 +30,6 @@ inline auto classify_mcp_output(std::string_view content) -> McpOutputType {
         return McpOutputType::Error;
     }
 
-
     if (content.find("...") != std::string_view::npos &&
         content.size() < 200) {
         return McpOutputType::Progress;
@@ -45,7 +38,6 @@ inline auto classify_mcp_output(std::string_view content) -> McpOutputType {
 
         return McpOutputType::Progress;
     }
-
 
     size_t code_indicators = 0;
     if (content.find("```") != std::string_view::npos) code_indicators += 3;
@@ -62,7 +54,6 @@ inline auto classify_mcp_output(std::string_view content) -> McpOutputType {
         return McpOutputType::Code;
     }
 
-
     if (content.find('|') != std::string_view::npos &&
         content.find("---") != std::string_view::npos) {
         return McpOutputType::Table;
@@ -76,7 +67,6 @@ inline auto classify_mcp_output(std::string_view content) -> McpOutputType {
 
     return McpOutputType::Text;
 }
-
 
 inline auto should_collapse_output(McpOutputType type, size_t length) -> bool {
     switch (type) {
@@ -95,7 +85,6 @@ inline auto should_collapse_output(McpOutputType type, size_t length) -> bool {
     }
     return length > 2000;
 }
-
 
 inline auto truncate_mcp_output(std::string_view content, size_t max_length) -> std::string {
     if (content.size() <= max_length) {

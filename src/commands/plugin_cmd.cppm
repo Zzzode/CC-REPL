@@ -38,28 +38,12 @@
 module;
 
 #include <cctype>
-#include <algorithm>
-#include <array>
 #include <cstdint>
 #include <cstdlib>
-#include <expected>
-#include <filesystem>
-#include <format>
-#include <fstream>
-#include <functional>
-#include <iterator>
-#include <map>
-#include <optional>
-#include <ranges>
-#include <sstream>
-#include <span>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <variant>
-#include <vector>
 
 export module cc.commands.plugin_cmd;
+
+import std;
 
 import cc.types.types;
 import cc.commands.command;

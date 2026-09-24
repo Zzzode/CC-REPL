@@ -3,13 +3,10 @@
 /// Migrated from src/query/config.ts, deps.ts
 module;
 
-#include <string>
-#include <vector>
-#include <optional>
-#include <functional>
-#include <chrono>
 
 export module cc.query.config;
+
+import std;
 
 export namespace cc::query {
 

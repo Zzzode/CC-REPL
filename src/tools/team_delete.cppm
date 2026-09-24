@@ -1,15 +1,10 @@
 // TeamDeleteTool - Disbands a swarm team, cleans up directories and worktrees
 module;
 #include <cstdlib>
-#include <expected>
-#include <filesystem>
-#include <format>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <vector>
 
 export module cc.tools.team_delete;
+
+import std;
 
 import cc.tools.tool;
 import cc.tools.runtime_registry;

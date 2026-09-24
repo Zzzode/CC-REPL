@@ -1,24 +1,11 @@
 // MCP Connection Manager - Manages multiple MCP server connections
 module;
 
-#include <memory>
-#include <string>
-#include <vector>
-#include <map>
-#include <optional>
-#include <expected>
-#include <utility>
-#include <chrono>
-#include <mutex>
-#include <functional>
-#include <filesystem>
-#include <atomic>
-#include <thread>
-#include <algorithm>
 #include <cctype>
-#include <unordered_map>
 
 export module cc.services.mcp.connection_manager;
+
+import std;
 
 import cc.services.mcp.types;
 import cc.services.mcp.client;

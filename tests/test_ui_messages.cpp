@@ -1,24 +1,8 @@
 /// @file test_ui_messages.cpp
 /// @brief Split from test_ui.cpp - CollapseBackgroundBash, ImagePaste, ImagePasteCtrlV, ImagePasteFormat, ImagePasteOrphanCleanup, ImagePasteSubmit, MessagePipeline, Messages, MessagesList, VirtualList (SLOC budget fix)
 
-#include <algorithm>
-#include <atomic>
-#include <chrono>
-#include <condition_variable>
 #include <cstdlib>
-#include <filesystem>
-#include <fstream>
-#include <functional>
-#include <map>
-#include <memory>
-#include <mutex>
-#include <optional>
-#include <string>
-#include <thread>
-#include <utility>
-#include <vector>
 
-#include <expected>
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/dom/node.hpp>
 #include <ftxui/screen/screen.hpp>
@@ -30,6 +14,7 @@
 
 #include "test_ui_helpers.h"
 
+import std;
 import cc.ui.messages.messages;
 import cc.ui.messages.message_pipeline;
 import cc.ui.messages.collapse_background_bash;

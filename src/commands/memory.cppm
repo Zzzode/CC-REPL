@@ -4,16 +4,10 @@
 module;
 
 #include <cstdlib>
-#include <string>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <format>
-#include <algorithm>
-#include <array>
-#include <filesystem>
 
 export module cc.commands.memory;
+
+import std;
 
 import cc.types.types;
 import cc.commands.command;

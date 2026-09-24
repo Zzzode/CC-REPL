@@ -8,15 +8,11 @@
 module;
 
 #include <cstdint>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <format>
-#include <algorithm>
-#include <ranges>
+#include <cctype>
 
 export module cc.commands.plugin_error_formatting;
+
+import std;
 
 export namespace cc::commands::plugin {
 

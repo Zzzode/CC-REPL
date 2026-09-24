@@ -1,4 +1,4 @@
-#!/usr/bin/env zsh
+#!/usr/bin/env bash
 # Precompile impl_bash/impl_files modules and build the two standalone binaries (tools_smoke, tools_e2e)
 # without going through cc_tools (which transitively pulls cc_services which can
 # have independently broken module scans in partial builds).
@@ -16,14 +16,27 @@ TESTS="${ROOT}/tests"
 PCM_DIR="${BUILD}/tools_smoke_pcms"
 CXX="${CXX:-/opt/homebrew/opt/llvm/bin/clang++}"
 
+# The standalone units `import std;`. Point clang at the std module BMI that
+# the project's cc_std target produced in the build tree.
+STD_PCM="${STD_PCM:-${BUILD}/src/CMakeFiles/cc_std.dir/std.pcm}"
+if [[ ! -f "${STD_PCM}" ]]; then
+  echo "error: std module BMI not found at ${STD_PCM} (build cc_std first)" >&2
+  exit 1
+fi
+
 mkdir -p "${PCM_DIR}"
 
 COMMON=(
   -std=c++23
-  -fmodules
-  -fcxx-modules
-  -fimplicit-module-maps
+  -stdlib=libc++
+  # Match the project's module mode. The legacy -fmodules/-fcxx-modules/
+  # -fimplicit-module-maps combination rejects a TU that keeps textual std
+  # headers in its GMF while `import std;`-ing; the project compiles all
+  # standalone units with the reduced-BMI writer. impl_bash.cppm keeps its
+  # environ accessor C-only precisely so it can `import std;`.
+  -fmodules-reduced-bmi
   -fprebuilt-module-path="${PCM_DIR}"
+  -fmodule-file=std="${STD_PCM}"
   -I"${BUILD}/_deps/yyjson-src/src"
   -I"${BUILD}/_deps/libuv-src/include"
   -O0 -g
@@ -33,6 +46,20 @@ COMMON=(
 if [[ "$(uname -s)" == "Darwin" ]]; then
   SDKROOT="${SDKROOT:-$(xcrun --sdk macosx --show-sdk-path)}"
   COMMON+=(-arch arm64 -isysroot "${SDKROOT}")
+else
+  # Linux: when clang is a Homebrew llvm using brew glibc/libc++, the linker
+  # needs the libc++ and dynamic-loader paths explicitly (mirrors the
+  # local-linux CMake preset). Derive them from the compiler location.
+  LLVM_PREFIX="$(cd "$(dirname "${CXX}")/.." && pwd)"
+  GLIBC_PREFIX="$(cd "${LLVM_PREFIX}/../glibc" 2>/dev/null && pwd || true)"
+  if [[ -n "${GLIBC_PREFIX}" && -d "${GLIBC_PREFIX}/lib" ]]; then
+    COMMON+=(
+      -L"${LLVM_PREFIX}/lib" -L"${GLIBC_PREFIX}/lib"
+      -Wl,-rpath,"${LLVM_PREFIX}/lib" -Wl,-rpath,"${GLIBC_PREFIX}/lib"
+      -Wl,-dynamic-linker,"${GLIBC_PREFIX}/lib/ld-linux-x86-64.so.2"
+      -Wl,--allow-shlib-undefined
+    )
+  fi
 fi
 
 precompile_modules() {
@@ -59,7 +86,7 @@ build_target() {
     "${PCM_DIR}/cc.tools.files.impl.pcm" \
     "${src}" \
     -o "${bin}"
-  echo "Built: ${bin} ($(stat -f %z "${bin}") bytes)"
+  echo "Built: ${bin} ($(wc -c <"${bin}" | tr -d ' ') bytes)"
 }
 
 main() {

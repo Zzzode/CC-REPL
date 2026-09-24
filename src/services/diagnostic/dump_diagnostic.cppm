@@ -3,17 +3,8 @@
 /// Gathers OS info, memory usage, runtime state, and active plugins/MCP servers.
 module;
 
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
 #include <cstdint>
-#include <filesystem>
-#include <fstream>
-#include <format>
-#include <chrono>
 #include <cstdlib>
-#include <array>
 #include <cstdio>
 
 #ifdef __APPLE__
@@ -23,9 +14,12 @@ module;
 #elif defined(__linux__)
 #include <sys/sysinfo.h>
 #include <sys/utsname.h>
+#include <ctime>
 #endif
 
 export module cc.services.diagnostic.dump_diagnostic;
+
+import std;
 
 export namespace cc::services::diagnostic {
 

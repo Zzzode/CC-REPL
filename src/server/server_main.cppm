@@ -1,39 +1,18 @@
 module;
-#include <algorithm>
-#include <array>
-#include <atomic>
-#include <chrono>
+#include <unistd.h>
 #include <cctype>
-#include <condition_variable>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
-#include <expected>
-#include <filesystem>
-#include <format>
-#include <fstream>
-#include <functional>
-#include <future>
-#include <map>
-#include <mutex>
 #include <netinet/in.h>
-#include <optional>
 #include <openssl/sha.h>
 #include <poll.h>
-#include <random>
-#include <sstream>
-#include <string>
-#include <string_view>
 #include <sys/socket.h>
-#include <thread>
-#include <unistd.h>
-#include <unordered_map>
-#include <unordered_set>
-#include <utility>
-#include <vector>
 #include <arpa/inet.h>
 
 export module cc.server.server_main;
+
+import std;
 
 import cc.server.server_routes;
 import cc.hooks.tool_permissions;

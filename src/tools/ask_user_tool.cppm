@@ -1,18 +1,10 @@
 // AskUserTool - Asks the user questions and collects responses
 module;
-#include <algorithm>
-#include <chrono>
 #include <cstddef>
-#include <expected>
-#include <format>
-#include <functional>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 export module cc.tools.ask_user;
+
+import std;
 
 
 export namespace cc::tools {

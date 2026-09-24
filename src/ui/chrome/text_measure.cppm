@@ -5,17 +5,12 @@
 ///     widest-line.ts, line-width-cache.ts, get-max-width.ts, bidi.ts
 module;
 
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
 #include <cstdint>
 #include <cstddef>
-#include <span>
-#include <unordered_map>
-#include <algorithm>
 
 export module cc.ui.chrome.text_measure;
+
+import std;
 
 export namespace cc::ui::text_measure {
 

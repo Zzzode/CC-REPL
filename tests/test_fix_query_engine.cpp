@@ -37,24 +37,15 @@
 #include <cstdlib>
 #include <gtest/gtest.h>
 
-#include <atomic>
-#include <chrono>
-#include <condition_variable>
 #include <cstdint>
 #include <cstring>
-#include <filesystem>
-#include <fstream>
-#include <mutex>
-#include <optional>
-#include <string>
-#include <thread>
-#include <vector>
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
+import std;
 import cc.query.query_engine;
 import cc.tools.tool;
 import cc.types.types;

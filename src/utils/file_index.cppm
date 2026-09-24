@@ -1,19 +1,13 @@
 // FileIndex - fzf-style fuzzy file search for large repositories
 module;
 
-#include <algorithm>
-#include <array>
 #include <cctype>
 #include <cstdint>
-#include <filesystem>
-#include <functional>
-#include <limits>
-#include <numeric>
-#include <string>
-#include <string_view>
-#include <vector>
+#include <cstddef>
 
 export module cc.utils.file_index;
+
+import std;
 
 export namespace cc::utils::file_index {
 

@@ -1,19 +1,11 @@
 // C++23 Module: PDF processing
 
 module;
-#include <array>
 #include <cstddef>
-#include <expected>
-#include <filesystem>
-#include <format>
-#include <fstream>
-#include <iostream>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 export module cc.utils.pdf;
+
+import std;
 
 
 export namespace cc::utils::pdf {

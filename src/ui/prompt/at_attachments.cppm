@@ -10,22 +10,13 @@
 /// of this same materialize_at_mentions interface later.
 module;
 
-#include <algorithm>
 #include <cstdlib>
-#include <filesystem>
-#include <format>
-#include <fstream>
-#include <optional>
-#include <set>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <system_error>
-#include <vector>
 
 export module cc.ui.prompt.at_attachments;
 
-import cc.types.types;
+import std;
+import cc.types.types;  // arch-check: keep-import
+
 
 export namespace cc::ui::prompt::at_attachments {
 

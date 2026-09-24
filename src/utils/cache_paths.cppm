@@ -1,12 +1,11 @@
 module;
 
-#include <algorithm>
 #include <cstdint>
 #include <cstdlib>
-#include <string>
-#include <string_view>
 
 export module cc.utils.cache_paths;
+
+import std;
 
 export namespace cc::utils::cache_paths {
 

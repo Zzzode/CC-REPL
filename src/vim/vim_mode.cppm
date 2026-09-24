@@ -1,9 +1,7 @@
-module;
-#include <string>
-#include <optional>
-#include <functional>
 
 export module cc.vim.vim_mode;
+
+import std;
 
 import cc.vim.vim_types;  // canonical VimMode (lives in cc_vim to avoid circular deps)
 

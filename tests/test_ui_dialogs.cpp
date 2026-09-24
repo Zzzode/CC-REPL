@@ -1,24 +1,8 @@
 /// @file test_ui_dialogs.cpp
 /// @brief Split from test_ui.cpp - McpElicitation, Permissions, SettingsDialog, ToolPermission, WizardDialog (SLOC budget fix)
 
-#include <algorithm>
-#include <atomic>
-#include <chrono>
-#include <condition_variable>
 #include <cstdlib>
-#include <filesystem>
-#include <fstream>
-#include <functional>
-#include <map>
-#include <memory>
-#include <mutex>
-#include <optional>
-#include <string>
-#include <thread>
-#include <utility>
-#include <vector>
 
-#include <expected>
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/dom/node.hpp>
 #include <ftxui/screen/screen.hpp>
@@ -30,6 +14,7 @@
 
 #include "test_ui_helpers.h"
 
+import std;
 import cc.ui.dialogs.settings_dialog;
 import cc.ui.dialogs.wizard_dialog;
 import cc.ui.permissions.permission_rules_ui;

@@ -2,14 +2,11 @@
 /// @brief Bash stdin/stdout/stderr message rendering
 module;
 
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
-#include <format>
 #include <ftxui/dom/elements.hpp>
 
 export module cc.ui.messages.message_bash_io;
+
+import std;
 
 export namespace cc::ui::messages {
 

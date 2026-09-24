@@ -2,18 +2,12 @@
 // Sources: editor.ts, promptEditor.ts
 module;
 
-#include <chrono>
+#include <unistd.h>
 #include <cstdint>
-#include <expected>
-#include <filesystem>
-#include <functional>
-#include <memory>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <vector>
 
 export module cc.utils.editor_utils;
+
+import std;
 
 import cc.utils.async;
 

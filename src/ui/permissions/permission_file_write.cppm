@@ -39,16 +39,9 @@
 
 module;
 
-#include <algorithm>
+#include <unistd.h>
 #include <cstddef>
 #include <cstdint>
-#include <format>
-#include <functional>
-#include <memory>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <vector>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
@@ -56,6 +49,8 @@ module;
 #include <ftxui/component/event.hpp>
 
 export module cc.ui.permissions.permission_file_write;
+
+import std;
 
 import cc.ui.visual.code_highlight;
 import cc.ui.permissions.components;

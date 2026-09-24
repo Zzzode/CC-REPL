@@ -1,13 +1,9 @@
 // TaskStopTool - Stops a running background task by ID
 module;
-#include <expected>
-#include <format>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <vector>
 
 export module cc.tools.task_stop;
+
+import std;
 
 import cc.tools.tool;
 import cc.utils.json;

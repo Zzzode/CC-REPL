@@ -14,21 +14,13 @@
 
 module;
 
-#include <algorithm>
-#include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
-#include <expected>
-#include <memory>
-#include <optional>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 export module cc.server.types;
+
+import std;
 
 import cc.utils.json;
 

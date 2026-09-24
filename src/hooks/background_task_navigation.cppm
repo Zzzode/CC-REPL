@@ -1,10 +1,7 @@
-module;
-#include <string>
-#include <functional>
-#include <optional>
-#include <vector>
 
 export module cc.hooks.background_task_navigation;
+
+import std;
 
 import cc.state.app_state;
 

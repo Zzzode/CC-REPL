@@ -18,26 +18,13 @@
 // ============================================================================
 module;
 
-#include <condition_variable>
-#include <atomic>
-#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
-#include <expected>
-#include <functional>
-#include <future>
-#include <memory>
-#include <mutex>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <thread>
-#include <unordered_map>
-#include <utility>
-#include <vector>
 
 export module cc.services.lsp.manager;
+
+import std;
 
 import cc.services.lsp.LSPServerManager;
 import cc.services.lsp.LSPServerInstance;

@@ -1,31 +1,26 @@
 module;
-#include <string>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <functional>
-#include <map>
+
+#include <unistd.h>
+
 
 export module cc.commands.sandbox_toggle;
 
-export namespace cc::commands {
+import std;
 
+export namespace cc::commands {
 
 namespace detail {
     inline bool sandbox_enabled = false;
 }
 
-
 auto is_sandbox_enabled() -> bool {
     return detail::sandbox_enabled;
 }
-
 
 auto toggle_sandbox() -> bool {
     detail::sandbox_enabled = !detail::sandbox_enabled;
     return detail::sandbox_enabled;
 }
-
 
 auto get_sandbox_status() -> std::string {
     if (detail::sandbox_enabled) {
@@ -33,7 +28,6 @@ auto get_sandbox_status() -> std::string {
     }
     return "Sandbox: DISABLED - Full system access";
 }
-
 
 auto show_sandbox_info() -> std::string {
     std::string info = "Sandbox Mode Information:\n\n";

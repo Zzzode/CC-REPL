@@ -1,15 +1,9 @@
 module;
 #include <cstdlib>
-#include <filesystem>
-#include <fstream>
-#include <iterator>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 export module cc.services.mcp.vscode_sdk_mcp;
+
+import std;
 
 import cc.utils.json;
 

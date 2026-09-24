@@ -21,28 +21,11 @@
 
 module;
 
-#include <algorithm>
-#include <atomic>
-#include <chrono>
 #include <cctype>
-#include <condition_variable>
-#include <functional>
-#include <map>
-#include <memory>
-#include <mutex>
-#include <optional>
-#include <regex>
-#include <set>
-#include <stop_token>
-#include <string>
-#include <string_view>
-#include <thread>
-#include <unordered_map>
-#include <utility>
-#include <variant>
-#include <vector>
 
 export module cc.services.mcp.channel_notification;
+
+import std;
 
 import cc.constants.xml;
 import cc.services.mcp.types;

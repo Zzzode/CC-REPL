@@ -4,33 +4,23 @@
 /// permissions, and reports environment information.
 module;
 
+#include <unistd.h>
 #include <cerrno>
 #include <cstdlib>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <format>
-#include <ranges>
-#include <algorithm>
-#include <filesystem>
-#include <chrono>
-#include <array>
 
 #if !defined(_WIN32)
 #  include <sys/socket.h>
 #  include <netdb.h>
-#  include <unistd.h>
 #  include <fcntl.h>
 #  include <poll.h>
-#  include <cerrno>
 #endif
 
 export module cc.commands.doctor;
+
+import std;
 
 import cc.types.types;
 import cc.commands.command;

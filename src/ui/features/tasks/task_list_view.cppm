@@ -6,18 +6,7 @@
 module;
 
 #include <cctype>
-#include <string>
-#include <vector>
-#include <memory>
-#include <functional>
-#include <optional>
-#include <format>
 #include <cstdint>
-#include <chrono>
-#include <algorithm>
-#include <ranges>
-#include <set>
-#include <unordered_set>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
@@ -25,6 +14,8 @@ module;
 #include <ftxui/component/event.hpp>
 
 export module cc.ui.features.tasks.task_list_view;
+
+import std;
 
 import cc.ui.features.tasks.task_components;
 

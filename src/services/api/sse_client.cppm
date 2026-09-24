@@ -5,22 +5,14 @@
 // - abort propagation via should_abort callback
 module;
 #include <cctype>
-#include <atomic>
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <functional>
-#include <span>
-#include <stdexcept>
-#include <string>
-#include <string_view>
-#include <thread>
-#include <utility>
-#include <vector>
 #include <curl/curl.h>
 
 export module cc.services.api.sse;
+
+import std;
 
 import cc.utils.json;
 

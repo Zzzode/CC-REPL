@@ -11,17 +11,10 @@
 /// refreshed or the user is prompted (prompt-update).
 module;
 
-#include <chrono>
-#include <filesystem>
-#include <fstream>
-#include <optional>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <system_error>
-#include <vector>
 
 export module cc.tools.agent_memory_snapshot;
+
+import std;
 
 import cc.tools.agent_memory;
 import cc.utils.json;

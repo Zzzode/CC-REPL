@@ -1,12 +1,11 @@
 // Fuzz target: feeds random bytes into yyjson parse + message extraction
 // Build with -fsanitize=fuzzer when ENABLE_FUZZING is ON.
 
+import std;
 import cc.utils.json;
 
 #include <cstddef>
 #include <cstdint>
-#include <string>
-#include <string_view>
 
 using namespace cc::utils::json;
 

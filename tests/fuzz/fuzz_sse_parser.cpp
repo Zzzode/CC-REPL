@@ -1,12 +1,11 @@
 // Fuzz target: feeds random bytes into SseClient::FeedParser
 // Build with -fsanitize=fuzzer when ENABLE_FUZZING is ON.
 
+import std;
 import cc.services.api.sse;
 
 #include <cstddef>
 #include <cstdint>
-#include <string>
-#include <string_view>
 
 using namespace cc::services::api::sse;
 

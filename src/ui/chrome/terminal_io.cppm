@@ -9,17 +9,11 @@
 module;
 
 #include <cstdlib>
-#include <array>
 #include <cstdint>
-#include <expected>
-#include <optional>
-#include <span>
-#include <string>
-#include <string_view>
-#include <variant>
-#include <vector>
 
 export module cc.ui.chrome.terminal_io;
+
+import std;
 
 export namespace cc::ui::termio {
 

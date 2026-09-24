@@ -1,17 +1,11 @@
 module;
-#include <string>
-#include <string_view>
-#include <vector>
-#include <filesystem>
-#include <future>
-#include <optional>
-#include <sstream>
-#include <span>
-#include <chrono>
-#include <system_error>
-#include <utility>
+
+#include <cstddef>
+
 
 export module cc.tools.spawn_multi_agent;
+
+import std;
 
 import cc.tools.agent;
 import cc.tools.agent_types;
@@ -188,7 +182,6 @@ namespace detail {
 }
 }
 
-
 struct MultiAgentConfig {
     std::vector<MultiAgentAgentConfig> agents;
     bool parallel = true;
@@ -197,7 +190,6 @@ struct MultiAgentConfig {
     std::string working_dir;
     bool prefer_in_process = false;
 };
-
 
 inline auto spawn_agents(const MultiAgentConfig& config) -> std::vector<std::future<MultiAgentResult>> {
     std::vector<std::future<MultiAgentResult>> futures;
@@ -262,7 +254,6 @@ inline auto spawn_agents(const MultiAgentConfig& config) -> std::vector<std::fut
     return futures;
 }
 
-
 inline auto wait_all(std::span<std::future<MultiAgentResult>> futures) -> std::vector<MultiAgentResult> {
     std::vector<MultiAgentResult> results;
     results.reserve(futures.size());
@@ -273,7 +264,6 @@ inline auto wait_all(std::span<std::future<MultiAgentResult>> futures) -> std::v
 
     return results;
 }
-
 
 inline auto merge_agent_results(std::span<const MultiAgentResult> results) -> std::string {
     if (results.empty()) {
@@ -301,7 +291,6 @@ inline auto merge_agent_results(std::span<const MultiAgentResult> results) -> st
         total_turns += result.turns_used;
         if (result.completed) ++completed_count;
     }
-
 
     oss << "---\n";
     oss << "**Summary**: " << completed_count << "/" << results.size()

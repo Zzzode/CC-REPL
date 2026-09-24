@@ -1,13 +1,7 @@
-module;
-#include <chrono>
-#include <functional>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <variant>
-#include <vector>
 
 export module cc.ui.permissions.permission_request;
+
+import std;
 
 export namespace cc::ui::permissions {
 

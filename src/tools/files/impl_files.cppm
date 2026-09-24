@@ -12,15 +12,7 @@
 ///     max_bytes_per_file so deep trees (/proc, node_modules) stay bounded.
 module;
 
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
-#include <fstream>
-#include <sstream>
-#include <algorithm>
-#include <filesystem>
-#include <regex>
+#include <unistd.h>
 #include <cstdio>
 #include <cstring>
 #include <cstdint>
@@ -28,12 +20,13 @@ module;
 #include <cctype>
 #include <sys/stat.h>
 #include <fcntl.h>
-#include <unistd.h>
 #include <fnmatch.h>
-#include <system_error>
 #include <cerrno>
+#include <cstddef>
 
 export module cc.tools.files.impl;
+
+import std;
 
 export namespace cc::tools::files::impl {
 

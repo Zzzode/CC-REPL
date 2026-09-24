@@ -1,10 +1,6 @@
-module;
-
-#include <string>
-#include <string_view>
-#include <unordered_map>
-
 export module cc.tools.shared_tool;
+
+import std;
 
 export namespace cc::tools::shared {
 

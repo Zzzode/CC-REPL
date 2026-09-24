@@ -7,26 +7,14 @@
 /// UI rendering (FTXUI tables/dialogs) DEFERRED to Phase 4.
 module;
 
-#include <chrono>
+#include <unistd.h>
 #include <cstdint>
-#include <string>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <format>
-#include <ranges>
-#include <algorithm>
-#include <span>
-#include <array>
 #include <cstdlib>
-#include <filesystem>
-#include <fstream>
-#include <sstream>
-#include <string_view>
-#include <system_error>
-#include <unordered_set>
+#include <cctype>
 
 export module cc.commands.keybindings_cmd;
+
+import std;
 
 import cc.types.types;
 import cc.commands.command;

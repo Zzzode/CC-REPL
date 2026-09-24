@@ -3,26 +3,13 @@
 //         PaneBackendExecutor.ts, registry.ts, types.ts, teammateModeSnapshot.ts, it2Setup.ts
 module;
 
-#include <atomic>
-#include <array>
 #include <sys/wait.h>
-#include <chrono>
 #include <cstdio>
 #include <cstdlib>
-#include <functional>
-#include <map>
-#include <memory>
-#include <mutex>
-#include <optional>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <thread>
-#include <utility>
-#include <variant>
-#include <vector>
 
 export module cc.utils.swarm_backends;
+
+import std;
 
 import cc.utils.team_helpers;
 import cc.utils.bash_execution;

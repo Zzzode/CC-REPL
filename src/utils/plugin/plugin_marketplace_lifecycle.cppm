@@ -6,21 +6,12 @@
 // category labeling, and plugin reporting capabilities.
 module;
 
-#include <array>
-#include <chrono>
 #include <cstdio>
 #include <cstdlib>
-#include <expected>
-#include <filesystem>
-#include <fstream>
-#include <mutex>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <unordered_map>
-#include <vector>
 
 export module cc.utils.plugin_marketplace_lifecycle;
+
+import std;
 import cc.utils.bash_execution;
 
 export namespace cc::utils::plugins {

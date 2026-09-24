@@ -4,16 +4,12 @@
 //   return > 0           -> HTTP status (retry if in cfg.retry_on_http)
 //   return < 0           -> libcurl transport error (always retry up to max)
 module;
-#include <algorithm>
-#include <chrono>
 #include <cmath>
 #include <cstdint>
-#include <functional>
-#include <random>
-#include <thread>
-#include <vector>
 
 export module cc.services.api.with_retry_simple;
+
+import std;
 
 export namespace cc::services::api::with_retry_simple {
 

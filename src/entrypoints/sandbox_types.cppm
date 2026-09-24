@@ -1,3 +1,4 @@
+
 /// @file sandbox_types.cppm
 /// @brief Sandbox types for the Loom Agent SDK.
 /// Migrated from src/entrypoints/sandboxTypes.ts
@@ -6,12 +7,9 @@
 /// Both the SDK and the settings validation import from here.
 module;
 
-#include <string>
-#include <vector>
-#include <optional>
-#include <unordered_map>
-
 export module cc.entrypoints.sandbox_types;
+
+import std;
 
 export namespace cc::entrypoints::sandbox {
 

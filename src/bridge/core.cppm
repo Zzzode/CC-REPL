@@ -1,3 +1,9 @@
+module;
+
+#include <unistd.h>
+#include <cstddef>
+#include <cstdint>
+
 /// @file core.cppm
 /// @brief Env-less remote bridge core: session creation, credential fetch,
 ///        SSE transport, token refresh, 401 recovery, teardown, and archive.
@@ -13,28 +19,10 @@
 ///   5. 401 on SSE -> rebuild transport with fresh /bridge credentials
 ///
 /// Migrated from src/bridge/remoteBridgeCore.ts (~1008 lines).
-module;
-
-#include <atomic>
-#include <chrono>
-#include <condition_variable>
-#include <expected>
-#include <format>
-#include <functional>
-#include <map>
-#include <memory>
-#include <mutex>
-#include <optional>
-#include <random>
-#include <string>
-#include <string_view>
-#include <thread>
-#include <unordered_set>
-#include <utility>
-#include <variant>
-#include <vector>
 
 export module cc.bridge.core;
+
+import std;
 
 import cc.types.types;
 import cc.bridge.config;

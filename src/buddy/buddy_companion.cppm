@@ -2,14 +2,12 @@
 /// Companion generation: roll, hash, stats, and retrieval.
 module;
 
-#include <string>
 #include <cstdint>
-#include <functional>
-#include <optional>
-#include <unordered_map>
-#include <algorithm>
+#include <cstddef>
 
 export module cc.buddy.buddy_companion;
+
+import std;
 
 import cc.buddy.buddy_types;
 

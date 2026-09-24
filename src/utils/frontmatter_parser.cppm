@@ -1,18 +1,18 @@
 module;
-#include <string>
-#include <string_view>
-#include <map>
+
+#include <cstddef>
+
 
 export module cc.utils.frontmatter_parser;
 
-export namespace cc::utils {
+import std;
 
+export namespace cc::utils {
 
 struct Frontmatter {
     std::map<std::string, std::string> metadata;
     std::string content;
 };
-
 
 [[nodiscard]] inline bool has_frontmatter(std::string_view sv) {
 
@@ -34,7 +34,6 @@ namespace fm_detail {
         return sv.substr(start, end - start + 1);
     }
 
-
     inline std::string unquote(std::string_view sv) {
         if (sv.size() >= 2 &&
             ((sv.front() == '"' && sv.back() == '"') ||
@@ -45,7 +44,6 @@ namespace fm_detail {
     }
 }
 
-
 [[nodiscard]] inline Frontmatter parse_frontmatter(std::string_view sv) {
     Frontmatter result;
 
@@ -54,18 +52,15 @@ namespace fm_detail {
         return result;
     }
 
-
     auto first_sep = sv.find("---");
     if (first_sep == std::string_view::npos) {
         result.content = std::string(sv);
         return result;
     }
 
-
     size_t yaml_start = first_sep + 3;
     if (yaml_start < sv.size() && sv[yaml_start] == '\r') ++yaml_start;
     if (yaml_start < sv.size() && sv[yaml_start] == '\n') ++yaml_start;
-
 
     auto second_sep = sv.find("\n---", yaml_start);
     if (second_sep == std::string_view::npos) {
@@ -77,9 +72,7 @@ namespace fm_detail {
         }
     }
 
-
     auto yaml_section = sv.substr(yaml_start, second_sep - yaml_start);
-
 
     size_t line_start = 0;
     while (line_start < yaml_section.size()) {
@@ -101,7 +94,6 @@ namespace fm_detail {
         line_start = line_end + 1;
     }
 
-
     size_t content_start = second_sep + 4; // "\n---"
     if (content_start < sv.size() && sv[content_start] == '\r') ++content_start;
     if (content_start < sv.size() && sv[content_start] == '\n') ++content_start;
@@ -109,7 +101,6 @@ namespace fm_detail {
 
     return result;
 }
-
 
 [[nodiscard]] inline std::string_view strip_frontmatter(std::string_view sv) {
     if (!has_frontmatter(sv)) return sv;

@@ -1,14 +1,11 @@
 module;
-#include <string>
-#include <string_view>
-#include <random>
-#include <sstream>
-#include <iomanip>
-#include <chrono>
-#include <algorithm>
 #include <cctype>
+#include <cstddef>
+#include <cstdint>
 
 export module cc.bridge.session_id_compat;
+
+import std;
 
 export namespace cc::bridge {
 

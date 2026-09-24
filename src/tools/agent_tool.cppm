@@ -1,38 +1,15 @@
 // AgentTool - Sub-agent delegation with recursive API loop
 module;
 
-#include <atomic>
-#include <algorithm>
-#include <charconv>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
-#include <expected>
-#include <format>
-#include <fstream>
-#include <functional>
-#include <initializer_list>
-#include <iterator>
-#include <limits>
-#include <memory>
-#include <string>
-#include <string_view>
-#include <optional>
-#include <vector>
-#include <array>
-#include <utility>
-#include <sstream>
 #include <cctype>
-#include <chrono>
 #include <cstdint>
-#include <filesystem>
-#include <system_error>
-#include <thread>
-#include <unordered_map>
-#include <unordered_set>
-#include <sys/wait.h>
 
 export module cc.tools.agent;
+
+import std;
 
 import cc.utils.error;
 import cc.utils.git;
@@ -219,7 +196,6 @@ using run_::execute_agent_web_fetch_tool;
 
 // TODO(agent-split): refine placement — ambiguous dependency
 // (symbols above left in agent_tool root via using-import from submodules)
-
 
 // =========================================================================
 // AgentTool Implementation

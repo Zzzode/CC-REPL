@@ -16,23 +16,11 @@
 //      script step orchestration.
 module;
 
-#include <array>
 #include <cctype>
-#include <chrono>
-#include <expected>
-#include <filesystem>
-#include <fstream>
-#include <format>
-#include <functional>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <unordered_set>
-#include <vector>
-#include <algorithm>
-#include <optional>
 
 export module cc.tools.script_primitives;
+
+import std;
 
 import cc.tools.script_types;
 import cc.tools.script_diagnostics;

@@ -10,7 +10,12 @@
 // These were originally moved from app.cppm to app_autocomplete.cpp, but the
 // combined import closure of app_autocomplete.cpp + these methods exceeded
 // the source-location budget (fatal error: "ran out of source locations").
-// Splitting them into their own impl unit keeps each TU under the limit.
+//
+// Phase A (import std): this impl unit deliberately keeps std TEXTUAL and
+// does NOT `import std;`. clang 22.1.8's reduced-BMI writer (LLVM #184957,
+// fixed in clang 23 / PR #179178) leaks a duplicate aligned operator new into
+// impl units of a primary whose GMF pulls libc++ textually (app.cppm via FTXUI),
+// causing "operator new is ambiguous". Re-evaluate after the toolchain upgrade.
 module;
 
 #include <algorithm>
@@ -32,6 +37,7 @@ module;
 #include <vector>
 
 module cc.ui.app.app;
+
 import cc.query.query_engine;
 import cc.commands.registry;
 import cc.commands.command;
@@ -465,6 +471,5 @@ void AppAdapter::ProcessCompletedPastes() {
         }
     }
 }
-
 
 } // namespace cc::ui

@@ -38,19 +38,14 @@
 ///   c    — open full config (handled by caller)
 module;
 
-#include <functional>
-#include <memory>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/event.hpp>
 
 export module cc.ui.dialogs.settings_view;
+
+import std;
 
 import cc.ui.dialogs.frame;
 import cc.ui.foundation.theme_provider;

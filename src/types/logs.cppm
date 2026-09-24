@@ -3,17 +3,11 @@
 /// Migrated from: src/types/logs.ts
 module;
 
-#include <algorithm>
-#include <chrono>
 #include <cstdint>
-#include <optional>
-#include <ranges>
-#include <string>
-#include <unordered_map>
-#include <variant>
-#include <vector>
 
 export module cc.types.logs;
+
+import std;
 
 export namespace cc::types::logs {
 

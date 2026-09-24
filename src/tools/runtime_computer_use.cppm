@@ -8,11 +8,10 @@
 module;
 
 #include <cstdint>
-#include <format>
-#include <string>
-#include <string_view>
 
 export module cc.tools.runtime_computer_use;
+
+import std;
 
 import cc.tools.computer_use;
 

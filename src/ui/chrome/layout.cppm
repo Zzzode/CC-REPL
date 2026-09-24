@@ -1,17 +1,14 @@
 // C++23 Module: Layout engine with responsive adaptation and focus management
 module;
 
-#include <algorithm>
 #include <cstddef>
 #include <cstdint>
-#include <format>
-#include <optional>
-#include <string>
-#include <vector>
 
 #include <ftxui/dom/elements.hpp>
 
 export module cc.ui.chrome.layout;
+
+import std;
 
 import cc.ui.chrome.panels;
 

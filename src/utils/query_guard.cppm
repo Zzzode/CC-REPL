@@ -1,11 +1,10 @@
 module;
 
 #include <cstdint>
-#include <functional>
-#include <map>
-#include <optional>
 
 export module cc.utils.query_guard;
+
+import std;
 
 export namespace cc::utils::query_guard {
 

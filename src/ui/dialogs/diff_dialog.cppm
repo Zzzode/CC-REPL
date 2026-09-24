@@ -15,15 +15,7 @@
 ///     the suggested DialogRouter integration snippet.
 module;
 
-#include <string>
-#include <vector>
-#include <memory>
-#include <functional>
-#include <optional>
-#include <format>
 #include <cstdint>
-#include <algorithm>
-#include <string_view>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
@@ -31,6 +23,8 @@ module;
 #include <ftxui/component/event.hpp>
 
 export module cc.ui.dialogs.diff_dialog;
+
+import std;
 
 import cc.types.types;
 import cc.utils.file_edit;

@@ -4,19 +4,10 @@
 module;
 
 #include <cstdint>
-#include <string>
-#include <vector>
-#include <unordered_map>
-#include <functional>
-#include <optional>
-#include <sstream>
-#include <algorithm>
-#include <format>
-#include <memory>
-#include <numeric>
-#include <span>
 
 export module cc.commands.command;
+
+import std;
 
 import cc.types.types;
 

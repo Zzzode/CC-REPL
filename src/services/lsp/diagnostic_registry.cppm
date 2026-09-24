@@ -18,25 +18,13 @@
 // ============================================================================
 module;
 
-#include <algorithm>
-#include <chrono>
 #include <cstdint>
 #include <cstdlib>
-#include <filesystem>
-#include <functional>
-#include <list>
-#include <map>
-#include <mutex>
-#include <optional>
-#include <set>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <unordered_map>
-#include <unordered_set>
-#include <vector>
+#include <cstddef>
 
 export module cc.services.lsp.diagnostic_registry;
+
+import std;
 
 import cc.utils.error;
 import cc.utils.json;

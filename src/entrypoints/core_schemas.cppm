@@ -6,15 +6,11 @@
 /// Provides struct definitions equivalent to the Zod schemas.
 module;
 
-#include <string>
-#include <vector>
-#include <optional>
-#include <variant>
-#include <unordered_map>
 #include <cstdint>
-#include <array>
 
 export module cc.entrypoints.core_schemas;
+
+import std;
 
 export namespace cc::entrypoints::core_schemas {
 

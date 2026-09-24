@@ -1,9 +1,10 @@
 module;
 
-#include <string>
 #include <ftxui/dom/elements.hpp>
 
 export module cc.ui.widgets.fast_icon;
+
+import std;
 
 import cc.ui.foundation.components_figures;
 

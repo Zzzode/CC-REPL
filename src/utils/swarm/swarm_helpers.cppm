@@ -5,26 +5,13 @@
 //         permissionSync.ts, reconnection.ts, constants.ts
 module;
 
-#include <algorithm>
-#include <atomic>
-#include <chrono>
 #include <cstdlib>
-#include <filesystem>
-#include <fstream>
-#include <functional>
-#include <map>
-#include <memory>
-#include <mutex>
-#include <optional>
-#include <random>
-#include <set>
-#include <string>
-#include <string_view>
-#include <thread>
-#include <unordered_set>
-#include <vector>
+#include <cstddef>
+#include <cstdint>
 
 export module cc.utils.swarm_helpers;
+
+import std;
 
 import cc.utils.swarm_backends;
 import cc.utils.team_helpers;
@@ -617,7 +604,6 @@ public:
     /// Env LOOM_PERMISSION_TIMEOUT_MS, else 300000ms (fail-closed default).
     [[nodiscard]] static std::chrono::milliseconds default_timeout();
 };
-
 
 // ============================================================================
 // TeammateInit — Initialization hooks for teammates (from teammateInit.ts)

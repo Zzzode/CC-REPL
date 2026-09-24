@@ -22,17 +22,13 @@
 ///     — they provide an offline fast-path the LLM may consult *before*
 ///     reaching for `ps`.  They are NOT a replacement for STUCK_PROMPT.
 module;
-#include <algorithm>
 #include <cctype>
 #include <cstdlib>
 #include <cstdint>
-#include <format>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <span>
 
 export module cc.skills.bundled.stuck;
+
+import std;
 
 import cc.skills.skill;
 import cc.skills.load_skills_dir;

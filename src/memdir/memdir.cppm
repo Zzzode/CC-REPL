@@ -1,20 +1,13 @@
 module;
 
 #include <ctime>
-#include <algorithm>
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
-#include <iomanip>
-#include <optional>
-#include <sstream>
-#include <stdexcept>
-#include <string>
-#include <string_view>
-#include <vector>
 
 export module cc.memdir.memdir;
+
+import std;
 
 import cc.utils.env_utils;
 

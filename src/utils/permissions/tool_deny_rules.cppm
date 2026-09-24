@@ -10,15 +10,11 @@
 ///   - src/utils/permissions/permissions.ts:238-269 toolMatchesRule
 module;
 
-#include <array>
 #include <cctype>
-#include <optional>
-#include <span>
-#include <string>
-#include <string_view>
-#include <vector>
 
 export module cc.utils.tool_deny_rules;
+
+import std;
 
 export namespace cc::utils::tool_deny_rules {
 

@@ -11,12 +11,11 @@
 ///   - isTransparentWrapper: false
 module;
 
-#include <string>
-#include <string_view>
-#include <optional>
 #include <cstddef>
 
 export module cc.ui.tools.web_fetch;
+
+import std;
 
 import cc.ui.tools.registry;
 

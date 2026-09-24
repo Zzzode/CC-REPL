@@ -1,11 +1,7 @@
-module;
-#include <string>
-#include <vector>
-#include <optional>
-#include <sstream>
-#include <algorithm>
 
 export module cc.ui.foundation.list_item;
+
+import std;
 
 export namespace cc::ui::design {
 

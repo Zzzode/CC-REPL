@@ -3,6 +3,12 @@
 // app's BMI stays under clang's 2GB source-location budget — test_ui.cpp and
 // other cc.ui importers would otherwise blow the budget transitively. Defines
 // wire_prompt_suggestion_hook(), which is declared (not defined) in app.cppm.
+//
+// Phase A (import std): this impl unit deliberately keeps std TEXTUAL and
+// does NOT `import std;`. clang 22.1.8's reduced-BMI writer (LLVM #184957,
+// fixed in clang 23 / PR #179178) leaks a duplicate aligned operator new into
+// impl units of a primary whose GMF pulls libc++ textually (app.cppm via FTXUI),
+// causing "operator new is ambiguous". Re-evaluate after the toolchain upgrade.
 module;
 
 #include <memory>
@@ -11,6 +17,7 @@ module;
 #include <variant>
 
 module cc.ui.app.app;
+
 import cc.query.query_engine;
 import cc.commands.registry;
 import cc.commands.command;

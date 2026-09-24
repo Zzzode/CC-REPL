@@ -1,19 +1,9 @@
 // SleepTool - Proactive mode waiting with cancellation support
 module;
-#include <algorithm>
-#include <chrono>
-#include <condition_variable>
-#include <expected>
-#include <format>
-#include <memory>
-#include <mutex>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <thread>
-#include <utility>
 
 export module cc.tools.sleep;
+
+import std;
 
 
 export namespace cc::tools {

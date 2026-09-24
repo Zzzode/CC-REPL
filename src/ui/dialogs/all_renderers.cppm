@@ -10,9 +10,9 @@
 /// `using` declarations so lookup resolves without ambiguous
 /// namespace-qualification errors.
 module;
-#include <utility>
-#include <vector>
 export module cc.ui.dialogs.all_renderers;
+
+import std;
 
 import cc.ui.dialogs.default_renderers;
 import cc.ui.dialogs.bottom_renderers;

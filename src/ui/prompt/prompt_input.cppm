@@ -1,22 +1,14 @@
 // C++23 Module: Prompt input component with multi-line editing, history, typeahead, and vim mode
 module;
 
-#include <algorithm>
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <deque>
 #include <cstdlib>
-#include <optional>
-#include <ranges>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
-#include <filesystem>
 #include <ftxui/dom/elements.hpp>
 
 export module cc.ui.prompt.prompt_input;
+
+import std;
 
 import cc.ui.foundation.ui_types;  // canonical VimMode
 

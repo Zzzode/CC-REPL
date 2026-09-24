@@ -21,11 +21,9 @@
 
 #include <gtest/gtest.h>
 
-#include <algorithm>
-#include <atomic>
 #include <cstdlib>
-#include <string>
 
+import std;
 import cc.services.mcp.oauth_port;
 import cc.services.team_memory.secret_scanner;
 import cc.services.mcp.in_process_transport;

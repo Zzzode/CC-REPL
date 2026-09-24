@@ -2,21 +2,10 @@ module;
 #include <csignal>
 #include <cstdint>
 #include <cstdlib>
-#include <deque>
-#include <expected>
-#include <filesystem>
-#include <format>
-#include <fstream>
-#include <functional>
-#include <memory>
-#include <mutex>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 export module cc.services.mcp_transport;
+
+import std;
 
 export namespace cc::services::mcp_transport {
 

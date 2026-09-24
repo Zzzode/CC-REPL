@@ -12,16 +12,7 @@
 ///   - DialogFrame rendering (basic sanity)
 ///   - Default renderers (basic sanity)
 
-#include <string>
-#include <string_view>
-#include <optional>
-#include <functional>
-#include <vector>
-#include <array>
 #include <cstdlib>
-#include <fstream>
-#include <filesystem>
-#include <format>
 
 #include <gtest/gtest.h>
 #include <ftxui/dom/elements.hpp>
@@ -30,6 +21,7 @@
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/event.hpp>
 
+import std;
 import cc.ui.dialogs.system;
 import cc.ui.dialogs.frame;
 import cc.ui.dialogs.default_renderers;

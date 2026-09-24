@@ -5,19 +5,10 @@
 module;
 
 #include <cstdint>
-#include <string>
-#include <vector>
-#include <memory>
-#include <optional>
-#include <expected>
-#include <format>
-#include <ranges>
-#include <algorithm>
-#include <unordered_map>
-#include <deque>
-#include <chrono>
 
 export module cc.commands.registry;
+
+import std;
 
 import cc.types.types;
 import cc.commands.command;

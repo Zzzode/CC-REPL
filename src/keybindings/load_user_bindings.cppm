@@ -6,21 +6,11 @@
 /// for changes to reload them automatically.
 module;
 
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
-#include <filesystem>
-#include <fstream>
-#include <sstream>
-#include <functional>
-#include <mutex>
-#include <chrono>
-#include <atomic>
 #include <cstdlib>
-#include <unordered_set>
 
 export module cc.keybindings.load_user_bindings;
+
+import std;
 
 import cc.keybindings.schema;
 import cc.keybindings.defaults;

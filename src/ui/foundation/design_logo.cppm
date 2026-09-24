@@ -7,20 +7,16 @@
 /// ticks on a 120ms cadence.
 module;
 
-#include <atomic>
-#include <chrono>
 #include <cmath>
 #include <cstdint>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <vector>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_base.hpp>
 
 export module cc.ui.foundation.design_logo;
+
+import std;
 
 import cc.ui.foundation.design_tokens;
 import cc.ui.foundation.theme_provider;

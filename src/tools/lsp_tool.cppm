@@ -1,19 +1,12 @@
-// LspTool - LSP operations wrapper for code intelligence actions
 module;
-#include <expected>
-#include <array>
-#include <chrono>
-#include <filesystem>
-#include <format>
-#include <fstream>
-#include <memory>
-#include <optional>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <vector>
+
+#include <cstdint>
+
+// LspTool - LSP operations wrapper for code intelligence actions
 
 export module cc.tools.lsp;
+
+import std;
 
 import cc.services.lsp.LSPServerManager;
 import cc.utils.error;

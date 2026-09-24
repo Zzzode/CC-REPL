@@ -1,25 +1,12 @@
 // TeamTool - Team management for parallel multi-agent coordination
 module;
-#include <algorithm>
-#include <chrono>
 #include <cctype>
 #include <cstdlib>
 #include <cstddef>
-#include <expected>
-#include <filesystem>
-#include <fstream>
-#include <format>
-#include <optional>
-#include <ostream>
-#include <ranges>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <unordered_map>
-#include <utility>
-#include <vector>
 
 export module cc.tools.team;
+
+import std;
 
 import cc.utils.json;
 

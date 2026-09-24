@@ -1,15 +1,10 @@
 module;
 
-#include <algorithm>
 #include <cctype>
-#include <filesystem>
-#include <optional>
-#include <regex>
-#include <string>
-#include <string_view>
-#include <vector>
 
 export module cc.utils.memory_file_detection;
+
+import std;
 
 export namespace cc::utils::memory_file_detection {
 

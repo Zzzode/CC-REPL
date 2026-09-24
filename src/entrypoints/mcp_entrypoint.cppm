@@ -5,17 +5,11 @@
 /// Starts a stdio-based MCP server that exposes CLI tools to external clients.
 module;
 
-#include <string>
-#include <vector>
-#include <optional>
-#include <functional>
-#include <variant>
-#include <unordered_map>
-#include <memory>
 #include <cstdint>
-#include <iostream>
 
 export module cc.entrypoints.mcp_entrypoint;
+
+import std;
 
 export namespace cc::entrypoints::mcp {
 

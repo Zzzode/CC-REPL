@@ -9,22 +9,16 @@
 /// present); the equivalent here is `status_pill()` using the same Role enum.
 module;
 
-#include <algorithm>
-#include <array>
-#include <chrono>
 #include <cmath>
 #include <cstdint>
-#include <format>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_base.hpp>
 
 export module cc.ui.foundation.component_primitives;
+
+import std;
 
 import cc.ui.foundation.design_tokens;
 import cc.ui.foundation.theme_provider;

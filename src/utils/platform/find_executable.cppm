@@ -1,16 +1,12 @@
 module;
 
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
-#include <filesystem>
 #include <cstdlib>
-#include <sstream>
 #include <sys/stat.h>
 #include <unistd.h>
 
 export module cc.utils.find_executable;
+
+import std;
 
 export namespace cc::utils {
 

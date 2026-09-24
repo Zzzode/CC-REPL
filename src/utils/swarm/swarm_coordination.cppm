@@ -4,21 +4,12 @@
 //  swarmState.ts, swarmPermissions.ts, swarmDiscovery.ts, swarmHealth.ts)
 module;
 
-#include <chrono>
 #include <cstdint>
-#include <expected>
-#include <functional>
-#include <memory>
-#include <mutex>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <algorithm>
-#include <deque>
-#include <unordered_map>
+#include <cstddef>
 
 export module cc.utils.swarm_coordination;
+
+import std;
 
 export namespace cc::utils::swarm {
 

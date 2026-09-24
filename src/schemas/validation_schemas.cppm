@@ -1,14 +1,9 @@
 module;
 #include <cctype>
-#include <string>
-#include <vector>
-#include <optional>
-#include <map>
-#include <sstream>
-#include <algorithm>
-#include <regex>
 
 export module cc.schemas.validation_schemas;
+
+import std;
 
 export namespace cc::schemas {
 

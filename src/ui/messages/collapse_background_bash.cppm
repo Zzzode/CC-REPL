@@ -25,14 +25,10 @@
 // ────────────────────────────────────────────────────────────────────────
 module;
 
-#include <optional>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <variant>
-#include <vector>
 
 export module cc.ui.messages.collapse_background_bash;
+
+import std;
 
 import cc.types.types;
 import cc.ui.messages.message_pipeline;  // reuse faithful extract_tag()

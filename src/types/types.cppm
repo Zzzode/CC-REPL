@@ -4,17 +4,12 @@
 /// stream events, and error types using C++23 features.
 module;
 
+#include <unistd.h>
 #include <cstdint>
-#include <string>
-#include <vector>
-#include <variant>
-#include <optional>
-#include <expected>
-#include <chrono>
-#include <format>
-#include <compare>
 
 export module cc.types.types;
+
+import std;
 
 export namespace cc::core {
 

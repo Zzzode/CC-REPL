@@ -3,12 +3,11 @@
 /// Migrated from: src/types/generated/google/protobuf/timestamp.ts
 module;
 
-#include <chrono>
 #include <cstdint>
-#include <optional>
-#include <string>
 
 export module cc.types.timestamp;
+
+import std;
 
 export namespace cc::types::timestamp {
 

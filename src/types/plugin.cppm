@@ -4,13 +4,10 @@
 module;
 
 #include <cstdint>
-#include <optional>
-#include <string>
-#include <unordered_map>
-#include <variant>
-#include <vector>
 
 export module cc.types.plugin;
+
+import std;
 
 export namespace cc::types::plugin {
 

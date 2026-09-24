@@ -11,13 +11,10 @@
 module;
 
 #include <cstdlib>
-#include <filesystem>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <vector>
 
 export module cc.tools.agent_memory;
+
+import std;
 
 import cc.utils.git;
 

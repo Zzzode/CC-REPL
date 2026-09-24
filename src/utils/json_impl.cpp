@@ -2,11 +2,12 @@ module;
 
 #include <cstddef>
 #include <cstdlib>
-#include <string>
 
 #include <yyjson.h>
 
 module cc.utils.json;
+
+import std;
 
 namespace cc::utils::json {
 

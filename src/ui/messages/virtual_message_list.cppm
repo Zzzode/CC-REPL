@@ -51,14 +51,6 @@
 module;
 
 #include <cstdint>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <span>
-#include <optional>
-#include <algorithm>
-#include <functional>
-#include <memory>
 #include <cstdlib>
 #include <cmath>
 #include <climits>
@@ -69,8 +61,11 @@ module;
 #include <ftxui/component/event.hpp>
 #include <ftxui/component/screen_interactive.hpp>
 #include <ftxui/screen/color.hpp>
+#include <cstddef>
 
 export module cc.ui.messages.virtual_list;
+
+import std;
 
 import cc.ui.messages.scroll_keys;
 import cc.ui.foundation.design_tokens;

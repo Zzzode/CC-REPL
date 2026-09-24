@@ -1,20 +1,13 @@
+
 // C++23 Bash Security Module
 // Provides utilities for command safety checking, sandboxing, and deny-listing
 // Migrates: bashDangerous.ts, bashSafetyCheck.ts, bashSandbox.ts,
 //           commandAnalyzer.ts, commandDenylist.ts
 module;
 
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <chrono>
-#include <algorithm>
-#include <array>
-#include <regex>
-
 export module cc.utils.bash_security;
+
+import std;
 
 export namespace cc::utils::bash {
 

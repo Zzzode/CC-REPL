@@ -1,17 +1,9 @@
 // TeamCreateTool - Creates a new multi-agent swarm team for parallel coordination
 module;
-#include <algorithm>
-#include <chrono>
-#include <expected>
-#include <filesystem>
-#include <fstream>
-#include <format>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <vector>
 
 export module cc.tools.team_create;
+
+import std;
 
 import cc.tools.tool;
 import cc.tools.runtime_registry;

@@ -1,17 +1,12 @@
 module;
-#include <array>
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <expected>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <vector>
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
 
 export module cc.ui.foundation.logo;
+
+import std;
 
 import cc.ui.chrome.layout;
 

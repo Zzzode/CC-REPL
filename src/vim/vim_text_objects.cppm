@@ -1,13 +1,9 @@
 module;
-#include <string>
-#include <string_view>
-#include <optional>
-#include <vector>
-#include <algorithm>
 #include <cctype>
-#include <utility>
 
 export module cc.vim.text_objects;
+
+import std;
 
 export namespace cc::vim {
 

@@ -4,36 +4,16 @@
 /// retry logic, and token budget management using C++23 coroutines.
 module;
 
+#include <unistd.h>
 #include <cstdint>
-#include <string>
-#include <vector>
-#include <memory>
-#include <functional>
-#include <optional>
-#include <expected>
-#include <chrono>
-#include <format>
-#include <algorithm>
-#include <concepts>
-#include <limits>
-#include <iterator>
-#include <ranges>
-#include <numeric>
 #include <cstdlib>
-#include <thread>
-#include <atomic>
-#include <mutex>
-#include <future>
-#include <random>
-#include <unordered_set>
-#include <unordered_map>
-#include <filesystem>
-#include <fstream>
-#include <variant>
-#include <utility>
 #include <httplib.h>
+#include <cstddef>
+#include <cstdio>
 
 export module cc.query.query_engine;
+
+import std;
 
 import cc.types.types;
 import cc.tools.tool;

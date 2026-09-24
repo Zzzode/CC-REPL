@@ -4,18 +4,11 @@
 /// when rate limits are encountered.
 module;
 
-#include <string>
-#include <string_view>
-#include <optional>
 #include <cstdint>
-#include <functional>
-#include <mutex>
-#include <chrono>
-#include <format>
-#include <algorithm>
-#include <vector>
 
 export module cc.services.rate_limit.rate_limit_hook;
+
+import std;
 
 export namespace cc::services::rate_limit {
 

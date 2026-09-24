@@ -1,17 +1,10 @@
 module;
-#include <string>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <functional>
-#include <map>
-#include <chrono>
 #include <cstdlib>
-#include <filesystem>
-#include <fstream>
-#include <sstream>
+#include <cstddef>
 
 export module cc.commands.thinkback;
+
+import std;
 
 export namespace cc::commands {
 

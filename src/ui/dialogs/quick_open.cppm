@@ -16,17 +16,15 @@
 ///   - Scroll indicators for long lists
 module;
 
-#include <string>
-#include <vector>
-#include <optional>
-#include <algorithm>
-#include <span>
 #include <cctype>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/event.hpp>
+#include <cstddef>
 
 export module cc.ui.dialogs.quick_open;
+
+import std;
 
 import cc.ui.dialogs.system;
 import cc.ui.dialogs.frame;

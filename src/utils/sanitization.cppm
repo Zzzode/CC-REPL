@@ -1,18 +1,13 @@
 module;
 #include <cstdint>
-#include <map>
-#include <stdexcept>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <variant>
-#include <vector>
 
 #ifdef __APPLE__
 #include <CoreFoundation/CoreFoundation.h>
 #endif
 
 export module cc.utils.sanitization;
+
+import std;
 
 export namespace cc::utils::sanitization {
 

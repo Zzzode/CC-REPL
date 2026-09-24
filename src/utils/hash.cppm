@@ -1,11 +1,10 @@
 module;
 
 #include <cstdint>
-#include <string>
-#include <string_view>
-#include <vector>
 
 export module cc.utils.hash;
+
+import std;
 
 import cc.utils.crypto;
 

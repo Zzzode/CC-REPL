@@ -3,25 +3,10 @@
 module;
 
 #include <cerrno>
-#include <chrono>
-#include <array>
 #include <cctype>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
-#include <expected>
-#include <filesystem>
-#include <format>
-#include <fstream>
-#include <functional>
-#include <map>
-#include <optional>
-#include <random>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 #include <netdb.h>
 #include <signal.h>
@@ -29,6 +14,8 @@ module;
 #include <unistd.h>
 
 export module cc.utils.ide_integration;
+
+import std;
 
 import cc.utils.json;
 import cc.utils.async;

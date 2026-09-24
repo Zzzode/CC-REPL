@@ -19,9 +19,10 @@
 module;
 
 #include <cstdint>
-#include <string_view>
 
 export module cc.vim.vim_types;
+
+import std;
 
 export namespace cc::vim {
 

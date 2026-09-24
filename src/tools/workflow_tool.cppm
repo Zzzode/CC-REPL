@@ -1,27 +1,17 @@
 // WorkflowTool - Executes predefined workflow scripts with steps and conditions
 module;
-#include <array>
-#include <chrono>
 #include <cstddef>
 #include <cctype>
 #include <cstdio>
-#include <expected>
-#include <format>
-#include <optional>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <unordered_map>
-#include <utility>
-#include <vector>
 
 export module cc.tools.workflow;
+
+import std;
 
 import cc.utils.json;
 import cc.utils.bash_execution;
 
 export namespace cc::tools {
-
 
 enum class WorkflowError {
     DefinitionEmpty,
@@ -48,7 +38,6 @@ constexpr auto format_error(WorkflowError err) -> std::string_view {
     }
 }
 
-
 enum class StepType {
     Command,
     Condition,
@@ -56,7 +45,6 @@ enum class StepType {
     Assign,
     Log,
 };
-
 
 struct WorkflowStep {
     std::string id;
@@ -68,14 +56,12 @@ struct WorkflowStep {
     std::vector<std::string> on_error;
 };
 
-
 struct WorkflowDefinition {
     std::string name;
     std::string description;
     std::vector<WorkflowStep> steps;
     std::unordered_map<std::string, std::string> initial_vars;
 };
-
 
 struct StepResult {
     std::string step_id;
@@ -85,7 +71,6 @@ struct StepResult {
     std::optional<std::string> error_message;
 };
 
-
 struct WorkflowResult {
     std::string workflow_name;
     bool success{true};
@@ -94,7 +79,6 @@ struct WorkflowResult {
     size_t steps_executed{0};
     size_t steps_skipped{0};
 };
-
 
 class VariableContext {
 public:
@@ -108,7 +92,6 @@ public:
         return std::string_view{it->second};
     }
 
-
     auto interpolate(std::string_view tmpl) const -> std::expected<std::string, WorkflowError> {
         std::string result;
         size_t pos = 0;
@@ -121,15 +104,12 @@ public:
                 break;
             }
 
-
             result.append(tmpl.substr(pos, start - pos));
-
 
             auto end = tmpl.find('}', start + 2);
             if (end == std::string_view::npos) {
                 return std::unexpected(WorkflowError::InterpolationFailed);
             }
-
 
             auto var_name = tmpl.substr(start + 2, end - start - 2);
             auto value = get(var_name);
@@ -230,7 +210,6 @@ private:
     return definition;
 }
 
-
 class WorkflowTool {
 public:
     static constexpr std::string_view name = "workflow";
@@ -255,7 +234,6 @@ public:
         auto start_time = std::chrono::steady_clock::now();
         VariableContext ctx;
 
-
         for (const auto& [key, value] : definition.initial_vars) {
             ctx.set(key, value);
         }
@@ -268,7 +246,6 @@ public:
             .steps_executed = 0,
             .steps_skipped = 0
         };
-
 
         for (const auto& step : definition.steps) {
             if (step.condition) {
@@ -328,7 +305,6 @@ private:
         -> std::expected<StepResult, WorkflowError>
     {
         auto start = std::chrono::steady_clock::now();
-
 
         std::optional<std::string> action;
         if (step.type != StepType::Loop) {
@@ -407,7 +383,6 @@ private:
 
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - start);
-
 
         ctx.set(step.id + ".output", output);
 

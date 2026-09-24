@@ -6,10 +6,10 @@
 module;
 
 #include <cstdint>
-#include <string>
-#include <string_view>
 
 export module cc.coordinator.swarm;
+
+import std;
 
 import cc.types.types;
 

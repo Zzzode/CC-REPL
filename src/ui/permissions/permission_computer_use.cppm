@@ -2,16 +2,12 @@
 /// @brief Computer use permission UI for screen/mouse/keyboard control
 module;
 
-#include <functional>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
-#include <format>
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
 
 export module cc.ui.permissions.permission_computer_use;
+
+import std;
 
 import cc.types.types;
 import cc.utils.json;

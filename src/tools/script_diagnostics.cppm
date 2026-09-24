@@ -7,22 +7,13 @@
 //                                                adjustLineNumbers, etc.)
 // Merged with pre-existing parse + summary formatters that lived here.
 module;
-#include <chrono>
-#include <algorithm>
 #include <cctype>
 #include <cstdint>
-#include <filesystem>
-#include <format>
-#include <map>
-#include <optional>
-#include <regex>
-#include <span>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <vector>
+#include <cstddef>
 
 export module cc.tools.script_diagnostics;
+
+import std;
 
 export namespace cc::tools {
 

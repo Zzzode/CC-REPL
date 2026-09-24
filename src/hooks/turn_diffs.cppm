@@ -1,12 +1,7 @@
-module;
-#include <string>
-#include <functional>
-#include <optional>
-#include <vector>
-#include <unordered_map>
-#include <chrono>
 
 export module cc.hooks.turn_diffs;
+
+import std;
 
 import cc.state.app_state;
 

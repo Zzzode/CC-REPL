@@ -14,12 +14,6 @@
 // ────────────────────────────────────────────────────────────────────────
 module;
 
-#include <functional>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <chrono>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
@@ -27,6 +21,8 @@ module;
 #include <ftxui/component/event.hpp>
 
 export module cc.ui.messages.system_text_message;
+
+import std;
 
 import cc.ui.messages.message_components;
 import cc.ui.messages.message_timestamp;

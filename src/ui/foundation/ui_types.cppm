@@ -9,17 +9,13 @@
 ///   - Source: src/components/messages/nullRenderingAttachments.ts (70 lines → merged here)
 module;
 
-#include <array>
 #include <cstdint>
-#include <optional>
-#include <set>
-#include <string>
-#include <string_view>
-#include <vector>
 
 #include <ftxui/dom/elements.hpp>
 
 export module cc.ui.foundation.ui_types;
+
+import std;
 
 // Canonical VimMode lives in cc_vim (low-level target) to avoid circular
 // deps: cc_hooks needs VimMode but cc_ui depends on cc_hooks.

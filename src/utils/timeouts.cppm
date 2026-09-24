@@ -1,11 +1,10 @@
 module;
 
 #include <cctype>
-#include <map>
-#include <string>
-#include <string_view>
 
 export module cc.utils.timeouts;
+
+import std;
 
 export namespace cc::utils::timeouts {
 

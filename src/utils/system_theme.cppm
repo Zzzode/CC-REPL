@@ -1,11 +1,6 @@
-module;
-
-#include <functional>
-#include <optional>
-#include <string>
-#include <string_view>
-
 export module cc.utils.system_theme;
+
+import std;
 
 export namespace cc::utils {
 

@@ -28,18 +28,7 @@
 /// issuing the Pause/Resume/Cancel callbacks the supplied callbacks fire.
 module;
 
-#include <string>
-#include <vector>
-#include <memory>
-#include <functional>
-#include <optional>
-#include <format>
 #include <cstdint>
-#include <chrono>
-#include <algorithm>
-#include <string_view>
-#include <variant>
-#include <sstream>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
@@ -47,6 +36,8 @@ module;
 #include <ftxui/component/event.hpp>
 
 export module cc.ui.features.teams.swarm_collaboration_view;
+
+import std;
 
 import cc.types.types;
 import cc.ui.features.teams.team_status;

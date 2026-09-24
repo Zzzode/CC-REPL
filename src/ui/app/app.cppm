@@ -3,45 +3,19 @@
 ///        the production QueryEngine.
 module;
 
-#include <cstring>
-#include <string>
-#include <vector>
-#include <array>
-#include <cstdio>
-#include <memory>
-#include <optional>
-#include <expected>
-#include <functional>
-#include <chrono>
-#include <format>
-#include <fstream>
-#include <initializer_list>
-#include <deque>
-#include <map>
-#include <set>
-#include <unordered_set>
-#include <unordered_map>
-#include <variant>
-#include <thread>
-#include <mutex>
-#include <condition_variable>
-#include <atomic>
-#include <cstdlib>
-#include <cctype>
-#include <cstdint>
-#include <algorithm>
-#include <cmath>
-#include <iterator>
-#include <filesystem>
 
+#include <unistd.h>
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/screen/screen.hpp>
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_base.hpp>
 #include <ftxui/component/event.hpp>
 #include <ftxui/component/screen_interactive.hpp>
+#include <cctype>
 
 export module cc.ui.app.app;
+
+import std;
 
 import cc.types.types;
 import cc.ui.widgets.components;

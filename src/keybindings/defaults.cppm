@@ -1,16 +1,14 @@
+module;
+
+#include <cctype>
+
 /// @file defaults.cppm
 /// @brief Default keybinding definitions and reserved shortcuts.
 /// Migrated from src/keybindings/defaultBindings.ts, reservedShortcuts.ts
-module;
-
-#include <algorithm>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <unordered_set>
 
 export module cc.keybindings.defaults;
+
+import std;
 
 import cc.keybindings.schema;
 

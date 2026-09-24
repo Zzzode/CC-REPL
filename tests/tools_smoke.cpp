@@ -7,13 +7,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <string>
-#include <string_view>
-#include <iostream>
-#include <vector>
-#include <fstream>
-#include <filesystem>
 
+import std;
 import cc.tools.bash.impl;
 import cc.tools.files.impl;
 

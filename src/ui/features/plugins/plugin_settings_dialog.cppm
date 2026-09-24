@@ -7,17 +7,8 @@
 /// plugin_ui_data::ConfigStep — no direct engine reads here.
 module;
 
-#include <algorithm>
 #include <cstdint>
 #include <cstddef>
-#include <format>
-#include <functional>
-#include <memory>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_base.hpp>
@@ -25,6 +16,8 @@ module;
 #include <ftxui/dom/elements.hpp>
 
 export module cc.ui.features.plugins.plugin_settings_dialog;
+
+import std;
 
 import cc.types.types;
 import cc.commands.plugin_ui_data;

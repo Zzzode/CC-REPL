@@ -3,17 +3,11 @@
 // and package manager detection functionality.
 module;
 
-#include <chrono>
 #include <cstdint>
-#include <expected>
-#include <filesystem>
-#include <functional>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <vector>
 
 export module cc.utils.native_installer;
+
+import std;
 
 export namespace cc::utils::native_installer {
 

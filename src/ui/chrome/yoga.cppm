@@ -1,11 +1,11 @@
 module;
-#include <string>
-#include <vector>
-#include <optional>
-#include <algorithm>
-#include <numeric>
+
+#include <cstddef>
+
 
 export module cc.ui.chrome.yoga;
+
+import std;
 
 // ---------------------------------------------------------------------------
 // Supported subset (parity audit, finding H5)

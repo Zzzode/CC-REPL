@@ -1,9 +1,7 @@
-module;
-#include <set>
-#include <algorithm>
-#include <iterator>
 
 export module cc.utils.set_utils;
+
+import std;
 
 export namespace cc::utils {
 

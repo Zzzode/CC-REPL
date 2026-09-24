@@ -1,16 +1,11 @@
 module;
 
-#include <string>
-#include <vector>
-#include <filesystem>
-#include <fstream>
-#include <sstream>
-#include <iomanip>
-#include <map>
-#include <algorithm>
-#include <optional>
+#include <cstddef>
+#include <cstdint>
 
 export module cc.benchmarks.pare.run;
+
+import std;
 
 import cc.benchmarks.pare.schema;
 import cc.benchmarks.pare.case_loader;

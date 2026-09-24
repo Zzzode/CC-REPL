@@ -14,20 +14,12 @@
 module;
 
 #include <cctype>
-#include <algorithm>
-#include <chrono>
 #include <cstdint>
 #include <cstring>
-#include <iomanip>
-#include <optional>
-#include <regex>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 export module cc.tools.bash_result_formatting;
+
+import std;
 
 import cc.utils.format;
 

@@ -1,12 +1,9 @@
 module;
 #include <cstdint>
 #include <cstdlib>
-#include <filesystem>
-#include <format>
-#include <string>
-#include <string_view>
-#include <vector>
 export module cc.commands.break_cache;
+
+import std;
 export namespace cc::commands::break_cache {
 namespace fs = std::filesystem;
 

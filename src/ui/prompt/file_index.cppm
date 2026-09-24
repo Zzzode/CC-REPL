@@ -10,19 +10,11 @@
 /// keystroke and new/deleted files appear without a restart.
 module;
 
-#include <algorithm>
-#include <array>
 #include <cstdio>
-#include <filesystem>
-#include <mutex>
-#include <string>
-#include <string_view>
-#include <system_error>
-#include <unordered_map>
-#include <unordered_set>
-#include <vector>
 
 export module cc.ui.prompt.file_index;
+
+import std;
 
 import cc.utils.bash_execution;
 

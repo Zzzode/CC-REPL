@@ -14,17 +14,13 @@
 // ────────────────────────────────────────────────────────────────────────
 module;
 
-#include <string>
-#include <optional>
-#include <chrono>
-#include <sstream>
-#include <iomanip>
 #include <cmath>
-#include <algorithm>
 
 #include <ftxui/dom/elements.hpp>
 
 export module cc.ui.messages.shell_time_display;
+
+import std;
 
 import cc.ui.foundation.design_tokens;
 import cc.ui.foundation.theme_provider;

@@ -1,23 +1,15 @@
+module;
+
+#include <cstddef>
+#include <cstdint>
+
 // C++23 Module: Permissions Engine
 // Migrates: src/utils/permissions/ (24 TS files)
 // Core permission engine, rule matching, path patterns, caching
-module;
-
-#include <algorithm>
-#include <chrono>
-#include <expected>
-#include <format>
-#include <functional>
-#include <mutex>
-#include <optional>
-#include <ranges>
-#include <regex>
-#include <string>
-#include <string_view>
-#include <unordered_map>
-#include <vector>
 
 export module cc.utils.permissions_engine;
+
+import std;
 
 export namespace cc::utils::permissions {
 

@@ -1,12 +1,9 @@
 module;
-#include <array>
 #include <cstddef>
-#include <random>
-#include <stdexcept>
-#include <string>
-#include <string_view>
 
 export module cc.utils.words;
+
+import std;
 
 export namespace cc::utils::words {
 

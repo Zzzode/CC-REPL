@@ -1,11 +1,11 @@
 module;
-#include <chrono>
-#include <map>
-#include <optional>
-#include <string>
-#include <string_view>
+
+#include <cstddef>
+
 
 export module cc.services.mcp.headers_helper;
+
+import std;
 
 export namespace cc::services::mcp {
 

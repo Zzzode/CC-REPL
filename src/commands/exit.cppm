@@ -1,15 +1,9 @@
 module;
-#include <string>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <functional>
-#include <map>
 #include <cstdlib>
-#include <filesystem>
-#include <fstream>
 
 export module cc.commands.exit;
+
+import std;
 
 export namespace cc::commands {
 

@@ -9,15 +9,11 @@
 /// If no interactive prompt is installed the gate falls back to a safe
 /// default: AllowOnce for low-risk sandboxed calls and Deny otherwise.
 module;
+export module cc.hooks.tool_permission_gate;
 
-#include <functional>
-#include <string>
-#include <string_view>
-#include <utility>
+import std;
 
 import cc.hooks.permission_resolver;
-
-export module cc.hooks.tool_permission_gate;
 
 export namespace cc::hooks::permission {
 

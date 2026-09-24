@@ -16,18 +16,9 @@
 /// TS REF: src/components/sandbox/SandboxDoctorSection.tsx (45)
 module;
 
-#include <algorithm>
-#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
-#include <functional>
-#include <memory>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
@@ -35,6 +26,8 @@ module;
 #include <ftxui/component/event.hpp>
 
 export module cc.ui.dialogs.sandbox_settings;
+
+import std;
 
 import cc.utils.platform;
 import cc.constants.product;

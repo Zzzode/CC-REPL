@@ -1,20 +1,12 @@
 // API Logging - Request/response logging and usage tracking
 module;
-#include <atomic>
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <filesystem>
-#include <fstream>
-#include <format>
-#include <mutex>
-#include <optional>
-#include <string>
-#include <unordered_map>
-#include <utility>
-#include <vector>
+#include <ctime>
 
 export module cc.services.api.logging;
+
+import std;
 
 import cc.services.api.models;
 import cc.utils.json;

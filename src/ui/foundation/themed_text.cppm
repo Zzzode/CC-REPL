@@ -1,11 +1,10 @@
 module;
-#include <tuple>
-#include <string>
-#include <sstream>
-#include <algorithm>
 #include <cstdint>
+#include <cstddef>
 
 export module cc.ui.foundation.themed_text;
+
+import std;
 
 export namespace cc::ui::design {
 

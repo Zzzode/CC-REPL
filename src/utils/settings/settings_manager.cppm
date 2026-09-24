@@ -3,28 +3,12 @@
 //         changeDetector.ts, internalWrites.ts
 module;
 
-#include <chrono>
-#include <atomic>
 #include <cstdlib>
-#include <filesystem>
-#include <fstream>
-#include <functional>
-#include <format>
-#include <exception>
-#include <map>
-#include <mutex>
-#include <optional>
-#include <set>
-#include <string>
-#include <string_view>
-#include <type_traits>
-#include <unordered_map>
-#include <unordered_set>
-#include <variant>
-#include <vector>
-#include <thread>
+#include <cstdint>
 
 export module cc.utils.settings_manager;
+
+import std;
 
 import cc.utils.json;
 import cc.utils.settings_merge;

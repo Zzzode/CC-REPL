@@ -13,14 +13,10 @@
 module;
 
 #include <cctype>
-#include <expected>
-#include <optional>
-#include <regex>
-#include <string>
-#include <string_view>
-#include <vector>
 
 export module cc.tools.sed_edit_parser;
+
+import std;
 
 import cc.utils.argument_substitution;
 import cc.utils.bash_shell_quoting;

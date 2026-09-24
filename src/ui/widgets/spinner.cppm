@@ -1,12 +1,11 @@
 module;
 
-#include <vector>
-#include <string>
-#include <chrono>
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
 
 export module cc.ui.widgets.spinner;
+
+import std;
 
 export namespace ui::components {
 

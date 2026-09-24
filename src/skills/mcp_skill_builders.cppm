@@ -1,13 +1,7 @@
-module;
-#include <string>
-#include <string_view>
-#include <vector>
-#include <map>
-#include <expected>
-#include <functional>
-#include <mutex>
 
 export module cc.skills.mcp_skill_builders;
+
+import std;
 
 export namespace cc::skills {
 

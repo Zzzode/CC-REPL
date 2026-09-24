@@ -3,14 +3,10 @@
 /// Provides an event bus where consumers can register callbacks for tool and session lifecycle.
 module;
 
-#include <chrono>
-#include <functional>
-#include <mutex>
-#include <string>
-#include <string_view>
-#include <vector>
 
 export module cc.hooks.lifecycle_hooks;
+
+import std;
 
 export namespace cc::hooks {
 

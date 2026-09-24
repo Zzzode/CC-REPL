@@ -2,26 +2,12 @@
 /// @brief Tests for P1-05 (history / task_types / teammate_view_helpers)
 ///        and P1-06 (bootstrap/interactive_helpers).
 
-#include <algorithm>
-#include <array>
-#include <atomic>
-#include <chrono>
 #include <cstdlib>
 #include <cstring>
-#include <filesystem>
-#include <fstream>
-#include <memory>
-#include <numeric>
-#include <optional>
-#include <set>
-#include <string>
-#include <string_view>
-#include <unordered_set>
-#include <utility>
-#include <vector>
 
 #include <gtest/gtest.h>
 
+import std;
 import cc.bootstrap.interactive;
 import cc.history;
 import cc.task_types;

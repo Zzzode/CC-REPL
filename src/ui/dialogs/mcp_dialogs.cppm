@@ -20,25 +20,9 @@
 /// with their existing bool callback signature.
 module;
 
-#include <algorithm>
-#include <array>
 #include <cctype>
-#include <chrono>
 #include <cstdint>
 #include <ctime>
-#include <expected>
-#include <functional>
-#include <iomanip>
-#include <map>
-#include <memory>
-#include <mutex>
-#include <optional>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <variant>
-#include <vector>
 
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_base.hpp>
@@ -46,8 +30,11 @@ module;
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/dom/table.hpp>
 #include <ftxui/screen/color.hpp>
+#include <cstddef>
 
 export module cc.ui.dialogs.mcp_dialogs;
+
+import std;
 
 export namespace cc::ui::mcp_dialogs {
 using namespace ftxui;

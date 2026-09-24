@@ -1,21 +1,12 @@
 // C++23 Module: Unified diff parsing, change tracking, and patch generation for IDE integration
 module;
 
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <format>
-#include <optional>
-#include <ranges>
-#include <span>
-#include <string>
-#include <string_view>
-#include <unordered_map>
-#include <utility>
-#include <vector>
-#include <algorithm>
 
 export module cc.hooks.diff_data;
+
+import std;
 
 
 export namespace cc::hooks {

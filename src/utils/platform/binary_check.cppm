@@ -1,12 +1,6 @@
-module;
-
-#include <functional>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <unordered_map>
-
 export module cc.utils.binary_check;
+
+import std;
 
 export namespace cc::utils::binary_check {
 

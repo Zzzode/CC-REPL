@@ -33,16 +33,10 @@
 //   - exposes `resolve_base_url(...)` for provider-specific endpoint,
 //   - exposes `resolve_model_id(...)` for provider-specific model string.
 module;
-#include <chrono>
-#include <expected>
-#include <memory>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 export module cc.services.auth.provider_selector;
+
+import std;
 
 import cc.services.auth.sigv4;
 import cc.services.auth.gcp_adc;

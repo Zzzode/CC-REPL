@@ -1,14 +1,9 @@
 // TaskUpdateTool - Updates task properties, status, dependencies, and ownership
 module;
-#include <expected>
-#include <format>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <unordered_map>
-#include <vector>
 
 export module cc.tools.task_update;
+
+import std;
 
 import cc.tools.tool;
 import cc.utils.json;

@@ -9,19 +9,9 @@
 module;
 
 #include <cctype>
-#include <array>
-#include <string>
-#include <vector>
-#include <memory>
-#include <functional>
-#include <optional>
-#include <format>
 #include <cstdint>
 #include <cstddef>
-#include <deque>
-#include <algorithm>
 #include <cmath>
-#include <chrono>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
@@ -30,7 +20,8 @@ module;
 
 export module cc.ui.widgets.text_input_widget;
 
-import cc.types.types;
+import std;
+
 import cc.utils.text_highlighting;
 import cc.ui.prompt.combined_highlights;
 import cc.ui.prompt.placeholder_cascade;  // P1: RenderPlaceholder helper

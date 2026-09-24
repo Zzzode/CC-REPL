@@ -1,8 +1,6 @@
-module;
-#include <span>
-#include <string>
-#include <vector>
 export module cc.services.compact.grouping;
+
+import std;
 
 export namespace cc::services::compact {
 

@@ -6,14 +6,11 @@
 /// Used by SDK builders (e.g., Python SDK) to communicate with the CLI process.
 module;
 
-#include <string>
-#include <vector>
-#include <optional>
-#include <variant>
-#include <unordered_map>
 #include <cstdint>
 
 export module cc.entrypoints.control_schemas;
+
+import std;
 
 import cc.entrypoints.core_schemas;
 

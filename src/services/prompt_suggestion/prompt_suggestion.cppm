@@ -19,28 +19,15 @@
 ///     until runForkedAgent is ported; do NOT claim parity with the TS LLM path.
 module;
 
-#include <array>
 #include <cstdint>
 #include <cstddef>
 #include <cstring>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <chrono>
-#include <format>
-#include <ranges>
-#include <algorithm>
-#include <unordered_map>
-#include <unordered_set>
-#include <functional>
-#include <deque>
-#include <variant>
 #include <cmath>
 #include <cctype>
 
 export module cc.services.prompt_suggestion;
+
+import std;
 
 import cc.types.types;
 import cc.utils.string_utils;

@@ -4,20 +4,14 @@
 module;
 
 #include <cstdint>
-#include <string>
-#include <vector>
-#include <optional>
-#include <functional>
-#include <memory>
-#include <mutex>
-#include <shared_mutex>
-#include <atomic>
 
 // FTXUI headers would be imported here in a real setup
 // #include <ftxui/component/component.hpp>
 // #include <ftxui/component/screen_interactive.hpp>
 
 export module cc.state.ftxui_integration;
+
+import std;
 
 import cc.state.app_state;
 import cc.state.store;

@@ -4,12 +4,10 @@ module;
 
 #include <cstddef>
 #include <cstdint>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <vector>
 
 export module cc.ui.prompt.autocomplete_sources;
+
+import std;
 
 export namespace cc::ui::autocomplete_sources {
 

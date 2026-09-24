@@ -5,19 +5,12 @@
 module;
 
 #include <cstdint>
-#include <string>
-#include <vector>
-#include <array>
-#include <optional>
-#include <expected>
-#include <format>
-#include <algorithm>
-#include <ranges>
-#include <span>
-#include <filesystem>
-#include <fstream>
+#include <cctype>
+#include <cstddef>
 
 export module cc.services.image;
+
+import std;
 
 import cc.types.types;
 

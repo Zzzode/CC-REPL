@@ -1,20 +1,12 @@
 // PowerShellTool - Windows PowerShell command execution with safety checks
 module;
-#include <array>
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
-#include <expected>
-#include <filesystem>
-#include <format>
-#include <optional>
-#include <span>
-#include <string>
-#include <string_view>
-#include <utility>
 
 export module cc.tools.powershell;
+
+import std;
 import cc.utils.bash_execution;
 
 

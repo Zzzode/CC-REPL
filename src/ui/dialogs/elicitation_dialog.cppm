@@ -47,17 +47,14 @@
 module;
 
 #include <cstdint>
-#include <functional>
-#include <optional>
-#include <string>
-#include <utility>
-#include <vector>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/event.hpp>
 
 export module cc.ui.dialogs.elicitation;
+
+import std;
 
 import cc.ui.dialogs.system;
 import cc.ui.dialogs.frame;

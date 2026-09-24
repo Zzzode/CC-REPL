@@ -4,25 +4,11 @@
 // Provides hook configuration management, file watching, and skill/session hook registration
 module;
 
-#include <condition_variable>
-#include <atomic>
-#include <chrono>
 #include <cstdint>
-#include <expected>
-#include <filesystem>
-#include <format>
-#include <functional>
-#include <memory>
-#include <mutex>
-#include <optional>
-#include <shared_mutex>
-#include <string>
-#include <string_view>
-#include <unordered_map>
-#include <unordered_set>
-#include <vector>
 
 export module cc.utils.hooks_config;
+
+import std;
 
 import cc.utils.json;
 import cc.utils.async;

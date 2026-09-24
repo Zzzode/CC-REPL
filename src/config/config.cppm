@@ -6,19 +6,10 @@ module;
 
 #include <cstdlib>
 #include <cstdint>
-#include <string>
-#include <vector>
-#include <unordered_map>
-#include <unordered_set>
-#include <optional>
-#include <expected>
-#include <filesystem>
-#include <format>
-#include <fstream>
-#include <algorithm>
-#include <ranges>
 
 export module cc.config.config;
+
+import std;
 
 import cc.types.types;
 import cc.utils.json;

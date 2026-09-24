@@ -1,11 +1,6 @@
-module;
-#include <chrono>
-#include <expected>
-#include <filesystem>
-#include <fstream>
-#include <optional>
-#include <string>
 export module cc.services.auto_dream.consolidation_lock;
+
+import std;
 
 export namespace cc::services::auto_dream {
 

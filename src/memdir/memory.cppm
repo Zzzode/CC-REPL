@@ -7,20 +7,10 @@ module;
 #include <cstdlib>
 #include <cstdint>
 #include <cstddef>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <chrono>
-#include <format>
-#include <filesystem>
-#include <algorithm>
-#include <ranges>
-#include <fstream>
-#include <unordered_map>
 
 export module cc.memdir.memory;
+
+import std;
 
 import cc.utils.error;
 import cc.constants.paths;

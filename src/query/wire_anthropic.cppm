@@ -23,18 +23,12 @@
 ///     AnthropicWireOptions because RequestInput has no field for them.
 module;
 
-#include <chrono>
+#include <unistd.h>
 #include <cstdint>
-#include <expected>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <type_traits>
-#include <utility>
-#include <variant>
-#include <vector>
 
 export module cc.query.wire_anthropic;
+
+import std;
 
 import cc.types.types;
 import cc.tools.tool;

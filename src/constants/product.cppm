@@ -4,11 +4,10 @@
 module;
 #include <cstdlib>
 
-#include <string>
-#include <string_view>
-#include <optional>
 
 export module cc.constants.product;
+
+import std;
 
 export namespace cc::constants::product {
 

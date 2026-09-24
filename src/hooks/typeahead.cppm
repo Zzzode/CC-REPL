@@ -2,21 +2,12 @@
 module;
 
 #include <cctype>
-#include <algorithm>
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <expected>
-#include <functional>
-#include <map>
-#include <optional>
-#include <ranges>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 export module cc.hooks.typeahead;
+
+import std;
 
 
 export namespace cc::hooks {

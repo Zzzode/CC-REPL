@@ -1,21 +1,12 @@
 // WebBrowserTool - Browser automation for navigation, interaction, and content extraction
 module;
-#include <algorithm>
-#include <array>
 #include <cctype>
-#include <chrono>
 #include <cstdio>
 #include <cstdlib>
-#include <expected>
-#include <format>
-#include <functional>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 export module cc.tools.web_browser;
+
+import std;
 
 import cc.utils.bash_execution;
 

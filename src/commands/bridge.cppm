@@ -1,8 +1,6 @@
-module;
-#include <format>
-#include <string>
-#include <string_view>
 export module cc.commands.bridge;
+
+import std;
 
 import cc.utils.ide_integration;
 

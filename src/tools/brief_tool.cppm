@@ -1,23 +1,12 @@
 // BriefTool - Generates summaries/briefs with format and token budget control
 module;
-#include <algorithm>
 #include <cstddef>
-#include <expected>
-#include <filesystem>
-#include <format>
-#include <fstream>
-#include <iostream>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 export module cc.tools.brief;
 
+import std;
 
 export namespace cc::tools {
-
 
 enum class BriefFormat {
     Bullet,
@@ -33,7 +22,6 @@ constexpr auto format_name(BriefFormat fmt) -> std::string_view {
         default:                      return "unknown";
     }
 }
-
 
 enum class BriefError {
     ContentEmpty,
@@ -56,14 +44,12 @@ constexpr auto format_error(BriefError err) -> std::string_view {
     }
 }
 
-
 struct Attachment {
     std::filesystem::path path;
     std::string content;
     std::string mime_type;
     size_t size_bytes{0};
 };
-
 
 struct BriefRequest {
     std::string content;
@@ -73,7 +59,6 @@ struct BriefRequest {
     std::optional<std::string> focus_area;
 };
 
-
 struct BriefResult {
     std::string summary;
     size_t input_tokens{0};
@@ -81,7 +66,6 @@ struct BriefResult {
     std::vector<std::string> key_points;
     BriefFormat format_used;
 };
-
 
 class TokenEstimator {
 public:
@@ -95,7 +79,6 @@ public:
         return tokens * kCharsPerToken;
     }
 };
-
 
 class BriefTool {
 public:
@@ -123,9 +106,7 @@ public:
     auto execute(BriefRequest request) -> std::expected<BriefResult, BriefError> {
         if (auto v = validate(request); !v) return std::unexpected(v.error());
 
-
         std::string full_content = request.content;
-
 
         for (const auto& path : request.attachments) {
             auto attachment = read_attachment(path);
@@ -137,9 +118,7 @@ public:
         size_t input_tokens = TokenEstimator::estimate(full_content);
         size_t budget = std::min(request.token_budget, kMaxTokenBudget);
 
-
         auto summary = generate_summary(full_content, request.format, budget, request.focus_area);
-
 
         auto key_points = extract_key_points(full_content, 5);
 
@@ -189,7 +168,6 @@ private:
         };
     }
 
-
     auto generate_summary(std::string_view content, BriefFormat format,
                           size_t budget, std::optional<std::string> focus) const -> std::string
     {
@@ -213,12 +191,10 @@ private:
         }
     }
 
-
     auto extract_key_points(std::string_view content, size_t max_points) const
         -> std::vector<std::string>
     {
         std::vector<std::string> points;
-
 
         size_t count = 0;
         size_t pos = 0;

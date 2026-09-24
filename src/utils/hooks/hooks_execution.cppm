@@ -4,39 +4,25 @@
 module;
 
 #include <cerrno>
-#include <algorithm>
-#include <array>
 #include <cctype>
-#include <charconv>
-#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <deque>
-#include <expected>
 #include <fcntl.h>
-#include <filesystem>
-#include <functional>
-#include <memory>
-#include <optional>
 #include <poll.h>
-#include <regex>
 #include <signal.h>
 #include <spawn.h>
-#include <sstream>
-#include <string>
-#include <string_view>
 #include <sys/wait.h>
 #include <unistd.h>
-#include <unordered_map>
-#include <utility>
-#include <vector>
+#include <cstddef>
 
 // POSIX `environ` is not declared by default; declare it explicitly so the
 // command-hook runner can propagate the parent process environment.
 extern "C" char** environ;
 
 export module cc.utils.hooks_execution;
+
+import std;
 import cc.utils.parse_int;
 
 import cc.utils.json;

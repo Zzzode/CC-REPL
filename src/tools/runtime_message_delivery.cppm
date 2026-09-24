@@ -16,35 +16,20 @@
 ///     registry just forward to this function.
 module;
 
+#include <unistd.h>
 #include <cstdlib>
-#include <algorithm>
-#include <array>
 #include <cerrno>
-#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <cctype>
-#include <expected>
-#include <filesystem>
-#include <format>
-#include <functional>
-#include <map>
-#include <memory>
-#include <optional>
-#include <span>
-#include <string>
-#include <string_view>
-#include <system_error>
-#include <unordered_map>
-#include <utility>
-#include <vector>
 #ifndef _WIN32
 #include <sys/socket.h>
 #include <sys/un.h>
-#include <unistd.h>
 #endif
 
 export module cc.tools.runtime_message_delivery;
+
+import std;
 
 import cc.tools.tool;
 import cc.tools.agent_runtime;       // NativeAgentRecord / native_agent_store

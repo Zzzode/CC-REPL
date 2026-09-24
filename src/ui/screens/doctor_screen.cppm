@@ -8,20 +8,7 @@
 ///   Summary  -> (rerun -> Running) or (Back -> on_done)
 module;
 
-#include <string>
-#include <vector>
-#include <memory>
-#include <functional>
-#include <optional>
-#include <expected>
-#include <variant>
-#include <format>
 #include <cstdint>
-#include <array>
-#include <chrono>
-#include <string_view>
-#include <algorithm>
-#include <utility>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
@@ -29,8 +16,6 @@ module;
 #include <ftxui/component/event.hpp>
 #include <ftxui/component/mouse.hpp>
 
-#include <filesystem>
-#include <fstream>
 #include <cstdlib>
 #include <cstring>
 #include <cerrno>
@@ -47,6 +32,8 @@ module;
 #endif
 
 export module cc.ui.screens.doctor_screen;
+
+import std;
 
 import cc.utils.json;
 
@@ -438,7 +425,6 @@ tcp_connect_rtt_ms(std::string_view, int, int) {
 }
 
 } // namespace detail
-
 
 /// Injectable environment for diagnostics. Tests construct one pointing at a
 /// temp directory; the live UI uses default_doctor_context().

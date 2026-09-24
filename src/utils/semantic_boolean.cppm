@@ -1,9 +1,6 @@
-module;
-
-#include <optional>
-#include <string_view>
-
 export module cc.utils.semantic_boolean;
+
+import std;
 
 export namespace cc::utils::semantic_boolean {
 

@@ -3,17 +3,10 @@
 /// Manages agent configurations.
 module;
 
-#include <string>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <format>
-#include <span>
-#include <array>
-#include <sstream>
-#include <filesystem>
 
 export module cc.commands.agents;
+
+import std;
 
 import cc.types.types;
 import cc.commands.command;

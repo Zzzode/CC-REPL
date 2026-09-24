@@ -1,14 +1,6 @@
-module;
-
-#include <string>
-#include <string_view>
-#include <stdexcept>
-#include <vector>
-#include <filesystem>
-#include <sstream>
-#include <algorithm>
-
 export module cc.utils.git_diff;
+
+import std;
 
 export namespace cc::utils {
 

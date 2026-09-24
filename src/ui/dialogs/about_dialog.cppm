@@ -37,19 +37,14 @@
 ///   Esc  — close dialog
 module;
 
-#include <functional>
-#include <memory>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/event.hpp>
 
 export module cc.ui.dialogs.about;
+
+import std;
 
 import cc.constants.product;
 import cc.ui.dialogs.frame;

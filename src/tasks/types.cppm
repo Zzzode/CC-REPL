@@ -3,16 +3,10 @@
 /// Migrated from src/tasks/types.ts
 module;
 
-#include <string>
-#include <variant>
-#include <vector>
-#include <optional>
-#include <functional>
-#include <chrono>
-#include <memory>
-#include <set>
 
 export module cc.tasks.types;
+
+import std;
 
 import cc.tasks.task;
 

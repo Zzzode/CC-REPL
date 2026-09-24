@@ -1,12 +1,6 @@
-module;
-
-#include <algorithm>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <vector>
-
 export module cc.utils.collapse_notifications;
+
+import std;
 
 export namespace cc::utils::collapse_notifications {
 

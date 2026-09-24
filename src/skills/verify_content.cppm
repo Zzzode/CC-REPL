@@ -15,18 +15,11 @@
 /// Phase 4 concern.
 module;
 
-#include <array>
-#include <algorithm>
 #include <cctype>
-#include <format>
-#include <optional>
-#include <regex>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 export module cc.skills.verify_content;
+
+import std;
 
 import cc.skills.skill;
 

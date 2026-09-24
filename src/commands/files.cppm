@@ -3,15 +3,10 @@
 /// Shows all files currently in context.
 module;
 
-#include <string>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <format>
-#include <algorithm>
-#include <array>
 
 export module cc.commands.files;
+
+import std;
 
 import cc.types.types;
 import cc.commands.command;

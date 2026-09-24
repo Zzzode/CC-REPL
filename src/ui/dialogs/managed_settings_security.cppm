@@ -2,11 +2,6 @@
 /// @brief Managed settings security dialog — displays organization-managed
 /// settings warnings with a list of managed categories and acknowledge button.
 module;
-#include <string>
-#include <vector>
-#include <functional>
-#include <memory>
-#include <algorithm>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
@@ -14,6 +9,8 @@ module;
 #include <ftxui/component/event.hpp>
 
 export module cc.ui.dialogs.managed_settings_security;
+
+import std;
 
 export namespace cc::ui::dialogs {
 using namespace ftxui;

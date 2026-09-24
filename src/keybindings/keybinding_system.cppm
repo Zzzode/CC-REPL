@@ -1,16 +1,11 @@
 module;
 
-#include <algorithm>
 #include <cstddef>
 #include <cstdint>
-#include <expected>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 export module cc.keybindings.keybinding_system;
+
+import std;
 
 
 export namespace cc::core {

@@ -6,33 +6,17 @@
 // sources including marketplaces, git repositories, and local paths.
 module;
 
-#include <chrono>
-#include <algorithm>
-#include <array>
-#include <atomic>
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
-#include <expected>
-#include <filesystem>
-#include <fstream>
-#include <functional>
-#include <iterator>
-#include <map>
-#include <memory>
-#include <optional>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <type_traits>
-#include <variant>
-#include <vector>
 
 #ifndef _WIN32
 #include <sys/wait.h>
 #endif
 
 export module cc.utils.plugin_loader;
+
+import std;
 
 import cc.utils.plugin_identifier;
 import cc.utils.plugin_versioning;

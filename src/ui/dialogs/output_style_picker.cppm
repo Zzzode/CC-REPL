@@ -2,11 +2,6 @@
 /// @brief Output style picker dialog — interactive radio-button selection of
 /// output verbosity style (normal, verbose, compact, etc.) with live preview.
 module;
-#include <string>
-#include <vector>
-#include <functional>
-#include <memory>
-#include <algorithm>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
@@ -14,6 +9,8 @@ module;
 #include <ftxui/component/event.hpp>
 
 export module cc.ui.dialogs.output_style_picker;
+
+import std;
 
 export namespace cc::ui::dialogs {
 using namespace ftxui;

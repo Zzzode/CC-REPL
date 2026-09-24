@@ -7,17 +7,15 @@
 ///         detection + cursor-at-start inversion)
 ///         src/utils/imagePaste.ts (clipboard image read)
 module;
-#include <string>
-#include <string_view>
-#include <optional>
-#include <vector>
-#include <format>
+#include <unistd.h>
 #include <cstddef>
 #include <cstdint>
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
 
 export module cc.ui.prompt.prompt_paste_handler;
+
+import std;
 
 import cc.utils.parse_references;
 // OS clipboard image read (macOS osascript «class PNGf»).

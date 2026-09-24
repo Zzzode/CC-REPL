@@ -3,15 +3,10 @@
 /// Context visualization command for inspecting context-window state.
 module;
 
-#include <string>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <format>
-#include <algorithm>
-#include <array>
 
 export module cc.commands.ctx_viz;
+
+import std;
 
 import cc.types.types;
 import cc.commands.command;

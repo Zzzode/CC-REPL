@@ -1,17 +1,15 @@
+module;
+
+#include <cstdio>
+
 /// @file update_config.cppm
 /// @brief Bundled Update Config skill with full settings schema, hooks docs,
 /// and verification workflow. Delegates all config I/O to cc.config.config
 /// and cc.config.feature_flags — NEVER reads/writes JSON files directly.
-module;
-
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
-#include <format>
-#include <filesystem>
 
 export module cc.skills.bundled.update_config;
+
+import std;
 
 import cc.skills.skill;
 import cc.config.config;

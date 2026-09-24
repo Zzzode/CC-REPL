@@ -3,21 +3,11 @@
 
 /// persistence, on_change_app_state, ftxui_integration
 
-#include <string>
-#include <vector>
-#include <functional>
-#include <atomic>
-#include <chrono>
 #include <cstdlib>
-#include <filesystem>
-#include <fstream>
-#include <numeric>
-#include <memory>
-#include <optional>
-#include <utility>
 
 #include <gtest/gtest.h>
 
+import std;
 import cc.state.app_state;
 import cc.state.store;
 import cc.state.selectors;

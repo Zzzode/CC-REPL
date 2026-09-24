@@ -21,16 +21,15 @@
 // ────────────────────────────────────────────────────────────────────────
 module;
 
-#include <array>
 #include <cstdlib>      // for std::getenv (is_unicode_supported)
-#include <string>       // for std::string (replace_symbols)
-#include <string_view>
 
 // FTXUI Color.hpp: not used here (figures module is glyphs-only, no colors).
 #include <ftxui/dom/elements.hpp>  // for ftxui::Color forward refs that
                                    // downstream consumers need, and to keep
                                    // the module graph consistent.
 export module cc.ui.foundation.design_figures;
+
+import std;
 
 export namespace cc::ui::design::figures {
 

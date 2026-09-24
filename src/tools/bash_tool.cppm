@@ -2,35 +2,21 @@
 module;
 
 #include <cctype>
-#include <array>
-#include <algorithm>
-#include <atomic>
 #include <cerrno>
-#include <chrono>
-#include <coroutine>
 #include <cstring>
-#include <expected>
-#include <filesystem>
-#include <format>
-#include <functional>
-#include <map>
-#include <memory>
-#include <mutex>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <thread>
-#include <unordered_map>
-#include <unordered_set>
-#include <vector>
 
 #include <fcntl.h>
 #include <poll.h>
 #include <signal.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <cstddef>
+#include <cstdint>
+#include <cstdlib>
 
 export module cc.tools.bash;
+
+import std;
 
 import cc.utils.error;
 import cc.utils.async;

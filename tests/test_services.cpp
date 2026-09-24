@@ -1,29 +1,9 @@
 /// @file test_services.cpp
 /// @brief Service layer smoke tests aligned with current C++ module APIs.
 
-#include <algorithm>
-#include <array>
-#include <atomic>
-#include <chrono>
 #include <cctype>
-#include <condition_variable>
 #include <cstdint>
 #include <cstdlib>
-#include <expected>
-#include <filesystem>
-#include <format>
-#include <fstream>
-#include <map>
-#include <memory>
-#include <mutex>
-#include <optional>
-#include <span>
-#include <sstream>
-#include <string>
-#include <thread>
-#include <unordered_map>
-#include <utility>
-#include <vector>
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -38,6 +18,7 @@
 #include <gtest/gtest.h>
 #include <httplib.h>
 
+import std;
 import cc.cli.ccr_client;
 import cc.cli.sse_transport;
 import cc.bridge.core;

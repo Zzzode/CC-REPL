@@ -3,30 +3,19 @@
 /// Handles saving and loading AppState to/from disk.
 module;
 
+#include <unistd.h>
 #include <cstdlib>
-#include <chrono>
-#include <condition_variable>
 #include <cstdint>
-#include <string>
-#include <vector>
-#include <unordered_map>
-#include <optional>
-#include <expected>
-#include <format>
-#include <functional>
-#include <fstream>
-#include <filesystem>
-#include <mutex>
-#include <shared_mutex>
 #include <cerrno>
-#include <fstream>
 // POSIX headers for crash-safe atomic writes (fsync the temp file and its
 // parent directory before rename, mirroring the TS reference's pattern in
 // utils/statsCache.ts which calls handle.sync() + fs.rename()).
-#include <unistd.h>
 #include <fcntl.h>
+#include <cstddef>
 
 export module cc.state.persistence;
+
+import std;
 
 import cc.state.app_state;
 import cc.utils.json;

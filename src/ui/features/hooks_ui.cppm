@@ -3,15 +3,7 @@
 /// Migrated from src/components/hooks/ (all files)
 module;
 
-#include <string>
-#include <vector>
-#include <memory>
-#include <functional>
-#include <optional>
-#include <variant>
-#include <format>
 #include <cstdint>
-#include <chrono>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
@@ -19,6 +11,8 @@ module;
 #include <ftxui/component/event.hpp>
 
 export module cc.ui.features.hooks_ui;
+
+import std;
 
 export namespace cc::ui::hooks_ui {
 using namespace ftxui;

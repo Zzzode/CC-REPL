@@ -1,16 +1,9 @@
-module;
-#include <expected>
-#include <filesystem>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <system_error>
-#include <vector>
 
 export module cc.hooks.ide_at_mentioned;
 
-export namespace cc::hooks {
+import std;
 
+export namespace cc::hooks {
 
 struct AtMention {
     std::string type;                 // "file" | "symbol"
@@ -20,7 +13,6 @@ struct AtMention {
     std::optional<int> line_start;    // parsed from a trailing "#L<start>" anchor
     std::optional<int> line_end;      // parsed from a trailing "#L<start>-<end>" anchor
 };
-
 
 namespace detail {
 
@@ -77,7 +69,6 @@ inline std::string strip_line_anchor(std::string_view token,
 
 } // namespace detail
 
-
 inline std::vector<AtMention> parse_at_mentions(std::string_view input) {
     std::vector<AtMention> mentions;
     std::size_t pos = 0;
@@ -86,7 +77,6 @@ inline std::vector<AtMention> parse_at_mentions(std::string_view input) {
 
         auto at_pos = input.find('@', pos);
         if (at_pos == std::string_view::npos) break;
-
 
         auto end_pos = input.find_first_of(" \t\n", at_pos + 1);
         if (end_pos == std::string_view::npos) end_pos = input.size();
@@ -110,7 +100,6 @@ inline std::vector<AtMention> parse_at_mentions(std::string_view input) {
     }
     return mentions;
 }
-
 
 // Resolve a parsed @mention against a workspace root.
 //
@@ -154,7 +143,6 @@ resolve_at_mention(const AtMention& mention, std::string_view workspace_root) {
     return resolved.string();
 }
 
-
 // Convenience overload: resolve against the process current working directory.
 inline std::expected<std::string, std::string>
 resolve_at_mention(const AtMention& mention) {
@@ -165,7 +153,6 @@ resolve_at_mention(const AtMention& mention) {
     }
     return resolve_at_mention(mention, cwd.string());
 }
-
 
 inline std::vector<std::string> get_at_mention_completions(std::string_view prefix) {
     // Return common @mention targets that match the given prefix

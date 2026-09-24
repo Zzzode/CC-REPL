@@ -4,31 +4,23 @@
 /// backend with relevance scoring, kind badges and keyboard navigation.
 module;
 
-#include <algorithm>
-#include <array>
+#include <unistd.h>
 #include <cmath>
 #include <cstdint>
-#include <format>
-#include <functional>
-#include <memory>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
-#include <chrono>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_base.hpp>
 #include <ftxui/component/event.hpp>
+#include <cstdio>
 
 export module cc.ui.features.grove;
+
+import std;
 
 import cc.ui.foundation.component_primitives;
 import cc.ui.foundation.design_tokens;
 import cc.ui.foundation.theme_provider;
-import cc.types.types;
 
 export namespace cc::ui::components::grove {
 

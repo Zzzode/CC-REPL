@@ -1,16 +1,10 @@
 module;
 #include <cctype>
-#include <string>
-#include <string_view>
-#include <optional>
-#include <expected>
-#include <functional>
-#include <algorithm>
-#include <vector>
-#include <variant>
 #include <cstddef>
 
 export module cc.vim.operators;
+
+import std;
 
 import cc.vim.text_objects;
 

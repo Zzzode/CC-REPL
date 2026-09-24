@@ -17,14 +17,10 @@ module;
 #include <cstring>
 #include <cstdint>
 #include <cstddef>
-#include <functional>
-#include <string>
-#include <string_view>
-#include <unordered_map>
-#include <utility>
-#include <vector>
 
 export module cc.hooks.permission_resolver;
+
+import std;
 
 export namespace cc::hooks::permission {
 

@@ -17,17 +17,7 @@
 /// here — they live in services/mcp/channel_permissions.cppm + mcp_server_approval.cppm.
 module;
 
-#include <algorithm>
-#include <chrono>
 #include <cstdint>
-#include <functional>
-#include <memory>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
-#include <format>
 
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_base.hpp>
@@ -35,6 +25,8 @@ module;
 #include <ftxui/dom/elements.hpp>
 
 export module cc.ui.features.mcp.mcp_security_dialog;
+
+import std;
 
 export namespace cc::ui::mcp {
 using namespace ftxui;

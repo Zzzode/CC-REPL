@@ -1,9 +1,8 @@
 // Reload Plugins command - refreshes all active plugins and extensions
 module;
-#include <format>
-#include <string>
-#include <string_view>
 export module cc.commands.reload_plugins;
+
+import std;
 export namespace cc::commands::reload_plugins {
 
 struct CommandResponse { bool ok{true}; std::string message; };

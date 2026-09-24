@@ -1,12 +1,10 @@
 /// @file simplify.cppm
 /// @brief Simplify skill - code simplification and cleanup workflow.
 module;
-#include <string>
-#include <vector>
-#include <optional>
-#include <expected>
 
 export module cc.skills.simplify;
+
+import std;
 
 import cc.skills.skill;
 

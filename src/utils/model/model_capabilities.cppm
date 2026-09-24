@@ -1,9 +1,9 @@
 module;
 #include <cstddef>
-#include <string>
-#include <string_view>
 
 export module cc.utils.model.model_capabilities;
+
+import std;
 
 export namespace cc::utils {
 

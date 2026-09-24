@@ -1,19 +1,10 @@
 module;
-#include <string>
-#include <string_view>
-#include <vector>
-#include <span>
-#include <expected>
-#include <filesystem>
-#include <fstream>
-#include <optional>
 #include <cstdlib>
 #include <cstdio>
-#include <array>
-#include <algorithm>
-#include <chrono>
 
 export module cc.cli.handlers.plugins_handler;
+
+import std;
 import cc.utils.bash_execution;
 
 export namespace cc::cli::handlers {

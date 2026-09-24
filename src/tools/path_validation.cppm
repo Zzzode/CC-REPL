@@ -14,23 +14,12 @@
 module;
 
 #include <cstdlib>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
-#include <array>
-#include <unordered_map>
-#include <unordered_set>
-#include <span>
-#include <format>
-#include <functional>
-#include <algorithm>
 #include <cctype>
-#include <filesystem>
-#include <regex>
-#include <ranges>
+#include <cstddef>
 
 export module cc.tools.path_validation;
+
+import std;
 
 import cc.tools.mode_validation;  // for PermissionResult / PermissionBehavior
 

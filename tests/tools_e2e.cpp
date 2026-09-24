@@ -16,13 +16,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <fstream>
-#include <filesystem>
-#include <iostream>
 
+import std;
 import cc.tools.bash.impl;
 import cc.tools.files.impl;
 

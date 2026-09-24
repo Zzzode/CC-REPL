@@ -6,19 +6,9 @@
 /// detected in the workspace.
 module;
 
-#include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <cstdint>
-#include <format>
-#include <functional>
-#include <memory>
-#include <set>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
@@ -27,6 +17,8 @@ module;
 #include <ftxui/component/screen_interactive.hpp>
 
 export module cc.ui.features.plugins.lsp_recommendation_menu;
+
+import std;
 
 import cc.ui.foundation.component_primitives;
 import cc.ui.foundation.design_tokens;

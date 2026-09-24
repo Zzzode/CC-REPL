@@ -5,15 +5,10 @@
 /// browser so the user can complete it there.
 module;
 
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <format>
-#include <algorithm>
 
 export module cc.commands.upgrade;
+
+import std;
 
 import cc.types.types;
 import cc.commands.command;

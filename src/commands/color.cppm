@@ -4,16 +4,11 @@
 /// Faithful port of src/commands/color/color.ts.
 module;
 
-#include <string>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <format>
-#include <algorithm>
-#include <array>
 #include <cctype>
 
 export module cc.commands.color;
+
+import std;
 
 import cc.types.types;
 import cc.commands.command;

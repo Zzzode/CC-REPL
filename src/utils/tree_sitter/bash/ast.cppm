@@ -11,28 +11,21 @@
 
 module;
 
-#include <algorithm>
-#include <array>
+#include <unistd.h>
 #include <cctype>
 #include <cstdint>
 #include <cstring>
-#include <filesystem>
-#include <memory>
-#include <mutex>
-#include <regex>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 #if CC_HAS_TREE_SITTER
 extern "C" {
 #include <tree_sitter/api.h>
+#include <cstddef>
 }
 #endif
 
 export module cc.utils.tree_sitter.bash;
+
+import std;
 
 import cc.utils.tree_sitter.base;
 

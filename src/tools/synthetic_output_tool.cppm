@@ -1,15 +1,13 @@
 module;
-#include <string>
-#include <string_view>
-#include <map>
-#include <vector>
-#include <mutex>
-#include <sstream>
+
+#include <cstddef>
+
 
 export module cc.tools.synthetic_output_tool;
 
-export namespace cc::tools {
+import std;
 
+export namespace cc::tools {
 
 struct SyntheticOutput {
     std::string content;
@@ -30,7 +28,6 @@ namespace detail {
     };
 }
 
-
 inline auto register_output_template(
     std::string_view name,
     std::string_view template_str
@@ -39,13 +36,11 @@ inline auto register_output_template(
     detail::g_templates[std::string(name)] = std::string(template_str);
 }
 
-
 inline auto generate_synthetic_output(
     std::string_view template_name,
     const std::map<std::string, std::string>& vars
 ) -> SyntheticOutput {
     std::lock_guard lock(detail::g_templates_mutex);
-
 
     auto it = detail::g_templates.find(std::string(template_name));
     if (it == detail::g_templates.end()) {
@@ -55,7 +50,6 @@ inline auto generate_synthetic_output(
             .metadata = {{"error", "template_not_found"}}
         };
     }
-
 
     std::string result = it->second;
     for (const auto& [key, value] : vars) {
@@ -67,7 +61,6 @@ inline auto generate_synthetic_output(
         }
     }
 
-
     size_t pos = 0;
     while ((pos = result.find("{{", pos)) != std::string::npos) {
         auto end = result.find("}}", pos);
@@ -77,7 +70,6 @@ inline auto generate_synthetic_output(
             break;
         }
     }
-
 
     std::string format = "text";
     if (result.find('#') != std::string::npos ||
@@ -90,7 +82,6 @@ inline auto generate_synthetic_output(
     if (result.starts_with("<")) {
         format = "html";
     }
-
 
     std::map<std::string, std::string> metadata;
     metadata["template"] = std::string(template_name);

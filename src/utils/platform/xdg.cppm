@@ -1,11 +1,10 @@
 module;
 
-#include <filesystem>
-#include <optional>
-#include <string>
 #include <cstdlib>
 
 export module cc.utils.xdg;
+
+import std;
 
 namespace fs = std::filesystem;
 

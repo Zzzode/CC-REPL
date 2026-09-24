@@ -1,10 +1,4 @@
 module;
-#include <string>
-#include <vector>
-#include <functional>
-#include <optional>
-#include <chrono>
-#include <expected>
 #include <cstdint>
 
 #include <ftxui/dom/elements.hpp>
@@ -13,6 +7,8 @@ module;
 #include <ftxui/component/event.hpp>
 
 export module cc.ui.dialogs.feedback_survey;
+
+import std;
 
 export namespace cc::ui::feedback_survey {
 using namespace ftxui;

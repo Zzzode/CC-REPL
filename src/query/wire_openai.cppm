@@ -42,20 +42,12 @@
 /// contract below is designed around that constraint.
 module;
 
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <expected>
-#include <format>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <type_traits>
-#include <utility>
-#include <variant>
-#include <vector>
 
 export module cc.query.wire_openai;
+
+import std;
 
 import cc.types.types;
 import cc.tools.tool;

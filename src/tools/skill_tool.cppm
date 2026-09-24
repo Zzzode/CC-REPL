@@ -5,27 +5,14 @@ module;
 
 #include <cstdlib>
 #include <cstring>
-#include <algorithm>
-#include <array>
 #include <cctype>
-#include <charconv>
 #include <cstdint>
 #include <cstdio>
-#include <expected>
-#include <filesystem>
-#include <fstream>
-#include <functional>
-#include <optional>
-#include <regex>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <unordered_map>
-#include <unordered_set>
-#include <utility>
-#include <vector>
+#include <cstddef>
 
 export module cc.tools.skill;
+
+import std;
 import cc.utils.parse_int;
 
 import cc.utils.json;

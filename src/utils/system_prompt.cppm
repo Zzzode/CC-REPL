@@ -1,13 +1,10 @@
 module;
 
-#include <expected>
-#include <functional>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <vector>
+#include <cstddef>
 
 export module cc.utils.system_prompt;
+
+import std;
 
 export namespace cc::utils {
 

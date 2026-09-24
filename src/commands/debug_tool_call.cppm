@@ -1,9 +1,6 @@
-module;
-#include <format>
-#include <string>
-#include <string_view>
-#include <vector>
 export module cc.commands.debug_tool_call;
+
+import std;
 
 import cc.utils.json;
 

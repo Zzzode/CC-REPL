@@ -4,32 +4,16 @@
 /// go-to-definition, hover, diagnostics, and more.
 module;
 
-#include <array>
+#include <unistd.h>
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <memory>
-#include <string>
-#include <vector>
-#include <map>
-#include <unordered_map>
-#include <deque>
-#include <mutex>
-#include <condition_variable>
-#include <chrono>
-#include <expected>
-#include <functional>
-#include <thread>
-#include <atomic>
-#include <sstream>
-#include <optional>
-#include <variant>
-#include <format>
-#include <filesystem>
-#include <future>
+#include <cstdint>
 
 export module cc.services.lsp.client;
+
+import std;
 
 import cc.utils.json;
 import cc.types.types;

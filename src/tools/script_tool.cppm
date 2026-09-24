@@ -1,19 +1,11 @@
 // ScriptTool - Sandboxed script execution with multi-language support
 module;
-#include <array>
-#include <chrono>
 #include <cstddef>
-#include <expected>
-#include <filesystem>
-#include <format>
-#include <fstream>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
+#include <cstdio>
 
 export module cc.tools.script;
+
+import std;
 
 // migrated: integrate collapse decision + script primitives + typecheck
 import cc.tools.script_primitives;
@@ -24,7 +16,6 @@ import cc.tools.tool_display_names;
 import cc.utils.bash_execution;
 
 export namespace cc::tools {
-
 
 enum class ScriptError {
     EmptyScript,
@@ -53,7 +44,6 @@ constexpr auto format_error(ScriptError err) -> std::string_view {
     }
 }
 
-
 struct SandboxLimits {
     size_t max_memory_mb{256};
     std::chrono::seconds timeout{30};
@@ -63,7 +53,6 @@ struct SandboxLimits {
     size_t max_processes{1};
 };
 
-
 struct ScriptRequest {
     std::string code;
     ScriptLanguage language;
@@ -71,7 +60,6 @@ struct ScriptRequest {
     bool enable_type_check{false};
     std::optional<std::string> stdin_data;
 };
-
 
 auto resolve_interpreter(ScriptLanguage lang) -> std::expected<std::string, ScriptError> {
     auto runner = get_script_runner(lang);
@@ -89,7 +77,6 @@ constexpr auto script_extension(ScriptLanguage lang) -> std::string_view {
     }
     return ".txt";
 }
-
 
 class ScriptTool {
 public:
@@ -111,7 +98,6 @@ public:
         auto interpreter = resolve_interpreter(request.language);
         auto start_time = std::chrono::steady_clock::now();
 
-
         auto tmp_path = std::filesystem::temp_directory_path() /
             std::format("cc_script_{}{}", std::chrono::steady_clock::now().time_since_epoch().count(),
                         script_extension(request.language));
@@ -122,9 +108,7 @@ public:
             out << request.code;
         }
 
-
         auto cmd = build_sandboxed_command(*interpreter, tmp_path, request.limits);
-
 
         FILE* pipe = cc::utils::bash::popen_spawn(cmd.c_str());
         if (!pipe) {
@@ -140,7 +124,6 @@ public:
         }
         int status = cc::utils::bash::pclose_spawn(pipe);
 
-
         std::filesystem::remove(tmp_path);
 
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -155,7 +138,6 @@ public:
             .diagnostics = {},
             .duration = elapsed,
         };
-
 
         if (request.enable_type_check) {
             result.diagnostics = run_type_check(request.language, request.code);
@@ -206,7 +188,6 @@ private:
             script_path.string()
         );
     }
-
 
     auto run_type_check(ScriptLanguage lang, std::string_view code) const
         -> std::vector<Diagnostic>

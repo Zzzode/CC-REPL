@@ -13,14 +13,10 @@ module;
 
 #include <cctype>
 #include <cstddef>
-#include <optional>
-#include <set>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 export module cc.commands.plugin_helpers;
+
+import std;
 
 export namespace cc::commands::plugin_helpers {
 

@@ -2,15 +2,11 @@
 /// @brief Typed slash-command adapters for migrated command helper modules.
 module;
 
-#include <charconv>
 #include <cstdint>
-#include <expected>
-#include <format>
-#include <string>
-#include <string_view>
-#include <vector>
 
 export module cc.commands.runtime_surface_commands;
+
+import std;
 import cc.utils.parse_int;
 
 import cc.types.types;

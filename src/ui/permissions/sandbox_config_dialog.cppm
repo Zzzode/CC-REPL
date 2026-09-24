@@ -16,19 +16,9 @@
 /// and cc.tools.bash_permissions — this file only edits user-visible settings.
 module;
 
-#include <algorithm>
-#include <array>
+#include <unistd.h>
 #include <cstddef>
 #include <cstdint>
-#include <chrono>
-#include <format>
-#include <functional>
-#include <memory>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
@@ -36,6 +26,8 @@ module;
 #include <ftxui/component/event.hpp>
 
 export module cc.ui.permissions.sandbox_config;
+
+import std;
 
 import cc.ui.permissions.components;
 

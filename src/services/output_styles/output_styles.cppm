@@ -1,16 +1,12 @@
 // OutputStyles - Loads custom output styles from .loom/output-styles/*.md
 module;
 
-#include <algorithm>
 #include <cstdlib>
-#include <filesystem>
-#include <fstream>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <vector>
+#include <cstddef>
 
 export module cc.services.output_styles;
+
+import std;
 
 export namespace cc::services::output_styles {
 

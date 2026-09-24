@@ -1,3 +1,7 @@
+module;
+
+#include <unistd.h>
+
 /// @file in_process_transport.cppm
 /// @brief In-process linked transport pair for MCP servers/clients.
 ///
@@ -11,14 +15,9 @@
 /// (no microtask scheduler in the migration); this is acceptable parity because
 /// the only observable difference is stack depth under deeply nested sends,
 /// which the MCP message loop does not drive.
-module;
-#include <expected>
-#include <functional>
-#include <memory>
-#include <mutex>
-#include <string>
-#include <utility>
 export module cc.services.mcp.in_process_transport;
+
+import std;
 export namespace cc::services::mcp {
 
 /// A JSON-RPC message carried over the in-process transport. The raw JSON body

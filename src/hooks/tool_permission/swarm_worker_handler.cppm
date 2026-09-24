@@ -1,12 +1,9 @@
-module;
-#include <string>
-#include <string_view>
-#include <vector>
 
 export module cc.hooks.tool_permission.swarm_worker_handler;
 
-export namespace cc::hooks::tool_permission {
+import std;
 
+export namespace cc::hooks::tool_permission {
 
 enum class PermissionDecision {
     Allow,
@@ -15,7 +12,6 @@ enum class PermissionDecision {
 };
 
 inline bool is_swarm_safe_tool(std::string_view tool_name);
-
 
 inline PermissionDecision handle_swarm_permission(
     std::string_view tool_name,
@@ -29,7 +25,6 @@ inline PermissionDecision handle_swarm_permission(
     return PermissionDecision::Deny;
 }
 
-
 inline std::vector<std::string> get_swarm_allowed_tools() {
     return {
         "FileReadTool",
@@ -40,7 +35,6 @@ inline std::vector<std::string> get_swarm_allowed_tools() {
         "WebSearchTool"
     };
 }
-
 
 inline bool is_swarm_safe_tool(std::string_view tool_name) {
     auto allowed = get_swarm_allowed_tools();

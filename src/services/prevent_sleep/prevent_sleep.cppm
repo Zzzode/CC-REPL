@@ -6,14 +6,10 @@
 module;
 
 #include <cstdint>
-#include <string>
-#include <string_view>
-#include <optional>
-#include <expected>
-#include <chrono>
-#include <format>
 
 export module cc.services.prevent_sleep;
+
+import std;
 
 import cc.types.types;
 

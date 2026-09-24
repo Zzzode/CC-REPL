@@ -1,3 +1,7 @@
+module;
+
+#include <cstdint>
+
 /// @file wire_protocol.cppm
 /// @brief Backend wire-protocol seam: the interface a model API backend
 ///        implements so QueryEngine can talk to it without knowing the
@@ -19,15 +23,10 @@
 /// Design note: the interface is intentionally narrow and value-oriented
 /// (strings in, engine types out) rather than exposing vendor JSON types,
 /// so a backend can be implemented and tested without any engine internals.
-module;
-
-#include <expected>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <vector>
 
 export module cc.query.wire_protocol;
+
+import std;
 
 import cc.types.types;
 import cc.tools.tool;

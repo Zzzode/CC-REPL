@@ -2,10 +2,10 @@
 /// @brief GoodLoomCommand implementing the hidden /good-loom slash command.
 module;
 
-#include <string>
-#include <vector>
 
 export module cc.commands.good_loom;
+
+import std;
 
 import cc.types.types;
 import cc.commands.command;

@@ -26,13 +26,6 @@
 ///   Tab / Arrow  — move focus between buttons
 module;
 
-#include <functional>
-#include <memory>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
@@ -40,6 +33,8 @@ module;
 #include <ftxui/component/screen_interactive.hpp>
 
 export module cc.ui.dialogs.confirmation;
+
+import std;
 
 import cc.ui.dialogs.frame;
 import cc.ui.foundation.theme_provider;

@@ -1,36 +1,22 @@
 // MCP Client - Model Context Protocol client with JSON-RPC 2.0 transport
 module;
 
+#include <sys/wait.h>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <memory>
-#include <string>
-#include <vector>
-#include <map>
-#include <deque>
-#include <mutex>
-#include <condition_variable>
-#include <chrono>
-#include <expected>
-#include <functional>
-#include <thread>
-#include <atomic>
-#include <sstream>
-#include <future>
-#include <variant>
 #include <cerrno>
 #include <csignal>
 #include <cctype>
-#include <algorithm>
-#include <array>
-#include <unordered_map>
 #include <sys/socket.h>
 #include <netdb.h>
 #include <unistd.h>
-#include <sys/wait.h>
+#include <cstddef>
+#include <cstdint>
 
 export module cc.services.mcp.client;
+
+import std;
 
 import cc.services.mcp.types;
 import cc.utils.json;

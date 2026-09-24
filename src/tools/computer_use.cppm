@@ -1,30 +1,17 @@
 // C++23 Module: Computer use capabilities
 
 module;
-#include <array>
-#include <algorithm>
 #include <cctype>
-#include <chrono>
 #include <cstdint>
 #include <cstdlib>
-#include <expected>
-#include <filesystem>
-#include <format>
-#include <fstream>
-#include <functional>
-#include <iterator>
-#include <optional>
-#include <ranges>
-#include <string>
-#include <string_view>
-#include <thread>
-#include <utility>
-#include <vector>
 #ifdef __APPLE__
 #include <ApplicationServices/ApplicationServices.h>
+#include <cstddef>
 #endif
 
 export module cc.tools.computer_use;
+
+import std;
 
 export namespace cc::core::computer_use {
 

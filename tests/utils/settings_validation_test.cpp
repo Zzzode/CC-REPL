@@ -1,10 +1,8 @@
 #include <gtest/gtest.h>
 
 #include <cstdlib>
-#include <optional>
-#include <string>
-#include <vector>
 
+import std;
 import cc.utils.settings_validation;
 
 TEST(SettingsValidationConfig, ClassifiesPatternToolsAndCustomWebValidators) {

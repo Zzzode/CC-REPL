@@ -4,22 +4,18 @@
 module;
 
 #include <cctype>
-#include <string>
-#include <vector>
-#include <memory>
-#include <functional>
-#include <optional>
-#include <format>
 #include <cstdint>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_base.hpp>
 #include <ftxui/component/event.hpp>
+#include <cstddef>
 
 export module cc.ui.visual.diff_view;
 
-import cc.types.types;
+import std;
+
 import cc.utils.file_edit;
 
 export namespace cc::ui::components::diff_view {

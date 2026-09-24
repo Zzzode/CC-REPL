@@ -2,15 +2,10 @@ module;
 
 #include <cctype>
 #include <climits>
-#include <functional>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <unordered_map>
-#include <utility>
-#include <vector>
 
 export module cc.utils.loom_code_hints;
+
+import std;
 
 export namespace cc::utils::loom_hints {
 

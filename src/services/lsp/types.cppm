@@ -1,11 +1,9 @@
 // LSP Types Module
 module;
-#include <string>
-#include <optional>
-#include <unordered_map>
-#include <vector>
 
 export module cc.services.lsp.types;
+
+import std;
 
 import cc.utils.error;
 

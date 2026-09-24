@@ -15,10 +15,8 @@
 /// substrings where possible, so formatting changes do not break them.
 
 #include <gtest/gtest.h>
-#include <string>
-#include <string_view>
-#include <vector>
 
+import std;
 import cc.query.wire_protocol;
 import cc.query.wire_openai;
 import cc.query.wire_anthropic;

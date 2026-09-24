@@ -1,19 +1,13 @@
 // C++23 Module: Graceful exit handling with Ctrl+C/Ctrl+D confirmation flow
 module;
 
-#include <chrono>
 #include <csignal>
 #include <cstddef>
 #include <cstdint>
-#include <functional>
-#include <mutex>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 export module cc.hooks.exit_handler;
+
+import std;
 
 
 export namespace cc::hooks {

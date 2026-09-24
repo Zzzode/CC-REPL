@@ -1,11 +1,10 @@
 module;
-#include <string>
-#include <vector>
-#include <optional>
-#include <sstream>
-#include <utility>
+
+#include <cstddef>
 
 export module cc.ui.dialogs.permission_dialog;
+
+import std;
 
 export namespace cc::ui::dialogs {
 

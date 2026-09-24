@@ -9,24 +9,11 @@ module;
 #include <cctype>
 #include <cstdlib>
 #include <cstdint>
-#include <charconv>
-#include <chrono>
-#include <filesystem>
-#include <fstream>
-#include <iomanip>
-#include <optional>
-#include <sstream>
-#include <string>
-#include <vector>
-#include <expected>
-#include <format>
-#include <ranges>
-#include <algorithm>
-#include <span>
-#include <array>
-#include <string_view>
+#include <ctime>
 
 export module cc.commands.export_cmd;
+
+import std;
 import cc.utils.parse_int;
 
 import cc.types.types;

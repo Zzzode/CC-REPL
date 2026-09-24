@@ -7,17 +7,10 @@ module;
 #include <cstdint>
 #include <cstddef>
 #include <cstdlib>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <array>
-#include <utility>
-#include <optional>
-#include <format>
-#include <algorithm>
-#include <ranges>
 
 export module cc.config.feature_flags;
+
+import std;
 
 export namespace cc::core::flags {
 

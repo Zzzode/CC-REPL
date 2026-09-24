@@ -1,10 +1,10 @@
 // ToolRegistry - Re-exports core ToolRegistry and provides tool list factory
 module;
 
-#include <string>
-#include <vector>
 
 export module cc.tools.registry;
+
+import std;
 
 import cc.tools.tool;
 import cc.tools.runtime_registry;

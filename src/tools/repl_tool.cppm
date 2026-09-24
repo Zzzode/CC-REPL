@@ -16,39 +16,22 @@
 /// multi-line / interactive inputs.
 module;
 
-#include <condition_variable>
-#include <algorithm>
-#include <array>
+#include <sys/wait.h>
 #include <cerrno>
-#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
-#include <expected>
 #include <fcntl.h>
-#include <memory>
-#include <mutex>
 #include <poll.h>
-#include <random>
-#include <regex>
 #include <signal.h>
-#include <sstream>
-#include <stdexcept>
-#include <string>
-#include <string_view>
-#include <sys/wait.h>
-#include <thread>
 #include <unistd.h>
 #include <spawn.h>
-#include <shared_mutex>
-#include <unordered_map>
-#include <utility>
-#include <vector>
 
 #ifdef __APPLE__
 #include <crt_externs.h>
+#include <cstddef>
 #define CC_ENVIRON (*_NSGetEnviron())
 #else
 extern char** environ;
@@ -56,6 +39,8 @@ extern char** environ;
 #endif
 
 export module cc.tools.repl;
+
+import std;
 
 import cc.utils.json;
 

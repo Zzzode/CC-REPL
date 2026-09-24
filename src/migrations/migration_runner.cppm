@@ -1,15 +1,10 @@
 module;
-#include <algorithm>
-#include <chrono>
 #include <cstdint>
-#include <expected>
-#include <functional>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
+#include <cstddef>
 
 export module cc.migrations.migration_runner;
+
+import std;
 
 export namespace cc::migrations {
 

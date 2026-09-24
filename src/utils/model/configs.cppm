@@ -1,9 +1,7 @@
-module;
-#include <optional>
-#include <string>
-#include <string_view>
 
 export module cc.utils.model.configs;
+
+import std;
 
 export namespace cc::utils {
 

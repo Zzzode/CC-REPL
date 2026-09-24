@@ -1,11 +1,9 @@
 module;
 #include <cstdlib>
-#include <map>
-#include <optional>
-#include <string>
-#include <string_view>
 
 export module cc.utils.env_dynamic;
+
+import std;
 
 extern "C" char** environ;
 

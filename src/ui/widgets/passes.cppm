@@ -4,19 +4,8 @@
 /// Mirrors the TS "Passes" sidebar panel and the /passes command output.
 module;
 
-#include <algorithm>
-#include <array>
 #include <cmath>
 #include <cstdint>
-#include <format>
-#include <functional>
-#include <memory>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
-#include <chrono>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
@@ -24,6 +13,8 @@ module;
 #include <ftxui/component/event.hpp>
 
 export module cc.ui.widgets.passes;
+
+import std;
 
 import cc.ui.foundation.component_primitives;
 import cc.ui.foundation.design_tokens;

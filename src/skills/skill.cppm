@@ -5,23 +5,11 @@ module;
 
 #include <cstdlib>
 #include <cstdint>
-#include <string>
-#include <vector>
-#include <memory>
-#include <functional>
-#include <unordered_map>
-#include <optional>
-#include <expected>
-#include <concepts>
-#include <format>
-#include <algorithm>
 #include <cctype>
-#include <regex>
-#include <filesystem>
-#include <fstream>
-#include <sstream>
 
 export module cc.skills.skill;
+
+import std;
 
 import cc.types.types;
 

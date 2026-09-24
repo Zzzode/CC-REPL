@@ -4,28 +4,9 @@
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
 
 #include <gtest/gtest.h>
-#include <algorithm>
-#include <array>
-#include <atomic>
-#include <chrono>
-#include <condition_variable>
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>
-#include <expected>
-#include <filesystem>
-#include <format>
-#include <fstream>
-#include <initializer_list>
-#include <iterator>
-#include <mutex>
-#include <optional>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <thread>
-#include <utility>
-#include <vector>
 #include <httplib.h>
 #ifndef _WIN32
 #include <sys/select.h>
@@ -34,6 +15,7 @@
 #include <unistd.h>
 #endif
 
+import std;
 import cc.tools.bash;
 import cc.tools.computer_use;
 import cc.tools.powershell;

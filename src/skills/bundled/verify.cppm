@@ -1,15 +1,11 @@
 module;
-#include <string>
-#include <string_view>
-#include <vector>
-#include <expected>
-#include <array>
 #include <cstdio>
-#include <filesystem>
-#include <chrono>
-#include <algorithm>
+#include <sys/wait.h>
+#include <cstddef>
 
 export module cc.skills.bundled.verify;
+
+import std;
 
 import cc.skills.load_skills_dir;
 import cc.utils.bash_execution;

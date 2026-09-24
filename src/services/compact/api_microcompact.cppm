@@ -1,17 +1,11 @@
 /// @file api_microcompact.cppm
 /// @brief API-level micro compaction for context management
 module;
-#include <algorithm>
 #include <cstdlib>
 #include <cstdint>
-#include <limits>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
-#include <expected>
 export module cc.services.compact.api_microcompact;
+
+import std;
 
 import cc.utils.env_utils;
 

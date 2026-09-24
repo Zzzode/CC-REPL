@@ -21,22 +21,13 @@
 // ============================================================================
 module;
 
-#include <atomic>
-#include <chrono>
 #include <cstdint>
 #include <cstdlib>
-#include <expected>
-#include <filesystem>
-#include <fstream>
-#include <map>
-#include <mutex>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <unordered_map>
-#include <vector>
+#include <cstddef>
 
 export module cc.services.lsp.passive_feedback;
+
+import std;
 
 import cc.utils.error;
 import cc.utils.json;

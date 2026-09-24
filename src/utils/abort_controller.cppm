@@ -2,19 +2,11 @@
 /// @brief AbortController/AbortSignal C++ equivalent, combined signal composition, cancellation token pattern
 module;
 
-#include <string>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <functional>
-#include <memory>
-#include <atomic>
-#include <mutex>
-#include <chrono>
 #include <cstdint>
-#include <string_view>
 
 export module cc.utils.abort_controller;
+
+import std;
 
 export namespace cc::utils::abort_controller {
 

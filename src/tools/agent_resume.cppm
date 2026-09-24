@@ -1,42 +1,17 @@
 module;
 
-#include <atomic>
-#include <algorithm>
-#include <charconv>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
-#include <expected>
-#include <format>
-#include <fstream>
-#include <functional>
-#include <initializer_list>
-#include <iterator>
-#include <limits>
-#include <memory>
-#include <string>
-#include <string_view>
-#include <optional>
-#include <vector>
-#include <array>
-#include <utility>
-#include <sstream>
 #include <cctype>
-#include <chrono>
 #include <cstdint>
-#include <filesystem>
-#include <system_error>
-#include <thread>
-#include <unordered_map>
-#include <unordered_set>
-#include <sys/wait.h>
 
 export module cc.tools.agent.resume;
 
-import cc.utils.error;
+import std;
+
 import cc.utils.git;
 import cc.tools.tool;
-import cc.utils.json;
 import cc.tools.agent_runtime;
 import cc.tools.agent_constants;
 import cc.tools.agent_memory;
@@ -81,7 +56,6 @@ using cc::tools::agent::utils::filter_resume_whitespace_assistant_messages;
 using cc::tools::agent::utils::resume_content_replacements_from_entries;
 using cc::tools::agent::utils::apply_resume_content_replacements;
 using cc::tools::agent::utils::fork_context_messages_from_entries;
-
 
 [[nodiscard]] inline std::string format_resumed_agent_context(
     const cc::tools::agent_runtime::NativeAgentRecord& record
@@ -145,6 +119,5 @@ inline void hydrate_resume_plan_from_existing_record(AgentExecutionPlan& plan) {
     plan.teammate_color = plan.teammate_color.or_else([&] { return existing->teammate_color; });
     plan.parent_session_id = plan.parent_session_id.or_else([&] { return existing->parent_session_id; });
 }
-
 
 } // namespace cc::tools::agent::resume_

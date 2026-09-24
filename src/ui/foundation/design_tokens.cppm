@@ -12,16 +12,14 @@
 module;
 
 #include <cstdint>
-#include <string>
-#include <string_view>
-#include <array>
-#include <algorithm>
 #include <cmath>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/screen/color.hpp>
 
 export module cc.ui.foundation.design_tokens;
+
+import std;
 
 export namespace cc::ui::design::tokens {
 

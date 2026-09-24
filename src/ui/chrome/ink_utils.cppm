@@ -9,16 +9,8 @@
 ///     terminal-querier.ts, terminal-focus-state.ts
 module;
 
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
-#include <functional>
 #include <cstdint>
 #include <cstddef>
-#include <variant>
-#include <utility>
-#include <algorithm>
 #include <cstdlib>
 
 #ifndef _WIN32
@@ -29,6 +21,8 @@ module;
 #endif
 
 export module cc.ui.chrome.ink_utils;
+
+import std;
 
 import cc.ui.chrome.text_measure;
 

@@ -1,20 +1,15 @@
+module;
+
+#include <cstddef>
+
 // mode_validation.cppm
 // Checks if commands should be handled differently based on the current
 // permission mode (acceptEdits, bypassPermissions, dontAsk, etc.).
 // Ported from src/tools/BashTool/modeValidation.ts
 
-module;
-
-#include <string>
-#include <string_view>
-#include <optional>
-#include <vector>
-#include <array>
-#include <algorithm>
-#include <format>
-#include <utility>
-
 export module cc.tools.mode_validation;
+
+import std;
 
 import cc.tools.bash_security;
 

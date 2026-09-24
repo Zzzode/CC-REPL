@@ -11,32 +11,21 @@ module;
 #include <cctype>
 #include <arpa/inet.h>
 #include <cerrno>
-#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
-#include <expected>
-#include <filesystem>
-#include <fstream>
-#include <functional>
-#include <memory>
 #include <netinet/in.h>
-#include <optional>
-#include <sstream>
-#include <stdexcept>
-#include <string>
-#include <string_view>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
-#include <unordered_map>
-#include <vector>
 
 #include <httplib.h>
 
 export module cc.services.mcp.xaa_idp_login;
+
+import std;
 
 import cc.utils.crypto;
 import cc.utils.error;

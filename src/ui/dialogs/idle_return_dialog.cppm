@@ -16,18 +16,14 @@
 module;
 
 #include <cmath>
-#include <string>
-#include <string_view>
-#include <format>
 #include <cstdint>
-#include <array>
-#include <functional>
-#include <optional>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/event.hpp>
 
 export module cc.ui.dialogs.idle_return_dialog;
+
+import std;
 
 export namespace cc::ui::dialogs::idle_return {
 

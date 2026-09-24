@@ -14,21 +14,13 @@
 
 module;
 
-#include <algorithm>
-#include <array>
+#include <unistd.h>
 #include <cctype>
 #include <cstdint>
-#include <filesystem>
-#include <format>
-#include <optional>
-#include <regex>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 export module cc.ui.dialogs.trust_utils;
+
+import std;
 
 // Reuse existing trust / security primitives instead of redefining them.
 import cc.utils.bash_security;

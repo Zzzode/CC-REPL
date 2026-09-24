@@ -3,23 +3,13 @@
 // and WebSocket transport for MCP protocol
 module;
 
-#include <algorithm>
+#include <unistd.h>
 #include <cstddef>
 #include <cstdint>
-#include <expected>
-#include <filesystem>
-#include <functional>
-#include <map>
-#include <memory>
-#include <optional>
-#include <set>
-#include <span>
-#include <string>
-#include <string_view>
-#include <variant>
-#include <vector>
 
 export module cc.utils.mcp_helpers;
+
+import std;
 
 import cc.utils.json;
 

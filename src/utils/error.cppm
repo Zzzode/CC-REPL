@@ -3,18 +3,12 @@
 module;
 
 #include <cstdint>
-#include <string>
-#include <string_view>
-#include <memory>
-#include <expected>
-#include <format>
-#include <utility>
-#include <vector>
 
 export module cc.utils.error;
 
-export namespace cc::utils {
+import std;
 
+export namespace cc::utils {
 
 enum class ErrorCode : uint32_t {
     unknown = 0,
@@ -33,7 +27,6 @@ enum class ErrorCode : uint32_t {
     unimplemented,
     unavailable,
 };
-
 
 constexpr std::string_view error_code_name(ErrorCode code) noexcept {
     switch (code) {
@@ -56,7 +49,6 @@ constexpr std::string_view error_code_name(ErrorCode code) noexcept {
     return "unknown";
 }
 
-
 class Error {
 public:
     Error(ErrorCode code, std::string message)
@@ -64,16 +56,13 @@ public:
         , message_(std::move(message))
         , cause_(nullptr) {}
 
-
     Error(ErrorCode code, std::string message, Error cause)
         : code_(code)
         , message_(std::move(message))
         , cause_(std::make_unique<Error>(std::move(cause))) {}
 
-
     Error(Error&&) noexcept = default;
     Error& operator=(Error&&) noexcept = default;
-
 
     Error(const Error& other)
         : code_(other.code_)
@@ -94,10 +83,8 @@ public:
     [[nodiscard]] bool has_cause() const noexcept { return cause_ != nullptr; }
     [[nodiscard]] const Error& cause() const noexcept { return *cause_; }
 
-
     [[nodiscard]] std::string format() const {
         auto result = std::format("[{}] {}", error_code_name(code_), message_);
-
 
         const Error* current = cause_.get();
         int depth = 1;
@@ -112,7 +99,6 @@ public:
         }
         return result;
     }
-
 
     [[nodiscard]] Error with_cause(Error cause) const& {
         Error copy = *this;
@@ -131,12 +117,10 @@ private:
     std::unique_ptr<Error> cause_;
 };
 
-
 [[nodiscard]] inline Error make_error(
     ErrorCode code, std::string message) {
     return Error(code, std::move(message));
 }
-
 
 template<typename... Args>
 [[nodiscard]] Error make_error_fmt(
@@ -145,10 +129,8 @@ template<typename... Args>
     return Error(code, std::format(fmt, std::forward<Args>(args)...));
 }
 
-
 template<typename T>
 using Result = std::expected<T, Error>;
-
 
 using VoidResult = std::expected<void, Error>;
 
@@ -172,8 +154,6 @@ namespace error {
     }
 }
 
-
-
 #define TRY(expr)                                                    \
     ({                                                               \
         auto&& _try_result = (expr);                                 \
@@ -183,7 +163,6 @@ namespace error {
         std::move(*_try_result);                                     \
     })
 
-
 #define TRY_VOID(expr)                                               \
     do {                                                             \
         auto&& _try_result = (expr);                                 \
@@ -192,12 +171,10 @@ namespace error {
         }                                                            \
     } while (0)
 
-
 [[nodiscard]] inline auto unexpected_error(
     ErrorCode code, std::string message) {
     return std::unexpected(Error(code, std::move(message)));
 }
-
 
 template<typename T>
 concept ErrorLike = true;

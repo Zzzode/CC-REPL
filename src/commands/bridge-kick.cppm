@@ -1,19 +1,15 @@
+module;
+
+#include <unistd.h>
+
 /// @file bridge-kick.cppm
 /// @brief BridgeKickCommand implementing the /bridge-kick slash command.
 /// Injects bridge failure states for manual recovery testing.
-module;
 
-#include <string>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <format>
-#include <algorithm>
-#include <array>
-#include <functional>
-#include <utility>
 
 export module cc.commands.bridge_kick;
+
+import std;
 
 import cc.types.types;
 import cc.commands.command;

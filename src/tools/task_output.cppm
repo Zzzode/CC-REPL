@@ -1,15 +1,9 @@
 // TaskOutputTool - Retrieves output from background tasks (shell, agent, etc.)
 module;
-#include <chrono>
-#include <expected>
-#include <format>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <variant>
-#include <vector>
 
 export module cc.tools.task_output;
+
+import std;
 
 import cc.tools.tool;
 import cc.utils.json;

@@ -16,18 +16,7 @@ module;
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <array>
-#include <optional>
-#include <functional>
-#include <chrono>
-#include <thread>
-#include <mutex>
-#include <condition_variable>
-#include <atomic>
-#include <memory>
+
 
 // POSIX
 #include <fcntl.h>
@@ -36,20 +25,22 @@ module;
 #include <sys/select.h>
 #include <sys/poll.h>
 #include <signal.h>
+#include <cstddef>
 
-// Helper that copies libc's `environ` strings without exposing `environ` as
-// a name inside the module purview (which would get module-qualified linkage).
-// Both the declaration and definition live in the GMF as extern "C".
-extern "C" {
+// Access the C runtime environ from the module purview without naming the
+// `environ` global there (a purview declaration would get module-qualified
+// linkage and fail to bind the C symbol). The accessor is defined in the
+// global module fragment using C types only, so this unit can still
+// `import std;` in its purview.
+extern "C" char*** loom_libc_environ_ptr();
+extern "C" char*** loom_libc_environ_ptr() {
     extern char** environ;
-    auto copy_libc_environ(std::vector<std::string>& out) -> void {
-        if (::environ) {
-            for (char** p = ::environ; *p != nullptr; ++p) out.emplace_back(*p);
-        }
-    }
+    return &environ;
 }
 
 export module cc.tools.bash.impl;
+
+import std;
 
 export namespace cc::tools::bash::impl {
 
@@ -130,13 +121,15 @@ struct pipe_pair {
     }
 };
 
-// Build a POSIX envp from the C runtime environ (via copy_libc_environ)
+// Build a POSIX envp from the C runtime environ (via loom_libc_environ_ptr)
 // with opts.env appended / overriding.
 inline auto build_envp(const std::vector<std::pair<std::string,std::string>>& extra,
                        const SandboxMode mode)
     -> std::vector<std::string> {
     std::vector<std::string> base;
-    copy_libc_environ(base);
+    if (char** envp = *loom_libc_environ_ptr()) {
+        for (char** q = envp; *q != nullptr; ++q) base.emplace_back(*q);
+    }
     // Append overrides.
     for (auto& kv : extra) {
         std::string e = kv.first;

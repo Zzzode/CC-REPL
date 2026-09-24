@@ -4,12 +4,10 @@
 module;
 
 #include <cstdint>
-#include <string>
-#include <vector>
-#include <optional>
-#include <functional>
 
 export module cc.types.command;
+
+import std;
 
 export namespace cc::types {
 

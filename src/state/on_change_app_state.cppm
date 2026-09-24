@@ -4,19 +4,11 @@
 /// appropriate side effects like persistence, notifications, etc.
 module;
 
-#include <condition_variable>
 #include <cstdint>
-#include <string>
-#include <vector>
-#include <unordered_map>
-#include <optional>
-#include <functional>
-#include <memory>
-#include <mutex>
-#include <shared_mutex>
-#include <algorithm>
 
 export module cc.state.on_change;
+
+import std;
 
 import cc.state.app_state;
 import cc.state.selectors;

@@ -1,10 +1,7 @@
-module;
-#include <chrono>
-#include <functional>
-#include <optional>
-#include <string>
 
 export module cc.hooks.pr_status;
+
+import std;
 
 export namespace cc::hooks {
 

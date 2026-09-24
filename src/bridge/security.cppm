@@ -1,25 +1,13 @@
 module;
 
-#include <chrono>
+#include <unistd.h>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
-#include <expected>
-#include <functional>
-#include <memory>
-#include <mutex>
-#include <optional>
-#include <random>
-#include <string>
-#include <string_view>
-#include <tuple>
-#include <unordered_map>
-#include <utility>
-#include <vector>
-#include <unistd.h>
 
 export module cc.bridge.security;
 
+import std;
 
 export namespace cc::bridge {
 
@@ -71,8 +59,6 @@ namespace detail {
 }
 } // namespace detail
 
-
-
 struct BasicJwtPayload {
     std::string sub;      // subject (session ID)
     std::string iss;      // issuer
@@ -116,8 +102,6 @@ public:
         return "ccs_" + std::to_string(now);
     }
 };
-
-
 
 struct TrustedDevice {
     std::string device_id;
@@ -165,8 +149,6 @@ public:
     }
 };
 
-
-
 class WorkSecret {
     std::string secret_;
     std::chrono::system_clock::time_point created_at_;
@@ -195,9 +177,6 @@ public:
 
     [[nodiscard]] auto get() const -> std::string_view { return secret_; }
 };
-
-
-
 
 enum class BridgePermissionType { 
     tool_execution, file_read, file_write, shell_command, network_access 
@@ -243,8 +222,6 @@ public:
 
     void clear_remembered() { remembered_.clear(); }
 };
-
-
 
 // ---------------------------------------------------------------------------
 // Bidirectional RPC-style permission protocol
@@ -366,8 +343,6 @@ private:
     std::unordered_map<std::string, std::function<void(BridgePermissionResponse)>> pending_;
 };
 
-
-
 class SessionIdCompat {
 public:
 
@@ -389,8 +364,6 @@ public:
         return !id.empty() && id.size() >= 8;
     }
 };
-
-
 
 class BridgeDebugger {
     bool enabled_{false};

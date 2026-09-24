@@ -1,15 +1,10 @@
 module;
 
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
-#include <functional>
-#include <chrono>
-#include <expected>
 #include <cstdint>
 
 export module cc.hooks.permission_context;
+
+import std;
 
 export namespace cc::hooks::tool_permission {
 

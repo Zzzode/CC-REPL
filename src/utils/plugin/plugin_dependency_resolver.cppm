@@ -1,17 +1,6 @@
-module;
-
-#include <algorithm>
-#include <functional>
-#include <map>
-#include <optional>
-#include <set>
-#include <string>
-#include <unordered_map>
-#include <unordered_set>
-#include <utility>
-#include <vector>
-
 export module cc.utils.plugin_dependency_resolver;
+
+import std;
 
 import cc.utils.plugin_identifier;
 

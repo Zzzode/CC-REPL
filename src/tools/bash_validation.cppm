@@ -14,13 +14,10 @@
 
 module;
 
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
-#include <filesystem>
 
 export module cc.tools.bash_validation;
+
+import std;
 
 import cc.tools.destructive_command_warning;
 import cc.tools.mode_validation;

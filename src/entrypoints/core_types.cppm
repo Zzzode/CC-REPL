@@ -5,15 +5,11 @@
 /// Types are derived from Zod schemas in core_schemas.cppm.
 module;
 
-#include <string>
-#include <vector>
-#include <optional>
-#include <variant>
-#include <unordered_map>
 #include <cstdint>
-#include <array>
 
 export module cc.entrypoints.core_types;
+
+import std;
 
 import cc.entrypoints.core_schemas;
 

@@ -4,21 +4,12 @@
 module;
 
 #include <cstdint>
-#include <string>
-#include <vector>
-#include <memory>
-#include <functional>
-#include <unordered_map>
-#include <optional>
-#include <expected>
-#include <concepts>
-#include <format>
-#include <ranges>
-#include <chrono>
 
 #include <uv.h>
 
 export module cc.plugins.plugin;
+
+import std;
 
 import cc.types.types;
 

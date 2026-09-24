@@ -3,15 +3,10 @@
 /// Opens the Loom in Chrome setup page and lists reconnect/permissions links.
 module;
 
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <format>
-#include <algorithm>
 
 export module cc.commands.chrome;
+
+import std;
 
 import cc.types.types;
 import cc.commands.command;

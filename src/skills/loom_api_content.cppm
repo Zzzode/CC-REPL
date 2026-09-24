@@ -11,19 +11,11 @@
 /// for any docs that must be resolved at runtime.
 module;
 
-#include <algorithm>
-#include <array>
 #include <cctype>
-#include <filesystem>
-#include <format>
-#include <optional>
-#include <regex>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 export module cc.skills.loom_api_content;
+
+import std;
 
 import cc.skills.skill;
 

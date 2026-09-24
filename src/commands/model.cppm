@@ -5,17 +5,10 @@
 module;
 
 #include <cstdint>
-#include <string>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <format>
-#include <ranges>
-#include <algorithm>
-#include <span>
-#include <array>
 
 export module cc.commands.model;
+
+import std;
 
 import cc.types.types;
 import cc.commands.command;

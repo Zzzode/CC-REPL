@@ -9,21 +9,14 @@
 ///   (NOT subprocess/popen — use BashTool, ScriptTool, FileEditTool interfaces)
 module;
 
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <functional>
-#include <format>
-#include <regex>
-#include <algorithm>
+#include <unistd.h>
 #include <cstdint>
-#include <array>
-#include <map>
-#include <utility>
+#include <cstddef>
+#include <cstdio>
 
 export module cc.skills.bundled.debug;
+
+import std;
 
 import cc.skills.skill;
 import cc.skills.load_skills_dir;

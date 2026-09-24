@@ -1,19 +1,10 @@
 // SendMessageTool - Inter-agent messaging for coordinated multi-agent workflows
 module;
-#include <chrono>
 #include <cstddef>
-#include <deque>
-#include <expected>
-#include <format>
-#include <memory>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <unordered_map>
-#include <utility>
-#include <vector>
 
 export module cc.tools.send_message;
+
+import std;
 
 
 export namespace cc::tools {

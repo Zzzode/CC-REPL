@@ -19,20 +19,7 @@
 ///      rendered above the base chrome, and suppressed when
 ///      is_prompt_input_active=true (Band3 suppression).
 
-#include <algorithm>
-#include <atomic>
 #include <cstdlib>
-#include <filesystem>
-#include <fstream>
-#include <functional>
-#include <memory>
-#include <mutex>
-#include <optional>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 #include <ftxui/component/event.hpp>
 #include <ftxui/dom/elements.hpp>
@@ -40,6 +27,7 @@
 #include <ftxui/screen/screen.hpp>
 #include <gtest/gtest.h>
 
+import std;
 import cc.ui.dialogs.system;
 import cc.ui.dialogs.default_renderers;
 import cc.ui.dialogs.triggers;

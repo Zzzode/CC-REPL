@@ -26,25 +26,13 @@
 // run first.  This module does NOT spawn user shells.
 module;
 #include <cstdlib>
-#include <array>
-#include <algorithm>
-#include <chrono>
 #include <cstdint>
 #include <ctime>
-#include <expected>
-#include <fstream>
-#include <iomanip>
-#include <map>
-#include <optional>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <unordered_map>
-#include <utility>
-#include <vector>
 #include <httplib.h>
 
 export module cc.services.auth.sigv4;
+
+import std;
 
 import cc.utils.crypto;
 import cc.utils.env;

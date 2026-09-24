@@ -1,22 +1,13 @@
 module;
 
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
-#include <filesystem>
-#include <fstream>
-#include <functional>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <sstream>
 #include <sys/resource.h>
-#include <unordered_map>
-#include <utility>
-#include <vector>
 
 export module cc.hooks.remaining_hooks;
+
+import std;
 
 
 export namespace cc::hooks {

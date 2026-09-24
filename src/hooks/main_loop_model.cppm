@@ -1,8 +1,11 @@
 module;
-#include <optional>
-#include <string>
+
+#include <cstddef>
+
 
 export module cc.hooks.main_loop_model;
+
+import std;
 
 export namespace cc::hooks {
 

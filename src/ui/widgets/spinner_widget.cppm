@@ -4,22 +4,17 @@
 /// Spinner/index.ts (FlashingChar, ShimmerChar, SpinnerGlyph, GlimmerMessage).
 module;
 
-#include <string>
-#include <vector>
-#include <memory>
-#include <functional>
 #include <cstdint>
 #include <cmath>
-#include <chrono>
-#include <algorithm>
-#include <array>
-#include <numbers>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_base.hpp>
+#include <cstddef>
 
 export module cc.ui.widgets.spinner_widget;
+
+import std;
 
 export namespace cc::ui::spinner_widget {
 using namespace ftxui;

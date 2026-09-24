@@ -5,24 +5,11 @@
 // plugin flagging/reporting, schema definitions, and startup safety checks.
 module;
 
-#include <chrono>
-#include <array>
-#include <algorithm>
 #include <cctype>
-#include <expected>
-#include <filesystem>
-#include <format>
-#include <fstream>
-#include <map>
-#include <optional>
-#include <set>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <variant>
-#include <vector>
 
 export module cc.utils.plugin_validation;
+
+import std;
 
 import cc.utils.json;
 import cc.utils.plugin_identifier;

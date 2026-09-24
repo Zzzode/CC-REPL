@@ -7,13 +7,10 @@
 /// here we define the core structure directly.
 module;
 
-#include <string>
-#include <vector>
-#include <optional>
-#include <variant>
-#include <unordered_map>
 
 export module cc.entrypoints.settings_types;
+
+import std;
 
 import cc.entrypoints.sandbox_types;
 

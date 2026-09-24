@@ -2,14 +2,11 @@
 /// @brief Channel/thread message rendering
 module;
 
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
-#include <chrono>
 #include <ftxui/dom/elements.hpp>
 
 export module cc.ui.messages.message_channel;
+
+import std;
 
 export namespace cc::ui::messages {
 

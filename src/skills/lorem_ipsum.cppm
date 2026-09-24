@@ -20,20 +20,12 @@
 ///     `generate_chars`, `generate_json_placeholder`, `generate_code_block`,
 ///     `generate_csv`, natural-language number parsing ("five" -> 5).
 module;
-#include <algorithm>
-#include <array>
 #include <cctype>
 #include <cstdlib>
-#include <format>
-#include <optional>
-#include <random>
-#include <span>
-#include <string>
-#include <string_view>
-#include <unordered_map>
-#include <vector>
 
 export module cc.skills.lorem_ipsum;
+
+import std;
 
 import cc.skills.skill;
 

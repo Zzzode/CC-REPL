@@ -10,11 +10,8 @@
 /// struct (no cc.tasks dependency required).
 
 #include <gtest/gtest.h>
-#include <chrono>
-#include <string>
-#include <unordered_set>
-#include <vector>
 
+import std;
 import cc.hooks.remaining_notifs;
 import cc.services.mcp.connection_manager;
 import cc.services.mcp.types;

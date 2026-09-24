@@ -1,13 +1,9 @@
-module;
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
 
 export module cc.tools.agent_types;
 
-export namespace cc::tools {
+import std;
 
+export namespace cc::tools {
 
 enum class AgentType {
     Explore,
@@ -16,7 +12,6 @@ enum class AgentType {
     GeneralPurpose,
     Custom
 };
-
 
 struct MultiAgentAgentConfig {
     AgentType type;
@@ -27,14 +22,12 @@ struct MultiAgentAgentConfig {
     std::optional<int> max_turns;
 };
 
-
 struct MultiAgentResult {
     std::string output;
     int turns_used;
     int tokens_used;
     bool completed;
 };
-
 
 inline auto agent_type_to_string(AgentType type) -> std::string_view {
     switch (type) {
@@ -46,7 +39,6 @@ inline auto agent_type_to_string(AgentType type) -> std::string_view {
     }
     return "unknown";
 }
-
 
 inline auto parse_agent_type(std::string_view str) -> std::optional<AgentType> {
     if (str == "explore")  return AgentType::Explore;

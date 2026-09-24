@@ -1,13 +1,7 @@
-module;
-#include <algorithm>
-#include <string>
-#include <string_view>
-#include <functional>
-#include <optional>
-#include <vector>
-#include <chrono>
 
 export module cc.hooks.swarm_permission_poller;
+
+import std;
 
 export namespace cc::hooks {
 

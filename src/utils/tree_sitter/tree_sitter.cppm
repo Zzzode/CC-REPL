@@ -10,11 +10,6 @@
 module;
 
 #include <cstdint>
-#include <memory>
-#include <mutex>
-#include <string>
-#include <string_view>
-#include <vector>
 
 #if CC_HAS_TREE_SITTER
 extern "C" {
@@ -24,6 +19,8 @@ extern "C" const TSLanguage* tree_sitter_bash();
 #endif
 
 export module cc.utils.tree_sitter.base;
+
+import std;
 
 export namespace cc::utils::tree_sitter {
 

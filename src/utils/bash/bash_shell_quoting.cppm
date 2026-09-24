@@ -1,14 +1,10 @@
 module;
 
-#include <algorithm>
 #include <cctype>
-#include <regex>
-#include <set>
-#include <string>
-#include <string_view>
-#include <vector>
 
 export module cc.utils.bash_shell_quoting;
+
+import std;
 
 export namespace cc::utils::bash_shell_quoting {
 

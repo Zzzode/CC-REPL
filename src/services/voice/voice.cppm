@@ -2,29 +2,17 @@
 /// @brief Voice service with real audio capture via SoX subprocess.
 /// Provides microphone recording, silence detection, and integration with STT.
 module;
-#include <chrono>
+#include <unistd.h>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <expected>
-#include <format>
-#include <filesystem>
-#include <fstream>
-#include <functional>
-#include <iostream>
-#include <iterator>
-#include <memory>
-#include <mutex>
-#include <optional>
-#include <span>
-#include <string>
-#include <thread>
-#include <atomic>
-#include <vector>
+#include <cstddef>
 
 export module cc.services.voice.voice;
+
+import std;
 
 import cc.utils.error;
 import cc.utils.bash_execution;

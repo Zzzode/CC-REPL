@@ -1,3 +1,4 @@
+
 /// @file tool_ui_file_edit.cppm
 /// @brief FileEdit tool UI — userFacingName, renderToolUseMessage, etc.
 ///
@@ -18,12 +19,9 @@
 /// to avoid cc_ui -> cc_tools dependency issues (cc_tools is heavier).
 module;
 
-#include <string>
-#include <string_view>
-#include <optional>
-#include <filesystem>
-
 export module cc.ui.tools.file_edit;
+
+import std;
 
 import cc.ui.tools.registry;
 

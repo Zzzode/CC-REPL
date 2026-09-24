@@ -4,20 +4,13 @@
 /// registers, repeat count, and dot-repeat.
 module;
 
-#include <algorithm>
 #include <cctype>
 #include <cstddef>
 #include <cstdint>
-#include <format>
-#include <functional>
-#include <map>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <tuple>
-#include <utility>
 
 export module cc.hooks.vim_input;
+
+import std;
 
 import cc.vim.vim_types;  // canonical VimMode (cc_vim target, no circular deps)
 
@@ -302,7 +295,6 @@ private:
     [[nodiscard]] auto handle_normal(const VimKeyEvent& event) -> bool {
         const auto& k = event.key;
 
-
         if (k.size() == 1 && k[0] >= '1' && k[0] <= '9') {
             state_.repeat_count = state_.repeat_count * 10 + (k[0] - '0');
             return true;
@@ -311,7 +303,6 @@ private:
             state_.repeat_count = state_.repeat_count * 10;
             return true;
         }
-
 
         if (k == "i") { set_mode(VimMode::Insert); return true; }
         if (k == "a") { execute_motion(Motion::Right); set_mode(VimMode::Insert); return true; }
@@ -323,7 +314,6 @@ private:
         // Ctrl+V = VisualBlock (block-wise selection)
         if (event.ctrl && k == "v") { set_mode(VimMode::VisualBlock); return true; }
         if (k == ":") { set_mode(VimMode::Command); return true; }
-
 
         if (k == "h") { repeat_action([&]{ execute_motion(Motion::Left); }); return true; }
         if (k == "j") { repeat_action([&]{ execute_motion(Motion::Down); }); return true; }
@@ -339,7 +329,6 @@ private:
         if (k == "G") { execute_motion(Motion::LastLine); return true; }
 
         if (k == "g") { state_.awaiting_motion = true; return true; }
-
 
         if (k == "d") { state_.pending_operator = Operator::Delete; return true; }
         if (k == "c") { state_.pending_operator = Operator::Change; return true; }

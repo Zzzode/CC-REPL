@@ -4,22 +4,7 @@
 /// liveness timeout, and Last-Event-ID tracking for resume on reconnect.
 module;
 #include <cerrno>
-#include <string>
-#include <string_view>
-#include <map>
-#include <deque>
-#include <functional>
-#include <expected>
-#include <optional>
-#include <atomic>
-#include <thread>
-#include <mutex>
-#include <condition_variable>
-#include <chrono>
-#include <random>
-#include <algorithm>
 #include <cstring>
-#include <memory>
 #include <cstdlib>
 #include <sys/socket.h>
 #include <netdb.h>
@@ -29,8 +14,12 @@ module;
 #include <openssl/err.h>
 #include <openssl/ssl.h>
 #include <openssl/x509v3.h>
+#include <cstddef>
+#include <cstdint>
 
 export module cc.cli.sse_transport;
+
+import std;
 
 export namespace cc::cli {
 

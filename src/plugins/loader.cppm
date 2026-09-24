@@ -6,25 +6,12 @@ module;
 #include <cctype>
 #include <cstdlib>
 #include <cstdint>
-#include <string>
-#include <vector>
-#include <memory>
-#include <queue>
-#include <unordered_map>
-#include <unordered_set>
-#include <optional>
-#include <expected>
-#include <format>
-#include <ranges>
-#include <filesystem>
-#include <fstream>
-#include <sstream>
-#include <chrono>
-#include <algorithm>
 
 #include <uv.h>
 
 export module cc.plugins.loader;
+
+import std;
 
 import cc.types.types;
 import cc.plugins.plugin;

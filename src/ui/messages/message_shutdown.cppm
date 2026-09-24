@@ -6,10 +6,6 @@
 //   [Resume session]   [Start new]
 module;
 
-#include <functional>
-#include <string>
-#include <optional>
-#include <format>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
@@ -17,6 +13,8 @@ module;
 #include <ftxui/component/event.hpp>
 
 export module cc.ui.messages.message_shutdown;
+
+import std;
 
 export namespace cc::ui::messages::shutdown {
 using namespace ftxui;

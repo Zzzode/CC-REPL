@@ -1,14 +1,11 @@
 module;
 
-#include <filesystem>
-#include <string>
-#include <string_view>
-#include <span>
-#include <vector>
-#include <algorithm>
 #include <cstdlib>
+#include <cstddef>
 
 export module cc.utils.path_utils;
+
+import std;
 
 namespace fs = std::filesystem;
 

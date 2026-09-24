@@ -1,23 +1,12 @@
 // C++23 Module: Task/todo tracking state management for the UI
 module;
 
-#include <algorithm>
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <expected>
-#include <format>
-#include <functional>
-#include <iterator>
-#include <optional>
-#include <ranges>
-#include <string>
-#include <string_view>
-#include <tuple>
-#include <utility>
-#include <vector>
 
 export module cc.hooks.task_hooks;
+
+import std;
 
 
 export namespace cc::hooks {

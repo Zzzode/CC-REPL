@@ -7,20 +7,10 @@ module;
 
 #include <cstdint>
 #include <cstddef>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <chrono>
-#include <format>
-#include <algorithm>
-#include <ranges>
-#include <numeric>
-#include <unordered_set>
-#include <deque>
 
 export module cc.services.compact;
+
+import std;
 
 import cc.types.types;
 import cc.utils.error;

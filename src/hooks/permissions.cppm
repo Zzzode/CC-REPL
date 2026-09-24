@@ -6,15 +6,10 @@
  */
 module;
 
-#include <functional>
-#include <mutex>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <unordered_set>
-#include <vector>
 
 export module cc.hooks.permissions;
+
+import std;
 
 
 export namespace cc::hooks {

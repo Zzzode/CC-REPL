@@ -6,20 +6,15 @@
 // defined here as the canonical view model.
 module;
 
-#include <algorithm>
 #include <cctype>
 #include <cstdint>
 #include <cstring>
-#include <expected>
-#include <string>
-#include <string_view>
-#include <unordered_set>
-#include <utility>
-#include <vector>
 
 #include <yyjson.h>
 
 export module cc.state.teammate_view_helpers;
+
+import std;
 
 import cc.utils.json;
 import cc.task_types;

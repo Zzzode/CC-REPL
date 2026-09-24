@@ -21,7 +21,6 @@
 /// without bringing in any other C++ modules.
 module;
 
-#include <array>
 #include <cerrno>
 #include <csignal>
 #include <cstdint>
@@ -29,23 +28,14 @@ module;
 #include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
-#include <functional>
-#include <memory>
-#include <optional>
-#include <string>
-#include <string_view>
 #include <sys/types.h>
 #include <sys/wait.h>
-#include <thread>
 #include <unistd.h>
-#include <variant>
-#include <vector>
-#include <chrono>
-#include <atomic>
-#include <mutex>
-#include <map>
+#include <cstddef>
 
 export module cc.services.mcp.stdio;
+
+import std;
 
 import cc.utils.json;
 

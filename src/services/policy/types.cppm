@@ -1,8 +1,6 @@
-module;
-#include <chrono>
-#include <optional>
-#include <string>
 export module cc.services.policy.types;
+
+import std;
 
 export namespace cc::services::policy {
 

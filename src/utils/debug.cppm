@@ -1,14 +1,10 @@
 module;
-#include <string>
-#include <string_view>
 #include <cstdlib>
-#include <mutex>
-#include <format>
-#include <iostream>
-#include <chrono>
-#include <vector>
+#include <ctime>
 
 export module cc.utils.debug;
+
+import std;
 
 import cc.utils.debug_filter;
 

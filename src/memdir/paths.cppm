@@ -3,16 +3,13 @@
 /// Migrated from src/memdir/paths.ts, memoryTypes.ts
 module;
 
-#include <string>
-#include <string_view>
-#include <filesystem>
-#include <vector>
-#include <optional>
 #include <cstdlib>
 #include <cstdio>
 #include <cctype>
 
 export module cc.memdir.paths;
+
+import std;
 
 import cc.constants.paths;
 

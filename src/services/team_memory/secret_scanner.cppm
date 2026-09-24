@@ -14,18 +14,10 @@
 /// end-of-string). Inline (?i)/(?-i:) groups are rewritten with explicit
 /// character classes per the TS notes.
 module;
-#include <algorithm>
-#include <array>
 #include <cctype>
-#include <memory>
-#include <mutex>
-#include <regex>
-#include <string>
-#include <string_view>
-#include <unordered_map>
-#include <unordered_set>
-#include <vector>
 export module cc.services.team_memory.secret_scanner;
+
+import std;
 export namespace cc::services::team_memory {
 
 /// A detected secret. Matches SecretMatch in TS: only the gitleaks rule id and

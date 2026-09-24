@@ -1,11 +1,6 @@
-module;
-
-#include <charconv>
-#include <optional>
-#include <string>
-#include <string_view>
-
 export module cc.utils.agent_id;
+
+import std;
 import cc.utils.parse_int;
 
 export namespace cc::utils::agent_id {

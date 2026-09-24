@@ -4,12 +4,6 @@
 module;
 
 #include <cctype>
-#include <string>
-#include <vector>
-#include <memory>
-#include <functional>
-#include <optional>
-#include <format>
 #include <cstdint>
 
 #include <ftxui/dom/elements.hpp>
@@ -19,7 +13,8 @@ module;
 
 export module cc.ui.prompt.vim_input;
 
-import cc.types.types;
+import std;
+
 import cc.ui.foundation.ui_types;  // TS REF: canonical VimMode lives here
 import cc.vim.vim_controller;  // unified VimController state
 

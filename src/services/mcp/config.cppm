@@ -1,18 +1,10 @@
 // MCP Server Configuration - Parsing, validation, and merging of MCP server configs
 module;
-#include <chrono>
 #include <cstddef>
-#include <expected>
-#include <filesystem>
-#include <functional>
-#include <map>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 export module cc.services.mcp.config;
+
+import std;
 
 import cc.services.mcp.types;
 

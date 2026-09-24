@@ -3,11 +3,10 @@
 /// Migrated from src/tools/AgentTool/constants.ts
 module;
 
-#include <string>
-#include <string_view>
-#include <unordered_set>
 
 export module cc.tools.agent_constants;
+
+import std;
 
 export namespace cc::tools::agent {
 

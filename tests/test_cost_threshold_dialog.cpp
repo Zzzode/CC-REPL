@@ -20,19 +20,9 @@
 ///   - cost_threshold_title_with_interpolated_dollars
 ///   - cost_threshold_with_docs_link_rendered
 
-#include <atomic>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
-#include <filesystem>
-#include <fstream>
-#include <functional>
-#include <optional>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <type_traits>
-#include <vector>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/dom/node.hpp>
@@ -40,6 +30,7 @@
 #include <ftxui/component/event.hpp>
 #include <gtest/gtest.h>
 
+import std;
 import cc.ui.dialogs.cost_threshold_dialog;
 
 namespace {

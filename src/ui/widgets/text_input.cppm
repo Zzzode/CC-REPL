@@ -5,19 +5,8 @@
 /// Migrated from PromptInput/PromptInput.tsx + inputPaste.ts.
 module;
 
-#include <string>
-#include <string_view>
-#include <vector>
-#include <deque>
-#include <functional>
-#include <memory>
-#include <optional>
-#include <format>
 #include <cstdint>
 #include <cctype>
-#include <algorithm>
-#include <chrono>
-#include <utility>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
@@ -25,8 +14,11 @@ module;
 #include <ftxui/component/event.hpp>
 #include <ftxui/component/screen_interactive.hpp>
 #include <ftxui/screen/string.hpp>  // for string_width
+#include <cstddef>
 
 export module cc.ui.widgets.text_input;
+
+import std;
 
 import cc.utils.parse_references;
 import cc.ui.foundation.design_figures;

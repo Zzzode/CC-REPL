@@ -13,21 +13,8 @@
 ///   - cc.services.mcp.config.ServerConfig  (settings tab write-back)
 module;
 
-#include <algorithm>
 #include <cctype>
-#include <chrono>
 #include <cstdint>
-#include <expected>
-#include <functional>
-#include <map>
-#include <memory>
-#include <optional>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
-#include <format>
 
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_base.hpp>
@@ -35,6 +22,8 @@ module;
 #include <ftxui/dom/elements.hpp>
 
 export module cc.ui.features.mcp.mcp_server_details;
+
+import std;
 
 import cc.services.mcp.types;
 import cc.services.mcp.connection_manager;

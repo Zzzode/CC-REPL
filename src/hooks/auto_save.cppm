@@ -1,26 +1,12 @@
 // C++23 Module: Auto-save and session persistence with crash recovery
 module;
 
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <expected>
-#include <filesystem>
-#include <format>
-#include <fstream>
-#include <functional>
-#include <iterator>
-#include <map>
-#include <optional>
-#include <ranges>
-#include <algorithm>
-#include <string>
-#include <string_view>
-#include <unistd.h>
-#include <utility>
-#include <vector>
 
 export module cc.hooks.auto_save;
+
+import std;
 
 import cc.utils.json;
 

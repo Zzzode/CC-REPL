@@ -4,18 +4,7 @@
 /// spinner, status bar, and key binding management.
 module;
 
-#include <array>
 #include <cstdint>
-#include <string>
-#include <vector>
-#include <memory>
-#include <functional>
-#include <optional>
-#include <expected>
-#include <format>
-#include <chrono>
-#include <atomic>
-#include <mutex>
 
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/screen_interactive.hpp>
@@ -24,7 +13,8 @@ module;
 
 export module cc.ui.chrome.terminal;
 
-import cc.types.types;
+import std;
+
 import cc.state.app_state;
 
 export namespace cc::ui {

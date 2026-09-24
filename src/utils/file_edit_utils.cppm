@@ -17,23 +17,12 @@
 module;
 
 #include <cctype>
-#include <algorithm>
 #include <cstddef>
 #include <cstdint>
-#include <expected>
-#include <filesystem>
-#include <format>
-#include <fstream>
-#include <limits>
-#include <optional>
-#include <regex>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 export module cc.utils.file_edit;
+
+import std;
 
 import cc.utils.file_read_cache;
 import cc.utils.string_utils;

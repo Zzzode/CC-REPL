@@ -1,14 +1,9 @@
 module;
-#include <algorithm>
-#include <charconv>
 #include <cctype>
-#include <expected>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <vector>
 
 export module cc.utils.diff_utils;
+
+import std;
 import cc.utils.parse_int;
 
 export namespace cc::utils {

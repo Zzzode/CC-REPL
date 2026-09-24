@@ -24,33 +24,17 @@
 
 module;
 #include <ctime>
-#include <algorithm>
-#include <array>
-#include <bitset>
 #include <cctype>
-#include <chrono>
 #include <cstdint>
 #include <cstdlib>
-#include <filesystem>
-#include <format>
-#include <functional>
-#include <memory>
-#include <optional>
-#include <queue>
-#include <random>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <unordered_map>
-#include <unordered_set>
-#include <utility>
-#include <vector>
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_base.hpp>
 #include <ftxui/component/event.hpp>
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/screen/color.hpp>
 export module cc.ui.dialogs.feature_dialogs;
+
+import std;
 
 import cc.ui.foundation.design_tokens;
 import cc.ui.foundation.component_primitives;

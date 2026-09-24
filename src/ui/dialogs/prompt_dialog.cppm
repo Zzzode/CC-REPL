@@ -23,16 +23,8 @@
 ///   Ctrl+C                        -> on_abort() (FTXUI: Special({0x03})).
 module;
 
-#include <algorithm>
 #include <cstddef>
 #include <cstdint>
-#include <functional>
-#include <memory>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_base.hpp>
@@ -41,6 +33,8 @@ module;
 #include <ftxui/dom/node.hpp>
 
 export module cc.ui.dialogs.prompt_dialog;
+
+import std;
 
 export namespace cc::ui::dialogs::prompt_dialog {
 

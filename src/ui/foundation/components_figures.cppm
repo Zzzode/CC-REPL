@@ -1,8 +1,6 @@
-module;
-
-#include <string>
-
 export module cc.ui.foundation.components_figures;
+
+import std;
 
 export namespace ui::components::figures {
 

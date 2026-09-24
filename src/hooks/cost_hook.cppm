@@ -1,13 +1,9 @@
-module;
-#include <functional>
-#include <optional>
-#include <string>
-#include <vector>
 
 export module cc.hooks.cost_hook;
 
-export namespace cc::hooks {
+import std;
 
+export namespace cc::hooks {
 
 struct CostUpdate {
     double session_cost;
@@ -23,7 +19,6 @@ namespace detail {
         return data;
     }
 
-
     inline std::vector<std::function<void(CostUpdate)>>& cost_listeners() {
         static std::vector<std::function<void(CostUpdate)>> listeners;
         return listeners;
@@ -34,24 +29,20 @@ namespace detail {
         return id;
     }
 
-
     inline double& cost_budget_limit() {
         static double limit = 0.0;
         return limit;
     }
 } // namespace detail
 
-
 inline int on_cost_update(std::function<void(CostUpdate)> callback) {
     detail::cost_listeners().push_back(std::move(callback));
     return ++detail::next_cost_listener_id();
 }
 
-
 inline CostUpdate get_current_cost() {
     return detail::current_cost_data();
 }
-
 
 inline std::optional<std::string> check_cost_threshold() {
     double budget = detail::cost_budget_limit();
@@ -71,7 +62,6 @@ inline std::optional<std::string> check_cost_threshold() {
     return std::nullopt;
 }
 
-
 inline void update_cost(CostUpdate data) {
     detail::current_cost_data() = std::move(data);
     // Notify all listeners
@@ -81,7 +71,6 @@ inline void update_cost(CostUpdate data) {
         if (listener) listener(current);
     }
 }
-
 
 inline void set_cost_budget(double max_usd) {
     detail::cost_budget_limit() = max_usd;

@@ -6,20 +6,10 @@ module;
 
 #include <cstdint>
 #include <cstddef>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <chrono>
-#include <format>
-#include <ranges>
-#include <algorithm>
-#include <unordered_map>
-#include <numeric>
-#include <mutex>
 
 export module cc.services.diagnostic;
+
+import std;
 
 import cc.types.types;
 

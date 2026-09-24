@@ -26,9 +26,8 @@
 
 #include <gtest/gtest.h>
 
-#include <filesystem>
-#include <optional>
 
+import std;
 import cc.state.app_state;
 import cc.state.store;
 import cc.state.persistence;

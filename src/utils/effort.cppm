@@ -1,7 +1,7 @@
-module;
-#include <string>
 
 export module cc.utils.effort;
+
+import std;
 
 export namespace cc::utils {
 

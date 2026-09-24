@@ -29,15 +29,13 @@ module;
 #include <cstdio>
 #include <cmath>
 #include <cstdint>
-#include <functional>
-#include <optional>
-#include <string>
-#include <string_view>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/event.hpp>
 
 export module cc.ui.dialogs.cost_threshold_dialog;
+
+import std;
 
 import cc.constants.product;
 

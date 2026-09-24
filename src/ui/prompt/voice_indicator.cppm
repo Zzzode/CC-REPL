@@ -1,14 +1,12 @@
 module;
-#include <string>
-#include <sstream>
-#include <array>
 #include <cmath>
 #include <cstdint>
-#include <algorithm>
 
 #include <ftxui/dom/elements.hpp>
 
 export module cc.ui.prompt.voice_indicator;
+
+import std;
 
 import cc.ui.foundation.theme_provider;
 

@@ -3,14 +3,11 @@
 /// Migrated from src/entrypoints/sdk/ (coreTypes, controlTypes, toolTypes, etc.)
 module;
 
-#include <string>
-#include <vector>
-#include <optional>
-#include <variant>
-#include <chrono>
 #include <cstdint>
 
 export module cc.entrypoints.sdk_types;
+
+import std;
 
 export namespace cc::sdk {
 

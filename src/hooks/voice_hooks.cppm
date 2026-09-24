@@ -21,27 +21,15 @@
 // ============================================================================
 module;
 
-#include <condition_variable>
-#include <algorithm>
-#include <array>
-#include <atomic>
 #include <cctype>
-#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
-#include <expected>
-#include <functional>
-#include <memory>
-#include <mutex>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <thread>
-#include <unordered_map>
-#include <vector>
+#include <cstddef>
 
 export module cc.hooks.voice_hooks;
+
+import std;
 
 import cc.services.voice.voice;
 import cc.services.voice_stream_stt;

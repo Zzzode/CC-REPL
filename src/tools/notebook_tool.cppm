@@ -2,20 +2,10 @@
 module;
 #include <cstddef>
 #include <cstdlib>
-#include <chrono>
-#include <expected>
-#include <filesystem>
-#include <format>
-#include <fstream>
-#include <iostream>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <unordered_map>
-#include <utility>
-#include <vector>
 
 export module cc.tools.notebook;
+
+import std;
 
 import cc.utils.json;
 

@@ -3,19 +3,11 @@
 /// Submits feedback about Loom.
 module;
 
-#include <string>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <format>
-#include <algorithm>
-#include <array>
-#include <chrono>
 #include <cstdlib>
-#include <filesystem>
-#include <fstream>
 
 export module cc.commands.feedback;
+
+import std;
 
 import cc.types.types;
 import cc.commands.command;

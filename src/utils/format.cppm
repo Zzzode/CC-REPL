@@ -1,20 +1,13 @@
 module;
 
-#include <algorithm>
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <iomanip>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <vector>
 
 export module cc.utils.format;
 
+import std;
 
 export namespace cc::utils {
-
 
 namespace ansi {
     inline auto bold(std::string_view text) -> std::string { return "\033[1m" + std::string(text) + "\033[22m"; }
@@ -39,7 +32,6 @@ namespace ansi {
     }
 }
 
-
 [[nodiscard]] inline auto format_number(int64_t n) -> std::string {
     if (n < 1000) return std::to_string(n);
     if (n < 1'000'000) {
@@ -52,14 +44,12 @@ namespace ansi {
     return oss.str();
 }
 
-
 [[nodiscard]] inline auto format_duration(std::chrono::seconds duration) -> std::string {
     auto secs = duration.count();
     if (secs < 60) return std::to_string(secs) + "s";
     if (secs < 3600) return std::to_string(secs / 60) + "m " + std::to_string(secs % 60) + "s";
     return std::to_string(secs / 3600) + "h " + std::to_string((secs % 3600) / 60) + "m";
 }
-
 
 [[nodiscard]] inline auto format_bytes(size_t bytes) -> std::string {
     if (bytes < 1024) return std::to_string(bytes) + " B";
@@ -74,7 +64,6 @@ namespace ansi {
     std::ostringstream oss; oss << std::fixed << std::setprecision(2) << (bytes / (1024.0 * 1024.0 * 1024.0)) << " GB";
     return oss.str();
 }
-
 
 [[nodiscard]] inline auto format_table(const std::vector<std::string>& headers,
     const std::vector<std::vector<std::string>>& rows) -> std::string {
@@ -114,7 +103,6 @@ namespace ansi {
     return result;
 }
 
-
 [[nodiscard]] inline auto strip_ansi(std::string_view text) -> std::string {
     std::string result;
     result.reserve(text.size());
@@ -130,7 +118,6 @@ namespace ansi {
     }
     return result;
 }
-
 
 [[nodiscard]] inline auto truncate_with_ellipsis(std::string_view text, size_t max_width) -> std::string {
     if (text.size() <= max_width) return std::string(text);

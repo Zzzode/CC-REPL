@@ -1,9 +1,6 @@
-module;
-
-#include <string>
-#include <vector>
-
 export module cc.utils.auto_mode_denials;
+
+import std;
 
 export namespace cc::utils::auto_mode_denials {
 

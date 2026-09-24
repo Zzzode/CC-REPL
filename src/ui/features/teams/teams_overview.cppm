@@ -18,16 +18,7 @@
 module;
 
 #include <cctype>
-#include <string>
-#include <vector>
-#include <memory>
-#include <functional>
-#include <optional>
-#include <format>
 #include <cstdint>
-#include <chrono>
-#include <algorithm>
-#include <string_view>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
@@ -36,7 +27,8 @@ module;
 
 export module cc.ui.features.teams.teams_overview;
 
-import cc.types.types;
+import std;
+
 import cc.ui.features.teams.team_status;
 import cc.ui.features.agents.agent_view;  // Avatar/RoleTags helpers inspiration
 

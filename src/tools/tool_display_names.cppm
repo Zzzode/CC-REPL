@@ -6,15 +6,10 @@
 /// tool-use headers, collapse labels, …) can render friendly names
 /// without duplicating the mapping in each caller.
 module;
-#include <array>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
-#include <algorithm>
 
 export module cc.tools.tool_display_names;
+
+import std;
 
 export namespace cc::tools {
 

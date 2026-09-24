@@ -1,12 +1,10 @@
 module;
 #include <cstdlib>
-#include <format>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
+#include <cstdio>
 
 export module cc.tools.built_in_agents;
+
+import std;
 
 import cc.tools.agent_runtime;
 

@@ -1,37 +1,14 @@
 module;
 
-#include <atomic>
-#include <algorithm>
-#include <charconv>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
-#include <expected>
-#include <format>
-#include <fstream>
-#include <functional>
-#include <initializer_list>
-#include <iterator>
-#include <limits>
-#include <memory>
-#include <string>
-#include <string_view>
-#include <optional>
-#include <vector>
-#include <array>
-#include <utility>
-#include <sstream>
 #include <cctype>
-#include <chrono>
 #include <cstdint>
-#include <filesystem>
-#include <system_error>
-#include <thread>
-#include <unordered_map>
-#include <unordered_set>
-#include <sys/wait.h>
 
 export module cc.tools.agent.fork;
+
+import std;
 
 import cc.utils.error;
 import cc.utils.git;
@@ -78,7 +55,6 @@ using cc::tools::agent::utils::message_from_json_value;
 using cc::tools::agent::utils::text_contains_fork_boilerplate;
 using cc::tools::agent::utils::message_json_object;
 using cc::tools::agent::utils::agent_tool_input_omits_agent_type;
-
 
 [[nodiscard]] inline std::vector<Message> forked_messages_from_parent_assistant(
     std::string_view directive,
@@ -234,6 +210,5 @@ using cc::tools::agent::utils::agent_tool_input_omits_agent_type;
     doc.set_root(root);
     return doc.to_string();
 }
-
 
 } // namespace cc::tools::agent::fork_

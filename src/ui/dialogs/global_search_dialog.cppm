@@ -1,11 +1,11 @@
 /// @file global_search_dialog.cppm
 /// @brief Global search dialog (files, commands, sessions)
 module;
-#include <string>
-#include <vector>
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
 export module cc.ui.dialogs.global_search_dialog;
+
+import std;
 export namespace cc::ui::dialogs {
 using namespace ftxui;
 enum class SearchCategory { Files, Commands, Sessions, All };

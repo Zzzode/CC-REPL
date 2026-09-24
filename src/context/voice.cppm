@@ -4,11 +4,10 @@
 module;
 
 #include <cstdint>
-#include <string>
-#include <optional>
-#include <functional>
 
 export module cc.context.voice;
+
+import std;
 
 export namespace cc::context {
 

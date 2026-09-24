@@ -3,26 +3,14 @@
 // so the input loop can stay snappy on the render thread.
 module;
 
-#include <algorithm>
-#include <array>
 #include <cctype>
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <expected>
-#include <functional>
-#include <memory>
-#include <mutex>
-#include <optional>
-#include <regex>
-#include <string>
-#include <string_view>
-#include <unordered_map>
-#include <utility>
-#include <vector>
 
 export module cc.bootstrap.interactive;
+
+import std;
 
 import cc.hooks.ide_at_mentioned;
 import cc.utils.json;

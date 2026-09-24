@@ -1,16 +1,9 @@
 module;
-#include <string>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <functional>
-#include <map>
 #include <cstdlib>
-#include <filesystem>
-#include <fstream>
-#include <sstream>
 
 export module cc.commands.plugin.plugin_trust;
+
+import std;
 
 export namespace cc::commands {
 

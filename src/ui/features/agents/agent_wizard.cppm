@@ -33,26 +33,18 @@
 ///   - cc.tools.agent_color_manager (8-color palette, explicit set)
 module;
 
-#include <algorithm>
 #include <cctype>
-#include <chrono>
 #include <cstdint>
-#include <format>
-#include <functional>
-#include <memory>
-#include <optional>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_base.hpp>
 #include <ftxui/component/event.hpp>
+#include <cstddef>
 
 export module cc.ui.features.agents.agent_wizard;
+
+import std;
 
 import cc.ui.dialogs.wizard_dialog;
 import cc.ui.widgets.custom_select;

@@ -12,17 +12,8 @@
 /// file only imports display types, never duplicates matching logic.
 module;
 
-#include <algorithm>
-#include <array>
 #include <cstddef>
 #include <cstdint>
-#include <format>
-#include <functional>
-#include <optional>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <vector>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
@@ -30,6 +21,8 @@ module;
 #include <ftxui/component/event.hpp>
 
 export module cc.ui.permissions.components;
+
+import std;
 
 import cc.utils.permissions_engine;
 

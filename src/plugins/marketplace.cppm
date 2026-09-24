@@ -1,37 +1,24 @@
 module;
 
-#include <algorithm>
-#include <chrono>
+#include <unistd.h>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
-#include <expected>
-#include <filesystem>
-#include <fstream>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <tuple>
-#include <unordered_map>
-#include <utility>
-#include <vector>
 #include <sys/socket.h>
 #include <netdb.h>
-#include <unistd.h>
 
 export module cc.plugins.marketplace;
+
+import std;
 
 import cc.utils.crypto;
 
 export namespace cc::plugins {
 
-
 enum class PluginStatus { available, installed, enabled, disabled, update_available, broken };
 
-
 enum class PluginSource { official_marketplace, community, local, git };
-
 
 struct SemVer {
     int major{0}, minor{0}, patch{0};
@@ -50,7 +37,6 @@ struct SemVer {
     auto operator<=>(const SemVer&) const = default;
 };
 
-
 struct PluginMeta {
     std::string id;
     std::string name;
@@ -67,7 +53,6 @@ struct PluginMeta {
     std::chrono::system_clock::time_point published_at;
 };
 
-
 struct InstalledPlugin {
     PluginMeta meta;
     PluginStatus status{PluginStatus::installed};
@@ -77,13 +62,11 @@ struct InstalledPlugin {
     std::unordered_map<std::string, std::string> settings;
 };
 
-
 struct InstallOptions {
     bool auto_enable{true};
     bool trust_unverified{false};
     std::optional<SemVer> specific_version;
 };
-
 
 struct MarketplaceQuery {
     std::string keyword;
@@ -94,14 +77,12 @@ struct MarketplaceQuery {
     size_t offset{0};
 };
 
-
 struct InstallResult {
     bool success;
     std::string plugin_id;
     std::optional<std::string> error;
     std::chrono::milliseconds elapsed;
 };
-
 
 struct PluginPolicy {
     bool allow_network{true};
@@ -112,7 +93,6 @@ struct PluginPolicy {
     size_t max_memory_mb{256};
     std::chrono::seconds max_execution_time{30};
 };
-
 
 enum class TrustLevel { untrusted, community, verified, official };
 
@@ -241,8 +221,6 @@ inline std::optional<PluginMeta> parse_manifest(const std::filesystem::path& man
 
 } // namespace detail
 
-
-
 class MarketplaceClient {
     // No plugin marketplace is hosted for this build; set
     // LOOM_MARKETPLACE_HOST to point at your own registry.
@@ -318,7 +296,6 @@ public:
         return plugins;
     }
 
-
     [[nodiscard]] auto search(const MarketplaceQuery& query) -> std::vector<PluginMeta> {
         auto all = get_featured();
         if (query.keyword.empty()) return all;
@@ -387,7 +364,6 @@ public:
         return resp.body;
     }
 
-
     [[nodiscard]] auto get_checksum(std::string_view plugin_id, const SemVer& version)
         -> std::optional<std::string> {
         auto path = api_base_path_ + "/plugins/" + std::string(plugin_id) +
@@ -398,7 +374,6 @@ public:
         auto nl = resp.body.find('\n');
         return (nl != std::string::npos) ? resp.body.substr(0, nl) : resp.body;
     }
-
 
     [[nodiscard]] auto check_updates(const std::vector<std::pair<std::string, SemVer>>& installed) 
         -> std::vector<std::pair<std::string, SemVer>> {
@@ -415,8 +390,6 @@ public:
         return updates;
     }
 };
-
-
 
 class PluginInstallManager {
     std::filesystem::path plugins_dir_;

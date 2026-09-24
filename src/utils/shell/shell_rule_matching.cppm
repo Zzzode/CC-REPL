@@ -1,13 +1,10 @@
 module;
 
-#include <algorithm>
 #include <cctype>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <vector>
 
 export module cc.utils.shell_rule_matching;
+
+import std;
 
 export namespace cc::utils::shell_rule_matching {
 

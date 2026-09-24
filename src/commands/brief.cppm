@@ -3,15 +3,10 @@
 /// Toggles brief-only mode via AppState dispatch.
 module;
 
-#include <string>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <format>
-#include <algorithm>
-#include <array>
 
 export module cc.commands.brief;
+
+import std;
 
 import cc.types.types;
 import cc.commands.command;

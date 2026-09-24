@@ -3,15 +3,10 @@
 /// Opens the Loom Desktop download page for the current platform.
 module;
 
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <format>
-#include <algorithm>
 
 export module cc.commands.desktop;
+
+import std;
 
 import cc.types.types;
 import cc.commands.command;

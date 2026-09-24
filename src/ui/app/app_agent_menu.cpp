@@ -10,27 +10,13 @@
 module;
 
 #include <cstring>
-#include <condition_variable>
-#include <algorithm>
-#include <chrono>
 #include <cstdio>
 #include <cstdlib>
-#include <filesystem>
 #include <ftxui/component/event.hpp>
-#include <format>
-#include <functional>
-#include <memory>
-#include <mutex>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <thread>
-#include <unordered_map>
-#include <unordered_set>
-#include <variant>
-#include <vector>
 
 module cc.ui.app.app;
+
+import std;
 import cc.query.query_engine;
 import cc.commands.registry;
 import cc.commands.command;

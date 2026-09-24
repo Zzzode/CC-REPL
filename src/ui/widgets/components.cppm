@@ -4,22 +4,14 @@
 /// message rows, tool displays, permission prompts, diffs, etc.
 module;
 
-#include <algorithm>
 #include <cstdint>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <format>
-#include <functional>
-#include <chrono>
-#include <ranges>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
 
 export module cc.ui.widgets.components;
+
+import std;
 
 import cc.types.types;
 import cc.ui.visual.markdown;

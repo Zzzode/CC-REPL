@@ -1,11 +1,6 @@
-module;
-
-#include <string>
-#include <string_view>
-#include <expected>
-#include <optional>
-
 export module cc.utils.platform_paths;
+
+import std;
 
 export namespace cc::utils::platform_paths {
 

@@ -1,21 +1,12 @@
 // Anthropic API Client - Complete implementation with async, streaming, retry
 module;
-#include <algorithm>
-#include <chrono>
 #include <cstddef>
-#include <expected>
-#include <format>
-#include <memory>
-#include <optional>
-#include <stdexcept>
-#include <string>
-#include <string_view>
-#include <thread>
-#include <utility>
-#include <vector>
 #include <curl/curl.h>
+#include <cstdint>
 
 export module cc.services.api.client;
+
+import std;
 
 import cc.services.api.streaming;
 import cc.services.api.models;

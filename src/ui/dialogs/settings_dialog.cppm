@@ -6,19 +6,7 @@
 module;
 
 #include <ctime>
-#include <string>
-#include <vector>
-#include <memory>
-#include <functional>
-#include <optional>
-#include <format>
 #include <cstdint>
-#include <variant>
-#include <algorithm>
-#include <expected>
-#include <chrono>
-#include <array>
-#include <utility>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
@@ -26,6 +14,8 @@ module;
 #include <ftxui/component/event.hpp>
 
 export module cc.ui.dialogs.settings_dialog;
+
+import std;
 
 import cc.types.types;
 import cc.config.config;

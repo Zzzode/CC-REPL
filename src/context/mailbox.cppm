@@ -5,24 +5,10 @@
 module;
 
 #include <cstdint>
-#include <string>
-#include <vector>
-#include <memory>
-#include <unordered_map>
-#include <optional>
-#include <expected>
-#include <chrono>
-#include <format>
-#include <ranges>
-#include <algorithm>
-#include <mutex>
-#include <condition_variable>
-#include <deque>
-#include <coroutine>
-#include <atomic>
-#include <functional>
 
 export module cc.context.mailbox;
+
+import std;
 
 import cc.types.types;
 import cc.coordinator.swarm;

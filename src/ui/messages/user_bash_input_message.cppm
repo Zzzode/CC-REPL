@@ -17,13 +17,12 @@
 // ────────────────────────────────────────────────────────────────────────
 module;
 
-#include <string>
-#include <string_view>
-#include <optional>
 
 #include <ftxui/dom/elements.hpp>
 
 export module cc.ui.messages.user_bash_input_message;
+
+import std;
 
 import cc.ui.foundation.design_tokens;
 import cc.ui.foundation.theme_provider;

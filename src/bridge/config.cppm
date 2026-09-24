@@ -1,20 +1,13 @@
 module;
 
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <cctype>
-#include <expected>
-#include <filesystem>
-#include <fstream>
-#include <optional>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <utility>
 
 export module cc.bridge.config;
+
+import std;
 
 
 export namespace cc::bridge {

@@ -8,11 +8,10 @@
 module;
 #include <cctype>
 #include <cstdint>
-#include <format>
-#include <string>
-#include <string_view>
 
 export module cc.utils.http_encoding;
+
+import std;
 
 export namespace cc::utils::http {
 

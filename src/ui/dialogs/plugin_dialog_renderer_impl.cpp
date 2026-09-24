@@ -10,20 +10,8 @@
 /// this closure.
 module;
 
-#include <algorithm>
 #include <cstddef>
 #include <cstdint>
-#include <filesystem>
-#include <functional>
-#include <map>
-#include <memory>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <system_error>
-#include <utility>
-#include <variant>
-#include <vector>
 
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_base.hpp>
@@ -31,6 +19,8 @@ module;
 #include <ftxui/dom/elements.hpp>
 
 module cc.ui.dialogs.plugin_dialog_renderer;
+
+import std;
 
 import cc.ui.dialogs.system;
 import cc.ui.dialogs.plugin_dialog;

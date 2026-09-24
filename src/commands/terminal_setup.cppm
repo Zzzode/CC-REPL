@@ -7,25 +7,19 @@
 module;
 
 #include <cerrno>
-#include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <cctype>
-#include <filesystem>
-#include <fstream>
 #if !defined(_WIN32)
 #  include <pwd.h>
 #  include <sys/stat.h>
 #  include <unistd.h>
+#include <ctime>
 #endif
-#include <format>
-#include <optional>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <vector>
 
 export module cc.commands.terminal_setup;
+
+import std;
 
 import cc.utils.hyperlink;
 

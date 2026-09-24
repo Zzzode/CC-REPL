@@ -2,13 +2,11 @@
 /// Buddy/Companion system type definitions.
 module;
 
-#include <string>
 #include <cstdint>
-#include <unordered_map>
-#include <array>
-#include <vector>
 
 export module cc.buddy.buddy_types;
+
+import std;
 
 export namespace cc::buddy {
 

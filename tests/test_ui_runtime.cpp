@@ -1,24 +1,8 @@
 /// @file test_ui_runtime.cpp
 /// @brief Split from test_ui.cpp - AppRuntime, E2E_Gate, FullscreenLayout, LogoV2, PromptInput, ReplScreen (SLOC budget fix)
 
-#include <algorithm>
-#include <atomic>
-#include <chrono>
-#include <condition_variable>
 #include <cstdlib>
-#include <filesystem>
-#include <fstream>
-#include <functional>
-#include <map>
-#include <memory>
-#include <mutex>
-#include <optional>
-#include <string>
-#include <thread>
-#include <utility>
-#include <vector>
 
-#include <expected>
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/dom/node.hpp>
 #include <ftxui/screen/screen.hpp>
@@ -30,6 +14,7 @@
 
 #include "test_ui_helpers.h"
 
+import std;
 import cc.ui.app.app;
 import cc.ui.screens.repl_screen;
 import cc.ui.messages.message_image;

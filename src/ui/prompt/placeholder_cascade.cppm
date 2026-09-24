@@ -23,15 +23,11 @@
 
 module;
 
-#include <array>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <utility>
-
 #include <ftxui/dom/elements.hpp>
 
 export module cc.ui.prompt.placeholder_cascade;
+
+import std;
 
 import cc.ui.foundation.ui_types;  // PromptInputMode
 

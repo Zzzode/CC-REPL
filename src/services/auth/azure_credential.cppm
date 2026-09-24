@@ -38,23 +38,13 @@
 // export the same model-ID table as TS configs.ts so callers can look up
 // the default deployment name before the runtime ListDeployments call.
 module;
-#include <functional>
-#include <array>
-#include <chrono>
 #include <cstdint>
 #include <ctime>
-#include <expected>
-#include <fstream>
-#include <memory>
-#include <optional>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 #include <httplib.h>
 
 export module cc.services.auth.azure_credential;
+
+import std;
 
 import cc.utils.env;
 import cc.utils.error;

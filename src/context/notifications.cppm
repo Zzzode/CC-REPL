@@ -3,14 +3,11 @@
 /// Migrated from src/context/notifications.tsx, QueuedMessageContext.tsx, stats.tsx
 module;
 
-#include <string>
-#include <vector>
-#include <optional>
-#include <functional>
-#include <chrono>
 #include <cstdint>
 
 export module cc.context.notifications;
+
+import std;
 
 export namespace cc::context {
 

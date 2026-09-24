@@ -2,14 +2,10 @@
 // Provides in-memory and file-based caching utilities
 module;
 
-#include <string>
-#include <unordered_map>
-#include <optional>
-#include <chrono>
-#include <vector>
-#include <list>
 
 export module cc.utils.cache;
+
+import std;
 
 export namespace cc::utils::cache {
 

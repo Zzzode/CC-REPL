@@ -1,10 +1,6 @@
-module;
-
-#include <string>
-#include <string_view>
-#include <vector>
-
 export module cc.tools.tungsten_tool;
+
+import std;
 
 export namespace cc::tools::tungsten {
 

@@ -1,14 +1,10 @@
 module;
 
-#include <algorithm>
-#include <array>
 #include <cctype>
-#include <expected>
-#include <optional>
-#include <string>
-#include <string_view>
 
 export module cc.utils.plugin_identifier;
+
+import std;
 
 import cc.utils.settings_sources;
 

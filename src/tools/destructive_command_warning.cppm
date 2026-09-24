@@ -1,3 +1,4 @@
+
 // destructive_command_warning.cppm
 // Detects potentially destructive bash commands (rm, git reset --hard, etc.)
 // and returns a human-readable warning string for the permission dialog.
@@ -12,14 +13,9 @@
 
 module;
 
-#include <string>
-#include <string_view>
-#include <optional>
-#include <vector>
-#include <regex>
-#include <filesystem>
-
 export module cc.tools.destructive_command_warning;
+
+import std;
 
 import cc.utils.tree_sitter.bash;
 

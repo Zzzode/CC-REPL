@@ -1,3 +1,4 @@
+
 /// @file tool_ui_bash.cppm
 /// @brief Bash tool UI — userFacingName, renderToolUseMessage, etc.
 ///
@@ -15,11 +16,9 @@
 ///   - isTransparentWrapper = false
 module;
 
-#include <string>
-#include <string_view>
-#include <optional>
-
 export module cc.ui.tools.bash;
+
+import std;
 
 import cc.ui.tools.registry;
 

@@ -5,23 +5,13 @@ module;
 
 #include <cstdio>
 #include <cstdint>
-#include <string>
-#include <vector>
-#include <memory>
-#include <functional>
-#include <unordered_map>
-#include <optional>
-#include <expected>
-#include <chrono>
-#include <format>
-#include <ranges>
-#include <algorithm>
-#include <deque>
-#include <mutex>
 
 #include <uv.h>
+#include <cstddef>
 
 export module cc.services.mcp.mcp_server;
+
+import std;
 
 import cc.types.types;
 import cc.services.mcp.types;

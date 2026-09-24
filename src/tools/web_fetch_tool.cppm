@@ -1,24 +1,16 @@
 // WebFetchTool - Fetches web content from URLs
 module;
 
-#include <format>
-#include <array>
 #include <cerrno>
-#include <chrono>
 #include <cstdio>
 #include <fcntl.h>
-#include <functional>
 #include <signal.h>
-#include <string>
-#include <string_view>
-#include <optional>
-#include <memory>
-#include <expected>
 #include <sys/wait.h>
-#include <thread>
 #include <unistd.h>
 
 export module cc.tools.web_fetch;
+
+import std;
 
 import cc.utils.error;
 import cc.tools.tool;

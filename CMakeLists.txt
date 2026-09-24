@@ -274,10 +274,20 @@ option(LOOM_WARNINGS_AS_ERRORS
 
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
     add_compile_options(-Wall -Wextra -Wpedantic)
-    # Clang: emit reduced BMI (smaller source-location footprint) so TUs that
-    # transitively import many cc.ui modules (e.g. tests/test_ui.cpp ~30 imports)
-    # stay under clang's 2GB source-location budget. Without this, accumulating
-    # cc.ui.* + std-header source locations across the import chain overflows.
+    # Use clang's REDUCED BMI writer everywhere. clang 22.1.8 full BMIs make
+    # heavy golden test TUs pathologically slow (>30 min on
+    # test_dialog_toolpermission) and raise peak PSS, and mixing full-BMI
+    # producers with reduced consumers SIGSEGVs clang — so a per-target
+    # -fno-modules-reduced-bmi override is NOT viable either.
+    #
+    # The one reduced-BMI defect (LLVM #184957, fixed on main by PR #179178,
+    # absent from 22.1.x) mis-merges the global aligned operator new when an
+    # implementation unit `import std;`-s while its primary's global module
+    # fragment textually pulls libc++ via FTXUI. It manifested only in the
+    # three cc.ui.app.app impl units; those units opt OUT of `import std;` and
+    # keep textual std headers in their GMF (a plain impl unit is allowed
+    # textual includes even when its interface imports std). Re-evaluate after
+    # moving to a clang that contains PR #179178.
     if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
         add_compile_options(-fmodules-reduced-bmi)
     endif()

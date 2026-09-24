@@ -9,9 +9,10 @@
 ///           which has its own source-location budget.
 module;
 
-#include <string>
 
 export module cc.ui.dialogs.hooks_renderer;
+
+import std;
 
 import cc.ui.dialogs.system;
 

@@ -1,20 +1,13 @@
 // C++23 Module: Shell command parsing
 
 module;
-#include <algorithm>
-#include <array>
 #include <cctype>
 #include <cstddef>
 #include <cstdint>
-#include <filesystem>
-#include <optional>
-#include <ranges>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 export module cc.utils.shell_parser;
+
+import std;
 
 
 export namespace cc::utils::shell_parser {

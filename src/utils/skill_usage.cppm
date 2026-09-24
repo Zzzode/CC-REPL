@@ -8,9 +8,10 @@
 /// for robustness; semantically equivalent to TS's Record<name,{usageCount,lastUsedAt}>.
 module;
 
-#include <string_view>
 
 export module cc.utils.skill_usage;
+
+import std;
 
 export namespace cc::utils::skill_usage {
 

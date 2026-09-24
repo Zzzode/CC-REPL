@@ -3,17 +3,13 @@
 /// Migrated from session.cppm supplement - session persistence logic
 module;
 
-#include <string>
-#include <vector>
-#include <filesystem>
-#include <optional>
-#include <chrono>
-#include <fstream>
-#include <algorithm>
 
 #include <yyjson.h>
+#include <cstdint>
 
 export module cc.session.storage;
+
+import std;
 
 import cc.utils.json;
 

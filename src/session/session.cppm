@@ -6,21 +6,10 @@ module;
 #include <ctime>
 #include <cstdlib>
 #include <cstdint>
-#include <string>
-#include <vector>
-#include <memory>
-#include <optional>
-#include <expected>
-#include <chrono>
-#include <filesystem>
-#include <format>
-#include <fstream>
-#include <algorithm>
-#include <ranges>
-#include <random>
-#include <mutex>
 
 export module cc.session.session;
+
+import std;
 
 import cc.types.types;
 import cc.config.config;

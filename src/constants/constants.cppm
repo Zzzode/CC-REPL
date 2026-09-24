@@ -1,16 +1,14 @@
 // C++23 Module: Global constants
 
 module;
-#include <array>
 #include <cctype>
 #include <cstdint>
 #include <cstdlib>
-#include <filesystem>
-#include <optional>
-#include <string>
-#include <string_view>
+#include <cstddef>
 
 export module cc.constants.constants;
+
+import std;
 
 export namespace cc::core::constants {
 

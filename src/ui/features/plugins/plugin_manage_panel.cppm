@@ -6,26 +6,19 @@
 /// (Phase 2 C1).  No direct plugin engine reads.
 module;
 
-#include <algorithm>
 #include <cstdint>
 #include <cstddef>
-#include <format>
-#include <functional>
-#include <memory>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_base.hpp>
 #include <ftxui/component/event.hpp>
 #include <ftxui/dom/elements.hpp>
+#include <cctype>
 
 export module cc.ui.features.plugins.plugin_manage_panel;
 
-import cc.types.types;
+import std;
+
 import cc.commands.plugin_ui_data;
 import cc.commands.plugin_pagination_util;
 import cc.ui.widgets.custom_select;

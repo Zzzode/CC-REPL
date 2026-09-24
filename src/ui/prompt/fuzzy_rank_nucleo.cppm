@@ -18,13 +18,11 @@
 module;
 
 #include <cctype>
-#include <limits>
-#include <numeric>
-#include <string>
-#include <string_view>
-#include <vector>
+#include <cstddef>
 
 export module cc.ui.prompt.fuzzy_rank_nucleo;
+
+import std;
 
 export namespace cc::ui::prompt::fuzzy_rank_nucleo {
 

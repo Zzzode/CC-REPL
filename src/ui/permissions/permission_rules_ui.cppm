@@ -4,17 +4,8 @@
 ///        matching builder in cc::ui::permissions::rule_list.
 module;
 
-#include <array>
 #include <cstddef>
 #include <cstdint>
-#include <filesystem>
-#include <functional>
-#include <memory>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_base.hpp>
@@ -22,6 +13,8 @@ module;
 #include <ftxui/dom/elements.hpp>
 
 export module cc.ui.permissions.permission_rules_ui;
+
+import std;
 
 import cc.types.types;
 import cc.ui.permissions.rule_list;

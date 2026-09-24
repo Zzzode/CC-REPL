@@ -1,16 +1,9 @@
 module;
-#include <string>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <functional>
-#include <map>
-#include <filesystem>
 #include <cstdlib>
-#include <fstream>
-#include <sstream>
 
 export module cc.commands.plugin.manage_plugins;
+
+import std;
 
 export namespace cc::commands {
 

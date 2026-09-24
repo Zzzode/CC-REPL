@@ -1,26 +1,12 @@
 // FileReadTool - Reads file content with range support and safety checks
 module;
 
-#include <algorithm>
-#include <array>
 #include <cctype>
-#include <chrono>
 #include <cstdint>
-#include <expected>
-#include <filesystem>
-#include <format>
-#include <fstream>
-#include <memory>
-#include <optional>
-#include <span>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <unordered_map>
-#include <unordered_set>
-#include <vector>
 
 export module cc.tools.file_read;
+
+import std;
 
 import cc.utils.file;
 import cc.utils.error;

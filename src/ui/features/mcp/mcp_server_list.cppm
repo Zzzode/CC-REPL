@@ -7,18 +7,8 @@
 /// to cc::services::mcp::ConnectionManager and cc::services::mcp::ConfigLoader.
 module;
 
-#include <algorithm>
 #include <cctype>
 #include <cstdint>
-#include <functional>
-#include <map>
-#include <memory>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
-#include <format>
 
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_base.hpp>
@@ -26,6 +16,8 @@ module;
 #include <ftxui/dom/elements.hpp>
 
 export module cc.ui.features.mcp.mcp_server_list;
+
+import std;
 
 import cc.services.mcp.types;
 import cc.services.mcp.connection_manager;

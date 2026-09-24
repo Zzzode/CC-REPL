@@ -1,11 +1,7 @@
-module;
-#include <string>
-#include <functional>
-#include <optional>
-#include <vector>
-#include <chrono>
 
 export module cc.hooks.assistant_history;
+
+import std;
 
 import cc.state.app_state;
 

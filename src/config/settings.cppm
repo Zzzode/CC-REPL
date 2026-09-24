@@ -1,22 +1,16 @@
+module;
+
+#include <cstdlib>
+
 /// @file settings.cppm
 /// @brief User settings management.
 /// Supplements existing config.cppm with settings-specific logic.
-module;
-
-#include <string>
-#include <string_view>
-#include <optional>
-#include <functional>
-#include <filesystem>
-#include <initializer_list>
-#include <unordered_map>
-#include <variant>
-#include <vector>
+export module cc.config.settings;
 
 import cc.utils.json;
 import cc.constants.paths;
 
-export module cc.config.settings;
+import std;
 
 export namespace cc::config {
 

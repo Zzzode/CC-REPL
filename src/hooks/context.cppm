@@ -11,20 +11,12 @@ module;
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
-#include <filesystem>
-#include <format>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <memory>
-#include <fstream>
-#include <sstream>
 
 export module cc.hooks.context;
 
-import cc.constants.paths;
+import std;
 
+import cc.constants.paths;
 
 namespace fs = std::filesystem;
 

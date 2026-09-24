@@ -9,22 +9,15 @@
 /// passed as parameters.
 module;
 
+#include <unistd.h>
 #include <cstring>
 #include <cstdio>
 #include <cstdlib>
-#include <format>
-#include <functional>
-#include <optional>
-#include <random>
-#include <string>
-#include <string_view>
-#include <unordered_set>
-#include <utility>
-#include <variant>
-#include <vector>
-#include <unistd.h>
+#include <cstdint>
 
 export module cc.bridge.bridge_messaging;
+
+import std;
 
 import cc.bridge.messages;
 import cc.utils.json;

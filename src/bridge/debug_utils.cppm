@@ -1,17 +1,10 @@
 module;
 #include <ctime>
-#include <string>
-#include <string_view>
-#include <map>
-#include <filesystem>
-#include <fstream>
-#include <chrono>
 #include <cstdlib>
-#include <sstream>
-#include <iomanip>
-#include <mutex>
 
 export module cc.bridge.debug_utils;
+
+import std;
 
 export namespace cc::bridge {
 

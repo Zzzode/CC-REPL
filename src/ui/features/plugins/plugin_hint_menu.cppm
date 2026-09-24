@@ -6,17 +6,9 @@
 /// cards shown at the top of the `/plugin` browse view.
 module;
 
-#include <algorithm>
+#include <unistd.h>
 #include <cmath>
 #include <cstdint>
-#include <format>
-#include <functional>
-#include <memory>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
@@ -24,6 +16,8 @@ module;
 #include <ftxui/component/event.hpp>
 
 export module cc.ui.features.plugins.plugin_hint_menu;
+
+import std;
 
 import cc.ui.foundation.component_primitives;
 import cc.ui.foundation.design_tokens;

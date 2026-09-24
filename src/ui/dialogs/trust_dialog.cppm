@@ -32,18 +32,7 @@
 
 module;
 
-#include <algorithm>
-#include <chrono>
 #include <cstdint>
-#include <format>
-#include <functional>
-#include <memory>
-#include <optional>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_base.hpp>
@@ -51,6 +40,8 @@ module;
 #include <ftxui/dom/elements.hpp>
 
 export module cc.ui.dialogs.trust_dialog;
+
+import std;
 
 import cc.ui.dialogs.trust_utils;
 import cc.plugins.plugin;

@@ -1,10 +1,11 @@
 module;
-#include <string>
-#include <vector>
-#include <optional>
-#include <sstream>
+
+#include <cstddef>
+
 
 export module cc.ui.foundation.tabs;
+
+import std;
 
 export namespace cc::ui::design {
 

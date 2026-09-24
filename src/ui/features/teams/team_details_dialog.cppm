@@ -19,17 +19,7 @@
 module;
 
 #include <cctype>
-#include <string>
-#include <vector>
-#include <memory>
-#include <functional>
-#include <optional>
-#include <format>
 #include <cstdint>
-#include <chrono>
-#include <algorithm>
-#include <string_view>
-#include <array>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
@@ -37,6 +27,8 @@ module;
 #include <ftxui/component/event.hpp>
 
 export module cc.ui.features.teams.team_details_dialog;
+
+import std;
 
 import cc.types.types;
 import cc.ui.features.teams.team_status;

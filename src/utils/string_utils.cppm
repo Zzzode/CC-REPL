@@ -1,18 +1,13 @@
 module;
-#include <string>
-#include <string_view>
-#include <vector>
-#include <span>
-#include <optional>
-#include <algorithm>
 #include <cctype>
-#include <sstream>
 #include <cstdint>
+#include <cstddef>
 
 export module cc.utils.string_utils;
 
-export namespace cc::utils {
+import std;
 
+export namespace cc::utils {
 
 [[nodiscard]] inline std::string trim(std::string_view sv) {
     auto start = sv.find_first_not_of(" \t\n\r\f\v");
@@ -20,7 +15,6 @@ export namespace cc::utils {
     auto end = sv.find_last_not_of(" \t\n\r\f\v");
     return std::string(sv.substr(start, end - start + 1));
 }
-
 
 [[nodiscard]] inline std::vector<std::string> split(std::string_view sv, char delimiter) {
     std::vector<std::string> result;
@@ -36,7 +30,6 @@ export namespace cc::utils {
     }
     return result;
 }
-
 
 [[nodiscard]] inline std::string join(std::span<const std::string> parts, std::string_view separator) {
     if (parts.empty()) return {};
@@ -55,7 +48,6 @@ export namespace cc::utils {
     return result;
 }
 
-
 [[nodiscard]] inline bool starts_with_ignore_case(std::string_view str, std::string_view prefix) {
     if (str.size() < prefix.size()) return false;
     for (size_t i = 0; i < prefix.size(); ++i) {
@@ -66,7 +58,6 @@ export namespace cc::utils {
     }
     return true;
 }
-
 
 [[nodiscard]] inline bool contains_ignore_case(std::string_view str, std::string_view needle) {
     if (needle.empty()) return true;
@@ -85,7 +76,6 @@ export namespace cc::utils {
     return false;
 }
 
-
 [[nodiscard]] inline std::string repeat(std::string_view sv, int count) {
     if (count <= 0) return {};
     std::string result;
@@ -96,18 +86,15 @@ export namespace cc::utils {
     return result;
 }
 
-
 [[nodiscard]] inline std::string pad_left(std::string_view sv, size_t width, char fill = ' ') {
     if (sv.size() >= width) return std::string(sv);
     return std::string(width - sv.size(), fill) + std::string(sv);
 }
 
-
 [[nodiscard]] inline std::string pad_right(std::string_view sv, size_t width, char fill = ' ') {
     if (sv.size() >= width) return std::string(sv);
     return std::string(sv) + std::string(width - sv.size(), fill);
 }
-
 
 [[nodiscard]] inline std::string to_lower(std::string_view sv) {
     std::string result(sv);
@@ -116,14 +103,12 @@ export namespace cc::utils {
     return result;
 }
 
-
 [[nodiscard]] inline std::string to_upper(std::string_view sv) {
     std::string result(sv);
     std::transform(result.begin(), result.end(), result.begin(),
                    [](unsigned char c) { return std::toupper(c); });
     return result;
 }
-
 
 [[nodiscard]] inline std::string replace_all(std::string str, std::string_view from, std::string_view to) {
     if (from.empty()) return str;

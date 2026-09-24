@@ -22,22 +22,17 @@
 // ────────────────────────────────────────────────────────────────────────
 module;
 
-#include <array>
-#include <chrono>
 #include <cstdint>
-#include <filesystem>
-#include <functional>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <vector>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_base.hpp>
 #include <ftxui/component/event.hpp>
+#include <cstddef>
 
 export module cc.ui.messages.message_image;
+
+import std;
 
 import cc.ui.messages.message_timestamp;
 import cc.utils.image_store;

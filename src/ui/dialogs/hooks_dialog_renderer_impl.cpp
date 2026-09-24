@@ -9,19 +9,16 @@
 /// the module interface never see this closure.
 module;
 
-#include <format>
-#include <memory>
-#include <optional>
-#include <string>
-#include <utility>
-#include <vector>
 
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_base.hpp>
 #include <ftxui/component/event.hpp>
 #include <ftxui/dom/elements.hpp>
+#include <cstddef>
 
 module cc.ui.dialogs.hooks_renderer;
+
+import std;
 
 import cc.ui.features.hooks_ui;
 import cc.utils.hooks_config;

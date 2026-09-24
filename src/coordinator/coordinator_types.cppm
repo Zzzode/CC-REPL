@@ -4,11 +4,10 @@
 module;
 
 #include <cstdint>
-#include <string>
-#include <vector>
-#include <optional>
 
 export module cc.coordinator.types;
+
+import std;
 
 export namespace cc::coordinator {
 

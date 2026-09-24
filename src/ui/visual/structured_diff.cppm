@@ -4,27 +4,18 @@
 /// and diff/DiffDetailView.tsx.
 module;
 
-#include <string>
-#include <vector>
-#include <memory>
-#include <functional>
-#include <optional>
-#include <expected>
-#include <format>
 #include <cstdint>
-#include <algorithm>
-#include <string_view>
-#include <unordered_set>
-#include <array>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_base.hpp>
 #include <ftxui/component/event.hpp>
+#include <cstddef>
 
 export module cc.ui.visual.structured_diff;
 
-import cc.types.types;
+import std;
+
 import cc.utils.file_edit;
 
 export namespace cc::ui::structured_diff {

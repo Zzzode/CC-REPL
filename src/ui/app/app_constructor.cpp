@@ -9,29 +9,14 @@
 // ASTReader::FindExternalVisibleDeclsByName during DefineUsedVTables.
 module;
 
-#include <condition_variable>
-#include <algorithm>
-#include <chrono>
 #include <cstdio>
 #include <cstdlib>
-#include <expected>
-#include <filesystem>
-#include <format>
-#include <functional>
-#include <map>
-#include <memory>
-#include <mutex>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <thread>
-#include <unordered_map>
-#include <unordered_set>
-#include <vector>
 
 #include <ftxui/component/event.hpp>
 
 module cc.ui.app.app;
+
+import std;
 
 // ── Base imports (only those actually used by constructor) ─────────────
 import cc.ui.prompt.autocomplete_sources;

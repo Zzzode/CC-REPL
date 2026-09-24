@@ -1,21 +1,11 @@
 // ConfigTool - Reading and writing CLI configuration at runtime
 module;
-#include <array>
-#include <algorithm>
 #include <cctype>
 #include <cstdlib>
-#include <expected>
-#include <filesystem>
-#include <format>
-#include <fstream>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <unordered_map>
-#include <utility>
-#include <vector>
 
 export module cc.tools.config;
+
+import std;
 
 
 export namespace cc::tools {

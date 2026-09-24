@@ -5,23 +5,10 @@
 module;
 
 #include <cstdint>
-#include <string>
-#include <vector>
-#include <memory>
-#include <functional>
-#include <optional>
-#include <expected>
-#include <chrono>
-#include <atomic>
-#include <mutex>
-#include <variant>
-#include <unordered_map>
-#include <random>
-#include <thread>
-#include <format>
-#include <fstream>
 
 export module cc.tasks.task;
+
+import std;
 
 import cc.types.types;
 import cc.utils.bash_execution;

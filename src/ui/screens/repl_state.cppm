@@ -7,24 +7,14 @@
 // seeing these names unchanged.
 module;
 
-#include <array>
-#include <chrono>
 #include <cstdint>
-#include <deque>
-#include <functional>
-#include <memory>
-#include <mutex>
-#include <variant>
-#include <optional>
-#include <string>
-#include <unordered_map>
-#include <unordered_set>
-#include <vector>
 
 #include <ftxui/screen/color.hpp>
 #include <ftxui/component/event.hpp>
 
 export module cc.ui.screens.repl_state;
+
+import std;
 
 import cc.types.types;
 import cc.ui.foundation.ui_types;                 // cc::ui::common::PromptInputMode

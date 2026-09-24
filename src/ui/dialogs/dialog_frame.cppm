@@ -29,15 +29,12 @@
 module;
 
 #include <cstdint>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 #include <ftxui/dom/elements.hpp>
 
 export module cc.ui.dialogs.frame;
+
+import std;
 
 import cc.ui.foundation.theme_provider;
 import cc.ui.foundation.design_tokens;

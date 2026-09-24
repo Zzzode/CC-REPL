@@ -42,18 +42,13 @@
 
 module;
 
-#include <chrono>
 #include <cstdint>
-#include <string>
-#include <string_view>
-#include <optional>
-#include <functional>
-#include <algorithm>
-#include <bit>
 
 #include <ftxui/component/event.hpp>
 
 export module cc.ui.messages.scroll_keys;
+
+import std;
 
 export namespace cc::ui::messages::scroll_keys {
 

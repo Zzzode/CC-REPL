@@ -7,19 +7,10 @@ module;
 
 #include <cstdint>
 #include <cstddef>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <chrono>
-#include <format>
-#include <ranges>
-#include <algorithm>
-#include <unordered_map>
-#include <filesystem>
 
 export module cc.services.magic_docs;
+
+import std;
 
 import cc.types.types;
 

@@ -32,26 +32,13 @@
 module;
 
 #include <cstdlib>
-#include <algorithm>
-#include <array>
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <ctime>
-#include <filesystem>
-#include <fstream>
-#include <expected>
-#include <format>
-#include <functional>
-#include <map>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <system_error>
-#include <utility>
-#include <vector>
 
 export module cc.commands.insights;
+
+import std;
 
 import cc.types.types;
 import cc.commands.command;

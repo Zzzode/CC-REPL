@@ -1,8 +1,8 @@
 // PR Comments command - fetches and summarizes PR comments for the current branch
 module;
-#include <string>
-#include <string_view>
 export module cc.commands.pr_comments;
+
+import std;
 export namespace cc::commands::pr_comments {
 
 struct CommandResponse { bool ok{true}; bool inject{false}; std::string message; };

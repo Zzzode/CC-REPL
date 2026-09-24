@@ -1,26 +1,12 @@
 // C++23 Module: File watching hooks using polling (std::jthread + last_write_time)
 module;
 
-#include <algorithm>
-#include <atomic>
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <expected>
-#include <filesystem>
-#include <format>
-#include <functional>
-#include <map>
-#include <mutex>
-#include <ranges>
-#include <set>
-#include <string>
-#include <string_view>
-#include <thread>
-#include <utility>
-#include <vector>
 
 export module cc.hooks.file_watcher;
+
+import std;
 
 export namespace cc::hooks {
 

@@ -1,26 +1,10 @@
 module;
-#include <algorithm>
-#include <atomic>
-#include <chrono>
 #include <cstdint>
 #include <cstdlib>
-#include <expected>
-#include <filesystem>
-#include <format>
-#include <fstream>
-#include <string>
-#include <string_view>
-#include <memory>
-#include <unordered_map>
-#include <vector>
-#include <functional>
-#include <map>
-#include <mutex>
-#include <optional>
-#include <sstream>
-#include <variant>
 
 export module cc.server.server_routes;
+
+import std;
 
 import cc.config.config;
 import cc.hooks.tool_permissions;

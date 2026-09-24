@@ -42,12 +42,6 @@
 module;
 
 #include <cstdint>
-#include <functional>
-#include <memory>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <vector>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
@@ -55,6 +49,8 @@ module;
 #include <ftxui/component/event.hpp>
 
 export module cc.ui.permissions.permission_bash;
+
+import std;
 
 import cc.ui.permissions.components;
 import cc.ui.permissions.permission_shell_helpers;

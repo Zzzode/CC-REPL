@@ -16,36 +16,21 @@
 module;
 
 #include <cstring>
-#include <algorithm>
-#include <array>
-#include <chrono>
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
-#include <filesystem>
-#include <format>
-#include <fstream>
-#include <functional>
-#include <map>
-#include <mutex>
-#include <optional>
-#include <ranges>
-#include <string>
-#include <string_view>
-#include <thread>
-#include <unordered_map>
-#include <unordered_set>
-#include <variant>
-#include <vector>
 
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/event.hpp>
 #include <ftxui/component/mouse.hpp>
 #include <ftxui/component/screen_interactive.hpp>
 #include <ftxui/dom/elements.hpp>
+#include <cstdint>
 
 module cc.ui.app.app;
+
+import std;
 import cc.query.query_engine;
 import cc.commands.registry;
 import cc.commands.command;

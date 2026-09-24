@@ -16,19 +16,10 @@
 /// `cc::migrations::concrete`.
 
 #include <cstdint>
-#include <chrono>
-#include <filesystem>
-#include <fstream>
-#include <memory>
-#include <algorithm>
-#include <set>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <vector>
 
 #include <gtest/gtest.h>
 
+import std;
 import cc.migrations.concrete;
 import cc.migrations.migration_runner;
 import cc.migrations.schema_versions;

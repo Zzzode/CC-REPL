@@ -1,18 +1,14 @@
+module;
+
+#include <cstdint>
+
 /// @file stats.cppm
 /// @brief StatsCommand implementing the /stats slash command.
 /// Shows session statistics: messages, tokens, tool uses, duration.
-module;
-
-#include <string>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <format>
-#include <algorithm>
-#include <array>
-#include <chrono>
 
 export module cc.commands.stats;
+
+import std;
 
 import cc.types.types;
 import cc.commands.command;

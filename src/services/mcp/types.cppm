@@ -1,19 +1,13 @@
 // MCP Types Module
 module;
 #include <cstdint>
-#include <expected>
-#include <functional>
-#include <map>
-#include <optional>
-#include <string>
-#include <unordered_map>
-#include <variant>
-#include <vector>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <unistd.h>
 
 export module cc.services.mcp.types;
+
+import std;
 
 import cc.utils.error;
 import cc.utils.json;

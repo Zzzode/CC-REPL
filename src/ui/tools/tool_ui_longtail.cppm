@@ -1,3 +1,7 @@
+module;
+
+#include <unistd.h>
+
 /// @file tool_ui_longtail.cppm
 /// @brief Long-tail tool UIs — all remaining tools in one module.
 ///
@@ -9,14 +13,11 @@
 /// JSON for the message summary, with appropriate user-facing names.
 ///
 /// Faithful TS port — userFacingName values match the TS source.
-module;
 
-#include <string>
-#include <string_view>
-#include <optional>
-#include <functional>
 
 export module cc.ui.tools.longtail;
+
+import std;
 
 import cc.ui.tools.registry;
 

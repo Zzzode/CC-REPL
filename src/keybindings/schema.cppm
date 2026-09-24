@@ -1,17 +1,14 @@
+module;
+
+#include <cctype>
+
 /// @file schema.cppm
 /// @brief Keybinding schema and types.
 /// Migrated from src/keybindings/schema.ts, parser.ts, match.ts
-module;
-
-#include <string>
-#include <vector>
-#include <optional>
-#include <unordered_map>
-#include <functional>
-#include <variant>
-#include <algorithm>
 
 export module cc.keybindings.schema;
+
+import std;
 
 export namespace cc::keybindings {
 

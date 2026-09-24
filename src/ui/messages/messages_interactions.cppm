@@ -26,22 +26,8 @@
 /// =========================================================================
 module;
 
-#include <array>
-#include <algorithm>
 #include <cstddef>
 #include <cstdint>
-#include <format>
-#include <functional>
-#include <map>
-#include <memory>
-#include <optional>
-#include <set>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <unordered_map>
-#include <utility>
-#include <vector>
 
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_base.hpp>
@@ -52,6 +38,8 @@ module;
 #include <ftxui/screen/color.hpp>
 
 export module cc.ui.messages.messages_interactions;
+
+import std;
 
 // --- Shared metadata + dispatch helpers -----------------------------------
 // NOTE: UI21 messages_list should later expose a `MessageRowPayload` that

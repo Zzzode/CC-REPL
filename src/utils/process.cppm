@@ -2,28 +2,16 @@
 // Provides async process spawning, management, and pooling
 module;
 
-#include <chrono>
-#include <coroutine>
 #include <cstddef>
 #include <cstdint>
-#include <deque>
-#include <expected>
-#include <format>
-#include <functional>
-#include <memory>
-#include <mutex>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <unordered_map>
-#include <utility>
-#include <vector>
 
 #include <uv.h>
 #include <signal.h>
 #include <sys/types.h>
 
 export module cc.utils.process;
+
+import std;
 
 import cc.utils.error;
 import cc.utils.async;

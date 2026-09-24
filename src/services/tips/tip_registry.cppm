@@ -1,10 +1,6 @@
-module;
-#include <functional>
-#include <mutex>
-#include <string>
-#include <string_view>
-#include <vector>
 export module cc.services.tips.tip_registry;
+
+import std;
 
 export namespace cc::services::tips {
 

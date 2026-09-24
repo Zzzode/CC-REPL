@@ -2,16 +2,11 @@
 // Provides swarm constants and spawn utilities for multi-agent systems
 module;
 
-#include <chrono>
 #include <cstdlib>
-#include <format>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <array>
 
 export module cc.utils.swarm;
+
+import std;
 
 import cc.utils.string;
 

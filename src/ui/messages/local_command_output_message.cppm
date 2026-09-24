@@ -5,15 +5,7 @@
 /// footer button.
 module;
 
-#include <string>
-#include <vector>
-#include <memory>
-#include <functional>
-#include <optional>
-#include <format>
 #include <cstdint>
-#include <chrono>
-#include <algorithm>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
@@ -21,6 +13,8 @@ module;
 #include <ftxui/component/event.hpp>
 
 export module cc.ui.messages.local_command_output_message;
+
+import std;
 
 export namespace cc::ui::messages::local_cmd {
 using namespace ftxui;

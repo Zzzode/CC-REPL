@@ -13,18 +13,7 @@
 ///      Ctrl+C ({0x03}) -> on_abort (separate code path from Esc).
 ///   4. Mode dispatch: options non-empty => SELECT, options empty => FREE-TEXT.
 
-#include <atomic>
 #include <cstdlib>
-#include <filesystem>
-#include <fstream>
-#include <functional>
-#include <memory>
-#include <mutex>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <thread>
-#include <vector>
 
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/event.hpp>
@@ -33,6 +22,7 @@
 #include <ftxui/screen/screen.hpp>
 #include <gtest/gtest.h>
 
+import std;
 import cc.ui.dialogs.prompt_dialog;
 
 namespace {

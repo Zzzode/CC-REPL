@@ -1,12 +1,12 @@
+
 /// @file xml.cppm
 /// @brief XML tag name constants used in message protocol.
 /// Migrated from src/constants/xml.ts
 module;
 
-#include <string_view>
-#include <array>
-
 export module cc.constants.xml;
+
+import std;
 
 export namespace cc::constants::xml {
 

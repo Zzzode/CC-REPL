@@ -1,10 +1,9 @@
 // Compact Types Module
 module;
-#include <optional>
-#include <string>
-#include <vector>
 
 export module cc.services.compact.types;
+
+import std;
 
 import cc.utils.error;
 

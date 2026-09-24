@@ -3,10 +3,10 @@
 /// Migrated from src/constants/figures.ts
 module;
 
-#include <string_view>
-#include <array>
 
 export module cc.constants.figures;
+
+import std;
 
 export namespace cc::constants::figures {
 

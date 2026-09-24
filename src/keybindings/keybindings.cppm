@@ -1,19 +1,13 @@
 // C++23 Module: Keybindings management
 // Provides keybinding parsing, matching, and resolution
 module;
-#include <algorithm>
 #include <cctype>
 #include <cstdint>
-#include <functional>
-#include <memory>
-#include <optional>
-#include <stdexcept>
-#include <string>
-#include <string_view>
-#include <unordered_map>
-#include <vector>
+#include <cstddef>
 
 export module cc.keybindings.keybindings;
+
+import std;
 
 export namespace cc::core::keybindings {
 

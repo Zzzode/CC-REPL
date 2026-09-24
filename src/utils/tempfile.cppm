@@ -1,21 +1,18 @@
 module;
 
-#include <filesystem>
-#include <fstream>
-#include <string>
-#include <string_view>
-#include <random>
-#include <chrono>
-#include <system_error>
+#include <unistd.h>
+#include <cstddef>
+#include <cstdint>
 
 export module cc.utils.tempfile;
+
+import std;
 
 namespace fs = std::filesystem;
 
 export namespace cc::utils {
 
 namespace detail {
-
 
 inline std::string generate_unique_name(std::string_view prefix) {
 
@@ -36,7 +33,6 @@ inline std::string generate_unique_name(std::string_view prefix) {
 
 } // namespace detail
 
-
 inline fs::path get_temp_dir() {
     std::error_code ec;
     auto tmp = fs::temp_directory_path(ec);
@@ -45,7 +41,6 @@ inline fs::path get_temp_dir() {
     }
     return tmp;
 }
-
 
 class TempFile {
 public:
@@ -61,7 +56,6 @@ public:
         cleanup();
     }
 
-
     TempFile(TempFile&& other) noexcept : path_(std::move(other.path_)) {
         other.path_.clear();
     }
@@ -75,19 +69,15 @@ public:
         return *this;
     }
 
-
     TempFile(const TempFile&) = delete;
     TempFile& operator=(const TempFile&) = delete;
 
-
     const fs::path& path() const { return path_; }
-
 
     void write(std::string_view content) {
         std::ofstream ofs(path_, std::ios::binary | std::ios::trunc);
         ofs.write(content.data(), static_cast<std::streamsize>(content.size()));
     }
-
 
     std::string read() const {
         std::ifstream ifs(path_, std::ios::binary | std::ios::ate);
@@ -113,7 +103,6 @@ private:
     fs::path path_;
 };
 
-
 class TempDir {
 public:
     explicit TempDir(std::string_view prefix = "cc-") {
@@ -126,7 +115,6 @@ public:
     ~TempDir() {
         cleanup();
     }
-
 
     TempDir(TempDir&& other) noexcept : path_(std::move(other.path_)) {
         other.path_.clear();
@@ -141,10 +129,8 @@ public:
         return *this;
     }
 
-
     TempDir(const TempDir&) = delete;
     TempDir& operator=(const TempDir&) = delete;
-
 
     const fs::path& path() const { return path_; }
 

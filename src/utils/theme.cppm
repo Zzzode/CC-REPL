@@ -1,9 +1,7 @@
-module;
-#include <map>
-#include <string>
-#include <string_view>
 
 export module cc.utils.theme;
+
+import std;
 
 export namespace cc::utils {
 

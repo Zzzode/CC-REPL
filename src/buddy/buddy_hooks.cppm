@@ -2,13 +2,12 @@
 /// Buddy notification hook and trigger detection.
 module;
 
-#include <string>
-#include <vector>
-#include <functional>
 #include <cstdint>
-#include <algorithm>
+#include <cstddef>
 
 export module cc.buddy.buddy_hooks;
+
+import std;
 
 export namespace cc::buddy {
 

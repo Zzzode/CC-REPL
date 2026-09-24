@@ -2,19 +2,11 @@
 // Provides enhanced file operations
 module;
 
-#include <string>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <filesystem>
-#include <format>
-#include <fstream>
-#include <sstream>
 #include <cctype>
-#include <algorithm>
-#include <array>
 
 export module cc.utils.file;
+
+import std;
 
 import cc.utils.path;
 

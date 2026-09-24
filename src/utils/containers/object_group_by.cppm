@@ -1,10 +1,10 @@
 module;
 
 #include <cstddef>
-#include <map>
-#include <vector>
 
 export module cc.utils.object_group_by;
+
+import std;
 
 export namespace cc::utils::object_group_by {
 

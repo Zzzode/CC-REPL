@@ -5,15 +5,7 @@
 /// options struct (freshly computed from AppState / cost tracker).
 module;
 
-#include <string>
-#include <vector>
-#include <memory>
-#include <functional>
-#include <optional>
-#include <format>
 #include <cstdint>
-#include <chrono>
-#include <algorithm>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
@@ -22,7 +14,8 @@ module;
 
 export module cc.ui.dialogs.usage_dialog;
 
-import cc.types.types;
+import std;
+
 
 export namespace cc::ui::dialogs::usage_dialog {
 using namespace ftxui;

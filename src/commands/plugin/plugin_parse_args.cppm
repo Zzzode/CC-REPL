@@ -7,12 +7,10 @@
 module;
 
 #include <cctype>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <vector>
 
 export module cc.commands.plugin_parse_args;
+
+import std;
 
 export namespace cc::commands::plugin {
 

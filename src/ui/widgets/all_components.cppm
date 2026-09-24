@@ -1,14 +1,11 @@
 module;
 
-#include <string>
-#include <vector>
-#include <optional>
-#include <functional>
-#include <chrono>
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
 
 export module cc.ui.widgets.all_components;
+
+import std;
 
 // Import and re-export all new components
 export import cc.ui.foundation.components_figures;

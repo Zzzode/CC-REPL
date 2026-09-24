@@ -15,19 +15,14 @@
 // ────────────────────────────────────────────────────────────────────────
 module;
 
-#include <functional>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <chrono>
-
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_base.hpp>
 #include <ftxui/component/event.hpp>
 
 export module cc.ui.messages.user_text_message;
+
+import std;
 
 import cc.ui.messages.message_timestamp;
 // P0-1: Unified prompt / user-message glyph source (TS figures.pointer).

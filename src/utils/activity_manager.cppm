@@ -1,10 +1,6 @@
-module;
-
-#include <functional>
-#include <set>
-#include <string>
-
 export module cc.utils.activity_manager;
+
+import std;
 
 export namespace cc::utils::activity_manager {
 

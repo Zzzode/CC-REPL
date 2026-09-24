@@ -3,28 +3,11 @@
 /// session spawning, work queue polling, and graceful shutdown.
 module;
 
-#include <string>
-#include <string_view>
-#include <expected>
-#include <functional>
-#include <optional>
-#include <vector>
-#include <queue>
 #include <cstdint>
-#include <atomic>
-#include <thread>
-#include <mutex>
-#include <chrono>
-#include <format>
-#include <filesystem>
-#include <fstream>
 #include <cstdlib>
 #include <csignal>
 #include <cerrno>
 #include <cctype>
-#include <algorithm>
-#include <unordered_map>
-#include <unordered_set>
 #include <sys/socket.h>
 #include <sys/wait.h>
 #include <netinet/in.h>
@@ -32,10 +15,13 @@ module;
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <poll.h>
+#include <cstddef>
 
 extern "C" char** environ;
 
 export module cc.daemon.daemon_server;
+
+import std;
 
 import cc.bridge.api;
 import cc.bridge.work_secret;

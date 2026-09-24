@@ -4,13 +4,10 @@
 module;
 
 #include <cstdint>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
-#include <unordered_set>
 
 export module cc.types.permissions;
+
+import std;
 
 export namespace cc::types {
 

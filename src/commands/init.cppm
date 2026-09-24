@@ -4,15 +4,10 @@
 /// mirroring the default prompt of the TypeScript /init command.
 module;
 
-#include <string>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <format>
-#include <algorithm>
-#include <array>
 
 export module cc.commands.init;
+
+import std;
 
 import cc.types.types;
 import cc.commands.command;

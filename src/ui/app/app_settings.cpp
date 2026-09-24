@@ -2,15 +2,10 @@
 // Keeps cc.utils.settings_manager out of both app.cppm and the :impl BMI.
 module;
 
-#include <functional>
-#include <map>
-#include <memory>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <variant>
 
 module cc.ui.app.app;
+
+import std;
 
 import cc.utils.settings_manager;
 import cc.ui.screens.repl_state;

@@ -10,21 +10,10 @@
 // those accessors and never see AppImpl.
 module;
 
-#include <chrono>
-#include <deque>
-#include <functional>
-#include <map>
-#include <memory>
-#include <mutex>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <thread>
-#include <unordered_set>
-#include <utility>
-#include <variant>
 
 export module cc.ui.app.app:impl;
+
+import std;
 
 import cc.ui.app.app;
 import cc.vim.vim_mode;

@@ -1,18 +1,15 @@
 module;
-#include <string>
-#include <string_view>
-#include <vector>
-#include <filesystem>
-#include <chrono>
-#include <optional>
-#include <algorithm>
+
+#include <cctype>
+
 
 export module cc.tools.script_types;
+
+import std;
 
 import cc.tools.script_diagnostics;
 
 export namespace cc::tools {
-
 
 enum class ScriptLanguage {
     TypeScript,
@@ -22,10 +19,8 @@ enum class ScriptLanguage {
     Unknown
 };
 
-
 inline auto detect_script_language(const std::filesystem::path& file) -> ScriptLanguage {
     auto ext = file.extension().string();
-
 
     std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
 
@@ -42,7 +37,6 @@ inline auto detect_script_language(const std::filesystem::path& file) -> ScriptL
         return ScriptLanguage::Shell;
     }
 
-
     auto filename = file.filename().string();
     if (filename == "Makefile" || filename == "Dockerfile") {
         return ScriptLanguage::Shell;
@@ -50,7 +44,6 @@ inline auto detect_script_language(const std::filesystem::path& file) -> ScriptL
 
     return ScriptLanguage::Unknown;
 }
-
 
 inline auto get_script_runner(ScriptLanguage lang) -> std::optional<std::filesystem::path> {
     switch (lang) {
@@ -73,7 +66,6 @@ inline auto get_script_runner(ScriptLanguage lang) -> std::optional<std::filesys
     return std::nullopt;
 }
 
-
 struct ScriptResult {
     int exit_code;
     std::string output;
@@ -81,7 +73,6 @@ struct ScriptResult {
     std::vector<Diagnostic> diagnostics;
     std::chrono::milliseconds duration{0};
 };
-
 
 inline auto script_language_to_string(ScriptLanguage lang) -> std::string_view {
     switch (lang) {

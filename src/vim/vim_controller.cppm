@@ -13,9 +13,10 @@
 module;
 
 #include <cstdint>
-#include <string>
 
 export module cc.vim.vim_controller;
+
+import std;
 
 import cc.vim.vim_types;
 

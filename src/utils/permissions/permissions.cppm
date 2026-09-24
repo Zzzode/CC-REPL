@@ -1,21 +1,13 @@
 // C++23 Module: Permission system core
 
 module;
-#include <algorithm>
-#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cctype>
-#include <expected>
-#include <format>
-#include <functional>
-#include <ranges>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 export module cc.utils.permissions;
+
+import std;
 
 import cc.utils.shell_parser;
 

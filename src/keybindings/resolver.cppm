@@ -3,15 +3,10 @@
 /// Migrated from src/keybindings/resolver.ts, validate.ts, loadUserBindings.ts
 module;
 
-#include <string>
-#include <vector>
-#include <optional>
-#include <unordered_map>
-#include <functional>
-#include <filesystem>
-#include <fstream>
 
 export module cc.keybindings.resolver;
+
+import std;
 
 import cc.keybindings.schema;
 import cc.keybindings.defaults;

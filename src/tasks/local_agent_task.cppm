@@ -3,19 +3,10 @@
 /// Migrated from src/tasks/LocalAgentTask/LocalAgentTask.tsx
 module;
 
-#include <string>
-#include <vector>
-#include <optional>
-#include <functional>
-#include <utility>
-#include <chrono>
-#include <format>
-#include <mutex>
-#include <memory>
-#include <unordered_map>
-#include <future>
 
 export module cc.tasks.local_agent_task;
+
+import std;
 
 import cc.tasks.task;
 import cc.tasks.types;

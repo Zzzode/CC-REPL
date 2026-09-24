@@ -3,10 +3,10 @@
 module;
 
 #include <cstdlib>
-#include <string>
-#include <vector>
 
 export module cc.commands.stickers;
+
+import std;
 
 import cc.types.types;
 import cc.commands.command;

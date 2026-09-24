@@ -3,14 +3,7 @@
 /// their status, task assignments, and allows lifecycle control.
 module;
 
-#include <string>
-#include <vector>
-#include <memory>
-#include <functional>
-#include <optional>
-#include <format>
 #include <cstdint>
-#include <chrono>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
@@ -18,6 +11,8 @@ module;
 #include <ftxui/component/event.hpp>
 
 export module cc.ui.features.agents.agent_view;
+
+import std;
 
 import cc.types.types;
 

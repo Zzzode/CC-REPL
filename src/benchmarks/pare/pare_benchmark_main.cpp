@@ -1,7 +1,7 @@
 // Pare Benchmark Main Entry Point
 
-#include <iostream>
 
+import std;
 import cc.benchmarks.pare.cli;
 
 int main(int argc, const char* argv[]) {

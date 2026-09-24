@@ -1,19 +1,10 @@
 module;
-#include <string>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <functional>
-#include <map>
 #include <cctype>
 #include <cstdlib>
-#include <filesystem>
-#include <fstream>
-#include <sstream>
-#include <algorithm>
-#include <utility>
 
 export module cc.commands.mcp.add_command;
+
+import std;
 
 export namespace cc::commands {
 

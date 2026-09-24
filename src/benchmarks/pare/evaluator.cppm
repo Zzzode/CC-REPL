@@ -1,15 +1,10 @@
 module;
 
 #include <cctype>
-#include <string>
-#include <vector>
-#include <algorithm>
-#include <regex>
-#include <optional>
-#include <utility>
-#include <variant>
 
 export module cc.benchmarks.pare.evaluator;
+
+import std;
 
 import cc.benchmarks.pare.schema;
 

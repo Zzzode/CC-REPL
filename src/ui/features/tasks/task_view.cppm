@@ -3,14 +3,7 @@
 /// dependencies, and progress with interactive management.
 module;
 
-#include <string>
-#include <vector>
-#include <memory>
-#include <functional>
-#include <optional>
-#include <format>
 #include <cstdint>
-#include <chrono>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
@@ -19,7 +12,8 @@ module;
 
 export module cc.ui.features.tasks.task_view;
 
-import cc.types.types;
+import std;
+
 
 export namespace cc::ui::components::task_view {
 using namespace ftxui;

@@ -5,11 +5,8 @@
 
 #include <gtest/gtest.h>
 #include <cstdlib>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <vector>
 
+import std;
 import cc.commands.statusline;
 import cc.utils.statusline_runner;
 import cc.utils.json;

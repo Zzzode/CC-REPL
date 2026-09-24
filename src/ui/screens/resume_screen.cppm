@@ -17,19 +17,9 @@
 /// (UI18) and use the design tokens defined in that screen.
 module;
 
+#include <unistd.h>
 #include <ctime>
-#include <string>
-#include <vector>
-#include <memory>
-#include <functional>
-#include <optional>
-#include <expected>
-#include <format>
 #include <cstdint>
-#include <chrono>
-#include <algorithm>
-#include <variant>
-#include <sstream>
 #include <cctype>
 
 #include <ftxui/dom/elements.hpp>
@@ -38,6 +28,8 @@ module;
 #include <ftxui/component/event.hpp>
 
 export module cc.ui.screens.resume_screen;
+
+import std;
 
 // ---------------------------------------------------------------------------
 // Cross-module imports

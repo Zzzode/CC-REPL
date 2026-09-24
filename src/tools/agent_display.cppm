@@ -9,18 +9,13 @@
 /// (Phase 4 responsibility).
 module;
 
-#include <algorithm>
 #include <cctype>
-#include <chrono>
-#include <optional>
-#include <set>
-#include <string>
-#include <string_view>
-#include <unordered_map>
-#include <utility>
-#include <vector>
+#include <cstddef>
+#include <cstdint>
 
 export module cc.tools.agent_display;
+
+import std;
 
 import cc.tools.agent_runtime;
 

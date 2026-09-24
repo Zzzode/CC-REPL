@@ -1,11 +1,9 @@
 module;
 #include <cstdio>
-#include <functional>
-#include <map>
-#include <string>
-#include <string_view>
 
 export module cc.hooks.tool_permission.interactive_handler;
+
+import std;
 
 export namespace cc::hooks::tool_permission {
 

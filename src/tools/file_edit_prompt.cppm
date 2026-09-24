@@ -5,12 +5,10 @@
 // ANT-user minimal-uniqueness hint).
 module;
 #include <cstddef>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <vector>
 
 export module cc.tools.file_edit_prompt;
+
+import std;
 
 import cc.tools.file_edit_types;
 import cc.utils.string_utils;     // for first_line_of

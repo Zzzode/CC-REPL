@@ -12,24 +12,11 @@
 module;
 
 #include <cctype>
-#include <algorithm>
-#include <chrono>
 #include <cstdint>
-#include <expected>
-#include <filesystem>
-#include <format>
-#include <fstream>
-#include <memory>
-#include <optional>
-#include <span>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <unordered_map>
-#include <utility>
-#include <vector>
 
 export module cc.tools.runtime_team_shared;
+
+import std;
 
 import cc.utils.json;
 import cc.tools.agent;                // cleanup_agent_worktree

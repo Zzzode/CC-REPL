@@ -1,12 +1,10 @@
 /// @file keybindings.cppm
 /// @brief Keybindings skill - keyboard shortcut management workflow.
 module;
-#include <string>
-#include <vector>
-#include <optional>
-#include <expected>
 
 export module cc.skills.keybindings;
+
+import std;
 
 import cc.skills.skill;
 

@@ -1,7 +1,6 @@
-module;
-#include <string>
-#include <string_view>
 export module cc.commands.version;
+
+import std;
 
 import cc.constants.product;
 

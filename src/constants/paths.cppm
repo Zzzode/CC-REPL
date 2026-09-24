@@ -28,15 +28,11 @@
 /// preferred name override the file sitting next to the code being edited.
 module;
 
-#include <array>
 #include <cstdlib>
-#include <filesystem>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <vector>
 
 export module cc.constants.paths;
+
+import std;
 
 export namespace cc::constants::paths {
 

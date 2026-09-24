@@ -1,17 +1,11 @@
 module;
-#include <chrono>
 #include <cstddef>
-#include <expected>
-#include <functional>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <variant>
-#include <vector>
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
 
 export module cc.ui.prompt.prompt_input_full;
+
+import std;
 
 import cc.ui.chrome.layout;
 import cc.ui.prompt.prompt_input;

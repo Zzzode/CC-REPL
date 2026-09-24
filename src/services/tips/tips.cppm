@@ -5,20 +5,11 @@
 module;
 
 #include <cstdint>
-#include <string>
-#include <vector>
-#include <unordered_map>
-#include <unordered_set>
-#include <optional>
-#include <expected>
-#include <chrono>
-#include <format>
-#include <ranges>
-#include <algorithm>
-#include <functional>
-#include <utility>
+#include <cstddef>
 
 export module cc.services.tips;
+
+import std;
 
 import cc.types.types;
 

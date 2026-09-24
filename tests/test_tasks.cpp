@@ -2,22 +2,9 @@
 /// @brief cc_tasks migration parity tests.
 
 #include <gtest/gtest.h>
-#include <chrono>
 #include <cstdlib>
-#include <deque>
-#include <filesystem>
-#include <future>
-#include <map>
-#include <memory>
-#include <optional>
-#include <ranges>
-#include <span>
-#include <string>
-#include <system_error>
-#include <unordered_map>
-#include <utility>
-#include <vector>
 
+import std;
 import cc.tools.agent_runtime;
 import cc.tools.agent_types;
 import cc.tools.spawn_multi_agent;

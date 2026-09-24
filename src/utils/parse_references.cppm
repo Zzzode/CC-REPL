@@ -8,16 +8,10 @@
 module;
 
 #include <cstddef>
-#include <format>
-#include <functional>
-#include <optional>
-#include <regex>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 export module cc.utils.parse_references;
+
+import std;
 
 export namespace cc::utils {
 

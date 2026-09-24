@@ -5,14 +5,6 @@
 module;
 
 #include <ctime>
-#include <string>
-#include <vector>
-#include <memory>
-#include <functional>
-#include <optional>
-#include <format>
-#include <chrono>
-#include <utility>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
@@ -20,6 +12,8 @@ module;
 #include <ftxui/component/event.hpp>
 
 export module cc.ui.dialogs.settings_status_page;
+
+import std;
 
 import cc.types.types;
 

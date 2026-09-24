@@ -5,9 +5,9 @@
 /// integrity it now simply re-exports the default renderers (all of
 /// which delegate to the single source-of-truth modules).
 module;
-#include <utility>
-#include <vector>
 export module cc.ui.dialogs.bottom_renderers;
+
+import std;
 import cc.ui.dialogs.default_renderers;
 
 export namespace cc::ui::dialogs::bottom_renderers {

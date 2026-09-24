@@ -1,23 +1,11 @@
 // LSP Server Manager Module
 module;
-#include <algorithm>
-#include <any>
-#include <chrono>
 #include <cstdlib>
-#include <expected>
-#include <filesystem>
-#include <format>
-#include <fstream>
-#include <memory>
-#include <optional>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <system_error>
-#include <unordered_map>
-#include <vector>
+#include <cstdint>
 
 export module cc.services.lsp.LSPServerManager;
+
+import std;
 
 import cc.utils.error;
 import cc.utils.json;

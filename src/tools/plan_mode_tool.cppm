@@ -1,18 +1,10 @@
 // PlanModeTool - Enter/exit plan mode for read-only planning sessions
 module;
-#include <array>
-#include <algorithm>
-#include <chrono>
 #include <cstddef>
-#include <expected>
-#include <format>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 export module cc.tools.plan_mode;
+
+import std;
 
 
 export namespace cc::tools {

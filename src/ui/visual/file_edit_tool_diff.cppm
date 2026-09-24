@@ -24,18 +24,14 @@
 // ───────────────────────────────────────────────────────────────────────────────
 module;
 
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <format>
-#include <algorithm>
 #include <cstdint>
 
 #include <ftxui/dom/elements.hpp>
+#include <cstddef>
 
 export module cc.ui.visual.file_edit_tool_diff;
+
+import std;
 
 import cc.utils.file_edit;
 import cc.utils.string_utils;

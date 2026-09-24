@@ -1,18 +1,11 @@
 module;
 
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <expected>
-#include <functional>
-#include <mutex>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <unordered_map>
-#include <vector>
 
 export module cc.utils.tokens;
+
+import std;
 
 export namespace cc::utils {
 

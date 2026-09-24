@@ -23,26 +23,18 @@
 ///   - cc.ui.widgets.custom_select            (Filter / Sort dropdowns)
 module;
 
-#include <algorithm>
 #include <cctype>
-#include <chrono>
 #include <cstdint>
-#include <format>
-#include <functional>
-#include <memory>
-#include <optional>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_base.hpp>
 #include <ftxui/component/event.hpp>
+#include <cstddef>
 
 export module cc.ui.features.agents.agent_list;
+
+import std;
 
 import cc.ui.features.agents.agent_shared_widgets;
 import cc.ui.features.agents.agent_cards;

@@ -1,17 +1,13 @@
+
 /// @file skillify.cppm
 /// @brief Bundled Skillify skill - full meta-skill creator with structured interview flow.
 /// Converts a session's repeatable workflow into a reusable SKILL.md file.
 /// Heavier than the root-level skillify.cppm which is a simplified version.
 module;
 
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
-#include <filesystem>
-#include <format>
-
 export module cc.skills.bundled.skillify;
+
+import std;
 
 import cc.skills.skill;
 import cc.skills.load_skills_dir;

@@ -6,17 +6,10 @@ module;
 
 #include <cstdint>
 #include <cstdio>
-#include <string>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <format>
-#include <ranges>
-#include <algorithm>
-#include <span>
-#include <array>
 
 export module cc.commands.review;
+
+import std;
 
 import cc.types.types;
 import cc.commands.command;

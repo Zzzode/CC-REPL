@@ -1,12 +1,12 @@
 module;
 
-#include <vector>
-#include <algorithm>
 #include <cmath>
-#include <string>
-#include <optional>
+#include <cstddef>
+#include <cstdint>
 
 export module cc.benchmarks.pare.metrics;
+
+import std;
 
 import cc.benchmarks.pare.schema;
 import cc.utils.json;

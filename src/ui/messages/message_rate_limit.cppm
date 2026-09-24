@@ -6,17 +6,14 @@
 ///   model: claude-sonnet-4-20250514
 module;
 
-#include <functional>
-#include <string>
-#include <optional>
-#include <chrono>
-#include <format>
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_base.hpp>
 #include <ftxui/component/event.hpp>
 
 export module cc.ui.messages.message_rate_limit;
+
+import std;
 
 import cc.ui.messages.message_components;
 

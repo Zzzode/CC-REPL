@@ -4,18 +4,12 @@ module;
 
 #include <cstdlib>
 #include <cctype>
-#include <expected>
-#include <filesystem>
-#include <format>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
-#include <array>
 #include <cstdio>
+#include <cstddef>
 
 export module cc.utils.git;
+
+import std;
 
 import cc.utils.error;
 import cc.utils.bash_execution;
@@ -27,14 +21,12 @@ using cc::utils::ErrorCode;
 using cc::utils::Result;
 namespace fs = std::filesystem;
 
-
 struct FileStatus {
     char index_status;
     char worktree_status;
     std::string path;
     std::string orig_path;
 };
-
 
 struct CommitInfo {
     std::string hash;
@@ -43,7 +35,6 @@ struct CommitInfo {
     std::string date;
     std::string message;
 };
-
 
 struct GitRepoState {
     std::string commit_hash;
@@ -63,7 +54,6 @@ struct CommandResult {
 
 // =========================================================================
 namespace detail {
-
 
 inline Result<std::string> exec_git(
     const std::string& args, const fs::path& cwd = {}) {
@@ -91,13 +81,11 @@ inline Result<std::string> exec_git(
             std::format("Git command failed (exit {}): {}", status, cmd)));
     }
 
-
     while (!output.empty() && output.back() == '\n') {
         output.pop_back();
     }
     return output;
 }
-
 
 inline std::vector<std::string> split_lines(std::string_view str) {
     std::vector<std::string> lines;
@@ -144,13 +132,11 @@ inline std::vector<std::string> split_lines(std::string_view str) {
     return run_git_command(std::format("worktree remove --force \"{}\"", target_dir), source_cwd);
 }
 
-
 [[nodiscard]] inline std::optional<fs::path> find_git_root(const fs::path& path) {
     auto result = detail::exec_git("rev-parse --show-toplevel", path);
     if (!result.has_value()) return std::nullopt;
     return fs::path(*result);
 }
-
 
 [[nodiscard]] inline std::optional<fs::path> find_git_root_fs(const fs::path& start_path) {
     fs::path current = start_path;
@@ -172,12 +158,10 @@ inline std::vector<std::string> split_lines(std::string_view str) {
     return std::nullopt;
 }
 
-
 [[nodiscard]] inline std::string get_branch(const fs::path& cwd = {}) {
     auto result = detail::exec_git("rev-parse --abbrev-ref HEAD", cwd);
     return result.has_value() ? *result : "";
 }
-
 
 [[nodiscard]] inline std::vector<FileStatus> get_status(const fs::path& cwd = {}) {
     auto result = detail::exec_git("status --porcelain=v1", cwd);
@@ -190,7 +174,6 @@ inline std::vector<std::string> split_lines(std::string_view str) {
         FileStatus fs;
         fs.index_status = line[0];
         fs.worktree_status = line[1];
-
 
         auto path_part = std::string_view(line).substr(3);
         auto arrow_pos = path_part.find(" -> ");
@@ -205,7 +188,6 @@ inline std::vector<std::string> split_lines(std::string_view str) {
     return statuses;
 }
 
-
 [[nodiscard]] inline std::vector<std::string> get_changed_files(const fs::path& cwd = {}) {
     auto statuses = get_status(cwd);
     std::vector<std::string> files;
@@ -215,13 +197,11 @@ inline std::vector<std::string> split_lines(std::string_view str) {
     return files;
 }
 
-
 [[nodiscard]] inline std::string get_diff(bool staged = false, const fs::path& cwd = {}) {
     std::string args = staged ? "diff --cached" : "diff";
     auto result = detail::exec_git(args, cwd);
     return result.has_value() ? *result : "";
 }
-
 
 [[nodiscard]] inline std::vector<CommitInfo> get_log(
     std::size_t count = 10, const fs::path& cwd = {}) {
@@ -234,7 +214,6 @@ inline std::vector<std::string> split_lines(std::string_view str) {
     std::vector<CommitInfo> commits;
     std::string_view data = *result;
 
-
     std::size_t pos = 0;
     while (pos < data.size()) {
         auto record_end = data.find('\x01', pos);
@@ -243,12 +222,10 @@ inline std::vector<std::string> split_lines(std::string_view str) {
         auto record = data.substr(pos, record_end - pos);
         pos = record_end + 1;
 
-
         while (!record.empty() && record.front() == '\n') {
             record = record.substr(1);
         }
         if (record.empty()) continue;
-
 
         CommitInfo info;
         std::size_t field_start = 0;
@@ -274,12 +251,10 @@ inline std::vector<std::string> split_lines(std::string_view str) {
     return commits;
 }
 
-
 [[nodiscard]] inline bool is_git_repo(const fs::path& cwd = {}) {
     auto result = detail::exec_git("rev-parse --is-inside-work-tree", cwd);
     return result.has_value() && *result == "true";
 }
-
 
 [[nodiscard]] inline std::vector<fs::path> get_worktree_paths(const fs::path& cwd = {}) {
     auto result = detail::exec_git("worktree list --porcelain", cwd);
@@ -295,11 +270,9 @@ inline std::vector<std::string> split_lines(std::string_view str) {
     return paths;
 }
 
-
 [[nodiscard]] inline int get_worktree_count(const fs::path& cwd = {}) {
     return static_cast<int>(get_worktree_paths(cwd).size());
 }
-
 
 [[nodiscard]] inline std::string get_remote_url(
     std::string_view remote = "origin", const fs::path& cwd = {}) {
@@ -308,12 +281,10 @@ inline std::vector<std::string> split_lines(std::string_view str) {
     return result.has_value() ? *result : "";
 }
 
-
 [[nodiscard]] inline std::string get_head_hash(const fs::path& cwd = {}) {
     auto result = detail::exec_git("rev-parse HEAD", cwd);
     return result.has_value() ? *result : "";
 }
-
 
 [[nodiscard]] inline bool is_clean(const fs::path& cwd = {}, bool ignore_untracked = false) {
     std::string args = "--no-optional-locks status --porcelain";
@@ -324,12 +295,10 @@ inline std::vector<std::string> split_lines(std::string_view str) {
     return result.has_value() && result->empty();
 }
 
-
 [[nodiscard]] inline bool is_head_on_remote(const fs::path& cwd = {}) {
     auto result = detail::exec_git("rev-parse --verify @{u}", cwd);
     return result.has_value();
 }
-
 
 [[nodiscard]] inline int get_unpushed_commits_count(const fs::path& cwd = {}) {
     auto result = detail::exec_git("rev-list --count @{u}..HEAD", cwd);
@@ -340,7 +309,6 @@ inline std::vector<std::string> split_lines(std::string_view str) {
         return 0;
     }
 }
-
 
 [[nodiscard]] inline std::optional<std::string> normalize_git_remote_url(std::string_view url) {
     std::string trimmed(url);
@@ -393,7 +361,6 @@ inline std::vector<std::string> split_lines(std::string_view str) {
     
     return std::nullopt;
 }
-
 
 [[nodiscard]] inline std::optional<GitRepoState> get_git_state(const fs::path& cwd = {}) {
     if (!is_git_repo(cwd)) return std::nullopt;

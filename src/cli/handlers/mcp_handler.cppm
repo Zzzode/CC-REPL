@@ -1,20 +1,13 @@
 module;
-#include <string>
-#include <string_view>
-#include <vector>
-#include <span>
-#include <expected>
-#include <map>
-#include <filesystem>
-#include <fstream>
 #include <cstdlib>
 #include <cstdio>
-#include <array>
-#include <optional>
-#include <chrono>
 #include <csignal>
+#include <cstddef>
+#include <time.h>
 
 export module cc.cli.handlers.mcp_handler;
+
+import std;
 import cc.utils.bash_execution;
 
 export namespace cc::cli::handlers {

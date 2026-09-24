@@ -1,11 +1,10 @@
 /// @file prompt_queued_commands.cppm
 /// @brief Display for queued/pending commands
 module;
-#include <string>
-#include <vector>
-#include <format>
 #include <ftxui/dom/elements.hpp>
 export module cc.ui.prompt.prompt_queued_commands;
+
+import std;
 export namespace cc::ui::prompt {
 using namespace ftxui;
 struct QueuedCommand { std::string text; bool is_executing{false}; };

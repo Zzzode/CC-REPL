@@ -1,18 +1,13 @@
 module;
-#include <string>
-#include <string_view>
-#include <vector>
-#include <filesystem>
-#include <span>
-#include <algorithm>
 
 export module cc.tools.bash_permissions;
+
+import std;
 
 import cc.tools.command_semantics;  // migrated: shared classifiers
 import cc.tools.tool;  // ToolPermission for default_bash_level_for bridge
 
 export namespace cc::tools {
-
 
 enum class BashPermissionLevel {
     Blocked,
@@ -40,13 +35,11 @@ enum class BashPermissionLevel {
     return BashPermissionLevel::NeedsApproval;
 }
 
-
 enum class PermissionMode {
     Strict,
     Normal,
     Permissive
 };
-
 
 inline auto get_blocked_commands() -> std::vector<std::string> {
     return {
@@ -67,7 +60,6 @@ inline auto get_blocked_commands() -> std::vector<std::string> {
     };
 }
 
-
 inline auto is_safe_read_command(std::string_view command) -> bool {
 
     static const std::vector<std::string_view> safe_prefixes = {
@@ -80,7 +72,6 @@ inline auto is_safe_read_command(std::string_view command) -> bool {
         "tree", "du", "df", "free", "top -l 1",
         "ps", "id", "groups", "hostname"
     };
-
 
     auto trimmed = command;
     while (!trimmed.empty() && trimmed.front() == ' ') {
@@ -95,7 +86,6 @@ inline auto is_safe_read_command(std::string_view command) -> bool {
         });
 }
 
-
 inline auto is_in_allowed_directory(
     const std::filesystem::path& cmd_cwd,
     std::span<const std::filesystem::path> allowed_dirs
@@ -103,7 +93,6 @@ inline auto is_in_allowed_directory(
     if (allowed_dirs.empty()) {
         return true;
     }
-
 
     auto normalized_cwd = std::filesystem::weakly_canonical(cmd_cwd);
 
@@ -119,7 +108,6 @@ inline auto is_in_allowed_directory(
         });
 }
 
-
 inline auto check_bash_permission(
     std::string_view command,
     PermissionMode mode
@@ -129,14 +117,12 @@ inline auto check_bash_permission(
         return BashPermissionLevel::Blocked;
     }
 
-
     const auto blocked = get_blocked_commands();
     for (const auto& blocked_cmd : blocked) {
         if (command.find(blocked_cmd) != std::string_view::npos) {
             return BashPermissionLevel::Blocked;
         }
     }
-
 
     if (mode == PermissionMode::Permissive) {
         return BashPermissionLevel::Allowed;

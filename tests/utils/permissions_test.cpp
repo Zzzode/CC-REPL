@@ -1,9 +1,7 @@
 #include <gtest/gtest.h>
 
-#include <optional>
-#include <string>
-#include <vector>
 
+import std;
 import cc.utils.shell_rule_matching;
 import cc.utils.shell_parser;
 import cc.utils.permissions;

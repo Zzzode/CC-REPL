@@ -2,13 +2,8 @@
 #include <unistd.h>
 
 #include <cstdlib>
-#include <filesystem>
-#include <fstream>
-#include <optional>
-#include <sstream>
-#include <string>
-#include <vector>
 
+import std;
 import cc.services.analytics;
 import cc.utils.json;
 

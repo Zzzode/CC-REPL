@@ -7,22 +7,10 @@ module;
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
-#include <charconv>
-#include <filesystem>
-#include <fstream>
-#include <sstream>
-#include <string>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <format>
-#include <ranges>
-#include <algorithm>
-#include <span>
-#include <array>
-#include <string_view>
 
 export module cc.commands.copy_cmd;
+
+import std;
 import cc.utils.parse_int;
 
 import cc.types.types;

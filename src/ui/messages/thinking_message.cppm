@@ -7,23 +7,18 @@
 /// mode (a) plain and mode (b) redacted through a single data model.
 module;
 
-#include <string>
-#include <vector>
-#include <memory>
-#include <functional>
-#include <optional>
-#include <format>
 #include <cstdint>
-#include <chrono>
 #include <cctype>
-#include <algorithm>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_base.hpp>
 #include <ftxui/component/event.hpp>
+#include <cstddef>
 
 export module cc.ui.messages.thinking_message;
+
+import std;
 
 import cc.types.types;
 import cc.ui.foundation.design_figures;  // kSpinnerFrames canonical set (GAP 4)

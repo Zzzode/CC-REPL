@@ -1,24 +1,12 @@
 // C++23 Module: Runtime settings state management with layered config and persistence
 module;
 
-#include <algorithm>
 #include <cstddef>
 #include <cstdint>
-#include <expected>
-#include <format>
-#include <functional>
-#include <map>
-#include <optional>
-#include <ranges>
-#include <string>
-#include <string_view>
-#include <tuple>
-#include <type_traits>
-#include <utility>
-#include <variant>
-#include <vector>
 
 export module cc.hooks.settings_hooks;
+
+import std;
 
 import cc.utils.json;
 

@@ -8,14 +8,10 @@
 
 module;
 
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
-#include <variant>
-#include <format>
 
 export module cc.commands.plugin_details_helpers;
+
+import std;
 
 export namespace cc::commands::plugin {
 

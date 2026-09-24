@@ -4,19 +4,11 @@
 module;
 
 #include <cctype>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <unordered_set>
-#include <unordered_map>
-#include <functional>
-#include <algorithm>
-#include <chrono>
 #include <cstdint>
 
 export module cc.utils.powershell_parser;
+
+import std;
 
 export namespace cc::utils::powershell_parser {
 

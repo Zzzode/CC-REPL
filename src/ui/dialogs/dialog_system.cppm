@@ -22,22 +22,14 @@
 ///   5. Callbacks fire, dialogs pop, queue advances
 module;
 
-#include <array>
 #include <cstdint>
-#include <deque>
-#include <functional>
-#include <memory>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <variant>
-#include <vector>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
 
 export module cc.ui.dialogs.system;
+
+import std;
 
 import cc.ui.foundation.theme_provider;
 import cc.ui.permissions.single_prompt;

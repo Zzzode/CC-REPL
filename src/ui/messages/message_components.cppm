@@ -1,18 +1,12 @@
 module;
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <expected>
-#include <functional>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <variant>
-#include <vector>
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
 
 export module cc.ui.messages.message_components;
+
+import std;
 
 import cc.ui.chrome.layout;
 import cc.ui.foundation.design_figures;  // kBlackCircleFallback (● U+25CF) — single source of truth

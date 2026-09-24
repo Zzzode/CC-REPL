@@ -12,15 +12,10 @@
 // adds +1). We normalise to 1-based inside dispatch_at_mention so the
 // responder always sees 1-based values, matching TS onAtMentioned output.
 module;
-#include <functional>
-#include <mutex>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 export module cc.services.mcp.at_mention_handler;
+
+import std;
 
 import cc.utils.json;
 

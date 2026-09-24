@@ -13,13 +13,11 @@
 /// It handles both signed and unsigned integer types.
 module;
 
-#include <charconv>       // std::errc (the enum only, which is portable)
 #include <cstdint>
-#include <limits>
-#include <system_error>
-#include <type_traits>
 
 export module cc.utils.parse_int;
+
+import std;
 
 namespace cc::utils::parse_int_detail {
 

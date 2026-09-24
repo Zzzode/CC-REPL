@@ -1,19 +1,12 @@
 // WebSearchTool - Web search via search engine
 module;
 
-#include <format>
-#include <algorithm>
-#include <array>
 #include <cctype>
 #include <cstdio>
-#include <string>
-#include <string_view>
-#include <optional>
-#include <memory>
-#include <expected>
-#include <vector>
 
 export module cc.tools.web_search;
+
+import std;
 
 import cc.utils.error;
 import cc.tools.tool;

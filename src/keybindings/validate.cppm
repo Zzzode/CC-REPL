@@ -5,14 +5,10 @@ module;
 
 #include <cctype>
 #include <cstdint>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <expected>
-#include <optional>
-#include <span>
 
 export module cc.keybindings.validate;
+
+import std;
 
 export namespace cc::keybindings::validate {
 

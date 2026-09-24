@@ -1,23 +1,12 @@
 // C++23 Module: Command queue for serialized execution with priority and deduplication
 module;
 
-#include <algorithm>
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <deque>
-#include <expected>
-#include <format>
-#include <functional>
-#include <mutex>
-#include <optional>
-#include <ranges>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 export module cc.hooks.command_queue;
+
+import std;
 
 
 export namespace cc::hooks {

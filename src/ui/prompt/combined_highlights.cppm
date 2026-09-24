@@ -26,19 +26,14 @@
 ///   src/components/PromptInput/PromptInput.tsx:541-579 (memberMentionHighlights)
 module;
 
-#include <algorithm>
-#include <array>
 #include <cstddef>
 #include <cstdint>
-#include <optional>
-#include <regex>
-#include <string>
-#include <string_view>
-#include <vector>
 
 #include <ftxui/screen/color.hpp>
 
 export module cc.ui.prompt.combined_highlights;
+
+import std;
 
 import cc.utils.text_highlighting;
 import cc.utils.parse_references;

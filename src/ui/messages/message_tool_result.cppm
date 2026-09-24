@@ -4,15 +4,13 @@ module;
 
 #include <cctype>
 #include <cstdint>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
-#include <variant>
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
+#include <cstddef>
 
 export module cc.ui.messages.message_tool_result;
+
+import std;
 
 import cc.types.types;
 import cc.ui.chrome.terminal_io;

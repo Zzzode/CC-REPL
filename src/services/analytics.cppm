@@ -20,25 +20,14 @@
 /// worth having.
 module;
 
-#include <chrono>
 #include <cstdlib>
-#include <filesystem>
-#include <format>
-#include <mutex>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <system_error>
-#include <unordered_map>
-#include <utility>
-#include <vector>
+#include <cstdint>
+export module cc.services.analytics;
 
-#include <fstream>
+import std;
 
 import cc.utils.json;
 import cc.utils.xdg;
-
-export module cc.services.analytics;
 
 export namespace cc::services::analytics {
 

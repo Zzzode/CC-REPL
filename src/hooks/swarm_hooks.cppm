@@ -4,21 +4,12 @@
 /// conversation routing, and parallel execution progress.
 module;
 
-#include <algorithm>
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <functional>
-#include <optional>
-#include <ranges>
-#include <string>
-#include <string_view>
-#include <unordered_map>
-#include <utility>
-#include <vector>
 
 export module cc.hooks.swarm_hooks;
 
+import std;
 
 export namespace cc::hooks {
 
@@ -227,10 +218,8 @@ public:
         state_.handoff_history.push_back(event);
         state_.active_agent_id = std::string(to);
 
-
         update_agent_status(from, AgentStatus::Completed);
         update_agent_status(to, AgentStatus::Thinking);
-
 
         if (on_handoff_) on_handoff_(event);
     }

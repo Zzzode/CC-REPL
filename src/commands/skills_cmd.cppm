@@ -6,24 +6,11 @@
 module;
 
 #include <cstdint>
-#include <string>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <format>
-#include <ranges>
-#include <algorithm>
-#include <span>
-#include <array>
 #include <cstdlib>
-#include <filesystem>
-#include <fstream>
-#include <iterator>
-#include <unordered_set>
-#include <regex>
-#include <string_view>
 
 export module cc.commands.skills_cmd;
+
+import std;
 
 import cc.types.types;
 import cc.commands.command;

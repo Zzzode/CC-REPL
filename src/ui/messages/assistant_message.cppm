@@ -1,14 +1,10 @@
 module;
 
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
-#include <variant>
-#include <chrono>
 #include <cstdint>
 
 export module cc.ui.messages.assistant_message;
+
+import std;
 
 export namespace cc::ui::messages {
 

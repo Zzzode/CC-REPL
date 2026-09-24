@@ -4,22 +4,17 @@
 /// AgentDetail.tsx, and CreateAgentWizard.tsx.
 module;
 
-#include <string>
-#include <vector>
-#include <memory>
-#include <functional>
-#include <optional>
-#include <format>
 #include <cstdint>
-#include <chrono>
-#include <variant>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_base.hpp>
 #include <ftxui/component/event.hpp>
+#include <cstddef>
 
 export module cc.ui.features.agents.agent_editor;
+
+import std;
 
 import cc.types.types;
 

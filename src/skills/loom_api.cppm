@@ -1,12 +1,10 @@
 /// @file loom_api.cppm
 /// @brief Loom API skill - direct API interaction patterns.
 module;
-#include <string>
-#include <vector>
-#include <optional>
-#include <expected>
 
 export module cc.skills.loom_api;
+
+import std;
 
 import cc.skills.skill;
 

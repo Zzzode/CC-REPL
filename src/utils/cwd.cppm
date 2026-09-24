@@ -1,18 +1,10 @@
-module;
-
-#include <filesystem>
-#include <functional>
-#include <optional>
-#include <string>
-#include <array>
-#include <system_error>
-
 export module cc.utils.cwd;
+
+import std;
 
 namespace fs = std::filesystem;
 
 export namespace cc::utils {
-
 
 inline fs::path get_cwd() {
     std::error_code ec;
@@ -23,13 +15,11 @@ inline fs::path get_cwd() {
     return cwd;
 }
 
-
 inline bool set_cwd(const fs::path& new_dir) {
     std::error_code ec;
     fs::current_path(new_dir, ec);
     return !ec;
 }
-
 
 class ScopedCwd {
 public:
@@ -42,7 +32,6 @@ public:
         restore();
     }
 
-
     void restore() {
         if (!restored_) {
             set_cwd(original_dir_);
@@ -50,13 +39,10 @@ public:
         }
     }
 
-
     const fs::path& original() const { return original_dir_; }
-
 
     ScopedCwd(const ScopedCwd&) = delete;
     ScopedCwd& operator=(const ScopedCwd&) = delete;
-
 
     ScopedCwd(ScopedCwd&& other) noexcept
         : original_dir_(std::move(other.original_dir_)), restored_(other.restored_) {
@@ -68,12 +54,10 @@ private:
     bool restored_;
 };
 
-
 inline void with_cwd(const fs::path& dir, std::function<void()> fn) {
     ScopedCwd guard(dir);
     fn();
 }
-
 
 inline std::optional<fs::path> find_project_root(fs::path start) {
 
@@ -99,7 +83,6 @@ inline std::optional<fs::path> find_project_root(fs::path start) {
             }
         }
 
-
         if (current == root) {
             break;
         }
@@ -112,7 +95,6 @@ inline std::optional<fs::path> find_project_root(fs::path start) {
 
     return std::nullopt;
 }
-
 
 inline std::optional<fs::path> find_project_root() {
     return find_project_root(get_cwd());

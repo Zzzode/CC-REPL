@@ -1,9 +1,7 @@
-module;
-#include <string>
-#include <string_view>
-#include <vector>
 
 export module cc.utils.model.model;
+
+import std;
 
 export namespace cc::utils {
 

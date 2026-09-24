@@ -1,13 +1,10 @@
 module;
 
-#include <string>
-#include <string_view>
-#include <optional>
-#include <filesystem>
 #include <cstdio>
-#include <array>
 
 export module cc.utils.detect_repository;
+
+import std;
 
 import cc.utils.bash_execution;
 

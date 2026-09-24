@@ -6,18 +6,10 @@
 // policy enforcement, startup checks, marketplace reconciliation, and refresh.
 module;
 
-#include <chrono>
-#include <expected>
-#include <filesystem>
-#include <functional>
-#include <map>
-#include <optional>
-#include <set>
-#include <string>
-#include <string_view>
-#include <vector>
 
 export module cc.utils.plugin_manager;
+
+import std;
 
 import cc.utils.plugin_identifier;
 import cc.utils.plugin_loader;

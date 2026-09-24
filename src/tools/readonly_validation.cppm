@@ -19,21 +19,13 @@
 
 module;
 
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
-#include <array>
-#include <unordered_map>
-#include <unordered_set>
-#include <span>
-#include <functional>
-#include <algorithm>
 #include <cctype>
-#include <regex>
-#include <ranges>
+#include <cstddef>
+#include <cstdlib>
 
 export module cc.tools.readonly_validation;
+
+import std;
 
 import cc.tools.mode_validation;   // PermissionBehavior / PermissionResult / PermissionMode
 import cc.tools.path_validation;   // FileOperationType / split_compound_command / simple_shell_tokenize

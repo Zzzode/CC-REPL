@@ -1,11 +1,9 @@
 module;
 #include <cstddef>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <vector>
 
 export module cc.utils.collapse_read_search;
+
+import std;
 
 export namespace cc::utils::collapse_read_search {
 

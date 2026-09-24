@@ -1,20 +1,10 @@
 module;
-#include <string>
-#include <string_view>
-#include <expected>
-#include <algorithm>
-#include <atomic>
-#include <mutex>
-#include <chrono>
-#include <functional>
-#include <vector>
-#include <optional>
-#include <unordered_map>
 #include <cstdio>
-#include <array>
-#include <sstream>
+#include <cstdint>
 
 export module cc.cli.ccr_client;
+
+import std;
 
 import cc.utils.http;
 

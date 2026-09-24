@@ -1,13 +1,10 @@
 module;
-#include <algorithm>
-#include <chrono>
 #include <cmath>
 #include <cstddef>
-#include <functional>
-#include <optional>
-#include <vector>
 
 export module cc.utils.fps_tracker;
+
+import std;
 
 export namespace cc::utils::fps {
 

@@ -2,28 +2,11 @@
 // Provides task output management with memory and disk buffering
 module;
 
-#include <atomic>
-#include <chrono>
-#include <condition_variable>
 #include <cstddef>
-#include <deque>
-#include <expected>
-#include <filesystem>
-#include <fstream>
-#include <functional>
-#include <future>
-#include <map>
-#include <memory>
-#include <mutex>
-#include <optional>
-#include <queue>
-#include <set>
-#include <string>
-#include <string_view>
-#include <thread>
-#include <vector>
 
 export module cc.utils.task_output;
+
+import std;
 
 import cc.utils.circular_buffer;
 import cc.utils.error;
@@ -48,12 +31,10 @@ std::vector<T> get_recent(const CircularBuffer<T, Cap>& buf, size_t n) {
     return result;
 }
 
-
 constexpr std::size_t DEFAULT_MAX_MEMORY = 8 * 1024 * 1024;  // 8MB
 constexpr std::size_t MAX_TASK_OUTPUT_BYTES = 5ULL * 1024 * 1024 * 1024;  // 5GB
 constexpr std::size_t PROGRESS_TAIL_BYTES = 4096;
 constexpr int POLL_INTERVAL_MS = 1000;
-
 
 using ProgressCallback = std::function<void(
     std::string_view last_lines,
@@ -61,7 +42,6 @@ using ProgressCallback = std::function<void(
     std::size_t total_lines,
     std::size_t total_bytes,
     bool is_incomplete)>;
-
 
 class DiskTaskOutput;
 
@@ -79,10 +59,8 @@ public:
         flush();
     }
 
-
     DiskTaskOutput(const DiskTaskOutput&) = delete;
     DiskTaskOutput& operator=(const DiskTaskOutput&) = delete;
-
 
     void append(std::string_view content) {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -101,7 +79,6 @@ public:
         }
     }
 
-
     VoidResult flush() {
         std::lock_guard<std::mutex> lock(mutex_);
         if (flush_future_.valid()) {
@@ -114,12 +91,10 @@ public:
         return {};
     }
 
-
     void cancel() {
         std::lock_guard<std::mutex> lock(mutex_);
         queue_.clear();
     }
-
 
     [[nodiscard]] const fs::path& path() const noexcept { return path_; }
 
@@ -131,7 +106,6 @@ private:
             std::deque<std::string> local_queue;
             local_queue.swap(queue_);
             lock.unlock();
-
 
             if (!local_queue.empty()) {
                 try {
@@ -169,7 +143,6 @@ private:
     bool cancelled_ = false;
     std::future<void> flush_future_;
 
-
     static fs::path& get_task_output_dir() {
         static fs::path dir;
         if (dir.empty()) {
@@ -203,26 +176,21 @@ public:
         clear();
     }
 
-
     TaskOutput(const TaskOutput&) = delete;
     TaskOutput& operator=(const TaskOutput&) = delete;
-
 
     void write_stdout(std::string_view data) {
         write_buffered(data, false);
     }
 
-
     void write_stderr(std::string_view data) {
         write_buffered(data, true);
     }
-
 
     [[nodiscard]] Result<std::string> get_stdout() {
         if (stdout_to_file_) {
             return read_stdout_from_file();
         }
-
 
         if (disk_) {
             auto recent = get_recent(recent_lines_, 5);
@@ -239,34 +207,26 @@ public:
         return stdout_buffer_;
     }
 
-
     [[nodiscard]] std::string get_stderr() const {
         if (disk_) return {};
         return stderr_buffer_;
     }
 
-
     [[nodiscard]] bool is_overflowed() const noexcept { return disk_ != nullptr; }
-
 
     [[nodiscard]] std::size_t total_lines() const noexcept { return total_lines_; }
 
-
     [[nodiscard]] std::size_t total_bytes() const noexcept { return total_bytes_; }
-
 
     [[nodiscard]] bool output_file_redundant() const noexcept { return output_file_redundant_; }
 
-
     [[nodiscard]] std::size_t output_file_size() const noexcept { return output_file_size_; }
-
 
     void spill_to_disk() {
         if (!disk_) {
             create_disk_output(nullptr, nullptr);
         }
     }
-
 
     VoidResult flush() {
         if (disk_) {
@@ -275,12 +235,10 @@ public:
         return {};
     }
 
-
     void delete_output_file() {
         std::error_code ec;
         fs::remove(path_, ec);
     }
-
 
     void clear() {
         stdout_buffer_.clear();
@@ -294,7 +252,6 @@ public:
         stop_polling(task_id_);
     }
 
-
     static void start_polling(const std::string& task_id) {
         auto& registry = get_registry();
         std::lock_guard<std::mutex> lock(registry.mutex);
@@ -304,13 +261,11 @@ public:
         }
     }
 
-
     static void stop_polling(const std::string& task_id) {
         auto& registry = get_registry();
         std::lock_guard<std::mutex> lock(registry.mutex);
         registry.active_polling.erase(task_id);
     }
-
 
     void register_for_polling() {
         if (stdout_to_file_ && on_progress_) {
@@ -319,7 +274,6 @@ public:
             registry.instances[task_id_] = this;
         }
     }
-
 
     void unregister_for_polling() {
         auto& registry = get_registry();
@@ -450,7 +404,6 @@ private:
         }
     }
 
-
     struct PollRegistry {
         std::mutex mutex;
         std::map<std::string, TaskOutput*> instances;
@@ -477,7 +430,6 @@ private:
 
                         if (!reg.poller_running) break;
 
-
                         std::vector<std::pair<std::string, TaskOutput*>> active;
                         for (const auto& task_id : reg.active_polling) {
                             if (auto it = reg.instances.find(task_id); it != reg.instances.end()) {
@@ -485,7 +437,6 @@ private:
                             }
                         }
                         lock.unlock();
-
 
                         for (auto& [task_id, instance] : active) {
                             poll_instance(instance);
@@ -502,7 +453,6 @@ private:
         try {
             auto size_result = file::get_file_size(instance->path_);
             std::size_t file_size = size_result ? *size_result : 0;
-
 
             instance->on_progress_("", "", instance->total_lines_, file_size, false);
         } catch (...) {
@@ -529,12 +479,10 @@ private:
 
 // =========================================================================
 
-
 [[nodiscard]] inline auto get_task_output_path(std::string_view task_id) -> fs::path {
     auto tmp_dir = fs::temp_directory_path();
     return tmp_dir / "cc_tasks" / std::format("{}.output", task_id);
 }
-
 
 inline void ensure_task_output_dir() {
     std::error_code ec;
@@ -542,11 +490,9 @@ inline void ensure_task_output_dir() {
     fs::create_directories(dir, ec);
 }
 
-
 [[nodiscard]] inline auto init_task_output(std::string_view task_id) -> Result<fs::path> {
     ensure_task_output_dir();
     auto path = get_task_output_path(task_id);
-
 
     std::ofstream file(path, std::ios::binary | std::ios::trunc);
     if (!file.is_open()) {
@@ -556,7 +502,6 @@ inline void ensure_task_output_dir() {
     }
     return path;
 }
-
 
 [[nodiscard]] inline auto get_task_output(std::string_view task_id,
                                           std::size_t max_bytes = 8 * 1024 * 1024) -> Result<std::string> {
@@ -579,7 +524,6 @@ inline void ensure_task_output_dir() {
     }
     return content;
 }
-
 
 inline void cleanup_task_output(std::string_view task_id) {
     auto path = get_task_output_path(task_id);

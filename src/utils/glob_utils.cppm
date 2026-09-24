@@ -3,14 +3,10 @@
 module;
 
 #include <cstddef>
-#include <expected>
-#include <filesystem>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <vector>
 
 export module cc.utils.glob_utils;
+
+import std;
 
 import cc.utils.async;
 

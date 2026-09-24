@@ -2,12 +2,8 @@
 #include <unistd.h>
 
 #include <cstdlib>
-#include <filesystem>
-#include <fstream>
-#include <optional>
-#include <string>
-#include <vector>
 
+import std;
 import cc.constants.paths;
 
 namespace fs = std::filesystem;

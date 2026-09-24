@@ -1,14 +1,13 @@
 // Compact boundary message - marks where conversation history was compacted
 module;
 
-#include <string>
-#include <optional>
 #include <cstdint>
-#include <format>
 
 #include <ftxui/dom/elements.hpp>
 
 export module cc.ui.messages.message_compact_boundary;
+
+import std;
 
 export namespace cc::ui::messages::compact_boundary {
 using namespace ftxui;

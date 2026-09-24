@@ -3,17 +3,12 @@
 // Note: The full dynamic prompt assembly logic (getSystemPrompt, computeEnvInfo, etc.)
 // is complex and runtime-dependent; only the static constants are migrated here.
 module;
-#include <algorithm>
 #include <cstdlib>
-#include <filesystem>
-#include <sstream>
-#include <string>
-#include <string_view>
 #include <sys/utsname.h>
-#include <vector>
 
 export module cc.constants.prompts;
 
+import std;
 
 export namespace cc::constants::prompts {
 

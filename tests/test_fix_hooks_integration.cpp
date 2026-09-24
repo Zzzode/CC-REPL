@@ -11,13 +11,8 @@
 
 #include <gtest/gtest.h>
 
-#include <filesystem>
-#include <memory>
-#include <optional>
-#include <string>
-#include <variant>
-#include <vector>
 
+import std;
 import cc.query.query_engine;
 import cc.tools.tool;
 import cc.utils.hooks_execution;

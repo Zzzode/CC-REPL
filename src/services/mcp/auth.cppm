@@ -1,26 +1,13 @@
 // MCP Authentication Module
 module;
-#include <algorithm>
 #include <cstdint>
 #include <cstdlib>
-#include <chrono>
-#include <expected>
-#include <filesystem>
-#include <fstream>
-#include <functional>
-#include <optional>
-#include <sstream>
-#include <stdexcept>
-#include <stop_token>
-#include <string>
-#include <string_view>
-#include <system_error>
-#include <utility>
-#include <vector>
 #include <cctype>
 #include <httplib.h>
 
 export module cc.services.mcp.auth;
+
+import std;
 
 import cc.utils.error;
 import cc.utils.json;

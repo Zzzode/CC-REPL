@@ -1,23 +1,18 @@
 module;
-#include <string>
-#include <string_view>
-#include <optional>
-#include <vector>
-#include <algorithm>
-#include <regex>
 #include <cctype>
+#include <cstddef>
 
 export module cc.tools.bash_security;
 
-export namespace cc::tools {
+import std;
 
+export namespace cc::tools {
 
 struct SecurityCheck {
     bool passed;
     std::string reason;
     std::optional<std::string> suggestion;
 };
-
 
 // Normalize a command before security pattern matching so trivial
 // obfuscations cannot bypass detection. Collapses whitespace runs, decodes
@@ -61,7 +56,6 @@ inline auto normalize_for_security(std::string_view command) -> std::string {
     return out;
 }
 
-
 inline auto is_destructive_command(std::string_view command) -> bool {
     static const std::vector<std::string_view> destructive_patterns = {
         "rm -rf", "rm -r", "rmdir", "mkfs", "format", "fdisk",
@@ -77,7 +71,6 @@ inline auto is_destructive_command(std::string_view command) -> bool {
         });
 }
 
-
 inline auto detect_injection(std::string_view command) -> bool {
 
     static const std::vector<std::string_view> injection_patterns = {
@@ -89,8 +82,6 @@ inline auto detect_injection(std::string_view command) -> bool {
         "${IFS}",
         "<<<",
     };
-
-
 
     static const std::vector<std::string_view> critical_injections = {
         "$(", "`",
@@ -105,7 +96,6 @@ inline auto detect_injection(std::string_view command) -> bool {
             return normalized.find(pattern) != std::string::npos;
         });
 }
-
 
 inline auto detect_privilege_escalation(std::string_view command) -> bool {
     static const std::vector<std::string_view> escalation_patterns = {
@@ -133,11 +123,8 @@ inline auto detect_privilege_escalation(std::string_view command) -> bool {
         });
 }
 
-
 inline auto sanitize_command_for_display(std::string_view command) -> std::string {
     std::string result(command);
-
-
 
     static const std::regex secret_patterns[] = {
         std::regex(R"((API_KEY|SECRET|TOKEN|PASSWORD|PASSWD|KEY)=['"]?)[^\s'"]+)", std::regex::icase),
@@ -154,13 +141,11 @@ inline auto sanitize_command_for_display(std::string_view command) -> std::strin
     return result;
 }
 
-
 inline auto check_command_security(std::string_view command) -> SecurityCheck {
 
     if (command.empty()) {
         return SecurityCheck{false, "Empty command", std::nullopt};
     }
-
 
     if (is_destructive_command(command)) {
         return SecurityCheck{
@@ -170,7 +155,6 @@ inline auto check_command_security(std::string_view command) -> SecurityCheck {
         };
     }
 
-
     if (detect_injection(command)) {
         return SecurityCheck{
             false,
@@ -178,7 +162,6 @@ inline auto check_command_security(std::string_view command) -> SecurityCheck {
             "Avoid using command substitution or eval in tool-executed commands"
         };
     }
-
 
     if (detect_privilege_escalation(command)) {
         return SecurityCheck{

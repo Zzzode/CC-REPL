@@ -21,14 +21,11 @@
 module;
 
 #include <cctype>
-#include <chrono>
 #include <cstdint>
-#include <filesystem>
-#include <format>
-#include <string>
-#include <string_view>
 
 export module cc.tools.runtime_shared_utils;
+
+import std;
 
 import cc.tools.send_message;   // MessagePriority / message_priority_name
 

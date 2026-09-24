@@ -1,20 +1,12 @@
 module;
-#include <string>
-#include <string_view>
-#include <optional>
-#include <expected>
-#include <filesystem>
-#include <fstream>
-#include <functional>
-#include <sstream>
 #include <cstdlib>
 #include <cstdio>
-#include <vector>
-#include <algorithm>
-#include <chrono>
 #include <httplib.h>
+#include <cstddef>
 
 export module cc.cli.update;
+
+import std;
 
 namespace cc::cli::detail {
 

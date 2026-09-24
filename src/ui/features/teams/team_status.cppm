@@ -3,14 +3,7 @@
 /// Migrated from src/components/teams/, TeammateViewHeader.tsx, CoordinatorAgentStatus.tsx
 module;
 
-#include <string>
-#include <vector>
-#include <memory>
-#include <functional>
-#include <optional>
-#include <format>
 #include <cstdint>
-#include <chrono>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
@@ -18,6 +11,8 @@ module;
 #include <ftxui/component/event.hpp>
 
 export module cc.ui.features.teams.team_status;
+
+import std;
 
 export namespace cc::ui::team_status {
 using namespace ftxui;

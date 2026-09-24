@@ -9,15 +9,7 @@
 module;
 
 #include <cctype>
-#include <string>
-#include <vector>
-#include <memory>
-#include <functional>
-#include <optional>
-#include <format>
 #include <cstdint>
-#include <chrono>
-#include <algorithm>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
@@ -25,6 +17,8 @@ module;
 #include <ftxui/component/event.hpp>
 
 export module cc.ui.features.tasks.task_wizard;
+
+import std;
 
 import cc.ui.dialogs.wizard_dialog;
 import cc.ui.features.tasks.task_components;

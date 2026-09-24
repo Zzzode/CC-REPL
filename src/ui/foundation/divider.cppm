@@ -1,9 +1,7 @@
-module;
-#include <string>
-#include <optional>
-#include <sstream>
 
 export module cc.ui.foundation.divider;
+
+import std;
 
 export namespace cc::ui::design {
 

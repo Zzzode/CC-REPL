@@ -21,27 +21,19 @@
 module;
 
 #include <cmath>
-#include <string>
-#include <vector>
-#include <memory>
-#include <functional>
-#include <optional>
-#include <format>
 #include <cstdint>
-#include <algorithm>
 #include <cctype>
-#include <bitset>
-#include <unordered_set>
-#include <utility>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_base.hpp>
 #include <ftxui/component/event.hpp>
+#include <cstddef>
 
 export module cc.ui.widgets.custom_select;
 
-import cc.types.types;
+import std;
+
 
 export namespace cc::ui::custom_select {
 using namespace ftxui;

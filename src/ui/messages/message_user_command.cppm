@@ -7,18 +7,16 @@
 module;
 
 #include <climits>
-#include <functional>
-#include <string>
-#include <string_view>
-#include <optional>
-#include <vector>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_base.hpp>
 #include <ftxui/component/event.hpp>
+#include <cstddef>
 
 export module cc.ui.messages.message_user_command;
+
+import std;
 
 export namespace cc::ui::messages::user_command {
 using namespace ftxui;

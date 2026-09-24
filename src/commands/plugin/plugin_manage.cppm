@@ -17,15 +17,10 @@ module;
 #include <cctype>
 #include <cstddef>
 #include <cstdint>
-#include <filesystem>
-#include <optional>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 export module cc.commands.plugin_manage;
+
+import std;
 
 import cc.commands.plugin_helpers;
 import cc.utils.plugin_validation;

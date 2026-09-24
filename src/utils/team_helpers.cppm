@@ -1,31 +1,19 @@
 module;
 
-#include <algorithm>
 #include <cerrno>
-#include <chrono>
 #include <cctype>
 #include <cstdint>
 #include <cstdlib>
-#include <expected>
-#include <filesystem>
-#include <mutex>
-#include <optional>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <thread>
 #if !defined(_WIN32)
 #include <fcntl.h>
 #include <sys/file.h>
 #include <unistd.h>
+#include <cstddef>
 #endif
-#include <utility>
-#include <vector>
-#include <fstream>
-#include <functional>
-#include <initializer_list>
 
 export module cc.utils.team_helpers;
+
+import std;
 
 import cc.utils.json;
 

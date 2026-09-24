@@ -1,11 +1,7 @@
 #include <gtest/gtest.h>
 
-#include <filesystem>
-#include <fstream>
-#include <optional>
-#include <string>
-#include <vector>
 
+import std;
 import cc.utils.bash_shell_quoting;
 import cc.utils.memory_file_detection;
 import cc.utils.model_cost;

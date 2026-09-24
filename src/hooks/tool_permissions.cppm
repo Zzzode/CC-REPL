@@ -1,25 +1,14 @@
 // C++23 Module: Tool permission checking with path-based rules, auto-approve, and audit logging
 module;
 
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <format>
-#include <functional>
-#include <mutex>
-#include <optional>
-#include <span>
-#include <string>
-#include <string_view>
-#include <unordered_map>
-#include <utility>
-#include <vector>
 
 export module cc.hooks.tool_permissions;
 
+import std;
 
 export namespace cc::hooks {
-
 
 enum class PermissionDecision {
     allow,
@@ -35,13 +24,11 @@ struct PermissionResponse {
     std::optional<std::string> message;
 };
 
-
 struct PermissionRule {
     std::string tool_pattern;
     std::string path_pattern;
     PermissionDecision decision{PermissionDecision::allow};
     std::string reason;
-
 
     [[nodiscard]] auto matches(std::string_view tool_name,
                                 std::string_view path) const -> bool {
@@ -56,7 +43,6 @@ private:
         if (pattern == "*") return true;
         if (pattern == value) return true;
 
-
         if (pattern.ends_with('*')) {
             auto prefix = pattern.substr(0, pattern.size() - 1);
             return value.starts_with(prefix);
@@ -70,7 +56,6 @@ private:
     }
 };
 
-
 struct PermissionContext {
     std::string tool_name;
     std::string args;
@@ -79,14 +64,12 @@ struct PermissionContext {
     std::vector<PermissionRule> session_rules;
 };
 
-
 struct AuditEntry {
     std::string tool_name;
     std::string args_summary;
     PermissionDecision decision;
     std::string reason;
     std::chrono::system_clock::time_point timestamp;
-
 
     [[nodiscard]] auto format() const -> std::string {
         std::string decision_str;
@@ -100,10 +83,8 @@ struct AuditEntry {
     }
 };
 
-
 using AskUserFn = std::function<PermissionDecision(const PermissionContext&)>;
 using AskUserResponseFn = std::function<PermissionResponse(const PermissionContext&)>;
-
 
 class ToolPermissionHook {
 public:
@@ -117,7 +98,6 @@ public:
                                          std::string_view args = "") -> PermissionResponse {
         std::lock_guard lock{mu_};
 
-
         if (auto_approve_) {
             auto decision = PermissionDecision::allow;
             log_decision(tool_name, args, decision, "auto-approve mode");
@@ -126,7 +106,6 @@ public:
             return response;
         }
 
-
         if (auto it = session_decisions_.find(std::string(tool_name));
             it != session_decisions_.end()) {
             log_decision(tool_name, args, it->second, "session memory");
@@ -134,7 +113,6 @@ public:
             response.decision = it->second;
             return response;
         }
-
 
         for (const auto& rule : rules_) {
             if (rule.matches(tool_name, extract_path(args))) {
@@ -145,10 +123,8 @@ public:
             }
         }
 
-
         PermissionResponse response{};
         response.decision = PermissionDecision::ask_user;
-
 
         if (ask_user_response_fn_) {
             PermissionContext ctx{
@@ -179,12 +155,10 @@ public:
         return can_use_response(tool_name, args).decision;
     }
 
-
     auto add_rule(PermissionRule rule) -> void {
         std::lock_guard lock{mu_};
         rules_.push_back(std::move(rule));
     }
-
 
     auto remove_rule(std::size_t index) -> bool {
         std::lock_guard lock{mu_};
@@ -193,29 +167,24 @@ public:
         return true;
     }
 
-
     [[nodiscard]] auto get_rules() const -> std::span<const PermissionRule> {
         return rules_;
     }
-
 
     auto remember_decision(std::string_view tool_name, PermissionDecision decision) -> void {
         std::lock_guard lock{mu_};
         session_decisions_[std::string(tool_name)] = decision;
     }
 
-
     auto forget_decision(std::string_view tool_name) -> void {
         std::lock_guard lock{mu_};
         session_decisions_.erase(std::string(tool_name));
     }
 
-
     [[nodiscard]] auto is_auto_approve_mode() const -> bool {
         std::lock_guard lock{mu_};
         return auto_approve_;
     }
-
 
     auto set_auto_approve(bool enable) -> void {
         std::lock_guard lock{mu_};
@@ -225,24 +194,20 @@ public:
         }
     }
 
-
     [[nodiscard]] auto get_audit_log() const -> std::vector<AuditEntry> {
         std::lock_guard lock{mu_};
         return audit_log_;
     }
-
 
     auto clear_audit_log() -> void {
         std::lock_guard lock{mu_};
         audit_log_.clear();
     }
 
-
     auto set_working_dir(std::string_view dir) -> void {
         std::lock_guard lock{mu_};
         working_dir_ = std::string(dir);
     }
-
 
     auto set_ask_user_fn(AskUserFn fn) -> void {
         std::lock_guard lock{mu_};
@@ -266,13 +231,11 @@ public:
         current_tool_use_id_.clear();
     }
 
-
     auto reset_session() -> void {
         std::lock_guard lock{mu_};
         session_decisions_.clear();
         audit_log_.clear();
     }
-
 
     [[nodiscard]] auto audit_log_size() const -> std::size_t {
         std::lock_guard lock{mu_};
@@ -291,7 +254,6 @@ private:
     AskUserResponseFn ask_user_response_fn_;
     static constexpr std::size_t max_audit_entries_ = 1000;
 
-
     auto log_decision(std::string_view tool_name, std::string_view args,
                       PermissionDecision decision, std::string_view reason) -> void {
         if (audit_log_.size() >= max_audit_entries_) {
@@ -305,7 +267,6 @@ private:
             .timestamp = std::chrono::system_clock::now()
         });
     }
-
 
     [[nodiscard]] static auto extract_path(std::string_view args) -> std::string_view {
 
@@ -325,7 +286,6 @@ private:
         }
         return {};
     }
-
 
     [[nodiscard]] static auto truncate_args(std::string_view args, std::size_t max_len = 80)
         -> std::string {

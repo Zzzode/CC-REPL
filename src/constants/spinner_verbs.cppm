@@ -3,12 +3,10 @@
 /// Migrated from src/constants/spinnerVerbs.ts
 module;
 
-#include <string_view>
-#include <array>
-#include <vector>
-#include <string>
 
 export module cc.constants.spinner_verbs;
+
+import std;
 
 export namespace cc::constants::spinner_verbs {
 

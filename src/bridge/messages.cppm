@@ -1,15 +1,14 @@
-/// @file messages.cppm
-/// @brief Inbound message processing and attachments
 module;
 
-#include <string>
-#include <vector>
-#include <variant>
-#include <optional>
-#include <functional>
-#include <unordered_map>
+#include <unistd.h>
+
+/// @file messages.cppm
+/// @brief Inbound message processing and attachments
+
 
 export module cc.bridge.messages;
+
+import std;
 
 import cc.types.types;
 

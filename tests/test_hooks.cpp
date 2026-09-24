@@ -2,14 +2,8 @@
 /// @brief Hook module smoke tests aligned with current C++ module APIs.
 
 #include <gtest/gtest.h>
-#include <chrono>
-#include <expected>
-#include <filesystem>
-#include <fstream>
-#include <optional>
-#include <string>
-#include <vector>
 
+import std;
 import cc.hooks.command_queue;
 import cc.hooks.context;
 import cc.hooks.ide_at_mentioned;

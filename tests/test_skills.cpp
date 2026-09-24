@@ -2,12 +2,8 @@
 /// @brief Skill system smoke tests aligned with current C++ modules.
 
 #include <gtest/gtest.h>
-#include <chrono>
-#include <filesystem>
-#include <fstream>
-#include <optional>
-#include <string>
 
+import std;
 import cc.skills.skill;
 import cc.skills.bundled;
 

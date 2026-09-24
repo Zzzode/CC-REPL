@@ -1,12 +1,7 @@
-module;
-#include <algorithm>
-#include <functional>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <vector>
 
 export module cc.ui.permissions.permission_rules;
+
+import std;
 
 export namespace cc::ui::permissions {
 

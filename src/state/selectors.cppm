@@ -4,26 +4,12 @@
 /// redundant recalculations when the underlying data hasn't changed.
 module;
 
-#include <chrono>
 #include <cstdint>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
-#include <expected>
-#include <format>
-#include <functional>
-#include <ranges>
-#include <algorithm>
-#include <unordered_map>
-#include <mutex>
-#include <concepts>
-#include <tuple>
-#include <memory>
-#include <atomic>
-#include <set>
+#include <cstddef>
 
 export module cc.state.selectors;
+
+import std;
 
 import cc.types.types;
 import cc.state.app_state;

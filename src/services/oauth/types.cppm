@@ -1,10 +1,9 @@
 // OAuth Types Module
 module;
-#include <chrono>
-#include <optional>
-#include <string>
 
 export module cc.services.oauth.types;
+
+import std;
 
 import cc.utils.error;
 

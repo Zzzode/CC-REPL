@@ -52,22 +52,16 @@
 
 module;
 
-#include <string>
-#include <optional>
-#include <vector>
-#include <algorithm>
-#include <functional>
-#include <memory>
-
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_base.hpp>
+export module cc.ui.chrome.fullscreen_layout;
+
+import std;
 
 import cc.ui.foundation.theme_provider;
 import cc.ui.foundation.design_tokens;
 import cc.ui.foundation.design_figures;
-
-export module cc.ui.chrome.fullscreen_layout;
 
 export namespace cc::ui::layout::fullscreen {
 

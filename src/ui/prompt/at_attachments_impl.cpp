@@ -6,15 +6,12 @@
 /// blow clang's 2GB source-location budget in importers like tests/test_ui.cpp.
 module;
 
-#include <filesystem>
-#include <format>
-#include <optional>
-#include <string>
-#include <string_view>
 
 module cc.ui.prompt.at_attachments;
 
-import cc.types.types;
+import std;
+import cc.types.types;  // arch-check: keep-import
+
 import cc.tools.agent_runtime;
 import cc.tools.mcp;
 

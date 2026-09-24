@@ -7,21 +7,18 @@
 /// environment override. RFC 8252 §7.3 (Native Apps): loopback redirect URIs
 /// match any port as long as the path matches.
 module;
+#include <unistd.h>
 #include <arpa/inet.h>
-#include <bit>
 #include <cerrno>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <expected>
 #include <netinet/in.h>
-#include <random>
-#include <string>
-#include <string_view>
 #include <sys/socket.h>
-#include <unistd.h>
 export module cc.services.mcp.oauth_port;
+
+import std;
 export namespace cc::services::mcp {
 
 // Final fallback when random probing fails. Kept as a named constant so the

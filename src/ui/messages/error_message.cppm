@@ -1,12 +1,6 @@
-module;
-
-#include <string>
-#include <string_view>
-#include <vector>
-#include <optional>
-#include <functional>
-
 export module cc.ui.messages.error_message;
+
+import std;
 
 export namespace cc::ui::messages {
 

@@ -7,18 +7,8 @@
 /// wizard embeds that component.
 module;
 
-#include <array>
-#include <algorithm>
 #include <cstdint>
 #include <cstddef>
-#include <format>
-#include <functional>
-#include <memory>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_base.hpp>
@@ -27,7 +17,8 @@ module;
 
 export module cc.ui.features.plugins.plugin_install_flow;
 
-import cc.types.types;
+import std;
+
 import cc.commands.plugin_ui_data;
 import cc.commands.plugin_details_helpers;
 import cc.commands.plugin_trust_text;

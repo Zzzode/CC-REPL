@@ -1,12 +1,10 @@
 /// @file remember.cppm
 /// @brief Remember skill - persistent memory and context recall.
 module;
-#include <string>
-#include <vector>
-#include <optional>
-#include <expected>
 
 export module cc.skills.remember;
+
+import std;
 
 import cc.skills.skill;
 

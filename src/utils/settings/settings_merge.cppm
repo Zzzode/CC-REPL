@@ -1,10 +1,6 @@
-module;
-
-#include <string>
-#include <unordered_set>
-#include <vector>
-
 export module cc.utils.settings_merge;
+
+import std;
 
 export namespace cc::utils::settings_merge {
 

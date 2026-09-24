@@ -11,18 +11,14 @@
 ///       (12+ sources with priority ordering).
 module;
 
-#include <algorithm>
 #include <cstddef>
 #include <cstdint>
-#include <optional>
-#include <regex>
-#include <string>
-#include <string_view>
-#include <vector>
 
 #include <ftxui/screen/color.hpp>
 
 export module cc.utils.text_highlighting;
+
+import std;
 
 export namespace cc::utils {
 

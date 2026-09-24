@@ -1,12 +1,11 @@
 module;
-#include <string>
-#include <vector>
-#include <optional>
-#include <functional>
-#include <sstream>
-#include <iostream>
+
+#include <cstddef>
+
 
 export module cc.ui.foundation.dialog;
+
+import std;
 
 export namespace cc::ui::design {
 

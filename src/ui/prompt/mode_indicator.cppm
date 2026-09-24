@@ -29,17 +29,15 @@
 /// path — matching TS's getTeammateThemeColor() + isAgentSwarmsEnabled().
 module;
 
-#include <optional>
-#include <string>
-#include <string_view>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/component.hpp>
+export module cc.ui.prompt.mode_indicator;
+
+import std;
 
 import cc.ui.foundation.design_figures;
 import cc.ui.foundation.ui_types;
-
-export module cc.ui.prompt.mode_indicator;
 
 export namespace cc::ui::prompt::mode_indicator {
 

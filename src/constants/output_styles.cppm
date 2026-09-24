@@ -1,10 +1,10 @@
 // C++23 module: Output style configurations for customizing Loom's response behavior.
 // Defines built-in output styles: default, Explanatory, and Learning.
 module;
-#include <string>
-#include <string_view>
 
 export module cc.constants.output_styles;
+
+import std;
 
 
 export namespace cc::constants::output_styles {
