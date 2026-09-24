@@ -155,6 +155,8 @@ def main() -> int:
         print(f"rfc_lint: {RFC_DIR} not found", file=sys.stderr)
         return 1
 
+    # RFCs are top-level NNNN-*.md; RFC design attachments live in
+    # attachments/ and are deliberately not linted as RFCs.
     files = sorted(RFC_DIR.glob("*.md"))
     if not files:
         print("rfc_lint: no RFCs found")
