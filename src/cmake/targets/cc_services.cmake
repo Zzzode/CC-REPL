@@ -87,6 +87,11 @@ target_sources(cc_services
     PRIVATE
         services/mcp/config_impl.cpp
         services/mcp/headers_helper_impl.cpp
+        services/mcp/client_stdio_transport.cpp
+        services/mcp/client_sse_transport.cpp
+        services/mcp/client_http_transport.cpp
+        services/mcp/client_protocol.cpp
+        services/mcp/client_requests.cpp
 )
 target_link_libraries(cc_services
     PUBLIC
