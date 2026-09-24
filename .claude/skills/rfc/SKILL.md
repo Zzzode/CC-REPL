@@ -28,6 +28,29 @@ This skill governs **both content and implementation**:
 All RFC text, code comments and commit messages are in **English** (project
 rule).
 
+## 0. Reviews are agent-run (project rule)
+
+No human reviews RFCs in this project — **the agent does the reviewing**.
+Stage gates, design review and PRR are conducted by Claude agents, not handed
+to the user for sign-off. For a gate transition:
+
+1. Spawn an independent review agent (or two with deliberately different
+   lenses for a consequential gate — e.g. a strict-correctness reviewer and a
+   build/performance reviewer) and give it the exact gate checklist.
+2. Take its findings as blocking: fix the RFC/code, or write an explicit
+   point-by-point rebuttal, and re-run the reviewer until it returns
+   **approved**.
+3. Record the verdict in the RFC: frontmatter `reviewers:` gets the agent
+   identity/lens (e.g. `agent:design-review`, `agent:prr-review`) and the
+   Implementation History row names the review.
+4. Never ask the user "would you like to review/approve this?" Tell the user
+   the outcome and the gate result. The user only supplies product
+   direction when an Open Question is genuinely a preference, not a
+   review/approval.
+
+For implementation PRs the same rule applies: an agent performs the RFC
+conformance and code review before merge.
+
 ## 1. Lifecycle and gates
 
 ```
@@ -43,8 +66,8 @@ provisional ───────────────▶ accepted ───�
 | Stage | Meaning | Hard requirements to ENTER |
 |---|---|---|
 | `provisional` | Problem statement and rough proposal; number assigned. | File exists, passes `tools/rfc/rfc_lint.py`, owner named, Goals/Non-goals/Motivation drafted. |
-| `accepted` | The problem, target shape and trade-offs are agreed; not yet cleared to build. | All template sections answered (explicit "N/A, because …" is allowed), Alternatives compared, reviewer(s) recorded, open questions resolved or enumerated. |
-| `implementable` | Cleared to write code. | Per-phase plan with **measurable** graduation criteria, PRR checklist filled, rollback story, tracking issue, reviewer approval. |
+| `accepted` | The problem, target shape and trade-offs are agreed; not yet cleared to build. Agent design review approved (§3.1); all template sections answered, Alternatives compared, open questions resolved or enumerated with owner + acceptance. |
+| `implementable` | Cleared to write code. Agent design AND PRR reviews approved; per-phase plan with **measurable** graduation criteria, PRR checklist filled, rollback story, tracking issue. |
 | `implemented` | Every phase complete and independently verified. | All phases `done`, metrics recorded, docs/CLAUDE.md updated, lint/CI gates green, no unresolved `TODO(rfc)`. |
 | `deferred` | Accepted but deliberately not scheduled. | Reason + revisit condition stated. |
 | `rejected` / `withdrawn` | Not pursued. | Rationale kept; number never reused. |

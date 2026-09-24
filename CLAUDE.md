@@ -137,6 +137,14 @@ tool output, and wrong tool status. See `.agents/skills/debug-session/SKILL.md`.
 ## Conventions
 
 - **All code comments and docs in English.**
+- **Reviews are agent-run, never user-run.** Every review in this project —
+  code review, design review, RFC stage gates, production-readiness review,
+  approve/request-changes — is performed by Claude agents, not the user. Do
+  not ask the user to read a diff, judge a design, or "sign off"; the user is
+  informed of outcomes, never assigned review work. For a consequential gate,
+  spawn one or more independent (adversarial where it matters) review agents,
+  address or explicitly rebut their findings, and record the agent identity
+  as the reviewer. Proceed through gates on the agents' verdict.
 - **`-Werror` is on** (`-Wall -Wextra -Wpedantic`). New warnings fail the build.
 - **No hardcoded RGB** — use palette/design tokens (`src/ui/design/`).
 - **No constant-frequency render ticker** — the FTXUI UI is event-driven.
