@@ -1,0 +1,28 @@
+name: Architecture check
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "src/**"
+      - "tools/arch/**"
+      - ".github/workflows/arch-check.yml"
+  pull_request:
+    branches: [master]
+    paths:
+      - "src/**"
+      - "tools/arch/**"
+      - ".github/workflows/arch-check.yml"
+
+jobs:
+  graph-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      # Current-state gate (RFC 0001 E0): module graph stays a DAG and no
+      # new non-contract upward edge or dead import is introduced beyond
+      # the frozen snapshots in tools/arch/*_baseline.txt.
+      # The --target-core8 future-state gate is not run in CI until Phase B.
+      - name: Architecture graph check
+        run: python3 tools/arch/graph_check.py

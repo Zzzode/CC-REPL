@@ -26,3 +26,5 @@ build-clang-coverage/
 
 # Machine-local CMake presets (explicit toolchain paths, not portable)
 CMakeUserPresets.json
+__pycache__/
+*.pyc

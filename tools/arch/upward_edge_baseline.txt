@@ -1,0 +1,36 @@
+# RFC 0001 Phase B backlog — frozen baseline of non-contract upward edges.
+# graph_check fails if this set GAINS an edge (new upward coupling).
+# Removing an edge is always allowed (and shrinks this file); Phase B
+# deletes the Core8 edges per attachments/0001-oq3-phase-b-cut-design.md.
+# Edges outside the Core8 set are pre-RFC backlog: same gate discipline,
+# but no scheduled cut yet.
+# Format: <importer module> -> <imported module>
+#
+# --- Core8 Phase B backlog ---
+cc.config.config -> cc.utils.json
+cc.config.settings -> cc.utils.json
+cc.hooks.assistant_history -> cc.state.app_state
+cc.hooks.background_task_navigation -> cc.state.app_state
+cc.hooks.prompt_suggestion -> cc.state.app_state
+cc.hooks.remaining_notifs -> cc.services.mcp.connection_manager
+cc.hooks.remaining_notifs -> cc.services.mcp.types
+cc.hooks.turn_diffs -> cc.state.app_state
+cc.hooks.voice_hooks -> cc.services.voice.keyterms
+cc.hooks.voice_hooks -> cc.services.voice.voice
+cc.hooks.voice_hooks -> cc.services.voice_stream_stt
+cc.services.streaming_executor -> cc.tools.tool
+cc.skills.bundled.debug -> cc.tools.tool
+cc.utils.ide_integration -> cc.services.mcp.client
+cc.utils.ide_integration -> cc.services.mcp.types
+#
+# --- pre-RFC backlog (not scheduled by RFC 0001) ---
+# Config migration code sits in the config layer and uses utils json/file
+# helpers — same class as cc.config.config -> cc.utils.json above.
+cc.migrations.concrete -> cc.utils.json
+cc.migrations.config_orchestrator -> cc.utils.error
+cc.migrations.config_orchestrator -> cc.utils.file_persistence
+cc.migrations.config_orchestrator -> cc.utils.json
+cc.migrations.config_orchestrator -> cc.utils.lockfile
+cc.migrations.migration_registry -> cc.utils.json
+cc.migrations.schema_versions -> cc.utils.file_persistence
+cc.migrations.schema_versions -> cc.utils.lockfile

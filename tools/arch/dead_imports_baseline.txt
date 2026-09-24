@@ -1,0 +1,169 @@
+# RFC 0001 dead-import backlog — frozen snapshot of textual dead imports.
+# graph_check fails if this set GAINS an entry (a new unused import).
+# Removing a dead import is always allowed and shrinks this file; the
+# preferred resolution is to DELETE the import (dead code convention).
+#
+# An entry means: the importing file names nothing exported by the
+# imported module (per translation unit — impl units are keyed by file).
+# Precision was validated by two adversarial review rounds that removed
+# the disputed import and compiled the real TU with clang-22 (one round
+# also did a full debug rebuild + ctest -j1, 1706/1706 green).
+#
+# Intentional textual-non-use imports (ADL/operator/UDL participation,
+# required ordering) are silenced at the import with:
+#   // arch-check: keep-import
+#
+# Format: <importer> -> <imported module>
+cc.benchmarks.pare.run -> cc.utils.file
+cc.benchmarks.pare.workspace -> cc.utils.process
+cc.bridge.api -> cc.bridge.messages
+cc.bridge.core -> cc.bridge.config
+cc.bridge.core -> cc.bridge.flush_gate
+cc.bridge.core -> cc.bridge.security
+cc.bridge.messages -> cc.types.types
+cc.bridge.session_api -> cc.utils.http
+cc.bridge.transport -> cc.utils.http
+cc.commands.clear -> cc.state.app_state
+cc.commands.init_verifiers -> cc.utils.git_filesystem
+cc.commands.plugin_ui_data -> cc.commands.plugin_manage
+cc.commands.review.review_remote -> cc.utils.shell
+cc.commands.review.ultrareview -> cc.services.api.usage
+cc.commands.review.ultrareview -> cc.utils.detect_repository
+cc.commands.review.ultrareview -> cc.utils.git_filesystem
+cc.commands.runtime_surface_commands -> cc.commands.init_verifiers
+cc.commands.runtime_surface_commands -> cc.commands.keybindings_cmd
+cc.commands.runtime_surface_commands -> cc.commands.security_review
+cc.context.mailbox -> cc.coordinator.swarm
+cc.hooks.assistant_history -> cc.state.app_state
+cc.hooks.background_task_navigation -> cc.state.app_state
+cc.hooks.prompt_suggestion -> cc.state.app_state
+cc.hooks.turn_diffs -> cc.state.app_state
+cc.keybindings.shortcut_format -> cc.keybindings.defaults
+cc.query.query_engine -> cc.utils.tool_helpers
+cc.services.compact -> cc.utils.string
+cc.services.extract_memories -> cc.utils.file
+cc.skills.bundled.stuck -> cc.skills.load_skills_dir
+cc.skills.load_skills_dir -> cc.utils.markdown_utils
+cc.skills.load_skills_dir -> cc.utils.path_utils
+cc.skills.load_skills_dir -> cc.utils.platform_paths
+cc.skills.load_skills_dir -> cc.utils.string_utils
+cc.state.on_change -> cc.state.persistence
+cc.state.store -> cc.state.selectors
+cc.tools.agent -> cc.tools.agent_color_manager
+cc.tools.agent -> cc.tools.agent_memory
+cc.tools.agent -> cc.tools.agent_memory_snapshot
+cc.tools.agent -> cc.utils.env_utils
+cc.tools.agent -> cc.utils.git
+cc.tools.agent -> cc.utils.tool_helpers
+cc.tools.agent.fork -> cc.services.mcp.types
+cc.tools.agent.fork -> cc.skills.skill
+cc.tools.agent.fork -> cc.tools.agent_color_manager
+cc.tools.agent.fork -> cc.tools.agent_display
+cc.tools.agent.fork -> cc.tools.agent_memory
+cc.tools.agent.fork -> cc.tools.agent_memory_snapshot
+cc.tools.agent.fork -> cc.tools.bash
+cc.tools.agent.fork -> cc.tools.mcp
+cc.tools.agent.fork -> cc.tools.send_message
+cc.tools.agent.fork -> cc.tools.sleep
+cc.tools.agent.fork -> cc.tools.team
+cc.tools.agent.fork -> cc.tools.todo_write
+cc.tools.agent.fork -> cc.utils.bash_execution
+cc.tools.agent.fork -> cc.utils.env_utils
+cc.tools.agent.fork -> cc.utils.git
+cc.tools.agent.fork -> cc.utils.swarm_backends
+cc.tools.agent.fork -> cc.utils.team_helpers
+cc.tools.agent.fork -> cc.utils.tool_helpers
+cc.tools.agent.resume -> cc.tools.agent_color_manager
+cc.tools.agent.resume -> cc.tools.agent_display
+cc.tools.agent.resume -> cc.tools.agent_memory
+cc.tools.agent.resume -> cc.tools.agent_memory_snapshot
+cc.tools.agent.resume -> cc.tools.sleep
+cc.tools.agent.resume -> cc.tools.team
+cc.tools.agent.resume -> cc.tools.todo_write
+cc.tools.agent.resume -> cc.tools.web_fetch
+cc.tools.agent.resume -> cc.utils.env_utils
+cc.tools.agent.resume -> cc.utils.git
+cc.tools.agent.resume -> cc.utils.swarm_backends
+cc.tools.agent.resume -> cc.utils.team_helpers
+cc.tools.agent.resume -> cc.utils.tool_helpers
+cc.tools.agent.run -> cc.services.mcp.types
+cc.tools.agent.run -> cc.tools.agent_color_manager
+cc.tools.agent.run -> cc.tools.agent_display
+cc.tools.agent.run -> cc.tools.agent_memory
+cc.tools.agent.run -> cc.tools.agent_memory_snapshot
+cc.tools.agent.run -> cc.utils.env_utils
+cc.tools.agent.run -> cc.utils.tool_helpers
+cc.tools.agent.utils -> cc.tools.agent_memory_snapshot
+cc.tools.agent.utils -> cc.utils.tool_helpers
+cc.tools.command_semantics -> cc.utils.format
+cc.tools.file_edit -> cc.utils.string_utils
+cc.tools.file_read -> cc.utils.file
+cc.tools.glob -> cc.utils.file
+cc.tools.mode_validation -> cc.tools.bash_security
+cc.tools.runtime_registry -> cc.tools.grep
+cc.tools.runtime_registry -> cc.tools.shared_tool
+cc.tools.runtime_registry -> cc.utils.http
+cc.tools.script -> cc.tools.script_primitives
+cc.tools.script -> cc.tools.tool_display_names
+cc.tools.script_typecheck -> cc.tools.script_diagnostics
+cc.tools.script_typecheck -> cc.tools.script_types
+cc.tools.should_use_sandbox -> cc.tools.bash_security
+cc.ui.app.app -> cc.ui.features.teams.live_teammates
+cc.ui.app.app -> cc.ui.visual.markdown
+cc.ui.app.app -> cc.ui.widgets.components
+cc.ui.app.app [impl:ui/app/app_agent_menu.cpp] -> cc.commands.registry
+cc.ui.app.app [impl:ui/app/app_agent_menu.cpp] -> cc.hooks.lifecycle_hooks
+cc.ui.app.app [impl:ui/app/app_autocomplete.cpp] -> cc.hooks.lifecycle_hooks
+cc.ui.app.app [impl:ui/app/app_constructor.cpp] -> cc.state.app_state
+cc.ui.app.app [impl:ui/app/app_constructor.cpp] -> cc.state.store
+cc.ui.app.app [impl:ui/app/app_extra_methods.cpp] -> cc.commands.registry
+cc.ui.app.app [impl:ui/app/app_extra_methods.cpp] -> cc.hooks.lifecycle_hooks
+cc.ui.app.app [impl:ui/app/app_handle_submit.cpp] -> cc.ui.foundation.declared_cursor
+cc.ui.app.app [impl:ui/app/app_handle_submit.cpp] -> cc.utils.debug
+cc.ui.app.app [impl:ui/app/app_handle_submit.cpp] -> cc.utils.hyperlink
+cc.ui.app.app [impl:ui/app/app_handle_submit.cpp] -> cc.utils.path
+cc.ui.app.app [impl:ui/app/app_handle_submit.cpp] -> cc.utils.session_storage
+cc.ui.app.app [impl:ui/app/app_prompt_suggestion_wiring.cpp] -> cc.commands.command
+cc.ui.app.app [impl:ui/app/app_prompt_suggestion_wiring.cpp] -> cc.commands.registry
+cc.ui.app.app [impl:ui/app/app_prompt_suggestion_wiring.cpp] -> cc.utils.session_storage
+cc.ui.app.app [impl:ui/app/app_settings.cpp] -> cc.ui.screens.repl_state
+cc.ui.app.app [impl:ui/app/app_store_bridge.cpp] -> cc.types.command
+cc.ui.dialogs.all_renderers -> cc.ui.dialogs.bottom_renderers
+cc.ui.dialogs.all_renderers -> cc.ui.dialogs.modal_renderers
+cc.ui.dialogs.default_renderers -> cc.ui.foundation.component_primitives
+cc.ui.dialogs.feature_dialogs -> cc.tools.agent_memory
+cc.ui.features.agents.agent_cards -> cc.utils.swarm_backends
+cc.ui.features.mcp.mcp_add_server_wizard -> cc.services.oauth.types
+cc.ui.features.teams.swarm_collaboration_view -> cc.ui.features.agents.agent_view
+cc.ui.features.teams.teams_overview -> cc.ui.features.agents.agent_view
+cc.ui.messages.assistant_text_message -> cc.ui.foundation.design_tokens
+cc.ui.messages.message_components -> cc.ui.chrome.layout
+cc.ui.messages.message_row -> cc.ui.messages.message_compact_boundary
+cc.ui.messages.shell_progress_message -> cc.ui.foundation.design_tokens
+cc.ui.messages.shell_time_display -> cc.ui.foundation.design_tokens
+cc.ui.messages.tool_messages -> cc.ui.chrome.layout
+cc.ui.messages.tool_use_message -> cc.ui.widgets.spinner
+cc.ui.messages.user_bash_input_message -> cc.ui.foundation.design_tokens
+cc.ui.messages.user_bash_input_message -> cc.utils.format
+cc.ui.messages.virtual_list -> cc.ui.foundation.design_tokens
+cc.ui.permissions.permission_rules_ui -> cc.types.types
+cc.ui.permissions.permission_views -> cc.ui.chrome.layout
+cc.ui.prompt.at_attachments [impl:ui/prompt/at_attachments_impl.cpp] -> cc.tools.mcp
+cc.ui.prompt.autocomplete_sources [impl:ui/prompt/autocomplete_sources_impl.cpp] -> cc.skills.bundled
+cc.ui.prompt.prompt_input_full -> cc.ui.chrome.layout
+cc.ui.prompt.prompt_input_full -> cc.ui.foundation.design_figures
+cc.ui.screens.repl_screen -> cc.ui.dialogs.settings_view
+cc.ui.screens.repl_screen -> cc.ui.features.tasks.task_list_ui
+cc.ui.screens.repl_screen -> cc.ui.features.teams.team_status
+cc.ui.screens.repl_state -> cc.ui.visual.markdown
+cc.ui.widgets.partial_completions -> cc.ui.foundation.design_tokens
+cc.utils.plugin_loader -> cc.utils.plugin_versioning
+cc.utils.plugin_manager -> cc.utils.plugin_identifier
+cc.utils.plugin_manager -> cc.utils.plugin_loader
+cc.utils.plugin_marketplace -> cc.utils.plugin_marketplace_rules
+cc.utils.plugin_validation -> cc.utils.plugin_identifier
+cc.utils.settings_manager -> cc.utils.settings_merge
+cc.utils.settings_manager -> cc.utils.settings_paths
+cc.utils.settings_manager -> cc.utils.settings_sources
+cc.utils.settings_manager -> cc.utils.settings_validation
+cc.utils.swarm -> cc.utils.string

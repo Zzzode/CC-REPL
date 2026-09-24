@@ -1,0 +1,5 @@
+# RFC 0001 architecture contract allowlist.
+# One module per line that is allowed to receive an "upward" import edge
+# despite the raw target rank in graph_check.py. Only contract modules
+# (abstract ports / plain DTO leaves) belong here. Blank lines and # comments
+# are ignored. Empty until Phase B introduces *.port modules.
