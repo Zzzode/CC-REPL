@@ -101,3 +101,28 @@ sibling TUs never share a verdict.
 
 Baselines are reviewed in the PR that changes them; they must never be
 regenerated to silence an accidental new coupling.
+
+## Inline-definition ratchet (RFC 0001 Phase C)
+
+`inline_def_check.py` counts the **semantic** inline definitions (named
+function/method/operator/ctor/dtor bodies at namespace or class scope; no
+lambdas, control blocks, function-local classes, or data members) in each
+module **interface** unit (`.cppm`; module impl `.cpp` units are exempt —
+bodies belong there). It enforces `inline_def_baseline.txt`:
+
+1. **Fail on increase.** A frozen module whose count rises above its
+   snapshot fails. Bodies moving into impl units *shrink* the count;
+   re-freeze in the same commit with `--update`.
+2. **Fail closed for new god interfaces.** An unlisted interface over the
+   C2 cap (100) fails — one cannot grow a new god interface unnoticed.
+3. **Graduation flags.** `c2-done` enforces ≤100; `c1` enforces <30 for
+   the six RFC 0001 C1 modules once each split merges.
+
+```bash
+python3 tools/arch/inline_def_check.py            # enforce
+python3 tools/arch/inline_def_check.py --json     # machine-readable
+python3 tools/arch/inline_def_check.py --update   # re-freeze after a split
+```
+
+A body that must deliberately stay inline is exempted with a marker on
+its signature line: `// arch-check: keep-inline`.

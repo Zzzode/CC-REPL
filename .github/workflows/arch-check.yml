@@ -26,3 +26,8 @@ jobs:
       # The --target-core8 future-state gate is not run in CI until Phase B.
       - name: Architecture graph check
         run: python3 tools/arch/graph_check.py
+      # RFC 0001 Phase C ratchet: no interface may grow its semantic inline
+      # body count above its frozen snapshot, and a new >100-body god
+      # interface fails closed. Baseline: tools/arch/inline_def_baseline.txt.
+      - name: Inline-definition ratchet
+        run: python3 tools/arch/inline_def_check.py
