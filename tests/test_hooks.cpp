@@ -691,10 +691,10 @@ TEST(Hooks, ConditionInOperator) {
 TEST(Hooks, CommandRunsEcho) {
     auto r = CommandHookRunner::run_raw("/bin/echo", {"hello world"});
     EXPECT_TRUE(r.executed);
-    EXPECT_EQ(r.exit_code, 0) << "stderr: " << r.stderr << ", err: " << r.error;
+    EXPECT_EQ(r.exit_code, 0) << "stderr: " << r.err << ", err: " << r.error;
     // stdout should contain "hello world" (echo adds newline).
-    EXPECT_NE(r.stdout.find("hello world"), std::string::npos)
-        << "actual stdout: [" << r.stdout << "]";
+    EXPECT_NE(r.out.find("hello world"), std::string::npos)
+        << "actual stdout: [" << r.out << "]";
 }
 
 TEST(Hooks, CommandTimeoutKills) {
@@ -765,7 +765,7 @@ TEST(Hooks, AgentBlocksNested) {
     // Safe prompt: works via delegate.
     auto r3 = AgentHookRunner::run("Do something safe", ctx, 512);
     EXPECT_EQ(r3.exit_code, 0) << "err: " << r3.error;
-    EXPECT_EQ(r3.stdout, "ok");
+    EXPECT_EQ(r3.out, "ok");
 }
 
 TEST(Hooks, FilterByMatcher) {

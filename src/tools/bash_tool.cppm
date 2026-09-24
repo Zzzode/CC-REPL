@@ -154,8 +154,8 @@ struct BashToolInput {
 
 /// Output from BashTool execution
 struct BashToolOutput {
-    std::string stdout;
-    std::string stderr;
+    std::string out;
+    std::string err;
     int exit_code = 0;
     bool interrupted = false;
     bool is_image = false;
@@ -603,24 +603,24 @@ inline void append_background_output(BackgroundTaskState& state, std::string_vie
             if (stdout_open) {
                 const auto events = fds[index++].revents;
                 if (events != 0) {
-                    prev_stdout_size = output.stdout.size();
-                    stdout_open = drain_fd(stdout_pipe[0], output.stdout);
+                    prev_stdout_size = output.out.size();
+                    stdout_open = drain_fd(stdout_pipe[0], output.out);
                     if (!stdout_open) close_if_open(stdout_pipe[0]);
                     // Fire progress callback for stdout chunk
-                    if (on_progress && output.stdout.size() > prev_stdout_size) {
+                    if (on_progress && output.out.size() > prev_stdout_size) {
                         std::size_t new_lines = 0;
-                        for (std::size_t i = prev_stdout_size; i < output.stdout.size(); ++i) {
-                            if (output.stdout[i] == '\n') ++new_lines;
+                        for (std::size_t i = prev_stdout_size; i < output.out.size(); ++i) {
+                            if (output.out[i] == '\n') ++new_lines;
                         }
                         stdout_line_count += new_lines;
                         BashProgressSnapshot snap;
                         snap.stream = BashStream::Stdout;
                         snap.chunk = std::string_view{
-                            output.stdout.data() + prev_stdout_size,
-                            output.stdout.size() - prev_stdout_size
+                            output.out.data() + prev_stdout_size,
+                            output.out.size() - prev_stdout_size
                         };
-                        snap.stdout_bytes = output.stdout.size();
-                        snap.stderr_bytes = output.stderr.size();
+                        snap.stdout_bytes = output.out.size();
+                        snap.stderr_bytes = output.err.size();
                         snap.stdout_lines = stdout_line_count;
                         snap.stderr_lines = stderr_line_count;
                         snap.elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -632,24 +632,24 @@ inline void append_background_output(BackgroundTaskState& state, std::string_vie
             if (stderr_open) {
                 const auto events = fds[index].revents;
                 if (events != 0) {
-                    prev_stderr_size = output.stderr.size();
-                    stderr_open = drain_fd(stderr_pipe[0], output.stderr);
+                    prev_stderr_size = output.err.size();
+                    stderr_open = drain_fd(stderr_pipe[0], output.err);
                     if (!stderr_open) close_if_open(stderr_pipe[0]);
                     // Fire progress callback for stderr chunk
-                    if (on_progress && output.stderr.size() > prev_stderr_size) {
+                    if (on_progress && output.err.size() > prev_stderr_size) {
                         std::size_t new_lines = 0;
-                        for (std::size_t i = prev_stderr_size; i < output.stderr.size(); ++i) {
-                            if (output.stderr[i] == '\n') ++new_lines;
+                        for (std::size_t i = prev_stderr_size; i < output.err.size(); ++i) {
+                            if (output.err[i] == '\n') ++new_lines;
                         }
                         stderr_line_count += new_lines;
                         BashProgressSnapshot snap;
                         snap.stream = BashStream::Stderr;
                         snap.chunk = std::string_view{
-                            output.stderr.data() + prev_stderr_size,
-                            output.stderr.size() - prev_stderr_size
+                            output.err.data() + prev_stderr_size,
+                            output.err.size() - prev_stderr_size
                         };
-                        snap.stdout_bytes = output.stdout.size();
-                        snap.stderr_bytes = output.stderr.size();
+                        snap.stdout_bytes = output.out.size();
+                        snap.stderr_bytes = output.err.size();
                         snap.stdout_lines = stdout_line_count;
                         snap.stderr_lines = stderr_line_count;
                         snap.elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -664,8 +664,8 @@ inline void append_background_output(BackgroundTaskState& state, std::string_vie
     // Final progress callback with finished=true
     if (on_progress) {
         BashProgressSnapshot snap;
-        snap.stdout_bytes = output.stdout.size();
-        snap.stderr_bytes = output.stderr.size();
+        snap.stdout_bytes = output.out.size();
+        snap.stderr_bytes = output.err.size();
         snap.stdout_lines = stdout_line_count;
         snap.stderr_lines = stderr_line_count;
         snap.elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -677,8 +677,8 @@ inline void append_background_output(BackgroundTaskState& state, std::string_vie
     close_if_open(stdout_pipe[0]);
     close_if_open(stderr_pipe[0]);
 
-    output.stdout = truncate_output(std::move(output.stdout));
-    output.stderr = truncate_output(std::move(output.stderr));
+    output.out = truncate_output(std::move(output.out));
+    output.err = truncate_output(std::move(output.err));
     if (output.interrupted) {
         output.exit_code = 128 + SIGKILL;
     }
@@ -1111,7 +1111,7 @@ private:
                 }
 
                 BashToolOutput output;
-                output.stdout = std::format(
+                output.out = std::format(
                     "Background task started\nTask ID: {}\nPID: {}",
                     background_task->id,
                     background_task->pid);
@@ -1133,7 +1133,7 @@ private:
             // Many tools (grep, find, diff, test, ...) use exit 1 to signal
             // "no match / different / false" rather than a genuine failure.
             const auto interpreted = cc::tools::interpret_command_result(
-                input.command, output.exit_code, output.stdout, output.stderr);
+                input.command, output.exit_code, output.out, output.err);
             if (interpreted.message) {
                 output.return_code_interpretation = *std::move(interpreted.message);
             }
@@ -1176,8 +1176,8 @@ private:
             std::string(command),
             output.exit_code,
             dur_ms,
-            output.stdout,
-            output.stderr,
+            output.out,
+            output.err,
             output.interrupted,
             output.is_image,
             output.no_output_expected,
@@ -1197,20 +1197,20 @@ private:
             result_text = output.interrupted
                 ? output.interrupted_reason.value_or("Command timed out")
                 : "Command failed";
-            if (!output.stderr.empty()) {
-                result_text += ":\n" + output.stderr;
+            if (!output.err.empty()) {
+                result_text += ":\n" + output.err;
             }
-            if (!output.stdout.empty()) {
-                result_text += "\nOutput:\n" + output.stdout;
+            if (!output.out.empty()) {
+                result_text += "\nOutput:\n" + output.out;
             }
             result_text += std::format("\nExit code: {}", output.exit_code);
             return ToolResult::error(result_text);
         }
 
-        if (!output.stdout.empty()) {
-            result_text = output.stdout;
-        } else if (!output.stderr.empty()) {
-            result_text = output.stderr;
+        if (!output.out.empty()) {
+            result_text = output.out;
+        } else if (!output.err.empty()) {
+            result_text = output.err;
         } else if (output.no_output_expected) {
             result_text = "Command completed successfully";
         } else {

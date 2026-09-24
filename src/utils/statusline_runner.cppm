@@ -368,7 +368,7 @@ struct StatusLineResult {
     // Process output: trim, split by lines, skip blank lines, rejoin.
     // Mirrors TS:
     //   result.stdout.trim().split('\n').flatMap(line => line.trim() || []).join('\n')
-    std::string out = cmd_result.stdout;
+    std::string out = cmd_result.out;
 
     // Trim leading whitespace
     std::size_t start = out.find_first_not_of(" \t\r\n");

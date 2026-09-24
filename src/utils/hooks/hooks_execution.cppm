@@ -94,8 +94,8 @@ struct HookEvaluationResult {
 struct HookCommandResult {
     bool executed{false};
     int exit_code{0};
-    std::string stdout;
-    std::string stderr;
+    std::string out;
+    std::string err;
     std::string error;
     chr::milliseconds elapsed{0};
 };
@@ -588,7 +588,7 @@ struct CommandHookRunner {
             if (!stdout_eof) {
                 if (pfds[idx].revents & (POLLIN | POLLHUP | POLLERR)) {
                     bool eof;
-                    drain_fd(pfds[idx].fd, result.stdout, eof);
+                    drain_fd(pfds[idx].fd, result.out, eof);
                     if (pfds[idx].revents & (POLLHUP | POLLERR) || eof) stdout_eof = true;
                 }
                 ++idx;
@@ -596,7 +596,7 @@ struct CommandHookRunner {
             if (!stderr_eof) {
                 if (pfds[idx].revents & (POLLIN | POLLHUP | POLLERR)) {
                     bool eof;
-                    drain_fd(pfds[idx].fd, result.stderr, eof);
+                    drain_fd(pfds[idx].fd, result.err, eof);
                     if (pfds[idx].revents & (POLLHUP | POLLERR) || eof) stderr_eof = true;
                 }
             }
@@ -627,8 +627,8 @@ struct CommandHookRunner {
             if (result.error.empty()) result.error = "command timed out";
         } else {
             bool dummy;
-            drain_fd(parent_stdout_r.fd, result.stdout, dummy);
-            drain_fd(parent_stderr_r.fd, result.stderr, dummy);
+            drain_fd(parent_stdout_r.fd, result.out, dummy);
+            drain_fd(parent_stderr_r.fd, result.err, dummy);
             int status = 0;
             for (int loops = 0; loops < 500; ++loops) {
                 auto w = ::waitpid(pid, &status, WNOHANG);
@@ -759,12 +759,12 @@ struct HttpHookRunner {
 
         auto r = CommandHookRunner::run_raw("curl", args, 35000, {});
         result = r;
-        if (result.executed && !result.stdout.empty()) {
-            auto nl = result.stdout.find_last_of('\n');
+        if (result.executed && !result.out.empty()) {
+            auto nl = result.out.find_last_of('\n');
             if (nl != std::string::npos) {
-                std::string code = trim(result.stdout.substr(nl + 1));
-                result.stdout = result.stdout.substr(0, nl);
-                result.stderr += "[http_status=" + code + "]";
+                std::string code = trim(result.out.substr(nl + 1));
+                result.out = result.out.substr(0, nl);
+                result.err += "[http_status=" + code + "]";
                 if (!code.empty()) {
                     int v = 0;
                     auto [ptr, ec] = cc::utils::from_chars(code.data(), code.data() + code.size(), v);
@@ -875,12 +875,12 @@ struct AgentHookRunner {
         if (!r) {
             result.executed = true;
             result.exit_code = 1;
-            result.stderr = r.error();
+            result.err = r.error();
             return result;
         }
         result.executed = true;
         result.exit_code = 0;
-        result.stdout = std::move(*r);
+        result.out = std::move(*r);
         return result;
     }
 };
@@ -968,8 +968,8 @@ using HookConfig = HookPolicyConfig;
             std::string body;
             if (ctx.hook_payload && ctx.hook_payload->valid()) body = to_string(*ctx.hook_payload);
             result = HttpHookRunner::run(h.url, "POST", {}, body, cfg.http_allowlist_prefixes);
-            if (!result.stdout.empty()) {
-                action = parse_structured_action(result.stdout);
+            if (!result.out.empty()) {
+                action = parse_structured_action(result.out);
             }
             if (result.exit_code != 0 && action.action == HookResponseAction::Continue) {
                 action.action = HookResponseAction::BlockToolCall;
@@ -985,7 +985,7 @@ using HookConfig = HookPolicyConfig;
             std::string expanded = PromptHookRunner::run(p.prompt, ctx, cap);
             result.executed = true;
             result.exit_code = 0;
-            result.stdout = std::move(expanded);
+            result.out = std::move(expanded);
             action.action = HookResponseAction::Continue;
             break;
         }
@@ -1005,16 +1005,16 @@ using HookConfig = HookPolicyConfig;
                 auto r = ctx.tool_runner_delegate(
                     f.status_message.value_or(std::string{}));
                 result.executed = true;
-                if (r) { result.exit_code = 0; result.stdout = std::move(*r); }
-                else  { result.exit_code = 1; result.stderr = r.error(); }
+                if (r) { result.exit_code = 0; result.out = std::move(*r); }
+                else  { result.exit_code = 1; result.err = r.error(); }
             } else {
                 result.executed = true;
                 result.exit_code = 0;
-                result.stdout = f.status_message.value_or(std::string{});
+                result.out = f.status_message.value_or(std::string{});
             }
             if (result.exit_code != 0) {
                 action.action = HookResponseAction::AbortQuery;
-                action.reason = result.stderr;
+                action.reason = result.err;
             }
             break;
         }
@@ -1066,9 +1066,9 @@ using HookConfig = HookPolicyConfig;
         }
         auto [res, act] = execute_hook(h.config, dummy_cfg, lctx);
 
-        if (get_command_type(h.config) == HookCommandType::Prompt && !res.stdout.empty()) {
+        if (get_command_type(h.config) == HookCommandType::Prompt && !res.out.empty()) {
             if (!accumulated_prompt.empty()) accumulated_prompt += "\n\n";
-            accumulated_prompt += res.stdout;
+            accumulated_prompt += res.out;
         }
 
         if (rank(act.action) > rank(action.action)) action = act;
