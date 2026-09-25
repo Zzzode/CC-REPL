@@ -6,7 +6,6 @@
 cc.utils.json 131
 cc.state.selectors 118
 cc.utils.swarm_backends 116
-cc.hooks.remaining_hooks 108
 cc.tools.mcp 76
 cc.hooks.voice_hooks 75
 cc.daemon.daemon_server 73

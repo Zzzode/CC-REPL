@@ -22,7 +22,6 @@ target_sources(cc_hooks
         hooks/permissions.cppm
         hooks/pr_status.cppm
         hooks/prompt_suggestion.cppm
-        hooks/remaining_hooks.cppm
         hooks/repl_bridge.cppm
         hooks/settings_hooks.cppm
         hooks/swarm_hooks.cppm
