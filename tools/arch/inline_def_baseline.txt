@@ -7,7 +7,6 @@ cc.utils.json 131
 cc.state.selectors 118
 cc.utils.swarm_backends 116
 cc.hooks.remaining_hooks 108
-cc.ui.widgets.text_input 96
 cc.ui.screens.repl_screen 82
 cc.tools.mcp 76
 cc.hooks.voice_hooks 75
@@ -39,6 +38,7 @@ cc.ui.widgets.text_input_widget 33
 cc.ui.foundation.logo_v2 31
 cc.ui.prompt.prompt_input_footer 30
 cc.utils.hooks_execution 29
+cc.ui.widgets.text_input 28 c2-done
 cc.utils.file_edit 27
 cc.ui.dialogs.settings_dialog 26
 cc.ui.dialogs.wizard_dialog 25

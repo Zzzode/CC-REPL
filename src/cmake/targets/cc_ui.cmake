@@ -279,6 +279,14 @@ target_sources(cc_ui PRIVATE
     ui/messages/messages_list_payload_row.cpp
     ui/messages/messages_list_view.cpp
     ui/messages/messages_list_component.cpp
+    # Module implementation units for cc.ui.widgets.text_input
+    # (RFC 0001 Phase C batch 8): editing/history/paste core, readline
+    # event dispatch + reverse search, vim dispatch/operators, and the
+    # FTXUI renderers + TextInput() factory.
+    ui/widgets/text_input_buffer.cpp
+    ui/widgets/text_input_events.cpp
+    ui/widgets/text_input_vim.cpp
+    ui/widgets/text_input_render.cpp
 )
 target_link_libraries(cc_ui
     PUBLIC
