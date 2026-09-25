@@ -60,4 +60,4 @@ cc.ui.visual.markdown 7 c2-done
 cc.tools.agent.utils 6 c1 c2-done
 cc.ui.foundation.design_tokens 6
 cc.tools.runtime_registry 5 c1 c2-done
-cc.ui.screens.repl_screen 0 c2-done
+cc.ui.screens.repl_screen 0 c1 c2-done
