@@ -2714,7 +2714,7 @@ TEST(FlagSettings, NonObjectRootReportsDeferred) {
 }
 
 // Regression: commit f85a5b8 introduced clipboard image paste, but the AppleScript
-// in utils/clipboard.cppm used `\\xc2\\xabclass PNGf\\xc2\\xbb` (four literal ASCII
+// in utils/platform/clipboard.cppm used `\\xc2\\xabclass PNGf\\xc2\\xbb` (four literal ASCII
 // bytes) instead of `«class PNGf»` (two UTF-8 code units). The shell saw a literal
 // backslash-x-c-2 etc., osascript reported syntax error -2741 "A identifier can’t
 // go after this identifier.", and read_image_png() ALWAYS returned nullopt —

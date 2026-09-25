@@ -2,7 +2,7 @@
 // Provides safe, ergonomic C++ interface for high-performance JSON parsing/building
 //
 // RFC 0001 Phase C batch 10 split: the textual <yyjson.h> header is confined
-// to the module implementation units (utils/json_impl.cpp, json_val_read.cpp,
+// to the module implementation units (utils/serdes/json_impl.cpp, json_val_read.cpp,
 // json_parse.cpp, json_mut_val.cpp, json_mut_doc.cpp, json_iter.cpp,
 // json_builders.cpp). This interface unit sees only the four opaque yyjson
 // pointer types below — no sizeof, dereference, field access or yyjson call

@@ -1,6 +1,6 @@
 /// @file skill_usage_impl.cpp
 /// @brief SL-04 impl unit — heavy I/O (sidecar load/write, debounce map) kept
-/// out of the interface module, mirroring the utils/json_impl.cpp PRIVATE pattern.
+/// out of the interface module, mirroring the utils/serdes/json_impl.cpp PRIVATE pattern.
 module;
 
 #include <cmath>

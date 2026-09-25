@@ -111,7 +111,7 @@ inline std::string user_facing_name(
 
 /// getToolUseSummary() from UI.tsx. Returns a display path for the
 /// activity sidebar (we just return the string form of the path; actual
-/// display-path shortening lives in utils/file.cppm).
+/// display-path shortening lives in utils/fs/file.cppm).
 inline std::string get_tool_use_summary(const FileEditInput* input) {
     if (!input || input->file_path.empty()) return {};
     return input->file_path.string();
