@@ -1,18 +1,18 @@
 // C++23 Swarm Backends Module
 // Merges: detection.ts, InProcessBackend.ts, ITermBackend.ts, TmuxBackend.ts,
 //         PaneBackendExecutor.ts, registry.ts, types.ts, teammateModeSnapshot.ts, it2Setup.ts
-module;
-
-#include <sys/wait.h>
-#include <cstdio>
-#include <cstdlib>
-
+//
+// RFC 0001 Phase C batch 10: declaration-only primary. All non-trivial bodies
+// live in eight module implementation units — swarm_backends_shell.cpp (shell
+// seams + WIF/FILE GMF), swarm_backends_detect.cpp (environment/mode
+// detection + the 11 static data anchors), swarm_backends_tmux.cpp,
+// swarm_backends_iterm.cpp, swarm_backends_inprocess.cpp (the only unit that
+// imports cc.utils.team_helpers), swarm_backends_executor.cpp (RAII guard +
+// base vtable anchors), swarm_backends_registry.cpp, and
+// swarm_backends_detail.cpp (argv builders + protocol strings).
 export module cc.utils.swarm_backends;
 
 import std;
-
-import cc.utils.team_helpers;
-import cc.utils.bash_execution;
 
 export namespace cc::utils::swarm_backends {
 
@@ -151,7 +151,9 @@ enum class TeammateMode {
 /// for teammate visualization in swarm mode.
 class PaneBackend {
 public:
-    virtual ~PaneBackend() = default;
+    // Out-of-line in swarm_backends_executor.cpp: the destructor is this
+    // class's key function, so the vtable/typeinfo anchor there.
+    virtual ~PaneBackend();
 
     /// The backend type identifier
     [[nodiscard]] virtual BackendType type() const = 0;
@@ -207,14 +209,10 @@ public:
     ///
     /// Non-pure (rather than = 0) so test doubles in other translation units
     /// do not all have to gain an override; the default means 'cannot capture'.
+    /// The default body is out-of-line in swarm_backends_executor.cpp.
     [[nodiscard]] virtual std::optional<std::string> capture_pane_text(
         const PaneId& pane_id, int tail_lines = 200,
-        bool use_external_session = false) {
-        (void)pane_id;
-        (void)tail_lines;
-        (void)use_external_session;
-        return std::nullopt;
-    }
+        bool use_external_session = false);
 
     /// Hide a pane by breaking it out into a hidden window
     [[nodiscard]] virtual bool hide_pane(
@@ -234,12 +232,13 @@ public:
 /// Abstracts differences between pane-based and in-process execution.
 class TeammateExecutor {
 public:
-    virtual ~TeammateExecutor() = default;
+    // Out-of-line in swarm_backends_executor.cpp (vtable/typeinfo anchor).
+    virtual ~TeammateExecutor();
 
     /// Backend type identifier
     [[nodiscard]] virtual BackendType type() const = 0;
 
-    /// Check if this executor is available on the system
+    /// Check this executor is available on the system
     [[nodiscard]] virtual bool is_available() const = 0;
 
     /// Spawn a new teammate with the given configuration
@@ -267,85 +266,49 @@ public:
 
 /// Environment detection utilities for swarm backend selection.
 /// Caches results since environment won't change during process lifetime.
+///
+/// All member bodies and the seven static data definitions live in
+/// swarm_backends_detect.cpp.
 class EnvironmentDetection {
 public:
     /// Check if currently running inside a tmux session (synchronous).
     /// Uses TMUX env var captured at module load.
-    [[nodiscard]] static bool is_inside_tmux_sync() {
-        return !original_tmux_env_.empty();
-    }
+    [[nodiscard]] static bool is_inside_tmux_sync();
 
     /// Check if currently running inside a tmux session.
     /// Caches the result.
-    [[nodiscard]] static bool is_inside_tmux() {
-        std::lock_guard lock(mutex_);
-        if (!tmux_cached_) {
-            is_inside_tmux_result_ = !original_tmux_env_.empty();
-            tmux_cached_ = true;
-        }
-        return is_inside_tmux_result_;
-    }
+    [[nodiscard]] static bool is_inside_tmux();
 
     /// Get the leader's tmux pane ID captured at module load.
     /// Returns empty if not running inside tmux.
-    [[nodiscard]] static std::string_view get_leader_pane_id() {
-        return original_tmux_pane_;
-    }
+    [[nodiscard]] static std::string_view get_leader_pane_id();
 
     /// Check if tmux is available on the system (installed and in PATH)
     [[nodiscard]] static bool is_tmux_available();
 
     /// Check if currently running inside iTerm2.
     /// Uses multiple detection methods: TERM_PROGRAM, ITERM_SESSION_ID.
-    [[nodiscard]] static bool is_in_iterm2() {
-        std::lock_guard lock(mutex_);
-        if (!iterm2_cached_) {
-            is_in_iterm2_result_ = detect_iterm2();
-            iterm2_cached_ = true;
-        }
-        return is_in_iterm2_result_;
-    }
+    [[nodiscard]] static bool is_in_iterm2();
 
     /// Check if the it2 CLI tool is available AND can reach iTerm2 Python API
     [[nodiscard]] static bool is_it2_cli_available();
 
     /// Reset all cached detection results (for testing)
-    static void reset_cache() {
-        std::lock_guard lock(mutex_);
-        tmux_cached_ = false;
-        iterm2_cached_ = false;
-    }
+    static void reset_cache();
 
     /// Set the original TMUX env value (called at startup)
-    static void capture_env(std::string_view tmux_env, std::string_view tmux_pane) {
-        std::lock_guard lock(mutex_);
-        original_tmux_env_ = std::string(tmux_env);
-        original_tmux_pane_ = std::string(tmux_pane);
-        // Reset cached detection so the new environment takes effect.
-        tmux_cached_ = false;
-        is_inside_tmux_result_ = false;
-        iterm2_cached_ = false;
-        is_in_iterm2_result_ = false;
-    }
+    static void capture_env(std::string_view tmux_env, std::string_view tmux_pane);
 
 private:
-    static bool detect_iterm2() {
-        // Check TERM_PROGRAM and ITERM_SESSION_ID environment variables
-        const char* term_program = std::getenv("TERM_PROGRAM");
-        if (term_program && std::string_view(term_program) == "iTerm.app") {
-            return true;
-        }
-        const char* iterm_session = std::getenv("ITERM_SESSION_ID");
-        return iterm_session != nullptr && iterm_session[0] != '\0';
-    }
+    static bool detect_iterm2();
 
-    static inline std::mutex mutex_;
-    static inline bool tmux_cached_ = false;
-    static inline bool is_inside_tmux_result_ = false;
-    static inline bool iterm2_cached_ = false;
-    static inline bool is_in_iterm2_result_ = false;
-    static inline std::string original_tmux_env_;
-    static inline std::string original_tmux_pane_;
+    static std::mutex mutex_;
+    static bool tmux_cached_;
+    static bool is_inside_tmux_result_;
+    static bool iterm2_cached_;
+    static bool is_in_iterm2_result_;
+    static std::string original_tmux_env_;
+    static std::string original_tmux_pane_;
 };
 
 // ============================================================================
@@ -361,6 +324,9 @@ private:
 /// When running OUTSIDE tmux (leader is in regular terminal):
 /// - Creates a loom-swarm session with a swarm-view window
 /// - All teammates are equally distributed (no leader pane)
+///
+/// Bodies live in swarm_backends_tmux.cpp; is_available is the key function
+/// so the vtable/typeinfo anchor in that unit.
 class TmuxBackend : public PaneBackend {
 public:
     [[nodiscard]] BackendType type() const override { return BackendType::Tmux; }
@@ -419,12 +385,6 @@ private:
     /// Rebalance panes with tiled layout (no leader)
     void rebalance_tiled(std::string_view window_target);
 
-    /// Get current pane ID (leader's pane)
-    [[nodiscard]] std::optional<std::string> get_current_pane_id() const;
-
-    /// Get current window target (session:window format)
-    [[nodiscard]] std::optional<std::string> get_current_window_target() const;
-
     /// Get tmux color name for agent color
     [[nodiscard]] static std::string_view get_tmux_color(AgentColor color);
 
@@ -454,6 +414,8 @@ private:
 ///
 /// Includes at-fault recovery: if a targeted teammate session is dead,
 /// prune it and retry with the next-to-last.
+///
+/// Bodies live in swarm_backends_iterm.cpp; is_available is the key function.
 class ITermBackend : public PaneBackend {
 public:
     [[nodiscard]] BackendType type() const override { return BackendType::ITerm2; }
@@ -510,9 +472,6 @@ private:
     /// Parse session ID from `it2 session split` output
     [[nodiscard]] static std::string parse_split_output(std::string_view output);
 
-    /// Get the leader's session ID from ITERM_SESSION_ID env var
-    [[nodiscard]] static std::optional<std::string> get_leader_session_id();
-
     /// Pane creation lock
     std::mutex pane_creation_mutex_;
 
@@ -534,6 +493,10 @@ private:
 /// - Share resources (API client, connections) with the leader
 /// - Communicate via file-based mailbox
 /// - Are terminated via abort signaling (not kill-pane)
+///
+/// Member bodies live in swarm_backends_inprocess.cpp, the only implementation
+/// unit that imports cc.utils.team_helpers (mailbox I/O); spawn is the key
+/// function.
 class InProcessBackend : public TeammateExecutor {
 public:
     [[nodiscard]] BackendType type() const override { return BackendType::InProcess; }
@@ -576,6 +539,10 @@ private:
 /// - terminate(): Sends a shutdown request via mailbox
 /// - kill(): Kills the pane via the backend
 /// - isActive(): Checks if the pane is still running
+///
+/// The destructor and the non-trivial member bodies live in
+/// swarm_backends_executor.cpp; the destructor is the key function, anchoring
+/// the vtable/typeinfo there.
 class PaneBackendExecutor : public TeammateExecutor {
 public:
     /// Info about a pane a spawned teammate lives in.
@@ -590,21 +557,9 @@ public:
     // Leader-exit cleanup: kill every teammate pane this executor spawned so a
     // torn-down team doesn't leave orphan interactive shells.
     // TS REF: PaneBackendExecutor.ts registerCleanup → killPane loop.
-    ~PaneBackendExecutor() override {
-        kill_all_spawned();
-    }
+    ~PaneBackendExecutor() override;
 
-    void kill_all_spawned() {
-        std::map<std::string, SpawnedPane> spawned;
-        {
-            std::lock_guard lock(spawned_mutex_);
-            spawned = spawned_teammates_;
-            spawned_teammates_.clear();
-        }
-        for (const auto& [id, info] : spawned) {
-            if (backend_) (void)backend_->kill_pane(info.pane_id, info.inside_tmux);
-        }
-    }
+    void kill_all_spawned();
 
     [[nodiscard]] BackendType type() const override { return backend_->type(); }
 
@@ -646,65 +601,36 @@ private:
 
 /// Captures teammate mode at session startup.
 /// Ensures runtime config changes don't affect mode for current session.
+///
+/// All member bodies and the four static data definitions live in
+/// swarm_backends_detect.cpp.
 class TeammateModeSnapshot {
 public:
     /// Set CLI override for teammate mode. Must be called before capture().
-    static void set_cli_override(TeammateMode mode) {
-        std::lock_guard lock(mutex_);
-        cli_override_ = mode;
-    }
+    static void set_cli_override(TeammateMode mode);
 
     /// Get current CLI override, if any
-    [[nodiscard]] static std::optional<TeammateMode> get_cli_override() {
-        std::lock_guard lock(mutex_);
-        return cli_override_;
-    }
+    [[nodiscard]] static std::optional<TeammateMode> get_cli_override();
 
     /// Clear CLI override and update snapshot to new mode.
     /// Called when user changes setting in UI.
-    static void clear_cli_override(TeammateMode new_mode) {
-        std::lock_guard lock(mutex_);
-        cli_override_ = std::nullopt;
-        captured_mode_ = new_mode;
-    }
+    static void clear_cli_override(TeammateMode new_mode);
 
     /// Capture the teammate mode at session startup.
     /// CLI override takes precedence over config.
-    static void capture() {
-        std::lock_guard lock(mutex_);
-        if (cli_override_.has_value()) {
-            captured_mode_ = *cli_override_;
-        } else {
-            // Default to Auto if not configured
-            captured_mode_ = TeammateMode::Auto;
-        }
-        captured_ = true;
-    }
+    static void capture();
 
     /// Get the teammate mode for this session.
     /// Returns the snapshot captured at startup.
-    [[nodiscard]] static TeammateMode get() {
-        std::lock_guard lock(mutex_);
-        if (!captured_) {
-            capture_unlocked();
-        }
-        return captured_mode_;
-    }
+    [[nodiscard]] static TeammateMode get();
 
 private:
-    static void capture_unlocked() {
-        if (cli_override_.has_value()) {
-            captured_mode_ = *cli_override_;
-        } else {
-            captured_mode_ = TeammateMode::Auto;
-        }
-        captured_ = true;
-    }
+    static void capture_unlocked();
 
-    static inline std::mutex mutex_;
-    static inline bool captured_ = false;
-    static inline TeammateMode captured_mode_ = TeammateMode::Auto;
-    static inline std::optional<TeammateMode> cli_override_;
+    static std::mutex mutex_;
+    static bool captured_;
+    static TeammateMode captured_mode_;
+    static std::optional<TeammateMode> cli_override_;
 };
 
 // ============================================================================
@@ -783,6 +709,9 @@ private:
 /// 3. If in iTerm2 without it2 → return result indicating setup needed
 /// 4. If tmux available → use tmux (creates external session)
 /// 5. Otherwise → throw error with installation instructions
+///
+/// Non-trivial member bodies and the six static data definitions live in
+/// swarm_backends_registry.cpp.
 class BackendRegistry {
 public:
     /// Detect and get the appropriate pane backend for this environment.
@@ -849,12 +778,12 @@ public:
     [[nodiscard]] static std::string get_tmux_install_instructions();
 
 private:
-    static inline std::mutex mutex_;
-    static inline std::shared_ptr<PaneBackend> cached_backend_;
-    static inline std::optional<BackendDetectionResult> cached_detection_result_;
-    static inline std::shared_ptr<TeammateExecutor> cached_in_process_backend_;
-    static inline std::shared_ptr<TeammateExecutor> cached_pane_executor_;
-    static inline bool in_process_fallback_active_ = false;
+    static std::mutex mutex_;
+    static std::shared_ptr<PaneBackend> cached_backend_;
+    static std::optional<BackendDetectionResult> cached_detection_result_;
+    static std::shared_ptr<TeammateExecutor> cached_in_process_backend_;
+    static std::shared_ptr<TeammateExecutor> cached_pane_executor_;
+    static bool in_process_fallback_active_;
 };
 
 // ============================================================================
@@ -912,89 +841,21 @@ inline constexpr std::string_view HIDDEN_SESSION_NAME = "loom-swarm-hidden";
 
 namespace detail {
 
-[[nodiscard]] inline std::string json_escape(std::string_view value) {
-    std::string out;
-    out.reserve(value.size() + 8);
-    for (char ch : value) {
-        switch (ch) {
-            case '\\': out += R"(\\)"; break;
-            case '"': out += R"(\")"; break;
-            case '\n': out += R"(\n)"; break;
-            case '\r': out += R"(\r)"; break;
-            case '\t': out += R"(\t)"; break;
-            default: out.push_back(ch); break;
-        }
-    }
-    return out;
-}
+[[nodiscard]] std::string json_escape(std::string_view value);
 
-[[nodiscard]] inline std::string timestamp_now() {
-    const auto now = std::chrono::system_clock::now().time_since_epoch();
-    const auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
-    return std::to_string(millis);
-}
+[[nodiscard]] std::string timestamp_now();
 
-[[nodiscard]] inline bool write_backend_message_to_mailbox(
+[[nodiscard]] bool write_backend_message_to_mailbox(
     std::string_view agent_id,
     const TeammateMessage& message
-) {
-    auto parsed = parse_agent_id(agent_id);
-    if (!parsed) return false;
+);
 
-    cc::utils::TeammateMessage mailbox_message{
-        .from = message.from.empty() ? std::string("team-lead") : message.from,
-        .text = message.text,
-        .timestamp = message.timestamp.value_or(std::string{}),
-        .read = false,
-        .color = message.color,
-        .summary = message.summary,
-    };
-    auto delivered = cc::utils::write_to_mailbox(
-        parsed->agent_name,
-        std::move(mailbox_message),
-        std::optional<std::string_view>{parsed->team_name});
-    return delivered.has_value();
-}
-
-[[nodiscard]] inline TeammateMessage shutdown_request_message(
+[[nodiscard]] TeammateMessage shutdown_request_message(
     std::string_view agent_id,
     std::optional<std::string_view> reason
-) {
-    const auto timestamp = timestamp_now();
-    std::string text = R"({"type":"shutdown_request","requestId":"shutdown-)";
-    text += json_escape(agent_id);
-    text += '-';
-    text += timestamp;
-    text += R"(","from":"team-lead")";
-    if (reason && !reason->empty()) {
-        text += R"(,"reason":")";
-        text += json_escape(*reason);
-        text += '"';
-    }
-    text += R"(,"timestamp":")";
-    text += timestamp;
-    text += R"("})";
-    return TeammateMessage{
-        .text = std::move(text),
-        .from = "team-lead",
-        .color = std::nullopt,
-        .timestamp = timestamp,
-        .summary = std::nullopt,
-    };
-}
+);
 
-[[nodiscard]] inline std::string shell_quote(std::string_view value) {
-    std::string out = "'";
-    for (char ch : value) {
-        if (ch == '\'') {
-            out += "'\\''";
-        } else {
-            out.push_back(ch);
-        }
-    }
-    out.push_back('\'');
-    return out;
-}
+[[nodiscard]] std::string shell_quote(std::string_view value);
 
 // ── Pure tmux argv builders (external swarm session re-attach) ──────────────
 //
@@ -1007,62 +868,26 @@ struct TmuxArgv {
     std::vector<std::string> args;
 
     /// Render as a shell command line with every argument single-quoted.
-    [[nodiscard]] std::string join_shell() const {
-        std::string command = program;
-        for (const auto& arg : args) {
-            command.push_back(' ');
-            command += shell_quote(arg);
-        }
-        return command;
-    }
+    [[nodiscard]] std::string join_shell() const;
 };
 
-[[nodiscard]] inline TmuxArgv tmux_has_session_argv(std::string_view session) {
-    TmuxArgv argv;
-    argv.args = {"has-session", "-t", std::string(session)};
-    return argv;
-}
+[[nodiscard]] TmuxArgv tmux_has_session_argv(std::string_view session);
 
-[[nodiscard]] inline TmuxArgv tmux_list_windows_argv(std::string_view session) {
-    TmuxArgv argv;
-    argv.args = {"list-windows", "-t", std::string(session),
-                 "-F", "#{window_name}"};
-    return argv;
-}
+[[nodiscard]] TmuxArgv tmux_list_windows_argv(std::string_view session);
 
-[[nodiscard]] inline TmuxArgv tmux_new_session_argv(
+[[nodiscard]] TmuxArgv tmux_new_session_argv(
     std::string_view session, std::string_view window
-) {
-    TmuxArgv argv;
-    argv.args = {"new-session", "-d", "-s", std::string(session),
-                 "-n", std::string(window), "-P", "-F", "#{pane_id}"};
-    return argv;
-}
+);
 
-[[nodiscard]] inline TmuxArgv tmux_new_window_argv(
+[[nodiscard]] TmuxArgv tmux_new_window_argv(
     std::string_view session, std::string_view window
-) {
-    TmuxArgv argv;
-    argv.args = {"new-window", "-t", std::string(session),
-                 "-n", std::string(window), "-P", "-F", "#{pane_id}"};
-    return argv;
-}
+);
 
-[[nodiscard]] inline TmuxArgv tmux_list_panes_argv(std::string_view target) {
-    TmuxArgv argv;
-    argv.args = {"list-panes", "-t", std::string(target),
-                 "-F", "#{pane_id}"};
-    return argv;
-}
+[[nodiscard]] TmuxArgv tmux_list_panes_argv(std::string_view target);
 
-[[nodiscard]] inline TmuxArgv tmux_split_window_argv(
+[[nodiscard]] TmuxArgv tmux_split_window_argv(
     std::string_view target, bool vertical
-) {
-    TmuxArgv argv;
-    argv.args = {"split-window", "-t", std::string(target),
-                 vertical ? "-v" : "-h", "-P", "-F", "#{pane_id}"};
-    return argv;
-}
+);
 
 /// What create_pane_external must do to obtain a swarm-view window.
 enum class ExternalSessionAction {
@@ -1086,80 +911,36 @@ struct ExternalSessionPlan {
 /// session/window always yields one unused pane (reuse_first_pane); an
 /// existing window only hands out pane 0 when it is still the sole pane, so a
 /// leader restart with live teammate panes splits instead of hijacking pane 0.
-[[nodiscard]] inline ExternalSessionPlan plan_external_swarm_view(
+[[nodiscard]] ExternalSessionPlan plan_external_swarm_view(
     bool session_exists,
     bool window_exists,
     std::size_t pane_count,
     bool first_pane_used
-) {
-    ExternalSessionPlan plan;
-    plan.window_target =
-        std::string(SWARM_SESSION_NAME) + ":" + std::string(SWARM_VIEW_WINDOW_NAME);
-    if (!session_exists) {
-        plan.action = ExternalSessionAction::CreateSession;
-        plan.reuse_first_pane = !first_pane_used;
-        return plan;
-    }
-    if (!window_exists) {
-        plan.action = ExternalSessionAction::CreateWindow;
-        plan.reuse_first_pane = !first_pane_used;
-        return plan;
-    }
-    plan.action = ExternalSessionAction::ReuseExistingWindow;
-    plan.reuse_first_pane = !first_pane_used && pane_count == 1;
-    return plan;
-}
+);
 
 // ── Injectable shell seams (tests only; production behavior unchanged) ──────
+//
+// Definitions (and the function-local override statics) live in
+// swarm_backends_shell.cpp so the whole module shares one seam instance.
 
 using ShellRunnerFn = std::function<int(std::string_view)>;
 using ShellCaptureFn = std::function<std::string(std::string_view)>;
 
-[[nodiscard]] inline ShellRunnerFn& shell_runner_override() {
-    static ShellRunnerFn runner;
-    return runner;
-}
+[[nodiscard]] ShellRunnerFn& shell_runner_override();
 
-[[nodiscard]] inline ShellCaptureFn& shell_capture_override() {
-    static ShellCaptureFn capture;
-    return capture;
-}
+[[nodiscard]] ShellCaptureFn& shell_capture_override();
 
 /// Install scripted shell implementations for unit tests.
-inline void set_shell_runners_for_test(ShellRunnerFn runner, ShellCaptureFn capture) {
-    shell_runner_override() = std::move(runner);
-    shell_capture_override() = std::move(capture);
-}
+void set_shell_runners_for_test(ShellRunnerFn runner, ShellCaptureFn capture);
 
 /// Restore real std::system / popen shell execution after a test.
-inline void reset_shell_runners_for_test() {
-    shell_runner_override() = nullptr;
-    shell_capture_override() = nullptr;
-}
+void reset_shell_runners_for_test();
 
-[[nodiscard]] inline int run_shell(std::string_view command) {
-    if (const auto& runner = shell_runner_override()) return runner(command);
-    return std::system(std::string(command).c_str());
-}
+[[nodiscard]] int run_shell(std::string_view command);
 
-[[nodiscard]] inline bool command_available(std::string_view command) {
-    auto probe = "command -v " + std::string(command) + " >/dev/null 2>&1";
-    return run_shell(probe) == 0;
-}
+[[nodiscard]] bool command_available(std::string_view command);
 
-[[nodiscard]] inline std::string read_shell_output(std::string_view command) {
-    if (const auto& capture = shell_capture_override()) return capture(command);
-    FILE* pipe = cc::utils::bash::popen_spawn(std::string(command).c_str());
-    if (!pipe) return {};
-    std::array<char, 4096> buffer{};
-    std::string output;
-    while (std::fgets(buffer.data(), static_cast<int>(buffer.size()), pipe)) {
-        output += buffer.data();
-    }
-    (void)cc::utils::bash::pclose_spawn(pipe);
-    while (!output.empty() && (output.back() == '\n' || output.back() == '\r')) output.pop_back();
-    return output;
-}
+[[nodiscard]] std::string read_shell_output(std::string_view command);
 
 struct ShellOutput {
     std::string text;
@@ -1168,676 +949,19 @@ struct ShellOutput {
 
 // Like read_shell_output but also returns the child exit code so callers can
 // distinguish 'pane gone' (non-zero) from 'pane showing an empty screen'.
-[[nodiscard]] inline ShellOutput read_shell_output_with_status(std::string_view command) {
-    FILE* pipe = cc::utils::bash::popen_spawn(std::string(command).c_str());
-    if (!pipe) return {};
-    std::array<char, 4096> buffer{};
-    std::string output;
-    while (std::fgets(buffer.data(), static_cast<int>(buffer.size()), pipe)) {
-        output += buffer.data();
-    }
-    const int raw = cc::utils::bash::pclose_spawn(pipe);
-    while (!output.empty() && (output.back() == '\n' || output.back() == '\r')) output.pop_back();
-    return ShellOutput{std::move(output), WIFEXITED(raw) ? WEXITSTATUS(raw) : -1};
-}
+[[nodiscard]] ShellOutput read_shell_output_with_status(std::string_view command);
 
 // Unit-testable tmux arg builder for 'tmux capture-pane -p -t <id> -S -<lines>'.
-[[nodiscard]] inline std::string build_capture_pane_command(
+[[nodiscard]] std::string build_capture_pane_command(
     std::string_view pane_id, int tail_lines
-) {
-    if (tail_lines < 1) tail_lines = 1;
-    return "tmux capture-pane -p -t " + shell_quote(pane_id) +
-           " -S -" + std::to_string(tail_lines) + " 2>/dev/null";
-}
+);
 
-[[nodiscard]] inline std::string teammate_command() {
-    if (const char* env = std::getenv("LOOM_TEAMMATE_COMMAND"); env && *env) return std::string(env);
-    if (const char* env = std::getenv("CLAUDE_CODE_TEAMMATE_COMMAND"); env && *env) return std::string(env);
-    if (const char* env = std::getenv("LOOM_BINARY"); env && *env) return std::string(env);
-    return "loom";
-}
+[[nodiscard]] std::string teammate_command();
 
-[[nodiscard]] inline std::string build_teammate_cli_command(const TeammateSpawnConfig& config) {
-    std::ostringstream command;
-    if (!config.cwd.empty()) command << "cd " << shell_quote(config.cwd) << " && ";
-    command << "env LOOM=1 LOOM_EXPERIMENTAL_AGENT_TEAMS=1 ";
-    command << shell_quote(teammate_command());
-    command << " --agent-id " << shell_quote(format_agent_id(config.name, config.team_name));
-    command << " --agent-name " << shell_quote(config.name);
-    command << " --team-name " << shell_quote(config.team_name);
-    if (config.color) command << " --agent-color " << shell_quote(std::string(agent_color_name(*config.color)));
-    if (!config.parent_session_id.empty()) command << " --parent-session-id " << shell_quote(config.parent_session_id);
-    if (config.plan_mode_required) command << " --plan-mode-required";
-    if (config.agent_type && !config.agent_type->empty()) command << " --agent-type " << shell_quote(*config.agent_type);
-    if (!config.plan_mode_required && config.permission_mode) {
-        if (*config.permission_mode == "bypassPermissions") {
-            command << " --dangerously-skip-permissions";
-        } else if (*config.permission_mode == "acceptEdits" || *config.permission_mode == "auto") {
-            command << " --permission-mode " << shell_quote(*config.permission_mode);
-        }
-    }
-    if (config.model && !config.model->empty()) command << " --model " << shell_quote(*config.model);
-    return command.str();
-}
+[[nodiscard]] std::string build_teammate_cli_command(const TeammateSpawnConfig& config);
 
-[[nodiscard]] inline std::optional<TeammateMode> forced_mode_from_env() {
-    const char* raw = std::getenv("LOOM_TEAMMATE_BACKEND");
-    if (!raw || !*raw) raw = std::getenv("CLAUDE_CODE_TEAMMATE_BACKEND");
-    if (!raw || !*raw) return std::nullopt;
-    std::string value(raw);
-    if (value == "in-process" || value == "inprocess" || value == "native") return TeammateMode::InProcess;
-    if (value == "tmux" || value == "pane") return TeammateMode::Tmux;
-    return std::nullopt;
-}
+[[nodiscard]] std::optional<TeammateMode> forced_mode_from_env();
 
 } // namespace detail
-
-inline bool EnvironmentDetection::is_tmux_available() {
-    return detail::command_available(TMUX_COMMAND);
-}
-
-inline bool EnvironmentDetection::is_it2_cli_available() {
-    return detail::command_available(IT2_COMMAND);
-}
-
-inline bool TmuxBackend::is_available() const {
-    return EnvironmentDetection::is_tmux_available();
-}
-
-inline bool TmuxBackend::is_running_inside() const {
-    return EnvironmentDetection::is_inside_tmux();
-}
-
-inline CreatePaneResult TmuxBackend::create_teammate_pane(std::string_view name, AgentColor color) {
-    std::lock_guard lock(pane_creation_mutex_);
-    auto result = is_running_inside()
-        ? create_pane_with_leader(name, color)
-        : create_pane_external(name, color);
-    if (!result.pane_id.empty()) {
-        set_pane_title(result.pane_id, name, color, !is_running_inside());
-        set_pane_border_color(result.pane_id, color, !is_running_inside());
-    }
-    return result;
-}
-
-inline void TmuxBackend::send_command_to_pane(
-    const PaneId& pane_id,
-    std::string_view command,
-    bool use_external_session
-) {
-    (void)use_external_session;
-    if (pane_id.empty() || command.empty()) return;
-    auto cmd = "tmux send-keys -t " + detail::shell_quote(pane_id) + " " +
-        detail::shell_quote(command) + " Enter >/dev/null 2>&1";
-    (void)detail::run_shell(cmd);
-}
-
-inline void TmuxBackend::set_pane_border_color(
-    const PaneId& pane_id,
-    AgentColor color,
-    bool use_external_session
-) {
-    (void)use_external_session;
-    if (pane_id.empty()) return;
-    auto cmd = "tmux select-pane -t " + detail::shell_quote(pane_id) +
-        " -P '" + std::string(get_tmux_color(color)) + "' >/dev/null 2>&1";
-    (void)detail::run_shell(cmd);
-}
-
-inline void TmuxBackend::set_pane_title(
-    const PaneId& pane_id,
-    std::string_view name,
-    AgentColor color,
-    bool use_external_session
-) {
-    (void)color;
-    (void)use_external_session;
-    if (pane_id.empty()) return;
-    auto cmd = "tmux select-pane -t " + detail::shell_quote(pane_id) +
-        " -T " + detail::shell_quote(name) + " >/dev/null 2>&1";
-    (void)detail::run_shell(cmd);
-}
-
-inline void TmuxBackend::enable_pane_border_status(
-    std::optional<std::string_view> window_target,
-    bool use_external_session
-) {
-    (void)use_external_session;
-    std::string target = window_target ? " -t " + detail::shell_quote(*window_target) : "";
-    (void)detail::run_shell("tmux set-option" + target + " pane-border-status top >/dev/null 2>&1");
-}
-
-inline void TmuxBackend::rebalance_panes(std::string_view window_target, bool has_leader) {
-    if (has_leader) {
-        rebalance_with_leader(window_target);
-    } else {
-        rebalance_tiled(window_target);
-    }
-}
-
-inline bool TmuxBackend::kill_pane(const PaneId& pane_id, bool use_external_session) {
-    (void)use_external_session;
-    if (pane_id.empty()) return false;
-    auto cmd = "tmux kill-pane -t " + detail::shell_quote(pane_id) + " >/dev/null 2>&1";
-    return detail::run_shell(cmd) == 0;
-}
-
-inline std::optional<std::string> TmuxBackend::capture_pane_text(
-    const PaneId& pane_id, int tail_lines, bool use_external_session
-) {
-    // TODO: external swarm sessions run on a -L loom-swarm-<pid> socket in TS
-    // (constants.ts getSwarmSocketName); the C++ port currently shells out on
-    // the default socket everywhere (see create_pane_external), so honor the
-    // same simplification here until the socket gap is ported.
-    (void)use_external_session;
-    if (pane_id.empty()) return std::nullopt;
-    auto result = detail::read_shell_output_with_status(
-        detail::build_capture_pane_command(pane_id, tail_lines));
-    if (result.exit_code != 0) return std::nullopt;  // pane is gone
-    return result.text;
-}
-
-inline bool TmuxBackend::hide_pane(const PaneId& pane_id, bool use_external_session) {
-    (void)use_external_session;
-    if (pane_id.empty()) return false;
-    auto cmd = "tmux break-pane -d -s " + detail::shell_quote(pane_id) +
-        " -t " + detail::shell_quote(HIDDEN_SESSION_NAME) + " >/dev/null 2>&1";
-    return detail::run_shell(cmd) == 0;
-}
-
-inline bool TmuxBackend::show_pane(
-    const PaneId& pane_id,
-    std::string_view target_window_or_pane,
-    bool use_external_session
-) {
-    (void)use_external_session;
-    if (pane_id.empty()) return false;
-    auto cmd = "tmux join-pane -s " + detail::shell_quote(pane_id) +
-        " -t " + detail::shell_quote(target_window_or_pane) + " >/dev/null 2>&1";
-    return detail::run_shell(cmd) == 0;
-}
-
-inline CreatePaneResult TmuxBackend::create_pane_with_leader(std::string_view name, AgentColor color) {
-    (void)name;
-    (void)color;
-    // Leader-attached balanced layout (TS TmuxBackend.createTeammatePane):
-    //  - first teammate: split the leader pane horizontally, leader keeps 70%
-    //  - further teammates: split from a middle teammate pane, alternating
-    //    vertical/horizontal by parity so the grid stays balanced.
-    const auto leader_pane =
-        detail::read_shell_output("tmux display-message -p '#{pane_id}' 2>/dev/null");
-    if (leader_pane.empty()) return {};
-
-    const auto window_target =
-        detail::read_shell_output("tmux display-message -p '#{session_name}:#{window_id}' 2>/dev/null");
-
-    auto split = [&](std::string target, const std::string& flag,
-                     bool with_size) {
-        std::string cmd = "tmux split-window -t " + detail::shell_quote(target) +
-                          " " + flag + " -P -F '#{pane_id}'";
-        if (with_size) cmd += " -l 70%";
-        cmd += " 2>/dev/null";
-        return detail::read_shell_output(cmd);
-    };
-
-    // Panes in the current window; pane 0 is the leader, the rest are
-    // teammates already spawned.
-    auto list_raw = window_target.empty()
-        ? detail::read_shell_output("tmux list-panes -F '#{pane_id}' 2>/dev/null")
-        : detail::read_shell_output("tmux list-panes -t " +
-                                    detail::shell_quote(window_target) +
-                                    " -F '#{pane_id}' 2>/dev/null");
-    std::vector<std::string> panes;
-    {
-        std::string acc;
-        for (char c : list_raw) {
-            if (c == '\n') {
-                if (!acc.empty()) { panes.push_back(acc); acc.clear(); }
-            } else acc += c;
-        }
-        if (!acc.empty()) panes.push_back(acc);
-    }
-
-    std::string pane;
-    if (panes.size() <= 1) {
-        // First teammate: 70% horizontal split off the leader.
-        pane = split(leader_pane, "-h", /*with_size=*/true);
-    } else {
-        const std::size_t teammate_count = panes.size() - 1;  // exclude leader
-        const bool split_vertical = (teammate_count % 2 == 1);
-        const std::size_t target_index =
-            std::min(static_cast<std::size_t>((teammate_count - 1) / 2),
-                     panes.size() - 1);
-        pane = split(panes[target_index], split_vertical ? "-v" : "-h",
-                     /*with_size=*/false);
-    }
-
-    std::this_thread::sleep_for(std::chrono::milliseconds(kPaneShellInitDelayMs));
-    return CreatePaneResult{.pane_id = pane, .is_first_teammate = panes.size() <= 1};
-}
-
-inline CreatePaneResult TmuxBackend::create_pane_external(std::string_view name, AgentColor color) {
-    (void)name;
-    (void)color;
-    const std::string session{SWARM_SESSION_NAME};
-    const std::string window{SWARM_VIEW_WINDOW_NAME};
-    const std::string window_target = session + ":" + window;
-
-    // Split newline-delimited tmux output into non-empty lines (matches the
-    // TS '.trim().split("\n").filter(Boolean)' idiom).
-    auto split_lines = [](std::string_view raw) {
-        std::vector<std::string> lines;
-        std::string acc;
-        for (char c : raw) {
-            if (c == '\n') {
-                if (!acc.empty() && acc != "\r") lines.push_back(acc);
-                acc.clear();
-            } else if (c != '\r') {
-                acc.push_back(c);
-            }
-        }
-        if (!acc.empty()) lines.push_back(acc);
-        return lines;
-    };
-
-    // 1. Probe the external swarm session (TS hasSessionInSwarm).
-    const bool session_exists =
-        detail::run_shell(detail::tmux_has_session_argv(session).join_shell()) == 0;
-
-    // 2. Probe the swarm-view window and count its live panes.
-    bool window_exists = false;
-    std::size_t pane_count = 0;
-    std::vector<std::string> existing_panes;
-    if (session_exists) {
-        const auto windows = split_lines(detail::read_shell_output(
-            detail::tmux_list_windows_argv(session).join_shell()));
-        for (const auto& line : windows) {
-            if (line == window) window_exists = true;
-        }
-        if (window_exists) {
-            existing_panes = split_lines(detail::read_shell_output(
-                detail::tmux_list_panes_argv(window_target).join_shell()));
-            pane_count = existing_panes.size();
-        }
-    }
-
-    // 3. Pure re-attach decision.
-    const auto plan = detail::plan_external_swarm_view(
-        session_exists, window_exists, pane_count, first_pane_used_external_);
-
-    // 4. Create the missing session/window; both print the fresh pane id via
-    // -P -F '#{pane_id}'. Reusing an existing window starts from pane 0.
-    std::string pane;
-    if (plan.action == detail::ExternalSessionAction::CreateSession) {
-        pane = detail::read_shell_output(
-            detail::tmux_new_session_argv(session, window).join_shell());
-        pane_count = 1;
-    } else if (plan.action == detail::ExternalSessionAction::CreateWindow) {
-        pane = detail::read_shell_output(
-            detail::tmux_new_window_argv(session, window).join_shell());
-        pane_count = 1;
-    } else if (!existing_panes.empty()) {
-        pane = existing_panes.front();
-    }
-    if (pane.empty()) return {};
-
-    // 5. First teammate takes the lone pane; further teammates split from a
-    // middle pane. Unlike the previous one-shot flag, pane_count is derived
-    // from live tmux state, so a leader restart splits instead of hijacking
-    // pane 0 when teammate panes already exist (TS guards on paneCount===1).
-    const bool first = plan.reuse_first_pane;
-    if (first) {
-        first_pane_used_external_ = true;
-    } else {
-        // External windows have no leader pane: every live pane is a teammate,
-        // so index against the full pane list (TS createTeammatePaneExternal).
-        auto panes = split_lines(detail::read_shell_output(
-            detail::tmux_list_panes_argv(window_target).join_shell()));
-        if (panes.empty()) return {};
-        pane_count = panes.size();
-        const bool vertical = (pane_count % 2 == 1);
-        const std::size_t target_index =
-            std::min((pane_count - 1) / 2, pane_count - 1);
-        pane = detail::read_shell_output(
-            detail::tmux_split_window_argv(panes[target_index], vertical).join_shell());
-        if (pane.empty()) return {};
-    }
-
-    std::this_thread::sleep_for(std::chrono::milliseconds(kPaneShellInitDelayMs));
-    return CreatePaneResult{.pane_id = pane, .is_first_teammate = first};
-}
-
-inline void TmuxBackend::rebalance_with_leader(std::string_view window_target) {
-    auto cmd = "tmux select-layout -t " + detail::shell_quote(window_target) + " even-horizontal >/dev/null 2>&1";
-    (void)detail::run_shell(cmd);
-}
-
-inline void TmuxBackend::rebalance_tiled(std::string_view window_target) {
-    auto cmd = "tmux select-layout -t " + detail::shell_quote(window_target) + " tiled >/dev/null 2>&1";
-    (void)detail::run_shell(cmd);
-}
-
-inline std::optional<std::string> TmuxBackend::get_current_pane_id() const {
-    auto pane = detail::read_shell_output("tmux display-message -p '#{pane_id}' 2>/dev/null");
-    return pane.empty() ? std::nullopt : std::optional<std::string>{pane};
-}
-
-inline std::optional<std::string> TmuxBackend::get_current_window_target() const {
-    auto window = detail::read_shell_output("tmux display-message -p '#{session_name}:#{window_index}' 2>/dev/null");
-    return window.empty() ? std::nullopt : std::optional<std::string>{window};
-}
-
-inline std::string_view TmuxBackend::get_tmux_color(AgentColor color) {
-    switch (color) {
-        case AgentColor::Red: return "red";
-        case AgentColor::Blue: return "blue";
-        case AgentColor::Green: return "green";
-        case AgentColor::Yellow: return "yellow";
-        case AgentColor::Purple: return "magenta";
-        case AgentColor::Orange: return "colour208";
-        case AgentColor::Pink: return "colour205";
-        case AgentColor::Cyan: return "cyan";
-    }
-    return "white";
-}
-
-inline bool ITermBackend::is_available() const {
-    return EnvironmentDetection::is_in_iterm2() && EnvironmentDetection::is_it2_cli_available();
-}
-
-inline bool ITermBackend::is_running_inside() const {
-    return EnvironmentDetection::is_in_iterm2();
-}
-
-inline CreatePaneResult ITermBackend::create_teammate_pane(std::string_view name, AgentColor color) {
-    (void)name;
-    (void)color;
-    std::lock_guard lock(pane_creation_mutex_);
-    auto output = detail::read_shell_output("it2 session split right 2>/dev/null");
-    auto pane = parse_split_output(output);
-    if (!pane.empty()) teammate_session_ids_.push_back(pane);
-    const bool is_first = !first_pane_used_;
-    if (!pane.empty()) first_pane_used_ = true;
-    return CreatePaneResult{.pane_id = pane, .is_first_teammate = is_first};
-}
-
-inline void ITermBackend::send_command_to_pane(
-    const PaneId& pane_id,
-    std::string_view command,
-    bool use_external_session
-) {
-    (void)use_external_session;
-    if (pane_id.empty() || command.empty()) return;
-    auto cmd = "it2 session send-text -s " + detail::shell_quote(pane_id) + " " +
-        detail::shell_quote(std::string(command) + "\n") + " >/dev/null 2>&1";
-    (void)detail::run_shell(cmd);
-}
-
-inline void ITermBackend::set_pane_border_color(const PaneId&, AgentColor, bool) {}
-inline void ITermBackend::set_pane_title(const PaneId&, std::string_view, AgentColor, bool) {}
-inline void ITermBackend::enable_pane_border_status(std::optional<std::string_view>, bool) {}
-inline void ITermBackend::rebalance_panes(std::string_view, bool) {}
-
-inline bool ITermBackend::kill_pane(const PaneId& pane_id, bool use_external_session) {
-    (void)use_external_session;
-    if (pane_id.empty()) return false;
-    auto cmd = "it2 session close -s " + detail::shell_quote(pane_id) + " >/dev/null 2>&1";
-    return detail::run_shell(cmd) == 0;
-}
-
-inline std::optional<std::string> ITermBackend::capture_pane_text(
-    const PaneId&, int, bool
-) {
-    // TODO: iTerm2 has no capture-pane; explore 'it2 session get-screen' later.
-    return std::nullopt;
-}
-
-inline bool ITermBackend::hide_pane(const PaneId&, bool) { return false; }
-inline bool ITermBackend::show_pane(const PaneId&, std::string_view, bool) { return false; }
-
-inline std::string ITermBackend::parse_split_output(std::string_view output) {
-    std::string text(output);
-    while (!text.empty() && (text.back() == '\n' || text.back() == '\r')) text.pop_back();
-    return text;
-}
-
-inline std::optional<std::string> ITermBackend::get_leader_session_id() {
-    if (const char* session = std::getenv("ITERM_SESSION_ID"); session && *session) {
-        return std::string(session);
-    }
-    return std::nullopt;
-}
-
-inline TeammateSpawnResult InProcessBackend::spawn(const TeammateSpawnConfig& config) {
-    if (config.name.empty() || config.team_name.empty()) {
-        return TeammateSpawnResult{
-            .success = false,
-            .agent_id = {},
-            .error = "teammate name and team_name are required",
-            .task_id = std::nullopt,
-            .pane_id = std::nullopt,
-        };
-    }
-    auto agent_id = format_agent_id(config.name, config.team_name);
-    {
-        std::lock_guard lock(mutex_);
-        active_teammates_[agent_id] = true;
-    }
-    return TeammateSpawnResult{
-        .success = true,
-        .agent_id = agent_id,
-        .error = std::nullopt,
-        .task_id = "in-process:" + agent_id,
-        .pane_id = std::nullopt,
-    };
-}
-
-inline void InProcessBackend::send_message(std::string_view agent_id, const TeammateMessage& message) {
-    const bool delivered = detail::write_backend_message_to_mailbox(agent_id, message);
-    if (!delivered) return;
-    std::lock_guard lock(mutex_);
-    if (!active_teammates_.contains(std::string(agent_id))) {
-        active_teammates_[std::string(agent_id)] = true;
-    }
-}
-
-inline bool InProcessBackend::terminate(std::string_view agent_id, std::optional<std::string_view> reason) {
-    {
-        std::lock_guard lock(mutex_);
-        auto it = active_teammates_.find(std::string(agent_id));
-        if (it == active_teammates_.end() || !it->second) return false;
-    }
-    return detail::write_backend_message_to_mailbox(
-        agent_id,
-        detail::shutdown_request_message(agent_id, reason));
-}
-
-inline bool InProcessBackend::kill(std::string_view agent_id) {
-    std::lock_guard lock(mutex_);
-    return active_teammates_.erase(std::string(agent_id)) > 0;
-}
-
-inline bool InProcessBackend::is_active(std::string_view agent_id) const {
-    std::lock_guard lock(mutex_);
-    auto it = active_teammates_.find(std::string(agent_id));
-    return it != active_teammates_.end() && it->second;
-}
-
-inline TeammateSpawnResult PaneBackendExecutor::spawn(const TeammateSpawnConfig& config) {
-    if (!backend_ || !backend_->is_available()) {
-        return TeammateSpawnResult{
-            .success = false,
-            .agent_id = {},
-            .error = "pane backend is not available",
-            .task_id = std::nullopt,
-            .pane_id = std::nullopt,
-        };
-    }
-    auto color = config.color.value_or(AgentColor::Cyan);
-    auto pane = backend_->create_teammate_pane(config.name, color);
-    if (pane.pane_id.empty()) {
-        return TeammateSpawnResult{
-            .success = false,
-            .agent_id = {},
-            .error = "failed to create teammate pane",
-            .task_id = std::nullopt,
-            .pane_id = std::nullopt,
-        };
-    }
-    auto agent_id = format_agent_id(config.name, config.team_name);
-    auto inside = backend_->is_running_inside();
-    backend_->send_command_to_pane(pane.pane_id, detail::build_teammate_cli_command(config), !inside);
-    {
-        std::lock_guard lock(spawned_mutex_);
-        spawned_teammates_[agent_id] = SpawnedPane{.pane_id = pane.pane_id, .inside_tmux = inside};
-    }
-    // Deliver the initial task to the new pane's mailbox so the spawned
-    // teammate has work the moment its inbox poller starts (TS writes the
-    // initial prompt via writeToMailbox right after spawning).
-    if (!config.prompt.empty()) {
-        TeammateMessage initial{
-            .text = config.prompt,
-            .from = std::string("team-lead"),
-            .color = std::nullopt,
-            .timestamp = std::string(detail::timestamp_now()),
-            .summary = std::nullopt,
-        };
-        (void)detail::write_backend_message_to_mailbox(agent_id, initial);
-    }
-    return TeammateSpawnResult{
-        .success = true,
-        .agent_id = agent_id,
-        .error = std::nullopt,
-        .task_id = std::nullopt,
-        .pane_id = pane.pane_id,
-    };
-}
-
-inline void PaneBackendExecutor::send_message(std::string_view agent_id, const TeammateMessage& message) {
-    (void)detail::write_backend_message_to_mailbox(agent_id, message);
-}
-
-inline bool PaneBackendExecutor::terminate(std::string_view agent_id, std::optional<std::string_view> reason) {
-    return detail::write_backend_message_to_mailbox(
-        agent_id,
-        detail::shutdown_request_message(agent_id, reason));
-}
-
-inline bool PaneBackendExecutor::kill(std::string_view agent_id) {
-    std::lock_guard lock(spawned_mutex_);
-    auto it = spawned_teammates_.find(std::string(agent_id));
-    if (it == spawned_teammates_.end()) return false;
-    auto pane_id = it->second.pane_id;
-    auto inside = it->second.inside_tmux;
-    spawned_teammates_.erase(it);
-    return backend_->kill_pane(pane_id, !inside);
-}
-
-inline bool PaneBackendExecutor::is_active(std::string_view agent_id) const {
-    std::lock_guard lock(spawned_mutex_);
-    return spawned_teammates_.contains(std::string(agent_id));
-}
-
-inline std::optional<std::string> PaneBackendExecutor::capture_agent_pane(
-    std::string_view agent_id, int tail_lines
-) const {
-    std::lock_guard lock(spawned_mutex_);
-    auto it = spawned_teammates_.find(std::string(agent_id));
-    if (it == spawned_teammates_.end()) return std::nullopt;
-    return backend_->capture_pane_text(
-        it->second.pane_id, tail_lines, !it->second.inside_tmux);
-}
-
-inline std::map<std::string, PaneBackendExecutor::SpawnedPane>
-PaneBackendExecutor::spawned_panes() const {
-    std::lock_guard lock(spawned_mutex_);
-    return spawned_teammates_;
-}
-
-inline BackendDetectionResult BackendRegistry::detect_and_get_backend() {
-    std::lock_guard lock(mutex_);
-    if (cached_detection_result_) return *cached_detection_result_;
-
-    if (EnvironmentDetection::is_inside_tmux() && EnvironmentDetection::is_tmux_available()) {
-        cached_backend_ = std::make_shared<TmuxBackend>();
-        cached_detection_result_ = BackendDetectionResult{
-            .backend_type = BackendType::Tmux,
-            .is_native = true,
-        };
-        return *cached_detection_result_;
-    }
-    if (EnvironmentDetection::is_in_iterm2()) {
-        if (EnvironmentDetection::is_it2_cli_available()) {
-            cached_backend_ = std::make_shared<ITermBackend>();
-            cached_detection_result_ = BackendDetectionResult{
-                .backend_type = BackendType::ITerm2,
-                .is_native = true,
-            };
-            return *cached_detection_result_;
-        }
-        cached_detection_result_ = BackendDetectionResult{
-            .backend_type = BackendType::ITerm2,
-            .is_native = true,
-            .needs_it2_setup = true,
-        };
-        return *cached_detection_result_;
-    }
-    if (EnvironmentDetection::is_tmux_available()) {
-        cached_backend_ = std::make_shared<TmuxBackend>();
-        cached_detection_result_ = BackendDetectionResult{
-            .backend_type = BackendType::Tmux,
-            .is_native = false,
-        };
-        return *cached_detection_result_;
-    }
-    cached_detection_result_ = BackendDetectionResult{.backend_type = BackendType::InProcess};
-    return *cached_detection_result_;
-}
-
-inline std::shared_ptr<PaneBackend> BackendRegistry::get_backend_by_type(PaneBackendType type) {
-    switch (type) {
-        case PaneBackendType::Tmux: return std::make_shared<TmuxBackend>();
-        case PaneBackendType::ITerm2: return std::make_shared<ITermBackend>();
-    }
-    return std::make_shared<TmuxBackend>();
-}
-
-inline bool BackendRegistry::is_in_process_enabled() {
-    if (auto forced = detail::forced_mode_from_env()) {
-        return *forced == TeammateMode::InProcess;
-    }
-    auto mode = TeammateModeSnapshot::get();
-    if (mode == TeammateMode::InProcess) return true;
-    if (mode == TeammateMode::Tmux) return false;
-    if (in_process_fallback_active_) return true;
-    if (EnvironmentDetection::is_inside_tmux() || EnvironmentDetection::is_in_iterm2()) return false;
-    return !EnvironmentDetection::is_tmux_available();
-}
-
-inline std::shared_ptr<TeammateExecutor> BackendRegistry::get_in_process_backend() {
-    std::lock_guard lock(mutex_);
-    if (!cached_in_process_backend_) {
-        cached_in_process_backend_ = std::make_shared<InProcessBackend>();
-    }
-    return cached_in_process_backend_;
-}
-
-inline std::shared_ptr<TeammateExecutor> BackendRegistry::get_teammate_executor(bool prefer_in_process) {
-    if (prefer_in_process || is_in_process_enabled()) return get_in_process_backend();
-    auto detection = detect_and_get_backend();
-    if (detection.backend_type == BackendType::InProcess || detection.needs_it2_setup || !cached_backend_) {
-        mark_in_process_fallback();
-        return get_in_process_backend();
-    }
-    std::lock_guard lock(mutex_);
-    if (!cached_pane_executor_) {
-        cached_pane_executor_ = std::make_shared<PaneBackendExecutor>(cached_backend_);
-    }
-    return cached_pane_executor_;
-}
-
-inline std::string BackendRegistry::get_tmux_install_instructions() {
-    return "Install tmux or set LOOM_TEAMMATE_BACKEND=in-process to use in-process teammates.";
-}
 
 } // namespace cc::utils::swarm_backends

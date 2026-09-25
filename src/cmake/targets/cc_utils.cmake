@@ -183,9 +183,14 @@ target_sources(cc_utils
         utils/json_iter.cpp
         utils/json_builders.cpp
         utils/skill_usage_impl.cpp
-)
-set_source_files_properties(utils/swarm_backends.cppm PROPERTIES
-    COMPILE_OPTIONS "$<$<CXX_COMPILER_ID:Clang>:-O0>"
+        utils/swarm/swarm_backends_shell.cpp
+        utils/swarm/swarm_backends_detect.cpp
+        utils/swarm/swarm_backends_tmux.cpp
+        utils/swarm/swarm_backends_iterm.cpp
+        utils/swarm/swarm_backends_inprocess.cpp
+        utils/swarm/swarm_backends_executor.cpp
+        utils/swarm/swarm_backends_registry.cpp
+        utils/swarm/swarm_backends_detail.cpp
 )
 target_link_libraries(cc_utils
     PUBLIC
