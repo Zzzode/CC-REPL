@@ -89,6 +89,20 @@ target_sources(cc_tools
         tools/bash/impl_bash.cppm
         tools/files/impl_files.cppm
 )
+# RFC 0001 Phase C — runtime_registry module implementation units. Never add
+# these to the FILE_SET CXX_MODULES list above: they are module impl units
+# (`module cc.tools.runtime_registry;`), not interface units.
+target_sources(cc_tools
+    PRIVATE
+        tools/runtime_registry_json.cpp
+        tools/runtime_registry_executors.cpp
+        tools/runtime_registry_native_agents.cpp
+        tools/runtime_registry_computer_use.cpp
+        tools/runtime_registry_skills.cpp
+        tools/runtime_registry_dispatch.cpp
+        tools/runtime_registry_team_dispatch.cpp
+        tools/runtime_registry_register.cpp
+)
 target_link_libraries(cc_tools
     PUBLIC
         cc_utils

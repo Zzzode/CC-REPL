@@ -1,5 +1,8 @@
 # RFC 0001 Phase C — frozen SEMANTIC inline-definition counts per god interface.
 # Columns: <module> <frozen semantic inline bodies> [flags]
+# The ratchet (tools/arch/inline_def_check.py) FAILS on any increase;
+# decreases shrink this file in the same split commit. c1 = must reach <30
+# when that module's batch merges; c2-done = <=100 cap now enforced.
 cc.tools.agent.utils 162
 cc.tools.agent_runtime 160
 cc.utils.json 131
@@ -8,7 +11,6 @@ cc.utils.swarm_backends 116
 cc.query.query_engine 109
 cc.hooks.remaining_hooks 108
 cc.ui.widgets.text_input 96
-cc.tools.runtime_registry 82
 cc.ui.screens.repl_screen 82
 cc.tools.mcp 76
 cc.hooks.voice_hooks 75
@@ -58,3 +60,4 @@ cc.services.mcp.client 12 c2-done
 cc.tools.readonly_validation 12
 cc.state.store 8
 cc.ui.foundation.design_tokens 6
+cc.tools.runtime_registry 5 c1 c2-done

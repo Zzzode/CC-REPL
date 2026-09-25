@@ -100,9 +100,6 @@ cc.tools.file_edit -> cc.utils.string_utils
 cc.tools.file_read -> cc.utils.file
 cc.tools.glob -> cc.utils.file
 cc.tools.mode_validation -> cc.tools.bash_security
-cc.tools.runtime_registry -> cc.tools.grep
-cc.tools.runtime_registry -> cc.tools.shared_tool
-cc.tools.runtime_registry -> cc.utils.http
 cc.tools.script -> cc.tools.script_primitives
 cc.tools.script -> cc.tools.tool_display_names
 cc.tools.script_typecheck -> cc.tools.script_diagnostics
