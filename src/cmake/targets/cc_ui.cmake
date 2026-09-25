@@ -267,6 +267,18 @@ target_sources(cc_ui PRIVATE
     ui/visual/markdown_render_impl.cpp
     ui/visual/markdown_api_impl.cpp
     ui/visual/markdown_component_impl.cpp
+    # Module implementation units for cc.ui.messages.messages_list
+    # (RFC 0001 Phase C batch 7): filter/brief logic, the ~20-module
+    # std::visit search closure (isolated on purpose), row geometry,
+    # envelope/divider chrome, the heavy payload_row faithful-dispatch TU,
+    # static/virtual view builders, and the component vtable anchor.
+    ui/messages/messages_list_filter.cpp
+    ui/messages/messages_list_search.cpp
+    ui/messages/messages_list_geometry.cpp
+    ui/messages/messages_list_envelope.cpp
+    ui/messages/messages_list_payload_row.cpp
+    ui/messages/messages_list_view.cpp
+    ui/messages/messages_list_component.cpp
 )
 target_link_libraries(cc_ui
     PUBLIC

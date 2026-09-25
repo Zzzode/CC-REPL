@@ -18,17 +18,19 @@
 ///   import cc.ui.messages.message_row;
 ///       -> MessageShape enum  +  MessageRowPayload variant
 ///       +  RenderMessageRowByType(shape, payload, callbacks)
-///   import cc.ui.messages.message_timestamp;
-///   import cc.ui.foundation.themed_text;        // UI20 tokens placeholder
-///   import cc.ui.foundation.themed_box;         // UI20 primitive stand-in
-///   import cc.ui.widgets.spinner;        // for streaming tail glyph
+///   import cc.ui.messages.virtual_list;  // virtual-row conversion types
+///   import cc.ui.visual.markdown;        // StreamingMarkdown member type
 ///
-///   NOTE: UI20 design.tokens / design.primitives modules are not yet
-///   materialised in the C++ tree.  We import themed_text + themed_box as
-///   their working stand-ins; every palette lookup goes through the small
-///   inline helpers `palette::*()` so that swapping the real modules is a
-///   one-line grep.  When cc.ui.foundation.design_tokens arrives, replace those
-///   helpers with the real token API — nothing else changes.
+///   Bodies live in the seven module implementation units (RFC 0001 Phase C
+///   batch 7): messages_list_{filter,search,geometry,envelope,payload_row,
+///   view,component}.cpp.  The per-message-type variant owner modules and the
+///   tool registry are imported ONLY by messages_list_search.cpp and
+///   messages_list_payload_row.cpp, so the ~20-module variant closure stays
+///   out of this interface's BMI.
+///
+///   Palette lookups go through the small inline helpers `palette::*()`
+///   (raw ftxui::Color) so that swapping in real design tokens is a
+///   one-line grep — nothing else changes.
 /// =========================================================================
 ///
 /// ┌───────────────────────────────────────────────────────────────────────┐
@@ -83,18 +85,12 @@
 
 module;
 
-#include <cctype>
-#include <cstddef>
 #include <cstdint>
 
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_base.hpp>
 #include <ftxui/component/event.hpp>
-#include <ftxui/component/mouse.hpp>
-// NOTE: ftxui/component/input.hpp is not a standalone header in upstream
-// FTXUI; Input() is exported via ftxui/component/component.hpp.
 #include <ftxui/dom/elements.hpp>
-#include <ftxui/dom/table.hpp>
 #include <ftxui/screen/box.hpp>
 #include <ftxui/screen/color.hpp>
 
@@ -104,43 +100,14 @@ import std;
 
 // ─── Strict re-uses (no type / colour duplication) ──────────────────────
 import cc.ui.messages.message_row;
-import cc.ui.messages.message_timestamp;
 import cc.ui.messages.virtual_list;   // P0-3: VirtualMessageList types + factory
-
-// Per-message-type structs — imported explicitly since C++20 modules
-// don't re-export imported entities by default (and message_row keeps
-// its import list private to avoid BMI size bloat).
-import cc.ui.messages.user_text_message;
-import cc.ui.messages.message_user_command;
-import cc.ui.messages.message_bash_io;
-import cc.ui.messages.user_message;
-import cc.ui.messages.message_image;
-import cc.ui.messages.message_tool_result;
-import cc.ui.messages.local_command_output_message;
-import cc.ui.messages.attachment_message;
-import cc.ui.messages.assistant_text_message;
-import cc.ui.visual.markdown;   // StreamingMarkdown for streaming-tail body
-import cc.ui.messages.tool_use_message;
-import cc.ui.messages.thinking_message;
-import cc.ui.messages.system_text_message;
-import cc.ui.messages.error_message;
-import cc.ui.messages.api_error_message;
-import cc.ui.messages.collapsed_content_message;
-import cc.ui.messages.message_components;   // RateLimitInfo
-import cc.ui.messages.message_plan_approval;
-import cc.ui.messages.message_hook_progress;
-import cc.ui.messages.message_shutdown;
-import cc.ui.messages.message_advisor;
-
-import cc.ui.tools.registry;
-import cc.ui.tools.generic;
-
-import cc.ui.foundation.themed_text;
-import cc.ui.foundation.themed_box;
-import cc.ui.foundation.design_tokens;         // Role + Palette for divider color
-import cc.ui.foundation.design_figures;        // kSpinnerFrames canonical set (GAP 4)
-import cc.ui.widgets.spinner;
-
+// StreamingMarkdown is named by the MessagesListInput::streaming_md member.
+// Per-message-type variant owner modules (user_text_message, tool_use_message,
+// …) are imported ONLY by the module implementation units that name their
+// alternatives — messages_list_search.cpp (the std::visit closure) and
+// messages_list_payload_row.cpp (faithful dispatch) — keeping them out of
+// this interface's BMI.
+import cc.ui.visual.markdown;   // arch-check: keep-import — StreamingMarkdown* member (global-qualified; checker sees only unqualified uses)
 // =========================================================================
 // Small palette helpers — tokens placeholders (swap for cc.ui.foundation.design_tokens)
 // =========================================================================
@@ -231,98 +198,22 @@ inline constexpr std::string_view kDropTextToolNames[] = {
     "Brief", "SendUserMessage"
 };
 
-[[nodiscard]] inline bool is_brief_tool_name(std::string_view name) {
-    for (auto tn : kBriefToolNames) {
-        if (name == tn) return true;
-    }
-    return false;
-}
+[[nodiscard]] bool is_brief_tool_name(std::string_view name);
 
 /// Returns true if the tool name triggers dropTextInBriefTurns (TS: dropTextToolNames).
-[[nodiscard]] inline bool is_drop_text_tool_name(std::string_view name) {
-    for (auto tn : kDropTextToolNames) {
-        if (name == tn) return true;
-    }
-    return false;
-}
+[[nodiscard]] bool is_drop_text_tool_name(std::string_view name);
 
 /// Extract tool_name from a MessageRowPayload if it is a tool_use or
 /// tool_result variant.  Returns empty string otherwise.
-[[nodiscard]] inline std::string_view extract_tool_name(const MessageRowPayload& p) {
-    if (auto* opts = std::get_if<::cc::ui::messages::tool_use_message::ToolUseRenderOptions>(&p)) {
-        return opts->call.tool_name;
-    }
-    if (auto* grp = std::get_if<::cc::ui::messages::tool_use_message::GroupedToolsOptions>(&p)) {
-        if (!grp->calls.empty()) return grp->calls[0].tool_name;
-    }
-    if (auto* tro = std::get_if<::cc::ui::messages::ToolResultOptions>(&p)) {
-        return tro->tool_name;
-    }
-    return {};
-}
+[[nodiscard]] std::string_view extract_tool_name(const MessageRowPayload& p);
 
 }  // namespace brief_detail
 
 /// Returns true if the row at index `i` should be VISIBLE in brief mode.
 /// TS REF: Messages.tsx filterForBriefTool (lines 93-158).
-inline auto passes_brief_filter(
+auto passes_brief_filter(
     MessageShape shape,
-    const MessageRowPayload& payload) -> bool {
-    using S = MessageShape;
-    namespace bd = brief_detail;
-
-    switch (shape) {
-        // System rows: always visible (TS: system messages must stay visible
-        // for user feedback; api_metrics subtype dropped but not tagged in CPP)
-        case S::SystemText:
-        case S::SystemRateLimit:
-        case S::SystemPlanApproval:
-        case S::SystemHookProgress:
-        case S::SystemShutdown:
-        case S::SystemCompactBoundary:
-        case S::SystemAdvisor:
-        case S::SystemTaskAssignment:
-        case S::SystemCollapsedContent:
-        case S::SystemAPIError:
-            return true;
-
-        // Assistant rows: only brief tool uses are visible
-        case S::AssistantToolUse:
-        case S::AssistantGroupedTools:
-            return bd::is_brief_tool_name(bd::extract_tool_name(payload));
-
-        // Assistant text + thinking: hidden in brief mode
-        case S::AssistantText:
-        case S::AssistantThinking:
-        case S::AssistantRedactedThinking:
-            return false;
-
-        // User input: always visible (real user text + command chips)
-        case S::UserText:
-        case S::UserPrompt:
-        case S::UserCommand:
-        case S::UserBashInput:
-        case S::UserBashOutput:
-        case S::UserLocalCommandOutput:
-        case S::UserLocalJsxOutput:
-        case S::UserImage:
-        case S::UserTeammate:
-        case S::UserChannel:
-        case S::UserAgentNotification:
-        case S::UserMemoryInput:
-        case S::UserPlan:
-        case S::UserResourceUpdate:
-        case S::UserAttachments:
-            return true;
-
-        // Tool results: only brief-tool results visible
-        case S::UserToolResult:
-            return bd::is_brief_tool_name(bd::extract_tool_name(payload));
-
-        default:
-            return true;
-    }
-}
+    const MessageRowPayload& payload) -> bool;
 
 // ---------------------------------------------------------------------------
 // dropTextInBriefTurns (TS REF: Messages.tsx L169-206).
@@ -338,59 +229,9 @@ inline auto passes_brief_filter(
 //
 // Returns a vector<bool> mask (true = KEEP the row, false = DROP it).
 // ---------------------------------------------------------------------------
-[[nodiscard]] inline std::vector<bool> compute_drop_text_mask(
+[[nodiscard]] std::vector<bool> compute_drop_text_mask(
     const std::vector<MessageShape>& shapes,
-    const std::vector<MessageRowPayload>& payloads)
-{
-    using S = MessageShape;
-    namespace bd = brief_detail;
-
-    const auto N = shapes.size();
-    std::vector<bool> keep(N, true);   // default: keep everything
-
-    // First pass: find which turns contain a Brief tool_use.
-    std::set<std::size_t> turns_with_brief;
-    // text_index_to_turn[i] = turn number for assistant text at index i.
-    std::vector<std::optional<std::size_t>> text_index_to_turn(N, std::nullopt);
-
-    std::size_t turn = 0;
-    for (std::size_t i = 0; i < N; ++i) {
-        const auto sh = shapes[i];
-        // Real user message (non-tool_result) → advance turn counter.
-        // TS REF: L188  msg.type === 'user' && block?.type !== 'tool_result' && !msg.isMeta
-        const bool is_real_user =
-            (sh == S::UserText || sh == S::UserPrompt || sh == S::UserCommand ||
-             sh == S::UserBashInput || sh == S::UserBashOutput ||
-             sh == S::UserLocalCommandOutput || sh == S::UserLocalJsxOutput ||
-             sh == S::UserImage || sh == S::UserPlan || sh == S::UserResourceUpdate ||
-             sh == S::UserMemoryInput || sh == S::UserChannel ||
-             sh == S::UserAgentNotification || sh == S::UserTeammate ||
-             sh == S::UserAttachments);
-        if (is_real_user) {
-            ++turn;
-            continue;
-        }
-        if (sh == S::AssistantText) {
-            text_index_to_turn[i] = turn;
-        } else if ((sh == S::AssistantToolUse || sh == S::AssistantGroupedTools) &&
-                   i < payloads.size()) {
-            if (bd::is_drop_text_tool_name(bd::extract_tool_name(payloads[i]))) {
-                turns_with_brief.insert(turn);
-            }
-        }
-    }
-
-    if (turns_with_brief.empty()) return keep;   // no brief turns → keep all
-
-    // Second pass: mark assistant text rows for dropping if their turn had Brief.
-    for (std::size_t i = 0; i < N; ++i) {
-        if (text_index_to_turn[i].has_value() &&
-            turns_with_brief.count(*text_index_to_turn[i]) > 0) {
-            keep[i] = false;
-        }
-    }
-    return keep;
-}
+    const std::vector<MessageRowPayload>& payloads);
 
 // ---------------------------------------------------------------------------
 // Expand-key computation (TS REF: Messages.tsx expandKey L725-727)
@@ -399,53 +240,17 @@ inline auto passes_brief_filter(
 // and its corresponding tool_result share the same key and expand together.
 // For other rows, returns the uuid (or empty string if not available).
 // ---------------------------------------------------------------------------
-[[nodiscard]] inline std::string compute_expand_key(
+[[nodiscard]] std::string compute_expand_key(
     MessageShape shape,
     const MessageRowPayload& payload,
-    std::string_view uuid) {
-    using S = MessageShape;
-    namespace bd = brief_detail;
-
-    if (shape == S::AssistantToolUse || shape == S::AssistantGroupedTools ||
-        shape == S::UserToolResult) {
-        auto name = bd::extract_tool_name(payload);
-        if (!name.empty()) return std::string(name);
-    }
-    // Fallback: use uuid (first 24 chars to match TS deriveUUID prefix)
-    if (!uuid.empty()) return std::string(uuid.substr(0, 24));
-    return {};
-}
+    std::string_view uuid);
 
 /// TS REF: Messages.tsx isItemClickable (L582-594).
 /// Returns true if the row supports click-to-expand: tool results that are
 /// truncated, collapsed read/search groups, or advisor tool results.
-[[nodiscard]] inline bool is_row_clickable(
+[[nodiscard]] bool is_row_clickable(
     MessageShape shape,
-    const MessageRowPayload& payload) {
-    using S = MessageShape;
-    namespace bd = brief_detail;
-
-    // Collapsed content groups: always clickable
-    if (shape == S::SystemCollapsedContent) return true;
-
-    // Tool results: clickable if the result is marked truncated
-    if (shape == S::UserToolResult) {
-        if (auto* opts = std::get_if<::cc::ui::messages::ToolResultOptions>(&payload)) {
-            return opts->is_truncated;
-        }
-    }
-
-    // Tool uses: clickable if they have a result preview (means they have content
-    // that could be expanded)
-    if (shape == S::AssistantToolUse) {
-        if (auto* opts = std::get_if<::cc::ui::messages::tool_use_message::ToolUseRenderOptions>(&payload)) {
-            return opts->call.result_preview.has_value() &&
-                   !opts->call.result_preview->empty();
-        }
-    }
-
-    return false;
-}
+    const MessageRowPayload& payload);
 
 /// TS REF: src/components/FullscreenLayout.tsx L224-227
 ///   export type UnseenDivider = {
@@ -570,21 +375,12 @@ struct MessagesListCallbacks {
     /// uuid for others) so tool_use + tool_result expand together.
     std::function<void(const std::string& expand_key)>     on_toggle_expand;
 };
-
 /// Returns true if the row at index `i` is currently "expanded" (user has
 /// toggled it open via Enter/Space).  Expanded rows render with verbose=true
 /// showing full content instead of truncated summaries.
-[[nodiscard]] inline bool is_row_expanded(
+[[nodiscard]] bool is_row_expanded(
     const MessagesListInput& input,
-    std::size_t row_idx) {
-    if (input.expanded_keys.empty()) return false;
-    if (row_idx >= input.shapes.size() || row_idx >= input.rows.size()) return false;
-    std::string_view uuid = (row_idx < input.uuids.size())
-        ? std::string_view(input.uuids[row_idx]) : std::string_view{};
-    auto key = compute_expand_key(input.shapes[row_idx], input.rows[row_idx], uuid);
-    if (key.empty()) return false;
-    return input.expanded_keys.count(key) > 0;
-}
+    std::size_t row_idx);
 
 // =========================================================================
 // 2)  Preview-text extractor (works on every MessageRowPayload alternative)
@@ -598,119 +394,9 @@ namespace detail {
 /// Lower-case a UTF-8 string in place.  Only touches ASCII letters because
 /// MessageRowPayload text fields are overwhelmingly English / path literals
 /// (same strategy as TS renderableSearchText → toLowerCase).
-inline auto lowered(std::string s) -> std::string {
-    for (auto& c : s) {
-        if (c >= 'A' && c <= 'Z') c = static_cast<char>(c + ('a' - 'A'));
-    }
-    return s;
-}
+auto lowered(std::string s) -> std::string;
 
-inline auto payload_preview(const MessageRowPayload& p) -> std::string {
-    return std::visit([](const auto& v) -> std::string {
-        using T = std::decay_t<decltype(v)>;
-
-        auto take_first = [](const auto& a, const auto& b) -> std::string {
-            using A = std::decay_t<decltype(a)>;
-            using B = std::decay_t<decltype(b)>;
-            if constexpr (!std::is_same_v<A, std::nullptr_t>) {
-                if constexpr (std::is_convertible_v<A, std::string>) return std::string(a);
-                if constexpr (requires{ std::to_string(a); }) return std::to_string(a);
-            }
-            if constexpr (!std::is_same_v<B, std::nullptr_t>) {
-                if constexpr (std::is_convertible_v<B, std::string>) return std::string(b);
-            }
-            return {};
-        };
-
-        // --- User family ---
-        if constexpr (std::is_same_v<T, UserTextMessageData>) {
-            if constexpr (requires{ v.content; }) return take_first(v.content, nullptr);
-            return "user-text";
-        }
-        else if constexpr (std::is_same_v<T, user_command::UserCommandData>) {
-            if constexpr (requires{ v.command_line; }) return take_first(v.command_line, nullptr);
-            return "user-command";
-        }
-        else if constexpr (std::is_same_v<T, BashIOEntry>) {
-            if constexpr (requires{ v.content; }) return take_first(v.content, nullptr);
-            return "bash-io";
-        }
-        else if constexpr (std::is_same_v<T, UserMessageData>) {
-            if constexpr (requires{ v.title; }) return take_first(v.title, nullptr);
-            return "user-message";
-        }
-        else if constexpr (std::is_same_v<T, image::ImageMessageData>) {
-            if constexpr (requires{ v.file_name; }) {
-                return std::string{"image "} + take_first(v.file_name, nullptr);
-            }
-            return "image";
-        }
-        else if constexpr (std::is_same_v<T, ToolResultOptions>) {
-            if constexpr (requires{ v.tool_name; }) return take_first(v.tool_name, nullptr);
-            return "tool-result";
-        }
-        else if constexpr (std::is_same_v<T, local_cmd::LocalCommandOptions>) {
-            return "local-command";
-        }
-        else if constexpr (std::is_same_v<T, attachment_message::AttachmentGridOptions>) {
-            return "attachments";
-        }
-        // --- Assistant family ---
-        else if constexpr (std::is_same_v<T, AssistantTextMessageData>) {
-            if constexpr (requires{ v.content; }) return take_first(v.content, nullptr);
-            return "assistant-text";
-        }
-        else if constexpr (std::is_same_v<T, tool_use_message::ToolUseRenderOptions>) {
-            return "tool-use";
-        }
-        else if constexpr (std::is_same_v<T, tool_use_message::GroupedToolsOptions>) {
-            return "grouped-tools";
-        }
-        else if constexpr (std::is_same_v<T, thinking_message::ThinkingMessageOptions>) {
-            return "thinking";
-        }
-        // --- System family ---
-        else if constexpr (std::is_same_v<T, SystemTextMessageData>) {
-            if constexpr (requires{ v.summary; }) return take_first(v.summary, nullptr);
-            return "system-text";
-        }
-        else if constexpr (std::is_same_v<T, ErrorMessageData>) {
-            return "error";
-        }
-        else if constexpr (std::is_same_v<T, api_error_message::APIErrorOptions>) {
-            return "api-error";
-        }
-        else if constexpr (std::is_same_v<T, collapsed_content::CollapsedContentOptions>) {
-            return "collapsed-content";
-        }
-        else if constexpr (std::is_same_v<T, RateLimitInfo>) {
-            if constexpr (requires{ v.reason; }) {
-                return take_first(v.reason, nullptr) + " " +
-                       take_first(v.message, nullptr);
-            }
-            return "rate-limit";
-        }
-        else if constexpr (std::is_same_v<T, PlanApprovalOptions>) {
-            return "plan-approval";
-        }
-        else if constexpr (std::is_same_v<T, std::vector<HookProgressEntry>>) {
-            return "hook-progress";
-        }
-        else if constexpr (std::is_same_v<T, shutdown::ShutdownMessageData>) {
-            return "shutdown";
-        }
-        else if constexpr (std::is_same_v<T, AdvisorMessage>) {
-            return "advisor";
-        }
-        else if constexpr (std::is_same_v<T, UI5HandledTag>) {
-            return {};
-        }
-        else {
-            static_assert(!sizeof(T*), "Unreachable: new variant alternative in payload_preview.");
-            return {};
-        }
-    }, p);
-}
+auto payload_preview(const MessageRowPayload& p) -> std::string;
 
 // =========================================================================
 // 2b)  extract_search_text — RICH searchable text for indexing (Tier 2)
@@ -737,88 +423,14 @@ namespace search_detail {
 /// Extract a string field value from a JSON object string.
 /// Lightweight — no full JSON parser needed for known field names.
 /// TS REF: transcriptSearch.ts toolUseSearchText() — extracts known input fields.
-[[nodiscard]] inline std::string extract_json_field(
-    std::string_view json, std::string_view field_name)
-{
-    auto pos = json.find(field_name);
-    if (pos == std::string_view::npos) return {};
-    // Find the colon after the field name
-    auto colon = json.find(':', pos + field_name.size());
-    if (colon == std::string_view::npos) return {};
-    // Find the opening quote of the value
-    auto quote = json.find('"', colon + 1);
-    if (quote == std::string_view::npos) return {};
-    // Find the closing quote (handle escaped quotes)
-    std::size_t end = quote + 1;
-    while (end < json.size() && json[end] != '"') {
-        if (json[end] == '\\' && end + 1 < json.size()) {
-            end += 2;  // skip escaped char
-        } else {
-            ++end;
-        }
-    }
-    if (end >= json.size()) return {};
-    return std::string(json.substr(quote + 1, end - quote - 1));
-}
+[[nodiscard]] std::string extract_json_field(
+    std::string_view json, std::string_view field_name);
 
 /// Extract searchable text from a tool-use input JSON string.
 /// Mirrors TS toolUseSearchText() — known field names that renderToolUseMessage
 /// shows as the primary argument (command, pattern, file_path, etc.).
 /// TS REF: src/utils/transcriptSearch.ts L134-164  toolUseSearchText(input)
-[[nodiscard]] inline std::string tool_use_search_text(std::string_view input_json) {
-    if (input_json.empty()) return {};
-    const std::string_view known_fields[] = {
-        "\"command\"",   // Bash, Shell
-        "\"pattern\"",   // Grep, Glob
-        "\"file_path\"", // Read, Write, Edit
-        "\"path\"",      // fallback for file_path
-        "\"prompt\"",    // Agent
-        "\"description\"",// Agent, Task
-        "\"query\"",     // WebSearch, Grep
-        "\"url\"",       // WebFetch
-        "\"skill\"",     // SkillTool
-    };
-    std::string result;
-    for (auto field : known_fields) {
-        auto val = extract_json_field(input_json, field);
-        if (!val.empty()) {
-            if (!result.empty()) result += '\n';
-            result += val;
-        }
-    }
-    // Also try to extract arrays (args[], files[]) — TS joins with space.
-    const std::string_view array_fields[] = {
-        "\"args\"",   // Tmux, Tungsten
-        "\"files\"",  // SendUserFile
-    };
-    for (auto field : array_fields) {
-        auto pos = input_json.find(field);
-        if (pos == std::string_view::npos) continue;
-        auto bracket = input_json.find('[', pos);
-        if (bracket == std::string_view::npos) continue;
-        auto close_bracket = input_json.find(']', bracket);
-        if (close_bracket == std::string_view::npos) continue;
-        // Extract quoted strings inside the array
-        std::string arr_text;
-        std::size_t i = bracket + 1;
-        while (i < close_bracket) {
-            if (input_json[i] == '"') {
-                auto end = input_json.find('"', i + 1);
-                if (end == std::string_view::npos || end >= close_bracket) break;
-                if (!arr_text.empty()) arr_text += ' ';
-                arr_text += std::string(input_json.substr(i + 1, end - i - 1));
-                i = end + 1;
-            } else {
-                ++i;
-            }
-        }
-        if (!arr_text.empty()) {
-            if (!result.empty()) result += '\n';
-            result += arr_text;
-        }
-    }
-    return result;
-}
+[[nodiscard]] std::string tool_use_search_text(std::string_view input_json);
 
 } // namespace search_detail
 
@@ -832,149 +444,9 @@ namespace search_detail {
 /// @param p       The message row payload variant.
 /// @param shape   The message shape (for dispatch optimization).
 /// @return Lowercase-rich searchable text (NOT lowered — caller lowers).
-[[nodiscard]] inline auto extract_search_text(
+[[nodiscard]] auto extract_search_text(
     const MessageRowPayload& p,
-    MessageShape shape) -> std::string
-{
-    using S = MessageShape;
-
-    // ── Tool RESULT messages (UserToolResult) ──────────────────────────
-    // TS: if msg.type === 'user' && msg.toolUseResult, look up tool by name
-    // and call tool.extractSearchText(out).  Prefer that over the heuristic.
-    if (shape == S::UserToolResult) {
-        if (auto* opts = std::get_if<::cc::ui::messages::ToolResultOptions>(&p)) {
-            // Build the rich output text from ToolResultOptions fields.
-            std::string rich_output;
-            if (opts->content_items && !opts->content_items->empty()) {
-                // Structured content items (MCP tools): concatenate text.
-                for (const auto& item : *opts->content_items) {
-                    if (item.type == "text" && !item.text.empty()) {
-                        if (!rich_output.empty()) rich_output += '\n';
-                        rich_output += item.text;
-                    } else if (item.type == "image") {
-                        if (!rich_output.empty()) rich_output += '\n';
-                        rich_output += "[Image]";
-                    }
-                }
-            } else if (opts->output && !opts->output->empty()) {
-                rich_output = *opts->output;
-            }
-            std::string_view error_text =
-                (opts->error_message && !opts->error_message->empty())
-                    ? std::string_view{*opts->error_message}
-                    : std::string_view{};
-
-            // Tier 2: try tool-owned extractSearchText from registry.
-            // TS REF: Messages.tsx L660-666  findRenderableToolByName + extractSearchText
-            const auto& reg = cc::ui::tools::global_tool_ui_registry();
-            const auto* ui = reg.find(opts->tool_name);
-            if (ui && ui->extract_search_text) {
-                auto extracted = ui->extract_search_text(rich_output, error_text);
-                if (extracted.has_value()) {
-                    // Tool returned explicit result (may be "" for "nothing to index").
-                    return *extracted;
-                }
-            }
-
-            // Fallback: use the rich output text directly.
-            // This covers tools whose output IS visible but have no specific
-            // UI registered (e.g. custom MCP tools).
-            if (!error_text.empty()) {
-                if (!rich_output.empty()) rich_output += '\n';
-                rich_output += error_text;
-            }
-            if (!rich_output.empty()) return rich_output;
-
-            // Last resort: fall back to toy payload_preview (just tool_name).
-            return payload_preview(p);
-        }
-    }
-
-    // ── Tool USE messages (AssistantToolUse, AssistantGroupedTools) ────
-    // TS: toolUseSearchText(b.input) — extracts command/pattern/path from
-    // the tool's input JSON so users can search for "grep" or "file_path".
-    if (shape == S::AssistantToolUse) {
-        if (auto* opts = std::get_if<::cc::ui::messages::tool_use_message::ToolUseRenderOptions>(&p)) {
-            std::string result = search_detail::tool_use_search_text(
-                opts->call.raw_parameters);
-            // Also include result_preview if available (partial output during streaming).
-            if (opts->call.result_preview && !opts->call.result_preview->empty()) {
-                if (!result.empty()) result += '\n';
-                result += *opts->call.result_preview;
-            }
-            if (!result.empty()) return result;
-        }
-        return payload_preview(p);
-    }
-    if (shape == S::AssistantGroupedTools) {
-        if (auto* grp = std::get_if<::cc::ui::messages::tool_use_message::GroupedToolsOptions>(&p)) {
-            std::string result;
-            for (const auto& call : grp->calls) {
-                auto t = search_detail::tool_use_search_text(call.raw_parameters);
-                if (!t.empty()) {
-                    if (!result.empty()) result += '\n';
-                    result += t;
-                }
-            }
-            if (!result.empty()) return result;
-        }
-        return payload_preview(p);
-    }
-
-    // ── Bash I/O (UserBashInput, UserBashOutput) ───────────────────────
-    // TS: user message content blocks include bash stdin/stdout as text.
-    if (shape == S::UserBashInput || shape == S::UserBashOutput) {
-        if (auto* entry = std::get_if<BashIOEntry>(&p)) {
-            return entry->content;
-        }
-    }
-
-    // ── Local command output ───────────────────────────────────────────
-    if (shape == S::UserLocalCommandOutput) {
-        if (auto* opts = std::get_if<local_cmd::LocalCommandOptions>(&p)) {
-            std::string result;
-            // Include the command line so users can search for "/help", etc.
-            if (!opts->data.command_line.empty()) {
-                result = opts->data.command_line;
-            }
-            for (const auto& line : opts->data.lines) {
-                if (!result.empty()) result += '\n';
-                result += line.text;
-            }
-            if (!result.empty()) return result;
-        }
-    }
-
-    // ── Thinking messages ──────────────────────────────────────────────
-    // TS: thinking blocks are hidden by hidePastThinking in transcript mount.
-    // Only index thinking when it's the active streaming tail (not past).
-    if (shape == S::AssistantThinking || shape == S::AssistantRedactedThinking) {
-        if (auto* opts = std::get_if<thinking_message::ThinkingMessageOptions>(&p)) {
-            using TM = thinking_message::ThinkingState;
-            if (opts->data.state == TM::Complete) {
-                // Completed thinking is hidden in transcript — don't index it
-                // (TS: hidePastThinking = true for completed blocks).
-                return {};
-            }
-            // Active thinking: index the thinking text so users can search
-            // for what the model is currently thinking about.
-            // TS: thinking blocks contain text content that users may want to find.
-            std::string thinking_text = opts->data.raw_text;
-            for (const auto& section : opts->data.sections) {
-                if (!section.content.empty()) {
-                    if (!thinking_text.empty()) thinking_text += '\n';
-                    thinking_text += section.content;
-                }
-            }
-            return thinking_text;
-        }
-    }
-
-    // ── Fallback: toy payload_preview for all other types ──────────────
-    // AssistantText, UserText, SystemText, etc. already return rich content
-    // via payload_preview (their `content` fields).
-    return payload_preview(p);
-}
+    MessageShape shape) -> std::string;
 
 // =========================================================================
 // 2c)  Cached lowered search text accessor
@@ -998,76 +470,17 @@ namespace search_detail {
 //
 // Cache is keyed by row_idx (parallel to input.rows) — messages are
 // append-only and immutable, so a cached entry is always valid.
-[[nodiscard]] inline auto get_cached_lowered_search_text(
+[[nodiscard]] auto get_cached_lowered_search_text(
     const MessagesListInput& input,
     std::size_t row_idx,
-    MessageShape shape) -> std::string
-{
-    if (row_idx >= input.rows.size()) return {};
-
-    // Grow cache to match rows size on first access.
-    if (input.lowered_search_cache.size() <= row_idx) {
-        input.lowered_search_cache.resize(input.rows.size());
-    }
-
-    auto& slot = input.lowered_search_cache[row_idx];
-    if (slot.has_value()) {
-        return *slot;   // cache hit — zero alloc
-    }
-
-    // Cache miss: compute + store.  extract_search_text does the 2-tier
-    // lookup (tool.extractSearchText preferred, renderableSearchText
-    // fallback); we lower once here and cache the result.
-    std::string lowered_text = detail::lowered(
-        detail::extract_search_text(input.rows[row_idx], shape));
-    slot = lowered_text;
-    return lowered_text;
-}
+    MessageShape shape) -> std::string;
 
 /// Returns true for message SHAPEs that belong to each filter category.
 /// Mirrors the TS Messages.tsx category switches (system / tool_use /
 /// tool_result / thinking / compacted).
-inline auto shape_category(MessageShape s) -> std::string_view {
-    switch (s) {
-        // system family
-        case MessageShape::SystemText:
-        case MessageShape::SystemRateLimit:
-        case MessageShape::SystemPlanApproval:
-        case MessageShape::SystemHookProgress:
-        case MessageShape::SystemShutdown:
-        case MessageShape::SystemCompactBoundary:
-        case MessageShape::SystemAdvisor:
-        case MessageShape::SystemTaskAssignment:
-        case MessageShape::SystemCollapsedContent:
-        case MessageShape::SystemAPIError:
-            return "system";
-        // tool-in (assistant issuing a tool_use)
-        case MessageShape::AssistantToolUse:
-        case MessageShape::AssistantGroupedTools:
-            return "tool_in";
-        // tool-out (user returning tool_result, bash, local cmd)
-        case MessageShape::UserToolResult:
-        case MessageShape::UserBashInput:
-        case MessageShape::UserBashOutput:
-        case MessageShape::UserLocalCommandOutput:
-            return "tool_out";
-        // thinking
-        case MessageShape::AssistantThinking:
-        case MessageShape::AssistantRedactedThinking:
-            return "thinking";
-        default:
-            return "other";
-    }
-}
+auto shape_category(MessageShape s) -> std::string_view;
 
-inline auto passes_filters(MessageShape s, const Filters& f) -> bool {
-    auto cat = shape_category(s);
-    if (cat == "system"   && !f.show_system)   return false;
-    if (cat == "tool_in"  && !f.show_tool_in)  return false;
-    if (cat == "tool_out" && !f.show_tool_out) return false;
-    if (cat == "thinking" && !f.show_thinking) return false;
-    return true;
-}
+auto passes_filters(MessageShape s, const Filters& f) -> bool;
 
 } // namespace detail
 
@@ -1102,7 +515,6 @@ struct VisibleRow {
     // For Kind::TranscriptCapDivider — number of messages hidden by the cap.
     std::size_t hidden_count    = 0;
 };
-
 // =========================================================================
 // 4)  build_visible_rows  —  pure O(N) over input.rows
 // =========================================================================
@@ -1113,220 +525,7 @@ struct VisibleRow {
 /// Complexity guarantee: exactly ONE linear pass over input.rows plus ONE
 /// pass over compact_boundary_groups (sorted).  Uses a std::vector<bool>
 /// membership table for O(1) "is this row inside a compact group?" lookups.
-inline auto build_visible_rows(MessagesListInput& input) -> std::vector<VisibleRow> {
-    const auto N = input.rows.size();
-    // ---- Step 0 : pre-compute lowered search needle (empty = skip search)
-    const std::string needle = detail::lowered(input.search_query);
-    const bool do_search     = !needle.empty();
-
-    // ---- Step 0b : pre-compute dropTextInBriefTurns mask for default mode.
-    //              Only needed when NOT in transcript mode AND NOT in brief mode.
-    //              TS REF: Messages.tsx L510-514 (3-tier briefFiltered logic).
-    std::vector<bool> drop_text_keep_mask;
-    const bool apply_drop_text = !input.is_transcript_mode && !input.is_brief_mode;
-    if (apply_drop_text && N > 0) {
-        drop_text_keep_mask = compute_drop_text_mask(input.shapes, input.rows);
-    }
-
-    // ---- Step 1 : mark rows that pass (filters AND search AND 3-tier filter).
-    //              Separately build a "row visible" bitmask so Step 2 can use it.
-    //
-    // 3-tier filter (TS REF: Messages.tsx L505-514):
-    //   Tier 1 (transcript mode): show ALL message types — bypass brief/dropText.
-    //   Tier 2 (brief-only):     only brief tool chain + user input + system.
-    //   Tier 3 (default):        drop assistant text in turns that called Brief
-    //                            (dropTextInBriefTurns), keep everything else.
-    std::vector<bool> row_passes(N, false);
-    for (std::size_t i = 0; i < N; ++i) {
-        if (i >= input.shapes.size()) break;   // malformed input → safe stop
-        if (!detail::passes_filters(input.shapes[i], input.filters)) continue;
-
-        // Tier 1: transcript mode — skip brief/dropText filters entirely.
-        // TS REF: L514  !isTranscriptMode ? ... : messagesToShowNotTruncated
-        if (!input.is_transcript_mode) {
-            if (input.is_brief_mode) {
-                // Tier 2: brief-only — filterForBriefTool.
-                // TS REF: L514  isBriefOnly ? filterForBriefTool(...)
-                if (i < input.rows.size() &&
-                    !passes_brief_filter(input.shapes[i], input.rows[i])) {
-                    continue;
-                }
-            } else if (apply_drop_text && i < drop_text_keep_mask.size()) {
-                // Tier 3: default — dropTextInBriefTurns.
-                // TS REF: L514  dropTextInBriefTurns(messagesToShowNotTruncated, ...)
-                if (!drop_text_keep_mask[i]) continue;
-            }
-        }
-
-        if (do_search) {
-            // TS REF: Messages.tsx L650-676  2-tier search text extraction
-            //   with WeakMap cache.  Use cached accessor: first call computes
-            //   + caches lowered rich text; subsequent calls (visible_rows_to_virtual
-            //   scroll_search) hit the cache with zero alloc.
-            const std::string hay = detail::get_cached_lowered_search_text(
-                input, i, input.shapes[i]);
-            if (hay.find(needle) == std::string::npos) continue;
-        }
-        row_passes[i] = true;
-    }
-
-    // ---- Step 2 : compact-group collapsing.
-    // Mark which rows are fully covered by an ACTIVE group (show_compact
-    // AND every row in the range is visible).  A group whose rows were all
-    // filtered out is dropped (produces no visible row at all).
-    std::vector<bool> consumed_by_group(N, false);
-    struct GroupInfo { std::size_t gidx, start, end, tool_turns, add, del, visible_rows; };
-    std::vector<GroupInfo> active_groups;
-    active_groups.reserve(input.compact_boundary_groups.size());
-
-    if (input.filters.show_compact) {
-        for (std::size_t gi = 0; gi < input.compact_boundary_groups.size(); ++gi) {
-            auto [s, e] = input.compact_boundary_groups[gi];
-            if (s > N) s = N;
-            if (e > N) e = N;
-            if (s >= e) continue;
-
-            std::size_t vcount = 0, tool_turns = 0, add = 0, del = 0;
-            for (std::size_t r = s; r < e; ++r) {
-                if (!row_passes[r]) continue;
-                ++vcount;
-                // Tool-turn heuristics (same as TS collapsed_content_message):
-                //   AssistantToolUse / AssistantGroupedTools each count as one
-                //   "tool turn" inside the collapsed window.
-                if (r < input.shapes.size()) {
-                    auto sh = input.shapes[r];
-                    if (sh == MessageShape::AssistantToolUse ||
-                        sh == MessageShape::AssistantGroupedTools) {
-                        ++tool_turns;
-                    }
-                    // Add / delete counts come from diff payloads.  We don't
-                    // want to pull the structured_diff module here, so the
-                    // engine can write precomputed stats alongside compact
-                    // boundary groups. Until that richer input shape lands,
-                    // approximate from UserToolResult preview_text
-                    // occurrences of "+++" / "---" markers.
-                    if (sh == MessageShape::UserToolResult && r < input.rows.size()) {
-                        const std::string t = detail::payload_preview(input.rows[r]);
-                        // rough counts
-                        auto count_needle = [&](std::string_view pat) -> std::size_t {
-                            std::size_t c = 0, pos = 0;
-                            while ((pos = t.find(pat, pos)) != std::string::npos) {
-                                ++c; pos += pat.size();
-                            }
-                            return c;
-                        };
-                        add += count_needle("+++");
-                        del += count_needle("---");
-                    }
-                }
-            }
-            if (vcount == 0) continue;   // whole group filtered → drop it
-
-            active_groups.push_back({ gi, s, e, tool_turns, add, del, vcount });
-            for (std::size_t r = s; r < e; ++r) consumed_by_group[r] = true;
-        }
-    }
-
-    // ---- Step 3 : linear merge walk.
-    // Groups may arrive in any order but *typically* are sorted; we walk
-    // rows in ascending order and insert a group row exactly when we cross
-    // its start boundary.  Result is always well-ordered regardless.
-    std::vector<VisibleRow> out;
-    out.reserve(N);
-
-    // For O(1) group lookup by start index: build map
-    std::vector<std::optional<GroupInfo>> start_to_group(N);
-    for (const auto& g : active_groups) {
-        if (g.start < N) start_to_group[g.start] = g;
-    }
-
-    for (std::size_t i = 0; i < N; ++i) {
-        // 1) emit group row BEFORE the first consumed row of its range
-        if (start_to_group[i].has_value()) {
-            const auto& g = *start_to_group[i];
-            out.push_back(VisibleRow{
-                .kind        = VisibleRow::Kind::CompactGroup,
-                .group_idx   = g.gidx,
-                .group_count = g.visible_rows,
-                .tool_turns  = g.tool_turns,
-                .additions   = g.add,
-                .deletions   = g.del,
-            });
-            continue;
-        }
-        // 2) rows inside an active group are skipped
-        if (consumed_by_group[i]) continue;
-        // 3) skip hidden thinking rows entirely (TS returns null → zero height;
-        //    FTXUI vbox always allocates 1 line per child, so we must not emit them).
-        //    Keep them visible if selected (user expanded) or streaming tail.
-        if (i < input.shapes.size()) {
-            const auto shape = input.shapes[i];
-            if (shape == MessageShape::AssistantThinking ||
-                shape == MessageShape::AssistantRedactedThinking) {
-                const bool is_selected_row = input.selected_row_idx.has_value() &&
-                    *input.selected_row_idx == i;
-                const bool is_streaming = (i == input.streaming_tail_row &&
-                    input.streaming_tail_row < input.rows.size());
-                if (!is_selected_row && !is_streaming) {
-                    // TS REF: Messages.tsx L395-419 — when streaming thinking
-                    // is globally visible, hide ALL completed thinking rows
-                    // (TS: lastThinkingBlockId = 'streaming' means no
-                    // completed thinking block matches → all are hidden).
-                    if (input.streaming_thinking_globally_visible) continue;
-                    if (auto* opts = std::get_if<thinking_message::ThinkingMessageOptions>(
-                            &input.rows[i])) {
-                        using TM = thinking_message::ThinkingState;
-                        if (opts->data.state == TM::Complete) continue;
-                    }
-                }
-            }
-        }
-        // 4) regular payload row
-        if (!row_passes[i]) continue;
-        out.push_back(VisibleRow{
-            .kind    = VisibleRow::Kind::Payload,
-            .row_idx = i,
-        });
-    }
-
-    // ---- Step 4 : transcript-mode cap (TS REF: Messages.tsx L515-516, L276).
-    //              When is_transcript_mode and NOT show_all_in_transcript, cap
-    //              visible rows to last kMaxMessagesInTranscriptMode (30).
-    //              Prepend a TranscriptCapDivider showing how many were hidden.
-    if (input.is_transcript_mode && !input.show_all_in_transcript &&
-        out.size() > kMaxMessagesInTranscriptMode)
-    {
-        const std::size_t hidden = out.size() - kMaxMessagesInTranscriptMode;
-        std::vector<VisibleRow> capped;
-        capped.reserve(kMaxMessagesInTranscriptMode + 1);
-        capped.push_back(VisibleRow{
-            .kind         = VisibleRow::Kind::TranscriptCapDivider,
-            .hidden_count = hidden,
-        });
-        // Copy last kMax rows from the full output.
-        const auto start = out.end() - static_cast<std::ptrdiff_t>(kMaxMessagesInTranscriptMode);
-        capped.insert(capped.end(), start, out.end());
-        out = std::move(capped);
-    }
-
-    return out;
-}
-
-// =========================================================================
-// Forward declarations of section-6 detail::render helpers.  These are
-// defined later in the translation unit but section-3c's virtual-path
-// render_messages_list_virtual already references them.
-// =========================================================================
-namespace detail {
-    inline auto render_empty_state(const std::string& search_query) -> Element;
-    inline auto render_compact_group_row(const VisibleRow& vr, bool is_selected) -> Element;
-    inline auto render_transcript_cap_divider(std::size_t hidden_count) -> Element;
-    inline auto render_payload_row(const MessagesListInput& input,
-                                   std::size_t row_idx,
-                                   bool is_selected,
-                                   std::size_t frame_count,
-                                   bool add_margin) -> Element;
-} // namespace detail
+auto build_visible_rows(MessagesListInput& input) -> std::vector<VisibleRow>;
 
 // =========================================================================
 // 3b) Estimated row height + VisibleRow → virtual_list::VisibleRow converter
@@ -1349,201 +548,20 @@ namespace detail {
 /// result is the maximum vertical space the content COULD take inside a
 /// 36-col reserved left-gutter message envelope; 36 is subtracted from
 /// term_cols to account for the fixed avatar column.
-[[nodiscard]] inline auto estimate_content_lines(
+[[nodiscard]] auto estimate_content_lines(
     std::string_view text,
     int term_cols,
-    int envelope_gutter_cols = 36) -> int {
-    const int content_cols =
-        std::max(20, term_cols - envelope_gutter_cols);
-    int lines = 1;
-    int current = 0;
-    for (char c : text) {
-        if (c == '\n') {
-            lines += 1;
-            current = 0;
-            continue;
-        }
-        current += 1;
-        if (current > content_cols) {
-            lines += 1;
-            current = 0;
-        }
-    }
-    // Clip to [1, 80] — rows taller than 80 are reported as 80 (overscan
-    // covers the difference during actual scroll; FTXUI will size to real
-    // content at paint time).
-    return std::clamp(lines, 1, 80);
-}
+    int envelope_gutter_cols = 36) -> int;
 
 /// Estimate visual height for one messages_list::VisibleRow.  Adds 1 line
 /// for the envelope's top-accent + role-header row and 1 for trailing
 /// separator (except for 1-line rows where it collapses).
-[[nodiscard]] inline auto estimate_row_height(
+[[nodiscard]] auto estimate_row_height(
     const VisibleRow& vr,
     const MessagesListInput& input,
-    int term_cols) -> int {
-    using K = VisibleRow::Kind;
-    if (vr.kind == K::CompactGroup) {
-        // Collapsed "📦 27 messages collapsed (📦 8 tool turns, +++12 ---7)"
-        return 1;
-    }
-    if (vr.kind == K::TranscriptCapDivider) {
-        // "─── N older messages hidden · Ctrl+E to show all ───"
-        return 1;
-    }
-    // Payload rows — dispatch by MessageShape content length.
-    if (vr.row_idx >= input.rows.size()) return 2;
-    const std::string preview =
-        detail::lowered(detail::payload_preview(input.rows[vr.row_idx]));
-    const MessageShape shape =
-        vr.row_idx < input.shapes.size()
-            ? input.shapes[vr.row_idx]
-            : MessageShape::SystemTaskAssignment;
-
-    using S = MessageShape;
-    int content_lines = 1;
-    switch (shape) {
-        case S::AssistantThinking:
-        case S::AssistantRedactedThinking:
-            // Collapsed label: "∴ Thinking (ctrl+o to expand)".  If expanded
-            // the caller will have already split thinking into multiple rows
-            // outside our view; 2 lines covers label + separator.
-            content_lines = 2;
-            break;
-        case S::AssistantToolUse:
-        case S::AssistantGroupedTools: {
-            if (auto* topts = std::get_if<tool_use_message::ToolUseRenderOptions>(
-                    &input.rows[vr.row_idx])) {
-                const auto& call = topts->call;
-                // Resolved built-in tools render as just a 1-line header
-                // (● ToolName (command)) — no Input/Output sections.
-                const bool is_resolved =
-                    (call.status == tool_use_message::ToolStatus::Success ||
-                     call.status == tool_use_message::ToolStatus::Error ||
-                     call.status == tool_use_message::ToolStatus::Cancelled);
-                if (is_resolved) {
-                    content_lines = 1;
-                } else {
-                    // Running/Pending: header + progress line
-                    content_lines = 2;
-                }
-            } else if (auto* gopts = std::get_if<tool_use_message::GroupedToolsOptions>(
-                           &input.rows[vr.row_idx])) {
-                int visible = std::min(
-                    static_cast<int>(gopts->calls.size()),
-                    gopts->max_visible_preview);
-                content_lines = 2 + visible;
-            } else {
-                content_lines = 2;
-            }
-            break;
-        }
-        case S::UserToolResult:
-        case S::UserBashOutput: {
-            // TS PARITY (2026-07-05): payload_preview returns just tool_name
-            // (e.g. "Bash") — 1 line.  Actual tool result output can be
-            // dozens of lines.  Extract real output from ToolResultOptions.
-            if (auto* ropts = std::get_if<ToolResultOptions>(
-                    &input.rows[vr.row_idx])) {
-                std::string full_text;
-                if (ropts->content_items && !ropts->content_items->empty()) {
-                    // Structured content items (MCP tools): concatenate text.
-                    for (const auto& item : *ropts->content_items) {
-                        if (item.type == "text") {
-                            if (!full_text.empty()) full_text += '\n';
-                            full_text += item.text;
-                        } else if (item.type == "image") {
-                            if (!full_text.empty()) full_text += '\n';
-                            full_text += "[Image]";
-                        }
-                    }
-                } else if (ropts->output && !ropts->output->empty()) {
-                    full_text = *ropts->output;
-                } else if (ropts->error_message && !ropts->error_message->empty()) {
-                    full_text = *ropts->error_message;
-                }
-                if (!full_text.empty()) {
-                    content_lines = estimate_content_lines(full_text, term_cols, 4);
-                } else {
-                    content_lines = 2;  // minimal: header + "(no output)"
-                }
-                // +1 for header row (status icon + tool name + duration)
-                content_lines += 1;
-                if (ropts->is_truncated) content_lines += 1;  // "(output truncated)"
-            } else {
-                // Fallback for UserBashOutput (BashIOEntry variant)
-                content_lines = estimate_content_lines(preview, term_cols, 4);
-            }
-            break;
-        }
-        case S::UserLocalCommandOutput:
-            // Command output (e.g. /help, /theme list) can be dozens of
-            // lines.  payload_preview returns just "local-command" for this
-            // variant, so we must count actual output lines from the payload.
-            if (auto* opts = std::get_if<local_cmd::LocalCommandOptions>(
-                    &input.rows[vr.row_idx])) {
-                // Each OutputLine is one display row; add header + footer.
-                content_lines = static_cast<int>(opts->data.lines.size()) + 3;
-            } else {
-                content_lines = estimate_content_lines(preview, term_cols, 4);
-            }
-            break;
-        case S::SystemText:
-        case S::SystemRateLimit:
-        case S::SystemPlanApproval:
-        case S::SystemHookProgress:
-        case S::SystemShutdown:
-        case S::SystemAdvisor:
-        case S::SystemTaskAssignment:
-        case S::SystemAPIError:
-        case S::SystemCollapsedContent:
-        case S::SystemCompactBoundary:
-            content_lines = 1 + estimate_content_lines(preview, term_cols, 4) / 2;
-            break;
-        case S::UserBashInput:
-            // "> echo hello" prompt-style — short.
-            content_lines = 2;
-            break;
-        case S::UserImage:
-            content_lines = 4;   // label + metadata + source (no fake thumbnail)
-            break;
-        case S::UserAttachments:
-            content_lines = 3;   // grid header + 1 row of thumbs
-            break;
-        default:
-            content_lines = 1 + estimate_content_lines(preview, term_cols, 36);
-            break;
-    }
-    // +1 line for envelope header (avatar + role pill) unless content is
-    // already collapsed / system-style which shares headers.
-    switch (shape) {
-        case S::AssistantThinking:
-        case S::AssistantRedactedThinking:
-        case S::SystemCompactBoundary:
-        case S::SystemCollapsedContent:
-            break;   // no header row added
-        default:
-            content_lines += 1;
-    }
-    return std::clamp(content_lines, 1, 120);
-}
+    int term_cols) -> int;
 
 } // namespace detail
-
-// ── Forward declarations: UnseenDivider helpers (defined in §6 below) ─────
-// These are used in §3b (render_messages_list_view) and §3c
-// (render_messages_list_virtual) but their bodies live after
-// render_message_envelope to keep type + envelope code contiguous.
-namespace detail {
-
-[[nodiscard]] inline auto find_divider_before_visible_index(
-    const MessagesListInput& input,
-    const std::vector<VisibleRow>& visible) -> std::size_t;
-
-[[nodiscard]] inline auto render_unseen_divider(std::size_t count)
-    -> ftxui::Element;
-
-} // namespace detail (forward decl block)
 
 /// Convert a messages_list `VisibleRow` vector into the format consumed by
 /// VirtualMessageList.  Each entry carries:
@@ -1552,94 +570,19 @@ namespace detail {
 ///   - search_key       lowered preview text (for scroll_search callback)
 ///   - type_hint        0 = Payload, 1 = CompactGroup
 ///   - backend_index    round-trip key for render_row callback
-[[nodiscard]] inline auto visible_rows_to_virtual(
+[[nodiscard]] auto visible_rows_to_virtual(
     const std::vector<VisibleRow>& visible,
     const MessagesListInput& input,
     int term_cols = 80)
-    -> std::vector<cc::ui::messages::virtual_list::VisibleRow>
-{
-    namespace vl = cc::ui::messages::virtual_list;
-    std::vector<vl::VisibleRow> out;
-    out.reserve(visible.size());
-    for (std::size_t i = 0; i < visible.size(); ++i) {
-        const auto& vr = visible[i];
-        const int est = detail::estimate_row_height(vr, input, term_cols);
-
-        // Encode kind into backend_index MSBs for round-trip via
-        // decode_virtual_backend_index.  Bit 63 = CompactGroup,
-        // bit 62 = TranscriptCapDivider, neither = Payload.
-        constexpr std::uint64_t kGroupBit  = std::uint64_t(1) << 63;
-        constexpr std::uint64_t kCapBit    = std::uint64_t(1) << 62;
-        std::uint64_t backend;
-        int type_hint;
-
-        if (vr.kind == VisibleRow::Kind::CompactGroup) {
-            backend   = kGroupBit | static_cast<std::uint64_t>(vr.group_idx);
-            type_hint = 1;
-        } else if (vr.kind == VisibleRow::Kind::TranscriptCapDivider) {
-            backend   = kCapBit | static_cast<std::uint64_t>(vr.hidden_count);
-            type_hint = 2;
-        } else {
-            backend   = static_cast<std::uint64_t>(vr.row_idx);
-            type_hint = 0;
-        }
-
-        vl::VisibleRow row{
-            .row_id                 = static_cast<std::uint64_t>(i) + 1,
-            .estimated_height_lines = est,
-            .height_measured        = false,
-            .search_key             = {},
-            .type_hint              = type_hint,
-            .backend_index          = backend,
-        };
-        if (row.type_hint == 0 && vr.row_idx < input.rows.size()) {
-            // Populate search_key using the cached lowered rich text.
-            // If build_visible_rows already warmed the cache (search was
-            // active), this is a zero-alloc cache hit.  Otherwise this
-            // call computes + caches for future use.
-            //
-            // TS REF: Messages.tsx L700  extractSearchText passed to VirtualMessageList
-            //   (the same callback used by build_visible_rows search filter).
-            const MessageShape shape =
-                vr.row_idx < input.shapes.size()
-                    ? input.shapes[vr.row_idx]
-                    : MessageShape::SystemTaskAssignment;
-            row.search_key = detail::get_cached_lowered_search_text(
-                input, vr.row_idx, shape);
-        }
-        out.push_back(std::move(row));
-    }
-    return out;
-}
+    -> std::vector<cc::ui::messages::virtual_list::VisibleRow>;
 
 /// Decode the backend_index set by `visible_rows_to_virtual` back into a
 /// messages_list::VisibleRow.  `out` is filled in place; returns true if
 /// decode succeeded, false if the key was malformed (out is reset to a
 /// safe payload(0) sentinel on failure).
-[[nodiscard]] inline bool decode_virtual_backend_index(
+[[nodiscard]] bool decode_virtual_backend_index(
     std::uint64_t backend_index,
-    VisibleRow& out) noexcept
-{
-    constexpr std::uint64_t kGroupBit = std::uint64_t(1) << 63;
-    constexpr std::uint64_t kCapBit   = std::uint64_t(1) << 62;
-    if ((backend_index & kGroupBit) != 0) {
-        out.kind      = VisibleRow::Kind::CompactGroup;
-        out.group_idx = backend_index & (~kGroupBit);
-        out.row_idx   = 0;
-        return true;
-    }
-    if ((backend_index & kCapBit) != 0) {
-        out.kind         = VisibleRow::Kind::TranscriptCapDivider;
-        out.hidden_count = backend_index & (~kCapBit);
-        out.row_idx      = 0;
-        out.group_idx    = 0;
-        return true;
-    }
-    out.kind    = VisibleRow::Kind::Payload;
-    out.row_idx = static_cast<std::size_t>(backend_index);
-    out.group_idx = 0;
-    return true;
-}
+    VisibleRow& out) noexcept;
 
 // =========================================================================
 // 3c) Render path: P0-3 VirtualMessageList when visible_rows > threshold
@@ -1659,198 +602,11 @@ namespace detail {
 
 inline constexpr std::size_t kVirtualThreshold = 80;
 
-[[nodiscard]] inline auto render_messages_list_virtual(
+[[nodiscard]] auto render_messages_list_virtual(
     const MessagesListInput& input_const,
     std::size_t frame_count,
     int viewport_rows,
-    int scroll_top_lines) -> Element
-{
-    namespace vl = cc::ui::messages::virtual_list;
-
-    MessagesListInput input = input_const;
-    auto visible = build_visible_rows(input);
-    if (visible.empty()) {
-        return vbox({ detail::render_empty_state(input.search_query) })
-             | yframe | vscroll_indicator;
-    }
-
-    // Build virtual rows.  Use viewport_rows + 80 as a proxy for terminal
-    // height (the caller knows viewport_rows; width defaults are fine since
-    // content estimates already clip generously to 20-120 range).
-    const int term_cols_est = 120;   // safe default; most terminals ≥ 80
-    auto virt_rows = visible_rows_to_virtual(visible, input, term_cols_est);
-
-    // TS REF: Messages.tsx L549-553  compute dividerBeforeIndex.
-    const std::size_t divider_before_vi =
-        detail::find_divider_before_visible_index(input, visible);
-    const bool has_divider =
-        (divider_before_vi < visible.size() &&
-         input.unseen_divider.has_value());
-
-    vl::VirtualListState state;
-    state.options.ascii_gutter  = true;
-    state.options.auto_scroll   = input.pin_to_bottom
-                                      ? vl::AutoScrollMode::Smart
-                                      : vl::AutoScrollMode::Disabled;
-    state.viewport_rows         = std::max(1, viewport_rows);
-    state.options.viewport_rows = state.viewport_rows;
-    state.rows                  = std::move(virt_rows);
-    state.jh                    = vl::build_geometry(std::span{state.rows});
-    // Initial scroll window
-    if (input.pin_to_bottom) {
-        const int max = std::max(0, state.jh.total() - state.viewport_rows);
-        state.scroll_top    = max;
-        state.sticky_bottom = true;
-    } else {
-        state.scroll_top = std::max(0, scroll_top_lines);
-    }
-
-    // ── Pre-compute add_margin for each visible row using the same
-    //    turn-state machine as the static path (TS visual parity). ──
-    std::vector<bool> add_margin_for_vi(visible.size(), true);
-    {
-        bool next_add_margin = true;
-        bool prev_was_user = false;
-        for (std::size_t vi = 0; vi < visible.size(); ++vi) {
-            const auto& vr = visible[vi];
-            if (vr.kind == VisibleRow::Kind::Payload) {
-                const MessageShape shape =
-                    (vr.row_idx < input.shapes.size())
-                        ? input.shapes[vr.row_idx]
-                        : MessageShape::SystemTaskAssignment;
-                using S = MessageShape;
-                const bool is_assistant_block =
-                    (shape == S::AssistantText ||
-                     shape == S::AssistantThinking ||
-                     shape == S::AssistantRedactedThinking ||
-                     shape == S::AssistantToolUse ||
-                     shape == S::AssistantGroupedTools);
-                const bool is_user_row =
-                    (shape == S::UserText ||
-                     shape == S::UserPrompt ||
-                     shape == S::UserCommand ||
-                     shape == S::UserImage);
-                const bool is_tool_result = (shape == S::UserToolResult);
-                const bool is_same_turn_as_assistant =
-                    is_assistant_block || is_tool_result;
-                const bool is_turn_boundary = is_user_row ||
-                    (!is_same_turn_as_assistant && !is_tool_result);
-
-                add_margin_for_vi[vi] = is_user_row
-                    ? !prev_was_user
-                    : (is_turn_boundary ? true : next_add_margin);
-                prev_was_user = is_user_row;
-
-                // TS REF: Messages.tsx L714-719 — streaming thinking tail has
-                // addMargin={false}.  When this is the last visible row and
-                // it's a thinking block while streaming thinking is globally
-                // visible, force 0 top margin (flush against preceding row).
-                if (shape == S::AssistantThinking &&
-                    vi == visible.size() - 1 &&
-                    input.streaming_thinking_globally_visible) {
-                    add_margin_for_vi[vi] = false;
-                }
-
-                if (is_turn_boundary) {
-                    next_add_margin = !is_user_row;
-                } else if (is_tool_result) {
-                    // TS: after a tool result, the next assistant response
-                    // starts a new visual group with marginTop=1.
-                    next_add_margin = true;
-                } else {
-                    next_add_margin = false;
-                }
-            } else {
-                add_margin_for_vi[vi] = true;
-                next_add_margin = true;
-                prev_was_user = false;
-            }
-        }
-    }
-
-    // ── render_row callback: translate virtual back to messages_list VR
-    state.callbacks.render_row =
-        [frame_count, &input, divider_before_vi, has_divider,
-         &add_margin_for_vi]
-        (size_t row_index, const vl::VisibleRow& vr)
-            -> ftxui::Element
-        {
-            VisibleRow ml_row{};
-            if (!decode_virtual_backend_index(vr.backend_index, ml_row)) {
-                return text("") | size(HEIGHT, EQUAL,
-                    std::max(1, vr.estimated_height_lines));
-            }
-            // is_selected: only Payload rows can be selected.
-            bool is_selected = false;
-            if (ml_row.kind == VisibleRow::Kind::Payload &&
-                input.selected_row_idx.has_value())
-            {
-                is_selected = (ml_row.row_idx == *input.selected_row_idx);
-            }
-            // Use pre-computed add_margin from the turn-state machine above.
-            // row_index maps 1:1 to visible[] index because visible_rows_to_virtual
-            // preserves order with no dropping.
-            const bool add_margin = (row_index < add_margin_for_vi.size())
-                ? add_margin_for_vi[row_index]
-                : true;
-
-            Element row_el;
-            if (ml_row.kind == VisibleRow::Kind::CompactGroup) {
-                row_el = detail::render_compact_group_row(ml_row, is_selected);
-            } else if (ml_row.kind == VisibleRow::Kind::TranscriptCapDivider) {
-                row_el = detail::render_transcript_cap_divider(ml_row.hidden_count);
-            } else {
-                row_el = detail::render_payload_row(
-                    input, ml_row.row_idx, is_selected, frame_count,
-                    add_margin);
-            }
-
-            // TS REF: Messages.tsx L631-635  insert divider BEFORE the row
-            // whose visible index matches dividerBeforeIndex.  In the
-            // virtual path this callback's `row_index` is the global index
-            // into the full rows[] array (0..rows.size()-1), which maps
-            // 1:1 to visible[] because visible_rows_to_virtual preserves
-            // order with no dropping.
-            if (has_divider && row_index == divider_before_vi) {
-                return vbox({
-                    detail::render_unseen_divider(input.unseen_divider->count),
-                    std::move(row_el),
-                });
-            }
-            return row_el;
-        };
-
-    // ── Wire 2-tier search engine into virtual list state ──────────────
-    // TS REF: Messages.tsx L700  extractSearchText passed to VirtualMessageList
-    //   (the same callback used by build_visible_rows search filter).
-    //
-    // When input.search_query is non-empty, run the search engine over the
-    // virtual rows.  This populates state.search_matches + prefixSum so
-    // that scroll_keys n/N navigation can jump between matches.
-    //
-    // Note: build_visible_rows already FILTERED the visible set by query.
-    // The virtual list search engine is for NAVIGATION within that set
-    // (finding which row contains the query, jumping to nearest match).
-    if (!input.search_query.empty()) {
-        std::string lowered_query = detail::lowered(input.search_query);
-        vl::run_search(state, lowered_query);
-    }
-
-    // Wire search_step callback so scroll_keys FSM n/N keys can navigate
-    // between search matches.  TS REF: VirtualMessageList.tsx L762 search_step
-    state.callbacks.search_step =
-        [&state](int delta) -> int {
-            if (state.search_matches.empty()) return -1;
-            size_t n = state.search_matches.size();
-            size_t target_ptr = (static_cast<int>(state.search_ptr) + delta +
-                                 static_cast<int>(n)) % static_cast<int>(n);
-            size_t target_row = state.search_matches[target_ptr];
-            return state.jh.find_visual_top_for_row(target_row);
-        };
-
-    Element body = vl::render_list_as_elements(state);
-    return body | yframe | vscroll_indicator | flex;
-}
+    int scroll_top_lines) -> Element;
 
 // =========================================================================
 // 5)  Message envelope  (Message.tsx migration — role chrome + avatar)
@@ -1888,250 +644,18 @@ struct RenderEnvelopeOptions {
 
 namespace detail {
 
-inline auto role_emoji(MessageShape s) -> const char* {
-    switch (s) {
-        case MessageShape::UserText:
-        case MessageShape::UserCommand:
-        case MessageShape::UserBashInput:
-        case MessageShape::UserBashOutput:
-        case MessageShape::UserLocalCommandOutput:
-        case MessageShape::UserLocalJsxOutput:
-        case MessageShape::UserTeammate:
-        case MessageShape::UserAgentNotification:
-        case MessageShape::UserMemoryInput:
-        case MessageShape::UserPlan:
-        case MessageShape::UserPrompt:
-        case MessageShape::UserResourceUpdate:
-        case MessageShape::UserToolResult:
-        case MessageShape::UserImage:
-        case MessageShape::UserAttachments:
-        case MessageShape::UserChannel:
-            return "👤";
-        case MessageShape::AssistantText:
-            return "🤖";
-        case MessageShape::AssistantToolUse:
-        case MessageShape::AssistantGroupedTools:
-            return "🛠";
-        case MessageShape::AssistantThinking:
-        case MessageShape::AssistantRedactedThinking:
-            return "🌱";
-        case MessageShape::SystemText:
-        case MessageShape::SystemCompactBoundary:
-        case MessageShape::SystemAdvisor:
-        case MessageShape::SystemTaskAssignment:
-        case MessageShape::SystemHookProgress:
-        case MessageShape::SystemShutdown:
-        case MessageShape::SystemCollapsedContent:
-        case MessageShape::SystemPlanApproval:
-        case MessageShape::SystemRateLimit:
-            return "⚙";
-        case MessageShape::SystemAPIError:
-            return "⚠";
-    }
-    return "•";
-}
-
-inline auto role_label(MessageShape s) -> const char* {
-    auto cat = shape_category(s);
-    if (cat == "system")   return "System";
-    if (cat == "tool_in" || cat == "tool_out") return "Tool";
-    if (cat == "thinking") return "Thinking";
-    // user / assistant / other → disambiguate by concrete shape
-    switch (s) {
-        case MessageShape::AssistantText: return "Assistant";
-        case MessageShape::UserText:
-        case MessageShape::UserCommand:
-        case MessageShape::UserBashInput:
-        case MessageShape::UserBashOutput:
-        case MessageShape::UserLocalCommandOutput:
-        case MessageShape::UserLocalJsxOutput:
-        case MessageShape::UserTeammate:
-        case MessageShape::UserAgentNotification:
-        case MessageShape::UserMemoryInput:
-        case MessageShape::UserPlan:
-        case MessageShape::UserPrompt:
-        case MessageShape::UserResourceUpdate:
-        case MessageShape::UserToolResult:
-        case MessageShape::UserImage:
-        case MessageShape::UserAttachments:
-        case MessageShape::UserChannel:
-            return "You";
-        default: return "Message";
-    }
-}
-
-inline auto role_pill_color(MessageShape s) -> Color {
-    using namespace palette;
-    auto cat = shape_category(s);
-    if (cat == "system")   return role_pill_system();
-    if (cat == "tool_in" || cat == "tool_out") return role_pill_tool();
-    if (cat == "thinking") return role_pill_thinking();
-    switch (s) {
-        case MessageShape::AssistantText: return role_pill_assistant();
-        case MessageShape::UserText:
-        case MessageShape::UserCommand:
-        case MessageShape::UserBashInput:
-        case MessageShape::UserBashOutput:
-        case MessageShape::UserLocalCommandOutput:
-        case MessageShape::UserLocalJsxOutput:
-        case MessageShape::UserTeammate:
-        case MessageShape::UserAgentNotification:
-        case MessageShape::UserMemoryInput:
-        case MessageShape::UserPlan:
-        case MessageShape::UserPrompt:
-        case MessageShape::UserResourceUpdate:
-        case MessageShape::UserToolResult:
-        case MessageShape::UserImage:
-        case MessageShape::UserAttachments:
-        case MessageShape::UserChannel:
-            return role_pill_user();
-        default: return role_pill_assistant();
-    }
-}
-
-inline auto role_bg_color(MessageShape s) -> Color {
-    using namespace palette;
-    auto cat = shape_category(s);
-    if (cat == "system")   return role_bg_system();
-    if (cat == "tool_in" || cat == "tool_out") return role_bg_tool();
-    if (cat == "thinking") return role_bg_thinking();
-    // assistant + user share the same soft panel
-    return role_bg_assistant();
-}
-
-inline auto accent_top_color(const RenderEnvelopeOptions& o) -> Color {
-    using namespace palette;
-    if (o.status == EnvelopeStatusBadge::Error)    return accent_top_error();
-    if (o.status == EnvelopeStatusBadge::Redacted) return accent_top_redacted();
-    auto cat = shape_category(o.shape);
-    if (cat == "system")   return accent_top_system();
-    if (cat == "tool_in" || cat == "tool_out") return accent_top_tool();
-    if (cat == "thinking") return accent_top_error();   // violet-ish fallback
-    switch (o.shape) {
-        case MessageShape::AssistantText: return accent_top_assistant();
-        case MessageShape::UserText:
-        case MessageShape::UserCommand:
-        case MessageShape::UserBashInput:
-        case MessageShape::UserBashOutput:
-        case MessageShape::UserLocalCommandOutput:
-        case MessageShape::UserLocalJsxOutput:
-        case MessageShape::UserTeammate:
-        case MessageShape::UserAgentNotification:
-        case MessageShape::UserMemoryInput:
-        case MessageShape::UserPlan:
-        case MessageShape::UserPrompt:
-        case MessageShape::UserResourceUpdate:
-        case MessageShape::UserToolResult:
-        case MessageShape::UserImage:
-        case MessageShape::UserAttachments:
-        case MessageShape::UserChannel:
-            return accent_top_user();
-        default: return accent_top_assistant();
-    }
-}
-
-/// Spinner glyph — canonical 10-frame braille spinner.
-/// TS REF: SpinnerGlyph.tsx (GAP 4: fig-spinner-frame-inconsistency)
-///   Previously used 10 asterisk-based frames; now unified to the canonical
-///   braille set from cc::ui::design::figures::kSpinnerFrames so all spinners
-///   in the app animate consistently.
-inline auto spinner_glyph(std::size_t frame) -> const char* {
-    namespace figs = cc::ui::design::figures;
-    // spinner_frame_glyph returns a string_view pointing into the inline
-    // constexpr kSpinnerFrames array (static storage duration), so .data()
-    // is safe to return as a raw const char*.
-    return figs::spinner_frame_glyph(static_cast<int>(frame)).data();
-}
+auto role_emoji(MessageShape s) -> const char*;
+auto role_label(MessageShape s) -> const char*;
+auto role_pill_color(MessageShape s) -> Color;
+auto role_bg_color(MessageShape s) -> Color;
+auto accent_top_color(const RenderEnvelopeOptions& o) -> Color;
+auto spinner_glyph(std::size_t frame) -> const char*;
 
 } // namespace detail
 
-[[nodiscard]] inline auto render_message_envelope(
+[[nodiscard]] auto render_message_envelope(
     const RenderEnvelopeOptions& opts,
-    Element inner_content) -> Element
-{
-    using namespace palette;
-
-    // ---- Avatar column (fixed 36 cols) ----
-    const std::string emoji = detail::role_emoji(opts.shape);
-    const std::string label = detail::role_label(opts.shape);
-    const Color pill_col    = detail::role_pill_color(opts.shape);
-    const Color bg_col      = detail::role_bg_color(opts.shape);
-
-    // Avatar cell: emoji (colored circle bg) + first letter of role label
-    std::string first_letter{ label[0] };
-    Element avatar = hbox({
-        text(" "),
-        hbox({ text(emoji), text(" "), text(first_letter) })
-            | bgcolor(pill_col) | color(Color::White) | bold | center,
-        filler(),
-    }) | size(WIDTH, EQUAL, 10);   // 10-cell avatar block
-
-    // ---- Header row (role pill + timestamp + status + dismiss) ----
-    Elements header_els;
-    header_els.push_back(
-        hbox({ text(" "), text(label), text(" ") })
-            | color(Color::White) | bgcolor(pill_col) | bold);
-    header_els.push_back(text("  "));
-    header_els.push_back(text(render_timestamp(opts.timestamp)) | color(muted_fg()));
-
-    // Status badge
-    switch (opts.status) {
-        case EnvelopeStatusBadge::Running: {
-            const char* g = detail::spinner_glyph(opts.frame_count);
-            header_els.push_back(hbox({ text("  "),
-                hbox({ text(g), text(" running") }) | color(streaming_fg()) }));
-            break;
-        }
-        case EnvelopeStatusBadge::Done:
-            header_els.push_back(hbox({ text("  "),
-                hbox({ text("✓ "), text("done") }) | color(Color::Green) }));
-            break;
-        case EnvelopeStatusBadge::Error:
-            header_els.push_back(hbox({ text("  "),
-                hbox({ text("! "), text("error") })
-                    | color(Color::White) | bgcolor(accent_top_error()) | bold }));
-            break;
-        case EnvelopeStatusBadge::Redacted:
-            header_els.push_back(hbox({ text("  "),
-                text("[redacted]") | color(muted_fg()) | dim }));
-            break;
-        case EnvelopeStatusBadge::None:
-            break;
-    }
-    if (opts.show_dismiss) {
-        header_els.push_back(filler());
-        header_els.push_back(text(" ✕") | color(muted_fg()));
-    } else {
-        header_els.push_back(filler());
-    }
-    Element header = hbox(std::move(header_els));
-
-    // ---- Layout: 10-col avatar | (header + body) ----
-    Element body = vbox({
-        std::move(header),
-        separatorEmpty(),
-        std::move(inner_content) | size(WIDTH, GREATER_THAN, 40),
-    }) | flex;
-
-    Element row = hbox({
-        avatar,
-        text(" ") | size(WIDTH, EQUAL, 1),   // gutter
-        body,
-    }) | bgcolor(bg_col) | size(WIDTH, EQUAL, 100);
-
-    // ---- Top accent border (1 px, role/error colored) ----
-    Color accent = detail::accent_top_color(opts);
-    Element topped = vbox({
-        separator() | color(accent),
-        std::move(row),
-    });
-
-    // ---- Selection highlight ----
-    if (opts.is_selected) {
-        topped = std::move(topped) | inverted | bgcolor(selected_bg());
-    }
-    return topped;
-}
+    Element inner_content) -> Element;
 
 // =========================================================================
 // 6)  Per-visible-row element builders
@@ -2147,9 +671,7 @@ namespace detail {
 /// preserves the source message uuid's first 24 chars across derived content
 /// blocks, so matching on prefix captures every renderable row that came
 /// from the same original unseen message.
-[[nodiscard]] inline auto uuid_prefix24(std::string_view s) -> std::string_view {
-    return s.substr(0, std::min<std::size_t>(s.size(), 24));
-}
+[[nodiscard]] auto uuid_prefix24(std::string_view s) -> std::string_view;
 
 /// TS REF: Messages.tsx L549-553  useUnseenDivider → dividerBeforeIndex
 ///
@@ -2174,62 +696,9 @@ namespace detail {
 /// behaviour: a divider placed inside a collapsed group still shows up, and
 /// clicking "expand" reveals the group contents with the divider still
 /// sitting before the exact row that was unseen).
-[[nodiscard]] inline auto find_divider_before_visible_index(
+[[nodiscard]] auto find_divider_before_visible_index(
     const MessagesListInput& input,
-    const std::vector<VisibleRow>& visible) -> std::size_t
-{
-    if (!input.unseen_divider.has_value()) return visible.size();
-    const std::string& target = input.unseen_divider->first_unseen_uuid_prefix;
-    if (target.empty()) return visible.size();
-
-    const std::string_view tgt_prefix = uuid_prefix24(target);
-
-    // Strip any dash-separated UUID suffix / deriveUUID type suffix so that
-    // "abc123-..." compares from the uuid core only.  If there is no dash,
-    // core references the whole target string.
-    std::string_view core = target;
-    const auto dash_pos = core.find('-');
-    if (dash_pos != std::string_view::npos) core = core.substr(0, dash_pos);
-    const char core_last = core.empty() ? '\0' : core.back();
-
-    std::size_t weak_vi   = visible.size();   // first 24-char prefix match
-    std::size_t strong_vi = visible.size();   // first disambiguated match
-
-    for (std::size_t vi = 0; vi < visible.size(); ++vi) {
-        const auto& vr = visible[vi];
-        if (vr.kind != VisibleRow::Kind::Payload) continue;
-        if (vr.row_idx >= input.uuids.size()) continue;
-        const std::string& row_uuid = input.uuids[vr.row_idx];
-        if (row_uuid.empty()) continue;   // empty uuid never matches anything
-
-        // --- Weak path: 24-char prefix equality (TS baseline). ---
-        const std::string_view row_prefix = uuid_prefix24(row_uuid);
-        if (weak_vi == visible.size() && row_prefix == tgt_prefix) {
-            weak_vi = vi;
-        }
-
-        // --- Strong path: disambiguate padding-induced false positives. ---
-        // Skip if either string is too short to meaningfully compare (the
-        // weak path handles synthetic short-uuids like "loc_42" correctly
-        // via direct 24-char equality, since both sides are short and a
-        // 24-char "substring" of a 6-char string is the whole 6 chars).
-        if (strong_vi < visible.size()) continue;
-        if (row_uuid.size() < 8 || core.size() < 8) continue;
-
-        // Count common leading chars between row_uuid and the dash-stripped
-        // divider core.  Cap at the shorter of the two; we need at least 8.
-        const std::size_t max_cmp = std::min(row_uuid.size(), core.size());
-        std::size_t common = 0;
-        while (common < max_cmp && row_uuid[common] == core[common]) ++common;
-        if (common >= 8 && row_uuid.back() == core_last) {
-            strong_vi = vi;
-        }
-    }
-
-    if (strong_vi < visible.size()) return strong_vi;
-    if (weak_vi   < visible.size()) return weak_vi;
-    return visible.size();
-}
+    const std::vector<VisibleRow>& visible) -> std::size_t;
 
 /// TS REF: Messages.tsx L631-635
 ///   <Box marginTop={1}>
@@ -2240,506 +709,33 @@ namespace detail {
 /// color="inactive" → Role::Muted.  marginTop=1 → separatorEmpty() line above.
 /// The divider itself is a left-titled separator: "─── N new messages ──────"
 /// with the title in bold/muted and lines in muted/subtle.
-[[nodiscard]] inline auto render_unseen_divider(std::size_t count) -> Element {
-    using namespace palette;
-    using namespace ftxui;
-
-    // TS plural helper: "message" + (count === 1 ? "" : "s")
-    const std::string title =
-        std::to_string(count) + " new message" + (count == 1 ? "" : "s");
-    const Color line_color = muted_fg();
-
-    // ──[ 3 new messages ]──────────────────────
-    // Mirror component_primitives::divider() but self-contained so we don't
-    // pull in the whole Theme/design_tokens stack from here.
-    const std::string dash = "─";
-    std::string long_line;
-    long_line.reserve(160 * dash.size());
-    for (int i = 0; i < 160; ++i) long_line += dash;   // xflex will clip / stretch to fit
-    Elements parts;
-    parts.push_back(text("───") | color(line_color));
-    parts.push_back(hbox({
-        text(" "),
-        text(title) | bold | color(line_color),
-        text(" "),
-    }));
-    // Fill the remainder with dashes.  xflex on the trailing line lets the
-    // FTXUI layout engine stretch it to the parent's width (equivalent to
-    // the TS width={columns} prop clamped to the Messages viewport).
-    parts.push_back(text(long_line) | xflex | color(line_color));
-    return vbox({
-        separatorEmpty(),                                    // marginTop={1}
-        hbox(std::move(parts)) | color(line_color),
-    });
-}
+[[nodiscard]] auto render_unseen_divider(std::size_t count) -> Element;
 
 /// TS REF: Messages.tsx L682
 ///   <Divider title={`${toggleShowAllShortcut} to show ${chalk.bold(hiddenMessageCount_0)} previous messages`} />
 ///
 /// Renders a muted separator: "─── N older messages hidden · Ctrl+E to show all ───"
 /// Inserted at the top of the visible list when transcript mode caps at 30.
-[[nodiscard]] inline auto render_transcript_cap_divider(std::size_t hidden_count) -> Element {
-    using namespace palette;
-    using namespace ftxui;
-
-    const std::string title = std::to_string(hidden_count) +
-        " older message" + (hidden_count == 1 ? "" : "s") +
-        " hidden · Ctrl+E to show all";
-    const Color line_color = muted_fg();
-
-    const std::string dash = "─";
-    std::string long_line;
-    long_line.reserve(160 * dash.size());
-    for (int i = 0; i < 160; ++i) long_line += dash;
-    Elements parts;
-    parts.push_back(text("───") | color(line_color));
-    parts.push_back(hbox({
-        text(" "),
-        text(title) | color(line_color),
-        text(" "),
-    }));
-    parts.push_back(text(long_line) | xflex | color(line_color));
-    return vbox({
-        separatorEmpty(),
-        hbox(std::move(parts)) | color(line_color),
-    });
-}
+[[nodiscard]] auto render_transcript_cap_divider(std::size_t hidden_count) -> Element;
 
 /// Decide the envelope status badge purely from MessageShape + stream state.
-inline auto derive_status_badge(MessageShape s, std::size_t row_idx,
-                                std::size_t streaming_tail)
-    -> EnvelopeStatusBadge
-{
-    if (streaming_tail != std::size_t(-1) && row_idx == streaming_tail) {
-        return EnvelopeStatusBadge::Running;
-    }
-    if (s == MessageShape::SystemAPIError)     return EnvelopeStatusBadge::Error;
-    if (s == MessageShape::AssistantRedactedThinking) return EnvelopeStatusBadge::Redacted;
-    return EnvelopeStatusBadge::None;
-}
+auto derive_status_badge(MessageShape s, std::size_t row_idx,
+                         std::size_t streaming_tail)
+    -> EnvelopeStatusBadge;
 
-inline auto render_payload_row(const MessagesListInput& input,
-                               std::size_t row_idx,
-                               bool is_selected,
-                               std::size_t frame_count,
-                               bool add_margin) -> Element
-{
-    if (row_idx >= input.shapes.size() || row_idx >= input.rows.size()) {
-        return text("⚠ bad row_idx") | color(Color::Yellow);
-    }
-    MessageShape shape   = input.shapes[row_idx];
-    const auto& payload  = input.rows[row_idx];
+auto render_payload_row(const MessagesListInput& input,
+                        std::size_t row_idx,
+                        bool is_selected,
+                        std::size_t frame_count,
+                        bool add_margin) -> Element;
 
-    // Helper: returns true for shapes that belong to the same assistant
-    // "turn group" (i.e. multiple content blocks inside one TS assistant
-    // message: thinking, text, tool_use, redacted_thinking, grouped_tools).
-    // Used by the caller to decide whether add_margin should be true (first
-    // block of a turn) or false (same-turn siblings).
-    (void)add_margin;
-
-    // ── LIVE-PATH FAITHFUL RENDER (M4 + M6) ───────────────────────────────
-    // The five core message types (user/assistant/thinking/system/tool-use)
-    // are routed THROUGH THE FAITHFUL TS-MIRRORING Element renderers
-    // (RenderUserPromptMessage, RenderAssistantTextMessageFaithful,
-    // RenderThinkingMessageFaithful, RenderSystemTextMessageFaithful,
-    // RenderFaithfulToolUseMessage).  These emit the exact TS
-    // components/messages/* shapes the running user sees:
-    //   * user     → `❯ <text>` full-width, userMessageBackground tint
-    //   * assistant→ `[dot?] <markdown body>` flex-start, no header chrome
-    //   * thinking → `∴ Thinking (ctrl+o to expand)` collapsed / indented body
-    //   * system   → `※ / ✻ / ⏺ <content>` flat one-line event row
-    //   * tool-use → `[●] <BoldName> (summary)` + progress/queued line below
-    // The divergent RenderMessageRowByType / render_message_envelope path
-    // (avatar column + role pill + top accent border) is NOT faithful to TS —
-    // it added invented chrome.  We therefore BYPASS it for these core types
-    // and emit the faithful Element directly.  Sub-types not yet ported still
-    // flow through the divergent envelope+dispatch path below.
-    using S = MessageShape;
-    const bool is_streaming_tail =
-        (input.streaming_tail_row != std::size_t(-1) &&
-         row_idx == input.streaming_tail_row);
-
-    if (shape == S::UserText || shape == S::UserPrompt || shape == S::UserCommand) {
-        auto* d = std::get_if<UserTextMessageData>(&payload);
-        if (d) {
-            // Bridge the row-data variant to the faithful fn's args.  The
-            // streaming/selection state isn't part of the TS bubble (the
-            // spinner is rendered separately as the streaming-tail cursor
-            // below the row), so we render the canonical TS shape.  When a
-            // command_name chip is set, route through the slash-command shape.
-            // add_margin is threaded for TS faithfulness (marginTop={addMargin?1:0}).
-            const UserTextMessageData fd = *d;
-            Element el = (shape == S::UserCommand || fd.command_name)
-                ? RenderUserCommandMessage(fd, /*is_selected=*/is_selected, /*add_margin=*/add_margin)
-                : RenderUserPromptMessage(fd, /*is_selected=*/is_selected, /*add_margin=*/add_margin);
-            (void)frame_count; (void)is_streaming_tail;
-            return el;
-        }
-    }
-    else if (shape == S::UserLocalCommandOutput) {
-        auto* opts = std::get_if<local_cmd::LocalCommandOptions>(&payload);
-        if (opts) {
-            Element el = local_cmd::RenderLocalCommandOutputFaithful(*opts);
-            (void)frame_count; (void)is_streaming_tail;
-            return el;
-        }
-    }
-    else if (shape == S::UserLocalJsxOutput) {
-        auto* d = std::get_if<UserTextMessageData>(&payload);
-        if (d) {
-            Elements lines;
-            std::size_t start = 0;
-            while (start <= d->content.size()) {
-                const auto nl = d->content.find('\n', start);
-                std::string line = nl == std::string::npos
-                    ? d->content.substr(start)
-                    : d->content.substr(start, nl - start);
-
-                Element row = text(line.empty() ? " " : line);
-                if (line == "Skills" || line == "Agents") {
-                    row = std::move(row) | bold | color(Color::BlueLight);
-                } else if (line == "Esc to close" ||
-                           line.starts_with("Press ")) {
-                    row = std::move(row) | dim;
-                } else if (line.starts_with("› ")) {
-                    row = std::move(row) | bold | color(Color::Cyan);
-                } else if (line.find("─") != std::string::npos) {
-                    row = std::move(row) | dim;
-                } else if (line.ends_with("skills") ||
-                           line.find("skills (") != std::string::npos ||
-                           line == "MCP skills" ||
-                           line == "Workflow commands" ||
-                           line.ends_with("agents") ||
-                           line.find("agents (") != std::string::npos ||
-                           line == "Built-in (always available):") {
-                    row = std::move(row) | bold | dim;
-                } else if (const auto marker = line.find(" · ");
-                           marker != std::string::npos) {
-                    row = hbox({
-                        text(line.substr(0, marker)),
-                        text(line.substr(marker)) | dim,
-                    });
-                } else {
-                    row = std::move(row) | color(Color::GrayLight);
-                }
-                lines.push_back(std::move(row));
-
-                if (nl == std::string::npos) break;
-                start = nl + 1;
-            }
-            if (lines.empty()) lines.push_back(text(" "));
-            (void)frame_count; (void)is_streaming_tail;
-            return vbox(std::move(lines));
-        }
-    }
-    else if (shape == S::AssistantText) {
-        auto* d = std::get_if<AssistantTextMessageData>(&payload);
-        if (d) {
-            // TS shouldShowDot is ALWAYS true for every AssistantTextMessage
-            // block within a turn (B4), regardless of streaming state. The
-            // streaming-tail-only override below is REMOVED — the payload's
-            // own show_dot field (defaulted true in AssistantTextMessageData)
-            // now governs. Selection recolors the dot via is_selected below.
-            const AssistantTextMessageData& fd = *d;
-            // TS REF: Messages.tsx L703-712 — streaming text row uses
-            // StreamingMarkdown (stable-prefix cache).  Thread the shared
-            // instance from the input so RenderAssistantTextMessageFaithful
-            // can call streaming_md->update() instead of full render_markdown.
-            Element el = RenderAssistantTextMessageFaithful(
-                fd, add_margin, /*is_selected=*/is_selected,
-                /*streaming_md=*/input.streaming_md);
-            (void)frame_count;
-            return el;
-        }
-    }
-    else if (shape == S::AssistantThinking || shape == S::AssistantRedactedThinking) {
-        auto* o = std::get_if<thinking_message::ThinkingMessageOptions>(&payload);
-        if (o) {
-            // TS AssistantThinkingMessage.tsx line 36-38 guard:
-            //   if (hideInTranscript) return null;
-            // hideInTranscript = ThinkingState::Complete && !isTranscriptMode &&
-            //                    !verbose, which in the REPL faithful path maps to
-            //   complete && NOT (row selected for expand  OR  is the active
-            //   streaming tail block).
-            // Rows hidden here still contribute their turn-group side effects
-            // (add_margin state) so sibling assistant text blocks inside the
-            // same turn correctly inherit add_margin=false.
-            using TM = messages::thinking_message::ThinkingState;
-            const bool is_complete = o->data.state == TM::Complete;
-            const bool selected_or_active = is_selected || is_streaming_tail;
-            if (is_complete && !selected_or_active) {
-                (void)add_margin; (void)frame_count;
-                // Should not reach here — build_visible_rows filters these out.
-                // Defensive fallback if it somehow does.
-                return text("");
-            }
-            // NOTE: `is_selected` (row navigation highlight) does NOT mean
-            // "expanded" in the TS sense.  Expansion requires an explicit
-            // user gesture (Ctrl+O / Enter) via the interactive Component
-            // path.  On this plain-Element render path, selected merely
-            // lifts the "hide on complete" guard so the collapsed label is
-            // visible.  `is_transcript_mode` (full thinking content) is
-            // driven by the user's Ctrl+O transcript toggle.
-            //
-            // TS REF: Messages.tsx L714-719 — streaming thinking tail is
-            // ALWAYS expanded (isTranscriptMode={true}).  When this row is
-            // the streaming tail OR thinking is globally visible (meaning
-            // a streaming-thinking tail exists somewhere), force transcript
-            // mode so the full body is shown rather than the collapsed
-            // "∴ Thinking (ctrl+o to expand)" label.
-            const bool thinking_force_expanded = is_streaming_tail ||
-                input.streaming_thinking_globally_visible;
-            Element el = thinking_message::RenderThinkingMessageFaithful(
-                o->data,
-                /*is_transcript_mode=*/input.is_transcript_mode || thinking_force_expanded,
-                /*verbose=*/is_row_expanded(input, row_idx),
-                /*add_margin=*/add_margin);
-            (void)frame_count;
-            return el;
-        }
-    }
-    else if (shape == S::SystemText) {
-        auto* d = std::get_if<SystemTextMessageData>(&payload);
-        if (d) {
-            Element el = RenderSystemTextMessageFaithful(*d, /*add_margin=*/add_margin);
-            (void)frame_count; (void)is_streaming_tail;
-            return el;
-        }
-    }
-    else if (shape == S::UserToolResult) {
-        auto* opts = std::get_if<ToolResultOptions>(&payload);
-        if (opts) {
-            // Bridge ToolResultOptions (divergent model) → ToolResultFaithfulData
-            // (faithful TS-equivalent model).  The divergent struct carries both
-            // an `output` field (main content, possibly ANSI) and a separate
-            // `error_message` field; the faithful renderer uses a single
-            // `content` field plus a `kind` enum that drives dispatch.
-            ToolResultFaithfulData fd;
-            fd.tool_name = opts->tool_name;
-            fd.duration_ms = opts->duration_ms;
-            fd.is_truncated = opts->is_truncated;
-            // TS REF: Messages.tsx L624 verbose={verbose || isItemExpanded(msg)}
-            fd.verbose = is_row_expanded(input, row_idx);
-
-            using DS = ToolResultStatus;   // divergent status
-            using FK = ToolResultKind;     // faithful kind
-
-            switch (opts->status) {
-                case DS::Success:
-                    fd.kind = FK::Success;
-                    fd.content = opts->output;
-                    fd.content_items = opts->content_items;
-                    break;
-                case DS::Error:
-                    fd.kind = FK::Error;
-                    // Prefer error_message if set; fall back to output field.
-                    if (opts->error_message && !opts->error_message->empty()) {
-                        fd.content = opts->error_message;
-                    } else {
-                        fd.content = opts->output;
-                    }
-                    break;
-                case DS::Timeout:
-                    fd.kind = FK::Error;
-                    fd.content = opts->output
-                        ? opts->output
-                        : std::optional<std::string>("Timed out");
-                    break;
-                case DS::Cancelled:
-                    fd.kind = FK::Canceled;
-                    fd.content = opts->output;
-                    break;
-            }
-
-            Element el = RenderToolResultMessageFaithful(fd, add_margin);
-            (void)frame_count; (void)is_streaming_tail;
-            return el;
-        }
-    }
-    else if (shape == S::AssistantToolUse) {
-        auto* opts = std::get_if<tool_use_message::ToolUseRenderOptions>(&payload);
-        if (opts) {
-            // Bridge ToolUseRenderOptions → FaithfulToolUseData via
-            // the tool UI registry.  Each registered tool provides its
-            // own userFacingName / message / tag / progress / queued
-            // functions (matching TS tool-class UI methods).
-            //
-            // Falls back to the generic renderer for unregistered tools.
-            using namespace cc::ui::tools;
-            const bool is_registered_builtin =
-                global_tool_ui_registry().find(opts->call.tool_name) != nullptr;
-            const ToolUIFunctions& ui =
-                get_tool_ui_or_generic(opts->call.tool_name);
-
-            tool_use_message::FaithfulToolUseData fd;
-            fd.user_facing_name =
-                ui.user_facing_name
-                    ? ui.user_facing_name(opts->call.raw_parameters)
-                    : std::string{opts->call.tool_name};
-            fd.message =
-                ui.message
-                    ? ui.message(opts->call.raw_parameters)
-                    : std::string{};
-            if (ui.tag) {
-                auto tag = ui.tag(opts->call.raw_parameters);
-                if (tag) fd.tag = *tag;
-            }
-
-            // Status mapping: ToolStatus → FaithfulToolStatus
-            using TS = tool_use_message::ToolStatus;
-            using FTS = tool_use_message::FaithfulToolStatus;
-            switch (opts->call.status) {
-                case TS::Pending:   fd.status = FTS::Queued;  break;
-                case TS::Running:   fd.status = FTS::Running; break;
-                case TS::Success:   fd.status = FTS::Success; break;
-                case TS::Error:     fd.status = FTS::Error;   break;
-                case TS::Cancelled: fd.status = FTS::Error;   break;
-            }
-
-            // Progress / queued text from tool UI functions
-            if (ui.progress) {
-                std::string_view preview = {};
-                if (opts->call.result_preview) {
-                    preview = *opts->call.result_preview;
-                }
-                fd.progress_text = ui.progress(
-                    opts->call.raw_parameters, preview);
-            } else {
-                fd.progress_text = "Running…";
-            }
-            if (ui.queued) {
-                fd.queued_text = ui.queued(opts->call.raw_parameters);
-            } else {
-                fd.queued_text = "Waiting…";
-            }
-
-            fd.is_transparent_wrapper = ui.is_transparent_wrapper;
-            fd.should_show_dot = true;
-            fd.add_margin = add_margin;
-            fd.spinner_frame = static_cast<int>(frame_count);
-            fd.should_animate = (opts->call.status == TS::Running);
-
-            // ── MCP-only Input/Output sections ──
-            // TS built-in tools (Bash, Read, Write, Edit, Glob, Grep) NEVER
-            // show Input:/Output: sections — the command is in the header
-            // parens and the result appears as a separate tool_result row.
-            // Only MCP/unregistered tools show raw JSON parameters inline.
-            fd.is_mcp_tool = !is_registered_builtin;
-            if (!is_registered_builtin) {
-                fd.input_json = opts->call.raw_parameters;
-                if (opts->call.result_preview && !opts->call.result_preview->empty()) {
-                    fd.output_text = *opts->call.result_preview;
-                }
-            }
-
-            Element el = tool_use_message::RenderFaithfulToolUseMessage(fd);
-            return el;
-        }
-    }
-    else if (shape == S::UserImage) {
-        // Faithful render: TS UserImageMessage — each user-attached image is
-        // its own transcript row.  Render directly via message_image::render
-        // (stateless Element) wrapped in user-message chrome for visual
-        // consistency with RenderUserPromptMessage: full-width,
-        // userMessageBackground tint, marginTop={addMargin?1:0}.
-        //
-        // TS REF: UserImageMessage.tsx — the [Image #N] label lives inside
-        // the user message bubble; in CPP we project images as separate rows
-        // (one per attachment) so each gets its own user-styled card.
-        auto* d = std::get_if<image::ImageMessageData>(&payload);
-        if (d) {
-            // TS dark: userMessageBackground = rgb(55, 55, 55)
-            // (matches RenderUserPromptMessage kUserBg).
-            const Color kUserBg = Color::RGB(55, 55, 55);
-
-            Element body = image::render(*d);
-
-            if (add_margin) {
-                // First user block in turn: wrap in user-message chrome with
-                // full-width bg tint (matches RenderUserPromptMessage).
-                Element content = hbox({
-                    text(" ") | bgcolor(kUserBg),
-                    std::move(body) | bgcolor(kUserBg) | flex,
-                    text(" ") | bgcolor(kUserBg),
-                });
-                return vbox({text(""), std::move(content)});
-            }
-            // TS PARITY: UserImageMessage.tsx — when addMargin is false (image
-            // is a continuation within the same user turn), wrap in
-            // <MessageResponse> which prepends "  ⎿  " (U+23BF connector).
-            // NO background tint — only the primary user text bubble gets
-            // userMessageBackground; continuation blocks are plain.
-            return hbox({
-                text("  \xe2\x8e\xbf  ") | dim,
-                std::move(body),
-            });
-        }
-    }
-
-    // ── DIVERGENT PATH (sub-types not yet ported to faithful) ───────────
-    // GAP 3: thread on_retry from MessagesListInput so SystemAPIError rows
-    // can render a working Retry pill that re-sends the last user message.
-    MessageRowCallbacks cb;
-    cb.on_retry = input.on_retry;
-    // P2 gap api-error-retry: thread on_clear_session for session-expired
-    // error cards.
-    cb.on_clear_session = input.on_clear_session;
-    Component inner = RenderMessageRowByType(shape, payload, std::move(cb));
-
-    RenderEnvelopeOptions env_opts{
-        .shape          = shape,
-        .timestamp      = std::chrono::system_clock::now(),
-        .status         = derive_status_badge(shape, row_idx, input.streaming_tail_row),
-        .show_dismiss   = (shape == MessageShape::SystemAdvisor ||
-                           shape == MessageShape::SystemHookProgress),
-        .is_selected    = is_selected,
-        .frame_count    = frame_count,
-    };
-    return render_message_envelope(env_opts, inner->Render());
-}
-
-inline auto render_compact_group_row(const VisibleRow& vr,
-                                     bool is_selected) -> Element
-{
-    std::ostringstream label;
-    label << "[📦 " << vr.group_count << " messages collapsed";
-    if (vr.tool_turns > 0) label << " in " << vr.tool_turns << " tool turns";
-    if (vr.additions || vr.deletions) {
-        label << ": +" << vr.additions << " add";
-        if (vr.deletions) label << ", -" << vr.deletions << " delete";
-    }
-    label << "]  ";
-    label << "(Space / Enter to expand)";
-
-    Element body = text(label.str())
-        | color(palette::muted_fg()) | bgcolor(Color::RGB(20, 22, 28));
-    if (is_selected) {
-        body = std::move(body) | inverted | bgcolor(palette::selected_bg());
-    }
-    return vbox({
-        separator() | color(Color::RGB(60, 60, 70)),
-        hbox({ text(" "), std::move(body), filler() }),
-    });
-}
+auto render_compact_group_row(const VisibleRow& vr,
+                              bool is_selected) -> Element;
 
 /// Returns a lowercase copy of the search query (if any) — used to highlight
 /// matched substrings in render output.  (Currently used for the empty-state
 /// copy; real per-row substring highlighting is a UI17 deliverable.)
-inline auto render_empty_state(const std::string& search_query) -> Element {
-    Elements lines = {
-        text("🗑️  No messages match the current filters")
-            | color(palette::empty_state_fg()) | center | bold,
-        separatorEmpty(),
-        text("Try clearing filters or search query")
-            | color(palette::muted_fg()) | center | dim,
-    };
-    if (!search_query.empty()) {
-        lines.push_back(separatorEmpty());
-        lines.push_back(
-            text("active query: \"" + search_query + "\"") | center | dim);
-    }
-    return vbox({ filler(), vbox(lines) | center, filler() }) | flex;
-}
+auto render_empty_state(const std::string& search_query) -> Element;
 
 } // namespace detail
 
@@ -2762,238 +758,13 @@ constexpr std::size_t kMaxRenderedLastN = 80;   // last-N render cap
 ///        filler (TS <Box flexGrow={1} />) so it absorbs remaining viewport
 ///        space without competing with yframe|flex for parent allocation.
 ///        Golden tests leave this empty.
-[[nodiscard]] inline auto render_messages_list_view(
+[[nodiscard]] auto render_messages_list_view(
     const MessagesListInput& input_const,
     std::size_t frame_count = 0,
     std::size_t render_last_n = kMaxRenderedLastN,
     Elements trailing_elements = {},
     bool wrap_in_yframe = true,
-    Elements leading_elements = {}) -> Element
-{
-    // P0-3 virtual path: for *large* transcripts, delegate to the
-    // windowed renderer so 100k+ messages cost O(viewport) per paint,
-    // not O(N).  The threshold is slightly higher than `render_last_n`
-    // so small chats that fit entirely inside the Last-N cap still use
-    // the simpler, turn-state-machine-correct legacy path.
-    constexpr std::size_t kBigChatThreshold = kMaxRenderedLastN + 10;
-    // Build visible just to get the size check — cheap O(N) walk, the
-    // virtual path would rebuild it anyway.
-    {
-        MessagesListInput probe = input_const;
-        const std::size_t n_visible = build_visible_rows(probe).size();
-        if (n_visible > kBigChatThreshold) {
-            // NOTE: virtual path doesn't support trailing_elements yet — the
-            // filler would need to be appended inside the virtual renderer's
-            // yframe.  For now, trailing elements are dropped on the virtual
-            // path (only relevant for 90+ messages where the filler is
-            // invisible anyway).
-            (void)trailing_elements;
-            return render_messages_list_virtual(
-                input_const,
-                frame_count,
-                /*viewport_rows=*/std::max(1, input_const.viewport_rows),
-                /*scroll_top_lines=*/std::max(0, input_const.scroll_offset));
-        }
-    }
-
-    // build_visible_rows takes a non-const ref (it mutates nothing, but the
-    // signature allows future precomputation caching) — copy-on-write.
-    MessagesListInput input = input_const;
-    auto visible = build_visible_rows(input);
-
-    if (visible.empty()) {
-        // No messages: show leading elements (e.g. welcome/logo card) if
-        // provided, otherwise the empty-state placeholder.
-        if (!leading_elements.empty()) {
-            Elements all_leading = leading_elements;  // copy
-            all_leading.push_back(detail::render_empty_state(input.search_query));
-            Element content = vbox(std::move(all_leading));
-            if (!wrap_in_yframe) return content;
-            return content | yframe | vscroll_indicator;
-        }
-        Element empty = vbox({
-            detail::render_empty_state(input.search_query),
-        });
-        if (!wrap_in_yframe) return empty;
-        return empty | yframe | vscroll_indicator;
-    }
-
-    // ---- Unseen divider anchor: compute BEFORE the last-N slice so the
-    //      visible-index comparison is still correct after slicing with start.
-    // TS REF: Messages.tsx L549-553  dividerBeforeIndex = useMemo prefix match
-    const std::size_t divider_before_vi =
-        detail::find_divider_before_visible_index(input, visible);
-    const bool has_divider =
-        (divider_before_vi < visible.size() &&
-         input.unseen_divider.has_value());
-
-    // ---- Last-N window (non-virtualized path) ----
-    std::size_t start = 0;
-    if (visible.size() > render_last_n) {
-        start = visible.size() - render_last_n;
-    }
-
-    Elements rows;
-    rows.reserve(visible.size() - start + 3 + leading_elements.size());
-    // Prepend caller-supplied leading elements (e.g. welcome/logo card) INSIDE
-    // the yframe so they scroll naturally with message content.  TS parity:
-    // LogoV2 is the first child of VirtualMessageList scrollback.
-    for (auto& el : leading_elements) {
-        rows.push_back(std::move(el));
-    }
-    // ── TS PARITY (2026-07-05): Per-message addMargin ──────────────────────
-    // TS REF: MessageRow.tsx  addMargin = !hasMetadata.
-    //   hasMetadata = isTranscriptMode && type==="assistant" && has-text &&
-    //                 (timestamp || model)
-    // In REPL mode (isTranscriptMode=false), hasMetadata is ALWAYS false →
-    // addMargin=true for every message.  Each leaf component applies
-    // marginTop={addMargin ? 1 : 0}.
-    //
-    // EXCEPTIONS (matching TS):
-    //   1. UserToolResultMessage — does NOT receive addMargin prop, 0 marginTop.
-    //      Tool results sit flush against the preceding tool_use message.
-    //   2. User continuations (isUserContinuation in TS) — user images
-    //      following another user block suppress marginTop (⎿ connector).
-    //
-    // This replaces the previous "turn-boundary" model which incorrectly
-    // suppressed margins on ALL assistant blocks after a user row, causing:
-    //   - User→assistant text gap = 0 (too small)
-    //   - Inconsistent spacing when tool results were present vs absent.
-    bool prev_was_user = false;    // for user-turn continuation ⎿ connector (TS parity)
-    for (std::size_t vi = start; vi < visible.size(); ++vi) {
-        // TS REF: Messages.tsx L631-635  if (index === dividerBeforeIndex)
-        //   insert <Box marginTop={1}><Divider title="N new messages" color="inactive"/></Box>
-        // BEFORE rendering the row itself.
-        if (has_divider && vi == divider_before_vi) {
-            rows.push_back(
-                detail::render_unseen_divider(input.unseen_divider->count));
-        }
-
-        const auto& vr = visible[vi];
-        const bool is_selected =
-            input.selected_row_idx.has_value() &&
-            vr.kind == VisibleRow::Kind::Payload &&
-            vr.row_idx == *input.selected_row_idx;
-
-        if (vr.kind == VisibleRow::Kind::Payload) {
-            const MessageShape shape =
-                (vr.row_idx < input.shapes.size())
-                    ? input.shapes[vr.row_idx]
-                    : MessageShape::SystemTaskAssignment;   // = max enum; treated as "not user/assistant"
-            using S = MessageShape;
-            const bool is_user_row =
-                (shape == S::UserText ||
-                 shape == S::UserPrompt ||
-                 shape == S::UserCommand ||
-                 shape == S::UserImage);
-            // TS: UserToolResultMessage has 0 marginTop (no addMargin prop).
-            // Also include UserBashOutput and UserLocalCommandOutput as
-            // tool-result-like rows that sit flush.
-            const bool is_tool_result =
-                (shape == S::UserToolResult ||
-                 shape == S::UserBashOutput);
-
-            // TS PARITY: compute addMargin per-row, not per-turn.
-            //   - User rows: first user in turn → true, continuation → false (⎿)
-            //   - Tool result rows: false (flush against preceding tool_use)
-            //   - All other rows: true (TS: !hasMetadata = true in REPL mode)
-            bool row_add_margin = is_user_row
-                ? !prev_was_user
-                : (is_tool_result ? false : true);
-            // TS REF: Messages.tsx L714-719 — streaming thinking tail has
-            // addMargin={false} (sits flush against preceding row).  When
-            // this is the last visible row and it's a thinking block while
-            // streaming thinking is globally visible, force 0 top margin.
-            if (shape == S::AssistantThinking &&
-                vi == visible.size() - 1 &&
-                input.streaming_thinking_globally_visible) {
-                row_add_margin = false;
-            }
-            prev_was_user = is_user_row;
-
-            rows.push_back(detail::render_payload_row(
-                input, vr.row_idx, is_selected, frame_count, row_add_margin));
-        } else if (vr.kind == VisibleRow::Kind::TranscriptCapDivider) {
-            // "─── N older messages hidden · Ctrl+E to show all ───"
-            rows.push_back(detail::render_transcript_cap_divider(vr.hidden_count));
-        } else {
-            // compact group row — renders its own header/spacing
-            rows.push_back(detail::render_compact_group_row(vr, is_selected));
-        }
-    }
-
-    // Append caller-supplied trailing elements (e.g. elastic filler) INSIDE
-    // the yframe so they share the viewport and don't compete with yframe|flex
-    // for parent space.  Golden tests pass empty; RenderReplScreen passes the
-    // filler()|flex (TS <Box flexGrow={1} /> equivalent).
-    for (auto& el : trailing_elements) {
-        rows.push_back(std::move(el));
-    }
-
-    // NOTE: yframe wraps the message rows + trailing elements.  | flex makes
-    // the yframe fill available space in the parent vbox; without it the
-    // yframe would be content-sized and scrolling would break when messages
-    // exceed the viewport.
-    Element list = vbox(std::move(rows));
-
-    // When wrap_in_yframe is false, the caller (RenderReplScreen) handles
-    // focusPosition + yframe wrapping at the outer level (unified ScrollBox
-    // wrapping Logo + messages + filler + Spinner).  We return just the bare
-    // vbox of rows so the caller can compose it with siblings.
-    if (!wrap_in_yframe) {
-        return list;
-    }
-
-    // ── Pin-to-bottom: only apply when content exceeds viewport ─────────
-    // TS REF: FullscreenLayout stickyScroll — when content fits in the
-    // viewport, the entire content is visible (no scrolling needed).  In
-    // FTXUI, applying focusPositionRelative(0,1) on a child that is SHORTER
-    // than the yframe viewport causes the child to be BOTTOM-ALIGNED in
-    // the viewport, leaving blank space above the content.  This is the
-    // root cause of the "large blank area below logo" bug: with 1-2
-    // messages and pin_to_bottom=true, the messages were pushed to the
-    // bottom of the yframe viewport.
-    //
-    // Fix: estimate total content height using the same row-height estimator
-    // that drives the virtual scroll (P0-3).  Only apply focusPositionRelative
-    // when the estimated content height exceeds viewport_rows.  When content
-    // fits, the yframe shows the content top-aligned by default — matching
-    // TS behavior where short content is top-aligned and no scrolling occurs.
-    const int vp = std::max(1, input.viewport_rows);
-    int estimated_total_lines = 0;
-    for (const auto& vr : visible) {
-        estimated_total_lines +=
-            detail::estimate_row_height(vr, input, /*term_cols=*/80);
-    }
-    // NOTE: leading elements (logo card) are intentionally NOT included in
-    // the pin-to-bottom estimate.  Pin-to-bottom should engage when MESSAGES
-    // overflow the viewport, ensuring the latest message is visible.  The
-    // logo is a decorative leading element that scrolls naturally — when
-    // messages alone fit, the user sees logo + all messages top-aligned.
-    // When messages overflow, pin-to-bottom engages and the logo scrolls
-    // off-screen (reachable by scrolling up).  Adding logo height would
-    // cause premature pin-to-bottom with just 1-2 messages, pushing content
-    // to the bottom and creating a large blank area below the logo.
-    const bool content_exceeds_viewport = estimated_total_lines > vp;
-
-    if (input.scroll_offset > 0) {
-        list = std::move(list)
-             | focusPosition(0, input.scroll_offset + vp / 2);
-    } else if (input.pin_to_bottom && visible.size() > 1 &&
-               content_exceeds_viewport) {
-        // Multiple messages AND content exceeds viewport — scroll to show the
-        // bottom (latest messages).  The `visible.size() > 1` guard preserves
-        // single-tall-message behavior (e.g. /help output) where showing the
-        // top is more useful.  The `content_exceeds_viewport` guard prevents
-        // the FTXUI bottom-alignment blank-space artifact when short content
-        // fits in the viewport (the "large blank area below logo" bug).
-        list = std::move(list) | focusPositionRelative(0, 1);
-    }
-    if (visible.empty()) {
-        return std::move(list) | yframe | vscroll_indicator | flex;
-    }
-    return std::move(list) | yframe | vscroll_indicator | flex;
-}
+    Elements leading_elements = {}) -> Element;
 
 // =========================================================================
 // 8)  INTERACTIVE COMPONENT  (MakeMessagesList)
@@ -3013,634 +784,37 @@ constexpr std::size_t kMaxRenderedLastN = 80;   // last-N render cap
 class MessagesListComponent final : public ComponentBase {
   public:
     MessagesListComponent(MessagesListInput input,
-                          MessagesListCallbacks callbacks)
-        : input_(std::move(input))
-        , cbs_(std::move(callbacks))
-    {
-        // --- Build the embedded search input (empty initially) ----
-        search_input_ = Input(&live_search_query_, "🔎 filter messages…");
-        Add(search_input_);
-
-        // --- If caller requested an initial jump-to row, pre-scroll ----
-        if (input_.jump_to_row_on_init &&
-            *input_.jump_to_row_on_init < input_.rows.size())
-        {
-            input_.selected_row_idx = *input_.jump_to_row_on_init;
-        }
-        rebuild_visible_cache();
-    }
+                          MessagesListCallbacks callbacks);
 
     // ── Event handling ────────────────────────────────────────────────
-    bool OnEvent(Event event) override {
-        const bool search_focused = search_input_->Focused();
-
-        // ------ ESCAPE: clear search first, then defocus / deselect ----
-        if (event == Event::Escape) {
-            if (!live_search_query_.empty()) {
-                live_search_query_.clear();
-                input_.search_query.clear();
-                if (cbs_.on_search_changed) cbs_.on_search_changed({});
-                rebuild_visible_cache();
-                search_input_->TakeFocus();   // leave focus there
-                return true;
-            }
-            // nothing to clear → deselect and lose search focus
-            if (input_.selected_row_idx) input_.selected_row_idx.reset();
-            if (cbs_.on_select) cbs_.on_select(std::size_t(-1));
-            (void)search_input_;   // relinquish focus handled by screen focus manager
-            return true;
-        }
-
-        // ------ '/' always focuses the search box --------------------
-        if (event == Event::Character('/') && !search_focused) {
-            search_input_->TakeFocus();
-            return true;
-        }
-
-        // ------ When the search Input owns focus, let it handle events --
-        // ------ When the search Input owns focus, let it handle events --
-        // Mouse events bypass the search-focus gate: clicking a message row
-        // should work even when the search box has keyboard focus.  TS REF:
-        //   VirtualMessageList.tsx onClickK fires regardless of search state.
-        if (search_focused && !event.is_mouse()) {
-            bool handled = search_input_->OnEvent(event);
-            // Sync the (possibly-changed) query to the filter layer
-            if (input_.search_query != live_search_query_) {
-                input_.search_query = live_search_query_;
-                if (cbs_.on_search_changed)
-                    cbs_.on_search_changed(live_search_query_);
-                rebuild_visible_cache();
-            }
-            return handled;
-        }
-
-        // ------ Movement ----------------------------------------------
-        if (event == Event::Character('j') ||
-            event == Event::Special({14}) /* Ctrl+N */)
-        {
-            move_selection(+1);
-            return true;
-        }
-        if (event == Event::Character('k') ||
-            event == Event::Special({16}) /* Ctrl+P */)
-        {
-            move_selection(-1);
-            return true;
-        }
-        if (event == Event::Character('g') || event == Event::Home) {
-            move_selection_to(0);
-            return true;
-        }
-        if (event == Event::Character('G') || event == Event::End) {
-            move_selection_to(visible_rows_.empty() ? 0 : visible_rows_.size() - 1);
-            return true;
-        }
-
-        // ------ Toggle compact group expand OR toggle row expansion ------
-        if (event == Event::Character(' ')) {
-            auto* vr = current_visible_row();
-            if (!vr) return false;
-            if (vr->kind == VisibleRow::Kind::CompactGroup) {
-                if (cbs_.on_toggle_compact_group)
-                    cbs_.on_toggle_compact_group(vr->group_idx);
-                return true;
-            }
-            // TS REF: Messages.tsx onItemClick (L564-571)
-            // Space on a clickable/expanded payload row toggles verbose expansion.
-            if (vr->kind == VisibleRow::Kind::Payload) {
-                auto idx = vr->row_idx;
-                if (idx < input_.shapes.size() && idx < input_.rows.size()) {
-                    std::string_view uuid = (idx < input_.uuids.size())
-                        ? std::string_view(input_.uuids[idx]) : std::string_view{};
-                    auto key = compute_expand_key(
-                        input_.shapes[idx], input_.rows[idx], uuid);
-                    bool clickable = is_row_clickable(
-                        input_.shapes[idx], input_.rows[idx]);
-                    bool expanded = !key.empty() &&
-                        input_.expanded_keys.count(key) > 0;
-                    if (clickable || expanded) {
-                        if (cbs_.on_toggle_expand && !key.empty())
-                            cbs_.on_toggle_expand(key);
-                        return true;
-                    }
-                }
-            }
-            return false;   // fall through: space is not a hotkey elsewhere
-        }
-
-        // ------ Enter  →  default action (copy) OR toggle group OR expand -------
-        if (event == Event::Return) {
-            auto* vr = current_visible_row();
-            if (!vr) return false;
-            if (vr->kind == VisibleRow::Kind::CompactGroup) {
-                if (cbs_.on_toggle_compact_group)
-                    cbs_.on_toggle_compact_group(vr->group_idx);
-                return true;
-            }
-            // TS REF: Messages.tsx cursor.expanded (L624)
-            // Enter on a clickable/expanded payload row toggles verbose expansion
-            // (takes priority over copy for tool rows with truncated output).
-            if (vr->kind == VisibleRow::Kind::Payload) {
-                auto idx = vr->row_idx;
-                if (idx < input_.shapes.size() && idx < input_.rows.size()) {
-                    std::string_view uuid = (idx < input_.uuids.size())
-                        ? std::string_view(input_.uuids[idx]) : std::string_view{};
-                    auto key = compute_expand_key(
-                        input_.shapes[idx], input_.rows[idx], uuid);
-                    bool clickable = is_row_clickable(
-                        input_.shapes[idx], input_.rows[idx]);
-                    bool expanded = !key.empty() &&
-                        input_.expanded_keys.count(key) > 0;
-                    if (clickable || expanded) {
-                        if (cbs_.on_toggle_expand && !key.empty())
-                            cbs_.on_toggle_expand(key);
-                        return true;
-                    }
-                }
-            }
-            if (cbs_.on_action)
-                cbs_.on_action(vr->row_idx, ActionKind::Copy);
-            return true;
-        }
-
-        // ------ c / r / d hotkeys ------------------------------------
-        if (event == Event::Character('c')) return fire_action(ActionKind::Copy);
-        if (event == Event::Character('r')) return fire_action(ActionKind::Regenerate);
-        if (event == Event::Character('d')) return fire_action(ActionKind::Delete);
-
-        // ------ Mouse: click to expand / select row -------------------
-        // TS REF: Messages.tsx onItemClick (L564-571) +
-        //   VirtualMessageList.tsx onClickK (L847-850) + onEnterK/onLeaveK
-        //   (L851-856).  Each message row is a "clickable cell"; left-click
-        //   toggles verbose expansion for truncated tool outputs / collapsed
-        //   groups, and moves the keyboard cursor to that row.
-        if (event.is_mouse()) {
-            const auto& m = event.mouse();
-            const int mx = m.x;
-            const int my = m.y;
-
-            // Find which tracked row (if any) contains the mouse cursor.
-            // Linear scan: typical viewport shows ≤60 rows after overscan,
-            // so this is sub-millisecond.
-            std::optional<std::size_t> hit_vi;
-            for (std::size_t i = 0; i < tracked_boxes_.size(); ++i) {
-                if (tracked_boxes_[i] && tracked_boxes_[i]->Contain(mx, my)) {
-                    if (i < tracked_vi_.size()) {
-                        hit_vi = tracked_vi_[i];
-                    }
-                    break;
-                }
-            }
-
-            // Hover tracking: update hovered_vi_ on every mouse event so
-            // visual feedback (underline / cursor hint) follows the cursor.
-            // TS REF: VirtualMessageList.tsx onEnterK/onLeaveK hover state.
-            if (hovered_vi_ != hit_vi) {
-                hovered_vi_ = hit_vi;
-                // Returning true would consume the event and prevent the
-                // underlying component from receiving it.  We only consume
-                // on actual clicks; hover changes are side-effects.
-            }
-
-            // Left-click released: toggle expansion AND move selection.
-            if (m.button == Mouse::Left && m.motion == Mouse::Released) {
-                if (!hit_vi.has_value()) return false;
-                const std::size_t vi = *hit_vi;
-                if (vi >= visible_rows_.size()) return false;
-
-                const auto& vr = visible_rows_[vi];
-
-                // Compact group: toggle group expand/collapse.
-                if (vr.kind == VisibleRow::Kind::CompactGroup) {
-                    // Also select the group row so keyboard cursor follows.
-                    commit_selection(vi);
-                    if (cbs_.on_toggle_compact_group)
-                        cbs_.on_toggle_compact_group(vr.group_idx);
-                    return true;
-                }
-
-                // Payload row: if clickable or already expanded, toggle.
-                if (vr.kind == VisibleRow::Kind::Payload) {
-                    const auto idx = vr.row_idx;
-                    // Always move selection to the clicked row first.
-                    commit_selection(vi);
-
-                    if (idx < input_.shapes.size() && idx < input_.rows.size()) {
-                        std::string_view uuid = (idx < input_.uuids.size())
-                            ? std::string_view(input_.uuids[idx]) : std::string_view{};
-                        auto key = compute_expand_key(
-                            input_.shapes[idx], input_.rows[idx], uuid);
-                        bool clickable = is_row_clickable(
-                            input_.shapes[idx], input_.rows[idx]);
-                        bool expanded = !key.empty() &&
-                            input_.expanded_keys.count(key) > 0;
-                        if (clickable || expanded) {
-                            if (cbs_.on_toggle_expand && !key.empty())
-                                cbs_.on_toggle_expand(key);
-                            return true;
-                        }
-                    }
-                    return true;  // click consumed (selection moved)
-                }
-            }
-            // Non-click mouse events: don't consume; let parent components
-            // (e.g. scroll wheel) handle them.
-        }
-
-        return ComponentBase::OnEvent(event);
-    }
+    bool OnEvent(Event event) override;
 
     // ── Rendering ------------------------------------------------------
-    Element Render() override {
-        ++frame_count_;
-
-        // Reset the row-tracking cursor.  We REUSE existing Box objects in
-        // tracked_boxes_ rather than clearing them, because the previous
-        // frame's element tree still holds Box& references via reflect().
-        // Destroying those Boxes before the old tree is replaced would be a
-        // use-after-free.  Instead: overwrite in place, then trim excess at
-        // the end of Render() after the new tree is fully built.
-        std::size_t track_pos = 0;
-        auto push_tracked = [this, &track_pos](std::size_t vi) -> Box& {
-            if (track_pos < tracked_boxes_.size()) {
-                // Reuse existing Box (old tree's reflect ref will be
-                // overwritten by new tree's layout pass).
-                tracked_vi_[track_pos] = vi;
-                Box& b = *tracked_boxes_[track_pos];
-                ++track_pos;
-                return b;
-            }
-            tracked_vi_.push_back(vi);
-            tracked_boxes_.push_back(std::make_unique<Box>());
-            Box& b = *tracked_boxes_.back();
-            ++track_pos;
-            return b;
-        };
-        auto trim_tracked = [this, &track_pos]() {
-            if (track_pos < tracked_vi_.size()) {
-                tracked_vi_.erase(tracked_vi_.begin() + track_pos,
-                                  tracked_vi_.end());
-                tracked_boxes_.erase(tracked_boxes_.begin() + track_pos,
-                                     tracked_boxes_.end());
-            }
-        };
-
-        // Rebuild visible rows whenever the caller replaced input_
-        // (callers write via the public setters below; here we also guard
-        // against parallel vector size drift).
-        if (visible_rows_.empty() ||
-            input_.rows.size() != last_rows_size_ ||
-            input_.search_query != last_search_ ||
-            filter_hash() != last_filter_hash_)
-        {
-            rebuild_visible_cache();
-        }
-
-        // ---- Search header row (dbox overlay pattern from UI6) ----
-        Element search_bar = hbox({
-            text("  ") | size(WIDTH, EQUAL, 2),
-            hbox({ text("🔎 "), search_input_->Render() })
-                | borderLight | color(palette::muted_fg()),
-            filler(),
-            text("/ search  j/k nav  c/r/d actions  Esc clear") | dim,
-            text("   "),
-        });
-
-        Element list_body;
-        if (visible_rows_.empty()) {
-            list_body = detail::render_empty_state(input_.search_query);
-            trim_tracked();  // no rows → clear all tracked entries
-        } else if (visible_rows_.size() > kVirtualThreshold) {
-            // ── P0-3 VIRTUAL PATH ──────────────────────────────────
-            // Build virtual rows from cached visible_rows_.  Use
-            // viewport_rows from input (default 40) as the window height.
-            namespace vl = cc::ui::messages::virtual_list;
-            const int term_cols_est = 120;
-            auto virt_rows = visible_rows_to_virtual(
-                visible_rows_, input_, term_cols_est);
-
-            // TS REF: Messages.tsx L549-553  compute dividerBeforeIndex.
-            const std::size_t divider_before_vi =
-                detail::find_divider_before_visible_index(input_, visible_rows_);
-            const bool has_divider =
-                (divider_before_vi < visible_rows_.size() &&
-                 input_.unseen_divider.has_value());
-
-            vl::VirtualListState state;
-            state.options.ascii_gutter  = true;
-            state.options.auto_scroll   = vl::AutoScrollMode::Sticky;
-            state.viewport_rows         = std::max(1, input_.viewport_rows);
-            state.options.viewport_rows = state.viewport_rows;
-            state.rows                  = std::move(virt_rows);
-            state.jh                    = vl::build_geometry(std::span{state.rows});
-
-            // Initial scroll window: if a selection exists, jump to it
-            // with 3-line headroom; else pin to tail.
-            if (selected_visible_index_.has_value()) {
-                const size_t sv = std::min(*selected_visible_index_,
-                                           state.rows.size() - 1);
-                const int top = state.jh.find_visual_top_for_row(sv);
-                state.scroll_top = std::max(0, top - 3);
-                state.sticky_bottom = false;
-            } else {
-                const int max = std::max(0,
-                    state.jh.total() - state.viewport_rows);
-                state.scroll_top    = max;
-                state.sticky_bottom = true;
-            }
-
-            const auto& vis_rows_copy = visible_rows_;
-            const auto sel_copy = selected_visible_index_;
-            const std::size_t fc = frame_count_;
-            const MessagesListInput& in_ref = input_;
-            (void)vis_rows_copy;  // unused when render_row cb is trivial
-            state.callbacks.render_row =
-                [&push_tracked, fc, &in_ref, &vis_rows_copy, sel_copy,
-                 divider_before_vi, has_divider]
-                (size_t row_index, const vl::VisibleRow& vr) -> Element
-                {
-                    VisibleRow ml_row{};
-                    if (!decode_virtual_backend_index(vr.backend_index, ml_row)) {
-                        return text("") | size(HEIGHT, EQUAL,
-                            std::max(1, vr.estimated_height_lines));
-                    }
-                    // Selection check: compare against visible index by
-                    // searching the round-tripped ml_row in vis_rows_copy.
-                    // Linear scan is fine because vis_rows_copy items past
-                    // the threshold are only rendered inside the window
-                    // (~60 rows per pass after overscan).
-                    bool is_selected = false;
-                    if (sel_copy.has_value()) {
-                        const size_t sv = *sel_copy;
-                        if (sv < vis_rows_copy.size()) {
-                            const auto& ref = vis_rows_copy[sv];
-                            if (ref.kind == ml_row.kind) {
-                                if (ref.kind == VisibleRow::Kind::Payload &&
-                                    ref.row_idx == ml_row.row_idx)
-                                    is_selected = true;
-                                else if (ref.kind == VisibleRow::Kind::CompactGroup &&
-                                         ref.group_idx == ml_row.group_idx)
-                                    is_selected = true;
-                            }
-                        }
-                    }
-                    // turn-margin add_margin is always true in virtual
-                    // path (see comments in render_messages_list_virtual).
-                    Element row_el;
-                    if (ml_row.kind == VisibleRow::Kind::CompactGroup) {
-                        row_el = detail::render_compact_group_row(ml_row,
-                                                                  is_selected);
-                    } else if (ml_row.kind == VisibleRow::Kind::TranscriptCapDivider) {
-                        row_el = detail::render_transcript_cap_divider(
-                            ml_row.hidden_count);
-                    } else {
-                        row_el = detail::render_payload_row(
-                            in_ref, ml_row.row_idx, is_selected, fc,
-                            /*add_margin=*/true);
-                    }
-
-                    // Track this virtual row's screen box for mouse
-                    // click-to-expand.  TS REF: VirtualMessageList.tsx
-                    //   measureRef + onClickK hit-testing.
-                    Box& vbox_ref = push_tracked(row_index);
-
-                    // TS REF: Messages.tsx L631-635  insert divider BEFORE
-                    // the target row.  row_index is 0..rows.size()-1, which
-                    // maps 1:1 to visible_rows_[] order.
-                    if (has_divider && row_index == divider_before_vi) {
-                        return vbox({
-                            detail::render_unseen_divider(
-                                in_ref.unseen_divider->count),
-                            std::move(row_el),
-                        }) | reflect(vbox_ref);
-                    }
-                    return row_el | reflect(vbox_ref);
-                };
-
-            list_body = vl::render_list_as_elements(state) | flex;
-            trim_tracked();
-        } else {
-            // ---- Last-N window (non-virtualized path, ≤kVirtualThreshold)
-            std::size_t start = 0;
-            if (visible_rows_.size() > kMaxRenderedLastN) {
-                start = visible_rows_.size() - kMaxRenderedLastN;
-            }
-            // If a row is selected, try to keep it inside the rendered
-            // window (pure "last-N" would push it out of view).  This
-            // mirrors TS VirtualMessageList behaviour for non-virtual mode.
-            if (selected_visible_index_.has_value()) {
-                const std::size_t sv = *selected_visible_index_;
-                if (sv < start) start = sv;
-                else if (sv >= start + kMaxRenderedLastN)
-                    start = sv - kMaxRenderedLastN + 1;
-            }
-
-            // TS REF: Messages.tsx L549-553  compute dividerBeforeIndex.
-            const std::size_t divider_before_vi =
-                detail::find_divider_before_visible_index(input_, visible_rows_);
-            const bool has_divider =
-                (divider_before_vi < visible_rows_.size() &&
-                 input_.unseen_divider.has_value());
-
-            Elements rows;
-            rows.reserve(visible_rows_.size() - start + 3);
-            // Same turn-state machine as render_messages_list_view() — only
-            // the FIRST row of a user/assistant turn owns its marginTop;
-            // sibling assistant blocks share it.
-            bool next_add_margin = true;
-            bool prev_was_user = false;
-            for (std::size_t vi = start; vi < visible_rows_.size(); ++vi) {
-                // TS REF: Messages.tsx L631-635  insert divider BEFORE row.
-                if (has_divider && vi == divider_before_vi) {
-                    rows.push_back(
-                        detail::render_unseen_divider(
-                            input_.unseen_divider->count));
-                }
-
-                const auto& vr = visible_rows_[vi];
-                const bool is_selected =
-                    selected_visible_index_.has_value() &&
-                    *selected_visible_index_ == vi;
-
-                // Track this row's screen box for mouse click-to-expand.
-                // TS REF: VirtualMessageList.tsx VirtualItem — each item has
-                //   a measured Box used for onClick hit-testing.
-                Box& row_box = push_tracked(vi);
-
-                if (vr.kind == VisibleRow::Kind::Payload) {
-                    const MessageShape shape =
-                        (vr.row_idx < input_.shapes.size())
-                            ? input_.shapes[vr.row_idx]
-                            : MessageShape::SystemTaskAssignment;  // = max enum; treated as "not user/assistant"
-                    using S = MessageShape;
-                    const bool is_assistant_block =
-                        (shape == S::AssistantText ||
-                         shape == S::AssistantThinking ||
-                         shape == S::AssistantRedactedThinking ||
-                         shape == S::AssistantToolUse ||
-                         shape == S::AssistantGroupedTools);
-                    const bool is_user_row =
-                        (shape == S::UserText ||
-                         shape == S::UserPrompt ||
-                         shape == S::UserCommand ||
-                         shape == S::UserImage);
-                    // TS VISUAL PARITY (2026-07-04): tool results are part of
-                    // the assistant's visual turn — same as static path above.
-                    const bool is_tool_result = (shape == S::UserToolResult);
-                    const bool is_same_turn_as_assistant =
-                        is_assistant_block || is_tool_result;
-                    const bool is_turn_boundary = is_user_row ||
-                        (!is_same_turn_as_assistant && !is_tool_result);
-
-                    // Match static path: user rows use prev_was_user for ⎿,
-                    // turn boundaries get true, same-turn blocks use next_add_margin.
-                    const bool row_add_margin = is_user_row
-                        ? !prev_was_user
-                        : (is_turn_boundary ? true : next_add_margin);
-                    prev_was_user = is_user_row;
-
-                    if (is_turn_boundary) {
-                        next_add_margin = !is_user_row;
-                    } else {
-                        next_add_margin = false;
-                    }
-
-                    rows.push_back(detail::render_payload_row(
-                        input_, vr.row_idx, is_selected, frame_count_, row_add_margin)
-                        | reflect(row_box));
-                } else if (vr.kind == VisibleRow::Kind::TranscriptCapDivider) {
-                    rows.push_back(
-                        detail::render_transcript_cap_divider(vr.hidden_count)
-                        | reflect(row_box));
-                    next_add_margin = true;
-                } else {
-                    rows.push_back(
-                        detail::render_compact_group_row(vr, is_selected)
-                        | reflect(row_box));
-                    next_add_margin = true;
-                }
-            }
-            trim_tracked();
-            list_body = vbox(std::move(rows)) | flex;
-        }
-
-        // dbox: the search bar is overlaid on top (height = 1–2 lines);
-        // the list_body occupies all remaining space UNDERNEATH it.
-        return dbox({
-            std::move(list_body) | yframe | vscroll_indicator | flex,
-            vbox({
-                std::move(search_bar),
-                filler(),
-            }),
-        });
-    }
+    Element Render() override;
 
     // ── Public setters — callers use these between frames to feed
     //    streaming deltas, filter toggles, etc. --------------------------
 
-    void set_input(MessagesListInput next) {
-        input_ = std::move(next);
-        rebuild_visible_cache();
-    }
+    void set_input(MessagesListInput next);
 
     auto& input()       noexcept { return input_; }
     auto& input() const noexcept { return input_; }
 
   private:
     // ── Internals ------------------------------------------------------
-    void rebuild_visible_cache() {
-        visible_rows_     = build_visible_rows(input_);
-        last_rows_size_   = input_.rows.size();
-        last_search_      = input_.search_query;
-        last_filter_hash_ = filter_hash();
+    void rebuild_visible_cache();
 
-        // Re-derive selected_visible_index_ from input.selected_row_idx
-        // so that moving through the list updates the right row
-        // immediately even across re-builds.
-        selected_visible_index_.reset();
-        if (input_.selected_row_idx.has_value()) {
-            const std::size_t target = *input_.selected_row_idx;
-            for (std::size_t i = 0; i < visible_rows_.size(); ++i) {
-                const auto& vr = visible_rows_[i];
-                if (vr.kind == VisibleRow::Kind::Payload && vr.row_idx == target) {
-                    selected_visible_index_ = i;
-                    break;
-                }
-            }
-        }
-    }
+    auto filter_hash() const -> std::uint64_t;
 
-    auto filter_hash() const -> std::uint64_t {
-        // Cheap bitmask of booleans; enough to detect *changes*.
-        std::uint64_t h = 0;
-        h |= std::uint64_t(input_.filters.show_system    ? 1u : 0u) << 0;
-        h |= std::uint64_t(input_.filters.show_tool_in   ? 1u : 0u) << 1;
-        h |= std::uint64_t(input_.filters.show_tool_out  ? 1u : 0u) << 2;
-        h |= std::uint64_t(input_.filters.show_thinking  ? 1u : 0u) << 3;
-        h |= std::uint64_t(input_.filters.show_compact   ? 1u : 0u) << 4;
-        // TS REF: Messages.tsx L758-763  unseenDivider stability guard — when
-        // firstUnseenUuid + count are unchanged, REPL skips re-render work.
-        // We include both "present?" bit and count in the hash so either
-        // change triggers a rebuild.
-        h |= std::uint64_t(input_.unseen_divider.has_value() ? 1u : 0u) << 5;
-        h |= (std::uint64_t(input_.unseen_divider.has_value()
-                            ? (input_.unseen_divider->count & 0xFFFFF)
-                            : 0u))
-             << 6;
-        h |= (std::uint64_t(input_.compact_boundary_groups.size() & 0xFFFFF)) << 28;
-        // NOTE: streaming_tail_row is intentionally NOT hashed — it changes
-        // every frame during streaming and the Render() body already re-reads
-        // it fresh on each paint; no cache invalidation needed.
-        return h;
-    }
+    void move_selection(int delta);
 
-    void move_selection(int delta) {
-        if (visible_rows_.empty()) return;
-        std::size_t idx = selected_visible_index_.value_or(visible_rows_.size() - 1);
-        // Wrap with saturation (TS behaviour: stop at boundaries, no cycle)
-        if (delta > 0) {
-            if (idx + 1 >= visible_rows_.size()) return;
-            idx += 1;
-        } else {
-            if (idx == 0) return;
-            idx -= 1;
-        }
-        commit_selection(idx);
-    }
+    void move_selection_to(std::size_t abs_idx);
 
-    void move_selection_to(std::size_t abs_idx) {
-        if (visible_rows_.empty()) return;
-        if (abs_idx >= visible_rows_.size()) abs_idx = visible_rows_.size() - 1;
-        commit_selection(abs_idx);
-    }
+    void commit_selection(std::size_t visible_idx);
 
-    void commit_selection(std::size_t visible_idx) {
-        selected_visible_index_ = visible_idx;
-        const auto& vr = visible_rows_[visible_idx];
-        if (vr.kind == VisibleRow::Kind::Payload) {
-            input_.selected_row_idx = vr.row_idx;
-            if (cbs_.on_select) cbs_.on_select(vr.row_idx);
-        } else {
-            // Group row: clear the raw row selection so callers that don't
-            // understand groups see "no payload selected".  The visible
-            // index itself still highlights.
-            input_.selected_row_idx.reset();
-            if (cbs_.on_select) cbs_.on_select(std::size_t(-1));
-        }
-    }
+    auto current_visible_row() -> const VisibleRow*;
 
-    auto current_visible_row() -> const VisibleRow* {
-        if (!selected_visible_index_) return nullptr;
-        if (*selected_visible_index_ >= visible_rows_.size()) return nullptr;
-        return &visible_rows_[*selected_visible_index_];
-    }
-
-    auto fire_action(ActionKind k) -> bool {
-        auto* vr = current_visible_row();
-        if (!vr || vr->kind != VisibleRow::Kind::Payload) return false;
-        if (cbs_.on_action) { cbs_.on_action(vr->row_idx, k); }
-        return true;
-    }
+    auto fire_action(ActionKind k) -> bool;
 
     // ── Members --------------------------------------------------------
     MessagesListInput    input_;
@@ -3673,12 +847,9 @@ class MessagesListComponent final : public ComponentBase {
     std::optional<std::size_t>      hovered_vi_;       // mouse-hovered row index
 };
 
-[[nodiscard]] inline auto MakeMessagesList(
+[[nodiscard]] auto MakeMessagesList(
     MessagesListInput input,
-    MessagesListCallbacks callbacks = {}) -> Component
-{
-    return Make<MessagesListComponent>(std::move(input), std::move(callbacks));
-}
+    MessagesListCallbacks callbacks = {}) -> Component;
 
 } // namespace cc::ui::messages_list
 

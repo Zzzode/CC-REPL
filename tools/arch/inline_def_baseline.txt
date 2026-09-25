@@ -12,7 +12,6 @@ cc.ui.screens.repl_screen 82
 cc.tools.mcp 76
 cc.hooks.voice_hooks 75
 cc.daemon.daemon_server 73
-cc.ui.messages.messages_list 72
 cc.ui.permissions.rule_list 67
 cc.skills.load_skills_dir 66
 cc.server.server_routes 63
@@ -49,6 +48,7 @@ cc.tools.path_validation 24
 cc.ui.screens.doctor_screen 24
 cc.query.query_engine 23 c1 c2-done
 cc.ui.messages.messages_interactions 23
+cc.ui.messages.messages_list 22 c1 c2-done
 cc.ui.features.tasks.task_list_view 20
 cc.tools.agent 19
 cc.tools.agent_runtime 18 c1 c2-done

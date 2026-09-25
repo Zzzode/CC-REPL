@@ -766,10 +766,12 @@ TEST(E2E_Gate, ConnectorCharacterIsCorrectCodepoint) {
     const auto project_root = test_dir.substr(0, test_dir.find_last_of('/'));
 
     // Check all message rendering source files for the correct connector bytes
+    // (RFC 0001 Phase C batch 7: the messages_list connector now lives in its
+    // payload_row module implementation unit).
     const std::vector<std::string> source_files = {
         "src/ui/messages/message_tool_result.cppm",
         "src/ui/messages/user_text_message.cppm",
-        "src/ui/messages/messages_list.cppm",
+        "src/ui/messages/messages_list_payload_row.cpp",
     };
 
     for (const auto& rel_path : source_files) {
