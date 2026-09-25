@@ -287,6 +287,21 @@ target_sources(cc_ui PRIVATE
     ui/widgets/text_input_events.cpp
     ui/widgets/text_input_vim.cpp
     ui/widgets/text_input_render.cpp
+    # Module implementation units for cc.ui.screens.repl_screen
+    # (RFC 0001 Phase C batch 9): message-row projection, unseen-divider /
+    # scroll bounds, prompt buffer mutation, welcome/spinner, prompt
+    # rendering, dialog-queue slots, full-screen layout, agents menu,
+    # settings/trust/permission panels, and the component event factory.
+    ui/screens/repl_screen_messages.cpp
+    ui/screens/repl_screen_scroll.cpp
+    ui/screens/repl_screen_prompt_buffer.cpp
+    ui/screens/repl_screen_welcome.cpp
+    ui/screens/repl_screen_prompt_render.cpp
+    ui/screens/repl_screen_dialog_queue.cpp
+    ui/screens/repl_screen_layout.cpp
+    ui/screens/repl_screen_agents.cpp
+    ui/screens/repl_screen_dialog_panels.cpp
+    ui/screens/repl_screen_events.cpp
 )
 target_link_libraries(cc_ui
     PUBLIC

@@ -7,7 +7,6 @@ cc.utils.json 131
 cc.state.selectors 118
 cc.utils.swarm_backends 116
 cc.hooks.remaining_hooks 108
-cc.ui.screens.repl_screen 82
 cc.tools.mcp 76
 cc.hooks.voice_hooks 75
 cc.daemon.daemon_server 73
@@ -61,3 +60,4 @@ cc.ui.visual.markdown 7 c2-done
 cc.tools.agent.utils 6 c1 c2-done
 cc.ui.foundation.design_tokens 6
 cc.tools.runtime_registry 5 c1 c2-done
+cc.ui.screens.repl_screen 0 c2-done
