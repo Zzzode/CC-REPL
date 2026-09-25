@@ -256,6 +256,17 @@ target_sources(cc_ui PRIVATE
     ui/app/app_settings.cpp
     ui/dialogs/hooks_dialog_renderer_impl.cpp
     ui/dialogs/plugin_dialog_renderer_impl.cpp
+    # Module implementation units for cc.ui.visual.markdown (RFC 0001 Phase C
+    # batch 6): lexer / LRU cache / linkify / code-block (isolates the
+    # cc.ui.visual.code_highlight import closure) / block+inline renderers /
+    # public API + StreamingMarkdown / interactive component vtable anchor.
+    ui/visual/markdown_lexer_impl.cpp
+    ui/visual/markdown_cache_impl.cpp
+    ui/visual/markdown_linkify_impl.cpp
+    ui/visual/markdown_render_code_impl.cpp
+    ui/visual/markdown_render_impl.cpp
+    ui/visual/markdown_api_impl.cpp
+    ui/visual/markdown_component_impl.cpp
 )
 target_link_libraries(cc_ui
     PUBLIC

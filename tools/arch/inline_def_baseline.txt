@@ -27,7 +27,6 @@ cc.ui.messages.virtual_list 47
 cc.utils.powershell_parser 47
 cc.server.server_main 46
 cc.utils.ide_integration 44
-cc.ui.visual.markdown 43
 cc.utils.swarm_helpers 42
 cc.tools.bash 41
 cc.ui.dialogs.system 41
@@ -58,6 +57,7 @@ cc.ui.dialogs.sandbox_settings 15
 cc.services.mcp.client 12 c2-done
 cc.tools.readonly_validation 12
 cc.state.store 8
+cc.ui.visual.markdown 7 c2-done
 cc.tools.agent.utils 6 c1 c2-done
 cc.ui.foundation.design_tokens 6
 cc.tools.runtime_registry 5 c1 c2-done
